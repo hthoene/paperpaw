@@ -71,7 +71,7 @@ jobs:
           pipx install apksigcopier==1.1.1
           PATH="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION:$PATH" apksigcopier compare \
             "dist/paperpaw-$VERSION.apk" --unsigned target/android/paperpaw-unsigned.apk
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android
           path: dist/paperpaw-*.apk*
@@ -93,7 +93,7 @@ jobs:
           (cd shells/web/www && zip -q -X "../../../dist/paperpaw-web-$version.zip" \
             paperpaw-web.wasm paperpaw-web.js frame.js frame.html index.html)
           (cd dist && sha256sum "paperpaw-web-$version.zip" > "paperpaw-web-$version.zip.sha256")
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: web
           path: dist/paperpaw-web-*
@@ -196,11 +196,11 @@ jobs:
           cd dist
           sha256sum "paperpaw-$DEVICE-$VERSION.bin" > "paperpaw-$DEVICE-$VERSION.bin.sha256"
           sha256sum "paperpaw-$DEVICE-$VERSION-update.bin" > "paperpaw-$DEVICE-$VERSION-update.bin.sha256"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: firmware-${{ matrix.device }}
           path: dist/paperpaw-${{ matrix.device }}-*
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: plugins-${{ matrix.device }}
           path: dist/plugins/*.ppn
