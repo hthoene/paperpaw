@@ -13,12 +13,12 @@ keywords = ["stardict", "dictionary", "e-reader", "no-std"]
 
 [dependencies]
 paperpaw-platform.workspace = true
-miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
+miniz_oxide = { version = "0.9", default-features = false, features = ["with-alloc"] }
 
 [dev-dependencies]
 paperpaw-fs.workspace = true
 paperpaw-sdk.workspace = true
-miniz_oxide = { version = "0.8", features = ["with-alloc"] }
+miniz_oxide = { version = "0.9", features = ["with-alloc"] }
 proptest.workspace = true
 
 [lints]

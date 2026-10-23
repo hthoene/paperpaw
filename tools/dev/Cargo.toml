@@ -25,7 +25,7 @@ paperpaw-i18n.workspace = true
 paperpaw-native.workspace = true
 paperpaw-platform.workspace = true
 paperpaw-sdk.workspace = true
-png = "0.17"
+png = "0.18"
 
 [dev-dependencies]
 # The SDK's sample plugin, run through the harness as a plugin's own

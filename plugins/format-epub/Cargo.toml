@@ -13,7 +13,7 @@ categories = ["no-std", "text-processing"]
 [dependencies]
 paperpaw-sdk = { workspace = true, features = ["unstable"] }
 # WOFF fonts: their tables are zlib-compressed.
-miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
+miniz_oxide = { version = "0.9", default-features = false, features = ["with-alloc"] }
 
 [dev-dependencies]
 paperpaw-i18n.workspace = true

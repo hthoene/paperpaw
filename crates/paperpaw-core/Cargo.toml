@@ -28,7 +28,7 @@ paperpaw-sdk = { workspace = true, features = ["kernel"] }
 [dev-dependencies]
 paperpaw-text.workspace = true
 # Loads a native plugin built apart (tests/native_plugin.rs).
-libloading = "0.8"
+libloading = "0.9"
 proptest.workspace = true
 
 [lints]
