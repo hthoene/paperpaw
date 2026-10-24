@@ -40,12 +40,15 @@ pub fn escape(text: &str, out: &mut alloc::string::String) {
     }
 }
 
-/// Unfinished text runs longer than this are emitted up to their last
-/// whitespace, so long paragraphs never pile up in the buffer.
+/// Unfinished text runs and CDATA sections longer than this are emitted
+/// up to their last whitespace, so long paragraphs never pile up in the
+/// buffer.
 const EAGER_TEXT: usize = 256;
-/// Unfinished text runs without whitespace are cut at this length.
+/// Unfinished text runs and CDATA sections without whitespace are cut at
+/// this length.
 const MAX_TEXT: usize = 1024;
-/// Markup longer than this (e.g. an inline base64 image) is skipped.
+/// Markup longer than this (e.g. an inline base64 image) is skipped; a
+/// CDATA section is no such markup, its content is read as it comes.
 const MAX_MARKUP: usize = 4 * 1024;
 /// Input is tokenized in pieces of this size. The buffer grows by a
 /// piece at a time, never by doubling, so it holds at most an unfinished
@@ -66,7 +69,9 @@ pub enum Token<'a> {
         name: &'a str,
     },
     Text(Cow<'a, str>),
-    /// Content of a CDATA section (no entity decoding needed).
+    /// Content of a CDATA section (no entity decoding needed). A long
+    /// section comes in several tokens, one after the other, cut at
+    /// whitespace: concatenate the tokens between two other tokens.
     CData(&'a str),
 }
 
@@ -141,6 +146,10 @@ pub fn local_name(name: &str) -> &str {
 /// Makes room in the buffer for so many bytes more.
 type Grow<'a> = dyn FnMut(&mut Vec<u8>, usize) -> Result<(), TryReserveError> + 'a;
 
+/// What ends a CDATA section; as `raw`, that one is being read on from
+/// its content (it is no element's name).
+const CDATA_END: &str = "]]>";
+
 /// Elements whose content HTML reads as text up to their end tag.
 const RAW_TEXT: [&str; 2] = ["script", "style"];
 
@@ -152,7 +161,8 @@ pub struct Tokenizer {
     skip: Option<Skip>,
     /// HTML: `<script>` and `<style>` hold raw text.
     html: bool,
-    /// Inside such an element: its name.
+    /// Inside such an element: its name. Inside a long CDATA section, its
+    /// start already passed: [`CDATA_END`] (no name is that).
     raw: Option<&'static str>,
 }
 
@@ -269,8 +279,6 @@ impl Skip {
         let until = |end| Skip::Until { end, seen: [0; 2] };
         let (mut skip, opening) = if markup.starts_with(b"<!--") {
             (until(b"-->"), 4)
-        } else if markup.starts_with(b"<![CDATA[") {
-            (until(b"]]>"), 9)
         } else if markup.starts_with(b"<?") {
             (until(b"?>"), 2)
         } else if markup.starts_with(b"<!") {
@@ -351,7 +359,8 @@ fn text(bytes: &[u8]) -> Cow<'_, str> {
 
 /// Processes `buf`, returning how many bytes were consumed. Without `last`,
 /// incomplete tokens at the end are left for the next round. With `html`,
-/// `raw` is the raw text element being read, if any.
+/// `raw` is the raw text element being read, if any, or [`CDATA_END`] where
+/// the buffer starts inside a CDATA section.
 fn process(
     buf: &[u8],
     last: bool,
@@ -361,6 +370,18 @@ fn process(
 ) -> usize {
     let mut pos = 0;
     while pos < buf.len() {
+        if *raw == Some(CDATA_END) {
+            match cdata(&buf[pos..], last, emit) {
+                Some((len, done)) => {
+                    if done {
+                        *raw = None;
+                    }
+                    pos += len;
+                    continue;
+                }
+                None => return pos,
+            }
+        }
         if let Some(name) = *raw {
             let rest = &buf[pos..];
             let end = match find_end_tag(rest, name) {
@@ -411,14 +432,7 @@ fn process(
         let token_end = if rest.starts_with(b"<!--") {
             complete(find(&rest[4..], b"-->"), 4 + 3)
         } else if rest.starts_with(b"<![CDATA[") {
-            if let Some(end) = find(&rest[9..], b"]]>") {
-                if let Ok(content) = core::str::from_utf8(&rest[9..9 + end]) {
-                    emit(Token::CData(content));
-                }
-                Some(9 + end + 3)
-            } else {
-                None
-            }
+            cdata_start(rest, raw, emit)
         } else if rest.starts_with(b"<?") {
             complete(find(&rest[2..], b"?>"), 2 + 2)
         } else if rest.starts_with(b"<!") {
@@ -453,6 +467,80 @@ fn process(
         }
     }
     pos
+}
+
+/// Reads a CDATA section at the start of `rest`; the length of what is
+/// read (all of it, or the start of one that is long and not over, which
+/// sets `raw`), `None` where the section needs more input.
+fn cdata_start(
+    rest: &[u8],
+    raw: &mut Option<&'static str>,
+    emit: &mut dyn FnMut(Token<'_>),
+) -> Option<usize> {
+    let content = &rest[9..];
+    if let Some(end) = find(content, CDATA_END.as_bytes()) {
+        if let Ok(content) = core::str::from_utf8(&content[..end]) {
+            emit(Token::CData(content));
+        }
+        return Some(9 + end + 3);
+    }
+    // A long section that is not over: read on from its content, so it
+    // never piles up in the buffer.
+    let cut = cdata_cut(content)?;
+    emit_cdata(&content[..cut], emit);
+    *raw = Some(CDATA_END);
+    Some(9 + cut)
+}
+
+/// Reads CDATA content at the start of `buf`, a section that went on past
+/// what is cut off (see [`cdata_cut`]): emits what is safe to emit, and
+/// returns how many bytes that took and whether the section ended (after
+/// its `]]>`); `None` where it needs more input.
+fn cdata(buf: &[u8], last: bool, emit: &mut dyn FnMut(Token<'_>)) -> Option<(usize, bool)> {
+    if let Some(end) = find(buf, CDATA_END.as_bytes()) {
+        emit_cdata(&buf[..end], emit);
+        return Some((end + 3, true));
+    }
+    if last {
+        // Unterminated at the end: what there is, is its content.
+        emit_cdata(buf, emit);
+        return Some((buf.len(), true));
+    }
+    let cut = cdata_cut(buf)?;
+    emit_cdata(&buf[..cut], emit);
+    Some((cut, false))
+}
+
+/// A piece of a section to emit: invalid UTF-8 is made good, as in text,
+/// so one bad byte costs the character, not the section.
+fn emit_cdata(bytes: &[u8], emit: &mut dyn FnMut(Token<'_>)) {
+    if !bytes.is_empty() {
+        emit(Token::CData(&text(bytes)));
+    }
+}
+
+/// Where to cut `content`, the unfinished content of a CDATA section, to
+/// emit what is before: after its last whitespace once it is longer than
+/// [`EAGER_TEXT`], at a UTF-8 boundary once it is longer than
+/// [`MAX_TEXT`] without. Never in the last two bytes, which may be the
+/// start of the `]]>` that the next input completes.
+fn cdata_cut(content: &[u8]) -> Option<usize> {
+    let safe = content.len().checked_sub(2)?;
+    let cut = match content[..safe]
+        .iter()
+        .rposition(|b| b.is_ascii_whitespace())
+    {
+        Some(i) if content.len() > EAGER_TEXT => i + 1,
+        _ if content.len() > MAX_TEXT => {
+            let mut cut = safe;
+            while cut > 0 && content[cut] & 0xc0 == 0x80 {
+                cut -= 1;
+            }
+            cut
+        }
+        _ => return None,
+    };
+    (cut > 0).then_some(cut)
 }
 
 /// Whether a name may start with `byte`: a letter, `_`, `:` or a character
@@ -692,7 +780,6 @@ mod tests {
             alloc::format!("<!-- {long} -->"),
             alloc::format!("<img alt=\"{long}\" title='>'/>"),
             alloc::format!("<?pi {long}?>"),
-            alloc::format!("<![CDATA[{long}]]>"),
         ] {
             let data = alloc::format!("<p>a</p>{markup}<p>b</p>");
             for chunk in [1, 100, 5000] {
@@ -774,6 +861,125 @@ mod tests {
         assert_eq!(text, "ab");
         assert_eq!(most % PIECE, 0);
         assert!(most <= MAX_MARKUP + PIECE, "buffer {most}");
+    }
+
+    /// The CDATA tokens of `data` fed in `chunk`s: the contents of the
+    /// sections joined, the others as `describe`s them; and the largest
+    /// buffer.
+    fn cdata_of(data: &str, chunk: usize) -> (Vec<String>, usize) {
+        let mut out: Vec<String> = Vec::new();
+        let mut most = 0;
+        let mut tokenizer = Tokenizer::new();
+        let mut last_was_cdata = false;
+        let mut emit = |token: Token<'_>| match token {
+            Token::CData(t) if last_was_cdata => {
+                out.last_mut().unwrap().push_str(t);
+            }
+            Token::CData(t) => {
+                last_was_cdata = true;
+                out.push(alloc::format!("cdata {t}"));
+            }
+            other => {
+                last_was_cdata = false;
+                out.push(describe(other));
+            }
+        };
+        for piece in data.as_bytes().chunks(chunk) {
+            tokenizer.feed(piece, &mut emit);
+            most = most.max(tokenizer.pending.capacity());
+        }
+        tokenizer.finish(&mut emit);
+        (out, most)
+    }
+
+    #[test]
+    fn a_long_cdata_section_comes_whole() {
+        let body = "<p>Wörter &amp; Zeichen, 1 < 2 ]] > ]> done.</p> ".repeat(320);
+        assert!(body.len() > 15_000);
+        let data = alloc::format!("<a>x</a><![CDATA[{body}]]><b>y</b>");
+        let expected = [
+            "<a >",
+            "'x'",
+            "</a>",
+            &alloc::format!("cdata {body}"),
+            "<b >",
+            "'y'",
+            "</b>",
+        ];
+        for chunk in [1, 2, 3, 7, 100, 511, 512, 513, 5000, 100_000] {
+            let (out, most) = cdata_of(&data, chunk);
+            assert_eq!(out, expected, "chunk {chunk}");
+            assert!(
+                most <= 2 * MAX_TEXT + 2 * PIECE,
+                "chunk {chunk}: buffer {most}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_end_of_a_cdata_section_is_found_wherever_it_is_split() {
+        // Sections of every length around the cuts, `]]>` at every place
+        // in the chunks, with `]` and `>` in the content close to it.
+        for len in (0..40).chain(250..270).chain(1020..1040) {
+            for tail in ["", "]", "]]", ">", "] ]>"] {
+                let body = alloc::format!("{}{tail}", "ab ".repeat(len));
+                let data = alloc::format!("<![CDATA[{body}]]><i/>");
+                for chunk in [1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13] {
+                    let (out, _) = cdata_of(&data, chunk);
+                    assert_eq!(
+                        out,
+                        [alloc::format!("cdata {body}"), "<i />".into()],
+                        "{len} {tail} {chunk}"
+                    );
+                }
+            }
+        }
+        // Without whitespace, beyond what is cut at; with characters
+        // that are more than one byte long.
+        for body in ["x".repeat(5000), "ä€".repeat(1700)] {
+            let data = alloc::format!("<![CDATA[{body}]]>");
+            for chunk in [1, 5, 1000, 5000] {
+                let (out, most) = cdata_of(&data, chunk);
+                assert_eq!(out, [alloc::format!("cdata {body}")], "chunk {chunk}");
+                assert!(
+                    most <= 2 * MAX_TEXT + 2 * PIECE,
+                    "chunk {chunk}: buffer {most}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_cdata_section_without_an_end_is_text_or_what_there_is() {
+        // A short one is text, as other unfinished markup is.
+        for chunk in [1, 4, 100] {
+            let (out, _) = cdata_of("<p>a</p><![CDATA[never ending ]]", chunk);
+            assert_eq!(
+                out,
+                ["<p >", "'a'", "</p>", "'<![CDATA[never ending ]]'"],
+                "chunk {chunk}"
+            );
+        }
+        // One already read on from gives the rest as its content.
+        let body = "never ending ".repeat(100);
+        for chunk in [1, 4, 100] {
+            let (out, _) = cdata_of(&alloc::format!("<![CDATA[{body}]]"), chunk);
+            assert_eq!(out, [alloc::format!("cdata {body}]]")], "chunk {chunk}");
+        }
+    }
+
+    #[test]
+    fn a_long_cdata_section_streams_through_a_small_buffer() {
+        // Many times what the buffer may hold: the buffer stays small.
+        let body = "word ".repeat(20_000);
+        let data = alloc::format!("<![CDATA[{body}]]>");
+        let (out, most) = cdata_of(&data, 700);
+        assert_eq!(out, [alloc::format!("cdata {body}")]);
+        assert!(most <= 2 * MAX_TEXT, "buffer {most}");
+        let unbroken = "x".repeat(100_000);
+        let (out, most) = cdata_of(&alloc::format!("<![CDATA[{unbroken}]]>"), 700);
+        assert_eq!(out, [alloc::format!("cdata {unbroken}")]);
+        assert!(most <= 2 * MAX_TEXT, "buffer {most}");
     }
 
     #[test]

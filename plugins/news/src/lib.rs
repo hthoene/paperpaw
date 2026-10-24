@@ -346,6 +346,7 @@ fn make_book(env: &Env<'_>, reply: &HttpReply, feeds: &[Feed], at: usize) -> Res
         &page,
         articles,
         max_text,
+        &|year, month, day| date_text(env, year, month, day),
     );
     let converted = match converted {
         Ok(converted) if converted.articles > 0 => converted,
@@ -369,6 +370,26 @@ fn make_book(env: &Env<'_>, reply: &HttpReply, feeds: &[Feed], at: usize) -> Res
     keep_headlines(env, &book, &converted.headlines);
     retire_old_book(env.storage(), &folder, feeds, &feed);
     Ok(feed)
+}
+
+/// A day as the reader's language writes it short, with the year:
+/// `Sat 24 Oct 2026`.
+fn date_text(env: &Env<'_>, year: i32, month: u8, day: u8) -> String {
+    let i18n = env.i18n();
+    let weekday = format!(
+        "core.weekday.short.{}",
+        paperpaw_sdk::time::weekday(year, month, day)
+    );
+    let month = format!("core.month.short.{month}");
+    let short = i18n.format(
+        "core.date.short",
+        &[
+            ("weekday", Arg::Str(i18n.tr(&weekday))),
+            ("day", Arg::Int(i64::from(day))),
+            ("month", Arg::Str(i18n.tr(&month))),
+        ],
+    );
+    format!("{short} {year}")
 }
 
 /// Where the newest headlines are kept: `title<TAB>book` lines, the

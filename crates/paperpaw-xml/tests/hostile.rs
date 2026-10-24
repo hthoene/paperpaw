@@ -43,7 +43,7 @@ impl From<Token<'_>> for Tok {
 }
 
 /// The tokens of `data` fed in pieces of `chunk` bytes, adjacent text
-/// merged (where text is cut depends on the chunks); also the text as a
+/// and CDATA merged (where they are cut depends on the chunks); also the text as a
 /// reader gets it, each text token decoded on its own.
 fn run(data: &[u8], chunk: usize, html: bool) -> (Vec<Tok>, String) {
     let mut tokens: Vec<Tok> = Vec::new();
@@ -59,6 +59,7 @@ fn run(data: &[u8], chunk: usize, html: bool) -> (Vec<Tok>, String) {
         }
         match (tokens.last_mut(), Tok::from(token)) {
             (Some(Tok::Text(last)), Tok::Text(more)) => last.push_str(&more),
+            (Some(Tok::CData(last)), Tok::CData(more)) => last.push_str(&more),
             (_, token) => tokens.push(token),
         }
     };
@@ -417,6 +418,9 @@ fn piece() -> impl Strategy<Value = String> {
         Just("<img alt=a src=b.png />".to_string()),
         Just("<!-- c > d -->".to_string()),
         Just("<![CDATA[x < y]]>".to_string()),
+        // Long sections are read in pieces, with `]` and `>` in them.
+        r"[a-zäö€ \n\]>]{0,700}".prop_map(|c| format!("<![CDATA[{c}]]>")),
+        (0usize..300).prop_map(|n| format!("<![CDATA[{}]]>", "wort] ".repeat(n))),
         Just("<?pi data?>".to_string()),
         Just("<!DOCTYPE html>".to_string()),
         Just("&amp;".to_string()),

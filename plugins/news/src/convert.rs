@@ -3,12 +3,15 @@
 //! plain paragraphs (pictures, links and layout are left out, so any
 //! feed reads well and needs little memory). The feed is read as it
 //! streams from storage and each article written as soon as it is
-//! complete, so only one article is in memory at a time.
+//! complete, so only one article is in memory at a time. Dates are
+//! shown short, as the reader's language writes them, whichever way the
+//! feed does (RSS and Atom differ).
 
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use paperpaw_sdk::time::days_in_month;
 use paperpaw_sdk::xml::{Token, Tokenizer, decode, local_name};
 use paperpaw_sdk::{Storage, StorageError};
 
@@ -68,20 +71,26 @@ enum Field {
 /// book's name that does not begin so was not made here.
 pub(crate) const HEAD: &str = "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\"/>\n<title>";
 
+/// Writes a day (year, month 1 to 12, day) as the reader's language does.
+pub(crate) type DateText<'a> = &'a dyn Fn(i32, u8, u8) -> String;
+
 /// The feed `from` as a page in `to`: at most `max_articles` articles,
-/// each with at most `max_text` bytes of text.
+/// each with at most `max_text` bytes of text; dates the feed gives in
+/// a form that is known as `date_text` writes them.
 pub(crate) fn convert(
     storage: &dyn Storage,
     from: &str,
     to: &str,
     max_articles: usize,
     max_text: usize,
+    date_text: DateText<'_>,
 ) -> Result<Converted, Failure> {
     let mut reader = Reader {
         storage,
         to,
         max_articles,
         max_text,
+        date_text,
         converted: Converted::default(),
         article: None,
         field: None,
@@ -127,6 +136,7 @@ struct Reader<'a> {
     to: &'a str,
     max_articles: usize,
     max_text: usize,
+    date_text: DateText<'a>,
     converted: Converted,
     article: Option<Article>,
     field: Option<Field>,
@@ -316,7 +326,10 @@ impl Reader<'_> {
         }
         let mut out = String::new();
         out.push_str(&format!("<h2>{}</h2>\n", escape(&title)));
-        let date = one_line(&article.date);
+        let date = match read_date(&article.date) {
+            Some((year, month, day)) => (self.date_text)(year, month, day),
+            None => one_line(&article.date),
+        };
         if !date.is_empty() {
             out.push_str(&format!("<p><i>{}</i></p>\n", escape(&date)));
         }
@@ -332,6 +345,46 @@ impl Reader<'_> {
         }
         self.converted.articles += 1;
     }
+}
+
+/// The day of a date as a feed writes it: `2026-10-24T14:32:44-04:00`
+/// (Atom, ISO 8601) or `Sat, 24 Oct 2026 14:32:44 GMT` (RSS, RFC 822,
+/// the weekday and the year in two digits optional). The day as it is
+/// written, not moved to the reader's time zone. `None` where it is neither.
+fn read_date(text: &str) -> Option<(i32, u8, u8)> {
+    let text = text.trim();
+    let (year, month, day) = iso_date(text).or_else(|| rfc822_date(text))?;
+    let real = (1..=12).contains(&month) && (1..=days_in_month(year, month)).contains(&day);
+    real.then_some((year, month, day))
+}
+
+fn iso_date(text: &str) -> Option<(i32, u8, u8)> {
+    let date = text.get(..10)?;
+    let mut parts = date.split('-');
+    let (year, month, day) = (parts.next()?, parts.next()?, parts.next()?);
+    if parts.next().is_some() || year.len() != 4 || month.len() != 2 || day.len() != 2 {
+        return None;
+    }
+    Some((year.parse().ok()?, month.parse().ok()?, day.parse().ok()?))
+}
+
+fn rfc822_date(text: &str) -> Option<(i32, u8, u8)> {
+    const MONTHS: [&str; 12] = [
+        "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+    ];
+    let rest = text.split_once(',').map_or(text, |(_, rest)| rest);
+    let mut words = rest.split_whitespace();
+    let day = words.next()?.parse().ok()?;
+    let name = words.next()?.get(..3)?.to_ascii_lowercase();
+    let month = MONTHS.iter().position(|m| *m == name)? as u8 + 1;
+    let year: i32 = words.next()?.parse().ok()?;
+    // Two digits, as RFC 822 has them: 70 to 99 are 19xx.
+    let year = match year {
+        0..=69 => year + 2000,
+        70..=99 => year + 1900,
+        _ => year,
+    };
+    Some((year, month, day))
 }
 
 /// `text` cut to at most `max` bytes, at a character boundary.
@@ -449,10 +502,19 @@ mod tests {
     use super::*;
     use paperpaw_sdk::MemoryStorage;
 
+    /// How the tests write a day.
+    fn day_text(year: i32, month: u8, day: u8) -> String {
+        format!("{day}.{month}.{year}")
+    }
+
     fn page(feed: &str) -> (Converted, String) {
+        page_of(feed.as_bytes(), 10_000)
+    }
+
+    fn page_of(feed: &[u8], max_text: usize) -> (Converted, String) {
         let storage = MemoryStorage::new();
-        storage.write("feed.xml", feed.as_bytes()).unwrap();
-        let converted = convert(&storage, "feed.xml", "out.html", 10, 10_000).unwrap();
+        storage.write("feed.xml", feed).unwrap();
+        let converted = convert(&storage, "feed.xml", "out.html", 10, max_text, &day_text).unwrap();
         let data = paperpaw_sdk::read_file(&storage, "out.html", 1 << 20).unwrap();
         (converted, String::from_utf8(data).unwrap())
     }
@@ -473,10 +535,7 @@ mod tests {
         assert_eq!(converted.articles, 2);
         assert!(html.contains("<title>Rabbit &amp; Co</title>"), "{html}");
         assert!(html.contains("<h2>First news</h2>"), "{html}");
-        assert!(
-            html.contains("<p><i>Tue, 13 Oct 2026 10:00:00 GMT</i></p>"),
-            "{html}"
-        );
+        assert!(html.contains("<p><i>13.10.2026</i></p>"), "{html}");
         assert!(
             html.contains("<p>Down the hole.</p>\n<p>Second one.</p>"),
             "{html}"
@@ -505,7 +564,7 @@ mod tests {
             ("Atom news", 2)
         );
         assert!(
-            html.contains("<h2>One</h2>\n<p><i>2026-10-14T08:00:00Z</i></p>"),
+            html.contains("<h2>One</h2>\n<p><i>14.10.2026</i></p>"),
             "{html}"
         );
         assert!(
@@ -516,6 +575,54 @@ mod tests {
             html.contains("<h2>Two</h2>\n<p>Only a summary</p>"),
             "{html}"
         );
+    }
+
+    #[test]
+    fn a_long_cdata_body_is_read_whole() {
+        // WordPress and others: the full text in `content:encoded`, far
+        // more than a tag may be, next to a short summary.
+        let paragraph = "<p>Wörter &amp; <em>Zeichen</em>, ]] und ]> dazwischen.</p>
+";
+        let body = paragraph.repeat(280);
+        assert!(body.len() > 15_000);
+        let feed = format!(
+            "<rss xmlns:content=\"x\"><channel><title>T</title><item><title>Long</title>             <description>Summary only</description>             <content:encoded><![CDATA[{body}]]></content:encoded></item></channel></rss>"
+        );
+        let (converted, html) = page_of(feed.as_bytes(), 40_000);
+        assert_eq!(converted.articles, 1);
+        assert!(
+            !html.contains("Summary only"),
+            "summary instead of the text"
+        );
+        let text = "<p>Wörter &amp; Zeichen, ]] und ]&gt; dazwischen.</p>
+";
+        assert_eq!(html.matches(text).count(), 280);
+    }
+
+    #[test]
+    fn dates_are_shown_short_whichever_way_the_feed_writes_them() {
+        let read = read_date;
+        assert_eq!(read("2026-10-24T14:32:44-04:00"), Some((2026, 10, 24)));
+        assert_eq!(read(" 2026-10-24 "), Some((2026, 10, 24)));
+        assert_eq!(read("Tue, 13 Oct 2026 10:00:00 GMT"), Some((2026, 10, 13)));
+        assert_eq!(read("13 oct 2026 10:00 +0200"), Some((2026, 10, 13)));
+        assert_eq!(read("Fri, 1 January 99 00:00 EST"), Some((1999, 1, 1)));
+        assert_eq!(read("Mon, 05 Mar 26 08:00:00 +0100"), Some((2026, 3, 5)));
+        // Not dates, or not real ones: as the feed wrote them.
+        for text in [
+            "",
+            "yesterday",
+            "2026-13-01",
+            "2026-02-30",
+            "31 Feb 2026",
+            "20261024",
+        ] {
+            assert_eq!(read(text), None, "{text}");
+        }
+        let (_, html) = page(
+            "<rss><channel><title>T</title><item><title>A</title><pubDate>last Tuesday</pubDate>             <description>x</description></item></channel></rss>",
+        );
+        assert!(html.contains("<p><i>last Tuesday</i></p>"), "{html}");
     }
 
     #[test]
@@ -531,7 +638,7 @@ mod tests {
         let storage = MemoryStorage::new();
         let feed = format!("<rss><channel><title>Many</title>{items}</channel></rss>");
         storage.write("feed.xml", feed.as_bytes()).unwrap();
-        let converted = convert(&storage, "feed.xml", "out.html", 5, 100).unwrap();
+        let converted = convert(&storage, "feed.xml", "out.html", 5, 100, &day_text).unwrap();
         assert_eq!(converted.articles, 5);
         let size = storage.size("out.html").unwrap();
         assert!(size < 2000, "{size}");

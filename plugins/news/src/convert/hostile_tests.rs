@@ -15,11 +15,16 @@ use proptest::prelude::*;
 
 use super::{HEADLINES, MAX_FIELD, convert};
 
+/// How these tests write a day.
+fn day(year: i32, month: u8, day: u8) -> String {
+    format!("{day}.{month}.{year}")
+}
+
 /// Converts `feed`; the result and the page.
 fn page(feed: &[u8], articles: usize, text: usize) -> (super::Converted, String) {
     let storage = MemoryStorage::new();
     storage.write("feed.xml", feed).unwrap();
-    let converted = convert(&storage, "feed.xml", "out.html", articles, text).unwrap();
+    let converted = convert(&storage, "feed.xml", "out.html", articles, text, &day).unwrap();
     let data = paperpaw_sdk::read_file(&storage, "out.html", 1 << 24).unwrap();
     (converted, String::from_utf8(data).unwrap())
 }
@@ -190,7 +195,7 @@ fn storage_that_fails_is_an_error_not_a_panic() {
         )
         .unwrap();
     // A page that cannot be written (an invalid path).
-    assert!(convert(&storage, "feed.xml", "../out.html", 5, 100).is_err());
+    assert!(convert(&storage, "feed.xml", "../out.html", 5, 100, &day).is_err());
     // A feed that is not there.
-    assert!(convert(&storage, "missing.xml", "out.html", 5, 100).is_err());
+    assert!(convert(&storage, "missing.xml", "out.html", 5, 100, &day).is_err());
 }

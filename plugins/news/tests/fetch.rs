@@ -297,3 +297,26 @@ fn an_answer_that_is_no_feed_keeps_the_page() {
     assert_eq!(pages(&storage).len(), 1);
     assert!(!storage.exists(".paperpaw/plugins/news/page.tmp"));
 }
+
+/// A fetched feed as a reader gets it: a long body in CDATA (as
+/// WordPress writes it) whole instead of the summary, and an Atom date
+/// short in the language.
+#[test]
+fn a_fetched_feed_keeps_its_long_text_and_shows_short_dates() {
+    let (mut kernel, storage) = kernel(&format!(
+        "{ALPHA}	Alpha
+"
+    ));
+    let calls = fetch(&mut kernel, 1);
+    let sentence = "The quick brown rabbit jumps over the lazy dog. ";
+    let body = format!("<p>{}</p>", sentence.repeat(300));
+    assert!(body.len() > 14_000);
+    let atom = format!(
+        "<feed xmlns=\"http://www.w3.org/2005/Atom\"><title>Atom</title><entry>         <title>Long</title><updated>2026-10-24T14:32:44-04:00</updated>         <summary>Only the summary</summary>         <content type=\"html\"><![CDATA[{body}]]></content></entry></feed>"
+    );
+    assert!(answer(&mut kernel, &calls[0], 200, &atom).is_empty());
+    let page = page(&storage, "Alpha");
+    assert!(page.contains("<p><i>Sat 24 Oct 2026</i></p>"), "{page}");
+    assert!(!page.contains("Only the summary"));
+    assert_eq!(page.matches("lazy dog.").count(), 300);
+}

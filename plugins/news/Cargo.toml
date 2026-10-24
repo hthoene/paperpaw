@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-news"
 description = "PaperPaw news: feeds (RSS, Atom) fetched as books to read"
-version = "1.0.1"
+version = "1.0.2"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
