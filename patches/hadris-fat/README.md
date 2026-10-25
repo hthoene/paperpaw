@@ -1,0 +1,469 @@
+# Hadris FAT
+
+A modern Rust FAT12, FAT16, FAT32 and exFAT filesystem library with read,
+write, format and check support. Hadris FAT handles VFAT long filenames and targets desktop disk
+image tools as well as `no_std` bootloaders, kernels, firmware, embedded
+systems, SD cards, and USB drives.
+
+## Features
+
+- **FAT12/16/32 Support** - Full read and write support for all FAT variants
+- **Volume Formatting** - Create new FAT12/16/32 volumes with automatic type selection, and exFAT volumes
+- **Long Filenames (VFAT/LFN)** - Always read and written
+- **No-std Compatible** - Use in bootloaders and custom kernels
+- **No allocator needed** - The embedded API reads and writes, and `format` and `check` run, without `alloc`
+- **Sync and async** - One driver generated for each mode; async futures support both local and `Send` devices
+- **Checker** - A read-only `fsck` that reports each problem it finds
+- **exFAT** - `ExFatFs` reads, writes, formats and checks exFAT, including TexFAT volumes with two FATs
+
+## Performance measurements
+
+Run `cargo bench -p hadris-fat --bench performance` for FAT12/16/32
+workloads through both `sync::FatFs` and `embedded::sync::Fat`. It reports
+device reads, writes, transferred bytes, flushes, write amplification and
+runtime. The [performance guide](../../../docs/performance.md) describes
+the workloads, CSV baselines, measurement limits and firmware-size checks.
+
+## Quick Start
+
+### The `FatFs` Driver
+
+`FatFs` is the node-based driver, available as
+`sync::FatFs` and `async_::FatFs`. It mounts any
+`hadris-storage` block device, needs `alloc` for its node table (its only
+I/O buffer with caching disabled is one device block of at most 4096 bytes), and implements the `hadris-fs`
+`FileSystem` trait, so `Volume` and its `File` and `ReadDir` handles work
+on it. Long names are always read and written: a name
+that fits 8.3 in one case per part is stored as a short entry alone, and
+other names get long-name entries and a short name with a `~N` tail.
+
+```rust,no_run
+use hadris_fat::sync::FatFs;
+use hadris_fs::sync::{FileSystem, Volume};
+use hadris_fs::{MountOptions, Name, OpenOptions};
+use hadris_storage::{BlockSize, MemDevice};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let image = std::fs::read("disk.img")?;
+let dev = MemDevice::new(image, BlockSize::new(512).unwrap());
+let mut fs = FatFs::mount(dev, MountOptions::new())?;
+
+// Node ids, no locks. `lookup` pins, `forget` unpins.
+let root = fs.root();
+let efi = fs.lookup(root, Name::new("efi"))?;
+fs.forget(efi, 1);
+
+// Paths and handles, shared behind a lock.
+let vol = Volume::new(fs);
+for entry in vol.read_dir("/EFI")? {
+    println!("{:?}", entry?.name());
+}
+vol.create_dir_all("/logs")?;
+let mut log = vol.open("/logs/boot.txt", OpenOptions::new().write().create())?;
+log.write(b"booted")?;
+log.close()?;
+vol.lock()?.sync()?;
+# Ok(())
+# }
+```
+
+`FatFs<D>` takes its settings at mount time from `hadris_fs::MountOptions`:
+
+- `read_only()` mounts without ever calling `write_blocks`.
+- `with_clock` sets the `hadris_fs::Clock` for new and modified entries.
+  `NoClock`, the default, writes 1980-01-01 so images are reproducible;
+  `SystemClock` (`std`) writes the current time.
+- `with_utc_offset` names the zone of FAT's zoneless timestamps; without
+  it they are read and written as UTC.
+- `with_code_page` sets the `hadris_fs::CodePage` of short names. `Cp437`
+  is the default; `Ascii` reads a byte `b` above `0x7F` as the private-use
+  character `U+F700 + b`, so every short name lists as its own name and is
+  found by it.
+- `with_node_limit` caps the pinned and open nodes; past it `lookup`,
+  `create` and `mkdir` fail with `ErrorKind::LimitExceeded`. The table is
+  unbounded otherwise.
+
+```rust,no_run
+use hadris_fat::sync::FatFs;
+use hadris_fs::{Ascii, MountOptions, SystemClock};
+use hadris_storage::{BlockSize, MemDevice};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let image = std::fs::read("disk.img")?;
+let options = MountOptions::new()
+    .with_clock(&SystemClock)
+    .with_utc_offset(60)?
+    .with_code_page(&Ascii);
+let fs = FatFs::mount(MemDevice::new(image, BlockSize::new(512).unwrap()), options)?;
+let dev = fs.unmount()?;
+# let _ = dev;
+# Ok(())
+# }
+```
+
+`FatFs::mount` leaves optional caches disabled. Enable a bounded index with
+`fs.with_cache(hadris_fat::CacheOptions::new()
+    .with_chain_positions(32).with_blocks(8))`.
+The chain-position bound applies across all files; positions are learned while reading and
+retain cycle-detection state. Mutations and interrupted-operation recovery
+invalidate the index. `clear_cache()` discards the index and buffered block
+without changing pinned metadata. Metadata caching holds whole device blocks,
+bypasses payload reads and invalidates overlapping blocks before each write.
+It defers no writes. Each cache bound can be set to zero independently.
+For repeated name lookups, add `.with_directory_entries(128)` to index a
+bounded prefix of one directory. This is disabled by default, including in
+`CacheOptions::new()`. Lookups learn entries as they scan; later misses resume
+from the validated prefix's original chain position, and hits verify folded
+long names and short aliases. Switching directories replaces the prefix and
+mutations discard it. Entries beyond the bound remain accessible by scanning.
+The index retains each cached long name (up to 255 UTF-16 units) and its short
+entry; choose its bound separately from the metadata-block budget.
+With directory indexing enabled, consecutive 8.3 creations also retain a
+sorted set of short names and an insertion position for one dense directory.
+This set uses at most `min(capacity, 2048) * 11` bytes of name storage. Long
+names, non-ASCII short names, deleted slots and capacity overflow use the
+normal planner. Namespace changes and recovery discard the set; file content
+and metadata updates preserve it. The bulk `write` helper enables this
+planning set internally with a 2048-name bound, without enabling read caches.
+External writers require a remount.
+This works with `alloc` and `no_std` in both sync and async modes. It helps
+backward seeks; sequential readers can keep indexing disabled.
+
+`unmount` syncs and gives the device back; `into_inner` gives it back
+without syncing.
+
+A failed `mount` or `unmount` returns a `hadris_fs::MountError`, which
+gives the device back through `into_device` or `into_parts`. `?` converts
+it into `hadris_fs::Error`, `PathError` or `std::io::Error`, dropping the
+device.
+
+Writes go to the device at once, except the size and modification time of
+a pinned file, which stay in the node table so every handle sees one size
+until `close`, `fsync` or `sync` writes them; closing a `File` handle
+calls `close`, which does not flush the device, and `File::sync_all` calls
+`fsync`, which does. `sync` also writes the FAT32 FSInfo free count and
+flushes the device. Both hosted and embedded FAT16/32 drivers clear and
+flush the clean bit before changing the volume, then restore it after a
+successful `sync` or `unmount`. Volumes already dirty at mount, or whose
+interrupted operations encounter unrecoverable corruption, stay dirty.
+FAT12 has no clean bit. `unlink` of an open file (an open `File`, or one
+opened with `open`) fails with `ErrorKind::Busy`; a node that is only pinned is
+removed and its id answers `ErrorKind::NotFound` until its last `forget`. A
+device that refuses a write makes the volume read-only. A pending dirty-marker
+update prevents `sync` and `unmount` from succeeding on that volume.
+Writes are ordered so that an interrupted operation, or a dropped `async`
+future, leaves a volume that `fsck` repairs: at worst lost clusters, a
+chain longer than its file, or a renamed node under both names.
+
+### Formatting with `FatFs`
+
+`format(&mut dev, &options)` (the `write` feature, every mode, no
+allocator) lays out a volume and returns its `Geometry`; mount it with
+`FatFs::mount` and the `MountOptions` of your choice. The volume fills the
+device unless `with_size` asks for another size, and a growable device such
+as `Vec<u8>` grows to it. Format a partition by passing a `hadris_storage`
+`Partition`; its start becomes the boot sector's hidden sectors unless
+`with_partition_offset` says otherwise.
+
+```rust,no_run
+use hadris_fat::sync::{FatFs, format};
+use hadris_fat::{FatKind, FatOptions, VolumeLabel};
+use hadris_fs::MountOptions;
+use hadris_storage::{BlockSize, MemDevice};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let mut dev = MemDevice::new(vec![0u8; 64 << 20], BlockSize::new(512).unwrap());
+let options = FatOptions::new()
+    .with_kind(FatKind::Fat32)
+    .with_label(VolumeLabel::new("BOOT")?);
+let geometry = format(&mut dev, &options)?;
+let fs = FatFs::mount(dev, MountOptions::new())?;
+# let _ = (geometry, fs);
+# Ok(())
+# }
+```
+
+Without `with_kind`, volumes below 16 MiB are FAT12, below 512 MiB FAT16,
+and larger ones FAT32. The cluster size starts from Microsoft's defaults
+for the size and doubles or halves until the cluster count suits the
+variant; `with_cluster_size` fixes it. `with_sector_size`, `with_serial`,
+`with_oem_name`, `with_reserved_sectors`, `with_fat_count`,
+`with_root_entries` and `with_media` set the other boot sector fields, and
+`with_alignment` starts the data region on a multiple of its size. The time
+(`with_time`, `NoClock::TIME` by default) stamps the label entry, and the
+serial derives from `with_seed` or the time, so the same options produce the
+same bytes on every run. A device too small for the size or variant gives
+`ErrorKind::NoSpace`, one too large gives `ErrorKind::LimitExceeded`, and a
+bad option gives `ErrorKind::InvalidInput` before anything is written.
+
+With `alloc`, `write(dev, &tree, &options)` formats and copies a
+`hadris_fs::Tree` into the volume with `copy_tree`, giving nodes without
+times the options' time, and returns a `hadris_fs::Report` with the volume
+size and what FAT could not store.
+
+### Checking
+
+`check(&mut dev, scratch, on_finding)` (every mode, no allocator) reads an
+unmounted volume without changing it and reports what `fsck` would: boot
+sector and FSInfo problems, FAT copies that differ, a dirty volume, chains
+that are broken, cyclic, cross-linked, lost or the wrong length for their
+file, bad names and dot entries, labels out of place, and long-name runs
+that are orphaned or fail their checksum. Each `hadris_fs::Finding` has a
+message, a `hadris_fat::Detail` code (the one mount errors use), a
+severity, a location and the path of its entry. A damaged FAT32 boot
+sector is a finding, and the check goes on from the backup.
+
+The first 1 KiB of `scratch` holds the path of each finding and the rest
+a bitmap of one bit per cluster; the tree is walked once per bitmap's worth
+of clusters, so a smaller buffer costs time, never accuracy. It must be at
+least 1536 bytes. Repair is not implemented.
+
+```rust,no_run
+use hadris_fat::sync::check;
+use hadris_storage::{BlockSize, MemDevice};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let image = std::fs::read("disk.img")?;
+let mut dev = MemDevice::new(image, BlockSize::new(512).unwrap());
+let mut scratch = [0u8; 4096];
+let report = check(&mut dev, &mut scratch, |finding| println!("{finding}"))?;
+println!("{} findings in {} passes", report.findings(), report.passes());
+# Ok(())
+# }
+```
+
+Unmount a volume you have written to, with `sync` and `into_inner`, before
+checking its device. A volume left by an interrupted `FatFs` operation shows only
+what the crash-safety rules allow: lost clusters, chains longer than their
+file, a renamed node under both names, orphaned long-name fragments, FAT
+copies that lag the active one and a stale FSInfo free count.
+`FatFs` and `ExFatFs` also have format extras as inherent methods: `info()`
+returns the boot sector's `Geometry` (FAT variant, cluster size, serial),
+`was_dirty()` whether the volume was cleanly unmounted, `extents(node,
+from, &mut out)` maps a file or directory to device ranges, FIEMAP style,
+for tools that show layout or fragmentation, `records(node, &mut out)`
+locates its directory entries, and `read_raw(offset, buf)` reads the
+device through the driver. `set_label(Some(label))` and
+`set_volume_serial(serial)` change the label and serial in place.
+
+### Sharing a Volume Between Threads
+
+`hadris_fs::sync::Volume` puts a `FatFs` behind a lock, so its path methods
+work on `&self` and an `Arc` shares it between threads. The runnable
+`shared_volume` example mounts an image with a `SystemClock` and writes from a
+worker thread:
+
+```console
+cargo run -p hadris-fat --example shared_volume -- disk.img
+```
+
+## Feature Flags
+
+| Feature | Description | Dependencies |
+|---------|-------------|--------------|
+| `write` | `format` in each mode; `FatFs` and `ExFatFs` write without it | None |
+| `alloc` | `FatFs`, `ExFatFs` and the tree writers; without it the embedded API, `format`, `check` and the raw layer | `alloc` crate |
+| `sync` | Synchronous API in `sync` | `hadris-io/sync` |
+| `async` | Asynchronous API for local and `Send` devices in `async_` | `hadris-io/async` |
+| `std` | `hadris_storage::host::FileDevice` for image files and `SystemClock` | `std`, `alloc` |
+| `defmt` | `defmt::Format` for `FatKind` | `defmt` |
+| `tracing` | [Function spans](../../../docs/tracing.md) for FAT/exFAT operations and FAT allocation/write paths, also without `std`; disabled by default | `tracing` |
+
+Default features: `write`, `std`, `sync`
+
+`std` selects platform integration but does not select an I/O mode. Custom
+configurations should enable `sync`, `async`, or both explicitly. No feature
+changes what an item does.
+
+### exFAT
+
+`hadris_fat::exfat::sync::ExFatFs` and its `async_` twin
+are a sibling of `FatFs` that needs `alloc` and implements `FileSystem`,
+with `format` (the `write` feature) and `check` in each mode.
+exFAT is stable and needs no feature flag. It mounts with the same `hadris_fs::MountOptions`. Its format options, label
+and detail codes are in `hadris_fat::exfat` (`exfat::ExFatOptions`,
+`exfat::Geometry`, `exfat::Detail`), since their names match FAT's. It reads contiguous and
+chained allocations, fragmented bitmaps and up-case tables, and entry sets
+that cross clusters; it writes FAT chains, grows directories, and keeps
+`VolumeDirty` and `PercentInUse`. On TexFAT volumes it follows `ActiveFat`
+and keeps both FATs and bitmaps equal. TexFAT transactions and repair are
+not supported. `format` writes a Volume GUID entry derived from the seed,
+or the time without one, unless `ExFatOptions::with_volume_guid` sets or
+omits it; `ExFatFs::volume_guid()` and `set_volume_guid` read and change
+it, as `tune.exfat -u`/`-U` do. The GUID is stored as the Microsoft `GUID`
+structure, as Windows writes it; exfatprogs 1.2 shows the same bytes in raw
+order, so its text form differs. The conformance suite in `tests/` qualifies it against
+exfatprogs, macOS `newfs_exfat`/`fsck_exfat` and the macOS kernel driver.
+
+### For Bootloaders and Embedded Systems
+
+```toml
+[dependencies]
+hadris-fat = { version = "3.0.0-rc.2", default-features = false, features = ["sync"] }
+```
+
+Without `alloc` this gives the embedded API, `check` and the raw layer;
+add `write` for `format`, and `alloc` for `FatFs` and `ExFatFs`.
+
+`hadris_fat::embedded::sync::Fat<'mount, D, const FILES: usize = 4>` and its
+`embedded::async_` twin are a handle-based driver for firmware. They are
+built on the raw layer and need no allocator: one 512-byte block buffer,
+the geometry, the options and `FILES` file slots, under 1 KiB with four
+slots. Directories are `Copy` handles, names are passed one component per
+call, a `File` is a slot consumed by `close`, and `list` lends each entry
+to a callback. Names fold ASCII case unless
+`Options::new().with_fold(hadris_fat_raw::fold_unicode)` asks for
+Unicode, so the Unicode case tables stay out of flash. The async variant
+takes a `hadris_storage::async_::BlockDevice`, whose futures need not be
+`Send`. The device's blocks must be 512 bytes.
+
+```rust,ignore
+use hadris_fat::embedded::{MountToken, sync::Fat};
+use hadris_fs::OpenOptions;
+
+let mut token = MountToken::new();
+let mut fat: Fat<_> = Fat::mount(sd_card, &mut token)?;
+let logs = fat.create_dir_all(fat.root(), "data/logs")?;
+let log = fat.open(logs, "boot.txt", OpenOptions::new().write().create().append())?;
+fat.write(&log, b"booted\n")?;
+fat.close(log)?;
+let sd_card = fat.unmount()?;
+```
+
+Writes follow the same crash ordering as `FatFs`. A power cut, or a
+dropped async future, leaves at worst lost clusters, and the next writing
+call or `sync` on the same `Fat` frees them.
+
+The guide [Use FAT and exFAT on a microcontroller](https://hxyulin.github.io/hadris/guides/embedded)
+has the measured flash and stack on `thumbv6m`, `thumbv7em` and `riscv32imc`.
+
+`hadris_fat::exfat::embedded::sync::ExFat<'mount, D, const FILES: usize = 4>` and
+its `async_` twin read exFAT volumes, such as SDXC cards, the same way:
+one 512-byte block buffer and `FILES` file slots, with `open_dir`, `list`,
+`open`, `open_node`, `read`, `seek`, `close`, `metadata`, `label` and
+`stats`. They never write, share `File` and `Options` with `Fat`, and are a
+separate type, so FAT-only firmware does not link them. Names compare with
+the `Options` fold rather than the volume's up-case table, and exFAT
+directories do not record their parent, so `open_dir(dir, "..")` fails
+with `Unsupported`.
+
+### For Desktop Applications (full features)
+
+```toml
+[dependencies]
+hadris-fat = "3.0.0-rc.2"  # Uses default features
+```
+
+## FAT Variant Support
+
+| Variant | Max Volume Size | Max File Size | Cluster Size | Status |
+|---------|----------------|---------------|--------------|--------|
+| FAT12 | 128 MB | 128 MB | 512 B - 32 KB | Supported |
+| FAT16 | 2 GB | 2 GB | 512 B - 32 KB | Supported |
+| FAT32 | 2 TB | 4 GB | 512 B - 32 KB | Supported |
+| exFAT | 128 PB | 128 PB | 512 B - 32 MB | Supported |
+
+The FAT limits assume 512-byte sectors and the specification's 32 KB
+cluster limit; larger sectors raise the volume limits. Volumes with 64 KB
+clusters, which Windows NT and Linux accept, also mount and are read and
+written, but `format` does not create them.
+
+## Long Filename Support
+
+`FatFs` always reads and writes VFAT long filenames:
+
+- Filenames up to 255 UTF-16 code units
+- Unicode character support (including supplementary-plane characters)
+- Automatic short-name generation for 8.3 compatibility
+- Directory-entry runs may span FAT cluster-chain boundaries
+
+## The Raw Layer
+
+The on-disk layouts and the I/O-free codecs the drivers use live in the
+[`hadris-fat-raw`](../hadris-fat-raw) crate: boot
+sector parsing into a `Geometry`, FAT entry encoding, directory slots,
+long and short names, timestamps, the format layout planner and the exFAT
+checksums and up-case decoder. Its `io` module holds the device
+primitives `FatFs` is built on: FAT entry reads and writes on every copy,
+chain walks, batched allocation and freeing, directory slots and `mkfs`,
+generated for each mode; `exfat::io` holds the exFAT bitmap, up-case and
+entry set primitives `ExFatFs` is built on. It is for tools and firmware that the drivers do
+not fit. It has its own version, so `hadris-fat` does not re-export it:
+only the items this crate's own API uses are available here: `FatKind`,
+`Geometry`, `RootLocation`, `ChainError`, `Detail`, `exfat::Geometry`,
+`exfat::Detail` and the `check` functions. They are part of the
+`hadris-fat` 3.x API, so `hadris-fat-raw` keeps them compatible. Depend on
+`hadris-fat-raw` directly for the rest.
+
+## No-std Compatibility
+
+- The embedded API, `format` and `check` need neither `std` nor `alloc` in
+  any mode; `FatFs` and `ExFatFs` need `alloc`
+- `FatFs` keeps one device block of at most 4096 bytes, the embedded API
+  one of 512 bytes
+- CI builds the no-allocator tiers for `thumbv6m-none-eabi`,
+  `thumbv7em-none-eabihf` and `riscv32imc-unknown-none-elf`
+- All I/O goes through `hadris-storage` block devices
+- Suitable for bootloaders, embedded systems, and custom kernels
+
+## Caching
+
+`FatFs` mounts without caches. `FatFs::with_cache` takes a `CacheOptions`.
+For sequential traversal, `CacheOptions::sequential()` retains only the most
+recently listed entry. A matching lookup reuses its parsed short entry and
+long name; other names or directories follow the normal lookup path. The hint
+is allocated lazily, has a fixed one-entry bound, and is discarded by writes,
+recovery and `clear_cache()`. It does not allocate a full directory-prefix index.
+
+Choose each cache independently for the access pattern:
+
+```rust
+use hadris_fat::CacheOptions;
+
+let extraction = CacheOptions::sequential();
+let repeated_lookups = CacheOptions::new()
+    .with_directory_entries(256)
+    .with_blocks(8)
+    .with_chain_positions(32);
+let fragmented_reads = CacheOptions::new()
+    .with_blocks(0)
+    .with_chain_positions(64);
+let disabled = CacheOptions::sequential().with_directory_hint(false);
+```
+
+Pass the selected options to `FatFs::with_cache` before wrapping the driver in
+`Volume`. `with_directory_hint` can be combined with any of the other bounds.
+Zero disables a bounded component. Bounds count entries, positions or device
+blocks, rather than bytes; directory-prefix storage is reserved when configured,
+while long-name contents are copied as entries are learned. The listing
+hint's memory use does not grow with directory size.
+
+## Specification Compliance
+
+Implements the following specifications:
+
+- Microsoft FAT specification
+- VFAT (Long Filename) extension
+- exFAT specification (TexFAT transactions not supported)
+
+## Asynchronous I/O
+
+The FAT, exFAT and embedded APIs name their asynchronous namespace `async_`.
+All asynchronous drivers accept
+`hadris_storage::async_::BlockDevice`. Futures are `Send` when the device and its
+operation state are `Send`; `Rc` devices and states use the same driver types on
+local executors. Hosted drivers implement `hadris_fs::local::FileSystem`, and also
+`hadris_fs::async_::FileSystem` when the device satisfies `SendBlockDevice`.
+See [implement an asynchronous block device](https://hxyulin.github.io/hadris/guides/async-devices)
+for the device contract.
+
+## Documentation
+
+- [Read a FAT image](https://hxyulin.github.io/hadris/guides/read-fat-image)
+- [Modify FAT safely](https://hxyulin.github.io/hadris/guides/modify-fat)
+- [Create FAT filesystems](https://hxyulin.github.io/hadris/creation/fat)
+- [API reference](https://docs.rs/hadris-fat/3.0.0-rc.2)
+
+## License
+
+This project is licensed under the [MIT license](../../../LICENSE-MIT).
