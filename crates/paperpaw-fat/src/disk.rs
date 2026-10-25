@@ -12,9 +12,10 @@
 //! in clusters whose freeing is not on the disk yet). A block changed
 //! again after another one was is written back first, as it was.
 //!
-//! [`BlockDisk::volume`] finds the FAT volume on a card: most cards hold a
-//! partition table (MBR, sometimes GPT) and the file system in a partition
-//! after it; some hold the file system from the first block.
+//! [`BlockDisk::volume`] finds the FAT volume on a card, [`BlockDisk::find`]
+//! a FAT or an exFAT one: most cards hold a partition table (MBR,
+//! sometimes GPT) and the file system in a partition after it; some hold
+//! the file system from the first block.
 
 use alloc::boxed::Box;
 use alloc::vec;
@@ -72,13 +73,24 @@ pub trait Blocks {
     fn blocks(&mut self) -> Result<u32, DiskError>;
 }
 
+/// Which file system a volume holds ([`BlockDisk::find`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// FAT12, FAT16 or FAT32.
+    Fat,
+    /// exFAT.
+    ExFat,
+}
+
 /// Why no FAT volume was found on a disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VolumeError {
     /// The disk could not be read.
     Disk,
-    /// It is formatted as exFAT (or NTFS), not FAT32.
+    /// It is formatted as exFAT, not FAT32 ([`BlockDisk::volume`] only).
     ExFat,
+    /// It is formatted as NTFS.
+    Ntfs,
     /// Neither a FAT volume nor a partition with one.
     NoFat,
 }
@@ -94,12 +106,15 @@ impl From<DiskError> for VolumeError {
 enum Boot {
     Fat,
     ExFat,
+    Ntfs,
     Other,
 }
 
 fn boot(block: &[u8; BLOCK]) -> Boot {
-    if matches!(&block[3..11], b"EXFAT   " | b"NTFS    ") {
-        return Boot::ExFat;
+    match &block[3..11] {
+        b"EXFAT   " => return Boot::ExFat,
+        b"NTFS    " => return Boot::Ntfs,
+        _ => {}
     }
     let jump = matches!(block[0], 0xEB | 0xE9);
     // FAT12 and FAT16 name their type at 0x36, FAT32 at 0x52.
@@ -226,16 +241,26 @@ impl<B: Blocks> BlockDisk<B> {
 
     /// The FAT volume on the disk: the whole of it, or the first partition
     /// that holds one.
-    pub fn volume(mut disk: B) -> Result<Self, VolumeError> {
+    pub fn volume(disk: B) -> Result<Self, VolumeError> {
+        match Self::find(disk)? {
+            (disk, Kind::Fat) => Ok(disk),
+            (_, Kind::ExFat) => Err(VolumeError::ExFat),
+        }
+    }
+
+    /// The FAT or exFAT volume on the disk, and which it is: the whole of
+    /// the disk, or the first partition that holds one.
+    pub fn find(mut disk: B) -> Result<(Self, Kind), VolumeError> {
         let blocks = disk.blocks()?;
         let mut block = [0u8; BLOCK];
         disk.read_block(0, &mut block)?;
         match boot(&block) {
-            Boot::Fat => return Ok(Self::part(disk, 0, blocks)),
-            Boot::ExFat => return Err(VolumeError::ExFat),
+            Boot::Fat => return Ok((Self::part(disk, 0, blocks), Kind::Fat)),
+            Boot::ExFat => return Ok((Self::part(disk, 0, blocks), Kind::ExFat)),
+            Boot::Ntfs => return Err(VolumeError::Ntfs),
             Boot::Other => {}
         }
-        let mut exfat = false;
+        let mut ntfs = false;
         for (first, count) in partitions(&mut disk, &block)? {
             if first == 0 || count == 0 || first >= u64::from(blocks) {
                 continue;
@@ -247,16 +272,22 @@ impl<B: Blocks> BlockDisk<B> {
             let (first, count) = (first as u32, count as u32);
             disk.read_block(first, &mut block)?;
             match boot(&block) {
-                Boot::Fat => return Ok(Self::part(disk, first, count)),
-                Boot::ExFat => exfat = true,
+                Boot::Fat => return Ok((Self::part(disk, first, count), Kind::Fat)),
+                Boot::ExFat => return Ok((Self::part(disk, first, count), Kind::ExFat)),
+                Boot::Ntfs => ntfs = true,
                 Boot::Other => {}
             }
         }
-        Err(if exfat {
-            VolumeError::ExFat
+        Err(if ntfs {
+            VolumeError::Ntfs
         } else {
             VolumeError::NoFat
         })
+    }
+
+    /// Number of blocks of the volume.
+    pub fn blocks(&self) -> u64 {
+        self.size / BLOCK as u64
     }
 
     /// `blocks` blocks of the disk from block `first` on.
@@ -488,6 +519,25 @@ impl<B: Blocks> SharedDisk<B> {
     /// Writes back every changed block.
     pub fn flush_all(&self) -> Result<(), DiskError> {
         self.0.borrow_mut().flush()
+    }
+
+    /// Number of blocks of the volume.
+    pub fn blocks(&self) -> u64 {
+        self.0.borrow().blocks()
+    }
+
+    /// Reads `buf.len()` bytes at `at` of the volume.
+    pub fn read_at(&self, at: u64, buf: &mut [u8]) -> Result<(), DiskError> {
+        let mut disk = self.0.borrow_mut();
+        disk.seek(SeekFrom::Start(at))?;
+        disk.read_exact(buf).map_err(|_| DiskError)
+    }
+
+    /// Writes `data` at `at` of the volume.
+    pub fn write_at(&self, at: u64, data: &[u8]) -> Result<(), DiskError> {
+        let mut disk = self.0.borrow_mut();
+        disk.seek(SeekFrom::Start(at))?;
+        disk.write_all(data)
     }
 }
 
