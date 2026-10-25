@@ -2396,7 +2396,12 @@ dependencies = [
  "embedded-hal",
  "paperpaw-app",
  "paperpaw-core",
+ "paperpaw-digest",
  "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
+ "paperpaw-plugin-update",
+ "paperpaw-sdk",
+ "paperpaw-update",
 ]
 
 [[package]]

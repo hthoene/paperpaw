@@ -2,8 +2,9 @@
 //! OTA data partition, whose two entries choose the app partition the
 //! bootloader starts and keep the state of its image ([`OtaData`]), and an
 //! update's image, written so that it can start only once it is whole and
-//! its signature held ([`Image`]). The firmware (`shells/xteink/src/ota.rs`)
-//! finds the partitions, checks the signature and decides when.
+//! its signature held ([`Image`]). [`updates`](crate::updates) checks the
+//! signature and decides when; the firmware (`shells/xteink/src/ota.rs`)
+//! finds the partitions.
 //!
 //! The entries are ESP-IDF's: a sequence number, a label the bootloader
 //! does not read, the image's state and the CRC of the sequence number.

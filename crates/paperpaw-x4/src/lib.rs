@@ -12,7 +12,8 @@
 //! and can be tested here: remote control over USB ([`remote`]), the
 //! frame kept for the panel ([`sent`]), the clock set over the network
 //! ([`sntp`]), addresses in the device's own network ([`dhcp`]),
-//! updates over the air ([`ota`]) and Wi-Fi given with the firmware
+//! updates over the air ([`ota`], run as the firmware does in
+//! [`updates`]) and Wi-Fi given with the firmware
 //! ([`provision`]).
 //!
 //! PaperPaw draws the screen upright, 480 × 800, in bands of rows; the
@@ -48,3 +49,4 @@ pub mod sntp;
 pub mod stall;
 pub mod uc8179;
 pub mod uc8253;
+pub mod updates;

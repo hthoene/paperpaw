@@ -14,8 +14,17 @@ keywords = ["e-reader", "e-ink", "epaper", "ssd1677", "xteink"]
 [dependencies]
 embedded-hal = "1.0"
 paperpaw-platform.workspace = true
+# Updates' files, their signatures and the firmware as plugins see it
+# (`updates`): the kernel's part, as the firmware has it.
+paperpaw-sdk = { workspace = true, features = ["kernel"] }
 
 [dev-dependencies]
+# The whole update path (`tests/update_path.rs`): the update plugin on the
+# kernel, update files signed and checked, images as espflash makes them.
+paperpaw-plugin-update.workspace = true
+paperpaw-plugin-fonts-default.workspace = true
+paperpaw-update.workspace = true
+paperpaw-digest.workspace = true
 paperpaw-core.workspace = true
 paperpaw-app.workspace = true
 
