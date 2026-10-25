@@ -14,14 +14,22 @@ keywords = ["e-reader", "e-ink", "epaper", "ssd1677", "xteink"]
 [dependencies]
 embedded-hal = "1.0"
 paperpaw-platform.workspace = true
+# Updates' files, their signatures and the firmware as plugins see it
+# (`updates`): the kernel's part, as the firmware has it.
+paperpaw-sdk = { workspace = true, features = ["kernel"] }
 
 [dev-dependencies]
 # The tests of `generation` on smoltcp's own socket set, as the firmware uses it.
 smoltcp = { version = "0.12", default-features = false, features = ["medium-ethernet", "proto-ipv4", "socket-udp", "alloc"] }
+# The whole update path (`tests/update_path.rs`): the update plugin on the
+# kernel, update files signed and checked, images as espflash makes them.
+paperpaw-plugin-update.workspace = true
+paperpaw-plugin-fonts-default.workspace = true
+paperpaw-update.workspace = true
+paperpaw-digest.workspace = true
 paperpaw-core.workspace = true
 paperpaw-app.workspace = true
 # The waveform lab's screen, tried on the host (`tests/waveform_lab.rs`).
-paperpaw-sdk = { workspace = true, features = ["kernel"] }
 paperpaw-graphics.workspace = true
 
 [lints]

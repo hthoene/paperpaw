@@ -6,6 +6,19 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Changed
+
+- How an X4, X3, X4 Pro or X4 Classic starts, runs the trial of and
+  installs an update moved from the firmware into `paperpaw-x4`
+  (`updates`), which the firmware runs as before: CI now tests the whole
+  update path on a computer, the update plugin on the kernel installing
+  online onto a flash with the tables PaperPaw ships, with the release
+  before's real update file and the firmware built in the run, then once
+  more to a higher version; and a damaged update, a download cut short,
+  one too large and a trial that fails, none of which may take the
+  firmware (`crates/paperpaw-x4/tests/update_path.rs`, CI job
+  `update-path`).
+
 ### Fixed
 
 - A time zone rule with an offset of more than 24 hours (such as `<>200`) is now refused instead of read as an offset of days.

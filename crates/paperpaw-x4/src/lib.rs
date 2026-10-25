@@ -12,7 +12,8 @@
 //! and can be tested here: remote control over USB ([`remote`]), the
 //! frame kept for the panel ([`sent`]), the clock set over the network
 //! ([`sntp`]), addresses in the device's own network ([`dhcp`]),
-//! updates over the air ([`ota`]), handles of the network stack made
+//! updates over the air ([`ota`], run as the firmware does in
+//! [`updates`]), handles of the network stack made
 //! anew ([`generation`]), waits that never hang ([`bounded`]) and Wi-Fi
 //! given with the firmware
 //! ([`provision`]), and the mark of a sleep that ends in a start
@@ -55,4 +56,5 @@ pub mod sntp;
 pub mod stall;
 pub mod uc8179;
 pub mod uc8253;
+pub mod updates;
 pub mod waveform;

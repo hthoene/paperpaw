@@ -2478,9 +2478,13 @@ dependencies = [
  "embedded-hal",
  "paperpaw-app",
  "paperpaw-core",
+ "paperpaw-digest",
  "paperpaw-graphics",
  "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
+ "paperpaw-plugin-update",
  "paperpaw-sdk",
+ "paperpaw-update",
  "smoltcp",
 ]
 

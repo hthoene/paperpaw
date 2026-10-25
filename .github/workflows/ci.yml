@@ -193,6 +193,12 @@ jobs:
         uses: ./.github/actions/install-image
         with:
           out: ${{ runner.temp }}/install.bin
+      # For the update path (job update-path).
+      - uses: actions/upload-artifact@v7
+        with:
+          name: install-image-${{ matrix.device }}
+          path: ${{ runner.temp }}/install.bin
+          retention-days: 1
       - name: The sample code plugin fits the firmware
         id: native
         uses: ./.github/actions/native-sample
@@ -231,6 +237,74 @@ jobs:
       - name: The core libraries out of the cached toolchain
         if: always() && matrix.device != 'x4' && matrix.device != 'x3'
         run: rm -rf "$(rustc +esp --print sysroot)/lib/rustlib/xtensa-esp32s3-none-elf"
+
+  # The whole update path on a computer, with the real files
+  # (crates/paperpaw-x4/tests/update_path.rs): for each device, the
+  # update of the release before (its SHA-256 checked) flashed on a flash
+  # with the table PaperPaw ships, this run's firmware (signed with a key
+  # made for the run) installed over it online by the update plugin,
+  # started, its trial run and kept, then once more to a higher version;
+  # and a damaged update, a download cut short, one too large and a trial
+  # that fails, none of which may take the device's firmware. `check`
+  # runs the same test with images made in it.
+  update-path:
+    name: Update path (the release before to this build)
+    needs: [firmware]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: update-path
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: install-image-*
+          path: ${{ runner.temp }}/images
+      - name: Built once
+        run: |
+          cargo build -q --release -p paperpaw-sign
+          cargo test -q --release -p paperpaw-x4 --test update_path --no-run
+      - name: Each device from the release before
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dir="$RUNNER_TEMP/update-path"
+          mkdir -p "$dir"
+          version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
+          # The newest release of PaperPaw older than this version.
+          before="$(gh release list -R "$GITHUB_REPOSITORY" --exclude-drafts --limit 100 \
+            --json tagName --jq '.[].tagName' | python3 -c '
+          import sys
+          sys.path.insert(0, "tools/plugin-files")
+          from versions import semver
+          now = semver(sys.argv[1])
+          tags = [t.strip() for t in sys.stdin if t[:1] == "v" and t[1:2].isdigit()]
+          older = [t for t in tags if semver(t[1:]) < now]
+          print(max(older, key=lambda t: semver(t[1:])) if older else "")
+          ' "$version")"
+          if [[ -z "$before" ]]; then
+            echo "::error::no release of PaperPaw before $version"
+            exit 1
+          fi
+          target/release/paperpaw-sign key "$dir/run.key" > "$dir/run.txt"
+          key="$(awk '/^public key:/ { print $3 }' "$dir/run.txt")"
+          for device in x4 x3 x4-pro x4-classic; do
+            old="paperpaw-$device-${before#v}-update.bin"
+            if ! gh release download "$before" -R "$GITHUB_REPOSITORY" -D "$dir" --clobber \
+                -p "$old" -p "$old.sha256"; then
+              echo "::warning::$before has no update for the $device: its path is not tested"
+              continue
+            fi
+            (cd "$dir" && sha256sum -c "$old.sha256")
+            target/release/paperpaw-sign sign "$RUNNER_TEMP/images/install-image-$device/install.bin" \
+              "$dir/$device-new.bin" --key "$dir/run.key"
+            echo "::group::$device: $before to this build"
+            PAPERPAW_UPDATE_DEVICE="$device" PAPERPAW_UPDATE_OLD="$dir/$old" \
+              PAPERPAW_UPDATE_NEW="$dir/$device-new.bin" PAPERPAW_UPDATE_KEY="$key" \
+              cargo test -q --release -p paperpaw-x4 --test update_path
+            echo "::endgroup::"
+          done
 
   native:
     name: Native plugins
