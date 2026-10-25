@@ -73,5 +73,13 @@ formatted.
 - The first write that takes clusters after a mount counts the free
   clusters once, a block of the bitmap at a time (on a 64 GB card 512
   blocks); free space is known from then on.
+- Read before it was taken (hadris-fat 3.0.0-rc.2 and what it pulls
+  in: hadris-fs, -fat-raw, -io, -storage, -common, -macros): all MIT;
+  `unsafe` only in modules built with `std` alone (`host`, not built
+  here), in `Name`'s view of bytes (`repr(transparent)`) and in
+  bytemuck's marker traits for FAT's boot sector structures; none in
+  the exFAT driver.
 - A newer hadris-fat is taken only after its changes are read and the
-  patches carried over; the tests above decide.
+  patches carried over; the tests above decide. Should it not hold, our
+  own driver on hadris-fat-raw's layouts takes its place behind the
+  same `ExFatStorage`.
