@@ -194,6 +194,30 @@ class Repository(unittest.TestCase):
         self.commit("fonts-extra 1.0.1")
         self.assertTrue(self.check())
 
+    def test_a_data_plugin_released_alone_is_held_to_its_own_version(self):
+        self.data("1.0.0")
+        self.write("tools/extra.py", "# one\n")
+        self.write("fonts/extra.ttf", "one")
+        self.commit("data plugin")
+        self.git("tag", "v0.5.0-beta.3")
+        # A fix released alone (store-plugin.yml), on this branch.
+        self.write("fonts/extra.ttf", "two")
+        self.data("1.0.1")
+        self.commit("fonts-extra 1.0.1")
+        self.git("tag", "fonts-extra-v1.0.1")
+        self.assertTrue(self.check())
+        # Changed after its own release: 1.0.1 again will not do.
+        self.write("fonts/extra.ttf", "three")
+        self.commit("a better font again")
+        self.assertFalse(self.check())
+        self.data("1.0.2")
+        self.commit("fonts-extra 1.0.2")
+        self.assertTrue(self.check())
+        # Older than its own release: refused.
+        self.data("1.0.0")
+        self.commit("back")
+        self.assertFalse(self.check())
+
 
 if __name__ == "__main__":
     unittest.main()

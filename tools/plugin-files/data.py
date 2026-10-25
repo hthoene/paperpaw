@@ -2,11 +2,18 @@
 """PaperPaw's own data plugins the store offers (data.toml): their list,
 and building their folders for a release:
 
-    python3 tools/plugin-files/data.py <dir>
+    python3 tools/plugin-files/data.py <dir> [--only <id>]
 
 runs each builder once (`python3 <build> <dir>`), which writes the
 folder `<dir>/<id>` of each of its plugins, and checks that every plugin
-of data.toml is there with the version data.toml gives it.
+of data.toml is there with the version data.toml gives it; with `--only`,
+the builder of that plugin alone, for an update of it between releases
+(store-plugin.yml).
+
+    python3 tools/plugin-files/data.py --newer <id> <tag>
+
+prints the plugin's version where it is newer than at `tag` (a release
+or the plugin's own), and fails where it is not.
 """
 
 import pathlib
@@ -50,12 +57,39 @@ def catalogs(plugin, fields):
     return out
 
 
+def newer(plugin, tag):
+    """The plugin's version where it is newer than at `tag`; exits where
+    it is not, or where data.toml does not list it."""
+    import versions
+
+    listed = plugins()
+    if plugin not in listed:
+        sys.exit(f"{plugin} is not in tools/plugin-files/data.toml")
+    now = listed[plugin]["version"]
+    then = versions.data_version_at(tag, plugin)
+    if then is not None and versions.semver(now) <= versions.semver(then):
+        sys.exit(f"{plugin} is at {now}, {tag} has {then}: raise it in tools/plugin-files/data.toml")
+    return now
+
+
 def main():
-    if len(sys.argv) != 2:
+    args = sys.argv[1:]
+    if len(args) == 3 and args[0] == "--newer":
+        print(newer(args[1], args[2]))
+        return
+    only = None
+    if len(args) == 3 and args[1] == "--only":
+        only = args[2]
+        args = args[:1]
+    if len(args) != 1:
         sys.exit(__doc__)
-    out = pathlib.Path(sys.argv[1])
+    out = pathlib.Path(args[0])
     out.mkdir(parents=True, exist_ok=True)
     listed = plugins()
+    if only is not None:
+        if only not in listed:
+            sys.exit(f"data.py: {only} is not in data.toml")
+        listed = {only: listed[only]}
     for build in sorted({fields["build"] for fields in listed.values()}):
         subprocess.run([sys.executable, str(ROOT / build), str(out)], cwd=ROOT, check=True)
     for plugin, fields in listed.items():

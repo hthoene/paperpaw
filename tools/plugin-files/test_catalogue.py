@@ -117,6 +117,44 @@ class DataPlugins(unittest.TestCase):
                 catalogue.main()
             self.assertEqual(dist.joinpath("literata-large-1.0.0.zip").read_bytes(), first)
 
+    def test_one_data_plugin_alone_between_releases(self):
+        with tempfile.TemporaryDirectory() as dist, tempfile.TemporaryDirectory() as made:
+            dist, made = pathlib.Path(dist), pathlib.Path(made)
+            self.folders(made)
+            tag = "literata-large-v1.0.0"
+            argv = ["catalogue.py", str(dist), "0.5.0-beta.8", f"https://example.invalid/{tag}",
+                    "--only", "literata-large", "--tag", tag, "--data", str(made)]
+            with unittest.mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
+                catalogue.main()
+            # Its entry alone, no plugin with code built or needed.
+            self.assertEqual([p.name for p in dist.joinpath("catalogue").iterdir()], ["literata-large.toml"])
+            entry = dist.joinpath("catalogue", "literata-large.toml").read_text(encoding="utf-8")
+            self.assertIn(f'url = "https://example.invalid/{tag}/literata-large-1.0.0.zip"', entry)
+            sums = dist.joinpath("SHA256SUMS").read_text(encoding="utf-8")
+            self.assertEqual(sums.count("\n"), 1)
+            self.assertIn("literata-large-1.0.0.zip", sums)
+
+    def test_data_py_builds_one_alone(self):
+        listed = catalogue.data.plugins()
+        built = []
+
+        def run(command, **_):
+            # A builder as literata-packs.py is: every plugin it has.
+            built.append(command[1])
+            self.folders(pathlib.Path(command[2]))
+
+        with tempfile.TemporaryDirectory() as out:
+            argv = ["data.py", out, "--only", "literata-large"]
+            with unittest.mock.patch.object(sys, "argv", argv), \
+                    unittest.mock.patch.object(catalogue.data.subprocess, "run", run), \
+                    contextlib.redirect_stdout(io.StringIO()) as said:
+                catalogue.data.main()
+        self.assertEqual(built, [str(catalogue.data.ROOT / listed["literata-large"]["build"])])
+        self.assertIn("1 data plugins", said.getvalue())
+        with unittest.mock.patch.object(sys, "argv", ["data.py", "x", "--only", "nothing"]), \
+                self.assertRaises(SystemExit):
+            catalogue.data.main()
+
     def test_a_folder_not_at_its_version_is_refused(self):
         with tempfile.TemporaryDirectory() as dist, tempfile.TemporaryDirectory() as made:
             dist, made = pathlib.Path(dist), pathlib.Path(made)
