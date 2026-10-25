@@ -1,41 +1,4 @@
-//! PaperPaw's storage on an exFAT file system, e.g. a card of 64 GB or
-//! more as sold: [`ExFatStorage`] over the same [`SharedDisk`] as
-//! [`FatStorage`](crate::FatStorage), its blocks kept and written back in
-//! the order they were changed (see [`BlockDisk`](crate::BlockDisk)).
-//!
-//! The file system is hadris-fat's exFAT driver (`ExFatFs`, as patched
-//! for PaperPaw): it marks clusters in the FAT and the allocation bitmap
-//! before an entry set names them and frees them only after the set is
-//! gone, sets `VolumeDirty` before its first write after a mount or a sync
-//! and clears it on [`Storage::sync`], and streams the bitmap and the FAT
-//! through one block: nothing of the card's size is kept in memory.
-//!
-//! What it leaves to a cut, this storage settles as `FatStorage` does:
-//!
-//! - A file is written whole under a name of the moment (`<name>~pp.tmp`),
-//!   synced, renamed to a second one (`<name>~pp.new`) once whole, and
-//!   only then renamed over the file it replaces. Cut off at any point,
-//!   the file reads its old content or its new one, whole. The names of
-//!   the moment hold the file's own name, so a replacement cut off where
-//!   the old entry set was overwritten in part (one that crosses a block)
-//!   still finds the name it was for.
-//! - A rename in exFAT writes the new entry set before it removes the old
-//!   one: cut off between, two names hold the same clusters. Such a pair
-//!   is told by its first cluster and the stale name taken away without
-//!   freeing them (`ExFatFs::unlink_entry`, added for PaperPaw).
-//! - What a cut left in a folder is settled when the folder is first
-//!   looked at after a mount, before any file in it is opened: an entry
-//!   set written across two blocks and cut off between is sealed again
-//!   as it stands (its clusters were taken before it named them), the
-//!   entries of one cut off in its removal are let go
-//!   (`ExFatFs::sweep`, added for PaperPaw); a whole new content takes
-//!   its file's place, a part of one goes.
-//! - A move is recorded first in [`JOURNAL`](crate::JOURNAL) at the root,
-//!   and finished at the next mount before anything else.
-//!
-//! The names of the moment are neither listed nor taken by name. Times
-//! are not kept (the X4 has no clock of its own): new entries are dated
-//! 1980-01-01, as on FAT.
+//! PaperPaw's storage on an exFAT file system: [`ExFatStorage`].
 
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -133,8 +96,7 @@ impl<B: Blocks> BlockDevice for ExDisk<B> {
 
 type Volume<B> = ExFatFs<ExDisk<B>>;
 
-/// The time new entries are dated: none is known (see the module
-/// documentation).
+/// The time new entries are dated: none is known (see [`ExFatStorage`]).
 struct NoClock;
 
 impl Clock for NoClock {
@@ -150,8 +112,8 @@ static NO_CLOCK: NoClock = NoClock;
 /// kept, and those a call looks up on its way.
 const NODES: usize = OPEN_FILES + FOLDERS + 16;
 
-/// The ends of the names a write goes through (see the module
-/// documentation): while it is written, and once it is whole.
+/// The ends of the names a write goes through (see [`ExFatStorage`]):
+/// while it is written, and once it is whole.
 const TMP: &str = "~pp.tmp";
 const NEW: &str = "~pp.new";
 
@@ -213,8 +175,44 @@ struct Open {
     write: bool,
 }
 
-/// PaperPaw's storage on an exFAT file system (see the [module
-/// documentation](self)).
+/// PaperPaw's storage on an exFAT file system, e.g. a card of 64 GB or
+/// more as sold, over the same [`SharedDisk`] as
+/// [`FatStorage`](crate::FatStorage), its blocks kept and written back in
+/// the order they were changed (see [`BlockDisk`](crate::BlockDisk)).
+///
+/// The file system is hadris-fat's exFAT driver (`ExFatFs`, as patched
+/// for PaperPaw): it marks clusters in the FAT and the allocation bitmap
+/// before an entry set names them and frees them only after the set is
+/// gone, sets `VolumeDirty` before its first write after a mount or a sync
+/// and clears it on [`Storage::sync`], and streams the bitmap and the FAT
+/// through one block: nothing of the card's size is kept in memory.
+///
+/// What it leaves to a cut, this storage settles as `FatStorage` does:
+///
+/// - A file is written whole under a name of the moment (`<name>~pp.tmp`),
+///   synced, renamed to a second one (`<name>~pp.new`) once whole, and
+///   only then renamed over the file it replaces. Cut off at any point,
+///   the file reads its old content or its new one, whole. The names of
+///   the moment hold the file's own name, so a replacement cut off where
+///   the old entry set was overwritten in part (one that crosses a block)
+///   still finds the name it was for.
+/// - A rename in exFAT writes the new entry set before it removes the old
+///   one: cut off between, two names hold the same clusters. Such a pair
+///   is told by its first cluster and the stale name taken away without
+///   freeing them (`ExFatFs::unlink_entry`, added for PaperPaw).
+/// - What a cut left in a folder is settled when the folder is first
+///   looked at after a mount, before any file in it is opened: an entry
+///   set written across two blocks and cut off between is sealed again
+///   as it stands (its clusters were taken before it named them), the
+///   entries of one cut off in its removal are let go
+///   (`ExFatFs::sweep`, added for PaperPaw); a whole new content takes
+///   its file's place, a part of one goes.
+/// - A move is recorded first in [`JOURNAL`](crate::JOURNAL) at the root,
+///   and finished at the next mount before anything else.
+///
+/// The names of the moment are neither listed nor taken by name. Times
+/// are not kept (the X4 has no clock of its own): new entries are dated
+/// 1980-01-01, as on FAT.
 pub struct ExFatStorage<B: Blocks + 'static> {
     fs: RefCell<Volume<B>>,
     disk: SharedDisk<B>,
@@ -497,7 +495,7 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
     // Settling what a cut left.
 
     /// Settles what a cut left in the folder at `path` (`node`), once a
-    /// mount (see the module documentation).
+    /// mount (see [`ExFatStorage`]).
     fn settle_folder(&self, path: &str, node: NodeId) -> Result2<()> {
         let key = hash(path);
         if self.settled.borrow().contains(&key) {
