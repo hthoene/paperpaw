@@ -39,6 +39,9 @@ OPTIONS:
     --screenshot <file>   Save a PNG of the panel after the script (headless)
     --library <dir>       Folder emulating the device storage
                           (default: samples/library)
+    --card <image>        A card image (FAT or exFAT, as `dd` copies a card)
+                          as the device storage, mounted as the X4 mounts
+                          its card; written in place
     --screenshot-dir <d>  Where F12 saves screenshots (default: out)
     --record <file>       Write what is pressed, tapped and swiped in the window
                           as a flow's steps, for `paperpaw-dev flows`
@@ -84,6 +87,8 @@ struct Options {
     screenshot_dir: Option<PathBuf>,
     record: Option<PathBuf>,
     library: Option<PathBuf>,
+    /// A card image in place of the library folder (`--card`).
+    card: Option<PathBuf>,
     /// `Some(None)` removes the budget.
     heap_budget: Option<Option<usize>>,
     heap_report: bool,
@@ -137,8 +142,21 @@ fn run() -> Result<(), String> {
     if let Some(limit) = options.heap_budget {
         budget::override_limit(limit);
     }
-    let mut device = Device::new(profile, user_config(&options)?, storage, options.headless)
-        .map_err(|e| format!("{}: {e}", profile.device.id))?;
+    let mut device = match &options.card {
+        Some(image) => {
+            let blocks = paperpaw_emulator::card_image::open(image)
+                .map_err(|e| format!("card {}: {e}", image.display()))?;
+            Device::on_card_image(
+                profile,
+                user_config(&options)?,
+                blocks,
+                options.headless,
+                None,
+            )?
+        }
+        None => Device::new(profile, user_config(&options)?, storage, options.headless)
+            .map_err(|e| format!("{}: {e}", profile.device.id))?,
+    };
     if options.fixtures {
         device.use_fixtures();
     }
@@ -312,6 +330,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Option<Options>,
             "--script" => options.script = Some(value("--script")?),
             "--screenshot" => options.screenshot = Some(PathBuf::from(value("--screenshot")?)),
             "--library" => options.library = Some(PathBuf::from(value("--library")?)),
+            "--card" => options.card = Some(PathBuf::from(value("--card")?)),
             "--record" => options.record = Some(PathBuf::from(value("--record")?)),
             "--screenshot-dir" => {
                 options.screenshot_dir = Some(PathBuf::from(value("--screenshot-dir")?));

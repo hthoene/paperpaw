@@ -1,6 +1,7 @@
 //! The first-run setup where the card cannot keep that it was done: it
 //! does not come at every start (an X4 with an exFAT card brought it back
-//! at each start in beta.7, its choices lost), and the reader is told
+//! at each start in beta.7, its choices lost; exFAT is read since
+//! beta.9, NTFS is not), and the reader is told
 //! why: by the kernel where the shell found no card it can use, by the
 //! guide where its mark could not be written.
 
@@ -71,14 +72,14 @@ impl Storage for Refusing {
 }
 
 #[test]
-fn a_card_that_is_not_fat32_brings_no_setup_and_says_why_at_each_start() {
+fn a_card_of_ntfs_brings_no_setup_and_says_why_at_each_start() {
     for device in DEVICES {
         let mut app = App::with_shell(device, Shared(Rc::new(NoStorage)), |builder| {
-            builder.card_trouble(CardTrouble::ExFat)
+            builder.card_trouble(CardTrouble::Ntfs)
         });
         for _ in 0..2 {
             assert_ne!(app.screen(), GUIDE);
-            for line in ["The memory card is exFAT", "on a computer."] {
+            for line in ["The memory card is NTFS", "on a computer."] {
                 assert!(app.shows(line), "{}", app.described());
             }
             app = app.restart();

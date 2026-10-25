@@ -197,3 +197,8 @@ fatfs = { path = "../../patches/fatfs" }
 # PaperPaw").
 [patch.crates-io]
 trouble-host = { path = "../../patches/trouble-host" }
+# hadris-fs and hadris-fat (exFAT cards) as the workspace patches them
+# (patches/hadris-fs, patches/hadris-fat, "Modified for PaperPaw"): built
+# where pointers have no atomics, and what a cut left settled.
+hadris-fs = { path = "../../patches/hadris-fs" }
+hadris-fat = { path = "../../patches/hadris-fat" }

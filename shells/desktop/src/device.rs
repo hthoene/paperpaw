@@ -66,6 +66,10 @@ pub enum Library {
     Dir(std::path::PathBuf),
     /// Files in memory, kept across restarts.
     Memory(Rc<MemoryStorage>),
+    /// A card image, mounted by PaperPaw's FAT or exFAT storage
+    /// ([`crate::card_image`]).
+    #[cfg(not(target_arch = "wasm32"))]
+    Image(crate::card_image::ImageBlocks),
 }
 
 impl Library {
@@ -74,6 +78,12 @@ impl Library {
         Ok(match self {
             Library::Dir(root) => Card::Dir(library(root)?),
             Library::Memory(files) => Card::Memory(files.clone()),
+            // Mounted where its memory counts: the device's own, as on
+            // the X4 (its blocks kept, the file system's state).
+            #[cfg(not(target_arch = "wasm32"))]
+            Library::Image(blocks) => Card::Image(Mounted(budget::track(|| {
+                crate::card_image::mount(blocks.clone())
+            })?)),
         })
     }
 }
@@ -83,6 +93,16 @@ impl Library {
 pub enum Card {
     Dir(DirStorage),
     Memory(Rc<MemoryStorage>),
+    Image(Mounted),
+}
+
+/// A card image's file system, mounted.
+pub struct Mounted(Box<dyn Storage>);
+
+impl core::fmt::Debug for Mounted {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("mounted card image")
+    }
 }
 
 impl Card {
@@ -93,6 +113,8 @@ impl Card {
         match self {
             Card::Dir(storage) => f(storage),
             Card::Memory(files) => budget::untracked(|| f(&**files)),
+            // The X4's own storage: what it keeps is counted.
+            Card::Image(mounted) => f(mounted.0.as_ref()),
         }
     }
 }
@@ -127,6 +149,7 @@ impl Storage for Card {
         match self {
             Card::Dir(storage) => storage.list(dir, visit),
             Card::Memory(files) => files.list(dir, visit),
+            Card::Image(mounted) => mounted.0.list(dir, visit),
         }
     }
     fn remove(&self, path: &str) -> Result<(), StorageError> {
@@ -253,6 +276,23 @@ impl Device {
         let library = Library::Dir(storage.root().to_path_buf());
         let card = Card::Dir(storage);
         Self::build(profile, user_config, library, card, simulated_time, add)
+    }
+
+    /// A device whose card is the card image `blocks` (a file, or bytes
+    /// in memory for tests), mounted by PaperPaw's FAT or exFAT storage
+    /// as the X4 mounts its card, its app with the plugins `add` adds.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn on_card_image(
+        profile: &'static Profile,
+        user_config: Option<String>,
+        blocks: crate::card_image::ImageBlocks,
+        simulated_time: bool,
+        add: Option<AddPlugins>,
+    ) -> Result<Self, String> {
+        let library = Library::Image(blocks);
+        let card = library.open().map_err(|e| format!("card image: {e}"))?;
+        Self::build(profile, user_config, library, card, simulated_time, add)
+            .map_err(|e| format!("{}: {e}", profile.device.id))
     }
 
     /// A device whose files are kept in memory, `files` (e.g. in a
