@@ -83,10 +83,12 @@
 extern crate alloc;
 
 mod disk;
+mod exfat;
 mod free;
 mod settle;
 
-pub use disk::{BLOCK, BlockDisk, Blocks, DiskError, SharedDisk, VolumeError};
+pub use disk::{BLOCK, BlockDisk, Blocks, DiskError, Kind, SharedDisk, VolumeError};
+pub use exfat::{ExDisk, ExFatStorage};
 
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -254,6 +256,9 @@ fn short_name_is<IO: ReadWriteSeek + 'static>(entry: &FatEntry<IO>, name: &str) 
 /// Not where the loop holds removed entries only: rust-fatfs reads past
 /// those itself, giving none.
 const ENTRIES: usize = 65_536;
+/// The same, for exFAT's folders (which may hold more, up to 256 MiB of
+/// entries; a library has far fewer).
+const ENTRIES_MAX: usize = 1 << 20;
 
 /// `items`, failing past [`ENTRIES`].
 fn bounded<T>(

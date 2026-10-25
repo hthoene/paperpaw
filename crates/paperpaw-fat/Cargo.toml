@@ -15,6 +15,11 @@ publish = false
 [dependencies]
 paperpaw-platform.workspace = true
 fatfs = { git = "https://github.com/rafalh/rust-fatfs", rev = "38b3a7950bf0e765e34286d1dfe76c519ee347e2", default-features = false, features = ["alloc", "lfn", "unicode"] }
+# exFAT (MIT): only its exFAT driver is used.
+hadris-fat = { version = "=3.0.0-rc.2", default-features = false, features = ["alloc", "sync", "write"] }
+hadris-fs = { version = "=3.0.0-rc.2", default-features = false, features = ["alloc", "sync"] }
+hadris-io = { version = "=3.0.0-rc.2", default-features = false, features = ["alloc", "sync"] }
+hadris-storage = { version = "=3.0.0-rc.2", default-features = false, features = ["alloc", "sync"] }
 
 [dev-dependencies]
 fatfs = { git = "https://github.com/rafalh/rust-fatfs", rev = "38b3a7950bf0e765e34286d1dfe76c519ee347e2", default-features = false, features = ["alloc", "lfn", "unicode", "std"] }

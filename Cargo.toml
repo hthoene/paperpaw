@@ -256,6 +256,15 @@ opt-level = 3
 # (patches/jni-macros, "Modified for PaperPaw"), for reproducible builds.
 [patch.crates-io]
 jni-macros = { path = "patches/jni-macros" }
+# hadris-fs took async-lock on every target, which does not build where
+# pointers have no atomics (the X4's ESP32-C3); this copy takes it only
+# where it is used (patches/hadris-fs, "Modified for PaperPaw").
+hadris-fs = { path = "patches/hadris-fs" }
+# hadris-fat's exFAT driver has no way to remove an entry set without
+# freeing its clusters, which settling a rename cut off between its new
+# and its old entry set needs (patches/hadris-fat, `ExFatFs::unlink_entry`,
+# "Modified for PaperPaw").
+hadris-fat = { path = "patches/hadris-fat" }
 
 # rust-fatfs freed a removed file's clusters before it removed its entry,
 # and renamed by removing the old entry before writing the new one: cut
