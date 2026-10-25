@@ -48,6 +48,10 @@ jobs:
       # The firmware is a crate of its own, outside the workspace.
       - run: rustfmt --edition 2024 --check shells/xteink/src/main.rs
       - run: cargo clippy --workspace --all-targets
+      # fsck.exfat checks the exFAT cards the storage's tests write
+      # (crates/paperpaw-fat/tests/exfat.rs).
+      - name: exfatprogs
+        run: sudo apt-get install -y exfatprogs
       - run: cargo test --workspace
       - name: Bluetooth shell host regressions
         run: |

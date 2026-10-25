@@ -15,7 +15,11 @@ pub(crate) const MAX_BLOCK_SIZE: usize = 4096;
 
 /// Zeros that a fill writes from, many blocks per device call, so the fill
 /// needs no buffer of its own.
-static ZEROS: [u8; 64 * 1024] = [0; 64 * 1024];
+///
+/// Modified for PaperPaw: 4 KiB, not 64 (the largest device block still
+/// fills from it): the zeros take room in the firmware's flash, and
+/// fills are rare (a folder's new cluster).
+static ZEROS: [u8; 4 * 1024] = [0; 4 * 1024];
 
 /// One device block, the driver's only buffer.
 pub(crate) type BlockBuf = hadris_fat_raw::io::BlockBuf<[u8; MAX_BLOCK_SIZE]>;
@@ -29,7 +33,7 @@ pub(crate) fn new_block(size: usize) -> Result<BlockBuf, ErrorKind> {
 io_transform! {
 
 /// Writes `len` bytes at byte `offset`: from `data`, or zeros when `data` is
-/// `None`. Whole blocks of zeros go to the device up to 64 KiB per call.
+/// `None`. Whole blocks of zeros go to the device up to 4 KiB per call.
 pub(crate) async fn write_bytes<D: BlockDevice>(
     dev: &mut D,
     block: &mut hadris_fat_raw::io::BlockBuf,

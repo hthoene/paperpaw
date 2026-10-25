@@ -12,6 +12,8 @@ pub mod bluetooth;
 pub mod budget;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod cable;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod card_image;
 pub mod device;
 pub mod headless;
 pub mod host;
