@@ -8,6 +8,9 @@ change the plugin SDK.
 
 ### Added
 
+- `tools/flash-x4.py` builds the checked-out source and flashes it to an X4, X4 Pro,
+  X4 Classic or X3 over USB, with a check of the tools, an optional backup of
+  the reader's flash and a dry run.
 - *Button response* on the X4s has a third choice, *Saving*: the processor
   sleeps up to 50 ms between readings of the buttons on battery (30 ms
   as *Normal*, 10 ms as *Faster*), for a little less current; a tap

@@ -55,6 +55,12 @@ flashes the X4 and shows its log. Books go on a microSD card formatted
 with FAT32, e.g. in `Books`. PaperPaw does not read exFAT, which large
 cards often come with.
 
+[`tools/flash-x4.py`](../../tools/flash-x4.py) does the same for each reader
+(`python tools/flash-x4.py`, or `x4-pro`, `x4-classic`, `x3`): it says
+which branch and commit it builds, checks the tools, can save the reader's
+flash first (`--backup`), asks before flashing, and takes `--port`,
+`--no-monitor` and `--dry-run`.
+
 ## From CrossPoint's menu
 
 Each release has an install file for every device,
