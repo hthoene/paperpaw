@@ -8,6 +8,9 @@ change the plugin SDK.
 
 ### Fixed
 
+- The flash cards' *Retention wanted* setting shows its value as a
+  percentage again, not as the key `vocabulary.unit.percent`: the unit
+  needs its plural form (`.other = {count} %`).
 - The side margins set for reading no longer get the book's own `body`
   margin and padding added on top, which left the sides wider than the
   setting (top and bottom were right). Books are converted again.
