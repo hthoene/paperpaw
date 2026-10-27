@@ -639,6 +639,9 @@ impl Firmware {
             let effects = self.kernel.resume(now());
             return self.apply(effects);
         }
+        // The next start ends this sleep: the mark says so, for plugins to
+        // hear the device wake (`core.resume`).
+        paperpaw_x4::slept::mark(self.kernel.storage());
         let _ = self.panel.sleep();
         #[cfg(feature = "x4-pro")]
         if let Some(light) = self.light.as_mut() {

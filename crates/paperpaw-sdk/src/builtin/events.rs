@@ -599,7 +599,10 @@ pub const MENU_CHANGED: Event<MenuChanged> = Event::new("core.menu-changed");
 /// The device goes to sleep or the app to the background: a moment to
 /// save or send what is pending.
 pub const SUSPEND: Event<()> = Event::new("core.suspend");
-/// Back from [`SUSPEND`].
+/// Back from [`SUSPEND`]. Where a sleep restarts the device (the X4s cut
+/// their power to sleep), it follows [`STARTED`] at the start that ends
+/// the sleep, so a plugin that does something on waking needs nothing
+/// more; a power-up with no sleep before it sends [`STARTED`] alone.
 pub const RESUME: Event<()> = Event::new("core.resume");
 /// PaperPaw stops (the device restarts, or an app closes for good):
 /// save what is pending, as at [`SUSPEND`]; the device may lose its

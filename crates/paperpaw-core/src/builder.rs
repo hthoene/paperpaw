@@ -45,6 +45,7 @@ struct BuilderParts {
     random: paperpaw_sdk::random::Random,
     memory: paperpaw_sdk::memory::Memory,
     started: paperpaw_sdk::power::Start,
+    after_sleep: bool,
     panel: paperpaw_sdk::realtime::PanelInfo,
     /// Network settings kept in the program, by plugin.
     network_settings: &'static [crate::NetworkSettings],
@@ -202,6 +203,20 @@ impl KernelBuilder {
     /// watchdog. Without, it is not known.
     pub fn started(mut self, start: paperpaw_sdk::power::Start) -> Self {
         self.0.started = start;
+        self
+    }
+
+    /// This start ends a sleep that restarted the device (the X4's cuts
+    /// its power): [`Kernel::start`] sends [`events::RESUME`] after
+    /// [`events::STARTED`], so that plugins hear the device wake as they do
+    /// where it sleeps on, and [`events::SUSPEND`] and [`events::RESUME`]
+    /// come in pairs. Without, it is not told.
+    ///
+    /// [`events::RESUME`]: paperpaw_sdk::builtin::events::RESUME
+    /// [`events::STARTED`]: paperpaw_sdk::builtin::events::STARTED
+    /// [`events::SUSPEND`]: paperpaw_sdk::builtin::events::SUSPEND
+    pub fn after_sleep(mut self, after_sleep: bool) -> Self {
+        self.0.after_sleep = after_sleep;
         self
     }
 
@@ -388,6 +403,7 @@ impl BuilderParts {
     fn build(&mut self, framebuffer: Framebuffer) -> Kernel {
         let mut kernel = self.new_kernel(framebuffer);
         kernel.card_trouble = self.card_trouble;
+        kernel.after_sleep = self.after_sleep;
         paperpaw_sdk::data::take_over_old_name(kernel.shared.storage.as_ref());
         kernel.read_secrets();
         paperpaw_sdk::library::take_over_old(kernel.shared.storage.as_ref());
@@ -653,6 +669,7 @@ impl BuilderParts {
             tasks: Vec::new(),
             config_unreadable: false,
             card_trouble: None,
+            after_sleep: false,
             secrets_unreadable: false,
             pairing_nonce: None,
             plugin_defaults: Vec::new(),
@@ -1089,6 +1106,7 @@ impl Kernel {
             random: paperpaw_sdk::random::Random::NONE,
             memory: paperpaw_sdk::memory::Memory::NONE,
             started: paperpaw_sdk::power::Start::Unknown,
+            after_sleep: false,
             panel: paperpaw_sdk::realtime::PanelInfo::new(
                 device
                     .display

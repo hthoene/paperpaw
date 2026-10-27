@@ -39,6 +39,7 @@ impl Plugin for Listener {
 
     fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
         for event in [
+            events::STARTED.id().clone(),
             events::STATUS_CHANGED.id().clone(),
             events::BATTERY_MEASURED.id().clone(),
             events::SUSPEND.id().clone(),
@@ -237,6 +238,38 @@ fn sleeping_and_waking_are_heard_and_counted() {
     assert_eq!(heard.iter().filter(|l| l.ends_with("resume")).count(), 4);
     assert_eq!(kernel.usage().sleeps, 5);
     assert_eq!(kernel.active_screen(), Some(&BASE));
+}
+
+/// A device whose sleep restarts it (the X4s) wakes by a start: the shell
+/// says so, and plugins hear the waking after the start, once.
+#[test]
+fn a_start_that_ends_a_sleep_is_a_waking_too() {
+    for (after_sleep, expected) in [
+        (false, vec!["heard core.started"]),
+        (true, vec!["heard core.started", "heard core.resume"]),
+    ] {
+        let harness = Harness::new();
+        let mut kernel = Kernel::builder(DEVICE)
+            .plugin(harness.plugin())
+            .plugin(Listener {
+                harness: harness.clone(),
+            })
+            .after_sleep(after_sleep)
+            .build()
+            .unwrap();
+        kernel.start(Instant(0));
+        common::render(&mut kernel);
+        assert_eq!(heard(&harness), expected, "after a sleep: {after_sleep}");
+        // It is no sleep counted, and it is not told again.
+        assert_eq!(kernel.usage().sleeps, 0);
+        kernel.suspend(Instant(1000));
+        kernel.resume(Instant(1100));
+        assert_eq!(
+            heard(&harness),
+            ["heard core.suspend", "heard core.resume"],
+            "after a sleep: {after_sleep}"
+        );
+    }
 }
 
 #[test]

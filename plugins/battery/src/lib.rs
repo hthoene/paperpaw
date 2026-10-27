@@ -100,6 +100,11 @@ fn record(env: &Env<'_>, state: &mut State, kind: Kind) {
     if !env.settings().read(&ENABLED) {
         return;
     }
+    // Awake already: a start that ends a sleep is told twice (it started,
+    // and the device woke), recorded once.
+    if kind == Kind::Start && state.awake {
+        return;
+    }
     let now = reading(env, state);
     append(
         env,

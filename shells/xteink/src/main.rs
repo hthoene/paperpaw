@@ -674,6 +674,12 @@ fn kernel(
     code: CodePlugins,
     staged: native::bundle::Staged,
 ) -> Kernel {
+    // A sleep cut the power or restarted the chip: waking is this start,
+    // which plugins hear as `core.resume` after `core.started`. The mark
+    // the sleep left is taken here, so that only this start finds it.
+    let start = started();
+    let after_sleep =
+        paperpaw_x4::slept::take(storage.as_ref()) || start == paperpaw_sdk::power::Start::Wake;
     #[cfg(feature = "remote")]
     let storage: Box<dyn Storage> = Box::new(traced::Traced(storage));
     let builder = Kernel::builder(DEVICE)
@@ -682,7 +688,8 @@ fn kernel(
         // Fully random while the radio is on, as when serving.
         .random(random)
         .memory(memory)
-        .started(started())
+        .started(start)
+        .after_sleep(after_sleep)
         // Black and white, frames drawn and sent while none refreshes; the
         // refreshes' times as they are measured (ADR 0030).
         .panel(paperpaw_sdk::realtime::PanelInfo::new(2))

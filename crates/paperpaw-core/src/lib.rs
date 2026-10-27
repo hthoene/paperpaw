@@ -318,6 +318,10 @@ pub struct Kernel {
     /// The shell found no card it can use: the reader is told why at
     /// each start.
     card_trouble: Option<CardTrouble>,
+    /// This start ends a sleep that restarted the device (see
+    /// [`KernelBuilder::after_sleep`]): [`events::RESUME`] follows
+    /// [`events::STARTED`].
+    after_sleep: bool,
     /// The file of passwords and keys is there but could not be read at
     /// start: it is not written over.
     secrets_unreadable: bool,
@@ -432,6 +436,10 @@ impl Kernel {
         self.invalidate(self.framebuffer.bounds());
         self.output.commands.push(Command::open_slot(slots::HOME));
         self.output.commands.push(events::STARTED.emit(()));
+        // The device slept and restarted: it wakes as it would elsewhere.
+        if mem::take(&mut self.after_sleep) {
+            self.output.commands.push(events::RESUME.emit(()));
+        }
         if let Some(radio) = &mut self.io.bluetooth {
             radio.start();
         }

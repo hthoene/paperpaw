@@ -74,6 +74,7 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/plugins/joplin/sent.txt`, `sending.txt`, `waiting.txt`, `notebook.txt` | joplin | a book per line: notes file, note id, MD5 of the note's text (tab separated); the same for notes sent whose answer did not come; a notes file per line; the notebook's name and id | version 1 |
 | `.paperpaw/plugins/readwise/waiting.txt` | readwise | the notes files whose highlights wait to be sent, a path per line | |
 | `.paperpaw/plugins/battery/log.csv` | battery | CSV with a header | version 1 |
+| `.paperpaw/slept` | X4 firmware (`paperpaw_x4::slept`) | an empty file: written as the device goes to sleep, removed by the next start, which then sends `core.resume` after `core.started` (the X4s' sleep ends in a start) | |
 | `.paperpaw/crashes.txt` | X4 firmware | a line per panic: the version and why, written for bug reports, never read back | |
 | `.paperpaw/plugins/battery/plugins.csv` | battery | CSV with a header, written for reading on a computer, never read back | |
 | `.paperpaw/plugins/battery/log.old.csv`, `plugins.old.csv` | battery | the logs before, kept once a log grew large | |

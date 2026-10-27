@@ -8,6 +8,12 @@ change the plugin SDK.
 
 ### Fixed
 
+- On the X4 and X4 Pro, what plugins do on waking now happens: *When the
+  device wakes up* in the rules, *Review on waking* of the flash cards, and
+  syncing a position at wake. Their sleep restarts the device, which plugins
+  heard as a start only; the firmware leaves a mark (`.paperpaw/slept`) as
+  it sleeps, and the start that finds it sends `core.resume` after
+  `core.started`. The battery log keeps one start line for the two.
 - The flash cards' *Retention wanted* setting shows its value as a
   percentage again, not as the key `vocabulary.unit.percent`: the unit
   needs its plural form (`.other = {count} %`).

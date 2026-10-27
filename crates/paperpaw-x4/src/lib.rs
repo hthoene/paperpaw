@@ -15,7 +15,8 @@
 //! updates over the air ([`ota`]), handles of the network stack made
 //! anew ([`generation`]), waits that never hang ([`bounded`]) and Wi-Fi
 //! given with the firmware
-//! ([`provision`]).
+//! ([`provision`]), and the mark of a sleep that ends in a start
+//! ([`slept`]).
 //!
 //! PaperPaw draws the screen upright, 480 × 800, in bands of rows; the
 //! display writes them turned into the controller's memory, which keeps
@@ -48,6 +49,7 @@ pub mod probe;
 pub mod provision;
 pub mod remote;
 pub mod sent;
+pub mod slept;
 pub mod sntp;
 pub mod stall;
 pub mod uc8179;
