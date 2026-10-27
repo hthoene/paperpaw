@@ -769,3 +769,120 @@ fn a_step_redraws_only_the_two_rows_it_concerns() {
     );
     assert!(!all);
 }
+
+// ---- drawing in bands --------------------------------------------------
+
+/// A frame drawn in bands, as the X4's is (five of 192 rows for 800): the
+/// screen's `draw` runs once for each, and a row outside a band is not
+/// worked on for it, yet the bands come out as the frame drawn whole.
+mod bands {
+    use super::*;
+    use paperpaw_sdk::ui::Ui;
+    use paperpaw_graphics::Framebuffer;
+    use paperpaw_sdk::Color;
+
+    const WIDTH: u16 = 400;
+    const HEIGHT: u16 = 840;
+    const BAND: u16 = 192;
+
+    fn pixels(frame: &Framebuffer) -> Vec<bool> {
+        let view = frame.view();
+        (0..HEIGHT)
+            .flat_map(|y| (0..WIDTH).map(move |x| (x, y)))
+            .map(|(x, y)| view.pixel(x, y) == Color::BLACK)
+            .collect()
+    }
+
+    /// Draws with `draw` once whole and once in bands; returns the two
+    /// frames' pixels and, for each band, the rows the band worked on.
+    fn both(
+        draw: &dyn Fn(&mut Ui<'_>, &mut dyn FnMut(usize, Rect)),
+    ) -> (Vec<bool>, Vec<bool>, Vec<(Rect, Vec<(usize, Rect)>)>) {
+        let harness = Harness::new(Device::BUTTONS);
+        let env = harness.env();
+        let style = style();
+        let mut whole = frame(WIDTH, HEIGHT);
+        draw(
+            &mut Ui::new(&mut whole.canvas(), &env, &style),
+            &mut |_, _| {},
+        );
+        let mut banded = frame(WIDTH, HEIGHT);
+        let mut worked = Vec::new();
+        let mut top = 0;
+        while top < HEIGHT {
+            let band = Rect::new(0, top, WIDTH, BAND.min(HEIGHT - top));
+            let mut rows = Vec::new();
+            let mut canvas = banded.canvas();
+            let mut part = canvas.clipped(band);
+            draw(
+                &mut Ui::new(&mut part, &env, &style),
+                &mut |index, rect| rows.push((index, rect)),
+            );
+            worked.push((band, rows));
+            top += BAND;
+        }
+        (pixels(&whole), pixels(&banded), worked)
+    }
+
+    fn row_ink(ui: &mut Ui<'_>, rect: Rect) {
+        ui.canvas().fill(rect.inset(12, 12), Color::BLACK);
+    }
+
+    #[test]
+    fn a_list_works_only_on_the_rows_in_the_band_and_draws_as_a_whole() {
+        let mut list = ListView::new(Rect::new(0, 0, WIDTH, HEIGHT), 70);
+        list.set_focus(5);
+        let len = 12;
+        let (whole, banded, worked) = both(&|ui, seen| {
+            list.draw(ui, len, |ui, index, rect, _| {
+                seen(index, rect);
+                row_ink(ui, rect);
+            });
+        });
+        assert_eq!(whole, banded, "the bands make the frame drawn whole");
+        for (band, rows) in &worked {
+            let lying_in: Vec<usize> = (0..len)
+                .filter(|&i| {
+                    let rect = list.row_rect(i);
+                    rect.intersection(band).is_some()
+                })
+                .collect();
+            let seen: Vec<usize> = rows.iter().map(|&(i, _)| i).collect();
+            assert_eq!(seen, lying_in, "band {band:?}");
+        }
+        let calls: usize = worked.iter().map(|(_, rows)| rows.len()).sum();
+        assert!(
+            calls < 2 * len,
+            "{calls} calls for {len} rows in {} bands",
+            worked.len()
+        );
+    }
+
+    #[test]
+    fn rows_work_only_on_the_rows_in_the_band_and_draw_as_a_whole() {
+        let heights = vec![40, 90, 90, 60, 120, 90, 90, 90, 100, 90];
+        let headings = vec![
+            true, false, false, true, false, false, false, false, true, false,
+        ];
+        let mut rows = Rows::new(Rect::new(0, 0, WIDTH, HEIGHT), heights, headings);
+        rows.step(true);
+        rows.step(true);
+        let visible = rows.visible();
+        let (whole, banded, worked) = both(&|ui, seen| {
+            rows.draw(ui, true, |ui, index, rect, _| {
+                seen(index, rect);
+                row_ink(ui, rect);
+            });
+        });
+        assert_eq!(whole, banded, "the bands make the frame drawn whole");
+        for (band, drawn) in &worked {
+            let lying_in: Vec<usize> = visible
+                .iter()
+                .filter(|(_, rect)| rect.intersection(band).is_some())
+                .map(|&(i, _)| i)
+                .collect();
+            let seen: Vec<usize> = drawn.iter().map(|&(i, _)| i).collect();
+            assert_eq!(seen, lying_in, "band {band:?}");
+        }
+    }
+}

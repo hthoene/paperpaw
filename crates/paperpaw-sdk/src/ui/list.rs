@@ -332,6 +332,9 @@ impl ListView {
         let first = self.page() * self.rows();
         for (slot, index) in (first..len).take(self.rows()).enumerate() {
             let rect = self.row_rect(slot);
+            if out_of_sight(ui.canvas(), rect) {
+                continue;
+            }
             let focused = self.active && self.shown && index == self.focus;
             ui.canvas().describe(Role::Row, "", rect).focused(focused);
             if focused {
@@ -342,6 +345,17 @@ impl ListView {
             draw_row(ui, index, rect, focused);
         }
     }
+}
+
+/// Whether a row at `rect` lies outside what `canvas` shows, so that
+/// drawing it is wasted: a frame is drawn in bands (the X4's are 192 rows,
+/// five to a frame) and the screen's `draw` runs once for each, so a row
+/// that lies in one or two of them would otherwise be looked up, measured
+/// and laid out five times. Not where someone asks what is drawn
+/// ([`Canvas::describe`](crate::Canvas::describe)): that is told the whole
+/// screen at once.
+pub(crate) fn out_of_sight(canvas: &crate::Canvas<'_>, rect: Rect) -> bool {
+    !canvas.is_describing() && canvas.clip().intersection(&rect).is_none()
 }
 
 /// The focus `delta` steps on from `focus` among `len` things: one step

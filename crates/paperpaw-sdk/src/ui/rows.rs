@@ -171,6 +171,9 @@ impl Rows {
             );
         }
         for (n, &(index, rect)) in visible.iter().enumerate() {
+            if super::list::out_of_sight(ui.canvas(), rect) {
+                continue;
+            }
             let focused = focus && index == self.focus && !self.is_heading(index);
             if !self.is_heading(index) {
                 ui.canvas()

@@ -18,6 +18,13 @@ change the plugin SDK.
 
 ### Changed
 
+- Lists and settings pages leave out the rows that lie outside the band being
+  drawn (the X4 draws a frame in bands of 192 rows): a screen's rows were looked
+  up, measured and laid out again for each band, five times for one or two
+  they are in. `Rows::draw` and `ListView::draw`, nothing changes for a screen
+  that uses them; where the screen is described (screen readers, the emulator)
+  every row is still told.
+
 - Rules: the list to choose an action, a switch or a number from comes by
   plugin where it is longer than a page (some six pages of actions on the
   X4): first the plugins, with how many each brings, then its own, and
