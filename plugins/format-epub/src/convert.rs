@@ -644,11 +644,15 @@ impl Converter<'_> {
             None => parent_size,
         };
         // Blocks are set in by their own margins at the sides and those of
-        // the blocks around them; text elements are not.
+        // the blocks around them; text elements are not. The body's own are
+        // the page's: the reader's margins, set in the settings, are those.
         let parent_margins = self.stack.last().map_or((0, 0), |f| f.margins);
         let margins = match is_block(&tag) || matches!(tag.as_str(), "li" | "pre") {
             true => {
-                let (start, end) = props.sides();
+                let (start, end) = match tag.as_str() {
+                    "body" => (0, 0),
+                    _ => props.sides(),
+                };
                 (
                     parent_margins.0.saturating_add(start).min(MAX_MARGIN),
                     parent_margins.1.saturating_add(end).min(MAX_MARGIN),

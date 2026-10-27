@@ -6,6 +6,12 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Fixed
+
+- The side margins set for reading no longer get the book's own `body`
+  margin and padding added on top, which left the sides wider than the
+  setting (top and bottom were right). Books are converted again.
+
 ## [0.5.0-beta.11] - 2026-10-26
 
 ### Added

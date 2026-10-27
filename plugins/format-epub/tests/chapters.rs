@@ -419,6 +419,25 @@ fn small_capitals_of_the_books_stylesheet_apply() {
     assert!(read[0].1.style_at(0).small_caps());
 }
 
+/// The body's own margin and padding are the page's, which the reader's
+/// margins already are: they do not come on top of those, while a wrapper
+/// inside the body still sets its text in.
+#[test]
+fn the_bodys_sides_are_not_added_to_the_readers_margins() {
+    let body = "<p>Plain</p><div class=\"wrap\"><p>Wrapped</p></div>";
+    let epub = book_with(
+        &[body.into()],
+        "body { margin: 0 5%; padding: 0 1em } .wrap { margin-left: 2em }",
+        &[],
+        false,
+    );
+    let (storage, doc) = open(epub);
+    let read = blocks(&doc, &storage);
+    let block = |text: &str| &read.iter().find(|(_, b)| b.text == text).unwrap().1;
+    assert_eq!(block("Plain").margins, (0, 0));
+    assert_eq!(block("Wrapped").margins, (200, 0));
+}
+
 /// Block quotes, poems and hanging indents keep their room at the sides,
 /// lists their numbers and nesting, footnote marks and struck words their
 /// marks, and a book's line height comes along.
