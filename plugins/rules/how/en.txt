@@ -2,4 +2,6 @@ A rule does something by itself when something happens: night mode on every day 
 
 Rules are in Settings under Customise, as Rules. Add rule asks When? (PaperPaw starts, a time of day, a book opened or closed, the battery, charging, a switch and more) and What then? (run an action, turn a switch on or off, set a number, show a message). Tap a rule to pause it; hold it (with buttons, hold Select) for a condition such as Between two times of day, or to remove it.
 
+The actions, switches and numbers to choose from come by plugin: pick the plugin, then what it brings; back goes out of it again. An action that works on the screen shown, such as Back or Next page, does what it would do if pressed there.
+
 Times apply whatever screen is open. Two rules that keep undoing each other stop after a few steps.

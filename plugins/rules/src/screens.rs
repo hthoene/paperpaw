@@ -734,16 +734,77 @@ fn range(env: &Env<'_>, id: &Id) -> Option<(i64, i64)> {
     })
 }
 
+/// What can be picked that one owner (a plugin: the first segment of the
+/// ids) brings.
+struct Group {
+    name: String,
+    /// Ids and names, in alphabetical order.
+    entries: Vec<(Id, String)>,
+}
+
+/// `entries` by their names, and by their owners where there are more
+/// than fit a page (`rows`) and more than one owner: a group for each, by
+/// the name `owner` gives it, in alphabetical order. Else one group with no
+/// name, and `false`.
+fn arrange(
+    mut entries: Vec<(Id, String)>,
+    rows: usize,
+    owner: impl Fn(&str) -> String,
+) -> (Vec<Group>, bool) {
+    entries.sort_by_key(|e| e.1.to_lowercase());
+    entries.dedup_by(|a, b| a.0 == b.0);
+    let mut owners: Vec<&str> = Vec::new();
+    for (id, _) in &entries {
+        if !owners.contains(&id.namespace()) {
+            owners.push(id.namespace());
+        }
+    }
+    if entries.len() <= rows || owners.len() < 2 {
+        let all = Group {
+            name: String::new(),
+            entries,
+        };
+        return (alloc::vec![all], false);
+    }
+    let mut by_owner: Vec<(String, Group)> = Vec::new();
+    for entry in entries {
+        let namespace = entry.0.namespace();
+        match by_owner.iter_mut().find(|(n, _)| n == namespace) {
+            Some((_, group)) => group.entries.push(entry),
+            None => {
+                let name = owner(namespace);
+                let namespace = String::from(namespace);
+                by_owner.push((
+                    namespace,
+                    Group {
+                        name,
+                        entries: alloc::vec![entry],
+                    },
+                ));
+            }
+        }
+    }
+    let mut groups: Vec<Group> = by_owner.into_iter().map(|(_, group)| group).collect();
+    groups.sort_by_key(|g| g.name.to_lowercase());
+    (groups, true)
+}
+
 /// Picks an action (parameter `mode` = `action`), a switch (`switch`) or a
-/// number (`number`): every one by its name, in alphabetical order. The choice comes back
-/// as the event named by `reply`, with `id`.
+/// number (`number`) by its name, in alphabetical order. Where the list is
+/// longer than a page, the plugins that bring them come first, and a
+/// plugin's own are one step in (back goes out again). The choice comes
+/// back as the event named by `reply`, with `id`.
 pub(crate) struct PickScreen {
     style: UiStyle,
     header: ui::Header,
     list: ListView,
     title: String,
-    /// Ids and names.
-    entries: Vec<(Id, String)>,
+    /// What there is to pick: one group where it is not shown by owner.
+    groups: Vec<Group>,
+    /// Whether the groups are listed before their entries.
+    grouped: bool,
+    /// The group whose entries are listed; none while the groups are.
+    open: Option<usize>,
     reply: Option<Id>,
 }
 
@@ -755,7 +816,7 @@ impl PickScreen {
         let top = header.area().height + style.gap();
         let area = Rect::new(0, top, display.width, display.height.saturating_sub(top));
         let mode = params.get(params::MODE).unwrap_or(ACTION);
-        let mut entries: Vec<(Id, String)> = if mode == SWITCH || mode == NUMBER {
+        let entries: Vec<(Id, String)> = if mode == SWITCH || mode == NUMBER {
             env.settings()
                 .specs()
                 // "Only this book" means nothing outside a book.
@@ -772,8 +833,13 @@ impl PickScreen {
                 .map(|a| (a.id().clone(), env.i18n().tr(a.title()).to_string()))
                 .collect()
         };
-        entries.sort_by_key(|e| e.1.to_lowercase());
-        entries.dedup_by(|a, b| a.0 == b.0);
+        let list = ListView::new(area, u32::from(style.row())).focus_on_keys(env);
+        let (groups, grouped) = arrange(entries, list.rows(), |namespace| {
+            env.plugins().get(namespace).map_or_else(
+                || namespace.to_string(),
+                |plugin| plugin.name(env.i18n()).to_string(),
+            )
+        });
         let title = env
             .i18n()
             .tr(match mode {
@@ -783,17 +849,46 @@ impl PickScreen {
             })
             .to_string();
         Self {
-            list: ListView::new(area, u32::from(style.row())).focus_on_keys(env),
+            list,
             title,
-            entries,
+            open: (!grouped).then_some(0),
+            groups,
+            grouped,
             reply: params.get(params::REPLY).and_then(|r| Id::parse(r).ok()),
             style,
             header,
         }
     }
 
-    fn pick(&self, index: usize, cx: &mut Cx<'_, '_>) {
-        let (Some((id, _)), Some(reply)) = (self.entries.get(index), &self.reply) else {
+    /// How many rows the list has now: the groups, or the open one's entries.
+    fn len(&self) -> usize {
+        match self.open {
+            Some(group) => self.groups.get(group).map_or(0, |g| g.entries.len()),
+            None => self.groups.len(),
+        }
+    }
+
+    /// What the header says: the group open, else what is picked.
+    fn heading(&self) -> &str {
+        match self.open.and_then(|group| self.groups.get(group)) {
+            Some(group) if self.grouped => &group.name,
+            _ => &self.title,
+        }
+    }
+
+    /// Row `index`: a group opens, an entry is picked.
+    fn pick(&mut self, index: usize, cx: &mut Cx<'_, '_>) {
+        let Some(group) = self.open else {
+            if index < self.groups.len() {
+                self.open = Some(index);
+                self.show_list(0, cx);
+            }
+            return;
+        };
+        let (Some((id, _)), Some(reply)) = (
+            self.groups.get(group).and_then(|g| g.entries.get(index)),
+            &self.reply,
+        ) else {
             return;
         };
         cx.command(Command::Back);
@@ -802,31 +897,62 @@ impl PickScreen {
             Params::new().with(params::ID, id.as_str().to_string()),
         ));
     }
+
+    /// Back out of a group to the groups, where the focus was; `false` where
+    /// there is none to leave (the screen closes).
+    fn leave_group(&mut self, cx: &mut Cx<'_, '_>) -> bool {
+        match self.open {
+            Some(group) if self.grouped => {
+                self.open = None;
+                self.show_list(group, cx);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The rows are other ones: from the top, the focus on `focus`.
+    fn show_list(&mut self, focus: usize, cx: &mut Cx<'_, '_>) {
+        self.list.set_focus(focus);
+        cx.request_redraw();
+        cx.request_refresh(RefreshMode::Partial);
+    }
 }
 
 impl Screen for PickScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         let style = self.style;
         let mut ui = ui::Ui::new(canvas, env, &style);
-        let len = self.entries.len();
+        let len = self.len();
         self.header
-            .draw(&mut ui, &self.title, None, self.list.paging(len));
-        let entries = &self.entries;
+            .draw(&mut ui, self.heading(), None, self.list.paging(len));
+        let (groups, open) = (&self.groups, self.open);
         self.list.draw(&mut ui, len, |ui, index, rect, focused| {
-            ui::Row::value(&entries[index].1, "")
-                .focused(focused)
-                .draw(ui, rect);
+            match open.and_then(|group| groups.get(group)) {
+                Some(group) => ui::Row::value(&group.entries[index].1, "")
+                    .focused(focused)
+                    .draw(ui, rect),
+                None => {
+                    // A group shows how many it holds, and that it opens.
+                    let held = alloc::format!("{} ›", groups[index].entries.len());
+                    ui::Row::value(&groups[index].name, &held)
+                        .focused(focused)
+                        .draw(ui, rect);
+                }
+            }
         });
     }
 
     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
         let a = action;
-        let len = self.entries.len();
+        let len = self.len();
         let rows = self.list.rows() as isize;
         let delta = if let Some(delta) = ui::list_step(a, rows) {
             delta
         } else if *a == actions::CONFIRM {
             self.pick(self.list.focus(), cx);
+            return Handled::Yes;
+        } else if *a == actions::BACK && self.leave_group(cx) {
             return Handled::Yes;
         } else {
             return Handled::No;
@@ -839,7 +965,7 @@ impl Screen for PickScreen {
         if gesture.kind != GestureKind::Tap {
             return Handled::No;
         }
-        let len = self.entries.len();
+        let len = self.len();
         let paging = self.list.paging(len);
         if let Some(action) = self
             .header
@@ -856,5 +982,58 @@ impl Screen for PickScreen {
             }
             None => Handled::No,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entries(ids: &[&str]) -> Vec<(Id, String)> {
+        ids.iter()
+            .map(|id| (Id::parse(id).unwrap(), id.to_uppercase()))
+            .collect()
+    }
+
+    fn owner(namespace: &str) -> String {
+        match namespace {
+            "files" => String::from("Library"),
+            other => other.to_string(),
+        }
+    }
+
+    #[test]
+    fn what_fits_a_page_comes_as_one_list() {
+        let (groups, grouped) = arrange(entries(&["b.x", "a.y", "a.z"]), 3, owner);
+        assert!(!grouped);
+        assert_eq!(groups.len(), 1);
+        let names: Vec<_> = groups[0].entries.iter().map(|e| e.1.as_str()).collect();
+        assert_eq!(names, ["A.Y", "A.Z", "B.X"], "by name");
+    }
+
+    #[test]
+    fn one_owner_alone_is_no_group() {
+        let (groups, grouped) = arrange(entries(&["a.x", "a.y", "a.z", "a.w"]), 2, owner);
+        assert!(!grouped, "nothing to choose between");
+        assert_eq!(groups[0].entries.len(), 4);
+    }
+
+    #[test]
+    fn a_long_list_comes_by_owner_in_the_order_of_their_names() {
+        let ids = ["files.b", "zed.a", "files.a", "beta.a", "zed.b"];
+        let (groups, grouped) = arrange(entries(&ids), 2, owner);
+        assert!(grouped);
+        let names: Vec<_> = groups.iter().map(|g| g.name.as_str()).collect();
+        assert_eq!(names, ["beta", "Library", "zed"], "by the owner's name");
+        let library: Vec<_> = groups[1].entries.iter().map(|e| e.1.as_str()).collect();
+        assert_eq!(library, ["FILES.A", "FILES.B"], "each by name");
+    }
+
+    #[test]
+    fn the_same_id_is_listed_once() {
+        let mut list = entries(&["a.x", "b.y"]);
+        list.push((Id::parse("a.x").unwrap(), String::from("A.X")));
+        let (groups, _) = arrange(list, 10, owner);
+        assert_eq!(groups[0].entries.len(), 2);
     }
 }

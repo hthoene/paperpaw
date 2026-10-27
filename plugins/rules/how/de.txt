@@ -2,4 +2,6 @@ Eine Regel tut von selbst etwas, wenn etwas passiert: jeden Tag um 22:00 den Nac
 
 Die Regeln findest du in den Einstellungen unter Anpassen, als Regeln. Regel hinzufügen fragt Wann? (PaperPaw startet, eine Uhrzeit, ein Buch wird geöffnet oder geschlossen, der Akku, das Laden, ein Schalter und mehr) und Was dann? (eine Aktion ausführen, einen Schalter umlegen, eine Zahl einstellen, eine Nachricht zeigen). Eine Regel antippen pausiert sie; lange drücken (mit Tasten: Wählen halten) bietet eine Bedingung wie Zwischen zwei Uhrzeiten oder Entfernen.
 
+Die Aktionen, Schalter und Zahlen zur Auswahl sind nach Plugin geordnet: erst das Plugin wählen, dann was es bringt; Zurück geht wieder hinaus. Eine Aktion, die auf den gezeigten Bildschirm wirkt, etwa Zurück oder Nächste Seite, tut, was sie dort täte.
+
 Uhrzeiten gelten, welcher Bildschirm auch offen ist. Zwei Regeln, die sich gegenseitig aufheben, stoppen nach einigen Schritten.
