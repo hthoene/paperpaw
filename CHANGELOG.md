@@ -6,6 +6,13 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Added
+
+- *Button response* on the X4s has a third choice, *Saving*: the processor
+  sleeps up to 50 ms between readings of the buttons on battery (30 ms
+  as *Normal*, 10 ms as *Faster*), for a little less current; a tap
+  shorter than that may be missed. *Normal* stays as it was.
+
 ### Changed
 
 - Rules: the list to choose an action, a switch or a number from comes by

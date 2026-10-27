@@ -37,9 +37,10 @@ const CABLE_QUIET_MS: u64 = 300;
 const STATUS_MS: u64 = 60_000;
 /// On battery, the longest the processor sleeps between readings of the
 /// buttons (a press lasts 80 ms and more); less with the button response
-/// *Faster*.
+/// *Faster*, more with *Saving* (a tap of under that may be missed).
 const IDLE_MS: u64 = 30;
 const IDLE_FAST_MS: u64 = 10;
+const IDLE_SAVING_MS: u64 = 50;
 /// How often the buttons are read while awake (`input`'s timer): the
 /// rest while a press settles.
 const SAMPLE_MS: u64 = 5;
@@ -258,6 +259,19 @@ impl Firmware {
     /// Whether the button response is *Faster* (see `device`).
     fn faster(&self) -> bool {
         self.kernel.settings().read(&device::BUTTON_RESPONSE) == device::RESPONSE_FASTER
+    }
+
+    /// The longest the processor sleeps between readings of the buttons, by
+    /// the button response.
+    fn idle_ms(&self) -> u64 {
+        let response = self.kernel.settings().read(&device::BUTTON_RESPONSE);
+        if response == device::RESPONSE_FASTER {
+            IDLE_FAST_MS
+        } else if response == device::RESPONSE_SAVING {
+            IDLE_SAVING_MS
+        } else {
+            IDLE_MS
+        }
     }
 
     /// How long after a refresh the panel's power goes off: never where
@@ -560,7 +574,7 @@ impl Firmware {
             self.delay.delay_millis(SAMPLE_MS as u32);
             return;
         }
-        let idle = if self.faster() { IDLE_FAST_MS } else { IDLE_MS };
+        let idle = self.idle_ms();
         let mut until = now().0
             + if battery {
                 idle
@@ -846,7 +860,7 @@ impl Firmware {
         // release seen only after it (a press that looks long). None
         // while a press or a release settles.
         let expected = self.state.refresh_ms[kind].saturating_sub(20);
-        let idle = if self.faster() { IDLE_FAST_MS } else { IDLE_MS };
+        let idle = self.idle_ms();
         let until = started.0 + expected;
         while expected > 0 && !input::settling() && power::nap_until(until.min(now().0 + idle)) {}
         let woke = now();
