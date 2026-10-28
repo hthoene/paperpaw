@@ -85,6 +85,12 @@ def rate_limited(text):
                           r"\b429\s+Too Many Requests\b)", text, re.IGNORECASE))
 
 
+# The registry holds back new versions of existing crates for a while after a
+# burst of them; a whole release can meet its limit many times. This many
+# waits (each as long as the registry says) cover a release without a restart.
+DEFAULT_MAX_RETRIES = 60
+
+
 def retry_delay(text, attempt, now=None):
     """Honor server deadlines; use a bounded fallback only when no hint was given."""
     now = time.time() if now is None else now
@@ -198,7 +204,8 @@ def main():
     mode.add_argument("--dry-run", action="store_true", help="also package and build missing crates without uploading")
     mode.add_argument("--publish", action="store_true", help="upload missing crates; resume safely after rate limits")
     parser.add_argument("--journal", type=pathlib.Path, help="journal path; default: target/release/publish-workspace-<commit>.json")
-    parser.add_argument("--max-retries", type=int, default=8, help="automatic 429 retries this invocation (default: 8)")
+    parser.add_argument("--max-retries", type=int, default=DEFAULT_MAX_RETRIES,
+                        help=f"automatic 429 retries this invocation (default: {DEFAULT_MAX_RETRIES})")
     options = parser.parse_args()
     if options.max_retries < 0:
         parser.error("--max-retries must be nonnegative")

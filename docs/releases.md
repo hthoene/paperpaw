@@ -85,7 +85,8 @@ After an HTTP 429, the script respects the registry's `Retry-After`
 header or its "Please try again after" UTC date, with a five-second
 margin. It reports its wait at least every 30 seconds. If the response
 contains no deadline, delays grow from 30 seconds to at most 15 minutes.
-The default is at most eight automatic retries per invocation; use
+The default is at most 60 automatic retries per invocation (enough to
+wait out the registry's limits for a whole release); use
 `--max-retries <number>` to change that limit. Other Cargo errors stop
 immediately, and network failures are never treated as missing crates.
 The script does not change accounts, tokens or package identities to

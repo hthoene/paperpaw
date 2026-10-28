@@ -6,6 +6,11 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Changed
+
+- `tools/publish-workspace.py` waits out the registry's rate limits up to 60 times in one
+  run (it was 8), so a release's crates can be published without restarting it.
+
 ## [0.5.0-beta.12] - 2026-10-28
 
 ### Changed
