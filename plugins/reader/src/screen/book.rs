@@ -362,7 +362,7 @@ impl Book {
         {
             return Some(first);
         }
-        let (first, _) = index.locate(env.storage(), *start)?;
+        let (first, _) = indexed_page(index, env.storage(), *start)?;
         self.chapter_first.set(Some((*start, index.pages(), first)));
         Some(first)
     }
@@ -1067,10 +1067,8 @@ impl Book {
         let Some(index) = &self.index else {
             return at;
         };
-        match index.locate(env.storage(), at) {
-            Some((page, _)) if index.is_complete() || page + 1 < index.pages() => {
-                index.entry(env.storage(), page).unwrap_or(at)
-            }
+        match indexed_page(index, env.storage(), at) {
+            Some((page, start)) if index.is_complete() || page + 1 < index.pages() => start,
             _ => at,
         }
     }
@@ -1108,6 +1106,32 @@ impl Book {
         }
         self.chapter = Some(chapter);
     }
+}
+
+/// The page of `index` that shows `at`, and its start. A place before the
+/// first page of its section, such as the start `(section, 0)` of a chapter
+/// that begins a file, is on that section's first page: a page's start is
+/// that of its first block (`layout_page` moves it there), after the
+/// markup, so [`PageIndex::locate`] alone puts such a place on the last page
+/// of the section before, or, before the first page of the book, on none.
+/// Pages never go over two sections, so a page that starts in an earlier
+/// section than `at` and is followed by one of its section is not the one.
+fn indexed_page(
+    index: &PageIndex,
+    storage: &dyn paperpaw_sdk::Storage,
+    at: Locator,
+) -> Option<(u32, Locator)> {
+    // `None`: before the first page of the book.
+    let page = index.locate(storage, at).map_or(0, |(page, _)| page);
+    let start = index.entry(storage, page)?;
+    if start.section < at.section
+        && let Some(next) = page.checked_add(1)
+        && let Some(first) = index.entry(storage, next)
+        && first.section == at.section
+    {
+        return Some((next, first));
+    }
+    Some((page, start))
 }
 
 /// The chapter after the page or the one it is in (or before), `on` or
