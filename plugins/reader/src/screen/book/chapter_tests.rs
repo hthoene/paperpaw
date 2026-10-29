@@ -153,3 +153,56 @@ fn few_exact_starts_are_found() {
     );
     assert_eq!(book.exact.get(), 2);
 }
+
+/// The index of pages as the layout makes them: a page that begins a
+/// section starts at the section's first block, after offset 0.
+fn index_of(storage: &MemoryStorage, starts: &[Locator]) -> PageIndex {
+    let mut index = PageIndex::open(storage, String::from("pages.bin"));
+    assert!(index.append(storage, starts));
+    index.finish(storage);
+    index
+}
+
+#[test]
+fn a_place_before_a_sections_first_page_is_on_that_page() {
+    let storage = MemoryStorage::new();
+    let index = index_of(
+        &storage,
+        &[
+            Locator::new(0, 8),
+            Locator::new(0, 100),
+            Locator::new(1, 8),
+            Locator::new(1, 100),
+        ],
+    );
+    let page = |section, offset| indexed_page(&index, &storage, Locator::new(section, offset));
+    // The start of a chapter that begins a file: its first page, not the
+    // last of the section before.
+    assert_eq!(page(1, 0), Some((2, Locator::new(1, 8))));
+    // Inside a page, and at its start: that page.
+    assert_eq!(page(1, 8), Some((2, Locator::new(1, 8))));
+    assert_eq!(page(1, 50), Some((2, Locator::new(1, 8))));
+    assert_eq!(page(1, 100), Some((3, Locator::new(1, 100))));
+    assert_eq!(page(0, 99), Some((0, Locator::new(0, 8))));
+    // Before the first page of the book (a cover, a first chapter).
+    assert_eq!(page(0, 0), Some((0, Locator::new(0, 8))));
+    // Past the last page: the last page, as `locate` has it.
+    assert_eq!(page(2, 0), Some((3, Locator::new(1, 100))));
+}
+
+#[test]
+fn a_section_without_pages_is_left_to_the_page_before() {
+    let storage = MemoryStorage::new();
+    let index = index_of(&storage, &[Locator::new(0, 8), Locator::new(2, 8)]);
+    assert_eq!(
+        indexed_page(&index, &storage, Locator::new(1, 0)),
+        Some((0, Locator::new(0, 8)))
+    );
+}
+
+#[test]
+fn no_pages_no_page() {
+    let storage = MemoryStorage::new();
+    let index = PageIndex::open(&storage, String::from("pages.bin"));
+    assert_eq!(indexed_page(&index, &storage, Locator::new(0, 0)), None);
+}

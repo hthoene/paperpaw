@@ -6,6 +6,19 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Fixed
+
+- Reader: a chapter that begins a file is shown from its first page when it is
+  chosen in the contents or reached by a link to the file. Once the page index
+  had reached it, the last page of the chapter before was shown instead, the
+  page in the chapter (status lines) was one too high, and it was missing for a
+  chapter before the first page of the book. The pages of a file start at its
+  first block, after offset 0, where the contents point; a place before the
+  first page of its section is now on that page. Found in a fork by Alexandre
+  Cormier ([alexcormier/paperpaw@958537c](https://github.com/alexcormier/paperpaw/commit/958537c4a2751a7dbf75175b51511790a6cd22b4));
+  this fix follows its approach and also covers a chapter before the book's
+  first page.
+
 ## [0.5.0-beta.12] - 2026-10-28
 
 ### Changed
