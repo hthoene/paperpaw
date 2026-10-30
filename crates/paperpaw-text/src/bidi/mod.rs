@@ -201,6 +201,12 @@ pub fn start_state(paragraph: Level, state: &mut [u8]) -> bool {
     Carry::new(paragraph).encode(state)
 }
 
+/// The paragraph level `state` holds; none where it is no state.
+#[must_use]
+pub fn state_paragraph(state: &[u8]) -> Option<Level> {
+    Carry::decode(state).map(|c| c.paragraph())
+}
+
 /// As [`resolve`], from the point of a paragraph `state` says (see
 /// [`start_state`]), and moves the state on past the characters
 /// resolved. `rest` runs from that point to as far as the reader reads

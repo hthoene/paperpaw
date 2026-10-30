@@ -177,6 +177,7 @@ fn layout(doc: &Text, start: u32, height: f32, style: &Style) -> Page {
         style,
         typesetter: &Units,
         hyphenate: None,
+        pieces: None,
     };
     layout_page(&cx, Locator::new(0, start), height).unwrap()
 }
@@ -212,6 +213,7 @@ ee ff
             style: &STYLE,
             typesetter: &Units,
             hyphenate: None,
+            pieces: None,
         };
         line_start(&cx, Locator::new(0, offset)).unwrap().offset
     };
@@ -498,6 +500,7 @@ fn layout_with(
         style: &STYLE,
         typesetter,
         hyphenate: None,
+        pieces: None,
     };
     layout_page(&cx, start, height)
 }
