@@ -1206,6 +1206,15 @@ pub(super) fn page_words(lines: &[PageLine]) -> Vec<paperpaw_sdk::reading::Word>
     for line in lines {
         let parts = line.text.split(' ').filter(|part| !part.is_empty());
         for (part, &(start, end)) in parts.zip(&line.words) {
+            // Without the controls an EPUB's `dir` puts in, which draw
+            // nothing: a decorator looks for the word itself.
+            let part: String = part
+                .chars()
+                .filter(|&c| !paperpaw_sdk::text::is_invisible(c))
+                .collect();
+            if part.is_empty() {
+                continue;
+            }
             let at = |offset| Locator::new(line.section, offset);
             words.push(Word::new(part, at(start), at(end)));
         }

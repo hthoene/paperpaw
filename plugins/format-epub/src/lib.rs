@@ -857,6 +857,34 @@ mod tests {
         );
     }
 
+    #[test]
+    fn highlights_kept_by_xpointer_find_their_words_past_a_dir_span() {
+        // Cache version 28 wrote this paragraph without the controls that
+        // set the span apart; a highlight it kept holds XPointers into
+        // the book's text nodes, which the controls do not change.
+        let ch2 = String::from(
+            "<html><body><p>Lies <span dir=\"rtl\">\u{5d0}\u{5d1}</span> weiter hier.</p></body></html>",
+        );
+        let storage = epub(ch2);
+        let doc = EpubDocument::open(&storage, "books/test.epub").unwrap();
+        let block = doc.block_at(&storage, Locator::new(1, 0)).unwrap().unwrap();
+        assert!(block.text.contains('\u{2067}'));
+        let at = |x: &str| {
+            let full = alloc::format!("/body/DocFragment[2]/body/{x}");
+            let found = doc.locate_xpointer(&storage, &full).unwrap();
+            // And back: the same XPointer, as a highlight keeps it.
+            let again = doc.xpointer(&storage, found).unwrap();
+            assert_eq!(again, full);
+            &block.text[block.text_index(found.offset)..]
+        };
+        // "weiter hier.", its start and the end of "hier".
+        assert!(at("p[1]/text()[2].1").starts_with("weiter"));
+        assert!(at("p[1]/text()[2].8").starts_with("hier."));
+        // The Hebrew in the span, and the text before it.
+        assert!(at("p[1]/span[1]/text()[1].0").starts_with('\u{5d0}'));
+        assert!(at("p[1]/text()[1].0").starts_with("Lies"));
+    }
+
     /// Every character one wide, lines 10 high.
     struct Units;
 

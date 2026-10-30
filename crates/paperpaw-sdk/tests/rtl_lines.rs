@@ -19,7 +19,8 @@ use paperpaw_sdk::lang::Direction;
 use paperpaw_sdk::layout::{LayoutContext, LineBidi, layout_page};
 use paperpaw_sdk::reading::{PageType, ReadingFaces, StatusRoom, draw_lines, word_boxes};
 use paperpaw_sdk::{
-    Color, Font, FontSpec, Id, LineMetrics, NoStorage, PixelFormat, Priority, SettingSpec, Storage,
+    Color, Font, FontSpec, Id, LineMetrics, NoStorage, PixelFormat, Priority, SettingSpec,
+    SettingValue, Storage,
 };
 use paperpaw_text::{Glyph, PackBuilder};
 
@@ -229,4 +230,87 @@ fn hebrew_with_points_is_drawn_from_the_right_its_points_on_their_letters() {
     }
     assert!(changed > 10, "{changed}");
     assert_eq!(with.view().pixel(0, 0), Color::WHITE);
+}
+
+/// One paragraph of `dir` auto.
+struct Para(Metadata, String);
+
+impl Document for Para {
+    fn metadata(&self) -> &Metadata {
+        &self.0
+    }
+
+    fn sections(&self) -> u32 {
+        1
+    }
+
+    fn section_len(&self, _: u32) -> u32 {
+        self.1.len() as u32
+    }
+
+    fn block_at(&self, _: &dyn Storage, at: Locator) -> Result<Option<Block>, DocumentError> {
+        let len = self.1.len() as u32;
+        Ok((at.offset < len).then(|| Block::new(BlockKind::Paragraph, 0, len, self.1.clone())))
+    }
+}
+
+/// Literata as the firmware draws it, Latin only.
+fn literata() -> Font {
+    let data = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../plugins/fonts-default/fonts/Literata.ttf"
+    ))
+    .unwrap();
+    let outline = paperpaw_text::OutlineFont::new(data, &[]).unwrap();
+    let chars = paperpaw_text::charset::chars(paperpaw_text::charset::LATIN);
+    let pack = paperpaw_text::build_pack(&outline, &[15.0, 20.0], chars);
+    Font::from_data(pack, &[]).unwrap()
+}
+
+#[test]
+fn latin_with_a_dir_span_is_drawn_as_before_ragged_and_justified() {
+    // As the EPUB converter writes `<span dir="ltr">`: LRI before, PDI
+    // after; the same words without them take the old way.
+    let words = "Read the manual now, and then read the rest of the book slowly, \
+                 for it is long and the evenings are long too in the north.";
+    let isolated = words.replace("manual", "\u{2066}manual\u{2069}");
+    for justify in [false, true] {
+        let draw = |text: &str| {
+            let mut h = harness_with(literata());
+            h.settings
+                .set(settings::JUSTIFY.static_str(), SettingValue::Bool(justify))
+                .unwrap();
+            let env = h.env();
+            let font = env.fonts().role(fonts::READING.as_str()).unwrap();
+            let t = PageType::new(&env, &font, "en", false, StatusRoom::NONE);
+            let faces = ReadingFaces::new(&env, &t, None).unwrap();
+            let doc = Para(Metadata::default(), String::from(text));
+            let cx = LayoutContext::new(&doc, &NoStorage, 200.0, &t.style, &faces);
+            let page = layout_page(&cx, Locator::START, 500.0).unwrap();
+            assert!(page.lines.len() > 2);
+            let boxes: Vec<(String, paperpaw_sdk::Rect)> = word_boxes(&faces, &t, &page)
+                .into_iter()
+                .map(|w| (w.text, w.area))
+                .collect();
+            let mut frame = Framebuffer::new(240, 300, PixelFormat::Gray8).unwrap();
+            draw_lines(
+                &mut frame.canvas(),
+                &faces,
+                &t,
+                (t.x, t.y),
+                &page.lines,
+                &[],
+            );
+            let pixels: Vec<Color> = (0..300u16)
+                .flat_map(|y| (0..240u16).map(move |x| (x, y)))
+                .map(|(x, y)| frame.view().pixel(x, y))
+                .collect();
+            (boxes, pixels)
+        };
+        let (plain_boxes, plain) = draw(words);
+        let (isolated_boxes, with) = draw(&isolated);
+        assert_eq!(isolated_boxes, plain_boxes, "justify {justify}");
+        let differ = plain.iter().zip(&with).filter(|(a, b)| a != b).count();
+        assert_eq!(differ, 0, "{differ} pixels differ, justify {justify}");
+    }
 }

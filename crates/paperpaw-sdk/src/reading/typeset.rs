@@ -625,6 +625,7 @@ impl<'a> ReadingFaces<'a> {
 
     /// The width of `text` in `face`, small capitals included.
     pub fn measure(&self, face: Face, text: &str) -> f32 {
+        let text = &*visible(text);
         let (font, size) = (self.font(face), self.size(face));
         let letters = self.letters(text);
         if !face.style.small_caps() {
@@ -696,6 +697,7 @@ impl<'a> ReadingFaces<'a> {
         text: &str,
         ink: Color,
     ) -> f32 {
+        let text = &*visible(text);
         let size = self.size(face);
         let (extra, tone) = self.inking(canvas, size);
         let font = self.font(face);
@@ -799,6 +801,19 @@ impl ReadingFaces<'_> {
 
 /// Whether `text` set with `around` is shaped: right to left, or Hebrew
 /// or Arabic in it.
+/// `text` without the controls that draw nothing and take no room (an
+/// EPUB's `dir`, marks of direction): drawn letter by letter or with
+/// small capitals, they would be missing glyphs.
+fn visible(text: &str) -> alloc::borrow::Cow<'_, str> {
+    match text.chars().any(paperpaw_text::is_invisible) {
+        true => text
+            .chars()
+            .filter(|&c| !paperpaw_text::is_invisible(c))
+            .collect(),
+        false => alloc::borrow::Cow::Borrowed(text),
+    }
+}
+
 fn shaped(text: &str, around: &crate::text::Around) -> bool {
     around.base == crate::lang::Direction::Rtl
         || text.chars().any(|c| matches!(c, '\u{0590}'..='\u{08FF}'))
