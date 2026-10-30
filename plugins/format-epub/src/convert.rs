@@ -10,7 +10,11 @@
 //!   sets none), its text size as u16 in percent of body text (0 if it
 //!   sets none), its margins at the start and the end of the lines as u16
 //!   each, in hundredths of an em, and its distance between lines as u16
-//!   in percent of its text size (0 if it sets none). Kept apart from the
+//!   in percent of its text size (0 if it sets none), its language as
+//!   `Lang` bits (u32), its direction (u8: 0 from its text, 1 left to
+//!   right, 2 right to left), the number of its inline languages (u8,
+//!   their `Lang` bits as u32 each after its style runs) and two bytes 0.
+//!   Kept apart from the
 //!   text so positions in it stay the same when more is stored per
 //!   block.
 //! - `<n>.anc`: `id<TAB>offset` lines for anchors (table of contents).
@@ -53,19 +57,22 @@ use alloc::vec::Vec;
 use paperpaw_sdk::Storage;
 use paperpaw_sdk::document::{Align, BlockKind, DocumentError, Run, TextStyle};
 use paperpaw_sdk::image::Fit;
+use paperpaw_sdk::lang::{Direction, Lang};
 use paperpaw_sdk::xml::{Token, Tokenizer, decode, local_name};
 use paperpaw_sdk::zip::{Entry, ZipArchive};
 
 use crate::css::{self, Props, Rules};
 
+mod direction;
 mod elements;
 use crate::package::error;
+pub(crate) use direction::{BookText, dir_from_bits};
 use elements::{element_props, furniture, heading_level, is_block, is_void, styled};
 
 /// Size of a record header.
 pub(crate) const HEADER: u32 = 8;
 /// Bytes per record in `<n>.idx`.
-pub(crate) const INDEX: u32 = 16;
+pub(crate) const INDEX: u32 = 24;
 /// A record without the book's indent or space.
 pub(crate) const NO_INDENT: i16 = i16::MIN;
 pub(crate) const NO_SPACE: u16 = u16::MAX;
@@ -206,6 +213,13 @@ struct Frame {
     tag: String,
     style: TextStyle,
     align: Align,
+    /// `align` was given as `left` or `right` (see [`direction`]).
+    align_sides: bool,
+    /// The direction of the paragraphs it holds, inherited; a block
+    /// element's `dir` or CSS `direction` sets it.
+    dir: Direction,
+    /// Its language, inherited.
+    lang: Lang,
     /// The book's indent, inherited as in CSS.
     indent: Option<i16>,
     /// The book's text size in percent of body text, inherited.
@@ -317,8 +331,17 @@ struct Converter<'a> {
     text: String,
     /// Style runs of `text`.
     runs: Vec<Run>,
-    /// Alignment of the current block, set by its first character.
+    /// Alignment of the current block, set by its first character, and
+    /// whether it was given as `left` or `right`.
     align: Option<Align>,
+    align_sides: bool,
+    /// The book's language and direction, for text that sets none.
+    book: BookText,
+    /// The direction and language of the current block, set by its first
+    /// character, and the other languages in it.
+    dir: Option<Direction>,
+    lang: Option<Lang>,
+    inline_langs: Vec<Lang>,
     /// The book's indent of the current block, set by its first character.
     indent: Option<i16>,
     /// The book's text size of the current block, set likewise.
@@ -382,8 +405,18 @@ impl Converter<'_> {
     /// Appends text in `style`.
     fn push_styled(&mut self, c: char, style: TextStyle) {
         let (_, align) = self.frame();
+        let (sides, dir, lang) = self
+            .stack
+            .last()
+            .map_or((false, self.book.dir, self.book.lang), |f| {
+                (f.align_sides, f.dir, f.lang)
+            });
         if self.text.is_empty() {
-            self.align.get_or_insert(align);
+            if self.align.is_none() {
+                (self.align, self.align_sides) = (Some(align), sides);
+            }
+            self.dir.get_or_insert(dir);
+            self.lang.get_or_insert(lang);
             self.indent = self.stack.last().and_then(|f| f.indent);
             self.size = self.stack.last().and_then(|f| f.size);
             self.margins = self.stack.last().map_or((0, 0), |f| f.margins);
@@ -415,6 +448,12 @@ impl Converter<'_> {
         self.since_origin += 1;
         self.text.push(c);
         let end = self.text.len() as u32;
+        // Text in another language than its block's: by its place among
+        // the block's others.
+        let style = match self.lang.is_some_and(|own| own != lang) {
+            true => style.with_lang_index(direction::inline_index(&mut self.inline_langs, lang)),
+            false => style,
+        };
         if style == TextStyle::REGULAR {
             return;
         }
@@ -643,6 +682,20 @@ impl Converter<'_> {
             Some(size) => Some(size.of(parent_size.unwrap_or(100))),
             None => parent_size,
         };
+        // Paragraphs take the direction of the block elements around them
+        // (inline ones are not set apart yet); text the language of the
+        // innermost element that names one.
+        let (parent_dir, parent_lang, parent_sides) = self
+            .stack
+            .last()
+            .map_or((self.book.dir, self.book.lang, false), |f| {
+                (f.dir, f.lang, f.align_sides)
+            });
+        let paragraphs = is_block(&tag) || matches!(tag.as_str(), "html" | "body" | "li" | "pre");
+        let dir = direction::own_dir(&attrs, props.direction)
+            .filter(|_| paragraphs)
+            .unwrap_or(parent_dir);
+        let lang = direction::own_lang(&attrs).unwrap_or(parent_lang);
         // Blocks are set in by their own margins at the sides and those of
         // the blocks around them; text elements are not. The body's own are
         // the page's: the reader's margins, set in the settings, are those.
@@ -651,6 +704,12 @@ impl Converter<'_> {
             true => {
                 let (start, end) = match tag.as_str() {
                     "body" => (0, 0),
+                    // The left and right ones: the end and the start of
+                    // right-to-left lines.
+                    _ if dir == Direction::Rtl => {
+                        let (left, right) = props.sides();
+                        (right, left)
+                    }
                     _ => props.sides(),
                 };
                 (
@@ -741,6 +800,12 @@ impl Converter<'_> {
             tag: tag.clone(),
             style: styled(style, &props),
             align: props.align.unwrap_or(align),
+            align_sides: match props.align {
+                Some(_) => props.align_sides,
+                None => parent_sides,
+            },
+            dir,
+            lang,
             indent,
             size,
             margins,
@@ -1053,6 +1118,10 @@ impl Converter<'_> {
         self.origin_bytes = 0;
         self.since_origin = 0;
         self.align = None;
+        self.align_sides = false;
+        self.dir = None;
+        self.lang = None;
+        self.inline_langs.clear();
         self.indent = None;
         self.size = None;
         self.margins = (0, 0);
@@ -1060,6 +1129,24 @@ impl Converter<'_> {
         self.kind = BlockKind::Paragraph;
         self.continues = false;
         self.space = false;
+    }
+
+    /// The direction of the current block, its first `len` bytes written:
+    /// one that goes `Auto` takes its first piece's direction on into the
+    /// next pieces of its paragraph.
+    fn block_dir(&mut self, len: usize) -> Direction {
+        let dir = match self.dir.unwrap_or(self.book.dir) {
+            Direction::Auto => {
+                let text = self.text.get(..len).unwrap_or_default();
+                match paperpaw_sdk::text::bidi::paragraph_level(text).is_some_and(|l| l.is_rtl()) {
+                    true => Direction::Rtl,
+                    false => Direction::Ltr,
+                }
+            }
+            dir => dir,
+        };
+        self.dir = Some(dir);
+        dir
     }
 
     /// Writes the first `len` bytes of the current text as a record and
@@ -1108,6 +1195,8 @@ impl Converter<'_> {
                 self.write_xpointers();
             }
         }
+        let dir = self.block_dir(len);
+        let lang = self.lang.unwrap_or(self.book.lang);
         let indent = self.indent.unwrap_or(NO_INDENT);
         let space = if self.continues {
             NO_SPACE
@@ -1125,6 +1214,10 @@ impl Converter<'_> {
         self.index.extend_from_slice(&self.margins.1.to_le_bytes());
         let line_height = self.line_height.unwrap_or(0);
         self.index.extend_from_slice(&line_height.to_le_bytes());
+        self.index.extend_from_slice(&lang.to_bits().to_le_bytes());
+        let langs = self.inline_langs.len() as u8;
+        self.index
+            .extend_from_slice(&[direction::dir_bits(dir), langs, 0, 0]);
         if self.index.len() >= FLUSH_SMALL {
             self.write_index();
         }
@@ -1134,7 +1227,11 @@ impl Converter<'_> {
             .filter(|run| (run.start as usize) < len)
             .map(|run| Run::new(run.start, run.end.min(len as u32), run.style))
             .collect();
-        let align = self.align.unwrap_or_default();
+        let align = direction::resolve_align(
+            self.align.unwrap_or_default(),
+            self.align_sides,
+            dir == Direction::Rtl,
+        );
         self.out
             .extend_from_slice(&[kind, level, flags, align.bits()]);
         self.out.extend_from_slice(&(len as u16).to_le_bytes());
@@ -1154,7 +1251,10 @@ impl Converter<'_> {
             self.out.extend_from_slice(&(run.end as u16).to_le_bytes());
             self.out.extend_from_slice(&run.style.bits().to_le_bytes());
         }
-        self.length += HEADER + len as u32 + (runs.len() * RUN) as u32;
+        for lang in &self.inline_langs {
+            self.out.extend_from_slice(&lang.to_bits().to_le_bytes());
+        }
+        self.length += HEADER + len as u32 + (runs.len() * RUN) as u32 + u32::from(langs) * 4;
         self.drop_front(len);
     }
 
@@ -1252,6 +1352,10 @@ fn budget(size: u64) -> u64 {
     clippy::too_many_lines,
     reason = "longer than the limit from before it was set; split it when it is next changed"
 )]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "what a chapter is converted with, each of it different; a struct would be built for one call"
+)]
 pub(crate) fn convert(
     storage: &dyn Storage,
     source: &Source<'_>,
@@ -1260,6 +1364,7 @@ pub(crate) fn convert(
     styles: bool,
     color: bool,
     fit: Fit,
+    book: BookText,
 ) -> Result<u32, DocumentError> {
     let name = match source {
         Source::Zip { entry, .. } => entry.name.as_str(),
@@ -1320,6 +1425,11 @@ pub(crate) fn convert(
         text,
         runs: Vec::new(),
         align: None,
+        align_sides: false,
+        book,
+        dir: None,
+        lang: None,
+        inline_langs: Vec::new(),
         indent: None,
         size: None,
         margins: (0, 0),

@@ -8,6 +8,7 @@ use core::cell::Cell;
 use paperpaw_sdk::document::{
     Align, Block, BlockKind, DocumentError, Link, OffsetMap, Run, TextStyle,
 };
+use paperpaw_sdk::lang::Lang;
 use paperpaw_sdk::{Storage, StorageError};
 
 use crate::convert::{self, CachePaths, HEADER, INDEX};
@@ -48,7 +49,9 @@ fn entry_and_next(
     }
     let mut entry: Entry = [0; INDEX as usize];
     entry.copy_from_slice(&both[..INDEX as usize]);
-    let next = has_next.then(|| u32::from_le_bytes([both[16], both[17], both[18], both[19]]));
+    let at = INDEX as usize;
+    let next =
+        has_next.then(|| u32::from_le_bytes([both[at], both[at + 1], both[at + 2], both[at + 3]]));
     Ok(Some((entry, next)))
 }
 
@@ -102,9 +105,15 @@ fn read_entry(
             "cache record",
         )));
     }
-    // The text and its runs after it, read at once.
+    let langs = usize::from(entry[21]);
+    if langs > usize::from(paperpaw_sdk::document::MAX_INLINE_LANGS) {
+        return Err(DocumentError::Malformed(alloc::borrow::Cow::Borrowed(
+            "cache record",
+        )));
+    }
+    // The text, its runs and its inline languages after it, read at once.
     let runs_len = run_count * convert::RUN;
-    let mut text = alloc::vec![0u8; len + runs_len];
+    let mut text = alloc::vec![0u8; len + runs_len + langs * 4];
     let mut filled = 0;
     while filled < text.len() {
         let n = storage.read_at(
@@ -117,8 +126,16 @@ fn read_entry(
         }
         filled += n;
     }
+    let inline_langs: Vec<Lang> = text
+        .get(len + runs_len..filled)
+        .unwrap_or_default()
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| Lang::from_bits(u32::from_le_bytes(*b)).unwrap_or(Lang::NONE))
+        .collect();
     let runs = text
-        .get(len..filled)
+        .get(len..filled.min(len + runs_len))
         .unwrap_or_default()
         .as_chunks::<{ convert::RUN }>()
         .0
@@ -163,6 +180,14 @@ fn read_entry(
             u16::from_le_bytes([entry[12], entry[13]]),
         )
         .line_height(Some(u16::from_le_bytes([entry[14], entry[15]])).filter(|&h| h != 0))
+        .lang(
+            Lang::from_bits(u32::from_le_bytes([
+                entry[16], entry[17], entry[18], entry[19],
+            ]))
+            .unwrap_or(Lang::NONE),
+        )
+        .dir(convert::dir_from_bits(entry[20]))
+        .inline_langs(&inline_langs)
         .image(image))
 }
 

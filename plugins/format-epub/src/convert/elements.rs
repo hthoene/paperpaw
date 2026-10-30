@@ -3,7 +3,7 @@
 
 use paperpaw_sdk::document::{Align, TextStyle};
 
-use crate::css::{self, Props, Rules, parse_align};
+use crate::css::{self, Props, Rules};
 
 /// Words in class names and ids of page furniture (`site-nav`,
 /// `vector-dropdown`, `mw-editsection`, …).
@@ -60,7 +60,7 @@ pub(super) fn element_props(
     let classes = attrs.get("class").unwrap_or_default();
     props.apply(&rules.props_remembered(tag, &classes));
     if let Some(value) = attrs.get("align") {
-        props.align = parse_align(&value).or(props.align);
+        props.set_align(&value);
     }
     if styles && let Some(css) = attrs.get("style") {
         props.apply(&rules.parse_style(&css));
