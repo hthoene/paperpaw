@@ -169,6 +169,7 @@ fn read_entry(
     }
     Ok(Block::new(kind, start, end, text)
         .continues(convert::continues(header[2]))
+        .continued(convert::continued(header[2]))
         .map(OffsetMap::IDENTITY)
         .runs(runs)
         .align(Align::from_bits(header[3]))

@@ -381,7 +381,7 @@ impl Document for TxtDocument {
             }
 
             let long = p.partial || p.text_end - p.start > LIMIT;
-            let (start, text_end, end, continues) = if long {
+            let (start, text_end, end, continues, continued) = if long {
                 // Only grid points inside the paragraph split it, so its
                 // first piece starts where it does from any position.
                 let inside = |k: u32| p.partial || k.saturating_mul(GRID) > p.start;
@@ -395,7 +395,8 @@ impl Document for TxtDocument {
                     piece_start = p.start;
                 }
                 let next_point = self.split_point(&buf, w0, k + 1);
-                let (text_end, end) = if next_point < p.text_end {
+                let continued = next_point < p.text_end;
+                let (text_end, end) = if continued {
                     let rel = |x: u32| (x - w0) as usize;
                     let piece = &buf[rel(piece_start)..rel(next_point)];
                     let trail = piece
@@ -411,9 +412,16 @@ impl Document for TxtDocument {
                     text_end,
                     end,
                     piece_start != p.start || p.partial,
+                    continued,
                 )
             } else {
-                (p.start, p.text_end, next.unwrap_or(p.text_end), false)
+                (
+                    p.start,
+                    p.text_end,
+                    next.unwrap_or(p.text_end),
+                    false,
+                    false,
+                )
             };
 
             let rel = |x: u32| (x - w0) as usize;
@@ -432,6 +440,7 @@ impl Document for TxtDocument {
                     text,
                 )
                 .continues(continues)
+                .continued(continued)
                 .map(map)
                 .align(Align::Auto),
             ));
@@ -929,6 +938,10 @@ mod tests {
         let middle = &blocks[2..blocks.len() - 1];
         assert!(!middle[0].continues);
         assert!(middle[1..].iter().all(|b| b.continues));
+        // Each piece but the last says the next continues it.
+        let continued: Vec<bool> = middle.iter().map(|b| b.continued).collect();
+        assert!(continued[..continued.len() - 1].iter().all(|c| *c));
+        assert!(!continued[continued.len() - 1] && !blocks[0].continued);
         let joined: Vec<&str> = middle
             .iter()
             .flat_map(|b| b.text.split_whitespace())

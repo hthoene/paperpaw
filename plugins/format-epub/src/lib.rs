@@ -903,6 +903,8 @@ mod tests {
         let pieces = chapter_blocks(&storage);
         assert!(pieces.len() > 15, "{}", pieces.len());
         assert!(pieces[1..].iter().all(|b| b.continues));
+        let last = pieces.len() - 1;
+        assert!(pieces[..last].iter().all(|b| b.continued) && !pieces[last].continued);
         let doc = EpubDocument::open(&storage, "books/test.epub").unwrap();
         let style = paperpaw_layout::Style::new(0.0, 0.0, 10.0, false);
         let kept = paperpaw_layout::PieceStarts::new();

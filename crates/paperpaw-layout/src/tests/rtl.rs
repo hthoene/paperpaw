@@ -153,7 +153,7 @@ fn pieces_doc() -> Blocks<impl Fn(Locator) -> Option<Block>> {
         for (i, text) in PIECES.iter().enumerate() {
             let end = start + text.len() as u32;
             if at.offset < end {
-                return Some(block(text, start, end).continues(i > 0));
+                return Some(block(text, start, end).continues(i > 0).continued(i < 2));
             }
             start = end;
         }
@@ -220,8 +220,8 @@ fn the_pieces_of_a_paragraph_are_resolved_as_the_whole_paragraph() {
     assert_eq!(piece_levels(&cx, [2, 2, 2]), expected[last..]);
     assert_eq!(
         doc.calls.get() - before,
-        6,
-        "three times the piece and a look for one after it, no walk back"
+        3,
+        "three times the piece alone: the last is continued by none"
     );
     kept.clear();
     assert!(kept.is_empty());

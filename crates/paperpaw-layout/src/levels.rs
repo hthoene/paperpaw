@@ -138,6 +138,9 @@ fn paragraph_of(block: &Block) -> Level {
 /// The piece after `block` of its paragraph, if it has one: what the
 /// levels near its end read ahead, as far as that piece's end.
 fn next_piece(block: &Block, cx: &LayoutContext<'_>, section: u32) -> Option<Block> {
+    if !block.continued {
+        return None;
+    }
     let at = Locator::new(section, block.end);
     let next = cx.document.block_at(cx.storage, at).ok().flatten()?;
     (next.continues && next.start >= block.end).then_some(next)
@@ -214,9 +217,12 @@ fn start_of(block: &Block, cx: &LayoutContext<'_>, section: u32, state: &mut [u8
                 _ => return false,
             }
         };
-        let ahead = next
-            .as_ref()
-            .map_or(block.text.as_str(), |n| n.text.as_str());
+        // Read ahead as a page that starts in the piece reads it.
+        let ahead = match (&next, piece.continued) {
+            (_, false) => "",
+            (Some(next), true) => next.text.as_str(),
+            (None, true) => block.text.as_str(),
+        };
         let count = piece.text.chars().count();
         bidi::skip_from(
             state,
