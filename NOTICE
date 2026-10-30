@@ -98,6 +98,8 @@ as-raw-xcb-connection 1.0.1 (MIT OR Apache-2.0, used under MIT)
     Copyright 2019 as-raw-xcb-connection Contributers
 as-slice 0.2.1 (MIT OR Apache-2.0, used under MIT)
     Copyright (c) 2018 Jorge Aparicio
+async-lock 3.4.2 (Apache-2.0 OR MIT, used under MIT)
+    Copyright Stjepan Glavina (https://github.com/smol-rs/async-lock)
 base16ct 0.2.0 (Apache-2.0 OR MIT, used under MIT)
     Copyright (c) 2014 Steve "Sc00bz" Thomas (steve at tobtu dot com)
     Copyright (c) 2022 The RustCrypto Project Developers
@@ -375,6 +377,10 @@ esp32s3 0.37.0 (MIT OR Apache-2.0, used under MIT)
     Copyright the esp32s3 contributors (https://github.com/esp-rs/esp-pacs)
 esp32s31 0.3.0 (MIT OR Apache-2.0, used under MIT)
     Copyright the esp32s31 contributors (https://github.com/esp-rs/esp-pacs)
+event-listener 5.4.2 (Apache-2.0 OR MIT, used under MIT)
+    Copyright Stjepan Glavina, John Nunley (https://github.com/smol-rs/event-listener)
+event-listener-strategy 0.5.4 (Apache-2.0 OR MIT, used under MIT)
+    Copyright John Nunley (https://github.com/smol-rs/event-listener-strategy)
 fastrand 2.5.0 (Apache-2.0 OR MIT, used under MIT)
     Copyright Stjepan Glavina (https://github.com/smol-rs/fastrand)
 fatfs 0.4.0 (MIT)
@@ -434,6 +440,20 @@ getrandom 0.4.3 (MIT OR Apache-2.0, used under MIT)
     Copyright (c) 2014 The Rust Project Developers
 group 0.13.0 (MIT/Apache-2.0, used under MIT)
     Copyright Sean Bowe, Jack Grigg (https://github.com/zkcrypto/group)
+hadris-common 3.0.0-rc.2 (MIT)
+    Copyright (c) 2026 The Hadris Project Contributors
+hadris-fat 3.0.0-rc.2 (MIT)
+    Copyright (c) 2026 The Hadris Project Contributors
+hadris-fat-raw 0.2.0 (MIT)
+    Copyright (c) 2026 The Hadris Project Contributors
+hadris-fs 3.0.0-rc.2 (MIT)
+    Copyright (c) 2026 The Hadris Project Contributors
+hadris-io 3.0.0-rc.2 (MIT)
+    Copyright (c) 2026 The Hadris Project Contributors
+hadris-macros 3.0.0-rc.2 (MIT)
+    Copyright (c) 2026 The Hadris Project Contributors
+hadris-storage 3.0.0-rc.2 (MIT)
+    Copyright (c) 2026 The Hadris Project Contributors
 hash32 0.3.1 (MIT OR Apache-2.0, used under MIT)
     Copyright (c) 2018 Jorge Aparicio
 hashbrown 0.17.1 (MIT OR Apache-2.0, used under MIT)
@@ -700,6 +720,8 @@ somni-expr 0.3.2 (MIT OR Apache-2.0, used under MIT)
 somni-parser 0.3.1 (MIT OR Apache-2.0, used under MIT)
     Copyright 2021 esp-rs
     Copyright 2025 danielb
+spin 0.12.3 (MIT)
+    Copyright (c) 2014 Mathijs van de Nes
 stable_deref_trait 1.2.1 (MIT OR Apache-2.0, used under MIT)
     Copyright (c) 2017 Robert Grosse
 static_cell 2.1.1 (MIT OR Apache-2.0, used under MIT)

@@ -219,6 +219,7 @@ Crates in the firmware of the Xteink readers used under the MIT License:
 - aligned 0.4.3: Copyright (c) 2017 Jorge Aparicio
 - allocator-api2 0.3.1: Copyright Zakarum (https://github.com/zakarumych/allocator-api2)
 - as-slice 0.2.1: Copyright (c) 2018 Jorge Aparicio
+- async-lock 3.4.2: Copyright Stjepan Glavina (https://github.com/smol-rs/async-lock)
 - base16ct 0.2.0: Copyright (c) 2014 Steve "Sc00bz" Thomas (steve at tobtu dot com); Copyright (c) 2022 The RustCrypto Project Developers
 - bitfield 0.19.5: Copyright (c) 2017 Loïc Damien
 - bitfield-macros 0.19.5: Copyright (c) 2017 Loïc Damien
@@ -318,6 +319,8 @@ Crates in the firmware of the Xteink readers used under the MIT License:
 - esp32s3 0.36.0: Copyright the esp32s3 contributors (https://github.com/esp-rs/esp-pacs)
 - esp32s3 0.37.0: Copyright the esp32s3 contributors (https://github.com/esp-rs/esp-pacs)
 - esp32s31 0.3.0: Copyright the esp32s31 contributors (https://github.com/esp-rs/esp-pacs)
+- event-listener 5.4.2: Copyright Stjepan Glavina, John Nunley (https://github.com/smol-rs/event-listener)
+- event-listener-strategy 0.5.4: Copyright John Nunley (https://github.com/smol-rs/event-listener-strategy)
 - fatfs 0.4.0: Copyright 2017 Rafał Harabień
 - ff 0.13.1: Copyright (c) 2017 Sean Bowe
 - fnv 1.0.7: Copyright (c) 2017 Contributors
@@ -333,6 +336,13 @@ Crates in the firmware of the Xteink readers used under the MIT License:
 - gcd 2.3.0: Copyright (c) 2016 Corey Farwell
 - generic-array 0.14.7: Copyright (c) 2015 Bartłomiej Kamiński
 - group 0.13.0: Copyright Sean Bowe, Jack Grigg (https://github.com/zkcrypto/group)
+- hadris-common 3.0.0-rc.2: Copyright (c) 2026 The Hadris Project Contributors
+- hadris-fat 3.0.0-rc.2: Copyright (c) 2026 The Hadris Project Contributors
+- hadris-fat-raw 0.2.0: Copyright (c) 2026 The Hadris Project Contributors
+- hadris-fs 3.0.0-rc.2: Copyright (c) 2026 The Hadris Project Contributors
+- hadris-io 3.0.0-rc.2: Copyright (c) 2026 The Hadris Project Contributors
+- hadris-macros 3.0.0-rc.2: Copyright (c) 2026 The Hadris Project Contributors
+- hadris-storage 3.0.0-rc.2: Copyright (c) 2026 The Hadris Project Contributors
 - hash32 0.3.1: Copyright (c) 2018 Jorge Aparicio
 - hashbrown 0.17.1: Copyright (c) 2016 Amanieu d'Antras
 - heapless 0.8.0: Copyright (c) 2017 Jorge Aparicio
@@ -393,6 +403,7 @@ Crates in the firmware of the Xteink readers used under the MIT License:
 - slab 0.4.12: Copyright (c) 2019 Carl Lerche
 - somni-expr 0.3.2: Copyright 2021 esp-rs; Copyright 2025 danielb
 - somni-parser 0.3.1: Copyright 2021 esp-rs; Copyright 2025 danielb
+- spin 0.12.3: Copyright (c) 2014 Mathijs van de Nes
 - stable_deref_trait 1.2.1: Copyright (c) 2017 Robert Grosse
 - static_cell 2.1.1: Copyright (c) 2022 The critical-section authors
 - strsim 0.11.1: Copyright (c) 2015 Danny Guo; Copyright (c) 2016 Titus Wormer <tituswormer@gmail.com>; Copyright (c) 2018 Akash Kurdekar
