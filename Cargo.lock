@@ -1492,6 +1492,7 @@ dependencies = [
 name = "paperpaw-document"
 version = "0.5.0-beta.12"
 dependencies = [
+ "paperpaw-lang",
  "paperpaw-platform",
  "proptest",
 ]
@@ -2459,6 +2460,7 @@ dependencies = [
  "font-types",
  "paperpaw-graphics",
  "paperpaw-hyphen",
+ "paperpaw-lang",
  "paperpaw-platform",
  "proptest",
  "read-fonts",

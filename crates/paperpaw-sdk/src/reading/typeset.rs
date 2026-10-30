@@ -571,7 +571,7 @@ impl<'a> ReadingFaces<'a> {
                 .embedded
                 .and_then(|e| e.face(family, style.bold(), style.italic())),
         };
-        let font = font.unwrap_or(self.fonts[usize::from(style.bits() & 3)]);
+        let font = font.unwrap_or(self.fonts[(style.bits() & 3) as usize]);
         let font = if self.kerning { font } else { font.unkerned() };
         if self.ligatures {
             font.ligatures()

@@ -123,10 +123,12 @@ fn read_entry(
         .as_chunks::<{ convert::RUN }>()
         .0
         .iter()
-        .map(|r| Run {
-            start: u32::from(u16::from_le_bytes([r[0], r[1]])),
-            end: u32::from(u16::from_le_bytes([r[2], r[3]])),
-            style: TextStyle::from_bits(u16::from_le_bytes([r[4], r[5]])),
+        .map(|r| {
+            Run::new(
+                u32::from(u16::from_le_bytes([r[0], r[1]])),
+                u32::from(u16::from_le_bytes([r[2], r[3]])),
+                TextStyle::from_bits(u32::from_le_bytes([r[4], r[5], r[6], r[7]])),
+            )
         })
         .collect();
     text.truncate(filled.min(len));
@@ -344,11 +346,7 @@ pub(crate) fn links(storage: &dyn Storage, paths: &CachePaths, from: u32, to: u3
             return false;
         }
         if end > from {
-            links.push(Link {
-                start,
-                end,
-                href: String::from(href),
-            });
+            links.push(Link::new(start, end, href));
         }
         true
     });

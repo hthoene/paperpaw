@@ -14,9 +14,7 @@ paperpaw_config::Entry
 paperpaw_config::ParseError
 paperpaw_document::EmbeddedFont
 paperpaw_document::ImageRef
-paperpaw_document::Link
 paperpaw_document::Locator
-paperpaw_document::Run
 paperpaw_document::TocEntry
 paperpaw_i18n::Arg
 paperpaw_i18n::PluralCategory

@@ -219,11 +219,7 @@ fn para() -> impl Strategy<Value = Para> {
                 let start = text.len() as u32;
                 text.push_str(word);
                 if *bold {
-                    runs.push(Run {
-                        start,
-                        end: text.len() as u32,
-                        style: TextStyle::BOLD,
-                    });
+                    runs.push(Run::new(start, text.len() as u32, TextStyle::BOLD));
                 }
             }
             Para {
@@ -595,11 +591,7 @@ fn pages_lower_than_a_line_still_move_on() {
 #[test]
 fn a_word_moved_to_the_next_line_still_fits_it() {
     let mut book = one_paragraph("aaaaa-aaa\u{ad}äcaaadqqad 一一一一一一一", Align::Auto);
-    book.sections[0][0].runs = vec![Run {
-        start: 23,
-        end: 44,
-        style: TextStyle::BOLD,
-    }];
+    book.sections[0][0].runs = vec![Run::new(23, 44, TextStyle::BOLD)];
     let cx = context(&book, 16.254_377, &PLAIN, false, &VARIED);
     let pages = paginate(&cx, 100.0, &book);
     for line in &pages[0].lines {

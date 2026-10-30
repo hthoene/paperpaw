@@ -54,11 +54,7 @@ fn bold_beginnings_count_letters_not_bytes() {
 
 #[test]
 fn bold_beginnings_leave_the_books_styles_and_other_blocks() {
-    let italic = Run {
-        start: 0,
-        end: 4,
-        style: TextStyle::ITALIC,
-    };
+    let italic = Run::new(0, 4, TextStyle::ITALIC);
     let mut b = block("Once upon", Vec::from([italic]));
     bold_beginnings(&mut b);
     assert_eq!(b.runs.len(), 2);
@@ -110,11 +106,7 @@ fn replaced_words_are_whole_and_may_be_removed() {
 #[test]
 fn styles_move_with_replaced_words() {
     // `Alice` is bold; `Mr.` grows before it.
-    let bold = Run {
-        start: 7,
-        end: 12,
-        style: TextStyle::BOLD,
-    };
+    let bold = Run::new(7, 12, TextStyle::BOLD);
     let mut b = block("Mr. X: Alice", Vec::from([bold]));
     replace(&mut b, &pairs("Mr. = Mister"));
     assert_eq!(b.text, "Mister X: Alice");
@@ -151,7 +143,7 @@ proptest! {
         // A style of the book over its first characters, if any.
         let end = text.char_indices().nth(book).map_or(text.len(), |(i, _)| i);
         if end > 0 {
-            runs.push(Run { start: 0, end: end as u32, style: TextStyle::ITALIC });
+            runs.push(Run::new(0, end as u32, TextStyle::ITALIC));
         }
         let kept = runs.clone();
         let mut b = block(&text, runs);
