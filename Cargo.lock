@@ -1456,6 +1456,7 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-platform",
  "paperpaw-sdk",
+ "paperpaw-table",
  "paperpaw-text",
  "proptest",
 ]
@@ -1514,6 +1515,7 @@ dependencies = [
  "paperpaw-sample-hello",
  "paperpaw-sample-interlinear",
  "paperpaw-serve",
+ "paperpaw-table",
  "paperpaw-zip",
  "png",
  "softbuffer",

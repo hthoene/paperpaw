@@ -51,6 +51,7 @@ paperpaw-zip = { workspace = true, features = ["testing"] }
 [build-dependencies]
 # The compiler that builds the emulator, as plugin files name theirs.
 paperpaw-native.workspace = true
+paperpaw-table.workspace = true
 
 [features]
 default = ["window"]

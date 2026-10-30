@@ -148,6 +148,19 @@ pub const REVISIONS: Revisions = index::REVISIONS;
 /// bodies of this build: what a firmware built with it accepts.
 pub const OLDEST: Revisions = index::OLDEST;
 
+/// The revisions an entry of a plugin built with this SDK names
+/// ([`REVISIONS`]) where the plugin calls tables, 0 for all where it never
+/// does (a computer's build, the X4 Pro's): the loader then has nothing to
+/// check.
+pub const BUILT_WITH: Revisions = if cfg!(any(
+    all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"),
+    paperpaw_table_host
+)) {
+    REVISIONS
+} else {
+    [0; FAMILIES]
+};
+
 /// Eight hex digits naming the tables of this build, for logs and crash
 /// reports.
 pub const HASH: &str = index::HASH;
@@ -208,14 +221,12 @@ fn table_of(family: Family) -> Table {
 
 /// The tables of a library a computer loads, built in table mode
 /// (`--cfg paperpaw_table_host`, the CI job `table-compat`): the shell
-/// puts them in before it makes the plugin, as the loader of a chip
-/// writes the words of `paperpaw-plugin.x`. The library exports the
-/// static [`PAPERPAW_TABLES`].
-#[cfg(paperpaw_table_host)]
+/// finds the static `PAPERPAW_TABLES` of that type in the library and
+/// puts the tables in before it makes the plugin, as the loader of a chip
+/// writes the words of `paperpaw-plugin.x`.
 #[derive(Debug)]
 pub struct HostTables([core::sync::atomic::AtomicPtr<*const ()>; FAMILIES]);
 
-#[cfg(paperpaw_table_host)]
 impl HostTables {
     /// Tables not yet set.
     #[must_use]
@@ -229,7 +240,6 @@ impl HostTables {
     }
 }
 
-#[cfg(paperpaw_table_host)]
 impl Default for HostTables {
     fn default() -> Self {
         Self::new()

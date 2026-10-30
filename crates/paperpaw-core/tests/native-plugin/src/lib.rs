@@ -7,6 +7,8 @@
 
 extern crate alloc;
 
+mod probe;
+
 use paperpaw_sample_hello::Hello;
 use paperpaw_sdk::{Id, Manifest, Plugin, RegisterError, Registrar, Version};
 
@@ -23,6 +25,13 @@ impl Plugin for Probe {
         r.provide(
             Id::new_static("hello.version"),
             HelloVersion(Version::new(1, 2, 3)),
+            Version::new(1, 0, 0),
+        )?;
+        // The text calls of `probe.rs`: through the shell's table in
+        // table mode, the plugin's own copies otherwise.
+        r.provide(
+            Id::new_static("hello.text-probe"),
+            probe::probe(),
             Version::new(1, 0, 0),
         )
     }

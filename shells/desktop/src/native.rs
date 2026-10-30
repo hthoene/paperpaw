@@ -193,6 +193,16 @@ fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, P
     }
     // SAFETY: an entry of this build's interface, as its fingerprint says.
     let entry = unsafe { &*entry };
+    // A library built in table mode calls shared functions this shell does
+    // not have (it shares none): refused before anything of it runs.
+    if let Some(misfit) = paperpaw_table::misfit(&entry.families, &API.family_min, &API.family_revs)
+    {
+        eprintln!(
+            "code plugin {}: calls shared functions this build has not ({misfit:?})",
+            code.id.as_str()
+        );
+        return Err(PluginProblem::NeedsNewerPaperPaw);
+    }
     slot.set(&API);
     // SAFETY: a plugin of this build's fingerprint, made once.
     let plugin = unsafe { take((entry.make)()) }.ok_or(PluginProblem::Damaged)?;

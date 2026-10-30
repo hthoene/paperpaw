@@ -15,6 +15,9 @@ crate-type = ["cdylib"]
 [dependencies]
 paperpaw-sdk = { path = "../../../paperpaw-sdk" }
 paperpaw-sample-hello = { path = "../../../../samples/hello-plugin" }
+paperpaw-text = { path = "../../../paperpaw-text" }
+paperpaw-graphics = { path = "../../../paperpaw-graphics" }
+paperpaw-platform = { path = "../../../paperpaw-platform" }
 
 # Built otherwise than the test that loads it: its types' TypeIds differ.
 [profile.dev]

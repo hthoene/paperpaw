@@ -28,6 +28,7 @@ paperpaw-hid.workspace = true
 
 [dev-dependencies]
 paperpaw-text.workspace = true
+paperpaw-table.workspace = true
 # Loads a native plugin built apart (tests/native_plugin.rs).
 libloading = "0.9"
 proptest.workspace = true

@@ -914,7 +914,7 @@ pub mod support {
     use core::sync::atomic::{AtomicPtr, Ordering};
 
     pub use paperpaw_native::{Api, Entry};
-    pub use paperpaw_table::REVISIONS;
+    pub use paperpaw_table::BUILT_WITH as REVISIONS;
 
     /// The shell's table, where a library the system loads keeps it
     /// (`PAPERPAW_API`): set before the plugin is made.
