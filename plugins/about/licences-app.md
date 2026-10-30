@@ -32,6 +32,8 @@ The firmware of the Xteink readers also contains:
 
 - Mozilla's list of certificate authorities (webpki-roots), under the Community Data License Agreement Permissive 2.0, whose text is below.
 
+Unicode data: the bidirectional and Arabic joining tables of crates/paperpaw-text (src/bidi/tables.rs, src/arabic/tables.rs, made by tools/unicode-tables.py) are derived from the Unicode Character Database, and crates/paperpaw-text/tests/data/BidiCharacterTest-part.txt is a part of its BidiCharacterTest.txt, Copyright (c) 1991-2026 Unicode, Inc., under the Unicode License v3 (https://www.unicode.org/license.txt).
+
 Patched copies of fatfs, trouble-host and jni-macros (patches/) keep their licences; their changes are marked "Modified for PaperPaw".
 
 The cats (the sleeping cat in plugins/sleep/pictures, the reading cats in plugins/reading-goal/pictures, the README's pictures in docs/images/readme and their dark versions) are PaperPaw artwork, generated with an AI image model (Google Nano Banana) for the project, and licensed under the Apache License, Version 2.0, as the rest of PaperPaw.
