@@ -52,9 +52,11 @@ pub const paperpaw_table::index::text::STORED_LARGEST_SIZE: usize
 pub const paperpaw_table::index::text::STORED_LINE_METRICS: usize
 pub const paperpaw_table::index::text::STORED_RENDER: usize
 pub const paperpaw_table::index::text::TEXT_DRAW_TEXT: usize
+pub const paperpaw_table::index::text::TEXT_DRAW_TEXT_IN: usize
 pub const paperpaw_table::index::text::TEXT_GLYPH_X: usize
 pub const paperpaw_table::index::text::TEXT_IS_MARK: usize
 pub const paperpaw_table::index::text::TEXT_MEASURE: usize
+pub const paperpaw_table::index::text::TEXT_MEASURE_IN: usize
 pub mod paperpaw_table::index::ui
 pub const paperpaw_table::index::ui::COUNT: usize
 pub const paperpaw_table::index::ui::FAMILY: paperpaw_table::Family
