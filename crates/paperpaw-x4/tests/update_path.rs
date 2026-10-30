@@ -417,25 +417,13 @@ impl Plugin for Notices {
 }
 
 /// The X4's screen and buttons.
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "xteink-x4",
-    name: "Xteink X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "xteink-x4",
+    "Xteink X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, false, false, &[]),
+    MemoryClass::Small,
+);
 
 // The server.
 
