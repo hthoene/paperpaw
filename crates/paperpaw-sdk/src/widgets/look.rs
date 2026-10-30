@@ -952,6 +952,7 @@ mod tests {
             finger: 0,
             look: crate::ui::look::Look::none(),
             palette: crate::ui::Palette::DEFAULT,
+            direction: 0,
         };
         // Without a frame, automatic is none: lined up with the margins;
         // inside one, normal, as frames always had it.

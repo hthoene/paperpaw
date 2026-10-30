@@ -550,19 +550,14 @@ fn annotation_of(x: &Exchange<'_>, item: &Table, (kind, start, end): Key) -> Ann
         }
         _ => String::new(),
     };
-    Annotation {
-        mark: Mark {
-            kind,
-            start,
-            end,
-            noted: !note.is_empty(),
-        },
-        percent: (doc.progress(start) * 100.0 + 0.5) as u8,
-        created: unix_of(x, item.str("datetime").unwrap_or_default()),
-        updated: unix_of(x, item.str("datetime_updated").unwrap_or_default()),
-        text: annotations::snippet(&text),
+    Annotation::new(
+        Mark::new(kind, start, end, !note.is_empty()),
+        (doc.progress(start) * 100.0 + 0.5) as u8,
+        unix_of(x, item.str("datetime").unwrap_or_default()),
+        unix_of(x, item.str("datetime_updated").unwrap_or_default()),
+        annotations::snippet(&text),
         note,
-    }
+    )
 }
 
 /// Annotation `a` as KOReader keeps it; `None` where it cannot be placed

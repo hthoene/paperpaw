@@ -33,6 +33,7 @@ pub const CODE_OFFSET: u32 = 0x0600_0000;
 /// The chips plugin files are made for, by the ids ESP-IDF's images
 /// give them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Chip {
     /// The Xteink X4's (RISC-V).
     Esp32C3,
@@ -77,6 +78,7 @@ impl fmt::Display for Chip {
 
 /// What is wrong with a plugin file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Problem {
     /// It is no plugin file.
     NotAPlugin,

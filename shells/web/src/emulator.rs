@@ -266,13 +266,13 @@ impl Emulator {
         }
         self.advance(now_ms);
         if let Some(device) = &mut self.device {
-            device.input(InputEvent::Pointer(PointerEvent {
-                id: 0,
+            device.input(InputEvent::Pointer(PointerEvent::new(
+                0,
                 phase,
-                point: Point::new(x, y),
-                tool: PointerTool::Finger,
-                pressure: 1000,
-            }));
+                Point::new(x, y),
+                PointerTool::Finger,
+                1000,
+            )));
         }
     }
 

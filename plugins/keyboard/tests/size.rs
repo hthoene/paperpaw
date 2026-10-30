@@ -19,58 +19,43 @@ use paperpaw_sdk::semantics::{Part, Role};
 use paperpaw_sdk::{Id, MemoryStorage, Metrics, Params};
 
 /// The X4 Pro as the emulator's profile has it: touch and buttons.
-const X4_PRO: DeviceInfo = DeviceInfo {
-    id: "test-x4-pro",
-    name: "Test X4 Pro",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 217,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const X4_PRO: DeviceInfo = DeviceInfo::new(
+    "test-x4-pro",
+    "Test X4 Pro",
+    DisplayInfo::new(480, 800, 217, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        true,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
 /// The Boox Go 7: a larger touch screen, finer.
-const BOOX: DeviceInfo = DeviceInfo {
-    id: "test-boox",
-    name: "Test Boox",
-    display: DisplayInfo {
-        width: 1264,
-        height: 1680,
-        dpi: 300,
-        format: PixelFormat::Gray8,
-        ..X4_PRO.display
-    },
-    input: InputCaps {
-        buttons: false,
-        touch: true,
-        pen: true,
-        keys: &[],
-    },
-    memory: MemoryClass::Large,
-};
+const BOOX: DeviceInfo = DeviceInfo::new(
+    "test-boox",
+    "Test Boox",
+    X4_PRO
+        .display
+        .with_width(1264)
+        .with_height(1680)
+        .with_dpi(300)
+        .with_format(PixelFormat::Gray8),
+    InputCaps::new(false, true, true, &[]),
+    MemoryClass::Large,
+);
 
 /// The X4: buttons only.
-const X4: DeviceInfo = DeviceInfo {
-    id: "test-x4",
-    name: "Test X4",
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    ..X4_PRO
-};
+const X4: DeviceInfo = X4_PRO
+    .with_id("test-x4")
+    .with_name("Test X4")
+    .with_input(InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ));
 
 const SIZES: [&str; 3] = [
     "keyboard.size.small",
@@ -234,15 +219,13 @@ fn with_buttons_the_size_makes_keys_higher_in_whole_rows() {
 #[test]
 fn the_floor_wins_where_a_size_cannot_be_reached() {
     // A small screen of large pixels: Small would go below a finger.
-    let coarse = DeviceInfo {
-        display: DisplayInfo {
-            width: 320,
-            height: 480,
-            dpi: 160,
-            ..X4_PRO.display
-        },
-        ..X4_PRO
-    };
+    let coarse = X4_PRO.with_display(
+        X4_PRO
+            .display
+            .with_width(320)
+            .with_height(480)
+            .with_dpi(160),
+    );
     let least = Metrics::new(160).mm(4) as u16;
     let small = sized(coarse, "keyboard.size.small");
     assert!(step(&small) >= least, "{}", step(&small));

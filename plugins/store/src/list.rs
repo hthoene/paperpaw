@@ -409,6 +409,7 @@ impl Screen for ListScreen {
                 let entry = match item {
                     Item::Heading(_) => return,
                     Item::Entry(entry) => entry,
+                    _ => return,
                 };
                 let Some(&row) = self.rows.get(entry) else {
                     return;

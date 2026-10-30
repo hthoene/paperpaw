@@ -17,25 +17,13 @@ use paperpaw_sdk::{
     Command, DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, MemoryStorage, PixelFormat,
 };
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test device",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test device",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, false, false, &[]),
+    MemoryClass::Small,
+);
 
 /// 14 October 2026, 10:41 UTC.
 const NOW: i64 = 1_791_967_260;
@@ -73,15 +61,8 @@ impl Device {
             .plugin(paperpaw_plugin_stats::Stats)
             .build()
             .unwrap();
-        let clock = WallClock {
-            at: Instant(0),
-            unix_millis: NOW * 1000,
-            utc_offset_minutes: Some(0),
-        };
-        let status = SystemStatus {
-            clock: Some(clock),
-            battery: None,
-        };
+        let clock = WallClock::new(Instant(0), NOW * 1000, Some(0));
+        let status = SystemStatus::new(Some(clock), None);
         kernel.set_status(Instant(0), status);
         kernel.start(Instant(0));
         Self { kernel, now: 0 }

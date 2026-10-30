@@ -208,13 +208,13 @@ fn band_with(x: u16, y: u16) -> Vec<u8> {
 }
 
 fn view(data: &[u8], height: u16) -> FrameView<'_> {
-    FrameView {
-        width: WIDTH,
+    FrameView::new(
+        WIDTH,
         height,
-        stride: usize::from(WIDTH / 8),
-        format: PixelFormat::Mono1,
+        PixelFormat::Mono1,
+        usize::from(WIDTH / 8),
         data,
-    }
+    )
 }
 
 #[test]
@@ -447,13 +447,7 @@ fn gray_band() -> Vec<u8> {
 }
 
 fn gray_view(data: &[u8]) -> FrameView<'_> {
-    FrameView {
-        width: WIDTH,
-        height: 8,
-        stride: usize::from(WIDTH / 4),
-        format: PixelFormat::Gray2,
-        data,
-    }
+    FrameView::new(WIDTH, 8, PixelFormat::Gray2, usize::from(WIDTH / 4), data)
 }
 
 /// The bit of the upright screen's pixel `(x, 0)` in memory as sent:
@@ -579,6 +573,7 @@ fn addressed(chip: Chip, rotation: Rotation, x: u16, y: u16) -> (usize, u16) {
         Rotation::Deg90 => (PANEL_WIDTH - 1 - x, y),
         Rotation::Deg180 => (PANEL_WIDTH - 1 - y, PANEL_HEIGHT - 1 - x),
         Rotation::Deg270 => (x, PANEL_HEIGHT - 1 - y),
+        _ => (y, x),
     };
     let line = match chip {
         Chip::Uc8179 => row,
@@ -715,13 +710,7 @@ fn without_a_frame_bands_go_into_the_controller_through_windows() {
                     }
                 }
             }
-            let view = |data, format, stride| FrameView {
-                width,
-                height: 16,
-                format,
-                stride,
-                data,
-            };
+            let view = |data, format, stride| FrameView::new(width, 16, format, stride, data);
             let mono = view(&mono, PixelFormat::Mono1, stride);
             d.write_rows(96, mono, Planes::NEW).unwrap();
             let gray = view(&gray, PixelFormat::Gray2, gray_stride);
@@ -886,13 +875,7 @@ fn the_rotated_screen_sends_its_rows() {
     for d in [&mut d, &mut w] {
         let stride = usize::from(HEIGHT / 8);
         let data = vec![0x0F; stride * 8];
-        let rows = FrameView {
-            width: HEIGHT,
-            height: 8,
-            stride,
-            format: PixelFormat::Mono1,
-            data: &data,
-        };
+        let rows = FrameView::new(HEIGHT, 8, PixelFormat::Mono1, stride, &data);
         d.write_rows(24, rows, Planes::NEW).unwrap();
         d.refresh(Refresh::Fast, false).unwrap();
     }

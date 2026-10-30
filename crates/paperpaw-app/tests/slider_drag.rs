@@ -33,25 +33,18 @@ use paperpaw_sdk::{
 
 /// An X4 Pro as the emulator's profile has it: touch and buttons, frames
 /// drawn in bands of 96 rows.
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test-x4-pro",
-    name: "Test X4 Pro",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 219,
-        format: PixelFormat::Gray2,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &["page-back", "page-forward", "home", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test-x4-pro",
+    "Test X4 Pro",
+    DisplayInfo::new(480, 800, 219, PixelFormat::Gray2, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        true,
+        false,
+        &["page-back", "page-forward", "home", "power"],
+    ),
+    MemoryClass::Small,
+);
 
 fn fonts() -> paperpaw_app::Fonts {
     #[cfg(any(feature = "packs", not(feature = "outline")))]
@@ -205,13 +198,13 @@ impl App {
 
     fn finger(&mut self, phase: PointerPhase, x: i32, y: i32) -> Option<RefreshMode> {
         self.now += 30;
-        let event = InputEvent::Pointer(PointerEvent {
-            id: 0,
+        let event = InputEvent::Pointer(PointerEvent::new(
+            0,
             phase,
-            point: Point::new(x, y),
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        });
+            Point::new(x, y),
+            PointerTool::Finger,
+            1000,
+        ));
         let effects = self.kernel.handle(Instant(self.now), event);
         self.settle(effects)
     }

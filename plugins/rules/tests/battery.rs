@@ -23,25 +23,13 @@ use paperpaw_sdk::{
     MemoryClass, MemoryStorage, Params, PixelFormat, Plugin, RegisterError, Registrar, Version,
 };
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test device",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Large,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test device",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, true, false, &[]),
+    MemoryClass::Large,
+);
 
 const RULES: &str = ".paperpaw/plugins/rules/rules.txt";
 /// The action the rules run, counted.
@@ -99,14 +87,7 @@ impl Test {
         let at = self.at();
         self.kernel.set_status(
             at,
-            SystemStatus {
-                clock: None,
-                battery: Some(Battery {
-                    percent,
-                    charging,
-                    millivolts: None,
-                }),
-            },
+            SystemStatus::new(None, Some(Battery::new(percent, charging, None))),
         );
     }
 

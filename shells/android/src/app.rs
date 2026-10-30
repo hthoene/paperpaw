@@ -378,30 +378,30 @@ fn start_kernel(
         Some(pixels::Screen::Color(panel)) => (PixelFormat::Rgb888, panel),
         _ => (PixelFormat::Gray8, None),
     };
-    let device = DeviceInfo {
-        id: "android",
-        name: "Android e-reader",
-        display: DisplayInfo {
-            width: u16::try_from(width).ok()?,
-            height: u16::try_from(height).ok()?,
-            dpi: u16::try_from(dpi).unwrap_or(160),
+    let device = DeviceInfo::new(
+        "android",
+        "Android e-reader",
+        DisplayInfo::new(
+            u16::try_from(width).ok()?,
+            u16::try_from(height).ok()?,
+            u16::try_from(dpi).unwrap_or(160),
             format,
-            rotation: Rotation::Deg0,
+            Rotation::Deg0,
             color,
-        },
-        input: InputCaps {
-            buttons: true,
-            touch: true,
-            pen: false,
+        ),
+        InputCaps::new(
+            true,
+            true,
+            false,
             // The page buttons (or volume keys) and back.
-            keys: &[
+            &[
                 paperpaw_platform::buttons::PAGE_FORWARD,
                 paperpaw_platform::buttons::PAGE_BACK,
                 paperpaw_platform::buttons::BACK,
             ],
-        },
-        memory: paperpaw_platform::MemoryClass::Large,
-    };
+        ),
+        paperpaw_platform::MemoryClass::Large,
+    );
     let internal = app.internal_data_path();
     let root = app
         .external_data_path()
@@ -762,18 +762,18 @@ fn input(event: &AndroidInput<'_>) -> Option<Vec<InputEvent>> {
                 pointers
                     .into_iter()
                     .map(|pointer| {
-                        InputEvent::Pointer(PointerEvent {
-                            id: pointer.pointer_id().clamp(0, 255) as u8,
+                        InputEvent::Pointer(PointerEvent::new(
+                            pointer.pointer_id().clamp(0, 255) as u8,
                             phase,
-                            point: Point::new(pointer.x() as i32, pointer.y() as i32),
-                            tool: match pointer.tool_type() {
+                            Point::new(pointer.x() as i32, pointer.y() as i32),
+                            match pointer.tool_type() {
                                 ToolType::Stylus => PointerTool::Pen,
                                 ToolType::Eraser => PointerTool::Eraser,
                                 ToolType::Mouse => PointerTool::Mouse,
                                 _ => PointerTool::Finger,
                             },
-                            pressure: (pointer.pressure().clamp(0.0, 1.0) * 1000.0) as u16,
-                        })
+                            (pointer.pressure().clamp(0.0, 1.0) * 1000.0) as u16,
+                        ))
                     })
                     .collect(),
             )

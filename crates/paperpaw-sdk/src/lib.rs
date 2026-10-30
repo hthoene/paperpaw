@@ -213,8 +213,9 @@ pub mod qr {
 /// The format-independent document model (see `paperpaw-document`).
 pub mod document {
     pub use paperpaw_document::{
-        Align, Block, BlockKind, Document, DocumentError, EmbeddedFont, ImageRef, Link, Locator,
-        MAX_FAMILIES, Metadata, OffsetMap, PageProgression, Run, TextStyle, TocEntry, is_external,
+        Align, Block, BlockKind, Document, DocumentError, EmbeddedFont, ImageRef, Link, LinkKind,
+        Locator, MAX_FAMILIES, MAX_INLINE_LANGS, Metadata, OffsetMap, PageProgression, Run,
+        TextStyle, TocEntry, is_external,
     };
 }
 
@@ -224,8 +225,8 @@ pub mod document {
 #[cfg(feature = "unstable")]
 pub mod layout {
     pub use paperpaw_layout::{
-        BookStyles, Face, Hyphenate, LayoutContext, LineRun, Page, PageImage, PageLine, Style,
-        Typesetter, VERSION, layout_page, line_start,
+        BookStyles, Face, Hyphenate, LayoutContext, LineBidi, LineRun, Page, PageImage, PageLine,
+        PageNote, Style, Typesetter, VERSION, layout_page, line_start,
     };
     /// Lines broken as the layout breaks them (see `paperpaw-text`): for
     /// laying out text of one's own the way pages are, e.g. a note.
@@ -379,7 +380,7 @@ pub mod image {
 /// Text and font helpers (see `paperpaw-text`), e.g. reading a font
 /// file's family, or how glyphs are inked ([`ToneCurve`](text::ToneCurve)).
 pub mod text {
-    pub use paperpaw_text::{OUTLINES, ToneCurve, sfnt};
+    pub use paperpaw_text::{Around, OUTLINES, ToneCurve, sfnt};
 }
 
 /// Hyphenation with compiled patterns (see `paperpaw-hyphen`).

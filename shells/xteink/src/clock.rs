@@ -42,9 +42,5 @@ pub fn unix_ms(now: Instant) -> Option<i64> {
 /// The wall clock for the kernel's status (its time zone is the user's
 /// setting: the X4 has none of its own).
 pub fn wall(now: Instant) -> Option<WallClock> {
-    unix_ms(now).map(|unix_millis| WallClock {
-        at: now,
-        unix_millis,
-        utc_offset_minutes: None,
-    })
+    unix_ms(now).map(|unix_millis| WallClock::new(now, unix_millis, None))
 }

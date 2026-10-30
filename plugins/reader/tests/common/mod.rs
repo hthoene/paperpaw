@@ -22,38 +22,24 @@ use paperpaw_sdk::{
 };
 
 /// A device with buttons and no touch screen, as the X4.
-pub const BUTTONS: DeviceInfo = DeviceInfo {
-    id: "test-buttons",
-    name: "Test buttons",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Large,
-};
+pub const BUTTONS: DeviceInfo = DeviceInfo::new(
+    "test-buttons",
+    "Test buttons",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Large,
+);
 
 /// A touch screen of the same size, without buttons.
-pub const TOUCH: DeviceInfo = DeviceInfo {
-    id: "test-touch",
-    name: "Test touch",
-    input: InputCaps {
-        buttons: false,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    ..BUTTONS
-};
+pub const TOUCH: DeviceInfo = BUTTONS
+    .with_id("test-touch")
+    .with_name("Test touch")
+    .with_input(InputCaps::new(false, true, false, &[]));
 
 /// A storage the test looks into while kernels have it.
 #[derive(Clone, Default)]
@@ -589,13 +575,13 @@ impl Reading {
     /// A finger at `point`, coming down, moving or lifted.
     pub fn finger(&mut self, phase: PointerPhase, point: Point) {
         self.now += 30;
-        let event = InputEvent::Pointer(PointerEvent {
-            id: 0,
+        let event = InputEvent::Pointer(PointerEvent::new(
+            0,
             phase,
             point,
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        });
+            PointerTool::Finger,
+            1000,
+        ));
         let effects = self.kernel.handle(Instant(self.now), event);
         if phase == PointerPhase::Up {
             self.settle(effects);

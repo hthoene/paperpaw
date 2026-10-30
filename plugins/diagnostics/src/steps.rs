@@ -417,25 +417,13 @@ mod tests {
     use paperpaw_platform::Rotation;
     use paperpaw_sdk::{DisplayInfo, InputCaps, MemoryClass, PixelFormat};
 
-    const DEVICE: DeviceInfo = DeviceInfo {
-        id: "x",
-        name: "X",
-        display: DisplayInfo {
-            width: 480,
-            height: 800,
-            dpi: 220,
-            format: PixelFormat::Mono1,
-            rotation: Rotation::Deg0,
-            color: None,
-        },
-        input: InputCaps {
-            buttons: true,
-            touch: false,
-            pen: false,
-            keys: &["confirm"],
-        },
-        memory: MemoryClass::Small,
-    };
+    const DEVICE: DeviceInfo = DeviceInfo::new(
+        "x",
+        "X",
+        DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+        InputCaps::new(true, false, false, &["confirm"]),
+        MemoryClass::Small,
+    );
 
     fn about(when: Option<&str>) -> About<'_> {
         About {
@@ -532,11 +520,7 @@ mod tests {
 
     #[test]
     fn a_battery_passes_with_values_a_battery_can_have() {
-        let b = |percent, millivolts| Battery {
-            percent,
-            charging: false,
-            millivolts,
-        };
+        let b = |percent, millivolts| Battery::new(percent, false, millivolts);
         assert_eq!(
             battery(Some(b(85, Some(4012))), [true, true]),
             (

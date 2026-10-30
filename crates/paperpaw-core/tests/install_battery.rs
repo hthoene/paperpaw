@@ -25,25 +25,13 @@ use paperpaw_platform::{
     SystemStatus,
 };
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test",
-    display: DisplayInfo {
-        width: 120,
-        height: 160,
-        dpi: 100,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test",
+    DisplayInfo::new(120, 160, 100, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, false, false, &[]),
+    MemoryClass::Small,
+);
 
 const GO: Id = Id::new_static("asker.go");
 
@@ -103,14 +91,7 @@ fn kernel() -> Test {
 fn battery(test: &mut Test, percent: u8, charging: bool) {
     test.kernel.set_status(
         Instant(10),
-        SystemStatus {
-            battery: Some(Battery {
-                percent,
-                charging,
-                millivolts: None,
-            }),
-            ..SystemStatus::default()
-        },
+        SystemStatus::default().with_battery(Some(Battery::new(percent, charging, None))),
     );
 }
 

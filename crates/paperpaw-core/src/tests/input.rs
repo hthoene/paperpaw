@@ -16,13 +16,7 @@ fn finger(
     phase: PointerPhase,
     (x, y): (i32, i32),
 ) -> crate::Effects {
-    let event = PointerEvent {
-        id,
-        phase,
-        point: Point::new(x, y),
-        tool: PointerTool::Finger,
-        pressure: 1000,
-    };
+    let event = PointerEvent::new(id, phase, Point::new(x, y), PointerTool::Finger, 1000);
     kernel.handle(Instant(at), InputEvent::Pointer(event))
 }
 

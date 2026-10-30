@@ -24,36 +24,16 @@ use paperpaw_sdk::{
 };
 
 /// An X4: buttons, no touch.
-const X4: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test device",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Large,
-};
+const X4: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test device",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, false, false, &[]),
+    MemoryClass::Large,
+);
 
 /// A touch screen.
-const BOOX: DeviceInfo = DeviceInfo {
-    input: InputCaps {
-        buttons: false,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    ..X4
-};
+const BOOX: DeviceInfo = X4.with_input(InputCaps::new(false, true, false, &[]));
 
 /// The screen the menus open over, as a book.
 const BASE: Id = Id::new_static("probe.base");
@@ -165,13 +145,13 @@ impl Test {
     fn tap(&mut self, point: Point) {
         for (later, phase) in [(0, PointerPhase::Down), (50, PointerPhase::Up)] {
             self.now += later + 100;
-            let event = InputEvent::Pointer(PointerEvent {
-                id: 0,
+            let event = InputEvent::Pointer(PointerEvent::new(
+                0,
                 phase,
                 point,
-                tool: PointerTool::Finger,
-                pressure: 1000,
-            });
+                PointerTool::Finger,
+                1000,
+            ));
             self.kernel.handle(Instant(self.now), event);
         }
         self.kernel.render(&mut |_, _| {});

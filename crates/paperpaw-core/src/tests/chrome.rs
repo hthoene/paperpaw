@@ -292,13 +292,7 @@ fn a_bar_shows_over_the_screens_it_says() {
 #[test]
 fn a_bar_for_touch_needs_a_touch_screen() {
     let log = log();
-    let buttons = DeviceInfo {
-        input: paperpaw_platform::InputCaps {
-            touch: false,
-            ..DEVICE.input
-        },
-        ..DEVICE
-    };
+    let buttons = DEVICE.with_input(DEVICE.input.with_touch(false));
     let kernel = bar_kernel(&log, Edge::Bottom, buttons);
     assert!(kernel.chromes.is_empty());
     assert_eq!(*log.borrow(), ["page made 90x90"]);

@@ -23,25 +23,13 @@ use paperpaw_sdk::{
     Storage, StorageError, Version,
 };
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test device",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Large,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test device",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, true, false, &[]),
+    MemoryClass::Large,
+);
 
 const RULES: &str = ".paperpaw/plugins/rules/rules.txt";
 const COUNT: Id = Id::new_static("counter.count");
@@ -156,14 +144,14 @@ impl Test {
     /// The clock becomes known: `hour:minute` UTC, `at` since the start.
     fn clock(&mut self, at: u64, hour: i64, minute: i64) {
         let day = 20_000 * 86_400_000;
-        let status = SystemStatus {
-            clock: Some(WallClock {
-                at: Instant(at),
-                unix_millis: day + (hour * 60 + minute) * 60_000,
-                utc_offset_minutes: Some(0),
-            }),
-            battery: None,
-        };
+        let status = SystemStatus::new(
+            Some(WallClock::new(
+                Instant(at),
+                day + (hour * 60 + minute) * 60_000,
+                Some(0),
+            )),
+            None,
+        );
         self.kernel.set_status(Instant(at), status);
     }
 

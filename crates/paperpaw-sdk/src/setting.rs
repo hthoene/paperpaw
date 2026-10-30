@@ -73,6 +73,7 @@ impl SettingType for i64 {
 /// The type of settings whose value is text: a choice (its option's id),
 /// a language tag, a list of ids separated by commas, or text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Text {}
 
 impl SettingType for Text {

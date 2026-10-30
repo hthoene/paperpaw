@@ -22,14 +22,7 @@ const ALICE: &[u8] = include_bytes!("../../../samples/library/books/alice-in-won
 const CONFIG: &str = "[reader]\nstatus.bottom-left =\nstatus.bottom-center =\nstatus.bottom-right = core.status.battery\n";
 
 fn battery(percent: u8) -> SystemStatus {
-    SystemStatus {
-        clock: None,
-        battery: Some(Battery {
-            percent,
-            charging: false,
-            millivolts: None,
-        }),
-    }
+    SystemStatus::new(None, Some(Battery::new(percent, false, None)))
 }
 
 #[test]

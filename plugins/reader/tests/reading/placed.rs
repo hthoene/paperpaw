@@ -86,19 +86,14 @@ fn a_highlight_keeps_its_text_when_the_books_styles_are_switched() {
     storage.create_dir("books").unwrap();
     storage.write(EPUB, epub).unwrap();
     let ((start, end), (start_off, end_off), text) = moved_text(&storage);
-    let highlight = Annotation {
-        mark: Mark {
-            kind: Kind::Highlight,
-            start,
-            end,
-            noted: true,
-        },
-        percent: 1,
-        created: 1_700_000_000,
-        updated: 0,
-        text: text.clone(),
-        note: String::from("mine"),
-    };
+    let highlight = Annotation::new(
+        Mark::new(Kind::Highlight, start, end, true),
+        1,
+        1_700_000_000,
+        0,
+        text.clone(),
+        String::from("mine"),
+    );
     assert!(annotations::add(&storage, EPUB, highlight).is_ok());
     let mut reading = Reading::with_book(storage.clone(), EPUB, epub);
     reading.open();

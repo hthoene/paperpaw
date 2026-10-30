@@ -156,11 +156,7 @@ fn wall_clock_readings_that_make_no_sense_do_not_panic() {
     let mut kernel = Kernel::builder(DEVICE).build().unwrap();
     kernel.start(Instant(0));
     let clock = |at: u64, unix_millis: i64, offset: Option<i32>| {
-        Some(WallClock {
-            at: Instant(at),
-            unix_millis,
-            utc_offset_minutes: offset,
-        })
+        Some(WallClock::new(Instant(at), unix_millis, offset))
     };
     for (now, reading) in [
         (10, clock(0, i64::MAX, None)),
@@ -168,10 +164,7 @@ fn wall_clock_readings_that_make_no_sense_do_not_panic() {
         (u64::MAX, clock(0, 0, Some(i32::MAX))),
         (30, clock(u64::MAX, i64::MAX, Some(i32::MIN))),
     ] {
-        let status = SystemStatus {
-            clock: reading,
-            battery: None,
-        };
+        let status = SystemStatus::new(reading, None);
         kernel.set_status(Instant(now), status);
     }
 }

@@ -65,6 +65,7 @@ impl From<StorageError> for ZipError {
 
 /// Compression method of an entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Method {
     Stored,
     Deflate,

@@ -25,19 +25,19 @@ fn annotation(
     text: &str,
     note: &str,
 ) -> Annotation {
-    Annotation {
-        mark: Mark {
+    Annotation::new(
+        Mark::new(
             kind,
-            start: Locator::new(start.0, start.1),
-            end: Locator::new(end.0, end.1),
-            noted: !note.is_empty(),
-        },
-        percent: 50,
-        created: 1_700_000_000,
-        updated: 1_700_000_001,
-        text: text.into(),
-        note: note.into(),
-    }
+            Locator::new(start.0, start.1),
+            Locator::new(end.0, end.1),
+            !note.is_empty(),
+        ),
+        50,
+        1_700_000_000,
+        1_700_000_001,
+        text,
+        note,
+    )
 }
 
 fn with_file(text: &[u8]) -> MemoryStorage {
@@ -62,22 +62,24 @@ fn any_annotation() -> impl Strategy<Value = Annotation> {
         ".{0,40}",
     )
         .prop_map(
-            |(bookmark, (s1, o1, s2, o2), percent, (created, updated), text, note)| Annotation {
-                mark: Mark {
-                    kind: if bookmark {
-                        Kind::Bookmark
-                    } else {
-                        Kind::Highlight
-                    },
-                    start: Locator::new(s1, o1),
-                    end: Locator::new(s2, o2),
-                    noted: false,
-                },
-                percent,
-                created,
-                updated,
-                text,
-                note,
+            |(bookmark, (s1, o1, s2, o2), percent, (created, updated), text, note)| {
+                Annotation::new(
+                    Mark::new(
+                        if bookmark {
+                            Kind::Bookmark
+                        } else {
+                            Kind::Highlight
+                        },
+                        Locator::new(s1, o1),
+                        Locator::new(s2, o2),
+                        false,
+                    ),
+                    percent,
+                    created,
+                    updated,
+                    text,
+                    note,
+                )
             },
         )
 }

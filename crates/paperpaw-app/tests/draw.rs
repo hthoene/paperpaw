@@ -40,25 +40,18 @@ use paperpaw_sdk::{
 
 /// An X4 as the emulator's profile and the firmware have it: buttons, no
 /// touch, frames drawn in bands of 192 rows (five a frame).
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test-x4",
-    name: "Test X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test-x4",
+    "Test X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 const FRAME_ROWS: u16 = 192;
 
 /// Pages of widgets of a kind looked at, at most.
@@ -405,19 +398,19 @@ fn card() -> Vec<(String, Vec<u8>)> {
         library::set_favourite(storage, book, true);
     }
     let text = "Alice was beginning to get very tired of sitting by her sister on         the bank, and of having nothing to do: once or twice she had peeped into         the book her sister was reading, but it had no pictures or conversations         in it, and what is the use of a book, thought Alice, without pictures or         conversations?";
-    let highlight = Annotation {
-        mark: Mark {
-            kind: Kind::Highlight,
-            start: Locator::new(1, 0),
-            end: Locator::new(1, text.len() as u32),
-            noted: true,
-        },
-        percent: 1,
-        created: 1_791_900_000,
-        updated: 1_791_900_000,
-        text: annotations::snippet(text),
-        note: "The very beginning".to_string(),
-    };
+    let highlight = Annotation::new(
+        Mark::new(
+            Kind::Highlight,
+            Locator::new(1, 0),
+            Locator::new(1, text.len() as u32),
+            true,
+        ),
+        1,
+        1_791_900_000,
+        1_791_900_000,
+        annotations::snippet(text),
+        "The very beginning".to_string(),
+    );
     annotations::add(storage, EPUB, highlight).unwrap();
     let words = [("peeped", "en"), ("Ungeziefer", "de")]
         .map(|(word, language)| {

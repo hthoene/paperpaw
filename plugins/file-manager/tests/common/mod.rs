@@ -29,38 +29,24 @@ use paperpaw_sdk::{
 };
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
-pub const X4: DeviceInfo = DeviceInfo {
-    id: "test-x4",
-    name: "Test X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+pub const X4: DeviceInfo = DeviceInfo::new(
+    "test-x4",
+    "Test X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
 /// A touch screen as large as the X4's, without buttons.
-pub const TOUCH: DeviceInfo = DeviceInfo {
-    id: "test-touch",
-    name: "Test touch",
-    input: InputCaps {
-        buttons: false,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    ..X4
-};
+pub const TOUCH: DeviceInfo = X4
+    .with_id("test-touch")
+    .with_name("Test touch")
+    .with_input(InputCaps::new(false, true, false, &[]));
 
 /// Both devices, for tests that go the same way on each.
 pub const DEVICES: [DeviceInfo; 2] = [X4, TOUCH];
@@ -370,13 +356,13 @@ impl App {
     /// A finger at `point`, coming down, moving or lifted.
     pub fn finger(&mut self, phase: PointerPhase, point: Point) {
         self.now += 50;
-        let event = InputEvent::Pointer(PointerEvent {
-            id: 0,
+        let event = InputEvent::Pointer(PointerEvent::new(
+            0,
             phase,
             point,
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        });
+            PointerTool::Finger,
+            1000,
+        ));
         let effects = self.kernel.handle(Instant(self.now), event);
         // Timers wait while the finger is down: a long press is not meant.
         if phase == PointerPhase::Up {

@@ -43,6 +43,9 @@ pub struct WordBox {
     pub text: String,
     pub start: Locator,
     pub end: Locator,
+    /// The word runs right to left (Arabic, Hebrew): its start is at the
+    /// right of its box, so a selection from it grows to the left.
+    pub rtl: bool,
 }
 
 impl WordBox {
@@ -52,7 +55,15 @@ impl WordBox {
             text: text.into(),
             start,
             end,
+            rtl: false,
         }
+    }
+
+    /// The same, running right to left or not (see [`WordBox::rtl`]).
+    #[must_use]
+    pub fn rtl(mut self, rtl: bool) -> Self {
+        self.rtl = rtl;
+        self
     }
 
     /// The word without the punctuation around it, as it is looked up.

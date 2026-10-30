@@ -19,25 +19,13 @@ use paperpaw_sdk::{
     PixelFormat, Plugin, PluginProblem, Storage, StorageError,
 };
 
-pub const DEVICE: DeviceInfo = DeviceInfo {
-    id: "xteink-x4",
-    name: "Xteink X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Small,
-};
+pub const DEVICE: DeviceInfo = DeviceInfo::new(
+    "xteink-x4",
+    "Xteink X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(true, false, false, &[]),
+    MemoryClass::Small,
+);
 
 /// The list for the X4.
 pub const LIST: &str = "https://paperpaw.org/api/v1/plugins.json?device=x4&lang=en&order=fair";
@@ -272,13 +260,13 @@ impl Shopping {
     pub fn touch_at(&mut self, x: i32, y: i32, held: bool) {
         use paperpaw_sdk::{InputEvent, Point, PointerEvent, PointerPhase, PointerTool};
         let event = |phase| {
-            InputEvent::Pointer(PointerEvent {
-                id: 0,
+            InputEvent::Pointer(PointerEvent::new(
+                0,
                 phase,
-                point: Point::new(x, y),
-                tool: PointerTool::Finger,
-                pressure: 1000,
-            })
+                Point::new(x, y),
+                PointerTool::Finger,
+                1000,
+            ))
         };
         self.now += 200;
         self.kernel

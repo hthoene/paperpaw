@@ -353,19 +353,14 @@ impl ReaderScreen {
             let kept = annotations::add(
                 env.storage(),
                 &book.path,
-                Annotation {
-                    mark: Mark {
-                        kind: Kind::Bookmark,
-                        start,
-                        end: start,
-                        noted: false,
-                    },
-                    percent: (book.percent() + 0.5) as u8,
-                    created: paperpaw_sdk::time::unix_seconds(&env).unwrap_or(0),
-                    updated: 0,
-                    text: annotations::snippet(&text),
-                    note: String::new(),
-                },
+                Annotation::new(
+                    Mark::new(Kind::Bookmark, start, start, false),
+                    (book.percent() + 0.5) as u8,
+                    paperpaw_sdk::time::unix_seconds(&env).unwrap_or(0),
+                    0,
+                    annotations::snippet(&text),
+                    String::new(),
+                ),
             );
             if kept.is_err() {
                 marks_not_saved(cx);

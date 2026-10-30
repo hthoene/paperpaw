@@ -24,25 +24,13 @@ use paperpaw_sdk::{
 };
 
 pub const fn device(touch: bool) -> DeviceInfo {
-    DeviceInfo {
-        id: "test",
-        name: "Test device",
-        display: DisplayInfo {
-            width: 480,
-            height: 800,
-            dpi: 220,
-            format: PixelFormat::Gray4,
-            rotation: Rotation::Deg0,
-            color: None,
-        },
-        input: InputCaps {
-            buttons: !touch,
-            touch,
-            pen: false,
-            keys: &[],
-        },
-        memory: MemoryClass::Large,
-    }
+    DeviceInfo::new(
+        "test",
+        "Test device",
+        DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+        InputCaps::new(!touch, touch, false, &[]),
+        MemoryClass::Large,
+    )
 }
 
 /// The MD5 of `secret`, the account's key.
@@ -312,13 +300,7 @@ impl Sync {
             let now = self.later(50);
             let effects = self.kernel.handle(
                 now,
-                InputEvent::Pointer(PointerEvent {
-                    id: 0,
-                    phase,
-                    point: at,
-                    tool: PointerTool::Finger,
-                    pressure: 1000,
-                }),
+                InputEvent::Pointer(PointerEvent::new(0, phase, at, PointerTool::Finger, 1000)),
             );
             if phase == PointerPhase::Up {
                 self.settle(effects);

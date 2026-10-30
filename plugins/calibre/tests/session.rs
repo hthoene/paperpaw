@@ -28,25 +28,13 @@ const DEVICE: DeviceInfo = device(MemoryClass::Large);
 
 /// The test device with `memory`.
 const fn device(memory: MemoryClass) -> DeviceInfo {
-    DeviceInfo {
-        id: "test",
-        name: "Test device",
-        display: DisplayInfo {
-            width: 300,
-            height: 400,
-            dpi: 100,
-            format: PixelFormat::Gray4,
-            rotation: Rotation::Deg0,
-            color: None,
-        },
-        input: InputCaps {
-            buttons: true,
-            touch: false,
-            pen: false,
-            keys: &[],
-        },
+    DeviceInfo::new(
+        "test",
+        "Test device",
+        DisplayInfo::new(300, 400, 100, PixelFormat::Gray4, Rotation::Deg0, None),
+        InputCaps::new(true, false, false, &[]),
         memory,
-    }
+    )
 }
 
 thread_local! {

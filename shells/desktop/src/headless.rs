@@ -200,13 +200,13 @@ fn press(device: &mut Device, name: &'static str, hold_ms: u64) {
 
 /// A sample of the one finger scripts use.
 fn finger(phase: PointerPhase, point: Point) -> InputEvent {
-    InputEvent::Pointer(PointerEvent {
-        id: 0,
+    InputEvent::Pointer(PointerEvent::new(
+        0,
         phase,
         point,
-        tool: PointerTool::Finger,
-        pressure: 1000,
-    })
+        PointerTool::Finger,
+        1000,
+    ))
 }
 
 fn touch(device: &mut Device, start: Point, end: Option<Point>, hold_ms: u64) {

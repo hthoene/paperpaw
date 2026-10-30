@@ -14,18 +14,12 @@ mod common;
 
 use common::*;
 use paperpaw_sdk::builtin::actions;
-use paperpaw_sdk::{DeviceInfo, DisplayInfo, Instant, PixelFormat};
+use paperpaw_sdk::{DeviceInfo, Instant, PixelFormat};
 
 const BOOK: &str = "books/numbered.txt";
 
 /// The buttons device with a panel of black and white alone, as the X4.
-const MONO: DeviceInfo = DeviceInfo {
-    display: DisplayInfo {
-        format: PixelFormat::Mono1,
-        ..BUTTONS.display
-    },
-    ..BUTTONS
-};
+const MONO: DeviceInfo = BUTTONS.with_display(BUTTONS.display.with_format(PixelFormat::Mono1));
 
 fn reading(device: DeviceInfo, config: &str) -> Reading {
     let text = numbered_book(120, 12);

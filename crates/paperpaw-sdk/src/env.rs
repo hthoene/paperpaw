@@ -297,6 +297,17 @@ impl<'a> Env<'a> {
         self.i18n
     }
 
+    /// The direction of the interface: right to left where the catalog
+    /// of its language says so ([`Translator::direction`]).
+    pub fn direction(&self) -> paperpaw_lang::Direction {
+        self.i18n.direction()
+    }
+
+    /// The language of the interface, e.g. `de` or `ar`.
+    pub fn lang(&self) -> paperpaw_lang::Lang {
+        paperpaw_lang::Lang::parse(self.i18n.language())
+    }
+
     /// Its `fonts`.
     pub fn fonts(&self) -> &'a Fonts {
         self.fonts
@@ -954,6 +965,7 @@ impl Env<'_> {
 /// Converts physical lengths to pixels for the current screen, so layouts
 /// look the same on low- and high-density displays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Metrics {
     pub dpi: u16,
 }

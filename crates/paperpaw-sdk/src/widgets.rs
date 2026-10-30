@@ -246,6 +246,15 @@ pub trait Widget {
         let _ = (canvas, env, target);
         false
     }
+
+    /// A call that comes after this release, by its key and parameters:
+    /// what PaperPaw asks of widgets later reaches widgets built now,
+    /// which answer [`Handled::No`](crate::Handled::No) to keys they do
+    /// not know.
+    fn on_extended(&mut self, key: &Id, params: &Params, env: &Env<'_>) -> crate::Handled {
+        let _ = (key, params, env);
+        crate::Handled::No
+    }
 }
 
 /// Where a widget is shown ([`Widget::context`]).
@@ -1035,13 +1044,20 @@ pub fn fill_height(room: u32, used: u32, fills: usize) -> u16 {
 /// The values of a widget's alignment setting ([`align_setting`]).
 pub const ALIGNMENTS: &[&str] = &["core.align.left", "core.align.center", "core.align.right"];
 
-/// Where a widget's text sits in its place.
+/// Where a widget's text sits in its place. [`Align::Start`] and
+/// [`Align::End`] follow the interface's direction: at the left and the
+/// right in left-to-right languages, the other way round in
+/// right-to-left ones ([`Align::resolved`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Align {
     Left,
     Center,
     Right,
+    /// Where lines start: left, or right in a right-to-left interface.
+    Start,
+    /// Where lines end: right, or left in a right-to-left interface.
+    End,
 }
 
 impl Align {
@@ -1054,19 +1070,34 @@ impl Align {
         }
     }
 
-    /// Its value in [`ALIGNMENTS`].
+    /// Its value in [`ALIGNMENTS`]; [`Align::Start`] and [`Align::End`]
+    /// as left and right.
     pub const fn value(self) -> &'static str {
-        ALIGNMENTS[self as usize]
+        match self {
+            Align::Left | Align::Start => ALIGNMENTS[0],
+            Align::Center => ALIGNMENTS[1],
+            Align::Right | Align::End => ALIGNMENTS[2],
+        }
+    }
+
+    /// Left, centre or right: [`Align::Start`] and [`Align::End`] for an
+    /// interface right to left (`rtl`) or not.
+    pub const fn resolved(self, rtl: bool) -> Align {
+        match (self, rtl) {
+            (Align::Start, false) | (Align::End, true) => Align::Left,
+            (Align::Start, true) | (Align::End, false) => Align::Right,
+            (other, _) => other,
+        }
     }
 
     /// Where something `width` wide starts in `area`.
     pub fn x(self, area: Rect, width: f32) -> f32 {
         let left = f32::from(area.x);
         let room = (f32::from(area.width) - width).max(0.0);
-        match self {
-            Align::Left => left,
+        match self.resolved(false) {
             Align::Center => left + room / 2.0,
             Align::Right => left + room,
+            _ => left,
         }
     }
 }

@@ -157,25 +157,13 @@ mod tests {
     use super::*;
 
     fn device(name: &'static str) -> DeviceInfo {
-        DeviceInfo {
-            id: "test",
+        DeviceInfo::new(
+            "test",
             name,
-            display: DisplayInfo {
-                width: 480,
-                height: 800,
-                dpi: 220,
-                format: PixelFormat::Mono1,
-                rotation: Rotation::Deg0,
-                color: None,
-            },
-            input: InputCaps {
-                buttons: true,
-                touch: false,
-                pen: false,
-                keys: &[],
-            },
-            memory: MemoryClass::Small,
-        }
+            DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+            InputCaps::new(true, false, false, &[]),
+            MemoryClass::Small,
+        )
     }
 
     #[test]

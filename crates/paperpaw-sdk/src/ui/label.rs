@@ -296,7 +296,7 @@ impl<'t> Label<'t> {
     /// How far a line `width` wide goes in from the start of `room`.
     fn free(&self, room: f32, width: f32) -> f32 {
         let free = (room - width).max(0.0);
-        match self.align {
+        match self.align.resolved(false) {
             Align::Center => free / 2.0,
             Align::Right => free,
             _ => 0.0,

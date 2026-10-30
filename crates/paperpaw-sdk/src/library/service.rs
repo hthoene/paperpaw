@@ -156,6 +156,14 @@ pub trait Library {
         }
         deleted
     }
+
+    /// A question asked after this release, by its key and parameters:
+    /// what PaperPaw asks of libraries later reaches libraries built now,
+    /// which answer `None` to keys they do not know.
+    fn extended(&self, env: &Env<'_>, key: &Id, params: &crate::Params) -> Option<crate::Params> {
+        let _ = (env, key, params);
+        None
+    }
 }
 
 /// Whether `path` may be a book of the library: of a format known, by

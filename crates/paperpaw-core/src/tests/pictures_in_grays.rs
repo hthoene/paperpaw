@@ -60,13 +60,7 @@ fn comes_up_in_grays(format: PixelFormat, in_grays: bool, config: &str) -> (Kern
         writer.row(&[90; 8]).unwrap();
     }
     writer.finish().unwrap();
-    let device = DeviceInfo {
-        display: DisplayInfo {
-            format,
-            ..DEVICE.display
-        },
-        ..DEVICE
-    };
+    let device = DEVICE.with_display(DEVICE.display.with_format(format));
     let mut kernel = Kernel::builder(device)
         .storage(storage)
         .plugin(CoverPlugin { in_grays })

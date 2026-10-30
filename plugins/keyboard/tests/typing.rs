@@ -31,38 +31,24 @@ use paperpaw_sdk::{
 use proptest::prelude::*;
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
-const BUTTONS: DeviceInfo = DeviceInfo {
-    id: "test-x4",
-    name: "Test X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const BUTTONS: DeviceInfo = DeviceInfo::new(
+    "test-x4",
+    "Test X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
 /// A touch screen as large as the X4's.
-const TOUCH: DeviceInfo = DeviceInfo {
-    id: "test-touch",
-    name: "Test touch",
-    input: InputCaps {
-        buttons: false,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    ..BUTTONS
-};
+const TOUCH: DeviceInfo = BUTTONS
+    .with_id("test-touch")
+    .with_name("Test touch")
+    .with_input(InputCaps::new(false, true, false, &[]));
 
 /// The answer the questions in these tests ask for.
 const TYPED: Event<Typed> = Event::new("test.typed");
@@ -325,13 +311,13 @@ impl Typing {
 
     fn finger(&mut self, phase: PointerPhase, point: Point) {
         self.now += 50;
-        let event = InputEvent::Pointer(PointerEvent {
-            id: 0,
+        let event = InputEvent::Pointer(PointerEvent::new(
+            0,
             phase,
             point,
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        });
+            PointerTool::Finger,
+            1000,
+        ));
         let effects = self.kernel.handle(Instant(self.now), event);
         if phase == PointerPhase::Up {
             self.settle(effects);
@@ -888,13 +874,7 @@ fn the_layout_key_by_buttons() {
 }
 
 /// A touch screen with buttons as well (a Boox).
-const BOTH: DeviceInfo = DeviceInfo {
-    input: InputCaps {
-        touch: true,
-        ..BUTTONS.input
-    },
-    ..BUTTONS
-};
+const BOTH: DeviceInfo = BUTTONS.with_input(BUTTONS.input.with_touch(true));
 
 /// Buttons, then a tap: the field's hint of the letters held on the key
 /// that had the focus goes with the focus.

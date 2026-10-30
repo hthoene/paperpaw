@@ -1173,7 +1173,8 @@ impl GridView {
                 }
                 GridResponse::Handled
             }
-            PointerPhase::Up | PointerPhase::Cancel => {
+            // Up, Cancel and phases of later releases end what goes on.
+            _ => {
                 let Some(drag) = self.edit.as_mut().and_then(|e| e.drag.take()) else {
                     return GridResponse::Handled;
                 };
@@ -1356,13 +1357,7 @@ mod tests {
         x: i32,
         y: i32,
     ) -> (GridResponse, Output) {
-        let event = PointerEvent {
-            id: 0,
-            phase,
-            point: Point::new(x, y),
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        };
+        let event = PointerEvent::new(0, phase, Point::new(x, y), PointerTool::Finger, 1000);
         let mut out = Output::default();
         let response = grid.on_pointer(&event, &mut Cx::new(env, &mut out));
         (response, out)

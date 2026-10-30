@@ -29,6 +29,7 @@ pub use storage::{DirEntry, Mounted, NoStorage, Storage, StorageError};
 
 /// Static description of a device, provided by its shell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DeviceInfo {
     /// Stable identifier, e.g. `xteink-x4`.
     pub id: &'static str,
@@ -37,6 +38,55 @@ pub struct DeviceInfo {
     pub display: DisplayInfo,
     pub input: InputCaps,
     pub memory: MemoryClass,
+}
+
+impl DeviceInfo {
+    /// Made of all its fields; the `with_` methods change one.
+    pub const fn new(
+        id: &'static str,
+        name: &'static str,
+        display: DisplayInfo,
+        input: InputCaps,
+        memory: MemoryClass,
+    ) -> Self {
+        Self {
+            id,
+            name,
+            display,
+            input,
+            memory,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_id(mut self, id: &'static str) -> Self {
+        self.id = id;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_name(mut self, name: &'static str) -> Self {
+        self.name = name;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_display(mut self, display: DisplayInfo) -> Self {
+        self.display = display;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_input(mut self, input: InputCaps) -> Self {
+        self.input = input;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_memory(mut self, memory: MemoryClass) -> Self {
+        self.memory = memory;
+        self
+    }
 }
 
 /// How much memory the device has for PaperPaw. Everything must work

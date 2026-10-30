@@ -19,25 +19,13 @@ use paperpaw_sdk::{
     SettingValue, Storage,
 };
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test device",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Large,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test device",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, true, false, &[]),
+    MemoryClass::Large,
+);
 
 struct Device {
     kernel: Kernel,
@@ -59,14 +47,7 @@ impl Device {
         self.now += 60_000;
         self.kernel.set_status(
             Instant(self.now),
-            SystemStatus {
-                clock: None,
-                battery: Some(Battery {
-                    percent,
-                    charging,
-                    millivolts: None,
-                }),
-            },
+            SystemStatus::new(None, Some(Battery::new(percent, charging, None))),
         );
     }
 
@@ -162,15 +143,8 @@ fn a_mode_and_what_the_reader_took_back_stay_across_a_start() {
         .build()
         .unwrap();
     // The shell says the battery as it starts.
-    let battery = Battery {
-        percent: 15,
-        charging: false,
-        millivolts: None,
-    };
-    let status = SystemStatus {
-        clock: None,
-        battery: Some(battery),
-    };
+    let battery = Battery::new(15, false, None);
+    let status = SystemStatus::new(None, Some(battery));
     kernel.set_status(Instant(0), status);
     kernel.start(Instant(0));
     assert_eq!(kernel.power().level, PowerLevel::Saving);

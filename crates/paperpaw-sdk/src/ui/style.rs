@@ -67,6 +67,9 @@ pub struct UiStyle {
     pub(crate) look: super::look::Look,
     /// The grays of the interface (see [`UiStyle::ink`]).
     pub(crate) palette: Palette,
+    /// 1 where the interface runs right to left (see
+    /// [`UiStyle::is_rtl`]), else 0.
+    pub(crate) direction: u8,
 }
 
 /// How a header is drawn ([`UiStyle::header_kind`]).
@@ -187,6 +190,19 @@ impl UiStyle {
         } else {
             HeaderKind::Light
         }
+    }
+
+    /// The interface runs right to left (its language's catalog says so,
+    /// see [`Env::direction`]): headers, rows, switches and sliders are
+    /// mirrored, text drawn with this as its base direction.
+    pub fn is_rtl(&self) -> bool {
+        self.direction == 1
+    }
+
+    /// The same, right to left or not (see [`UiStyle::is_rtl`]).
+    pub fn with_rtl(mut self, rtl: bool) -> Self {
+        self.direction = u8::from(rtl);
+        self
     }
 
     /// The panel shows black and white alone (no grays between).
@@ -480,6 +496,7 @@ impl UiStyle {
         finger: 0,
         look: super::look::Look::none(),
         palette: Palette::DEFAULT,
+        direction: 0,
     };
 
     pub fn new(env: &Env<'_>) -> Self {
@@ -545,6 +562,7 @@ impl UiStyle {
             finger: if env.device().input.touch { m.mm(7) } else { 0 },
             look: env.look(),
             palette: Palette::parse(s.text(settings::UI_PALETTE.as_str())),
+            direction: u8::from(env.direction() == paperpaw_lang::Direction::Rtl),
         }
     }
 

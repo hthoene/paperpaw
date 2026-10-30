@@ -63,6 +63,7 @@ pub const CHIP_ESP32_S3: u16 = 9;
 
 /// What is wrong with an update file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Problem {
     /// No trailer: not an update file (e.g. a whole flash image for the
     /// web flasher).

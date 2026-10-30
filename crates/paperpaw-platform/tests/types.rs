@@ -30,11 +30,7 @@ fn instants_saturate_at_their_limits() {
 
 #[test]
 fn wall_clocks_follow_the_monotonic_clock_both_ways() {
-    let clock = WallClock {
-        at: Instant(10_000),
-        unix_millis: 1_791_967_260_000,
-        utc_offset_minutes: Some(120),
-    };
+    let clock = WallClock::new(Instant(10_000), 1_791_967_260_000, Some(120));
     assert_eq!(clock.unix_millis_at(Instant(10_000)), 1_791_967_260_000);
     assert_eq!(clock.unix_millis_at(Instant(70_000)), 1_791_967_320_000);
     assert_eq!(
@@ -46,29 +42,15 @@ fn wall_clocks_follow_the_monotonic_clock_both_ways() {
 
 #[test]
 fn wall_clocks_before_1970_stay_negative() {
-    let clock = WallClock {
-        at: Instant(0),
-        unix_millis: -86_400_000,
-        utc_offset_minutes: None,
-    };
+    let clock = WallClock::new(Instant(0), -86_400_000, None);
     assert_eq!(clock.unix_millis_at(Instant(1_000)), -86_399_000);
-    let epoch = WallClock {
-        at: Instant(500),
-        unix_millis: 0,
-        utc_offset_minutes: Some(-300),
-    };
+    let epoch = WallClock::new(Instant(500), 0, Some(-300));
     assert_eq!(epoch.unix_millis_at(Instant(0)), -500);
 }
 
 #[test]
 fn colour_boost_stays_between_once_and_twice() {
-    let boost = |saturation_percent| {
-        ColorPanel {
-            color_divisor: 2,
-            saturation_percent,
-        }
-        .boost_percent()
-    };
+    let boost = |saturation_percent| ColorPanel::new(2, saturation_percent).boost_percent();
     assert_eq!(boost(0), 200, "no saturation does not divide by zero");
     assert_eq!(boost(1), 200);
     assert_eq!(boost(50), 200);
@@ -81,13 +63,7 @@ fn colour_boost_stays_between_once_and_twice() {
 }
 
 fn view(format: PixelFormat, width: u16, height: u16, data: &[u8]) -> FrameView<'_> {
-    FrameView {
-        width,
-        height,
-        format,
-        stride: format.stride(width),
-        data,
-    }
+    FrameView::new(width, height, format, format.stride(width), data)
 }
 
 #[test]

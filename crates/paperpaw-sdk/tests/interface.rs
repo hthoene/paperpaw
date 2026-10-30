@@ -281,7 +281,9 @@ fn api_field_appended(line: &str, kept: &BTreeMap<String, &str>) -> bool {
 /// - `shared.list`: the shared function tables (`paperpaw-table`), whose
 ///   order is where plugins find each function;
 /// - `table.sig`: the signature of each of those functions;
-/// - `lang.list`: the scripts and regions whose index a `Lang` keeps.
+/// - `lang.list`: the scripts and regions whose index a `Lang` keeps;
+/// - `i18n.list`: the plural rules, digits and calendars whose index a
+///   catalog keeps.
 fn pins() -> Option<Vec<(&'static str, String)>> {
     let lines = |text: String| -> String {
         text.lines()
@@ -294,10 +296,24 @@ fn pins() -> Option<Vec<(&'static str, String)>> {
         .map(|s| format!("script {s}\n"))
         .chain(paperpaw_lang::regions().map(|r| format!("region {r}\n")))
         .collect();
+    let i18n: String = paperpaw_i18n::cldr_rules()
+        .map(|r| format!("plural {r}\n"))
+        .chain(
+            paperpaw_i18n::DIGITS
+                .iter()
+                .map(|d| format!("digits {d}\n")),
+        )
+        .chain(
+            paperpaw_i18n::CALENDARS
+                .iter()
+                .map(|c| format!("calendar {c}\n")),
+        )
+        .collect();
     Some(vec![
         ("shared.list", lines(read("../paperpaw-table/shared.list")?)),
         ("table.sig", lines(read("../paperpaw-table/table.sig")?)),
         ("lang.list", lang),
+        ("i18n.list", i18n),
     ])
 }
 

@@ -641,13 +641,7 @@ mod tests {
     };
 
     fn pointer(phase: PointerPhase, x: i32, y: i32) -> PointerEvent {
-        PointerEvent {
-            id: 0,
-            phase,
-            point: Point::new(x, y),
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        }
+        PointerEvent::new(0, phase, Point::new(x, y), PointerTool::Finger, 1000)
     }
 
     #[test]
@@ -837,10 +831,7 @@ mod tests {
         // is not taken.
         let mut drag = SliderDrag::default();
         sample(&mut drag, Down, 300, 140);
-        let second = PointerEvent {
-            id: 1,
-            ..pointer(Down, 200, 140)
-        };
+        let second = pointer(Down, 200, 140).with_id(1);
         let (slider, band) = across();
         assert_eq!(drag.on_pointer(&second, &TOUCH, &slider, band, 50), None);
         assert_eq!(drag.dragging(), Some(50));

@@ -28,25 +28,18 @@ use paperpaw_sdk::{
 };
 
 /// Buttons and a touch screen.
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test-both",
-    name: "Test both",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test-both",
+    "Test both",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        true,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
 const BOOK: &str = "books/alice-in-wonderland.txt";
 const BAR: Id = Id::new_static("margin.bar");
@@ -221,13 +214,13 @@ impl App {
     fn tap(&mut self, point: Point) {
         for phase in [PointerPhase::Down, PointerPhase::Up] {
             self.now += 30;
-            let event = InputEvent::Pointer(PointerEvent {
-                id: 0,
+            let event = InputEvent::Pointer(PointerEvent::new(
+                0,
                 phase,
                 point,
-                tool: PointerTool::Finger,
-                pressure: 1000,
-            });
+                PointerTool::Finger,
+                1000,
+            ));
             let effects = self.kernel.handle(Instant(self.now), event);
             // Not held long: no time passes before it is lifted.
             if phase == PointerPhase::Up {

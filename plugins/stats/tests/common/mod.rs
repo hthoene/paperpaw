@@ -23,46 +23,27 @@ use paperpaw_sdk::{
 };
 
 /// An X4: black and white, buttons only.
-pub const X4: DeviceInfo = DeviceInfo {
-    id: "test-x4",
-    name: "Test X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+pub const X4: DeviceInfo = DeviceInfo::new(
+    "test-x4",
+    "Test X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
 /// A touch screen without buttons, larger and in grays.
-pub const TOUCH: DeviceInfo = DeviceInfo {
-    id: "test-touch",
-    name: "Test touch",
-    display: DisplayInfo {
-        width: 1072,
-        height: 1448,
-        dpi: 300,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: false,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Large,
-};
+pub const TOUCH: DeviceInfo = DeviceInfo::new(
+    "test-touch",
+    "Test touch",
+    DisplayInfo::new(1072, 1448, 300, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(false, true, false, &[]),
+    MemoryClass::Large,
+);
 
 pub const DIR: &str = ".paperpaw/plugins/stats";
 pub const DAY: i64 = 86_400;
@@ -237,18 +218,8 @@ impl App {
             .build()
             .unwrap();
         if let Some(unix_millis) = unix_millis {
-            let clock = WallClock {
-                at: Instant(0),
-                unix_millis,
-                utc_offset_minutes: Some(120),
-            };
-            kernel.set_status(
-                Instant(0),
-                SystemStatus {
-                    clock: Some(clock),
-                    battery: None,
-                },
-            );
+            let clock = WallClock::new(Instant(0), unix_millis, Some(120));
+            kernel.set_status(Instant(0), SystemStatus::new(Some(clock), None));
         }
         let effects = kernel.start(Instant(0));
         let mut app = Self {
@@ -304,13 +275,13 @@ impl App {
     /// A finger at `point`, coming down, moving or lifted.
     pub fn finger(&mut self, phase: PointerPhase, point: Point) {
         self.now += 50;
-        let event = InputEvent::Pointer(PointerEvent {
-            id: 0,
+        let event = InputEvent::Pointer(PointerEvent::new(
+            0,
             phase,
             point,
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        });
+            PointerTool::Finger,
+            1000,
+        ));
         let effects = self.kernel.handle(Instant(self.now), event);
         if phase == PointerPhase::Up {
             self.settle(effects);

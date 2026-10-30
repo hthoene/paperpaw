@@ -91,6 +91,8 @@ impl Recognizer {
                 (!held.long_fired).then_some(Recognized::Button { name, long: false })
             }
             (ButtonState::Released, None) => None,
+            // States of later releases.
+            _ => None,
         }
     }
 
@@ -225,6 +227,8 @@ impl Recognizer {
                 None
             }
             (PointerPhase::Move | PointerPhase::Up | PointerPhase::Cancel, None) => None,
+            // Phases of later releases.
+            _ => None,
         }
     }
 
@@ -345,13 +349,7 @@ mod tests {
     };
 
     fn pointer(phase: PointerPhase, x: i32, y: i32) -> PointerEvent {
-        PointerEvent {
-            id: 0,
-            phase,
-            point: Point::new(x, y),
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        }
+        PointerEvent::new(0, phase, Point::new(x, y), PointerTool::Finger, 1000)
     }
 
     #[test]
@@ -446,10 +444,7 @@ mod tests {
     }
 
     fn finger(id: u8, phase: PointerPhase, x: i32, y: i32) -> PointerEvent {
-        PointerEvent {
-            id,
-            ..pointer(phase, x, y)
-        }
+        pointer(phase, x, y).with_id(id)
     }
 
     #[test]

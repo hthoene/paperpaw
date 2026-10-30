@@ -415,36 +415,30 @@ impl Device {
     /// battery at 80 %, charging where it starts online.
     fn status(&self, now: Instant) -> SystemStatus {
         let clock = match (self.wall, &self.clock) {
-            (Some((at, unix_millis, utc_offset_minutes)), _) => WallClock {
-                at,
-                unix_millis,
-                utc_offset_minutes,
-            },
+            (Some((at, unix_millis, utc_offset_minutes)), _) => {
+                WallClock::new(at, unix_millis, utc_offset_minutes)
+            }
             #[cfg(not(target_arch = "wasm32"))]
             (None, Clock::Real(_)) => {
                 let local = chrono::Local::now();
-                WallClock {
-                    at: now,
-                    unix_millis: local.timestamp_millis(),
-                    utc_offset_minutes: Some(local.offset().local_minus_utc() / 60),
-                }
+                WallClock::new(
+                    now,
+                    local.timestamp_millis(),
+                    Some(local.offset().local_minus_utc() / 60),
+                )
             }
             // 14 October 2026, 10:41 in Berlin (also in a browser, which
             // drives the clock itself).
-            _ => WallClock {
-                at: now,
-                unix_millis: 1_791_967_260_000,
-                utc_offset_minutes: Some(120),
-            },
+            _ => WallClock::new(now, 1_791_967_260_000, Some(120)),
         };
-        SystemStatus {
-            clock: Some(clock),
-            battery: Some(Battery {
-                percent: 80,
-                charging: self.wifi_online && self.profile.wifi,
-                millivolts: None,
-            }),
-        }
+        SystemStatus::new(
+            Some(clock),
+            Some(Battery::new(
+                80,
+                self.wifi_online && self.profile.wifi,
+                None,
+            )),
+        )
     }
 
     /// Sets the wall clock to `unix_millis` milliseconds since 1970 (UTC)

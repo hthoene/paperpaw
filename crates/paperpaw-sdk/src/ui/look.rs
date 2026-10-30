@@ -148,6 +148,48 @@ pub struct SliderPart {
     pub ink: Color,
 }
 
+/// A sheet that comes up from an edge of the screen over what is below
+/// (a menu, a panel of choices).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct SheetPart {
+    pub rect: Rect,
+    /// The edge it comes from.
+    pub edge: crate::chrome::Edge,
+    pub inverted: bool,
+}
+
+/// A book's cover in a list or a grid, without a picture: its frame and
+/// where its title goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CoverPart {
+    pub rect: Rect,
+    /// Where the title is written on it.
+    pub title_rect: Rect,
+    pub inverted: bool,
+}
+
+/// A pill: a small rounded choice in a row of them (a filter, a tag).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PillPart {
+    pub rect: Rect,
+    pub selected: bool,
+    pub inverted: bool,
+}
+
+/// The ticks of a scale: `count` of them, the one at `at` marked (a
+/// slider's steps, a page's place).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct TicksPart {
+    pub rect: Rect,
+    pub count: u16,
+    pub at: u16,
+    pub inverted: bool,
+}
+
 /// What a painter paints with: the canvas the part is drawn into and the
 /// screen's style. More may come; a painter takes what it needs.
 #[non_exhaustive]
@@ -181,6 +223,10 @@ pub struct Painters {
     progress: Option<Painter<ProgressPart>>,
     slider: Option<Painter<SliderPart>>,
     frame: Option<Painter<FramePart>>,
+    sheet: Option<Painter<SheetPart>>,
+    cover: Option<InkPainter<CoverPart>>,
+    pill: Option<InkPainter<PillPart>>,
+    ticks: Option<Painter<TicksPart>>,
 }
 
 impl fmt::Debug for Painters {
@@ -196,6 +242,10 @@ impl fmt::Debug for Painters {
             .field("progress", &self.progress.is_some())
             .field("slider", &self.slider.is_some())
             .field("frame", &self.frame.is_some())
+            .field("sheet", &self.sheet.is_some())
+            .field("cover", &self.cover.is_some())
+            .field("pill", &self.pill.is_some())
+            .field("ticks", &self.ticks.is_some())
             .finish()
     }
 }
@@ -220,6 +270,10 @@ impl Painters {
             progress: None,
             slider: None,
             frame: None,
+            sheet: None,
+            cover: None,
+            pill: None,
+            ticks: None,
         }
     }
 
@@ -274,6 +328,30 @@ impl Painters {
         self.frame = Some(painter);
         self
     }
+
+    /// Sheets that come up from an edge.
+    pub const fn sheet(mut self, painter: Painter<SheetPart>) -> Self {
+        self.sheet = Some(painter);
+        self
+    }
+
+    /// Covers without a picture; the ink of the title.
+    pub const fn cover(mut self, painter: InkPainter<CoverPart>) -> Self {
+        self.cover = Some(painter);
+        self
+    }
+
+    /// Pills; the ink of their label.
+    pub const fn pill(mut self, painter: InkPainter<PillPart>) -> Self {
+        self.pill = Some(painter);
+        self
+    }
+
+    /// The ticks of scales.
+    pub const fn ticks(mut self, painter: Painter<TicksPart>) -> Self {
+        self.ticks = Some(painter);
+        self
+    }
 }
 
 /// The look a [`UiStyle`] draws with: the one set, or none.
@@ -304,6 +382,41 @@ impl Look {
     ) -> bool {
         self.0
             .and_then(|p| p.switch)
+            .is_some_and(|paint| paint(&mut PaintCx { canvas, style }, &part))
+    }
+
+    /// Paints a sheet with the look's painter; `false` where it has none.
+    pub fn sheet(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: SheetPart) -> bool {
+        self.0
+            .and_then(|p| p.sheet)
+            .is_some_and(|paint| paint(&mut PaintCx { canvas, style }, &part))
+    }
+
+    /// Paints a cover with the look's painter: the ink of its title, or
+    /// `None` where it has none.
+    pub fn cover(
+        &self,
+        canvas: &mut Canvas<'_>,
+        style: &UiStyle,
+        part: CoverPart,
+    ) -> Option<Color> {
+        self.0
+            .and_then(|p| p.cover)
+            .and_then(|paint| paint(&mut PaintCx { canvas, style }, &part))
+    }
+
+    /// Paints a pill with the look's painter: the ink of its label, or
+    /// `None` where it has none.
+    pub fn pill(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: PillPart) -> Option<Color> {
+        self.0
+            .and_then(|p| p.pill)
+            .and_then(|paint| paint(&mut PaintCx { canvas, style }, &part))
+    }
+
+    /// Paints ticks with the look's painter; `false` where it has none.
+    pub fn ticks(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: TicksPart) -> bool {
+        self.0
+            .and_then(|p| p.ticks)
             .is_some_and(|paint| paint(&mut PaintCx { canvas, style }, &part))
     }
 

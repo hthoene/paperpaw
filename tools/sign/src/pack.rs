@@ -442,7 +442,7 @@ impl<'e> Image<'e> {
                     (Kind::Absolute, Place::Image) => {
                         let hint = match chip {
                             Chip::Esp32C3 => "; build it with `-C code-model=medium`",
-                            Chip::Esp32S3 => "",
+                            _ => "",
                         };
                         problems.push(format!(
                             "{}: an address of the plugin in an instruction cannot move{hint}",

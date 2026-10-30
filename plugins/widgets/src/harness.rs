@@ -20,25 +20,20 @@ use paperpaw_sdk::{
     Settings, StatusItems, SystemStatus, WallClock,
 };
 
-pub(crate) const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test device",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: paperpaw_platform::Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Large,
-};
+pub(crate) const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test device",
+    DisplayInfo::new(
+        480,
+        800,
+        220,
+        PixelFormat::Gray4,
+        paperpaw_platform::Rotation::Deg0,
+        None,
+    ),
+    InputCaps::new(true, true, false, &[]),
+    MemoryClass::Large,
+);
 
 pub(crate) struct NoKeys;
 
@@ -86,19 +81,15 @@ impl Harness {
             menus: Menus::new(),
             actions: Actions::new(),
             plugins: Plugins::new(),
-            status: SystemStatus {
-                clock: Some(WallClock {
-                    at: Instant(0),
+            status: SystemStatus::new(
+                Some(WallClock::new(
+                    Instant(0),
                     // Wednesday, 14 October 2026, 10:41 UTC.
-                    unix_millis: 1_791_974_460_000,
-                    utc_offset_minutes: Some(0),
-                }),
-                battery: Some(Battery {
-                    percent: 64,
-                    charging: true,
-                    millivolts: None,
-                }),
-            },
+                    1_791_974_460_000,
+                    Some(0),
+                )),
+                Some(Battery::new(64, true, None)),
+            ),
             usage: Default::default(),
             plugin_usage: Default::default(),
             status_items: StatusItems::new(),
@@ -177,9 +168,7 @@ impl Harness {
         Env::from(EnvParts {
             device: &DEVICE,
             now: Instant(1000),
-            metrics: Metrics {
-                dpi: DEVICE.display.dpi,
-            },
+            metrics: Metrics::new(DEVICE.display.dpi),
             settings: &self.settings,
             i18n: &self.i18n,
             fonts: &self.fonts,

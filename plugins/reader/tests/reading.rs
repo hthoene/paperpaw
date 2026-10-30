@@ -25,25 +25,13 @@ use paperpaw_sdk::{
     StorageError, Version,
 };
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test device",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Large,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test device",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, false, false, &[]),
+    MemoryClass::Large,
+);
 
 const BOOK: &str = "books/alice.txt";
 /// The same book with a table of contents.
@@ -1125,10 +1113,7 @@ fn small_devices_count_pages_with_rests_between() {
     let text = include_str!("../../../samples/library/books/alice-in-wonderland.txt");
     storage.write(BOOK, text.as_bytes()).unwrap();
     // The X4: about half a second to lay out a page.
-    let small = DeviceInfo {
-        memory: MemoryClass::Small,
-        ..DEVICE
-    };
+    let small = DEVICE.with_memory(MemoryClass::Small);
     let mut kernel = Kernel::builder(small)
         .storage(storage.clone())
         .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)

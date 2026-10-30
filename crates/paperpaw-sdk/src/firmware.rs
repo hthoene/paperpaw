@@ -161,7 +161,7 @@ impl From<Problem> for InstallFailure {
         match problem {
             Problem::NotAnUpdate | Problem::NotAnImage => InstallFailure::NotAnUpdate,
             Problem::NewerFormat => InstallFailure::NewerFormat,
-            Problem::Length | Problem::Signature => InstallFailure::Damaged,
+            _ => InstallFailure::Damaged,
         }
     }
 }
@@ -247,6 +247,7 @@ pub enum Signer {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+#[non_exhaustive]
 pub struct Update {
     pub path: String,
     pub info: AppInfo,

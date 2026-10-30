@@ -372,6 +372,7 @@ pub(super) fn card_style() -> UiStyle {
         finger: 0,
         look: crate::ui::look::Look::none(),
         palette: crate::ui::Palette::DEFAULT,
+        direction: 0,
     }
 }
 

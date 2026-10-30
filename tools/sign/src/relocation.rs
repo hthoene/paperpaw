@@ -55,6 +55,7 @@ pub fn kind(chip: Chip, number: u32) -> Kind {
             17..=19 | 57..=62 => Kind::Difference,
             _ => Kind::Unknown,
         },
+        _ => Kind::Unknown,
     }
 }
 
@@ -117,10 +118,12 @@ pub fn name(chip: Chip, number: u32) -> String {
             62 => "NDIFF32",
             _ => return format!("relocation kind {number}"),
         },
+        _ => return format!("relocation kind {number}"),
     };
     let prefix = match chip {
         Chip::Esp32C3 => "R_RISCV_",
         Chip::Esp32S3 => "R_XTENSA_",
+        _ => "R_",
     };
     format!("{prefix}{known}")
 }

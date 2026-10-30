@@ -62,10 +62,7 @@ impl Plugin for WorkPlugin {
             log.borrow_mut()
                 .push(alloc::format!("step {}", steps.get()));
             if steps.get() < 3 {
-                Step::Progress(Progress {
-                    done: steps.get(),
-                    of: 3,
-                })
+                Step::Progress(Progress::new(steps.get(), 3))
             } else {
                 Step::Done
             }
@@ -253,8 +250,8 @@ fn a_job_steps_in_ticks_until_done() {
     assert!(matches!(
         kernel.shared.work_states.get(&JOB),
         Some(WorkState::Running {
-            progress: Some(Progress { done: 1, of: 3 })
-        })
+            progress: Some(p)
+        }) if *p == Progress::new(1, 3)
     ));
     kernel.tick(Instant(7));
     kernel.tick(Instant(2000));
@@ -597,14 +594,7 @@ fn moments_of_idling_and_charging() {
     declare(&mut kernel, IDLE_MS + 1, charging);
     kernel.set_status(
         Instant(IDLE_MS + 2),
-        SystemStatus {
-            clock: None,
-            battery: Some(paperpaw_platform::Battery {
-                percent: 50,
-                charging: true,
-                millivolts: None,
-            }),
-        },
+        SystemStatus::new(None, Some(paperpaw_platform::Battery::new(50, true, None))),
     );
     assert_eq!(log.borrow()[1], "wk.push charging");
 }

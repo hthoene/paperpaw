@@ -21,25 +21,20 @@ use paperpaw_sdk::{
     MemoryStorage, Params, PixelFormat, Plugin, RegisterError, Registrar, Version,
 };
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test device",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: paperpaw_platform::Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Large,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test device",
+    DisplayInfo::new(
+        480,
+        800,
+        220,
+        PixelFormat::Gray4,
+        paperpaw_platform::Rotation::Deg0,
+        None,
+    ),
+    InputCaps::new(true, true, false, &[]),
+    MemoryClass::Large,
+);
 
 /// The list that picks, and what it tells.
 const PICK: Id = Id::new_static("rules.pick");

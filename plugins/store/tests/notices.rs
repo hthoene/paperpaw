@@ -40,24 +40,14 @@ const NAME: &str = "Reading clock";
 
 /// The X4's and the X4 Pro's screens and input, as their firmware says.
 fn devices() -> [DeviceInfo; 2] {
-    let device = |id, dpi, touch| DeviceInfo {
-        id,
-        name: id,
-        display: DisplayInfo {
-            width: 480,
-            height: 800,
-            dpi,
-            format: PixelFormat::Mono1,
-            rotation: Rotation::Deg0,
-            color: None,
-        },
-        input: InputCaps {
-            buttons: true,
-            touch,
-            pen: false,
-            keys: &[],
-        },
-        memory: MemoryClass::Small,
+    let device = |id, dpi, touch| {
+        DeviceInfo::new(
+            id,
+            id,
+            DisplayInfo::new(480, 800, dpi, PixelFormat::Mono1, Rotation::Deg0, None),
+            InputCaps::new(true, touch, false, &[]),
+            MemoryClass::Small,
+        )
     };
     [
         device("xteink-x4", 220, false),

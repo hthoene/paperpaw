@@ -59,25 +59,20 @@ mod tests {
     use paperpaw_sdk::install::{Origin, origin};
     use paperpaw_sdk::{Id, MemoryStorage};
 
-    const DEVICE: paperpaw_platform::DeviceInfo = paperpaw_platform::DeviceInfo {
-        id: "test",
-        name: "Test",
-        display: paperpaw_platform::DisplayInfo {
-            width: 480,
-            height: 800,
-            dpi: 220,
-            format: paperpaw_platform::PixelFormat::Mono1,
-            rotation: paperpaw_platform::Rotation::Deg0,
-            color: None,
-        },
-        input: paperpaw_platform::InputCaps {
-            buttons: true,
-            touch: false,
-            pen: false,
-            keys: &[],
-        },
-        memory: paperpaw_platform::MemoryClass::Small,
-    };
+    const DEVICE: paperpaw_platform::DeviceInfo = paperpaw_platform::DeviceInfo::new(
+        "test",
+        "Test",
+        paperpaw_platform::DisplayInfo::new(
+            480,
+            800,
+            220,
+            paperpaw_platform::PixelFormat::Mono1,
+            paperpaw_platform::Rotation::Deg0,
+            None,
+        ),
+        paperpaw_platform::InputCaps::new(true, false, false, &[]),
+        paperpaw_platform::MemoryClass::Small,
+    );
 
     #[test]
     fn catalogue_plugin_becomes_store_owned_only_after_placement() {

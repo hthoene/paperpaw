@@ -285,7 +285,7 @@ where
     pub fn size(&self) -> (u16, u16) {
         match self.rotation {
             Rotation::Deg0 | Rotation::Deg180 => (WIDTH, HEIGHT),
-            Rotation::Deg90 | Rotation::Deg270 => (HEIGHT, WIDTH),
+            _ => (HEIGHT, WIDTH),
         }
     }
 
@@ -837,6 +837,7 @@ mod tests {
             Rotation::Deg90 => (PANEL_WIDTH - 1 - x, y),
             Rotation::Deg180 => (PANEL_WIDTH - 1 - y, PANEL_HEIGHT - 1 - x),
             Rotation::Deg270 => (x, PANEL_HEIGHT - 1 - y),
+            _ => (y, x),
         }
     }
 
@@ -861,13 +862,13 @@ mod tests {
     }
 
     fn view(data: &[u8], height: u16) -> FrameView<'_> {
-        FrameView {
-            width: WIDTH,
+        FrameView::new(
+            WIDTH,
             height,
-            format: PixelFormat::Gray2,
-            stride: usize::from(WIDTH) / 4,
+            PixelFormat::Gray2,
+            usize::from(WIDTH) / 4,
             data,
-        }
+        )
     }
 
     #[test]
@@ -921,13 +922,7 @@ mod tests {
                 display.write_rows(96, view, Planes::NEW).unwrap();
                 controller.borrow().new.clone()
             };
-            let mono_view = FrameView {
-                width: WIDTH,
-                height,
-                format: PixelFormat::Mono1,
-                stride,
-                data: &mono,
-            };
+            let mono_view = FrameView::new(WIDTH, height, PixelFormat::Mono1, stride, &mono);
             assert!(
                 planes(view(&gray, height)) == planes(mono_view),
                 "height {height}"
@@ -979,25 +974,20 @@ mod tests {
         use paperpaw_platform::{
             DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, Rotation,
         };
-        let device = DeviceInfo {
-            id: "x4",
-            name: "X4",
-            display: DisplayInfo {
-                width: WIDTH,
-                height: HEIGHT,
-                dpi: 220,
-                format: PixelFormat::Gray2,
-                rotation: Rotation::Deg90,
-                color: None,
-            },
-            input: InputCaps {
-                buttons: true,
-                touch: false,
-                pen: false,
-                keys: &[],
-            },
-            memory: MemoryClass::Small,
-        };
+        let device = DeviceInfo::new(
+            "x4",
+            "X4",
+            DisplayInfo::new(
+                WIDTH,
+                HEIGHT,
+                220,
+                PixelFormat::Gray2,
+                Rotation::Deg90,
+                None,
+            ),
+            InputCaps::new(true, false, false, &[]),
+            MemoryClass::Small,
+        );
         let build = |banded: bool| {
             let mut builder = Kernel::builder(device);
             if banded {
@@ -1091,13 +1081,7 @@ mod tests {
                     }
                 }
             }
-            let view = |data, format, stride| FrameView {
-                width,
-                height: 16,
-                format,
-                stride,
-                data,
-            };
+            let view = |data, format, stride| FrameView::new(width, 16, format, stride, data);
             display
                 .write_rows(96, view(&gray, PixelFormat::Gray2, stride * 2), Planes::NEW)
                 .unwrap();
@@ -1121,10 +1105,7 @@ mod tests {
                 assert!(white(&c.new, panel_at(rotation, x, y)), "{rotation:?}");
             }
             drop(c);
-            let wrong = FrameView {
-                width: height,
-                ..view(&gray, PixelFormat::Gray2, stride * 2)
-            };
+            let wrong = view(&gray, PixelFormat::Gray2, stride * 2).with_width(height);
             assert_eq!(
                 display.write_rows(96, wrong, Planes::NEW),
                 Err(Error::Rows),
@@ -1153,13 +1134,7 @@ mod tests {
                 data[y * stride + usize::from(x / 4)] |= level << (6 - 2 * (x % 4));
             }
         }
-        let rows = FrameView {
-            width: WIDTH,
-            height: 8,
-            format: PixelFormat::Gray2,
-            stride,
-            data: &data,
-        };
+        let rows = FrameView::new(WIDTH, 8, PixelFormat::Gray2, stride, &data);
         display.write_gray_rows(16, rows).unwrap();
         let c = controller.borrow();
         // The waveform's levels: black 11, dark gray 10, light gray 01,
@@ -1175,13 +1150,7 @@ mod tests {
         }
         drop(c);
         let mono = vec![0xFFu8; usize::from(WIDTH) / 8 * 8];
-        let mono = FrameView {
-            width: WIDTH,
-            height: 8,
-            format: PixelFormat::Mono1,
-            stride: usize::from(WIDTH) / 8,
-            data: &mono,
-        };
+        let mono = FrameView::new(WIDTH, 8, PixelFormat::Mono1, usize::from(WIDTH) / 8, &mono);
         assert_eq!(
             display.write_gray_rows(16, mono),
             Err(Error::Rows),

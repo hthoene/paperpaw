@@ -386,19 +386,19 @@ mod tests {
         kind: PluginKind,
         enabled: bool,
     ) -> PluginInfo {
-        PluginInfo {
-            manifest: paperpaw_sdk::Manifest::new(
+        PluginInfo::new(
+            paperpaw_sdk::Manifest::new(
                 paperpaw_sdk::Id::parse(id).unwrap(),
                 id,
                 paperpaw_sdk::Version::new(version.0, version.1, version.2),
             ),
-            state: paperpaw_sdk::PluginState::Running,
+            paperpaw_sdk::PluginState::Running,
             enabled,
-            required_for: Default::default(),
+            Default::default(),
             kind,
-            problem: None,
-            update: None,
-        }
+            None,
+            None,
+        )
     }
 
     #[test]
