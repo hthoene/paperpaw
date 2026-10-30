@@ -998,11 +998,17 @@ fn reordered_boxes(
         }
     }
     boxes.sort_by_key(|(ordinal, _, _)| *ordinal);
+    // Without the controls that set text apart (an EPUB's `dir`), which
+    // draw nothing: a word of them alone is none.
     boxes
         .into_iter()
-        .map(|(_, range, mut word)| {
-            word.text = String::from(line.text.get(range).unwrap_or_default());
-            word
+        .filter_map(|(_, range, mut word)| {
+            let text = line.text.get(range).unwrap_or_default();
+            word.text = text
+                .chars()
+                .filter(|&c| !paperpaw_text::is_invisible(c))
+                .collect();
+            (!word.text.is_empty()).then_some(word)
         })
         .collect()
 }

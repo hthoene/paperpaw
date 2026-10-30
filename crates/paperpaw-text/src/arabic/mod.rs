@@ -21,7 +21,7 @@ mod tests;
 
 use core::str::Chars;
 
-use crate::bidi;
+use crate::{bidi, is_invisible};
 
 /// How a character joins its neighbours (`Joining_Type`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -114,7 +114,7 @@ pub(crate) fn joining(ch: char) -> Joining {
     match ch {
         '\u{200C}' => Joining::NonJoining,
         '\u{200D}' => Joining::Causing,
-        _ if invisible(ch) || bidi::class(ch) == bidi::Class::NSM => Joining::Transparent,
+        _ if is_invisible(ch) || bidi::class(ch) == bidi::Class::NSM => Joining::Transparent,
         _ => Joining::NonJoining,
     }
 }
@@ -202,15 +202,6 @@ pub(crate) fn letter_of(key: char) -> (char, Form) {
     (key, Form::Isolated)
 }
 
-/// Whether `ch` is a control that draws nothing: ZWNJ, ZWJ, the marks
-/// and isolates of direction, the byte order mark.
-fn invisible(ch: char) -> bool {
-    matches!(
-        ch,
-        '\u{200C}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{061C}' | '\u{FEFF}'
-    )
-}
-
 /// The neighbours of a text that is part of a word: a run of another
 /// style, or a line's part. Each is the nearest character outside the
 /// text that is not a mark.
@@ -281,14 +272,14 @@ impl Iterator for Keys<'_> {
         let ch = self.rest.next()?;
         let j = joining(ch);
         if j == Joining::Transparent {
-            return Some(if invisible(ch) { NO_GLYPH } else { ch });
+            return Some(if is_invisible(ch) { NO_GLYPH } else { ch });
         }
         let ligated = core::mem::take(&mut self.lam);
         if ligated && lam_alef(ch, false).is_some() {
             self.before = Joining::Right;
             return Some(NO_GLYPH);
         }
-        if invisible(ch) {
+        if is_invisible(ch) {
             self.before = j;
             return Some(NO_GLYPH);
         }
@@ -405,7 +396,7 @@ fn below_mark(mark: char) -> bool {
 /// heh; keheh is kaf; Arabic-Indic and Persian digits are 0 to 9.
 #[must_use]
 pub(crate) fn search_fold(ch: char) -> Option<char> {
-    if is_mark(ch) || ch == '\u{640}' || invisible(ch) {
+    if is_mark(ch) || ch == '\u{640}' || is_invisible(ch) {
         return None;
     }
     Some(match ch {

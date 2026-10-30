@@ -834,6 +834,30 @@ mod tests {
     }
 
     #[test]
+    fn inline_text_is_set_apart_by_dir_bdi_and_bdo() {
+        let ch2 = String::from(
+            "<html><body>\
+             <p>\u{5d0} <span dir=\"ltr\">C++!</span> <bdi>x</bdi> <bdo dir=\"rtl\">ab</bdo></p>\
+             <p><span dir=\"rtl\"> </span></p>\
+             <p>\u{5d1}<em dir=\"ltr\">a <span dir=\"rtl\">\u{5d2}</span></em></p>\
+             </body></html>",
+        );
+        let blocks = chapter_blocks(&epub(ch2));
+        let texts: Vec<&str> = blocks.iter().map(|b| b.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            [
+                // The spaces between stay outside.
+                "\u{5d0} \u{2066}C++!\u{2069} \u{2068}x\u{2069} \u{202e}ab",
+                // Nested, the innermost closed first; the block's end
+                // drops the closing controls as it drops spaces, and a
+                // block of them alone is none.
+                "\u{5d1}\u{2066}a \u{2067}\u{5d2}",
+            ]
+        );
+    }
+
+    #[test]
     fn a_book_in_a_right_to_left_language_runs_right_to_left() {
         let opf = OPF.replace(
             "<dc:language>de</dc:language>",

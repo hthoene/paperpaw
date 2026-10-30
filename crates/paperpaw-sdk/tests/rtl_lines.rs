@@ -67,7 +67,7 @@ fn harness() -> Harness {
     h
 }
 
-struct Hebrew(Metadata);
+struct Hebrew(Metadata, &'static str);
 
 impl Document for Hebrew {
     fn metadata(&self) -> &Metadata {
@@ -79,13 +79,13 @@ impl Document for Hebrew {
     }
 
     fn section_len(&self, _: u32) -> u32 {
-        TEXT.len() as u32
+        self.1.len() as u32
     }
 
     fn block_at(&self, _: &dyn Storage, at: Locator) -> Result<Option<Block>, DocumentError> {
-        let len = TEXT.len() as u32;
+        let len = self.1.len() as u32;
         Ok((at.offset < len)
-            .then(|| Block::new(BlockKind::Paragraph, 0, len, TEXT.into()).dir(Direction::Rtl)))
+            .then(|| Block::new(BlockKind::Paragraph, 0, len, self.1.into()).dir(Direction::Rtl)))
     }
 }
 
@@ -96,7 +96,7 @@ fn a_hebrew_line_is_drawn_from_the_right_its_words_boxed_in_reading_order() {
     let font = env.fonts().role(fonts::READING.as_str()).unwrap();
     let t = PageType::new(&env, &font, "he", false, StatusRoom::NONE);
     let faces = ReadingFaces::new(&env, &t, None).unwrap();
-    let doc = Hebrew(Metadata::default());
+    let doc = Hebrew(Metadata::default(), TEXT);
     let cx = LayoutContext::new(&doc, &NoStorage, 400.0, &t.style, &faces);
     let page = layout_page(&cx, Locator::START, 500.0).unwrap();
     let line = &page.lines[0];
@@ -130,4 +130,24 @@ fn a_hebrew_line_is_drawn_from_the_right_its_words_boxed_in_reading_order() {
         &page.lines,
         &[],
     );
+}
+
+#[test]
+fn words_leave_out_the_controls_that_set_text_apart() {
+    let h = harness();
+    let env = h.env();
+    let font = env.fonts().role(fonts::READING.as_str()).unwrap();
+    let t = PageType::new(&env, &font, "he", false, StatusRoom::NONE);
+    let faces = ReadingFaces::new(&env, &t, None).unwrap();
+    // As an EPUB writes `<span dir="ltr">12</span>` and an empty
+    // `<span dir="rtl"></span>`.
+    let doc = Hebrew(
+        Metadata::default(),
+        "\u{5d0} \u{2066}12\u{2069} \u{2067}\u{2069} \u{5d1}",
+    );
+    let cx = LayoutContext::new(&doc, &NoStorage, 400.0, &t.style, &faces);
+    let page = layout_page(&cx, Locator::START, 500.0).unwrap();
+    let words = word_boxes(&faces, &t, &page);
+    let texts: Vec<&str> = words.iter().map(|w| w.text.as_str()).collect();
+    assert_eq!(texts, ["\u{5d0}", "12", "\u{5d1}"]);
 }

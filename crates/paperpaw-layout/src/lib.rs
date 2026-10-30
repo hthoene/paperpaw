@@ -677,6 +677,10 @@ fn block_lines(
     // Letters that join are as wide as the form they take between their
     // neighbours (marks left out), as drawing sets them.
     let advance = |i: usize, c: char| {
+        if paperpaw_text::is_invisible(c) {
+            // Direction controls an EPUB sets text apart with.
+            return 0.0;
+        }
         let face = face_at(block, base, i, style.book);
         if levels.is_plain() || !levels::may_join(c) {
             return cx.typesetter.advance(face, c);
