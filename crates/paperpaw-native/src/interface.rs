@@ -26,7 +26,7 @@ pub const TABLE_SYMBOLS: [&str; 8] = [
     "PAPERPAW_TABLE_7",
 ];
 /// The bytes of an [`Entry`] on the chips plugin files are for.
-pub(crate) const ENTRY_LEN: usize = 16;
+pub(crate) const ENTRY_LEN: usize = 32;
 
 /// What a plugin exports, at [`Header::entry`](crate::Header::entry).
 #[repr(C)]
@@ -38,6 +38,35 @@ pub struct Entry {
     /// Makes the plugin. What it returns is the SDK's to read (its
     /// `native::take`): the firmware owns it.
     pub make: unsafe extern "C" fn() -> *mut c_void,
+    /// The bytes of the firmware's [`Api`] the plugin may use: the
+    /// [`Api::SIZE`] of the SDK that built it. A firmware whose table is
+    /// shorter does not load it.
+    pub needs_api: u16,
+    /// The plugin interface the plugin was built for (the SDK's
+    /// `native::INTERFACE`): the packer copies it to the file's header, so
+    /// a firmware can say "older" or "newer" rather than "another build".
+    pub interface: u16,
+    /// The revision of each family of shared functions the SDK that built
+    /// the plugin has (`paperpaw_table::REVISIONS`). The packer copies
+    /// those of the families the plugin's code uses to the header.
+    pub families: [u16; 8],
+}
+
+impl Entry {
+    /// The fingerprint at `entry`, read before the rest: an entry of
+    /// another interface may be shorter than this one, so a loader that
+    /// has an entry's address reads its fingerprint through this and
+    /// takes the whole [`Entry`] only where it is its own.
+    ///
+    /// # Safety
+    ///
+    /// `entry` must point to at least 8 readable bytes, aligned to 8 (the
+    /// fingerprint every interface's entry starts with).
+    #[must_use]
+    pub unsafe fn fingerprint_at(entry: *const Entry) -> u64 {
+        // SAFETY: the caller's contract.
+        unsafe { entry.cast::<u64>().read() }
+    }
 }
 
 /// What the firmware gives every plugin: its heap (every allocation is
@@ -106,9 +135,17 @@ mod tests {
 
     #[test]
     fn the_entry_is_as_long_as_the_format_says() {
-        // The chips are 32-bit; on a computer pointers are wider but the
-        // entry is as long: its fingerprint aligns it to 8.
-        assert_eq!(core::mem::size_of::<Entry>(), ENTRY_LEN);
+        // The chips are 32-bit; on a computer `make` is 8 bytes, and the
+        // fingerprint aligns the entry to 8.
+        let make = core::mem::size_of::<usize>() - 4;
+        assert_eq!(
+            core::mem::size_of::<Entry>(),
+            (ENTRY_LEN + make).next_multiple_of(8)
+        );
         assert_eq!(core::mem::align_of::<Entry>(), 8);
+        assert_eq!(
+            core::mem::offset_of!(Entry, families),
+            ENTRY_LEN - 16 + make
+        );
     }
 }

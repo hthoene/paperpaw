@@ -182,11 +182,17 @@ fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, P
         let entry = library
             .get::<*const Entry>(b"PAPERPAW_ENTRY\0")
             .map_err(|_| PluginProblem::Damaged)?;
-        (&**slot, &**entry)
+        (&**slot, *entry)
     };
-    if entry.fingerprint != FINGERPRINT.0 {
+    // The fingerprint first, through a pointer: an entry of another
+    // interface may be shorter than this one's `Entry`.
+    // SAFETY: the static `plugin!` exports, which every interface's entry
+    // begins with its fingerprint, aligned to 8.
+    if unsafe { Entry::fingerprint_at(entry) } != FINGERPRINT.0 {
         return Err(PluginProblem::OtherBuild);
     }
+    // SAFETY: an entry of this build's interface, as its fingerprint says.
+    let entry = unsafe { &*entry };
     slot.set(&API);
     // SAFETY: a plugin of this build's fingerprint, made once.
     let plugin = unsafe { take((entry.make)()) }.ok_or(PluginProblem::Damaged)?;

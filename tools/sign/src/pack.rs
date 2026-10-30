@@ -24,7 +24,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use paperpaw_native::{
-    API_SYMBOL, CODE_OFFSET, Chip, ENTRY_SYMBOL, HEADER_LEN, Header, LINK_BASE, MAX_IMAGE_LEN,
+    API_SYMBOL, API_WORDS, CODE_OFFSET, Chip, ENTRY_SYMBOL, HEADER_LEN, Header, LINK_BASE,
+    MAX_IMAGE_LEN, TABLE_SYMBOLS,
 };
 
 use crate::elf::{
@@ -35,7 +36,7 @@ use crate::hot::Hot;
 use crate::relocation::{self, Kind};
 
 /// The bytes an [`Entry`](paperpaw_native::Entry) takes.
-const ENTRY_LEN: u32 = 16;
+const ENTRY_LEN: u32 = 32;
 /// The most problems with relocations told at once.
 const MAX_TOLD: usize = 20;
 
@@ -74,15 +75,29 @@ pub fn pack(elf: &[u8]) -> Result<Packed, String> {
     let entry = image.entry(&symbols)?;
     let api = image.api(&symbols)?;
     let words = image.words(&elf, chip, symtab, &symbols)?;
-    if words.contains(&api) {
+    if let Some(at) = words.iter().find(|&&w| w >= api && w < api + 4 * API_WORDS) {
         return Err(format!(
-            "`{API_SYMBOL}` has a relocation: nothing may be linked into it"
+            "the word at {at:#x} after `{API_SYMBOL}` has a relocation: nothing may be linked \
+             into the firmware's words"
         ));
     }
     let hot = Hot::of(&elf, &image, chip, &symbols, &words)?;
 
     let compiler = compiler(&elf)?;
     let fingerprint = u64::from(image.word(entry)) | (u64::from(image.word(entry + 4)) << 32);
+    // The entry after `make` (a word on the chips): what the plugin needs.
+    let needs = image.word(entry + 12);
+    let (needs_api, interface) = (needs & 0xFFFF, (needs >> 16) as u16);
+    let mut families = [0u16; 8];
+    for (i, family) in families.iter_mut().enumerate() {
+        let word = image.word(entry + 16 + 4 * (i as u32 / 2));
+        *family = (word >> (16 * (i % 2))) as u16;
+    }
+    if interface == 0 {
+        return Err(
+            "its entry names no plugin interface: built with an SDK before interface 5".into(),
+        );
+    }
     let align = [image.rodata.addralign, image.text.addralign, 4]
         .into_iter()
         .max()
@@ -106,6 +121,12 @@ pub fn pack(elf: &[u8]) -> Result<Packed, String> {
         hot_at: hot.at,
         hot_len: hot.len,
         patches: hot.patches.len() as u32,
+        needs_api,
+        // The SDK's revision of every family; the families the code does
+        // not use are to be 0 here (the words it reads: firmware step of
+        // interface 5).
+        families,
+        interface,
         sha256: [0; 32],
     };
     let mut sha = header.digest();
@@ -258,6 +279,17 @@ impl<'e> Image<'e> {
         }
         if self.word(at) != 0 {
             return Err(format!("`{API_SYMBOL}` is not linked as 0"));
+        }
+        // The families' words follow it, as paperpaw-plugin.x makes them.
+        for (n, name) in TABLE_SYMBOLS.iter().enumerate() {
+            let word = self.in_rodata(symbols, name, 4).map_err(|e| {
+                format!("{e}: link the plugin with this PaperPaw's paperpaw-plugin.x")
+            })?;
+            if word != at + 4 * (n as u32 + 1) || self.word(word) != 0 {
+                return Err(format!(
+                    "`{name}` is not linked as 0 right after the words before it"
+                ));
+            }
         }
         Ok(at)
     }
@@ -534,8 +566,8 @@ pub(crate) mod tests {
     use crate::elf::build::Builder;
     use crate::elf::{SHF_ALLOC, SHF_WRITE};
 
-    const TEXT: u32 = LINK_BASE + CODE_OFFSET + 64;
-    const DATA: u32 = LINK_BASE + 40;
+    const TEXT: u32 = LINK_BASE + CODE_OFFSET + 96;
+    const DATA: u32 = LINK_BASE + 80;
     const ROM: u32 = 0x4000_1234;
     const FINGERPRINT: u64 = 0x0123_4567_89ab_cdef;
     /// What the linker keeps of the compilers.
@@ -550,9 +582,9 @@ pub(crate) mod tests {
         marker: u32,
     }
 
-    /// A small plugin that packs: 64 bytes of read-only data (the entry
-    /// at 0 with the address of `make` at 8, the table's word at 16, the
-    /// address of `DATA` at 20, a difference at 24, `DATA` at 40), then 32
+    /// A small plugin that packs: 96 bytes of read-only data (the entry
+    /// at 0 with the address of `make` at 8, the firmware's words at 32,
+    /// the address of `DATA` at 68, a difference at 72, `DATA` at 80), then 32
     /// bytes of code (a call of `make`, a relative reach of `DATA`, a
     /// literal of `DATA`'s address at 24 and of a ROM function's at 28).
     struct Plugin {
@@ -586,11 +618,13 @@ pub(crate) mod tests {
                 marker: 11,
             },
         };
-        let mut rodata = [0u8; 64];
+        let mut rodata = [0u8; 96];
         rodata[..8].copy_from_slice(&FINGERPRINT.to_le_bytes());
         rodata[8..12].copy_from_slice(&TEXT.to_le_bytes());
-        rodata[20..24].copy_from_slice(&DATA.to_le_bytes());
-        rodata[40..48].copy_from_slice(b"PaperPaw");
+        // Needs 64 bytes of the firmware's table, plugin interface 5.
+        rodata[12..16].copy_from_slice(&(64u32 | (5 << 16)).to_le_bytes());
+        rodata[68..72].copy_from_slice(&DATA.to_le_bytes());
+        rodata[80..88].copy_from_slice(b"PaperPaw");
         let mut text = [0x13u8; 32];
         text[24..28].copy_from_slice(&DATA.to_le_bytes());
         text[28..32].copy_from_slice(&ROM.to_le_bytes());
@@ -603,16 +637,19 @@ pub(crate) mod tests {
         }
         let data = b.symbol("DATA", DATA, 8, ro as u16, true);
         let label = b.symbol(".Lpcrel", TEXT + 4, 0, tx as u16, true);
-        b.symbol(ENTRY_SYMBOL, LINK_BASE, 16, ro as u16, false);
-        b.symbol(API_SYMBOL, LINK_BASE + 16, 0, SHN_ABS, false);
+        b.symbol(ENTRY_SYMBOL, LINK_BASE, 32, ro as u16, false);
+        b.symbol(API_SYMBOL, LINK_BASE + 32, 0, SHN_ABS, false);
+        for (n, name) in TABLE_SYMBOLS.iter().enumerate() {
+            b.symbol(name, LINK_BASE + 36 + 4 * n as u32, 0, SHN_ABS, false);
+        }
         let make = b.symbol("make", TEXT, 8, tx as u16, false);
         // No hot code.
         b.symbol("PAPERPAW_HOT", TEXT + 32, 0, tx as u16, false);
         b.symbol("PAPERPAW_HOT_END", TEXT + 32, 0, tx as u16, false);
         let rom = b.symbol("rom_fn", ROM, 0, SHN_ABS, false);
         b.rela(ro, LINK_BASE + 8, make, k.word);
-        b.rela(ro, LINK_BASE + 20, data, k.word);
-        b.rela(ro, LINK_BASE + 24, label, k.difference);
+        b.rela(ro, LINK_BASE + 68, data, k.word);
+        b.rela(ro, LINK_BASE + 72, label, k.difference);
         b.rela(tx, TEXT, make, k.marker);
         b.rela(tx, TEXT, make, k.call);
         b.rela(tx, TEXT + 4, data, k.call);
@@ -670,18 +707,19 @@ pub(crate) mod tests {
             assert_eq!(header, packed.header);
             assert_eq!(header.chip, chip);
             assert_eq!(header.fingerprint, FINGERPRINT);
-            assert_eq!((header.base, header.image_len), (LINK_BASE, 96));
-            assert_eq!((header.code_at, header.entry, header.api), (64, 0, 16));
+            assert_eq!((header.base, header.image_len), (LINK_BASE, 128));
+            assert_eq!((header.code_at, header.entry, header.api), (96, 0, 32));
+            assert_eq!((header.needs_api, header.interface), (64, 5));
             assert_eq!((header.relocs, header.align), (3, 16));
-            let image = &packed.file[HEADER_LEN..HEADER_LEN + 96];
+            let image = &packed.file[HEADER_LEN..HEADER_LEN + 128];
             assert_eq!(image[..8], FINGERPRINT.to_le_bytes());
-            assert_eq!(image[64..68], [0x13; 4]);
-            let words: Vec<u32> = packed.file[HEADER_LEN + 96..]
+            assert_eq!(image[96..100], [0x13; 4]);
+            let words: Vec<u32> = packed.file[HEADER_LEN + 128..]
                 .chunks(4)
                 .map(|w| le32(w, 0))
                 .collect();
             // The ROM's address stays as it is.
-            assert_eq!(words, [8, 20, 88]);
+            assert_eq!(words, [8, 68, 120]);
         }
     }
 
@@ -795,18 +833,21 @@ pub(crate) mod tests {
     fn a_file_not_linked_as_a_plugin_is_refused() {
         // No relocations kept.
         let mut b = Builder::new(EM_RISCV, ET_EXEC);
-        let mut rodata = [0u8; 32];
+        let mut rodata = [0u8; 96];
         rodata[..8].copy_from_slice(&FINGERPRINT.to_le_bytes());
         let ro = b.section(".rodata", SHF_ALLOC, LINK_BASE, &rodata, 16);
         b.section(
             ".text",
             SHF_ALLOC | 4,
-            LINK_BASE + CODE_OFFSET + 32,
+            LINK_BASE + CODE_OFFSET + 96,
             &[0; 16],
             4,
         );
-        b.symbol(ENTRY_SYMBOL, LINK_BASE, 16, ro as u16, false);
-        b.symbol(API_SYMBOL, LINK_BASE + 16, 0, ro as u16, false);
+        b.symbol(ENTRY_SYMBOL, LINK_BASE, 32, ro as u16, false);
+        b.symbol(API_SYMBOL, LINK_BASE + 32, 0, ro as u16, false);
+        for (n, name) in TABLE_SYMBOLS.iter().enumerate() {
+            b.symbol(name, LINK_BASE + 36 + 4 * n as u32, 0, ro as u16, false);
+        }
         let error = pack(&b.build()).unwrap_err();
         assert!(error.contains("--emit-relocs"), "{error}");
 

@@ -6,6 +6,7 @@
 # Exhaustive on purpose
 paperpaw_sdk::library::service::LibraryService  # a service type: its one field is all it is; another takes a new key
 paperpaw_sdk::Handled  # an event is handled or not, and a plugin matches both
+paperpaw_table::Table  # one address: its layout is the word the loader fills (repr(transparent))
 
 # Not decided yet: each leaves as it gets #[non_exhaustive] and a
 # constructor, or moves up with its reason (SDK review A1)

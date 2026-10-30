@@ -447,6 +447,8 @@ fn problem_key(problem: PluginProblem) -> &'static str {
         PluginProblem::Crashed => "plugin-manager.code.crashed",
         PluginProblem::NotInstalled => "plugin-manager.code.not-installed",
         PluginProblem::Changed => "plugin-manager.code.changed",
+        PluginProblem::OlderInterface { .. } => "plugin-manager.code.older",
+        PluginProblem::NeedsNewerPaperPaw => "plugin-manager.code.needs-newer",
         _ => "plugin-manager.failed",
     }
 }

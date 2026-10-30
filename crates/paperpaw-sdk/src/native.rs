@@ -45,6 +45,7 @@ use alloc::vec::Vec;
 use core::fmt;
 
 use crate::Id;
+use crate::plugins::PluginProblem;
 use paperpaw_platform::Storage;
 
 pub use paperpaw_native::compiler;
@@ -651,6 +652,14 @@ pub struct Native {
     pub safe_mode: Option<SafeMode>,
     /// Plugins the shell had to install at this start and did not.
     pub not_installed: Vec<NotInstalled>,
+    /// The bytes of the shell's [`Api`](paperpaw_native::Api): a plugin
+    /// that needs more ([`Header::needs_api`]) needs a newer PaperPaw.
+    pub api_size: u32,
+    /// The revision of each family of shared functions the shell has
+    /// (0: none); on RISC-V chips only (`paperpaw_table`).
+    pub family_revs: paperpaw_table::Revisions,
+    /// The oldest revision of each family whose plugins the shell runs.
+    pub family_min: paperpaw_table::Revisions,
 }
 
 impl Native {
@@ -663,6 +672,9 @@ impl Native {
             file: file.into(),
             safe_mode: None,
             not_installed: Vec::new(),
+            api_size: paperpaw_native::Api::SIZE,
+            family_revs: paperpaw_table::REVISIONS,
+            family_min: paperpaw_table::OLDEST,
         }
     }
 
@@ -671,8 +683,46 @@ impl Native {
     /// it before a file is installed or placed, as the shell does before
     /// it loads one.
     pub fn fits(&self, header: &Header) -> bool {
-        header.fingerprint == self.fingerprint.0
-            && (self.compiler == 0 || header.compiler == self.compiler)
+        self.problem(header).is_none()
+    }
+
+    /// Why a plugin file with `header` does not run here, if it does not:
+    /// built for an older or a newer plugin interface, needing more of
+    /// the firmware than it has, or of another build.
+    pub fn problem(&self, header: &Header) -> Option<PluginProblem> {
+        if header.interface < INTERFACE {
+            return Some(PluginProblem::OlderInterface {
+                built_for: header.interface,
+            });
+        }
+        let families = header.chip == paperpaw_native::Chip::Esp32C3;
+        let revs = &header.families;
+        let newer_family = families && (0..revs.len()).any(|i| revs[i] > self.family_revs[i]);
+        if header.interface > INTERFACE || header.needs_api > self.api_size || newer_family {
+            return Some(PluginProblem::NeedsNewerPaperPaw);
+        }
+        if families && !paperpaw_table::fits(revs, &self.family_min, &self.family_revs) {
+            return Some(PluginProblem::OlderInterface {
+                built_for: header.interface,
+            });
+        }
+        let compiler = self.compiler == 0 || header.compiler == self.compiler;
+        (header.fingerprint != self.fingerprint.0 || !compiler).then_some(PluginProblem::OtherBuild)
+    }
+
+    /// Why a plugin file whose header [`Header::read`] refused with
+    /// `problem` does not run: a file of an older format was built for an
+    /// older PaperPaw ([`Header::read_older`] tells it from a damaged
+    /// one), one of a newer format needs a newer PaperPaw.
+    pub fn problem_of_file(head: &[u8], problem: paperpaw_native::Problem) -> PluginProblem {
+        match problem {
+            paperpaw_native::Problem::OlderFormat if Header::read_older(head).is_some() => {
+                PluginProblem::OlderInterface { built_for: 0 }
+            }
+            paperpaw_native::Problem::NewerFormat => PluginProblem::NeedsNewerPaperPaw,
+            paperpaw_native::Problem::UnknownChip => PluginProblem::OtherBuild,
+            _ => PluginProblem::Damaged,
+        }
     }
 
     /// The path of the code of the plugin in `folder`.
@@ -831,6 +881,9 @@ macro_rules! plugin {
             $crate::native::support::Entry {
                 fingerprint: $crate::native::FINGERPRINT.0,
                 make: paperpaw_make,
+                needs_api: $crate::native::support::Api::SIZE as u16,
+                interface: $crate::native::INTERFACE,
+                families: $crate::native::support::REVISIONS,
             };
     };
 }
@@ -839,224 +892,7 @@ mod hot;
 
 /// The layouts [`LAYOUT`] digests, and the hash the fingerprint is made
 /// with.
-mod layout {
-    use core::mem::{align_of, offset_of, size_of};
-
-    use paperpaw_native::{Api, Entry};
-
-    /// FNV-1a with 64 bits, at compile time (as `paperpaw_digest`'s).
-    #[derive(Clone, Copy)]
-    pub(super) struct Fnv(pub(super) u64);
-
-    impl Fnv {
-        pub(super) const fn new() -> Fnv {
-            Fnv(0xcbf2_9ce4_8422_2325)
-        }
-
-        const fn byte(self, b: u8) -> Fnv {
-            Fnv((self.0 ^ b as u64).wrapping_mul(0x0100_0000_01b3))
-        }
-
-        pub(super) const fn number(self, n: u64) -> Fnv {
-            let mut hash = self;
-            let mut i = 0;
-            while i < 8 {
-                hash = hash.byte((n >> (8 * i)) as u8);
-                i += 1;
-            }
-            hash
-        }
-
-        pub(super) const fn text(self, text: &str) -> Fnv {
-            let bytes = text.as_bytes();
-            let mut hash = self;
-            let mut i = 0;
-            while i < bytes.len() {
-                hash = hash.byte(bytes[i]);
-                i += 1;
-            }
-            hash.byte(0)
-        }
-    }
-
-    /// The chip, as the compiler sees it.
-    pub(super) const TARGET: &str = if cfg!(target_arch = "riscv32") {
-        "riscv32"
-    } else if cfg!(target_arch = "xtensa") {
-        "xtensa"
-    } else if cfg!(all(target_arch = "aarch64", target_os = "android")) {
-        "aarch64-android"
-    } else if cfg!(target_arch = "aarch64") {
-        "aarch64"
-    } else if cfg!(target_arch = "x86_64") {
-        "x86_64"
-    } else if cfg!(target_arch = "arm") {
-        "arm"
-    } else if cfg!(target_arch = "wasm32") {
-        "wasm32"
-    } else {
-        "other"
-    };
-
-    /// Sizes and alignments of `$t`, in order.
-    macro_rules! layouts {
-        ($($t:ty),* $(,)?) => {
-            [$((size_of::<$t>() as u64, align_of::<$t>() as u64)),*]
-        };
-    }
-
-    /// The types that cross between a plugin and PaperPaw: what the SDK
-    /// gives a plugin (by reference or by value), what a plugin gives
-    /// back, and the boxes and trait objects they come in.
-    const CROSSING: &[(u64, u64)] = &layouts![
-        crate::Env<'static>,
-        crate::env::EnvParts<'static>,
-        crate::Capabilities,
-        crate::Metrics,
-        crate::Registrar,
-        crate::contribution::item::Contribution,
-        crate::Command,
-        crate::Cx<'static, 'static>,
-        crate::screen::Output,
-        crate::StackEntry,
-        crate::ScreenKey,
-        crate::Canvas<'static>,
-        crate::Settings,
-        crate::SettingSpec,
-        crate::SettingValue,
-        crate::SettingKind,
-        crate::Translator,
-        crate::Fonts,
-        crate::FontHandle<'static>,
-        crate::Params,
-        crate::Id,
-        crate::Version,
-        crate::Manifest,
-        crate::PluginInfo,
-        crate::Plugins,
-        crate::ScreenSpec,
-        crate::ActionSpec,
-        crate::MenuEntry,
-        crate::Menus,
-        crate::Actions,
-        crate::RegisterError,
-        crate::HttpRequest,
-        crate::HttpReply,
-        crate::Gesture,
-        crate::Handled,
-        crate::Hint,
-        crate::Rect,
-        crate::Point,
-        crate::Color,
-        crate::InputEvent,
-        crate::DeviceInfo,
-        crate::Instant,
-        super::Native,
-        super::Fingerprint,
-        alloc::boxed::Box<dyn crate::Plugin>,
-        alloc::boxed::Box<dyn crate::Screen>,
-        &'static dyn crate::Storage,
-        // Not `Api`: it grows at its end without a raise; `TABLE` keeps
-        // where its fields of interface 5 lie.
-        Entry,
-        // What `Env` reaches.
-        crate::firmware::Firmware,
-        crate::formats::Formats,
-        crate::usage::Usage,
-        crate::status::StatusItems,
-        crate::readers::Readers,
-        crate::widgets::Widgets,
-        crate::services::Services,
-        crate::services::Service,
-        crate::power::Power,
-        crate::work::WorkStates,
-        crate::wifi::Wifi,
-        crate::library::BookData,
-        crate::library::service::BookBadge,
-        crate::library::service::BookField,
-        crate::keys::InputSpec,
-        // What a `Contribution` holds: the enum's size hides a change of
-        // a smaller one.
-        crate::action::ActionOverride,
-        crate::action::ObserverSpec,
-        crate::chrome::ChromeSpec,
-        crate::decorations::DecoratorSpec,
-        crate::event::EventHandler,
-        crate::filters::InputFilterSpec,
-        crate::filters::RefreshFilterSpec,
-        crate::filters::TextFilterSpec,
-        crate::fonts::FontFace,
-        crate::fonts::FontSpec,
-        crate::formats::FormatSpec,
-        crate::hyphenation::HyphenationSpec,
-        crate::keys::GestureSpec,
-        crate::layers::PageFrameSpec,
-        crate::layers::PageLayerSpec,
-        crate::lookup::LookupProviderSpec,
-        crate::menus::ItemStateFn,
-        crate::menus::MenuNeed,
-        crate::menus::MenuSection,
-        crate::plugin::Priority,
-        crate::plugin::SlotSpec,
-        crate::presets::Preset,
-        crate::readers::ReaderSpec,
-        crate::services::EventSpec,
-        crate::services::PointSpec,
-        crate::settings::SettingGroupSpec,
-        crate::setup::SetupStepSpec,
-        crate::status::Place,
-        crate::status::StatusItemSpec,
-        crate::status::StatusLineSpec,
-        crate::ui::look::Painters,
-        crate::voices::VoiceSpec,
-        crate::widgets::WidgetCategory,
-        crate::widgets::WidgetPlace,
-        crate::widgets::WidgetSpec,
-        crate::work::WorkSpec,
-        // What trait methods take and give.
-        crate::screen::HintVisibility,
-        crate::screen::Outside,
-        crate::screen::ShowsThrough,
-        crate::screen::CloseCause,
-        paperpaw_platform::PointerEvent,
-        paperpaw_document::Block,
-    ];
-
-    /// Where the firmware's table keeps each field of interface 5: a
-    /// plugin finds them there. A frozen list: fields appended after
-    /// `build_len` are not in it, so they leave the fingerprint as it is
-    /// (a plugin that uses one says so in its `needs_api`, and the size of
-    /// the firmware's table tells whether it has it).
-    const TABLE: [u64; 12] = [
-        offset_of!(Api, size) as u64,
-        offset_of!(Api, alloc) as u64,
-        offset_of!(Api, dealloc) as u64,
-        offset_of!(Api, realloc) as u64,
-        offset_of!(Api, panic) as u64,
-        offset_of!(Api, micros) as u64,
-        offset_of!(Api, icon) as u64,
-        offset_of!(Api, alloc_in) as u64,
-        offset_of!(Api, family_revs) as u64,
-        offset_of!(Api, family_min) as u64,
-        offset_of!(Api, build) as u64,
-        offset_of!(Api, build_len) as u64,
-    ];
-
-    pub(super) const DIGEST: u64 = {
-        let mut hash = Fnv::new();
-        let mut i = 0;
-        while i < CROSSING.len() {
-            hash = hash.number(CROSSING[i].0).number(CROSSING[i].1);
-            i += 1;
-        }
-        let mut i = 0;
-        while i < TABLE.len() {
-            hash = hash.number(TABLE[i]);
-            i += 1;
-        }
-        hash.0
-    };
-}
+mod layout;
 
 /// What [`plugin!`] expands to uses, and what a shell that loads plugins
 /// as libraries hands them; not for plugins themselves.
@@ -1068,6 +904,7 @@ pub mod support {
     use core::sync::atomic::{AtomicPtr, Ordering};
 
     pub use paperpaw_native::{Api, Entry};
+    pub use paperpaw_table::REVISIONS;
 
     /// The shell's table, where a library the system loads keeps it
     /// (`PAPERPAW_API`): set before the plugin is made.
@@ -1226,15 +1063,18 @@ mod tests {
             fingerprint: 1,
             base: paperpaw_native::LINK_BASE,
             image_len: len,
-            code_at: 64,
+            code_at: 96,
             entry: 0,
-            api: 16,
+            api: 32,
             relocs: 0,
             align,
             compiler: 1,
             hot_at: 0,
             hot_len: 0,
             patches: 0,
+            needs_api: 0,
+            families: [0; 8],
+            interface: INTERFACE,
             sha256: [0; 32],
         };
         header.to_bytes().to_vec()
@@ -1368,19 +1208,22 @@ mod tests {
             chip: Chip::Esp32C3,
             fingerprint: 1,
             base: paperpaw_native::LINK_BASE,
-            image_len: 64,
-            code_at: 32,
+            image_len: 128,
+            code_at: 96,
             entry: 0,
-            api: 16,
+            api: 32,
             relocs: 0,
             align: 16,
             compiler: 1,
             hot_at: 0,
             hot_len: 0,
             patches: 0,
+            needs_api: 0,
+            families: [0; 8],
+            interface: INTERFACE,
             sha256: [0; 32],
         };
-        let image = [9u8; 64];
+        let image = [9u8; 128];
         let mut sha = header.digest();
         sha.update(&image);
         header.sha256 = sha.finish();
