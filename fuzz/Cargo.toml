@@ -13,6 +13,8 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 paperpaw-sdk = { path = "../crates/paperpaw-sdk" }
 paperpaw-config = { path = "../crates/paperpaw-config" }
+paperpaw-fat = { path = "../crates/paperpaw-fat" }
+paperpaw-platform = { path = "../crates/paperpaw-platform" }
 paperpaw-http = { path = "../crates/paperpaw-http" }
 paperpaw-hyphen = { path = "../crates/paperpaw-hyphen" }
 paperpaw-i18n = { path = "../crates/paperpaw-i18n" }
@@ -29,6 +31,15 @@ paperpaw-plugin-koreader = { path = "../plugins/koreader" }
 
 # Not part of the main workspace.
 [workspace]
+
+# As the workspace patches them (the exFAT driver and the FAT file system
+# of the card; see the root Cargo.toml).
+[patch.crates-io]
+hadris-fs = { path = "../patches/hadris-fs" }
+hadris-fat = { path = "../patches/hadris-fat" }
+
+[patch."https://github.com/rafalh/rust-fatfs"]
+fatfs = { path = "../patches/fatfs" }
 
 [[bin]]
 name = "cbz"
@@ -166,6 +177,13 @@ bench = false
 [[bin]]
 name = "zip"
 path = "fuzz_targets/zip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "exfat"
+path = "fuzz_targets/exfat.rs"
 test = false
 doc = false
 bench = false

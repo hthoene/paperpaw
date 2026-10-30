@@ -170,6 +170,29 @@ fn what_exfat_costs_on_big_cards() {
         appended.0,
         appended.1,
     );
+    // The start of the reader: a library of 500 files in one folder, the
+    // card mounted anew, the folder listed (its first look settles it).
+    for n in 0..500 {
+        storage
+            .write(&format!("library/book-{n:03}.epub"), b"b")
+            .unwrap();
+    }
+    storage.sync().unwrap();
+    drop(storage);
+    let (r4, t4) = (card.reads.get(), Instant::now());
+    let (disk, _) = BlockDisk::find(card.clone()).unwrap();
+    let storage = ExFatStorage::mount(SharedDisk::new(disk)).unwrap();
+    let mounted = (card.reads.get() - r4, t4.elapsed());
+    let mut listed = 0;
+    storage.list("library", &mut |_| listed += 1).unwrap();
+    println!(
+        "| {} GiB: start with 500 books: mount {} reads ({:?}), first listing of the folder {} more reads ({:?} in all, {listed} files) |",
+        size >> 30,
+        mounted.0,
+        mounted.1,
+        card.reads.get() - r4 - mounted.0,
+        t4.elapsed(),
+    );
     // The bitmap is streamed through one block: nothing of the card's size
     // is kept (the design's claim).
     assert!(mount.0 < 64 * 1024, "{} B to mount", mount.0);
