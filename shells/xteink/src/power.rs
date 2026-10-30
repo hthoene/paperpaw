@@ -156,6 +156,46 @@ fn sleep_until(deadline: Instant) -> bool {
     true
 }
 
+/// Light sleep for a reader put to sleep: until `until_ms` (milliseconds
+/// since start) or until the power button goes down, with the readings
+/// paused ([`crate::input::pause`]); whether the button is down at waking.
+/// The watchdogs are off meanwhile ([`watchdogs`]).
+#[cfg(feature = "esp32c3")]
+pub fn sleep_asleep(until_ms: u64) -> bool {
+    let Some(mut low_power) = critical_section::with(|cs| LOW_POWER.borrow_ref_mut(cs).take())
+    else {
+        return false;
+    };
+    low_power.set_wakeup_deadline(Instant::EPOCH + Duration::from_millis(until_ms));
+    mark(at::NAP_IDLE);
+    let down = crate::input::power_nap(|| low_power.sleep_light(RtcSleepConfig::default()));
+    low_power.clear_wakeup_deadline();
+    critical_section::with(|cs| LOW_POWER.replace(cs, Some(low_power)));
+    mark(at::WOKEN);
+    count_nap();
+    down
+}
+
+/// Switches the watchdogs off (a sleeping reader wakes after minutes, far
+/// beyond their seconds) or on again.
+#[cfg(feature = "esp32c3")]
+pub fn watchdogs(on: bool) {
+    critical_section::with(|cs| {
+        if let Some((rtc, wdt)) = WATCHDOGS.borrow_ref_mut(cs).as_mut() {
+            if on {
+                rtc.rwdt.enable();
+                wdt.enable();
+                rtc.rwdt.feed();
+                wdt.feed();
+            } else {
+                rtc.rwdt.disable();
+                wdt.disable();
+            }
+        }
+        CAME_BY.borrow(cs).set(Instant::now());
+    });
+}
+
 /// Turns the power off; only the power button wakes the X4 (it starts
 /// again).
 pub fn deep() -> ! {
