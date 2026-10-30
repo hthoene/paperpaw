@@ -576,8 +576,11 @@ fn a_replacement_cut_off_after_it_was_whole_takes_its_place() {
     assert!(seen > 16, "{seen} cuts with a replacement made whole");
 }
 
-#[test]
-fn a_replacement_cut_off_does_not_overwrite_a_change_made_elsewhere() {
+/// Every cut of a replacement of `A`, the file written anew elsewhere
+/// after it; with `damage_other`, a bad checksum in the set of a file
+/// beside it as well (a torn set that is not `A`'s). How many times
+/// theirs was kept, and the replacement made.
+fn replacement_against_a_change_elsewhere(damage_other: bool) -> (usize, usize) {
     let (old, new) = old_and_new();
     let theirs: Vec<u8> = (0..5000u32).map(|i| (i % 199) as u8 ^ 0x33).collect();
     let (mut kept, mut replaced) = (0, 0);
@@ -595,6 +598,10 @@ fn a_replacement_cut_off_does_not_overwrite_a_change_made_elsewhere() {
             }
             let mut edited = cut.clone();
             changed_elsewhere(&mut edited, A_NAME, &theirs);
+            if damage_other {
+                let at = set_offset(&edited, "b.txt");
+                edited[at + 2] ^= 0xFF;
+            }
             let bytes = card_of(&edited);
             let card = mount(&bytes);
             let at = format!("shift {shift}, cut {n}");
@@ -621,6 +628,22 @@ fn a_replacement_cut_off_does_not_overwrite_a_change_made_elsewhere() {
         }
     }
     assert!(kept > 16, "kept theirs {kept} times, replaced {replaced}");
+    (kept, replaced)
+}
+
+#[test]
+fn a_replacement_cut_off_does_not_overwrite_a_change_made_elsewhere() {
+    replacement_against_a_change_elsewhere(false);
+}
+
+#[test]
+fn a_torn_set_beside_does_not_end_the_protection_of_a_change_made_elsewhere() {
+    // Only the file's own torn set (the replacement's cut) lets the
+    // replacement take its place; another file's does not.
+    assert_eq!(
+        replacement_against_a_change_elsewhere(true),
+        replacement_against_a_change_elsewhere(false)
+    );
 }
 
 // A transient error while settling what a cut left.
@@ -783,4 +806,86 @@ fn a_move_is_settled_after_an_error_in_the_same_mount() {
         }
     }
     assert!(tried > 100, "{tried} errors tried");
+}
+
+// A set another system damaged.
+
+/// The offset of the File entry set named `name` (short enough for one
+/// name entry) in the root of the card `image`.
+fn set_offset(image: &[u8], name: &str) -> usize {
+    let units: Vec<u8> = name.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    (0..image.len() - 96)
+        .step_by(32)
+        .find(|&p| {
+            image[p] == 0x85
+                && image[p + 32] == 0xC0
+                && image[p + 64] == 0xC1
+                && image[p + 66..p + 66 + units.len()] == units[..]
+        })
+        .expect("the set")
+}
+
+/// A card with `damaged.txt` and `kept.txt` whose set of the first has a
+/// broken checksum and `change` made to its stream entry, and what the
+/// storage then lists.
+fn damaged(change: impl Fn(&mut [u8], u32)) -> (Vec<String>, u32, Bytes) {
+    let bytes = small();
+    let card = mount(&bytes);
+    card.write("damaged.txt", &[7u8; 3000]).unwrap();
+    card.write("kept.txt", b"kept").unwrap();
+    card.sync().unwrap();
+    drop(card);
+    let clusters = u32::from_le_bytes(bytes.0.borrow()[92..96].try_into().unwrap());
+    {
+        let mut image = bytes.0.borrow_mut();
+        let at = set_offset(&image, "damaged.txt");
+        image[at + 2] ^= 0xFF;
+        change(&mut image[at + 32..at + 64], clusters);
+    }
+    let card = mount(&bytes);
+    let listed = names(&card, "");
+    assert_eq!(whole(&card, "kept.txt").as_deref(), Ok(&b"kept"[..]));
+    let left = card.left_alone();
+    drop(card);
+    (listed, left, bytes)
+}
+
+#[test]
+fn a_set_with_a_bad_checksum_and_a_possible_stream_is_sealed_again() {
+    // What a cut of the storage's own leaves: the control of the rest.
+    let (listed, left, _) = damaged(|_, _| {});
+    assert!(listed.contains(&"damaged.txt".to_string()), "{listed:?}");
+    assert_eq!(left, 0);
+}
+
+#[test]
+fn a_set_another_system_damaged_is_not_sealed_to_name_clusters_it_may_not_own() {
+    let cases: [(&str, fn(&mut [u8], u32)); 4] = [
+        ("first cluster beyond the card", |s, _| {
+            s[20..24].copy_from_slice(&0xFFFF_FF00u32.to_le_bytes())
+        }),
+        ("first cluster the bitmap calls free", |s, clusters| {
+            s[20..24].copy_from_slice(&(clusters + 1).to_le_bytes())
+        }),
+        ("valid length beyond the length", |s, _| {
+            let len = u64::from_le_bytes(s[24..32].try_into().unwrap());
+            s[8..16].copy_from_slice(&(len + 1).to_le_bytes())
+        }),
+        ("length beyond the card", |s, _| {
+            s[24..32].copy_from_slice(&(1u64 << 40).to_le_bytes());
+            s[8..16].copy_from_slice(&(1u64 << 40).to_le_bytes())
+        }),
+    ];
+    for (what, change) in cases {
+        let (listed, left, bytes) = damaged(change);
+        assert!(
+            !listed.contains(&"damaged.txt".to_string()),
+            "{what}: {listed:?}"
+        );
+        assert_eq!(left, 1, "{what}");
+        // The set is as it was, not made valid: still a bad checksum.
+        let image = bytes.0.borrow();
+        let at = set_offset(&image, "damaged.txt");
+        assert_eq!(image[at], 0x85, "{what}");
+    }
 }
