@@ -795,6 +795,27 @@ impl Typesetter for ReadingFaces<'_> {
         font.kern(self.size(face), left, right)
     }
 
+    /// Text that joins or runs right to left as wide as drawn
+    /// ([`FontHandle::measure_in`]), without letter spacing (it would part
+    /// joined letters); other text as its characters and pairs.
+    fn advance_text(&self, face: Face, text: &str, around: &crate::text::Around) -> f32 {
+        let shaped = around.base == crate::lang::Direction::Rtl
+            || text.chars().any(|c| matches!(c, '\u{0590}'..='\u{08FF}'));
+        if shaped && !face.style.small_caps() {
+            return self.font(face).measure_in(self.size(face), text, around);
+        }
+        let mut width = 0.0;
+        let mut before = None;
+        for c in text.chars() {
+            if let Some(left) = before {
+                width += self.kern(face, left, c);
+            }
+            width += self.advance(face, c);
+            before = Some(c);
+        }
+        width
+    }
+
     fn line(&self, face: Face) -> (f32, f32) {
         if face.heading == 0 {
             // Body text the book sets larger or smaller keeps the line
