@@ -89,6 +89,7 @@ impl Kernel {
         let mut effects = Effects {
             restart: mem::take(&mut self.restart),
             sleep: mem::take(&mut self.sleep),
+            power_off: mem::take(&mut self.power_off),
             pace: mode.frame_interval(),
             ..Effects::default()
         };
@@ -385,6 +386,7 @@ impl Kernel {
             Command::RemovePlugin(id) => self.remove_plugin(&id),
             Command::InstallPlugin(id, folder) => self.install_plugin(&id, &folder),
             Command::Sleep => self.sleep = self.shared.caps.sleep,
+            Command::PowerOff => self.power_off = self.shared.caps.power_off,
             Command::KeepAwake(hold) => self.keep_awake(hold),
             Command::LetSleep(id) => self.let_sleep(&id),
             // Keys of later releases: none known yet, left as they are.

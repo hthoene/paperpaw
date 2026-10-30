@@ -146,6 +146,7 @@ impl Kit {
             memory: crate::memory::Memory::NONE,
             clock: crate::time::Clock::NONE,
             started: crate::power::Start::Unknown,
+            slept_for: None,
             panel: crate::realtime::PanelInfo::default(),
             keys_held: &[],
             room: crate::realtime::Room::default(),

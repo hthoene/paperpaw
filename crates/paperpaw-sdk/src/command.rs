@@ -897,6 +897,12 @@ pub enum Command {
     Speak(alloc::boxed::Box<Speech>),
     /// Stops speaking; no reply comes for the texts cut off.
     StopSpeaking,
+    /// Switches the device off once the frame is shown, where PaperPaw
+    /// does so ([`Capabilities::power_off`](crate::Capabilities)): plugins
+    /// hear [`events::SUSPEND`](crate::builtin::events::SUSPEND) first, and
+    /// the next start is a cold one. Ignored elsewhere; to put the device
+    /// to sleep, [`Command::Sleep`].
+    PowerOff,
 }
 
 impl Command {
