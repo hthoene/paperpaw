@@ -857,6 +857,87 @@ mod tests {
         );
     }
 
+    /// Every character one wide, lines 10 high.
+    struct Units;
+
+    impl paperpaw_layout::Typesetter for Units {
+        fn advance(&self, _: paperpaw_layout::Face, _: char) -> f32 {
+            1.0
+        }
+
+        fn kern(&self, _: paperpaw_layout::Face, _: char, _: char) -> f32 {
+            0.0
+        }
+
+        fn line(&self, _: paperpaw_layout::Face) -> (f32, f32) {
+            (8.0, 10.0)
+        }
+    }
+
+    /// A page's lines as text with the level of each run.
+    fn page_lines(page: &paperpaw_layout::Page) -> Vec<(String, Vec<u8>)> {
+        page.lines
+            .iter()
+            .map(|l| (l.text.clone(), l.runs.iter().map(|r| r.level).collect()))
+            .collect()
+    }
+
+    #[test]
+    fn a_paragraph_of_50000_characters_is_laid_out_alike_from_anywhere() {
+        // As Word saves a book: the whole chapter one paragraph, Latin
+        // and numbers in the Arabic.
+        let mut text = String::new();
+        let (mut k, mut shown) = (0, 0);
+        while shown < 50_000 {
+            let latin = alloc::format!("Word {k}!");
+            let arabic = alloc::format!("\u{645}\u{631}\u{62d}\u{628}\u{627} \u{628}\u{643} {k}. ");
+            text.push_str(&alloc::format!(
+                "{arabic}<span dir=\"ltr\">{latin}</span> (\u{646}\u{635}) "
+            ));
+            shown += arabic.chars().count() + latin.chars().count() + 6;
+            k += 1;
+        }
+        let storage = epub(alloc::format!(
+            "<html lang=\"ar\" dir=\"rtl\"><body><p>{text}</p></body></html>"
+        ));
+        let pieces = chapter_blocks(&storage);
+        assert!(pieces.len() > 15, "{}", pieces.len());
+        assert!(pieces[1..].iter().all(|b| b.continues));
+        let doc = EpubDocument::open(&storage, "books/test.epub").unwrap();
+        let style = paperpaw_layout::Style::new(0.0, 0.0, 10.0, false);
+        let kept = paperpaw_layout::PieceStarts::new();
+        let cx =
+            paperpaw_layout::LayoutContext::new(&doc, &storage, 60.0, &style, &Units).pieces(&kept);
+        // Forward, page by page.
+        let mut pages = Vec::new();
+        let mut at = Locator::new(1, 0);
+        while at.section == 1 {
+            let page = paperpaw_layout::layout_page(&cx, at, 400.0).unwrap();
+            if page.lines.is_empty() {
+                break;
+            }
+            at = page.end;
+            pages.push(page);
+        }
+        assert!(pages.len() > 10, "{}", pages.len());
+        // Latin set apart at level 2 in the right-to-left paragraph, far
+        // into it as at its start.
+        let last = page_lines(pages.last().unwrap());
+        assert!(last.iter().any(|(_, levels)| levels.contains(&2)));
+        // A page three quarters in, nothing kept, and with no place to
+        // keep anything: the same lines at the same levels.
+        let page = &pages[pages.len() * 3 / 4];
+        let cold = paperpaw_layout::PieceStarts::new();
+        for cx in [
+            paperpaw_layout::LayoutContext::new(&doc, &storage, 60.0, &style, &Units).pieces(&cold),
+            paperpaw_layout::LayoutContext::new(&doc, &storage, 60.0, &style, &Units),
+        ] {
+            let again = paperpaw_layout::layout_page(&cx, page.start, 400.0).unwrap();
+            assert_eq!(page_lines(&again), page_lines(page));
+        }
+        assert!(cold.len() > 10);
+    }
+
     #[test]
     fn a_book_in_a_right_to_left_language_runs_right_to_left() {
         let opf = OPF.replace(

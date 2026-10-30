@@ -314,6 +314,17 @@ fn no_mark_and_no_boxes_draw_nothing() {
 }
 
 #[test]
+fn words_of_a_right_to_left_line_join_into_one_box() {
+    // In reading order, each left of the one before.
+    let boxes = decorations::join_boxes([
+        (0, Rect::new(60, 0, 10, 5)),
+        (1, Rect::new(40, 0, 10, 5)),
+        (2, Rect::new(20, 0, 10, 5)),
+    ]);
+    assert_eq!(boxes, [Rect::new(20, 0, 50, 5)]);
+}
+
+#[test]
 fn words_join_into_a_box_per_line_only_when_next_to_each_other() {
     // Unordered or repeated indexes and an empty list: never a panic.
     assert!(decorations::join_boxes([]).is_empty());

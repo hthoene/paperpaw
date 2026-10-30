@@ -573,14 +573,15 @@ macro_rules! role_settings {
 
 /// The boxes of words as one per line: `words` are the marked words'
 /// places in reading order with their index on the page; words next to
-/// each other on a line become one box.
+/// each other on a line become one box, also where the line runs right
+/// to left (the next word left of the one before).
 pub fn join_boxes(words: impl IntoIterator<Item = (usize, Rect)>) -> Vec<Rect> {
     let mut boxes: Vec<Rect> = Vec::new();
     let mut previous: Option<usize> = None;
     for (index, area) in words {
         match boxes.last_mut() {
             Some(last) if previous == Some(index.wrapping_sub(1)) && last.y == area.y => {
-                last.width = area.right().saturating_sub(u32::from(last.x)) as u16;
+                *last = last.union(&area);
             }
             _ => boxes.push(area),
         }

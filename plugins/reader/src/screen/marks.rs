@@ -204,17 +204,34 @@ impl Book {
         let spans = self.spans(env, aloud, words);
         let mut inks = Vec::with_capacity(words.len());
         let mut groups: Vec<(Decoration, Vec<Rect>)> = Vec::new();
+        let looks: Vec<Decoration> = words
+            .iter()
+            .map(|word| {
+                decorations::combine(
+                    spans
+                        .iter()
+                        .filter(|s| s.start < word.end && word.start < s.end)
+                        .map(|s| s.look),
+                )
+            })
+            .collect();
         let mut run: Option<(Decoration, Vec<(usize, Rect)>)> = None;
-        for (index, word) in words.iter().enumerate() {
-            let look = decorations::combine(
-                spans
-                    .iter()
-                    .filter(|s| s.start < word.end && word.start < s.end)
-                    .map(|s| s.look),
-            );
+        for (index, (word, &look)) in words.iter().zip(&looks).enumerate() {
             inks.push(look.ink_color());
+            // A run of one look goes on with a word drawn next to the
+            // run's last, or with only words of its look between (see
+            // `drawn_together`).
+            let together = |members: &Vec<(usize, Rect)>| {
+                members.last().is_none_or(|(last, _)| {
+                    crate::selection::drawn_together(words, *last, index, |i| {
+                        looks.get(i) == Some(&look)
+                    })
+                })
+            };
             match &mut run {
-                Some((current, members)) if *current == look => members.push((index, word.area)),
+                Some((current, members)) if *current == look && together(members) => {
+                    members.push((index, word.area));
+                }
                 _ => {
                     if let Some((done, members)) = run.take()
                         && !done.is_none()

@@ -78,10 +78,20 @@ impl Selection {
     pub fn moved(&self, action: &Id, words: &[WordBox]) -> Option<usize> {
         let last = words.len().checked_sub(1)?;
         let a = action;
+        // Left and right where the cursor's word is drawn: in a word that
+        // runs right to left, the next word is on its left.
+        let rtl = words.get(self.cursor).is_some_and(|w| w.rtl);
+        let visual = |side: Id| match (rtl, side) {
+            (true, s) if s == actions::LEFT => actions::RIGHT,
+            (true, s) if s == actions::RIGHT => actions::LEFT,
+            (_, s) => s,
+        };
         Some(
-            if [actions::LEFT, actions::PREVIOUS, actions::PREV_PAGE].contains(a) {
+            if [actions::PREVIOUS, actions::PREV_PAGE].contains(a) || *a == visual(actions::LEFT) {
                 self.cursor.saturating_sub(1)
-            } else if [actions::RIGHT, actions::NEXT, actions::NEXT_PAGE].contains(a) {
+            } else if [actions::NEXT, actions::NEXT_PAGE].contains(a)
+                || *a == visual(actions::RIGHT)
+            {
                 (self.cursor + 1).min(last)
             } else if *a == actions::UP {
                 nearest_on_line(words, self.cursor, false)
@@ -284,7 +294,7 @@ pub(crate) fn item_at(env: &Env<'_>, items: &[Item], point: Point) -> Option<Ite
 
 /// Boxes around runs of words on one line, e.g. to draw a selection or
 /// highlight as one shape per line.
-pub(crate) fn line_boxes(words: &[WordBox], mut picked: impl FnMut(usize) -> bool) -> Vec<Rect> {
+pub(crate) fn line_boxes(words: &[WordBox], picked: impl Fn(usize) -> bool) -> Vec<Rect> {
     let mut boxes: Vec<Rect> = Vec::new();
     let mut previous: Option<usize> = None;
     for (index, word) in words.iter().enumerate() {
@@ -292,15 +302,47 @@ pub(crate) fn line_boxes(words: &[WordBox], mut picked: impl FnMut(usize) -> boo
             previous = None;
             continue;
         }
+        let after = index.checked_sub(1).filter(|p| previous == Some(*p));
         match boxes.last_mut() {
-            Some(last) if previous == Some(index.wrapping_sub(1)) && last.y == word.area.y => {
-                last.width = word.area.right().saturating_sub(u32::from(last.x)) as u16;
+            Some(last) if after.is_some_and(|p| drawn_together(words, p, index, &picked)) => {
+                *last = last.union(&word.area);
             }
             _ => boxes.push(word.area),
         }
         previous = Some(index);
     }
     boxes
+}
+
+/// Whether words `a` and `b` are drawn next to each other: on one line,
+/// no word between them that is not `in_box`. Words that follow each
+/// other in reading order may stand apart where a line runs both ways
+/// (#33): a box around both would take in a word between them.
+pub(crate) fn drawn_together(
+    words: &[WordBox],
+    a: usize,
+    b: usize,
+    in_box: impl Fn(usize) -> bool,
+) -> bool {
+    let (Some(wa), Some(wb)) = (words.get(a), words.get(b)) else {
+        return false;
+    };
+    if wa.area.y != wb.area.y {
+        return false;
+    }
+    let (left, right) = if wa.area.x <= wb.area.x {
+        (wa.area, wb.area)
+    } else {
+        (wb.area, wa.area)
+    };
+    !words.iter().enumerate().any(|(i, w)| {
+        i != a
+            && i != b
+            && !in_box(i)
+            && w.area.y == left.y
+            && u32::from(w.area.x) >= left.right()
+            && w.area.right() <= u32::from(right.x)
+    })
 }
 
 /// The word on the line above (or below) word `index` nearest to it.
@@ -353,5 +395,49 @@ mod tests {
             Selection::choosing(1).moved(&actions::DOWN, &words),
             Some(2)
         );
+    }
+
+    /// A word `x` from the left on the first line, running right to left
+    /// where `rtl`.
+    fn at(x: u16, rtl: bool) -> WordBox {
+        WordBox::new(Rect::new(x, 0, 10, 10), "w", Locator::START, Locator::START).rtl(rtl)
+    }
+
+    #[test]
+    fn selected_words_of_a_right_to_left_line_are_one_box() {
+        // In reading order from the right.
+        let words = [at(60, true), at(40, true), at(20, true)];
+        assert_eq!(line_boxes(&words, |_| true), [Rect::new(20, 0, 50, 10)]);
+    }
+
+    #[test]
+    fn a_selection_in_a_line_both_ways_leaves_out_words_drawn_between() {
+        // `ab`, then Hebrew `x y` drawn as `y x`, then `cd`: in reading
+        // order ab x y cd, drawn ab y x cd.
+        let words = [at(0, false), at(40, true), at(20, true), at(60, false)];
+        // ab and x: not y, drawn between them.
+        assert_eq!(
+            line_boxes(&words, |i| i <= 1),
+            [Rect::new(0, 0, 10, 10), Rect::new(40, 0, 10, 10)]
+        );
+        // x and y: one box; ab to cd: all.
+        assert_eq!(
+            line_boxes(&words, |i| (1..=2).contains(&i)),
+            [Rect::new(20, 0, 30, 10)]
+        );
+        assert_eq!(line_boxes(&words, |_| true), [Rect::new(0, 0, 70, 10)]);
+    }
+
+    #[test]
+    fn left_and_right_move_as_the_words_are_drawn() {
+        let words = [at(0, false), at(40, true), at(20, true), at(60, false)];
+        let on = |word: usize, action: Id| Selection::choosing(word).moved(&action, &words);
+        // In `x` (right to left), left goes on to `y`, right back to `ab`.
+        assert_eq!(on(1, actions::LEFT), Some(2));
+        assert_eq!(on(1, actions::RIGHT), Some(0));
+        // In `ab`, as ever; next and previous keep to reading order.
+        assert_eq!(on(0, actions::RIGHT), Some(1));
+        assert_eq!(on(1, actions::NEXT), Some(2));
+        assert_eq!(on(2, actions::PREVIOUS), Some(1));
     }
 }
