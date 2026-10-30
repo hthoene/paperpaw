@@ -11,14 +11,23 @@ const paperpaw_layout::BookStyles::MARGINS: paperpaw_layout::BookStyles = BookSt
 const paperpaw_layout::BookStyles::NONE: paperpaw_layout::BookStyles = BookStyles(0)
 const paperpaw_layout::BookStyles::SIZE: paperpaw_layout::BookStyles = BookStyles(1 << 2)
 const paperpaw_layout::BookStyles::SPACING: paperpaw_layout::BookStyles = BookStyles(1 << 3)
-const paperpaw_layout::VERSION: u32 = 8u32
+const paperpaw_layout::LineBidi::PARAGRAPH_START: u8 = 4
+const paperpaw_layout::LineBidi::REORDER: u8 = 1
+const paperpaw_layout::LineBidi::VERTICAL: u8 = 2
+const paperpaw_layout::PageNote::ENDNOTE: u8 = 1
+const paperpaw_layout::PageNote::FOOTNOTE: u8 = 0
+const paperpaw_layout::PageNote::SIDENOTE: u8 = 2
+const paperpaw_layout::VERSION: u32 = 9u32
 struct paperpaw_layout::BookStyles(0: u16)
 struct paperpaw_layout::Face { style: paperpaw_document::TextStyle, heading: u8, size: u16 }
-struct paperpaw_layout::LayoutContext<'a> { document: &'a dyn paperpaw_document::Document, storage: &'a dyn paperpaw_platform::storage::Storage, width: f32, style: &'a paperpaw_layout::Style, typesetter: &'a dyn paperpaw_layout::Typesetter, hyphenate: core::option::Option<paperpaw_text::layout::Hyphenate<'a>> }
+struct paperpaw_layout::LayoutContext<'a> { document: &'a dyn paperpaw_document::Document, storage: &'a dyn paperpaw_platform::storage::Storage, width: f32, style: &'a paperpaw_layout::Style, typesetter: &'a dyn paperpaw_layout::Typesetter, hyphenate: core::option::Option<paperpaw_text::layout::Hyphenate<'a>>, pieces: core::option::Option<&'a paperpaw_layout::pieces::PieceStarts> }
 struct paperpaw_layout::LineAnnotation { x: f32, width: f32, baseline: f32, text: alloc::string::String, kind: paperpaw_document::AnnotationKind, size: f32 }
-struct paperpaw_layout::LineRun { start: usize, end: usize, face: paperpaw_layout::Face }
-struct paperpaw_layout::Page { start: paperpaw_document::Locator, end: paperpaw_document::Locator, lines: alloc::vec::Vec<paperpaw_layout::PageLine>, images: alloc::vec::Vec<paperpaw_layout::PageImage> }
+struct paperpaw_layout::LineBidi { paragraph: u8, flags: u8 }
+struct paperpaw_layout::LineRun { start: usize, end: usize, face: paperpaw_layout::Face, level: u8, lang: paperpaw_lang::Lang }
+struct paperpaw_layout::Page { start: paperpaw_document::Locator, end: paperpaw_document::Locator, lines: alloc::vec::Vec<paperpaw_layout::PageLine>, images: alloc::vec::Vec<paperpaw_layout::PageImage>, notes: alloc::vec::Vec<paperpaw_layout::PageNote> }
 struct paperpaw_layout::PageImage { x: f32, y: f32, width: f32, height: f32, image: paperpaw_document::ImageRef }
-struct paperpaw_layout::PageLine { x: f32, baseline: f32, text: alloc::string::String, word_spacing: f32, runs: alloc::vec::Vec<paperpaw_layout::LineRun>, section: u32, words: alloc::vec::Vec<(u32, u32)>, leading: f32, inserted: bool, annotations: alloc::vec::Vec<paperpaw_layout::LineAnnotation> }
-struct paperpaw_layout::Style { paragraph_spacing: f32, indent: f32, em: f32, justify: bool, widows: u8, orphans: u8, book: paperpaw_layout::BookStyles, balanced: bool }
-trait paperpaw_layout::Typesetter { function advance, function kern, function line }
+struct paperpaw_layout::PageLine { x: f32, baseline: f32, text: alloc::string::String, word_spacing: f32, runs: alloc::vec::Vec<paperpaw_layout::LineRun>, section: u32, words: alloc::vec::Vec<(u32, u32)>, leading: f32, inserted: bool, annotations: alloc::vec::Vec<paperpaw_layout::LineAnnotation>, bidi: paperpaw_layout::LineBidi }
+struct paperpaw_layout::PageNote { area: paperpaw_platform::geometry::Rect, start: paperpaw_document::Locator, end: paperpaw_document::Locator, kind: u8 }
+struct paperpaw_layout::Style { paragraph_spacing: f32, indent: f32, em: f32, justify: bool, widows: u8, orphans: u8, book: paperpaw_layout::BookStyles, balanced: bool, justify_cap: f32, kashida: bool, hanging_punctuation: bool }
+struct paperpaw_layout::pieces::PieceStarts { kept: core::cell::RefCell<alloc::vec::Vec<u8>> }
+trait paperpaw_layout::Typesetter { function advance, function kern, function line, function advance_text }

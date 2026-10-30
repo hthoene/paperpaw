@@ -1,5 +1,5 @@
 pub mod paperpaw_update
-pub enum paperpaw_update::Problem
+#[non_exhaustive] pub enum paperpaw_update::Problem
 pub paperpaw_update::Problem::Length
 pub paperpaw_update::Problem::NewerFormat
 pub paperpaw_update::Problem::NotAnImage

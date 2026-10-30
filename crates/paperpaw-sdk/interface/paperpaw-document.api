@@ -1,7 +1,10 @@
 pub mod paperpaw_document
 pub use paperpaw_document::DirEntry
+pub use paperpaw_document::Direction
+pub use paperpaw_document::Lang
 pub use paperpaw_document::NoStorage
 pub use paperpaw_document::Storage
+pub use paperpaw_document::WritingMode
 #[non_exhaustive] pub enum paperpaw_document::Align
 pub paperpaw_document::Align::Auto
 pub paperpaw_document::Align::Center
@@ -31,6 +34,10 @@ pub fn paperpaw_document::DocumentError::from(paperpaw_platform::storage::Storag
 impl core::error::Error for paperpaw_document::DocumentError
 impl core::fmt::Display for paperpaw_document::DocumentError
 pub fn paperpaw_document::DocumentError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub enum paperpaw_document::LinkKind
+pub paperpaw_document::LinkKind::Back
+pub paperpaw_document::LinkKind::NoteRef
+pub paperpaw_document::LinkKind::Plain
 #[non_exhaustive] pub enum paperpaw_document::PageProgression
 pub paperpaw_document::PageProgression::LeftToRight
 pub paperpaw_document::PageProgression::RightToLeft
@@ -45,12 +52,17 @@ pub fn paperpaw_document::Annotation::new(u32, u32, impl core::convert::Into<all
 #[non_exhaustive] pub struct paperpaw_document::Block
 pub paperpaw_document::Block::align: paperpaw_document::Align
 pub paperpaw_document::Block::annotations: alloc::vec::Vec<paperpaw_document::Annotation>
+pub paperpaw_document::Block::continued: bool
 pub paperpaw_document::Block::continues: bool
+pub paperpaw_document::Block::dir: paperpaw_lang::Direction
+pub paperpaw_document::Block::drop_cap: u8
 pub paperpaw_document::Block::end: u32
 pub paperpaw_document::Block::image: core::option::Option<paperpaw_document::ImageRef>
 pub paperpaw_document::Block::indent: core::option::Option<i16>
+pub paperpaw_document::Block::inline_langs: core::option::Option<alloc::boxed::Box<[paperpaw_lang::Lang]>>
 pub paperpaw_document::Block::inserted: alloc::vec::Vec<paperpaw_document::Block>
 pub paperpaw_document::Block::kind: paperpaw_document::BlockKind
+pub paperpaw_document::Block::lang: paperpaw_lang::Lang
 pub paperpaw_document::Block::leading_above: core::option::Option<u16>
 pub paperpaw_document::Block::line_height: core::option::Option<u16>
 pub paperpaw_document::Block::map: paperpaw_document::OffsetMap
@@ -60,13 +72,19 @@ pub paperpaw_document::Block::size: core::option::Option<u16>
 pub paperpaw_document::Block::space: core::option::Option<u16>
 pub paperpaw_document::Block::start: u32
 pub paperpaw_document::Block::text: alloc::string::String
+pub paperpaw_document::Block::writing_mode: paperpaw_lang::WritingMode
 impl paperpaw_document::Block
 pub fn paperpaw_document::Block::align(self, paperpaw_document::Align) -> Self
 pub fn paperpaw_document::Block::bound_inserted(&mut self)
+pub fn paperpaw_document::Block::continued(self, bool) -> Self
 pub fn paperpaw_document::Block::continues(self, bool) -> Self
+pub fn paperpaw_document::Block::dir(self, paperpaw_lang::Direction) -> Self
+pub fn paperpaw_document::Block::drop_cap(self, u8) -> Self
 pub fn paperpaw_document::Block::image(self, impl core::convert::Into<core::option::Option<paperpaw_document::ImageRef>>) -> Self
 pub fn paperpaw_document::Block::indent(self, impl core::convert::Into<core::option::Option<i16>>) -> Self
+pub fn paperpaw_document::Block::inline_langs(self, &[paperpaw_lang::Lang]) -> Self
 pub fn paperpaw_document::Block::insert_after(&mut self, paperpaw_document::Block) -> bool
+pub fn paperpaw_document::Block::lang(self, paperpaw_lang::Lang) -> Self
 pub fn paperpaw_document::Block::leading_above(self, impl core::convert::Into<core::option::Option<u16>>) -> Self
 pub fn paperpaw_document::Block::line_height(self, impl core::convert::Into<core::option::Option<u16>>) -> Self
 pub fn paperpaw_document::Block::map(self, paperpaw_document::OffsetMap) -> Self
@@ -75,7 +93,10 @@ pub fn paperpaw_document::Block::new(paperpaw_document::BlockKind, u32, u32, all
 pub fn paperpaw_document::Block::runs(self, alloc::vec::Vec<paperpaw_document::Run>) -> Self
 pub fn paperpaw_document::Block::size(self, impl core::convert::Into<core::option::Option<u16>>) -> Self
 pub fn paperpaw_document::Block::space(self, impl core::convert::Into<core::option::Option<u16>>) -> Self
+pub fn paperpaw_document::Block::writing_mode(self, paperpaw_lang::WritingMode) -> Self
 impl paperpaw_document::Block
+pub fn paperpaw_document::Block::lang_at(&self, usize) -> paperpaw_lang::Lang
+pub fn paperpaw_document::Block::lang_of(&self, paperpaw_document::TextStyle) -> paperpaw_lang::Lang
 pub fn paperpaw_document::Block::replace(&mut self, core::ops::range::Range<usize>, &str)
 pub fn paperpaw_document::Block::source_offset(&self, usize) -> u32
 pub fn paperpaw_document::Block::style_at(&self, usize) -> paperpaw_document::TextStyle
@@ -88,10 +109,14 @@ pub struct paperpaw_document::ImageRef
 pub paperpaw_document::ImageRef::height: u32
 pub paperpaw_document::ImageRef::path: alloc::string::String
 pub paperpaw_document::ImageRef::width: u32
-pub struct paperpaw_document::Link
+#[non_exhaustive] pub struct paperpaw_document::Link
 pub paperpaw_document::Link::end: u32
 pub paperpaw_document::Link::href: alloc::string::String
+pub paperpaw_document::Link::kind: paperpaw_document::LinkKind
 pub paperpaw_document::Link::start: u32
+impl paperpaw_document::Link
+pub fn paperpaw_document::Link::kind(self, paperpaw_document::LinkKind) -> paperpaw_document::Link
+pub fn paperpaw_document::Link::new(u32, u32, impl core::convert::Into<alloc::string::String>) -> paperpaw_document::Link
 pub struct paperpaw_document::Locator
 pub paperpaw_document::Locator::offset: u32
 pub paperpaw_document::Locator::section: u32
@@ -107,6 +132,7 @@ pub paperpaw_document::Metadata::series: core::option::Option<alloc::string::Str
 pub paperpaw_document::Metadata::series_index: core::option::Option<alloc::string::String>
 pub paperpaw_document::Metadata::subjects: alloc::vec::Vec<alloc::string::String>
 pub paperpaw_document::Metadata::title: core::option::Option<alloc::string::String>
+pub paperpaw_document::Metadata::writing_mode: paperpaw_lang::WritingMode
 impl paperpaw_document::Metadata
 pub fn paperpaw_document::Metadata::authors(self, alloc::vec::Vec<alloc::string::String>) -> Self
 pub fn paperpaw_document::Metadata::description(self, impl core::convert::Into<core::option::Option<alloc::string::String>>) -> Self
@@ -116,14 +142,17 @@ pub fn paperpaw_document::Metadata::series(self, impl core::convert::Into<core::
 pub fn paperpaw_document::Metadata::series_index(self, impl core::convert::Into<core::option::Option<alloc::string::String>>) -> Self
 pub fn paperpaw_document::Metadata::subjects(self, alloc::vec::Vec<alloc::string::String>) -> Self
 pub fn paperpaw_document::Metadata::title(self, impl core::convert::Into<core::option::Option<alloc::string::String>>) -> Self
+pub fn paperpaw_document::Metadata::writing_mode(self, paperpaw_lang::WritingMode) -> Self
 pub struct paperpaw_document::OffsetMap
 impl paperpaw_document::OffsetMap
 pub const paperpaw_document::OffsetMap::IDENTITY: paperpaw_document::OffsetMap
 pub fn paperpaw_document::OffsetMap::checkpoint(&mut self, usize, u32)
-pub struct paperpaw_document::Run
+#[non_exhaustive] pub struct paperpaw_document::Run
 pub paperpaw_document::Run::end: u32
 pub paperpaw_document::Run::start: u32
 pub paperpaw_document::Run::style: paperpaw_document::TextStyle
+impl paperpaw_document::Run
+pub const fn paperpaw_document::Run::new(u32, u32, paperpaw_document::TextStyle) -> paperpaw_document::Run
 pub struct paperpaw_document::TextStyle(_)
 impl paperpaw_document::TextStyle
 pub const paperpaw_document::TextStyle::BOLD: paperpaw_document::TextStyle
@@ -135,11 +164,12 @@ pub const paperpaw_document::TextStyle::STRIKE: paperpaw_document::TextStyle
 pub const paperpaw_document::TextStyle::SUBSCRIPT: paperpaw_document::TextStyle
 pub const paperpaw_document::TextStyle::SUPERSCRIPT: paperpaw_document::TextStyle
 pub const paperpaw_document::TextStyle::UNDERLINE: paperpaw_document::TextStyle
-pub const fn paperpaw_document::TextStyle::bits(self) -> u16
+pub const fn paperpaw_document::TextStyle::bits(self) -> u32
 pub const fn paperpaw_document::TextStyle::bold(self) -> bool
 pub const fn paperpaw_document::TextStyle::family(self) -> u8
-pub const fn paperpaw_document::TextStyle::from_bits(u16) -> paperpaw_document::TextStyle
+pub const fn paperpaw_document::TextStyle::from_bits(u32) -> paperpaw_document::TextStyle
 pub const fn paperpaw_document::TextStyle::italic(self) -> bool
+pub const fn paperpaw_document::TextStyle::lang_index(self) -> u8
 pub const fn paperpaw_document::TextStyle::small_caps(self) -> bool
 pub const fn paperpaw_document::TextStyle::strike(self) -> bool
 pub const fn paperpaw_document::TextStyle::subscript(self) -> bool
@@ -147,18 +177,21 @@ pub const fn paperpaw_document::TextStyle::superscript(self) -> bool
 pub const fn paperpaw_document::TextStyle::underline(self) -> bool
 pub const fn paperpaw_document::TextStyle::union(self, paperpaw_document::TextStyle) -> paperpaw_document::TextStyle
 pub const fn paperpaw_document::TextStyle::with_family(self, u8) -> paperpaw_document::TextStyle
+pub const fn paperpaw_document::TextStyle::with_lang_index(self, u8) -> paperpaw_document::TextStyle
 pub const fn paperpaw_document::TextStyle::without(self, paperpaw_document::TextStyle) -> paperpaw_document::TextStyle
 pub struct paperpaw_document::TocEntry
 pub paperpaw_document::TocEntry::at: paperpaw_document::Locator
 pub paperpaw_document::TocEntry::level: u8
 pub paperpaw_document::TocEntry::title: alloc::string::String
 pub const paperpaw_document::MAX_FAMILIES: u8
+pub const paperpaw_document::MAX_INLINE_LANGS: u8
 pub const paperpaw_document::MAX_INSERTED: usize
 pub const paperpaw_document::MAX_INSERTED_TEXT: usize
 pub const paperpaw_document::MAX_LEADING_ABOVE: u16
 pub trait paperpaw_document::Document
 pub fn paperpaw_document::Document::block_at(&self, &dyn paperpaw_platform::storage::Storage, paperpaw_document::Locator) -> core::result::Result<core::option::Option<paperpaw_document::Block>, paperpaw_document::DocumentError>
 pub fn paperpaw_document::Document::cover(&self, &dyn paperpaw_platform::storage::Storage) -> core::result::Result<core::option::Option<paperpaw_document::ImageRef>, paperpaw_document::DocumentError>
+pub fn paperpaw_document::Document::extended(&self, &dyn paperpaw_platform::storage::Storage, &str, &[u8]) -> core::option::Option<alloc::vec::Vec<u8>>
 pub fn paperpaw_document::Document::font_data(&self, &dyn paperpaw_platform::storage::Storage, usize) -> core::result::Result<alloc::vec::Vec<u8>, paperpaw_document::DocumentError>
 pub fn paperpaw_document::Document::fonts(&self, &dyn paperpaw_platform::storage::Storage) -> alloc::vec::Vec<paperpaw_document::EmbeddedFont>
 pub fn paperpaw_document::Document::link_target(&self, &dyn paperpaw_platform::storage::Storage, &str) -> core::option::Option<paperpaw_document::Locator>

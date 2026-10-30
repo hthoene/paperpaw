@@ -3,8 +3,24 @@
 # the source's order, private fields and the private types they reach
 # too, every feature on (ADR 0026).
 const paperpaw_text::OUTLINES: bool = true
+const paperpaw_text::around::Around::NONE: paperpaw_text::around::Around = Around { before: None, after: None, base: Direction::Auto, lang: Lang::NONE, flags: 0, }
+const paperpaw_text::around::Around::NO_JOIN: u32 = 1
+const paperpaw_text::around::Around::NO_KERN: u32 = 4
+const paperpaw_text::around::Around::NO_MIRROR: u32 = 2
+const paperpaw_text::bidi::Level::LTR: paperpaw_text::bidi::Level = Level(0)
+const paperpaw_text::bidi::Level::MAX: u8 = 125
+const paperpaw_text::bidi::Level::RTL: paperpaw_text::bidi::Level = Level(1)
+const paperpaw_text::bitmap::BitmapFont::ANCHORS: usize = 0
+const paperpaw_text::bitmap::BitmapFont::LANGUAGE_FORMS: usize = 3
+const paperpaw_text::bitmap::BitmapFont::MARK_ANCHORS: usize = 1
+const paperpaw_text::bitmap::BitmapFont::NEXT: usize = 7
+const paperpaw_text::bitmap::BitmapFont::SCRIPTS: usize = 2
+const paperpaw_text::bitmap::BitmapFont::SUBSTITUTIONS: usize = 4
+const paperpaw_text::bitmap::BitmapFont::VERTICAL: usize = 5
+const paperpaw_text::charset::ARABIC: &[core::ops::range::RangeInclusive<char>] = &[ '\u{600}'..='\u{6ff}', '\u{750}'..='\u{77f}', '\u{fb50}'..='\u{fbff}', '\u{fdf2}'..='\u{fdf2}', '\u{fe70}'..='\u{feff}', ]
 const paperpaw_text::charset::CYRILLIC: &[core::ops::range::RangeInclusive<char>] = &['\u{400}'..='\u{4ff}']
 const paperpaw_text::charset::GREEK: &[core::ops::range::RangeInclusive<char>] = &['\u{370}'..='\u{3ff}', '\u{1f00}'..='\u{1fff}']
+const paperpaw_text::charset::HEBREW: &[core::ops::range::RangeInclusive<char>] = &['\u{590}'..='\u{5ff}', '\u{fb1d}'..='\u{fb4f}']
 const paperpaw_text::charset::LATIN: &[core::ops::range::RangeInclusive<char>] = &[ ' '..='~', '\u{a0}'..='\u{17f}', // Latin-1 Supplement, Latin Extended-A '\u{2010}'..='\u{2027}', // dashes, quotes, bullets, ellipsis '\u{2030}'..='\u{203a}', // per mille, primes, guillemets '\u{20ac}'..='\u{20ac}', // euro sign '\u{2122}'..='\u{2122}', // trade mark '\u{2212}'..='\u{2212}', // minus sign '\u{fffd}'..='\u{fffd}', // replacement character ]
 const paperpaw_text::charset::LIGATURES: &[core::ops::range::RangeInclusive<char>] = &['\u{fb00}'..='\u{fb04}']
 const paperpaw_text::curve::ToneCurve::DARKEST: i8 = 2
@@ -14,8 +30,10 @@ const paperpaw_text::layout::MAX_BREAKS: usize = 1_024usize
 enum paperpaw_text::font::Font { Bitmap(0: paperpaw_text::bitmap::BitmapFont), Stored(0: paperpaw_text::stored::StoredPack), Outline(0: paperpaw_text::outline::OutlineFont) }
 enum paperpaw_text::font::FontError { Invalid, NoCharmap, UnsupportedVersion, OutlinesNotSupported }
 struct paperpaw_text::TextStyle<'a> { font: &'a paperpaw_text::font::Font, font_index: u16, size: f32, color: paperpaw_platform::pixel::Color, bolder: u16, curve: paperpaw_text::curve::ToneCurve, based: bool }
+struct paperpaw_text::around::Around { before: core::option::Option<char>, after: core::option::Option<char>, base: paperpaw_lang::Direction, lang: paperpaw_lang::Lang, flags: u32 }
+struct paperpaw_text::bidi::Level(0: u8)
 struct paperpaw_text::bitmap::BitmapFont { data: alloc::borrow::Cow<'static, [u8]>, strikes: u16 }
-struct paperpaw_text::bitmap::PackBuilder { strikes: alloc::vec::Vec<paperpaw_text::bitmap::StrikeData>, kerning: alloc::vec::Vec<u8> }
+struct paperpaw_text::bitmap::PackBuilder { strikes: alloc::vec::Vec<paperpaw_text::bitmap::StrikeData>, kerning: alloc::vec::Vec<u8>, tables: [alloc::vec::Vec<u8>; 7] }
 struct paperpaw_text::bitmap::StrikeData { size: f32, metrics: paperpaw_text::font::LineMetrics, glyphs: alloc::vec::Vec<(char, paperpaw_text::glyph::Glyph)> }
 struct paperpaw_text::cache::Entry { key: paperpaw_text::cache::Key, glyph: paperpaw_text::glyph::Glyph, last_used: u32 }
 struct paperpaw_text::cache::GlyphCache { entries: alloc::vec::Vec<paperpaw_text::cache::Entry>, bytes: usize, capacity: usize, clock: u32 }
@@ -27,6 +45,6 @@ struct paperpaw_text::glyph::GlyphRef<'a> { left: i16, top: i16, width: u16, hei
 struct paperpaw_text::layout::Line { range: core::ops::range::Range<usize>, width: f32, spaces: usize, last: bool, hyphen: bool }
 struct paperpaw_text::outline::OutlineFont { data: alloc::borrow::Cow<'static, [u8]>, location: skrifa::instance::Location }
 struct paperpaw_text::sfnt::FontInfo { family: alloc::string::String, bold: bool, italic: bool, weight: u16 }
-struct paperpaw_text::stored::StoredPack { source: alloc::rcs::rc::Rc<dyn paperpaw_text::stored::PackSource>, strikes: alloc::vec::Vec<paperpaw_text::stored::Strike>, chars: alloc::vec::Vec<char>, advances: core::cell::RefCell<alloc::vec::Vec<core::option::Option<alloc::vec::Vec<u16>>>> }
+struct paperpaw_text::stored::StoredPack { source: alloc::rcs::rc::Rc<dyn paperpaw_text::stored::PackSource>, strikes: alloc::vec::Vec<paperpaw_text::stored::Strike>, chars: alloc::vec::Vec<char>, advances: core::cell::RefCell<alloc::vec::Vec<core::option::Option<alloc::vec::Vec<u16>>>>, tables: [u32; 8] }
 struct paperpaw_text::stored::Strike { size: u16, metrics: paperpaw_text::font::LineMetrics, glyph_table: u64, bitmaps: u64 }
 trait paperpaw_text::stored::PackSource { function read_at }

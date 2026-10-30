@@ -1,4 +1,6 @@
 pub mod paperpaw_i18n
+pub use paperpaw_i18n::Direction
+pub use paperpaw_i18n::Lang
 pub mod paperpaw_i18n::check
 pub enum paperpaw_i18n::check::Issue
 pub paperpaw_i18n::check::Issue::Missing(alloc::string::String)
@@ -30,6 +32,7 @@ pub paperpaw_i18n::PluralCategory::Zero
 impl paperpaw_i18n::PluralCategory
 pub const fn paperpaw_i18n::PluralCategory::id(self) -> &'static str
 #[non_exhaustive] pub enum paperpaw_i18n::PluralRule
+pub paperpaw_i18n::PluralRule::Cldr(u8)
 pub paperpaw_i18n::PluralRule::CzechSlovak
 pub paperpaw_i18n::PluralRule::EastSlavic
 pub paperpaw_i18n::PluralRule::OneOther
@@ -42,6 +45,9 @@ pub fn paperpaw_i18n::PluralRule::from_id(&str) -> core::option::Option<Self>
 pub const fn paperpaw_i18n::PluralRule::id(self) -> &'static str
 pub struct paperpaw_i18n::Catalog
 impl paperpaw_i18n::Catalog
+pub fn paperpaw_i18n::Catalog::calendar(&self) -> &'static str
+pub fn paperpaw_i18n::Catalog::digits(&self) -> &'static str
+pub fn paperpaw_i18n::Catalog::direction(&self) -> paperpaw_lang::Direction
 pub fn paperpaw_i18n::Catalog::get(&self, &str) -> core::option::Option<&str>
 pub fn paperpaw_i18n::Catalog::index_on_heap(&self) -> usize
 pub fn paperpaw_i18n::Catalog::is_empty(&self) -> bool
@@ -54,12 +60,14 @@ pub fn paperpaw_i18n::Catalog::name(&self) -> &str
 pub fn paperpaw_i18n::Catalog::narrow_index(&self) -> core::option::Option<&[u16]>
 pub fn paperpaw_i18n::Catalog::parse(impl core::convert::Into<alloc::borrow::Cow<'static, str>>) -> core::result::Result<paperpaw_i18n::Catalog, paperpaw_i18n::CatalogError>
 pub fn paperpaw_i18n::Catalog::plural_rule(&self) -> paperpaw_i18n::PluralRule
+pub fn paperpaw_i18n::Catalog::script(&self) -> core::option::Option<&'static str>
 pub fn paperpaw_i18n::Catalog::unload(&mut self)
 pub fn paperpaw_i18n::Catalog::use_fixed(&mut self, paperpaw_i18n::FixedIndexes)
 pub struct paperpaw_i18n::Translator
 impl paperpaw_i18n::Translator
 pub fn paperpaw_i18n::Translator::add(&mut self, paperpaw_i18n::Catalog)
 pub fn paperpaw_i18n::Translator::catalogs(&self) -> alloc::vec::Vec<paperpaw_i18n::Catalog>
+pub fn paperpaw_i18n::Translator::direction(&self) -> paperpaw_lang::Direction
 pub fn paperpaw_i18n::Translator::fixed_indexes(&mut self, paperpaw_i18n::FixedIndexes)
 pub fn paperpaw_i18n::Translator::format(&self, &str, &[(&str, paperpaw_i18n::Arg<'_>)]) -> alloc::string::String
 pub fn paperpaw_i18n::Translator::get(&self, &str) -> core::option::Option<&str>
@@ -71,6 +79,9 @@ pub fn paperpaw_i18n::Translator::plural(&self, &str, i64, &[(&str, paperpaw_i18
 pub fn paperpaw_i18n::Translator::set_language(&mut self, &str)
 pub fn paperpaw_i18n::Translator::shrink_to_fit(&mut self)
 pub fn paperpaw_i18n::Translator::tr<'a>(&'a self, &'a str) -> &'a str
+pub const paperpaw_i18n::CALENDARS: [&str; 3]
+pub const paperpaw_i18n::DIGITS: [&str; 6]
 pub const paperpaw_i18n::FALLBACK_LANGUAGE: &str
+pub fn paperpaw_i18n::cldr_rules() -> impl core::iter::traits::iterator::Iterator<Item = &'static str>
 pub fn paperpaw_i18n::fingerprint(&str) -> u64
 pub type paperpaw_i18n::FixedIndexes = &'static [(u64, &'static [u16])]

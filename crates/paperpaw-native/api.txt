@@ -111,7 +111,7 @@ pub const paperpaw_native::signature::SIGNATURE_LEN: usize
 pub const paperpaw_native::signature::SIGNATURE_MAGIC: [u8; 4]
 pub fn paperpaw_native::signature::public_key(&[u8; 32]) -> [u8; 32]
 pub fn paperpaw_native::signature::sign(&[u8], &[u8; 32]) -> paperpaw_native::signature::Signature
-pub enum paperpaw_native::Chip
+#[non_exhaustive] pub enum paperpaw_native::Chip
 pub paperpaw_native::Chip::Esp32C3
 pub paperpaw_native::Chip::Esp32S3
 impl paperpaw_native::Chip
@@ -128,7 +128,7 @@ impl paperpaw_native::PatchKind
 pub const paperpaw_native::PatchKind::SITES: u32
 pub const fn paperpaw_native::PatchKind::of(u32) -> core::option::Option<(paperpaw_native::PatchKind, u32)>
 pub const fn paperpaw_native::PatchKind::record(self, u32) -> u32
-pub enum paperpaw_native::Problem
+#[non_exhaustive] pub enum paperpaw_native::Problem
 pub paperpaw_native::Problem::Damaged
 pub paperpaw_native::Problem::Length
 pub paperpaw_native::Problem::Malformed
@@ -144,7 +144,11 @@ pub fn paperpaw_native::Problem::fmt(&self, &mut core::fmt::Formatter<'_>) -> co
 #[repr(C)] pub struct paperpaw_native::Api
 pub paperpaw_native::Api::alloc: fn(usize, usize) -> *mut u8
 pub paperpaw_native::Api::alloc_in: fn(usize, usize, u32) -> *mut u8
+pub paperpaw_native::Api::build: *const u8
+pub paperpaw_native::Api::build_len: u32
 pub paperpaw_native::Api::dealloc: fn(*mut u8, usize, usize)
+pub paperpaw_native::Api::family_min: [u16; 8]
+pub paperpaw_native::Api::family_revs: [u16; 8]
 pub paperpaw_native::Api::icon: fn(*const u8, usize) -> u32
 pub paperpaw_native::Api::micros: fn() -> u64
 pub paperpaw_native::Api::panic: fn(*const u8, usize) -> never
@@ -152,9 +156,16 @@ pub paperpaw_native::Api::realloc: fn(*mut u8, usize, usize, usize) -> *mut u8
 pub paperpaw_native::Api::size: u32
 impl paperpaw_native::Api
 pub const paperpaw_native::Api::SIZE: u32
+impl core::marker::Send for paperpaw_native::Api
+impl core::marker::Sync for paperpaw_native::Api
 #[repr(C)] pub struct paperpaw_native::Entry
+pub paperpaw_native::Entry::families: [u16; 8]
 pub paperpaw_native::Entry::fingerprint: u64
+pub paperpaw_native::Entry::interface: u16
 pub paperpaw_native::Entry::make: fn() -> *mut core::ffi::c_void
+pub paperpaw_native::Entry::needs_api: u16
+impl paperpaw_native::Entry
+pub unsafe fn paperpaw_native::Entry::fingerprint_at(*const paperpaw_native::Entry) -> u64
 pub struct paperpaw_native::Header
 pub paperpaw_native::Header::align: u32
 pub paperpaw_native::Header::api: u32
@@ -163,33 +174,42 @@ pub paperpaw_native::Header::chip: paperpaw_native::Chip
 pub paperpaw_native::Header::code_at: u32
 pub paperpaw_native::Header::compiler: u32
 pub paperpaw_native::Header::entry: u32
+pub paperpaw_native::Header::families: [u16; 8]
 pub paperpaw_native::Header::fingerprint: u64
 pub paperpaw_native::Header::hot_at: u32
 pub paperpaw_native::Header::hot_len: u32
 pub paperpaw_native::Header::image_len: u32
+pub paperpaw_native::Header::interface: u16
+pub paperpaw_native::Header::needs_api: u32
 pub paperpaw_native::Header::patches: u32
 pub paperpaw_native::Header::relocs: u32
 pub paperpaw_native::Header::sha256: [u8; 32]
 impl paperpaw_native::Header
 pub fn paperpaw_native::Header::check_file(&[u8]) -> core::result::Result<(paperpaw_native::Header, core::option::Option<paperpaw_native::signature::Signature>), paperpaw_native::Problem>
 pub fn paperpaw_native::Header::digest(&self) -> paperpaw_digest::sha256::Sha256
-pub fn paperpaw_native::Header::digest_prefix(&self) -> [u8; 60]
+pub fn paperpaw_native::Header::digest_prefix(&self) -> [u8; 84]
 pub fn paperpaw_native::Header::file_len(&self) -> u64
 pub fn paperpaw_native::Header::holds(&self, paperpaw_digest::sha256::Sha256) -> bool
 pub fn paperpaw_native::Header::in_hot(&self, u32) -> bool
 pub fn paperpaw_native::Header::read(&[u8]) -> core::result::Result<paperpaw_native::Header, paperpaw_native::Problem>
+pub fn paperpaw_native::Header::read_older(&[u8]) -> core::option::Option<paperpaw_native::Older>
 pub fn paperpaw_native::Header::relocs_at(&self) -> u64
 pub fn paperpaw_native::Header::signed(&self, u64) -> core::result::Result<bool, paperpaw_native::Problem>
 pub fn paperpaw_native::Header::tail_words(&self) -> usize
-pub fn paperpaw_native::Header::to_bytes(&self) -> [u8; 92]
+pub fn paperpaw_native::Header::to_bytes(&self) -> [u8; 116]
 pub struct paperpaw_native::ImageExtent
 pub paperpaw_native::ImageExtent::len: u32
 pub paperpaw_native::ImageExtent::sha256: bool
 impl paperpaw_native::ImageExtent
 pub fn paperpaw_native::ImageExtent::read(&mut dyn core::ops::function::FnMut(u32, &mut [u8]) -> bool) -> core::option::Option<paperpaw_native::ImageExtent>
+#[non_exhaustive] pub struct paperpaw_native::Older
+pub paperpaw_native::Older::chip: core::option::Option<paperpaw_native::Chip>
+pub paperpaw_native::Older::fingerprint: u64
+pub paperpaw_native::Older::format: u16
 pub struct paperpaw_native::Relocator<'a>
 impl<'a> paperpaw_native::Relocator<'a>
 pub fn paperpaw_native::Relocator<'a>::apply(&self, u32, &mut [u8]) -> core::result::Result<(), paperpaw_native::Problem>
+pub fn paperpaw_native::Relocator<'a>::apply_with(&self, u32, &mut [u8], &[u32; 8]) -> core::result::Result<(), paperpaw_native::Problem>
 pub fn paperpaw_native::Relocator<'a>::hot_at(self, u32) -> core::result::Result<Self, paperpaw_native::Problem>
 pub fn paperpaw_native::Relocator<'a>::new(&'a paperpaw_native::Header, &'a [u32], u32, u32) -> core::result::Result<Self, paperpaw_native::Problem>
 pub struct paperpaw_native::Signature
@@ -202,6 +222,7 @@ pub fn paperpaw_native::signature::Signature::holds(&self, &[u8]) -> core::resul
 pub fn paperpaw_native::signature::Signature::read(&[u8]) -> core::option::Option<paperpaw_native::signature::Signature>
 pub fn paperpaw_native::signature::Signature::to_bytes(&self) -> [u8; 112]
 pub const paperpaw_native::API_SYMBOL: &str
+pub const paperpaw_native::API_WORDS: u32
 pub const paperpaw_native::CODE_OFFSET: u32
 pub const paperpaw_native::ENTRY_SECTION: &str
 pub const paperpaw_native::ENTRY_SYMBOL: &str
@@ -210,4 +231,5 @@ pub const paperpaw_native::HEADER_LEN: usize
 pub const paperpaw_native::LINK_BASE: u32
 pub const paperpaw_native::MAGIC: [u8; 4]
 pub const paperpaw_native::MAX_IMAGE_LEN: u32
+pub const paperpaw_native::TABLE_SYMBOLS: [&str; 8]
 pub fn paperpaw_native::check_relocations(&paperpaw_native::Header, &[u32]) -> core::result::Result<(), paperpaw_native::Problem>
