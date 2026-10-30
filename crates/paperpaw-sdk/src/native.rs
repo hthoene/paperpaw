@@ -716,9 +716,13 @@ impl Native {
     /// one), one of a newer format needs a newer PaperPaw.
     pub fn problem_of_file(head: &[u8], problem: paperpaw_native::Problem) -> PluginProblem {
         match problem {
-            paperpaw_native::Problem::OlderFormat if Header::read_older(head).is_some() => {
-                PluginProblem::OlderInterface { built_for: 0 }
-            }
+            paperpaw_native::Problem::OlderFormat => match Header::read_older(head) {
+                // Every fingerprint holds the interface in its top bits.
+                Some(older) => PluginProblem::OlderInterface {
+                    built_for: Fingerprint(older.fingerprint).interface(),
+                },
+                None => PluginProblem::Damaged,
+            },
             paperpaw_native::Problem::NewerFormat => PluginProblem::NeedsNewerPaperPaw,
             paperpaw_native::Problem::UnknownChip => PluginProblem::OtherBuild,
             _ => PluginProblem::Damaged,
@@ -1199,6 +1203,67 @@ mod tests {
         assert_eq!(Fingerprint::parse("85073a61323717"), None);
         assert_eq!(Fingerprint::parse("0085073a6132371g"), None);
         assert_eq!(Fingerprint::parse("+085073a61323717"), None);
+    }
+
+    /// A plugin of another interface, or needing more than this
+    /// PaperPaw has, is said to be older or to need a newer PaperPaw, not
+    /// "another build".
+    #[test]
+    fn older_and_newer_plugins_are_said_as_such() {
+        let native = Native::new("code.ppn");
+        let header = Header::read(&file()).unwrap();
+        let fits = Header {
+            fingerprint: FINGERPRINT.0,
+            ..header
+        };
+        assert_eq!(native.problem(&fits), None);
+        assert_eq!(native.problem(&header), Some(PluginProblem::OtherBuild));
+        let older = Header {
+            interface: INTERFACE - 1,
+            ..fits
+        };
+        assert_eq!(
+            native.problem(&older),
+            Some(PluginProblem::OlderInterface {
+                built_for: INTERFACE - 1
+            })
+        );
+        for newer in [
+            Header {
+                interface: INTERFACE + 1,
+                ..fits
+            },
+            Header {
+                needs_api: native.api_size + 4,
+                ..fits
+            },
+            Header {
+                families: [native.family_revs[0] + 1, 0, 0, 0, 0, 0, 0, 0],
+                ..fits
+            },
+        ] {
+            assert_eq!(
+                native.problem(&newer),
+                Some(PluginProblem::NeedsNewerPaperPaw)
+            );
+        }
+        // A file of an older format: its fingerprint names its interface.
+        let mut old = file();
+        old[4] = 3;
+        old[8..16].copy_from_slice(&Fingerprint::of(4, 7).0.to_le_bytes());
+        let problem = paperpaw_native::Problem::OlderFormat;
+        assert_eq!(
+            Native::problem_of_file(&old, problem),
+            PluginProblem::OlderInterface { built_for: 4 }
+        );
+        assert_eq!(
+            Native::problem_of_file(b"PP", problem),
+            PluginProblem::Damaged
+        );
+        assert_eq!(
+            Native::problem_of_file(&[], paperpaw_native::Problem::NewerFormat),
+            PluginProblem::NeedsNewerPaperPaw
+        );
     }
 
     /// A small plugin file of `Header`'s own tests: no code to run, only
