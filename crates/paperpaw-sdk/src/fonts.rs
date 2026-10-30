@@ -140,7 +140,11 @@ const MAX_FONT_FILE: u64 = 48 * 1024 * 1024;
 /// ones, where one extends it.
 const LARGER_STEP: f32 = 4.0;
 
-/// Letters a pack of a font's larger sizes has where the font has them.
+/// Letters a pack of a font's larger sizes has where the font has them
+/// (`tools/literata-packs.py` makes them with all of Latin): an extension
+/// without every one of them that the font has adds letters, not sizes.
+/// A pack of larger sizes made with fewer letters (lower case alone, no
+/// digits) is so taken for letters only.
 const LARGER_LETTERS: &str = "aenoAEO0";
 
 /// The lines of a heading or title, as many times its size apart

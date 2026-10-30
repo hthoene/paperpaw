@@ -116,6 +116,11 @@ change the plugin SDK.
   (about 2.5 KB, once marks are drawn so). Packs without the table, and
   every Latin, Cyrillic and Greek pack, are drawn as before. The Arabic
   and Hebrew data plugins (`tools/script-pack.py`) are about 12 % larger.
+  `tools/script-pack.py` without a set builds the plugins
+  `tools/plugin-files/data.toml` lists for it (else Cyrillic and Greek,
+  as before; its folders keep their names, `script-<sets>`). Of two sizes of a pack
+  as near to the size asked, the smaller is drawn, whatever their order
+  in the pack.
 - Plugins switch the device off where PaperPaw does so
   (`Command::PowerOff`, `Capabilities::power_off`) and hear how long it
   slept (`Env::slept_for`) (#51).

@@ -2032,9 +2032,12 @@ change a setting that keeps the device safe, such as the lock's.
 
 Packs for other scripts are read a glyph at a time, so devices with
 little memory can use them ([ADR 0018](adr/0018-font-packs-for-other-scripts.md)).
-`tools/script-pack.py` builds Cyrillic and Greek for Literata.
-A pack that extends a face with sizes larger than its own draws text
-asked that large, and the font size goes as far: the X4's firmware has
+`tools/script-pack.py` builds Cyrillic and Greek for Literata, and
+Arabic and Hebrew (with where their marks sit) from the fonts in
+`tools/fonts`. A pack that extends a face with sizes larger than its own,
+and has its letters (at least those of `aenoAEO0` the face has), draws
+text asked that large, and the font size goes as far; a pack of another
+script's letters adds those letters only, in whatever sizes: the X4's firmware has
 Literata up to 32 px, and `tools/literata-packs.py` builds its larger
 sizes (and its bold italic face) as plugins for the font library.
 Icon packs are such packs for the icon font: `tools/icons/pack.py` builds
