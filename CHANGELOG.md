@@ -68,7 +68,7 @@ change the plugin SDK.
 - The X4 and X3 share the **text family** with their code plugins (43
   functions of `paperpaw_text` and the SDK's font handles, revision 1):
   a plugin built for them calls the firmware's copy of measuring, drawing
-  and wrapping text instead of carrying its own (some 22-26 KiB less in a
+  and wrapping text instead of carrying its own (about 26 KiB less in a
   plugin that draws text). The loader fills the families' words of a
   plugin (`Relocator::tables`), refuses a plugin built for a newer or an
   older revision of a family before it places anything, `paperpaw-sign
