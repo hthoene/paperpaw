@@ -1251,6 +1251,75 @@ impl<'a> FontHandle<'a> {
     } @ text::HANDLE_DRAW_TONED
     }
 
+    /// Width of `text` at `size` as [`FontHandle::draw_in`] sets it.
+    pub fn measure_in(&self, size: f32, text: &str, around: &paperpaw_text::Around) -> f32 {
+        if let Some(larger) = self.larger_for(size) {
+            return larger.measure_in(size, text, around);
+        }
+        if plain_in(text, around) {
+            return self.measure(size, text);
+        }
+        let size = self.size_for(size, text);
+        paperpaw_text::measure_in(self.pick_text(text).0, size, text, around)
+    }
+
+    /// Draws one line of `text` as what lies `around` it asks (see
+    /// [`Around`](paperpaw_text::Around)): its characters in the order
+    /// they are shown, Arabic letters joined (also with `around`'s
+    /// neighbours), brackets mirrored in right-to-left text; returns its
+    /// width. Text left to right alone, with nothing to join at its edges,
+    /// is drawn as [`FontHandle::draw_toned`] draws it. Other text is
+    /// drawn in one font: the one of its first letter.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "its inputs are separate things; a struct of them would serve this call alone"
+    )]
+    pub fn draw_in(
+        &self,
+        canvas: &mut Canvas<'_>,
+        size: f32,
+        x: f32,
+        baseline: i32,
+        text: &str,
+        color: Color,
+        (extra, tone): (u16, paperpaw_text::ToneCurve),
+        around: &paperpaw_text::Around,
+    ) -> f32 {
+        if let Some(larger) = self.larger_for(size) {
+            return larger.draw_in(
+                canvas,
+                size,
+                x,
+                baseline,
+                text,
+                color,
+                (extra, tone),
+                around,
+            );
+        }
+        if plain_in(text, around) {
+            return self.draw_toned(canvas, size, x, baseline, text, color, extra, tone);
+        }
+        if canvas.is_blind() || self.describing.get() {
+            return self.measure_in(size, text, around);
+        }
+        let size = self.size_for(size, text);
+        let (font, index) = self.pick_text(text);
+        let style = paperpaw_text::TextStyle::new(font, index, size, color)
+            .bolder(extra)
+            .curve(tone);
+        let mut cache = self.cache.borrow_mut();
+        paperpaw_text::draw_text_in(canvas, &mut cache, &style, x, baseline, text, around)
+    }
+
+    /// The font `text` is drawn in by [`FontHandle::draw_in`]: the one of
+    /// its first character that is not a space or a mark.
+    fn pick_text(&self, text: &str) -> (&'a Font, u16) {
+        text.chars()
+            .find(|c| !c.is_whitespace() && !paperpaw_text::is_mark(*c))
+            .map_or((self.font, self.index), |c| self.pick(c))
+    }
+
     /// Draws `run`, all in `style`'s font, from `x`; its width. At once
     /// where the font kerns it as this handle does; else character by
     /// character, each where measuring puts it, ligatures in place of
@@ -1335,6 +1404,18 @@ impl<'a> FontHandle<'a> {
         }
         fits('\u{fb00}', two).then_some(('\u{fb00}', 2, two))
     }
+}
+
+/// Whether `text` is set as [`FontHandle::measure`] sets it, whatever is
+/// `around` it: left to right alone, no flags, no letter at its edges it
+/// could join.
+fn plain_in(text: &str, around: &paperpaw_text::Around) -> bool {
+    let joins = |c: Option<char>| c.is_some_and(|c| matches!(c, '\u{0600}'..='\u{08FF}'));
+    around.base != paperpaw_lang::Direction::Rtl
+        && around.flags == 0
+        && !joins(around.before)
+        && !joins(around.after)
+        && !paperpaw_text::bidi::needs_bidi(text)
 }
 
 #[cfg(test)]

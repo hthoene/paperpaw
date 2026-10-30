@@ -244,3 +244,59 @@ fn families_of_packs_are_chosen_and_removed() {
         "a.serif"
     );
 }
+
+/// Text that joins or runs right to left is set by the text crate's
+/// shaping, measured as drawn; Latin as before.
+#[test]
+fn right_to_left_text_is_drawn_as_measured() {
+    use paperpaw_graphics::Framebuffer;
+    use paperpaw_platform::PixelFormat;
+    use paperpaw_text::Around;
+    // Beh and its forms, 3 wide where it joins on both sides.
+    let metrics = LineMetrics::new(8.0, 2.0, 12.0);
+    let mut builder = PackBuilder::new();
+    let glyphs = [
+        ('A', 5.0),
+        ('V', 5.0),
+        ('\u{628}', 2.0),
+        ('\u{fe91}', 2.0),
+        ('\u{fe92}', 3.0),
+        ('\u{fe90}', 2.0),
+    ];
+    builder.add_strike(
+        10.0,
+        metrics,
+        glyphs.iter().map(|&(c, a)| (c, Glyph::empty(a))).collect(),
+    );
+    builder.kerning(&[('A', 'V', -0.25)]);
+    let mut fonts = FontSet::new(4096);
+    fonts.add(
+        Id::new_static("a.font"),
+        Font::from_data(builder.build(), &[]).unwrap(),
+    );
+    let font = fonts.get(0).unwrap();
+    let rtl = Around::new(crate::lang::Direction::Rtl, crate::lang::Lang::NONE);
+    let beh = "\u{628}\u{628}\u{628}";
+    assert_eq!(font.measure_in(10.0, beh, &rtl), 7.0);
+    // Joined to a letter before it: the first takes its middle form.
+    let after = rtl.with_context(Some('\u{628}'), None);
+    assert_eq!(font.measure_in(10.0, beh, &after), 8.0);
+    assert_eq!(
+        font.measure_in(10.0, "AV", &Around::NONE),
+        font.measure(10.0, "AV")
+    );
+    let mut frame = Framebuffer::new(60, 20, PixelFormat::Gray8).unwrap();
+    let tone = paperpaw_text::ToneCurve::SMOOTH;
+    let mut canvas = frame.canvas();
+    let drawn = font.draw_in(
+        &mut canvas,
+        10.0,
+        0.0,
+        10,
+        beh,
+        Color::BLACK,
+        (0, tone),
+        &after,
+    );
+    assert_eq!(drawn, 8.0);
+}
