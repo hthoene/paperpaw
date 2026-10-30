@@ -15,13 +15,19 @@ pub(crate) use state::LEN as STATE_LEN;
 
 /// Embeddings and isolates open at once, the paragraph's own level
 /// included. Deeper ones count as overflow.
-pub const DEPTH: usize = 8;
+///
+/// A known deviation from UAX #9, which allows 125 levels (`max_depth`,
+/// BD2): text nested deeper than here keeps the level of the deepest
+/// embedding open, where the standard would raise it further. Books nest
+/// two or three at most; the bound keeps the state a reader keeps per
+/// piece ([`Carry`], 162 bytes as bytes) small and its walk bounded.
+pub(crate) const DEPTH: usize = 8;
 /// Isolates with a matching PDI that nest, each keeping the run sequence
 /// it interrupts. A deeper one counts as overflow.
-pub const ISOLATES: usize = 4;
+pub(crate) const ISOLATES: usize = 4;
 /// Brackets open at once in a paragraph. One more stops the pairing of
 /// brackets for its run sequence, as the 64th does in UAX #9 (BD16).
-pub const BRACKETS: usize = 16;
+pub(crate) const BRACKETS: usize = 16;
 /// Open brackets per run sequence in UAX #9 (BD16).
 const BD16_STACK: usize = 63;
 

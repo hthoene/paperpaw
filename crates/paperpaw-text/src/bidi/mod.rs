@@ -27,7 +27,8 @@ mod conformance;
 mod tests;
 
 pub(crate) use walk::Carry;
-pub use walk::{BRACKETS, DEPTH, ISOLATES};
+#[cfg(test)]
+use walk::{BRACKETS, DEPTH, ISOLATES};
 
 /// The bidirectional class of a character (`Bidi_Class`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -257,7 +258,7 @@ pub fn paragraph_level(text: &str) -> Option<Level> {
 /// `Bidi_Mirroring_Glyph`): `(` for `)`, `»` for `«`. `ch` itself where it
 /// has no mirror.
 #[must_use]
-pub fn mirror(ch: char) -> char {
+pub(crate) fn mirror(ch: char) -> char {
     let Ok(cp) = u16::try_from(u32::from(ch)) else {
         return ch;
     };
@@ -273,8 +274,8 @@ pub fn mirror(ch: char) -> char {
 /// Whether rule X9 leaves `ch` out of the algorithm: embeddings,
 /// overrides, `PDF` and boundary neutrals (ZWJ, ZWNJ, soft hyphen). It
 /// gets the level of the character before it; it draws nothing.
-#[must_use]
-pub fn is_removed(ch: char) -> bool {
+#[cfg(test)]
+fn is_removed(ch: char) -> bool {
     matches!(
         class(ch),
         Class::RLE | Class::LRE | Class::RLO | Class::LRO | Class::PDF | Class::BN
@@ -352,8 +353,9 @@ fn fill(levels: &mut [Level], from: usize, to: usize, level: Level) {
 
 /// Rule L2: the order in which a line's characters are shown from the
 /// left, as indexes into its levels. Writes `min(levels, order)` indexes
-/// and returns their count. Characters [`is_removed`] leaves out are
-/// ordered too, with their neighbours; they draw nothing.
+/// and returns their count. Characters rule X9 leaves out (embeddings,
+/// overrides, `PDF`, boundary neutrals) are ordered too, with their
+/// neighbours; they draw nothing.
 pub fn visual_order(levels: &[Level], order: &mut [u16]) -> usize {
     let n = levels.len().min(order.len()).min(usize::from(u16::MAX));
     let Some(order) = order.get_mut(..n) else {
