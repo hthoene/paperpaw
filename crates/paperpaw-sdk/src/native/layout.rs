@@ -181,7 +181,22 @@ const CROSSING: &[(u64, u64)] = &layouts![
     crate::screen::CloseCause,
     paperpaw_platform::PointerEvent,
     paperpaw_document::Block,
+    // What the shared text functions take and give by value, between the
+    // firmware's code and the plugin's (`paperpaw_table`): the plugin
+    // lives on across firmware releases, so a moved field of one of these
+    // is an interface change. (The font crates they hold are pinned with
+    // `=` in paperpaw-text; `tools/interface.py` digests those pins.)
+    paperpaw_text::Font,
+    paperpaw_text::GlyphCache,
+    paperpaw_text::Line,
+    paperpaw_text::TextStyle<'static>,
+    paperpaw_text::GlyphRef<'static>,
 ];
+
+/// The scalable font, with the `skrifa` location it holds by value: in
+/// the fingerprint of a plugin built with the `outline` feature only.
+#[cfg(feature = "outline")]
+const CROSSING_OUTLINE: &[(u64, u64)] = &layouts![paperpaw_text::OutlineFont];
 
 /// Where the firmware's table keeps each field of interface 5: a
 /// plugin finds them there. A frozen list: fields appended after
@@ -209,6 +224,16 @@ pub(super) const DIGEST: u64 = {
     while i < CROSSING.len() {
         hash = hash.number(CROSSING[i].0).number(CROSSING[i].1);
         i += 1;
+    }
+    #[cfg(feature = "outline")]
+    {
+        let mut i = 0;
+        while i < CROSSING_OUTLINE.len() {
+            hash = hash
+                .number(CROSSING_OUTLINE[i].0)
+                .number(CROSSING_OUTLINE[i].1);
+            i += 1;
+        }
     }
     let mut i = 0;
     while i < TABLE.len() {

@@ -28,6 +28,7 @@ extern crate alloc;
 
 mod bands;
 pub mod battery;
+pub mod blame;
 pub mod bm8563;
 pub mod bounded;
 pub mod bq27220;

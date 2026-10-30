@@ -279,6 +279,10 @@ impl Loader {
                 api::API.family_min
             );
             return Err(match misfit {
+                // Built for this interface, against tables of a revision
+                // since given up: `built_for` can only name the interface
+                // (the detail is in the log line above), so the reason
+                // reads "older" and the same number as this firmware's.
                 paperpaw_table::Misfit::Older => PluginProblem::OlderInterface {
                     built_for: header.interface,
                 },

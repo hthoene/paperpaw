@@ -1,0 +1,7 @@
+paperpaw-text skrifa =0.48.0
+paperpaw-text read-fonts =0.45.1
+paperpaw-text font-types =0.12.7
+paperpaw-zip miniz_oxide =0.9.1
+paperpaw-image miniz_oxide =0.9.1
+paperpaw-update ed25519-compact =2.6.0
+paperpaw-native ed25519-compact =2.6.0
