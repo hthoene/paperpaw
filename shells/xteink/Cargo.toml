@@ -21,6 +21,11 @@ bench = false
 
 [features]
 default = ["x4", "remote", "waveform-lab"]
+# EXPERIMENT (proto/shared-table, #44): a plain table of function addresses.
+proto-all = []
+proto-big = []
+proto-ver = []
+proto-stress = []
 # Which device: the X4 or the X3 (ESP32-C3, built with the Rust of
 # `rust-toolchain.toml`; the X3 experimental, `cargo x3`), the X4 Pro or
 # the X4 Classic (ESP32-S3, Xtensa: espup's `esp` toolchain of
@@ -107,6 +112,14 @@ paperpaw-http = { path = "../../crates/paperpaw-http" }
 paperpaw-digest = { path = "../../crates/paperpaw-digest" }
 # Native code plugins' files (`src/native`).
 paperpaw-native = { path = "../../crates/paperpaw-native" }
+paperpaw-text = { path = "../../crates/paperpaw-text" }
+paperpaw-json = { path = "../../crates/paperpaw-json" }
+paperpaw-xml = { path = "../../crates/paperpaw-xml" }
+paperpaw-i18n = { path = "../../crates/paperpaw-i18n" }
+paperpaw-config = { path = "../../crates/paperpaw-config" }
+paperpaw-qr = { path = "../../crates/paperpaw-qr" }
+paperpaw-document = { path = "../../crates/paperpaw-document" }
+paperpaw-image = { path = "../../crates/paperpaw-image" }
 # Its settings' ids, for the X4's defaults.
 paperpaw-plugin-wifi = { path = "../../plugins/wifi" }
 esp-hal = { version = "1.2", features = ["unstable"] }
