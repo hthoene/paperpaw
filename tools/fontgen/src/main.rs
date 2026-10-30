@@ -16,7 +16,7 @@ OPTIONS:
     --sizes <px,...>      Pixel sizes to render (default: 20,24,28,32,36,40,48)
     --axis <tag=value>    Set a variation axis, e.g. --axis wght=700 (repeatable)
     --chars <set,...>     Character sets: latin and ligatures (default),
-                          cyrillic, greek, or code points: U+EA01,
+                          cyrillic, greek, arabic, hebrew, or code points: U+EA01,
                           U+EA01-EA0F (e.g. icons)
     -h, --help            Show this help
 ";

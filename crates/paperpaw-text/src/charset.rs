@@ -34,6 +34,23 @@ pub const CYRILLIC: &[RangeInclusive<char>] = &['\u{400}'..='\u{4ff}'];
 /// Greek, modern and polytonic (Greek Extended, for older texts).
 pub const GREEK: &[RangeInclusive<char>] = &['\u{370}'..='\u{3ff}', '\u{1f00}'..='\u{1fff}'];
 
+/// Arabic (also Persian, Urdu and other languages written in it, #33):
+/// its letters, marks and digits, the supplement, and the presentation
+/// forms the joined letters are drawn as (Forms-B, and of Forms-A those
+/// of Persian and Urdu letters and the ligature of Allah: the other
+/// ligatures of Forms-A would triple a pack and are not drawn).
+pub const ARABIC: &[RangeInclusive<char>] = &[
+    '\u{600}'..='\u{6ff}',
+    '\u{750}'..='\u{77f}',
+    '\u{fb50}'..='\u{fbff}',
+    '\u{fdf2}'..='\u{fdf2}',
+    '\u{fe70}'..='\u{feff}',
+];
+
+/// Hebrew: its letters, points (niqqud) and cantillation marks, and the
+/// presentation forms (letters with points, wide letters).
+pub const HEBREW: &[RangeInclusive<char>] = &['\u{590}'..='\u{5ff}', '\u{fb1d}'..='\u{fb4f}'];
+
 paperpaw_table::shared! {
 /// A character of nearly the same look, for `ch` where a font lacks it,
 /// tried before the replacement character: a non-breaking hyphen as a
@@ -63,13 +80,16 @@ pub fn stand_in(ch: char) -> Option<char> {
 } @ text::CHARSET_STAND_IN
 }
 
-/// A character set by name: `latin`, `ligatures`, `cyrillic` or `greek`.
+/// A character set by name: `latin`, `ligatures`, `cyrillic`, `greek`,
+/// `arabic` or `hebrew`.
 pub fn named(name: &str) -> Option<&'static [RangeInclusive<char>]> {
     match name {
         "latin" => Some(LATIN),
         "ligatures" => Some(LIGATURES),
         "cyrillic" => Some(CYRILLIC),
         "greek" => Some(GREEK),
+        "arabic" => Some(ARABIC),
+        "hebrew" => Some(HEBREW),
         _ => None,
     }
 }
@@ -102,5 +122,22 @@ mod tests {
         assert_eq!(code_points("U+EA0F-EA01"), None);
         assert_eq!(code_points("U+D800"), None);
         assert_eq!(code_points("latin"), None);
+    }
+
+    #[test]
+    fn arabic_and_hebrew_hold_their_letters_and_drawn_forms() {
+        let has =
+            |set: &str, ch: char| named(set).is_some_and(|r| r.iter().any(|r| r.contains(&ch)));
+        // Beh, its final form, lam-alef, Allah, fatha; not a rare ligature.
+        for ch in [
+            '\u{628}', '\u{fe90}', '\u{fefb}', '\u{fdf2}', '\u{64e}', '\u{6cc}',
+        ] {
+            assert!(has("arabic", ch), "{ch:?}");
+        }
+        assert!(!has("arabic", '\u{fc00}'));
+        // Alef, qamats, shin with shin dot.
+        for ch in ['\u{5d0}', '\u{5b8}', '\u{fb2a}'] {
+            assert!(has("hebrew", ch), "{ch:?}");
+        }
     }
 }

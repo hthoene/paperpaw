@@ -19,7 +19,7 @@ use paperpaw_sdk::lang::Direction;
 use paperpaw_sdk::layout::{LayoutContext, LineBidi, layout_page};
 use paperpaw_sdk::reading::{PageType, ReadingFaces, StatusRoom, draw_lines, word_boxes};
 use paperpaw_sdk::{
-    Font, FontSpec, Id, LineMetrics, NoStorage, PixelFormat, Priority, SettingSpec, Storage,
+    Color, Font, FontSpec, Id, LineMetrics, NoStorage, PixelFormat, Priority, SettingSpec, Storage,
 };
 use paperpaw_text::{Glyph, PackBuilder};
 
@@ -42,6 +42,11 @@ fn font() -> Font {
 }
 
 fn harness() -> Harness {
+    harness_with(font())
+}
+
+/// The harness with `font` the reading font.
+fn harness_with(font: Font) -> Harness {
     let mut h = Harness::new();
     for (id, value) in [
         (settings::FONT_SIZE.static_str(), 15),
@@ -62,7 +67,7 @@ fn harness() -> Harness {
             .define(SettingSpec::switch(id, "x", value, groups::OTHER))
             .unwrap();
     }
-    h.fonts.add(FontSpec::new(FONT_ID, font())).unwrap();
+    h.fonts.add(FontSpec::new(FONT_ID, font)).unwrap();
     h.fonts.propose(fonts::READING, FONT_ID, Priority::DEFAULT);
     h
 }
@@ -150,4 +155,78 @@ fn words_leave_out_the_controls_that_set_text_apart() {
     let words = word_boxes(&faces, &t, &page);
     let texts: Vec<&str> = words.iter().map(|w| w.text.as_str()).collect();
     assert_eq!(texts, ["\u{5d0}", "12", "\u{5d1}"]);
+}
+
+/// Noto Serif Hebrew as the Hebrew pack of the card has it (#33), at the
+/// size the harness reads in.
+fn hebrew_pack() -> Font {
+    let data = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tools/fonts/NotoSerifHebrew.ttf"
+    ))
+    .unwrap();
+    let outline = paperpaw_text::OutlineFont::new(data, &[]).unwrap();
+    let ranges = paperpaw_text::charset::named("hebrew").unwrap();
+    let chars = paperpaw_text::charset::chars(ranges).chain([' ']);
+    let pack = paperpaw_text::build_pack(&outline, &[15.0, 20.0], chars);
+    Font::from_data(pack, &[]).unwrap()
+}
+
+/// The words of `text`, a Hebrew paragraph, and the page drawn.
+fn hebrew_page(text: &'static str) -> (Vec<paperpaw_sdk::reading::WordBox>, Framebuffer) {
+    let h = harness_with(hebrew_pack());
+    let env = h.env();
+    let font = env.fonts().role(fonts::READING.as_str()).unwrap();
+    let t = PageType::new(&env, &font, "he", false, StatusRoom::NONE);
+    let faces = ReadingFaces::new(&env, &t, None).unwrap();
+    let doc = Hebrew(Metadata::default(), text);
+    let cx = LayoutContext::new(&doc, &NoStorage, 400.0, &t.style, &faces);
+    let page = layout_page(&cx, Locator::START, 500.0).unwrap();
+    let words = word_boxes(&faces, &t, &page);
+    let mut frame = Framebuffer::new(480, 100, PixelFormat::Gray8).unwrap();
+    draw_lines(
+        &mut frame.canvas(),
+        &faces,
+        &t,
+        (t.x, t.y),
+        &page.lines,
+        &[],
+    );
+    (words, frame)
+}
+
+#[test]
+#[ignore = "points go where the font's anchors put them: the pack builder does not write them yet (#33, step 8, milestone 3)"]
+fn hebrew_with_points_is_drawn_from_the_right_its_points_on_their_letters() {
+    // Shalom olam, with points and without.
+    let (pointed, with) = hebrew_page(
+        "\u{5e9}\u{5c1}\u{5b8}\u{5dc}\u{5d5}\u{5b9}\u{5dd} \u{5e2}\u{5d5}\u{5b9}\u{5dc}\u{5b8}\u{5dd}",
+    );
+    let (plain, without) = hebrew_page("\u{5e9}\u{5dc}\u{5d5}\u{5dd} \u{5e2}\u{5d5}\u{5dc}\u{5dd}");
+    // Points take no room: the same words in the same places, the first
+    // at the right.
+    let areas = |w: &[paperpaw_sdk::reading::WordBox]| w.iter().map(|w| w.area).collect::<Vec<_>>();
+    assert_eq!(areas(&pointed), areas(&plain));
+    assert_eq!(pointed.len(), 2);
+    assert!(pointed[0].area.x > pointed[1].area.x);
+    assert_eq!(
+        pointed[0].text,
+        "\u{5e9}\u{5c1}\u{5b8}\u{5dc}\u{5d5}\u{5b9}\u{5dd}"
+    );
+    // The points are drawn, each within its word.
+    let mut changed = 0;
+    for y in 0..100u16 {
+        for x in 0..480u16 {
+            if with.view().pixel(x, y) == without.view().pixel(x, y) {
+                continue;
+            }
+            changed += 1;
+            let inside = pointed
+                .iter()
+                .any(|w| x + 2 >= w.area.x && u32::from(x) < w.area.right() + 2);
+            assert!(inside, "ink of a point at {x},{y} outside its word");
+        }
+    }
+    assert!(changed > 10, "{changed}");
+    assert_eq!(with.view().pixel(0, 0), Color::WHITE);
 }
