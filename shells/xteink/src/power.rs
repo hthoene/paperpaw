@@ -176,21 +176,33 @@ pub fn sleep_asleep(until_ms: u64) -> bool {
     down
 }
 
-/// Switches the watchdogs off (a sleeping reader wakes after minutes, far
-/// beyond their seconds) or on again.
+/// The watchdogs for a light sleep that lasts minutes: the timer group's
+/// stops (its seconds are far beyond a sleeping reader), the RTC's is armed
+/// for `ms`, longer than the longest nap, and fed before each. A sleep that
+/// never ends is then a reset after those minutes, not a reader awake with
+/// nobody looking until the battery is flat. [`watchdogs_awake`] puts them
+/// back, on every way out of the sleep.
 #[cfg(feature = "esp32c3")]
-pub fn watchdogs(on: bool) {
+pub fn watchdogs_for_sleep(ms: u64) {
     critical_section::with(|cs| {
         if let Some((rtc, wdt)) = WATCHDOGS.borrow_ref_mut(cs).as_mut() {
-            if on {
-                rtc.rwdt.enable();
-                wdt.enable();
-                rtc.rwdt.feed();
-                wdt.feed();
-            } else {
-                rtc.rwdt.disable();
-                wdt.disable();
-            }
+            wdt.disable();
+            arm_ms(&mut rtc.rwdt, ms);
+            rtc.rwdt.feed();
+        }
+        CAME_BY.borrow(cs).set(Instant::now());
+    });
+}
+
+/// Both watchdogs as they are awake, with their seconds, fed.
+#[cfg(feature = "esp32c3")]
+pub fn watchdogs_awake() {
+    critical_section::with(|cs| {
+        if let Some((rtc, wdt)) = WATCHDOGS.borrow_ref_mut(cs).as_mut() {
+            arm_ms(&mut rtc.rwdt, AWAKE_RTC_S.borrow(cs).get() * 1000);
+            wdt.enable();
+            rtc.rwdt.feed();
+            wdt.feed();
         }
         CAME_BY.borrow(cs).set(Instant::now());
     });
@@ -231,9 +243,14 @@ pub fn watch_start(rtc_s: u64) {
 
 /// Sets the RTC's watchdog to reset the X4 after `seconds`.
 fn arm(rwdt: &mut esp_hal::rtc_cntl::Rwdt, seconds: u64) {
+    arm_ms(rwdt, seconds * 1000);
+}
+
+/// Sets the RTC's watchdog to reset the X4 after `ms`.
+fn arm_ms(rwdt: &mut esp_hal::rtc_cntl::Rwdt, ms: u64) {
     use esp_hal::rtc_cntl::{RwdtStage, RwdtStageAction};
     rwdt.set_stage_action(RwdtStage::Stage0, RwdtStageAction::ResetSystem);
-    rwdt.set_timeout(RwdtStage::Stage0, Duration::from_secs(seconds));
+    rwdt.set_timeout(RwdtStage::Stage0, Duration::from_millis(ms));
     rwdt.enable();
 }
 
@@ -262,9 +279,14 @@ pub fn watch(
     wdt.enable();
     critical_section::with(|cs| {
         CAME_BY.borrow(cs).set(Instant::now());
+        AWAKE_RTC_S.borrow(cs).set(rtc_s);
         WATCHDOGS.replace(cs, Some((rtc, wdt)));
     });
 }
+
+/// The RTC watchdog's seconds when awake (see [`watch`]), to put back after
+/// a sleep.
+static AWAKE_RTC_S: Mutex<Cell<u64>> = Mutex::new(Cell::new(0));
 
 /// How long work in one step of the main loop may keep the watchdogs fed
 /// (see [`working`]): removing a large folder takes minutes (the books'

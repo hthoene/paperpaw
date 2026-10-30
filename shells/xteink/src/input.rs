@@ -415,6 +415,23 @@ fn battery() -> (u8, u16) {
     }
 }
 
+/// A fresh reading of the battery's charge in percent, `None` if it could
+/// not be read: never the last one kept, which a failing reading would
+/// leave in place for good (a sleeping reader must notice a battery it
+/// cannot read).
+pub fn percent_now() -> Option<u8> {
+    let (percent, millivolts) = with_keys(Keys::battery).flatten()?;
+    if millivolts == 0 {
+        return None;
+    }
+    critical_section::with(|cs| {
+        BATTERY
+            .borrow(cs)
+            .set(Some((millis(), percent, millivolts)))
+    });
+    Some(percent)
+}
+
 /// The battery's voltage, in millivolts.
 pub fn millivolts() -> u16 {
     battery().1
