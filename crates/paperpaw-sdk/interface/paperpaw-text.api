@@ -23,6 +23,7 @@ pub paperpaw_text::Font::Bitmap(paperpaw_text::BitmapFont)
 pub paperpaw_text::Font::Stored(paperpaw_text::StoredPack)
 impl paperpaw_text::Font
 pub fn paperpaw_text::Font::advance(&self, char, f32) -> f32
+pub fn paperpaw_text::Font::from_cow(alloc::borrow::Cow<'static, [u8]>, &[(&str, f32)]) -> core::result::Result<paperpaw_text::Font, paperpaw_text::FontError>
 pub fn paperpaw_text::Font::from_data(impl core::convert::Into<alloc::borrow::Cow<'static, [u8]>>, &[(&str, f32)]) -> core::result::Result<paperpaw_text::Font, paperpaw_text::FontError>
 pub fn paperpaw_text::Font::has_char(&self, char) -> bool
 pub fn paperpaw_text::Font::kern(&self, char, char, f32) -> f32
@@ -172,8 +173,10 @@ pub fn paperpaw_text::measure_in(&paperpaw_text::Font, f32, &str, &paperpaw_text
 pub fn paperpaw_text::wrap(&str, f32, impl core::ops::function::Fn(&str) -> f32) -> alloc::vec::Vec<core::ops::range::Range<usize>>
 pub fn paperpaw_text::wrap_lines(&str, impl core::ops::function::Fn(usize) -> f32, impl core::ops::function::Fn(char) -> f32) -> alloc::vec::Vec<paperpaw_text::Line>
 pub fn paperpaw_text::wrap_lines_balanced(&str, impl core::ops::function::Fn(usize) -> f32, impl core::ops::function::Fn(usize, char) -> f32, core::option::Option<paperpaw_text::Hyphenate<'_>>) -> alloc::vec::Vec<paperpaw_text::Line>
+pub fn paperpaw_text::wrap_lines_balanced_in(&str, &dyn core::ops::function::Fn(usize) -> f32, &dyn core::ops::function::Fn(usize, char) -> f32, &dyn core::ops::function::Fn(usize, char, char) -> f32, core::option::Option<paperpaw_text::Hyphenate<'_>>, &dyn core::ops::function::Fn(f32, usize) -> f32) -> alloc::vec::Vec<paperpaw_text::Line>
 pub fn paperpaw_text::wrap_lines_balanced_kerned(&str, impl core::ops::function::Fn(usize) -> f32, impl core::ops::function::Fn(usize, char) -> f32, impl core::ops::function::Fn(usize, char, char) -> f32, core::option::Option<paperpaw_text::Hyphenate<'_>>) -> alloc::vec::Vec<paperpaw_text::Line>
 pub fn paperpaw_text::wrap_lines_balanced_kerned_with_cost(&str, impl core::ops::function::Fn(usize) -> f32, impl core::ops::function::Fn(usize, char) -> f32, impl core::ops::function::Fn(usize, char, char) -> f32, core::option::Option<paperpaw_text::Hyphenate<'_>>, impl core::ops::function::Fn(f32, usize) -> f32) -> alloc::vec::Vec<paperpaw_text::Line>
 pub fn paperpaw_text::wrap_lines_hyphenated(&str, impl core::ops::function::Fn(usize) -> f32, impl core::ops::function::Fn(usize, char) -> f32, core::option::Option<paperpaw_text::Hyphenate<'_>>) -> alloc::vec::Vec<paperpaw_text::Line>
 pub fn paperpaw_text::wrap_lines_kerned(&str, impl core::ops::function::Fn(usize) -> f32, impl core::ops::function::Fn(usize, char) -> f32, impl core::ops::function::Fn(usize, char, char) -> f32, core::option::Option<paperpaw_text::Hyphenate<'_>>) -> alloc::vec::Vec<paperpaw_text::Line>
+pub fn paperpaw_text::wrap_lines_kerned_in(&str, &dyn core::ops::function::Fn(usize) -> f32, &dyn core::ops::function::Fn(usize, char) -> f32, &dyn core::ops::function::Fn(usize, char, char) -> f32, core::option::Option<paperpaw_text::Hyphenate<'_>>) -> alloc::vec::Vec<paperpaw_text::Line>
 pub type paperpaw_text::Hyphenate<'a> = &'a dyn core::ops::function::Fn(&str, &mut dyn core::ops::function::FnMut(usize))

@@ -279,10 +279,12 @@ impl Loader {
                 api::API.family_min
             );
             return Err(match misfit {
-                paperpaw_table::Misfit::Newer => PluginProblem::NeedsNewerPaperPaw,
                 paperpaw_table::Misfit::Older => PluginProblem::OlderInterface {
                     built_for: header.interface,
                 },
+                // Newer, and any reason a later SDK adds: the firmware is
+                // to be updated.
+                _ => PluginProblem::NeedsNewerPaperPaw,
             });
         }
         if let Some(why) = paperpaw_sdk::native::Fingerprint(header.fingerprint).misfit() {

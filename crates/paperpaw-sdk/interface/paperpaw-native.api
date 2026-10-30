@@ -209,6 +209,7 @@ pub paperpaw_native::Older::format: u16
 pub struct paperpaw_native::Relocator<'a>
 impl<'a> paperpaw_native::Relocator<'a>
 pub fn paperpaw_native::Relocator<'a>::apply(&self, u32, &mut [u8]) -> core::result::Result<(), paperpaw_native::Problem>
+pub fn paperpaw_native::Relocator<'a>::apply_with(&self, u32, &mut [u8], &[u32; 8]) -> core::result::Result<(), paperpaw_native::Problem>
 pub fn paperpaw_native::Relocator<'a>::hot_at(self, u32) -> core::result::Result<Self, paperpaw_native::Problem>
 pub fn paperpaw_native::Relocator<'a>::new(&'a paperpaw_native::Header, &'a [u32], u32, u32) -> core::result::Result<Self, paperpaw_native::Problem>
 pub struct paperpaw_native::Signature

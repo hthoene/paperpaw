@@ -2,26 +2,74 @@
 # tools/interface.py writes them: fields, variants and trait items in
 # the source's order, private fields and the private types they reach
 # too, every feature on (ADR 0026).
+const paperpaw_table::BUILT_WITH: paperpaw_table::Revisions = if cfg!(any( all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"), paperpaw_table_host )) { REVISIONS } else { [0
 const paperpaw_table::FAMILIES: usize = 8usize
 const paperpaw_table::Family::CONTRIBUTION: paperpaw_table::Family = Family(4)
 const paperpaw_table::Family::FONTS: paperpaw_table::Family = Family(1)
 const paperpaw_table::Family::GRAPHICS: paperpaw_table::Family = Family(3)
 const paperpaw_table::Family::TEXT: paperpaw_table::Family = Family(0)
 const paperpaw_table::Family::UI: paperpaw_table::Family = Family(2)
+const paperpaw_table::HASH: &str = index::HASH
 const paperpaw_table::OLDEST: paperpaw_table::Revisions = index::OLDEST
 const paperpaw_table::REVISIONS: paperpaw_table::Revisions = index::REVISIONS
 const paperpaw_table::Table::NONE: paperpaw_table::Table = Table(core::ptr::null())
-const paperpaw_table::index::OLDEST: paperpaw_table::Revisions = [0, 0, 0, 0, 0, 0, 0, 0]
-const paperpaw_table::index::REVISIONS: paperpaw_table::Revisions = [0, 0, 0, 0, 0, 0, 0, 0]
+const paperpaw_table::index::HASH: &str = "a424960d"
+const paperpaw_table::index::OLDEST: paperpaw_table::Revisions = [1, 0, 0, 0, 0, 0, 0, 0]
+const paperpaw_table::index::REVISIONS: paperpaw_table::Revisions = [1, 0, 0, 0, 0, 0, 0, 0]
 const paperpaw_table::index::contribution::COUNT: usize = 0usize
 const paperpaw_table::index::contribution::FAMILY: paperpaw_table::Family = crate::Family::CONTRIBUTION
 const paperpaw_table::index::fonts::COUNT: usize = 0usize
 const paperpaw_table::index::fonts::FAMILY: paperpaw_table::Family = crate::Family::FONTS
 const paperpaw_table::index::graphics::COUNT: usize = 0usize
 const paperpaw_table::index::graphics::FAMILY: paperpaw_table::Family = crate::Family::GRAPHICS
-const paperpaw_table::index::text::COUNT: usize = 0usize
+const paperpaw_table::index::text::CACHE_GLYPH: usize = 25usize
+const paperpaw_table::index::text::CHARSET_STAND_IN: usize = 4usize
+const paperpaw_table::index::text::COUNT: usize = 43usize
 const paperpaw_table::index::text::FAMILY: paperpaw_table::Family = crate::Family::TEXT
+const paperpaw_table::index::text::FONTS_HANDLE: usize = 28usize
+const paperpaw_table::index::text::FONT_ADVANCE: usize = 9usize
+const paperpaw_table::index::text::FONT_FROM_COW: usize = 5usize
+const paperpaw_table::index::text::FONT_HAS_CHAR: usize = 11usize
+const paperpaw_table::index::text::FONT_KERN: usize = 10usize
+const paperpaw_table::index::text::FONT_LARGEST_SIZE: usize = 7usize
+const paperpaw_table::index::text::FONT_LINE_METRICS: usize = 8usize
+const paperpaw_table::index::text::FONT_SHOWN: usize = 12usize
+const paperpaw_table::index::text::FONT_SIZE_FOR: usize = 6usize
+const paperpaw_table::index::text::HANDLE_ADVANCE: usize = 33usize
+const paperpaw_table::index::text::HANDLE_DRAW: usize = 40usize
+const paperpaw_table::index::text::HANDLE_DRAW_BOLDER: usize = 41usize
+const paperpaw_table::index::text::HANDLE_DRAW_TONED: usize = 42usize
+const paperpaw_table::index::text::HANDLE_HAS_CHAR: usize = 32usize
+const paperpaw_table::index::text::HANDLE_HEADING_LINE_HEIGHT: usize = 31usize
+const paperpaw_table::index::text::HANDLE_INK: usize = 37usize
+const paperpaw_table::index::text::HANDLE_INK_ACROSS: usize = 38usize
+const paperpaw_table::index::text::HANDLE_KERN: usize = 34usize
+const paperpaw_table::index::text::HANDLE_LARGEST_SIZE: usize = 29usize
+const paperpaw_table::index::text::HANDLE_LINE_METRICS: usize = 30usize
+const paperpaw_table::index::text::HANDLE_MEASURE: usize = 36usize
+const paperpaw_table::index::text::HANDLE_SIZE_FOR: usize = 35usize
+const paperpaw_table::index::text::HANDLE_WRAP: usize = 39usize
+const paperpaw_table::index::text::LAYOUT_WRAP_BALANCED: usize = 27usize
+const paperpaw_table::index::text::LAYOUT_WRAP_KERNED: usize = 26usize
+const paperpaw_table::index::text::PACK_ADVANCE: usize = 18usize
+const paperpaw_table::index::text::PACK_GLYPH: usize = 17usize
+const paperpaw_table::index::text::PACK_HAS_CHAR: usize = 15usize
+const paperpaw_table::index::text::PACK_KERN: usize = 19usize
+const paperpaw_table::index::text::PACK_LARGEST_SIZE: usize = 13usize
+const paperpaw_table::index::text::PACK_LINE_METRICS: usize = 14usize
+const paperpaw_table::index::text::PACK_SIZE_FOR: usize = 16usize
+const paperpaw_table::index::text::STORED_ADVANCE: usize = 23usize
+const paperpaw_table::index::text::STORED_HAS_CHAR: usize = 21usize
+const paperpaw_table::index::text::STORED_LARGEST_SIZE: usize = 20usize
+const paperpaw_table::index::text::STORED_LINE_METRICS: usize = 22usize
+const paperpaw_table::index::text::STORED_RENDER: usize = 24usize
+const paperpaw_table::index::text::TEXT_DRAW_TEXT: usize = 3usize
+const paperpaw_table::index::text::TEXT_GLYPH_X: usize = 2usize
+const paperpaw_table::index::text::TEXT_IS_MARK: usize = 1usize
+const paperpaw_table::index::text::TEXT_MEASURE: usize = 0usize
 const paperpaw_table::index::ui::COUNT: usize = 0usize
 const paperpaw_table::index::ui::FAMILY: paperpaw_table::Family = crate::Family::UI
+enum paperpaw_table::Misfit { Newer, Older }
 struct paperpaw_table::Family(0: u8)
+struct paperpaw_table::HostTables(0: [core::sync::atomic::AtomicPtr<*const ()>; 8])
 struct paperpaw_table::Table #{"repr": {"align": null, "int": null, "kind": "transparent", "packed": null}}(0: *const *const ())
