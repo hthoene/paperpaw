@@ -858,9 +858,12 @@ fn a_set_with_a_bad_checksum_and_a_possible_stream_is_sealed_again() {
     assert_eq!(left, 0);
 }
 
+/// A way to damage a stream extension entry, given the card's cluster count.
+type Damage = fn(&mut [u8], u32);
+
 #[test]
 fn a_set_another_system_damaged_is_not_sealed_to_name_clusters_it_may_not_own() {
-    let cases: [(&str, fn(&mut [u8], u32)); 4] = [
+    let cases: [(&str, Damage); 4] = [
         ("first cluster beyond the card", |s, _| {
             s[20..24].copy_from_slice(&0xFFFF_FF00u32.to_le_bytes())
         }),
