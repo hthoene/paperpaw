@@ -197,7 +197,6 @@ fn hebrew_page(text: &'static str) -> (Vec<paperpaw_sdk::reading::WordBox>, Fram
 }
 
 #[test]
-#[ignore = "points go where the font's anchors put them: the pack builder does not write them yet (#33, step 8, milestone 3)"]
 fn hebrew_with_points_is_drawn_from_the_right_its_points_on_their_letters() {
     // Shalom olam, with points and without.
     let (pointed, with) = hebrew_page(
@@ -214,7 +213,8 @@ fn hebrew_with_points_is_drawn_from_the_right_its_points_on_their_letters() {
         pointed[0].text,
         "\u{5e9}\u{5c1}\u{5b8}\u{5dc}\u{5d5}\u{5b9}\u{5dd}"
     );
-    // The points are drawn, each within its word.
+    // The points are drawn, each within its word (where the font's
+    // anchors put them, not past the word's end).
     let mut changed = 0;
     for y in 0..100u16 {
         for x in 0..480u16 {
@@ -224,7 +224,7 @@ fn hebrew_with_points_is_drawn_from_the_right_its_points_on_their_letters() {
             changed += 1;
             let inside = pointed
                 .iter()
-                .any(|w| x + 2 >= w.area.x && u32::from(x) < w.area.right() + 2);
+                .any(|w| x >= w.area.x && u32::from(x) < w.area.right());
             assert!(inside, "ink of a point at {x},{y} outside its word");
         }
     }

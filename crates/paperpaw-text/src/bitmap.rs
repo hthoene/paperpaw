@@ -31,9 +31,11 @@
 //! reads. The slots ([`BitmapFont::ANCHORS`] and on):
 //!
 //! ```text
-//! 0  anchors              where marks sit on letters (below)
+//! 0  anchors              where marks sit on letters and on marks
+//!                         (below)
 //! 1  mark-to-mark anchors the same format, for a mark on a mark where
-//!                         it differs from slot 0
+//!                         it differs from slot 0 (not written yet: slot
+//!                         0 holds both)
 //! 2  scripts              the scripts the pack is for and their line
 //!                         metrics (below)
 //! 3  language forms       per language, keys drawn as other keys
@@ -63,9 +65,16 @@
 //!   each               the baseline, y down)
 //! ```
 //!
-//! Anchor classes: 0 above a letter, 1 below a letter, 2 above a mark
-//! (mark to mark), 3 below a mark, 4 above right, 5 below right; 6 and 7
-//! are not used yet.
+//! An anchor's class (its low seven bits) is the font's: the pack builder
+//! numbers the classes of the font's mark lookups in their order. Its high
+//! bit marks a mark's own point, where it is held; without it, the point
+//! is where marks of the class are held on the key (a letter, or a mark
+//! others sit on). A mark lists its own points in the order they are
+//! tried, and is drawn where one meets the same class on the mark before
+//! it, else on its letter; where none meets, its ink is centred over the
+//! letter's. A part may list every glyph of its strike, in their order
+//! (those without anchors with none): a key's record is then where its
+//! glyph's is. The builder writes anchors for Arabic and Hebrew alone.
 //!
 //! Scripts (version 1):
 //!
@@ -81,6 +90,7 @@ use alloc::borrow::Cow;
 use alloc::vec::Vec;
 use core::fmt;
 
+use crate::anchors::{self, Anchors};
 use crate::font::{FontError, LineMetrics};
 use crate::glyph::{Glyph, GlyphRef};
 use crate::kern_table;
@@ -367,6 +377,24 @@ impl BitmapFont {
             .min_by_key(|&(_, quarters)| quarters.abs_diff(wanted))
             .map_or(size, |(_, quarters)| quarters as f32 / 4.0)
     } @ text::PACK_SIZE_FOR
+    }
+
+    /// Where marks sit on `ch` at the strike nearest to `size`, the one
+    /// its glyph is drawn from (see [`crate::anchors`]): read in place.
+    pub(crate) fn anchors(&self, ch: char, size: f32) -> Anchors {
+        let Some(table) = self.table(Self::ANCHORS) else {
+            return Anchors::NONE;
+        };
+        let Some((strike, record)) = self.nearest_index(size).and_then(|i| {
+            let tables = self.tables(i)?;
+            Some((
+                i,
+                self.record(&tables, ch)?.checked_sub(tables.glyph_table)? / RECORD,
+            ))
+        }) else {
+            return Anchors::NONE;
+        };
+        anchors::find(table, strike, ch, record)
     }
 
     /// The strike nearest to `size` that has `ch`, and its record: for a

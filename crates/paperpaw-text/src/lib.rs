@@ -23,6 +23,7 @@ compile_error!(
 
 extern crate alloc;
 
+mod anchors;
 // Arabic shaping (#33), used by `draw_text_in`: crate-private until the
 // reading path has shown which items plugins need (making them public
 // later is an addition). Fuzzing reaches it through `fuzz` (cargo-fuzz
@@ -43,6 +44,8 @@ mod kern_table;
 #[cfg(feature = "outline")]
 mod kerning;
 mod layout;
+#[cfg(feature = "outline")]
+mod marks;
 #[cfg(feature = "outline")]
 mod outline;
 #[cfg_attr(
@@ -289,8 +292,9 @@ fn paint(
 }
 
 /// Renders `chars` of `font` at each of `sizes` into a bitmap font pack,
-/// with the font's kerning of them. Characters the font lacks are
-/// skipped.
+/// with the font's kerning of them and, for Arabic and Hebrew, where its
+/// marks sit on its letters (an anchors table, see
+/// [`BitmapFont::ANCHORS`]). Characters the font lacks are skipped.
 #[cfg(feature = "outline")]
 pub fn build_pack(
     font: &OutlineFont,
@@ -300,6 +304,22 @@ pub fn build_pack(
     let mut builder = PackBuilder::new();
     let kerned: alloc::vec::Vec<char> = chars.clone().into_iter().collect();
     builder.kerning(&font.kerning_pairs(&kerned));
+    // Every key of a strike, in order, so that a key's anchors are where
+    // its glyph is.
+    let mut keys: alloc::vec::Vec<char> = kerned
+        .iter()
+        .copied()
+        .filter(|&ch| font.has_char(ch))
+        .collect();
+    keys.sort_unstable();
+    keys.dedup();
+    let anchored: alloc::vec::Vec<_> = sizes
+        .iter()
+        .map(|&size| font.anchors_of(&keys, size))
+        .collect();
+    if anchored.iter().flatten().any(|(_, a)| !a.is_empty()) {
+        builder.table(BitmapFont::ANCHORS, 1, &anchors::build(&anchored));
+    }
     for &size in sizes {
         let glyphs = chars
             .clone()

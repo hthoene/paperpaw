@@ -1,6 +1,7 @@
 use alloc::borrow::Cow;
 use core::fmt;
 
+use crate::anchors::Anchors;
 use crate::bitmap::BitmapFont;
 #[cfg(feature = "outline")]
 use crate::outline::OutlineFont;
@@ -174,6 +175,19 @@ impl Font {
             Font::Outline(font) => font.kern(left, right, size),
         }
     } @ text::FONT_KERN
+    }
+
+    /// Where marks sit on `ch` at `size` (see [`crate::anchors`]); for
+    /// packs read a glyph at a time and outlines, the
+    /// [`GlyphCache`](crate::GlyphCache) keeps them.
+    pub(crate) fn anchors(&self, ch: char, size: f32) -> Anchors {
+        let ch = self.shown(ch);
+        match self {
+            Font::Bitmap(font) => font.anchors(ch, size),
+            Font::Stored(font) => font.anchors(ch, size),
+            #[cfg(feature = "outline")]
+            Font::Outline(font) => font.anchors(ch, size),
+        }
     }
 
     paperpaw_table::shared! {

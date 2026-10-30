@@ -17,9 +17,10 @@ use alloc::vec;
 use paperpaw_graphics::Canvas;
 use paperpaw_lang::{Direction, Lang};
 
+use crate::anchors::{self, Anchors};
 use crate::arabic::{self, Context, Form, NO_GLYPH};
 use crate::bidi::{self, Carry, Level};
-use crate::{Font, GlyphCache, TextStyle};
+use crate::{Font, GlyphCache, TextStyle, raster};
 
 /// The most characters set without the heap.
 const STACK: usize = 64;
@@ -109,7 +110,7 @@ pub fn measure_in(font: &Font, size: f32, text: &str, around: &Around) -> f32 {
     if plain(text, around) {
         return crate::measure(font, size, text);
     }
-    lay(font, size, text, around, false, |_, _, _| {})
+    lay(font, size, text, around, false, |_, _, _, _| {})
 } @ text::TEXT_MEASURE_IN
 }
 
@@ -132,13 +133,49 @@ pub fn draw_text_in(
     if plain(text, around) {
         return crate::draw_text(canvas, cache, &style.based(based), x, baseline, text);
     }
-    let font = style.font;
-    lay(font, style.size, text, around, based, |key, pen, lone| {
-        let glyph = cache.glyph(style.font_index, font, key, style.size);
-        let gx = crate::glyph_x(x + pen, glyph.left, lone);
-        crate::paint(canvas, &glyph, gx, baseline, style);
+    let (font, index, size) = (style.font, style.font_index, style.size);
+    // The letter marks sit on (its key and pen) and the mark drawn last on
+    // it (its anchors and place from the letter's pen).
+    let mut letter: Option<(char, i32)> = None;
+    let mut before: Option<(Anchors, (i32, i32))> = None;
+    lay(font, size, text, around, based, |key, pen, mark, lone| {
+        let mut placed = None;
+        if !mark {
+            letter = Some((key, raster::floor(x + pen + 0.5)));
+            before = None;
+        } else if let Some((on, at)) = letter
+            && !lone
+        {
+            let anchors = cache.anchors(index, font, key, size);
+            if anchors::is_held(&anchors) {
+                let held = cache.anchors(index, font, on, size);
+                let before_it = before.as_ref().map(|(a, p)| (a, *p));
+                let offset = anchors::place(&anchors, before_it, &held)
+                    .unwrap_or_else(|| centred(cache, style, on, key));
+                placed = Some((at.saturating_add(offset.0), offset.1));
+                before = Some((anchors, offset));
+            }
+        }
+        let glyph = cache.glyph(index, font, key, size);
+        let (gx, dy) = match placed {
+            Some((at, dy)) => (at.saturating_add(i32::from(glyph.left)), dy),
+            None => (crate::glyph_x(x + pen, glyph.left, lone), 0),
+        };
+        crate::paint(canvas, &glyph, gx, baseline.saturating_add(dy), style);
     })
 } @ text::TEXT_DRAW_TEXT_IN
+}
+
+/// Where a mark with anchors goes on a letter that holds none of its
+/// classes: its ink centred over the letter's, at the height its glyph
+/// gives it.
+fn centred(cache: &mut GlyphCache, style: &TextStyle<'_>, letter: char, mark: char) -> (i32, i32) {
+    let centre = |cache: &mut GlyphCache, key: char| {
+        let glyph = cache.glyph(style.font_index, style.font, key, style.size);
+        i32::from(glyph.left) + i32::from(glyph.width) / 2
+    };
+    let letter = centre(cache, letter);
+    (letter - centre(cache, mark), 0)
 }
 
 /// Whether `text` draws as [`draw_text`](crate::draw_text) draws it:
@@ -161,15 +198,17 @@ fn joins(ch: Option<char>) -> bool {
     })
 }
 
-/// Sets `text`: calls `put(key, pen, lone)` for each glyph in the order
-/// it is shown, `pen` from the text's left edge, and returns the width.
+/// Sets `text`: calls `put(key, pen, mark, lone)` for each glyph in the
+/// order it is shown, `pen` from the text's left edge, `mark` for a
+/// combining mark (after its letter), `lone` for one with no letter;
+/// returns the width.
 fn lay(
     font: &Font,
     size: f32,
     text: &str,
     around: &Around,
     based: bool,
-    put: impl FnMut(char, f32, bool),
+    put: impl FnMut(char, f32, bool, bool),
 ) -> f32 {
     let count = text.chars().count().min(usize::from(u16::MAX));
     if count <= STACK {
@@ -216,7 +255,7 @@ impl Set<'_> {
         text: &str,
         around: &Around,
         based: bool,
-        mut put: impl FnMut(char, f32, bool),
+        mut put: impl FnMut(char, f32, bool, bool),
     ) -> f32 {
         let Set {
             keys,
@@ -280,7 +319,7 @@ impl Set<'_> {
             {
                 *pen += font.kern(left, key, size);
             }
-            put(key, *pen, mark && !based && i < first);
+            put(key, *pen, mark, mark && !based && i < first);
             *pen += font.advance(key, size);
             before = Some((i, key));
         };
@@ -373,7 +412,9 @@ mod tests {
     /// The keys of `text` from the left, as set with `around`.
     fn shown(font: &Font, text: &str, around: &Around) -> String {
         let mut keys = String::new();
-        lay(font, 10.0, text, around, false, |key, _, _| keys.push(key));
+        lay(font, 10.0, text, around, false, |key, _, _, _| {
+            keys.push(key)
+        });
         keys
     }
 
@@ -432,7 +473,7 @@ mod tests {
             "\u{5B0}א",
             &Around::new(Direction::Rtl, Lang::NONE),
             false,
-            |k, _, l| {
+            |k, _, _, l| {
                 lone.push((k, l));
             },
         );
@@ -487,5 +528,90 @@ mod tests {
             (Some('a'), Some('b'), 4)
         );
         assert_eq!(Around::default(), Around::NONE);
+    }
+
+    /// A pack with alef (6 px of ink over the baseline) and qamats (2 px,
+    /// a row under it), qamats held on alef by `class` where alef holds
+    /// that class.
+    fn anchored(class: u8) -> Font {
+        use crate::anchors::{self, Anchor, Anchors};
+        let metrics = LineMetrics {
+            ascent: 8.0,
+            descent: 2.0,
+            line_height: 10.0,
+        };
+        let ink = |width: u16, height: u16, top: i16, advance: f32| Glyph {
+            left: 0,
+            top,
+            width,
+            height,
+            advance,
+            data: alloc::vec![0xFF; usize::from(width.div_ceil(2) * height)],
+        };
+        let mut letter = Anchors::NONE;
+        letter.push(Anchor {
+            class: 0,
+            x: 1,
+            y: 2,
+        });
+        let mut mark = Anchors::NONE;
+        mark.push(Anchor {
+            class: Anchor::OWN | class,
+            x: 0,
+            y: 0,
+        });
+        let mut builder = PackBuilder::new();
+        builder.add_strike(
+            10.0,
+            metrics,
+            alloc::vec![
+                ('\u{5D0}', ink(6, 6, -6, 7.0)),
+                ('\u{5B8}', ink(2, 1, 1, 0.0))
+            ],
+        );
+        let keys = alloc::vec![alloc::vec![('\u{5B8}', mark), ('\u{5D0}', letter)]];
+        builder.table(BitmapFont::ANCHORS, 1, &anchors::build(&keys));
+        Font::Bitmap(BitmapFont::new(builder.build()).unwrap())
+    }
+
+    /// The columns and rows with ink after drawing `text` at 10, 20.
+    fn ink_of(font: &Font, text: &str) -> Vec<(u16, u16)> {
+        let mut frame =
+            paperpaw_graphics::Framebuffer::new(40, 30, paperpaw_platform::PixelFormat::Gray8)
+                .unwrap();
+        {
+            let mut canvas = frame.canvas();
+            canvas.clear(paperpaw_platform::Color::WHITE);
+            let mut cache = GlyphCache::new(4096);
+            let style = TextStyle::new(font, 0, 10.0, paperpaw_platform::Color::BLACK);
+            let around = Around::new(Direction::Rtl, Lang::NONE);
+            draw_text_in(&mut canvas, &mut cache, &style, 10.0, 20, text, &around);
+        }
+        let view = frame.view();
+        (0..30)
+            .flat_map(|y| (0..40).map(move |x| (x, y)))
+            .filter(|&(x, y)| view.pixel(x, y) != paperpaw_platform::Color::WHITE)
+            .collect()
+    }
+
+    #[test]
+    fn marks_go_where_anchors_meet_else_centred_on_their_letter() {
+        // Held: the mark's point on alef's, 1 right and 2 down of its pen.
+        let font = anchored(0);
+        let alone = ink_of(&font, "\u{5D0}");
+        let mark: Vec<_> = ink_of(&font, "\u{5D0}\u{5B8}")
+            .into_iter()
+            .filter(|p| !alone.contains(p))
+            .collect();
+        assert_eq!(mark, [(11, 23), (12, 23)]);
+        // A class alef does not hold: centred over its ink, at the height
+        // the mark's glyph gives it.
+        let font = anchored(3);
+        let alone = ink_of(&font, "\u{5D0}");
+        let mark: Vec<_> = ink_of(&font, "\u{5D0}\u{5B8}")
+            .into_iter()
+            .filter(|p| !alone.contains(p))
+            .collect();
+        assert_eq!(mark, [(12, 21), (13, 21)]);
     }
 }

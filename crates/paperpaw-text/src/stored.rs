@@ -14,6 +14,8 @@ use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::fmt;
 
+use crate::anchors::{self, Anchors};
+use crate::bitmap::BitmapFont;
 use crate::font::{FontError, LineMetrics};
 use crate::glyph::{self, Glyph, zeroed};
 
@@ -35,6 +37,18 @@ const MAX_STRIKES: usize = 64;
 pub trait PackSource {
     /// Fills `buf` from `at`; `false` if that could not be read whole.
     fn read_at(&self, at: u64, buf: &mut [u8]) -> bool;
+}
+
+/// A table of a pack, read through its source from its offset.
+struct Table<'a>(&'a dyn PackSource, u64);
+
+impl anchors::Bytes for Table<'_> {
+    fn bytes(&self, at: usize, buf: &mut [u8]) -> bool {
+        u64::try_from(at)
+            .ok()
+            .and_then(|at| self.1.checked_add(at))
+            .is_some_and(|at| self.0.read_at(at, buf))
+    }
 }
 
 /// What a strike's header says.
@@ -241,6 +255,18 @@ impl StoredPack {
             .and_then(|a| a.get(index))
             .map_or(0.0, |&a| f32::from(a) / 16.0)
     } @ text::STORED_ADVANCE
+    }
+
+    /// Where marks sit on `ch` at the strike nearest to `size` (see
+    /// [`crate::anchors`]): a few reads from the source.
+    pub(crate) fn anchors(&self, ch: char, size: f32) -> Anchors {
+        let (Some(table), Ok(index)) = (
+            self.table(BitmapFont::ANCHORS),
+            self.chars.binary_search(&ch),
+        ) else {
+            return Anchors::NONE;
+        };
+        anchors::find(&Table(&*self.source, table), self.nearest(size), ch, index)
     }
 
     paperpaw_table::shared! {

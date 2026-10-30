@@ -8,9 +8,11 @@ use skrifa::instance::{Location, Size};
 use skrifa::outline::{DrawSettings, OutlinePen};
 use skrifa::{FontRef, GlyphId, MetadataProvider};
 
+use crate::anchors::Anchors;
 use crate::font::{FontError, LineMetrics};
 use crate::glyph::{self, Glyph, pack_coverage};
 use crate::kerning::Kerning;
+use crate::marks::Marks;
 use crate::raster::{self, Path, Pt};
 
 /// A scalable font, optionally at a fixed position of its variation axes
@@ -138,6 +140,28 @@ impl OutlineFont {
             }
         }
         pairs
+    }
+
+    /// Where marks sit on `ch` at `size` (see [`crate::anchors`]), from
+    /// the font's GPOS: Arabic and Hebrew alone.
+    pub(crate) fn anchors(&self, ch: char, size: f32) -> Anchors {
+        let Some(font) = self.font_ref() else {
+            return Anchors::NONE;
+        };
+        Marks::new(font, self.location.coords()).anchors(ch, size)
+    }
+
+    /// The anchors of each of `chars` at `size`, read with the font's
+    /// lookups found once: for packs.
+    pub(crate) fn anchors_of(&self, chars: &[char], size: f32) -> Vec<(char, Anchors)> {
+        let Some(font) = self.font_ref() else {
+            return Vec::new();
+        };
+        let marks = Marks::new(font, self.location.coords());
+        chars
+            .iter()
+            .map(|&ch| (ch, marks.anchors(ch, size)))
+            .collect()
     }
 
     /// Rasterizes `ch`; missing characters render as U+FFFD or `.notdef`.
