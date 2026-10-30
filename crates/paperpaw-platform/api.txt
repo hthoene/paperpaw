@@ -21,24 +21,36 @@ pub paperpaw_platform::display::RefreshMode::Mono
 pub paperpaw_platform::display::RefreshMode::Partial
 impl paperpaw_platform::display::RefreshMode
 pub fn paperpaw_platform::display::RefreshMode::cleans(self) -> bool
-pub enum paperpaw_platform::display::Rotation
+#[non_exhaustive] pub enum paperpaw_platform::display::Rotation
 pub paperpaw_platform::display::Rotation::Deg0
 pub paperpaw_platform::display::Rotation::Deg180
 pub paperpaw_platform::display::Rotation::Deg270
 pub paperpaw_platform::display::Rotation::Deg90
-pub struct paperpaw_platform::display::ColorPanel
+#[non_exhaustive] pub struct paperpaw_platform::display::ColorPanel
 pub paperpaw_platform::display::ColorPanel::color_divisor: u8
 pub paperpaw_platform::display::ColorPanel::saturation_percent: u8
 impl paperpaw_platform::display::ColorPanel
 pub fn paperpaw_platform::display::ColorPanel::boost_percent(&self) -> u16
-pub struct paperpaw_platform::display::DisplayInfo
+impl paperpaw_platform::display::ColorPanel
+pub const fn paperpaw_platform::display::ColorPanel::new(u8, u8) -> Self
+pub const fn paperpaw_platform::display::ColorPanel::with_color_divisor(self, u8) -> Self
+pub const fn paperpaw_platform::display::ColorPanel::with_saturation_percent(self, u8) -> Self
+#[non_exhaustive] pub struct paperpaw_platform::display::DisplayInfo
 pub paperpaw_platform::display::DisplayInfo::color: core::option::Option<paperpaw_platform::display::ColorPanel>
 pub paperpaw_platform::display::DisplayInfo::dpi: u16
 pub paperpaw_platform::display::DisplayInfo::format: paperpaw_platform::pixel::PixelFormat
 pub paperpaw_platform::display::DisplayInfo::height: u16
 pub paperpaw_platform::display::DisplayInfo::rotation: paperpaw_platform::display::Rotation
 pub paperpaw_platform::display::DisplayInfo::width: u16
-pub struct paperpaw_platform::display::FrameView<'a>
+impl paperpaw_platform::display::DisplayInfo
+pub const fn paperpaw_platform::display::DisplayInfo::new(u16, u16, u16, paperpaw_platform::pixel::PixelFormat, paperpaw_platform::display::Rotation, core::option::Option<paperpaw_platform::display::ColorPanel>) -> Self
+pub const fn paperpaw_platform::display::DisplayInfo::with_color(self, core::option::Option<paperpaw_platform::display::ColorPanel>) -> Self
+pub const fn paperpaw_platform::display::DisplayInfo::with_dpi(self, u16) -> Self
+pub const fn paperpaw_platform::display::DisplayInfo::with_format(self, paperpaw_platform::pixel::PixelFormat) -> Self
+pub const fn paperpaw_platform::display::DisplayInfo::with_height(self, u16) -> Self
+pub const fn paperpaw_platform::display::DisplayInfo::with_rotation(self, paperpaw_platform::display::Rotation) -> Self
+pub const fn paperpaw_platform::display::DisplayInfo::with_width(self, u16) -> Self
+#[non_exhaustive] pub struct paperpaw_platform::display::FrameView<'a>
 pub paperpaw_platform::display::FrameView::data: &'a [u8]
 pub paperpaw_platform::display::FrameView::format: paperpaw_platform::pixel::PixelFormat
 pub paperpaw_platform::display::FrameView::height: u16
@@ -46,6 +58,13 @@ pub paperpaw_platform::display::FrameView::stride: usize
 pub paperpaw_platform::display::FrameView::width: u16
 impl paperpaw_platform::display::FrameView<'_>
 pub fn paperpaw_platform::display::FrameView<'_>::pixel(&self, u16, u16) -> paperpaw_platform::pixel::Color
+impl<'a> paperpaw_platform::display::FrameView<'a>
+pub const fn paperpaw_platform::display::FrameView<'a>::new(u16, u16, paperpaw_platform::pixel::PixelFormat, usize, &'a [u8]) -> Self
+pub const fn paperpaw_platform::display::FrameView<'a>::with_data(self, &'a [u8]) -> Self
+pub const fn paperpaw_platform::display::FrameView<'a>::with_format(self, paperpaw_platform::pixel::PixelFormat) -> Self
+pub const fn paperpaw_platform::display::FrameView<'a>::with_height(self, u16) -> Self
+pub const fn paperpaw_platform::display::FrameView<'a>::with_stride(self, usize) -> Self
+pub const fn paperpaw_platform::display::FrameView<'a>::with_width(self, u16) -> Self
 pub trait paperpaw_platform::display::Display
 pub fn paperpaw_platform::display::Display::info(&self) -> paperpaw_platform::display::DisplayInfo
 pub fn paperpaw_platform::display::Display::refresh(&mut self, paperpaw_platform::display::FrameView<'_>, paperpaw_platform::geometry::Rect, paperpaw_platform::display::RefreshMode)
@@ -85,7 +104,7 @@ pub const paperpaw_platform::input::buttons::PAGE_FORWARD: &str
 pub const paperpaw_platform::input::buttons::POWER: &str
 pub const paperpaw_platform::input::buttons::RIGHT: &str
 pub const paperpaw_platform::input::buttons::UP: &str
-pub enum paperpaw_platform::input::ButtonState
+#[non_exhaustive] pub enum paperpaw_platform::input::ButtonState
 pub paperpaw_platform::input::ButtonState::Pressed
 pub paperpaw_platform::input::ButtonState::Released
 #[non_exhaustive] pub enum paperpaw_platform::input::InputEvent
@@ -93,7 +112,7 @@ pub paperpaw_platform::input::InputEvent::Button
 pub paperpaw_platform::input::InputEvent::Button::name: &'static str
 pub paperpaw_platform::input::InputEvent::Button::state: paperpaw_platform::input::ButtonState
 pub paperpaw_platform::input::InputEvent::Pointer(paperpaw_platform::input::PointerEvent)
-pub enum paperpaw_platform::input::PointerPhase
+#[non_exhaustive] pub enum paperpaw_platform::input::PointerPhase
 pub paperpaw_platform::input::PointerPhase::Cancel
 pub paperpaw_platform::input::PointerPhase::Down
 pub paperpaw_platform::input::PointerPhase::Move
@@ -103,22 +122,35 @@ pub paperpaw_platform::input::PointerTool::Eraser
 pub paperpaw_platform::input::PointerTool::Finger
 pub paperpaw_platform::input::PointerTool::Mouse
 pub paperpaw_platform::input::PointerTool::Pen
-pub struct paperpaw_platform::input::InputCaps
+#[non_exhaustive] pub struct paperpaw_platform::input::InputCaps
 pub paperpaw_platform::input::InputCaps::buttons: bool
 pub paperpaw_platform::input::InputCaps::keys: &'static [&'static str]
 pub paperpaw_platform::input::InputCaps::pen: bool
 pub paperpaw_platform::input::InputCaps::touch: bool
+impl paperpaw_platform::input::InputCaps
+pub const fn paperpaw_platform::input::InputCaps::new(bool, bool, bool, &'static [&'static str]) -> Self
+pub const fn paperpaw_platform::input::InputCaps::with_buttons(self, bool) -> Self
+pub const fn paperpaw_platform::input::InputCaps::with_keys(self, &'static [&'static str]) -> Self
+pub const fn paperpaw_platform::input::InputCaps::with_pen(self, bool) -> Self
+pub const fn paperpaw_platform::input::InputCaps::with_touch(self, bool) -> Self
 pub struct paperpaw_platform::input::Instant(pub u64)
 impl paperpaw_platform::input::Instant
 pub const fn paperpaw_platform::input::Instant::add_millis(self, u64) -> paperpaw_platform::input::Instant
 pub const fn paperpaw_platform::input::Instant::millis(self) -> u64
 pub const fn paperpaw_platform::input::Instant::since(self, paperpaw_platform::input::Instant) -> u64
-pub struct paperpaw_platform::input::PointerEvent
+#[non_exhaustive] pub struct paperpaw_platform::input::PointerEvent
 pub paperpaw_platform::input::PointerEvent::id: u8
 pub paperpaw_platform::input::PointerEvent::phase: paperpaw_platform::input::PointerPhase
 pub paperpaw_platform::input::PointerEvent::point: paperpaw_platform::geometry::Point
 pub paperpaw_platform::input::PointerEvent::pressure: u16
 pub paperpaw_platform::input::PointerEvent::tool: paperpaw_platform::input::PointerTool
+impl paperpaw_platform::input::PointerEvent
+pub const fn paperpaw_platform::input::PointerEvent::new(u8, paperpaw_platform::input::PointerPhase, paperpaw_platform::geometry::Point, paperpaw_platform::input::PointerTool, u16) -> Self
+pub const fn paperpaw_platform::input::PointerEvent::with_id(self, u8) -> Self
+pub const fn paperpaw_platform::input::PointerEvent::with_phase(self, paperpaw_platform::input::PointerPhase) -> Self
+pub const fn paperpaw_platform::input::PointerEvent::with_point(self, paperpaw_platform::geometry::Point) -> Self
+pub const fn paperpaw_platform::input::PointerEvent::with_pressure(self, u16) -> Self
+pub const fn paperpaw_platform::input::PointerEvent::with_tool(self, paperpaw_platform::input::PointerTool) -> Self
 pub mod paperpaw_platform::pixel
 #[non_exhaustive] pub enum paperpaw_platform::pixel::PixelFormat
 pub paperpaw_platform::pixel::PixelFormat::Gray2
@@ -144,17 +176,31 @@ pub const fn paperpaw_platform::pixel::Color::inverted(self) -> Self
 pub const fn paperpaw_platform::pixel::Color::luma(self) -> u8
 pub const fn paperpaw_platform::pixel::Color::rgb(u8, u8, u8) -> Self
 pub mod paperpaw_platform::status
-pub struct paperpaw_platform::status::Battery
+#[non_exhaustive] pub struct paperpaw_platform::status::Battery
 pub paperpaw_platform::status::Battery::charging: bool
 pub paperpaw_platform::status::Battery::millivolts: core::option::Option<u16>
 pub paperpaw_platform::status::Battery::percent: u8
-pub struct paperpaw_platform::status::SystemStatus
+impl paperpaw_platform::status::Battery
+pub const fn paperpaw_platform::status::Battery::new(u8, bool, core::option::Option<u16>) -> Self
+pub const fn paperpaw_platform::status::Battery::with_charging(self, bool) -> Self
+pub const fn paperpaw_platform::status::Battery::with_millivolts(self, core::option::Option<u16>) -> Self
+pub const fn paperpaw_platform::status::Battery::with_percent(self, u8) -> Self
+#[non_exhaustive] pub struct paperpaw_platform::status::SystemStatus
 pub paperpaw_platform::status::SystemStatus::battery: core::option::Option<paperpaw_platform::status::Battery>
 pub paperpaw_platform::status::SystemStatus::clock: core::option::Option<paperpaw_platform::status::WallClock>
-pub struct paperpaw_platform::status::WallClock
+impl paperpaw_platform::status::SystemStatus
+pub const fn paperpaw_platform::status::SystemStatus::new(core::option::Option<paperpaw_platform::status::WallClock>, core::option::Option<paperpaw_platform::status::Battery>) -> Self
+pub const fn paperpaw_platform::status::SystemStatus::with_battery(self, core::option::Option<paperpaw_platform::status::Battery>) -> Self
+pub const fn paperpaw_platform::status::SystemStatus::with_clock(self, core::option::Option<paperpaw_platform::status::WallClock>) -> Self
+#[non_exhaustive] pub struct paperpaw_platform::status::WallClock
 pub paperpaw_platform::status::WallClock::at: paperpaw_platform::input::Instant
 pub paperpaw_platform::status::WallClock::unix_millis: i64
 pub paperpaw_platform::status::WallClock::utc_offset_minutes: core::option::Option<i32>
+impl paperpaw_platform::status::WallClock
+pub const fn paperpaw_platform::status::WallClock::new(paperpaw_platform::input::Instant, i64, core::option::Option<i32>) -> Self
+pub const fn paperpaw_platform::status::WallClock::with_at(self, paperpaw_platform::input::Instant) -> Self
+pub const fn paperpaw_platform::status::WallClock::with_unix_millis(self, i64) -> Self
+pub const fn paperpaw_platform::status::WallClock::with_utc_offset_minutes(self, core::option::Option<i32>) -> Self
 impl paperpaw_platform::status::WallClock
 pub fn paperpaw_platform::status::WallClock::unix_millis_at(&self, paperpaw_platform::input::Instant) -> i64
 pub mod paperpaw_platform::storage
@@ -278,7 +324,7 @@ pub fn paperpaw_platform::storage::Mounted<B, M>::write(&self, &str, &[u8]) -> c
 pub fn paperpaw_platform::storage::Mounted<B, M>::write_at(&self, &str, u64, &[u8]) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_platform::storage::is_reserved_name(&str) -> bool
 pub fn paperpaw_platform::storage::is_valid_path(&str) -> bool
-pub enum paperpaw_platform::ButtonState
+#[non_exhaustive] pub enum paperpaw_platform::ButtonState
 pub paperpaw_platform::ButtonState::Pressed
 pub paperpaw_platform::ButtonState::Released
 #[non_exhaustive] pub enum paperpaw_platform::InputEvent
@@ -301,7 +347,7 @@ pub const fn paperpaw_platform::pixel::PixelFormat::bits_per_pixel(self) -> u8
 pub const fn paperpaw_platform::pixel::PixelFormat::gray_levels(self) -> core::option::Option<u16>
 pub const fn paperpaw_platform::pixel::PixelFormat::is_color(self) -> bool
 pub const fn paperpaw_platform::pixel::PixelFormat::stride(self, u16) -> usize
-pub enum paperpaw_platform::PointerPhase
+#[non_exhaustive] pub enum paperpaw_platform::PointerPhase
 pub paperpaw_platform::PointerPhase::Cancel
 pub paperpaw_platform::PointerPhase::Down
 pub paperpaw_platform::PointerPhase::Move
@@ -320,7 +366,7 @@ pub paperpaw_platform::RefreshMode::Mono
 pub paperpaw_platform::RefreshMode::Partial
 impl paperpaw_platform::display::RefreshMode
 pub fn paperpaw_platform::display::RefreshMode::cleans(self) -> bool
-pub enum paperpaw_platform::Rotation
+#[non_exhaustive] pub enum paperpaw_platform::Rotation
 pub paperpaw_platform::Rotation::Deg0
 pub paperpaw_platform::Rotation::Deg180
 pub paperpaw_platform::Rotation::Deg270
@@ -336,10 +382,15 @@ pub paperpaw_platform::StorageError::Unsupported
 impl core::error::Error for paperpaw_platform::storage::StorageError
 impl core::fmt::Display for paperpaw_platform::storage::StorageError
 pub fn paperpaw_platform::storage::StorageError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct paperpaw_platform::Battery
+#[non_exhaustive] pub struct paperpaw_platform::Battery
 pub paperpaw_platform::Battery::charging: bool
 pub paperpaw_platform::Battery::millivolts: core::option::Option<u16>
 pub paperpaw_platform::Battery::percent: u8
+impl paperpaw_platform::status::Battery
+pub const fn paperpaw_platform::status::Battery::new(u8, bool, core::option::Option<u16>) -> Self
+pub const fn paperpaw_platform::status::Battery::with_charging(self, bool) -> Self
+pub const fn paperpaw_platform::status::Battery::with_millivolts(self, core::option::Option<u16>) -> Self
+pub const fn paperpaw_platform::status::Battery::with_percent(self, u8) -> Self
 pub struct paperpaw_platform::Color
 pub paperpaw_platform::Color::b: u8
 pub paperpaw_platform::Color::g: u8
@@ -351,17 +402,28 @@ pub const fn paperpaw_platform::pixel::Color::gray(u8) -> Self
 pub const fn paperpaw_platform::pixel::Color::inverted(self) -> Self
 pub const fn paperpaw_platform::pixel::Color::luma(self) -> u8
 pub const fn paperpaw_platform::pixel::Color::rgb(u8, u8, u8) -> Self
-pub struct paperpaw_platform::ColorPanel
+#[non_exhaustive] pub struct paperpaw_platform::ColorPanel
 pub paperpaw_platform::ColorPanel::color_divisor: u8
 pub paperpaw_platform::ColorPanel::saturation_percent: u8
 impl paperpaw_platform::display::ColorPanel
 pub fn paperpaw_platform::display::ColorPanel::boost_percent(&self) -> u16
-pub struct paperpaw_platform::DeviceInfo
+impl paperpaw_platform::display::ColorPanel
+pub const fn paperpaw_platform::display::ColorPanel::new(u8, u8) -> Self
+pub const fn paperpaw_platform::display::ColorPanel::with_color_divisor(self, u8) -> Self
+pub const fn paperpaw_platform::display::ColorPanel::with_saturation_percent(self, u8) -> Self
+#[non_exhaustive] pub struct paperpaw_platform::DeviceInfo
 pub paperpaw_platform::DeviceInfo::display: paperpaw_platform::display::DisplayInfo
 pub paperpaw_platform::DeviceInfo::id: &'static str
 pub paperpaw_platform::DeviceInfo::input: paperpaw_platform::input::InputCaps
 pub paperpaw_platform::DeviceInfo::memory: paperpaw_platform::MemoryClass
 pub paperpaw_platform::DeviceInfo::name: &'static str
+impl paperpaw_platform::DeviceInfo
+pub const fn paperpaw_platform::DeviceInfo::new(&'static str, &'static str, paperpaw_platform::display::DisplayInfo, paperpaw_platform::input::InputCaps, paperpaw_platform::MemoryClass) -> Self
+pub const fn paperpaw_platform::DeviceInfo::with_display(self, paperpaw_platform::display::DisplayInfo) -> Self
+pub const fn paperpaw_platform::DeviceInfo::with_id(self, &'static str) -> Self
+pub const fn paperpaw_platform::DeviceInfo::with_input(self, paperpaw_platform::input::InputCaps) -> Self
+pub const fn paperpaw_platform::DeviceInfo::with_memory(self, paperpaw_platform::MemoryClass) -> Self
+pub const fn paperpaw_platform::DeviceInfo::with_name(self, &'static str) -> Self
 #[non_exhaustive] pub struct paperpaw_platform::DirEntry<'a>
 pub paperpaw_platform::DirEntry::is_dir: bool
 pub paperpaw_platform::DirEntry::modified: core::option::Option<i64>
@@ -370,14 +432,22 @@ pub paperpaw_platform::DirEntry::size: u64
 impl<'a> paperpaw_platform::storage::DirEntry<'a>
 pub const fn paperpaw_platform::storage::DirEntry<'a>::new(&'a str, bool, u64) -> Self
 pub const fn paperpaw_platform::storage::DirEntry<'a>::with_modified(self, core::option::Option<i64>) -> Self
-pub struct paperpaw_platform::DisplayInfo
+#[non_exhaustive] pub struct paperpaw_platform::DisplayInfo
 pub paperpaw_platform::DisplayInfo::color: core::option::Option<paperpaw_platform::display::ColorPanel>
 pub paperpaw_platform::DisplayInfo::dpi: u16
 pub paperpaw_platform::DisplayInfo::format: paperpaw_platform::pixel::PixelFormat
 pub paperpaw_platform::DisplayInfo::height: u16
 pub paperpaw_platform::DisplayInfo::rotation: paperpaw_platform::display::Rotation
 pub paperpaw_platform::DisplayInfo::width: u16
-pub struct paperpaw_platform::FrameView<'a>
+impl paperpaw_platform::display::DisplayInfo
+pub const fn paperpaw_platform::display::DisplayInfo::new(u16, u16, u16, paperpaw_platform::pixel::PixelFormat, paperpaw_platform::display::Rotation, core::option::Option<paperpaw_platform::display::ColorPanel>) -> Self
+pub const fn paperpaw_platform::display::DisplayInfo::with_color(self, core::option::Option<paperpaw_platform::display::ColorPanel>) -> Self
+pub const fn paperpaw_platform::display::DisplayInfo::with_dpi(self, u16) -> Self
+pub const fn paperpaw_platform::display::DisplayInfo::with_format(self, paperpaw_platform::pixel::PixelFormat) -> Self
+pub const fn paperpaw_platform::display::DisplayInfo::with_height(self, u16) -> Self
+pub const fn paperpaw_platform::display::DisplayInfo::with_rotation(self, paperpaw_platform::display::Rotation) -> Self
+pub const fn paperpaw_platform::display::DisplayInfo::with_width(self, u16) -> Self
+#[non_exhaustive] pub struct paperpaw_platform::FrameView<'a>
 pub paperpaw_platform::FrameView::data: &'a [u8]
 pub paperpaw_platform::FrameView::format: paperpaw_platform::pixel::PixelFormat
 pub paperpaw_platform::FrameView::height: u16
@@ -385,11 +455,24 @@ pub paperpaw_platform::FrameView::stride: usize
 pub paperpaw_platform::FrameView::width: u16
 impl paperpaw_platform::display::FrameView<'_>
 pub fn paperpaw_platform::display::FrameView<'_>::pixel(&self, u16, u16) -> paperpaw_platform::pixel::Color
-pub struct paperpaw_platform::InputCaps
+impl<'a> paperpaw_platform::display::FrameView<'a>
+pub const fn paperpaw_platform::display::FrameView<'a>::new(u16, u16, paperpaw_platform::pixel::PixelFormat, usize, &'a [u8]) -> Self
+pub const fn paperpaw_platform::display::FrameView<'a>::with_data(self, &'a [u8]) -> Self
+pub const fn paperpaw_platform::display::FrameView<'a>::with_format(self, paperpaw_platform::pixel::PixelFormat) -> Self
+pub const fn paperpaw_platform::display::FrameView<'a>::with_height(self, u16) -> Self
+pub const fn paperpaw_platform::display::FrameView<'a>::with_stride(self, usize) -> Self
+pub const fn paperpaw_platform::display::FrameView<'a>::with_width(self, u16) -> Self
+#[non_exhaustive] pub struct paperpaw_platform::InputCaps
 pub paperpaw_platform::InputCaps::buttons: bool
 pub paperpaw_platform::InputCaps::keys: &'static [&'static str]
 pub paperpaw_platform::InputCaps::pen: bool
 pub paperpaw_platform::InputCaps::touch: bool
+impl paperpaw_platform::input::InputCaps
+pub const fn paperpaw_platform::input::InputCaps::new(bool, bool, bool, &'static [&'static str]) -> Self
+pub const fn paperpaw_platform::input::InputCaps::with_buttons(self, bool) -> Self
+pub const fn paperpaw_platform::input::InputCaps::with_keys(self, &'static [&'static str]) -> Self
+pub const fn paperpaw_platform::input::InputCaps::with_pen(self, bool) -> Self
+pub const fn paperpaw_platform::input::InputCaps::with_touch(self, bool) -> Self
 pub struct paperpaw_platform::Instant(pub u64)
 impl paperpaw_platform::input::Instant
 pub const fn paperpaw_platform::input::Instant::add_millis(self, u64) -> paperpaw_platform::input::Instant
@@ -442,12 +525,19 @@ pub paperpaw_platform::Point::x: i32
 pub paperpaw_platform::Point::y: i32
 impl paperpaw_platform::geometry::Point
 pub const fn paperpaw_platform::geometry::Point::new(i32, i32) -> Self
-pub struct paperpaw_platform::PointerEvent
+#[non_exhaustive] pub struct paperpaw_platform::PointerEvent
 pub paperpaw_platform::PointerEvent::id: u8
 pub paperpaw_platform::PointerEvent::phase: paperpaw_platform::input::PointerPhase
 pub paperpaw_platform::PointerEvent::point: paperpaw_platform::geometry::Point
 pub paperpaw_platform::PointerEvent::pressure: u16
 pub paperpaw_platform::PointerEvent::tool: paperpaw_platform::input::PointerTool
+impl paperpaw_platform::input::PointerEvent
+pub const fn paperpaw_platform::input::PointerEvent::new(u8, paperpaw_platform::input::PointerPhase, paperpaw_platform::geometry::Point, paperpaw_platform::input::PointerTool, u16) -> Self
+pub const fn paperpaw_platform::input::PointerEvent::with_id(self, u8) -> Self
+pub const fn paperpaw_platform::input::PointerEvent::with_phase(self, paperpaw_platform::input::PointerPhase) -> Self
+pub const fn paperpaw_platform::input::PointerEvent::with_point(self, paperpaw_platform::geometry::Point) -> Self
+pub const fn paperpaw_platform::input::PointerEvent::with_pressure(self, u16) -> Self
+pub const fn paperpaw_platform::input::PointerEvent::with_tool(self, paperpaw_platform::input::PointerTool) -> Self
 pub struct paperpaw_platform::Rect
 pub paperpaw_platform::Rect::height: u16
 pub paperpaw_platform::Rect::width: u16
@@ -465,13 +555,22 @@ pub const fn paperpaw_platform::geometry::Rect::is_empty(&self) -> bool
 pub const fn paperpaw_platform::geometry::Rect::new(u16, u16, u16, u16) -> Self
 pub const fn paperpaw_platform::geometry::Rect::right(&self) -> u32
 pub fn paperpaw_platform::geometry::Rect::union(&self, &paperpaw_platform::geometry::Rect) -> paperpaw_platform::geometry::Rect
-pub struct paperpaw_platform::SystemStatus
+#[non_exhaustive] pub struct paperpaw_platform::SystemStatus
 pub paperpaw_platform::SystemStatus::battery: core::option::Option<paperpaw_platform::status::Battery>
 pub paperpaw_platform::SystemStatus::clock: core::option::Option<paperpaw_platform::status::WallClock>
-pub struct paperpaw_platform::WallClock
+impl paperpaw_platform::status::SystemStatus
+pub const fn paperpaw_platform::status::SystemStatus::new(core::option::Option<paperpaw_platform::status::WallClock>, core::option::Option<paperpaw_platform::status::Battery>) -> Self
+pub const fn paperpaw_platform::status::SystemStatus::with_battery(self, core::option::Option<paperpaw_platform::status::Battery>) -> Self
+pub const fn paperpaw_platform::status::SystemStatus::with_clock(self, core::option::Option<paperpaw_platform::status::WallClock>) -> Self
+#[non_exhaustive] pub struct paperpaw_platform::WallClock
 pub paperpaw_platform::WallClock::at: paperpaw_platform::input::Instant
 pub paperpaw_platform::WallClock::unix_millis: i64
 pub paperpaw_platform::WallClock::utc_offset_minutes: core::option::Option<i32>
+impl paperpaw_platform::status::WallClock
+pub const fn paperpaw_platform::status::WallClock::new(paperpaw_platform::input::Instant, i64, core::option::Option<i32>) -> Self
+pub const fn paperpaw_platform::status::WallClock::with_at(self, paperpaw_platform::input::Instant) -> Self
+pub const fn paperpaw_platform::status::WallClock::with_unix_millis(self, i64) -> Self
+pub const fn paperpaw_platform::status::WallClock::with_utc_offset_minutes(self, core::option::Option<i32>) -> Self
 impl paperpaw_platform::status::WallClock
 pub fn paperpaw_platform::status::WallClock::unix_millis_at(&self, paperpaw_platform::input::Instant) -> i64
 pub trait paperpaw_platform::Display

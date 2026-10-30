@@ -2,8 +2,8 @@
 # the crates of interface/: kept so that CI fails where it changes
 # without native::INTERFACE raised. Written by `PAPERPAW_BLESS=1
 # cargo test -p paperpaw-sdk --test interface`.
-interface = 4
-linker = 61eac0d15cbca77e
+interface = 5
+linker = b979ebf89df9ea9f
 x4 = rustc 1.99.0
 x4-pro = esp 1.97.0.0
 android = rustc 1.99.0

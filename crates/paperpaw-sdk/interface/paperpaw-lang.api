@@ -1,0 +1,25 @@
+pub mod paperpaw_lang
+#[non_exhaustive] pub enum paperpaw_lang::Direction
+pub paperpaw_lang::Direction::Auto
+pub paperpaw_lang::Direction::Ltr
+pub paperpaw_lang::Direction::Rtl
+#[non_exhaustive] pub enum paperpaw_lang::WritingMode
+pub paperpaw_lang::WritingMode::HorizontalTb
+pub paperpaw_lang::WritingMode::VerticalLr
+pub paperpaw_lang::WritingMode::VerticalRl
+pub struct paperpaw_lang::Lang(_)
+impl paperpaw_lang::Lang
+pub const paperpaw_lang::Lang::NONE: paperpaw_lang::Lang
+pub const fn paperpaw_lang::Lang::from_bits(u32) -> core::option::Option<paperpaw_lang::Lang>
+pub const fn paperpaw_lang::Lang::is_none(self) -> bool
+pub fn paperpaw_lang::Lang::language(&self) -> paperpaw_lang::LanguageCode
+pub fn paperpaw_lang::Lang::or_script(self, &str) -> paperpaw_lang::Lang
+pub fn paperpaw_lang::Lang::parse(&str) -> paperpaw_lang::Lang
+pub fn paperpaw_lang::Lang::region(&self) -> core::option::Option<&'static str>
+pub fn paperpaw_lang::Lang::script(&self) -> core::option::Option<&'static str>
+pub const fn paperpaw_lang::Lang::to_bits(self) -> u32
+pub struct paperpaw_lang::LanguageCode
+impl paperpaw_lang::LanguageCode
+pub fn paperpaw_lang::LanguageCode::as_str(&self) -> &str
+pub fn paperpaw_lang::regions() -> impl core::iter::traits::iterator::Iterator<Item = &'static str>
+pub fn paperpaw_lang::scripts() -> impl core::iter::traits::iterator::Iterator<Item = &'static str>

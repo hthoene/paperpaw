@@ -1,0 +1,27 @@
+# The shape of this crate's types and the values of its constants, as
+# tools/interface.py writes them: fields, variants and trait items in
+# the source's order, private fields and the private types they reach
+# too, every feature on (ADR 0026).
+const paperpaw_table::FAMILIES: usize = 8usize
+const paperpaw_table::Family::CONTRIBUTION: paperpaw_table::Family = Family(4)
+const paperpaw_table::Family::FONTS: paperpaw_table::Family = Family(1)
+const paperpaw_table::Family::GRAPHICS: paperpaw_table::Family = Family(3)
+const paperpaw_table::Family::TEXT: paperpaw_table::Family = Family(0)
+const paperpaw_table::Family::UI: paperpaw_table::Family = Family(2)
+const paperpaw_table::OLDEST: paperpaw_table::Revisions = index::OLDEST
+const paperpaw_table::REVISIONS: paperpaw_table::Revisions = index::REVISIONS
+const paperpaw_table::Table::NONE: paperpaw_table::Table = Table(core::ptr::null())
+const paperpaw_table::index::OLDEST: paperpaw_table::Revisions = [0, 0, 0, 0, 0, 0, 0, 0]
+const paperpaw_table::index::REVISIONS: paperpaw_table::Revisions = [0, 0, 0, 0, 0, 0, 0, 0]
+const paperpaw_table::index::contribution::COUNT: usize = 0usize
+const paperpaw_table::index::contribution::FAMILY: paperpaw_table::Family = crate::Family::CONTRIBUTION
+const paperpaw_table::index::fonts::COUNT: usize = 0usize
+const paperpaw_table::index::fonts::FAMILY: paperpaw_table::Family = crate::Family::FONTS
+const paperpaw_table::index::graphics::COUNT: usize = 0usize
+const paperpaw_table::index::graphics::FAMILY: paperpaw_table::Family = crate::Family::GRAPHICS
+const paperpaw_table::index::text::COUNT: usize = 0usize
+const paperpaw_table::index::text::FAMILY: paperpaw_table::Family = crate::Family::TEXT
+const paperpaw_table::index::ui::COUNT: usize = 0usize
+const paperpaw_table::index::ui::FAMILY: paperpaw_table::Family = crate::Family::UI
+struct paperpaw_table::Family(0: u8)
+struct paperpaw_table::Table #{"repr": {"align": null, "int": null, "kind": "transparent", "packed": null}}(0: *const *const ())

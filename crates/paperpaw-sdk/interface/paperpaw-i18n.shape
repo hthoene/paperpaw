@@ -3,13 +3,15 @@
 # the source's order, private fields and the private types they reach
 # too, every feature on (ADR 0026).
 const paperpaw_i18n::FALLBACK_LANGUAGE: &str = "en"
+const paperpaw_i18n::catalog::CALENDARS: [&str; 3] = ["gregorian", "islamic", "persian"]
+const paperpaw_i18n::catalog::DIGITS: [&str; 6] = ["latn", "arab", "arabext", "deva", "beng", "thai"]
 enum paperpaw_i18n::catalog::CatalogError { Syntax(0: paperpaw_config::ParseError), MissingLanguage, UnknownPluralRule { line: u32 }, UnexpectedSection { line: u32 } }
 enum paperpaw_i18n::check::Issue { Missing(0: alloc::string::String), Unknown(0: alloc::string::String), Placeholders(0: alloc::string::String) }
 enum paperpaw_i18n::format::Arg<'a> { Str(0: &'a str), Int(0: i64) }
 enum paperpaw_i18n::plural::PluralCategory { Zero, One, Two, Few, Many, Other }
-enum paperpaw_i18n::plural::PluralRule { Other, OneOther, ZeroOneOther, EastSlavic, Polish, CzechSlovak }
-struct paperpaw_i18n::Translator { catalogs: alloc::vec::Vec<paperpaw_i18n::catalog::Catalog>, parked: alloc::vec::Vec<paperpaw_i18n::catalog::Parked>, language: alloc::string::String, order: alloc::vec::Vec<u16>, added: u32, fixed: paperpaw_i18n::catalog::FixedIndexes }
-struct paperpaw_i18n::catalog::Catalog { source: alloc::borrow::Cow<'static, str>, language: paperpaw_i18n::catalog::Span, name: paperpaw_i18n::catalog::Span, plural: paperpaw_i18n::plural::PluralRule, escaped: alloc::boxed::Box<str>, meta_len: u32, index: paperpaw_i18n::catalog::Index, others: alloc::boxed::Box<[(paperpaw_i18n::catalog::Span, paperpaw_i18n::catalog::Span)]>, loaded: bool, wide: bool, added: u32 }
+enum paperpaw_i18n::plural::PluralRule { Other, OneOther, ZeroOneOther, EastSlavic, Polish, CzechSlovak, Cldr(0: u8) }
+struct paperpaw_i18n::Translator { catalogs: alloc::vec::Vec<paperpaw_i18n::catalog::Catalog>, parked: alloc::vec::Vec<paperpaw_i18n::catalog::Parked>, language: alloc::string::String, order: alloc::vec::Vec<u16>, added: u32, fixed: paperpaw_i18n::catalog::FixedIndexes, direction: u8 }
+struct paperpaw_i18n::catalog::Catalog { source: alloc::borrow::Cow<'static, str>, language: paperpaw_i18n::catalog::Span, name: paperpaw_i18n::catalog::Span, plural: paperpaw_i18n::plural::PluralRule, direction: u8, script: u8, digits: u8, calendar: u8, escaped: alloc::boxed::Box<str>, meta_len: u32, index: paperpaw_i18n::catalog::Index, others: alloc::boxed::Box<[(paperpaw_i18n::catalog::Span, paperpaw_i18n::catalog::Span)]>, loaded: bool, wide: bool, added: u32 }
 struct paperpaw_i18n::catalog::Index(0: alloc::borrow::Cow<'static, [u16]>)
 struct paperpaw_i18n::catalog::Parked { source: alloc::borrow::Cow<'static, str>, language: paperpaw_i18n::catalog::Span, name: paperpaw_i18n::catalog::Span, added: u32 }
 struct paperpaw_i18n::catalog::Span { start: u32, len: u32 }

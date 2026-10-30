@@ -1,0 +1,9 @@
+# The shape of this crate's types and the values of its constants, as
+# tools/interface.py writes them: fields, variants and trait items in
+# the source's order, private fields and the private types they reach
+# too, every feature on (ADR 0026).
+const paperpaw_lang::Lang::NONE: paperpaw_lang::Lang = Lang(0)
+enum paperpaw_lang::Direction { Auto, Ltr, Rtl }
+enum paperpaw_lang::WritingMode { HorizontalTb, VerticalRl, VerticalLr }
+struct paperpaw_lang::Lang(0: u32)
+struct paperpaw_lang::LanguageCode { code: [u8; 3], len: usize }
