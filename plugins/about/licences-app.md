@@ -12,6 +12,14 @@ Bundled fonts (plugins/fonts-default/fonts) are licensed under the SIL Open Font
 
 The icon font (plugins/fonts-default/fonts/PaperPawIcons.ttf) is a subset of Tabler Icons, Copyright 2020-2025 Paweł Kuna (https://tabler.io/icons), licensed under the MIT License (fonts/TablerIcons-MIT.txt).
 
+The fonts of the plugins with the letters of other scripts (tools/fonts, which tools/script-pack.py makes their packs from; plugins of the store, built into no product) are licensed under the SIL Open Font License, Version 1.1, without Reserved Font Names:
+
+- Noto Naskh Arabic, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic)
+
+- Noto Serif Hebrew, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/hebrew)
+
+Each of those plugins carries the licence's text with its packs (tools/fonts/NotoNaskhArabic-OFL.txt, NotoSerifHebrew-OFL.txt); it is the text given for Literata.
+
 Hyphenation patterns (plugins/hyphenation/patterns, built in, and plugins/hyphenation-de/patterns, a plugin of the store) come from the hyph-utf8 project (https://github.com/hyphenation/tex-hyphen):
 
 - German, reformed spelling, Copyright (c) 2013-2024 Stephan Hennig, Werner Lemberg, Günter Milde, Sander van Geloven, Georg Pfeiffer, Gisbert W. Selke, Tobias Wendorf, Keno Wehr, licensed under the MIT License.
