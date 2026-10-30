@@ -1090,11 +1090,7 @@ mod tests {
 
     #[test]
     fn words_are_counted_across_runs() {
-        let run = |start, end| LineRun {
-            start,
-            end,
-            face: Face::default(),
-        };
+        let run = |start, end| LineRun::new(start, end, Face::default());
         // "a bo|ld c": "bold" goes on in the next run, one word.
         assert_eq!(words_in("a bold c", &[run(0, 4), run(4, 8)]), 3);
         // A run that starts with a space starts a new word.

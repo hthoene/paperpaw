@@ -25,9 +25,6 @@ paperpaw_image::Format
 paperpaw_image::GrayFile
 paperpaw_json::Value
 paperpaw_json::stream::Event
-paperpaw_layout::Face
-paperpaw_layout::LineRun
-paperpaw_layout::PageImage
 paperpaw_native::Api
 paperpaw_native::Chip
 paperpaw_native::Entry

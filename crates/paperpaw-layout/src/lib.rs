@@ -24,9 +24,11 @@ use alloc::vec::Vec;
 pub use paperpaw_document::ImageRef;
 pub use paperpaw_document::TextStyle;
 use paperpaw_document::{
-    Align, AnnotationKind, Block, BlockKind, Document, DocumentError, Locator, MAX_LEADING_ABOVE,
-    Storage,
+    Align, AnnotationKind, Block, BlockKind, Direction, Document, DocumentError, Lang, Locator,
+    MAX_LEADING_ABOVE, Storage,
 };
+pub use paperpaw_platform::Rect;
+pub use paperpaw_text::Around;
 pub use paperpaw_text::Hyphenate;
 use paperpaw_text::{Line, wrap_lines_balanced_kerned_with_cost, wrap_lines_kerned};
 
@@ -42,6 +44,7 @@ const MIN_LINE_HEIGHT: f32 = 1.0;
 /// How text is set: its character style and whether it is body text or a
 /// heading.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct Face {
     pub style: TextStyle,
     /// 0 for body text, 1 (most important) to 6 for headings.
@@ -51,9 +54,19 @@ pub struct Face {
     pub size: u16,
 }
 
+impl Face {
+    pub const fn new(style: TextStyle, heading: u8, size: u16) -> Face {
+        Face {
+            style,
+            heading,
+            size,
+        }
+    }
+}
+
 /// Changes whenever the same input is laid out differently, so readers
 /// rebuild page indexes they cached.
-pub const VERSION: u32 = 8;
+pub const VERSION: u32 = 9;
 
 /// Measures text for the layout engine; readers implement it with their
 /// fonts.
@@ -73,6 +86,24 @@ pub trait Typesetter {
     /// Lines in `face`: `(ascent, line height)`, i.e. the distance from
     /// the top of a line box to its baseline and between baselines.
     fn line(&self, face: Face) -> (f32, f32);
+
+    /// Advance width of `text` in `face`, set as what lies `around` it
+    /// asks (see [`paperpaw_text::measure_in`]): shaped text (Arabic
+    /// forms, clusters) is as wide as drawn. By default the sum of the
+    /// characters' advances and the kerning of their pairs.
+    fn advance_text(&self, face: Face, text: &str, around: &Around) -> f32 {
+        let _ = around;
+        let mut width = 0.0;
+        let mut before = None;
+        for c in text.chars() {
+            if let Some(left) = before {
+                width += self.kern(face, left, c);
+            }
+            width += self.advance(face, c);
+            before = Some(c);
+        }
+        width
+    }
 }
 
 /// Which of a book's own styles are followed (see [`Style::book`]): each
@@ -152,6 +183,16 @@ pub struct Style {
     /// evenly ([`paperpaw_text::wrap_lines_balanced`]), not line by line;
     /// off by default.
     pub balanced: bool,
+    /// The most space added to a word gap of justified text, in ems of
+    /// the text; 0.5 by default. Reserved: the layout keeps its own cap
+    /// (0.6 of a line) until it reads this, with a new [`VERSION`].
+    pub justify_cap: f32,
+    /// Justified Arabic lines stretched by lengthening letters (kashida)
+    /// rather than by wider gaps; off by default. Reserved: not done yet.
+    pub kashida: bool,
+    /// Punctuation at a line's ends hung into the margin; off by default.
+    /// Reserved: not done yet.
+    pub hanging_punctuation: bool,
 }
 
 impl Style {
@@ -166,7 +207,31 @@ impl Style {
             orphans: 1,
             book: BookStyles::ALL,
             balanced: false,
+            justify_cap: 0.5,
+            kashida: false,
+            hanging_punctuation: false,
         }
+    }
+
+    /// The same, adding at most `cap` ems to a word gap (see
+    /// [`Style::justify_cap`]).
+    pub const fn justify_cap(mut self, cap: f32) -> Self {
+        self.justify_cap = cap;
+        self
+    }
+
+    /// The same, lengthening Arabic letters to justify (see
+    /// [`Style::kashida`]).
+    pub const fn kashida(mut self, kashida: bool) -> Self {
+        self.kashida = kashida;
+        self
+    }
+
+    /// The same, hanging punctuation into the margin (see
+    /// [`Style::hanging_punctuation`]).
+    pub const fn hanging_punctuation(mut self, hanging: bool) -> Self {
+        self.hanging_punctuation = hanging;
+        self
     }
 
     /// The same, breaking paragraphs over all their lines, or line by line.
@@ -190,14 +255,92 @@ impl Style {
     }
 }
 
-/// Text of a line set in one face: byte range of [`PageLine::text`].
+/// Text of a line set in one face, at one bidirectional level and in one
+/// language: byte range of [`PageLine::text`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LineRun {
     pub start: usize,
     pub end: usize,
     pub face: Face,
+    /// Its bidirectional level (UAX #9): even left to right, odd right to
+    /// left. Runs are drawn in the order their levels give (rule L2),
+    /// characters with mirrors mirrored and pairs not kerned in odd ones.
+    pub level: u8,
+    /// Its language: the block's, or its run's inline one.
+    pub lang: Lang,
 }
 
+impl LineRun {
+    /// At level 0, in no known language.
+    pub const fn new(start: usize, end: usize, face: Face) -> LineRun {
+        LineRun {
+            start,
+            end,
+            face,
+            level: 0,
+            lang: Lang::NONE,
+        }
+    }
+
+    /// The same at bidirectional level `level`.
+    #[must_use]
+    pub const fn with_level(mut self, level: u8) -> LineRun {
+        self.level = level;
+        self
+    }
+
+    /// The same in language `lang`.
+    #[must_use]
+    pub const fn with_lang(mut self, lang: Lang) -> LineRun {
+        self.lang = lang;
+        self
+    }
+
+    /// Whether it runs right to left.
+    pub const fn is_rtl(&self) -> bool {
+        self.level & 1 == 1
+    }
+}
+
+/// How a line's runs go (see [`PageLine::bidi`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct LineBidi {
+    /// The direction of its paragraph: 0 left to right, 1 right to left.
+    pub paragraph: u8,
+    /// [`LineBidi::REORDER`], [`LineBidi::VERTICAL`],
+    /// [`LineBidi::PARAGRAPH_START`]; the other bits are zero.
+    pub flags: u8,
+}
+
+impl LineBidi {
+    /// Its runs are not all at level 0: draw them in the order of their
+    /// levels. A line without it draws its runs as they come.
+    pub const REORDER: u8 = 1;
+    /// The line goes down a column (vertical text).
+    pub const VERTICAL: u8 = 2;
+    /// The line starts its paragraph.
+    pub const PARAGRAPH_START: u8 = 4;
+
+    /// A line of a paragraph of `paragraph`'s direction (0 or 1) with
+    /// `flags`.
+    pub const fn new(paragraph: u8, flags: u8) -> LineBidi {
+        LineBidi {
+            paragraph: paragraph & 1,
+            flags,
+        }
+    }
+
+    /// Whether its paragraph runs right to left: it starts at the right.
+    pub const fn is_rtl(&self) -> bool {
+        self.paragraph == 1
+    }
+
+    pub const fn has(&self, flag: u8) -> bool {
+        self.flags & flag != 0
+    }
+}
 /// A line of text at its position on the page.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -229,6 +372,9 @@ pub struct PageLine {
     /// Annotations set above the line's words (ruby, glosses). Reserved:
     /// empty until the layout sets them (ADR 0032).
     pub annotations: Vec<LineAnnotation>,
+    /// The direction of its paragraph and whether its runs need putting
+    /// in order.
+    pub bidi: LineBidi,
 }
 
 /// An annotation set above a line ([`Block::annotations`]), where the
@@ -249,6 +395,7 @@ pub struct LineAnnotation {
 
 /// An image at its position and size on the page.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct PageImage {
     /// Left and top edges relative to the content box.
     pub x: f32,
@@ -256,6 +403,48 @@ pub struct PageImage {
     pub width: f32,
     pub height: f32,
     pub image: ImageRef,
+}
+
+impl PageImage {
+    pub fn new(x: f32, y: f32, width: f32, height: f32, image: ImageRef) -> PageImage {
+        PageImage {
+            x,
+            y,
+            width,
+            height,
+            image,
+        }
+    }
+}
+
+/// A note set on a page: a footnote at its foot, an endnote, a note at
+/// its side. Reserved: the layout does not set notes yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub struct PageNote {
+    /// Where it is, relative to the content box.
+    pub area: Rect,
+    /// The note's text in the book.
+    pub start: Locator,
+    pub end: Locator,
+    /// [`PageNote::FOOTNOTE`], [`PageNote::ENDNOTE`] or
+    /// [`PageNote::SIDENOTE`].
+    pub kind: u8,
+}
+
+impl PageNote {
+    pub const FOOTNOTE: u8 = 0;
+    pub const ENDNOTE: u8 = 1;
+    pub const SIDENOTE: u8 = 2;
+
+    pub const fn new(area: Rect, start: Locator, end: Locator, kind: u8) -> PageNote {
+        PageNote {
+            area,
+            start,
+            end,
+            kind,
+        }
+    }
 }
 
 /// One laid-out page.
@@ -268,6 +457,8 @@ pub struct Page {
     pub end: Locator,
     pub lines: Vec<PageLine>,
     pub images: Vec<PageImage>,
+    /// Its notes. Reserved: empty until the layout sets them.
+    pub notes: Vec<PageNote>,
 }
 
 impl Page {
@@ -278,7 +469,14 @@ impl Page {
             end,
             lines,
             images,
+            notes: Vec::new(),
         }
+    }
+
+    /// The same with `notes`.
+    pub fn notes(mut self, notes: Vec<PageNote>) -> Self {
+        self.notes = notes;
+        self
     }
 }
 
@@ -310,15 +508,15 @@ fn word_sources(block: &Block, range: core::ops::Range<usize>) -> Vec<(u32, u32)
 /// where `book` follows them.
 fn face_at(block: &Block, base: Face, index: usize, book: BookStyles) -> Face {
     let style = base.style.union(block.style_at(index));
-    Face {
-        style: if book.has(BookStyles::FONTS) {
+    Face::new(
+        if book.has(BookStyles::FONTS) {
             style
         } else {
             style.with_family(0)
         },
-        heading: base.heading,
-        size: base.size,
-    }
+        base.heading,
+        base.size,
+    )
 }
 
 /// The runs of faces for `range` of the block's text, as ranges of a line
@@ -335,11 +533,7 @@ fn line_runs(
         let face = face_at(block, base, range.start + i, book);
         match runs.last_mut() {
             Some(run) if run.face == face => run.end = i,
-            _ => runs.push(LineRun {
-                start: i,
-                end: i,
-                face,
-            }),
+            _ => runs.push(LineRun::new(i, i, face).with_lang(block.lang_of(face.style))),
         }
     }
     // Ends are exclusive: every run reaches the next one or the line end.
@@ -348,13 +542,18 @@ fn line_runs(
         runs[k].end = runs.get(k + 1).map_or(len, |next| next.start);
     }
     if runs.is_empty() && len > 0 {
-        runs.push(LineRun {
-            start: 0,
-            end: len,
-            face: base,
-        });
+        runs.push(LineRun::new(0, len, base).with_lang(block.lang));
     }
     runs
+}
+
+/// How a line of `block` goes: its paragraph's direction where the block
+/// gives it, and whether it starts the paragraph. Lines are not put in
+/// order yet (no [`LineBidi::REORDER`]).
+fn line_bidi(block: &Block, start: bool) -> LineBidi {
+    let paragraph = u8::from(block.dir == Direction::Rtl);
+    let flags = if start { LineBidi::PARAGRAPH_START } else { 0 };
+    LineBidi::new(paragraph, flags)
 }
 
 /// The heading level of a block (0: none) and the face of its text; the
@@ -364,15 +563,15 @@ fn block_face(block: &Block, style: &Style) -> (u8, Face) {
         BlockKind::Heading(level) => level.clamp(1, 6),
         _ => 0,
     };
-    let face = Face {
-        style: if heading > 0 {
+    let face = Face::new(
+        if heading > 0 {
             TextStyle::BOLD
         } else {
             TextStyle::REGULAR
         },
         heading,
-        size: book_size(block, style).unwrap_or(0),
-    };
+        book_size(block, style).unwrap_or(0),
+    );
     (heading, face)
 }
 
@@ -654,6 +853,7 @@ pub fn layout_page(
         end: start,
         lines: Vec::new(),
         images: Vec::new(),
+        notes: Vec::new(),
     };
     let mut at = start;
     let mut y = 0.0f32;
@@ -834,12 +1034,19 @@ pub fn layout_page(
                 baseline: y + ascent,
                 text: line_text,
                 word_spacing,
-                runs: line_runs(&block, base, range, usize::from(line.hyphen), style.book),
+                runs: line_runs(
+                    &block,
+                    base,
+                    range.clone(),
+                    usize::from(line.hyphen),
+                    style.book,
+                ),
                 section: at.section,
                 words,
                 leading,
                 inserted: false,
                 annotations: Vec::new(),
+                bidi: line_bidi(&block, range.start == 0 && !block.continues),
             });
             y += line_height;
         }
@@ -963,6 +1170,7 @@ fn inserted_lines(
                 leading,
                 inserted: true,
                 annotations: Vec::new(),
+                bidi: line_bidi(inserted, line.range.start == 0),
             });
             y += line_height;
         }
