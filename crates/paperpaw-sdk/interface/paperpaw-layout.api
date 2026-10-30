@@ -1,6 +1,8 @@
 pub mod paperpaw_layout
+pub use paperpaw_layout::Around
 pub use paperpaw_layout::Hyphenate
 pub use paperpaw_layout::ImageRef
+pub use paperpaw_layout::Rect
 pub use paperpaw_layout::TextStyle
 pub struct paperpaw_layout::BookStyles(_)
 impl paperpaw_layout::BookStyles
@@ -17,10 +19,12 @@ pub const fn paperpaw_layout::BookStyles::bits(self) -> u16
 pub const fn paperpaw_layout::BookStyles::has(self, paperpaw_layout::BookStyles) -> bool
 pub const fn paperpaw_layout::BookStyles::with(self, paperpaw_layout::BookStyles) -> paperpaw_layout::BookStyles
 pub const fn paperpaw_layout::BookStyles::without(self, paperpaw_layout::BookStyles) -> paperpaw_layout::BookStyles
-pub struct paperpaw_layout::Face
+#[non_exhaustive] pub struct paperpaw_layout::Face
 pub paperpaw_layout::Face::heading: u8
 pub paperpaw_layout::Face::size: u16
 pub paperpaw_layout::Face::style: paperpaw_document::TextStyle
+impl paperpaw_layout::Face
+pub const fn paperpaw_layout::Face::new(paperpaw_document::TextStyle, u8, u16) -> paperpaw_layout::Face
 #[non_exhaustive] pub struct paperpaw_layout::LayoutContext<'a>
 pub paperpaw_layout::LayoutContext::document: &'a dyn paperpaw_document::Document
 pub paperpaw_layout::LayoutContext::hyphenate: core::option::Option<paperpaw_text::layout::Hyphenate<'a>>
@@ -40,28 +44,50 @@ pub paperpaw_layout::LineAnnotation::size: f32
 pub paperpaw_layout::LineAnnotation::text: alloc::string::String
 pub paperpaw_layout::LineAnnotation::width: f32
 pub paperpaw_layout::LineAnnotation::x: f32
-pub struct paperpaw_layout::LineRun
+#[non_exhaustive] pub struct paperpaw_layout::LineBidi
+pub paperpaw_layout::LineBidi::flags: u8
+pub paperpaw_layout::LineBidi::paragraph: u8
+impl paperpaw_layout::LineBidi
+pub const paperpaw_layout::LineBidi::PARAGRAPH_START: u8
+pub const paperpaw_layout::LineBidi::REORDER: u8
+pub const paperpaw_layout::LineBidi::VERTICAL: u8
+pub const fn paperpaw_layout::LineBidi::has(&self, u8) -> bool
+pub const fn paperpaw_layout::LineBidi::is_rtl(&self) -> bool
+pub const fn paperpaw_layout::LineBidi::new(u8, u8) -> paperpaw_layout::LineBidi
+#[non_exhaustive] pub struct paperpaw_layout::LineRun
 pub paperpaw_layout::LineRun::end: usize
 pub paperpaw_layout::LineRun::face: paperpaw_layout::Face
+pub paperpaw_layout::LineRun::lang: paperpaw_lang::Lang
+pub paperpaw_layout::LineRun::level: u8
 pub paperpaw_layout::LineRun::start: usize
+impl paperpaw_layout::LineRun
+pub const fn paperpaw_layout::LineRun::is_rtl(&self) -> bool
+pub const fn paperpaw_layout::LineRun::new(usize, usize, paperpaw_layout::Face) -> paperpaw_layout::LineRun
+pub const fn paperpaw_layout::LineRun::with_lang(self, paperpaw_lang::Lang) -> paperpaw_layout::LineRun
+pub const fn paperpaw_layout::LineRun::with_level(self, u8) -> paperpaw_layout::LineRun
 #[non_exhaustive] pub struct paperpaw_layout::Page
 pub paperpaw_layout::Page::end: paperpaw_document::Locator
 pub paperpaw_layout::Page::images: alloc::vec::Vec<paperpaw_layout::PageImage>
 pub paperpaw_layout::Page::lines: alloc::vec::Vec<paperpaw_layout::PageLine>
+pub paperpaw_layout::Page::notes: alloc::vec::Vec<paperpaw_layout::PageNote>
 pub paperpaw_layout::Page::start: paperpaw_document::Locator
 impl paperpaw_layout::Page
 pub fn paperpaw_layout::Page::is_past_end(&self) -> bool
 impl paperpaw_layout::Page
 pub fn paperpaw_layout::Page::new(paperpaw_document::Locator, paperpaw_document::Locator, alloc::vec::Vec<paperpaw_layout::PageLine>, alloc::vec::Vec<paperpaw_layout::PageImage>) -> Self
-pub struct paperpaw_layout::PageImage
+pub fn paperpaw_layout::Page::notes(self, alloc::vec::Vec<paperpaw_layout::PageNote>) -> Self
+#[non_exhaustive] pub struct paperpaw_layout::PageImage
 pub paperpaw_layout::PageImage::height: f32
 pub paperpaw_layout::PageImage::image: paperpaw_document::ImageRef
 pub paperpaw_layout::PageImage::width: f32
 pub paperpaw_layout::PageImage::x: f32
 pub paperpaw_layout::PageImage::y: f32
+impl paperpaw_layout::PageImage
+pub fn paperpaw_layout::PageImage::new(f32, f32, f32, f32, paperpaw_document::ImageRef) -> paperpaw_layout::PageImage
 #[non_exhaustive] pub struct paperpaw_layout::PageLine
 pub paperpaw_layout::PageLine::annotations: alloc::vec::Vec<paperpaw_layout::LineAnnotation>
 pub paperpaw_layout::PageLine::baseline: f32
+pub paperpaw_layout::PageLine::bidi: paperpaw_layout::LineBidi
 pub paperpaw_layout::PageLine::inserted: bool
 pub paperpaw_layout::PageLine::leading: f32
 pub paperpaw_layout::PageLine::runs: alloc::vec::Vec<paperpaw_layout::LineRun>
@@ -70,23 +96,40 @@ pub paperpaw_layout::PageLine::text: alloc::string::String
 pub paperpaw_layout::PageLine::word_spacing: f32
 pub paperpaw_layout::PageLine::words: alloc::vec::Vec<(u32, u32)>
 pub paperpaw_layout::PageLine::x: f32
+#[non_exhaustive] pub struct paperpaw_layout::PageNote
+pub paperpaw_layout::PageNote::area: paperpaw_platform::geometry::Rect
+pub paperpaw_layout::PageNote::end: paperpaw_document::Locator
+pub paperpaw_layout::PageNote::kind: u8
+pub paperpaw_layout::PageNote::start: paperpaw_document::Locator
+impl paperpaw_layout::PageNote
+pub const paperpaw_layout::PageNote::ENDNOTE: u8
+pub const paperpaw_layout::PageNote::FOOTNOTE: u8
+pub const paperpaw_layout::PageNote::SIDENOTE: u8
+pub const fn paperpaw_layout::PageNote::new(paperpaw_platform::geometry::Rect, paperpaw_document::Locator, paperpaw_document::Locator, u8) -> paperpaw_layout::PageNote
 #[non_exhaustive] pub struct paperpaw_layout::Style
 pub paperpaw_layout::Style::balanced: bool
 pub paperpaw_layout::Style::book: paperpaw_layout::BookStyles
 pub paperpaw_layout::Style::em: f32
+pub paperpaw_layout::Style::hanging_punctuation: bool
 pub paperpaw_layout::Style::indent: f32
 pub paperpaw_layout::Style::justify: bool
+pub paperpaw_layout::Style::justify_cap: f32
+pub paperpaw_layout::Style::kashida: bool
 pub paperpaw_layout::Style::orphans: u8
 pub paperpaw_layout::Style::paragraph_spacing: f32
 pub paperpaw_layout::Style::widows: u8
 impl paperpaw_layout::Style
 pub const fn paperpaw_layout::Style::balanced(self, bool) -> Self
 pub const fn paperpaw_layout::Style::book(self, paperpaw_layout::BookStyles) -> Self
+pub const fn paperpaw_layout::Style::hanging_punctuation(self, bool) -> Self
+pub const fn paperpaw_layout::Style::justify_cap(self, f32) -> Self
+pub const fn paperpaw_layout::Style::kashida(self, bool) -> Self
 pub const fn paperpaw_layout::Style::lines_kept(self, u8, u8) -> Self
 pub const fn paperpaw_layout::Style::new(f32, f32, f32, bool) -> Self
 pub const paperpaw_layout::VERSION: u32
 pub trait paperpaw_layout::Typesetter
 pub fn paperpaw_layout::Typesetter::advance(&self, paperpaw_layout::Face, char) -> f32
+pub fn paperpaw_layout::Typesetter::advance_text(&self, paperpaw_layout::Face, &str, &paperpaw_text::around::Around) -> f32
 pub fn paperpaw_layout::Typesetter::kern(&self, paperpaw_layout::Face, char, char) -> f32
 pub fn paperpaw_layout::Typesetter::line(&self, paperpaw_layout::Face) -> (f32, f32)
 pub fn paperpaw_layout::layout_page(&paperpaw_layout::LayoutContext<'_>, paperpaw_document::Locator, f32) -> core::result::Result<paperpaw_layout::Page, paperpaw_document::DocumentError>

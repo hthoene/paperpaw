@@ -7,7 +7,7 @@ impl paperpaw_image::Decoded
 pub fn paperpaw_image::Decoded::open(&dyn paperpaw_platform::storage::Storage, &str) -> core::option::Option<paperpaw_image::Decoded>
 pub fn paperpaw_image::Decoded::peek(&dyn paperpaw_platform::storage::Storage, &str) -> core::option::Option<paperpaw_image::Decoded>
 pub fn paperpaw_image::Decoded::size(&self) -> (u32, u32)
-pub enum paperpaw_image::Format
+#[non_exhaustive] pub enum paperpaw_image::Format
 pub paperpaw_image::Format::Gif
 pub paperpaw_image::Format::Jpeg
 pub paperpaw_image::Format::Png

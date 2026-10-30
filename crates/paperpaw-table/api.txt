@@ -1,0 +1,39 @@
+pub mod paperpaw_table
+pub mod paperpaw_table::index
+pub mod paperpaw_table::index::contribution
+pub const paperpaw_table::index::contribution::COUNT: usize
+pub const paperpaw_table::index::contribution::FAMILY: paperpaw_table::Family
+pub mod paperpaw_table::index::fonts
+pub const paperpaw_table::index::fonts::COUNT: usize
+pub const paperpaw_table::index::fonts::FAMILY: paperpaw_table::Family
+pub mod paperpaw_table::index::graphics
+pub const paperpaw_table::index::graphics::COUNT: usize
+pub const paperpaw_table::index::graphics::FAMILY: paperpaw_table::Family
+pub mod paperpaw_table::index::text
+pub const paperpaw_table::index::text::COUNT: usize
+pub const paperpaw_table::index::text::FAMILY: paperpaw_table::Family
+pub mod paperpaw_table::index::ui
+pub const paperpaw_table::index::ui::COUNT: usize
+pub const paperpaw_table::index::ui::FAMILY: paperpaw_table::Family
+pub const paperpaw_table::index::OLDEST: paperpaw_table::Revisions
+pub const paperpaw_table::index::REVISIONS: paperpaw_table::Revisions
+pub macro paperpaw_table::shared!
+pub struct paperpaw_table::Family(_)
+impl paperpaw_table::Family
+pub const paperpaw_table::Family::CONTRIBUTION: paperpaw_table::Family
+pub const paperpaw_table::Family::FONTS: paperpaw_table::Family
+pub const paperpaw_table::Family::GRAPHICS: paperpaw_table::Family
+pub const paperpaw_table::Family::TEXT: paperpaw_table::Family
+pub const paperpaw_table::Family::UI: paperpaw_table::Family
+pub const fn paperpaw_table::Family::number(self) -> usize
+pub const fn paperpaw_table::Family::of(u8) -> core::option::Option<paperpaw_table::Family>
+#[repr(transparent)] pub struct paperpaw_table::Table(pub *const *const ())
+impl paperpaw_table::Table
+pub const paperpaw_table::Table::NONE: paperpaw_table::Table
+impl core::marker::Send for paperpaw_table::Table
+impl core::marker::Sync for paperpaw_table::Table
+pub const paperpaw_table::FAMILIES: usize
+pub const paperpaw_table::OLDEST: paperpaw_table::Revisions
+pub const paperpaw_table::REVISIONS: paperpaw_table::Revisions
+pub const fn paperpaw_table::fits(&paperpaw_table::Revisions, &paperpaw_table::Revisions, &paperpaw_table::Revisions) -> bool
+pub type paperpaw_table::Revisions = [u16; 8]

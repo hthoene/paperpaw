@@ -9,11 +9,13 @@ pub fn paperpaw_text::charset::code_points(&str) -> core::option::Option<core::o
 pub fn paperpaw_text::charset::named(&str) -> core::option::Option<&'static [core::ops::range::RangeInclusive<char>]>
 pub fn paperpaw_text::charset::stand_in(char) -> core::option::Option<char>
 pub mod paperpaw_text::sfnt
-pub struct paperpaw_text::sfnt::FontInfo
+#[non_exhaustive] pub struct paperpaw_text::sfnt::FontInfo
 pub paperpaw_text::sfnt::FontInfo::bold: bool
 pub paperpaw_text::sfnt::FontInfo::family: alloc::string::String
 pub paperpaw_text::sfnt::FontInfo::italic: bool
 pub paperpaw_text::sfnt::FontInfo::weight: u16
+impl paperpaw_text::sfnt::FontInfo
+pub fn paperpaw_text::sfnt::FontInfo::new(impl core::convert::Into<alloc::string::String>, bool, bool, u16) -> paperpaw_text::sfnt::FontInfo
 pub fn paperpaw_text::sfnt::read_info(paperpaw_text::sfnt::ReadAt<'_>) -> core::option::Option<paperpaw_text::sfnt::FontInfo>
 pub type paperpaw_text::sfnt::ReadAt<'a> = &'a mut dyn core::ops::function::FnMut(u64, &mut [u8]) -> usize
 #[non_exhaustive] pub enum paperpaw_text::Font
@@ -36,8 +38,31 @@ pub paperpaw_text::FontError::UnsupportedVersion
 impl core::error::Error for paperpaw_text::FontError
 impl core::fmt::Display for paperpaw_text::FontError
 pub fn paperpaw_text::FontError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub struct paperpaw_text::Around
+pub paperpaw_text::Around::after: core::option::Option<char>
+pub paperpaw_text::Around::base: paperpaw_lang::Direction
+pub paperpaw_text::Around::before: core::option::Option<char>
+pub paperpaw_text::Around::flags: u32
+pub paperpaw_text::Around::lang: paperpaw_lang::Lang
+impl paperpaw_text::Around
+pub const paperpaw_text::Around::NONE: paperpaw_text::Around
+pub const paperpaw_text::Around::NO_JOIN: u32
+pub const paperpaw_text::Around::NO_KERN: u32
+pub const paperpaw_text::Around::NO_MIRROR: u32
+pub const fn paperpaw_text::Around::new(paperpaw_lang::Direction, paperpaw_lang::Lang) -> paperpaw_text::Around
+pub const fn paperpaw_text::Around::with_context(self, core::option::Option<char>, core::option::Option<char>) -> paperpaw_text::Around
+pub const fn paperpaw_text::Around::with_flags(self, u32) -> paperpaw_text::Around
+impl core::default::Default for paperpaw_text::Around
+pub fn paperpaw_text::Around::default() -> Self
 pub struct paperpaw_text::BitmapFont
 impl paperpaw_text::BitmapFont
+pub const paperpaw_text::BitmapFont::ANCHORS: usize
+pub const paperpaw_text::BitmapFont::LANGUAGE_FORMS: usize
+pub const paperpaw_text::BitmapFont::MARK_ANCHORS: usize
+pub const paperpaw_text::BitmapFont::NEXT: usize
+pub const paperpaw_text::BitmapFont::SCRIPTS: usize
+pub const paperpaw_text::BitmapFont::SUBSTITUTIONS: usize
+pub const paperpaw_text::BitmapFont::VERTICAL: usize
 pub fn paperpaw_text::BitmapFont::advance(&self, char, f32) -> f32
 pub fn paperpaw_text::BitmapFont::glyph(&self, char, f32) -> paperpaw_text::GlyphRef<'_>
 pub fn paperpaw_text::BitmapFont::has_char(&self, char) -> bool
@@ -48,9 +73,10 @@ pub fn paperpaw_text::BitmapFont::line_metrics(&self, f32) -> paperpaw_text::Lin
 pub fn paperpaw_text::BitmapFont::new(impl core::convert::Into<alloc::borrow::Cow<'static, [u8]>>) -> core::result::Result<paperpaw_text::BitmapFont, paperpaw_text::FontError>
 pub fn paperpaw_text::BitmapFont::size_for(&self, f32, &str, bool) -> f32
 pub fn paperpaw_text::BitmapFont::sizes(&self) -> impl core::iter::traits::iterator::Iterator<Item = f32> + '_
+pub fn paperpaw_text::BitmapFont::table(&self, usize) -> core::option::Option<&[u8]>
 impl core::fmt::Debug for paperpaw_text::BitmapFont
 pub fn paperpaw_text::BitmapFont::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct paperpaw_text::Glyph
+#[non_exhaustive] pub struct paperpaw_text::Glyph
 pub paperpaw_text::Glyph::advance: f32
 pub paperpaw_text::Glyph::height: u16
 pub paperpaw_text::Glyph::left: i16
@@ -66,7 +92,7 @@ pub fn paperpaw_text::GlyphCache::bytes(&self) -> usize
 pub fn paperpaw_text::GlyphCache::clear(&mut self)
 pub fn paperpaw_text::GlyphCache::glyph<'a>(&'a mut self, u16, &'a paperpaw_text::Font, char, f32) -> paperpaw_text::GlyphRef<'a>
 pub fn paperpaw_text::GlyphCache::new(usize) -> Self
-pub struct paperpaw_text::GlyphRef<'a>
+#[non_exhaustive] pub struct paperpaw_text::GlyphRef<'a>
 pub paperpaw_text::GlyphRef::advance: f32
 pub paperpaw_text::GlyphRef::height: u16
 pub paperpaw_text::GlyphRef::left: i16
@@ -83,16 +109,19 @@ pub paperpaw_text::Line::spaces: usize
 pub paperpaw_text::Line::width: f32
 impl paperpaw_text::Line
 pub fn paperpaw_text::Line::new(core::ops::range::Range<usize>, f32, usize, bool, bool) -> Self
-pub struct paperpaw_text::LineMetrics
+#[non_exhaustive] pub struct paperpaw_text::LineMetrics
 pub paperpaw_text::LineMetrics::ascent: f32
 pub paperpaw_text::LineMetrics::descent: f32
 pub paperpaw_text::LineMetrics::line_height: f32
+impl paperpaw_text::LineMetrics
+pub const fn paperpaw_text::LineMetrics::new(f32, f32, f32) -> Self
 pub struct paperpaw_text::PackBuilder
 impl paperpaw_text::PackBuilder
 pub fn paperpaw_text::PackBuilder::add_strike(&mut self, f32, paperpaw_text::LineMetrics, alloc::vec::Vec<(char, paperpaw_text::Glyph)>)
 pub fn paperpaw_text::PackBuilder::build(&self) -> alloc::vec::Vec<u8>
 pub fn paperpaw_text::PackBuilder::kerning(&mut self, &[(char, char, f32)])
 pub fn paperpaw_text::PackBuilder::new() -> Self
+pub fn paperpaw_text::PackBuilder::table(&mut self, usize, u8, &[u8])
 pub struct paperpaw_text::StoredPack
 impl paperpaw_text::StoredPack
 pub fn paperpaw_text::StoredPack::advance(&self, char, f32) -> f32
@@ -101,9 +130,10 @@ pub fn paperpaw_text::StoredPack::largest_size(&self) -> core::option::Option<f3
 pub fn paperpaw_text::StoredPack::line_metrics(&self, f32) -> paperpaw_text::LineMetrics
 pub fn paperpaw_text::StoredPack::open(alloc::rcs::rc::Rc<dyn paperpaw_text::PackSource>) -> core::result::Result<paperpaw_text::StoredPack, paperpaw_text::FontError>
 pub fn paperpaw_text::StoredPack::render(&self, char, f32) -> paperpaw_text::Glyph
+pub fn paperpaw_text::StoredPack::table(&self, usize) -> core::option::Option<u64>
 impl core::fmt::Debug for paperpaw_text::StoredPack
 pub fn paperpaw_text::StoredPack::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct paperpaw_text::TextStyle<'a>
+#[non_exhaustive] pub struct paperpaw_text::TextStyle<'a>
 pub paperpaw_text::TextStyle::based: bool
 pub paperpaw_text::TextStyle::bolder: u16
 pub paperpaw_text::TextStyle::color: paperpaw_platform::pixel::Color
@@ -134,9 +164,11 @@ pub const paperpaw_text::OUTLINES: bool
 pub trait paperpaw_text::PackSource
 pub fn paperpaw_text::PackSource::read_at(&self, u64, &mut [u8]) -> bool
 pub fn paperpaw_text::draw_text(&mut paperpaw_graphics::canvas::Canvas<'_>, &mut paperpaw_text::GlyphCache, &paperpaw_text::TextStyle<'_>, f32, i32, &str) -> f32
+pub fn paperpaw_text::draw_text_in(&mut paperpaw_graphics::canvas::Canvas<'_>, &mut paperpaw_text::GlyphCache, &paperpaw_text::TextStyle<'_>, f32, i32, &str, &paperpaw_text::Around) -> f32
 pub fn paperpaw_text::glyph_x(f32, i16, bool) -> i32
 pub fn paperpaw_text::is_mark(char) -> bool
 pub fn paperpaw_text::measure(&paperpaw_text::Font, f32, &str) -> f32
+pub fn paperpaw_text::measure_in(&paperpaw_text::Font, f32, &str, &paperpaw_text::Around) -> f32
 pub fn paperpaw_text::wrap(&str, f32, impl core::ops::function::Fn(&str) -> f32) -> alloc::vec::Vec<core::ops::range::Range<usize>>
 pub fn paperpaw_text::wrap_lines(&str, impl core::ops::function::Fn(usize) -> f32, impl core::ops::function::Fn(char) -> f32) -> alloc::vec::Vec<paperpaw_text::Line>
 pub fn paperpaw_text::wrap_lines_balanced(&str, impl core::ops::function::Fn(usize) -> f32, impl core::ops::function::Fn(usize, char) -> f32, core::option::Option<paperpaw_text::Hyphenate<'_>>) -> alloc::vec::Vec<paperpaw_text::Line>
