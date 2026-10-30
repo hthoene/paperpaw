@@ -256,6 +256,20 @@ impl Loader {
         // the signature when they installed it.
         let size = storage.size(path).map_err(|_| PluginProblem::Damaged)?;
         header.signed(size).map_err(problem)?;
+        // Built for more shared functions than this firmware has: refused
+        // before anything of it is placed or run (its entry lies in the
+        // image, `needs` its last four bytes).
+        let mut needs = [0u8; 4];
+        let at = HEADER_LEN as u64 + u64::from(header.entry) + 12;
+        read_exact(storage, path, at, &mut needs).map_err(|_| PluginProblem::Damaged)?;
+        let needs = u32::from_le_bytes(needs);
+        if needs > api::API.shared_len {
+            warn!(
+                "native: {path} needs {needs} entries of the shared function table, this firmware has {}: it needs a newer PaperPaw",
+                api::API.shared_len
+            );
+            return Err(PluginProblem::NeedsNewerPaperPaw);
+        }
         let words = read_words(storage, path, &header)?;
         let (base, hot) = self.place.put(storage, path, &header, &words)?;
         drop(words);

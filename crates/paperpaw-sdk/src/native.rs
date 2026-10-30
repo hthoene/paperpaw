@@ -829,6 +829,7 @@ macro_rules! plugin {
             $crate::native::support::Entry {
                 fingerprint: $crate::native::FINGERPRINT.0,
                 make: paperpaw_make,
+                needs: $crate::native::support::needs(),
             };
     };
 }
@@ -1021,7 +1022,7 @@ mod layout {
 
     /// Where the firmware's table keeps each entry: a plugin finds them
     /// there.
-    const TABLE: [u64; 8] = [
+    const TABLE: [u64; 11] = [
         Api::SIZE as u64,
         offset_of!(Api, size) as u64,
         offset_of!(Api, alloc) as u64,
@@ -1030,6 +1031,9 @@ mod layout {
         offset_of!(Api, panic) as u64,
         offset_of!(Api, micros) as u64,
         offset_of!(Api, icon) as u64,
+        offset_of!(Api, alloc_in) as u64,
+        offset_of!(Api, shared) as u64,
+        offset_of!(Api, shared_len) as u64,
     ];
 
     pub(super) const DIGEST: u64 = {
@@ -1057,7 +1061,19 @@ pub mod support {
     use core::fmt::Write;
     use core::sync::atomic::{AtomicPtr, Ordering};
 
+    pub use paperpaw_native::shared::Table;
     pub use paperpaw_native::{Api, Entry};
+
+    /// How many entries of the firmware's shared function table a plugin
+    /// built here calls through: all of this SDK's where it is built for
+    /// a chip with `--cfg paperpaw_plugin` (the stubs), else none.
+    pub const fn needs() -> u32 {
+        if cfg!(all(paperpaw_plugin, target_os = "none")) {
+            paperpaw_native::shared::NEEDS
+        } else {
+            0
+        }
+    }
 
     /// The shell's table, where a library the system loads keeps it
     /// (`PAPERPAW_API`): set before the plugin is made.

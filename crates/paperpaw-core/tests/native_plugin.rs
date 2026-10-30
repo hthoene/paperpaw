@@ -101,6 +101,8 @@ static API: Api = Api {
     micros,
     icon,
     alloc_in,
+    shared: paperpaw_sdk::native::support::Table::NONE,
+    shared_len: 0,
 };
 
 /// One heap here: wherever asked, as `alloc`.

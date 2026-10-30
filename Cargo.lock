@@ -2446,6 +2446,7 @@ dependencies = [
  "font-types",
  "paperpaw-graphics",
  "paperpaw-hyphen",
+ "paperpaw-native",
  "paperpaw-platform",
  "proptest",
  "read-fonts",

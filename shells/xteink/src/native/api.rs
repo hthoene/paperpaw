@@ -15,6 +15,9 @@ pub static API: Api = Api {
     micros,
     icon,
     alloc_in,
+    // The firmware's copies of the functions plugins share.
+    shared: paperpaw_sdk::shared::table(),
+    shared_len: paperpaw_sdk::shared::COUNT,
 };
 
 unsafe extern "C" fn alloc(size: usize, align: usize) -> *mut u8 {

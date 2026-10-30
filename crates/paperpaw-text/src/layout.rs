@@ -99,10 +99,21 @@ pub fn wrap_lines_kerned(
     kern: impl Fn(usize, char, char) -> f32,
     hyphenate: Option<Hyphenate<'_>>,
 ) -> Vec<Line> {
-    let measures = Measures {
-        advance: &advance,
-        kern: &kern,
-    };
+    wrap_lines_kerned_in(text, &width, &advance, &kern, hyphenate)
+}
+
+paperpaw_native::shared! {
+/// [`wrap_lines_kerned`] without generics, the one function of it that is
+/// shared with the firmware: the caller's closures come as `dyn`.
+#[doc(hidden)]
+pub fn wrap_lines_kerned_in(
+    text: &str,
+    width: &dyn Fn(usize) -> f32,
+    advance: &dyn Fn(usize, char) -> f32,
+    kern: &dyn Fn(usize, char, char) -> f32,
+    hyphenate: Option<Hyphenate<'_>>,
+) -> Vec<Line> {
+    let measures = Measures { advance, kern };
     let mut lines = Vec::new();
     let mut line_start = 0;
     let mut line_width = 0.0f32;
@@ -192,6 +203,7 @@ pub fn wrap_lines_kerned(
         );
     }
     lines
+} @ LAYOUT_WRAP_KERNED
 }
 
 /// The most places to break a paragraph (between newlines) that
@@ -277,17 +289,29 @@ pub fn wrap_lines_balanced_kerned_with_cost(
     hyphenate: Option<Hyphenate<'_>>,
     extra_cost: impl Fn(f32, usize) -> f32,
 ) -> Vec<Line> {
+    wrap_lines_balanced_in(text, &width, &advance, &kern, hyphenate, &extra_cost)
+}
+
+paperpaw_native::shared! {
+/// [`wrap_lines_balanced_kerned_with_cost`] without generics, the one
+/// function of it that is shared with the firmware.
+#[doc(hidden)]
+pub fn wrap_lines_balanced_in(
+    text: &str,
+    width: &dyn Fn(usize) -> f32,
+    advance: &dyn Fn(usize, char) -> f32,
+    kern: &dyn Fn(usize, char, char) -> f32,
+    hyphenate: Option<Hyphenate<'_>>,
+    extra_cost: &dyn Fn(f32, usize) -> f32,
+) -> Vec<Line> {
     let mut lines = Vec::new();
     let mut start = 0;
     loop {
         let end = text[start..].find('\n').map_or(text.len(), |k| start + k);
         let widths = (width(lines.len()), width(lines.len() + 1));
-        let measures = Measures {
-            advance: &advance,
-            kern: &kern,
-        };
+        let measures = Measures { advance, kern };
         let balanced =
-            balanced_paragraph(text, start..end, widths, &measures, hyphenate, &extra_cost);
+            balanced_paragraph(text, start..end, widths, &measures, hyphenate, extra_cost);
         match balanced {
             Some(mut paragraph) => lines.append(&mut paragraph),
             None => {
@@ -311,6 +335,7 @@ pub fn wrap_lines_balanced_kerned_with_cost(
         start = end + 1;
     }
     lines
+} @ LAYOUT_WRAP_BALANCED
 }
 
 /// How characters are measured for [`balanced_paragraph`]: their

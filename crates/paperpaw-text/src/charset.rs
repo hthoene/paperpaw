@@ -34,6 +34,7 @@ pub const CYRILLIC: &[RangeInclusive<char>] = &['\u{400}'..='\u{4ff}'];
 /// Greek, modern and polytonic (Greek Extended, for older texts).
 pub const GREEK: &[RangeInclusive<char>] = &['\u{370}'..='\u{3ff}', '\u{1f00}'..='\u{1fff}'];
 
+paperpaw_native::shared! {
 /// A character of nearly the same look, for `ch` where a font lacks it,
 /// tried before the replacement character: a non-breaking hyphen as a
 /// hyphen, the long s as s, rare punctuation as its common cousin.
@@ -59,6 +60,7 @@ pub fn stand_in(ch: char) -> Option<char> {
         '\u{fffd}' => '?',                                  // replacement character
         _ => return None,
     })
+} @ CHARSET_STAND_IN
 }
 
 /// A character set by name: `latin`, `ligatures`, `cyrillic` or `greek`.

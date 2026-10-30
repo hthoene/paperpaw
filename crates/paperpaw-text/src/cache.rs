@@ -53,6 +53,7 @@ impl GlyphCache {
         self.bytes = 0;
     }
 
+    paperpaw_native::shared! {
     /// The glyph for `ch`. `font_index` identifies `font` within the
     /// caller's font registry.
     #[cfg_attr(
@@ -76,6 +77,7 @@ impl GlyphCache {
             #[cfg(feature = "outline")]
             Font::Outline(font) => self.cached(font_index, ch, size, |s| font.rasterize(ch, s)),
         }
+    } @ CACHE_GLYPH
     }
 
     fn cached(

@@ -439,6 +439,7 @@ fn not_installed_notice(env: &Env<'_>, not_installed: &[NotInstalled]) -> Option
 fn problem_key(problem: PluginProblem) -> &'static str {
     match problem {
         PluginProblem::OtherBuild => "plugin-manager.code.other-build",
+        PluginProblem::NeedsNewerPaperPaw => "plugin-manager.code.needs-newer",
         PluginProblem::Damaged => "plugin-manager.code.damaged",
         PluginProblem::Mismatch => "plugin-manager.code.mismatch",
         PluginProblem::NoRoom => "plugin-manager.code.no-room",

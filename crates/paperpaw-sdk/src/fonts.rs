@@ -570,10 +570,11 @@ impl Fonts {
         self.cache.borrow().bytes()
     }
 
+    paperpaw_native::shared! {
     /// A handle of loaded entry `index`, with the fonts asked for the
     /// characters it lacks: its extensions, the fallback font and the
     /// fallback's extensions.
-    fn handle(&self, index: usize) -> FontHandle<'_> {
+    pub(crate) fn handle(&self, index: usize) -> FontHandle<'_> {
         let entry = &self.entries[index];
         let mut others: [Option<(&Font, u16)>; OTHERS] = [None; OTHERS];
         let mut add = |i: usize| {
@@ -623,6 +624,7 @@ impl Fonts {
             kerning: true,
             ligatures: false,
         }
+    } @ FONTS_HANDLE
     }
 
     /// The loaded packs that extend entry `index`.
@@ -818,6 +820,7 @@ impl<'a> FontHandle<'a> {
         self.font
     }
 
+    paperpaw_native::shared! {
     /// The largest size text can be set in, in pixels: a font pack has
     /// the sizes it was made in, and those of a pack that extends it with
     /// larger ones; `None` for a scalable font, which has every size.
@@ -827,6 +830,7 @@ impl<'a> FontHandle<'a> {
             Some(larger) => Some(own.map_or(larger, |own| own.max(larger))),
             None => own,
         }
+    } @ HANDLE_LARGEST_SIZE
     }
 
     /// The handle of the pack that extends this one with larger sizes, for
@@ -844,6 +848,7 @@ impl<'a> FontHandle<'a> {
         })
     }
 
+    paperpaw_native::shared! {
     /// Ascent, descent and line height at `size` pixels: of the size text
     /// is drawn at (see [`FontHandle::size_for`]; for a display, the size
     /// asked).
@@ -853,8 +858,10 @@ impl<'a> FontHandle<'a> {
         }
         self.font()
             .line_metrics(self.font().size_for(size, "", self.display))
+    } @ HANDLE_LINE_METRICS
     }
 
+    paperpaw_native::shared! {
     /// How far apart the lines of a heading or title set on more lines
     /// are, in pixels: closer than those of text (its line height, about
     /// 1.4 times the size with the default font), 1.2 times the size, so
@@ -869,6 +876,7 @@ impl<'a> FontHandle<'a> {
         // In whole pixels, rounded up (no float rounding in `no_std`).
         let apart = (drawn * HEADING_LEADING + 0.999) as u32 as f32;
         apart.min(self.line_metrics(size).line_height)
+    } @ HANDLE_HEADING_LINE_HEIGHT
     }
 
     /// The font that draws `ch` and its number in the cache: this one,
@@ -886,6 +894,7 @@ impl<'a> FontHandle<'a> {
             .unwrap_or((self.font, self.index))
     }
 
+    paperpaw_native::shared! {
     /// Whether this font (or its fallback) draws `ch`; without it, the
     /// character would show as a question mark or not at all.
     pub fn has_char(&self, ch: char) -> bool {
@@ -895,12 +904,15 @@ impl<'a> FontHandle<'a> {
                 .iter()
                 .flatten()
                 .any(|(font, _)| font.has_char(ch))
+    } @ HANDLE_HAS_CHAR
     }
 
+    paperpaw_native::shared! {
     /// Horizontal advance of one character in pixels, at the size it is
     /// drawn at alone (see [`FontHandle::size_for`]).
     pub fn advance(&self, size: f32, ch: char) -> f32 {
         self.advance_by(size, ch, None)
+    } @ HANDLE_ADVANCE
     }
 
     /// [`FontHandle::advance`], `font` the one [`FontHandle::pick`] gives
@@ -938,6 +950,7 @@ impl<'a> FontHandle<'a> {
         }
     }
 
+    paperpaw_native::shared! {
     /// How much `right` moves when it follows `left` at `size`, in pixels
     /// (negative: closer), as [`FontHandle::measure`] and the drawing
     /// methods set the pair: the font's kerning (none where the two are
@@ -968,6 +981,7 @@ impl<'a> FontHandle<'a> {
             false => size,
         };
         self.pair_in(font, size, left, right)
+    } @ HANDLE_KERN
     }
 
     /// The adjustment of a pair both drawn by `font` at `size` (see
@@ -998,6 +1012,7 @@ impl<'a> FontHandle<'a> {
         }
     }
 
+    paperpaw_native::shared! {
     /// The size `text` is drawn at when asked for `size`: the nearest size
     /// of a pack that has all of its characters (see
     /// [`FontHandle::display`]), one for the whole text; `size` where the
@@ -1007,8 +1022,10 @@ impl<'a> FontHandle<'a> {
             return larger.size_for(size, text);
         }
         self.font.size_for(size, text, self.display)
+    } @ HANDLE_SIZE_FOR
     }
 
+    paperpaw_native::shared! {
     /// Width of a single line of text in pixels, its pairs kerned (see
     /// [`FontHandle::kern`]).
     pub fn measure(&self, size: f32, text: &str) -> f32 {
@@ -1036,8 +1053,10 @@ impl<'a> FontHandle<'a> {
             before = Some((ch, index));
         }
         width
+    } @ HANDLE_MEASURE
     }
 
+    paperpaw_native::shared! {
     /// How far the ink of one line of `text` reaches above and below its
     /// baseline, in pixels (above negative), counting pixels at least half
     /// covered, as panels of black and white show them: what centres it
@@ -1072,8 +1091,10 @@ impl<'a> FontHandle<'a> {
             ink = Some(ink.map_or((top, bottom), |(t, b)| (t.min(top), b.max(bottom))));
         }
         ink
+    } @ HANDLE_INK
     }
 
+    paperpaw_native::shared! {
     /// Where the ink of `text` at `size` begins and ends across, from the
     /// pen's start, in pixels (counting pixels at least half covered, as
     /// [`FontHandle::ink`] does): what centres it by its ink rather than by
@@ -1117,8 +1138,10 @@ impl<'a> FontHandle<'a> {
             pen += glyph.advance;
         }
         ink
+    } @ HANDLE_INK_ACROSS
     }
 
+    paperpaw_native::shared! {
     /// Breaks `text` into lines that fit `max_width`, its pairs kerned
     /// within each line as drawn.
     pub fn wrap(&self, size: f32, text: &str, max_width: f32) -> Vec<Range<usize>> {
@@ -1131,8 +1154,10 @@ impl<'a> FontHandle<'a> {
             .into_iter()
             .map(|line| line.range)
             .collect()
+    } @ HANDLE_WRAP
     }
 
+    paperpaw_native::shared! {
     /// Draws one line with its baseline at `baseline`; returns its width.
     #[allow(
         clippy::too_many_arguments,
@@ -1148,8 +1173,10 @@ impl<'a> FontHandle<'a> {
         color: Color,
     ) -> f32 {
         self.draw_bolder(canvas, size, x, baseline, text, color, 0)
+    } @ HANDLE_DRAW
     }
 
+    paperpaw_native::shared! {
     /// Like [`FontHandle::draw`], with glyphs widened by `extra` pixels
     /// (e.g. a reader's font weight setting).
     #[allow(
@@ -1168,8 +1195,10 @@ impl<'a> FontHandle<'a> {
     ) -> f32 {
         let tone = paperpaw_text::ToneCurve::SMOOTH;
         self.draw_toned(canvas, size, x, baseline, text, color, extra, tone)
+    } @ HANDLE_DRAW_BOLDER
     }
 
+    paperpaw_native::shared! {
     /// Like [`FontHandle::draw_bolder`], the glyphs' coverage drawn in
     /// `tone`: on a contrast curve, or without grays (e.g. a reader's
     /// settings for book text).
@@ -1219,6 +1248,7 @@ impl<'a> FontHandle<'a> {
             rest = &rest[end..];
         }
         pen - x
+    } @ HANDLE_DRAW_TONED
     }
 
     /// Draws `run`, all in `style`'s font, from `x`; its width. At once

@@ -25,6 +25,11 @@ pub struct Entry {
     /// Makes the plugin. What it returns is the SDK's to read (its
     /// `native::take`): the firmware owns it.
     pub make: unsafe extern "C" fn() -> *mut c_void,
+    /// How many entries of the firmware's shared function table
+    /// ([`Api::shared`]) the plugin was built for: the loader refuses it
+    /// where the firmware's table is shorter, before anything of it runs
+    /// (`shared::NEEDS` of the SDK that built it).
+    pub needs: u32,
 }
 
 /// What the firmware gives every plugin: its heap (every allocation is
@@ -60,6 +65,14 @@ pub struct Api {
     /// device has both; else anywhere. Null when there is no room. Freed
     /// with `dealloc`.
     pub alloc_in: unsafe extern "C" fn(size: usize, align: usize, placement: u32) -> *mut u8,
+    /// The firmware's own copies of shared functions, as addresses in the
+    /// order of [`shared::index`](crate::shared::index): a plugin built
+    /// with `--cfg paperpaw_plugin` for a chip calls them instead of
+    /// carrying its own copy. Null where the shell has none (a computer,
+    /// Android: plugins keep their own there).
+    pub shared: crate::shared::Table,
+    /// How many addresses [`Api::shared`] holds.
+    pub shared_len: u32,
 }
 
 impl Api {
@@ -73,9 +86,13 @@ mod tests {
 
     #[test]
     fn the_entry_is_as_long_as_the_format_says() {
-        // The chips are 32-bit; on a computer pointers are wider but the
-        // entry is as long: its fingerprint aligns it to 8.
-        assert_eq!(core::mem::size_of::<Entry>(), ENTRY_LEN);
+        // The chips are 32-bit. On a computer pointers are wider, and the
+        // entry is longer; the fields lie where the chips have them as far
+        // as the format reads them (fingerprint, then `make`).
+        if core::mem::size_of::<usize>() == 4 {
+            assert_eq!(core::mem::size_of::<Entry>(), ENTRY_LEN);
+            assert_eq!(core::mem::offset_of!(Entry, needs), 12);
+        }
         assert_eq!(core::mem::align_of::<Entry>(), 8);
     }
 }

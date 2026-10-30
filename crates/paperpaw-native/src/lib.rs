@@ -79,6 +79,7 @@ mod header;
 pub mod index;
 mod interface;
 mod reloc;
+pub mod shared;
 pub mod signature;
 
 pub use extent::ImageExtent;
