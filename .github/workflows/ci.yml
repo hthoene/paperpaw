@@ -300,6 +300,33 @@ jobs:
           done
           exit $status
 
+  table-compat:
+    name: Old plugins, new firmware (shared function tables)
+    # A plugin built at the last interface raise calls the firmware's
+    # shared functions by index (ADR 0026): the tables only grow, and a
+    # body changed since then must keep what those plugins expect. See
+    # tools/table-compat.sh; `crates/paperpaw-table/table-baseline.txt`
+    # names the raise's commit (the raise changes it).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            crates/paperpaw-core/tests/native-plugin
+      - name: The list is only appended to, and old plugins still agree
+        run: |
+          baseline="$(sed -e 's/#.*//' crates/paperpaw-table/table-baseline.txt | awk 'NF { print $1; exit }')"
+          if [[ -z "$baseline" || "$baseline" == none ]]; then
+            echo "no interface raise with tables yet: nothing to compare"
+            exit 0
+          fi
+          tools/table-compat.sh "$baseline"
+
   architecture:
     name: Architecture rules
     runs-on: ubuntu-latest
