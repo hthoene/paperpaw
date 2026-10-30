@@ -23,19 +23,14 @@ compile_error!(
 
 extern crate alloc;
 
-// Bidirectional text and Arabic shaping (#33), used by `draw_text_in`:
-// crate-private until the reading path has shown which items plugins need
-// (making them public later is an addition). Fuzzing reaches them through
-// `fuzz` (cargo-fuzz sets `fuzzing`).
+// Arabic shaping (#33), used by `draw_text_in`: crate-private until the
+// reading path has shown which items plugins need (making them public
+// later is an addition). Fuzzing reaches it through `fuzz` (cargo-fuzz
+// sets `fuzzing`).
 #[allow(dead_code, reason = "parts only the reading path will use (#33)")]
 mod arabic;
 mod around;
-#[allow(
-    dead_code,
-    unused_imports,
-    reason = "parts only the reading path will use (#33)"
-)]
-mod bidi;
+pub mod bidi;
 mod bitmap;
 mod cache;
 pub mod charset;

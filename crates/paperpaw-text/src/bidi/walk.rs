@@ -11,13 +11,13 @@ use super::{Class, Level, bracket, canonical, class};
 
 /// Embeddings and isolates open at once, the paragraph's own level
 /// included. Deeper ones count as overflow.
-pub(crate) const DEPTH: usize = 8;
+pub const DEPTH: usize = 8;
 /// Isolates with a matching PDI that nest, each keeping the run sequence
 /// it interrupts. A deeper one counts as overflow.
-pub(crate) const ISOLATES: usize = 4;
+pub const ISOLATES: usize = 4;
 /// Brackets open at once in a paragraph. One more stops the pairing of
 /// brackets for its run sequence, as the 64th does in UAX #9 (BD16).
-pub(crate) const BRACKETS: usize = 16;
+pub const BRACKETS: usize = 16;
 /// Open brackets per run sequence in UAX #9 (BD16).
 const BD16_STACK: usize = 63;
 
@@ -153,6 +153,7 @@ impl Carry {
 
     /// The paragraph's level.
     #[must_use]
+    #[allow(dead_code, reason = "for pieces of a paragraph the reader keeps (#33)")]
     pub(crate) fn paragraph(&self) -> Level {
         Level(self.paragraph)
     }
@@ -187,6 +188,7 @@ impl Carry {
     /// Moves the carry past the next `count` characters of `rest`
     /// without keeping their levels: to start a line in the middle of a
     /// paragraph.
+    #[allow(dead_code, reason = "for pieces of a paragraph the reader keeps (#33)")]
     pub(crate) fn skip<I>(&mut self, rest: I, count: usize)
     where
         I: Iterator<Item = char> + Clone,
