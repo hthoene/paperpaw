@@ -164,6 +164,10 @@ pub(crate) struct Source {
     /// The deck's cards that are not in the file any more are removed at
     /// an update (the sixth field of the line; off where it is not there).
     pub mirror: bool,
+    /// Lines of the file the last update left out (unreadable or without
+    /// room): a save would drop them (the seventh field; 0 where it is not
+    /// there).
+    pub left_out: usize,
 }
 
 impl Source {
@@ -212,6 +216,7 @@ pub(crate) fn sources(storage: &dyn Storage) -> Result<Ledger, StorageError> {
                 modified: f.next()?.parse().ok()?,
                 hash: u64::from_str_radix(f.next()?, 16).ok()?,
                 mirror: f.next() == Some("1"),
+                left_out: f.next().and_then(|n| n.parse().ok()).unwrap_or(0),
             })
         })();
         match parsed {
@@ -234,12 +239,13 @@ pub(crate) fn write_sources(storage: &dyn Storage, ledger: &Ledger) -> Result<()
             .map(|c| if c.is_control() { ' ' } else { c })
             .collect();
         text.push_str(&alloc::format!(
-            "{name}\t{}\t{}\t{}\t{:x}\t{}\n",
+            "{name}\t{}\t{}\t{}\t{:x}\t{}\t{}\n",
             s.deck,
             s.size,
             s.modified,
             s.hash,
-            u8::from(s.mirror)
+            u8::from(s.mirror),
+            s.left_out
         ));
     }
     for line in &ledger.other {
@@ -433,6 +439,9 @@ pub(crate) struct FileReport {
     pub changed: usize,
     /// Cards removed, where the deck's link says to.
     pub removed: usize,
+    /// The removal of cards was asked for and not done: lines were left out
+    /// (a card whose line could not be read is no card to remove).
+    pub removal_held: bool,
     pub same: usize,
     /// Lines left out (see `problems` for the first).
     pub skipped: usize,
@@ -451,6 +460,7 @@ impl FileReport {
             added: 0,
             changed: 0,
             removed: 0,
+            removal_held: false,
             same: 0,
             skipped: 0,
             no_room: 0,
@@ -972,8 +982,13 @@ impl Job {
             (1, false) => Stage::Slice { round: 2, slice: 0 },
             // Never from a file with no card in it: an empty file is more
             // likely a mistake than an order to empty the deck.
-            _ if work.mirror && work.lines > 0 => Stage::Remove,
-            _ => Stage::Finish,
+            _ if work.mirror && work.lines > 0 && work.report.skipped == 0 => Stage::Remove,
+            _ => {
+                // A line left out may be a card that was learnt: nothing
+                // is removed until every line of the file is read.
+                work.report.removal_held = work.mirror && work.report.skipped > 0;
+                Stage::Finish
+            }
         };
         Ok(())
     }
@@ -1012,6 +1027,7 @@ impl Job {
                 modified: work.found.modified.unwrap_or(0),
                 hash: work.hash,
                 mirror: work.mirror,
+                left_out: work.report.skipped + work.report.no_room,
             });
             tidy(storage, &mut known, &self.listed);
             write_sources(storage, &known)
@@ -1224,9 +1240,9 @@ fn note_failed(storage: &dyn Storage, found: &Found) {
     let Ok(mut ledger) = sources(storage) else {
         return;
     };
-    let (deck, mirror) = ledger
+    let (deck, mirror, left_out) = ledger
         .find(&found.name)
-        .map_or((0, false), |s| (s.deck, s.mirror));
+        .map_or((0, false, 0), |s| (s.deck, s.mirror, s.left_out));
     ledger.sources.retain(|s| s.name != found.name);
     ledger.sources.push(Source {
         name: found.name.clone(),
@@ -1235,6 +1251,7 @@ fn note_failed(storage: &dyn Storage, found: &Found) {
         modified: found.modified.unwrap_or(0),
         hash: 0,
         mirror,
+        left_out,
     });
     let _ = write_sources(storage, &ledger);
 }

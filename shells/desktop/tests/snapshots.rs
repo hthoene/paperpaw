@@ -501,8 +501,10 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    // German has a line that is no card: a save would drop it, so it is
+    // refused; Spanish is saved.
     Case {
-        name: "x4-flashcards-sd-saved",
+        name: "x4-flashcards-sd-not-saved",
         profile: "xteink-x4",
         book: None,
         sets: &["vocabulary.sd-auto=false"],
@@ -511,11 +513,29 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "x4-flashcards-sd-saved-de",
+        name: "x4-flashcards-sd-not-saved-de",
         profile: "xteink-x4",
         book: None,
         sets: &["vocabulary.sd-auto=false", "core.language=de"],
         script: "open:vocabulary.sd-card,wait:900,back,wait:100,open:vocabulary.sd-card:save=1,wait:900",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-flashcards-sd-saved",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["vocabulary.sd-auto=false"],
+        script: "open:vocabulary.sd-card,wait:900,back,wait:100,open:vocabulary.sd-card:save=2,wait:900",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-flashcards-sd-saved-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["vocabulary.sd-auto=false", "core.language=de"],
+        script: "open:vocabulary.sd-card,wait:900,back,wait:100,open:vocabulary.sd-card:save=2,wait:900",
         colour: 0,
         fixtures: false,
     },

@@ -330,6 +330,9 @@ struct Parser {
     quote_pending: bool,
     /// The field began with a quote.
     quoted_field: bool,
+    /// A quote that closed was followed by something other than a
+    /// separator or a line end: no quoted text, a stray quote.
+    stray: bool,
     size: usize,
     too_long: bool,
     /// A byte of this record was seen.
@@ -345,6 +348,7 @@ impl Parser {
             in_quotes: false,
             quote_pending: false,
             quoted_field: false,
+            stray: false,
             size: 0,
             too_long: false,
             started: false,
@@ -357,9 +361,16 @@ impl Parser {
     }
 
     /// Whether a quote was opened and the record is over its size without
-    /// it being closed: a lone quote, not a quoted text.
+    /// it being closed, or a closing quote was followed by more text: a
+    /// lone quote, not a quoted text.
     fn open_quote(&self) -> bool {
-        (self.in_quotes || self.quote_pending) && self.size > MAX_RECORD
+        self.stray || ((self.in_quotes || self.quote_pending) && self.size > MAX_RECORD)
+    }
+
+    /// Whether the record in hand is in quotes that are not closed (at the
+    /// file's end: a lone quote).
+    fn unclosed(&self) -> bool {
+        self.in_quotes && !self.quote_pending
     }
 
     fn push(&mut self, byte: u8) {
@@ -389,6 +400,9 @@ impl Parser {
                 return None;
             }
             self.in_quotes = false;
+            if byte != self.separator && byte != b'\n' && byte != b'\r' {
+                self.stray = true;
+            }
         }
         if self.in_quotes {
             if byte == b'"' {
@@ -520,7 +534,9 @@ pub(crate) fn scan(
     let mut chunk = [0u8; 512];
     'file: loop {
         let n = storage.read_at(path, at, &mut chunk)?;
-        if n == 0 {
+        // A quote still open at the file's end is a lone one too.
+        let mut lone = n == 0 && parser.unclosed();
+        if n == 0 && !lone {
             break;
         }
         for (i, &byte) in chunk[..n].iter().enumerate() {
@@ -543,21 +559,25 @@ pub(crate) fn scan(
                     return Ok(Some(Resume { at: next, line }));
                 }
             } else if parser.open_quote() {
-                // A lone quote: the record is told, and reading goes on at
-                // the line after the one the quote was on.
-                let item = Item::Skipped {
-                    line: start_line,
-                    fault: Fault::OpenQuote,
-                };
-                if visit(item).is_break() {
-                    return Ok(None);
-                }
-                at = line_after(storage, path, start)?;
-                line = start_line.saturating_add(1);
-                parser = Parser::new(layout.separator);
-                (start, start_line) = (at, line);
-                continue 'file;
+                lone = true;
+                break;
             }
+        }
+        if lone {
+            // A lone quote: the record is told, and reading goes on at
+            // the line after the one the quote was on.
+            let item = Item::Skipped {
+                line: start_line,
+                fault: Fault::OpenQuote,
+            };
+            if visit(item).is_break() {
+                return Ok(None);
+            }
+            at = line_after(storage, path, start)?;
+            line = start_line.saturating_add(1);
+            parser = Parser::new(layout.separator);
+            (start, start_line) = (at, line);
+            continue 'file;
         }
         at += n as u64;
     }
@@ -804,6 +824,38 @@ mod tests {
         // A quoted text that does close, of any lines, is one record.
         let (_, items) = read(b"front\tback\n\"two\nlines\"\tz\n");
         assert_eq!(cards(&items), [("two\nlines", "z", "")]);
+    }
+
+    #[test]
+    fn a_stray_quote_costs_its_own_line_and_no_more() {
+        // Never closed before the file's end.
+        let (_, items) = read(b"gato\tcat\n\"perro\tdog\ncasa\thouse\n");
+        assert!(matches!(
+            items[1],
+            Item::Skipped {
+                line: 2,
+                fault: Fault::OpenQuote
+            }
+        ));
+        assert_eq!(cards(&items[..1]), [("gato", "cat", "")]);
+        assert_eq!(cards(&items[2..]), [("casa", "house", "")]);
+        assert_eq!(items.len(), 3);
+        // Closed by a later quote that goes on with text: no quoted field.
+        let (_, items) = read(b"gato\tcat\n\"perro\tdog\ncasa\t\"house\"\nmesa\ttable\n");
+        assert!(
+            matches!(items[1], Item::Skipped { line: 2, .. }),
+            "{items:?}"
+        );
+        assert_eq!(
+            cards(&items[2..]),
+            [("casa", "house", ""), ("mesa", "table", "")]
+        );
+        // Quotes that close at a separator or a line end are quoting.
+        let (_, items) = read(b"\"a\"\t\"b\"\n\"c\"\"\"\td\r\n\"e\"");
+        assert_eq!(
+            cards(&items),
+            [("a", "b", ""), ("c\"", "d", ""), ("e", "", "")]
+        );
     }
 
     #[test]

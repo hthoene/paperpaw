@@ -216,6 +216,9 @@ impl SdScreen {
             Outcome::Utf16 => i18n.tr("vocabulary.sd.outcome.utf16").into(),
         };
         rows.push((title, note));
+        if report.removal_held {
+            rows.push((String::new(), i18n.tr("vocabulary.sd.removal-held").into()));
+        }
         if report.no_room > 0 {
             rows.push((
                 String::new(),
@@ -263,6 +266,7 @@ impl SdScreen {
             export::Outcome::Full => i18n.tr("vocabulary.sd.save.full").into(),
             export::Outcome::TooLarge => i18n.tr("vocabulary.sd.save.too-large").into(),
             export::Outcome::Failed => i18n.tr("vocabulary.sd.save.failed").into(),
+            export::Outcome::LeftOut => i18n.tr("vocabulary.sd.save.left-out").into(),
         };
         let mut rows = alloc::vec![(report.deck.clone(), note)];
         if let Some(backup) = &report.backup
@@ -466,6 +470,10 @@ impl Screen for SdScreen {
 
     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
         if *action == actions::BACK {
+            // A save left off leaves no part of a file in the folder.
+            if let Some(saver) = self.saver.take() {
+                saver.cancel(cx.env().storage());
+            }
             cx.command(Command::Back);
             return Handled::Yes;
         }

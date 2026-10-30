@@ -193,8 +193,41 @@ fn an_edit_on_the_computer_is_read_before_a_save_and_never_written_over() {
     let now = read(&storage, "W.tsv");
     assert!(now.contains("the cat") && now.contains("mesa"), "{now}");
     assert_eq!(cards_of(&storage, deck).len(), 3);
-    // The file that was replaced is the edited one.
-    assert_eq!(read(&storage, "_W.bak.tsv"), edited);
+    // The copy of the file as the user had it stays the first one: the
+    // file replaced now was written by a save.
+    assert_eq!(saved.backup, None);
+    assert_eq!(read(&storage, "_W.bak.tsv"), "gato\tcat\nperro\tdog\n");
+}
+
+#[test]
+fn a_file_that_a_save_did_not_write_is_copied_again_before_it_is_replaced() {
+    let storage = MemoryStorage::new();
+    put(&storage, "W.tsv", "gato\tcat\n");
+    run(&storage, false, true);
+    let deck = deck_id(&storage, "W");
+    save(&storage, deck);
+    assert_eq!(read(&storage, "_W.bak.tsv"), "gato\tcat\n");
+    // Replaced on the computer by a file of its own (no marker).
+    let own = "gato\tthe cat\tnotes\nperro\tdog\n";
+    put(&storage, "W.tsv", own);
+    let (_, saved) = save_as_the_screen(&storage, deck);
+    let saved = saved.expect("saved");
+    assert_eq!(saved.backup.as_deref(), Some("_W.bak.tsv"));
+    assert_eq!(read(&storage, "_W.bak.tsv"), own);
+}
+
+#[test]
+fn a_save_that_is_stopped_leaves_no_part_behind() {
+    let storage = MemoryStorage::new();
+    put(&storage, "W.tsv", "gato\tcat\n");
+    run(&storage, false, true);
+    let deck = deck_id(&storage, "W");
+    let mut saver = Saver::new(FOLDER, deck);
+    assert_eq!(saver.step(&storage), Step::Working);
+    assert!(storage.exists(&saver.part()));
+    saver.cancel(&storage);
+    assert!(!storage.exists(&saver.part()));
+    assert_eq!(read(&storage, "W.tsv"), "gato\tcat\n");
 }
 
 #[test]
@@ -243,13 +276,12 @@ fn a_deck_with_no_file_gets_a_file_named_for_it_that_no_other_has() {
 }
 
 #[test]
-fn a_csv_keeps_its_separator_and_gets_a_byte_order_mark() {
+fn a_csv_keeps_its_separator_and_its_byte_order_mark() {
     let storage = MemoryStorage::new();
     put(
         &storage,
         "German.csv",
-        "Front;Back
-M\u{fc}ll;rubbish\nKatze;cat, the animal\n",
+        "\u{feff}Front;Back\nM\u{fc}ll;rubbish\nKatze;cat, the animal\n",
     );
     run(&storage, false, true);
     let deck = deck_id(&storage, "German");
@@ -444,7 +476,7 @@ fn a_big_deck_is_saved_in_steps_with_a_small_heap_and_read_back_the_same() {
     assert!(steps > 20, "{steps} steps");
     // What the save itself holds, the storage's own buffers left out.
     assert!(biggest <= 16 * 1024, "one allocation of {biggest} bytes");
-    assert!(peak <= 85 * 1024, "{peak} bytes at once");
+    assert!(peak <= 24 * 1024, "{peak} bytes at once");
     std::eprintln!(
         "save of {} cards: largest allocation {biggest} B, peak {peak} B, {steps} steps",
         cards::MAX_CARDS
@@ -453,6 +485,38 @@ fn a_big_deck_is_saved_in_steps_with_a_small_heap_and_read_back_the_same() {
     assert!(Job::new(&storage, FOLDER, Mode::Auto).is_empty());
     let again = run(&storage, true, true);
     assert_eq!(again[0].outcome, sync::Outcome::Same, "{again:?}");
+    // Edited on the computer (every seventh back), it is read for real:
+    // those cards change, the others are as they were, and the cards are
+    // the same ones (a card's id is its number in the file).
+    let before = cards_of(&storage, deck);
+    let name = report.file;
+    let text: String = read(&storage, &name)
+        .lines()
+        .enumerate()
+        .map(|(n, line)| {
+            if n >= 2 && n % 7 == 0 {
+                alloc::format!("{}\n", line.replace("meaning", "other meaning"))
+            } else {
+                alloc::format!("{line}\n")
+            }
+        })
+        .collect();
+    let edited = (2..cards::MAX_CARDS + 2).filter(|n| n % 7 == 0).count();
+    put(&storage, &name, &text);
+    let reports = run(&storage, false, true);
+    assert_eq!(
+        (reports[0].outcome, reports[0].changed, reports[0].added),
+        (sync::Outcome::Merged, edited, 0),
+        "{reports:?}"
+    );
+    let after = cards_of(&storage, deck);
+    assert_eq!(after.len(), before.len());
+    for (n, (was, now)) in before.iter().zip(&after).enumerate() {
+        let edit = (n + 2) % 7 == 0;
+        assert_eq!(was.front, now.front);
+        assert_eq!(now.back.starts_with("other"), edit, "card {n}");
+        assert_eq!(was.state.id, now.state.id);
+    }
 }
 
 #[test]
@@ -589,4 +653,240 @@ fn an_update_of_an_ordinary_size_takes_a_small_heap() {
     assert!(biggest <= 64 * 1024, "one allocation of {biggest} bytes");
     assert!(peak <= 85 * 1024, "{peak} bytes at once");
     std::eprintln!("update of 6000 cards: largest allocation {biggest} B, peak {peak} B");
+}
+
+/// The cards of a file as a table reads them: front, back, example and the
+/// id, or what is wrong with a line.
+fn read_back(storage: &dyn Storage, name: &str) -> Vec<(u32, String, String, String)> {
+    let path = alloc::format!("{FOLDER}/{name}");
+    let layout = table::detect(storage, &path).unwrap();
+    let mut rows = Vec::new();
+    table::each(storage, &path, &layout, None, |item| {
+        match item {
+            table::Item::Record(r) => {
+                rows.push((r.id.expect("an id"), r.front, r.back, r.example));
+            }
+            table::Item::Skipped { line, fault } => panic!("line {line}: {fault:?}"),
+        }
+        ControlFlow::Continue(())
+    })
+    .unwrap();
+    rows
+}
+
+/// Cards with the texts a field is hardest to write and read for.
+fn hard_cards() -> Vec<Texts> {
+    let long = |c: char| core::iter::repeat_n(c, cards::MAX_TEXT).collect::<String>();
+    [
+        ("plain", "text", "example"),
+        ("a\tb", "tab\tin\tit", "x\ty"),
+        ("two\nlines", "three\nlines\nhere", "with\r\nCRLF"),
+        ("say \"hi\"", "\"\"", "a \"quoted\" word, and \"another\""),
+        ("semi;colon", "com,ma", "both ;, and \""),
+        ("#not a comment", "#paperpaw:deck 1", "# x"),
+        ("\"starts with a quote", "ends with a quote\"", "\"\"\""),
+        ("Müll — ñ €", "日本語 العربية", "😀 emoji"),
+        ("\u{feff}marked", "x", "y"),
+        ("lone\rCR", "a", "b"),
+        ("front", "", ""),
+        ("near the limit é", &long('é'), &long('"')),
+    ]
+    .into_iter()
+    .map(|(front, back, example)| Texts {
+        front: front.into(),
+        back: back.into(),
+        example: example.into(),
+    })
+    .collect()
+}
+
+#[test]
+fn what_is_saved_is_read_back_field_by_field_in_every_flavour() {
+    for (name, first_line, sep) in [
+        ("Hard.tsv", None, '\t'),
+        ("Hard.csv", Some("front,back\nx,y\n"), ','),
+        ("Hard.csv", Some("front;back\nx;y\n"), ';'),
+    ] {
+        let storage = MemoryStorage::new();
+        // The flavour: a file there makes the deck, and its separator stays.
+        let deck = match first_line {
+            Some(text) => {
+                put(&storage, name, text);
+                run(&storage, false, true);
+                deck_id(&storage, "Hard")
+            }
+            None => cards::add_deck(&storage, "Hard").unwrap(),
+        };
+        let texts = hard_cards();
+        cards::add_each(&storage, deck, |push| {
+            for t in &texts {
+                push(t.clone());
+            }
+            Ok(())
+        })
+        .unwrap();
+        let before = cards_of(&storage, deck);
+        assert_eq!(
+            before.len(),
+            texts.len() + usize::from(first_line.is_some()),
+            "{name}"
+        );
+        let (report, _) = save(&storage, deck);
+        assert_eq!(report.outcome, Outcome::Saved, "{name}: {report:?}");
+        assert_eq!(report.file, name);
+        // The file read as a table reads it: every card, as it is kept.
+        let rows = read_back(&storage, name);
+        assert_eq!(rows.len(), before.len(), "{name}");
+        for (card, (id, front, back, example)) in before.iter().zip(&rows) {
+            assert_eq!(
+                (card.state.id, &card.front, &card.back, &card.example),
+                (*id, front, back, example),
+                "{name}"
+            );
+        }
+        // And read by an update that really changes: one back is edited,
+        // one line added; every other card stays as it was.
+        let text = read(&storage, name);
+        put(
+            &storage,
+            name,
+            &(text + &alloc::format!("0{sep}new{sep}card\n")),
+        );
+        let ids_known = before.len();
+        let reports = run(&storage, false, true);
+        assert_eq!(
+            reports[0].outcome,
+            sync::Outcome::Merged,
+            "{name}: {reports:?}"
+        );
+        assert_eq!(reports[0].skipped, 0, "{name}: {reports:?}");
+        let after = cards_of(&storage, deck);
+        assert_eq!(after.len(), ids_known + reports[0].added, "{name}");
+        for (was, now) in before.iter().zip(&after) {
+            assert_eq!(
+                (&was.front, &was.back, &was.example),
+                (&now.front, &now.back, &now.example),
+                "{name}"
+            );
+        }
+    }
+}
+
+#[test]
+fn lines_that_could_not_be_read_keep_their_cards_even_with_the_switch_on() {
+    // The reviewer's case: a back too long for a record, on a learnt card.
+    let storage = MemoryStorage::new();
+    put(&storage, "W.tsv", "gato\tcat\nperro\tdog\ncasa\thouse\n");
+    run(&storage, false, true);
+    let deck = deck_id(&storage, "W");
+    learn(&storage, deck, "perro");
+    assert!(sync::set_mirror(&storage, deck, true));
+    let long = "x".repeat(20_000);
+    put(
+        &storage,
+        "W.tsv",
+        &alloc::format!("gato\tcat\nperro\t{long}\ncasa\thouse\n"),
+    );
+    let reports = run(&storage, false, true);
+    assert_eq!(
+        (
+            reports[0].skipped,
+            reports[0].removed,
+            reports[0].removal_held
+        ),
+        (1, 0, true),
+        "{reports:?}"
+    );
+    let cards = cards_of(&storage, deck);
+    assert_eq!(fronts(&cards), ["gato", "perro", "casa"]);
+    assert!(!cards[1].state.is_new(), "what was learnt stays");
+    // Mended: the removal works again.
+    put(&storage, "W.tsv", "gato\tcat\ncasa\thouse\n");
+    let reports = run(&storage, false, true);
+    assert_eq!(
+        (reports[0].removed, reports[0].removal_held),
+        (1, false),
+        "{reports:?}"
+    );
+    assert_eq!(fronts(&cards_of(&storage, deck)), ["gato", "casa"]);
+}
+
+#[test]
+fn a_stray_quote_in_a_tsv_loses_no_card_with_the_switch_on() {
+    let storage = MemoryStorage::new();
+    put(&storage, "W.tsv", "gato\tcat\nperro\tdog\ncasa\thouse\n");
+    run(&storage, false, true);
+    let deck = deck_id(&storage, "W");
+    learn(&storage, deck, "casa");
+    assert!(sync::set_mirror(&storage, deck, true));
+    put(&storage, "W.tsv", "gato\tcat\n\"perro\tdog\ncasa\thouse\n");
+    let reports = run(&storage, false, true);
+    assert_eq!(
+        (
+            reports[0].skipped,
+            reports[0].removed,
+            reports[0].removal_held
+        ),
+        (1, 0, true),
+        "{reports:?}"
+    );
+    let cards = cards_of(&storage, deck);
+    // No garbage card, and no card gone.
+    assert_eq!(fronts(&cards), ["gato", "perro", "casa"]);
+    assert!(!cards[2].state.is_new());
+    // And a save is refused, so that the file is not rewritten without the line.
+    let (_, saved) = save_as_the_screen(&storage, deck);
+    assert_eq!(saved.map(|r| r.outcome), Some(Outcome::LeftOut));
+    assert_eq!(
+        read(&storage, "W.tsv"),
+        "gato\tcat\n\"perro\tdog\ncasa\thouse\n"
+    );
+}
+
+#[test]
+fn a_save_is_refused_while_lines_were_left_out_and_goes_on_when_they_are_mended() {
+    let storage = MemoryStorage::new();
+    put(&storage, "W.tsv", "gato\tcat\nperro\tdog\n");
+    run(&storage, false, true);
+    let deck = deck_id(&storage, "W");
+    save(&storage, deck);
+    // A line without a front, and more columns than a card has.
+    let bad = "#paperpaw:deck 1\nid\tfront\tback\texample\ttags\n1\tgato\tcat\t\tanimal\n2\t\tx\n";
+    put(&storage, "W.tsv", bad);
+    let (reports, saved) = save_as_the_screen(&storage, deck);
+    assert_eq!(reports[0].skipped, 1, "{reports:?}");
+    assert_eq!(saved.map(|r| r.outcome), Some(Outcome::LeftOut));
+    assert_eq!(read(&storage, "W.tsv"), bad, "the file stays as it is");
+    // Not updated again (the file is as the ledger has it): still refused.
+    let (reports, saved) = save_as_the_screen(&storage, deck);
+    assert!(reports.is_empty());
+    assert_eq!(saved.map(|r| r.outcome), Some(Outcome::LeftOut));
+    // Mended on the computer: updated, and saved.
+    put(&storage, "W.tsv", "gato\tcat\nperro\tdog\n");
+    let (_, saved) = save_as_the_screen(&storage, deck);
+    assert_eq!(saved.map(|r| r.outcome), Some(Outcome::Saved));
+    assert_eq!(sync::link_of(&ledger(&storage), deck).unwrap().left_out, 0);
+}
+
+#[test]
+fn an_old_ledger_line_has_nothing_left_out() {
+    let storage = MemoryStorage::new();
+    put(&storage, "W.tsv", "gato\tcat\n");
+    run(&storage, false, true);
+    let deck = deck_id(&storage, "W");
+    let text = String::from_utf8(ledger_text(&storage)).unwrap();
+    // A line as the version before wrote it: six fields.
+    let old: String = text
+        .lines()
+        .map(|l| {
+            let f: Vec<&str> = l.split('\t').collect();
+            if f.len() == 7 {
+                alloc::format!("{}\n", f[..6].join("\t"))
+            } else {
+                alloc::format!("{l}\n")
+            }
+        })
+        .collect();
+    storage.write(&sync::ledger_path(), old.as_bytes()).unwrap();
+    assert_eq!(sync::link_of(&ledger(&storage), deck).unwrap().left_out, 0);
 }

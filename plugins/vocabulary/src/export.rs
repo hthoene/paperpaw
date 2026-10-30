@@ -18,8 +18,11 @@
 //! ([`Saver::step`], so that a screen shows how far it is and *Back* stops
 //! it, leaving the folder as it was), and put in place when whole: a power
 //! cut leaves the old file or the new one. What was there is copied to
-//! `_<name>.bak.<extension>` first (names with a `_` are no decks). The
-//! deck is linked to the file after, with the hash of what was written, so
+//! `_<name>.bak.<extension>` first, if there is no copy yet or the file was
+//! not written by a save of this deck (names with a `_` are no decks): the
+//! first copy is the file as the user had it. A save is refused while the
+//! last update left lines out, which a save would drop.
+//! The deck is linked to the file after, with the hash of what was written, so
 //! the next update finds the file unchanged. Heap: one piece of the output
 //! (about 8 KiB) and the card in hand.
 
@@ -53,6 +56,9 @@ pub(crate) enum Outcome {
     TooLarge,
     /// The file could not be written.
     Failed,
+    /// The file the deck is linked to has lines the last update could not
+    /// make cards of (or could not read at all): a save would drop them.
+    LeftOut,
 }
 
 /// What was done.
@@ -264,6 +270,10 @@ impl Saver {
         self.name.clone_from(&deck.name);
         self.total = cards::sizes(storage).get(&self.deck).copied().unwrap_or(0);
         let ledger = sync::sources(storage).map_err(|_| Outcome::Unreadable)?;
+        if sync::link_of(&ledger, self.deck).is_some_and(|s| s.left_out > 0 || s.failed()) {
+            self.file = String::new();
+            return Err(Outcome::LeftOut);
+        }
         let _ = storage.create_dir(&self.folder);
         self.file = match sync::link_of(&ledger, self.deck) {
             Some(link) => link.name.clone(),
@@ -287,7 +297,7 @@ impl Saver {
         let sep = char::from(self.separator);
         let head = alloc::format!(
             "{}#paperpaw:deck {}\nid{sep}front{sep}back{sep}example\n",
-            if csv { BOM } else { "" },
+            if csv && self.bom(storage) { BOM } else { "" },
             self.deck
         );
         // The part is begun anew: what a cut-off save left is not used.
@@ -295,6 +305,16 @@ impl Saver {
         self.push(storage, &head)?;
         self.stage = Stage::Rows;
         Ok(())
+    }
+
+    /// Whether the file gets a byte order mark: it had one, or is new (a
+    /// spreadsheet needs it to read UTF-8).
+    fn bom(&self, storage: &dyn Storage) -> bool {
+        let mut start = [0u8; 3];
+        match storage.read_at(&self.path(), 0, &mut start) {
+            Ok(n) if n > 0 => start == *BOM.as_bytes(),
+            _ => true,
+        }
     }
 
     /// Cards of the deck written until a piece is full.
@@ -326,14 +346,37 @@ impl Saver {
         Ok(())
     }
 
+    /// Whether the file in place begins with this deck's marker: it was
+    /// written by a save.
+    fn written_here(&self, storage: &dyn Storage) -> bool {
+        let mut start = [0u8; 48];
+        let n = storage.read_at(&self.path(), 0, &mut start).unwrap_or(0);
+        let text = String::from_utf8_lossy(&start[..n]);
+        let text = text.trim_start_matches(BOM);
+        text.strip_prefix("#paperpaw:deck ")
+            .and_then(|rest| rest.lines().next())
+            .is_some_and(|id| id.trim() == self.deck.to_string())
+    }
+
+    /// Stops the save: the part that is begun is removed.
+    pub(crate) fn cancel(&self, storage: &dyn Storage) {
+        if !self.file.is_empty() {
+            let _ = storage.remove(&self.part());
+        }
+    }
+
     /// The old file copied, the new one put in place, the deck linked.
     fn finish(&mut self, storage: &dyn Storage) -> Result<Report, Outcome> {
         let path = self.path();
         if storage.exists(&path) {
             let backup = backup_name(&self.file);
-            paperpaw_sdk::files::copy(storage, &path, &alloc::format!("{}/{backup}", self.folder))
-                .map_err(outcome_of)?;
-            self.backup = Some(backup);
+            let copy = alloc::format!("{}/{backup}", self.folder);
+            // The first copy is the file as the user had it: a file this
+            // deck wrote itself (it names the deck) does not replace it.
+            if !storage.exists(&copy) || !self.written_here(storage) {
+                paperpaw_sdk::files::copy(storage, &path, &copy).map_err(outcome_of)?;
+                self.backup = Some(backup);
+            }
         }
         paperpaw_sdk::files::put_in_place(storage, &self.part(), &path).map_err(outcome_of)?;
         // The file is there: that the link cannot be written is told, but
@@ -350,6 +393,7 @@ impl Saver {
                 modified: storage.modified(&path).unwrap_or(0),
                 hash: self.hash,
                 mirror,
+                left_out: 0,
             });
             let listed: Vec<String> = sync::files(storage, &self.folder)
                 .1
