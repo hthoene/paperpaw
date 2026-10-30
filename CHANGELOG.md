@@ -97,7 +97,7 @@ change the plugin SDK.
   `paperpaw_text::bidi` gives that state as bytes (`state_len`,
   `start_state`, `resolve_from`, `skip_from`, `state_paragraph`), which
   stay out of the plugin interface. `paperpaw_text::bidi` is public
-  (paragraph levels, rules L1 and L2, mirrors).
+  (levels, paragraph levels, rules L1 and L2).
 - `paperpaw_text::is_invisible` (also `paperpaw_sdk::text`): the controls
   that draw nothing and take no room.
 - `Block::continued`: the next block continues this one (the pieces of a
