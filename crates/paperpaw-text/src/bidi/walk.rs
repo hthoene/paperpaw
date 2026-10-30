@@ -638,7 +638,8 @@ impl<I: Iterator<Item = char> + Clone> Walk<I> {
         }
         let at = usize::from(self.carry.brackets);
         if at >= BRACKETS || at - base >= BD16_STACK {
-            self.carry.sequence().stopped = true;
+            let sequence = self.carry.sequence();
+            sequence.stopped = true;
             return None;
         }
         let pair = self.pair_of(close, base, at);
@@ -765,10 +766,12 @@ impl<I: Iterator<Item = char> + Clone> Walk<I> {
                 Some(d) => d,
                 None => self.neutrals(&r, &s),
             };
-            self.carry.sequence().neutral = Some(d);
+            let sequence = self.carry.sequence();
+            sequence.neutral = Some(d);
             d
         } else {
-            self.carry.sequence().neutral = None;
+            let sequence = self.carry.sequence();
+            sequence.neutral = None;
             r.paired
         };
         let level = implicit(s.level, t);
