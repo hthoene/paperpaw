@@ -140,6 +140,9 @@ const MAX_FONT_FILE: u64 = 48 * 1024 * 1024;
 /// ones, where one extends it.
 const LARGER_STEP: f32 = 4.0;
 
+/// Letters a pack of a font's larger sizes has where the font has them.
+const LARGER_LETTERS: &str = "aenoAEO0";
+
 /// The lines of a heading or title, as many times its size apart
 /// ([`FontHandle::heading_line_height`]).
 const HEADING_LEADING: f32 = 1.2;
@@ -594,14 +597,24 @@ impl Fonts {
             add(i);
         }
         // The extension with the largest sizes beyond this pack's own, if
-        // one has any. Sizes are only read where there are extensions.
+        // one has any: one with the font's own letters (Literata's larger
+        // sizes), not one with letters of another script it adds in more
+        // sizes (Arabic), by a few letters the font has. Sizes are only
+        // read where there are extensions.
         let largest = |f: &Font| f.largest_size().unwrap_or(0.0);
         let larger = extended
             .then(|| {
-                let own = entry.font.as_ref().map_or(0.0, largest);
+                let font = entry.font.as_ref()?;
+                let own = largest(font);
+                let probe = |f: &Font| {
+                    LARGER_LETTERS
+                        .chars()
+                        .filter(|&c| font.has_char(c))
+                        .all(|c| f.has_char(c))
+                };
                 self.extensions_of(index)
                     .filter_map(|i| self.entries[i].font.as_ref().map(|f| (f, i as u16)))
-                    .filter(|(f, _)| own > 0.0 && largest(f) > own)
+                    .filter(|(f, _)| own > 0.0 && largest(f) > own && probe(f))
                     .max_by(|a, b| largest(a.0).total_cmp(&largest(b.0)))
             })
             .flatten();

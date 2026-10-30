@@ -188,6 +188,61 @@ fn extensions_add_larger_sizes() {
     assert!((serif.line_metrics(36.0).line_height - 36.0 * 1.2).abs() < 0.1);
 }
 
+/// A pack at `sizes` of `chars`, its glyphs `advance` wide.
+fn pack_of(chars: &str, sizes: &[f32], advance: f32) -> alloc::vec::Vec<u8> {
+    let mut builder = PackBuilder::new();
+    for &size in sizes {
+        let metrics = LineMetrics::new(size * 0.8, size * 0.2, size * 1.2);
+        let glyphs = chars.chars().map(|c| (c, Glyph::empty(advance))).collect();
+        builder.add_strike(size, metrics, glyphs);
+    }
+    builder.build()
+}
+
+/// A pack of another script's letters in more sizes than the font has
+/// (Arabic in Literata's seven, for the firmware's Literata up to 32 px)
+/// adds those letters, not sizes: text larger than the font's largest is
+/// not set in it, and the font's largest size stays its own. With a pack
+/// of the font's larger sizes beside it, that one sets them, the other
+/// script's letters still from their pack.
+#[test]
+fn packs_of_other_letters_add_no_sizes() {
+    let storage: Rc<dyn Storage> = Rc::new(
+        MemoryStorage::new()
+            .with("plugins/ar/fonts/ar.ppfp", pack_of("\u{628}\u{62a}", &[20.0, 32.0, 48.0], 9.0))
+            .with("plugins/big/fonts/big.ppfp", pack_of("ab", &[48.0], 20.0)),
+    );
+    let mut fonts = Fonts::new(4096);
+    let base = Font::from_data(pack_of("ab", &[20.0, 32.0], 16.0), &[]).unwrap();
+    fonts
+        .add(FontSpec::new(Id::new_static("a.serif"), base))
+        .unwrap();
+    fonts
+        .add_extension(
+            Id::new_static("ar.ar"),
+            String::from("plugins/ar/fonts/ar.ppfp"),
+            Id::new_static("a.serif"),
+        )
+        .unwrap();
+    assert!(fonts.load(&storage).is_empty());
+    let serif = fonts.get("a.serif").unwrap();
+    assert_eq!(serif.largest_size(), Some(32.0));
+    assert_eq!(serif.measure(48.0, "ab"), 32.0, "by the font itself");
+    assert_eq!(serif.measure(48.0, "\u{628}"), 9.0, "by the Arabic pack");
+    fonts
+        .add_extension(
+            Id::new_static("big.big"),
+            String::from("plugins/big/fonts/big.ppfp"),
+            Id::new_static("a.serif"),
+        )
+        .unwrap();
+    assert!(fonts.load(&storage).is_empty());
+    let serif = fonts.get("a.serif").unwrap();
+    assert_eq!(serif.largest_size(), Some(48.0));
+    assert_eq!(serif.measure(48.0, "ab"), 40.0, "by the larger pack");
+    assert_eq!(serif.measure(48.0, "\u{628}"), 9.0, "by the Arabic pack");
+}
+
 /// A family of packs on the storage: its faces read a glyph at a time
 /// while it is chosen, freed when another is, forgotten with their
 /// plugin.
