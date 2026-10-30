@@ -200,3 +200,42 @@ fn the_example() {
     // The Arabic word comes last from the left, after "2026 PaperPaw".
     assert_eq!(order[shown - 1], 0);
 }
+
+/// Text made to be slow (thousands of isolates, terminators, brackets)
+/// costs time linear in its length: four times the text, about four
+/// times the time, not sixteen. Timing, so not run by default:
+/// `cargo test --release -p paperpaw-text --lib hostile -- --ignored`.
+#[test]
+#[ignore = "measures time; run in release"]
+fn hostile_text_costs_linear_time() {
+    extern crate std;
+    let time = |unit: &str, n: usize| {
+        let text = unit.repeat(n);
+        let starts: Vec<usize> = text.char_indices().map(|(i, _)| i).collect();
+        let count = starts.len();
+        let mut levels = vec![Level::LTR; count];
+        let mut carry = Carry::new(Level::RTL);
+        let at = std::time::Instant::now();
+        let mut done = 0;
+        while done < count {
+            let k = 60.min(count - done);
+            carry.resolve(text[starts[done]..].chars(), k, &mut levels[done..done + k]);
+            done += k;
+        }
+        at.elapsed().as_secs_f64()
+    };
+    for unit in [
+        "\u{2067}",
+        "\u{2068}",
+        "\u{2066}a",
+        "$",
+        "\u{627}$",
+        "(\u{2067}",
+        "\u{2067} ! ",
+        "\u{2068}1 \u{2069} !",
+        "\u{202A}\u{2067}",
+    ] {
+        let (small, large) = (time(unit, 4_000), time(unit, 16_000));
+        assert!(large < small * 8.0, "{unit:?}: {small} s, then {large} s");
+    }
+}
