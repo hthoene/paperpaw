@@ -255,3 +255,127 @@ fn a_paragraph_resolves_at_once() {
     // Fewer levels than characters: as many as fit.
     assert_eq!(resolve(text, Level::RTL, &mut levels[..2]), 2);
 }
+
+/// Text of every kind the walk keeps state for: letters both ways,
+/// numbers and their separators, brackets, embeddings and isolates.
+const MIXED: &str = "abc \u{5d0}\u{5d1} (12.5%) \u{627}[\u{2067}x\u{202b}y\u{202c}\u{2069}] \u{661}\u{662}, $3 \u{2068}\u{5d2}\u{2069}!";
+
+#[test]
+fn a_state_as_bytes_is_the_state() {
+    assert_eq!(state_len(), walk::STATE_LEN);
+    assert!(state_len() <= 170, "{}", state_len());
+    let chars: Vec<char> = MIXED.chars().collect();
+    for cut in 0..=chars.len() {
+        let mut carry = Carry::new(Level::RTL);
+        carry.skip(chars.iter().copied(), cut);
+        let mut bytes = vec![0u8; state_len()];
+        assert!(carry.encode(&mut bytes));
+        assert_eq!(Carry::decode(&bytes), Some(carry), "cut at {cut}");
+    }
+    assert!(!Carry::new(Level::LTR).encode(&mut [0u8; 10]));
+}
+
+#[test]
+fn a_paragraph_resolved_piece_by_piece_is_resolved_as_one() {
+    let text = MIXED.repeat(3);
+    let chars: Vec<char> = text.chars().collect();
+    for paragraph in [Level::LTR, Level::RTL] {
+        let mut whole = vec![Level::LTR; chars.len()];
+        resolve(&text, paragraph, &mut whole);
+        for cut in [1, 17, chars.len() / 2, chars.len() - 1] {
+            let mut state = vec![0u8; state_len()];
+            assert!(start_state(paragraph, &mut state));
+            let mut pieces = vec![Level::LTR; chars.len()];
+            let (first, second) = pieces.split_at_mut(cut);
+            resolve_from(&mut state, paragraph, chars.iter().copied(), cut, first);
+            // The state kept, the second piece on its own.
+            let kept = state.clone();
+            let mut state = kept;
+            let n = second.len();
+            resolve_from(
+                &mut state,
+                paragraph,
+                chars[cut..].iter().copied(),
+                n,
+                second,
+            );
+            assert_eq!(pieces, whole, "cut at {cut}");
+            // Skipping the first piece instead gives the same state.
+            let mut skipped = vec![0u8; state_len()];
+            start_state(paragraph, &mut skipped);
+            skip_from(&mut skipped, paragraph, chars.iter().copied(), cut);
+            let mut again = vec![0u8; state_len()];
+            start_state(paragraph, &mut again);
+            resolve_from(
+                &mut again,
+                paragraph,
+                chars.iter().copied(),
+                cut,
+                &mut vec![Level::LTR; cut],
+            );
+            assert_eq!(skipped, again);
+        }
+    }
+}
+
+#[test]
+fn bytes_that_are_no_state_start_the_paragraph_anew_and_never_panic() {
+    let chars: Vec<char> = MIXED.chars().collect();
+    let mut fresh = vec![Level::LTR; chars.len()];
+    resolve(MIXED, Level::RTL, &mut fresh);
+    let mut bytes = vec![0u8; state_len()];
+    let mut out = vec![Level::LTR; chars.len()];
+    resolve_from(
+        &mut bytes,
+        Level::RTL,
+        chars.iter().copied(),
+        chars.len(),
+        &mut out,
+    );
+    assert_eq!(out, fresh, "all zero is no state");
+    // Random bytes, and real states with one byte changed: levels for
+    // every character, whatever they come to.
+    let mut seed = 0x2545_f491_u32;
+    let mut next = || {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        seed
+    };
+    let mut real = vec![0u8; state_len()];
+    start_state(Level::RTL, &mut real);
+    skip_from(&mut real, Level::RTL, chars.iter().copied(), 20);
+    for round in 0..4000 {
+        let mut state = match round % 2 {
+            0 => (0..state_len()).map(|_| next() as u8).collect::<Vec<u8>>(),
+            _ => {
+                let mut s = real.clone();
+                let at = next() as usize % s.len();
+                s[at] = next() as u8;
+                s
+            }
+        };
+        if round % 4 == 1 {
+            state[0] = 1;
+        }
+        let n = resolve_from(
+            &mut state,
+            Level::RTL,
+            chars.iter().copied(),
+            chars.len(),
+            &mut out,
+        );
+        assert_eq!(n, chars.len());
+        assert!(out.iter().all(|l| l.number() <= Level::MAX + 1));
+    }
+    // Too short: taken as the start, nothing written.
+    let mut short = [1u8; 4];
+    resolve_from(
+        &mut short,
+        Level::LTR,
+        chars.iter().copied(),
+        chars.len(),
+        &mut out,
+    );
+    assert_eq!(short, [1u8; 4]);
+}

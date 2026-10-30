@@ -9,6 +9,10 @@
 
 use super::{Class, Level, bracket, canonical, class};
 
+mod state;
+
+pub(crate) use state::LEN as STATE_LEN;
+
 /// Embeddings and isolates open at once, the paragraph's own level
 /// included. Deeper ones count as overflow.
 pub const DEPTH: usize = 8;
@@ -188,7 +192,6 @@ impl Carry {
     /// Moves the carry past the next `count` characters of `rest`
     /// without keeping their levels: to start a line in the middle of a
     /// paragraph.
-    #[allow(dead_code, reason = "for pieces of a paragraph the reader keeps (#33)")]
     pub(crate) fn skip<I>(&mut self, rest: I, count: usize)
     where
         I: Iterator<Item = char> + Clone,
