@@ -329,6 +329,33 @@ pub fn wanted(sleep: bool, power_off: bool, installing: bool) -> Option<Wanted> 
     }
 }
 
+/// What a sleep does once the plugins have heard `core.suspend` and the
+/// pending work is finished.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum After {
+    /// A press came meanwhile: awake after all; the requests are dropped.
+    Awake,
+    /// Sleep lightly, to be switched off after the chosen time.
+    Light,
+    /// The power goes now.
+    SwitchOff,
+}
+
+/// The step after `core.suspend` and the finished work. `lightly`: a real
+/// sleep first is wanted (the sleep, not a switch-off request), `power_off`:
+/// a plugin asked to switch off meanwhile (while it answered `core.suspend`,
+/// or in the work finished): that wins, or the reader would sleep and be
+/// switched off the moment it woke. `pressed`: a press came meanwhile.
+pub fn after_suspend(lightly: bool, power_off: bool, pressed: bool) -> After {
+    if pressed {
+        After::Awake
+    } else if power_off || !lightly {
+        After::SwitchOff
+    } else {
+        After::Light
+    }
+}
+
 /// One sleep of a reader put to sleep on battery or on USB: checks that it
 /// can sleep lightly (the power button let go, the radios off), naps until
 /// the power button or the time of [`Asleep::next`], and ends either way
@@ -413,6 +440,29 @@ mod tests {
         assert_eq!(wanted(true, false, false), Some(Wanted::Sleep));
         assert_eq!(wanted(false, true, false), Some(Wanted::SwitchOff));
         assert_eq!(wanted(true, true, false), Some(Wanted::SwitchOff));
+    }
+
+    #[test]
+    fn a_press_meanwhile_cancels_both_requests() {
+        for lightly in [false, true] {
+            for power_off in [false, true] {
+                assert_eq!(after_suspend(lightly, power_off, true), After::Awake);
+            }
+        }
+    }
+
+    #[test]
+    fn a_switch_off_asked_while_going_to_sleep_is_honoured_now() {
+        // The sleep was begun lightly; the plugin answered core.suspend with
+        // a switch-off: no light sleep, or it would go off at the wake.
+        assert_eq!(after_suspend(true, true, false), After::SwitchOff);
+        assert_eq!(after_suspend(false, true, false), After::SwitchOff);
+    }
+
+    #[test]
+    fn a_plain_sleep_goes_light_and_a_switch_off_request_goes_off() {
+        assert_eq!(after_suspend(true, false, false), After::Light);
+        assert_eq!(after_suspend(false, false, false), After::SwitchOff);
     }
 
     #[test]

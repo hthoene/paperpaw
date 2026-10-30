@@ -591,7 +591,9 @@ impl<'a> Env<'a> {
     /// off, if its clock ran on. `None` before the first sleep and where
     /// it is not known: a device without a clock that keeps time switched
     /// off (the X4) cannot tell; a plugin that needs it keeps a stamp of
-    /// its own.
+    /// its own. Where the clock is the chip's slow RTC clock (the X4's light
+    /// sleep), expect an error of a few percent (1-5 %): right for "slept
+    /// for two hours", not for a stopwatch.
     pub fn slept_for(&self) -> Option<core::time::Duration> {
         self.slept_for
     }
