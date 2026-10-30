@@ -24,7 +24,9 @@ may leave a device that does not start.
   chosen by the OTA data partition. The web flasher writes them once;
   from then on updates come without a cable. `cargo run` erases the OTA
   data, so the firmware flashed is the one that starts.
-- **The firmware undoes a failed update itself** (`shells/xteink/src/ota.rs`).
+- **The firmware undoes a failed update itself** (`crates/paperpaw-x4/src/updates.rs`,
+  which `shells/xteink/src/ota.rs` runs on the chip's flash; a computer tests the
+  whole path in `crates/paperpaw-x4/tests/update_path.rs`).
   A new image's first start marks it on trial, before the board is set
   up; running for half a minute in all marks it good. Going to sleep or
   restarting before marks it new again with the time it ran (in the OTA

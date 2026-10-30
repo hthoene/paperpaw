@@ -27,6 +27,7 @@ paths=(
     "shells/xteink/Cargo.toml|features and the bootloader's crates"
     "shells/xteink/.cargo/config.toml|build flags and aliases"
     "crates/paperpaw-x4/src/ota.rs|the OTA data and images (host-tested)"
+    "crates/paperpaw-x4/src/updates.rs|start, trial and install as the firmware runs them (host-tested)"
     "crates/paperpaw-x4/src/partitions.rs|reading the partition table (host-tested)"
     "crates/paperpaw-update|update files: their signature and trailer"
     "crates/paperpaw-sdk/src/firmware.rs|what plugins see of updates"
