@@ -4,7 +4,8 @@
 //! the styles and the source positions around what it replaced; styles
 //! and alignments survive their compact form; reading progress grows
 //! with the position and stays within 0 to 1; links with a scheme are
-//! external; a document's optional parts default to nothing.
+//! external; a document's optional parts default to nothing; a run's
+//! inline language resolves within its block and leaves the other bits.
 
 #![allow(
     clippy::unwrap_used,
@@ -13,8 +14,8 @@
 )]
 
 use paperpaw_document::{
-    Align, Block, BlockKind, Document, DocumentError, Locator, MAX_FAMILIES, Metadata, NoStorage,
-    OffsetMap, Run, Storage, TextStyle, is_external,
+    Align, Block, BlockKind, Document, DocumentError, Lang, Link, LinkKind, Locator, MAX_FAMILIES,
+    MAX_INLINE_LANGS, Metadata, NoStorage, OffsetMap, Run, Storage, TextStyle, is_external,
 };
 use proptest::prelude::*;
 
@@ -76,10 +77,12 @@ fn runs_for(text: &str, cuts: &[(prop::sample::Index, u8)]) -> Vec<Run> {
     points
         .chunks(2)
         .filter(|pair| pair.len() == 2 && pair[0].0 < pair[1].0)
-        .map(|pair| Run {
-            start: pair[0].0 as u32,
-            end: pair[1].0 as u32,
-            style: TextStyle::from_bits(u16::from(pair[0].1 % 4 + 1)),
+        .map(|pair| {
+            Run::new(
+                pair[0].0 as u32,
+                pair[1].0 as u32,
+                TextStyle::from_bits(u32::from(pair[0].1 % 4 + 1)),
+            )
         })
         .collect()
 }
@@ -223,7 +226,7 @@ proptest! {
     }
 
     #[test]
-    fn styles_survive_their_bits_and_combine_like_sets(a in 0..0x1000u16, b in 0..0x1000u16, c in 0..0x1000u16) {
+    fn styles_survive_their_bits_and_combine_like_sets(a in 0..0x1000u32, b in 0..0x1000u32, c in 0..0x1000u32) {
         let (a, b, c) = (TextStyle::from_bits(a), TextStyle::from_bits(b), TextStyle::from_bits(c));
         prop_assert_eq!(TextStyle::from_bits(a.bits()), a);
         let ab = a.union(b);
@@ -239,6 +242,14 @@ proptest! {
         prop_assert_eq!(a.union(a), a);
         prop_assert_eq!(ab.union(c), a.union(b.union(c)));
         prop_assert!(a.family() <= MAX_FAMILIES);
+        for index in [0, 1, MAX_INLINE_LANGS, MAX_INLINE_LANGS + 1, u8::MAX] {
+            let with = a.with_lang_index(index).with_family(3);
+            prop_assert_eq!(with.lang_index(), if index > MAX_INLINE_LANGS { 0 } else { index });
+            prop_assert_eq!(with.family(), 3);
+            prop_assert_eq!(with.without(TextStyle::BOLD).lang_index(), with.lang_index());
+            prop_assert_eq!(TextStyle::from_bits(with.bits()), with);
+            prop_assert_eq!(a.union(with).lang_index(), with.lang_index());
+        }
         for family in [0, 1, MAX_FAMILIES, MAX_FAMILIES + 1, u8::MAX] {
             let with = a.with_family(family);
             prop_assert_eq!(with.family(), if family > MAX_FAMILIES { 0 } else { family });
@@ -306,16 +317,8 @@ fn replacing_the_end_of_one_run_and_the_start_of_the_next() {
     block.text = String::from("aaBBccDDee");
     block.end = 10;
     block.runs = vec![
-        Run {
-            start: 2,
-            end: 4,
-            style: TextStyle::BOLD,
-        },
-        Run {
-            start: 6,
-            end: 8,
-            style: TextStyle::ITALIC,
-        },
+        Run::new(2, 4, TextStyle::BOLD),
+        Run::new(6, 8, TextStyle::ITALIC),
     ];
     block.replace(3..7, "X");
     assert_eq!(block.text, "aaBXDee");
@@ -428,4 +431,40 @@ fn optional_parts_default_to_nothing() {
     // An empty book is at its start everywhere.
     assert_eq!(Sections(vec![0, 0]).progress(Locator::new(1, 5)), 0.0);
     assert_eq!(book.progress(Locator::new(1, 0)), 1.0);
+}
+
+#[test]
+fn a_run_is_in_its_inline_language_or_the_block_s() {
+    let (ar, fa) = (Lang::parse("ar"), Lang::parse("fa"));
+    let persian = TextStyle::ITALIC.with_lang_index(1);
+    let block = Block::new(BlockKind::Paragraph, 0, 9, String::from("abc def g"))
+        .lang(ar)
+        .inline_langs(&[fa])
+        .runs(vec![
+            Run::new(4, 7, persian),
+            Run::new(8, 9, TextStyle::REGULAR.with_lang_index(9)),
+        ]);
+    assert_eq!(block.lang_at(0), ar);
+    assert_eq!(block.lang_at(5), fa);
+    // An index past the block's list is the block's own language.
+    assert_eq!(block.lang_at(8), ar);
+    assert_eq!(block.lang_of(persian), fa);
+    // At most MAX_INLINE_LANGS languages; none is None.
+    let many = [fa; 20];
+    let capped = block.clone().inline_langs(&many);
+    assert_eq!(
+        capped.inline_langs.as_deref().map(<[Lang]>::len),
+        Some(usize::from(MAX_INLINE_LANGS))
+    );
+    assert_eq!(block.inline_langs(&[]).inline_langs, None);
+}
+
+#[test]
+fn a_link_is_plain_unless_it_says() {
+    let link = Link::new(1, 4, "#n1");
+    assert_eq!(link.kind, LinkKind::Plain);
+    assert_eq!(link.kind(LinkKind::NoteRef).kind, LinkKind::NoteRef);
+    let block = Block::new(BlockKind::Paragraph, 0, 0, String::new());
+    assert_eq!(block.lang, Lang::NONE);
+    assert_eq!(block.drop_cap, 0);
 }

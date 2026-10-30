@@ -12,6 +12,7 @@ categories = ["no-std", "text-processing"]
 keywords = ["e-reader", "ebook", "document"]
 
 [dependencies]
+paperpaw-lang.workspace = true
 paperpaw-platform.workspace = true
 
 [dev-dependencies]

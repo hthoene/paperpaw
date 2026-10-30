@@ -70,7 +70,7 @@ pub(crate) const INDEX: u32 = 16;
 pub(crate) const NO_INDENT: i16 = i16::MIN;
 pub(crate) const NO_SPACE: u16 = u16::MAX;
 /// Size of a style run after a record's text.
-pub(crate) const RUN: usize = 6;
+pub(crate) const RUN: usize = 8;
 /// The most a block is set in from each side by the elements around it,
 /// in hundredths of an em (the layout also keeps it to a quarter of a
 /// line).
@@ -420,7 +420,7 @@ impl Converter<'_> {
         }
         match self.runs.last_mut() {
             Some(run) if run.end == start && run.style == style => run.end = end,
-            _ => self.runs.push(Run { start, end, style }),
+            _ => self.runs.push(Run::new(start, end, style)),
         }
     }
 
@@ -1132,10 +1132,7 @@ impl Converter<'_> {
             .runs
             .iter()
             .filter(|run| (run.start as usize) < len)
-            .map(|run| Run {
-                end: run.end.min(len as u32),
-                ..*run
-            })
+            .map(|run| Run::new(run.start, run.end.min(len as u32), run.style))
             .collect();
         let align = self.align.unwrap_or_default();
         self.out

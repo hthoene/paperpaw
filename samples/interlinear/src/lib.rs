@@ -217,11 +217,7 @@ fn filter(env: &Env<'_>, block: &mut Block) {
     if s.read(&PARALLEL) {
         let text = translate(&block.text);
         let len = text.len() as u32;
-        let run = Run {
-            start: 0,
-            end: len,
-            style: TextStyle::ITALIC,
-        };
+        let run = Run::new(0, len, TextStyle::ITALIC);
         // Past its bounds (a very long paragraph) it is left out.
         let _ = block
             .insert_after(Block::new(BlockKind::Paragraph, 0, len, text).runs(alloc::vec![run]));

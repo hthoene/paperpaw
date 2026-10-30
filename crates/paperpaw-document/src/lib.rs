@@ -25,6 +25,8 @@ use core::fmt;
 
 use paperpaw_platform::StorageError;
 
+pub use paperpaw_lang::{Direction, Lang, WritingMode};
+
 pub use paperpaw_platform::{DirEntry, NoStorage, Storage};
 
 /// A reading position.
@@ -66,6 +68,9 @@ pub struct Metadata {
     /// The way its pages go: right to left in manga and in books in
     /// Arabic or Hebrew.
     pub direction: PageProgression,
+    /// How its lines go: across, or down in columns (an EPUB's
+    /// `primary-writing-mode`).
+    pub writing_mode: WritingMode,
 }
 
 /// The way a book's pages go.
@@ -78,6 +83,12 @@ pub enum PageProgression {
 }
 
 impl Metadata {
+    /// Its lines going as `writing_mode` says.
+    pub fn writing_mode(mut self, writing_mode: WritingMode) -> Self {
+        self.writing_mode = writing_mode;
+        self
+    }
+
     /// Its pages going `direction`.
     pub fn direction(mut self, direction: PageProgression) -> Self {
         self.direction = direction;
@@ -142,16 +153,30 @@ pub struct ImageRef {
 }
 
 /// The character style of a run of text: bold, italic, small capitals,
-/// superscript or subscript, underlined or struck through, and the font
-/// family embedded in the document, if any (see [`Document::fonts`]).
+/// superscript or subscript, underlined or struck through, the font
+/// family embedded in the document, if any (see [`Document::fonts`]), and
+/// the language of the run if it is not the block's (see
+/// [`Block::inline_langs`]).
+///
+/// Bits 12 to 23 and 28 to 31 are reserved: zero now. A meaning is given
+/// to one of them only with a new `paperpaw_layout::VERSION`, never by
+/// reading a bit already set differently.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TextStyle(u16);
+pub struct TextStyle(u32);
 
 /// Most embedded font families a document can use.
 pub const MAX_FAMILIES: u8 = 31;
 
-/// The bits of everything but the family, which is in bits 2 to 6.
-const FLAGS: u16 = 0b1111_1000_0011;
+/// Most languages a block's runs can name besides the block's own
+/// ([`Block::inline_langs`]).
+pub const MAX_INLINE_LANGS: u8 = 15;
+
+/// The bits of everything but the family (bits 2 to 6) and the inline
+/// language (bits 24 to 27).
+const FLAGS: u32 = 0b1111_1000_0011;
+
+/// Where the inline language's index starts.
+const LANG_SHIFT: u32 = 24;
 
 impl TextStyle {
     pub const REGULAR: TextStyle = TextStyle(0);
@@ -206,42 +231,72 @@ impl TextStyle {
     /// The embedded font family (1 to [`MAX_FAMILIES`]); 0 for the
     /// reader's font.
     pub const fn family(self) -> u8 {
-        ((self.0 >> 2) & MAX_FAMILIES as u16) as u8
+        ((self.0 >> 2) & MAX_FAMILIES as u32) as u8
     }
 
     /// This style in embedded family `family` (0: the reader's font).
     pub const fn with_family(self, family: u8) -> TextStyle {
         let family = if family > MAX_FAMILIES { 0 } else { family };
-        TextStyle((self.0 & FLAGS) | ((family as u16) << 2))
+        let mask = (MAX_FAMILIES as u32) << 2;
+        TextStyle((self.0 & !mask) | ((family as u32) << 2))
+    }
+
+    /// The run's language: 1 to [`MAX_INLINE_LANGS`], counting from one,
+    /// in its block's [`Block::inline_langs`]; 0 for the block's own
+    /// [`Block::lang`]. See [`Block::lang_of`].
+    pub const fn lang_index(self) -> u8 {
+        ((self.0 >> LANG_SHIFT) & MAX_INLINE_LANGS as u32) as u8
+    }
+
+    /// This style in the block's inline language `index` (0: the block's
+    /// own).
+    pub const fn with_lang_index(self, index: u8) -> TextStyle {
+        let index = if index > MAX_INLINE_LANGS { 0 } else { index };
+        let mask = (MAX_INLINE_LANGS as u32) << LANG_SHIFT;
+        TextStyle((self.0 & !mask) | ((index as u32) << LANG_SHIFT))
     }
 
     /// Both styles combined, e.g. bold text in an italic paragraph; the
-    /// family is `other`'s if it has one.
+    /// family and the language are `other`'s if it has them.
     pub const fn union(self, other: TextStyle) -> TextStyle {
         let family = if other.family() != 0 {
             other.family()
         } else {
             self.family()
         };
-        TextStyle((self.0 | other.0) & FLAGS).with_family(family)
+        let lang = if other.lang_index() != 0 {
+            other.lang_index()
+        } else {
+            self.lang_index()
+        };
+        TextStyle((self.0 | other.0) & FLAGS)
+            .with_family(family)
+            .with_lang_index(lang)
     }
 
     /// For storing styles compactly.
-    pub const fn bits(self) -> u16 {
+    pub const fn bits(self) -> u32 {
         self.0
     }
 
-    pub const fn from_bits(bits: u16) -> TextStyle {
+    pub const fn from_bits(bits: u32) -> TextStyle {
         TextStyle(bits)
     }
 }
 
 /// A run of styled text: byte range `start..end` of a block's text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Run {
     pub start: u32,
     pub end: u32,
     pub style: TextStyle,
+}
+
+impl Run {
+    pub const fn new(start: u32, end: u32, style: TextStyle) -> Run {
+        Run { start, end, style }
+    }
 }
 
 /// Horizontal alignment of a block's lines.
@@ -344,6 +399,23 @@ pub struct Block {
     /// glosses ([`Annotation`]). Reserved: the layout does not set them
     /// yet (see ADR 0032), formats and filters may fill it already.
     pub annotations: Vec<Annotation>,
+    /// The way its lines go (an EPUB's `dir`, CSS `direction`): `Auto`
+    /// takes it from the first strong letter (UAX #9 P2, P3).
+    pub dir: Direction,
+    /// How its lines go: across, or down in columns. Only
+    /// [`WritingMode::HorizontalTb`] is laid out yet.
+    pub writing_mode: WritingMode,
+    /// Its language (an EPUB's `lang`, `xml:lang`, else the book's):
+    /// for the shaper, fonts, hyphenation. [`Lang::NONE`] if unknown.
+    pub lang: Lang,
+    /// The other languages its runs are in, which their
+    /// [`TextStyle::lang_index`] names from one, at most
+    /// [`MAX_INLINE_LANGS`]: a Persian word in an Arabic book. `None` in
+    /// almost every block.
+    pub inline_langs: Option<alloc::boxed::Box<[Lang]>>,
+    /// The lines its first letter spans as a drop capital; 0 for none.
+    /// Reserved: the layout does not set drop capitals yet.
+    pub drop_cap: u8,
 }
 
 /// The most blocks a text filter inserts after one ([`Block::inserted`]).
@@ -414,7 +486,40 @@ impl Block {
             image: None,
             inserted: Vec::new(),
             annotations: Vec::new(),
+            dir: Direction::Auto,
+            writing_mode: WritingMode::HorizontalTb,
+            lang: Lang::NONE,
+            inline_langs: None,
+            drop_cap: 0,
         }
+    }
+
+    pub fn dir(mut self, dir: Direction) -> Self {
+        self.dir = dir;
+        self
+    }
+
+    pub fn writing_mode(mut self, writing_mode: WritingMode) -> Self {
+        self.writing_mode = writing_mode;
+        self
+    }
+
+    pub fn lang(mut self, lang: Lang) -> Self {
+        self.lang = lang;
+        self
+    }
+
+    /// Its runs' other languages (see [`Block::inline_langs`]); more than
+    /// [`MAX_INLINE_LANGS`] are dropped, none is `None`.
+    pub fn inline_langs(mut self, langs: &[Lang]) -> Self {
+        let langs = &langs[..langs.len().min(MAX_INLINE_LANGS as usize)];
+        self.inline_langs = (!langs.is_empty()).then(|| langs.into());
+        self
+    }
+
+    pub fn drop_cap(mut self, lines: u8) -> Self {
+        self.drop_cap = lines;
+        self
     }
 
     pub fn continues(mut self, continues: bool) -> Self {
@@ -519,6 +624,25 @@ impl Block {
         match self.runs.get(at) {
             Some(run) if run.start <= index => run.style,
             _ => TextStyle::REGULAR,
+        }
+    }
+
+    /// The language of the character at byte `index` of `text`: its run's
+    /// inline language, else the block's.
+    pub fn lang_at(&self, index: usize) -> Lang {
+        self.lang_of(self.style_at(index))
+    }
+
+    /// The language a run of `style` is in, in this block.
+    pub fn lang_of(&self, style: TextStyle) -> Lang {
+        match style.lang_index() {
+            0 => self.lang,
+            i => self
+                .inline_langs
+                .as_deref()
+                .and_then(|langs| langs.get(i as usize - 1))
+                .copied()
+                .unwrap_or(self.lang),
         }
     }
 
@@ -713,10 +837,41 @@ pub struct TocEntry {
 /// A link in a section's text: source offsets `start..end`, and where it
 /// goes (see [`Document::link_target`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Link {
     pub start: u32,
     pub end: u32,
     pub href: String,
+    pub kind: LinkKind,
+}
+
+impl Link {
+    pub fn new(start: u32, end: u32, href: impl Into<String>) -> Link {
+        Link {
+            start,
+            end,
+            href: href.into(),
+            kind: LinkKind::Plain,
+        }
+    }
+
+    pub fn kind(mut self, kind: LinkKind) -> Link {
+        self.kind = kind;
+        self
+    }
+}
+
+/// What a [`Link`] is, as the book marks it (an EPUB's `epub:type`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum LinkKind {
+    /// Any other link.
+    #[default]
+    Plain,
+    /// A note's mark (`noteref`): it leads to a footnote or an endnote.
+    NoteRef,
+    /// From a note back to its mark (`backlink`).
+    Back,
 }
 
 /// Whether `href` leads out of the document, e.g. to a web page: it has a
@@ -851,6 +1006,15 @@ pub trait Document {
     }
 
     /// Reading progress of `at` from 0.0 to 1.0.
+    /// A question asked after this release, by its key and its
+    /// parameters (bytes the key's documentation describes): what
+    /// PaperPaw asks of documents later reaches documents built now,
+    /// which answer `None` to keys they do not know.
+    fn extended(&self, storage: &dyn Storage, key: &str, params: &[u8]) -> Option<Vec<u8>> {
+        let _ = (storage, key, params);
+        None
+    }
+
     fn progress(&self, at: Locator) -> f32 {
         let total: u64 = (0..self.sections())
             .map(|s| u64::from(self.section_len(s)))
@@ -877,11 +1041,7 @@ mod tests {
             end: 120,
             text: String::from("Mr. Smith is here."),
             map: OffsetMap::IDENTITY,
-            runs: alloc::vec![Run {
-                start: 4,
-                end: 9,
-                style: TextStyle::BOLD,
-            }],
+            runs: alloc::vec![Run::new(4, 9, TextStyle::BOLD)],
             align: Align::default(),
             indent: None,
             space: None,
@@ -892,6 +1052,11 @@ mod tests {
             image: None,
             inserted: Vec::new(),
             annotations: Vec::new(),
+            dir: Direction::Auto,
+            writing_mode: WritingMode::HorizontalTb,
+            lang: Lang::NONE,
+            inline_langs: None,
+            drop_cap: 0,
         };
         block.replace(0..3, "Mister");
         assert_eq!(block.text, "Mister Smith is here.");
@@ -939,6 +1104,11 @@ mod tests {
             image: None,
             inserted: Vec::new(),
             annotations: Vec::new(),
+            dir: Direction::Auto,
+            writing_mode: WritingMode::HorizontalTb,
+            lang: Lang::NONE,
+            inline_langs: None,
+            drop_cap: 0,
         }
     }
 
@@ -956,16 +1126,8 @@ mod tests {
     fn styles_by_run() {
         let mut b = block("plain bold italic", 0, 17, OffsetMap::IDENTITY);
         b.runs = alloc::vec![
-            Run {
-                start: 6,
-                end: 10,
-                style: TextStyle::BOLD
-            },
-            Run {
-                start: 11,
-                end: 17,
-                style: TextStyle::ITALIC
-            },
+            Run::new(6, 10, TextStyle::BOLD),
+            Run::new(11, 17, TextStyle::ITALIC),
         ];
         assert_eq!(b.style_at(0), TextStyle::REGULAR);
         assert_eq!(b.style_at(6), TextStyle::BOLD);

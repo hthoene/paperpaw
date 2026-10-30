@@ -81,11 +81,7 @@ fn bold_beginnings(block: &mut Block) {
             .char_indices()
             .nth(bold)
             .map_or(text.len(), |(i, _)| start + i);
-        runs.push(Run {
-            start: start as u32,
-            end: end as u32,
-            style: TextStyle::BOLD,
-        });
+        runs.push(Run::new(start as u32, end as u32, TextStyle::BOLD));
     };
     for (i, c) in block.text.char_indices() {
         match (&mut word, c.is_alphabetic()) {

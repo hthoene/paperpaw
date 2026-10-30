@@ -48,11 +48,7 @@ impl Document for Text {
             .collect::<Vec<_>>()
             .chunks(2)
             .filter(|pair| pair.len() == 2)
-            .map(|pair| Run {
-                start: pair[0].0 as u32,
-                end: pair[1].0 as u32 + 1,
-                style: TextStyle::BOLD,
-            })
+            .map(|pair| Run::new(pair[0].0 as u32, pair[1].0 as u32 + 1, TextStyle::BOLD))
             .collect();
         let kind = if line.starts_with('#') {
             BlockKind::Heading(1)
@@ -740,11 +736,11 @@ fn the_last_line_of_a_block_goes_with_what_was_inserted_after_it() {
 
 #[test]
 fn the_books_alignment_size_and_fonts_can_be_left_to_the_reader() {
-    let centred = words().align(Align::Center).size(200).runs(vec![Run {
-        start: 0,
-        end: 4,
-        style: TextStyle::REGULAR.with_family(3),
-    }]);
+    let centred = words().align(Align::Center).size(200).runs(vec![Run::new(
+        0,
+        4,
+        TextStyle::REGULAR.with_family(3),
+    )]);
     let (page, _) = styled_page(centred.clone(), &STYLE);
     assert!(page.lines[0].x > 0.0);
     assert_eq!(page.lines[0].runs[0].face.size, 200);
