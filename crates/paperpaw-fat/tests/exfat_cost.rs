@@ -12,6 +12,12 @@
 //!     -- --ignored --nocapture
 //! ```
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "tests panic on purpose when something is wrong"
+)]
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::{Cell, RefCell};
 use std::io::{Read, Seek, SeekFrom, Write};
