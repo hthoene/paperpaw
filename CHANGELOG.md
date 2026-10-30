@@ -50,7 +50,7 @@ change the plugin SDK.
   `_` arm). `screen::Handled` stays as it is.
 - `TextStyle` of `paperpaw-document` is 32 bits (bits 24 to 27 a
   block's inline language); cached books and page indexes are made anew
-  (EPUB cache version 28, a new `paperpaw_layout::VERSION`).
+  (EPUB cache version 29, a new `paperpaw_layout::VERSION`).
 - Font packs of version 2 have a table directory (anchors, mark-to-mark
   anchors, line metrics per script, language forms, contextual
   substitutions, vertical metrics); packs of version 1 read as before.
@@ -80,6 +80,26 @@ change the plugin SDK.
   `PillPart`, `TicksPart`); room to grow without a new interface
   (`Widget::on_extended`, `GestureRecognizer::extended`,
   `library::Library::extended`, `Document::extended`).
+- Reading Arabic and Hebrew books (#33): EPUB blocks take their
+  direction and language from `dir`, `lang`/`xml:lang` and CSS
+  `direction`, and a book in a right-to-left language runs right to left;
+  `text-align: left`/`right` and the margins at the sides are read
+  against the direction; inline `dir`, `<bdi>` and `<bdo>` set their
+  text apart (isolates and overrides of UAX #9). Lines are resolved by
+  UAX #9, start at the right where they run right to left, and are drawn
+  run by run in the order of their levels, joined Arabic letters as wide
+  as drawn (`FontHandle::measure_in`, `draw_in`); the words of a page
+  come in reading order where they are drawn. Not yet checked by readers
+  of these languages.
+- The pieces of a long paragraph (a chapter saved by Word as one) are
+  resolved as one paragraph: `paperpaw_layout::PieceStarts` keeps the
+  bidi state at their starts for a reader (`LayoutContext::pieces`), and
+  `paperpaw_text::bidi` gives that state as bytes (`state_len`,
+  `start_state`, `resolve_from`, `skip_from`, `state_paragraph`), which
+  stay out of the plugin interface. `paperpaw_text::bidi` is public
+  (paragraph levels, rules L1 and L2, mirrors).
+- `paperpaw_text::is_invisible` (also `paperpaw_sdk::text`): the controls
+  that draw nothing and take no room.
 - `paperpaw-i18n`: a catalog says its direction, script, digits and
   calendar (`[meta]`); Arabic and Hebrew plural rules.
 - Plugins switch the device off where PaperPaw does so
@@ -101,6 +121,11 @@ change the plugin SDK.
 
 ### Fixed
 
+- `decorations::join_boxes`, and the reader's selection, join the boxes
+  of words next to each other in a line that runs right to left (they
+  came to nothing) and leave out a word drawn between two of a line that
+  runs both ways; left and right move the selection as its words are
+  drawn.
 - A time zone rule with an offset of more than 24 hours (such as `<>200`) is now refused instead of read as an offset of days.
 
 ## [0.5.0-beta.12] - 2026-10-28
