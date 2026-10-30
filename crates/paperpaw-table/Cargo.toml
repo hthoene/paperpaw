@@ -1,0 +1,15 @@
+[package]
+name = "paperpaw-table"
+description = "The firmware's shared function tables for PaperPaw plugins (no_std)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+categories = ["no-std", "embedded"]
+keywords = ["plugin", "abi", "no-std"]
+
+[lints]
+workspace = true

@@ -1,0 +1,11 @@
+# The firmware's shared function tables (ADR 0026, #44): what a plugin
+# built for a RISC-V chip calls in the firmware instead of carrying its own
+# copy. Part of the plugin interface: lines are only ever appended, and
+# `tools/shared-table.py` writes `src/index.rs` and `table.sig` from it.
+#
+#   <family> <revision> <INDEX> <function>   an entry, added at <revision>
+#   bump <family> <revision>                 a body change old plugins see:
+#                                            refuses plugins built before it
+#
+# Revisions of a family only grow; an entry is added at a revision higher
+# than every line of its family before it.

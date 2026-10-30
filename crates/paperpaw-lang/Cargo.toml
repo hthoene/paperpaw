@@ -1,0 +1,18 @@
+[package]
+name = "paperpaw-lang"
+description = "Language tags, text direction and writing mode for PaperPaw (no_std)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+categories = ["no-std", "internationalization", "text-processing"]
+keywords = ["bcp47", "language", "bidi", "no-std"]
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
