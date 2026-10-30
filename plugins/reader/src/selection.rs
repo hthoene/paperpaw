@@ -78,8 +78,15 @@ impl Selection {
     pub fn moved(&self, action: &Id, words: &[WordBox]) -> Option<usize> {
         let last = words.len().checked_sub(1)?;
         let a = action;
-        // Left and right where the cursor's word is drawn: in a word that
-        // runs right to left, the next word is on its left.
+        // Left and right to the word drawn beside the cursor's on its
+        // line, also where the line runs both ways; at the line's edge on
+        // in reading order, which in a word that runs right to left goes
+        // on to the left.
+        if *a == actions::LEFT || *a == actions::RIGHT {
+            if let Some(beside) = beside(words, self.cursor, *a == actions::RIGHT) {
+                return Some(beside);
+            }
+        }
         let rtl = words.get(self.cursor).is_some_and(|w| w.rtl);
         let visual = |side: Id| match (rtl, side) {
             (true, s) if s == actions::LEFT => actions::RIGHT,
@@ -345,6 +352,22 @@ pub(crate) fn drawn_together(
     })
 }
 
+/// The word drawn next to word `index` on its line, on its right or its
+/// left: none at the line's edge.
+fn beside(words: &[WordBox], index: usize, right: bool) -> Option<usize> {
+    let current = words.get(index)?.area;
+    words
+        .iter()
+        .enumerate()
+        .filter(|(i, w)| *i != index && w.area.y == current.y)
+        .filter(|(_, w)| match right {
+            true => w.area.x > current.x,
+            false => w.area.x < current.x,
+        })
+        .min_by_key(|(_, w)| w.area.x.abs_diff(current.x))
+        .map(|(i, _)| i)
+}
+
 /// The word on the line above (or below) word `index` nearest to it.
 fn nearest_on_line(words: &[WordBox], index: usize, below: bool) -> usize {
     let Some(current) = words.get(index).map(|w| &w.area) else {
@@ -432,12 +455,31 @@ mod tests {
     fn left_and_right_move_as_the_words_are_drawn() {
         let words = [at(0, false), at(40, true), at(20, true), at(60, false)];
         let on = |word: usize, action: Id| Selection::choosing(word).moved(&action, &words);
-        // In `x` (right to left), left goes on to `y`, right back to `ab`.
+        // To the word drawn beside: from `ab` right to `y`, from `x`
+        // left to `y` and right to `cd`.
+        assert_eq!(on(0, actions::RIGHT), Some(2));
         assert_eq!(on(1, actions::LEFT), Some(2));
-        assert_eq!(on(1, actions::RIGHT), Some(0));
-        // In `ab`, as ever; next and previous keep to reading order.
-        assert_eq!(on(0, actions::RIGHT), Some(1));
+        assert_eq!(on(1, actions::RIGHT), Some(3));
+        assert_eq!(on(2, actions::LEFT), Some(0));
+        // Next and previous keep to reading order.
         assert_eq!(on(1, actions::NEXT), Some(2));
         assert_eq!(on(2, actions::PREVIOUS), Some(1));
+        // At the line's edge on in reading order: past `cd` (left to
+        // right) to the next word; left of a right-to-left line's last
+        // word, the next too.
+        let rtl_line = [
+            at(60, true),
+            at(40, true),
+            at(20, true),
+            WordBox::new(
+                Rect::new(60, 20, 10, 10),
+                "w",
+                Locator::START,
+                Locator::START,
+            ),
+        ];
+        let on = |word: usize, action: Id| Selection::choosing(word).moved(&action, &rtl_line);
+        assert_eq!(on(2, actions::LEFT), Some(3));
+        assert_eq!(on(0, actions::RIGHT), Some(0));
     }
 }
