@@ -94,6 +94,9 @@ pub(super) struct Book {
     pub(super) decorated_for: Option<(Locator, u64)>,
     /// Where runs of blocks the text filters leave out end, read once.
     pub(super) dropped: paperpaw_sdk::reading::DroppedRuns,
+    /// The bidi state at the starts of the pieces of long paragraphs
+    /// (#33): a page inside one is not resolved from its start each time.
+    pub(super) pieces: paperpaw_sdk::layout::PieceStarts,
 }
 
 /// What the buttons choose on a page, as links are chosen: a link, or a
@@ -264,6 +267,7 @@ impl Book {
             decorated: Vec::new(),
             decorated_for: None,
             dropped: paperpaw_sdk::reading::DroppedRuns::new(),
+            pieces: paperpaw_sdk::layout::PieceStarts::new(),
         };
         book.reload_marks(env);
         book.chapter_marks = book.chapter_marks(env);
@@ -410,8 +414,9 @@ impl Book {
             return;
         };
         self.typography = typography(env, &font, &self.language, self.document.whole_pages());
-        // The filters may leave out other blocks now.
+        // The filters may leave out other blocks now, and change the text.
         self.dropped.clear();
+        self.pieces.clear();
         self.words = core::cell::OnceCell::new();
         self.lines = core::cell::OnceCell::new();
         self.xpointer = None;
@@ -503,7 +508,8 @@ impl Book {
             .in_book(&self.path, &self.language)
             .remembering(&self.dropped);
         let cx = LayoutContext::new(&filtered, env.storage(), width, &t.style, &faces)
-            .hyphenate(patterns.is_some().then_some(&hyphenate as Hyphenate<'_>));
+            .hyphenate(patterns.is_some().then_some(&hyphenate as Hyphenate<'_>))
+            .pieces(&self.pieces);
         Some(f(&cx))
     }
 

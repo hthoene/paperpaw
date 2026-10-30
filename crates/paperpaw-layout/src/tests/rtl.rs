@@ -137,3 +137,92 @@ fn isolated_text_keeps_its_own_direction_and_its_controls_take_no_room() {
         [("\u{5d0} ", 1), ("a", 2), ("! \u{5d1}", 1)]
     );
 }
+
+/// A paragraph in three pieces: an embedding opened in the first stays
+/// open in the second, and the neutrals at the first's end take the
+/// direction of what starts the second.
+const PIECES: [&str; 3] = [
+    "\u{5d0} x \u{202b}ab !!",
+    "\u{5d1} cd \u{202c}e",
+    " f \u{5d2}.",
+];
+
+fn pieces_doc() -> Blocks<impl Fn(Locator) -> Option<Block>> {
+    Blocks::new(|at: Locator| {
+        let mut start = 0u32;
+        for (i, text) in PIECES.iter().enumerate() {
+            let end = start + text.len() as u32;
+            if at.offset < end {
+                return Some(block(text, start, end).continues(i > 0));
+            }
+            start = end;
+        }
+        None
+    })
+}
+
+/// The levels of the pieces, laid out with `cx` in `order`, by byte of
+/// the whole paragraph.
+fn piece_levels(cx: &LayoutContext<'_>, order: [usize; 3]) -> Vec<u8> {
+    let doc = cx.document;
+    let mut by_piece: [Vec<u8>; 3] = Default::default();
+    for i in order {
+        let start: usize = PIECES[..i].iter().map(|p| p.len()).sum();
+        let block = doc
+            .block_at(cx.storage, Locator::new(0, start as u32))
+            .unwrap()
+            .unwrap();
+        let levels = BlockLevels::in_context(&block, cx, 0);
+        by_piece[i] = (0..block.text.len())
+            .map(|b| levels.at(b).number())
+            .collect();
+    }
+    by_piece.concat()
+}
+
+#[test]
+fn the_pieces_of_a_paragraph_are_resolved_as_the_whole_paragraph() {
+    let whole: String = PIECES.concat();
+    let mut chars = vec![paperpaw_text::bidi::Level::LTR; whole.chars().count()];
+    paperpaw_text::bidi::resolve(&whole, paperpaw_text::bidi::Level::RTL, &mut chars);
+    let expected: Vec<u8> = whole
+        .chars()
+        .zip(&chars)
+        .flat_map(|(c, l)| core::iter::repeat_n(l.number(), c.len_utf8()))
+        .collect();
+    let doc = pieces_doc();
+    let storage = paperpaw_document::NoStorage;
+    let style = STYLE;
+    // Each piece on its own resolves otherwise: the test tells.
+    let second = doc
+        .block_at(&storage, Locator::new(0, PIECES[0].len() as u32))
+        .unwrap()
+        .unwrap();
+    let alone = BlockLevels::of(&second);
+    let from = PIECES[0].len();
+    assert_ne!(
+        (0..second.text.len())
+            .map(|b| alone.at(b).number())
+            .collect::<Vec<_>>(),
+        expected[from..from + second.text.len()]
+    );
+    // Without starts kept: each piece walks from the paragraph's start.
+    let cx = LayoutContext::new(&doc, &storage, 100.0, &style, &Flat1);
+    assert_eq!(piece_levels(&cx, [2, 0, 1]), expected);
+    // Kept: the last piece first walks back and keeps both starts; read
+    // again, it reads itself alone.
+    let kept = PieceStarts::new();
+    let cx = cx.pieces(&kept);
+    assert_eq!(piece_levels(&cx, [2, 1, 0]), expected);
+    assert_eq!(kept.len(), 2);
+    let before = doc.calls.get();
+    let last = PIECES[0].len() + PIECES[1].len();
+    assert_eq!(piece_levels(&cx, [2, 2, 2]), expected[last..]);
+    assert_eq!(
+        doc.calls.get() - before,
+        6,
+        "three times the piece and a look for one after it, no walk back"
+    );
+    kept.clear();
+    assert!(kept.is_empty());
+}

@@ -157,7 +157,6 @@ impl Carry {
 
     /// The paragraph's level.
     #[must_use]
-    #[allow(dead_code, reason = "for pieces of a paragraph the reader keeps (#33)")]
     pub(crate) fn paragraph(&self) -> Level {
         Level(self.paragraph)
     }

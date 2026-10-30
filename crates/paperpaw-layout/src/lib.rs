@@ -40,8 +40,10 @@ pub use paperpaw_text::Hyphenate;
 use paperpaw_text::{Line, wrap_lines_balanced_kerned_with_cost, wrap_lines_kerned};
 
 use levels::BlockLevels;
+pub use pieces::PieceStarts;
 
 mod levels;
+mod pieces;
 
 /// Largest extra space per word gap for justification, relative to the
 /// line height.
@@ -816,6 +818,10 @@ pub struct LayoutContext<'a> {
     pub typesetter: &'a dyn Typesetter,
     /// Words that do not fit at the end of a line are hyphenated with it.
     pub hyphenate: Option<Hyphenate<'a>>,
+    /// Where the bidi state at the starts of the pieces of long
+    /// paragraphs is kept from page to page; without, a page that starts
+    /// inside one walks from the paragraph's start each time.
+    pub pieces: Option<&'a PieceStarts>,
 }
 
 impl<'a> LayoutContext<'a> {
@@ -834,7 +840,16 @@ impl<'a> LayoutContext<'a> {
             style,
             typesetter,
             hyphenate: None,
+            pieces: None,
         }
+    }
+
+    /// Keeps the bidi state at the starts of the pieces of long
+    /// paragraphs in `pieces` (see [`PieceStarts`]).
+    #[must_use]
+    pub fn pieces(mut self, pieces: &'a PieceStarts) -> Self {
+        self.pieces = Some(pieces);
+        self
     }
 
     pub fn hyphenate(mut self, hyphenate: impl Into<Option<Hyphenate<'a>>>) -> Self {
@@ -849,6 +864,7 @@ impl core::fmt::Debug for LayoutContext<'_> {
             .field("width", &self.width)
             .field("style", self.style)
             .field("hyphenate", &self.hyphenate.is_some())
+            .field("pieces", &self.pieces)
             .finish_non_exhaustive()
     }
 }
@@ -881,7 +897,7 @@ pub fn line_start(cx: &LayoutContext<'_>, at: Locator) -> Result<Locator, Docume
         let em = block_em(&block, style);
         block_line(&block, style, cx.typesetter.line(base), em).1 * MAX_JUSTIFY_GAP
     });
-    let levels = BlockLevels::of(&block);
+    let levels = BlockLevels::in_context(&block, cx, at.section);
     let lines = block_lines(&block, 0, base, cx, heading, indent, justify_limit, &levels);
     let start = lines
         .iter()
@@ -1035,7 +1051,7 @@ pub fn layout_page(
             false => indent,
         };
         let justify_limit = (align == Align::Justify).then_some(letters * MAX_JUSTIFY_GAP);
-        let levels = BlockLevels::of(&block);
+        let levels = BlockLevels::in_context(&block, cx, at.section);
         let lines = block_lines(
             &block,
             from,
