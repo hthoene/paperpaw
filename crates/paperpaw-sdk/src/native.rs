@@ -696,12 +696,18 @@ impl Native {
             });
         }
         let families = header.chip == paperpaw_native::Chip::Esp32C3;
-        let revs = &header.families;
-        let newer_family = families && (0..revs.len()).any(|i| revs[i] > self.family_revs[i]);
-        if header.interface > INTERFACE || header.needs_api > self.api_size || newer_family {
+        let misfit = if families {
+            paperpaw_table::misfit(&header.families, &self.family_min, &self.family_revs)
+        } else {
+            None
+        };
+        if header.interface > INTERFACE
+            || header.needs_api > self.api_size
+            || misfit == Some(paperpaw_table::Misfit::Newer)
+        {
             return Some(PluginProblem::NeedsNewerPaperPaw);
         }
-        if families && !paperpaw_table::fits(revs, &self.family_min, &self.family_revs) {
+        if misfit == Some(paperpaw_table::Misfit::Older) {
             return Some(PluginProblem::OlderInterface {
                 built_for: header.interface,
             });

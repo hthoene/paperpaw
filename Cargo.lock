@@ -2464,6 +2464,7 @@ dependencies = [
  "paperpaw-hyphen",
  "paperpaw-lang",
  "paperpaw-platform",
+ "paperpaw-table",
  "proptest",
  "read-fonts",
  "skrifa",

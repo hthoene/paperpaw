@@ -82,6 +82,40 @@ pub const fn fits(plugin: &Revisions, oldest: &Revisions, current: &Revisions) -
     true
 }
 
+/// Why a plugin does not fit a firmware's families ([`misfit`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Misfit {
+    /// It was built with a newer revision of a family than the firmware
+    /// has, or uses a family the firmware lacks: the firmware is to be
+    /// updated.
+    Newer,
+    /// It was built before a change of a family's bodies that old plugins
+    /// would see: the plugin is to be rebuilt.
+    Older,
+}
+
+/// Why a plugin built with the revisions `plugin` does not run on a
+/// firmware at `current` that runs plugins from `oldest` on, if it does
+/// not ([`fits`] says whether). Newer wins where both hold.
+#[must_use]
+pub const fn misfit(plugin: &Revisions, oldest: &Revisions, current: &Revisions) -> Option<Misfit> {
+    let mut older = false;
+    let mut i = 0;
+    while i < FAMILIES {
+        let wanted = plugin[i];
+        if wanted != 0 {
+            if wanted > current[i] {
+                return Some(Misfit::Newer);
+            }
+            if wanted < oldest[i] {
+                older = true;
+            }
+        }
+        i += 1;
+    }
+    if older { Some(Misfit::Older) } else { None }
+}
+
 /// The addresses of one family's shared functions, in the order of its
 /// [`index`]. The firmware builds it; a table is a plain array, never
 /// written.
@@ -114,6 +148,10 @@ pub const REVISIONS: Revisions = index::REVISIONS;
 /// bodies of this build: what a firmware built with it accepts.
 pub const OLDEST: Revisions = index::OLDEST;
 
+/// Eight hex digits naming the tables of this build, for logs and crash
+/// reports.
+pub const HASH: &str = index::HASH;
+
 /// The firmware's function at `index` of `family`'s table, as the
 /// function pointer `F`.
 ///
@@ -122,10 +160,26 @@ pub const OLDEST: Revisions = index::OLDEST;
 /// `F` must be the type of the function the table keeps at `index`, and
 /// the loader must have checked that the firmware's revision of `family`
 /// is at least this build's ([`fits`]).
-#[cfg(all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"))]
+#[cfg(any(
+    all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"),
+    paperpaw_table_host
+))]
 #[inline(always)]
 pub unsafe fn slot<F: Copy>(family: Family, index: usize) -> F {
     const { assert!(core::mem::size_of::<F>() == core::mem::size_of::<usize>()) };
+    // SAFETY: the table of the family, which the loader wrote before any
+    // code of the plugin ran, lives as long as the firmware runs; the
+    // caller's contract for `F` and the index.
+    unsafe {
+        let table = table_of(family);
+        core::mem::transmute_copy::<*const (), F>(&*table.0.add(index))
+    }
+}
+
+/// The word of a plugin built for a chip that holds `family`'s table.
+#[cfg(all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"))]
+#[inline(always)]
+fn table_of(family: Family) -> Table {
     unsafe extern "C" {
         static PAPERPAW_TABLE_0: Table;
         static PAPERPAW_TABLE_1: Table;
@@ -137,10 +191,9 @@ pub unsafe fn slot<F: Copy>(family: Family, index: usize) -> F {
         static PAPERPAW_TABLE_7: Table;
     }
     // SAFETY: words `paperpaw-plugin.x` makes and the loader writes
-    // before any code of the plugin runs, to tables that live as long as
-    // the firmware runs; the caller's contract for `F` and the index.
+    // before any code of the plugin runs.
     unsafe {
-        let table = match family.0 {
+        match family.0 {
             0 => PAPERPAW_TABLE_0,
             1 => PAPERPAW_TABLE_1,
             2 => PAPERPAW_TABLE_2,
@@ -149,9 +202,54 @@ pub unsafe fn slot<F: Copy>(family: Family, index: usize) -> F {
             5 => PAPERPAW_TABLE_5,
             6 => PAPERPAW_TABLE_6,
             _ => PAPERPAW_TABLE_7,
-        };
-        core::mem::transmute_copy::<*const (), F>(&*table.0.add(index))
+        }
     }
+}
+
+/// The tables of a library a computer loads, built in table mode
+/// (`--cfg paperpaw_table_host`, the CI job `table-compat`): the shell
+/// puts them in before it makes the plugin, as the loader of a chip
+/// writes the words of `paperpaw-plugin.x`. The library exports the
+/// static [`PAPERPAW_TABLES`].
+#[cfg(paperpaw_table_host)]
+#[derive(Debug)]
+pub struct HostTables([core::sync::atomic::AtomicPtr<*const ()>; FAMILIES]);
+
+#[cfg(paperpaw_table_host)]
+impl HostTables {
+    /// Tables not yet set.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self([const { core::sync::atomic::AtomicPtr::new(core::ptr::null_mut()) }; FAMILIES])
+    }
+
+    /// Sets the table of `family`; before the plugin is made.
+    pub fn set(&self, family: Family, table: Table) {
+        self.0[family.number()].store(table.0.cast_mut(), core::sync::atomic::Ordering::Release);
+    }
+}
+
+#[cfg(paperpaw_table_host)]
+impl Default for HostTables {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Where the shell of a computer puts the tables before it makes a plugin
+/// built in table mode.
+#[cfg(paperpaw_table_host)]
+#[unsafe(no_mangle)]
+pub static PAPERPAW_TABLES: HostTables = HostTables::new();
+
+#[cfg(paperpaw_table_host)]
+#[inline(always)]
+fn table_of(family: Family) -> Table {
+    Table(
+        PAPERPAW_TABLES.0[family.number()]
+            .load(core::sync::atomic::Ordering::Acquire)
+            .cast_const(),
+    )
 }
 
 /// Declares a function shared through its family's table: it is the
@@ -178,7 +276,7 @@ macro_rules! shared {
      @ $family:ident :: $index:ident) => {
         $(#[$meta])*
         $vis fn $name $(<$($lt),+>)? ($($arg: $ty),*) $(-> $ret)? {
-            #[cfg(all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"))]
+            #[cfg(any(all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"), paperpaw_table_host))]
             {
                 // SAFETY: the firmware's table holds this very function,
                 // of this type, at this index (`tools/shared-table.py`),
@@ -191,7 +289,7 @@ macro_rules! shared {
                 };
                 call($($arg),*)
             }
-            #[cfg(not(all(paperpaw_plugin, target_os = "none", target_arch = "riscv32")))]
+            #[cfg(not(any(all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"), paperpaw_table_host)))]
             $body
         }
     };
@@ -201,7 +299,7 @@ macro_rules! shared {
      @ $family:ident :: $index:ident) => {
         $(#[$meta])*
         $vis fn $name $(<$($lt),+>)? (&$this $(, $arg: $ty)*) $(-> $ret)? {
-            #[cfg(all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"))]
+            #[cfg(any(all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"), paperpaw_table_host))]
             {
                 // SAFETY: as above.
                 let call: fn(&Self $(, $ty)*) $(-> $ret)? = unsafe {
@@ -212,7 +310,28 @@ macro_rules! shared {
                 };
                 call($this $(, $arg)*)
             }
-            #[cfg(not(all(paperpaw_plugin, target_os = "none", target_arch = "riscv32")))]
+            #[cfg(not(any(all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"), paperpaw_table_host)))]
+            $body
+        }
+    };
+    // A method taking `&'a mut self`, `'a` named in its other parameters.
+    ($(#[$meta:meta])* $vis:vis fn $name:ident <$($lt:lifetime),+>
+     (&$self_lt:lifetime mut $this:ident $(, $arg:ident : $ty:ty)* $(,)?) $(-> $ret:ty)? $body:block
+     @ $family:ident :: $index:ident) => {
+        $(#[$meta])*
+        $vis fn $name <$($lt),+> (&$self_lt mut $this $(, $arg: $ty)*) $(-> $ret)? {
+            #[cfg(any(all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"), paperpaw_table_host))]
+            {
+                // SAFETY: as above.
+                let call: fn(&$self_lt mut Self $(, $ty)*) $(-> $ret)? = unsafe {
+                    $crate::slot(
+                        $crate::index::$family::FAMILY,
+                        $crate::index::$family::$index,
+                    )
+                };
+                call($this $(, $arg)*)
+            }
+            #[cfg(not(any(all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"), paperpaw_table_host)))]
             $body
         }
     };
@@ -222,7 +341,7 @@ macro_rules! shared {
      @ $family:ident :: $index:ident) => {
         $(#[$meta])*
         $vis fn $name $(<$($lt),+>)? (&mut $this $(, $arg: $ty)*) $(-> $ret)? {
-            #[cfg(all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"))]
+            #[cfg(any(all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"), paperpaw_table_host))]
             {
                 // SAFETY: as above.
                 let call: fn(&mut Self $(, $ty)*) $(-> $ret)? = unsafe {
@@ -233,7 +352,7 @@ macro_rules! shared {
                 };
                 call($this $(, $arg)*)
             }
-            #[cfg(not(all(paperpaw_plugin, target_os = "none", target_arch = "riscv32")))]
+            #[cfg(not(any(all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"), paperpaw_table_host)))]
             $body
         }
     };
@@ -255,6 +374,31 @@ mod tests {
         // Built with a newer text family, or a family this firmware lacks.
         assert!(!fits(&[4, 0, 0, 0, 0, 0, 0, 0], &oldest, &current));
         assert!(!fits(&[0, 0, 1, 0, 0, 0, 0, 0], &oldest, &current));
+    }
+
+    #[test]
+    fn a_misfit_is_newer_where_the_firmware_lacks_something() {
+        let current = [3, 1, 0, 0, 0, 0, 0, 0];
+        let oldest = [2, 1, 0, 0, 0, 0, 0, 0];
+        assert_eq!(misfit(&[3, 1, 0, 0, 0, 0, 0, 0], &oldest, &current), None);
+        assert_eq!(
+            misfit(&[1, 0, 0, 0, 0, 0, 0, 0], &oldest, &current),
+            Some(Misfit::Older)
+        );
+        assert_eq!(
+            misfit(&[4, 0, 0, 0, 0, 0, 0, 0], &oldest, &current),
+            Some(Misfit::Newer)
+        );
+        assert_eq!(
+            misfit(&[0, 0, 1, 0, 0, 0, 0, 0], &oldest, &current),
+            Some(Misfit::Newer)
+        );
+        // Too old in one family, too new in another: the firmware is to be
+        // updated first.
+        assert_eq!(
+            misfit(&[1, 2, 0, 0, 0, 0, 0, 0], &oldest, &current),
+            Some(Misfit::Newer)
+        );
     }
 
     #[test]
