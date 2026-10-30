@@ -209,7 +209,10 @@ fn pack_of(chars: &str, sizes: &[f32], advance: f32) -> alloc::vec::Vec<u8> {
 fn packs_of_other_letters_add_no_sizes() {
     let storage: Rc<dyn Storage> = Rc::new(
         MemoryStorage::new()
-            .with("plugins/ar/fonts/ar.ppfp", pack_of("\u{628}\u{62a}", &[20.0, 32.0, 48.0], 9.0))
+            .with(
+                "plugins/ar/fonts/ar.ppfp",
+                pack_of("\u{628}\u{62a}", &[20.0, 32.0, 48.0], 9.0),
+            )
             .with("plugins/big/fonts/big.ppfp", pack_of("ab", &[48.0], 20.0)),
     );
     let mut fonts = Fonts::new(4096);
