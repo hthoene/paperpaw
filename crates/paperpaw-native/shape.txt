@@ -5,9 +5,10 @@
 const paperpaw_native::bundle::BUNDLE_FORMAT: u16 = 1u16
 const paperpaw_native::bundle::BUNDLE_MAGIC: [u8; 4] = *b"PPNB"
 const paperpaw_native::compiler::MARK: &str = "rustc version "
+const paperpaw_native::header::API_WORDS: u32 = 9u32
 const paperpaw_native::header::CODE_OFFSET: u32 = 100_663_296u32
-const paperpaw_native::header::FORMAT: u16 = 3u16
-const paperpaw_native::header::HEADER_LEN: usize = 92usize
+const paperpaw_native::header::FORMAT: u16 = 4u16
+const paperpaw_native::header::HEADER_LEN: usize = 116usize
 const paperpaw_native::header::LINK_BASE: u32 = 1_006_632_960u32
 const paperpaw_native::header::MAGIC: [u8; 4] = *b"PPNP"
 const paperpaw_native::header::MAX_IMAGE_LEN: u32 = 4_194_304u32
@@ -20,6 +21,7 @@ const paperpaw_native::interface::API_SYMBOL: &str = "PAPERPAW_API"
 const paperpaw_native::interface::Api::SIZE: u32 = core::mem::size_of::<Api>() as u32
 const paperpaw_native::interface::ENTRY_SECTION: &str = ".rodata.paperpaw_entry"
 const paperpaw_native::interface::ENTRY_SYMBOL: &str = "PAPERPAW_ENTRY"
+const paperpaw_native::interface::TABLE_SYMBOLS: [&str; 8] = [ "PAPERPAW_TABLE_0", "PAPERPAW_TABLE_1", "PAPERPAW_TABLE_2", "PAPERPAW_TABLE_3", "PAPERPAW_TABLE_4", "PAPERPAW_TABLE_5", "PAPERPAW_TABLE_6", "PAPERPAW_TABLE_7", ]
 const paperpaw_native::reloc::PatchKind::SITES: u32 = 1 << 22
 const paperpaw_native::signature::DOMAIN: &[u8] = b"PaperPaw plugin file\0"
 const paperpaw_native::signature::SIGNATURE_FORMAT: u16 = 1u16
@@ -33,7 +35,8 @@ struct paperpaw_native::bundle::Bundle { len: u32, plugins: alloc::vec::Vec<pape
 struct paperpaw_native::bundle::BundleFile { path: alloc::string::String, at: u32, size: u32, sha256: [u8; 32] }
 struct paperpaw_native::bundle::BundlePlugin { id: alloc::string::String, version: alloc::string::String, files: alloc::vec::Vec<paperpaw_native::bundle::BundleFile> }
 struct paperpaw_native::extent::ImageExtent { len: u32, sha256: bool }
-struct paperpaw_native::header::Header { chip: paperpaw_native::header::Chip, fingerprint: u64, base: u32, image_len: u32, code_at: u32, entry: u32, api: u32, relocs: u32, align: u32, compiler: u32, hot_at: u32, hot_len: u32, patches: u32, sha256: [u8; 32] }
+struct paperpaw_native::header::Header { chip: paperpaw_native::header::Chip, fingerprint: u64, base: u32, image_len: u32, code_at: u32, entry: u32, api: u32, relocs: u32, align: u32, compiler: u32, hot_at: u32, hot_len: u32, patches: u32, needs_api: u32, families: [u16; 8], interface: u16, sha256: [u8; 32] }
+struct paperpaw_native::header::Older { format: u16, chip: core::option::Option<paperpaw_native::header::Chip>, fingerprint: u64 }
 struct paperpaw_native::index::Arena { start: u32, len: u32 }
 struct paperpaw_native::index::Index { firmware: [u8; 32], placed: alloc::vec::Vec<paperpaw_native::index::Placed> }
 struct paperpaw_native::index::Layout { region: paperpaw_native::index::Region, firmware: [u8; 32], api: u32, arena: paperpaw_native::index::Arena, hot_used: u32, old: alloc::vec::Vec<paperpaw_native::index::Placed>, placed: alloc::vec::Vec<paperpaw_native::index::Placed>, same: bool, written: bool }
@@ -41,8 +44,8 @@ struct paperpaw_native::index::NoRoom
 struct paperpaw_native::index::Placed { sha256: [u8; 32], at: u32, len: u32, base: u32, api: u32, hot: u32 }
 struct paperpaw_native::index::Placement { at: u32, base: u32, hot: u32, present: bool, erase_index: bool }
 struct paperpaw_native::index::Region { start: u32, end: u32, base: u32 }
-struct paperpaw_native::interface::Api #{"repr": {"align": null, "int": null, "kind": "c", "packed": null}} { size: u32, alloc: unsafe extern "C" fn(usize, usize) -> *mut u8, dealloc: unsafe extern "C" fn(*mut u8, usize, usize), realloc: unsafe extern "C" fn(*mut u8, usize, usize, usize) -> *mut u8, panic: unsafe extern "C" fn(*const u8, usize) -> never, micros: extern "C" fn() -> u64, icon: unsafe extern "C" fn(*const u8, usize) -> u32, alloc_in: unsafe extern "C" fn(usize, usize, u32) -> *mut u8 }
-struct paperpaw_native::interface::Entry #{"repr": {"align": null, "int": null, "kind": "c", "packed": null}} { fingerprint: u64, make: unsafe extern "C" fn() -> *mut core::ffi::c_void }
+struct paperpaw_native::interface::Api #{"repr": {"align": null, "int": null, "kind": "c", "packed": null}} { size: u32, alloc: unsafe extern "C" fn(usize, usize) -> *mut u8, dealloc: unsafe extern "C" fn(*mut u8, usize, usize), realloc: unsafe extern "C" fn(*mut u8, usize, usize, usize) -> *mut u8, panic: unsafe extern "C" fn(*const u8, usize) -> never, micros: extern "C" fn() -> u64, icon: unsafe extern "C" fn(*const u8, usize) -> u32, alloc_in: unsafe extern "C" fn(usize, usize, u32) -> *mut u8, family_revs: [u16; 8], family_min: [u16; 8], build: *const u8, build_len: u32 }
+struct paperpaw_native::interface::Entry #{"repr": {"align": null, "int": null, "kind": "c", "packed": null}} { fingerprint: u64, make: unsafe extern "C" fn() -> *mut core::ffi::c_void, needs_api: u16, interface: u16, families: [u16; 8] }
 struct paperpaw_native::reloc::Relocator<'a> { header: &'a paperpaw_native::header::Header, words: &'a [u32], patches: &'a [[u32; 2]], hi20: usize, base: u32, delta: u32, hot: u32, api: u32 }
 struct paperpaw_native::signature::BadSignature
 struct paperpaw_native::signature::Signature { signed_len: u32, key: [u8; 32], signature: [u8; 64] }

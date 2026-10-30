@@ -4,6 +4,7 @@
 # too, every feature on (ADR 0026).
 const paperpaw_document::Locator::START: paperpaw_document::Locator = Locator { section: 0, offset: 0, }
 const paperpaw_document::MAX_FAMILIES: u8 = 31u8
+const paperpaw_document::MAX_INLINE_LANGS: u8 = 15u8
 const paperpaw_document::MAX_INSERTED: usize = 4usize
 const paperpaw_document::MAX_INSERTED_TEXT: usize = 4_096usize
 const paperpaw_document::MAX_LEADING_ABOVE: u16 = 400u16
@@ -21,16 +22,17 @@ enum paperpaw_document::Align { Auto, Start, Center, End, Justify }
 enum paperpaw_document::AnnotationKind { Ruby, Phonetic, Gloss }
 enum paperpaw_document::BlockKind { Paragraph, Heading(0: u8), Preformatted, Image }
 enum paperpaw_document::DocumentError { Storage(0: paperpaw_platform::storage::StorageError), Malformed(0: alloc::borrow::Cow<'static, str>), UnsupportedFormat, OutOfMemory, NotReady }
+enum paperpaw_document::LinkKind { Plain, NoteRef, Back }
 enum paperpaw_document::PageProgression { LeftToRight, RightToLeft }
 struct paperpaw_document::Annotation { start: u32, end: u32, text: alloc::string::String, kind: paperpaw_document::AnnotationKind, size: u16 }
-struct paperpaw_document::Block { kind: paperpaw_document::BlockKind, continues: bool, start: u32, end: u32, text: alloc::string::String, map: paperpaw_document::OffsetMap, runs: alloc::vec::Vec<paperpaw_document::Run>, align: paperpaw_document::Align, indent: core::option::Option<i16>, space: core::option::Option<u16>, size: core::option::Option<u16>, margins: (u16, u16), line_height: core::option::Option<u16>, leading_above: core::option::Option<u16>, image: core::option::Option<paperpaw_document::ImageRef>, inserted: alloc::vec::Vec<paperpaw_document::Block>, annotations: alloc::vec::Vec<paperpaw_document::Annotation> }
+struct paperpaw_document::Block { kind: paperpaw_document::BlockKind, continues: bool, start: u32, end: u32, text: alloc::string::String, map: paperpaw_document::OffsetMap, runs: alloc::vec::Vec<paperpaw_document::Run>, align: paperpaw_document::Align, indent: core::option::Option<i16>, space: core::option::Option<u16>, size: core::option::Option<u16>, margins: (u16, u16), line_height: core::option::Option<u16>, leading_above: core::option::Option<u16>, image: core::option::Option<paperpaw_document::ImageRef>, inserted: alloc::vec::Vec<paperpaw_document::Block>, annotations: alloc::vec::Vec<paperpaw_document::Annotation>, dir: paperpaw_lang::Direction, writing_mode: paperpaw_lang::WritingMode, lang: paperpaw_lang::Lang, inline_langs: core::option::Option<alloc::boxed::Box<[paperpaw_lang::Lang]>>, drop_cap: u8 }
 struct paperpaw_document::EmbeddedFont { family: u8, bold: bool, italic: bool }
 struct paperpaw_document::ImageRef { path: alloc::string::String, width: u32, height: u32 }
-struct paperpaw_document::Link { start: u32, end: u32, href: alloc::string::String }
+struct paperpaw_document::Link { start: u32, end: u32, href: alloc::string::String, kind: paperpaw_document::LinkKind }
 struct paperpaw_document::Locator { section: u32, offset: u32 }
-struct paperpaw_document::Metadata { title: core::option::Option<alloc::string::String>, authors: alloc::vec::Vec<alloc::string::String>, language: core::option::Option<alloc::string::String>, series: core::option::Option<alloc::string::String>, series_index: core::option::Option<alloc::string::String>, subjects: alloc::vec::Vec<alloc::string::String>, description: core::option::Option<alloc::string::String>, direction: paperpaw_document::PageProgression }
+struct paperpaw_document::Metadata { title: core::option::Option<alloc::string::String>, authors: alloc::vec::Vec<alloc::string::String>, language: core::option::Option<alloc::string::String>, series: core::option::Option<alloc::string::String>, series_index: core::option::Option<alloc::string::String>, subjects: alloc::vec::Vec<alloc::string::String>, description: core::option::Option<alloc::string::String>, direction: paperpaw_document::PageProgression, writing_mode: paperpaw_lang::WritingMode }
 struct paperpaw_document::OffsetMap { checkpoints: alloc::vec::Vec<(u32, u32)> }
 struct paperpaw_document::Run { start: u32, end: u32, style: paperpaw_document::TextStyle }
-struct paperpaw_document::TextStyle(0: u16)
+struct paperpaw_document::TextStyle(0: u32)
 struct paperpaw_document::TocEntry { title: alloc::string::String, level: u8, at: paperpaw_document::Locator }
-trait paperpaw_document::Document { function metadata, function sections, function page_label, function whole_pages, function section_len, function block_at, function toc_len, function toc_entry, function toc_target, function prepare_image, function cover, function xpointer, function locate_xpointer, function fonts, function font_data, function links, function link_target, function progress }
+trait paperpaw_document::Document { function metadata, function sections, function page_label, function whole_pages, function section_len, function block_at, function toc_len, function toc_entry, function toc_target, function prepare_image, function cover, function xpointer, function locate_xpointer, function fonts, function font_data, function links, function link_target, function extended, function progress }
