@@ -356,7 +356,8 @@ mod tests {
     use alloc::vec::Vec;
     use paperpaw_i18n::{Catalog, check};
     use paperpaw_sdk::MemoryStorage;
-    use paperpaw_sdk::document::{Align, BlockKind, Locator, TextStyle};
+    use paperpaw_sdk::document::{Align, Block, BlockKind, Locator, TextStyle};
+    use paperpaw_sdk::lang::{Direction, Lang};
     use paperpaw_zip::testing::ZipBuilder;
 
     #[test]
@@ -436,10 +437,15 @@ mod tests {
 </body></html>"#;
 
     fn epub(ch2: String) -> MemoryStorage {
+        epub_in(OPF, ch2)
+    }
+
+    /// The test book with package `opf`.
+    fn epub_in(opf: &str, ch2: String) -> MemoryStorage {
         let zip = ZipBuilder::new()
             .stored("mimetype", "application/epub+zip")
             .deflated("META-INF/container.xml", CONTAINER)
-            .deflated("OEBPS/content.opf", OPF)
+            .deflated("OEBPS/content.opf", opf)
             .deflated("OEBPS/nav.xhtml", NAV)
             .deflated("OEBPS/text/ch1.xhtml", CH1)
             .deflated("OEBPS/text/ch 2.xhtml", ch2)
@@ -774,6 +780,81 @@ mod tests {
         let block = doc.block_at(storage, later).unwrap().unwrap();
         assert_eq!(block.text, "Später.");
         assert!(doc.progress(Locator::new(1, 0)) > 0.5);
+    }
+
+    /// The blocks of chapter 2.
+    fn chapter_blocks(storage: &MemoryStorage) -> Vec<Block> {
+        let doc = EpubDocument::open(storage, "books/test.epub").unwrap();
+        let mut blocks = Vec::new();
+        let mut at = Locator::new(1, 0);
+        while let Some(block) = doc.block_at(storage, at).unwrap() {
+            at = Locator::new(1, block.end);
+            blocks.push(block);
+        }
+        blocks
+    }
+
+    #[test]
+    fn blocks_know_their_direction_and_language() {
+        let ch2 = String::from(
+            "<html lang=\"ar\" dir=\"rtl\"><body>\
+             <p>\u{645}\u{631}\u{62d}\u{628}\u{627} <span lang=\"en\">hello</span></p>\
+             <p style=\"text-align: right\">\u{646}\u{635}</p>\
+             <p align=\"left\">\u{646}\u{635}</p>\
+             <p dir=\"ltr\" lang=\"de\">Links <span dir=\"rtl\">bleibt</span></p>\
+             <p dir=\"auto\">abc</p></body></html>",
+        );
+        let blocks = chapter_blocks(&epub(ch2));
+        let ar = Lang::parse("ar");
+        let found: Vec<(Direction, Lang, Align)> =
+            blocks.iter().map(|b| (b.dir, b.lang, b.align)).collect();
+        assert_eq!(
+            found,
+            [
+                (Direction::Rtl, ar, Align::Auto),
+                // `right` is where right-to-left lines start, `left` where
+                // they end.
+                (Direction::Rtl, ar, Align::Start),
+                (Direction::Rtl, ar, Align::End),
+                // An inline `dir` sets no paragraph's.
+                (Direction::Ltr, Lang::parse("de"), Align::Auto),
+                // `auto`: from the text, kept for its pieces.
+                (Direction::Ltr, ar, Align::Auto),
+            ]
+        );
+        // English inside Arabic: its run says so.
+        let first = &blocks[0];
+        let hello = first.text.find("hello").unwrap();
+        assert_eq!(first.lang_of(first.style_at(hello)), Lang::parse("en"));
+        assert_eq!(first.lang_of(first.style_at(0)), ar);
+        assert_eq!(
+            first.inline_langs.as_deref(),
+            Some(&[Lang::parse("en")][..])
+        );
+    }
+
+    #[test]
+    fn a_book_in_a_right_to_left_language_runs_right_to_left() {
+        let opf = OPF.replace(
+            "<dc:language>de</dc:language>",
+            "<dc:language>he</dc:language>",
+        );
+        let ch2 = String::from(
+            "<html><body><p>\u{5e9}\u{5dc}\u{5d5}\u{5dd}</p><p>123</p>\
+             <p style=\"direction: ltr; text-align: left\">abc</p></body></html>",
+        );
+        let blocks = chapter_blocks(&epub_in(&opf, ch2));
+        let found: Vec<(Direction, Align)> = blocks.iter().map(|b| (b.dir, b.align)).collect();
+        assert_eq!(
+            found,
+            [
+                (Direction::Rtl, Align::Auto),
+                // Without a letter, the book's direction.
+                (Direction::Rtl, Align::Auto),
+                (Direction::Ltr, Align::Start),
+            ]
+        );
+        assert!(blocks.iter().take(2).all(|b| b.lang == Lang::parse("he")));
     }
 
     #[test]

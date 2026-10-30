@@ -84,6 +84,7 @@ fn origins_are_written_as_they_come() {
         false,
         false,
         Fit::side(300),
+        BookText::default(),
     )
     .unwrap();
     let written = storage.inner.size(&paths.xpointers).unwrap() as usize;

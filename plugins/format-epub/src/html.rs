@@ -275,6 +275,7 @@ impl HtmlDocument {
                     self.styles,
                     false,
                     convert::IMAGE_FIT,
+                    convert::BookText::default(),
                 );
                 converted.inspect_err(|_| self.length.set(FAILED))?
             }

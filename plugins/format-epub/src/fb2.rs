@@ -621,6 +621,7 @@ impl Fb2Document {
                     self.styles,
                     self.color,
                     self.image_fit,
+                    convert::BookText::of(self.metadata.language.as_deref()),
                 );
                 converted.inspect_err(|_| self.length.set(FAILED))?
             }

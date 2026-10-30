@@ -389,7 +389,7 @@ pub mod image {
 /// Text and font helpers (see `paperpaw-text`), e.g. reading a font
 /// file's family, or how glyphs are inked ([`ToneCurve`](text::ToneCurve)).
 pub mod text {
-    pub use paperpaw_text::{Around, OUTLINES, ToneCurve, sfnt};
+    pub use paperpaw_text::{Around, OUTLINES, ToneCurve, bidi, sfnt};
 }
 
 /// Hyphenation with compiled patterns (see `paperpaw-hyphen`).

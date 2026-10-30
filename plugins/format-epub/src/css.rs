@@ -3,7 +3,7 @@
 //! Selectors: `tag`, `.class`, `tag.class` and lists of them; anything
 //! more complex (descendants, pseudo-classes, attributes) is skipped, as
 //! are `@` rules except `@font-face`. Properties: `text-align`,
-//! `font-weight`, `font-style`, `font-family`, `display: none`,
+//! `direction`, `font-weight`, `font-style`, `font-family`, `display: none`,
 //! `text-indent` (also negative, a hanging indent), `font-size`,
 //! `line-height`, `margin` and `padding` on all sides, `vertical-align`
 //! (`super`, `sub`) and `text-decoration` (`underline`,
@@ -19,6 +19,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use paperpaw_sdk::document::{Align, MAX_FAMILIES};
+use paperpaw_sdk::lang::Direction;
 
 use crate::package::resolve;
 
@@ -26,6 +27,11 @@ use crate::package::resolve;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct Props {
     pub align: Option<Align>,
+    /// `align` was given as `left` or `right`: the start or the end of a
+    /// left-to-right line, the other way round in a right-to-left one.
+    pub align_sides: bool,
+    /// `direction`: `ltr` or `rtl`.
+    pub direction: Option<Direction>,
     pub bold: Option<bool>,
     pub italic: Option<bool>,
     /// `font-variant: small-caps`.
@@ -116,9 +122,23 @@ impl Props {
         *self == Props::default()
     }
 
+    /// The alignment `value` (`text-align`, the `align` attribute) says,
+    /// if it is one.
+    pub fn set_align(&mut self, value: &str) {
+        if let Some(align) = parse_align(value) {
+            self.align = Some(align);
+            self.align_sides =
+                matches!(value.trim().to_ascii_lowercase().as_str(), "left" | "right");
+        }
+    }
+
     /// `other` overrides what it sets.
     pub fn apply(&mut self, other: &Props) {
-        self.align = other.align.or(self.align);
+        if other.align.is_some() {
+            self.align = other.align;
+            self.align_sides = other.align_sides;
+        }
+        self.direction = other.direction.or(self.direction);
         self.bold = other.bold.or(self.bold);
         self.italic = other.italic.or(self.italic);
         self.small_caps = other.small_caps.or(self.small_caps);
@@ -163,7 +183,8 @@ impl Props {
                 .trim()
                 .to_ascii_lowercase();
             match property.trim().to_ascii_lowercase().as_str() {
-                "text-align" => props.align = parse_align(&value).or(props.align),
+                "text-align" => props.set_align(&value),
+                "direction" => props.direction = parse_direction(&value).or(props.direction),
                 "font-weight" => {
                     props.bold = match value.as_str() {
                         "bold" | "bolder" | "600" | "700" | "800" | "900" => Some(true),
@@ -260,6 +281,14 @@ impl Props {
     pub fn encode(&self, out: &mut String) {
         if let Some(align) = self.align {
             out.push_str(&alloc::format!(" a{}", align.bits()));
+            if self.align_sides {
+                out.push_str(" A1");
+            }
+        }
+        match self.direction {
+            Some(Direction::Ltr) => out.push_str(" d1"),
+            Some(Direction::Rtl) => out.push_str(" d2"),
+            _ => {}
         }
         if let Some(family) = self.family {
             out.push_str(&alloc::format!(" f{family}"));
@@ -314,6 +343,14 @@ impl Props {
             let flag = value == '1';
             match key {
                 'a' => props.align = value.to_digit(10).map(|d| Align::from_bits(d as u8)),
+                'A' => props.align_sides = flag,
+                'd' => {
+                    props.direction = match value {
+                        '1' => Some(Direction::Ltr),
+                        '2' => Some(Direction::Rtl),
+                        _ => None,
+                    }
+                }
                 'b' => props.bold = Some(flag),
                 'i' => props.italic = Some(flag),
                 'c' => props.small_caps = Some(flag),
@@ -489,6 +526,17 @@ fn family_name(text: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
         .to_ascii_lowercase()
+}
+
+/// `ltr` or `rtl`, as `direction` and the `dir` attribute say; `auto`
+/// (the attribute's) as from the text.
+pub(crate) fn parse_direction(value: &str) -> Option<Direction> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "ltr" => Some(Direction::Ltr),
+        "rtl" => Some(Direction::Rtl),
+        "auto" => Some(Direction::Auto),
+        _ => None,
+    }
 }
 
 pub(crate) fn parse_align(value: &str) -> Option<Align> {

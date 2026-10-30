@@ -455,6 +455,7 @@ impl EpubDocument {
                     self.styles,
                     self.color,
                     self.image_fit,
+                    convert::BookText::of(self.metadata.language.as_deref()),
                 );
                 // Short of memory, it is tried again: with more free, it
                 // may convert.
