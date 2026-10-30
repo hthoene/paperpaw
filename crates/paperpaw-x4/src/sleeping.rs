@@ -304,6 +304,31 @@ pub enum Ended {
     SwitchOff(Why),
 }
 
+/// What the main loop does with the kernel's requests to sleep and to
+/// switch off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wanted {
+    /// Sleep (lightly first, then switched off after a while).
+    Sleep,
+    /// Switch the device off now: a plugin asked (`Effect::PowerOff`).
+    SwitchOff,
+}
+
+/// What to do now with a request to `sleep` and one to switch off
+/// (`power_off`): nothing while an update installs (the loop comes by
+/// again), a switch-off before a sleep (it is the stronger request).
+pub fn wanted(sleep: bool, power_off: bool, installing: bool) -> Option<Wanted> {
+    if installing {
+        None
+    } else if power_off {
+        Some(Wanted::SwitchOff)
+    } else if sleep {
+        Some(Wanted::Sleep)
+    } else {
+        None
+    }
+}
+
 /// One sleep of a reader put to sleep on battery or on USB: checks that it
 /// can sleep lightly (the power button let go, the radios off), naps until
 /// the power button or the time of [`Asleep::next`], and ends either way
@@ -381,6 +406,20 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::*;
+
+    #[test]
+    fn a_switch_off_request_beats_a_sleep_request() {
+        assert_eq!(wanted(false, false, false), None);
+        assert_eq!(wanted(true, false, false), Some(Wanted::Sleep));
+        assert_eq!(wanted(false, true, false), Some(Wanted::SwitchOff));
+        assert_eq!(wanted(true, true, false), Some(Wanted::SwitchOff));
+    }
+
+    #[test]
+    fn nothing_ends_while_an_update_installs() {
+        assert_eq!(wanted(true, true, true), None);
+        assert_eq!(wanted(false, true, true), None);
+    }
 
     const MIN: u64 = 60_000;
 
