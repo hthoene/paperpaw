@@ -157,7 +157,9 @@ starts it; the running firmware is not touched until then.
 
 - The screen (black and white, fast and full refreshes), the seven
   buttons, the battery, the SD card with long file names, sleep (the
-  power button switches it off and on again, where it was), light sleep
+  power button puts it to a light sleep where a press wakes it at once; it
+  switches off after a while asleep, 30 minutes by default, and the next
+  press starts it again; the X4 Pro switches off at once), light sleep
   between button reads on battery.
 - Wi-Fi (ADR 0016): on when something needs the network, chosen on the
   Wi-Fi page in the settings; HTTP and HTTPS (ADR 0017) for plugins,

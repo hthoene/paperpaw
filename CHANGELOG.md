@@ -18,6 +18,13 @@ change the plugin SDK.
   one too large and a trial that fails, none of which may take the
   firmware (`crates/paperpaw-x4/tests/update_path.rs`, CI job
   `update-path`).
+- X4 and X3: the power button (and *Sleep after*) now put the reader to a real sleep: the screen stays, the processor
+  sleeps lightly and a press of the power button wakes it at once where it was (no start). Only after a while asleep
+  on battery does it switch itself off completely, as it used to do at once. A new setting, *Switch off after
+  sleeping* (Power: at once, 15 or 30 minutes (the default), 1 or 2 hours, never), says when; *Never* keeps it asleep
+  (it uses a little battery all the time, and still switches off when the battery is nearly empty). While it
+  charges it stays asleep. *Sleep lightly on battery* (developer group) off, or the choice *At once*, is the old way.
+  The X4 Pro and X4 Classic sleep as before. Not yet tested on a device.
 
 ### Fixed
 

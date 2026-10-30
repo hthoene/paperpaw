@@ -32,10 +32,13 @@ CHANGELOG or the ADRs; numbers marked *derived* are arithmetic from the
 chips' data sheets, not measured on a device. The battery plugin logs
 what is needed, but no analysis of its logs has been written down yet.
 
-Two facts frame everything. On battery, sleeping on the X4 is switching
-off (D2): nothing runs while the device sleeps, and every wake is a full
-start. So only awake time costs energy, and work can only happen while
-the device is awake. And the ESP32's states differ by a factor of a
+Two facts frame everything. Sleeping on the X4 Pro is switching off
+(D2): nothing runs while the device sleeps, and every wake is a full
+start. (The X4 and X3 sleep lightly first and switch off after a while
+asleep, 30 minutes unless the reader chooses otherwise; nothing but the
+alarm and the power button runs meanwhile, so the argument is the same.)
+So only awake time costs energy, and work can only happen while the
+device is awake. And the ESP32's states differ by a factor of a
 hundred: light sleep about 0.1 mA (*measured*), the CPU awake at full
 speed about 20 mA on the X4 (*measured*), the radio receiving about
 85 mA and sending up to 300 mA (data sheet).
