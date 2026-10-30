@@ -36,3 +36,33 @@ name = "Literata Bold Italic"
 description = "Bold italic book text in Literata, where bold stands in for it."
 de.name = "Literata Fett Kursiv"
 de.description = "Fett-kursiver Buchtext in Literata, wo sonst Fett dafür steht."
+
+# Ready for the store, not offered yet: whether to offer them is the
+# owner's call (#33). To offer them, take the comment signs away;
+# tools/script-pack.py then builds them for the release.
+#
+# [script-arabic]
+# version = "1.0.0"
+# group = "look"
+# licence = "OFL-1.1"
+# devices = ["x4", "x4-pro", "x4-classic"]
+# off_by_default = true
+# build = "tools/script-pack.py"
+# inputs = ["tools/fonts/NotoNaskhArabic.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs"]
+# name = "Arabic letters"
+# description = "Arabic, Persian and Urdu books in Noto Naskh Arabic, with their vowel marks."
+# de.name = "Arabische Schrift"
+# de.description = "Bücher auf Arabisch, Persisch und Urdu in Noto Naskh Arabic, mit ihren Vokalzeichen."
+#
+# [script-hebrew]
+# version = "1.0.0"
+# group = "look"
+# licence = "OFL-1.1"
+# devices = ["x4", "x4-pro", "x4-classic"]
+# off_by_default = true
+# build = "tools/script-pack.py"
+# inputs = ["tools/fonts/NotoSerifHebrew.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs"]
+# name = "Hebrew letters"
+# description = "Hebrew books in Noto Serif Hebrew, with their points."
+# de.name = "Hebräische Schrift"
+# de.description = "Bücher auf Hebräisch in Noto Serif Hebrew, mit ihren Punkten."

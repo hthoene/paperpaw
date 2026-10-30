@@ -8,10 +8,14 @@ pack for each built-in face they extend, the interface's font too.
 Usage:
     python tools/script-pack.py OUT_DIR [SET ...]
 
-SET defaults to cyrillic and greek (see paperpaw_text::charset::named);
-sets drawn from one font only go together (arabic, hebrew alone). The
-plugin is written to OUT_DIR/<id>; copy that folder into the device's
-plugins folder (e.g. plugins/ on the X4's card).
+The plugin of the SETs (see paperpaw_text::charset::named; sets drawn
+from one font only go together, arabic and hebrew alone) is written to
+OUT_DIR/script-<sets>; copy that folder into the device's plugins folder
+(e.g. plugins/ on the X4's card). Without a SET, those
+tools/plugin-files/data.toml lists for the store are built, as the
+release builds them (data.py), else Cyrillic and Greek. A plugin
+data.toml lists takes its version, name and description (English and
+German) from there.
 """
 
 import shutil
@@ -20,6 +24,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools" / "plugin-files"))
+import data  # noqa: E402
 FONTGEN = ROOT / "target/release/paperpaw-fontgen"
 FONTS = ROOT / "plugins/fonts-default/fonts"
 OTHER_FONTS = ROOT / "tools/fonts"
@@ -57,40 +63,56 @@ SETS = {
 }
 
 
-def main():
-    if len(sys.argv) < 2:
-        sys.exit(__doc__)
-    sets = sys.argv[2:] or ["cyrillic", "greek"]
-    unknown = [s for s in sets if s not in SETS]
-    if unknown:
-        sys.exit(f"unknown character sets: {', '.join(unknown)}")
+def build(base, sets):
+    """Writes the plugin of `sets` to `base`/script-<sets>."""
     faces, licence, font = SETS[sets[0]][1:]
     if any(SETS[s][1] != faces for s in sets):
         sys.exit("sets drawn from other fonts go in plugins of their own")
     id = "script-" + "-".join(sets)
-    out = Path(sys.argv[1]) / id
+    out = base / id
     shutil.rmtree(out, ignore_errors=True)
     (out / "fonts").mkdir(parents=True)
-    subprocess.run(["cargo", "build", "-q", "--release", "-p", "paperpaw-fontgen"],
-                   cwd=ROOT, check=True)
     for name, file, weight, _ in faces:
         subprocess.run([str(FONTGEN), str(file), str(out / "fonts" / f"{name}.ppfp"),
                         "--chars", ",".join(sets), "--axis", f"wght={weight}"], check=True)
-    title = " and ".join(SETS[s][0] for s in sets)
     extends = "\n".join(f"{name}.ppfp = {extended}" for name, _, _, extended in faces)
-    (out / "plugin.ini").write_text(
-        "[plugin]\n"
-        f"id = {id}\n"
-        f"name = {title} letters\n"
-        f"description = {title} letters in {font}, for devices whose fonts lack them.\n"
-        "version = 0.1.0\n"
-        "\n[extends]\n"
-        f"{extends}\n",
-        encoding="utf-8",
-    )
+    listed = data.plugins().get(id)
+    if listed:
+        head = data.plugin_ini(id, listed)
+        for path, text in data.catalogs(id, listed):
+            (out / path).parent.mkdir(parents=True, exist_ok=True)
+            (out / path).write_text(text, encoding="utf-8", newline="\n")
+    else:
+        title = " and ".join(SETS[s][0] for s in sets)
+        head = ("[plugin]\n"
+                f"id = {id}\n"
+                f"name = {title} letters\n"
+                f"description = {title} letters in {font}, for devices whose fonts lack them.\n"
+                "version = 0.1.0\n")
+    (out / "plugin.ini").write_text(f"{head}\n[extends]\n{extends}\n", encoding="utf-8",
+                                    newline="\n")
     shutil.copy(licence, out / "fonts" / licence.name)
     size = sum(f.stat().st_size for f in out.rglob("*") if f.is_file())
     print(f"{out}: {size / 1024 / 1024:.1f} MiB")
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit(__doc__)
+    sets = sys.argv[2:]
+    unknown = [s for s in sets if s not in SETS]
+    if unknown:
+        sys.exit(f"unknown character sets: {', '.join(unknown)}")
+    if sets:
+        plugins = [sets]
+    else:
+        plugins = [id.removeprefix("script-").split("-")
+                   for id, fields in data.plugins().items()
+                   if fields["build"] == "tools/script-pack.py"] or [["cyrillic", "greek"]]
+    subprocess.run(["cargo", "build", "-q", "--release", "-p", "paperpaw-fontgen"],
+                   cwd=ROOT, check=True)
+    for sets in plugins:
+        build(Path(sys.argv[1]), sets)
 
 
 if __name__ == "__main__":
