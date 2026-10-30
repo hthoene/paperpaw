@@ -15,7 +15,15 @@ pub static API: Api = Api {
     micros,
     icon,
     alloc_in,
+    // no family shared yet (the text family comes with the firmware step of interface 5).
+    family_revs: [0; 8],
+    family_min: [0; 8],
+    build: BUILD.as_ptr(),
+    build_len: BUILD.len() as u32,
 };
+
+/// What the logs call this build.
+const BUILD: &str = concat!("PaperPaw ", env!("CARGO_PKG_VERSION"));
 
 unsafe extern "C" fn alloc(size: usize, align: usize) -> *mut u8 {
     match Layout::from_size_align(size, align) {

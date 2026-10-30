@@ -101,7 +101,15 @@ static API: Api = Api {
     micros,
     icon,
     alloc_in,
+    // no shared functions here.
+    family_revs: [0; 8],
+    family_min: [0; 8],
+    build: BUILD.as_ptr(),
+    build_len: BUILD.len() as u32,
 };
+
+/// What the logs call this build.
+const BUILD: &str = concat!("PaperPaw ", env!("CARGO_PKG_VERSION"));
 
 /// One heap here: wherever asked, as `alloc`.
 unsafe extern "C" fn alloc_in(size: usize, align: usize, _placement: u32) -> *mut u8 {
