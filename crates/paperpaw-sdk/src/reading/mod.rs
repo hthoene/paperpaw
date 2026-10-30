@@ -16,6 +16,8 @@ mod filtered;
 mod index;
 #[cfg(feature = "unstable")]
 mod typeset;
+#[cfg(feature = "unstable")]
+mod visual;
 
 pub use filtered::{DroppedRuns, FilteredDocument};
 pub use index::PageIndex;
