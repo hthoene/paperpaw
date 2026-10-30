@@ -31,38 +31,24 @@ use paperpaw_sdk::{
 use proptest::prelude::*;
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
-const BUTTONS: DeviceInfo = DeviceInfo {
-    id: "test-x4",
-    name: "Test X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const BUTTONS: DeviceInfo = DeviceInfo::new(
+    "test-x4",
+    "Test X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
 /// A touch screen as large as the X4's.
-const TOUCH: DeviceInfo = DeviceInfo {
-    id: "test-touch",
-    name: "Test touch",
-    input: InputCaps {
-        buttons: false,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    ..BUTTONS
-};
+const TOUCH: DeviceInfo = BUTTONS
+    .with_id("test-touch")
+    .with_name("Test touch")
+    .with_input(InputCaps::new(false, true, false, &[]));
 
 const LOCK_SCREEN: &str = "lock.screen";
 /// Where the plugin keeps the code among the secrets.
@@ -273,13 +259,13 @@ impl Device {
 
     fn finger(&mut self, phase: PointerPhase, point: Point) {
         self.now += 50;
-        let event = InputEvent::Pointer(PointerEvent {
-            id: 0,
+        let event = InputEvent::Pointer(PointerEvent::new(
+            0,
             phase,
             point,
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        });
+            PointerTool::Finger,
+            1000,
+        ));
         let effects = self.kernel.handle(Instant(self.now), event);
         if phase == PointerPhase::Up {
             self.settle(effects);
@@ -974,14 +960,14 @@ mod setup_under_the_lock {
         assert!(device.locked());
         let kind = device.kind();
         device.now += 100;
-        let status = paperpaw_platform::SystemStatus {
-            clock: Some(paperpaw_platform::WallClock {
-                at: Instant(device.now),
-                unix_millis: 1_700_000_000_000,
-                utc_offset_minutes: None,
-            }),
-            battery: None,
-        };
+        let status = paperpaw_platform::SystemStatus::new(
+            Some(paperpaw_platform::WallClock::new(
+                Instant(device.now),
+                1_700_000_000_000,
+                None,
+            )),
+            None,
+        );
         let effects = device.kernel.set_status(Instant(device.now), status);
         device.settle(effects);
         device.run(actions::NEXT);

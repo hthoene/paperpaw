@@ -82,25 +82,18 @@ const PART: usize = 16 * 1024;
 /// on the card, not in the heap.
 const KEPT: usize = 4 * 1024;
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test-x4",
-    name: "Test X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test-x4",
+    "Test X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
 /// A file: its bytes while small, else its size alone (reading it gives
 /// zeros).

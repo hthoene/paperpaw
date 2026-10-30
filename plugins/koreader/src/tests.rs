@@ -235,19 +235,14 @@ fn highlight(storage: &MemoryStorage, pos0: &str, pos1: &str, note: &str) -> Ann
     let doc = EpubDocument::open(storage, BOOK).unwrap();
     let start = doc.locate_xpointer(storage, pos0).unwrap();
     let end = doc.locate_xpointer(storage, pos1).unwrap();
-    Annotation {
-        mark: Mark {
-            kind: Kind::Highlight,
-            start,
-            end,
-            noted: !note.is_empty(),
-        },
-        percent: 1,
-        created: NOW - 100,
-        updated: 0,
-        text: String::from("tired"),
-        note: String::from(note),
-    }
+    Annotation::new(
+        Mark::new(Kind::Highlight, start, end, !note.is_empty()),
+        1,
+        NOW - 100,
+        0,
+        String::from("tired"),
+        String::from(note),
+    )
 }
 
 #[test]

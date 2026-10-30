@@ -27,25 +27,18 @@ const WIDTH: u16 = 480;
 const HEIGHT: u16 = 800;
 
 /// A device with buttons and touch, so both can be tried.
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test",
-    display: DisplayInfo {
-        width: WIDTH,
-        height: HEIGHT,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down"],
-    },
-    memory: MemoryClass::Large,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test",
+    DisplayInfo::new(WIDTH, HEIGHT, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        true,
+        false,
+        &["back", "confirm", "left", "right", "up", "down"],
+    ),
+    MemoryClass::Large,
+);
 
 /// The screen as drawn so far, row by row.
 type Frame = Vec<Color>;
@@ -147,13 +140,13 @@ impl Device {
     fn tap(&mut self, x: i32, y: i32) -> Frame {
         for phase in [PointerPhase::Down, PointerPhase::Up] {
             self.now += 500;
-            let event = InputEvent::Pointer(PointerEvent {
-                id: 0,
+            let event = InputEvent::Pointer(PointerEvent::new(
+                0,
                 phase,
-                point: Point::new(x, y),
-                tool: PointerTool::Finger,
-                pressure: 1000,
-            });
+                Point::new(x, y),
+                PointerTool::Finger,
+                1000,
+            ));
             let effects = self.kernel.handle(Instant(self.now), event);
             // Timers wait while the finger is down: no long press.
             if phase == PointerPhase::Up {

@@ -132,6 +132,7 @@ fn devices(chip: Chip) -> &'static str {
     match chip {
         Chip::Esp32C3 => "Xteink X4",
         Chip::Esp32S3 => "Xteink X4 Pro",
+        _ => "an unknown chip",
     }
 }
 

@@ -20,38 +20,24 @@ use paperpaw_sdk::{
 };
 
 /// An X4: black and white, buttons.
-const BUTTONS: DeviceInfo = DeviceInfo {
-    id: "test-x4",
-    name: "Test X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const BUTTONS: DeviceInfo = DeviceInfo::new(
+    "test-x4",
+    "Test X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
 /// A touch screen as large.
-const TOUCH: DeviceInfo = DeviceInfo {
-    id: "test-touch",
-    name: "Test touch",
-    input: InputCaps {
-        buttons: false,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    ..BUTTONS
-};
+const TOUCH: DeviceInfo = BUTTONS
+    .with_id("test-touch")
+    .with_name("Test touch")
+    .with_input(InputCaps::new(false, true, false, &[]));
 
 const DIR: &str = ".paperpaw/plugins/vocabulary/cards";
 /// The time the device knows, in seconds since 1970.
@@ -114,14 +100,7 @@ impl Reader {
         let mut kernel = builder.build().unwrap();
         kernel.set_status(
             Instant(0),
-            SystemStatus {
-                clock: Some(WallClock {
-                    at: Instant(0),
-                    unix_millis: NOW * 1000,
-                    utc_offset_minutes: Some(0),
-                }),
-                battery: None,
-            },
+            SystemStatus::new(Some(WallClock::new(Instant(0), NOW * 1000, Some(0))), None),
         );
         let effects = kernel.start(Instant(0));
         let mut reader = Self { kernel, now: 0 };
@@ -187,13 +166,8 @@ impl Reader {
         );
         for phase in [PointerPhase::Down, PointerPhase::Up] {
             self.now += 50;
-            let event = InputEvent::Pointer(PointerEvent {
-                id: 0,
-                phase,
-                point: at,
-                tool: PointerTool::Finger,
-                pressure: 1000,
-            });
+            let event =
+                InputEvent::Pointer(PointerEvent::new(0, phase, at, PointerTool::Finger, 1000));
             let effects = self.kernel.handle(Instant(self.now), event);
             // Not while the finger is down: that would be a long press.
             if phase == PointerPhase::Up {

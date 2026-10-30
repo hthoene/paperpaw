@@ -107,19 +107,19 @@ pub(crate) fn library() -> MemoryStorage {
     paperpaw_sdk::annotations::add(
         &storage,
         "books/s3.epub",
-        paperpaw_sdk::annotations::Annotation {
-            mark: paperpaw_sdk::annotations::Mark {
-                kind: paperpaw_sdk::annotations::Kind::Highlight,
-                start: Locator::new(2, 10),
-                end: Locator::new(2, 60),
-                noted: false,
-            },
-            percent: 30,
-            created: 0,
-            updated: 0,
-            text: "A sentence worth keeping, of some length.".to_string(),
-            note: String::new(),
-        },
+        paperpaw_sdk::annotations::Annotation::new(
+            paperpaw_sdk::annotations::Mark::new(
+                paperpaw_sdk::annotations::Kind::Highlight,
+                Locator::new(2, 10),
+                Locator::new(2, 60),
+                false,
+            ),
+            30,
+            0,
+            0,
+            "A sentence worth keeping, of some length.".to_string(),
+            String::new(),
+        ),
     )
     .unwrap();
     Position {
@@ -584,19 +584,19 @@ fn a_highlight_each_time_it_shows_stays_while_it_shows() {
         paperpaw_sdk::annotations::add(
             &storage,
             path,
-            paperpaw_sdk::annotations::Annotation {
-                mark: paperpaw_sdk::annotations::Mark {
-                    kind: paperpaw_sdk::annotations::Kind::Highlight,
-                    start: Locator::new(n, 0),
-                    end: Locator::new(n, 20),
-                    noted: false,
-                },
-                percent: 10,
-                created: 0,
-                updated: 0,
-                text: alloc::format!("Highlight number {n}"),
-                note: String::new(),
-            },
+            paperpaw_sdk::annotations::Annotation::new(
+                paperpaw_sdk::annotations::Mark::new(
+                    paperpaw_sdk::annotations::Kind::Highlight,
+                    Locator::new(n, 0),
+                    Locator::new(n, 20),
+                    false,
+                ),
+                10,
+                0,
+                0,
+                alloc::format!("Highlight number {n}"),
+                String::new(),
+            ),
         )
         .unwrap();
     }

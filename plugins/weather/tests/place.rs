@@ -24,25 +24,13 @@ use paperpaw_sdk::{
 };
 
 const fn device(touch: bool) -> DeviceInfo {
-    DeviceInfo {
-        id: "test",
-        name: "Test device",
-        display: DisplayInfo {
-            width: 480,
-            height: 800,
-            dpi: 220,
-            format: PixelFormat::Gray4,
-            rotation: Rotation::Deg0,
-            color: None,
-        },
-        input: InputCaps {
-            buttons: !touch,
-            touch,
-            pen: false,
-            keys: &[],
-        },
-        memory: MemoryClass::Large,
-    }
+    DeviceInfo::new(
+        "test",
+        "Test device",
+        DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+        InputCaps::new(!touch, touch, false, &[]),
+        MemoryClass::Large,
+    )
 }
 
 /// A storage the test looks into while the kernel has it.
@@ -202,13 +190,7 @@ impl Device {
             let now = self.later();
             let effects = self.kernel.handle(
                 now,
-                InputEvent::Pointer(PointerEvent {
-                    id: 0,
-                    phase,
-                    point: at,
-                    tool: PointerTool::Finger,
-                    pressure: 1000,
-                }),
+                InputEvent::Pointer(PointerEvent::new(0, phase, at, PointerTool::Finger, 1000)),
             );
             if phase == PointerPhase::Up {
                 self.settle(effects);
@@ -364,19 +346,14 @@ fn kept_at(offset: i32, minutes: i64) -> Device {
     d.storage
         .write(KEPT, include_bytes!("../testdata/weather.txt.v1"))
         .unwrap();
-    let clock = WallClock {
-        at: Instant(0),
-        unix_millis: (1_791_973_800 + minutes * 60) * 1000,
-        utc_offset_minutes: Some(offset),
-    };
-    let now = d.later();
-    d.kernel.set_status(
-        now,
-        SystemStatus {
-            clock: Some(clock),
-            battery: None,
-        },
+    let clock = WallClock::new(
+        Instant(0),
+        (1_791_973_800 + minutes * 60) * 1000,
+        Some(offset),
     );
+    let now = d.later();
+    d.kernel
+        .set_status(now, SystemStatus::new(Some(clock), None));
     d
 }
 

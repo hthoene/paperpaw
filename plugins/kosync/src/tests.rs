@@ -109,25 +109,20 @@ const BOOK: &str = "books/tales.epub";
 const DEVICE_ID: &str = "0123456789ABCDEF0123456789ABCDEF";
 const KEY: &str = "5f4dcc3b5aa765d61d8327deb882cf99";
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test device",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: paperpaw_platform::Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Large,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test device",
+    DisplayInfo::new(
+        480,
+        800,
+        220,
+        PixelFormat::Gray4,
+        paperpaw_platform::Rotation::Deg0,
+        None,
+    ),
+    InputCaps::new(true, true, false, &[]),
+    MemoryClass::Large,
+);
 
 struct NoKeys;
 

@@ -206,6 +206,15 @@ pub trait GestureRecognizer {
     fn next_tick(&self) -> Option<Instant> {
         None
     }
+
+    /// A call that comes after this release, by its key and parameters:
+    /// what PaperPaw asks of recognizers later reaches those built now,
+    /// which answer [`Handled::No`](crate::Handled::No) to keys they do
+    /// not know.
+    fn extended(&mut self, key: &Id, params: &crate::Params) -> crate::Handled {
+        let _ = (key, params);
+        crate::Handled::No
+    }
 }
 
 /// Makes a recognizer.

@@ -15,6 +15,7 @@ use core::cmp::Ordering;
 use crate::{Formats, Storage};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Entry {
     pub name: String,
     pub is_dir: bool,
@@ -30,6 +31,15 @@ pub struct Entry {
 pub const UNRANKED: u32 = u32::MAX;
 
 impl Entry {
+    pub fn new(name: impl Into<String>, is_dir: bool, rank: u32, size: u64) -> Self {
+        Self {
+            name: name.into(),
+            is_dir,
+            rank,
+            size,
+        }
+    }
+
     pub fn folder(name: &str) -> Self {
         Self {
             name: name.to_string(),
@@ -80,6 +90,7 @@ fn is_sidecar(name: &str) -> bool {
 /// The visible entries of a directory: folders and files a format plugin
 /// can open (or only folders); hidden names (starting with `.`) and
 /// sidecar folders of other readers are skipped.
+#[non_exhaustive]
 pub struct Listing<'a> {
     pub storage: &'a dyn Storage,
     pub formats: &'a Formats,
@@ -87,6 +98,26 @@ pub struct Listing<'a> {
     pub folders_only: bool,
     /// Ranks files before the name order, e.g. by when they were read.
     pub rank: Option<&'a dyn Fn(&str) -> u32>,
+}
+
+impl<'a> Listing<'a> {
+    /// The entries of `dir` in `storage` that `formats` open (or only its
+    /// folders), ranked by `rank` where it is given.
+    pub fn new(
+        storage: &'a dyn Storage,
+        formats: &'a Formats,
+        dir: &'a str,
+        folders_only: bool,
+        rank: Option<&'a dyn Fn(&str) -> u32>,
+    ) -> Self {
+        Self {
+            storage,
+            formats,
+            dir,
+            folders_only,
+            rank,
+        }
+    }
 }
 
 impl core::fmt::Debug for Listing<'_> {

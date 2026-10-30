@@ -124,23 +124,23 @@ fn a_screen_hosts_another_in_a_part_of_it() {
     log.borrow_mut().clear();
     kernel.handle(
         Instant(100),
-        InputEvent::Pointer(PointerEvent {
-            id: 0,
-            phase: PointerPhase::Down,
-            point: Point::new(30, 60),
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        }),
+        InputEvent::Pointer(PointerEvent::new(
+            0,
+            PointerPhase::Down,
+            Point::new(30, 60),
+            PointerTool::Finger,
+            1000,
+        )),
     );
     let effects = kernel.handle(
         Instant(150),
-        InputEvent::Pointer(PointerEvent {
-            id: 0,
-            phase: PointerPhase::Up,
-            point: Point::new(30, 60),
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        }),
+        InputEvent::Pointer(PointerEvent::new(
+            0,
+            PointerPhase::Up,
+            Point::new(30, 60),
+            PointerTool::Finger,
+            1000,
+        )),
     );
     assert_eq!(*log.borrow(), ["page tapped at 30,15"]);
     assert!(kernel.notice.is_some(), "its command reached the kernel");

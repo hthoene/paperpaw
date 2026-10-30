@@ -128,13 +128,7 @@ impl FolderChooser {
     }
 
     fn listing<'a>(&'a self, env: &'a Env<'_>) -> Listing<'a> {
-        Listing {
-            storage: env.storage(),
-            formats: env.formats(),
-            dir: &self.dir,
-            folders_only: true,
-            rank: None,
-        }
+        Listing::new(env.storage(), env.formats(), &self.dir, true, None)
     }
 
     /// Rows before the subfolders: *use*, below the top *up*, *new*.

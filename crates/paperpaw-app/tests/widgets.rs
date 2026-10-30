@@ -19,45 +19,26 @@ use paperpaw_sdk::builtin::{params, slots};
 use paperpaw_sdk::widgets::{self, FRAMES};
 use paperpaw_sdk::{MemoryStorage, Params};
 
-const X4: DeviceInfo = DeviceInfo {
-    id: "test-x4",
-    name: "Test X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const X4: DeviceInfo = DeviceInfo::new(
+    "test-x4",
+    "Test X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
-const BOOX: DeviceInfo = DeviceInfo {
-    id: "test-boox",
-    name: "Test Boox",
-    display: DisplayInfo {
-        width: 1264,
-        height: 1680,
-        dpi: 300,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Large,
-};
+const BOOX: DeviceInfo = DeviceInfo::new(
+    "test-boox",
+    "Test Boox",
+    DisplayInfo::new(1264, 1680, 300, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, true, false, &[]),
+    MemoryClass::Large,
+);
 
 const BOOK: &str = "books/alice-in-wonderland.txt";
 

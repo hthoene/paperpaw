@@ -24,25 +24,13 @@ use paperpaw_sdk::{
 };
 use proptest::prelude::*;
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test device",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test device",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, true, false, &[]),
+    MemoryClass::Small,
+);
 
 const TODO: &str = ".paperpaw/plugins/widgets/todo.txt";
 const SCREEN: Id = Id::new_static("widgets.todo.list");
@@ -103,14 +91,7 @@ impl List {
         kernel.start(Instant(0));
         kernel.set_status(
             Instant(10),
-            SystemStatus {
-                clock: Some(WallClock {
-                    at: Instant(0),
-                    unix_millis: NOW,
-                    utc_offset_minutes: Some(0),
-                }),
-                battery: None,
-            },
+            SystemStatus::new(Some(WallClock::new(Instant(0), NOW, Some(0))), None),
         );
         Self {
             kernel,

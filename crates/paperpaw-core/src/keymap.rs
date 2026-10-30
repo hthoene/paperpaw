@@ -128,7 +128,7 @@ pub(crate) fn side_id(side: Direction) -> &'static str {
         Direction::Up => "top",
         Direction::Down => "bottom",
         Direction::Left => "left",
-        Direction::Right => "right",
+        _ => "right",
     }
 }
 

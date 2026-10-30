@@ -15,25 +15,13 @@ use paperpaw_sdk::{
     MemoryClass, MemoryStorage, PixelFormat, Plugin, RegisterError, Registrar, Version,
 };
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test device",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test device",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, false, false, &[]),
+    MemoryClass::Small,
+);
 
 /// Installs the data plugin downloaded into `plugins/.airy.part`, as a
 /// store does.

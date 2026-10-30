@@ -19,25 +19,18 @@ use paperpaw_plugin_battery::Battery;
 use paperpaw_sdk::{Env, Id, MemoryStorage};
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
-const X4: DeviceInfo = DeviceInfo {
-    id: "test-x4",
-    name: "Test X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const X4: DeviceInfo = DeviceInfo::new(
+    "test-x4",
+    "Test X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
 const HEADER: &str =
     "kind,ms,millivolts,percent,charging,fast,partial,full,kilopixels,inputs,panel_ms,pages,unix\n";
@@ -82,14 +75,8 @@ impl Device {
     /// The battery measured at `percent` and `millivolts`, a minute on.
     fn measure(&mut self, percent: u8, millivolts: u16, charging: bool) {
         self.now += 60_000;
-        let status = SystemStatus {
-            clock: None,
-            battery: Some(Charge {
-                percent,
-                charging,
-                millivolts: Some(millivolts),
-            }),
-        };
+        let status =
+            SystemStatus::new(None, Some(Charge::new(percent, charging, Some(millivolts))));
         let effects = self.kernel.set_status(Instant(self.now), status);
         self.settle(effects);
     }

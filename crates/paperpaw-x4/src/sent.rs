@@ -160,13 +160,7 @@ impl Sent {
             unpack(&band.packed, &mut data);
             out(
                 band.top,
-                FrameView {
-                    width,
-                    height,
-                    format,
-                    stride,
-                    data: &data,
-                },
+                FrameView::new(width, height, format, stride, &data),
             );
         }
         true
@@ -211,13 +205,7 @@ mod tests {
     }
 
     fn band(data: &[u8]) -> FrameView<'_> {
-        FrameView {
-            width: 80,
-            height: (data.len() / 10) as u16,
-            format: PixelFormat::Mono1,
-            stride: 10,
-            data,
-        }
+        FrameView::new(80, (data.len() / 10) as u16, PixelFormat::Mono1, 10, data)
     }
 
     #[test]

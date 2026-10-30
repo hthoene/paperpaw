@@ -121,26 +121,18 @@ fn heard(harness: &Harness) -> Vec<String> {
 }
 
 fn battery(percent: u8, millivolts: u16) -> Option<Battery> {
-    Some(Battery {
-        percent,
-        charging: false,
-        millivolts: Some(millivolts),
-    })
+    Some(Battery::new(percent, false, Some(millivolts)))
 }
 
 fn clock(at: u64, unix_millis: i64, offset: Option<i32>) -> Option<WallClock> {
-    Some(WallClock {
-        at: Instant(at),
-        unix_millis,
-        utc_offset_minutes: offset,
-    })
+    Some(WallClock::new(Instant(at), unix_millis, offset))
 }
 
 #[test]
 fn status_lines_are_told_only_of_what_they_show() {
     let harness = Harness::new();
     let mut kernel = kernel(&harness, MemoryStorage::new());
-    let status = |battery, clock| SystemStatus { clock, battery };
+    let status = |battery, clock| SystemStatus::new(clock, battery);
     let day = 1_760_000_000_000;
     kernel.set_status(
         Instant(10),
@@ -195,10 +187,7 @@ fn wall_clock_readings_that_make_no_sense_do_not_panic() {
         (u64::MAX, clock(0, 0, Some(i32::MAX))),
         (30, clock(u64::MAX, i64::MAX, Some(i32::MIN))),
     ] {
-        let status = SystemStatus {
-            clock: reading,
-            battery: None,
-        };
+        let status = SystemStatus::new(reading, None);
         kernel.set_status(Instant(now), status);
     }
     assert_eq!(kernel.active_screen(), Some(&BASE));
@@ -211,10 +200,7 @@ fn battery_readings_out_of_range_do_not_panic() {
     for (at, percent, millivolts) in [(10, 255, u16::MAX), (20, 0, 0), (30, 101, 1)] {
         kernel.set_status(
             Instant(at),
-            SystemStatus {
-                clock: None,
-                battery: battery(percent, millivolts),
-            },
+            SystemStatus::new(None, battery(percent, millivolts)),
         );
         common::render(&mut kernel);
     }

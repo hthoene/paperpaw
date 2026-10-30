@@ -545,14 +545,8 @@ fn holds_put_sleep_off_within_bounds() {
     assert_eq!(kernel.sleep_due(), Some(Instant(60_000)));
     // Nor with the battery nearly empty.
     let mut kernel = holding(config);
-    let status = paperpaw_platform::SystemStatus {
-        battery: Some(paperpaw_platform::Battery {
-            percent: 8,
-            charging: false,
-            millivolts: None,
-        }),
-        ..Default::default()
-    };
+    let status = paperpaw_platform::SystemStatus::default()
+        .with_battery(Some(paperpaw_platform::Battery::new(8, false, None)));
     kernel.set_status(Instant(1000), status);
     assert_eq!(kernel.sleep_due(), Some(Instant(60_000)));
 }
@@ -565,13 +559,13 @@ fn a_finger_held_in_the_corner_leaves_a_full_screen() {
     let mode = ScreenMode::new().full_screen();
     let mut kernel = kernel(Kernel::builder(DEVICE), mode, &log);
     let finger = |kernel: &mut Kernel, at: u64, phase: PointerPhase, x: i32, y: i32| {
-        let event = paperpaw_platform::PointerEvent {
-            id: 0,
+        let event = paperpaw_platform::PointerEvent::new(
+            0,
             phase,
-            point: paperpaw_platform::Point::new(x, y),
-            tool: paperpaw_platform::PointerTool::Finger,
-            pressure: 1000,
-        };
+            paperpaw_platform::Point::new(x, y),
+            paperpaw_platform::PointerTool::Finger,
+            1000,
+        );
         kernel.handle(Instant(at), InputEvent::Pointer(event))
     };
     // Moved out of the corner: nothing.

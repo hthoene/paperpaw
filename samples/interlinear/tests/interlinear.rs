@@ -24,25 +24,18 @@ fn the_toy_translation_keeps_punctuation_and_unknown_words() {
     assert_eq!(translate("she said so."), "sie sagte so.");
 }
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test-both",
-    name: "Test both",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test-both",
+    "Test both",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        true,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
 const BOOK: &str = "books/alice-in-wonderland.txt";
 

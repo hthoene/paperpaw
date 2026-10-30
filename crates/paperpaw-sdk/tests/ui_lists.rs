@@ -542,6 +542,7 @@ proptest! {
                         };
                         prop_assert_eq!(list.section_of(e).map(|(s, _)| s), Some(s));
                     }
+                    _ => return Err(TestCaseError::fail("an item of a later release")),
                 }
             }
             // The first entry of a page in the middle of a headed section:

@@ -25,46 +25,27 @@ use paperpaw_sdk::{
     RegisterError, Registrar, SDK_VERSION, Screen, ScreenSpec,
 };
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test-x4",
-    name: "Test X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test-x4",
+    "Test X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
 /// A touch screen, as a Boox.
-const BOOX: DeviceInfo = DeviceInfo {
-    id: "test-boox",
-    name: "Test Boox",
-    display: DisplayInfo {
-        width: 1264,
-        height: 1680,
-        dpi: 300,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: false,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Large,
-};
+const BOOX: DeviceInfo = DeviceInfo::new(
+    "test-boox",
+    "Test Boox",
+    DisplayInfo::new(1264, 1680, 300, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(false, true, false, &[]),
+    MemoryClass::Large,
+);
 
 const TEXT: &str = "books/notes.txt";
 const IN_FOLDER: &str = "books/plain/story.txt";
@@ -298,13 +279,13 @@ impl App {
             i32::from(part.area.y) + i32::from(part.area.height) / 2,
         );
         for phase in [PointerPhase::Down, PointerPhase::Up] {
-            let event = InputEvent::Pointer(PointerEvent {
-                id: 0,
+            let event = InputEvent::Pointer(PointerEvent::new(
+                0,
                 phase,
-                point: paperpaw_sdk::Point::new(x, y),
-                tool: PointerTool::Finger,
-                pressure: 1000,
-            });
+                paperpaw_sdk::Point::new(x, y),
+                PointerTool::Finger,
+                1000,
+            ));
             self.now += 20;
             let effects = self.kernel.handle(Instant(self.now), event);
             if phase == PointerPhase::Up {

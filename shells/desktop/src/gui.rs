@@ -150,13 +150,13 @@ impl App {
         if let Some(recorder) = &mut self.recorder {
             recorder.pointer(phase, point, &mut self.device);
         }
-        self.device.input(InputEvent::Pointer(PointerEvent {
-            id: 0,
+        self.device.input(InputEvent::Pointer(PointerEvent::new(
+            0,
             phase,
             point,
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        }));
+            PointerTool::Finger,
+            1000,
+        )));
         self.after_input();
     }
 

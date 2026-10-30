@@ -30,25 +30,13 @@ use paperpaw_sdk::{
 const PAGES: Id = Id::new_static("test.pages");
 
 const fn device(touch: bool) -> DeviceInfo {
-    DeviceInfo {
-        id: "test",
-        name: "Test device",
-        display: DisplayInfo {
-            width: 480,
-            height: 800,
-            dpi: 220,
-            format: PixelFormat::Gray4,
-            rotation: Rotation::Deg0,
-            color: None,
-        },
-        input: InputCaps {
-            buttons: true,
-            touch,
-            pen: false,
-            keys: &[],
-        },
-        memory: MemoryClass::Large,
-    }
+    DeviceInfo::new(
+        "test",
+        "Test device",
+        DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+        InputCaps::new(true, touch, false, &[]),
+        MemoryClass::Large,
+    )
 }
 
 /// The pages turned, by whichever input.
@@ -140,13 +128,13 @@ impl Test {
 
     fn pointer(&mut self, millis: u64, phase: PointerPhase, (x, y): (i32, i32)) {
         let at = self.at(millis);
-        let event = InputEvent::Pointer(PointerEvent {
-            id: 0,
+        let event = InputEvent::Pointer(PointerEvent::new(
+            0,
             phase,
-            point: Point::new(x, y),
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        });
+            Point::new(x, y),
+            PointerTool::Finger,
+            1000,
+        ));
         self.kernel.handle(at, event);
     }
 

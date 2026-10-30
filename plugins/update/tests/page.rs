@@ -22,25 +22,13 @@ use paperpaw_sdk::{
     PixelFormat, Storage, StorageError,
 };
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test device",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test device",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, false, false, &[]),
+    MemoryClass::Small,
+);
 
 const SEED: [u8; 32] = [3; 32];
 const CHIP: u16 = paperpaw_sdk::firmware::CHIP_ESP32_C3;
@@ -137,15 +125,8 @@ impl Device {
             .build()
             .unwrap();
         if let Some(unix) = unix {
-            let clock = paperpaw_platform::WallClock {
-                at: Instant(0),
-                unix_millis: unix * 1000,
-                utc_offset_minutes: None,
-            };
-            let status = paperpaw_platform::SystemStatus {
-                clock: Some(clock),
-                battery: None,
-            };
+            let clock = paperpaw_platform::WallClock::new(Instant(0), unix * 1000, None);
+            let status = paperpaw_platform::SystemStatus::new(Some(clock), None);
             kernel.set_status(Instant(0), status);
         }
         kernel.start(Instant(0));
@@ -1178,18 +1159,14 @@ impl Device {
     /// Plugged in or not, at `unix` seconds since 1970.
     fn power(&mut self, unix: i64, charging: bool) {
         self.now += 100;
-        let status = paperpaw_platform::SystemStatus {
-            clock: Some(paperpaw_platform::WallClock {
-                at: Instant(self.now),
-                unix_millis: unix * 1000,
-                utc_offset_minutes: None,
-            }),
-            battery: Some(paperpaw_platform::Battery {
-                percent: 50,
-                charging,
-                millivolts: None,
-            }),
-        };
+        let status = paperpaw_platform::SystemStatus::new(
+            Some(paperpaw_platform::WallClock::new(
+                Instant(self.now),
+                unix * 1000,
+                None,
+            )),
+            Some(paperpaw_platform::Battery::new(50, charging, None)),
+        );
         self.kernel.set_status(Instant(self.now), status);
     }
 }

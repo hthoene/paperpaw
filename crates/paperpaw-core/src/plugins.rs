@@ -120,15 +120,15 @@ impl Kernel {
         state: PluginState,
         enabled: bool,
     ) {
-        self.shared.plugins.push(PluginInfo {
+        self.shared.plugins.push(PluginInfo::new(
             manifest,
             state,
             enabled,
-            required_for: RequiredFor::default(),
-            kind: paperpaw_sdk::PluginKind::BuiltIn,
-            problem: None,
-            update: None,
-        });
+            RequiredFor::default(),
+            paperpaw_sdk::PluginKind::BuiltIn,
+            None,
+            None,
+        ));
     }
 
     /// Marks plugins that alone fill a standard slot or provide all fonts:

@@ -346,27 +346,22 @@ const KIB: usize = 1024;
 
 pub const PROFILES: &[Profile] = &[
     Profile {
-        device: DeviceInfo {
-            id: "xteink-x4",
-            name: "Xteink X4",
-            display: DisplayInfo {
-                width: 480,
-                height: 800,
-                dpi: 220,
+        device: DeviceInfo::new(
+            "xteink-x4",
+            "Xteink X4",
+            DisplayInfo::new(
+                480,
+                800,
+                220,
                 // As the firmware draws: black and white, what the panel
                 // shows until its four grays (the controller's LUTs) come.
-                format: PixelFormat::Mono1,
-                rotation: Rotation::Deg90,
-                color: None,
-            },
-            input: InputCaps {
-                buttons: true,
-                touch: false,
-                pen: false,
-                keys: &[],
-            },
-            memory: MemoryClass::Small,
-        },
+                PixelFormat::Mono1,
+                Rotation::Deg90,
+                None,
+            ),
+            InputCaps::new(true, false, false, &[]),
+            MemoryClass::Small,
+        ),
         buttons: &X4_BUTTONS,
         // The firmware's heap: 192 KiB, and 64 KiB in the memory the boot
         // loader used (two regions: no block larger than 192 KiB). The
@@ -393,25 +388,13 @@ pub const PROFILES: &[Profile] = &[
         summary: "ESP32-C3, 4.3\" 800x480, buttons only, 256 KiB heap budget",
     },
     Profile {
-        device: DeviceInfo {
-            id: "xteink-x4-pro",
-            name: "Xteink X4 Pro",
-            display: DisplayInfo {
-                width: 480,
-                height: 800,
-                dpi: 217,
-                format: PixelFormat::Mono1,
-                rotation: Rotation::Deg90,
-                color: None,
-            },
-            input: InputCaps {
-                buttons: true,
-                touch: true,
-                pen: false,
-                keys: &[],
-            },
-            memory: MemoryClass::Large,
-        },
+        device: DeviceInfo::new(
+            "xteink-x4-pro",
+            "Xteink X4 Pro",
+            DisplayInfo::new(480, 800, 217, PixelFormat::Mono1, Rotation::Deg90, None),
+            InputCaps::new(true, true, false, &[]),
+            MemoryClass::Large,
+        ),
         // Previous/next, a touch home key and power (reset is hardware).
         buttons: &[
             buttons::PAGE_BACK,
@@ -446,25 +429,13 @@ pub const PROFILES: &[Profile] = &[
         summary: "ESP32-S3 with 8 MB PSRAM, 4.3\" 800x480, touch + buttons, 10 MiB heap budget",
     },
     Profile {
-        device: DeviceInfo {
-            id: "xteink-x4-classic",
-            name: "Xteink X4 Classic",
-            display: DisplayInfo {
-                width: 480,
-                height: 800,
-                dpi: 217,
-                format: PixelFormat::Mono1,
-                rotation: Rotation::Deg90,
-                color: None,
-            },
-            input: InputCaps {
-                buttons: true,
-                touch: false,
-                pen: false,
-                keys: &[],
-            },
-            memory: MemoryClass::Large,
-        },
+        device: DeviceInfo::new(
+            "xteink-x4-classic",
+            "Xteink X4 Classic",
+            DisplayInfo::new(480, 800, 217, PixelFormat::Mono1, Rotation::Deg90, None),
+            InputCaps::new(true, false, false, &[]),
+            MemoryClass::Large,
+        ),
         // The X4's buttons, the X4 Pro's screen and memory.
         buttons: &X4_BUTTONS,
         heap_budget: Some(S3_HEAP),
@@ -490,25 +461,13 @@ pub const PROFILES: &[Profile] = &[
     // firmware takes the plugin library's X4 builds (the same chip and
     // fingerprint).
     Profile {
-        device: DeviceInfo {
-            id: "xteink-x3",
-            name: "Xteink X3",
-            display: DisplayInfo {
-                width: 528,
-                height: 792,
-                dpi: 260,
-                format: PixelFormat::Mono1,
-                rotation: Rotation::Deg90,
-                color: None,
-            },
-            input: InputCaps {
-                buttons: true,
-                touch: false,
-                pen: false,
-                keys: &[],
-            },
-            memory: MemoryClass::Small,
-        },
+        device: DeviceInfo::new(
+            "xteink-x3",
+            "Xteink X3",
+            DisplayInfo::new(528, 792, 260, PixelFormat::Mono1, Rotation::Deg90, None),
+            InputCaps::new(true, false, false, &[]),
+            MemoryClass::Small,
+        ),
         buttons: &X4_BUTTONS,
         heap_budget: Some(256 * KIB),
         glyph_cache: X4_GLYPH_CACHE,
@@ -529,26 +488,21 @@ pub const PROFILES: &[Profile] = &[
         summary: "experimental: ESP32-C3, 3.7\" 792x528, buttons only, 256 KiB heap budget",
     },
     Profile {
-        device: DeviceInfo {
-            id: "boox-go-7",
-            name: "Boox Go 7",
-            display: DisplayInfo {
-                width: 1264,
-                height: 1680,
+        device: DeviceInfo::new(
+            "boox-go-7",
+            "Boox Go 7",
+            DisplayInfo::new(
+                1264,
+                1680,
                 // As the Android shell draws on gray e-ink.
-                dpi: 300,
-                format: PixelFormat::Gray8,
-                rotation: Rotation::Deg0,
-                color: None,
-            },
-            input: InputCaps {
-                buttons: true,
-                touch: true,
-                pen: false,
-                keys: &[],
-            },
-            memory: MemoryClass::Large,
-        },
+                300,
+                PixelFormat::Gray8,
+                Rotation::Deg0,
+                None,
+            ),
+            InputCaps::new(true, true, false, &[]),
+            MemoryClass::Large,
+        ),
         // The page buttons and Android's back; the system keeps power.
         buttons: &[buttons::PAGE_BACK, buttons::PAGE_FORWARD, buttons::BACK],
         heap_budget: None,
@@ -577,28 +531,20 @@ pub const PROFILES: &[Profile] = &[
         summary: "Android, 7\" Carta 1300 1264x1680, touch + page buttons",
     },
     Profile {
-        device: DeviceInfo {
-            id: "kobo-libra-colour",
-            name: "Kobo Libra Colour",
-            display: DisplayInfo {
-                width: 1264,
-                height: 1680,
-                dpi: 300,
-                format: PixelFormat::Rgb888,
-                rotation: Rotation::Deg0,
-                color: Some(ColorPanel {
-                    color_divisor: 2,
-                    saturation_percent: 55,
-                }),
-            },
-            input: InputCaps {
-                buttons: true,
-                touch: true,
-                pen: true,
-                keys: &[],
-            },
-            memory: MemoryClass::Large,
-        },
+        device: DeviceInfo::new(
+            "kobo-libra-colour",
+            "Kobo Libra Colour",
+            DisplayInfo::new(
+                1264,
+                1680,
+                300,
+                PixelFormat::Rgb888,
+                Rotation::Deg0,
+                Some(ColorPanel::new(2, 55)),
+            ),
+            InputCaps::new(true, true, true, &[]),
+            MemoryClass::Large,
+        ),
         buttons: &[buttons::PAGE_BACK, buttons::PAGE_FORWARD, buttons::POWER],
         heap_budget: None,
         glyph_cache: 256 * KIB,
@@ -619,25 +565,13 @@ pub const PROFILES: &[Profile] = &[
         summary: "Linux, 7\" Kaleido 3 colour 1264x1680, touch + page buttons",
     },
     Profile {
-        device: DeviceInfo {
-            id: "kindle-paperwhite-5",
-            name: "Kindle Paperwhite (11th gen)",
-            display: DisplayInfo {
-                width: 1236,
-                height: 1648,
-                dpi: 300,
-                format: PixelFormat::Gray4,
-                rotation: Rotation::Deg0,
-                color: None,
-            },
-            input: InputCaps {
-                buttons: false,
-                touch: true,
-                pen: false,
-                keys: &[],
-            },
-            memory: MemoryClass::Large,
-        },
+        device: DeviceInfo::new(
+            "kindle-paperwhite-5",
+            "Kindle Paperwhite (11th gen)",
+            DisplayInfo::new(1236, 1648, 300, PixelFormat::Gray4, Rotation::Deg0, None),
+            InputCaps::new(false, true, false, &[]),
+            MemoryClass::Large,
+        ),
         buttons: &[buttons::POWER],
         heap_budget: None,
         glyph_cache: 256 * KIB,
@@ -658,25 +592,13 @@ pub const PROFILES: &[Profile] = &[
         summary: "Linux, 6.8\" 1236x1648, touch only",
     },
     Profile {
-        device: DeviceInfo {
-            id: "kobo-clara-bw",
-            name: "Kobo Clara BW",
-            display: DisplayInfo {
-                width: 1072,
-                height: 1448,
-                dpi: 300,
-                format: PixelFormat::Gray4,
-                rotation: Rotation::Deg0,
-                color: None,
-            },
-            input: InputCaps {
-                buttons: false,
-                touch: true,
-                pen: false,
-                keys: &[],
-            },
-            memory: MemoryClass::Large,
-        },
+        device: DeviceInfo::new(
+            "kobo-clara-bw",
+            "Kobo Clara BW",
+            DisplayInfo::new(1072, 1448, 300, PixelFormat::Gray4, Rotation::Deg0, None),
+            InputCaps::new(false, true, false, &[]),
+            MemoryClass::Large,
+        ),
         buttons: &[buttons::POWER],
         heap_budget: None,
         glyph_cache: 256 * KIB,
@@ -697,25 +619,13 @@ pub const PROFILES: &[Profile] = &[
         summary: "Linux, 6\" 1072x1448, touch only",
     },
     Profile {
-        device: DeviceInfo {
-            id: "two-buttons",
-            name: "Two-button e-reader",
-            display: DisplayInfo {
-                width: 600,
-                height: 800,
-                dpi: 167,
-                format: PixelFormat::Gray4,
-                rotation: Rotation::Deg0,
-                color: None,
-            },
-            input: InputCaps {
-                buttons: true,
-                touch: false,
-                pen: false,
-                keys: &[],
-            },
-            memory: MemoryClass::Large,
-        },
+        device: DeviceInfo::new(
+            "two-buttons",
+            "Two-button e-reader",
+            DisplayInfo::new(600, 800, 167, PixelFormat::Gray4, Rotation::Deg0, None),
+            InputCaps::new(true, false, false, &[]),
+            MemoryClass::Large,
+        ),
         buttons: &[buttons::PAGE_BACK, buttons::PAGE_FORWARD, buttons::POWER],
         heap_budget: None,
         glyph_cache: 64 * KIB,

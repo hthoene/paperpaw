@@ -54,25 +54,13 @@ impl Kernel {
     }
 }
 
-pub(crate) const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test device",
-    display: DisplayInfo {
-        width: 90,
-        height: 90,
-        dpi: 100,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    memory: paperpaw_platform::MemoryClass::Large,
-};
+pub(crate) const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test device",
+    DisplayInfo::new(90, 90, 100, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, true, false, &[]),
+    paperpaw_platform::MemoryClass::Large,
+);
 
 type Log = Rc<RefCell<Vec<String>>>;
 
@@ -201,13 +189,13 @@ fn press(kernel: &mut Kernel, at: u64, name: &'static str) -> crate::Effects {
 
 fn tap(kernel: &mut Kernel, at: u64, x: i32, y: i32) -> crate::Effects {
     let event = |phase| {
-        InputEvent::Pointer(PointerEvent {
-            id: 0,
+        InputEvent::Pointer(PointerEvent::new(
+            0,
             phase,
-            point: Point::new(x, y),
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        })
+            Point::new(x, y),
+            PointerTool::Finger,
+            1000,
+        ))
     };
     kernel.handle(Instant(at), event(PointerPhase::Down));
     let effects = kernel.handle(Instant(at + 60), event(PointerPhase::Up));
@@ -521,13 +509,13 @@ fn user_settings_are_applied_and_validated() {
 fn long_tap_toggles_night_mode() {
     let mut kernel = Kernel::builder(DEVICE).build().unwrap();
     kernel.start(Instant(0));
-    let down = InputEvent::Pointer(PointerEvent {
-        id: 0,
-        phase: PointerPhase::Down,
-        point: Point::new(45, 45),
-        tool: PointerTool::Finger,
-        pressure: 1000,
-    });
+    let down = InputEvent::Pointer(PointerEvent::new(
+        0,
+        PointerPhase::Down,
+        Point::new(45, 45),
+        PointerTool::Finger,
+        1000,
+    ));
     let effects = kernel.handle(Instant(1000), down);
     assert_eq!(effects.wake_at(), Some(Instant(1500)));
     let effects = kernel.tick(Instant(1500));
@@ -552,13 +540,13 @@ fn taps_resolve_through_zones() {
 
 fn swipe(kernel: &mut Kernel, at: u64, from: (i32, i32), to: (i32, i32)) {
     let event = |phase, (x, y)| {
-        InputEvent::Pointer(PointerEvent {
-            id: 0,
+        InputEvent::Pointer(PointerEvent::new(
+            0,
             phase,
-            point: Point::new(x, y),
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        })
+            Point::new(x, y),
+            PointerTool::Finger,
+            1000,
+        ))
     };
     kernel.handle(Instant(at), event(PointerPhase::Down, from));
     kernel.handle(Instant(at + 30), event(PointerPhase::Move, to));
@@ -1932,13 +1920,13 @@ fn changed_settings_are_saved_and_announced() {
     log.borrow_mut().clear();
 
     // Long tap in the centre runs core.toggle-night-mode.
-    let down = InputEvent::Pointer(PointerEvent {
-        id: 0,
-        phase: PointerPhase::Down,
-        point: Point::new(45, 45),
-        tool: PointerTool::Finger,
-        pressure: 1000,
-    });
+    let down = InputEvent::Pointer(PointerEvent::new(
+        0,
+        PointerPhase::Down,
+        Point::new(45, 45),
+        PointerTool::Finger,
+        1000,
+    ));
     kernel.handle(Instant(100), down);
     kernel.tick(Instant(600));
     assert!(kernel.settings().bool("core.night-mode"));

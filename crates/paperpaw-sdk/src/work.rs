@@ -602,12 +602,18 @@ pub enum WorkState {
 
 /// How far a job is: `done` of `of` (files, entries, pages).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct Progress {
     pub done: u32,
     pub of: u32,
 }
 
 impl Progress {
+    /// `done` of `of`.
+    pub const fn new(done: u32, of: u32) -> Progress {
+        Progress { done, of }
+    }
+
     /// In percent, 0 to 100.
     pub fn percent(self) -> u8 {
         if self.of == 0 {

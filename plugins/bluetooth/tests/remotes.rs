@@ -17,25 +17,13 @@ use paperpaw_platform::{
 };
 use paperpaw_plugin_bluetooth::{Bluetooth, REMOTES, WHILE_AWAKE, WHILE_READING};
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, true, false, &[]),
+    MemoryClass::Small,
+);
 
 /// A kernel with a remote bonded before and `remotes` chosen.
 fn kernel(remotes: &str) -> Kernel {

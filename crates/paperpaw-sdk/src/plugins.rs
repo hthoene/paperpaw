@@ -124,6 +124,7 @@ pub enum PluginProblem {
 
 /// A plugin and its state.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PluginInfo {
     pub manifest: Manifest,
     pub state: PluginState,
@@ -145,6 +146,30 @@ pub struct PluginInfo {
 }
 
 impl PluginInfo {
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "all its fields, as the constructor of an open type has them"
+    )]
+    pub const fn new(
+        manifest: Manifest,
+        state: PluginState,
+        enabled: bool,
+        required_for: RequiredFor,
+        kind: PluginKind,
+        problem: Option<PluginProblem>,
+        update: Option<crate::Version>,
+    ) -> PluginInfo {
+        PluginInfo {
+            manifest,
+            state,
+            enabled,
+            required_for,
+            kind,
+            problem,
+            update,
+        }
+    }
+
     /// The name in the current language: the plugin's translation of
     /// `<id>.plugin.name`, or the manifest's name.
     pub fn name<'a>(&'a self, i18n: &'a Translator) -> &'a str {

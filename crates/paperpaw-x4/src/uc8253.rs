@@ -305,7 +305,7 @@ impl Window {
                 }
             }
             // On its side, lines.
-            Rotation::Deg90 | Rotation::Deg270 => {
+            _ => {
                 let y = if rotation == Rotation::Deg90 {
                     top
                 } else {
@@ -413,7 +413,7 @@ where
     pub fn size(&self) -> (u16, u16) {
         match self.rotation {
             Rotation::Deg0 | Rotation::Deg180 => (WIDTH, HEIGHT),
-            Rotation::Deg90 | Rotation::Deg270 => (HEIGHT, WIDTH),
+            _ => (HEIGHT, WIDTH),
         }
     }
 
@@ -778,7 +778,7 @@ fn send_band(
             upright_mono(rotation, rows, height, buffer, send)
         }
         Rotation::Deg0 | Rotation::Deg180 => upright(rotation, window, height, light, buffer, send),
-        Rotation::Deg90 | Rotation::Deg270 => side(rotation, rows, height, light, buffer, send),
+        _ => side(rotation, rows, height, light, buffer, send),
     }
 }
 
@@ -1186,6 +1186,7 @@ mod tests {
             Rotation::Deg90 => (y, HEIGHT - 1 - x),
             Rotation::Deg180 => (WIDTH - 1 - x, HEIGHT - 1 - y),
             Rotation::Deg270 => (WIDTH - 1 - y, x),
+            _ => (x, y),
         };
         (usize::from(ux), uy)
     }
@@ -1335,13 +1336,13 @@ mod tests {
     }
 
     fn view(data: &[u8], width: u16, height: u16, format: PixelFormat) -> FrameView<'_> {
-        FrameView {
+        FrameView::new(
             width,
             height,
-            stride: data.len() / usize::from(height),
             format,
+            data.len() / usize::from(height),
             data,
-        }
+        )
     }
 
     #[test]

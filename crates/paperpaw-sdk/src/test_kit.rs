@@ -60,25 +60,13 @@ impl Kit {
     /// A device with buttons alone (as the X4), or with touch too.
     pub(crate) fn new(touch: bool) -> Self {
         Self {
-            device: DeviceInfo {
-                id: "test",
-                name: "Test",
-                display: DisplayInfo {
-                    width: 400,
-                    height: 400,
-                    dpi: 254,
-                    format: PixelFormat::Gray4,
-                    rotation: Rotation::Deg0,
-                    color: None,
-                },
-                input: InputCaps {
-                    buttons: true,
-                    touch,
-                    pen: false,
-                    keys: &[],
-                },
-                memory: MemoryClass::Small,
-            },
+            device: DeviceInfo::new(
+                "test",
+                "Test",
+                DisplayInfo::new(400, 400, 254, PixelFormat::Gray4, Rotation::Deg0, None),
+                InputCaps::new(true, touch, false, &[]),
+                MemoryClass::Small,
+            ),
             settings: Settings::new(),
             i18n: Translator::new(),
             fonts: Fonts::new(0),

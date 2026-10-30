@@ -24,25 +24,13 @@ use paperpaw_plugin_transfer::Transfer;
 use paperpaw_sdk::builtin::actions;
 use paperpaw_sdk::{DirEntry, Id, MemoryStorage, Storage, StorageError};
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test-touch",
-    name: "Test touch",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: false,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test-touch",
+    "Test touch",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(false, true, false, &[]),
+    MemoryClass::Small,
+);
 
 /// A storage the test looks into while the kernel has it, on a card that
 /// can be made to fail.
@@ -565,13 +553,13 @@ fn a_transfer_without_a_router_opens_the_readers_own_network() {
     ] {
         kernel.handle(
             Instant(t),
-            paperpaw_platform::InputEvent::Pointer(paperpaw_platform::PointerEvent {
-                id: 0,
+            paperpaw_platform::InputEvent::Pointer(paperpaw_platform::PointerEvent::new(
+                0,
                 phase,
-                point: at,
-                tool: paperpaw_platform::PointerTool::Finger,
-                pressure: 1000,
-            }),
+                at,
+                paperpaw_platform::PointerTool::Finger,
+                1000,
+            )),
         );
     }
     kernel.tick(Instant(1000));
@@ -710,13 +698,13 @@ fn offline_mode_offers_to_go_online_first() {
         ] {
             kernel.handle(
                 Instant(t),
-                paperpaw_platform::InputEvent::Pointer(paperpaw_platform::PointerEvent {
-                    id: 0,
+                paperpaw_platform::InputEvent::Pointer(paperpaw_platform::PointerEvent::new(
+                    0,
                     phase,
-                    point: at,
-                    tool: paperpaw_platform::PointerTool::Finger,
-                    pressure: 1000,
-                }),
+                    at,
+                    paperpaw_platform::PointerTool::Finger,
+                    1000,
+                )),
             );
         }
         kernel.tick(Instant(1000));

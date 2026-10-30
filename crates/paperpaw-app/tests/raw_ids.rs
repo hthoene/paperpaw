@@ -21,25 +21,18 @@ use paperpaw_sdk::builtin::{actions, params};
 use paperpaw_sdk::{Id, MemoryStorage, Params, SettingKind};
 
 /// An X4 Pro as the emulator has it: buttons, no touch.
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test-x4-pro",
-    name: "Test X4 Pro",
-    display: DisplayInfo {
-        width: 528,
-        height: 880,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test-x4-pro",
+    "Test X4 Pro",
+    DisplayInfo::new(528, 880, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
 /// The most rows a list is walked through: more than any has.
 const MOST_ROWS: usize = 120;

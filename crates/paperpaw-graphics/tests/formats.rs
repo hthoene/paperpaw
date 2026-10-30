@@ -265,41 +265,17 @@ fn rows_of_another_format_or_width_are_not_written() {
     let mut fb = Framebuffer::new(8, 4, PixelFormat::Gray8).unwrap();
     let black = [0u8; 64];
     for (width, format) in [(8, PixelFormat::Gray4), (7, PixelFormat::Gray8)] {
-        fb.write_rows(
-            0,
-            FrameView {
-                width,
-                height: 4,
-                format,
-                stride: 8,
-                data: &black,
-            },
-        );
+        fb.write_rows(0, FrameView::new(width, 4, format, 8, &black));
         assert!(pixels(&fb).iter().all(|&c| c == Color::WHITE));
     }
     // Rows given short: as far as they go.
-    fb.write_rows(
-        2,
-        FrameView {
-            width: 8,
-            height: 4,
-            format: PixelFormat::Gray8,
-            stride: 8,
-            data: &black[..12],
-        },
-    );
+    fb.write_rows(2, FrameView::new(8, 4, PixelFormat::Gray8, 8, &black[..12]));
     assert_eq!(fb.view().pixel(0, 2), Color::BLACK);
     assert_eq!(fb.view().pixel(0, 3), Color::WHITE);
     // Rows past the screen's last: skipped, as are those beyond u16.
     fb.write_rows(
         u16::MAX - 1,
-        FrameView {
-            width: 8,
-            height: 4,
-            format: PixelFormat::Gray8,
-            stride: 8,
-            data: &black[..32],
-        },
+        FrameView::new(8, 4, PixelFormat::Gray8, 8, &black[..32]),
     );
     assert_eq!(fb.view().pixel(0, 0), Color::WHITE);
 }

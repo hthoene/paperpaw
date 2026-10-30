@@ -24,6 +24,7 @@ pub struct Section {
 /// What a place on a page shows: section `n`'s heading, or entry `n`
 /// (counted over all sections, in their order).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Item {
     Heading(usize),
     Entry(usize),

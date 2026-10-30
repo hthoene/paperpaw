@@ -59,6 +59,7 @@ pub enum Kind {
 
 /// Where an annotation is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Mark {
     pub kind: Kind,
     /// For a highlight, its first character; for a bookmark, where the
@@ -71,6 +72,15 @@ pub struct Mark {
 }
 
 impl Mark {
+    pub const fn new(kind: Kind, start: Locator, end: Locator, noted: bool) -> Mark {
+        Mark {
+            kind,
+            start,
+            end,
+            noted,
+        }
+    }
+
     /// Whether the mark covers part of `start..end`.
     pub fn overlaps(&self, start: Locator, end: Locator) -> bool {
         self.start < end && start < self.end
@@ -79,6 +89,7 @@ impl Mark {
 
 /// An annotation with what is shown of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Annotation {
     pub mark: Mark,
     /// Reading progress at the start, in percent.
@@ -91,6 +102,26 @@ pub struct Annotation {
     pub text: String,
     /// What the reader noted on it, if anything (one line).
     pub note: String,
+}
+
+impl Annotation {
+    pub fn new(
+        mark: Mark,
+        percent: u8,
+        created: i64,
+        updated: i64,
+        text: impl Into<String>,
+        note: impl Into<String>,
+    ) -> Annotation {
+        Annotation {
+            mark,
+            percent,
+            created,
+            updated,
+            text: text.into(),
+            note: note.into(),
+        }
+    }
 }
 
 /// Which conversion of the book an annotation's offsets are in (`None`

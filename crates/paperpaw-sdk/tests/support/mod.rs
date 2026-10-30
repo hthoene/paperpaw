@@ -105,25 +105,20 @@ pub struct Harness {
 
 impl Harness {
     pub fn new(device: Device) -> Self {
-        let info = DeviceInfo {
-            id: "test",
-            name: "Test device",
-            display: DisplayInfo {
-                width: device.width,
-                height: device.height,
-                dpi: 220,
-                format: PixelFormat::Gray8,
-                rotation: paperpaw_platform::Rotation::Deg0,
-                color: None,
-            },
-            input: InputCaps {
-                buttons: true,
-                touch: device.touch,
-                pen: false,
-                keys: &[],
-            },
-            memory: MemoryClass::Large,
-        };
+        let info = DeviceInfo::new(
+            "test",
+            "Test device",
+            DisplayInfo::new(
+                device.width,
+                device.height,
+                220,
+                PixelFormat::Gray8,
+                paperpaw_platform::Rotation::Deg0,
+                None,
+            ),
+            InputCaps::new(true, device.touch, false, &[]),
+            MemoryClass::Large,
+        );
         let mut h = Harness {
             device: info,
             settings: Settings::new(),
@@ -329,13 +324,7 @@ pub fn describe(
 
 /// A pointer sample of finger 0.
 pub fn pointer(phase: PointerPhase, x: i32, y: i32) -> PointerEvent {
-    PointerEvent {
-        id: 0,
-        phase,
-        point: Point::new(x, y),
-        tool: PointerTool::Finger,
-        pressure: 1000,
-    }
+    PointerEvent::new(0, phase, Point::new(x, y), PointerTool::Finger, 1000)
 }
 
 /// A tap at `point`.

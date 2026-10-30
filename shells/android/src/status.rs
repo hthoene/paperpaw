@@ -32,14 +32,10 @@ pub fn read(app: &AndroidApp, now: Instant) -> SystemStatus {
             .i()?;
         Ok(millis / 60_000)
     });
-    SystemStatus {
-        clock: Some(WallClock {
-            at: now,
-            unix_millis,
-            utc_offset_minutes: offset,
-        }),
-        battery: with_activity(app, battery).flatten(),
-    }
+    SystemStatus::new(
+        Some(WallClock::new(now, unix_millis, offset)),
+        with_activity(app, battery).flatten(),
+    )
 }
 
 /// The battery from the sticky `ACTION_BATTERY_CHANGED` broadcast.
@@ -76,10 +72,10 @@ fn battery(env: &mut JNIEnv<'_>, activity: &JObject<'_>) -> jni::errors::Result<
     if level < 0 || scale <= 0 {
         return Ok(None);
     }
-    Ok(Some(Battery {
-        percent: (level * 100 / scale).clamp(0, 100) as u8,
-        charging: status == CHARGING,
+    Ok(Some(Battery::new(
+        (level * 100 / scale).clamp(0, 100) as u8,
+        status == CHARGING,
         // In millivolts; some devices report volts.
-        millivolts: u16::try_from(voltage).ok().filter(|mv| *mv > 1000),
-    }))
+        u16::try_from(voltage).ok().filter(|mv| *mv > 1000),
+    )))
 }

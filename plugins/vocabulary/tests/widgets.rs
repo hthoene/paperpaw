@@ -15,25 +15,18 @@ use paperpaw_sdk::{
 };
 
 /// An X4: black and white, buttons.
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test-x4",
-    name: "Test X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test-x4",
+    "Test X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
 /// A card with three words, the newest last.
 fn card() -> MemoryStorage {
@@ -89,14 +82,14 @@ fn home_on(storage: MemoryStorage, page: &str, config: &str, device: Device) -> 
         .plugin(paperpaw_plugin_vocabulary::Vocabulary)
         .build()
         .unwrap();
-    let status = SystemStatus {
-        clock: (device == Device::Clock).then_some(WallClock {
-            at: Instant(0),
-            unix_millis: 1_791_967_260_000,
-            utc_offset_minutes: Some(120),
-        }),
-        battery: None,
-    };
+    let status = SystemStatus::new(
+        (device == Device::Clock).then_some(WallClock::new(
+            Instant(0),
+            1_791_967_260_000,
+            Some(120),
+        )),
+        None,
+    );
     kernel.set_status(Instant(0), status);
     let mut effects = kernel.start(Instant(0));
     let mut now = 0;

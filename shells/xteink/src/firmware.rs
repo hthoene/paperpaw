@@ -439,14 +439,10 @@ impl Firmware {
         self.state.status_read = Some(at);
         self.state.status_on_usb = on_usb;
         let millivolts = input::millivolts();
-        let status = SystemStatus {
-            clock: clock::wall(at),
-            battery: Some(Battery {
-                percent: input::percent(),
-                charging: on_usb,
-                millivolts: Some(millivolts),
-            }),
-        };
+        let status = SystemStatus::new(
+            clock::wall(at),
+            Some(Battery::new(input::percent(), on_usb, Some(millivolts))),
+        );
         let effects = self.kernel.set_status(at, status);
         self.apply(effects);
     }
@@ -516,13 +512,13 @@ impl Firmware {
             input::Touch::Home(_) => (PointerPhase::Cancel, 0, 0),
         };
         let (x, y) = paperpaw_x4::uc8179::turned(self.panel.rotation(), x, y);
-        InputEvent::Pointer(PointerEvent {
-            id: 0,
+        InputEvent::Pointer(PointerEvent::new(
+            0,
             phase,
-            point: Point::new(i32::from(x), i32::from(y)),
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        })
+            Point::new(i32::from(x), i32::from(y)),
+            PointerTool::Finger,
+            1000,
+        ))
     }
 
     /// Wakes the kernel when it asked to be.
@@ -1279,13 +1275,13 @@ impl Firmware {
                     Touch::Move => PointerPhase::Move,
                     Touch::Up => PointerPhase::Up,
                 };
-                let event = InputEvent::Pointer(PointerEvent {
-                    id: 0,
+                let event = InputEvent::Pointer(PointerEvent::new(
+                    0,
                     phase,
-                    point: Point::new(x, y),
-                    tool: PointerTool::Finger,
-                    pressure: 1000,
-                });
+                    Point::new(x, y),
+                    PointerTool::Finger,
+                    1000,
+                ));
                 let at = self.kernel_now();
                 let effects = self.kernel.handle(at, event);
                 self.apply(effects);

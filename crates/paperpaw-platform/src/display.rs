@@ -6,6 +6,7 @@ use crate::pixel::{Color, PixelFormat};
 /// How the logical (upright) screen is rotated relative to the panel's
 /// native scan direction, clockwise.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum Rotation {
     #[default]
     Deg0,
@@ -46,12 +47,35 @@ impl RefreshMode {
 
 /// Properties of a colour filter panel (Kaleido, Gallery, …).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct ColorPanel {
     /// Colour resolution relative to the gray resolution, e.g. `2` when the
     /// colour filter covers 2×2 pixels.
     pub color_divisor: u8,
     /// Typical saturation the panel can show, in percent of sRGB.
     pub saturation_percent: u8,
+}
+
+impl ColorPanel {
+    /// Made of all its fields; the `with_` methods change one.
+    pub const fn new(color_divisor: u8, saturation_percent: u8) -> Self {
+        Self {
+            color_divisor,
+            saturation_percent,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_color_divisor(mut self, color_divisor: u8) -> Self {
+        self.color_divisor = color_divisor;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_saturation_percent(mut self, saturation_percent: u8) -> Self {
+        self.saturation_percent = saturation_percent;
+        self
+    }
 }
 
 impl ColorPanel {
@@ -64,6 +88,7 @@ impl ColorPanel {
 
 /// Everything the core needs to know about a screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct DisplayInfo {
     /// Logical width after rotation, in pixels.
     pub width: u16,
@@ -79,8 +104,66 @@ pub struct DisplayInfo {
     pub color: Option<ColorPanel>,
 }
 
+impl DisplayInfo {
+    /// Made of all its fields; the `with_` methods change one.
+    pub const fn new(
+        width: u16,
+        height: u16,
+        dpi: u16,
+        format: PixelFormat,
+        rotation: Rotation,
+        color: Option<ColorPanel>,
+    ) -> Self {
+        Self {
+            width,
+            height,
+            dpi,
+            format,
+            rotation,
+            color,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_width(mut self, width: u16) -> Self {
+        self.width = width;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_height(mut self, height: u16) -> Self {
+        self.height = height;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_dpi(mut self, dpi: u16) -> Self {
+        self.dpi = dpi;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_format(mut self, format: PixelFormat) -> Self {
+        self.format = format;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_rotation(mut self, rotation: Rotation) -> Self {
+        self.rotation = rotation;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_color(mut self, color: Option<ColorPanel>) -> Self {
+        self.color = color;
+        self
+    }
+}
+
 /// A read-only view of a framebuffer.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct FrameView<'a> {
     pub width: u16,
     pub height: u16,
@@ -88,6 +171,55 @@ pub struct FrameView<'a> {
     /// Bytes per row.
     pub stride: usize,
     pub data: &'a [u8],
+}
+
+impl<'a> FrameView<'a> {
+    /// Made of all its fields; the `with_` methods change one.
+    pub const fn new(
+        width: u16,
+        height: u16,
+        format: PixelFormat,
+        stride: usize,
+        data: &'a [u8],
+    ) -> Self {
+        Self {
+            width,
+            height,
+            format,
+            stride,
+            data,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_width(mut self, width: u16) -> Self {
+        self.width = width;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_height(mut self, height: u16) -> Self {
+        self.height = height;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_format(mut self, format: PixelFormat) -> Self {
+        self.format = format;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_stride(mut self, stride: usize) -> Self {
+        self.stride = stride;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_data(mut self, data: &'a [u8]) -> Self {
+        self.data = data;
+        self
+    }
 }
 
 impl FrameView<'_> {

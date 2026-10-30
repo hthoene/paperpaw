@@ -14,25 +14,13 @@ use paperpaw_platform::{
 };
 use paperpaw_sdk::MemoryStorage;
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test-boox",
-    name: "Test Boox",
-    display: DisplayInfo {
-        width: 1264,
-        height: 1680,
-        dpi: 300,
-        format: PixelFormat::Gray8,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &["back", "page-forward", "page-back"],
-    },
-    memory: MemoryClass::Large,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test-boox",
+    "Test Boox",
+    DisplayInfo::new(1264, 1680, 300, PixelFormat::Gray8, Rotation::Deg0, None),
+    InputCaps::new(true, true, false, &["back", "page-forward", "page-back"]),
+    MemoryClass::Large,
+);
 
 fn fonts() -> paperpaw_app::Fonts {
     #[cfg(any(feature = "packs", not(feature = "outline")))]

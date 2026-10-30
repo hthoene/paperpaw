@@ -22,25 +22,20 @@ use paperpaw_sdk::{
     StatusItems, SystemStatus, Translator, WallClock,
 };
 
-pub const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test device",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: paperpaw_platform::Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Large,
-};
+pub const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test device",
+    DisplayInfo::new(
+        480,
+        800,
+        220,
+        PixelFormat::Gray4,
+        paperpaw_platform::Rotation::Deg0,
+        None,
+    ),
+    InputCaps::new(true, true, false, &[]),
+    MemoryClass::Large,
+);
 
 struct NoKeys;
 
@@ -110,11 +105,7 @@ impl Harness {
     /// The device knows the time: `unix_millis` at the harness's `now`,
     /// the system's zone `utc_offset_minutes` east of UTC.
     pub fn with_clock(mut self, unix_millis: i64, utc_offset_minutes: Option<i32>) -> Self {
-        self.status.clock = Some(WallClock {
-            at: self.now,
-            unix_millis,
-            utc_offset_minutes,
-        });
+        self.status.clock = Some(WallClock::new(self.now, unix_millis, utc_offset_minutes));
         self
     }
 

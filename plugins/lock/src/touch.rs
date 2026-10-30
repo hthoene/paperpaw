@@ -285,13 +285,13 @@ mod tests {
     use paperpaw_sdk::{PointerEvent, PointerTool};
 
     fn finger(id: u8, phase: PointerPhase, (x, y): (i32, i32)) -> InputEvent {
-        InputEvent::Pointer(PointerEvent {
+        InputEvent::Pointer(PointerEvent::new(
             id,
             phase,
-            point: Point::new(x, y),
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        })
+            Point::new(x, y),
+            PointerTool::Finger,
+            1000,
+        ))
     }
 
     /// Runs `steps` (when, which finger, what, where): the verdicts, the

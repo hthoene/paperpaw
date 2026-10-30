@@ -340,13 +340,8 @@ fn settings_set_under_their_old_ids_are_kept() {
 /// off (every page with it is a refresh of the whole screen in grays).
 #[test]
 fn smooth_text_chosen_before_is_kept_and_else_off_in_black_and_white() {
-    const BLACK_AND_WHITE: DeviceInfo = DeviceInfo {
-        display: DisplayInfo {
-            format: PixelFormat::Mono1,
-            ..DEVICE.display
-        },
-        ..DEVICE
-    };
+    const BLACK_AND_WHITE: DeviceInfo =
+        DEVICE.with_display(DEVICE.display.with_format(PixelFormat::Mono1));
     let smooth = |config: &str| {
         let kernel = Kernel::builder(BLACK_AND_WHITE)
             .user_config(config)

@@ -172,101 +172,79 @@ const WATCHDOG_S: (u64, u64) = (20, 30);
 const START_WATCHDOG_S: u64 = 60;
 
 #[cfg(feature = "x4")]
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "xteink-x4",
-    name: "Xteink X4",
-    display: DisplayInfo {
-        width: display::WIDTH,
-        height: display::HEIGHT,
-        dpi: 220,
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "xteink-x4",
+    "Xteink X4",
+    DisplayInfo::new(
+        display::WIDTH,
+        display::HEIGHT,
+        220,
         // What the panel shows until its four grays come: drawing in gray
         // only to send black and white costs time and memory.
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg90,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &buttons::ALL,
-    },
-    memory: MemoryClass::Small,
-};
+        PixelFormat::Mono1,
+        Rotation::Deg90,
+        None,
+    ),
+    InputCaps::new(true, false, false, &buttons::ALL),
+    MemoryClass::Small,
+);
 
 /// The X3 (experimental, not yet tried on one): the X4's buttons and
 /// memory, a 3.68" panel of 528 × 792 upright (about 260 dpi). Uncertain
 /// without a device: whether it lies turned as the X4's does.
 #[cfg(feature = "x3")]
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "xteink-x3",
-    name: "Xteink X3",
-    display: DisplayInfo {
-        width: 528,
-        height: 792,
-        dpi: 260,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg90,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &buttons::ALL,
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "xteink-x3",
+    "Xteink X3",
+    DisplayInfo::new(528, 792, 260, PixelFormat::Mono1, Rotation::Deg90, None),
+    InputCaps::new(true, false, false, &buttons::ALL),
+    MemoryClass::Small,
+);
 
 /// The X4 Pro: touch besides its page and power buttons, and the memory
 /// of larger devices (8 MB of PSRAM).
 #[cfg(feature = "x4-pro")]
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "xteink-x4-pro",
-    name: "Xteink X4 Pro",
-    display: DisplayInfo {
-        width: display::WIDTH,
-        height: display::HEIGHT,
-        dpi: 217,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg90,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &[
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "xteink-x4-pro",
+    "Xteink X4 Pro",
+    DisplayInfo::new(
+        display::WIDTH,
+        display::HEIGHT,
+        217,
+        PixelFormat::Mono1,
+        Rotation::Deg90,
+        None,
+    ),
+    InputCaps::new(
+        true,
+        true,
+        false,
+        &[
             names::PAGE_BACK,
             names::PAGE_FORWARD,
             names::HOME,
             names::POWER,
         ],
-    },
-    memory: MemoryClass::Large,
-};
+    ),
+    MemoryClass::Large,
+);
 
 /// The X4 Classic: the X4's buttons, the X4 Pro's screen and memory.
 #[cfg(feature = "x4-classic")]
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "xteink-x4-classic",
-    name: "Xteink X4 Classic",
-    display: DisplayInfo {
-        width: display::WIDTH,
-        height: display::HEIGHT,
-        dpi: 217,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg90,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &buttons::ALL,
-    },
-    memory: MemoryClass::Large,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "xteink-x4-classic",
+    "Xteink X4 Classic",
+    DisplayInfo::new(
+        display::WIDTH,
+        display::HEIGHT,
+        217,
+        PixelFormat::Mono1,
+        Rotation::Deg90,
+        None,
+    ),
+    InputCaps::new(true, false, false, &buttons::ALL),
+    MemoryClass::Large,
+);
 
 /// Random bytes from the chip's generator: fully random while the
 /// radio is on, pseudo-random before (see `esp_hal::rng`).

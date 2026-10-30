@@ -18,25 +18,13 @@ use paperpaw_sdk::{
     Storage, StorageError,
 };
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test device",
-    display: DisplayInfo {
-        width: 200,
-        height: 300,
-        dpi: 100,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Large,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test device",
+    DisplayInfo::new(200, 300, 100, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, false, false, &[]),
+    MemoryClass::Large,
+);
 
 /// A storage the test looks into while the kernel has it.
 #[derive(Clone)]

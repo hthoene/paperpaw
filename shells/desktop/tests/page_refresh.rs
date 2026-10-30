@@ -79,13 +79,13 @@ fn page_turns(profile: &str, settings: &str, turns: usize, tap: bool) -> Vec<Sho
                 [PointerPhase::Down, PointerPhase::Up]
                     .into_iter()
                     .map(|phase| {
-                        InputEvent::Pointer(PointerEvent {
-                            id: 0,
+                        InputEvent::Pointer(PointerEvent::new(
+                            0,
                             phase,
-                            point: Point::new(420, 400),
-                            tool: PointerTool::Finger,
-                            pressure: 1000,
-                        })
+                            Point::new(420, 400),
+                            PointerTool::Finger,
+                            1000,
+                        ))
                     })
                     .collect()
             } else {

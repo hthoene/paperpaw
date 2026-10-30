@@ -56,7 +56,7 @@ impl Window {
                 };
                 (x, width, 0, PANEL_HEIGHT)
             }
-            Rotation::Deg90 | Rotation::Deg270 => {
+            _ => {
                 let y = if rotation == Rotation::Deg90 {
                     top
                 } else {

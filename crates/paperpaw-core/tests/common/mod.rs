@@ -22,25 +22,13 @@ use paperpaw_platform::{
 };
 
 /// A small device with buttons, touch and a pen.
-pub const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test device",
-    display: DisplayInfo {
-        width: 120,
-        height: 160,
-        dpi: 100,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: true,
-        keys: &[],
-    },
-    memory: paperpaw_platform::MemoryClass::Large,
-};
+pub const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test device",
+    DisplayInfo::new(120, 160, 100, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, true, true, &[]),
+    paperpaw_platform::MemoryClass::Large,
+);
 
 /// The whole screen of [`DEVICE`].
 pub const SCREEN: Rect = Rect::new(0, 0, 120, 160);
@@ -365,13 +353,7 @@ pub fn button(name: &'static str, state: ButtonState) -> InputEvent {
 }
 
 pub fn pointer(id: u8, phase: PointerPhase, x: i32, y: i32, tool: PointerTool) -> InputEvent {
-    InputEvent::Pointer(PointerEvent {
-        id,
-        phase,
-        point: Point::new(x, y),
-        tool,
-        pressure: 1000,
-    })
+    InputEvent::Pointer(PointerEvent::new(id, phase, Point::new(x, y), tool, 1000))
 }
 
 /// A short press of `name` at `at`.

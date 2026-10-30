@@ -182,13 +182,7 @@ proptest! {
         }
         storage = storage.with("books/skipped.jpg", "");
         let formats = txt_formats();
-        let listing = Listing {
-            storage: &storage,
-            formats: &formats,
-            dir: "books",
-            folders_only: false,
-            rank: None,
-        };
+        let listing = Listing::new(&storage, &formats, "books", false, None);
         let key = |n: &str| (n.to_lowercase(), n.to_string());
         let mut expected_folders: Vec<String> = folders.iter().map(|n| format!("{n}_dir")).collect();
         expected_folders.sort_by_key(|n| key(n));
@@ -210,12 +204,7 @@ proptest! {
         prop_assert!(page.is_empty());
         prop_assert_eq!(&walked, &expected);
         for (i, name) in expected.iter().enumerate() {
-            let entry = Entry {
-                name: name.clone(),
-                is_dir: name.ends_with("_dir"),
-                rank: UNRANKED,
-                size: 0,
-            };
+            let entry = Entry::new(name.clone(), name.ends_with("_dir"), UNRANKED, 0);
             prop_assert_eq!(listing.rank(&entry), i);
             // First on its page: `the_page_of_an_entry_first_on_its_page_holds_it`.
             if i % rows != 0 {
@@ -227,12 +216,7 @@ proptest! {
             prop_assert_eq!(&range[..], &expected[i..(i + 2).min(len)]);
         }
         if let Some(last) = expected.last() {
-            let tail = Entry {
-                name: last.clone(),
-                is_dir: last.ends_with("_dir"),
-                rank: UNRANKED,
-                size: 0,
-            };
+            let tail = Entry::new(last.clone(), last.ends_with("_dir"), UNRANKED, 0);
             let before: Vec<String> = listing.before(Some(&tail), 3).into_iter().map(|e| e.name).collect();
             prop_assert_eq!(&before[..], &expected[len.saturating_sub(4)..len - 1]);
         }
@@ -591,13 +575,7 @@ fn folders_with_non_latin_names_are_listed() {
         .with("books/日本語/a.txt", "")
         .with("books/€abc/b.txt", "");
     let formats = txt_formats();
-    let listing = Listing {
-        storage: &storage,
-        formats: &formats,
-        dir: "books",
-        folders_only: false,
-        rank: None,
-    };
+    let listing = Listing::new(&storage, &formats, "books", false, None);
     assert_eq!(listing.count(), 2);
 }
 
@@ -606,13 +584,7 @@ fn folders_with_non_latin_names_are_listed() {
 fn an_empty_folder_has_an_empty_first_page() {
     let storage = MemoryStorage::new().with("books/cover.jpg", "");
     let formats = txt_formats();
-    let listing = Listing {
-        storage: &storage,
-        formats: &formats,
-        dir: "books",
-        folders_only: false,
-        rank: None,
-    };
+    let listing = Listing::new(&storage, &formats, "books", false, None);
     assert_eq!(listing.count(), 0);
     assert!(listing.page(0, 4, 0).is_empty());
 }
@@ -623,19 +595,8 @@ fn an_empty_folder_has_an_empty_first_page() {
 fn the_page_of_an_entry_with_no_rows_does_not_panic() {
     let storage = MemoryStorage::new().with("books/a.txt", "");
     let formats = txt_formats();
-    let listing = Listing {
-        storage: &storage,
-        formats: &formats,
-        dir: "books",
-        folders_only: false,
-        rank: None,
-    };
-    let entry = Entry {
-        name: "a.txt".into(),
-        is_dir: false,
-        rank: UNRANKED,
-        size: 0,
-    };
+    let listing = Listing::new(&storage, &formats, "books", false, None);
+    let entry = Entry::new("a.txt", false, UNRANKED, 0);
     let _ = listing.page_of(&entry, 0);
 }
 
@@ -674,19 +635,8 @@ fn the_page_of_an_entry_first_on_its_page_holds_it() {
         storage = storage.with(&format!("books/{i}.txt"), "");
     }
     let formats = txt_formats();
-    let listing = Listing {
-        storage: &storage,
-        formats: &formats,
-        dir: "books",
-        folders_only: false,
-        rank: None,
-    };
-    let entry = Entry {
-        name: "4.txt".into(),
-        is_dir: false,
-        rank: UNRANKED,
-        size: 0,
-    };
+    let listing = Listing::new(&storage, &formats, "books", false, None);
+    let entry = Entry::new("4.txt", false, UNRANKED, 0);
     let (first, page) = listing.page_of(&entry, 4);
     assert_eq!(first, 4);
     let names: Vec<&str> = page.iter().map(|e| e.name.as_str()).collect();

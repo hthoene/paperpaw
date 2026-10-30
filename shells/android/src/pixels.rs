@@ -34,11 +34,10 @@ pub fn screen(manufacturer: &str, model: &str) -> Screen {
     if !colour {
         return Screen::Gray;
     }
-    Screen::Color(Some(ColorPanel {
+    Screen::Color(Some(ColorPanel::new(
         // Kaleido 3: colour at half the resolution, muted.
-        color_divisor: 2,
-        saturation_percent: 55,
-    }))
+        2, 55,
+    )))
 }
 
 /// What each gray of a frame is shown as: black as the text colour, white
@@ -91,13 +90,7 @@ mod tests {
         // Three Gray8 rows of two pixels: white, white / black, white /
         // gray, black.
         let data = [255u8, 255, 0, 255, 128, 0];
-        let frame = FrameView {
-            width: 2,
-            height: 3,
-            format: PixelFormat::Gray8,
-            stride: 2,
-            data: &data,
-        };
+        let frame = FrameView::new(2, 3, PixelFormat::Gray8, 2, &data);
         // A window three pixels wide, of which rows 1 and 2 changed (and
         // a row below the frame is asked for).
         let mut buffer = [7u8; 3 * 4 * 4];
@@ -117,13 +110,7 @@ mod tests {
     fn colours_of_pictures_stay_as_they_are() {
         // One Rgb888 row: red, then a gray.
         let data = [255u8, 0, 0, 128, 128, 128];
-        let frame = FrameView {
-            width: 2,
-            height: 1,
-            format: PixelFormat::Rgb888,
-            stride: 6,
-            data: &data,
-        };
+        let frame = FrameView::new(2, 1, PixelFormat::Rgb888, 6, &data);
         let mut buffer = [0u8; 8];
         let sepia = tint([[91, 70, 54], [244, 236, 216]]);
         to_rgba(&frame, 0..1, 2, &sepia, |at, rgba| {

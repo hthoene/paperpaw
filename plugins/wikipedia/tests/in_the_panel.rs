@@ -21,45 +21,26 @@ use paperpaw_sdk::{
     PixelFormat, Point, Storage,
 };
 
-const X4: DeviceInfo = DeviceInfo {
-    id: "test-x4",
-    name: "Test X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const X4: DeviceInfo = DeviceInfo::new(
+    "test-x4",
+    "Test X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
-const BOOX: DeviceInfo = DeviceInfo {
-    id: "test-boox",
-    name: "Test Boox",
-    display: DisplayInfo {
-        width: 1264,
-        height: 1680,
-        dpi: 300,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: false,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Large,
-};
+const BOOX: DeviceInfo = DeviceInfo::new(
+    "test-boox",
+    "Test Boox",
+    DisplayInfo::new(1264, 1680, 300, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(false, true, false, &[]),
+    MemoryClass::Large,
+);
 
 const DEFINITION: &str = "apple n. The round fruit of a tree of the rose family, \
      which typically has thin red or green skin and crisp flesh.";
@@ -150,13 +131,13 @@ impl Panel {
         self.now += 1000;
         for phase in [PointerPhase::Down, PointerPhase::Up] {
             self.now += 40;
-            let event = InputEvent::Pointer(PointerEvent {
-                id: 0,
+            let event = InputEvent::Pointer(PointerEvent::new(
+                0,
                 phase,
                 point,
-                tool: PointerTool::Finger,
-                pressure: 1000,
-            });
+                PointerTool::Finger,
+                1000,
+            ));
             let effects = self.kernel.handle(Instant(self.now), event);
             if phase == PointerPhase::Up {
                 self.settle(effects);

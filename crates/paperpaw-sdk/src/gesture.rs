@@ -2,6 +2,7 @@ use paperpaw_platform::{Point, PointerTool};
 
 /// Direction of a swipe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum Direction {
     Left,
     Right,

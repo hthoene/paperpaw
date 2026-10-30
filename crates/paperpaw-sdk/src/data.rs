@@ -96,6 +96,7 @@ pub type Upgrade = fn(&str) -> String;
 
 /// A format of a text file and how its older versions become this one.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct Format {
     /// The version written, from 1.
     pub version: u32,

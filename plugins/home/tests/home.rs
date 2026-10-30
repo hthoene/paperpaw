@@ -26,25 +26,13 @@ use paperpaw_sdk::{
 
 /// A device with `touch` or buttons alone, `width` pixels wide.
 const fn device(touch: bool, width: u16) -> DeviceInfo {
-    DeviceInfo {
-        id: "test",
-        name: "Test device",
-        display: DisplayInfo {
-            width,
-            height: 800,
-            dpi: 220,
-            format: PixelFormat::Gray4,
-            rotation: Rotation::Deg0,
-            color: None,
-        },
-        input: InputCaps {
-            buttons: true,
-            touch,
-            pen: false,
-            keys: &[],
-        },
-        memory: MemoryClass::Small,
-    }
+    DeviceInfo::new(
+        "test",
+        "Test device",
+        DisplayInfo::new(width, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+        InputCaps::new(true, touch, false, &[]),
+        MemoryClass::Small,
+    )
 }
 
 /// How often the probe widget was made.
@@ -259,13 +247,8 @@ impl Home {
     fn tap(&mut self, at: Point) {
         for phase in [PointerPhase::Down, PointerPhase::Up] {
             self.now += 50;
-            let event = InputEvent::Pointer(PointerEvent {
-                id: 0,
-                phase,
-                point: at,
-                tool: PointerTool::Finger,
-                pressure: 1000,
-            });
+            let event =
+                InputEvent::Pointer(PointerEvent::new(0, phase, at, PointerTool::Finger, 1000));
             let effects = self.kernel.handle(Instant(self.now), event);
             if phase == PointerPhase::Up {
                 self.settle(effects);
@@ -555,15 +538,8 @@ clock.size = core.size.{size}
         );
         let mut home = Home::new(false, &settings);
         // 10:41 in the morning.
-        let clock = paperpaw_sdk::WallClock {
-            at: Instant(home.now),
-            unix_millis: 1_760_438_460_000,
-            utc_offset_minutes: Some(0),
-        };
-        let status = paperpaw_sdk::SystemStatus {
-            clock: Some(clock),
-            battery: None,
-        };
+        let clock = paperpaw_sdk::WallClock::new(Instant(home.now), 1_760_438_460_000, Some(0));
+        let status = paperpaw_sdk::SystemStatus::new(Some(clock), None);
         let effects = home.kernel.set_status(Instant(home.now), status);
         home.settle(effects);
         let texts = home.texts();

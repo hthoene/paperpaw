@@ -762,17 +762,15 @@ fn a_long_book_menu_goes_on_pages() {
 }
 
 /// Touch and buttons both, as the X4 Pro has them.
-const BOTH: DeviceInfo = DeviceInfo {
-    id: "test-x4-pro",
-    name: "Test X4 Pro",
-    input: paperpaw_platform::InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    ..X4
-};
+const BOTH: DeviceInfo = X4
+    .with_id("test-x4-pro")
+    .with_name("Test X4 Pro")
+    .with_input(paperpaw_platform::InputCaps::new(
+        true,
+        true,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ));
 
 /// The sheet's question about deleting, asked by choosing *Delete …*;
 /// the focus (with buttons) on keeping the book.
@@ -873,13 +871,7 @@ fn what_is_not_a_book_is_never_offered_to_be_deleted() {
 }
 
 /// A screen too short for all of the sheet's actions: they go on pages.
-const SHORT: DeviceInfo = DeviceInfo {
-    display: paperpaw_platform::DisplayInfo {
-        height: 520,
-        ..X4.display
-    },
-    ..X4
-};
+const SHORT: DeviceInfo = X4.with_display(X4.display.with_height(520));
 
 #[test]
 fn on_a_sheet_of_pages_the_answers_sit_at_its_bottom_edge() {

@@ -147,19 +147,14 @@ impl ReaderScreen {
                 annotations::remove(env.storage(), &book.path, highlight),
                 Ok(true)
             ) {
-                let annotation = Annotation {
-                    mark: Mark {
-                        kind: Kind::Highlight,
-                        start,
-                        end,
-                        noted: false,
-                    },
-                    percent: (book.document.progress(start) * 100.0 + 0.5) as u8,
-                    created: paperpaw_sdk::time::unix_seconds(&env).unwrap_or(0),
-                    updated: 0,
-                    text: annotations::snippet(&text),
-                    note: String::new(),
-                };
+                let annotation = Annotation::new(
+                    Mark::new(Kind::Highlight, start, end, false),
+                    (book.document.progress(start) * 100.0 + 0.5) as u8,
+                    paperpaw_sdk::time::unix_seconds(&env).unwrap_or(0),
+                    0,
+                    annotations::snippet(&text),
+                    String::new(),
+                );
                 if annotations::add(env.storage(), &book.path, annotation).is_err() {
                     marks_not_saved(cx);
                 }
@@ -177,19 +172,14 @@ impl ReaderScreen {
             let at = match existing {
                 Some(at) => at,
                 None => {
-                    let highlight = Annotation {
-                        mark: Mark {
-                            kind: Kind::Highlight,
-                            start,
-                            end,
-                            noted: false,
-                        },
-                        percent: (book.document.progress(start) * 100.0 + 0.5) as u8,
-                        created: paperpaw_sdk::time::unix_seconds(&env).unwrap_or(0),
-                        updated: 0,
-                        text: annotations::snippet(&text),
-                        note: String::new(),
-                    };
+                    let highlight = Annotation::new(
+                        Mark::new(Kind::Highlight, start, end, false),
+                        (book.document.progress(start) * 100.0 + 0.5) as u8,
+                        paperpaw_sdk::time::unix_seconds(&env).unwrap_or(0),
+                        0,
+                        annotations::snippet(&text),
+                        String::new(),
+                    );
                     if annotations::add(env.storage(), &book.path, highlight).is_err() {
                         marks_not_saved(cx);
                     }

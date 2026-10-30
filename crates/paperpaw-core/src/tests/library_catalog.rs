@@ -166,7 +166,7 @@ fn on_small_devices_nothing_is_done_while_the_library_shows() {
         (paperpaw_platform::MemoryClass::Small, false),
         (paperpaw_platform::MemoryClass::Large, true),
     ] {
-        let device = DeviceInfo { memory, ..DEVICE };
+        let device = DEVICE.with_memory(memory);
         let (mut kernel, log, now) = library_on(device, two_books());
         let now = want(&mut kernel, now, false);
         log.borrow_mut().clear();

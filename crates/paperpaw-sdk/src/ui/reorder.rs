@@ -189,13 +189,7 @@ mod tests {
     use crate::{Point, PointerTool};
 
     fn event(phase: PointerPhase, x: i32, y: i32) -> PointerEvent {
-        PointerEvent {
-            id: 0,
-            phase,
-            point: Point::new(x, y),
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        }
+        PointerEvent::new(0, phase, Point::new(x, y), PointerTool::Finger, 1000)
     }
 
     #[test]

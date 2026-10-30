@@ -17,25 +17,18 @@ use paperpaw_sdk::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, MemoryStorage, PixelFormat,
 };
 
-const X4: DeviceInfo = DeviceInfo {
-    id: "test-x4",
-    name: "Test X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const X4: DeviceInfo = DeviceInfo::new(
+    "test-x4",
+    "Test X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
 /// 14 October 2026, 10:41 in Berlin (UTC+2), in Unix seconds.
 const NOW: i64 = 1_791_967_260;
@@ -78,14 +71,10 @@ impl Reader {
         let mut kernel = builder.build().unwrap();
         kernel.set_status(
             Instant(0),
-            SystemStatus {
-                clock: Some(WallClock {
-                    at: Instant(0),
-                    unix_millis: NOW * 1000,
-                    utc_offset_minutes: Some(120),
-                }),
-                battery: None,
-            },
+            SystemStatus::new(
+                Some(WallClock::new(Instant(0), NOW * 1000, Some(120))),
+                None,
+            ),
         );
         let effects = kernel.start(Instant(0));
         let mut reader = Self { kernel, now: 0 };

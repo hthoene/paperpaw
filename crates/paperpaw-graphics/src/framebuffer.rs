@@ -269,26 +269,20 @@ impl Framebuffer {
     /// screen row `region.y` (clamped to the band).
     pub fn view_rows(&self, region: Rect) -> FrameView<'_> {
         if self.blind {
-            return FrameView {
-                width: self.width,
-                height: 0,
-                format: self.format,
-                stride: self.stride,
-                data: &[],
-            };
+            return FrameView::new(self.width, 0, self.format, self.stride, &[]);
         }
         let band = self.band();
         let first = region.y.clamp(band.y, band.bottom() as u16);
         let last = region.bottom().clamp(u32::from(first), band.bottom()) as u16;
         let start = usize::from(first - self.top) * self.stride;
         let end = usize::from(last - self.top) * self.stride;
-        FrameView {
-            width: self.width,
-            height: last - first,
-            format: self.format,
-            stride: self.stride,
-            data: &self.data[start..end],
-        }
+        FrameView::new(
+            self.width,
+            last - first,
+            self.format,
+            self.stride,
+            &self.data[start..end],
+        )
     }
 
     /// A canvas covering the current band (the whole screen unless banded).

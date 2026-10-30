@@ -479,7 +479,7 @@ where
     pub fn size(&self) -> (u16, u16) {
         match self.rotation {
             Rotation::Deg0 | Rotation::Deg180 => (WIDTH, HEIGHT),
-            Rotation::Deg90 | Rotation::Deg270 => (HEIGHT, WIDTH),
+            _ => (HEIGHT, WIDTH),
         }
     }
 
@@ -1112,6 +1112,7 @@ fn upright(rotation: Rotation, x: u16, y: u16) -> (u16, u16) {
         Rotation::Deg90 => (WIDTH - 1 - y, x),
         Rotation::Deg180 => (WIDTH - 1 - x, HEIGHT - 1 - y),
         Rotation::Deg270 => (y, HEIGHT - 1 - x),
+        _ => (x, y),
     }
 }
 
@@ -1123,6 +1124,7 @@ pub fn turned(rotation: Rotation, x: u16, y: u16) -> (u16, u16) {
         Rotation::Deg90 => (y, WIDTH - 1 - x),
         Rotation::Deg180 => (WIDTH - 1 - x, HEIGHT - 1 - y),
         Rotation::Deg270 => (HEIGHT - 1 - y, x),
+        _ => (x, y),
     }
 }
 

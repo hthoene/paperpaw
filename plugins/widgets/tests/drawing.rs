@@ -34,25 +34,20 @@ use paperpaw_sdk::{
 };
 
 const fn device(format: PixelFormat, touch: bool) -> DeviceInfo {
-    DeviceInfo {
-        id: "test",
-        name: "Test device",
-        display: DisplayInfo {
-            width: 480,
-            height: 800,
-            dpi: 220,
+    DeviceInfo::new(
+        "test",
+        "Test device",
+        DisplayInfo::new(
+            480,
+            800,
+            220,
             format,
-            rotation: paperpaw_platform::Rotation::Deg0,
-            color: None,
-        },
-        input: InputCaps {
-            buttons: true,
-            touch,
-            pen: false,
-            keys: &[],
-        },
-        memory: MemoryClass::Small,
-    }
+            paperpaw_platform::Rotation::Deg0,
+            None,
+        ),
+        InputCaps::new(true, touch, false, &[]),
+        MemoryClass::Small,
+    )
 }
 
 /// A panel of sixteen grays with touch (a Boox), and one of black and
@@ -182,14 +177,7 @@ impl Harness {
             menus: Menus::new(),
             actions: Actions::new(),
             plugins: Plugins::new(),
-            status: SystemStatus {
-                clock: None,
-                battery: Some(Battery {
-                    percent: 64,
-                    charging: false,
-                    millivolts: None,
-                }),
-            },
+            status: SystemStatus::new(None, Some(Battery::new(64, false, None))),
             usage: Default::default(),
             plugin_usage: Default::default(),
             status_items: StatusItems::new(),
@@ -292,11 +280,8 @@ impl Harness {
 
     /// The clock at `time` (UTC seconds, offset in minutes), or none.
     fn at(&mut self, time: Option<(i64, i16)>) {
-        self.status.clock = time.map(|(unix, offset)| WallClock {
-            at: Instant(1000),
-            unix_millis: unix * 1000,
-            utc_offset_minutes: Some(offset.into()),
-        });
+        self.status.clock = time
+            .map(|(unix, offset)| WallClock::new(Instant(1000), unix * 1000, Some(offset.into())));
     }
 
     fn set(&mut self, id: &str, value: &str) {
@@ -325,9 +310,7 @@ impl Harness {
             panel: paperpaw_sdk::realtime::PanelInfo::default(),
             keys_held: &[],
             room: paperpaw_sdk::realtime::Room::default(),
-            metrics: Metrics {
-                dpi: self.device.display.dpi,
-            },
+            metrics: Metrics::new(self.device.display.dpi),
             settings: &self.settings,
             i18n: &self.i18n,
             fonts: &self.fonts,

@@ -30,25 +30,13 @@ const DPI: u16 = 220;
 const KEYS: [&str; 3] = ["page-back", "page-forward", "confirm"];
 
 /// Buttons and touch; no light, no Wi-Fi, no sleep of PaperPaw's own.
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test",
-    display: DisplayInfo {
-        width: WIDTH,
-        height: HEIGHT,
-        dpi: DPI,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: true,
-        pen: false,
-        keys: &KEYS,
-    },
-    memory: MemoryClass::Large,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test",
+    DisplayInfo::new(WIDTH, HEIGHT, DPI, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, true, false, &KEYS),
+    MemoryClass::Large,
+);
 
 struct Device {
     kernel: Kernel,
@@ -126,13 +114,8 @@ impl Device {
     fn tap(&mut self, at: Point) {
         for phase in [PointerPhase::Down, PointerPhase::Up] {
             self.now += 50;
-            let event = InputEvent::Pointer(PointerEvent {
-                id: 0,
-                phase,
-                point: at,
-                tool: PointerTool::Finger,
-                pressure: 1000,
-            });
+            let event =
+                InputEvent::Pointer(PointerEvent::new(0, phase, at, PointerTool::Finger, 1000));
             let effects = self.kernel.handle(Instant(self.now), event);
             if phase == PointerPhase::Up {
                 self.settle(effects);

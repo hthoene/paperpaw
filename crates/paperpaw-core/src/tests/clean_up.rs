@@ -146,17 +146,11 @@ fn cleaning_up_runs_by_itself_while_charging_now_and_then() {
         .with(&annotations("Books/gone.txt"), "a note")
         .with(&cover, "a cover");
     let mut kernel = Kernel::builder(DEVICE).storage(storage).build().unwrap();
-    let status = |charging: bool| SystemStatus {
-        clock: Some(WallClock {
-            at: Instant(0),
-            unix_millis: 1_800_000_000_000,
-            utc_offset_minutes: None,
-        }),
-        battery: Some(Battery {
-            percent: 50,
-            charging,
-            millivolts: None,
-        }),
+    let status = |charging: bool| {
+        SystemStatus::new(
+            Some(WallClock::new(Instant(0), 1_800_000_000_000, None)),
+            Some(Battery::new(50, charging, None)),
+        )
     };
     kernel.set_status(Instant(0), status(false));
     kernel.start(Instant(0));

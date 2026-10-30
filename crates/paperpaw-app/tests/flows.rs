@@ -24,38 +24,24 @@ use paperpaw_sdk::semantics::Role;
 use paperpaw_sdk::{Id, MemoryStorage, Params, library};
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
-const BUTTONS: DeviceInfo = DeviceInfo {
-    id: "test-x4",
-    name: "Test X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const BUTTONS: DeviceInfo = DeviceInfo::new(
+    "test-x4",
+    "Test X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
 /// A touch screen as large as the X4's, without buttons.
-const TOUCH: DeviceInfo = DeviceInfo {
-    id: "test-touch",
-    name: "Test touch",
-    input: InputCaps {
-        buttons: false,
-        touch: true,
-        pen: false,
-        keys: &[],
-    },
-    ..BUTTONS
-};
+const TOUCH: DeviceInfo = BUTTONS
+    .with_id("test-touch")
+    .with_name("Test touch")
+    .with_input(InputCaps::new(false, true, false, &[]));
 
 const ALICE: &str = "books/alice-in-wonderland.txt";
 const GREGOR: &str = "books/die-verwandlung.txt";
@@ -214,13 +200,8 @@ impl App {
     fn tap(&mut self, at: Point) {
         for phase in [PointerPhase::Down, PointerPhase::Up] {
             self.now += 50;
-            let event = InputEvent::Pointer(PointerEvent {
-                id: 0,
-                phase,
-                point: at,
-                tool: PointerTool::Finger,
-                pressure: 1000,
-            });
+            let event =
+                InputEvent::Pointer(PointerEvent::new(0, phase, at, PointerTool::Finger, 1000));
             let effects = self.kernel.handle(Instant(self.now), event);
             if phase == PointerPhase::Up {
                 self.settle(effects);

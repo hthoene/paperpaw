@@ -22,25 +22,18 @@ use paperpaw_sdk::{
 };
 
 /// An X4: black and white, buttons.
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test-x4",
-    name: "Test X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test-x4",
+    "Test X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(
+        true,
+        false,
+        false,
+        &["back", "confirm", "left", "right", "up", "down", "power"],
+    ),
+    MemoryClass::Small,
+);
 
 /// 14 October 2026, 10:41 UTC.
 const NOW: i64 = 1_791_967_260;
@@ -312,14 +305,14 @@ page-1 = \"{page_1}\"
 
 /// The wall clock: [`NOW`] at the start, read at `millis`.
 fn status(millis: u64) -> SystemStatus {
-    SystemStatus {
-        clock: Some(WallClock {
-            at: Instant(millis),
-            unix_millis: NOW * 1000 + millis as i64,
-            utc_offset_minutes: Some(0),
-        }),
-        battery: None,
-    }
+    SystemStatus::new(
+        Some(WallClock::new(
+            Instant(millis),
+            NOW * 1000 + millis as i64,
+            Some(0),
+        )),
+        None,
+    )
 }
 
 #[test]

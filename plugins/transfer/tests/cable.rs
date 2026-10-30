@@ -27,25 +27,13 @@ use paperpaw_sdk::{
     DirEntry, MemoryStorage, Plugin, PluginProblem, Storage, StorageError, Version,
 };
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test-x4",
-    name: "Test X4",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Small,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test-x4",
+    "Test X4",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(true, false, false, &[]),
+    MemoryClass::Small,
+);
 
 const BUILD: Fingerprint = Fingerprint(0x0123_4567_89ab_cdef);
 

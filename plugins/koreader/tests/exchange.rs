@@ -27,25 +27,13 @@ use paperpaw_sdk::{
 };
 use paperpaw_zip::testing::ZipBuilder;
 
-const DEVICE: DeviceInfo = DeviceInfo {
-    id: "test",
-    name: "Test device",
-    display: DisplayInfo {
-        width: 300,
-        height: 400,
-        dpi: 100,
-        format: PixelFormat::Gray4,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &[],
-    },
-    memory: MemoryClass::Large,
-};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "test",
+    "Test device",
+    DisplayInfo::new(300, 400, 100, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, false, false, &[]),
+    MemoryClass::Large,
+);
 
 const BOOK: &str = "books/alice.epub";
 const SIDECAR: &str = "books/alice.sdr/metadata.epub.lua";
@@ -310,19 +298,14 @@ fn changes_here_are_passed_on_to_koreader() {
     annotations::add(
         &device.storage,
         BOOK,
-        Annotation {
-            mark: Mark {
-                kind: Kind::Highlight,
-                start,
-                end,
-                noted: true,
-            },
-            percent: 20,
-            created: 1_792_000_000,
-            updated: 0,
-            text: String::from("she"),
-            note: String::from("Quote \"this\"\\"),
-        },
+        Annotation::new(
+            Mark::new(Kind::Highlight, start, end, true),
+            20,
+            1_792_000_000,
+            0,
+            String::from("she"),
+            String::from("Quote \"this\"\\"),
+        ),
     )
     .unwrap();
     let changed = AnnotationsChanged::new(BOOK.to_string());
@@ -493,19 +476,14 @@ fn what_koreader_has_and_paperpaw_does_not_know_is_passed_on_unchanged() {
     annotations::add(
         &device.storage,
         BOOK,
-        Annotation {
-            mark: Mark {
-                kind: Kind::Bookmark,
-                start,
-                end: start,
-                noted: false,
-            },
-            percent: 0,
-            created: 1_792_000_000,
-            updated: 0,
-            text: String::new(),
-            note: String::new(),
-        },
+        Annotation::new(
+            Mark::new(Kind::Bookmark, start, start, false),
+            0,
+            1_792_000_000,
+            0,
+            String::new(),
+            String::new(),
+        ),
     )
     .unwrap();
     device.open();

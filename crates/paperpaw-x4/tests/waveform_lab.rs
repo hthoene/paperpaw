@@ -28,35 +28,20 @@ use paperpaw_sdk::{
     Manifest, MemoryStorage, Params, Plugin, RegisterError, Registrar, Uses, Version,
 };
 
-const PRO: DeviceInfo = DeviceInfo {
-    id: "test-x4-pro",
-    name: "Test X4 Pro",
-    display: DisplayInfo {
-        width: 480,
-        height: 800,
-        dpi: 220,
-        format: PixelFormat::Mono1,
-        rotation: Rotation::Deg0,
-        color: None,
-    },
-    input: InputCaps {
-        buttons: false,
-        touch: true,
-        pen: false,
-        keys: &["power"],
-    },
-    memory: MemoryClass::Small,
-};
+const PRO: DeviceInfo = DeviceInfo::new(
+    "test-x4-pro",
+    "Test X4 Pro",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Mono1, Rotation::Deg0, None),
+    InputCaps::new(false, true, false, &["power"]),
+    MemoryClass::Small,
+);
 
-const BUTTONS: DeviceInfo = DeviceInfo {
-    input: InputCaps {
-        buttons: true,
-        touch: false,
-        pen: false,
-        keys: &["back", "confirm", "left", "right", "up", "down", "power"],
-    },
-    ..PRO
-};
+const BUTTONS: DeviceInfo = PRO.with_input(InputCaps::new(
+    true,
+    false,
+    false,
+    &["back", "confirm", "left", "right", "up", "down", "power"],
+));
 
 /// What `device::X4` registers of the lab.
 struct X4;
@@ -100,13 +85,13 @@ fn kernel(device: DeviceInfo) -> Kernel {
 
 fn tap(kernel: &mut Kernel, at: u64, x: i32, y: i32) -> paperpaw_core::Effects {
     let event = |phase| {
-        InputEvent::Pointer(PointerEvent {
-            id: 0,
+        InputEvent::Pointer(PointerEvent::new(
+            0,
             phase,
-            point: Point::new(x, y),
-            tool: PointerTool::Finger,
-            pressure: 1000,
-        })
+            Point::new(x, y),
+            PointerTool::Finger,
+            1000,
+        ))
     };
     kernel.handle(Instant(at), event(PointerPhase::Down));
     let effects = kernel.handle(Instant(at + 60), event(PointerPhase::Up));

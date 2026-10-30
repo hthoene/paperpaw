@@ -144,6 +144,7 @@ pub fn luma(r: u32, g: u32, b: u32) -> u8 {
 
 /// Image formats by their first bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Format {
     Jpeg,
     Png,

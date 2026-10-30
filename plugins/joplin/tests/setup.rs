@@ -28,25 +28,13 @@ use paperpaw_sdk::{
 };
 
 const fn device(touch: bool) -> DeviceInfo {
-    DeviceInfo {
-        id: "test",
-        name: "Test device",
-        display: DisplayInfo {
-            width: 480,
-            height: 800,
-            dpi: 220,
-            format: PixelFormat::Gray4,
-            rotation: Rotation::Deg0,
-            color: None,
-        },
-        input: InputCaps {
-            buttons: !touch,
-            touch,
-            pen: false,
-            keys: &[],
-        },
-        memory: MemoryClass::Large,
-    }
+    DeviceInfo::new(
+        "test",
+        "Test device",
+        DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+        InputCaps::new(!touch, touch, false, &[]),
+        MemoryClass::Large,
+    )
 }
 
 /// A storage the test looks into while the kernel has it.
@@ -120,14 +108,10 @@ impl Device {
         kernel.start(Instant(0));
         kernel.set_status(
             Instant(0),
-            SystemStatus {
-                clock: Some(WallClock {
-                    at: Instant(0),
-                    unix_millis: 1_792_483_200_000,
-                    utc_offset_minutes: None,
-                }),
-                battery: None,
-            },
+            SystemStatus::new(
+                Some(WallClock::new(Instant(0), 1_792_483_200_000, None)),
+                None,
+            ),
         );
         let mut device = Self {
             kernel,
@@ -255,13 +239,7 @@ impl Device {
             let now = self.later();
             let effects = self.kernel.handle(
                 now,
-                InputEvent::Pointer(PointerEvent {
-                    id: 0,
-                    phase,
-                    point: at,
-                    tool: PointerTool::Finger,
-                    pressure: 1000,
-                }),
+                InputEvent::Pointer(PointerEvent::new(0, phase, at, PointerTool::Finger, 1000)),
             );
             if phase == PointerPhase::Up {
                 self.settle(effects);

@@ -18,25 +18,13 @@ use paperpaw_sdk::{
 };
 
 const fn device(touch: bool) -> DeviceInfo {
-    DeviceInfo {
-        id: "test",
-        name: "Test device",
-        display: DisplayInfo {
-            width: 480,
-            height: 800,
-            dpi: 220,
-            format: PixelFormat::Gray4,
-            rotation: Rotation::Deg0,
-            color: None,
-        },
-        input: InputCaps {
-            buttons: true,
-            touch,
-            pen: false,
-            keys: &[],
-        },
-        memory: MemoryClass::Large,
-    }
+    DeviceInfo::new(
+        "test",
+        "Test device",
+        DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+        InputCaps::new(true, touch, false, &[]),
+        MemoryClass::Large,
+    )
 }
 
 struct Test {
@@ -72,13 +60,13 @@ impl Test {
     fn hold(&mut self, x: i32, y: i32) {
         self.now += 200;
         let event = |phase| {
-            InputEvent::Pointer(PointerEvent {
-                id: 0,
+            InputEvent::Pointer(PointerEvent::new(
+                0,
                 phase,
-                point: Point::new(x, y),
-                tool: PointerTool::Finger,
-                pressure: 1000,
-            })
+                Point::new(x, y),
+                PointerTool::Finger,
+                1000,
+            ))
         };
         self.kernel
             .handle(Instant(self.now), event(PointerPhase::Down));

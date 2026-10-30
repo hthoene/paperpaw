@@ -120,11 +120,9 @@ impl Kernel {
                 if self.input.captured.contains(&p.id) {
                     self.input.captured.retain(|&id| id != p.id);
                     let area = self.stack.last().map_or(Rect::default(), |top| top.area);
-                    let gone = PointerEvent {
-                        phase: PointerPhase::Cancel,
-                        point: chrome::local(p.point, area),
-                        ..p
-                    };
+                    let gone = p
+                        .with_phase(PointerPhase::Cancel)
+                        .with_point(chrome::local(p.point, area));
                     self.with_top(|screen, cx| screen.on_pointer(&gone, cx));
                 }
             }
@@ -145,10 +143,7 @@ impl Kernel {
         let down = event.phase == PointerPhase::Down;
         let standard = self.policy() == keymap::Policy::Standard;
         let area = self.stack.last().map_or(Rect::default(), |top| top.area);
-        let seen = PointerEvent {
-            point: chrome::local(event.point, area),
-            ..*event
-        };
+        let seen = (*event).with_point(chrome::local(event.point, area));
         let ends = matches!(event.phase, PointerPhase::Up | PointerPhase::Cancel);
         let (now, meter) = (self.now, self.shared.meter.clone());
         // While a screen guards the device, only its plugin's recognizers run.
@@ -199,11 +194,9 @@ impl Kernel {
     /// recognizers that follow it see it go and no longer follow it.
     pub(crate) fn recognizers_lose(&mut self, event: &PointerEvent) {
         let area = self.stack.last().map_or(Rect::default(), |top| top.area);
-        let gone = PointerEvent {
-            phase: PointerPhase::Cancel,
-            point: chrome::local(event.point, area),
-            ..*event
-        };
+        let gone = (*event)
+            .with_phase(PointerPhase::Cancel)
+            .with_point(chrome::local(event.point, area));
         let (now, meter) = (self.now, self.shared.meter.clone());
         for r in self.input.recognizers.iter_mut() {
             if r.fingers.iter().any(|(id, _)| *id == event.id) {
@@ -293,7 +286,7 @@ impl Kernel {
                     let thresholds = self.thresholds();
                     self.input.recognizer.pointer(&event, self.now, &thresholds);
                 }
-                PointerPhase::Down => {}
+                _ => {}
             }
             return;
         }
@@ -305,10 +298,7 @@ impl Kernel {
         let on_bar = event.phase == PointerPhase::Down && self.chrome_at(event.point).is_some();
         if captured || (event.phase == PointerPhase::Down && !on_bar) {
             let area = self.stack.last().map_or(Rect::default(), |top| top.area);
-            let seen = PointerEvent {
-                point: chrome::local(event.point, area),
-                ..event
-            };
+            let seen = event.with_point(chrome::local(event.point, area));
             let handled = self.with_top(|screen, cx| screen.on_pointer(&seen, cx));
             if captured {
                 if matches!(event.phase, PointerPhase::Up | PointerPhase::Cancel) {
@@ -333,7 +323,7 @@ impl Kernel {
             });
             let edge = match side {
                 Direction::Up | Direction::Down => input::Edge::End,
-                Direction::Left | Direction::Right => input::Edge::Side,
+                _ => input::Edge::Side,
             };
             self.input.recognizer.follow_edge(&event, self.now, edge);
             return;
@@ -424,7 +414,7 @@ impl Kernel {
             Direction::Up => (dy, dx),
             Direction::Down => (-dy, dx),
             Direction::Left => (dx, dy),
-            Direction::Right => (-dx, dy),
+            _ => (-dx, dy),
         };
         if inward >= thresholds.swipe_distance as i32 && across.abs() < inward {
             if self.policy() == keymap::Policy::Own {
@@ -1007,13 +997,13 @@ impl Kernel {
             }
             let _running = meter.enter(r.id.namespace());
             for (id, _) in mem::take(&mut r.fingers) {
-                let gone = PointerEvent {
+                let gone = PointerEvent::new(
                     id,
-                    phase: PointerPhase::Cancel,
-                    point: Point::new(0, 0),
-                    tool: paperpaw_platform::PointerTool::Finger,
-                    pressure: 0,
-                };
+                    PointerPhase::Cancel,
+                    Point::new(0, 0),
+                    paperpaw_platform::PointerTool::Finger,
+                    0,
+                );
                 r.recognizer.pointer(&gone, now);
             }
         }

@@ -67,13 +67,13 @@ pub fn show(panel: &mut Panel, storage: &dyn Storage, picture: Option<&str>) -> 
                 band[usize::from(dy) * stride + usize::from(x / 4)] |= level << (6 - 2 * (x % 4));
             }
         }
-        let view = FrameView {
+        let view = FrameView::new(
             width,
-            height: rows,
-            format: PixelFormat::Gray2,
+            rows,
+            PixelFormat::Gray2,
             stride,
-            data: &band[..stride * usize::from(rows)],
-        };
+            &band[..stride * usize::from(rows)],
+        );
         panel.write_gray_rows(top, view)?;
         top += rows;
     }

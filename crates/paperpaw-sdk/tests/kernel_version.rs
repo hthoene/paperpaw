@@ -18,15 +18,15 @@ use paperpaw_sdk::{PluginInfo, PluginKind, PluginState, RequiredFor};
 /// A kernel of PaperPaw `version`, which is also its SDK's.
 fn kernel(version: Version) -> PluginInfo {
     let manifest = Manifest::new(CORE_PLUGIN, "PaperPaw kernel", version);
-    PluginInfo {
+    PluginInfo::new(
         manifest,
-        state: PluginState::Running,
-        enabled: true,
-        required_for: RequiredFor::default(),
-        kind: PluginKind::BuiltIn,
-        problem: None,
-        update: None,
-    }
+        PluginState::Running,
+        true,
+        RequiredFor::default(),
+        PluginKind::BuiltIn,
+        None,
+        None,
+    )
 }
 
 #[test]

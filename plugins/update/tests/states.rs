@@ -29,25 +29,13 @@ use paperpaw_sdk::{
 };
 
 const fn device(touch: bool) -> DeviceInfo {
-    DeviceInfo {
-        id: "test",
-        name: "Test device",
-        display: DisplayInfo {
-            width: 480,
-            height: 800,
-            dpi: 220,
-            format: PixelFormat::Gray4,
-            rotation: Rotation::Deg0,
-            color: None,
-        },
-        input: InputCaps {
-            buttons: !touch,
-            touch,
-            pen: false,
-            keys: &[],
-        },
-        memory: MemoryClass::Small,
-    }
+    DeviceInfo::new(
+        "test",
+        "Test device",
+        DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+        InputCaps::new(!touch, touch, false, &[]),
+        MemoryClass::Small,
+    )
 }
 
 /// PaperPaw's key, built into the firmware.
@@ -318,13 +306,7 @@ impl Device {
             let now = self.later(50);
             let effects = self.kernel.handle(
                 now,
-                InputEvent::Pointer(PointerEvent {
-                    id: 0,
-                    phase,
-                    point: at,
-                    tool: PointerTool::Finger,
-                    pressure: 1000,
-                }),
+                InputEvent::Pointer(PointerEvent::new(0, phase, at, PointerTool::Finger, 1000)),
             );
             if phase == PointerPhase::Up {
                 self.settle(effects);
@@ -416,14 +398,8 @@ fn a_failed_install_says_why_and_closes() {
 /// The battery's charge, as the shell tells it.
 fn battery(d: &mut Device, percent: u8, charging: bool) {
     let now = d.later(10);
-    let status = paperpaw_sdk::SystemStatus {
-        battery: Some(paperpaw_sdk::Battery {
-            percent,
-            charging,
-            millivolts: None,
-        }),
-        ..paperpaw_sdk::SystemStatus::default()
-    };
+    let status = paperpaw_sdk::SystemStatus::default()
+        .with_battery(Some(paperpaw_sdk::Battery::new(percent, charging, None)));
     let effects = d.kernel.set_status(now, status);
     d.settle(effects);
 }
