@@ -5,7 +5,7 @@ pub const REVISIONS: crate::Revisions = [1, 0, 0, 0, 0, 0, 0, 0];
 /// The oldest revision of each family whose plugins still run.
 pub const OLDEST: crate::Revisions = [1, 0, 0, 0, 0, 0, 0, 0];
 /// Eight hex digits naming the tables of this build, for logs.
-pub const HASH: &str = "a424960d";
+pub const HASH: &str = "c45d4c65";
 
 /// The text family's table.
 pub mod text {
@@ -97,8 +97,12 @@ pub mod text {
     pub const HANDLE_DRAW_BOLDER: usize = 41;
     /// `crate::fonts::FontHandle::draw_toned` (revision 1).
     pub const HANDLE_DRAW_TONED: usize = 42;
+    /// `paperpaw_text::measure_in` (revision 1).
+    pub const TEXT_MEASURE_IN: usize = 43;
+    /// `paperpaw_text::draw_text_in` (revision 1).
+    pub const TEXT_DRAW_TEXT_IN: usize = 44;
     /// How many entries the table has.
-    pub const COUNT: usize = 43;
+    pub const COUNT: usize = 45;
 }
 
 /// The fonts family's table.

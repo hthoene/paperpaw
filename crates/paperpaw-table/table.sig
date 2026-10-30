@@ -43,3 +43,5 @@ text 1 HANDLE_WRAP: fn wrap(&self, size: f32, text: &str, max_width: f32) -> Vec
 text 1 HANDLE_DRAW: fn draw( &self, canvas: &mut Canvas<'_>, size: f32, x: f32, baseline: i32, text: &str, color: Color, ) -> f32
 text 1 HANDLE_DRAW_BOLDER: fn draw_bolder( &self, canvas: &mut Canvas<'_>, size: f32, x: f32, baseline: i32, text: &str, color: Color, extra: u16, ) -> f32
 text 1 HANDLE_DRAW_TONED: fn draw_toned( &self, canvas: &mut Canvas<'_>, size: f32, x: f32, baseline: i32, text: &str, color: Color, extra: u16, tone: paperpaw_text::ToneCurve, ) -> f32
+text 1 TEXT_MEASURE_IN: fn measure_in(font: &Font, size: f32, text: &str, around: &Around) -> f32
+text 1 TEXT_DRAW_TEXT_IN: fn draw_text_in( canvas: &mut Canvas<'_>, cache: &mut GlyphCache, style: &TextStyle<'_>, x: f32, baseline: i32, text: &str, around: &Around, ) -> f32

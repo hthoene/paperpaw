@@ -103,14 +103,17 @@ impl Default for Around {
     }
 }
 
+paperpaw_table::shared! {
 /// Width of `text` in pixels, set as [`draw_text_in`] sets it.
 pub fn measure_in(font: &Font, size: f32, text: &str, around: &Around) -> f32 {
     if plain(text, around) {
         return crate::measure(font, size, text);
     }
     lay(font, size, text, around, false, |_, _, _| {})
+} @ text::TEXT_MEASURE_IN
 }
 
+paperpaw_table::shared! {
 /// Draws one line of `text` in `style` with its baseline at `baseline`,
 /// its left edge at `x`, as what lies `around` it asks: in the order its
 /// characters are shown, Arabic letters joined, brackets mirrored in
@@ -135,6 +138,7 @@ pub fn draw_text_in(
         let gx = crate::glyph_x(x + pen, glyph.left, lone);
         crate::paint(canvas, &glyph, gx, baseline, style);
     })
+} @ text::TEXT_DRAW_TEXT_IN
 }
 
 /// Whether `text` draws as [`draw_text`](crate::draw_text) draws it:
