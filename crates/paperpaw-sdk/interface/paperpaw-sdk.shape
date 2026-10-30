@@ -458,7 +458,7 @@ const paperpaw_sdk::native::CODE_FILES: &[&str] = &[ "code.ppn", "code.so", "cod
 const paperpaw_sdk::native::CROSSING_CRATES: &[&str] = &[ "paperpaw_sdk", "paperpaw_platform", "paperpaw_graphics", "paperpaw_i18n", "paperpaw_config", "paperpaw_text", "paperpaw_document", "paperpaw_layout", "paperpaw_xml", "paperpaw_zip", "paperpaw_hyphen", "paperpaw_image", "paperpaw_update", "paperpaw_digest", "paperpaw_json", "paperpaw_qr", "paperpaw_native", "paperpaw_lang", "paperpaw_table", ]
 const paperpaw_sdk::native::FINGERPRINT: paperpaw_sdk::native::Fingerprint = Fingerprint::of(INTERFACE, { let mut hash = layout::Fnv::new()
 const paperpaw_sdk::native::INTERFACE: u16 = 5u16
-const paperpaw_sdk::native::LAYOUT: u64 = 2_225_328_234_309_025_123u64
+const paperpaw_sdk::native::LAYOUT: u64 = 5_772_760_172_290_106_051u64
 const paperpaw_sdk::native::TOOLCHAIN: &str = if cfg!(target_arch = "riscv32") { "rustc 1.99.0, riscv32imc-unknown-none-elf" } else if cfg!(target_arch = "xtensa") { "esp 1.97.0.0, xtensa-esp32s3-none-elf" } else { "the compiler of PaperPaw's release, for this computer" }
 const paperpaw_sdk::numbers::DECIMAL_MARK: &str = "core.decimal"
 const paperpaw_sdk::pattern::MAX_PATTERN: usize = 256usize
