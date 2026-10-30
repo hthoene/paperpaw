@@ -270,6 +270,11 @@ pub struct Kernel {
     restart: bool,
     /// Sleep was requested (see [`Command::Sleep`]).
     sleep: bool,
+    /// Switching off was requested (see [`Command::PowerOff`]).
+    power_off: bool,
+    /// When the device went to sleep ([`Kernel::suspend`]): how long it
+    /// slept is told on waking.
+    suspended_at: Option<Instant>,
     /// The row of hints over the buttons below the screen.
     hint: hints::HintRow,
     /// See [`KernelBuilder::busy_mark`].
@@ -1180,6 +1185,7 @@ impl Kernel {
     pub fn suspend(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
         self.now = now;
+        self.suspended_at = Some(now);
         self.shared.usage.sleeps = self.shared.usage.sleeps.saturating_add(1);
         self.output.commands.push(events::SUSPEND.emit(()));
         self.bluetooth_suspend();
@@ -1202,9 +1208,16 @@ impl Kernel {
         effects
     }
 
-    /// Back from [`Kernel::suspend`].
+    /// Back from [`Kernel::suspend`]. How long the device slept, for
+    /// plugins ([`Env::slept_for`](paperpaw_sdk::Env::slept_for)), is the
+    /// time between the two by the shell's clock: `now` counts the time
+    /// asleep.
     pub fn resume(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
+        if let Some(at) = self.suspended_at.take() {
+            let slept = now.0.saturating_sub(at.0);
+            self.shared.slept_for = Some(core::time::Duration::from_millis(slept));
+        }
         self.now = now;
         self.last_activity = now;
         // The time asleep is no screen's.
@@ -1342,6 +1355,9 @@ struct Shared {
     memory: paperpaw_sdk::memory::Memory,
     /// How PaperPaw started (see [`KernelBuilder::started`]).
     started: paperpaw_sdk::power::Start,
+    /// How long the device slept last (see [`KernelBuilder::slept_for`]
+    /// and [`Kernel::resume`]).
+    slept_for: Option<core::time::Duration>,
     /// What the panel can do and how the last frame went (see
     /// [`KernelBuilder::panel`]).
     panel: paperpaw_sdk::realtime::PanelInfo,
@@ -1418,6 +1434,7 @@ impl Shared {
             memory: self.memory,
             clock: self.meter.clock(),
             started: self.started,
+            slept_for: self.slept_for,
             panel: self.panel,
             keys_held: &self.keys_held,
             room: self.room,

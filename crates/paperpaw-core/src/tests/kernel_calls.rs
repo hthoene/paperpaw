@@ -168,3 +168,55 @@ fn wall_clock_readings_that_make_no_sense_do_not_panic() {
         kernel.set_status(Instant(now), status);
     }
 }
+
+/// Switches the device off as soon as PaperPaw started.
+struct OffAtStart;
+
+impl Plugin for OffAtStart {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(Id::new_static("off"), "Off", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        r.on(paperpaw_sdk::builtin::events::STARTED, |_, _, out| {
+            out.push(Command::PowerOff);
+        })
+    }
+}
+
+#[test]
+fn plugins_switch_the_device_off_where_the_shell_can() {
+    // Where the system decides (Android), nothing happens.
+    let mut kernel = Kernel::builder(DEVICE).plugin(OffAtStart).build().unwrap();
+    assert!(!kernel.start(Instant(0)).power_off());
+    let mut kernel = Kernel::builder(DEVICE)
+        .plugin(OffAtStart)
+        .power_off(true)
+        .build()
+        .unwrap();
+    assert!(kernel.shared.env(Instant(0)).caps().power_off);
+    let effects = kernel.start(Instant(0));
+    assert!(effects.power_off() && !effects.sleep());
+    assert!(effects.iter().any(|e| e == crate::Effect::PowerOff));
+}
+
+#[test]
+fn plugins_hear_how_long_the_device_slept() {
+    let mut kernel = Kernel::builder(DEVICE).build().unwrap();
+    kernel.start(Instant(0));
+    assert_eq!(kernel.shared.env(Instant(0)).slept_for(), None);
+    kernel.suspend(Instant(1_000));
+    kernel.resume(Instant(61_000));
+    let slept = kernel.shared.env(Instant(61_000)).slept_for();
+    assert_eq!(slept, Some(core::time::Duration::from_secs(60)));
+    // A start after a sleep with the device switched off, where the shell
+    // knows how long.
+    let kernel = Kernel::builder(DEVICE)
+        .after_sleep(true)
+        .slept_for(core::time::Duration::from_secs(3_600))
+        .build()
+        .unwrap();
+    let slept = kernel.shared.env(Instant(0)).slept_for();
+    assert_eq!(slept, Some(core::time::Duration::from_secs(3_600)));
+}

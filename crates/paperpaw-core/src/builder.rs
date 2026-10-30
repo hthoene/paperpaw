@@ -45,6 +45,7 @@ struct BuilderParts {
     random: paperpaw_sdk::random::Random,
     memory: paperpaw_sdk::memory::Memory,
     started: paperpaw_sdk::power::Start,
+    slept_for: Option<core::time::Duration>,
     after_sleep: bool,
     panel: paperpaw_sdk::realtime::PanelInfo,
     /// Network settings kept in the program, by plugin.
@@ -220,6 +221,16 @@ impl KernelBuilder {
         self
     }
 
+    /// How long the device was switched off or slept before this start,
+    /// where the shell can tell (see
+    /// [`Env::slept_for`](paperpaw_sdk::Env::slept_for)). Without, it is
+    /// not known; after a sleep the kernel sleeps through,
+    /// [`Kernel::resume`] tells it.
+    pub fn slept_for(mut self, slept: core::time::Duration) -> Self {
+        self.0.slept_for = Some(slept);
+        self
+    }
+
     /// What the panel can do ([`paperpaw_sdk::realtime::PanelInfo`]): its
     /// grays, refresh times known beforehand, whether frames overlap.
     /// Refreshes shown add their times ([`Kernel::panel_busy`]). Without,
@@ -334,6 +345,13 @@ impl KernelBuilder {
     /// [`Effect::Sleep`]); without, the system has its own (Android).
     pub fn sleep(mut self, available: bool) -> Self {
         self.0.caps.sleep = available;
+        self
+    }
+
+    /// The shell switches the device off when asked (see
+    /// [`Effect::PowerOff`]); without, plugins' requests are ignored.
+    pub fn power_off(mut self, available: bool) -> Self {
+        self.0.caps.power_off = available;
         self
     }
 
@@ -569,6 +587,7 @@ impl BuilderParts {
                 random: self.random,
                 memory: self.memory,
                 started: self.started,
+                slept_for: self.slept_for,
                 panel: self.panel,
                 keys_held: Vec::new(),
                 room: paperpaw_sdk::realtime::Room::default(),
@@ -647,6 +666,8 @@ impl BuilderParts {
             warnings: Vec::new(),
             restart: false,
             sleep: false,
+            power_off: false,
+            suspended_at: None,
             hint: hints::HintRow::new(self.button_row),
             busy_mark: self.busy_mark,
             withheld: Vec::new(),
@@ -1107,6 +1128,7 @@ impl Kernel {
             random: paperpaw_sdk::random::Random::NONE,
             memory: paperpaw_sdk::memory::Memory::NONE,
             started: paperpaw_sdk::power::Start::Unknown,
+            slept_for: None,
             after_sleep: false,
             panel: paperpaw_sdk::realtime::PanelInfo::new(
                 device

@@ -20,6 +20,9 @@ pub enum Effect {
     /// Sleep once the frame is shown (the sleep screen): call
     /// [`Kernel::suspend`], and [`Kernel::resume`] on waking.
     Sleep,
+    /// Switch the device off once the frame is shown: call
+    /// [`Kernel::suspend`] first. The next start is a cold one.
+    PowerOff,
     /// The frame is best shown in grays (see [`Effects::grays`]).
     Grays,
     /// Call [`Kernel::proceed`] while the panel shows the busy mark (see
@@ -36,6 +39,7 @@ pub struct Effects {
     pub(crate) wake_at: Option<Instant>,
     pub(crate) restart: bool,
     pub(crate) sleep: bool,
+    pub(crate) power_off: bool,
     pub(crate) proceed: bool,
     pub(crate) pace: Option<core::time::Duration>,
 }
@@ -86,6 +90,12 @@ impl Effects {
         self.sleep
     }
 
+    /// Whether the shell should switch the device off once the frame is
+    /// shown (see [`Effect::PowerOff`]).
+    pub fn power_off(&self) -> bool {
+        self.power_off
+    }
+
     /// What these and the `later` effects ask together, for a shell that
     /// shows one frame for both (input that came while the last frame
     /// refreshed): the parts to refresh joined, in the stronger mode; the
@@ -106,6 +116,7 @@ impl Effects {
             wake_at,
             restart: self.restart || later.restart,
             sleep: self.sleep || later.sleep,
+            power_off: self.power_off || later.power_off,
             proceed: self.proceed || later.proceed,
             pace: later.pace,
         }
@@ -116,6 +127,7 @@ impl Effects {
             && self.wake_at.is_none()
             && !self.restart
             && !self.sleep
+            && !self.power_off
             && !self.proceed
     }
 
@@ -128,6 +140,7 @@ impl Effects {
             .chain(self.wake_at.map(Effect::WakeAt))
             .chain(self.restart.then_some(Effect::Restart))
             .chain(self.sleep.then_some(Effect::Sleep))
+            .chain(self.power_off.then_some(Effect::PowerOff))
             .chain(self.grays.then_some(Effect::Grays))
             .chain(self.proceed.then_some(Effect::Proceed))
     }

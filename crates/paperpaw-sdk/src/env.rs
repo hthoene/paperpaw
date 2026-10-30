@@ -56,6 +56,11 @@ pub struct Capabilities {
     pub frontlight: bool,
     /// The panel shows black and white alone (no grays), e.g. the X4.
     pub black_and_white: bool,
+    /// PaperPaw switches the device off on its own
+    /// ([`Command::PowerOff`](crate::Command::PowerOff)), e.g. the X4; not
+    /// where the system decides (Android) or that never switches off (the
+    /// emulator).
+    pub power_off: bool,
     /// More of what the device can do, by [`Capability`] (new ones come as
     /// constants, without a new plugin interface).
     pub(crate) more: u64,
@@ -256,6 +261,8 @@ pub struct Env<'a> {
     /// How PaperPaw started this time, where the shell can tell (see
     /// [`power::Start`](crate::power::Start)).
     pub(crate) started: crate::power::Start,
+    /// How long the device slept last (see [`Env::slept_for`]).
+    pub(crate) slept_for: Option<core::time::Duration>,
     /// What the panel can do and how the last frame went (see
     /// [`realtime`](crate::realtime)).
     pub(crate) panel: crate::realtime::PanelInfo,
@@ -578,6 +585,17 @@ impl<'a> Env<'a> {
         self.started
     }
 
+    /// How long the device slept before it woke last, where the shell can
+    /// tell: after [`events::RESUME`](crate::builtin::events::RESUME), and
+    /// after a start that ends a sleep in which the device was switched
+    /// off, if its clock ran on. `None` before the first sleep and where
+    /// it is not known: a device without a clock that keeps time switched
+    /// off (the X4) cannot tell; a plugin that needs it keeps a stamp of
+    /// its own.
+    pub fn slept_for(&self) -> Option<core::time::Duration> {
+        self.slept_for
+    }
+
     /// What the panel can do, and how the last frame went (see
     /// [`realtime`](crate::realtime)): for screens that pace themselves.
     pub fn panel(&self) -> crate::realtime::PanelInfo {
@@ -755,6 +773,8 @@ pub struct EnvParts<'a> {
     /// How PaperPaw started this time, where the shell can tell (see
     /// [`power::Start`](crate::power::Start)).
     pub started: crate::power::Start,
+    /// How long the device slept last, where the shell can tell.
+    pub slept_for: Option<core::time::Duration>,
     /// What the panel can do and how the last frame went (see
     /// [`realtime`](crate::realtime)).
     pub panel: crate::realtime::PanelInfo,
@@ -825,6 +845,7 @@ impl<'a> From<EnvParts<'a>> for Env<'a> {
             memory: p.memory,
             clock: p.clock,
             started: p.started,
+            slept_for: p.slept_for,
             panel: p.panel,
             keys_held: p.keys_held,
             room: p.room,
