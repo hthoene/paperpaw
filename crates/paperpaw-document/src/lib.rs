@@ -346,6 +346,11 @@ pub struct Block {
     /// The block continues the previous one (a very long paragraph split
     /// into pieces): no first-line indent, no paragraph spacing.
     pub continues: bool,
+    /// The next block continues this one (see `continues`): what lies
+    /// near its end is resolved with the next one read ahead (bidi, #33),
+    /// which is read only then. Documents that do not say so leave it
+    /// `false`, and the pieces are resolved without reading ahead.
+    pub continued: bool,
     /// Source offset of the block's first byte.
     pub start: u32,
     /// Source offset just after the block.
@@ -474,6 +479,7 @@ impl Block {
             end,
             text,
             continues: false,
+            continued: false,
             map: OffsetMap::IDENTITY,
             runs: Vec::new(),
             align: Align::Auto,
@@ -524,6 +530,13 @@ impl Block {
 
     pub fn continues(mut self, continues: bool) -> Self {
         self.continues = continues;
+        self
+    }
+
+    /// See [`Block::continued`].
+    #[must_use]
+    pub fn continued(mut self, continued: bool) -> Self {
+        self.continued = continued;
         self
     }
 
@@ -612,6 +625,7 @@ impl Block {
         self.end = end;
         self.map = OffsetMap::IDENTITY;
         self.continues = false;
+        self.continued = false;
         self.inserted.clear();
     }
 }
@@ -1037,6 +1051,7 @@ mod tests {
         let mut block = Block {
             kind: BlockKind::Paragraph,
             continues: false,
+            continued: false,
             start: 100,
             end: 120,
             text: String::from("Mr. Smith is here."),
@@ -1089,6 +1104,7 @@ mod tests {
         Block {
             kind: BlockKind::Paragraph,
             continues: false,
+            continued: false,
             start,
             end,
             text: String::from(text),

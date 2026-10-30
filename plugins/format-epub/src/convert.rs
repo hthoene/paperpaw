@@ -111,6 +111,8 @@ const MAX_SEEN_PICTURES: usize = 512;
 const MAX_HREF: usize = 2000;
 
 const FLAG_CONTINUES: u8 = 1;
+/// The next record continues it.
+const FLAG_CONTINUED: u8 = 2;
 
 /// Where a chapter's markup comes from.
 pub(crate) enum Source<'a> {
@@ -206,6 +208,10 @@ fn larger(a: Option<u16>, b: Option<u16>) -> Option<u16> {
 
 pub(crate) fn continues(flags: u8) -> bool {
     flags & FLAG_CONTINUES != 0
+}
+
+pub(crate) fn continued(flags: u8) -> bool {
+    flags & FLAG_CONTINUED != 0
 }
 
 /// An open element: the style and alignment its content inherits.
@@ -494,7 +500,7 @@ impl Converter<'_> {
         // As much of the alternative text as the record has room for.
         let room = LIMIT.saturating_sub(self.text.len());
         self.text.push_str(&clean_alt(alt, room));
-        self.write_record(BlockKind::Image, self.text.len());
+        self.write_record(BlockKind::Image, self.text.len(), false);
         self.text.clear();
         self.runs.clear();
         self.origins.clear();
@@ -1090,7 +1096,7 @@ impl Converter<'_> {
             .filter(|&i| i > 0)
             .unwrap_or(limit);
         let kind = self.kind;
-        self.write_record(kind, cut);
+        self.write_record(kind, cut, true);
         // Keep the rest in place, so the buffer is never reallocated.
         let rest = self.text.len() - self.text.trim_start().len();
         self.drop_front(rest);
@@ -1103,7 +1109,7 @@ impl Converter<'_> {
         self.text.truncate(trimmed);
         if !self.text.is_empty() {
             let kind = self.kind;
-            self.write_record(kind, self.text.len());
+            self.write_record(kind, self.text.len(), false);
         }
         self.text.clear();
         self.runs.clear();
@@ -1144,7 +1150,7 @@ impl Converter<'_> {
 
     /// Writes the first `len` bytes of the current text as a record and
     /// removes them from the text.
-    fn write_record(&mut self, kind: BlockKind, len: usize) {
+    fn write_record(&mut self, kind: BlockKind, len: usize, continued: bool) {
         // Records are whole or left out, so what is written stays readable
         // when the chapter's budget runs out.
         let pending = self.out.len()
@@ -1159,7 +1165,8 @@ impl Converter<'_> {
             return;
         }
         let (kind, level) = encode_kind(kind);
-        let flags = if self.continues { FLAG_CONTINUES } else { 0 };
+        let flags =
+            u8::from(self.continues) * FLAG_CONTINUES | u8::from(continued) * FLAG_CONTINUED;
         self.positions.push_str(&alloc::format!(
             "{}\t{}\n",
             self.length + HEADER,
