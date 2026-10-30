@@ -13,7 +13,7 @@ use paperpaw_sdk::{
 };
 
 use crate::cards::{self, Day, Deck};
-use crate::{NEW_PER_DAY, SD_AUTO, phone, review, sdcard, sync};
+use crate::{NEW_PER_DAY, SD_AUTO, phone, review, sdcard, sdmenu, sync};
 
 pub(crate) const SCREEN: Id = Id::new_static("vocabulary.cards");
 
@@ -22,6 +22,23 @@ const REVIEW_ROW: usize = 0;
 const PHONE_ROW: usize = 1;
 const CARD_ROW: usize = 2;
 const FIRST_DECK: usize = 3;
+
+/// What the row of the SD card's files says: what there is to do.
+pub(crate) fn files_note(env: &Env<'_>, folder: &str, files: sync::Pending) -> String {
+    let folder = [("folder", Arg::Str(folder))];
+    let i18n = env.i18n();
+    if !files.folder {
+        i18n.format("vocabulary.sd.row.none", &folder)
+    } else if files.todo > 0 {
+        i18n.plural("vocabulary.sd.row.todo", files.todo as i64, &folder)
+    } else if files.failed > 0 {
+        i18n.plural("vocabulary.sd.row.failed", files.failed as i64, &folder)
+    } else if files.files == 0 {
+        i18n.format("vocabulary.sd.row.empty", &folder)
+    } else {
+        i18n.format("vocabulary.sd.row.same", &folder)
+    }
+}
 
 pub(crate) struct DecksScreen {
     style: UiStyle,
@@ -117,20 +134,7 @@ impl DecksScreen {
 
     /// What the row of the SD card's files says: what there is to do.
     fn card_note(&self, env: &Env<'_>) -> String {
-        let folder = [("folder", Arg::Str(&self.folder))];
-        let files = self.files;
-        let i18n = env.i18n();
-        if !files.folder {
-            i18n.format("vocabulary.sd.row.none", &folder)
-        } else if files.todo > 0 {
-            i18n.plural("vocabulary.sd.row.todo", files.todo as i64, &folder)
-        } else if files.failed > 0 {
-            i18n.plural("vocabulary.sd.row.failed", files.failed as i64, &folder)
-        } else if files.files == 0 {
-            i18n.format("vocabulary.sd.row.empty", &folder)
-        } else {
-            i18n.format("vocabulary.sd.row.same", &folder)
-        }
+        files_note(env, &self.folder, self.files)
     }
 
     fn open(&mut self, row: usize, cx: &mut Cx<'_, '_>) {
@@ -141,7 +145,7 @@ impl DecksScreen {
                 return;
             }
             CARD_ROW => {
-                cx.command(Command::OpenScreen(sdcard::SCREEN, Params::new()));
+                cx.command(Command::OpenScreen(sdmenu::SCREEN, Params::new()));
                 return;
             }
             row => match self.decks.get(row - FIRST_DECK) {

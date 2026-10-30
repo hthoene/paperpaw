@@ -3,16 +3,16 @@ use crate::cards::{self, Card, Problem};
 use crate::fsrs::{Fx, Grade};
 use paperpaw_sdk::MemoryStorage;
 
-const FOLDER: &str = "Flashcards";
+pub(crate) const FOLDER: &str = "Flashcards";
 
-fn put(storage: &MemoryStorage, name: &str, text: &str) {
+pub(crate) fn put(storage: &MemoryStorage, name: &str, text: &str) {
     storage
         .write(&alloc::format!("{FOLDER}/{name}"), text.as_bytes())
         .unwrap();
 }
 
 /// The job run through, `link` the answer to a question.
-fn run(storage: &MemoryStorage, force: bool, link: bool) -> Vec<FileReport> {
+pub(crate) fn run(storage: &MemoryStorage, force: bool, link: bool) -> Vec<FileReport> {
     let mode = if force { Mode::All } else { Mode::Manual };
     let mut job = Job::new(storage, FOLDER, mode);
     for _ in 0..10_000 {
@@ -25,7 +25,7 @@ fn run(storage: &MemoryStorage, force: bool, link: bool) -> Vec<FileReport> {
     panic!("the job does not end");
 }
 
-fn deck_id(storage: &MemoryStorage, name: &str) -> u32 {
+pub(crate) fn deck_id(storage: &MemoryStorage, name: &str) -> u32 {
     cards::decks(storage)
         .unwrap()
         .into_iter()
@@ -34,16 +34,16 @@ fn deck_id(storage: &MemoryStorage, name: &str) -> u32 {
         .id
 }
 
-fn cards_of(storage: &MemoryStorage, deck: u32) -> Vec<Card> {
+pub(crate) fn cards_of(storage: &MemoryStorage, deck: u32) -> Vec<Card> {
     cards::page(storage, deck, 0, 100_000).0
 }
 
-fn fronts(cards: &[Card]) -> Vec<String> {
+pub(crate) fn fronts(cards: &[Card]) -> Vec<String> {
     cards.iter().map(|c| c.front.clone()).collect()
 }
 
 /// A card answered Good: its learning state is no longer new.
-fn learn(storage: &MemoryStorage, deck: u32, front: &str) {
+pub(crate) fn learn(storage: &MemoryStorage, deck: u32, front: &str) {
     let card = cards_of(storage, deck)
         .into_iter()
         .find(|c| c.front == front)
@@ -142,7 +142,9 @@ fn an_id_column_keeps_what_was_learnt_through_a_changed_front() {
     put(
         &storage,
         "W.tsv",
-        &alloc::format!("#paperpaw:\nid\tfront\tback\n{id}\tgatito\tcat\n\tperro\tdog\n"),
+        &alloc::format!(
+            "#paperpaw:deck {deck}\nid\tfront\tback\n{id}\tgatito\tcat\n\tperro\tdog\n"
+        ),
     );
     let reports = run(&storage, false, true);
     assert_eq!(reports[0].added, 0, "{:?}", reports[0]);
@@ -154,7 +156,9 @@ fn an_id_column_keeps_what_was_learnt_through_a_changed_front() {
     put(
         &storage,
         "W.tsv",
-        &alloc::format!("#paperpaw:\nid\tfront\tback\n{id}\tgatito\tcat\n\tperro\tdog\n\n"),
+        &alloc::format!(
+            "#paperpaw:deck {deck}\nid\tfront\tback\n{id}\tgatito\tcat\n\tperro\tdog\n\n"
+        ),
     );
     let reports = run(&storage, true, true);
     assert_eq!(cards_of(&storage, deck).len(), 2, "{reports:?}");
@@ -418,7 +422,7 @@ fn problems_are_kept_to_the_first_twenty() {
 // ---- The senior review of PR #32 -----------------------------------------
 
 /// Counts what one thread allocates, for the tests of the heap a merge takes.
-mod heap {
+pub(crate) mod heap {
     use std::alloc::{GlobalAlloc, Layout, System};
     use std::cell::Cell;
 
@@ -475,6 +479,16 @@ mod heap {
         }
     }
 
+    /// Runs `work` without counting (what the storage does inside is not the
+    /// plugin's heap).
+    pub fn paused<T>(work: impl FnOnce() -> T) -> T {
+        let was = ON.with(Cell::get);
+        ON.with(|on| on.set(false));
+        let out = work();
+        ON.with(|on| on.set(was));
+        out
+    }
+
     /// The largest single allocation and the most held at once (above what
     /// was held at the start) while `work` runs on this thread.
     pub fn measure<T>(work: impl FnOnce() -> T) -> (T, usize, usize) {
@@ -496,7 +510,7 @@ mod heap {
 static COUNTING: heap::Counting = heap::Counting;
 
 /// The job run through, with how many steps it took.
-fn run_counting(storage: &MemoryStorage, mode: Mode) -> (Vec<FileReport>, usize) {
+pub(crate) fn run_counting(storage: &MemoryStorage, mode: Mode) -> (Vec<FileReport>, usize) {
     let mut job = Job::new(storage, FOLDER, mode);
     for steps in 1..100_000 {
         match job.step(storage) {
@@ -508,7 +522,7 @@ fn run_counting(storage: &MemoryStorage, mode: Mode) -> (Vec<FileReport>, usize)
     panic!("the job does not end");
 }
 
-fn ledger_text(storage: &MemoryStorage) -> Vec<u8> {
+pub(crate) fn ledger_text(storage: &MemoryStorage) -> Vec<u8> {
     paperpaw_sdk::read_file(storage, &ledger_path(), 1 << 20).unwrap_or_default()
 }
 
@@ -742,4 +756,81 @@ fn the_folder_cannot_be_the_plugin_s_own_data_or_a_way_up() {
     assert_eq!(folder_of(&own), DEFAULT_FOLDER);
     assert_eq!(folder_of(own.trim_end_matches('/')), DEFAULT_FOLDER);
     assert_eq!(folder_of(&alloc::format!("{own}sub")), DEFAULT_FOLDER);
+}
+
+/// A storage that can fail, and whose own allocations are not counted.
+pub(crate) struct Wrapped<'a> {
+    pub inner: &'a MemoryStorage,
+    /// Appends that go through before the rest fail (`usize::MAX`: none fail).
+    pub appends: core::cell::Cell<usize>,
+    pub fail_rename: core::cell::Cell<bool>,
+    pub error: core::cell::Cell<paperpaw_sdk::StorageError>,
+}
+
+impl<'a> Wrapped<'a> {
+    pub(crate) fn new(inner: &'a MemoryStorage) -> Self {
+        Self {
+            inner,
+            appends: core::cell::Cell::new(usize::MAX),
+            fail_rename: core::cell::Cell::new(false),
+            error: core::cell::Cell::new(paperpaw_sdk::StorageError::Io),
+        }
+    }
+}
+
+impl Storage for Wrapped<'_> {
+    fn read_at(&self, p: &str, o: u64, b: &mut [u8]) -> Result<usize, paperpaw_sdk::StorageError> {
+        heap::paused(|| self.inner.read_at(p, o, b))
+    }
+    fn size(&self, p: &str) -> Result<u64, paperpaw_sdk::StorageError> {
+        heap::paused(|| self.inner.size(p))
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+        heap::paused(|| self.inner.write(p, d))
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+        let left = self.appends.get();
+        if left == 0 {
+            return Err(self.error.get());
+        }
+        self.appends.set(left.saturating_sub(1).min(left));
+        heap::paused(|| self.inner.append(p, d))
+    }
+    fn write_at(&self, p: &str, o: u64, d: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+        heap::paused(|| self.inner.write_at(p, o, d))
+    }
+    fn truncate(&self, p: &str, l: u64) -> Result<(), paperpaw_sdk::StorageError> {
+        heap::paused(|| self.inner.truncate(p, l))
+    }
+    fn sync(&self) -> Result<(), paperpaw_sdk::StorageError> {
+        heap::paused(|| self.inner.sync())
+    }
+    fn list(
+        &self,
+        d: &str,
+        v: &mut dyn FnMut(paperpaw_sdk::DirEntry<'_>),
+    ) -> Result<(), paperpaw_sdk::StorageError> {
+        heap::paused(|| self.inner.list(d, v))
+    }
+    fn remove(&self, p: &str) -> Result<(), paperpaw_sdk::StorageError> {
+        heap::paused(|| self.inner.remove(p))
+    }
+    fn modified(&self, p: &str) -> Option<i64> {
+        heap::paused(|| self.inner.modified(p))
+    }
+    fn exists(&self, p: &str) -> bool {
+        heap::paused(|| self.inner.exists(p))
+    }
+    fn rename(&self, a: &str, b: &str) -> Result<(), paperpaw_sdk::StorageError> {
+        if self.fail_rename.get() {
+            return Err(self.error.get());
+        }
+        heap::paused(|| self.inner.rename(a, b))
+    }
+    fn create_dir(&self, p: &str) -> Result<(), paperpaw_sdk::StorageError> {
+        heap::paused(|| self.inner.create_dir(p))
+    }
+    fn remove_dir_all(&self, p: &str) -> Result<(), paperpaw_sdk::StorageError> {
+        heap::paused(|| self.inner.remove_dir_all(p))
+    }
 }

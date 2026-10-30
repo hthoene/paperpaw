@@ -480,6 +480,45 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    // Part 2: the way into the files (update, a save for each deck, the
+    // switch of each linked deck), and a deck saved to its file. The decks
+    // are made from the files first (German is deck 1).
+    Case {
+        name: "x4-flashcards-sd-menu",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["vocabulary.sd-auto=false"],
+        script: "open:vocabulary.sd-card,wait:900,open:vocabulary.sd-menu,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-flashcards-sd-menu-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["vocabulary.sd-auto=false", "core.language=de"],
+        script: "open:vocabulary.sd-card,wait:900,open:vocabulary.sd-menu,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-flashcards-sd-saved",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["vocabulary.sd-auto=false"],
+        script: "open:vocabulary.sd-card,wait:900,back,wait:100,open:vocabulary.sd-card:save=1,wait:900",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-flashcards-sd-saved-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["vocabulary.sd-auto=false", "core.language=de"],
+        script: "open:vocabulary.sd-card,wait:900,back,wait:100,open:vocabulary.sd-card:save=1,wait:900",
+        colour: 0,
+        fixtures: false,
+    },
     Case {
         name: "x4-update",
         profile: "xteink-x4",

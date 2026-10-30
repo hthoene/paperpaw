@@ -19,8 +19,10 @@
 //!   and reported. A quote that is opened and not closed within that is
 //!   reported with its line, and reading goes on at the next line.
 //! - The `id` column is the number the reader gave a card, so it counts
-//!   only in a file that says it is the reader's (a line `#paperpaw:`
-//!   before the header); in any other file it is an ordinary column.
+//!   only in a file that says it is the reader's own for the deck it is
+//!   merged into (a line `#paperpaw:deck 7` before the header, which
+//!   *Save to card* writes); in any other file, or one of another deck
+//!   (copied from another reader), it is an ordinary column.
 //! - A file that is not UTF-8 as a whole, with no NUL byte (a spreadsheet
 //!   "CSV" in Windows-1252), is read as Windows-1252. UTF-16 (a
 //!   spreadsheet's "Unicode text") is told, not read.
@@ -59,9 +61,9 @@ pub(crate) struct Layout {
     pub columns: Columns,
     /// The texts are HTML (`#html:true` of an Anki export).
     pub html: bool,
-    /// The file says it was made by the reader (`#paperpaw:`): its `id`
-    /// column is the cards' numbers.
-    pub paperpaw: bool,
+    /// The deck the file says it was saved from (`#paperpaw:deck 7`): only
+    /// for that deck is its `id` column the cards' numbers.
+    pub paperpaw: Option<u32>,
     /// The file is UTF-16 (a byte order mark says so): it is not read.
     pub utf16: bool,
     /// The file is Windows-1252, not UTF-8.
@@ -176,7 +178,7 @@ pub(crate) fn detect(storage: &dyn Storage, path: &str) -> Result<Layout, Storag
         0
     };
     let mut line = 1u32;
-    let (mut separator, mut html, mut paperpaw) = (None, false, false);
+    let (mut separator, mut html, mut paperpaw) = (None, false, None);
     // The lines of an Anki text export that start with `#`.
     while bytes.get(at) == Some(&b'#') {
         let end = bytes[at..]
@@ -195,8 +197,11 @@ pub(crate) fn detect(storage: &dyn Storage, path: &str) -> Result<Layout, Storag
             };
         } else if let Some(value) = text.strip_prefix("#html:") {
             html = value.trim() == "true";
-        } else if text.starts_with("#paperpaw:") {
-            paperpaw = true;
+        } else if let Some(rest) = text.strip_prefix("#paperpaw:") {
+            paperpaw = rest
+                .trim()
+                .strip_prefix("deck")
+                .and_then(|n| n.trim().parse().ok());
         }
         at = (end + 1).min(bytes.len());
         line += 1;
@@ -233,7 +238,7 @@ pub(crate) fn detect(storage: &dyn Storage, path: &str) -> Result<Layout, Storag
             back: find(Role::Back),
             example: find(Role::Example),
             // Only the reader's own files have the cards' numbers.
-            id: find(Role::Id).filter(|_| paperpaw),
+            id: find(Role::Id).filter(|_| paperpaw.is_some()),
         };
         layout.start = (at + first_end + 1).min(at + rest.len()) as u64;
         layout.line += 1;
@@ -674,8 +679,10 @@ mod tests {
     #[test]
     fn a_file_with_a_header_names_its_columns() {
         // The reader's own file (it says so) has the cards' numbers.
-        let (layout, items) = read(b"#paperpaw:\nBeispiel;Back;Front;id\nDie Katze.;cat;Katze;7\n");
+        let (layout, items) =
+            read(b"#paperpaw:deck 3\nBeispiel;Back;Front;id\nDie Katze.;cat;Katze;7\n");
         assert_eq!(layout.line, 3);
+        assert_eq!(layout.paperpaw, Some(3));
         assert_eq!(cards(&items), [("Katze", "cat", "Die Katze.")]);
         let Item::Record(record) = &items[0] else {
             panic!()

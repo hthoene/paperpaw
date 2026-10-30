@@ -39,11 +39,13 @@ extern crate std;
 
 mod cards;
 mod decks;
+mod export;
 mod fsrs;
 mod marks;
 mod phone;
 mod review;
 mod sdcard;
+mod sdmenu;
 mod sleep;
 mod store;
 mod sync;
@@ -242,7 +244,7 @@ static ICONS: [(Id, &str); 3] = [
     (CARDS, "stack-2"),
 ];
 
-static SCREENS: [FixedScreen; 5] = [
+static SCREENS: [FixedScreen; 6] = [
     FixedScreen::new(decks::SCREEN, "vocabulary.cards.title", |env, _| {
         Box::new(decks::DecksScreen::new(env))
     }),
@@ -256,6 +258,10 @@ static SCREENS: [FixedScreen; 5] = [
     ),
     FixedScreen::new(phone::SCREEN, "vocabulary.phone.title", |env, _| {
         Box::new(phone::PhoneScreen::new(env))
+    })
+    .instances(paperpaw_sdk::Instances::SINGLE),
+    FixedScreen::new(sdmenu::SCREEN, "vocabulary.sd.title", |env, _| {
+        Box::new(sdmenu::SdMenu::new(env))
     })
     .instances(paperpaw_sdk::Instances::SINGLE),
     FixedScreen::new(sdcard::SCREEN, "vocabulary.sd.title", |env, params| {

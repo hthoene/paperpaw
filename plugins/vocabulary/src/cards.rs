@@ -318,15 +318,25 @@ impl Texts {
 fn each_line(
     storage: &dyn Storage,
     path: &str,
+    visit: impl FnMut(u64, &str) -> ControlFlow<()>,
+) -> Result<(), StorageError> {
+    each_line_from(storage, path, 0, visit)
+}
+
+/// [`each_line`] from the line that begins at `from`.
+fn each_line_from(
+    storage: &dyn Storage,
+    path: &str,
+    from: u64,
     mut visit: impl FnMut(u64, &str) -> ControlFlow<()>,
 ) -> Result<(), StorageError> {
     let mut chunk = [0u8; 512];
     let mut line: Vec<u8> = Vec::new();
-    let (mut at, mut start) = (0u64, 0u64);
+    let (mut at, mut start) = (from, from);
     loop {
         let n = match storage.read_at(path, at, &mut chunk) {
             Ok(n) => n,
-            Err(StorageError::NotFound) if at == 0 => return Ok(()),
+            Err(StorageError::NotFound) if at == from => return Ok(()),
             Err(e) => return Err(e),
         };
         if n == 0 {
@@ -500,14 +510,28 @@ pub(crate) fn delete_deck(storage: &dyn Storage, deck: u32) -> Result<(), Proble
 pub(crate) fn each_card(
     storage: &dyn Storage,
     deck: u32,
+    card: impl FnMut(u64, Card) -> ControlFlow<()>,
+) -> Result<(), StorageError> {
+    each_card_from(storage, deck, 0, card)
+}
+
+/// [`each_card`] from the card whose line begins at `from` (a position a
+/// visit was given, or 0), to read a deck a piece at a time.
+pub(crate) fn each_card_from(
+    storage: &dyn Storage,
+    deck: u32,
+    from: u64,
     mut card: impl FnMut(u64, Card) -> ControlFlow<()>,
 ) -> Result<(), StorageError> {
-    each_line(storage, &deck_path(deck), |at, line| {
-        match Card::parse(line) {
+    each_line_from(
+        storage,
+        &deck_path(deck),
+        from,
+        |at, line| match Card::parse(line) {
             Some(c) => card(at, c),
             None => ControlFlow::Continue(()),
-        }
-    })
+        },
+    )
 }
 
 /// Calls `card` with each card of `deck` from number `from` on, one at a
@@ -792,7 +816,7 @@ pub(crate) fn delete(
 /// Writes `deck` anew, each card as `change` leaves it (or without it,
 /// where it says `false`), and its index with it; the counter after the
 /// cards, past every card there was.
-fn rewrite(
+pub(crate) fn rewrite(
     storage: &dyn Storage,
     deck: u32,
     change: impl FnMut(&mut Card) -> bool,

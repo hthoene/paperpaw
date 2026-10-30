@@ -5,13 +5,14 @@
 //! The reader keeps its own decks with what it learnt of each card; a file
 //! is an exchange file, **merged** into the deck it is linked to. Cards
 //! match by key, never by line: by the `id` column where the file is the
-//! reader's own (it has the line `#paperpaw:`, so its ids are card numbers)
-//! and the deck has that card, else by the front text (trimmed, at most
+//! reader's own for this deck (it has the line `#paperpaw:deck 7`, that is
+//! this deck: its ids are card numbers) and the deck has that card, else by the front text (trimmed, at most
 //! 500 characters, spaces collapsed, case folded, hashed to 64 bits; not
 //! Unicode-normalised); of equal fronts the n-th line goes with the n-th
 //! card. A line with no card is added, a card
 //! whose back or example differs from its line is changed (what was
-//! learnt stays), a card whose line is gone stays. A changed front, with
+//! learnt stays), a card whose line is gone stays, unless the deck's switch
+//! (`mirror`, in the ledger, off to begin with) says to remove it. A changed front, with
 //! no `id`, is a line with no card and a card with no line: the new one
 //! starts new.
 //!
@@ -65,7 +66,7 @@ const MOST_PROBLEMS: usize = 20;
 const LEDGER_HEADER: &str = "paperpaw-sources 1";
 const EXTENSIONS: [&str; 3] = [".tsv", ".csv", ".txt"];
 
-fn ledger_path() -> String {
+pub(crate) fn ledger_path() -> String {
     cards::path("sources.txt")
 }
 
@@ -160,6 +161,9 @@ pub(crate) struct Source {
     pub modified: i64,
     /// 0 for a file that was tried and is no deck (see [`Outcome`]).
     pub hash: u64,
+    /// The deck's cards that are not in the file any more are removed at
+    /// an update (the sixth field of the line; off where it is not there).
+    pub mirror: bool,
 }
 
 impl Source {
@@ -207,6 +211,7 @@ pub(crate) fn sources(storage: &dyn Storage) -> Result<Ledger, StorageError> {
                 size: f.next()?.parse().ok()?,
                 modified: f.next()?.parse().ok()?,
                 hash: u64::from_str_radix(f.next()?, 16).ok()?,
+                mirror: f.next() == Some("1"),
             })
         })();
         match parsed {
@@ -218,7 +223,7 @@ pub(crate) fn sources(storage: &dyn Storage) -> Result<Ledger, StorageError> {
     Ok(ledger)
 }
 
-fn write_sources(storage: &dyn Storage, ledger: &Ledger) -> Result<(), StorageError> {
+pub(crate) fn write_sources(storage: &dyn Storage, ledger: &Ledger) -> Result<(), StorageError> {
     let mut text = alloc::format!("{LEDGER_HEADER}\n");
     for s in &ledger.sources {
         // A tab or a line break in a name cannot be (the card's names
@@ -229,11 +234,12 @@ fn write_sources(storage: &dyn Storage, ledger: &Ledger) -> Result<(), StorageEr
             .map(|c| if c.is_control() { ' ' } else { c })
             .collect();
         text.push_str(&alloc::format!(
-            "{name}\t{}\t{}\t{}\t{:x}\n",
+            "{name}\t{}\t{}\t{}\t{:x}\t{}\n",
             s.deck,
             s.size,
             s.modified,
-            s.hash
+            s.hash,
+            u8::from(s.mirror)
         ));
     }
     for line in &ledger.other {
@@ -244,6 +250,32 @@ fn write_sources(storage: &dyn Storage, ledger: &Ledger) -> Result<(), StorageEr
     let part = paperpaw_sdk::files::part_path(&ledger_path());
     storage.write(&part, text.as_bytes())?;
     paperpaw_sdk::files::put_in_place(storage, &part, &ledger_path())
+}
+
+/// The file `deck` is linked to, if one is.
+pub(crate) fn link_of(ledger: &Ledger, deck: u32) -> Option<&Source> {
+    ledger
+        .sources
+        .iter()
+        .find(|s| s.deck == deck && s.deck != 0)
+}
+
+/// Sets the switch of the deck's link: whether the cards not in its file
+/// any more are removed at an update. `false` where the deck has no link or
+/// the ledger cannot be read.
+pub(crate) fn set_mirror(storage: &dyn Storage, deck: u32, on: bool) -> bool {
+    let Ok(mut ledger) = sources(storage) else {
+        return false;
+    };
+    let Some(source) = ledger
+        .sources
+        .iter_mut()
+        .find(|s| s.deck == deck && s.deck != 0)
+    else {
+        return false;
+    };
+    source.mirror = on;
+    write_sources(storage, &ledger).is_ok()
 }
 
 /// Whether `file` is as the ledger last saw it (size and time).
@@ -295,10 +327,10 @@ pub(crate) fn make_folder(storage: &dyn Storage, folder: &str, readme: &str) {
 
 // ---- Keys --------------------------------------------------------------
 
-const FNV64: u64 = 0xcbf2_9ce4_8422_2325;
+pub(crate) const FNV64: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV64_PRIME: u64 = 0x0000_0100_0000_01b3;
 
-fn feed(hash: u64, byte: u8) -> u64 {
+pub(crate) fn feed(hash: u64, byte: u8) -> u64 {
     (hash ^ u64::from(byte)).wrapping_mul(FNV64_PRIME)
 }
 
@@ -399,6 +431,8 @@ pub(crate) struct FileReport {
     pub outcome: Outcome,
     pub added: usize,
     pub changed: usize,
+    /// Cards removed, where the deck's link says to.
+    pub removed: usize,
     pub same: usize,
     /// Lines left out (see `problems` for the first).
     pub skipped: usize,
@@ -416,6 +450,7 @@ impl FileReport {
             outcome,
             added: 0,
             changed: 0,
+            removed: 0,
             same: 0,
             skipped: 0,
             no_room: 0,
@@ -453,6 +488,8 @@ enum Stage {
         round: u8,
         slice: usize,
     },
+    /// The cards no line had removed (a deck whose link says so).
+    Remove,
     Finish,
 }
 
@@ -470,6 +507,8 @@ struct Work {
     /// Lines that are cards, and whether any has an `id`.
     lines: usize,
     with_ids: bool,
+    /// The deck's link says to remove the cards the file lacks.
+    mirror: bool,
     /// Cards the deck has.
     cards: usize,
     slices: usize,
@@ -550,6 +589,13 @@ impl Job {
         }
     }
 
+    /// The job for one file of `folder`, if it is new or changed.
+    pub(crate) fn for_file(storage: &dyn Storage, folder: &str, file: &str) -> Self {
+        let mut job = Self::new(storage, folder, Mode::Manual);
+        job.todo.retain(|f| f.name == file);
+        job
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.todo.is_empty()
     }
@@ -572,7 +618,7 @@ impl Job {
                 };
                 100 + 800 * (before * w.slices + slice) / (rounds * w.slices).max(1)
             }
-            Stage::Finish => 900,
+            Stage::Remove | Stage::Finish => 900,
         });
         let permille = (self.at * 1000 + within) / total;
         (permille.min(1000) as u16, name)
@@ -635,7 +681,7 @@ impl Job {
                         id: None,
                     },
                     html: false,
-                    paperpaw: false,
+                    paperpaw: None,
                     utf16: false,
                     latin1: false,
                     start: 0,
@@ -648,6 +694,7 @@ impl Job {
                 resume: table::Resume { at: 0, line: 0 },
                 lines: 0,
                 with_ids: false,
+                mirror: false,
                 cards: 0,
                 slices: 1,
                 matched_lines: Bits::default(),
@@ -664,6 +711,7 @@ impl Job {
             Stage::Asked => Ok(()),
             Stage::Merge => self.begin_merge(storage),
             Stage::Slice { round, slice } => self.slice(storage, round, slice),
+            Stage::Remove => self.remove(storage),
             Stage::Finish => self.finish(storage),
         };
         match done {
@@ -799,6 +847,7 @@ impl Job {
         let name = deck_name_among(&work.found.name, &self.listed);
         if let Some(source) = known.find(&work.found.name).filter(|s| exists(s.deck)) {
             work.deck = source.deck;
+            work.mirror = source.mirror;
             work.stage = Stage::Merge;
             return Ok(());
         }
@@ -814,6 +863,7 @@ impl Job {
                 let _ = cards::rename_deck(storage, source.deck, &name);
             }
             work.deck = source.deck;
+            work.mirror = source.mirror;
             let gone = source.name.clone();
             let mut kept = known.clone();
             kept.sources.retain(|s| s.name != gone);
@@ -851,6 +901,8 @@ impl Job {
         let Some(work) = self.work.as_mut() else {
             return Ok(());
         };
+        // The ids are the cards' numbers only in a file saved from this deck.
+        work.with_ids &= work.layout.paperpaw == Some(work.deck);
         cards::fold(storage)?;
         let mut count = 0usize;
         cards::each_card(storage, work.deck, |_, _| {
@@ -918,8 +970,31 @@ impl Job {
                 slice: slice + 1,
             },
             (1, false) => Stage::Slice { round: 2, slice: 0 },
+            // Never from a file with no card in it: an empty file is more
+            // likely a mistake than an order to empty the deck.
+            _ if work.mirror && work.lines > 0 => Stage::Remove,
             _ => Stage::Finish,
         };
+        Ok(())
+    }
+
+    /// The cards of the deck that no line of the file had removed: the
+    /// deck is written anew without them. Cards added by this update lie
+    /// after the ones counted at its start and stay.
+    fn remove(&mut self, storage: &dyn Storage) -> Result<(), Failure> {
+        let Some(work) = self.work.as_mut() else {
+            return Ok(());
+        };
+        let (mut index, mut removed) = (0usize, 0usize);
+        cards::rewrite(storage, work.deck, |_| {
+            let this = index;
+            index += 1;
+            let vanished = this < work.cards && !work.matched_cards.get(this);
+            removed += usize::from(vanished);
+            !vanished
+        })?;
+        work.report.removed = removed;
+        work.stage = Stage::Finish;
         Ok(())
     }
 
@@ -936,6 +1011,7 @@ impl Job {
                 size: work.found.size,
                 modified: work.found.modified.unwrap_or(0),
                 hash: work.hash,
+                mirror: work.mirror,
             });
             tidy(storage, &mut known, &self.listed);
             write_sources(storage, &known)
@@ -1148,7 +1224,9 @@ fn note_failed(storage: &dyn Storage, found: &Found) {
     let Ok(mut ledger) = sources(storage) else {
         return;
     };
-    let deck = ledger.find(&found.name).map_or(0, |s| s.deck);
+    let (deck, mirror) = ledger
+        .find(&found.name)
+        .map_or((0, false), |s| (s.deck, s.mirror));
     ledger.sources.retain(|s| s.name != found.name);
     ledger.sources.push(Source {
         name: found.name.clone(),
@@ -1156,13 +1234,14 @@ fn note_failed(storage: &dyn Storage, found: &Found) {
         size: found.size,
         modified: found.modified.unwrap_or(0),
         hash: 0,
+        mirror,
     });
     let _ = write_sources(storage, &ledger);
 }
 
 /// The ledger without what can be of no use: a link to a deck that is gone,
 /// a failed file that is not in the folder any more.
-fn tidy(storage: &dyn Storage, ledger: &mut Ledger, listed: &[String]) {
+pub(crate) fn tidy(storage: &dyn Storage, ledger: &mut Ledger, listed: &[String]) {
     let Ok(decks) = cards::decks(storage) else {
         return;
     };
@@ -1196,4 +1275,4 @@ impl From<Problem> for Failure {
 
 #[cfg(test)]
 #[path = "sync_tests.rs"]
-mod tests;
+pub(crate) mod tests;

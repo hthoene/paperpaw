@@ -13,12 +13,16 @@ use paperpaw_sdk::{
 };
 
 use crate::SD_FOLDER;
+use crate::export::{self, Saver};
 use crate::sync::{self, FileReport, Job, Mode, Outcome, Question, Step};
 use crate::table::Fault;
 
 pub(crate) const SCREEN: Id = Id::new_static("vocabulary.sd-card");
 /// The parameter that reads every file anew, not only the new and changed.
 pub(crate) const FORCE: &str = "force";
+/// The parameter that saves the deck of this number to its file (after an
+/// update of that file, if it changed).
+pub(crate) const SAVE: &str = "save";
 /// The parameter of the screen the flash cards open by themselves: the
 /// files that failed as they are are not tried again.
 pub(crate) const AUTO: &str = "auto";
@@ -45,6 +49,11 @@ pub(crate) struct SdScreen {
     job: Option<Job>,
     folder: String,
     mode: Mode,
+    /// The deck to save to its file, when the screen is for that.
+    save: Option<u32>,
+    saver: Option<Saver>,
+    /// What the update before a save said.
+    before: Vec<(String, String)>,
     /// The per mille (in tens) and the file shown last: the screen is drawn
     /// again, and the e-ink refreshed, when one of them changes.
     shown: (u16, String),
@@ -89,6 +98,9 @@ impl SdScreen {
             } else {
                 Mode::Manual
             },
+            save: params.get(SAVE).and_then(|n| n.parse().ok()),
+            saver: None,
+            before: Vec::new(),
             shown: (u16::MAX, String::new()),
             rows: Vec::new(),
             started: false,
@@ -105,6 +117,15 @@ impl SdScreen {
     fn start(&mut self, env: &Env<'_>) {
         self.started = true;
         let storage = env.storage();
+        if let Some(deck) = self.save {
+            // The file is read first where it changed, so that a save never
+            // writes over what was edited on a computer.
+            match export::update_first(storage, &self.folder, deck) {
+                Some(job) => self.job = Some(job),
+                None => self.saver = Some(Saver::new(&self.folder, deck)),
+            }
+            return;
+        }
         let seen = sync::pending(storage, &self.folder);
         if !seen.folder {
             sync::make_folder(
@@ -174,10 +195,15 @@ impl SdScreen {
         let mut rows = Vec::new();
         let note = match report.outcome {
             Outcome::Merged => i18n.format(
-                "vocabulary.sd.result",
+                if report.removed > 0 {
+                    "vocabulary.sd.result.removed"
+                } else {
+                    "vocabulary.sd.result"
+                },
                 &[
                     ("added", Arg::Str(&number(report.added))),
                     ("changed", Arg::Str(&number(report.changed))),
+                    ("removed", Arg::Str(&number(report.removed))),
                     ("same", Arg::Str(&number(report.same))),
                 ],
             ),
@@ -223,53 +249,113 @@ impl SdScreen {
         rows
     }
 
-    /// One more step of the job, its screen told.
+    /// What a save said, as rows.
+    fn save_rows(&self, env: &Env<'_>, report: &export::Report) -> Vec<(String, String)> {
+        let i18n = env.i18n();
+        let file = [("file", Arg::Str(&report.file))];
+        let note: String = match report.outcome {
+            export::Outcome::Saved => {
+                i18n.plural("vocabulary.sd.saved", report.cards as i64, &file)
+            }
+            export::Outcome::NotLinked => i18n.format("vocabulary.sd.saved.unlinked", &file),
+            export::Outcome::NoDeck => i18n.tr("vocabulary.sd.save.no-deck").into(),
+            export::Outcome::Unreadable => i18n.tr("vocabulary.sd.save.unreadable").into(),
+            export::Outcome::Full => i18n.tr("vocabulary.sd.save.full").into(),
+            export::Outcome::TooLarge => i18n.tr("vocabulary.sd.save.too-large").into(),
+            export::Outcome::Failed => i18n.tr("vocabulary.sd.save.failed").into(),
+        };
+        let mut rows = alloc::vec![(report.deck.clone(), note)];
+        if let Some(backup) = &report.backup
+            && matches!(
+                report.outcome,
+                export::Outcome::Saved | export::Outcome::NotLinked
+            )
+        {
+            rows.push((
+                String::new(),
+                i18n.format("vocabulary.sd.save.backup", &[("file", Arg::Str(backup))]),
+            ));
+        }
+        rows
+    }
+
+    /// One more step of the job (or the save), its screen told.
     fn work(&mut self, cx: &mut Cx<'_, '_>) {
         let env = *cx.env();
         if !self.started {
             self.start(&env);
         }
-        let Some(job) = self.job.as_mut() else {
-            cx.request_redraw();
-            cx.request_refresh(RefreshMode::Partial);
-            return;
-        };
         // Only a step that changes what is shown draws it again: a refresh
         // of the e-ink for each of the many steps of a big file would take
         // longer than the work.
         let mut show = true;
-        match job.step(env.storage()) {
-            Step::Working => {
-                cx.wake_at(env.now());
-                let (permille, file) = job.progress();
-                show = worth_drawing(&mut self.shown, permille, file);
-            }
-            Step::Ask(question) => {
-                let area = self.content(&env);
-                let top = self.question_height(&env, &question) + 2 * self.style.gap();
-                let lower = Rect::new(0, area.y + top, area.width, area.height.saturating_sub(top));
-                self.list = ListView::new(lower, self.style.row().into()).focus_on_keys(&env);
-                self.phase = Phase::Asking(question);
-            }
-            Step::Done => {
-                let reports = self.job.take().map(|j| j.reports).unwrap_or_default();
-                let mut rows = Vec::new();
-                for report in &reports {
-                    rows.extend(self.report_rows(&env, report));
+        if let Some(saver) = self.saver.as_mut() {
+            match saver.step(env.storage()) {
+                export::Step::Working => {
+                    cx.wake_at(env.now());
+                    let (permille, file) = saver.progress();
+                    show = worth_drawing(&mut self.shown, permille, file);
                 }
-                if rows.is_empty() {
-                    rows.push((
-                        String::new(),
-                        env.i18n().tr("vocabulary.sd.uptodate").into(),
-                    ));
+                export::Step::Done(report) => {
+                    self.saver = None;
+                    let mut rows = core::mem::take(&mut self.before);
+                    rows.extend(self.save_rows(&env, &report));
+                    self.finish(&env, rows);
                 }
-                self.finish(&env, rows);
+            }
+        } else if let Some(job) = self.job.as_mut() {
+            match job.step(env.storage()) {
+                Step::Working => {
+                    cx.wake_at(env.now());
+                    let (permille, file) = job.progress();
+                    show = worth_drawing(&mut self.shown, permille, file);
+                }
+                Step::Ask(question) => {
+                    let area = self.content(&env);
+                    let top = self.question_height(&env, &question) + 2 * self.style.gap();
+                    let lower =
+                        Rect::new(0, area.y + top, area.width, area.height.saturating_sub(top));
+                    self.list = ListView::new(lower, self.style.row().into()).focus_on_keys(&env);
+                    self.phase = Phase::Asking(question);
+                }
+                Step::Done => self.updated(&env, cx),
             }
         }
         if show {
             cx.request_redraw();
             cx.request_refresh(RefreshMode::Partial);
         }
+    }
+
+    /// The update is done: what it did is told, and a save goes on.
+    fn updated(&mut self, env: &Env<'_>, cx: &mut Cx<'_, '_>) {
+        let reports = self.job.take().map(|j| j.reports).unwrap_or_default();
+        let mut rows = Vec::new();
+        for report in &reports {
+            rows.extend(self.report_rows(env, report));
+        }
+        if let Some(deck) = self.save {
+            if export::may_save(&reports) {
+                // On with the save: the file is as the deck has it now.
+                self.before = rows;
+                self.saver = Some(Saver::new(&self.folder, deck));
+                cx.wake_at(env.now());
+            } else {
+                rows.push((
+                    String::new(),
+                    env.i18n().tr("vocabulary.sd.save.not-updated").into(),
+                ));
+                self.finish(env, rows);
+            }
+            return;
+        }
+        if rows.is_empty() {
+            rows.push((
+                String::new(),
+                env.i18n().tr("vocabulary.sd.uptodate").into(),
+            ));
+        }
+        self.finish(env, rows);
     }
 
     fn question_text(env: &Env<'_>, question: &Question) -> String {
@@ -301,10 +387,17 @@ impl Screen for SdScreen {
         match &self.phase {
             Phase::Working => {
                 self.header.draw(&mut ui, title, None, None);
-                let (permille, file) = self.job.as_ref().map_or((0, ""), |job| job.progress());
-                let text = env
-                    .i18n()
-                    .format("vocabulary.sd.reading", &[("file", Arg::Str(file))]);
+                let (permille, file) = match (&self.saver, &self.job) {
+                    (Some(saver), _) => saver.progress(),
+                    (None, Some(job)) => job.progress(),
+                    (None, None) => (0, ""),
+                };
+                let key = if self.saver.is_some() {
+                    "vocabulary.sd.saving"
+                } else {
+                    "vocabulary.sd.reading"
+                };
+                let text = env.i18n().format(key, &[("file", Arg::Str(file))]);
                 let high = ui::message_height(env, &style, area.width, &text);
                 let gap = style.gap();
                 ui.message(Rect::new(0, area.y + gap, area.width, high), &text);
