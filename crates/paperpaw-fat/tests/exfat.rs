@@ -670,7 +670,6 @@ impl paperpaw_fat::Blocks for Flaky {
     }
 }
 
-
 /// On the card `image`, a first call (`first`) that fails at its `k`-th
 /// block read or written, the card sound again, then `after` on the same
 /// mount, without a remount. Whether the call came through, i.e. `k` was
