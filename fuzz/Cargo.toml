@@ -31,6 +31,13 @@ paperpaw-plugin-koreader = { path = "../plugins/koreader" }
 [workspace]
 
 [[bin]]
+name = "bidi"
+path = "fuzz_targets/bidi.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "cbz"
 path = "fuzz_targets/cbz.rs"
 test = false
