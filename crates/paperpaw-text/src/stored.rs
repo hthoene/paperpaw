@@ -145,6 +145,7 @@ impl StoredPack {
         })
     }
 
+    paperpaw_native::shared! {
     /// The largest size it has, in pixels (every strike has every
     /// character).
     pub fn largest_size(&self) -> Option<f32> {
@@ -152,6 +153,7 @@ impl StoredPack {
             .iter()
             .map(|s| f32::from(s.size) / 4.0)
             .reduce(f32::max)
+    } @ STORED_LARGEST_SIZE
     }
 
     /// The strike closest to `size`.
@@ -162,14 +164,19 @@ impl StoredPack {
             .unwrap_or(0)
     }
 
+    paperpaw_native::shared! {
     pub fn has_char(&self, ch: char) -> bool {
         self.chars.binary_search(&ch).is_ok()
+    } @ STORED_HAS_CHAR
     }
 
+    paperpaw_native::shared! {
     pub fn line_metrics(&self, size: f32) -> LineMetrics {
         self.strikes[self.nearest(size)].metrics
+    } @ STORED_LINE_METRICS
     }
 
+    paperpaw_native::shared! {
     /// The advance of `ch` at the strike nearest to `size`; 0 if it is
     /// not in the pack.
     pub fn advance(&self, ch: char, size: f32) -> f32 {
@@ -206,8 +213,10 @@ impl StoredPack {
             .as_ref()
             .and_then(|a| a.get(index))
             .map_or(0.0, |&a| f32::from(a) / 16.0)
+    } @ STORED_ADVANCE
     }
 
+    paperpaw_native::shared! {
     /// The glyph of `ch` at the strike nearest to `size`, read from the
     /// source; empty if it is not in the pack or cannot be read.
     pub fn render(&self, ch: char, size: f32) -> Glyph {
@@ -241,6 +250,7 @@ impl StoredPack {
             advance,
             data,
         }
+    } @ STORED_RENDER
     }
 }
 

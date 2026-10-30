@@ -1,0 +1,50 @@
+# The firmware's shared function table: one line for each entry, in the order of the table
+# (the plugin interface: entries are only ever added at the end). `NAME  path` where `path` is
+# the function as the SDK crate can name it. tools/shared-table.py makes
+# crates/paperpaw-native/src/shared_index.rs and crates/paperpaw-sdk/src/shared_table.rs from it.
+#
+# The text family: everything of `paperpaw_text` that measures or draws, the font handles of the SDK
+# that call it, and the font registry that makes them.
+TEXT_MEASURE          paperpaw_text::measure
+TEXT_IS_MARK          paperpaw_text::is_mark
+TEXT_GLYPH_X          paperpaw_text::glyph_x
+TEXT_DRAW_TEXT        paperpaw_text::draw_text
+CHARSET_STAND_IN      paperpaw_text::charset::stand_in
+FONT_FROM_COW         paperpaw_text::Font::from_cow
+FONT_SIZE_FOR         paperpaw_text::Font::size_for
+FONT_LARGEST_SIZE     paperpaw_text::Font::largest_size
+FONT_LINE_METRICS     paperpaw_text::Font::line_metrics
+FONT_ADVANCE          paperpaw_text::Font::advance
+FONT_KERN             paperpaw_text::Font::kern
+FONT_HAS_CHAR         paperpaw_text::Font::has_char
+FONT_SHOWN            paperpaw_text::Font::shown
+PACK_LARGEST_SIZE     paperpaw_text::BitmapFont::largest_size
+PACK_LINE_METRICS     paperpaw_text::BitmapFont::line_metrics
+PACK_HAS_CHAR         paperpaw_text::BitmapFont::has_char
+PACK_SIZE_FOR         paperpaw_text::BitmapFont::size_for
+PACK_GLYPH            paperpaw_text::BitmapFont::glyph
+PACK_ADVANCE          paperpaw_text::BitmapFont::advance
+PACK_KERN             paperpaw_text::BitmapFont::kern
+STORED_LARGEST_SIZE   paperpaw_text::StoredPack::largest_size
+STORED_HAS_CHAR       paperpaw_text::StoredPack::has_char
+STORED_LINE_METRICS   paperpaw_text::StoredPack::line_metrics
+STORED_ADVANCE        paperpaw_text::StoredPack::advance
+STORED_RENDER         paperpaw_text::StoredPack::render
+CACHE_GLYPH           paperpaw_text::GlyphCache::glyph
+LAYOUT_WRAP_KERNED    paperpaw_text::wrap_lines_kerned_in
+LAYOUT_WRAP_BALANCED  paperpaw_text::wrap_lines_balanced_in
+FONTS_HANDLE          crate::fonts::Fonts::handle
+HANDLE_LARGEST_SIZE   crate::fonts::FontHandle::largest_size
+HANDLE_LINE_METRICS   crate::fonts::FontHandle::line_metrics
+HANDLE_HEADING_LINE_HEIGHT crate::fonts::FontHandle::heading_line_height
+HANDLE_HAS_CHAR       crate::fonts::FontHandle::has_char
+HANDLE_ADVANCE        crate::fonts::FontHandle::advance
+HANDLE_KERN           crate::fonts::FontHandle::kern
+HANDLE_SIZE_FOR       crate::fonts::FontHandle::size_for
+HANDLE_MEASURE        crate::fonts::FontHandle::measure
+HANDLE_INK            crate::fonts::FontHandle::ink
+HANDLE_INK_ACROSS     crate::fonts::FontHandle::ink_across
+HANDLE_WRAP           crate::fonts::FontHandle::wrap
+HANDLE_DRAW           crate::fonts::FontHandle::draw
+HANDLE_DRAW_BOLDER    crate::fonts::FontHandle::draw_bolder
+HANDLE_DRAW_TONED     crate::fonts::FontHandle::draw_toned

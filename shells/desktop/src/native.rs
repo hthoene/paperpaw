@@ -105,6 +105,9 @@ static API: Api = Api {
     micros,
     icon,
     alloc_in,
+    // Plugins keep their own copies on a computer.
+    shared: paperpaw_core::sdk::native::support::Table::NONE,
+    shared_len: 0,
 };
 
 /// One heap here: wherever asked, as `alloc`.

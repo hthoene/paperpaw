@@ -105,6 +105,7 @@ impl BitmapFont {
         (0..usize::from(self.strikes)).filter_map(|i| self.strike(i).map(|s| s.size))
     }
 
+    paperpaw_native::shared! {
     /// The largest size text can be set in, in pixels: of the sizes with
     /// every character (not those made large for a few, a clock's).
     pub fn largest_size(&self) -> Option<f32> {
@@ -117,6 +118,7 @@ impl BitmapFont {
             .filter(|s| s.glyphs >= full)
             .map(|s| s.size)
             .reduce(f32::max)
+    } @ PACK_LARGEST_SIZE
     }
 
     fn strike(&self, index: usize) -> Option<Strike> {
@@ -178,9 +180,11 @@ impl BitmapFont {
         self.strike(self.nearest_index(size)?)
     }
 
+    paperpaw_native::shared! {
     pub fn line_metrics(&self, size: f32) -> LineMetrics {
         self.nearest(size)
             .map_or(LineMetrics::fallback(size), |s| s.metrics)
+    } @ PACK_LINE_METRICS
     }
 
     /// Where a strike's glyphs are: their number, their table and their
@@ -223,12 +227,15 @@ impl BitmapFont {
         None
     }
 
+    paperpaw_native::shared! {
     pub fn has_char(&self, ch: char) -> bool {
         self.nearest_quarters(0)
             .and_then(|i| self.tables(i))
             .is_some_and(|strike| self.record(&strike, ch).is_some())
+    } @ PACK_HAS_CHAR
     }
 
+    paperpaw_native::shared! {
     /// The size `text` is drawn at when asked for `size`, at a strike
     /// that has every character of the pack (the sizes text is drawn at),
     /// or, for a `display` (a clock's time, a number, drawn large alone),
@@ -259,6 +266,7 @@ impl BitmapFont {
             .filter_map(|i| Some((i, i32::from(u16_at(&self.data, HEADER + i * STRIKE)?))))
             .min_by_key(|&(_, quarters)| quarters.abs_diff(wanted))
             .map_or(size, |(_, quarters)| quarters as f32 / 4.0)
+    } @ PACK_SIZE_FOR
     }
 
     /// The strike nearest to `size` that has `ch`, and its record: for a
@@ -277,6 +285,7 @@ impl BitmapFont {
             .map(|(_, tables, record)| (tables, record))
     }
 
+    paperpaw_native::shared! {
     /// The glyph for `ch` at the strike nearest to `size`; where that
     /// strike lacks it (a large one made for digits), at the nearest that
     /// has it. Missing characters fall back to U+FFFD, then `?`.
@@ -322,12 +331,16 @@ impl BitmapFont {
             })
         };
         read().unwrap_or(empty)
+    } @ PACK_GLYPH
     }
 
+    paperpaw_native::shared! {
     pub fn advance(&self, ch: char, size: f32) -> f32 {
         self.glyph(ch, size).advance
+    } @ PACK_ADVANCE
     }
 
+    paperpaw_native::shared! {
     /// How much the pair `left`, `right` moves the second character, in
     /// pixels at the strike nearest to `size` (negative: closer); 0 for a
     /// pack without kerning. Read in place: no memory.
@@ -347,6 +360,7 @@ impl BitmapFont {
             return 0.0;
         };
         f32::from(units) * f32::from(quarters) / (4.0 * kern_table::UNITS)
+    } @ PACK_KERN
     }
 }
 

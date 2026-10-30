@@ -110,6 +110,8 @@ pub mod semantics;
 pub mod served;
 pub mod services;
 pub mod setting;
+#[doc(hidden)]
+pub mod shared;
 mod settings;
 pub mod setup;
 pub mod status;

@@ -93,6 +93,10 @@ pub enum PluginProblem {
     /// Its code was built for another version of PaperPaw or another
     /// device: it waits for a build for this one.
     OtherBuild,
+    /// Its code was built for a longer table of shared functions than
+    /// this PaperPaw has (a later beta of the same plugin interface): it
+    /// waits for a PaperPaw that has them.
+    NeedsNewerPaperPaw,
     /// Its code's file is damaged, or not one this PaperPaw reads.
     Damaged,
     /// Its code does not fit its folder (another plugin's id).

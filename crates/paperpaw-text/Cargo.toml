@@ -14,6 +14,8 @@ keywords = ["font", "text", "rasterizer", "no-std"]
 [dependencies]
 paperpaw-graphics.workspace = true
 paperpaw-platform.workspace = true
+# The shared function table (`paperpaw_native::shared!`).
+paperpaw-native.workspace = true
 
 # Outline fonts only where there is an operating system (a computer, a
 # phone, a browser): a device without one (the X4s) draws font packs, and
