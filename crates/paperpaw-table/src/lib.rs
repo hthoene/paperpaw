@@ -83,6 +83,7 @@ pub const fn fits(plugin: &Revisions, oldest: &Revisions, current: &Revisions) -
 }
 
 /// Why a plugin does not fit a firmware's families ([`misfit`]).
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Misfit {
     /// It was built with a newer revision of a family than the firmware

@@ -89,7 +89,6 @@ impl Font {
     paperpaw_table::shared! {
     /// [`Font::from_data`] without generics, the one of it that is shared
     /// with the firmware.
-    #[doc(hidden)]
     pub fn from_cow(
         data: Cow<'static, [u8]>,
         variations: &[(&str, f32)],

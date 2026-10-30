@@ -10,14 +10,61 @@ pub mod paperpaw_table::index::graphics
 pub const paperpaw_table::index::graphics::COUNT: usize
 pub const paperpaw_table::index::graphics::FAMILY: paperpaw_table::Family
 pub mod paperpaw_table::index::text
+pub const paperpaw_table::index::text::CACHE_GLYPH: usize
+pub const paperpaw_table::index::text::CHARSET_STAND_IN: usize
 pub const paperpaw_table::index::text::COUNT: usize
 pub const paperpaw_table::index::text::FAMILY: paperpaw_table::Family
+pub const paperpaw_table::index::text::FONTS_HANDLE: usize
+pub const paperpaw_table::index::text::FONT_ADVANCE: usize
+pub const paperpaw_table::index::text::FONT_FROM_COW: usize
+pub const paperpaw_table::index::text::FONT_HAS_CHAR: usize
+pub const paperpaw_table::index::text::FONT_KERN: usize
+pub const paperpaw_table::index::text::FONT_LARGEST_SIZE: usize
+pub const paperpaw_table::index::text::FONT_LINE_METRICS: usize
+pub const paperpaw_table::index::text::FONT_SHOWN: usize
+pub const paperpaw_table::index::text::FONT_SIZE_FOR: usize
+pub const paperpaw_table::index::text::HANDLE_ADVANCE: usize
+pub const paperpaw_table::index::text::HANDLE_DRAW: usize
+pub const paperpaw_table::index::text::HANDLE_DRAW_BOLDER: usize
+pub const paperpaw_table::index::text::HANDLE_DRAW_TONED: usize
+pub const paperpaw_table::index::text::HANDLE_HAS_CHAR: usize
+pub const paperpaw_table::index::text::HANDLE_HEADING_LINE_HEIGHT: usize
+pub const paperpaw_table::index::text::HANDLE_INK: usize
+pub const paperpaw_table::index::text::HANDLE_INK_ACROSS: usize
+pub const paperpaw_table::index::text::HANDLE_KERN: usize
+pub const paperpaw_table::index::text::HANDLE_LARGEST_SIZE: usize
+pub const paperpaw_table::index::text::HANDLE_LINE_METRICS: usize
+pub const paperpaw_table::index::text::HANDLE_MEASURE: usize
+pub const paperpaw_table::index::text::HANDLE_SIZE_FOR: usize
+pub const paperpaw_table::index::text::HANDLE_WRAP: usize
+pub const paperpaw_table::index::text::LAYOUT_WRAP_BALANCED: usize
+pub const paperpaw_table::index::text::LAYOUT_WRAP_KERNED: usize
+pub const paperpaw_table::index::text::PACK_ADVANCE: usize
+pub const paperpaw_table::index::text::PACK_GLYPH: usize
+pub const paperpaw_table::index::text::PACK_HAS_CHAR: usize
+pub const paperpaw_table::index::text::PACK_KERN: usize
+pub const paperpaw_table::index::text::PACK_LARGEST_SIZE: usize
+pub const paperpaw_table::index::text::PACK_LINE_METRICS: usize
+pub const paperpaw_table::index::text::PACK_SIZE_FOR: usize
+pub const paperpaw_table::index::text::STORED_ADVANCE: usize
+pub const paperpaw_table::index::text::STORED_HAS_CHAR: usize
+pub const paperpaw_table::index::text::STORED_LARGEST_SIZE: usize
+pub const paperpaw_table::index::text::STORED_LINE_METRICS: usize
+pub const paperpaw_table::index::text::STORED_RENDER: usize
+pub const paperpaw_table::index::text::TEXT_DRAW_TEXT: usize
+pub const paperpaw_table::index::text::TEXT_GLYPH_X: usize
+pub const paperpaw_table::index::text::TEXT_IS_MARK: usize
+pub const paperpaw_table::index::text::TEXT_MEASURE: usize
 pub mod paperpaw_table::index::ui
 pub const paperpaw_table::index::ui::COUNT: usize
 pub const paperpaw_table::index::ui::FAMILY: paperpaw_table::Family
+pub const paperpaw_table::index::HASH: &str
 pub const paperpaw_table::index::OLDEST: paperpaw_table::Revisions
 pub const paperpaw_table::index::REVISIONS: paperpaw_table::Revisions
 pub macro paperpaw_table::shared!
+#[non_exhaustive] pub enum paperpaw_table::Misfit
+pub paperpaw_table::Misfit::Newer
+pub paperpaw_table::Misfit::Older
 pub struct paperpaw_table::Family(_)
 impl paperpaw_table::Family
 pub const paperpaw_table::Family::CONTRIBUTION: paperpaw_table::Family
@@ -27,13 +74,22 @@ pub const paperpaw_table::Family::TEXT: paperpaw_table::Family
 pub const paperpaw_table::Family::UI: paperpaw_table::Family
 pub const fn paperpaw_table::Family::number(self) -> usize
 pub const fn paperpaw_table::Family::of(u8) -> core::option::Option<paperpaw_table::Family>
+pub struct paperpaw_table::HostTables(_)
+impl paperpaw_table::HostTables
+pub const fn paperpaw_table::HostTables::new() -> Self
+pub fn paperpaw_table::HostTables::set(&self, paperpaw_table::Family, paperpaw_table::Table)
+impl core::default::Default for paperpaw_table::HostTables
+pub fn paperpaw_table::HostTables::default() -> Self
 #[repr(transparent)] pub struct paperpaw_table::Table(pub *const *const ())
 impl paperpaw_table::Table
 pub const paperpaw_table::Table::NONE: paperpaw_table::Table
 impl core::marker::Send for paperpaw_table::Table
 impl core::marker::Sync for paperpaw_table::Table
+pub const paperpaw_table::BUILT_WITH: paperpaw_table::Revisions
 pub const paperpaw_table::FAMILIES: usize
+pub const paperpaw_table::HASH: &str
 pub const paperpaw_table::OLDEST: paperpaw_table::Revisions
 pub const paperpaw_table::REVISIONS: paperpaw_table::Revisions
 pub const fn paperpaw_table::fits(&paperpaw_table::Revisions, &paperpaw_table::Revisions, &paperpaw_table::Revisions) -> bool
+pub const fn paperpaw_table::misfit(&paperpaw_table::Revisions, &paperpaw_table::Revisions, &paperpaw_table::Revisions) -> core::option::Option<paperpaw_table::Misfit>
 pub type paperpaw_table::Revisions = [u16; 8]

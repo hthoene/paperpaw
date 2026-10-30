@@ -2661,6 +2661,7 @@ dependencies = [
  "paperpaw-graphics",
  "paperpaw-lang",
  "paperpaw-platform",
+ "paperpaw-table",
  "read-fonts",
  "skrifa",
 ]
@@ -2719,6 +2720,7 @@ dependencies = [
  "paperpaw-plugin-wifi",
  "paperpaw-sample-frame-test",
  "paperpaw-sdk",
+ "paperpaw-table",
  "paperpaw-update",
  "paperpaw-x4",
  "rand_core 0.10.1",

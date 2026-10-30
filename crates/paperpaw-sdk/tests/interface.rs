@@ -251,6 +251,23 @@ const API_SHAPE: &str = "struct paperpaw_native::interface::Api";
 const API_FIELD: &str = "pub paperpaw_native::Api::";
 const API_LAST: &str = ", build_len: u32";
 
+/// Whether `path` is a constant that `tools/shared-table.py` derives from
+/// `shared.list` and the signatures (`paperpaw_table::index`): the
+/// revisions, the hash of the tables and the number of entries of a
+/// family. They change where entries are appended or a family is bumped,
+/// which the pinned list and signatures (`shared.list`, `table.sig`:
+/// lines only appended) guard.
+fn table_index_derived(crate_: &str, path: &str) -> bool {
+    let Some(name) = path.strip_prefix("const paperpaw_table::index::") else {
+        return false;
+    };
+    crate_ == "paperpaw-table"
+        && matches!(
+            name.rsplit("::").next(),
+            Some("REVISIONS" | "OLDEST" | "HASH" | "COUNT")
+        )
+}
+
 /// Whether `after` is `before`, the table's shape, with fields appended
 /// after the last of interface 5.
 fn api_appended(path: &str, before: &str, after: &str) -> bool {
@@ -342,7 +359,8 @@ fn changes(crate_: &str, kept: (&str, &str), now: (&str, &str)) -> Changes {
                 if now != line
                     && !user_agent_release_only(path, line, now)
                     && !layout_cache_revision(crate_, path, line, now)
-                    && !api_appended(path, line, now) =>
+                    && !api_appended(path, line, now)
+                    && !table_index_derived(crate_, path) =>
             {
                 out.breaking
                     .push(format!("{crate_}: changed: {line}\n  now: {now}"));
@@ -424,6 +442,27 @@ fn layout_cache_revision(crate_: &str, path: &str, before: &str, after: &str) ->
         value.parse().ok()
     };
     matches!((revision(before), revision(after)), (Some(old), Some(new)) if new > old)
+}
+
+#[test]
+fn only_what_the_table_list_derives_may_change_in_the_table_index() {
+    for name in ["REVISIONS", "OLDEST", "HASH", "text::COUNT", "ui::COUNT"] {
+        let path = format!("const paperpaw_table::index::{name}");
+        assert!(table_index_derived("paperpaw-table", &path), "{name}");
+        assert!(
+            !table_index_derived("paperpaw-sdk", &path),
+            "{name}, other crate"
+        );
+    }
+    // An index is the plugin interface: it never changes its number.
+    assert!(!table_index_derived(
+        "paperpaw-table",
+        "const paperpaw_table::index::text::TEXT_MEASURE"
+    ));
+    assert!(!table_index_derived(
+        "paperpaw-table",
+        "const paperpaw_table::FAMILIES"
+    ));
 }
 
 #[test]

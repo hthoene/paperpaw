@@ -124,9 +124,22 @@ unsafe extern "C" fn realloc(ptr: *mut u8, size: usize, align: usize, new_size: 
     }
 }
 
+/// Set when a plugin panicked through [`Api::panic`]: the panic is its own.
+/// A panic that did not come this way happened in the firmware's code,
+/// the shared functions a plugin calls included, and the plugin is not
+/// blamed for it (the rule "no panics on bad input" makes it a firmware
+/// bug); see `crash.rs`.
+static FROM_PLUGIN: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// Whether the panic going on is a plugin's own (it called `Api::panic`).
+pub fn panic_is_a_plugins() -> bool {
+    FROM_PLUGIN.load(core::sync::atomic::Ordering::Relaxed)
+}
+
 unsafe extern "C" fn panic(message: *const u8, len: usize) -> ! {
     // SAFETY: the plugin's message, `len` bytes on its stack.
     let bytes = unsafe { core::slice::from_raw_parts(message, len) };
+    FROM_PLUGIN.store(true, core::sync::atomic::Ordering::Relaxed);
     // The firmware's panic: kept, the plugin named by its calls.
     panic!(
         "{}",

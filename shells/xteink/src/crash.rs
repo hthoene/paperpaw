@@ -12,7 +12,10 @@
 //! too, with the code that asked for it. A call in a native plugin's code
 //! is followed by the plugin and the offset into its file, e.g.
 //! `4280a1c4 (hello+0x7f30)`, and safe mode learns the plugin
-//! (`safe_mode::crashed_in`).
+//! (`safe_mode::crashed_in`), where the plugin panicked itself. A panic in
+//! the firmware's code that the plugin called (a shared function) is the
+//! firmware's: the message says `[shared code, called from <plugin>]`
+//! and the plugin is not blamed.
 
 use core::fmt::Write;
 
@@ -62,6 +65,12 @@ fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
     let _ = write!(cut, " @");
     let mut last = 0;
     let mut in_plugin = false;
+    // A plugin that panicked itself (through its table's `panic`) is
+    // blamed; so is a fault in its own code. A panic in the firmware's
+    // code that a plugin called, a shared function, is the firmware's bug
+    // (no panics on bad input): the plugin is named as the caller, and not
+    // blamed, so a boot loop there ends in safe mode for all plugins.
+    let own = crate::native::api::panic_is_a_plugins();
     for frame in esp_backtrace::Backtrace::capture()
         .frames()
         .iter()
@@ -79,7 +88,11 @@ fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
             // The innermost plugin is the one it happened in.
             if !in_plugin {
                 in_plugin = true;
-                crate::safe_mode::crashed_in(id);
+                if own {
+                    crate::safe_mode::crashed_in(id);
+                } else {
+                    let _ = write!(cut, " [shared code, called from {id}]");
+                }
             }
         });
     }

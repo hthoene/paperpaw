@@ -987,6 +987,7 @@ struct paperpaw_sdk::settings::Settings { specs: paperpaw_sdk::settings::specs::
 struct paperpaw_sdk::settings::specs::Specs { owned: alloc::vec::Vec<paperpaw_sdk::settings::SettingSpec>, lists: alloc::vec::Vec<(&'static [paperpaw_sdk::settings::SettingSpec], u16)>, order: alloc::vec::Vec<u16>, by_id: alloc::vec::Vec<u16> }
 struct paperpaw_sdk::setup::SetupStepSpec { id: paperpaw_sdk::id::Id, title: alloc::borrow::Cow<'static, str>, help: alloc::borrow::Cow<'static, str>, order: i32, page: paperpaw_sdk::setup::SetupPage, applies: core::option::Option<paperpaw_sdk::setup::AppliesFn> }
 struct paperpaw_sdk::setup::SetupSteps { steps: alloc::vec::Vec<paperpaw_sdk::setup::SetupStepSpec> }
+struct paperpaw_sdk::shared::Addresses<N>(0: [*const (); N])
 struct paperpaw_sdk::status::Place { id: paperpaw_sdk::id::Id, title: alloc::borrow::Cow<'static, str>, parts: [paperpaw_sdk::id::Id; 3], line: core::option::Option<paperpaw_sdk::id::Id> }
 struct paperpaw_sdk::status::StatusFrame<'a> { area: paperpaw_platform::geometry::Rect, top: bool, size: f32, color: paperpaw_platform::pixel::Color, context: &'a paperpaw_sdk::params::Params, place: core::option::Option<&'a str>, font: &'a str, percent: bool }
 struct paperpaw_sdk::status::StatusItemSpec { id: paperpaw_sdk::id::Id, title: alloc::borrow::Cow<'static, str>, value: paperpaw_sdk::status::StatusFn, tap: core::option::Option<paperpaw_sdk::id::Id>, priority: u8, min_width: f32 }

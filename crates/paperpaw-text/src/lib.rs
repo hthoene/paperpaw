@@ -75,7 +75,6 @@ pub use layout::{
     Hyphenate, Line, MAX_BREAKS, wrap, wrap_lines, wrap_lines_balanced, wrap_lines_balanced_kerned,
     wrap_lines_balanced_kerned_with_cost, wrap_lines_hyphenated, wrap_lines_kerned,
 };
-#[doc(hidden)]
 pub use layout::{wrap_lines_balanced_in, wrap_lines_kerned_in};
 #[cfg(feature = "outline")]
 pub use outline::OutlineFont;

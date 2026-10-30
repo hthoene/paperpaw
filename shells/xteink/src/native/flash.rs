@@ -148,11 +148,12 @@ impl Flash {
             .erase(placement.at, end)
             .map_err(|e| written_not(path, e))?;
         let mut relocator = Relocator::new(header, words, placement.base, &API as *const _ as u32)
-            .map_err(super::problem)?
-            .tables(super::api::tables());
+            .map_err(super::problem)?;
         if placement.hot != 0 {
             relocator = relocator.hot_at(placement.hot).map_err(super::problem)?;
         }
+        // The families' words get the firmware's tables with the rest.
+        let tables = super::api::tables();
         let mut done = 0;
         while done < header.image_len {
             crate::power::feed();
@@ -160,7 +161,9 @@ impl Flash {
             let bytes = &mut piece[..len];
             super::read_exact(storage, path, HEADER_LEN as u64 + u64::from(done), bytes)
                 .map_err(|_| PluginProblem::Damaged)?;
-            relocator.apply(done, bytes).map_err(super::problem)?;
+            relocator
+                .apply_with(done, bytes, &tables)
+                .map_err(super::problem)?;
             // Whole words: the last piece filled up as erased flash.
             let words_len = len.next_multiple_of(4);
             piece[len..words_len].fill(0xFF);
