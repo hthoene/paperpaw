@@ -1,5 +1,5 @@
 Vocabulary keeps the words you look up while reading, each with its sentence, to go over later. You find the list in Tools, newest first; choose a word to look it up again. The last row, Export, saves them for flash card apps such as Anki. The list keeps the newest 2,000 words: beyond that, the oldest go, so export them first to keep them all.
 
-Flash cards, also in Tools, quiz you with spaced repetition: after Show answer you rate each card Again, Hard, Good or Easy, and that decides when it comes back. Make decks with Edit with your phone: type cards, paste a list or bring an Anki deck.
+Flash cards, also in Tools, quiz you with spaced repetition: after Show answer you rate each card Again, Hard, Good or Easy, and that decides when it comes back. Make decks with Edit with your phone: scan the code with a phone in the same Wi-Fi, then type cards or add many at once: open a deck there, choose Many cards at once and pick a CSV, TSV or TXT file (a card on each line: front, back, example; UTF-8), paste a list, or bring an Anki deck (.apkg, exported with Support older Anki versions). Nothing is read from the SD card.
 
 In the settings, under Reading, Words looked up become cards puts each looked up word into the deck Looked up.

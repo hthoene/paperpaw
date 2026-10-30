@@ -431,6 +431,26 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    // The flash cards before any deck: how to bring cards in (a phone,
+    // CSV, TSV or Anki), in English and German.
+    Case {
+        name: "x4-flashcards-empty",
+        profile: "xteink-x4",
+        book: None,
+        sets: &[],
+        script: "run:vocabulary.flash-cards,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-flashcards-empty-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["core.language=de"],
+        script: "run:vocabulary.flash-cards,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
     Case {
         name: "x4-update",
         profile: "xteink-x4",

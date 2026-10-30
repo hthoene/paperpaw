@@ -310,7 +310,7 @@ pub(crate) fn answer(
         Err(problem) => {
             let (status, text): (u16, &[u8]) = match problem {
                 Problem::Missing => (404, b"No such deck or card: reload the page."),
-                Problem::Full => (409, b"The reader has no room for more here."),
+                Problem::Full => (409, b"This deck or the reader is full: make another deck."),
                 Problem::Changed => (409, b"The card was changed meanwhile: reload the page."),
                 Problem::Empty => (422, b"A name or a front is needed."),
                 Problem::Storage(_) => (500, b"The reader could not save it."),
@@ -368,7 +368,7 @@ fn cards_json(storage: &dyn Storage, deck: u32, from: usize) -> String {
 }
 
 /// The keys of the page's texts, as it names them.
-const TEXTS: [(&str, &str); 32] = [
+const TEXTS: [(&str, &str); 37] = [
     ("title", "vocabulary.web.title"),
     ("decks", "vocabulary.web.decks"),
     ("newDeck", "vocabulary.web.new-deck"),
@@ -401,6 +401,11 @@ const TEXTS: [(&str, &str); 32] = [
     ("newerAnki", "vocabulary.web.newer-anki"),
     ("noNotes", "vocabulary.web.no-notes"),
     ("tooLarge", "vocabulary.web.too-large"),
+    ("wrongType", "vocabulary.web.wrong-type"),
+    ("notUtf8", "vocabulary.web.not-utf8"),
+    ("noCards", "vocabulary.web.no-cards"),
+    ("partial", "vocabulary.web.partial"),
+    ("full", "vocabulary.web.full"),
 ];
 
 /// The page with its texts in the reader's language and its limits, made
@@ -531,6 +536,24 @@ mod tests {
         let (response, done) = answer(1, &mut guard, page, storage, &request);
         let body = String::from_utf8_lossy(response.body()).into_owned();
         (response.status(), body, done)
+    }
+
+    /// The import's texts (en and de) name the most cards a deck holds.
+    #[test]
+    fn the_import_texts_name_the_deck_limit() {
+        assert_eq!(cards::MAX_CARDS, 20_000);
+        for (text, number) in [
+            (include_str!("../i18n/en.ini"), "20,000"),
+            (include_str!("../i18n/de.ini"), "20.000"),
+        ] {
+            for key in ["web.import-help", "web.partial", "web.full"] {
+                let line = text
+                    .lines()
+                    .find(|l| l.starts_with(&format!("vocabulary.{key} ")))
+                    .unwrap();
+                assert!(line.contains(number), "{key}: {line}");
+            }
+        }
     }
 
     /// The page's marks are filled in one pass, in the order they come.

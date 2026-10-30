@@ -231,7 +231,7 @@ impl Plugin for Vocabulary {
     fn manifest(&self) -> Manifest {
         Manifest::new(PLUGIN, "Vocabulary", paperpaw_sdk::package_version!())
             .description(
-                "Keeps the words you look up, with their sentences, and reviews flash cards with spaced repetition, made on your phone.",
+                "Keeps the words you look up, with their sentences, and reviews flash cards with spaced repetition. Make decks on your phone (Flash cards, Edit with your phone): type cards, or add many at once from a CSV, TSV or Anki file.",
             )
             // The page for editing cards on a phone.
             .how(&HOW)
