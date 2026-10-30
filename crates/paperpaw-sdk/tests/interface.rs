@@ -243,6 +243,79 @@ struct Changes {
     new: Vec<String>,
 }
 
+/// The shape of the firmware's table, which grows at its end: fields
+/// after `build_len`, the last of interface 5, are new, not changed
+/// (`native::LAYOUT` digests only the fields up to it, and a plugin
+/// that uses a later one says so in its `needs_api`).
+const API_SHAPE: &str = "struct paperpaw_native::interface::Api";
+const API_FIELD: &str = "pub paperpaw_native::Api::";
+const API_LAST: &str = ", build_len: u32";
+
+/// Whether `after` is `before`, the table's shape, with fields appended
+/// after the last of interface 5.
+fn api_appended(path: &str, before: &str, after: &str) -> bool {
+    let Some(open) = before.strip_suffix(" }") else {
+        return false;
+    };
+    path == API_SHAPE
+        && open.ends_with(API_LAST)
+        && after.ends_with(" }")
+        && after
+            .strip_prefix(open)
+            .is_some_and(|rest| rest.starts_with(", "))
+}
+
+/// Whether an `api.txt` line is a field of the firmware's table that is
+/// new where the kept shape has all fields of interface 5.
+fn api_field_appended(line: &str, kept: &BTreeMap<String, &str>) -> bool {
+    let Some(field) = line.strip_prefix(API_FIELD) else {
+        return false;
+    };
+    let name = field.split(':').next().unwrap_or_default();
+    kept.get(API_SHAPE)
+        .is_some_and(|shape| shape.contains(API_LAST) && !shape.contains(&format!(" {name}: ")))
+}
+
+/// The lists that the plugin interface pins beside the crates, as
+/// `interface/<name>` keeps them: they only grow at their end.
+/// - `shared.list`: the shared function tables (`paperpaw-table`), whose
+///   order is where plugins find each function;
+/// - `table.sig`: the signature of each of those functions;
+/// - `lang.list`: the scripts and regions whose index a `Lang` keeps.
+fn pins() -> Option<Vec<(&'static str, String)>> {
+    let lines = |text: String| -> String {
+        text.lines()
+            .map(|l| l.split('#').next().unwrap_or_default().trim())
+            .filter(|l| !l.is_empty())
+            .map(|l| format!("{l}\n"))
+            .collect()
+    };
+    let lang: String = paperpaw_lang::scripts()
+        .map(|s| format!("script {s}\n"))
+        .chain(paperpaw_lang::regions().map(|r| format!("region {r}\n")))
+        .collect();
+    Some(vec![
+        ("shared.list", lines(read("../paperpaw-table/shared.list")?)),
+        ("table.sig", lines(read("../paperpaw-table/table.sig")?)),
+        ("lang.list", lang),
+    ])
+}
+
+/// What changed in a pinned list from `kept` to `now`: breaking where
+/// `kept` is not where `now` starts, new where `now` goes on.
+fn pin_changes(name: &str, kept: &str, now: &str) -> Changes {
+    let mut out = Changes::default();
+    if !now.starts_with(kept) {
+        out.breaking.push(format!(
+            "{name}: entries changed or gone, not only appended"
+        ));
+    } else if now.len() > kept.len() {
+        out.new
+            .push(format!("{name}: appended: {}", now.len() - kept.len()));
+    }
+    out
+}
+
 fn changes(crate_: &str, kept: (&str, &str), now: (&str, &str)) -> Changes {
     let mut out = Changes::default();
     let (kept_types, now_types) = (types(kept.1), types(now.1));
@@ -252,11 +325,13 @@ fn changes(crate_: &str, kept: (&str, &str), now: (&str, &str)) -> Changes {
             Some(now)
                 if now != line
                     && !user_agent_release_only(path, line, now)
-                    && !layout_cache_revision(crate_, path, line, now) =>
+                    && !layout_cache_revision(crate_, path, line, now)
+                    && !api_appended(path, line, now) =>
             {
                 out.breaking
                     .push(format!("{crate_}: changed: {line}\n  now: {now}"));
             }
+            Some(now) if now != line => out.new.push(format!("{crate_}: grew: {now}")),
             Some(_) => {}
         }
     }
@@ -272,7 +347,7 @@ fn changes(crate_: &str, kept: (&str, &str), now: (&str, &str)) -> Changes {
             .push(format!("{crate_}: gone or changed: {line}"));
     }
     for line in now_api.difference(&kept_api) {
-        if is_free(line, &kept_types) {
+        if is_free(line, &kept_types) || api_field_appended(line, &kept_types) {
             out.new.push(format!("{crate_}: {line}"));
         } else {
             out.breaking
@@ -535,6 +610,13 @@ fn what_plugins_see_changes_only_with_the_interface() {
         files.push((format!("interface/{crate_}.api"), api));
         files.push((format!("interface/{crate_}.shape"), shape));
     }
+    for (name, now) in pins().unwrap_or_default() {
+        let kept = read(&format!("interface/{name}")).unwrap_or_default();
+        let found = pin_changes(name, &kept, &now);
+        all.breaking.extend(found.breaking);
+        all.new.extend(found.new);
+        files.push((format!("interface/{name}"), now));
+    }
     let rest_same = value(&now, "linker") == value(&kept, "linker")
         && ["x4", "x4-pro", "android", "third-party"]
             .iter()
@@ -731,4 +813,46 @@ trait a::T { function f }
     let found = changes("a", ("", &with(1)), ("", &with(2)));
     assert_eq!(found.breaking.len(), 1, "{:?}", found.breaking);
     assert!(types(&with(1)).contains_key("struct a::S"));
+}
+
+/// The firmware's table grows at its end without a raise, after the
+/// fields of interface 5 only; anything else in it is a change.
+#[test]
+fn the_firmware_s_table_grows_only_at_its_end() {
+    let kept = "struct paperpaw_native::interface::Api #{} { size: u32, build_len: u32 }";
+    let grown =
+        "struct paperpaw_native::interface::Api #{} { size: u32, build_len: u32, more: u8 }";
+    let moved =
+        "struct paperpaw_native::interface::Api #{} { more: u8, size: u32, build_len: u32 }";
+    let changed = |before: &str, after: &str| changes("paperpaw-native", ("", before), ("", after));
+    assert!(changed(kept, grown).breaking.is_empty());
+    assert_eq!(changed(kept, grown).new.len(), 1);
+    assert_eq!(changed(kept, moved).breaking.len(), 1);
+    assert_eq!(changed(grown, kept).breaking.len(), 1);
+    // Before interface 5 (no `build_len`), every field was a raise.
+    let old = "struct paperpaw_native::interface::Api #{} { size: u32 }";
+    let old_grown = "struct paperpaw_native::interface::Api #{} { size: u32, more: u8 }";
+    assert_eq!(changed(old, old_grown).breaking.len(), 1);
+    let kept_types = types(kept);
+    assert!(api_field_appended(
+        "pub paperpaw_native::Api::more: u8",
+        &kept_types
+    ));
+    assert!(!api_field_appended(
+        "pub paperpaw_native::Api::size: u64",
+        &kept_types
+    ));
+    assert!(!api_field_appended(
+        "pub paperpaw_native::Other::more: u8",
+        &kept_types
+    ));
+}
+
+/// A pinned list may only grow at its end.
+#[test]
+fn pinned_lists_only_grow_at_their_end() {
+    assert!(pin_changes("x", "a\nb\n", "a\nb\n").breaking.is_empty());
+    assert_eq!(pin_changes("x", "a\nb\n", "a\nb\nc\n").new.len(), 1);
+    assert_eq!(pin_changes("x", "a\nb\n", "a\nc\nb\n").breaking.len(), 1);
+    assert_eq!(pin_changes("x", "a\nb\n", "a\n").breaking.len(), 1);
 }
