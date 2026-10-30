@@ -106,6 +106,16 @@ change the plugin SDK.
   written in.
 - `paperpaw-i18n`: a catalog says its direction, script, digits and
   calendar (`[meta]`); Arabic and Hebrew plural rules.
+- Arabic harakat and Hebrew points sit where their font puts them (#33):
+  `build_pack` (and `paperpaw-fontgen`) keeps the GPOS `mark` and `mkmk`
+  anchors of Arabic and Hebrew in a pack's anchors table (for each
+  letter's form, under or over its dots), and `draw_text_in` draws a mark
+  on its letter, or on the mark before it, by them; a mark whose classes
+  its letter lacks is centred over it. Packs read a glyph at a time and
+  outline fonts keep the anchors of at most 48 keys in the glyph cache
+  (about 2.5 KB, once marks are drawn so). Packs without the table, and
+  every Latin, Cyrillic and Greek pack, are drawn as before. The Arabic
+  and Hebrew data plugins (`tools/script-pack.py`) are about 12 % larger.
 - Plugins switch the device off where PaperPaw does so
   (`Command::PowerOff`, `Capabilities::power_off`) and hear how long it
   slept (`Env::slept_for`) (#51).
@@ -125,6 +135,10 @@ change the plugin SDK.
 
 ### Fixed
 
+- A pack that adds another script's letters in more sizes than the font
+  it extends has (the Arabic one, to the firmware's Literata) no longer
+  becomes that font's pack of larger sizes: the font's largest size
+  stays its own, and Latin text at larger sizes is not set in it.
 - `decorations::join_boxes`, and the reader's selection, join the boxes
   of words next to each other in a line that runs right to left (they
   came to nothing) and leave out a word drawn between two of a line that
