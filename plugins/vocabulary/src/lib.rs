@@ -41,8 +41,11 @@ mod fsrs;
 mod marks;
 mod phone;
 mod review;
+mod sdcard;
 mod sleep;
 mod store;
+mod sync;
+mod table;
 mod widget;
 
 use alloc::borrow::Cow;
@@ -63,7 +66,7 @@ use paperpaw_sdk::{
     Screen, ScreenSpec, SettingExtra, SettingSpec, StorageError,
 };
 
-use paperpaw_sdk::setting::Setting;
+use paperpaw_sdk::setting::{Setting, Text};
 use store::Word;
 
 pub const PLUGIN: Id = Id::new_static("vocabulary");
@@ -81,6 +84,12 @@ pub const RETENTION: Setting<i64> = Setting::new("vocabulary.retention");
 pub const NEW_PER_DAY: Setting<i64> = Setting::new("vocabulary.new-per-day");
 /// Setting: the review opens as the device wakes, where cards are due.
 pub const REVIEW_ON_WAKE: Setting<bool> = Setting::new("vocabulary.review-on-wake");
+/// Setting: the folder of the card the decks' files are in.
+pub const SD_FOLDER: Setting<Text> = Setting::new("vocabulary.sd-folder");
+/// Setting: the decks are updated from the files when the flash cards open.
+pub const SD_AUTO: Setting<bool> = Setting::new("vocabulary.sd-auto");
+/// Reads the files of the folder anew: the decks follow them.
+pub const SCAN: Id = Id::new_static("vocabulary.scan-card");
 /// The sleep screen's mode of this plugin: a flash card due.
 pub const SLEEP_CARD: &str = "vocabulary.sleep-card";
 /// What the sleep screen shows (the `sleep` plugin's setting).
@@ -131,7 +140,7 @@ static IN_CARDS_PERCENT: SettingExtra = SettingExtra::new()
 
 /// How the flash cards are reviewed, and whether words looked up become
 /// cards.
-static CARD_SETTINGS: [SettingSpec; 4] = [
+static CARD_SETTINGS: [SettingSpec; 6] = [
     SettingSpec::number(
         NEW_PER_DAY.static_str(),
         "vocabulary.setting.new-per-day",
@@ -169,6 +178,22 @@ static CARD_SETTINGS: [SettingSpec; 4] = [
     )
     .with_extra(&IN_CARDS)
     .description("vocabulary.setting.review-on-wake.help"),
+    SettingSpec::switch(
+        SD_AUTO.static_str(),
+        "vocabulary.setting.sd-auto",
+        true,
+        groups::READING,
+    )
+    .with_extra(&IN_CARDS)
+    .description("vocabulary.setting.sd-auto.help"),
+    SettingSpec::text(
+        SD_FOLDER.static_str(),
+        "vocabulary.setting.sd-folder",
+        sync::DEFAULT_FOLDER,
+        groups::READING,
+    )
+    .with_extra(&IN_CARDS)
+    .description("vocabulary.setting.sd-folder.help"),
 ];
 
 /// How the words being learnt look in books.
@@ -192,11 +217,17 @@ static HOW: [(&str, &str); 2] = [
     ("de", include_str!("../how/de.txt")),
 ];
 
-static ACTIONS: [FixedAction; 2] = [
+static ACTIONS: [FixedAction; 3] = [
     FixedAction::new(OPEN, "vocabulary.title")
         .handler(|_, _, out| out.push(Command::OpenScreen(SCREEN, Params::new()))),
     FixedAction::new(CARDS, "vocabulary.cards.title")
         .handler(|_, _, out| out.push(Command::OpenScreen(decks::SCREEN, Params::new()))),
+    FixedAction::new(SCAN, "vocabulary.sd.scan").handler(|_, _, out| {
+        out.push(Command::OpenScreen(
+            sdcard::SCREEN,
+            Params::new().with(sdcard::FORCE, "1"),
+        ));
+    }),
 ];
 static ENTRIES: [MenuEntry; 3] = [
     MenuEntry::new(menus::READER_MORE, Id::new_static(MARK.static_str())).order(40),
@@ -209,7 +240,7 @@ static ICONS: [(Id, &str); 3] = [
     (CARDS, "stack-2"),
 ];
 
-static SCREENS: [FixedScreen; 4] = [
+static SCREENS: [FixedScreen; 5] = [
     FixedScreen::new(decks::SCREEN, "vocabulary.cards.title", |env, _| {
         Box::new(decks::DecksScreen::new(env))
     }),
@@ -223,6 +254,10 @@ static SCREENS: [FixedScreen; 4] = [
     ),
     FixedScreen::new(phone::SCREEN, "vocabulary.phone.title", |env, _| {
         Box::new(phone::PhoneScreen::new(env))
+    })
+    .instances(paperpaw_sdk::Instances::SINGLE),
+    FixedScreen::new(sdcard::SCREEN, "vocabulary.sd.title", |env, params| {
+        Box::new(sdcard::SdScreen::new(env, params))
     })
     .instances(paperpaw_sdk::Instances::SINGLE),
 ];

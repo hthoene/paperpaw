@@ -9,18 +9,19 @@ use alloc::vec::Vec;
 use paperpaw_sdk::builtin::actions;
 use paperpaw_sdk::ui::{self, ListChange, ListView, UiStyle};
 use paperpaw_sdk::{
-    Canvas, Command, Cx, Env, Gesture, GestureKind, Handled, Id, Params, Rect, Screen,
+    Arg, Canvas, Command, Cx, Env, Gesture, GestureKind, Handled, Id, Params, Rect, Screen,
 };
 
 use crate::cards::{self, Day, Deck};
-use crate::{NEW_PER_DAY, phone, review};
+use crate::{NEW_PER_DAY, SD_AUTO, phone, review, sdcard, sync};
 
 pub(crate) const SCREEN: Id = Id::new_static("vocabulary.cards");
 
 /// Rows before the decks.
 const REVIEW_ROW: usize = 0;
 const PHONE_ROW: usize = 1;
-const FIRST_DECK: usize = 2;
+const CARD_ROW: usize = 2;
+const FIRST_DECK: usize = 3;
 
 pub(crate) struct DecksScreen {
     style: UiStyle,
@@ -28,6 +29,11 @@ pub(crate) struct DecksScreen {
     list: ListView,
     decks: Vec<(Deck, usize)>,
     due: usize,
+    /// The files of the SD card's folder, listed.
+    files: sync::Pending,
+    folder: String,
+    /// Whether the files were looked at for an update at opening.
+    looked: bool,
 }
 
 /// The cards due now, and new ones to show today, as the widget and this
@@ -56,6 +62,9 @@ impl DecksScreen {
             header,
             decks: Vec::new(),
             due: 0,
+            files: sync::Pending::default(),
+            folder: String::new(),
+            looked: false,
         };
         screen.load(env);
         screen
@@ -73,6 +82,8 @@ impl DecksScreen {
             })
             .collect();
         self.due = due_now(env);
+        self.folder = sdcard::folder(env);
+        self.files = sdcard::pending(env);
         // Rows as high as the phone's note needs (the largest text).
         let key = if self.decks.is_empty() {
             "vocabulary.cards.phone.first"
@@ -85,8 +96,15 @@ impl DecksScreen {
             ui::Row::value(title, "›")
                 .note(env.i18n().tr(key))
                 .height(env, &self.style, width);
-        self.list
-            .set_row(u32::from(row).max(self.style.noted_row()));
+        let card_title = env.i18n().tr("vocabulary.sd.row");
+        let card_row = ui::Row::value(card_title, "›")
+            .note(&self.card_note(env))
+            .height(env, &self.style, width);
+        self.list.set_row(
+            u32::from(row)
+                .max(u32::from(card_row))
+                .max(self.style.noted_row()),
+        );
         let len = self.len();
         if self.list.focus() >= len {
             self.list.set_focus(len - 1);
@@ -97,11 +115,31 @@ impl DecksScreen {
         FIRST_DECK + self.decks.len()
     }
 
+    /// What the row of the SD card's files says: what there is to do.
+    fn card_note(&self, env: &Env<'_>) -> String {
+        let folder = [("folder", Arg::Str(&self.folder))];
+        let files = self.files;
+        let i18n = env.i18n();
+        if !files.folder {
+            i18n.format("vocabulary.sd.row.none", &folder)
+        } else if files.todo > 0 {
+            i18n.plural("vocabulary.sd.row.todo", files.todo as i64, &folder)
+        } else if files.files == 0 {
+            i18n.format("vocabulary.sd.row.empty", &folder)
+        } else {
+            i18n.format("vocabulary.sd.row.same", &folder)
+        }
+    }
+
     fn open(&mut self, row: usize, cx: &mut Cx<'_, '_>) {
         let params = match row {
             REVIEW_ROW => Params::new(),
             PHONE_ROW => {
                 cx.command(Command::OpenScreen(phone::SCREEN, Params::new()));
+                return;
+            }
+            CARD_ROW => {
+                cx.command(Command::OpenScreen(sdcard::SCREEN, Params::new()));
                 return;
             }
             row => match self.decks.get(row - FIRST_DECK) {
@@ -129,6 +167,7 @@ impl Screen for DecksScreen {
             .i18n()
             .plural("vocabulary.cards.due", self.due as i64, &[]);
         let empty = self.decks.is_empty();
+        let card_note = self.card_note(env);
         let decks = &self.decks;
         self.list.draw(&mut ui, len, |ui, row, rect, focused| {
             let (title, note): (&str, String) = match row {
@@ -144,6 +183,7 @@ impl Screen for DecksScreen {
                         env.i18n().tr(key).into(),
                     )
                 }
+                CARD_ROW => (env.i18n().tr("vocabulary.sd.row"), card_note.clone()),
                 row => match decks.get(row - FIRST_DECK) {
                     Some((deck, n)) => (
                         deck.name.as_str(),
@@ -163,6 +203,14 @@ impl Screen for DecksScreen {
     fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
         let env = *cx.env();
         self.load(&env);
+        // Opening the flash cards updates the decks from the files that
+        // are new or changed, unless the setting says not to.
+        if !self.looked {
+            self.looked = true;
+            if env.settings().read(&SD_AUTO) && self.files.todo > 0 {
+                cx.command(Command::OpenScreen(sdcard::SCREEN, Params::new()));
+            }
+        }
         cx.request_redraw();
     }
 

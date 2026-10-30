@@ -451,6 +451,35 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    // The same files: the row that says they are new, and the result of
+    // reading them as the flash cards open (a line without a front told).
+    Case {
+        name: "x4-flashcards-sd-todo",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["vocabulary.sd-auto=false"],
+        script: "run:vocabulary.flash-cards,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-flashcards-sd-result",
+        profile: "xteink-x4",
+        book: None,
+        sets: &[],
+        script: "run:vocabulary.flash-cards,wait:900",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-flashcards-sd-result-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["core.language=de"],
+        script: "run:vocabulary.flash-cards,wait:900",
+        colour: 0,
+        fixtures: false,
+    },
     Case {
         name: "x4-update",
         profile: "xteink-x4",
@@ -711,6 +740,17 @@ fn library(case: &Case) -> PathBuf {
             let entry = entry.unwrap();
             fs::copy(entry.path(), store.join(entry.file_name())).unwrap();
         }
+    }
+    // Decks as files on the card: one with a line that is no card.
+    if case.name.contains("flashcards-sd") {
+        let folder = dir.join("Flashcards");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(
+            folder.join("German.tsv"),
+            "front\tback\texample\nKatze\tcat\tDie Katze schläft.\nHund\tdog\n\tno front\nHaus\thouse\n",
+        )
+        .unwrap();
+        fs::write(folder.join("Spanish.csv"), "casa;house\ngato;cat\n").unwrap();
     }
     // The first-run setup only where it is what is shown.
     if !case.name.contains("setup") {

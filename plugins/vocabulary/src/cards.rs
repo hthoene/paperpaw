@@ -80,7 +80,7 @@ fn dir() -> String {
     format!("{}/cards", Env::plugin_dir(PLUGIN.as_str()))
 }
 
-fn path(name: &str) -> String {
+pub(crate) fn path(name: &str) -> String {
     format!("{}/{name}", dir())
 }
 
@@ -497,7 +497,7 @@ pub(crate) fn delete_deck(storage: &dyn Storage, deck: u32) -> Result<(), Proble
 // ---- Cards -------------------------------------------------------------
 
 /// Calls `card` with each card of `deck` and where its line begins.
-fn each_card(
+pub(crate) fn each_card(
     storage: &dyn Storage,
     deck: u32,
     mut card: impl FnMut(u64, Card) -> ControlFlow<()>,
@@ -707,6 +707,27 @@ impl<'a> Adder<'a> {
     }
 }
 
+/// Adds the cards `source` pushes into `deck`, in order, until it is done
+/// or the deck is full (`push` then says `false`); how many were added.
+/// Texts without a front are left out.
+pub(crate) fn add_each(
+    storage: &dyn Storage,
+    deck: u32,
+    source: impl FnOnce(&mut dyn FnMut(Texts) -> bool) -> Result<(), StorageError>,
+) -> Result<usize, Problem> {
+    let mut adder = Adder::new(storage, deck)?;
+    let mut failed = Ok(());
+    source(&mut |texts| match adder.push(texts) {
+        Ok(more) => more,
+        Err(e) => {
+            failed = Err(e);
+            false
+        }
+    })?;
+    failed?;
+    adder.finish()
+}
+
 /// Which deck cards are being added to (see [`Adder::flush`]).
 fn adding() -> String {
     path("adding.txt")
@@ -774,8 +795,19 @@ pub(crate) fn delete(
 fn rewrite(
     storage: &dyn Storage,
     deck: u32,
-    mut change: impl FnMut(&mut Card) -> bool,
+    change: impl FnMut(&mut Card) -> bool,
 ) -> Result<(), Problem> {
+    rewrite_with(storage, deck, change, &mut || None).map(|_| ())
+}
+
+/// [`rewrite`], and after the cards new ones made from the texts `adds`
+/// gives, until it gives none or the deck is full; how many were added.
+pub(crate) fn rewrite_with(
+    storage: &dyn Storage,
+    deck: u32,
+    mut change: impl FnMut(&mut Card) -> bool,
+    adds: &mut dyn FnMut() -> Option<Texts>,
+) -> Result<usize, Problem> {
     let (file, temporary) = (deck_path(deck), deck_temporary(deck));
     if !storage.exists(&file) {
         return Err(Problem::Missing);
@@ -787,7 +819,7 @@ fn rewrite(
     };
     let mut out = String::new();
     let mut written = Ok(());
-    let mut next = 1u32;
+    let (mut next, mut count, mut added) = (1u32, 0usize, 0usize);
     each_line(storage, &file, |_, line| {
         // The counter goes after the cards, the highest found.
         if let Some(n) = counter(line) {
@@ -801,6 +833,7 @@ fn rewrite(
                     return ControlFlow::Continue(());
                 }
                 index.count(&card.state);
+                count += 1;
                 out.push_str(&card.line());
             }
             // The version line is written above; empty lines go; what is
@@ -822,6 +855,30 @@ fn rewrite(
     })
     .and(written)
     .and_then(|()| {
+        while count < MAX_CARDS {
+            let Some(texts) = adds() else { break };
+            let Some(texts) = texts.cleaned() else {
+                continue;
+            };
+            let card = Card {
+                state: State {
+                    id: next,
+                    ..State::default()
+                },
+                front: texts.front,
+                back: texts.back,
+                example: texts.example,
+            };
+            next = next.saturating_add(1);
+            count += 1;
+            added += 1;
+            index.count(&card.state);
+            out.push_str(&card.line());
+            if out.len() >= CHUNK {
+                storage.append(&temporary, out.as_bytes())?;
+                out.clear();
+            }
+        }
         out.push_str(&format!("{NEXT}{next}\n"));
         storage.append(&temporary, out.as_bytes())
     })
@@ -830,7 +887,7 @@ fn rewrite(
     })?;
     files::put_in_place(storage, &temporary, &file)?;
     set_index(storage, deck, Some(index))?;
-    Ok(())
+    Ok(added)
 }
 
 /// After a power cut while a deck was written anew: the new deck where
