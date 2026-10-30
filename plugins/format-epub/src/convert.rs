@@ -238,6 +238,8 @@ struct Frame {
     after: (Option<u16>, Option<u16>),
     /// The element's content is not shown (`<head>`, `display: none`, …).
     hides: bool,
+    /// The control that ends its text set apart (see [`direction`]).
+    closer: Option<char>,
     /// A link (`<a href>`): where it starts, and where it goes.
     link: Option<(u32, String)>,
     /// The reading matter of an HTML page: its content is shown.
@@ -696,27 +698,13 @@ impl Converter<'_> {
             .filter(|_| paragraphs)
             .unwrap_or(parent_dir);
         let lang = direction::own_lang(&attrs).unwrap_or(parent_lang);
+        let controls = direction::inline_controls(&tag, &attrs, paragraphs);
         // Blocks are set in by their own margins at the sides and those of
         // the blocks around them; text elements are not. The body's own are
         // the page's: the reader's margins, set in the settings, are those.
         let parent_margins = self.stack.last().map_or((0, 0), |f| f.margins);
         let margins = match is_block(&tag) || matches!(tag.as_str(), "li" | "pre") {
-            true => {
-                let (start, end) = match tag.as_str() {
-                    "body" => (0, 0),
-                    // The left and right ones: the end and the start of
-                    // right-to-left lines.
-                    _ if dir == Direction::Rtl => {
-                        let (left, right) = props.sides();
-                        (right, left)
-                    }
-                    _ => props.sides(),
-                };
-                (
-                    parent_margins.0.saturating_add(start).min(MAX_MARGIN),
-                    parent_margins.1.saturating_add(end).min(MAX_MARGIN),
-                )
-            }
+            true => direction::set_in(parent_margins, props.sides(), dir, tag == "body"),
             false => parent_margins,
         };
         let line_height = props
@@ -818,9 +806,13 @@ impl Converter<'_> {
             }),
             after: (props.margin_bottom, props.padding_bottom),
             hides,
+            closer: controls.map(|(_, close)| close),
         });
         if hides {
             self.hidden += 1;
+        }
+        if let Some((open, _)) = controls {
+            self.open_inline(open);
         }
         // Images, also inside <svg> (a common way to show covers).
         if matches!(tag.as_str(), "img" | "image")
@@ -918,6 +910,7 @@ impl Converter<'_> {
                 self.flush();
             }
         }
+        self.close_inline(open);
         if let Some(frame) = self.stack.get(open) {
             self.path.truncate(frame.path);
         }
@@ -1106,7 +1099,7 @@ impl Converter<'_> {
 
     /// Ends the current block.
     fn flush(&mut self) {
-        let trimmed = self.text.trim_end().len();
+        let trimmed = self.text.trim_end_matches(direction::is_blank).len();
         self.text.truncate(trimmed);
         if !self.text.is_empty() {
             let kind = self.kind;

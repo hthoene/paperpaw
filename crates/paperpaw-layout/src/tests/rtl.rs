@@ -119,3 +119,21 @@ impl Typesetter for Flat1 {
         (8.0, 10.0)
     }
 }
+
+#[test]
+fn isolated_text_keeps_its_own_direction_and_its_controls_take_no_room() {
+    // As an EPUB sets apart `<span dir="ltr">a!</span>`: the `!` stays
+    // with the Latin; without the isolate it would go with the Hebrew.
+    let page = one("\u{5d0} \u{2066}a!\u{2069} \u{5d1}", Direction::Rtl, &Flat1);
+    let line = &page.lines[0];
+    assert_eq!(line.x, 4.0);
+    assert_eq!(
+        levels(line),
+        [("\u{5d0} \u{2066}", 1), ("a!", 2), ("\u{2069} \u{5d1}", 1)]
+    );
+    let page = one("\u{5d0} a! \u{5d1}", Direction::Rtl, &Flat1);
+    assert_eq!(
+        levels(&page.lines[0]),
+        [("\u{5d0} ", 1), ("a", 2), ("! \u{5d1}", 1)]
+    );
+}
