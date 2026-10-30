@@ -2544,7 +2544,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-settings"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -2580,7 +2580,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-update"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
 ]
