@@ -10,6 +10,8 @@ members = [
     "crates/paperpaw-serve",
     "crates/paperpaw-i18n",
     "crates/paperpaw-graphics",
+    "crates/paperpaw-lang",
+    "crates/paperpaw-table",
     "crates/paperpaw-text",
     "crates/paperpaw-document",
     "crates/paperpaw-layout",
@@ -121,6 +123,8 @@ paperpaw-sqlite = { path = "crates/paperpaw-sqlite", version = "0.5.0-beta.12" }
 paperpaw-serve = { path = "crates/paperpaw-serve", version = "0.5.0-beta.12" }
 paperpaw-i18n = { path = "crates/paperpaw-i18n", version = "0.5.0-beta.12" }
 paperpaw-graphics = { path = "crates/paperpaw-graphics", version = "0.5.0-beta.12" }
+paperpaw-lang = { path = "crates/paperpaw-lang", version = "0.5.0-beta.12" }
+paperpaw-table = { path = "crates/paperpaw-table", version = "0.5.0-beta.12" }
 paperpaw-text = { path = "crates/paperpaw-text", version = "0.5.0-beta.12" }
 paperpaw-document = { path = "crates/paperpaw-document", version = "0.5.0-beta.12" }
 paperpaw-zip = { path = "crates/paperpaw-zip", version = "0.5.0-beta.12" }
