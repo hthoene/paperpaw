@@ -12,13 +12,18 @@ name: Store plugin update
 # of their own. The next release builds the plugin again, at the version
 # it has then, for its own firmware.
 #
+# One of PaperPaw's own data plugins (tools/plugin-files/data.toml, no
+# code) takes the same path: its version is data.toml's, newer than the
+# base's; its builder makes its folder, nothing is built for a device or
+# signed, and the release holds its folder's ZIP and its entry alone.
+#
 # The release is made with this workflow's token, and release.yml runs
 # only for tags of PaperPaw's versions, so nothing else starts with it.
 on:
   workflow_dispatch:
     inputs:
       plugin:
-        description: The plugin's id (tools/plugin-files/plugins.txt)
+        description: The plugin's id (tools/plugin-files/plugins.txt or data.toml)
         required: true
       base:
         description: The release whose firmware it is for (e.g. v0.5.0-beta.2)
@@ -45,6 +50,7 @@ jobs:
     outputs:
       commit: ${{ steps.source.outputs.commit }}
       version: ${{ steps.source.outputs.version }}
+      kind: ${{ steps.source.outputs.kind }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -60,8 +66,20 @@ jobs:
             echo "::error::the source is PaperPaw $workspace, not $BASE: make the fix from the base's tag"
             exit 1
           fi
-          sed -e 's/#.*//' tools/plugin-files/plugins.txt | awk 'NF { print $1 }' | grep -qx "$PLUGIN" \
-            || { echo "::error::$PLUGIN is not in tools/plugin-files/plugins.txt"; exit 1; }
+          if sed -e 's/#.*//' tools/plugin-files/plugins.txt | awk 'NF { print $1 }' | grep -qx "$PLUGIN"; then
+            kind=code
+          elif [[ -f tools/plugin-files/data.toml ]] \
+            && python3 -c 'import sys, tomllib; sys.exit(sys.argv[1] not in tomllib.load(open("tools/plugin-files/data.toml", "rb")))' "$PLUGIN"; then
+            kind=data
+          else
+            echo "::error::$PLUGIN is not in tools/plugin-files/plugins.txt or data.toml"
+            exit 1
+          fi
+          if [[ "$kind" == data ]]; then
+            # Its version in data.toml, newer than the base's.
+            version="$(python3 tools/plugin-files/data.py --newer "$PLUGIN" "$BASE" 2>&1)" \
+              || { echo "::error::$version"; exit 1; }
+          else
           # Its own version, as its manifest says it, newer than the base's.
           version="$(python3 -c '
           import subprocess, sys
@@ -76,6 +94,7 @@ jobs:
               sys.exit(f"::error::{plugin} is at {now}, the base has {then}: raise it in {manifest}")
           print(now)
           ' "$PLUGIN" "$BASE")"
+          fi
           tag="$PLUGIN-v$version"
           if gh release view "$tag" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1 \
             || git ls-remote --exit-code --tags origin "$tag" > /dev/null; then
@@ -83,11 +102,14 @@ jobs:
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   plugin:
     name: Plugin (${{ matrix.device }})
     needs: [check]
+    # A data plugin has nothing to build for a device.
+    if: needs.check.outputs.kind == 'code'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -156,14 +178,20 @@ jobs:
   release:
     name: Release
     needs: [check, plugin]
+    # After the plugin's files, or with none for a data plugin.
+    if: >-
+      always() && needs.check.result == 'success'
+      && (needs.plugin.result == 'success' || needs.check.outputs.kind == 'data')
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.check.outputs.version }}
+      KIND: ${{ needs.check.outputs.kind }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check.outputs.commit }}
       - uses: actions/download-artifact@v8
+        if: needs.check.outputs.kind == 'code'
         with:
           path: dist/plugins
           merge-multiple: true
@@ -171,9 +199,15 @@ jobs:
         run: |
           tag="$PLUGIN-v$VERSION"
           echo "TAG=$tag" >> "$GITHUB_ENV"
+          mkdir -p dist/plugins
+          data=()
+          if [[ "$KIND" == data ]]; then
+            python3 tools/plugin-files/data.py "$RUNNER_TEMP/data" --only "$PLUGIN"
+            data=(--data "$RUNNER_TEMP/data")
+          fi
           python3 tools/plugin-files/catalogue.py dist/plugins "${BASE#v}" \
             "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag" \
-            --date "$(date -u +%F)" --only "$PLUGIN" --tag "$tag"
+            --date "$(date -u +%F)" --only "$PLUGIN" --tag "$tag" "${data[@]}"
           (cd dist/plugins && zip -q -X -r "../paperpaw-$tag-catalogue.zip" catalogue)
           mv dist/plugins/SHA256SUMS "dist/paperpaw-$tag-plugins.sha256"
       - name: Make the release
@@ -187,7 +221,9 @@ jobs:
             echo
             echo "- $NOTES"
           } > dist/notes.md
+          # A data plugin has its folder's ZIP alone, no files for devices.
+          shopt -s nullglob
+          files=(dist/plugins/*.ppn dist/plugins/*.zip)
           gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$COMMIT" \
             --prerelease --latest=false --title "$PLUGIN $VERSION" --notes-file dist/notes.md \
-            dist/plugins/*.ppn dist/plugins/*.zip \
-            "dist/paperpaw-$TAG-catalogue.zip" "dist/paperpaw-$TAG-plugins.sha256"
+            "${files[@]}" "dist/paperpaw-$TAG-catalogue.zip" "dist/paperpaw-$TAG-plugins.sha256"

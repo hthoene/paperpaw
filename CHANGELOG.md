@@ -6,6 +6,13 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Added
+
+- A fix to one of PaperPaw's own data plugins (Literata's sizes, the
+  hyphenation data; `tools/plugin-files/data.toml`) reaches readers alone
+  between releases, as for the plugins with code: tagged `<id>-v<version>`,
+  a pre-release with its own catalogue (`store-plugin.yml`).
+
 ## [0.5.0-beta.12] - 2026-10-28
 
 ### Changed

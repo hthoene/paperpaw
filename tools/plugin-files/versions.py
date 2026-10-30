@@ -160,34 +160,41 @@ def same_files(tag, paths):
     return done.returncode == 0
 
 
-def data_versions(text):
-    """Id to version of the data plugins of data.toml's `text`."""
-    return {plugin: fields["version"] for plugin, fields in tomllib.loads(text).items()}
+DATA = "tools/plugin-files/data.toml"
 
 
-def data_problems(since):
-    """The data plugins of data.toml whose builder or inputs changed since
-    `since` without a newer version: (id, what is wrong)."""
-    path = "tools/plugin-files/data.toml"
-    if not (ROOT / path).exists():
-        return []
-    now = tomllib.loads((ROOT / path).read_text(encoding="utf-8"))
+def data_version_at(tag, plugin):
+    """Data plugin `plugin`'s version in data.toml at `tag`; None where it
+    was not there yet."""
     try:
-        before = data_versions(git("show", f"{since}:{path}"))
+        listed = tomllib.loads(git("show", f"{tag}:{DATA}"))
     except subprocess.CalledProcessError:
-        before = {}
+        return None
+    return listed.get(plugin, {}).get("version")
+
+
+def data_problems(since, tags=()):
+    """The data plugins of data.toml whose builder or inputs changed since
+    `since` or their own release (`<id>-v<version>` of `tags`) without a
+    newer version: (id, what is wrong)."""
+    if not (ROOT / DATA).exists():
+        return []
+    now = tomllib.loads((ROOT / DATA).read_text(encoding="utf-8"))
     out = []
     for plugin, fields in now.items():
-        if plugin not in before:
+        versions = {tag: data_version_at(tag, plugin) for tag in [since, *own_tags(plugin, tags)]}
+        versions = {tag: v for tag, v in versions.items() if v is not None}
+        if not versions:
             continue  # new since the release
+        before = max(versions.values(), key=semver)
         paths = [fields["build"], *fields.get("inputs", [])]
-        log = git("log", "--no-merges", "--format=%B%x00", f"{since}..HEAD", "--", *paths)
+        had = [f"^{tag}" for tag in versions if is_ancestor(tag)]
+        log = git("log", "--no-merges", "--format=%B%x00", "HEAD", *had, "--", *paths)
         changes = [m.strip() for m in log.split("\0") if m.strip()]
-        found = problem(plugin, before[plugin], fields["version"], changes)
+        found = problem(plugin, before, fields["version"], changes)
         if found:
             out.append((plugin, found.replace(
-                f"plugins/{plugin}/Cargo.toml (and the Cargo.lock files that list it)",
-                "tools/plugin-files/data.toml")))
+                f"plugins/{plugin}/Cargo.toml (and the Cargo.lock files that list it)", DATA)))
     return out
 
 
@@ -223,7 +230,7 @@ def main():
         if found:
             print(f"::error file={manifest}::{plugin}: {found}")
             failed = True
-    for plugin, found in data_problems(since):
+    for plugin, found in data_problems(since, tags):
         print(f"::error file=tools/plugin-files/data.toml::{plugin}: {found}")
         failed = True
     if failed:
