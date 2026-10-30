@@ -73,6 +73,10 @@ struct Sequence {
     brackets: u8,
     /// Whether bracket pairing stopped for it (BD16).
     stopped: bool,
+    /// Whether the run of terminators (ET) the last character is in ends
+    /// at a European number (rule W5), once looked up: the whole run
+    /// shares the answer, so it is looked up once a run.
+    et_en: Option<bool>,
 }
 
 const NO_SEQUENCE: Sequence = Sequence {
@@ -88,6 +92,7 @@ const NO_SEQUENCE: Sequence = Sequence {
     marks: None,
     brackets: 0,
     stopped: false,
+    et_en: None,
 };
 
 /// What the algorithm knows at a point of a paragraph: the state a line
@@ -449,6 +454,18 @@ impl<I: Iterator<Item = char> + Clone> Walk<I> {
     /// Rules X5a to X5c: an isolate. Returns whether it has a matching
     /// PDI and whether it is valid.
     fn isolate(&mut self, class: Class) -> (bool, bool) {
+        // An isolate that overflows opens no level, so neither its
+        // direction nor its PDI matters. Not looking for them keeps the
+        // look-ahead linear: each valid isolate looks to its PDI (or the
+        // paragraph's end) and stays open until there, and at most
+        // `DEPTH` are open at once.
+        let c = &self.carry;
+        if c.overflow_isolates > 0 || c.overflow_embeddings > 0 || usize::from(c.depth) >= DEPTH {
+            self.carry.overflow_isolates = self.carry.overflow_isolates.saturating_add(1);
+            // Taken as matched: its content stays at its level, so no
+            // run sequence ends at it (X10) either way.
+            return (true, false);
+        }
         let rtl = match class {
             Class::RLI => true,
             Class::FSI => first_strong(self.rest.clone(), true) == Some(Level::RTL),
@@ -574,8 +591,21 @@ impl<I: Iterator<Item = char> + Clone> Walk<I> {
             }
         }
         // W5: terminators next to a European number.
-        if t == Class::ET && (w5 || self.peek(id, true) == Some(Class::EN)) {
-            t = Class::EN;
+        if t == Class::ET {
+            let known = self.carry.sequence().et_en;
+            let en = w5
+                || known.unwrap_or_else(|| {
+                    let en = self.peek(id, true) == Some(Class::EN);
+                    let sequence = self.carry.sequence();
+                    sequence.et_en = Some(en);
+                    en
+                });
+            if en {
+                t = Class::EN;
+            }
+        } else {
+            let sequence = self.carry.sequence();
+            sequence.et_en = None;
         }
         // W6: other separators and terminators.
         if matches!(t, Class::ES | Class::ET | Class::CS) {
