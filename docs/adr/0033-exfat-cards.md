@@ -40,7 +40,32 @@ formatted.
   PaperPaw"): built where pointers have no atomics (the ESP32-C3), an
   entry set taken away without freeing its clusters (`unlink_entry`),
   what a cut at an earlier mount left in a folder settled (`sweep`), and
-  a smaller buffer of zeros in flash.
+  a smaller buffer of zeros in flash. The patches against crates.io
+  3.0.0-rc.2, each marked "Modified for PaperPaw" in the source:
+
+  | Where | Change |
+  |---|---|
+  | `hadris-fat/src/block_io.rs` | `ZEROS` 64 KiB → 4 KiB (60 KB less flash) |
+  | `hadris-fs` `api/read_tree.rs`, `api/tree.rs`, `api/volume.rs`, `tree.rs` | `Rc` used as `Arc` where pointers have no atomics (one core, never shared) |
+  | `hadris-fs/Cargo.toml` | `async-lock` and `spin` only where `target_has_atomic = "ptr"` |
+  | `hadris-fat/src/exfat/fs.rs` | `valid_set` split into `shaped_set` and the checksum (same result for reads) |
+  | same | `unlink_entry`: an entry set taken away without freeing its clusters |
+  | same | `sweep` and `reseal`: see below |
+
+  All of them are to go upstream or into the list of ticket #54, so that
+  the move to the stable release is a rebase.
+- **The sweep trusts nothing a computer could have torn.** A set with a
+  bad checksum is sealed again only if its stream is possible on this
+  card: the first cluster lies in the cluster heap and is marked used in
+  the bitmap, the valid length is not above the length, and the length
+  fits the heap (a contiguous file ends inside it). Otherwise the set is
+  left as it is, counted (`ExFatStorage::left_alone()`) and not cleared:
+  a computer's check is the better place. Without this, a set cut off or
+  rotted on a computer could be made valid while naming free or foreign
+  clusters, and the next write of ours would give them to a second file.
+  Whether a replacement overwrites a change made elsewhere is decided
+  per file, by that file's own entry set, not by any torn set in the
+  folder.
 - **Writes as on FAT**: a file is written whole under `<name>~pp.tmp`,
   synced, renamed to `<name>~pp.new`, then renamed over the file. The
   names of the moment hold the file's name, so that a replacement cut off
@@ -54,6 +79,9 @@ formatted.
   journal's move is finished. What may stay is space: clusters taken by
   no file, or linked past a file's length before its new length was
   written. Nothing reads them, and a computer's checker gives them back.
+  A replacement cut off after its rename to `~pp.new`, whose file is then
+  deleted on a computer, comes back at the next mount: it cannot be told
+  from a cut inside the replacing rename.
   The dirty flag stays set after a cut, as the specification asks.
 - **The notice** of beta.8 stays for NTFS, cards without a file system
   PaperPaw reads, unreadable and missing cards.
@@ -70,6 +98,10 @@ formatted.
   the smallest update slot); the heap on an exFAT card is about 8 KiB
   above FAT's (the emulator, which mounts card images with `--card`,
   measures it on the X4's profile).
+- The longest name the reader can write is 238 UTF-16 units (the
+  temporary names add 17 of the 255); longer ones fail with
+  `InvalidPath`. Reading is not limited. Files written by the reader are
+  dated 1980-01-01 (the X4 has no clock before Wi-Fi), as on FAT.
 - The first write that takes clusters after a mount counts the free
   clusters once, a block of the bitmap at a time (on a 64 GB card 512
   blocks); free space is known from then on.
