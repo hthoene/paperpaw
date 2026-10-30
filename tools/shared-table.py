@@ -7,10 +7,16 @@ the `shared!` declarations in the crates' sources give them.
 
     python3 tools/shared-table.py           # writes both files
     python3 tools/shared-table.py --check   # fails where one is not current
+    python3 tools/shared-table.py --appended-to OLD.list
+        # fails unless this list is OLD.list (the last released one) with
+        # entries appended at a higher revision of their family
 
 It also checks the list's rules: entries are only appended, each at a
 revision of its family not below the lines before it (a batch of entries
-shares one revision), and every entry is declared by exactly one `shared!` (and every
+shares one revision, until the list is released: then every entry appended
+needs a revision above the released list's, see `--appended-to`: a plugin
+built with the new entry says that revision, and firmware that has it
+only at the old one would call past the end of its table), and every entry is declared by exactly one `shared!` (and every
 `shared!` is listed). `cargo test -p paperpaw-sdk --test interface`
 checks that the blessed list and signatures (interface/) are a prefix
 of these.
@@ -33,8 +39,12 @@ COUNT = 8
 
 def parse():
     """The entries `(family, revision, name, path)` and the bumps."""
+    return parse_text(LIST.read_text(encoding="utf-8"), "shared.list")
+
+
+def parse_text(text, label):
     entries, bumps, last = [], [], {}
-    for number, raw in enumerate(LIST.read_text(encoding="utf-8").splitlines(), 1):
+    for number, raw in enumerate(text.splitlines(), 1):
         line = raw.split("#", 1)[0].split()
         if not line:
             continue
@@ -45,17 +55,40 @@ def parse():
             family, revision, name, path = line[0], int(line[1]), line[2], line[3]
             entries.append((family, revision, name, path))
         else:
-            sys.exit(f"shared.list:{number}: not an entry or a bump: {raw}")
+            sys.exit(f"{label}:{number}: not an entry or a bump: {raw}")
         if family not in FAMILIES:
-            sys.exit(f"shared.list:{number}: no family {family}")
+            sys.exit(f"{label}:{number}: no family {family}")
         if revision < last.get(family, 0):
-            sys.exit(f"shared.list:{number}: revision {revision} of {family} "
+            sys.exit(f"{label}:{number}: revision {revision} of {family} "
                      f"is below {last[family]}")
         last[family] = revision
     names = [(f, n) for f, _, n, _ in entries]
     if len(set(names)) != len(names):
-        sys.exit("shared.list: an index name is there twice in one family")
+        sys.exit(f"{label}: an index name is there twice in one family")
     return entries, bumps
+
+
+def late_appends(released, now):
+    """What is wrong with `now` as the continuation of the `released` list
+    (both `parse_text` results): the problems, as text. The released
+    entries must be the first ones, unchanged, and every entry after them
+    needs a revision above anything its family had in the released list."""
+    (old, old_bumps), (new, _) = released, now
+    problems = []
+    if new[:len(old)] != old:
+        problems.append("the released entries are not the first ones, unchanged")
+    top = {}
+    for family, revision, _, _ in old:
+        top[family] = max(top.get(family, 0), revision)
+    for family, revision in old_bumps:
+        top[family] = max(top.get(family, 0), revision)
+    for family, revision, name, _ in new[len(old):]:
+        if revision <= top.get(family, 0):
+            problems.append(
+                f"{family}::{name} is appended at revision {revision}, not above "
+                f"the released {top[family]}: firmware at that revision would "
+                "have no such entry (give it the next revision)")
+    return problems
 
 
 def declarations():
@@ -156,6 +189,12 @@ def addresses_rs(entries):
 
 
 def main():
+    if "--appended-to" in sys.argv:
+        old = pathlib.Path(sys.argv[sys.argv.index("--appended-to") + 1])
+        problems = late_appends(parse_text(old.read_text(encoding="utf-8"), str(old)), parse())
+        if problems:
+            sys.exit("shared.list against the released list:\n  " + "\n  ".join(problems))
+        return
     entries, bumps = parse()
     found = declarations()
     listed = {(f, n) for f, _, n, _ in entries}

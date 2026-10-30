@@ -11,6 +11,10 @@
 //! cargo build --release --manifest-path crates/paperpaw-core/tests/native-plugin/Cargo.toml
 //! cargo test -p paperpaw-core --test native_plugin -- --ignored
 //! ```
+//!
+//! A library built apart (`PAPERPAW_TEST_PLUGIN`, as `tools/table-compat.sh`
+//! does) says in `PAPERPAW_TEST_TABLES` whether it was built in table mode
+//! (1) or with its own copies (0); the test checks it is so.
 
 use std::alloc::Layout;
 use std::cell::Cell;
@@ -197,12 +201,31 @@ fn a_plugin_built_apart_runs_in_the_kernel() {
         None
     );
     // A library built in table mode keeps its tables here, which the
-    // loader of a chip writes into the plugin's words.
+    // loader of a chip writes into the plugin's words. Which mode it was
+    // built in, the run says (`PAPERPAW_TEST_TABLES`: 1 table mode, 0 its
+    // own copies): a table-mode library without them would be answered by
+    // its own copies, and the probe would pass without using a table.
     // SAFETY: the static `paperpaw_table` exports in table mode, of this
     // type; not there in a library with its own copies.
-    if let Ok(tables) =
-        unsafe { library.get::<*const paperpaw_table::HostTables>(b"PAPERPAW_TABLES\0") }
-    {
+    let tables = unsafe { library.get::<*const paperpaw_table::HostTables>(b"PAPERPAW_TABLES\0") };
+    // (The library built by the steps above has its own copies.)
+    let mode = std::env::var("PAPERPAW_TEST_TABLES").ok().or_else(|| {
+        std::env::var_os("PAPERPAW_TEST_PLUGIN")
+            .is_none()
+            .then(|| "0".into())
+    });
+    match mode.as_deref() {
+        Some("1") => assert!(
+            tables.is_ok(),
+            "built in table mode, but no PAPERPAW_TABLES"
+        ),
+        Some("0") => assert!(
+            tables.is_err(),
+            "built with its own copies, but has PAPERPAW_TABLES"
+        ),
+        other => panic!("PAPERPAW_TEST_TABLES is 1 or 0 (table mode or not), not {other:?}"),
+    }
+    if let Ok(tables) = tables {
         for n in 0..paperpaw_table::FAMILIES {
             if let Some(family) = paperpaw_table::Family::of(n as u8) {
                 // SAFETY: as above.

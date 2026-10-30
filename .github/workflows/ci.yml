@@ -137,7 +137,9 @@ jobs:
       - name: The shared function tables' index and signatures are shared.list's
         # crates/paperpaw-table: src/index.rs and table.sig from shared.list
         # and the `shared!` declarations; entries only appended.
-        run: python3 tools/shared-table.py --check
+        run: |
+          python3 tools/shared-table.py --check
+          python3 -I tools/test_shared_table.py
       - name: What code plugins see changes only with the plugin interface
         # Those files, the linker script and the release's compilers, as
         # interface.txt and interface/ keep them for native::INTERFACE
@@ -401,6 +403,12 @@ jobs:
         run: |
           baseline="$(sed -e 's/#.*//' crates/paperpaw-table/table-baseline.txt | awk 'NF { print $1; exit }')"
           if [[ -z "$baseline" || "$baseline" == none ]]; then
+            # The raise commit sets the baseline: once an interface with
+            # tables is tagged, `none` would let every check pass unused.
+            if git tag -l 'interface-*' | awk -F- '$2 + 0 >= 5 { found = 1 } END { exit !found }'; then
+              echo "::error file=crates/paperpaw-table/table-baseline.txt::interface 5 or later is tagged, but the baseline is still none: set it to the raise's commit"
+              exit 1
+            fi
             echo "no interface raise with tables yet: nothing to compare"
             exit 0
           fi

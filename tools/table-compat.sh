@@ -23,7 +23,11 @@
 #
 # Before both, the baseline's list (`shared.list`, every family's lines)
 # must be a prefix of this one: entries are only added, at the end (the
-# interface test of the SDK checks the same against the blessed copy).
+# interface test of the SDK checks the same against the blessed copy), and
+# every entry added since carries a revision above its family's in the
+# baseline. At the same revision, firmware that has the family but not the
+# entry would accept a plugin built with it, and call past its table's end
+# (tools/shared-table.py --appended-to).
 #
 # The baseline needs the host table mode itself (the commit that brought
 # it, or a later one). Needs rustc, python3 and git; builds in
@@ -52,6 +56,8 @@ if ! cmp -s "$work/baseline.list" <(head -n "$(wc -l < "$work/baseline.list")" "
     exit 1
 fi
 
+python3 tools/shared-table.py --appended-to "$tree/crates/paperpaw-table/shared.list"
+
 # The plugin is a library of its own, built apart from this tree; a
 # build's -D warnings would stop at the stubs' unused code.
 echo "baseline plugin A: its own copies"
@@ -64,7 +70,9 @@ echo "baseline plugin B: host table mode"
 
 for mode in a b; do
     echo "this tree's kernel with plugin $mode"
-    PAPERPAW_TEST_PLUGIN="$work/target-$mode/$lib" \
+    # The test checks the library is in the mode it is run as.
+    tables=0; [[ $mode == b ]] && tables=1
+    PAPERPAW_TEST_TABLES=$tables PAPERPAW_TEST_PLUGIN="$work/target-$mode/$lib" \
         cargo test -q -p paperpaw-core --test native_plugin -- --ignored
 done
 echo "old plugins and this tree's firmware agree"

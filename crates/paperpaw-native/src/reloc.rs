@@ -207,6 +207,9 @@ impl<'a> Relocator<'a> {
     /// the families of shared functions get the addresses of the
     /// firmware's tables, `tables` by family number (0: the firmware has
     /// none), as the table's own address is written into `PAPERPAW_API`.
+    /// Only the families the header names get theirs: the others stay 0,
+    /// so a read the packer did not see is a clean null fault in the
+    /// plugin, not a call into a table of a revision never checked.
     pub fn apply_with(
         &self,
         at: u32,
@@ -236,7 +239,14 @@ impl<'a> Relocator<'a> {
             bytes.copy_from_slice(&self.api.to_le_bytes());
         }
         for (n, table) in tables.iter().enumerate() {
+            // The header check (`Header::read`) keeps `api + 4 * API_WORDS`
+            // from overflowing and apart from the entry.
             let word = api + 4 * (n as u32 + 1);
+            let table = if self.header.families[n] != 0 {
+                *table
+            } else {
+                0
+            };
             if (at..end).contains(&word) {
                 let i = (word - at) as usize;
                 let Some(bytes) = piece.get_mut(i..i + 4) else {
@@ -357,14 +367,30 @@ mod tests {
     fn the_family_words_get_the_tables_in_any_pieces() {
         let file = file();
         let (header, _) = Header::check_file(&file).unwrap();
+        // Families 0, 2 and 7 are named; the firmware has a table for 1 too.
+        let header = Header {
+            families: [3, 0, 1, 0, 0, 0, 0, 9],
+            ..header
+        };
         let words = [68, 72];
+        let given = [
+            0x3FC8_2000,
+            0x3FC8_2800,
+            0x3FC8_3000,
+            0,
+            0,
+            0,
+            0,
+            0x3FC8_4000,
+        ];
+        // What lands: the tables of the named families only (S1).
         let tables = [0x3FC8_2000, 0, 0x3FC8_3000, 0, 0, 0, 0, 0x3FC8_4000];
         for piece in [4, 8, 20, 128] {
             let relocator = Relocator::new(&header, &words, 0x3C80_0040, 0x3FC8_1234).unwrap();
             let mut image: Vec<u8> = file[HEADER_LEN..HEADER_LEN + 128].to_vec();
             for (i, chunk) in image.chunks_mut(piece).enumerate() {
                 relocator
-                    .apply_with((i * piece) as u32, chunk, &tables)
+                    .apply_with((i * piece) as u32, chunk, &given)
                     .unwrap();
             }
             assert_eq!(le(&image, 32), 0x3FC8_1234, "the table's word");

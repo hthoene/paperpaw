@@ -300,7 +300,13 @@ fn api_field_appended(line: &str, kept: &BTreeMap<String, &str>) -> bool {
 /// - `table.sig`: the signature of each of those functions;
 /// - `lang.list`: the scripts and regions whose index a `Lang` keeps;
 /// - `i18n.list`: the plural rules, digits and calendars whose index a
-///   catalog keeps.
+///   catalog keeps;
+/// - `crate-pins.list`: the dependencies pinned with `=` in the crates that
+///   cross (`interface/crates.txt`). Types of those crates (the fonts of
+///   `skrifa`, say) pass by value between the firmware and a plugin, and a
+///   pin moved to another version is a layout the gate cannot see, so it
+///   is an interface change. A list of lines, not of entries in order: see
+///   [`pin_set_changes`].
 fn pins() -> Option<Vec<(&'static str, String)>> {
     let lines = |text: String| -> String {
         text.lines()
@@ -331,7 +337,51 @@ fn pins() -> Option<Vec<(&'static str, String)>> {
         ("table.sig", lines(read("../paperpaw-table/table.sig")?)),
         ("lang.list", lang),
         ("i18n.list", i18n),
+        ("crate-pins.list", crate_pins()?),
     ])
+}
+
+/// `<crate> <dependency> =<version>` for every dependency pinned with `=`
+/// in the `[dependencies]` of a crate of `interface/crates.txt`.
+fn crate_pins() -> Option<String> {
+    let mut out = String::new();
+    for crate_ in crates() {
+        let manifest = read(&format!("../{crate_}/Cargo.toml"))?;
+        let mut part = "";
+        for line in manifest.lines() {
+            let line = line.trim();
+            if line.starts_with('[') {
+                part = line;
+            } else if part == "[dependencies]" || part.ends_with(".dependencies]") {
+                let Some((name, spec)) = line.split_once('=') else {
+                    continue;
+                };
+                let Some(at) = spec.find("\"=") else {
+                    continue;
+                };
+                let version: String = spec[at + 1..].chars().take_while(|c| *c != '"').collect();
+                out.push_str(&format!("{crate_} {} {version}\n", name.trim()));
+            }
+        }
+    }
+    Some(out)
+}
+
+/// What changed in `crate-pins.list` from `kept` to `now`: a pin gone or
+/// moved is breaking (the types of that crate may lie otherwise); a pin
+/// added is new. The lines are a set: the crates' order does not matter.
+fn pin_set_changes(name: &str, kept: &str, now: &str) -> Changes {
+    let mut out = Changes::default();
+    let now_lines: BTreeSet<&str> = now.lines().collect();
+    for line in kept.lines().filter(|l| !now_lines.contains(l)) {
+        out.breaking
+            .push(format!("{name}: a pin changed or is gone: {line}"));
+    }
+    let kept_lines: BTreeSet<&str> = kept.lines().collect();
+    for line in now.lines().filter(|l| !kept_lines.contains(l)) {
+        out.new.push(format!("{name}: a pin added: {line}"));
+    }
+    out
 }
 
 /// What changed in a pinned list from `kept` to `now`: breaking where
@@ -463,6 +513,48 @@ fn only_what_the_table_list_derives_may_change_in_the_table_index() {
         "paperpaw-table",
         "const paperpaw_table::FAMILIES"
     ));
+}
+
+#[test]
+fn a_pin_of_a_crossing_crate_moved_is_an_interface_change() {
+    let kept = "paperpaw-text skrifa =0.48.0\npaperpaw-zip miniz_oxide =0.9.1\n";
+    // The same pins in another order: nothing.
+    let same = pin_set_changes(
+        "p",
+        kept,
+        "paperpaw-zip miniz_oxide =0.9.1\npaperpaw-text skrifa =0.48.0\n",
+    );
+    assert!(same.breaking.is_empty() && same.new.is_empty());
+    // A version moved: breaking.
+    let moved = pin_set_changes(
+        "p",
+        kept,
+        "paperpaw-text skrifa =0.49.0\npaperpaw-zip miniz_oxide =0.9.1\n",
+    );
+    assert_eq!(moved.breaking.len(), 1);
+    assert!(moved.breaking[0].contains("skrifa =0.48.0"));
+    // A pin gone: breaking. A pin added: new.
+    assert_eq!(
+        pin_set_changes("p", kept, "paperpaw-zip miniz_oxide =0.9.1\n")
+            .breaking
+            .len(),
+        1
+    );
+    let added = pin_set_changes("p", kept, &format!("{kept}paperpaw-xml quick =1.0.0\n"));
+    assert!(added.breaking.is_empty());
+    assert_eq!(added.new.len(), 1);
+}
+
+#[test]
+fn the_pins_of_the_crossing_crates_are_found() {
+    let found = crate_pins().expect("inside the repository");
+    assert!(
+        found
+            .lines()
+            .any(|l| l.starts_with("paperpaw-text skrifa =")),
+        "{found}"
+    );
+    assert!(found.lines().all(|l| l.split(' ').count() == 3), "{found}");
 }
 
 #[test]
@@ -667,7 +759,11 @@ fn what_plugins_see_changes_only_with_the_interface() {
     }
     for (name, now) in pins().unwrap_or_default() {
         let kept = read(&format!("interface/{name}")).unwrap_or_default();
-        let found = pin_changes(name, &kept, &now);
+        let found = if name == "crate-pins.list" {
+            pin_set_changes(name, &kept, &now)
+        } else {
+            pin_changes(name, &kept, &now)
+        };
         all.breaking.extend(found.breaking);
         all.new.extend(found.new);
         files.push((format!("interface/{name}"), now));

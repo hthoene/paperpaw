@@ -64,13 +64,33 @@ fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
     // addresses inside `core` and `alloc` are named the same way).
     let _ = write!(cut, " @");
     let mut last = 0;
-    let mut in_plugin = false;
     // A plugin that panicked itself (through its table's `panic`) is
-    // blamed; so is a fault in its own code. A panic in the firmware's
-    // code that a plugin called, a shared function, is the firmware's bug
-    // (no panics on bad input): the plugin is named as the caller, and not
-    // blamed, so a boot loop there ends in safe mode for all plugins.
-    let own = crate::native::api::panic_is_a_plugins();
+    // blamed. So is one that faulted in its own code: esp-hal reports a
+    // CPU fault through this same handler, without the plugin's flag, so
+    // the faulting address (`mepc`) says whose code it was. A panic in the
+    // firmware's code that a plugin called, a shared function, is the
+    // firmware's bug (no panics on bad input): the plugin is named as the
+    // caller, and not blamed, so a boot loop there ends in safe mode for
+    // all plugins.
+    let from_exception = info
+        .location()
+        .is_some_and(|at| paperpaw_x4::blame::is_exception(at.file()));
+    let mut fault_in_plugin = false;
+    if let Some(pc) = fault_address().filter(|_| from_exception) {
+        crate::native::attribute(pc, &mut |id, offset| {
+            fault_in_plugin = true;
+            let _ = write!(cut, " fault at {pc:x} ({id}+{offset:#x})");
+            // Its own code faulted (`is_plugins_own`): it is the one.
+            crate::safe_mode::crashed_in(id);
+        });
+    }
+    let own = paperpaw_x4::blame::is_plugins_own(
+        crate::native::api::panic_is_a_plugins(),
+        from_exception,
+        fault_in_plugin,
+    );
+    // The faulting plugin is named already.
+    let mut in_plugin = fault_in_plugin;
     for frame in esp_backtrace::Backtrace::capture()
         .frames()
         .iter()
@@ -99,6 +119,22 @@ fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
     // SAFETY: one core, the firmware stopped: nothing else touches it.
     unsafe { core::ptr::addr_of_mut!(LAST).write_volatile(buf) };
     esp_hal::system::software_reset()
+}
+
+/// The instruction that faulted: `mepc` is still its address inside the
+/// exception handler's panic (nothing has trapped since). Only the RISC-V
+/// chips have it; the X4 Pro's plugins carry no native code.
+#[cfg(target_arch = "riscv32")]
+fn fault_address() -> Option<u32> {
+    let pc: u32;
+    // SAFETY: reads a machine-mode CSR; no memory is touched.
+    unsafe { core::arch::asm!("csrr {}, mepc", out(reg) pc, options(nomem, nostack)) };
+    Some(pc)
+}
+
+#[cfg(not(target_arch = "riscv32"))]
+fn fault_address() -> Option<u32> {
+    None
 }
 
 /// Where panics are kept on the card, for bug reports: a line each, the
