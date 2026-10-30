@@ -92,6 +92,8 @@ pub struct Firmware {
 pub struct State {
     /// The kernel asked to sleep.
     sleep: bool,
+    /// The kernel asked to switch the device off (`Effect::PowerOff`).
+    power_off: bool,
     /// When the kernel wants to be woken.
     wake_at: Option<Instant>,
     /// When the battery was read last.
@@ -229,8 +231,10 @@ impl Firmware {
             self.restart();
         }
         let installing = self.installing();
-        if self.state.sleep && !installing {
-            return self.sleep();
+        match paperpaw_x4::sleeping::wanted(self.state.sleep, self.state.power_off, installing) {
+            Some(paperpaw_x4::sleeping::Wanted::SwitchOff) => return self.sleep(false),
+            Some(paperpaw_x4::sleeping::Wanted::Sleep) => return self.sleep(true),
+            None => {}
         }
         power::feed();
         power::mark(power::at::LOOP);
@@ -487,7 +491,12 @@ impl Firmware {
             };
             // What cannot wait for the next input: a restart, sleep, the
             // busy mark's work, a frame in grays.
-            if effects.restart() || effects.sleep() || effects.proceed() || effects.grays() {
+            if effects.restart()
+                || effects.sleep()
+                || effects.power_off()
+                || effects.proceed()
+                || effects.grays()
+            {
                 self.apply(effects);
             } else {
                 waiting = Some(effects);
@@ -624,8 +633,12 @@ impl Firmware {
     /// sleeps: its power is cut where possible, otherwise the processor
     /// enters deep sleep. The power button starts it again where it was.
     /// USB or a charging indication must not keep a sleeping reader awake.
+    /// `lightly`: a real sleep first, switched off after a while (#51); not
+    /// where a plugin asked to switch off (`Effect::PowerOff`): the power
+    /// goes at once, the next start is a cold one. Either way plugins have
+    /// heard `core.suspend` and saved first.
     #[inline(never)]
-    fn sleep(&mut self) {
+    fn sleep(&mut self, lightly: bool) {
         self.settle_frame();
         // A press over USB that put it to sleep is let go first.
         #[cfg(feature = "remote")]
@@ -642,6 +655,7 @@ impl Firmware {
             // A press meanwhile: awake after all.
             info!("sleep: a press, awake");
             self.state.sleep = false;
+            self.state.power_off = false;
             if let Some(ota) = &mut self.ota {
                 ota.resume_trial(now().0);
             }
@@ -651,9 +665,11 @@ impl Firmware {
         // A real sleep first (the processor lightly asleep, the power button
         // waking it at once), switched off only after a while (#51).
         #[cfg(feature = "esp32c3")]
-        if self.sleep_lightly() {
+        if lightly && self.sleep_lightly() {
             return;
         }
+        #[cfg(not(feature = "esp32c3"))]
+        let _ = lightly;
         self.power_off()
     }
 
@@ -790,6 +806,7 @@ impl Firmware {
             // A redraw or deferred work can replace these effects. Keep
             // the one-shot sleep request before taking either path.
             self.state.sleep |= effects.sleep();
+            self.state.power_off |= effects.power_off();
             // Anything but a paced frame waits for the one on its way.
             let paced = effects.refresh().is_some_and(|(_, mode)| self.paced(mode))
                 && !effects.restart()

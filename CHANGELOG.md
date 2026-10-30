@@ -25,6 +25,9 @@ change the plugin SDK.
   (it uses a little battery all the time, and still switches off when the battery is nearly empty). While it
   charges it stays asleep. *Sleep lightly on battery* (developer group) off, or the choice *At once*, is the old way.
   The X4 Pro and X4 Classic sleep as before. Not yet tested on a device.
+- X4, X3, X4 Pro and X4 Classic: a plugin may ask to switch the reader off (`Command::PowerOff`, where the device allows
+  it): plugins save as for a sleep, then the power goes at once, without the light sleep before. Not yet tested on a
+  device.
 - **Plugin interface 5** (in progress; every code plugin is built anew
   for it). Plugin files are of format 4: the header (116 bytes) says the
   plugin interface a plugin was built for, how much of the firmware's

@@ -703,7 +703,11 @@ fn kernel(
         .row_align(8)
         // The panel takes bands turned any way (`display`).
         .rotation(true)
-        .sleep(true);
+        .sleep(true)
+        // A plugin may ask to switch the device off (`Command::PowerOff`);
+        // `slept_for` stays unknown after a switch-off: the card keeps no
+        // clock, so plugins hear no time asleep for such a start.
+        .power_off(true);
     // The X4's row of hints under the screen (the X4 Classic has its
     // buttons); the X4 Pro is touched.
     #[cfg(feature = "x4")]
