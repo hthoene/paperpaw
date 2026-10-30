@@ -57,3 +57,20 @@ Keep version, toolchain, target, flags and ABI separation in any future
 cache work. Measure restore/save overhead and eviction before caching more
 compiled data. A restored artifact never replaces executing the tests,
 Clippy, security checks or reproducibility comparisons.
+
+## Fewer runs
+
+GitHub Actions minutes are limited, so a run is only started when its
+result is wanted:
+
+- A newer push to the same branch or pull request cancels the run before it
+  (`concurrency` in `ci.yml`, `codeql.yml`); `main` always finishes.
+- Changes only to `docs/`, `CHANGELOG.md`, `README.md`, `CONTRIBUTING.md`,
+  `AGENTS.md` or `.claude/` start no CI run.
+- A draft pull request starts no CI job. Mark it ready for review to run
+  them (`ready_for_review` starts a run).
+- A pull request runs the emulator on Linux only; Windows and macOS run on
+  `main` and `integration`. The fuzz job runs on pushes to `main` and
+  `integration`, not on pull requests.
+- CodeQL scans a pull request only when it changes `.github/`, JavaScript or
+  TypeScript; it scans `main` on every push and every Monday.

@@ -3,7 +3,28 @@ name: CI
 on:
   push:
     branches: [main, integration]
+    paths-ignore:
+      - "docs/**"
+      - "CHANGELOG.md"
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "AGENTS.md"
+      - ".claude/**"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - "docs/**"
+      - "CHANGELOG.md"
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "AGENTS.md"
+      - ".claude/**"
+
+# A newer push to the same branch or PR cancels the run before it; main keeps
+# a full result for every commit.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -15,6 +36,7 @@ env:
 jobs:
   check:
     name: Format, lint, test
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -41,6 +63,7 @@ jobs:
 
   screens:
     name: Screens checked (paperpaw-dev)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -62,6 +85,7 @@ jobs:
 
   msrv:
     name: Oldest Rust
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -75,6 +99,7 @@ jobs:
 
   sdk:
     name: SDK compatibility
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     env:
       # rustdoc's JSON output, for the API file; pinned so that it reads
@@ -117,6 +142,7 @@ jobs:
 
   embedded:
     name: no_std targets
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -148,6 +174,7 @@ jobs:
 
   firmware:
     name: Firmware (${{ matrix.device }})
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -261,6 +288,7 @@ jobs:
   # or no device was tested (tools/ci/update-path.sh).
   update-path:
     name: Update path (this build's installer, from the release before's image)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     needs: [firmware]
     runs-on: ubuntu-latest
     steps:
@@ -284,6 +312,7 @@ jobs:
 
   native:
     name: Native plugins
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -348,6 +377,7 @@ jobs:
 
   architecture:
     name: Architecture rules
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -390,10 +420,12 @@ jobs:
 
   emulator:
     name: Emulator (${{ matrix.os }})
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # A PR runs Linux; Windows and macOS run on main and integration.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","windows-latest","macos-latest"]') }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -444,6 +476,7 @@ jobs:
 
   android:
     name: Android APK
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -468,6 +501,8 @@ jobs:
 
   fuzz:
     name: Fuzz parsers
+    # The long run on main and integration; a PR gets it when it merges.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -495,6 +530,7 @@ jobs:
 
   deny:
     name: Licenses and advisories
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
