@@ -419,6 +419,7 @@ fn battery() -> (u8, u16) {
 /// not be read: never the last one kept, which a failing reading would
 /// leave in place for good (a sleeping reader must notice a battery it
 /// cannot read).
+#[cfg(feature = "esp32c3")]
 pub fn percent_now() -> Option<u8> {
     let (percent, millivolts) = with_keys(Keys::battery).flatten()?;
     if millivolts == 0 {
