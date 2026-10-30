@@ -40,6 +40,13 @@ change the plugin SDK.
   of the families of shared functions and a build name, and grows at its
   end from now on without a new interface. `paperpaw-plugin.x` makes a
   word per family of shared functions (`PAPERPAW_TABLE_0` to `_7`).
+- Plugin interface 5, the plugins' side: each of the first-party code
+  plugins that the store offers (33 of them besides the ones that had a
+  newer version already) has a newer version, so that a device fetches
+  its interface-5 build as an update; until then its old build waits
+  with "Built for an older PaperPaw: update it in the store" in the
+  plugin list. Data plugins carry no code and keep their versions. The
+  texts of these two messages are in English and German.
 - Plugin interface 5: types that grow later are `#[non_exhaustive]` and
   are built with `new` and `with_*` (e.g. `Run::new`, `LineRun::new`,
   `DeviceInfo::new`, `PluginInfo::new`, `Mark::new`); the SDK's event
