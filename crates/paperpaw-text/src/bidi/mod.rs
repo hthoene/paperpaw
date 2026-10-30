@@ -3,18 +3,18 @@
 //!
 //! It works without allocation and without a buffer for the paragraph.
 //! A layout resolves a paragraph's levels ([`resolve`]), gives each
-//! line's ends the paragraph's level (rule L1, [`reset_line_end`]) and
+//! line's ends the paragraph's level (rule L1) and
 //! draws its runs in the order the levels give (rule L2,
-//! [`visual_order`]), characters with mirrors mirrored ([`mirror`]) at
+//! [`visual_order`]), characters with mirrors mirrored at
 //! odd levels.
 //!
 //! The test `the_example` resolves a paragraph and puts it in visual order.
 //!
 //! Limits, chosen for small devices and stated by UAX #9 as allowed
-//! deviations of the depth: at most [`DEPTH`] embeddings and isolates are
+//! deviations of the depth: at most 8 embeddings and isolates are
 //! open at once (deeper ones count as overflow, as past level 125 in the
-//! standard), at most [`ISOLATES`] isolates with a matching PDI nest, and
-//! at most [`BRACKETS`] brackets are open in a paragraph (more stop the
+//! standard), at most 4 isolates with a matching PDI nest, and
+//! at most 16 brackets are open in a paragraph (more stop the
 //! pairing of brackets, as past 63 in the standard).
 
 #[rustfmt::skip]
