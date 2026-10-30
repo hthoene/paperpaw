@@ -670,7 +670,6 @@ impl paperpaw_fat::Blocks for Flaky {
     }
 }
 
-use paperpaw_fat::Blocks as _;
 
 /// On the card `image`, a first call (`first`) that fails at its `k`-th
 /// block read or written, the card sound again, then `after` on the same
