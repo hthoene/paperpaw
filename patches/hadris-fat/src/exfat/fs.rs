@@ -1,3 +1,5 @@
+use alloc::string::String;
+use alloc::vec::Vec;
 use core::fmt;
 
 use hadris_fs::Extent as FileExtent;
@@ -274,6 +276,34 @@ pub(super) fn parse_set(entries: &[RawEntry]) -> bool {
             let count = 1 + primary[1] as usize;
             raw::set_checksum(&entries[..count]) == le16(primary, 2)
         })
+}
+
+/// Modified for PaperPaw: what [`ExFatFs::sweep`] did in a folder.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Swept {
+    /// How many entry sets and entries were changed.
+    pub changed: u32,
+    /// The names of the entry sets sealed again.
+    pub sealed: Vec<String>,
+    /// How many entry sets with a bad checksum were left as they are,
+    /// their stream entry not being possible on this volume.
+    pub left: u32,
+}
+
+/// The name a File entry set holds (its first 255 units, as far as it is
+/// text).
+fn set_name(set: &Set) -> String {
+    let len = set.raw[1][3] as usize;
+    let mut units: Vec<u16> = Vec::with_capacity(len);
+    for entry in &set.raw[2..set.count] {
+        for unit in 0..raw::NAME_UNITS_PER_ENTRY {
+            if units.len() == len {
+                break;
+            }
+            units.push(le16(entry, 2 + unit * 2));
+        }
+    }
+    String::from_utf16_lossy(&units)
 }
 
 /// Modified for PaperPaw: whether `entries` start with a File entry set
@@ -3342,14 +3372,23 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// as it stands: its clusters were taken before it named them. A
     /// secondary entry no File entry holds (a set cut off between its
     /// blocks in a removal or an insertion) is marked unused. A File entry
-    /// that cannot be sealed is left as it is. Returns how many entry
-    /// sets and entries were changed.
-    pub async fn sweep(&mut self, dir: NodeId) -> FsResult<u32, D::Error> {
+    /// that cannot be sealed is left as it is. Returns what was changed
+    /// (see [`Swept`]).
+    ///
+    /// A set is sealed again only if its stream entry can be true on this
+    /// volume (see `plausible_stream`): a cut of PaperPaw's own leaves such
+    /// sets (its clusters are taken before a set names them), but a set
+    /// with a bad checksum written by another system, or damaged by bit
+    /// rot, may name free clusters or those of another file, and sealing
+    /// it would let the next write take them. Such a set is left as it
+    /// is, as before the sweep, and counted in `Swept::left`.
+    pub async fn sweep(&mut self, dir: NodeId) -> FsResult<Swept, D::Error> {
         self.prepare().await?;
         let (start, _) = self.dir_info(dir).await?;
         let mut walk = walk(start);
         let mut slot = 0u32;
         let mut changed = 0;
+        let mut swept = Swept::default();
         while let Some(offset) = self.slot_offset(&mut walk, slot).await? {
             let mut entry = [0u8; ENTRY_SIZE];
             self.get_bytes(offset, &mut entry).await?;
@@ -3363,8 +3402,14 @@ impl<D: BlockDevice> ExFatFs<D> {
                         continue;
                     }
                     if set.count == held as usize && shaped_set(&set.raw[..set.count]) {
-                        self.reseal(&mut set).await?;
-                        changed += 1;
+                        let stream = set.raw[1];
+                        if self.plausible_stream(&stream).await? {
+                            self.reseal(&mut set).await?;
+                            changed += 1;
+                            swept.sealed.push(set_name(&set));
+                        } else {
+                            swept.left += 1;
+                        }
                     }
                     // Its entries are its own, sealed or not.
                     slot += held.max(1);
@@ -3378,7 +3423,39 @@ impl<D: BlockDevice> ExFatFs<D> {
                 _ => slot += 1,
             }
         }
-        Ok(changed)
+        swept.changed = changed;
+        Ok(swept)
+    }
+
+    /// Modified for PaperPaw: whether a stream entry can be true on this
+    /// volume: its lengths are possible (`ValidDataLength` not beyond
+    /// `DataLength`, which does not exceed the cluster heap), and its data
+    /// starts at a cluster of the heap that the allocation bitmap marks
+    /// used (a contiguous run also ends in the heap); no data is a length
+    /// of nothing.
+    async fn plausible_stream(&mut self, stream: &RawEntry) -> FsResult<bool, D::Error> {
+        let first = le32(stream, 20);
+        let len = le64(stream, 24);
+        let valid = le64(stream, 8);
+        let geometry = self.vol.geometry();
+        let size = u64::from(geometry.cluster_size());
+        let heap = u64::from(geometry.cluster_count()).saturating_mul(size);
+        if valid > len || len > heap {
+            return Ok(false);
+        }
+        if first == 0 {
+            return Ok(len == 0);
+        }
+        if !geometry.is_cluster(first) {
+            return Ok(false);
+        }
+        if stream[1] & raw::NO_FAT_CHAIN != 0 {
+            let last = u64::from(first) + len.div_ceil(size.max(1)).max(1) - 1;
+            if u32::try_from(last).map_or(true, |last| !geometry.is_cluster(last)) {
+                return Ok(false);
+            }
+        }
+        self.bit(first).await
     }
 
     /// Modified for PaperPaw: writes `set` again with its name hash and

@@ -266,6 +266,9 @@ pub struct ExFatStorage<B: Blocks + 'static> {
     settled: RefCell<Vec<u64>>,
     /// The journal of moves was looked at since the mount.
     moves_settled: Cell<bool>,
+    /// Entry sets with a bad checksum that were left as they are, their
+    /// clusters not being possible on this card (see `ExFatFs::sweep`).
+    left_alone: Cell<u32>,
 }
 
 impl<B: Blocks + 'static> core::fmt::Debug for ExFatStorage<B> {
@@ -289,7 +292,16 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
             folders: RefCell::new(Vec::new()),
             settled: RefCell::new(Vec::new()),
             moves_settled: Cell::new(false),
+            left_alone: Cell::new(0),
         })
+    }
+
+    /// How many entry sets with a bad checksum the settling of folders left
+    /// as they are since the mount: another system's damage (a cut, bit
+    /// rot) that PaperPaw does not mend; a computer's check of the card
+    /// does.
+    pub fn left_alone(&self) -> u32 {
+        self.left_alone.get()
     }
 
     /// Writes back the disk's changed blocks.
@@ -573,7 +585,13 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
             return Ok(());
         }
         self.settle_names(node)?;
-        self.settled.borrow_mut().push(key);
+        // The latest only: settling is idempotent, so a folder forgotten
+        // costs a look at its entries when it is next opened.
+        let mut settled = self.settled.borrow_mut();
+        if settled.len() >= crate::SETTLED {
+            settled.remove(0);
+        }
+        settled.push(key);
         Ok(())
     }
 
@@ -583,6 +601,8 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
         // Entry sets a cut left torn, sealed or let go (see
         // `ExFatFs::sweep`, added for PaperPaw).
         let swept = self.fs.borrow_mut().sweep(node).map_err(error)?;
+        self.left_alone
+            .set(self.left_alone.get().saturating_add(swept.left));
         let mut files: Vec<String> = Vec::new();
         self.each(node, &mut |name, _, _| {
             if let Some((file, _)) = temp_of(name)
@@ -592,13 +612,15 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
             }
         })?;
         for file in files {
-            self.settle(node, &file, swept > 0)?;
+            let torn = swept.sealed.iter().any(|name| same_path(name, &file));
+            self.settle(node, &file, torn)?;
         }
         self.write_back()
     }
 
     /// Settles the names a write of `file` in `dir` went through. `torn`:
-    /// the folder had entry sets a cut left torn (and sealed again).
+    /// the entry set of `file` itself was left torn by a cut (and sealed
+    /// again), not another file's.
     fn settle(&self, dir: NodeId, file: &str, torn: bool) -> Result2<()> {
         let tmp = format!("{file}{TMP}");
         let fs_unlink = |name: &str, keep: bool| -> Result2<()> {
