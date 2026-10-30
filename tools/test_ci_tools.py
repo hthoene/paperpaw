@@ -156,5 +156,113 @@ fi
         self.assertFalse((self.root / "env").exists())
 
 
+class UpdatePath(unittest.TestCase):
+    """tools/ci/update-path.sh with a release list, `gh`, `paperpaw-sign`
+    and the test replaced: a job that tested nothing must not be green."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = pathlib.Path(self.directory.name)
+        self.release = self.root / "release"
+        self.release.mkdir()
+        self.images = self.root / "images"
+        self.work = self.root / "work"
+        self.log = self.root / "tested"
+        self.tags = ["v0.5.0-beta.11", "v0.4.0", "v9.9.9"]
+        for device in ("x4", "x3", "x4-pro", "x4-classic"):
+            image = self.images / f"install-image-{device}"
+            image.mkdir(parents=True)
+            (image / "install.bin").write_bytes(b"image")
+
+    def asset(self, device, tag="0.5.0-beta.11"):
+        name = f"paperpaw-{device}-{tag}-update.bin"
+        (self.release / name).write_bytes(b"old " + device.encode())
+        digest = hashlib.sha256((self.release / name).read_bytes()).hexdigest()
+        (self.release / (name + ".sha256")).write_text(f"{digest}  {name}\n")
+
+    def tool(self, name, text):
+        path = self.root / name
+        path.write_text("#!/bin/sh\n" + text)
+        path.chmod(0o755)
+        return path
+
+    def run_job(self, test="true"):
+        gh = self.tool("gh", f"""
+if [ "$1 $2" = "release list" ]; then printf '%s\\n' {" ".join(self.tags)}; exit 0; fi
+if [ "$1 $2" = "release download" ]; then
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -D) dir=$2; shift 2 ;;
+      -p) f="{self.release}/$2"; [ -f "$f" ] || exit 1; cp "$f" "$dir/"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  exit 0
+fi
+exit 2
+""")
+        sign = self.tool("sign", """
+if [ "$1" = key ]; then echo secret > "$2"; echo "public key:  abcd"; exit 0; fi
+if [ "$1" = sign ]; then cp "$2" "$3"; exit 0; fi
+exit 2
+""")
+        run = self.tool("run-test", f'echo "$PAPERPAW_UPDATE_DEVICE" >> {self.log}\n{test}\n')
+        return subprocess.run(
+            [str(HERE / "ci" / "update-path.sh"), str(self.images), str(self.work)],
+            env={**os.environ, "GH": str(gh), "SIGN": str(sign), "UPDATE_PATH_TEST": str(run)},
+            capture_output=True, text=True,
+        )
+
+    def devices_run(self):
+        return self.log.read_text().split() if self.log.exists() else []
+
+    def test_every_device_with_an_update_is_tested(self):
+        for device in ("x4", "x3", "x4-pro", "x4-classic"):
+            self.asset(device)
+        result = self.run_job()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.devices_run(), ["x4", "x3", "x4-pro", "x4-classic"])
+
+    def test_devices_added_after_the_release_are_only_warned_about(self):
+        self.asset("x4")
+        result = self.run_job()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.devices_run(), ["x4"])
+        self.assertIn("::warning::v0.5.0-beta.11 has no update for the x3", result.stdout)
+
+    def test_no_update_of_any_device_fails(self):
+        result = self.run_job()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("::error::", result.stdout)
+        self.assertEqual(self.devices_run(), [])
+
+    def test_a_missing_x4_update_fails_though_the_others_are_there(self):
+        for device in ("x3", "x4-pro", "x4-classic"):
+            self.asset(device)
+        result = self.run_job()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no update for the x4", result.stdout)
+        self.assertEqual(self.devices_run(), [])
+
+    def test_a_failing_test_fails(self):
+        self.asset("x4")
+        self.assertNotEqual(self.run_job(test="exit 1").returncode, 0)
+
+    def test_a_damaged_download_fails(self):
+        self.asset("x4")
+        (self.release / "paperpaw-x4-0.5.0-beta.11-update.bin").write_bytes(b"changed")
+        result = self.run_job()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.devices_run(), [])
+
+    def test_no_release_before_fails(self):
+        self.tags = ["v9.9.9"]
+        self.asset("x4")
+        result = self.run_job()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no release of PaperPaw before", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

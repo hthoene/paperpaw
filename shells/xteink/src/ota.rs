@@ -54,23 +54,33 @@ const BOARD_TAG: &str = "x4c";
 pub type Flash = alloc::rc::Rc<core::cell::RefCell<FlashStorage<'static>>>;
 
 /// The flash as `paperpaw_x4::updates` reads and writes it, in the chip's
-/// addresses.
+/// addresses. A handle somebody else holds is a flash error, never a
+/// panic: a panic before the trial mark would repeat on every start.
 struct Chip(Flash);
 
 impl ota::Flash for Chip {
     fn read(&mut self, at: u32, buf: &mut [u8]) -> Result<(), FlashError> {
-        self.0.borrow_mut().read(at, buf).map_err(|_| FlashError)
+        self.0
+            .try_borrow_mut()
+            .map_err(|_| FlashError)?
+            .read(at, buf)
+            .map_err(|_| FlashError)
     }
 
     fn program(&mut self, at: u32, data: &[u8]) -> Result<(), FlashError> {
         self.0
-            .borrow_mut()
+            .try_borrow_mut()
+            .map_err(|_| FlashError)?
             .write_nor(at, data)
             .map_err(|_| FlashError)
     }
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), FlashError> {
-        self.0.borrow_mut().erase(from, to).map_err(|_| FlashError)
+        self.0
+            .try_borrow_mut()
+            .map_err(|_| FlashError)?
+            .erase(from, to)
+            .map_err(|_| FlashError)
     }
 }
 
@@ -85,7 +95,11 @@ impl Ota {
     // A frame of its own, off the stack before the kernel is built.
     #[inline(never)]
     pub fn start(shared: Flash) -> Option<Self> {
-        let Some(Partitions { slots, running }) = partitions_of(&mut shared.borrow_mut()) else {
+        let Some(Partitions { slots, running }) = shared
+            .try_borrow_mut()
+            .ok()
+            .and_then(|mut flash| partitions_of(&mut flash))
+        else {
             warn!("OTA: no partitions for updates");
             return None;
         };

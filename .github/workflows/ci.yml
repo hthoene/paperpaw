@@ -247,8 +247,20 @@ jobs:
   # and a damaged update, a download cut short, one too large and a trial
   # that fails, none of which may take the device's firmware. `check`
   # runs the same test with images made in it.
+  #
+  # What it proves: the release before's image parses and boots as the
+  # running firmware, and this build's installer
+  # (crates/paperpaw-x4/src/updates.rs) accepts and installs this build's
+  # file. What it does not: that the release before's own installer
+  # installs this build's file, as devices in the field will do. From the
+  # first release that contains `paperpaw_x4::updates`, add a step that
+  # checks out the previous tag's `crates/paperpaw-x4` (git worktree) and
+  # runs that tag's installer on this run's file; the harness takes the
+  # run's key as a built-in key, so the old code needs only that hook.
+  # The job fails when the x4's update is missing from the release before
+  # or no device was tested (tools/ci/update-path.sh).
   update-path:
-    name: Update path (the release before to this build)
+    name: Update path (this build's installer, from the release before's image)
     needs: [firmware]
     runs-on: ubuntu-latest
     steps:
@@ -265,46 +277,10 @@ jobs:
         run: |
           cargo build -q --release -p paperpaw-sign
           cargo test -q --release -p paperpaw-x4 --test update_path --no-run
-      - name: Each device from the release before
+      - name: Each device, from the release before's image
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          dir="$RUNNER_TEMP/update-path"
-          mkdir -p "$dir"
-          version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
-          # The newest release of PaperPaw older than this version.
-          before="$(gh release list -R "$GITHUB_REPOSITORY" --exclude-drafts --limit 100 \
-            --json tagName --jq '.[].tagName' | python3 -c '
-          import sys
-          sys.path.insert(0, "tools/plugin-files")
-          from versions import semver
-          now = semver(sys.argv[1])
-          tags = [t.strip() for t in sys.stdin if t[:1] == "v" and t[1:2].isdigit()]
-          older = [t for t in tags if semver(t[1:]) < now]
-          print(max(older, key=lambda t: semver(t[1:])) if older else "")
-          ' "$version")"
-          if [[ -z "$before" ]]; then
-            echo "::error::no release of PaperPaw before $version"
-            exit 1
-          fi
-          target/release/paperpaw-sign key "$dir/run.key" > "$dir/run.txt"
-          key="$(awk '/^public key:/ { print $3 }' "$dir/run.txt")"
-          for device in x4 x3 x4-pro x4-classic; do
-            old="paperpaw-$device-${before#v}-update.bin"
-            if ! gh release download "$before" -R "$GITHUB_REPOSITORY" -D "$dir" --clobber \
-                -p "$old" -p "$old.sha256"; then
-              echo "::warning::$before has no update for the $device: its path is not tested"
-              continue
-            fi
-            (cd "$dir" && sha256sum -c "$old.sha256")
-            target/release/paperpaw-sign sign "$RUNNER_TEMP/images/install-image-$device/install.bin" \
-              "$dir/$device-new.bin" --key "$dir/run.key"
-            echo "::group::$device: $before to this build"
-            PAPERPAW_UPDATE_DEVICE="$device" PAPERPAW_UPDATE_OLD="$dir/$old" \
-              PAPERPAW_UPDATE_NEW="$dir/$device-new.bin" PAPERPAW_UPDATE_KEY="$key" \
-              cargo test -q --release -p paperpaw-x4 --test update_path
-            echo "::endgroup::"
-          done
+        run: tools/ci/update-path.sh "$RUNNER_TEMP/images" "$RUNNER_TEMP/update-path"
 
   native:
     name: Native plugins

@@ -969,6 +969,87 @@ fn an_update_that_fails_its_trial_is_undone() {
     }
 }
 
+/// Sleep and restarts during a trial add up: the trial is over only when
+/// the firmware has run [`TRIAL_MS`] in all, not once for each start.
+#[test]
+fn sleep_during_a_trial_keeps_its_time() {
+    for files in Files::all() {
+        let name = files.board.name;
+        let mut device = Device::flashed(&files, &files.old);
+        device.server.updates = vec![files.new.clone()];
+        let shown = device.update_online();
+        assert!(shown.contains("Update installed"), "{name}: {shown}");
+        device.run_for(3_000);
+        device.restart();
+        assert_eq!(device.running(), 1, "{name}");
+        assert!(device.updates.as_ref().unwrap().on_trial(), "{name}");
+        // 18 s, asleep, 7 s: about 25 s in all (the loop's own steps add
+        // a little), still on trial.
+        device.run_for(18_000);
+        device.restart();
+        assert!(device.updates.as_ref().unwrap().on_trial(), "{name}");
+        device.run_for(7_000);
+        assert!(device.updates.as_ref().unwrap().on_trial(), "{name}: 25 s");
+        device.restart();
+        assert_eq!(device.running(), 1, "{name}");
+        assert!(device.updates.as_ref().unwrap().on_trial(), "{name}");
+        // Six seconds more make 31: kept (a trial counted from each start
+        // would still have 24 s to go).
+        device.run_for(6_000);
+        assert!(!device.updates.as_ref().unwrap().on_trial(), "{name}: 31 s");
+        device.restart();
+        assert_eq!(device.running(), 1, "{name}: kept");
+        assert!(!device.updates.as_ref().unwrap().on_trial(), "{name}");
+        assert!(device.untouched(), "{name}");
+    }
+}
+
+/// The way back to another firmware (CrossPoint): its image, which the
+/// reader chose as such, is written whole into the other half and the
+/// bootloader would start it. The wiring takes chip and board from
+/// `Updates`, not constants.
+#[test]
+fn another_firmwares_image_installs_and_would_start() {
+    for files in Files::all() {
+        let name = files.board.name;
+        let mut device = Device::flashed(&files, &files.old);
+        let other = Board {
+            project: "crosspoint-reader",
+            ..files.board
+        };
+        let image = app_image(&other, "1.2.3", &[], 40_000);
+        device.card.write("crosspoint.bin", &image).unwrap();
+        let card = device.card.clone();
+        let updates = device.updates.as_mut().unwrap();
+        let (installing, what) = updates.begin_foreign(&card, "crosspoint.bin").unwrap();
+        assert_eq!(installing.len as usize, image.len(), "{name}");
+        assert_eq!(what, "crosspoint-reader 1.2.3", "{name}");
+        let mut last = None;
+        for _ in 0..1_000 {
+            match updates.step(&card) {
+                Some(FirmwareState::Installed) => {
+                    last = Some(FirmwareState::Installed);
+                    break;
+                }
+                Some(FirmwareState::Failed(why)) => panic!("{name}: {why:?}"),
+                _ => {}
+            }
+        }
+        assert_eq!(last, Some(FirmwareState::Installed), "{name}");
+        // The old firmware stays in its half; the image is in the other.
+        assert!(device.holds(0, &files.old), "{name}");
+        let flash = &device.updates.as_ref().unwrap().flash().0;
+        let (at, _) = device.slots.apps[1];
+        assert_eq!(&flash[at as usize..][..image.len()], &image[..], "{name}");
+        // Restarted, the bootloader's choice is that image (`boot` checks
+        // it as the bootloader would before it starts anything).
+        device.restart();
+        assert_eq!(device.running(), 1, "{name}");
+        assert_eq!(device.version(), "1.2.3", "{name}");
+        assert!(device.untouched(), "{name}");
+    }
+}
+
 #[test]
 fn the_images_made_here_are_whole() {
     for board in BOARDS {

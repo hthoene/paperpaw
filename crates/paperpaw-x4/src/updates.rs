@@ -10,7 +10,9 @@
 //!
 //! The bootloader espflash brings does not undo updates itself, so the
 //! firmware does: a new firmware's first start marks it as on trial
-//! (`PendingVerify`), before anything else could fail, and it is marked as
+//! (`PendingVerify`) as early as the shell can, before the kernel is built
+//! (what the shell builds before it, the firmware's description, cannot
+//! fail), and it is marked as
 //! good (`Valid`) once it ran [`TRIAL_MS`] in all. Going to sleep or
 //! restarting before marks it new again with the time it ran, so the next
 //! start (on the X4 also a wake from sleep) goes on with its trial. Found
