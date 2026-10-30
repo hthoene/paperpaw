@@ -94,7 +94,7 @@ formatted.
   and, where installed, `fsck.exfat`, follow a model in random
   operations, and cut off writes, new files, moves, removals and appends
   after every block, at every place of an entry set in a block.
-- The X4's firmware grows by about 105 KB of flash (619 KB stay free in
+- The X4's firmware grows by about 111 KB of flash (613 KB stay free in
   the smallest update slot); the heap on an exFAT card is about 8 KiB
   above FAT's (the emulator, which mounts card images with `--card`,
   measures it on the X4's profile).
