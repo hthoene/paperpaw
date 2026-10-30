@@ -20,6 +20,20 @@ change the plugin SDK.
   of the families of shared functions and a build name, and grows at its
   end from now on without a new interface. `paperpaw-plugin.x` makes a
   word per family of shared functions (`PAPERPAW_TABLE_0` to `_7`).
+- Plugin interface 5: types that grow later are `#[non_exhaustive]` and
+  are built with `new` and `with_*` (e.g. `Run::new`, `LineRun::new`,
+  `DeviceInfo::new`, `PluginInfo::new`, `Mark::new`); the SDK's event
+  payloads, `Progress`, `Metrics`, `library::Entry`, the platform's
+  `DeviceInfo`, `DisplayInfo`, `SystemStatus`, `PointerEvent` and more,
+  the text crate's `FontInfo`, `LineMetrics`, `Glyph`, and enums such as
+  `Rotation`, `ButtonState`, `PointerPhase`, `Chip` (a `match` needs a
+  `_` arm). `screen::Handled` stays as it is.
+- `TextStyle` of `paperpaw-document` is 32 bits (bits 24 to 27 a
+  block's inline language); cached books and page indexes are made anew
+  (EPUB cache version 28, a new `paperpaw_layout::VERSION`).
+- Font packs of version 2 have a table directory (anchors, mark-to-mark
+  anchors, line metrics per script, language forms, contextual
+  substitutions, vertical metrics); packs of version 1 read as before.
 
 ### Added
 
@@ -29,6 +43,28 @@ change the plugin SDK.
 - `paperpaw-table`: the families of functions plugins may share with the
   firmware on RISC-V chips, their revisions, and `shared!` (#44);
   `tools/shared-table.py` writes its index from `shared.list`.
+- Right-to-left text (#33): blocks of `paperpaw-document` carry a
+  direction, a writing mode, a language, inline languages and a drop
+  cap; links say what they are (`LinkKind`: a note reference, the way
+  back). Lines of `paperpaw-layout` carry their direction (`LineBidi`),
+  runs their level and language; pages their notes (`PageNote`);
+  `Style` reserves `justify_cap`, `kashida` and `hanging_punctuation`;
+  `Typesetter::advance_text` measures a text as a whole.
+- `paperpaw-text`: `Around` (what lies around a text, its base direction
+  and language), `draw_text_in` and `measure_in`: right-to-left order,
+  Arabic letters joined (also across a text's edges), mirrored brackets,
+  marks kept on their letters.
+- SDK: `WordBox::rtl`, `widgets::Align::Start` and `End`,
+  `UiStyle::is_rtl`, `Env::direction` and `Env::lang`; the painters
+  `sheet`, `cover`, `pill` and `ticks` (`SheetPart`, `CoverPart`,
+  `PillPart`, `TicksPart`); room to grow without a new interface
+  (`Widget::on_extended`, `GestureRecognizer::extended`,
+  `library::Library::extended`, `Document::extended`).
+- `paperpaw-i18n`: a catalog says its direction, script, digits and
+  calendar (`[meta]`); Arabic and Hebrew plural rules.
+- Plugins switch the device off where PaperPaw does so
+  (`Command::PowerOff`, `Capabilities::power_off`) and hear how long it
+  slept (`Env::slept_for`) (#51).
 
 ## [0.5.0-beta.12] - 2026-10-28
 
