@@ -74,7 +74,8 @@ pub fn pack(elf: &[u8]) -> Result<Packed, String> {
     let image = Image::of(&elf, &symbols)?;
     let entry = image.entry(&symbols)?;
     let api = image.api(&symbols)?;
-    let words = image.words(&elf, chip, symtab, &symbols)?;
+    let mut used = [false; TABLE_SYMBOLS.len()];
+    let words = image.words(&elf, chip, symtab, &symbols, &mut used)?;
     if let Some(at) = words.iter().find(|&&w| w >= api && w < api + 4 * API_WORDS) {
         return Err(format!(
             "the word at {at:#x} after `{API_SYMBOL}` has a relocation: nothing may be linked \
@@ -88,10 +89,30 @@ pub fn pack(elf: &[u8]) -> Result<Packed, String> {
     // The entry after `make` (a word on the chips): what the plugin needs.
     let needs = image.word(entry + 12);
     let (needs_api, interface) = (needs & 0xFFFF, (needs >> 16) as u16);
-    let mut families = [0u16; 8];
+    // The SDK's revision of the families the code reads the word of, as
+    // the entry says; 0 for the others, which the loader then does not
+    // check. A family used with no revision would call a table the
+    // loader does not vouch for.
+    let mut families = [0u16; TABLE_SYMBOLS.len()];
     for (i, family) in families.iter_mut().enumerate() {
         let word = image.word(entry + 16 + 4 * (i as u32 / 2));
-        *family = (word >> (16 * (i % 2))) as u16;
+        let revision = (word >> (16 * (i % 2))) as u16;
+        if used[i] {
+            if chip != Chip::Esp32C3 {
+                return Err(format!(
+                    "the code reads `{}`: only the RISC-V chips share functions",
+                    TABLE_SYMBOLS[i]
+                ));
+            }
+            if revision == 0 {
+                return Err(format!(
+                    "the code reads `{}`, but its entry has no revision of family {i}: \
+                     built with an SDK that does not know it",
+                    TABLE_SYMBOLS[i]
+                ));
+            }
+            *family = revision;
+        }
     }
     if interface == 0 {
         return Err(
@@ -356,6 +377,7 @@ impl<'e> Image<'e> {
         chip: Chip,
         symtab: usize,
         symbols: &[Symbol],
+        used: &mut [bool; TABLE_SYMBOLS.len()],
     ) -> Result<BTreeSet<u32>, String> {
         let mut words = BTreeSet::new();
         let mut problems = Vec::new();
@@ -402,6 +424,12 @@ impl<'e> Image<'e> {
                     })?),
                 };
                 let place = self.place(symbol);
+                // A family's word read: the plugin calls its table.
+                if let Some(n) =
+                    symbol.and_then(|s| TABLE_SYMBOLS.iter().position(|t| *t == s.name))
+                {
+                    used[n] = true;
+                }
                 let kind = relocation::kind(chip, rela.kind);
                 let told = || Told {
                     elf,
@@ -602,6 +630,12 @@ pub(crate) mod tests {
 
     /// The small plugin, with `comment` as its `.comment` (none if empty).
     fn plugin_with(machine: u16, comment: &[u8]) -> Plugin {
+        plugin_full(machine, comment, [0; 8])
+    }
+
+    /// The small plugin whose entry says it was built with `families`'
+    /// revisions of the shared functions.
+    fn plugin_full(machine: u16, comment: &[u8], families: [u16; 8]) -> Plugin {
         let k = match machine {
             EM_RISCV => Kinds {
                 word: 1,
@@ -623,6 +657,9 @@ pub(crate) mod tests {
         rodata[8..12].copy_from_slice(&TEXT.to_le_bytes());
         // Needs 64 bytes of the firmware's table, plugin interface 5.
         rodata[12..16].copy_from_slice(&(64u32 | (5 << 16)).to_le_bytes());
+        for (i, revision) in families.iter().enumerate() {
+            rodata[16 + 2 * i..18 + 2 * i].copy_from_slice(&revision.to_le_bytes());
+        }
         rodata[68..72].copy_from_slice(&DATA.to_le_bytes());
         rodata[80..88].copy_from_slice(b"PaperPaw");
         let mut text = [0x13u8; 32];
@@ -721,6 +758,43 @@ pub(crate) mod tests {
             // The ROM's address stays as it is.
             assert_eq!(words, [8, 68, 120]);
         }
+    }
+
+    /// Makes the code of `p` read the word of family `n`, as a call of a
+    /// shared function does, and packs it.
+    fn pack_reading(mut p: Plugin, n: &[usize]) -> Result<Packed, String> {
+        for (i, &family) in n.iter().enumerate() {
+            let at = LINK_BASE + 36 + 4 * family as u32;
+            let word =
+                p.b.symbol(TABLE_SYMBOLS[family], at, 0, p.rodata as u16, false);
+            p.b.rela(p.text, TEXT + 8 + 8 * i as u32, word, p.k.call);
+        }
+        pack(&p.b.build())
+    }
+
+    #[test]
+    fn the_families_the_code_reads_are_in_the_header() {
+        // The SDK has revisions of families 0, 1 and 3; the code uses 0 and 3.
+        let revisions = [2, 1, 0, 4, 0, 0, 0, 0];
+        let packed = pack_reading(plugin_full(EM_RISCV, COMMENT, revisions), &[0, 3]).unwrap();
+        assert_eq!(packed.header.families, [2, 0, 0, 4, 0, 0, 0, 0]);
+        // Reading none: none to check, whatever the SDK has.
+        let packed = pack(&plugin_full(EM_RISCV, COMMENT, revisions).b.build()).unwrap();
+        assert_eq!(packed.header.families, [0; 8]);
+    }
+
+    #[test]
+    fn a_family_read_without_a_revision_is_refused() {
+        let error = pack_reading(plugin(EM_RISCV), &[0]).unwrap_err();
+        assert!(error.contains("PAPERPAW_TABLE_0"), "{error}");
+        assert!(error.contains("no revision"), "{error}");
+    }
+
+    #[test]
+    fn only_the_risc_v_chips_share() {
+        let revisions = [1, 0, 0, 0, 0, 0, 0, 0];
+        let error = pack_reading(plugin_full(EM_XTENSA, COMMENT, revisions), &[0]).unwrap_err();
+        assert!(error.contains("only the RISC-V chips"), "{error}");
     }
 
     #[test]
