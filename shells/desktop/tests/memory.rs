@@ -105,6 +105,17 @@ fn emulator_with(
 
 /// The emulator headless on `profile` in `library`, with `args`.
 fn run_in(library: &Path, profile: &str, args: &[&str]) -> Command {
+    // No core dump: a budget too small ends the run with `abort()` (the
+    // allocation error handler), and where the shell allows core files that
+    // leaves a megabyte-sized `core.<pid>` in the crate's folder.
+    #[cfg(unix)]
+    let mut command = {
+        let mut sh = Command::new("sh");
+        sh.args(["-c", "ulimit -c 0; exec \"$0\" \"$@\""])
+            .arg(env!("CARGO_BIN_EXE_paperpaw-emu"));
+        sh
+    };
+    #[cfg(not(unix))]
     let mut command = Command::new(env!("CARGO_BIN_EXE_paperpaw-emu"));
     command
         .args(["--profile", profile, "--headless", "--library"])
