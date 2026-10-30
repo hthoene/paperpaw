@@ -93,6 +93,19 @@ proptest! {
         }
     }
 
+    /// A rule with a name in angle brackets (possibly empty) and an offset
+    /// of up to three digits of hours is read or refused, and a zone read
+    /// stays within a day of UTC (`<>200` once gave more than a week).
+    #[test]
+    fn quoted_names_and_large_offsets(
+        rule in "<[A-Z+0-9]{0,4}>[+-]?[0-9]{1,3}(:[0-9]{1,2})?(<[A-Z+0-9]{0,4}>([+-]?[0-9]{1,3})?,M3.2.0,M11.1.0)?",
+        unix in -100_000_000_000i64..100_000_000_000,
+    ) {
+        if let Some(zone) = TimeZone::parse(&rule) {
+            prop_assert!(i64::from(zone.offset_at(unix)).abs() <= 25 * 3600);
+        }
+    }
+
     /// Every zone offered changes its offset at most twice a year, by
     /// whole quarter hours, and keeps it within a day.
     #[test]
@@ -103,6 +116,25 @@ proptest! {
         prop_assert!(offset.abs() <= 14 * 3600);
         prop_assert_eq!(offset % 900, 0);
     }
+}
+
+/// The case proptest shrank to: an empty name and 200 hours, which is not
+/// an offset (POSIX has 0 to 24 hours).
+#[test]
+fn a_rule_of_more_than_a_day_is_refused() {
+    assert!(TimeZone::parse("<>200").is_none());
+    assert!(TimeZone::parse("<X>25").is_none());
+    assert!(TimeZone::parse("<X>-24:30").is_none());
+    assert!(TimeZone::parse("CET-1CEST-30,M3.5.0,M10.5.0").is_none());
+    // The edge stays: 24 hours either way.
+    assert_eq!(
+        TimeZone::parse("<X>-24").map(|z| z.offset_at(0)),
+        Some(86_400)
+    );
+    assert_eq!(
+        TimeZone::parse("<X>24").map(|z| z.offset_at(0)),
+        Some(-86_400)
+    );
 }
 
 #[test]

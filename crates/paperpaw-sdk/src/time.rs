@@ -336,6 +336,10 @@ enum Day {
     Ordinal(u16),
 }
 
+/// The most a rule's offset from UTC may be: POSIX gives the hours as 0 to
+/// 24 (a rule of `<>200` would be an offset of more than a week).
+const MAX_OFFSET: i32 = 24 * 3600;
+
 impl TimeZone {
     /// Parses a POSIX `TZ` rule such as `CET-1CEST,M3.5.0,M10.5.0/3`,
     /// with dates of every kind POSIX has (`Mm.w.d`, `Jn`, `n`); `None`
@@ -344,6 +348,9 @@ impl TimeZone {
         let mut p = Parser(rule.trim().as_bytes());
         p.name()?;
         let standard = -p.offset()?;
+        if standard.abs() > MAX_OFFSET {
+            return None;
+        }
         if p.done() {
             return Some(TimeZone {
                 standard,
@@ -356,6 +363,9 @@ impl TimeZone {
         } else {
             -p.offset()?
         };
+        if offset.abs() > MAX_OFFSET + 3600 {
+            return None;
+        }
         p.expect(b',')?;
         let start = p.rule()?;
         p.expect(b',')?;

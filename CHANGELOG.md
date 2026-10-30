@@ -6,6 +6,10 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Fixed
+
+- A time zone rule with an offset of more than 24 hours (such as `<>200`) is now refused instead of read as an offset of days.
+
 ## [0.5.0-beta.12] - 2026-10-28
 
 ### Changed
