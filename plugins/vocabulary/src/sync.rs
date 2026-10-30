@@ -108,7 +108,7 @@ pub(crate) fn files(storage: &dyn Storage, folder: &str) -> (bool, Vec<Found>) {
             modified: entry.modified,
         });
     });
-    found.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    found.sort_by_key(|f| f.name.to_lowercase());
     (listed.is_ok(), found)
 }
 
@@ -734,137 +734,11 @@ impl Job {
         let slices = work.slices;
         let in_slice = |key: u64| (key % slices as u64) as usize == slice;
         let by_front = round == 2;
-        // The deck's cards of the slice, by key.
-        let mut entries: Vec<Entry> = Vec::new();
-        let mut order = 0usize;
-        let mut crowded = false;
-        cards::each_card(storage, work.deck, |_, card| {
-            let this = order;
-            order += 1;
-            if work.matched_cards.get(this) {
-                return ControlFlow::Continue(());
-            }
-            let key = if by_front {
-                front_key(&card.front)
-            } else {
-                u64::from(card.state.id)
-            };
-            if !in_slice(key) {
-                return ControlFlow::Continue(());
-            }
-            if entries.len() >= CROWD {
-                crowded = true;
-                return ControlFlow::Break(());
-            }
-            let text = if by_front {
-                texts_hash(&[&card.back, &card.example])
-            } else {
-                texts_hash(&[&card.front, &card.back, &card.example])
-            };
-            entries.push(Entry {
-                key,
-                id: card.state.id,
-                order: this as u32,
-                text,
-            });
-            ControlFlow::Continue(())
-        })?;
-        if crowded {
-            return Err(Failure::Outcome(Outcome::Crowded));
-        }
-        entries.sort_unstable_by_key(|e| (e.key, e.order));
-        let mut used = alloc::vec![false; entries.len()];
-        // The file's lines of the slice: matched, or new.
-        let (mut changes, mut adds): (Vec<(u32, u64)>, Vec<u64>) = (Vec::new(), Vec::new());
-        let mut same = 0usize;
-        let mut index = 0usize;
-        table::each(storage, &work.path, &work.layout, None, |item| {
-            let Item::Record(record) = item else {
-                return ControlFlow::Continue(());
-            };
-            let this = index;
-            index += 1;
-            if work.matched_lines.get(this) {
-                return ControlFlow::Continue(());
-            }
-            let key = if by_front {
-                Some(front_key(&record.front))
-            } else {
-                record.id.map(u64::from)
-            };
-            let Some(key) = key.filter(|k| in_slice(*k)) else {
-                return ControlFlow::Continue(());
-            };
-            let start = entries.partition_point(|e| e.key < key);
-            let hit = (start..entries.len())
-                .take_while(|&i| entries[i].key == key)
-                .find(|&i| !used[i]);
-            if let Some(i) = hit {
-                used[i] = true;
-                work.matched_lines.set(this);
-                work.matched_cards.set(entries[i].order as usize);
-                let text = if by_front {
-                    texts_hash(&[&record.back, &record.example])
-                } else {
-                    texts_hash(&[&record.front, &record.back, &record.example])
-                };
-                if text == entries[i].text {
-                    same += 1;
-                } else {
-                    changes.push((entries[i].id, record.offset));
-                }
-            } else if by_front {
-                work.matched_lines.set(this);
-                if adds.len() >= CROWD {
-                    crowded = true;
-                    return ControlFlow::Break(());
-                }
-                adds.push(record.offset);
-            }
-            ControlFlow::Continue(())
-        })?;
-        if crowded {
-            return Err(Failure::Outcome(Outcome::Crowded));
-        }
-        drop(entries);
-        work.report.same += same;
-        if !changes.is_empty() || !adds.is_empty() {
-            changes.sort_unstable_by_key(|c| c.0);
-            let (path, layout) = (work.path.clone(), work.layout.clone());
-            let read = |offset: u64| table::record_at(storage, &path, &layout, offset);
-            let mut changed = 0usize;
-            let mut pending = adds.iter();
-            let added = cards::rewrite_with(
-                storage,
-                work.deck,
-                |card| {
-                    if let Ok(i) = changes.binary_search_by_key(&card.state.id, |c| c.0)
-                        && let Some(record) = read(changes[i].1)
-                    {
-                        if !by_front {
-                            card.front = clean(&record.front, MAX_TEXT);
-                        }
-                        card.back = clean(&record.back, MAX_TEXT);
-                        card.example = clean(&record.example, MAX_TEXT);
-                        changed += 1;
-                    }
-                    true
-                },
-                &mut || loop {
-                    let offset = *pending.next()?;
-                    if let Some(record) = read(offset) {
-                        return Some(Texts {
-                            front: record.front,
-                            back: record.back,
-                            example: record.example,
-                        });
-                    }
-                },
-            )
-            .map_err(|_| Failure::Storage)?;
-            work.report.changed += changed;
-            work.report.added += added;
-            work.report.no_room += adds.len() - added.min(adds.len());
+        let entries = deck_entries(storage, work, by_front, &in_slice)?;
+        let found = match_lines(storage, work, entries, by_front, &in_slice)?;
+        work.report.same += found.same;
+        if !found.changes.is_empty() || !found.adds.is_empty() {
+            write_slice(storage, work, by_front, found)?;
         }
         // The next slice, the next round, or the end.
         work.stage = match (round, slice + 1 < slices) {
@@ -906,6 +780,179 @@ impl Job {
         self.at += 1;
         Ok(())
     }
+}
+
+/// What a slice found: lines that differ from their card (card id, offset of
+/// the line), lines with no card (offset), and how many were the same.
+struct Matched {
+    changes: Vec<(u32, u64)>,
+    adds: Vec<u64>,
+    same: usize,
+}
+
+/// The deck's cards of the slice that no line has yet, by key.
+fn deck_entries(
+    storage: &dyn Storage,
+    work: &Work,
+    by_front: bool,
+    in_slice: &dyn Fn(u64) -> bool,
+) -> Result<Vec<Entry>, Failure> {
+    let mut entries: Vec<Entry> = Vec::new();
+    let mut order = 0usize;
+    let mut crowded = false;
+    cards::each_card(storage, work.deck, |_, card| {
+        let this = order;
+        order += 1;
+        if work.matched_cards.get(this) {
+            return ControlFlow::Continue(());
+        }
+        let key = if by_front {
+            front_key(&card.front)
+        } else {
+            u64::from(card.state.id)
+        };
+        if !in_slice(key) {
+            return ControlFlow::Continue(());
+        }
+        if entries.len() >= CROWD {
+            crowded = true;
+            return ControlFlow::Break(());
+        }
+        let text = if by_front {
+            texts_hash(&[&card.back, &card.example])
+        } else {
+            texts_hash(&[&card.front, &card.back, &card.example])
+        };
+        entries.push(Entry {
+            key,
+            id: card.state.id,
+            order: this as u32,
+            text,
+        });
+        ControlFlow::Continue(())
+    })?;
+    if crowded {
+        return Err(Failure::Outcome(Outcome::Crowded));
+    }
+    entries.sort_unstable_by_key(|e| (e.key, e.order));
+    Ok(entries)
+}
+
+/// The file's lines of the slice: matched with a card of `entries`, or new.
+fn match_lines(
+    storage: &dyn Storage,
+    work: &mut Work,
+    entries: Vec<Entry>,
+    by_front: bool,
+    in_slice: &dyn Fn(u64) -> bool,
+) -> Result<Matched, Failure> {
+    let mut used = alloc::vec![false; entries.len()];
+    let mut found = Matched {
+        changes: Vec::new(),
+        adds: Vec::new(),
+        same: 0,
+    };
+    let mut crowded = false;
+    let mut index = 0usize;
+    table::each(storage, &work.path, &work.layout, None, |item| {
+        let Item::Record(record) = item else {
+            return ControlFlow::Continue(());
+        };
+        let this = index;
+        index += 1;
+        if work.matched_lines.get(this) {
+            return ControlFlow::Continue(());
+        }
+        let key = if by_front {
+            Some(front_key(&record.front))
+        } else {
+            record.id.map(u64::from)
+        };
+        let Some(key) = key.filter(|k| in_slice(*k)) else {
+            return ControlFlow::Continue(());
+        };
+        let start = entries.partition_point(|e| e.key < key);
+        let hit = (start..entries.len())
+            .take_while(|&i| entries[i].key == key)
+            .find(|&i| !used[i]);
+        if let Some(i) = hit {
+            used[i] = true;
+            work.matched_lines.set(this);
+            work.matched_cards.set(entries[i].order as usize);
+            let text = if by_front {
+                texts_hash(&[&record.back, &record.example])
+            } else {
+                texts_hash(&[&record.front, &record.back, &record.example])
+            };
+            if text == entries[i].text {
+                found.same += 1;
+            } else {
+                found.changes.push((entries[i].id, record.offset));
+            }
+        } else if by_front {
+            work.matched_lines.set(this);
+            if found.adds.len() >= CROWD {
+                crowded = true;
+                return ControlFlow::Break(());
+            }
+            found.adds.push(record.offset);
+        }
+        ControlFlow::Continue(())
+    })?;
+    if crowded {
+        return Err(Failure::Outcome(Outcome::Crowded));
+    }
+    Ok(found)
+}
+
+/// The changes and the new cards of a slice written, the deck anew beside
+/// itself.
+fn write_slice(
+    storage: &dyn Storage,
+    work: &mut Work,
+    by_front: bool,
+    found: Matched,
+) -> Result<(), Failure> {
+    let Matched {
+        mut changes, adds, ..
+    } = found;
+    changes.sort_unstable_by_key(|c| c.0);
+    let (path, layout) = (work.path.clone(), work.layout.clone());
+    let read = |offset: u64| table::record_at(storage, &path, &layout, offset);
+    let mut changed = 0usize;
+    let mut pending = adds.iter();
+    let added = cards::rewrite_with(
+        storage,
+        work.deck,
+        |card| {
+            if let Ok(i) = changes.binary_search_by_key(&card.state.id, |c| c.0)
+                && let Some(record) = read(changes[i].1)
+            {
+                if !by_front {
+                    card.front = clean(&record.front, MAX_TEXT);
+                }
+                card.back = clean(&record.back, MAX_TEXT);
+                card.example = clean(&record.example, MAX_TEXT);
+                changed += 1;
+            }
+            true
+        },
+        &mut || loop {
+            let offset = *pending.next()?;
+            if let Some(record) = read(offset) {
+                return Some(Texts {
+                    front: record.front,
+                    back: record.back,
+                    example: record.example,
+                });
+            }
+        },
+    )
+    .map_err(|_| Failure::Storage)?;
+    work.report.changed += changed;
+    work.report.added += added;
+    work.report.no_room += adds.len() - added.min(adds.len());
+    Ok(())
 }
 
 /// Why a step could not go on.

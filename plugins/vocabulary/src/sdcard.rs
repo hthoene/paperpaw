@@ -24,7 +24,7 @@ const MOST_ROWS: usize = 40;
 
 /// The folder the setting names.
 pub(crate) fn folder(env: &Env<'_>) -> String {
-    sync::folder_of(&env.settings().read(&SD_FOLDER))
+    sync::folder_of(env.settings().read(&SD_FOLDER))
 }
 
 #[derive(Debug)]
