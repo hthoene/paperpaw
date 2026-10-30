@@ -19,3 +19,5 @@ paperpaw-digest
 paperpaw-json
 paperpaw-qr
 paperpaw-native
+paperpaw-lang
+paperpaw-table

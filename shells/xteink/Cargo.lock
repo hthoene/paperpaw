@@ -2378,6 +2378,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-lang"
+version = "0.5.0-beta.12"
+
+[[package]]
 name = "paperpaw-layout"
 version = "0.5.0-beta.12"
 dependencies = [
@@ -2622,10 +2626,12 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-image",
  "paperpaw-json",
+ "paperpaw-lang",
  "paperpaw-layout",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-qr",
+ "paperpaw-table",
  "paperpaw-text",
  "paperpaw-update",
  "paperpaw-xml",
@@ -2639,6 +2645,10 @@ dependencies = [
  "miniz_oxide",
  "paperpaw-platform",
 ]
+
+[[package]]
+name = "paperpaw-table"
+version = "0.5.0-beta.12"
 
 [[package]]
 name = "paperpaw-text"

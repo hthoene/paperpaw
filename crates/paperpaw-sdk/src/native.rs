@@ -84,6 +84,8 @@ pub const CROSSING_CRATES: &[&str] = &[
     "paperpaw_json",
     "paperpaw_qr",
     "paperpaw_native",
+    "paperpaw_lang",
+    "paperpaw_table",
 ];
 
 /// The layouts of the types that cross between a plugin and PaperPaw, as
@@ -954,7 +956,8 @@ mod layout {
         alloc::boxed::Box<dyn crate::Plugin>,
         alloc::boxed::Box<dyn crate::Screen>,
         &'static dyn crate::Storage,
-        Api,
+        // Not `Api`: it grows at its end without a raise; `TABLE` keeps
+        // where its fields of interface 5 lie.
         Entry,
         // What `Env` reaches.
         crate::firmware::Firmware,
@@ -1019,10 +1022,12 @@ mod layout {
         paperpaw_document::Block,
     ];
 
-    /// Where the firmware's table keeps each entry: a plugin finds them
-    /// there.
-    const TABLE: [u64; 8] = [
-        Api::SIZE as u64,
+    /// Where the firmware's table keeps each field of interface 5: a
+    /// plugin finds them there. A frozen list: fields appended after
+    /// `build_len` are not in it, so they leave the fingerprint as it is
+    /// (a plugin that uses one says so in its `needs_api`, and the size of
+    /// the firmware's table tells whether it has it).
+    const TABLE: [u64; 12] = [
         offset_of!(Api, size) as u64,
         offset_of!(Api, alloc) as u64,
         offset_of!(Api, dealloc) as u64,
@@ -1030,6 +1035,11 @@ mod layout {
         offset_of!(Api, panic) as u64,
         offset_of!(Api, micros) as u64,
         offset_of!(Api, icon) as u64,
+        offset_of!(Api, alloc_in) as u64,
+        offset_of!(Api, family_revs) as u64,
+        offset_of!(Api, family_min) as u64,
+        offset_of!(Api, build) as u64,
+        offset_of!(Api, build_len) as u64,
     ];
 
     pub(super) const DIGEST: u64 = {

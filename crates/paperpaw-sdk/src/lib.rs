@@ -184,6 +184,7 @@ pub use version::{DATA_FORMATS, SDK_VERSION, Version};
 pub use paperpaw_graphics::round;
 pub use paperpaw_graphics::{Bitmap, BitmapError, BitmapFormat, Blit, Canvas, Dither};
 pub use paperpaw_i18n::{Arg, Translator};
+pub use paperpaw_lang::{self as lang, Lang};
 pub use paperpaw_platform::{Battery, SystemStatus, WallClock};
 pub use paperpaw_platform::{
     ButtonState, Color, DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, MemoryClass,

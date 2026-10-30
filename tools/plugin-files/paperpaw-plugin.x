@@ -24,6 +24,25 @@ SECTIONS
         . = ALIGN(4);
         PAPERPAW_API = .;
         LONG(0)
+        /* One word per family of shared functions (paperpaw-table), the
+           address of the firmware's table of that family, 0 where it has
+           none; the packer records which of them the code reads. */
+        PAPERPAW_TABLE_0 = .;
+        LONG(0)
+        PAPERPAW_TABLE_1 = .;
+        LONG(0)
+        PAPERPAW_TABLE_2 = .;
+        LONG(0)
+        PAPERPAW_TABLE_3 = .;
+        LONG(0)
+        PAPERPAW_TABLE_4 = .;
+        LONG(0)
+        PAPERPAW_TABLE_5 = .;
+        LONG(0)
+        PAPERPAW_TABLE_6 = .;
+        LONG(0)
+        PAPERPAW_TABLE_7 = .;
+        LONG(0)
         *(.rodata .rodata.* .srodata .srodata.*)
         . = ALIGN(16);
     }

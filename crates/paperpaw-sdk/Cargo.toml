@@ -29,6 +29,8 @@ paperpaw-json.workspace = true
 paperpaw-qr.workspace = true
 # Native code plugins' files and the table plugins are given (`native`).
 paperpaw-native.workspace = true
+paperpaw-lang.workspace = true
+paperpaw-table.workspace = true
 
 [dev-dependencies]
 # The tests build environments as the kernel does.
