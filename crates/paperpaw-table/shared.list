@@ -7,5 +7,48 @@
 #   bump <family> <revision>                 a body change old plugins see:
 #                                            refuses plugins built before it
 #
-# Revisions of a family only grow; an entry is added at a revision higher
-# than every line of its family before it.
+# Revisions of a family only grow: entries appended together share one
+# revision, a later batch has a higher one.
+text 1 TEXT_MEASURE paperpaw_text::measure
+text 1 TEXT_IS_MARK paperpaw_text::is_mark
+text 1 TEXT_GLYPH_X paperpaw_text::glyph_x
+text 1 TEXT_DRAW_TEXT paperpaw_text::draw_text
+text 1 CHARSET_STAND_IN paperpaw_text::charset::stand_in
+text 1 FONT_FROM_COW paperpaw_text::Font::from_cow
+text 1 FONT_SIZE_FOR paperpaw_text::Font::size_for
+text 1 FONT_LARGEST_SIZE paperpaw_text::Font::largest_size
+text 1 FONT_LINE_METRICS paperpaw_text::Font::line_metrics
+text 1 FONT_ADVANCE paperpaw_text::Font::advance
+text 1 FONT_KERN paperpaw_text::Font::kern
+text 1 FONT_HAS_CHAR paperpaw_text::Font::has_char
+text 1 FONT_SHOWN paperpaw_text::Font::shown
+text 1 PACK_LARGEST_SIZE paperpaw_text::BitmapFont::largest_size
+text 1 PACK_LINE_METRICS paperpaw_text::BitmapFont::line_metrics
+text 1 PACK_HAS_CHAR paperpaw_text::BitmapFont::has_char
+text 1 PACK_SIZE_FOR paperpaw_text::BitmapFont::size_for
+text 1 PACK_GLYPH paperpaw_text::BitmapFont::glyph
+text 1 PACK_ADVANCE paperpaw_text::BitmapFont::advance
+text 1 PACK_KERN paperpaw_text::BitmapFont::kern
+text 1 STORED_LARGEST_SIZE paperpaw_text::StoredPack::largest_size
+text 1 STORED_HAS_CHAR paperpaw_text::StoredPack::has_char
+text 1 STORED_LINE_METRICS paperpaw_text::StoredPack::line_metrics
+text 1 STORED_ADVANCE paperpaw_text::StoredPack::advance
+text 1 STORED_RENDER paperpaw_text::StoredPack::render
+text 1 CACHE_GLYPH paperpaw_text::GlyphCache::glyph
+text 1 LAYOUT_WRAP_KERNED paperpaw_text::wrap_lines_kerned_in
+text 1 LAYOUT_WRAP_BALANCED paperpaw_text::wrap_lines_balanced_in
+text 1 FONTS_HANDLE crate::fonts::Fonts::handle
+text 1 HANDLE_LARGEST_SIZE crate::fonts::FontHandle::largest_size
+text 1 HANDLE_LINE_METRICS crate::fonts::FontHandle::line_metrics
+text 1 HANDLE_HEADING_LINE_HEIGHT crate::fonts::FontHandle::heading_line_height
+text 1 HANDLE_HAS_CHAR crate::fonts::FontHandle::has_char
+text 1 HANDLE_ADVANCE crate::fonts::FontHandle::advance
+text 1 HANDLE_KERN crate::fonts::FontHandle::kern
+text 1 HANDLE_SIZE_FOR crate::fonts::FontHandle::size_for
+text 1 HANDLE_MEASURE crate::fonts::FontHandle::measure
+text 1 HANDLE_INK crate::fonts::FontHandle::ink
+text 1 HANDLE_INK_ACROSS crate::fonts::FontHandle::ink_across
+text 1 HANDLE_WRAP crate::fonts::FontHandle::wrap
+text 1 HANDLE_DRAW crate::fonts::FontHandle::draw
+text 1 HANDLE_DRAW_BOLDER crate::fonts::FontHandle::draw_bolder
+text 1 HANDLE_DRAW_TONED crate::fonts::FontHandle::draw_toned

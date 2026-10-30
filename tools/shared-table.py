@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """Writes, from crates/paperpaw-table/shared.list, the index of the
 firmware's shared function tables (crates/paperpaw-table/src/index.rs)
-and the signature of every entry (crates/paperpaw-table/table.sig), as
+the signature of every entry (crates/paperpaw-table/table.sig) and the
+firmware's addresses of them (crates/paperpaw-sdk/src/shared_table.rs), as
 the `shared!` declarations in the crates' sources give them.
 
     python3 tools/shared-table.py           # writes both files
     python3 tools/shared-table.py --check   # fails where one is not current
 
 It also checks the list's rules: entries are only appended, each at a
-revision of its family higher than every line of the family before it,
-and every entry is declared by exactly one `shared!` (and every
+revision of its family not below the lines before it (a batch of entries
+shares one revision), and every entry is declared by exactly one `shared!` (and every
 `shared!` is listed). `cargo test -p paperpaw-sdk --test interface`
 checks that the blessed list and signatures (interface/) are a prefix
 of these.
 """
 
+import hashlib
 import pathlib
 import re
 import sys
@@ -24,6 +26,7 @@ CRATE = REPO / "crates" / "paperpaw-table"
 LIST = CRATE / "shared.list"
 INDEX = CRATE / "src" / "index.rs"
 SIG = CRATE / "table.sig"
+ADDRESSES = REPO / "crates" / "paperpaw-sdk" / "src" / "shared_table.rs"
 FAMILIES = ["text", "fonts", "ui", "graphics", "contribution"]
 COUNT = 8
 
@@ -45,9 +48,9 @@ def parse():
             sys.exit(f"shared.list:{number}: not an entry or a bump: {raw}")
         if family not in FAMILIES:
             sys.exit(f"shared.list:{number}: no family {family}")
-        if revision <= last.get(family, 0):
+        if revision < last.get(family, 0):
             sys.exit(f"shared.list:{number}: revision {revision} of {family} "
-                     f"is not above {last[family]}")
+                     f"is below {last[family]}")
         last[family] = revision
     names = [(f, n) for f, _, n, _ in entries]
     if len(set(names)) != len(names):
@@ -79,7 +82,16 @@ def declarations():
     return found
 
 
-def index_rs(entries, bumps):
+def table_hash(entries, bumps, found):
+    """Eight hex digits naming the tables of this build, for logs and
+    crash reports (`Api::build`): the digest of every entry's place and
+    signature, and of the bumps."""
+    text = "".join(f"{f} {r} {n} {found[(f, n)]}\n" for f, r, n, _ in entries)
+    text += "".join(f"bump {f} {r}\n" for f, r in bumps)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
+
+
+def index_rs(entries, bumps, hash_):
     revisions = [0] * COUNT
     oldest = [0] * COUNT
     for family, revision, _, _ in entries:
@@ -94,7 +106,9 @@ def index_rs(entries, bumps):
            "/// The revision of each family (`shared.list`).",
            f"pub const REVISIONS: crate::Revisions = {revisions};",
            "/// The oldest revision of each family whose plugins still run.",
-           f"pub const OLDEST: crate::Revisions = {oldest};"]
+           f"pub const OLDEST: crate::Revisions = {oldest};",
+           "/// Eight hex digits naming the tables of this build, for logs.",
+           f'pub const HASH: &str = "{hash_}";']
     for family in FAMILIES:
         out += ["", f"/// The {family} family's table.", f"pub mod {family} {{",
                 f"    /// The family.",
@@ -117,6 +131,30 @@ def table_sig(entries, found):
     return "\n".join(out) + "\n"
 
 
+def addresses_rs(entries):
+    """The firmware's side: the address of every shared function, per
+    family, in the order of the list (`paperpaw_sdk::shared`)."""
+    out = ["// Made by tools/shared-table.py from shared.list: do not edit.",
+           "#![cfg_attr(rustfmt, rustfmt::skip)]", ""]
+    for family in FAMILIES:
+        mine = [e for e in entries if e[0] == family]
+        if not mine:
+            continue
+        out.append(f"pub(super) static {family.upper()}: super::Addresses<{len(mine)}> "
+                   "= super::Addresses([")
+        for _, _, name, path in mine:
+            out.append(f"    {path} as *const (), // {name}")
+        out += ["]);", ""]
+    out += ["/// The table of family number `n`, if the firmware shares it.",
+            "pub(super) const fn of(n: usize) -> paperpaw_table::Table {",
+            "    match n {"]
+    for i, family in enumerate(FAMILIES):
+        if any(e[0] == family for e in entries):
+            out.append(f"        {i} => paperpaw_table::Table({family.upper()}.0.as_ptr()),")
+    out += ["        _ => paperpaw_table::Table::NONE,", "    }", "}"]
+    return "\n".join(out) + "\n"
+
+
 def main():
     entries, bumps = parse()
     found = declarations()
@@ -126,7 +164,8 @@ def main():
     if missing or extra:
         sys.exit(f"shared.list and the sources differ: listed, not declared: "
                  f"{missing}; declared, not listed: {extra}")
-    files = {INDEX: index_rs(entries, bumps), SIG: table_sig(entries, found)}
+    files = {INDEX: index_rs(entries, bumps, table_hash(entries, bumps, found)), SIG: table_sig(entries, found),
+             ADDRESSES: addresses_rs(entries)}
     if "--check" in sys.argv:
         stale = [p for p, text in files.items()
                  if not p.exists() or p.read_text(encoding="utf-8") != text]

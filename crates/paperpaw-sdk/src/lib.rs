@@ -112,6 +112,12 @@ pub mod services;
 pub mod setting;
 mod settings;
 pub mod setup;
+#[doc(hidden)]
+#[cfg(not(any(
+    all(paperpaw_plugin, target_os = "none", target_arch = "riscv32"),
+    paperpaw_table_host
+)))]
+pub mod shared;
 pub mod status;
 pub mod time;
 pub mod ui;
