@@ -1166,7 +1166,7 @@ impl Converter<'_> {
         }
         let (kind, level) = encode_kind(kind);
         let flags =
-            u8::from(self.continues) * FLAG_CONTINUES | u8::from(continued) * FLAG_CONTINUED;
+            (u8::from(self.continues) * FLAG_CONTINUES) | (u8::from(continued) * FLAG_CONTINUED);
         self.positions.push_str(&alloc::format!(
             "{}\t{}\n",
             self.length + HEADER,
