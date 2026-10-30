@@ -115,8 +115,7 @@ pub enum PluginProblem {
     /// interface, or shared functions this PaperPaw changed since): it
     /// waits for a new build, which the store may have.
     OlderInterface {
-        /// The plugin interface it was built for; 0 where its file is of
-        /// a format before interface 5, which does not say.
+        /// The plugin interface it was built for (its fingerprint says).
         built_for: u16,
     },
     /// Its code needs a newer PaperPaw: an update of PaperPaw runs it.
