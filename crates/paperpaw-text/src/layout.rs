@@ -105,7 +105,6 @@ pub fn wrap_lines_kerned(
 paperpaw_table::shared! {
 /// [`wrap_lines_kerned`] without generics, the one function of it that is
 /// shared with the firmware: the caller's closures come as `dyn`.
-#[doc(hidden)]
 pub fn wrap_lines_kerned_in(
     text: &str,
     width: &dyn Fn(usize) -> f32,
@@ -295,7 +294,6 @@ pub fn wrap_lines_balanced_kerned_with_cost(
 paperpaw_table::shared! {
 /// [`wrap_lines_balanced_kerned_with_cost`] without generics, the one
 /// function of it that is shared with the firmware.
-#[doc(hidden)]
 pub fn wrap_lines_balanced_in(
     text: &str,
     width: &dyn Fn(usize) -> f32,

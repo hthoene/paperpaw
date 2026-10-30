@@ -111,6 +111,14 @@ network, updates and remote control stay one. In the order it was done:
     ([ADR 0026](adr/0026-plugin-interface-version.md)): the firmware
     exports its fingerprint (`PAPERPAW_NATIVE_FINGERPRINT`), and the
     release builds PaperPaw's store plugins for each device with it.
+    On a RISC-V chip the plugins call the firmware's copy of the shared
+    functions (`crates/paperpaw-table/shared.list`; the text family is the
+    first) instead of carrying their own: the shell fills the revisions
+    of its families in `Api` (`shells/xteink/src/native/api.rs`), gives
+    the loader the table of each (`Relocator::tables`) and refuses a
+    plugin file whose families do not fit (`paperpaw_table::misfit`)
+    before it places anything. A shell for another chip leaves its
+    families at 0: its plugins carry their own copies.
 11. **The emulator.** A profile in `shells/desktop/src/profiles.rs` with
     the firmware's screen, buttons, memory budget and builder settings,
     so plugins can be tried for the device without it.

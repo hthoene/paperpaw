@@ -82,6 +82,19 @@ change the plugin SDK.
 - Plugins switch the device off where PaperPaw does so
   (`Command::PowerOff`, `Capabilities::power_off`) and hear how long it
   slept (`Env::slept_for`) (#51).
+- The X4 and X3 share the **text family** with their code plugins (43
+  functions of `paperpaw_text` and the SDK's font handles, revision 1):
+  a plugin built for them calls the firmware's copy of measuring, drawing
+  and wrapping text instead of carrying its own (some 22-26 KiB less in a
+  plugin that draws text). The loader fills the families' words of a
+  plugin (`Relocator::tables`), refuses a plugin built for a newer or an
+  older revision of a family before it places anything, `paperpaw-sign
+  pack` records the families a plugin reads, and a panic in shared code is
+  the firmware's, not the plugin's, in the crash file and for safe mode.
+  The X4 Pro and the X4 Classic keep their copies. A library built for a
+  computer with `--cfg paperpaw_table_host` calls the same tables; CI job
+  `table-compat` checks old plugins against the new firmware once an
+  interface has been raised with tables.
 
 ### Fixed
 
