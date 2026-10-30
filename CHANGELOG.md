@@ -6,6 +6,30 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Changed
+
+- **Plugin interface 5** (in progress; every code plugin is built anew
+  for it). Plugin files are of format 4: the header (116 bytes) says the
+  plugin interface a plugin was built for, how much of the firmware's
+  table it needs and the revisions of the families of shared functions
+  it uses, and a plugin's entry is 32 bytes on the chips. A plugin built
+  for an older PaperPaw says so ("Built for an older PaperPaw: update it
+  in the store"), one that needs a newer PaperPaw too
+  (`PluginProblem::OlderInterface`, `PluginProblem::NeedsNewerPaperPaw`,
+  `Native::problem`). The firmware's table (`Api`) gains the revisions
+  of the families of shared functions and a build name, and grows at its
+  end from now on without a new interface. `paperpaw-plugin.x` makes a
+  word per family of shared functions (`PAPERPAW_TABLE_0` to `_7`).
+
+### Added
+
+- `paperpaw-lang`: `Lang` (a language tag in 32 bits: language, script,
+  region; canonical, so `per` and `fa` are one), `Direction` and
+  `WritingMode` (#33). `paperpaw_sdk::lang`.
+- `paperpaw-table`: the families of functions plugins may share with the
+  firmware on RISC-V chips, their revisions, and `shared!` (#44);
+  `tools/shared-table.py` writes its index from `shared.list`.
+
 ## [0.5.0-beta.12] - 2026-10-28
 
 ### Changed
