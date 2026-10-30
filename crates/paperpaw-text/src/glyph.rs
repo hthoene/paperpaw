@@ -2,6 +2,7 @@ use alloc::vec::Vec;
 
 /// A borrowed glyph bitmap with 4-bit coverage.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct GlyphRef<'a> {
     /// Offset of the bitmap's left edge from the pen position.
     pub left: i16,
@@ -59,6 +60,7 @@ impl GlyphRef<'_> {
 
 /// An owned glyph bitmap (e.g. rasterized at runtime and cached).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Glyph {
     pub left: i16,
     pub top: i16,

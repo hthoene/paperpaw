@@ -120,11 +120,7 @@ fn packs_with_and_without_kerning_read_alike() {
     // The same glyphs with a table: the glyphs read as before, and a
     // pack read a glyph at a time reads it too (without kerning).
     let glyphs = |builder: &mut PackBuilder| {
-        let metrics = LineMetrics {
-            ascent: 8.0,
-            descent: 2.0,
-            line_height: 12.0,
-        };
+        let metrics = LineMetrics::new(8.0, 2.0, 12.0);
         let glyph = |advance| paperpaw_text::Glyph::empty(advance);
         builder.add_strike(10.0, metrics, vec![('A', glyph(6.0)), ('V', glyph(6.0))]);
         builder.add_strike(20.0, metrics, vec![('A', glyph(12.0)), ('V', glyph(12.0))]);

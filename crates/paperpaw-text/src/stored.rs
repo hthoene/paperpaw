@@ -21,6 +21,8 @@ const MAGIC: &[u8; 4] = b"PPFP";
 /// Packs made before PaperPaw had its name (the same format): still read.
 const OLD_MAGIC: &[u8; 4] = b"QIFP"; // before PPFP
 const VERSION: u8 = 1;
+/// A pack with a directory of tables (see [`StoredPack::table`]).
+const VERSION_TABLES: u8 = 2;
 const HEADER: usize = 12;
 const STRIKE: usize = 32;
 const RECORD: usize = 20;
@@ -54,6 +56,9 @@ pub struct StoredPack {
     chars: Vec<char>,
     /// Each strike's advances in 1/16 px, once it was used.
     advances: RefCell<Vec<Option<Vec<u16>>>>,
+    /// The offsets of its tables, 0 where absent (see
+    /// [`StoredPack::table`]).
+    tables: [u32; 8],
 }
 
 impl fmt::Debug for StoredPack {
@@ -92,7 +97,7 @@ impl StoredPack {
         if !source.read_at(0, &mut header) || (&header[..4] != MAGIC && &header[..4] != OLD_MAGIC) {
             return Err(FontError::Invalid);
         }
-        if header[4] != VERSION {
+        if header[4] != VERSION && header[4] != VERSION_TABLES {
             return Err(FontError::UnsupportedVersion);
         }
         let count = usize::from(u16_le(&header, 8));
@@ -137,12 +142,34 @@ impl StoredPack {
         if chars.len() != n || chars.windows(2).any(|w| w[0] >= w[1]) {
             return Err(FontError::Invalid);
         }
+        let mut tables = [0u32; 8];
+        if header[4] == VERSION_TABLES {
+            let mut directory = [0u8; 32];
+            if !source.read_at((HEADER + count * STRIKE) as u64, &mut directory) {
+                return Err(FontError::Invalid);
+            }
+            for (slot, offset) in tables.iter_mut().zip(directory.as_chunks::<4>().0) {
+                *slot = u32::from_le_bytes(*offset);
+            }
+        }
         Ok(StoredPack {
             source,
             advances: RefCell::new(alloc::vec![None; strikes.len()]),
             strikes,
             chars,
+            tables,
         })
+    }
+
+    /// Where table `slot` (0 to 7, see
+    /// [`BitmapFont::ANCHORS`](crate::BitmapFont::ANCHORS)) starts in the
+    /// pack, if it has one: read it through its [`PackSource`]. Slot 7
+    /// is the next directory, of slots 8 to 15.
+    pub fn table(&self, slot: usize) -> Option<u64> {
+        self.tables
+            .get(slot)
+            .filter(|&&at| at != 0)
+            .map(|&at| u64::from(at))
     }
 
     /// The largest size it has, in pixels (every strike has every
@@ -298,6 +325,27 @@ mod tests {
             alloc::vec![('ж', glyph(6, 255, 8.0)), ('а', glyph(5, 255, 7.0))],
         );
         builder.build()
+    }
+
+    #[test]
+    fn tables_are_where_the_directory_says() {
+        let plain = StoredPack::open(Rc::new(Memory(pack(), Cell::new(0)))).unwrap();
+        assert_eq!(plain.table(BitmapFont::ANCHORS), None);
+        let metrics = LineMetrics {
+            ascent: 8.0,
+            descent: 2.0,
+            line_height: 12.5,
+        };
+        let mut builder = PackBuilder::new();
+        builder.add_strike(10.0, metrics, alloc::vec![('а', glyph(2, 136, 3.5))]);
+        builder.table(BitmapFont::ANCHORS, 1, &[0, 0, 0, 0]);
+        let data = builder.build();
+        let pack = StoredPack::open(Rc::new(Memory(data.clone(), Cell::new(0)))).unwrap();
+        let at = pack.table(BitmapFont::ANCHORS).unwrap() as usize;
+        assert_eq!(&data[at..at + 2], &[1, 0]);
+        assert_eq!(pack.table(BitmapFont::SCRIPTS), None);
+        assert_eq!(pack.table(8), None);
+        assert_eq!(pack.advance('а', 10.0), 3.5);
     }
 
     #[test]

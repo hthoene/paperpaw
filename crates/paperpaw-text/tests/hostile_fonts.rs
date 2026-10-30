@@ -73,11 +73,7 @@ impl PackSource for Memory {
 
 /// A pack of one strike at 10 px holding a space.
 fn pack() -> Vec<u8> {
-    let metrics = LineMetrics {
-        ascent: 8.0,
-        descent: 2.0,
-        line_height: 12.0,
-    };
+    let metrics = LineMetrics::new(8.0, 2.0, 12.0);
     let mut builder = PackBuilder::new();
     builder.add_strike(10.0, metrics, vec![(' ', paperpaw_text::Glyph::empty(3.0))]);
     builder.build()

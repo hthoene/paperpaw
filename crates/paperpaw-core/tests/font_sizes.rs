@@ -20,11 +20,7 @@ use paperpaw_text::{Glyph, LineMetrics, PackBuilder};
 fn small_font() -> MemoryStorage {
     let mut builder = PackBuilder::new();
     for size in [10.0, 20.0] {
-        let metrics = LineMetrics {
-            ascent: size * 0.8,
-            descent: size * 0.2,
-            line_height: size * 1.2,
-        };
+        let metrics = LineMetrics::new(size * 0.8, size * 0.2, size * 1.2);
         builder.add_strike(size, metrics, vec![('a', Glyph::empty(size / 2.0))]);
     }
     MemoryStorage::new()

@@ -23,15 +23,17 @@ compile_error!(
 
 extern crate alloc;
 
-// Bidirectional text and Arabic shaping (#33): a prototype, crate-private
-// until the plugin interface is raised for it, so code plugins do not see
-// it yet. Fuzzing reaches it through `fuzz` (cargo-fuzz sets `fuzzing`).
-#[allow(dead_code, reason = "a prototype that nothing uses yet (#33)")]
+// Bidirectional text and Arabic shaping (#33), used by `draw_text_in`:
+// crate-private until the reading path has shown which items plugins need
+// (making them public later is an addition). Fuzzing reaches them through
+// `fuzz` (cargo-fuzz sets `fuzzing`).
+#[allow(dead_code, reason = "parts only the reading path will use (#33)")]
 mod arabic;
+mod around;
 #[allow(
     dead_code,
     unused_imports,
-    reason = "a prototype that nothing uses yet (#33)"
+    reason = "parts only the reading path will use (#33)"
 )]
 mod bidi;
 mod bitmap;
@@ -59,6 +61,7 @@ mod raster;
 pub mod sfnt;
 mod stored;
 
+pub use around::{Around, draw_text_in, measure_in};
 pub use bitmap::{BitmapFont, PackBuilder};
 pub use cache::GlyphCache;
 pub use curve::ToneCurve;
@@ -95,6 +98,7 @@ pub fn measure(font: &Font, size: f32, text: &str) -> f32 {
 /// How a line of text is drawn: its font (and the font's number in the
 /// glyph cache), size and colour, how much bolder, and on what curve.
 #[derive(Clone, Copy)]
+#[non_exhaustive]
 pub struct TextStyle<'a> {
     pub font: &'a Font,
     /// The font's number in the [`GlyphCache`].
@@ -198,10 +202,8 @@ pub fn draw_text(
         font,
         font_index,
         size,
-        color,
-        bolder: extra,
-        curve: tone,
         mut based,
+        ..
     } = *style;
     let mut pen = x;
     let mut before = None;
@@ -215,42 +217,60 @@ pub fn draw_text(
         // Saturating: a pen far out (absurd advances) draws nothing.
         let gx = glyph_x(pen, glyph.left, mark && !based);
         based |= !mark;
-        let gy = baseline.saturating_add(i32::from(glyph.top));
-        if !glyph.is_empty() && extra == 0 {
-            // The usual weight: each pixel's own coverage, on its curve.
-            let level = glyph.levels();
-            canvas.draw_mask(
-                gx,
-                gy,
-                u32::from(glyph.width),
-                u32::from(glyph.height),
-                color,
-                |px, py| tone.alpha(level(px, py)),
-            );
-        } else if !glyph.is_empty() {
-            let width = u32::from(glyph.width);
-            canvas.draw_mask(
-                gx,
-                gy,
-                width + u32::from(extra),
-                u32::from(glyph.height),
-                color,
-                |px, py| {
-                    // The strongest coverage of the pixels up to `extra`
-                    // to the left, on its curve (curves rise, so the
-                    // strongest stays the strongest).
-                    let level = (0..=u32::from(extra))
-                        .filter(|k| *k <= px && px - k < width)
-                        .map(|k| glyph.level((px - k) as u16, py as u16))
-                        .max()
-                        .unwrap_or(0);
-                    tone.alpha(level)
-                },
-            );
-        }
+        paint(canvas, &glyph, gx, baseline, style);
         pen += glyph.advance;
     }
     pen - x
+}
+
+/// Draws `glyph` with its pen at `gx` across and `baseline`, in `style`'s
+/// colour, weight and curve.
+fn paint(
+    canvas: &mut Canvas<'_>,
+    glyph: &GlyphRef<'_>,
+    gx: i32,
+    baseline: i32,
+    style: &TextStyle<'_>,
+) {
+    let TextStyle {
+        color,
+        bolder: extra,
+        curve: tone,
+        ..
+    } = *style;
+    let gy = baseline.saturating_add(i32::from(glyph.top));
+    if !glyph.is_empty() && extra == 0 {
+        // The usual weight: each pixel's own coverage, on its curve.
+        let level = glyph.levels();
+        canvas.draw_mask(
+            gx,
+            gy,
+            u32::from(glyph.width),
+            u32::from(glyph.height),
+            color,
+            |px, py| tone.alpha(level(px, py)),
+        );
+    } else if !glyph.is_empty() {
+        let width = u32::from(glyph.width);
+        canvas.draw_mask(
+            gx,
+            gy,
+            width + u32::from(extra),
+            u32::from(glyph.height),
+            color,
+            |px, py| {
+                // The strongest coverage of the pixels up to `extra`
+                // to the left, on its curve (curves rise, so the
+                // strongest stays the strongest).
+                let level = (0..=u32::from(extra))
+                    .filter(|k| *k <= px && px - k < width)
+                    .map(|k| glyph.level((px - k) as u16, py as u16))
+                    .max()
+                    .unwrap_or(0);
+                tone.alpha(level)
+            },
+        );
+    }
 }
 
 /// Renders `chars` of `font` at each of `sizes` into a bitmap font pack,

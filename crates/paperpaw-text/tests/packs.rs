@@ -138,7 +138,7 @@ fn packs_under_the_old_name_and_other_versions() {
     assert!(BitmapFont::new(old.clone()).is_ok());
     assert!(open(&old).is_ok());
     let mut newer = PACK.to_vec();
-    newer[4] = 2;
+    newer[4] = 3;
     assert_eq!(
         BitmapFont::new(newer.clone()).unwrap_err(),
         FontError::UnsupportedVersion

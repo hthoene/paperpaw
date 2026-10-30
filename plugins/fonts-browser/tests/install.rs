@@ -61,11 +61,7 @@ regular = regular.ppfp
 
 /// A pack with a few letters.
 fn pack() -> Vec<u8> {
-    let metrics = LineMetrics {
-        ascent: 8.0,
-        descent: 2.0,
-        line_height: 12.0,
-    };
+    let metrics = LineMetrics::new(8.0, 2.0, 12.0);
     let mut builder = PackBuilder::new();
     let glyphs = "Rabcd".chars().map(|c| (c, Glyph::empty(5.0))).collect();
     builder.add_strike(26.0, metrics, glyphs);

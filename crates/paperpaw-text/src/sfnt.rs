@@ -8,6 +8,7 @@ use alloc::vec::Vec;
 
 /// What a font file says about itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FontInfo {
     /// The family, e.g. `Literata`; shared by the regular, bold and italic
     /// files of a family.
@@ -16,6 +17,17 @@ pub struct FontInfo {
     pub italic: bool,
     /// The weight, 100 (thin) to 900 (black); 400 is regular, 700 bold.
     pub weight: u16,
+}
+
+impl FontInfo {
+    pub fn new(family: impl Into<String>, bold: bool, italic: bool, weight: u16) -> FontInfo {
+        FontInfo {
+            family: family.into(),
+            bold,
+            italic,
+            weight,
+        }
+    }
 }
 
 /// Reads `buf.len()` bytes at an offset; returns how many were read.

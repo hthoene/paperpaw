@@ -35,6 +35,7 @@ impl core::error::Error for FontError {}
 
 /// Vertical metrics of a font at a size, in pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct LineMetrics {
     /// Distance from the baseline to the top of the line (positive).
     pub ascent: f32,
@@ -45,6 +46,14 @@ pub struct LineMetrics {
 }
 
 impl LineMetrics {
+    pub const fn new(ascent: f32, descent: f32, line_height: f32) -> Self {
+        Self {
+            ascent,
+            descent,
+            line_height,
+        }
+    }
+
     /// Rough metrics when a font cannot provide any.
     pub(crate) fn fallback(size: f32) -> Self {
         Self {

@@ -4,11 +4,7 @@ use paperpaw_text::{Glyph, PackBuilder};
 
 /// A pack holding `chars`, with empty glyphs.
 fn pack(chars: &str) -> alloc::vec::Vec<u8> {
-    let metrics = LineMetrics {
-        ascent: 8.0,
-        descent: 2.0,
-        line_height: 12.0,
-    };
+    let metrics = LineMetrics::new(8.0, 2.0, 12.0);
     let mut builder = PackBuilder::new();
     let glyphs = chars.chars().map(|c| (c, Glyph::empty(5.0))).collect();
     builder.add_strike(10.0, metrics, glyphs);
@@ -23,11 +19,7 @@ fn pack(chars: &str) -> alloc::vec::Vec<u8> {
 fn kerned_and_ligated_text_is_drawn_as_measured() {
     use paperpaw_graphics::Framebuffer;
     use paperpaw_platform::PixelFormat;
-    let metrics = LineMetrics {
-        ascent: 8.0,
-        descent: 2.0,
-        line_height: 12.0,
-    };
+    let metrics = LineMetrics::new(8.0, 2.0, 12.0);
     let mut builder = PackBuilder::new();
     // f i l 5 3 3; fi narrower than f + i, fl as wide, ff wider than
     // f + f, ffl as wide as its letters, ffi not.
@@ -159,11 +151,7 @@ fn extensions_add_characters_read_from_storage() {
 
 /// A pack at `size`, its glyphs `advance` wide.
 fn pack_at(size: f32, advance: f32) -> alloc::vec::Vec<u8> {
-    let metrics = LineMetrics {
-        ascent: size * 0.8,
-        descent: size * 0.2,
-        line_height: size * 1.2,
-    };
+    let metrics = LineMetrics::new(size * 0.8, size * 0.2, size * 1.2);
     let mut builder = PackBuilder::new();
     let glyphs = "ab".chars().map(|c| (c, Glyph::empty(advance))).collect();
     builder.add_strike(size, metrics, glyphs);

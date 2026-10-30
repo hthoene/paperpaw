@@ -91,11 +91,6 @@ paperpaw_sdk::setting::Text
 paperpaw_sdk::ui::sections::Item
 paperpaw_sdk::ui::sections::Section
 paperpaw_sdk::work::Progress
-paperpaw_text::Glyph
-paperpaw_text::GlyphRef
-paperpaw_text::LineMetrics
-paperpaw_text::TextStyle
-paperpaw_text::sfnt::FontInfo
 paperpaw_update::AppInfo
 paperpaw_update::PluginCrate
 paperpaw_update::Problem

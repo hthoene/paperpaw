@@ -22,6 +22,60 @@
 //! they move the second one, in classes (see `kern_table.rs`). Readers
 //! made before it ignore the field, and packs made before it read
 //! without kerning: the version stays 1.
+//!
+//! # Tables (version 2)
+//!
+//! A pack of version 2 is one of version 1 with a directory of eight
+//! `u32` offsets of tables (0: absent) right after its strikes' headers.
+//! A pack without tables is written as version 1, which every reader
+//! reads. The slots ([`BitmapFont::ANCHORS`] and on):
+//!
+//! ```text
+//! 0  anchors              where marks sit on letters (below)
+//! 1  mark-to-mark anchors the same format, for a mark on a mark where
+//!                         it differs from slot 0
+//! 2  scripts              the scripts the pack is for and their line
+//!                         metrics (below)
+//! 3  language forms       per language, keys drawn as other keys
+//! 4  substitutions        contextual substitutions
+//! 5  vertical metrics     for vertical lines
+//! 6  reserved             0
+//! 7  next directory       eight more offsets, slots 8 to 15, the same way
+//! ```
+//!
+//! Every table starts with a version byte, three reserved bytes and its
+//! length in bytes (`u32`, these eight included); a reader skips a table
+//! whose version it does not know. The formats of slots 3 to 5 are given
+//! with their first version.
+//!
+//! Anchors (version 1), per strike, as packs are per size:
+//!
+//! ```text
+//! head       8 bytes   version 1, 3 reserved, length u32
+//! strikes    4 bytes   per strike of the pack: offset of its part u32
+//!   each               (from the table's start)
+//! part       4 bytes   key count u32, then per key, sorted by key:
+//! keys      12 bytes   key u32, anchors' offset u32 (from the table's
+//!   each               start), anchor count u8, attach class u8
+//!                      (a mark's: the class of the anchor it sits on;
+//!                      255 for a letter), 2 reserved
+//! anchors    3 bytes   class u8, x i8, y i8 (pixels from the pen and
+//!   each               the baseline, y down)
+//! ```
+//!
+//! Anchor classes: 0 above a letter, 1 below a letter, 2 above a mark
+//! (mark to mark), 3 below a mark, 4 above right, 5 below right; 6 and 7
+//! are not used yet.
+//!
+//! Scripts (version 1):
+//!
+//! ```text
+//! head       8 bytes   version 1, 3 reserved, length u32
+//! count      4 bytes   script count u8, 3 reserved
+//! scripts    4 bytes   script u8 (its index in paperpaw_lang::scripts(),
+//!   each               from 1), 3 reserved, then per strike of the
+//!                      pack: ascent i32, descent i32 (1/64 px)
+//! ```
 
 use alloc::borrow::Cow;
 use alloc::vec::Vec;
@@ -35,7 +89,14 @@ const MAGIC: &[u8; 4] = b"PPFP";
 /// Packs made before PaperPaw had its name (the same format): still read.
 const OLD_MAGIC: &[u8; 4] = b"QIFP"; // before PPFP
 const VERSION: u8 = 1;
+/// A pack with a directory of tables.
+const VERSION_TABLES: u8 = 2;
 const HEADER: usize = 12;
+/// The directory's slots, and its size.
+const SLOTS: usize = 8;
+const DIRECTORY: usize = SLOTS * 4;
+/// A table's head: version, three reserved bytes, length.
+const TABLE_HEAD: usize = 8;
 const STRIKE: usize = 32;
 const RECORD: usize = 20;
 /// Where in the first strike's header the kerning table's offset is.
@@ -78,7 +139,7 @@ impl BitmapFont {
         if !Self::is_pack(&data) || data.len() < HEADER {
             return Err(FontError::Invalid);
         }
-        if data[4] != VERSION {
+        if data[4] != VERSION && data[4] != VERSION_TABLES {
             return Err(FontError::UnsupportedVersion);
         }
         let strikes = u16_at(&data, 8).ok_or(FontError::Invalid)?;
@@ -98,6 +159,45 @@ impl BitmapFont {
             }
         }
         Ok(font)
+    }
+
+    /// The slot of the anchors table (see the module's documentation).
+    pub const ANCHORS: usize = 0;
+    /// The slot of the mark-to-mark anchors table.
+    pub const MARK_ANCHORS: usize = 1;
+    /// The slot of the scripts table: scripts and their line metrics.
+    pub const SCRIPTS: usize = 2;
+    /// The slot of the language forms table.
+    pub const LANGUAGE_FORMS: usize = 3;
+    /// The slot of the contextual substitutions table.
+    pub const SUBSTITUTIONS: usize = 4;
+    /// The slot of the vertical metrics table.
+    pub const VERTICAL: usize = 5;
+    /// The slot of the next directory: slots 8 to 15.
+    pub const NEXT: usize = 7;
+
+    /// Table `slot` of the pack (see the module's documentation), from
+    /// its head to its end, if it has one whole: read in place.
+    pub fn table(&self, slot: usize) -> Option<&[u8]> {
+        if self.data.get(4) != Some(&VERSION_TABLES) {
+            return None;
+        }
+        let mut directory = HEADER.checked_add(usize::from(self.strikes) * STRIKE)?;
+        let mut slot = slot;
+        // Slots past 7 through the next directories, at most a few.
+        for _ in 0..4 {
+            if slot < Self::NEXT {
+                let at = u32_at(&self.data, directory.checked_add(slot * 4)?)? as usize;
+                return table_at(&self.data, at);
+            }
+            let next = u32_at(&self.data, directory.checked_add(Self::NEXT * 4)?)? as usize;
+            if next == 0 || next.checked_add(DIRECTORY)? > self.data.len() {
+                return None;
+            }
+            directory = next;
+            slot -= SLOTS;
+        }
+        None
     }
 
     /// Available sizes in pixels.
@@ -363,6 +463,9 @@ pub struct PackBuilder {
     strikes: Vec<StrikeData>,
     /// The kerning table, if any (see [`PackBuilder::kerning`]).
     kerning: Vec<u8>,
+    /// The tables of slots 0 to 6, with their heads (see
+    /// [`PackBuilder::table`]).
+    tables: [Vec<u8>; 7],
 }
 
 #[derive(Debug)]
@@ -397,15 +500,38 @@ impl PackBuilder {
         self.kerning = kern_table::build(pairs);
     }
 
+    /// Puts `body` in slot `slot` (0 to 6, see [`BitmapFont::ANCHORS`])
+    /// as a table of version `version`, its head before it; an empty body
+    /// takes it out. A pack with a table is of version 2.
+    pub fn table(&mut self, slot: usize, version: u8, body: &[u8]) {
+        let Some(table) = self.tables.get_mut(slot) else {
+            return;
+        };
+        table.clear();
+        if body.is_empty() {
+            return;
+        }
+        let len = (TABLE_HEAD + body.len()) as u32;
+        table.extend_from_slice(&[version, 0, 0, 0]);
+        table.extend_from_slice(&len.to_le_bytes());
+        table.extend_from_slice(body);
+    }
+
     pub fn build(&self) -> Vec<u8> {
+        let tables = self.tables.iter().any(|t| !t.is_empty());
         let mut out = Vec::new();
         out.extend_from_slice(MAGIC);
-        out.extend_from_slice(&[VERSION, 0, 0, 0]);
+        let version = if tables { VERSION_TABLES } else { VERSION };
+        out.extend_from_slice(&[version, 0, 0, 0]);
         out.extend_from_slice(&(self.strikes.len() as u16).to_le_bytes());
         out.extend_from_slice(&[0, 0]);
 
         let strike_table = out.len();
         out.resize(strike_table + self.strikes.len() * STRIKE, 0);
+        let directory = out.len();
+        if tables {
+            out.resize(directory + DIRECTORY, 0);
+        }
         for (index, strike) in self.strikes.iter().enumerate() {
             let (size, metrics, glyphs) = (strike.size, strike.metrics, &strike.glyphs);
             let glyph_table = out.len();
@@ -443,6 +569,14 @@ impl PackBuilder {
             out[KERNING..KERNING + 4].copy_from_slice(&table);
             out.extend_from_slice(&self.kerning);
         }
+        for (slot, table) in self.tables.iter().enumerate() {
+            if !table.is_empty() {
+                let at = directory + slot * 4;
+                let offset = (out.len() as u32).to_le_bytes();
+                out[at..at + 4].copy_from_slice(&offset);
+                out.extend_from_slice(table);
+            }
+        }
         out
     }
 }
@@ -462,6 +596,18 @@ fn to_q6(value: f32) -> i32 {
 
 fn bytes<const N: usize>(data: &[u8], at: usize) -> Option<[u8; N]> {
     data.get(at..at.checked_add(N)?)?.try_into().ok()
+}
+
+/// The table at `at` of `data`, if it fits whole.
+fn table_at(data: &[u8], at: usize) -> Option<&[u8]> {
+    if at == 0 {
+        return None;
+    }
+    let len = u32_at(data, at.checked_add(4)?)? as usize;
+    if len < TABLE_HEAD {
+        return None;
+    }
+    data.get(at..at.checked_add(len)?)
 }
 
 fn u16_at(data: &[u8], at: usize) -> Option<u16> {
@@ -596,6 +742,47 @@ mod tests {
         let font = pack();
         assert!(font.glyph('z', 10.0).is_empty());
         assert_eq!(font.advance('z', 10.0), 0.0);
+    }
+
+    #[test]
+    fn tables_are_found_in_their_slots() {
+        let metrics = LineMetrics {
+            ascent: 8.0,
+            descent: 2.0,
+            line_height: 10.0,
+        };
+        let mut builder = PackBuilder::new();
+        builder.add_strike(10.0, metrics, alloc::vec![('a', glyph(2, 136, 3.5))]);
+        let plain = builder.build();
+        assert_eq!(plain[4], VERSION);
+        builder.table(BitmapFont::SCRIPTS, 1, &[1, 0, 0, 0, 7]);
+        builder.table(9, 1, &[1]);
+        let font = BitmapFont::new(builder.build()).unwrap();
+        assert_eq!(font.data[4], VERSION_TABLES);
+        let table = font.table(BitmapFont::SCRIPTS).unwrap();
+        assert_eq!(table.len(), TABLE_HEAD + 5);
+        assert_eq!((table[0], table[TABLE_HEAD + 4]), (1, 7));
+        for slot in [0, 1, 6, 7, 8, 15, 99] {
+            assert!(font.table(slot).is_none());
+        }
+        // The glyphs read as before; a pack of version 1 has no tables.
+        assert_eq!(font.glyph('a', 10.0).advance, 3.5);
+        assert!(
+            BitmapFont::new(plain)
+                .unwrap()
+                .table(BitmapFont::SCRIPTS)
+                .is_none()
+        );
+        // A table that says it is longer than the pack is not read.
+        let mut data = font.data.into_owned();
+        let len = data.len();
+        data[len - 9] = 0xFF;
+        assert!(
+            BitmapFont::new(data)
+                .unwrap()
+                .table(BitmapFont::SCRIPTS)
+                .is_none()
+        );
     }
 
     #[test]
