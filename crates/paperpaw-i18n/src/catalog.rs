@@ -26,6 +26,15 @@ pub struct Catalog {
     language: Span,
     name: Span,
     plural: PluralRule,
+    /// `[meta] direction`: 0 not said, 1 `ltr`, 2 `rtl`.
+    direction: u8,
+    /// `[meta] script`: its place in `paperpaw_lang::scripts()` and 1;
+    /// 0 not said.
+    script: u8,
+    /// `[meta] digits`: its place in [`DIGITS`] (0: `latn`).
+    digits: u8,
+    /// `[meta] calendar`: its place in [`CALENDARS`] (0: `gregorian`).
+    calendar: u8,
     /// Decoded values that contained escape sequences; the meta values
     /// first (`meta_len` bytes), which stay when the catalog is unloaded.
     /// Boxed, as it changes only when the catalog is scanned: two words
@@ -45,6 +54,61 @@ pub struct Catalog {
     wide: bool,
     /// When it was added to a translator, of those added: later ones win.
     pub(crate) added: u32,
+}
+
+/// The digits a catalog can name (`[meta] digits`), as the CLDR names
+/// the numbering systems: Latin, Arabic-Indic, Extended Arabic-Indic
+/// (Persian, Urdu), Devanagari, Bengali, Thai. Only added at the end.
+pub const DIGITS: [&str; 6] = ["latn", "arab", "arabext", "deva", "beng", "thai"];
+
+/// The calendars a catalog can name (`[meta] calendar`), as the CLDR
+/// names them: Gregorian, Hijri, Solar Hijri. Only added at the end.
+pub const CALENDARS: [&str; 3] = ["gregorian", "islamic", "persian"];
+
+/// Where escaped text of `spans` ends in a catalog's escaped text.
+fn escaped_end(spans: &[Span]) -> u32 {
+    spans
+        .iter()
+        .filter(|s| s.start & ESCAPED != 0)
+        .map(|s| (s.start & !ESCAPED) + s.len)
+        .max()
+        .unwrap_or(0)
+}
+
+/// What a `[meta]` key of the catalog's description says: its place in
+/// direction, script, digits, calendar and its value, 1-based. Values
+/// this release does not know are left as not said (0): a newer catalog
+/// still loads.
+fn described(key: &str, value: &str) -> Option<(usize, u8)> {
+    Some(match key {
+        "direction" => (
+            0,
+            match value {
+                "ltr" => 1,
+                "rtl" => 2,
+                _ => 0,
+            },
+        ),
+        "script" => (
+            1,
+            paperpaw_lang::scripts()
+                .position(|s| s == value)
+                .and_then(|i| u8::try_from(i + 1).ok())
+                .unwrap_or(0),
+        ),
+        "digits" => (2, place(&DIGITS, value)),
+        "calendar" => (3, place(&CALENDARS, value)),
+        _ => return None,
+    })
+}
+
+/// The place of `value` in `names`, 0 if it is not there.
+fn place(names: &[&str], value: &str) -> u8 {
+    names
+        .iter()
+        .position(|n| *n == value)
+        .and_then(|i| u8::try_from(i).ok())
+        .unwrap_or(0)
 }
 
 /// A catalog of a language not in use, kept small: its source and where
@@ -268,6 +332,10 @@ impl Catalog {
             language: Span { start: 0, len: 0 },
             name: Span { start: 0, len: 0 },
             plural: PluralRule::OneOther,
+            direction: 0,
+            script: 0,
+            digits: 0,
+            calendar: 0,
             escaped: Box::default(),
             meta_len: 0,
             index: Index::default(),
@@ -328,6 +396,8 @@ impl Catalog {
         let mut index = Vec::new();
         let mut others = Vec::new();
         let (mut language, mut name, mut plural) = (None, None, PluralRule::OneOther);
+        // Direction, script, digits, calendar.
+        let mut said = [0u8; 4];
         for entry in paperpaw_config::parse(source) {
             let entry = entry.map_err(CatalogError::Syntax)?;
             match (entry.section, entry.key) {
@@ -338,7 +408,11 @@ impl Catalog {
                     plural = PluralRule::from_id(&entry.value.as_str())
                         .ok_or(CatalogError::UnknownPluralRule { line: entry.line })?;
                 }
-                ("meta", _) => {}
+                ("meta", key) => {
+                    if let Some((at, value)) = described(key, &entry.value.as_str()) {
+                        said[at] = value;
+                    }
+                }
                 ("messages", key) => {
                     let value = entry.value.as_str();
                     // Plainly on its line: only where the line starts. The
@@ -372,12 +446,8 @@ impl Catalog {
             self.language = language.ok_or(CatalogError::MissingLanguage)?;
             self.name = name.unwrap_or(self.language);
             self.plural = plural;
-            self.meta_len = [self.language, self.name]
-                .iter()
-                .filter(|s| s.start & ESCAPED != 0)
-                .map(|s| (s.start & !ESCAPED) + s.len)
-                .max()
-                .unwrap_or(0);
+            [self.direction, self.script, self.digits, self.calendar] = said;
+            self.meta_len = escaped_end(&[self.language, self.name]);
         }
         // Sorted by key, each read once, then by where its line is, so
         // that of equal keys the last in the file wins. Unstable: a stable
@@ -448,6 +518,42 @@ impl Catalog {
 
     pub fn plural_rule(&self) -> PluralRule {
         self.plural
+    }
+
+    /// The direction of the interface in its language (`[meta]
+    /// direction`): [`Direction::Auto`](paperpaw_lang::Direction) where
+    /// the catalog does not say.
+    pub fn direction(&self) -> paperpaw_lang::Direction {
+        match self.direction {
+            1 => paperpaw_lang::Direction::Ltr,
+            2 => paperpaw_lang::Direction::Rtl,
+            _ => paperpaw_lang::Direction::Auto,
+        }
+    }
+
+    /// The script its language is written in (`[meta] script`), as
+    /// ISO 15924 names it, e.g. `Arab`, if it says.
+    pub fn script(&self) -> Option<&'static str> {
+        let i = usize::from(self.script).checked_sub(1)?;
+        paperpaw_lang::scripts().nth(i)
+    }
+
+    /// The digits numbers are written with (`[meta] digits`), as the CLDR
+    /// names them (see [`DIGITS`]): `latn` where it does not say.
+    pub fn digits(&self) -> &'static str {
+        DIGITS
+            .get(usize::from(self.digits))
+            .copied()
+            .unwrap_or(DIGITS[0])
+    }
+
+    /// The calendar dates are given in (`[meta] calendar`), as the CLDR
+    /// names it (see [`CALENDARS`]): `gregorian` where it does not say.
+    pub fn calendar(&self) -> &'static str {
+        CALENDARS
+            .get(usize::from(self.calendar))
+            .copied()
+            .unwrap_or(CALENDARS[0])
     }
 
     fn key(&self, at: u32) -> &str {

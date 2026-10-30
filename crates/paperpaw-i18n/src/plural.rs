@@ -43,6 +43,25 @@ pub enum PluralRule {
     Polish,
     /// `one`/`few`/`other`: Czech, Slovak.
     CzechSlovak,
+    /// A rule of the CLDR's, by its place in [`cldr_rules`]: new rules
+    /// are added there, not as variants.
+    Cldr(u8),
+}
+
+/// The CLDR's plural rules beyond the variants of [`PluralRule`], by the
+/// name a catalog's `[meta] plural` gives them; a rule's place is its
+/// [`PluralRule::Cldr`] index. Rules are only added at the end.
+const CLDR: [&str; 2] = [
+    // zero 0, one 1, two 2, few 3-10, many 11-99 (of the last two
+    // digits), other: Arabic.
+    "arabic", // one 1, two 2, other: Hebrew.
+    "hebrew",
+];
+
+/// The names of the CLDR rules a catalog can name beyond the variants of
+/// [`PluralRule`], in the order of their [`PluralRule::Cldr`] index.
+pub fn cldr_rules() -> impl Iterator<Item = &'static str> {
+    CLDR.into_iter()
 }
 
 impl PluralRule {
@@ -54,10 +73,15 @@ impl PluralRule {
             PluralRule::EastSlavic => "east-slavic",
             PluralRule::Polish => "polish",
             PluralRule::CzechSlovak => "czech-slovak",
+            PluralRule::Cldr(i) if (i as usize) < CLDR.len() => CLDR[i as usize],
+            PluralRule::Cldr(_) => "other",
         }
     }
 
     pub fn from_id(id: &str) -> Option<Self> {
+        if let Some(i) = CLDR.iter().position(|rule| *rule == id) {
+            return u8::try_from(i).ok().map(PluralRule::Cldr);
+        }
         [
             PluralRule::Other,
             PluralRule::OneOther,
@@ -119,6 +143,23 @@ impl PluralRule {
                 2..=4 => Few,
                 _ => Other,
             },
+            // Arabic.
+            PluralRule::Cldr(0) => match (n, n % 100) {
+                (0, _) => PluralCategory::Zero,
+                (1, _) => One,
+                (2, _) => PluralCategory::Two,
+                (_, 3..=10) => Few,
+                (_, 11..=99) => Many,
+                _ => Other,
+            },
+            // Hebrew.
+            PluralRule::Cldr(1) => match n {
+                1 => One,
+                2 => PluralCategory::Two,
+                _ => Other,
+            },
+            // A rule this release does not know: a newer catalog's.
+            PluralRule::Cldr(_) => Other,
         }
     }
 }
@@ -144,6 +185,21 @@ mod tests {
     }
 
     #[test]
+    fn arabic_and_hebrew() {
+        let arabic = PluralRule::from_id("arabic").unwrap();
+        let got: [PluralCategory; 9] =
+            [0, 1, 2, 3, 10, 11, 99, 100, 103].map(|n| arabic.category(n));
+        assert_eq!(got, [Zero, One, Two, Few, Few, Many, Many, Other, Few]);
+        let hebrew = PluralRule::Cldr(1);
+        assert_eq!(
+            [1, 2, 3, 20].map(|n| hebrew.category(n)),
+            [One, Two, Other, Other]
+        );
+        assert_eq!(PluralRule::Cldr(200).category(1), Other);
+        assert_eq!(PluralRule::Cldr(200).id(), "other");
+    }
+
+    #[test]
     fn ids_round_trip() {
         for id in [
             "other",
@@ -152,6 +208,8 @@ mod tests {
             "east-slavic",
             "polish",
             "czech-slovak",
+            "arabic",
+            "hebrew",
         ] {
             assert_eq!(PluralRule::from_id(id).map(PluralRule::id), Some(id));
         }

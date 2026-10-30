@@ -33,9 +33,11 @@ pub mod check;
 mod format;
 mod plural;
 
+pub use catalog::{CALENDARS, DIGITS};
 pub use catalog::{Catalog, CatalogError, FixedIndexes, fingerprint};
 pub use format::Arg;
-pub use plural::{PluralCategory, PluralRule};
+pub use paperpaw_lang::{Direction, Lang};
+pub use plural::{PluralCategory, PluralRule, cldr_rules};
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -64,6 +66,9 @@ pub struct Translator {
     added: u32,
     /// Indexes of the catalogs built in, kept in the program.
     fixed: FixedIndexes,
+    /// The interface's direction in the language: 1 right to left, 0
+    /// left to right (see [`Translator::direction`]).
+    direction: u8,
 }
 
 impl Translator {
@@ -121,6 +126,16 @@ impl Translator {
 
     pub fn language(&self) -> &str {
         &self.language
+    }
+
+    /// The direction of the interface in the language: right to left
+    /// where the first of its catalogs that says (`[meta] direction`)
+    /// says so, else left to right.
+    pub fn direction(&self) -> Direction {
+        match self.direction {
+            1 => Direction::Rtl,
+            _ => Direction::Ltr,
+        }
     }
 
     /// Available languages as `(tag, name)`, each listed once: English,
@@ -296,6 +311,12 @@ impl Translator {
             order.extend(matching);
         }
         order.shrink_to_fit();
+        self.direction = order
+            .iter()
+            .filter_map(|&i| self.catalogs.get(usize::from(i)))
+            .map(Catalog::direction)
+            .find(|d| *d != Direction::Auto)
+            .map_or(0, |d| u8::from(d == Direction::Rtl));
         self.order = order;
     }
 }
@@ -312,6 +333,37 @@ mod tests {
     const DE_AT: &str = "[meta]\nlanguage = de-AT\nname = Deutsch (Österreich)\n\n\
         [messages]\nhello = Servus, {name}!\n";
     const DE_OVERRIDE: &str = "[meta]\nlanguage = de\n[messages]\nhello = Moin, {name}!\n";
+
+    #[test]
+    fn the_direction_and_more_come_from_the_catalog() {
+        let ar = Catalog::parse(
+            "[meta]\nlanguage = ar\nplural = arabic\ndirection = rtl\nscript = Arab\n\
+             digits = arab\ncalendar = islamic\n[messages]\nhello = !\n",
+        )
+        .unwrap();
+        assert_eq!(ar.direction(), Direction::Rtl);
+        assert_eq!(ar.script(), Some("Arab"));
+        assert_eq!((ar.digits(), ar.calendar()), ("arab", "islamic"));
+        assert_eq!(ar.plural_rule(), PluralRule::Cldr(0));
+        let mut t = Translator::new();
+        t.add(Catalog::parse(EN).unwrap());
+        t.add(ar);
+        assert_eq!(t.direction(), Direction::Ltr);
+        t.set_language("ar");
+        assert_eq!(t.direction(), Direction::Rtl);
+        t.set_language("en");
+        assert_eq!(t.direction(), Direction::Ltr);
+        // What this release does not know is left as not said.
+        let newer = Catalog::parse(
+            "[meta]\nlanguage = xx\ndirection = ttb\nscript = Zzzz9\ndigits = new\ncalendar = new\n",
+        )
+        .unwrap();
+        assert_eq!(newer.direction(), Direction::Auto);
+        assert_eq!(
+            (newer.script(), newer.digits(), newer.calendar()),
+            (None, "latn", "gregorian")
+        );
+    }
 
     fn translator(language: &str) -> Translator {
         let mut t = Translator::new();
