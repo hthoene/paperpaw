@@ -328,6 +328,7 @@ dependencies = [
  "paperpaw-graphics",
  "paperpaw-lang",
  "paperpaw-platform",
+ "paperpaw-table",
  "read-fonts",
  "skrifa",
 ]

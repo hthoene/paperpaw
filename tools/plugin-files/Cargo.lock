@@ -440,6 +440,7 @@ dependencies = [
  "paperpaw-graphics",
  "paperpaw-lang",
  "paperpaw-platform",
+ "paperpaw-table",
 ]
 
 [[package]]
