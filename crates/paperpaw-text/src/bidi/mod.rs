@@ -184,6 +184,60 @@ pub fn resolve(text: &str, paragraph: Level, levels: &mut [Level]) -> usize {
     carry.resolve(text.chars(), levels.len(), levels)
 }
 
+/// Bytes the algorithm's state at a point of a paragraph takes: what a
+/// reader keeps to go on from there, e.g. at the start of each piece of
+/// a paragraph split in pieces. The bytes are the algorithm's own: their
+/// size and meaning may change with any release, so it is told by a
+/// function, and a state is only good for the build that wrote it.
+#[must_use]
+pub fn state_len() -> usize {
+    walk::STATE_LEN
+}
+
+/// Writes into `state` (at least [`state_len`] long) the state at the
+/// start of a paragraph at `paragraph`'s level. False where `state` is
+/// shorter.
+pub fn start_state(paragraph: Level, state: &mut [u8]) -> bool {
+    Carry::new(paragraph).encode(state)
+}
+
+/// As [`resolve`], from the point of a paragraph `state` says (see
+/// [`start_state`]), and moves the state on past the characters
+/// resolved. `rest` runs from that point to as far as the reader reads
+/// ahead: the paragraph's end, or the end of its next piece (what lies
+/// after decides neutrals, numbers and brackets near the end of the
+/// resolved text). Resolves the next `count` characters into `levels`
+/// and returns how many it wrote. A `state` that is not one (another
+/// build's, or too short) is taken as the paragraph's start at
+/// `paragraph`, and written anew.
+pub fn resolve_from<I>(
+    state: &mut [u8],
+    paragraph: Level,
+    rest: I,
+    count: usize,
+    levels: &mut [Level],
+) -> usize
+where
+    I: Iterator<Item = char> + Clone,
+{
+    let mut carry = Carry::decode(state).unwrap_or_else(|| Carry::new(paragraph));
+    let written = carry.resolve(rest, count, levels);
+    carry.encode(state);
+    written
+}
+
+/// Moves `state` on past the next `count` characters of `rest` without
+/// their levels (see [`resolve_from`]): to reach a later piece of a
+/// paragraph.
+pub fn skip_from<I>(state: &mut [u8], paragraph: Level, rest: I, count: usize)
+where
+    I: Iterator<Item = char> + Clone,
+{
+    let mut carry = Carry::decode(state).unwrap_or_else(|| Carry::new(paragraph));
+    carry.skip(rest, count);
+    carry.encode(state);
+}
+
 /// The paragraph's level from its first strong character (rules P2 and
 /// P3), skipping what lies inside isolates. `None` where it has none:
 /// the caller then takes the book's or the interface's direction (rule
