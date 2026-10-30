@@ -664,6 +664,8 @@ fn turn(app: &AndroidApp, rotation: Rotation) {
         Rotation::Deg90 => 0,
         Rotation::Deg180 => 9,
         Rotation::Deg270 => 8,
+        // A turn added later: upright until this shell knows it.
+        _ => 1,
     };
     let turned = access::with_activity(app, |env, activity| {
         env.call_method(
