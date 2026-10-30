@@ -212,17 +212,31 @@ fn entries(env: &Env<'_>, of: &Id, placed: bool, more: bool, specs: &[SettingSpe
             .collect(),
     };
     // What plugins do with the group (opening the update page, looking
-    // for fonts): its first rows, where the group is opened for them.
-    if !placed && !more {
-        let menus = env.menus();
-        let actions = menus
+    // for fonts): its first rows; after the settings where a preview shows
+    // what they do, so that the two stay together.
+    let actions: Vec<Row> = match !placed && !more {
+        true => env
+            .menus()
             .items(of.as_str())
             .into_iter()
             .filter(|item| !item.section && env.actions().contains(item.id.as_str()))
-            .filter(|item| menus.state(env, item.id.as_str()).shown)
-            .map(|item| Row::Action(item.id.clone()));
-        entries.splice(0..0, actions);
-    }
+            .filter(|item| env.menus().state(env, item.id.as_str()).shown)
+            .map(|item| Row::Action(item.id.clone()))
+            .collect(),
+        false => Vec::new(),
+    };
+    let previewed = env.widgets().preview(of.as_str()).is_some()
+        || env
+            .settings()
+            .parent_of(of)
+            .is_some_and(|parent| env.widgets().preview(parent.as_str()).is_some());
+    let after = match previewed {
+        true => actions,
+        false => {
+            entries.splice(0..0, actions);
+            Vec::new()
+        }
+    };
     // Sections: settings without one first, then the standard ones,
     // then the others as they come.
     let mut sections: Vec<Option<Cow<'static, str>>> = Vec::new();
@@ -265,6 +279,7 @@ fn entries(env: &Env<'_>, of: &Id, placed: bool, more: bool, specs: &[SettingSpe
     if has_more {
         entries.push(Row::More);
     }
+    entries.extend(after);
     if !specs.is_empty() {
         entries.push(Row::Reset);
     }
