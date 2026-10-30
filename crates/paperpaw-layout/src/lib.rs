@@ -12,6 +12,13 @@
 //! positioned lines with their runs of faces. Pairs are kerned within a
 //! word and a face only: a line's width is that of its words drawn one by
 //! one, each run of a face at once.
+//!
+//! Text in more than one direction (Arabic, Hebrew) is resolved per block
+//! by the Unicode Bidirectional Algorithm: a line's runs split where the
+//! level changes ([`LineRun::level`], drawn in the order rule L2 gives),
+//! lines of right-to-left paragraphs start at the right, letters that join
+//! are as wide as their forms ([`Typesetter::advance_text`]), and pairs
+//! that run right to left are not kerned.
 
 #![no_std]
 
@@ -31,6 +38,10 @@ pub use paperpaw_platform::Rect;
 pub use paperpaw_text::Around;
 pub use paperpaw_text::Hyphenate;
 use paperpaw_text::{Line, wrap_lines_balanced_kerned_with_cost, wrap_lines_kerned};
+
+use levels::BlockLevels;
+
+mod levels;
 
 /// Largest extra space per word gap for justification, relative to the
 /// line height.
@@ -527,13 +538,20 @@ fn line_runs(
     range: core::ops::Range<usize>,
     extra: usize,
     book: BookStyles,
+    levels: &BlockLevels,
 ) -> Vec<LineRun> {
+    let line_levels = levels.line(&block.text, range.clone());
     let mut runs: Vec<LineRun> = Vec::new();
-    for (i, _) in block.text[range.clone()].char_indices() {
+    for (k, (i, _)) in block.text[range.clone()].char_indices().enumerate() {
         let face = face_at(block, base, range.start + i, book);
+        let level = line_levels.get(k).map_or(0, |l| l.number());
         match runs.last_mut() {
-            Some(run) if run.face == face => run.end = i,
-            _ => runs.push(LineRun::new(i, i, face).with_lang(block.lang_of(face.style))),
+            Some(run) if run.face == face && run.level == level => run.end = i,
+            _ => runs.push(
+                LineRun::new(i, i, face)
+                    .with_level(level)
+                    .with_lang(block.lang_of(face.style)),
+            ),
         }
     }
     // Ends are exclusive: every run reaches the next one or the line end.
@@ -542,18 +560,34 @@ fn line_runs(
         runs[k].end = runs.get(k + 1).map_or(len, |next| next.start);
     }
     if runs.is_empty() && len > 0 {
-        runs.push(LineRun::new(0, len, base).with_lang(block.lang));
+        runs.push(
+            LineRun::new(0, len, base)
+                .with_level(levels.paragraph.number())
+                .with_lang(block.lang),
+        );
     }
     runs
 }
 
-/// How a line of `block` goes: its paragraph's direction where the block
-/// gives it, and whether it starts the paragraph. Lines are not put in
-/// order yet (no [`LineBidi::REORDER`]).
-fn line_bidi(block: &Block, start: bool) -> LineBidi {
-    let paragraph = u8::from(block.dir == Direction::Rtl);
-    let flags = if start { LineBidi::PARAGRAPH_START } else { 0 };
+/// How a line goes: its paragraph's direction, whether its `runs` are put
+/// in order (not all at level 0) and whether it starts the paragraph.
+fn line_bidi(levels: &BlockLevels, runs: &[LineRun], start: bool) -> LineBidi {
+    let paragraph = u8::from(levels.paragraph.is_rtl());
+    let mut flags = if start { LineBidi::PARAGRAPH_START } else { 0 };
+    if runs.iter().any(|run| run.level != 0) {
+        flags |= LineBidi::REORDER;
+    }
     LineBidi::new(paragraph, flags)
+}
+
+/// Where a line `drawn` wide starts from the left that starts at `x` in
+/// a left-to-right paragraph: the same in one of `width`, mirrored in a
+/// right-to-left one (its start, indent and margin at the right).
+fn placed_x(levels: &BlockLevels, width: f32, x: f32, drawn: f32) -> f32 {
+    match levels.paragraph.is_rtl() {
+        true => width - x - drawn,
+        false => x,
+    }
 }
 
 /// The heading level of a block (0: none) and the face of its text; the
@@ -625,6 +659,10 @@ impl Measure {
 /// their ranges in its text, and where they are set: broken line by line
 /// from there, or (balanced) over the whole block, from where it starts
 /// (`indent` is its first line's), and those from `from` on taken.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "what a block's lines need, each of it different; a struct would be built for one call"
+)]
 fn block_lines(
     block: &Block,
     from: usize,
@@ -633,15 +671,38 @@ fn block_lines(
     heading: u8,
     indent: f32,
     justify_limit: Option<f32>,
+    levels: &BlockLevels,
 ) -> Vec<(Line, (f32, f32))> {
     let (style, width) = (cx.style, cx.width);
+    // Letters that join are as wide as the form they take between their
+    // neighbours (marks left out), as drawing sets them.
     let advance = |i: usize, c: char| {
+        let face = face_at(block, base, i, style.book);
+        if levels.is_plain() || !levels::may_join(c) {
+            return cx.typesetter.advance(face, c);
+        }
+        let not_mark = |c: &char| !paperpaw_text::is_mark(*c);
+        let before = block
+            .text
+            .get(..i)
+            .and_then(|t| t.chars().rev().find(not_mark));
+        let after = block
+            .text
+            .get(i + c.len_utf8()..)
+            .and_then(|t| t.chars().find(not_mark));
+        let around =
+            Around::new(Direction::Rtl, block.lang_of(face.style)).with_context(before, after);
+        let mut letter = [0u8; 4];
         cx.typesetter
-            .advance(face_at(block, base, i, style.book), c)
+            .advance_text(face, c.encode_utf8(&mut letter), &around)
     };
     // A pair in one face: the character before `i` and `right`, the text's
-    // own there or a hyphen set like the character before it.
+    // own there or a hyphen set like the character before it. Pairs that
+    // run right to left are not kerned.
     let kern = |i: usize, left: char, right: char| {
+        if levels.is_rtl_at(i) || levels.is_rtl_at(i - left.len_utf8()) {
+            return 0.0;
+        }
         let face = face_at(block, base, i - left.len_utf8(), style.book);
         let own = block.text[i..].starts_with(right);
         if own && face_at(block, base, i, style.book) != face {
@@ -816,7 +877,8 @@ pub fn line_start(cx: &LayoutContext<'_>, at: Locator) -> Result<Locator, Docume
         let em = block_em(&block, style);
         block_line(&block, style, cx.typesetter.line(base), em).1 * MAX_JUSTIFY_GAP
     });
-    let lines = block_lines(&block, 0, base, cx, heading, indent, justify_limit);
+    let levels = BlockLevels::of(&block);
+    let lines = block_lines(&block, 0, base, cx, heading, indent, justify_limit, &levels);
     let start = lines
         .iter()
         .rev()
@@ -969,7 +1031,17 @@ pub fn layout_page(
             false => indent,
         };
         let justify_limit = (align == Align::Justify).then_some(letters * MAX_JUSTIFY_GAP);
-        let lines = block_lines(&block, from, base, cx, heading, block_indent, justify_limit);
+        let levels = BlockLevels::of(&block);
+        let lines = block_lines(
+            &block,
+            from,
+            base,
+            cx,
+            heading,
+            block_indent,
+            justify_limit,
+            &levels,
+        );
 
         for (n, (line, (first_x, available))) in lines.iter().enumerate() {
             let (first_x, available) = (*first_x, *available);
@@ -1023,30 +1095,35 @@ pub fn layout_page(
                 }
                 _ => (first_x, 0.0),
             };
+            let drawn = line.width + word_spacing * line.spaces as f32;
+            let x = placed_x(&levels, width, x, drawn);
             let mut line_text = String::from(&block.text[line.range.clone()]);
             if line.hyphen {
                 line_text.push('-');
             }
             let range = line.range.clone();
             let words = word_sources(&block, range.clone());
+            let runs = line_runs(
+                &block,
+                base,
+                range.clone(),
+                usize::from(line.hyphen),
+                style.book,
+                &levels,
+            );
+            let bidi = line_bidi(&levels, &runs, range.start == 0 && !block.continues);
             page.lines.push(PageLine {
                 x,
                 baseline: y + ascent,
                 text: line_text,
                 word_spacing,
-                runs: line_runs(
-                    &block,
-                    base,
-                    range.clone(),
-                    usize::from(line.hyphen),
-                    style.book,
-                ),
+                runs,
                 section: at.section,
                 words,
                 leading,
                 inserted: false,
                 annotations: Vec::new(),
-                bidi: line_bidi(&block, range.start == 0 && !block.continues),
+                bidi,
             });
             y += line_height;
         }
@@ -1136,8 +1213,9 @@ fn inserted_lines(
         let align = block_align(inserted, style, heading);
         y += style.paragraph_spacing;
         let indent = first_indent(inserted, style, align);
+        let levels = BlockLevels::of(inserted);
         for (line, (first_x, available)) in
-            block_lines(inserted, 0, base, cx, heading, indent, None)
+            block_lines(inserted, 0, base, cx, heading, indent, None, &levels)
         {
             if y + line_height > height {
                 return (placed, y, false);
@@ -1148,6 +1226,7 @@ fn inserted_lines(
                 Align::End => first_x + free,
                 _ => first_x,
             };
+            let x = placed_x(&levels, cx.width, x, line.width);
             let mut text = String::from(&inserted.text[line.range.clone()]);
             if line.hyphen {
                 text.push('-');
@@ -1158,7 +1237,9 @@ fn inserted_lines(
                 line.range.clone(),
                 usize::from(line.hyphen),
                 style.book,
+                &levels,
             );
+            let bidi = line_bidi(&levels, &runs, line.range.start == 0);
             placed.push(PageLine {
                 x,
                 baseline: y + ascent,
@@ -1170,7 +1251,7 @@ fn inserted_lines(
                 leading,
                 inserted: true,
                 annotations: Vec::new(),
-                bidi: line_bidi(inserted, line.range.start == 0),
+                bidi,
             });
             y += line_height;
         }

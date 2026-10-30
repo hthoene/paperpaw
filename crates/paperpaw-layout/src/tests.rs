@@ -837,3 +837,5 @@ fn reserved_parts_are_built_whole() {
     assert!(run.is_rtl() && run.lang == Lang::parse("he"));
     assert!(LineBidi::new(3, LineBidi::REORDER | LineBidi::VERTICAL).is_rtl());
 }
+
+mod rtl;
