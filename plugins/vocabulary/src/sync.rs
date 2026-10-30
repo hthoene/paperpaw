@@ -4,10 +4,12 @@
 //!
 //! The reader keeps its own decks with what it learnt of each card; a file
 //! is an exchange file, **merged** into the deck it is linked to. Cards
-//! match by key, never by line: by the `id` column where the file has one
-//! and the deck has that card, else by the front text (trimmed, spaces
-//! collapsed, case folded, hashed to 64 bits); of equal fronts the n-th
-//! line goes with the n-th card. A line with no card is added, a card
+//! match by key, never by line: by the `id` column where the file is the
+//! reader's own (it has the line `#paperpaw:`, so its ids are card numbers)
+//! and the deck has that card, else by the front text (trimmed, at most
+//! 500 characters, spaces collapsed, case folded, hashed to 64 bits; not
+//! Unicode-normalised); of equal fronts the n-th line goes with the n-th
+//! card. A line with no card is added, a card
 //! whose back or example differs from its line is changed (what was
 //! learnt stays), a card whose line is gone stays. A changed front, with
 //! no `id`, is a line with no card and a card with no line: the new one
@@ -20,12 +22,16 @@
 //! hash.
 //!
 //! The work is done a step at a time ([`Job::step`]), so that a screen
-//! shows how far it is and *Back* stops it between two steps:
-//! a file is read once through to count its cards and problems and hash
-//! it, then merged in slices. Heap stays small however big the deck is: the
-//! cards whose key falls in one slice of the key space (at most [`SLICE`] of
-//! them) are kept as keys (24 bytes each) while the file is read for
-//! lines of that slice, and the deck is written anew beside itself (see
+//! shows how far it is and *Back* stops it between two steps: a file of
+//! at most [`MAX_FILE`] bytes and [`cards::MAX_CARDS`] lines is hashed and
+//! read through to count its cards and problems, [`STEP`] bytes at a time,
+//! then merged in slices. Heap stays small however big the deck is: the
+//! cards whose key falls in one slice of the key space (about [`SLICE`] of
+//! them, at most [`CROWD`]: more is a failure to tell, not a crash) are
+//! kept as keys (24 bytes each, in one allocation of at most 55 KiB), the
+//! changes and new lines of the slice as 12 bytes each (at most 27 KiB),
+//! while the file is read for lines of that slice. The peak is about
+//! 85 KiB at worst and 45 KiB for a slice of [`SLICE`]. The deck is written anew beside itself (see
 //! `cards::rewrite_with`), so a power cut leaves the old deck or the new.
 //! A merge is a function of the file and the deck, so one cut off or done
 //! again changes nothing it did not: the ledger is written last.
@@ -44,15 +50,22 @@ pub(crate) const DEFAULT_FOLDER: &str = "Flashcards";
 /// Cards of the deck kept as keys at a time (and about as many lines of
 /// the file): 24 bytes each.
 const SLICE: usize = 1536;
-/// More keys than this in one slice (a deck of equal fronts) is not
-/// merged.
-const CROWD: usize = 4 * SLICE;
+/// More keys, changes or new lines than this in one slice (a deck of equal
+/// fronts) are not merged.
+const CROWD: usize = SLICE + SLICE / 2;
+/// The biggest file read: some 40,000 lines of vocabulary. A bigger one
+/// (a dictionary dump) would take minutes of passes.
+pub(crate) const MAX_FILE: u64 = 4 * 1024 * 1024;
+/// How much of a file one step hashes or counts.
+const STEP: u64 = 64 * 1024;
+/// The most the ledger may be: about 100 files at 300 bytes.
+const LEDGER_MAX: usize = 128 * 1024;
 /// Problems kept to be told.
 const MOST_PROBLEMS: usize = 20;
 const LEDGER_HEADER: &str = "paperpaw-sources 1";
 const EXTENSIONS: [&str; 3] = [".tsv", ".csv", ".txt"];
 
-fn ledger() -> String {
+fn ledger_path() -> String {
     cards::path("sources.txt")
 }
 
@@ -62,7 +75,12 @@ pub(crate) fn folder_of(setting: &str) -> String {
         .trim()
         .trim_matches(|c| c == '/' || c == '\\')
         .trim();
-    if name.is_empty() {
+    // Not the plugin's own data (its .txt files are no decks), nor a way up.
+    let own = cards::path("").to_lowercase();
+    let own = own.trim_matches('/');
+    let lower = name.to_lowercase();
+    let inside = lower == own || lower.starts_with(&alloc::format!("{own}/"));
+    if name.is_empty() || inside || name.split(['/', '\\']).any(|part| part == "..") {
         String::from(DEFAULT_FOLDER)
     } else {
         String::from(name)
@@ -86,6 +104,26 @@ pub(crate) fn deck_name(file: &str) -> String {
         .find(|e| file.to_lowercase().ends_with(*e))
         .map_or(file, |e| &file[..file.len() - e.len()]);
     clean(stem, MAX_NAME)
+}
+
+/// The deck of a file in the folder listed as `listed`: its name, but where
+/// an earlier file has the same name (`Spanish.csv`, `Spanish.tsv`), the
+/// extension is in it too.
+fn deck_name_among(file: &str, listed: &[String]) -> String {
+    let name = deck_name(file);
+    let lower = name.to_lowercase();
+    let taken = listed
+        .iter()
+        .take_while(|other| other.as_str() != file)
+        .any(|other| deck_name(other).to_lowercase() == lower);
+    if !taken {
+        return name;
+    }
+    let extension = EXTENSIONS
+        .iter()
+        .find(|e| file.to_lowercase().ends_with(*e))
+        .map_or("", |e| &e[1..]);
+    clean(&alloc::format!("{name} ({extension})"), MAX_NAME)
 }
 
 /// The files of `folder` that make decks, by name, and whether the folder
@@ -120,32 +158,69 @@ pub(crate) struct Source {
     pub size: u64,
     /// 0 where the card tells no time.
     pub modified: i64,
+    /// 0 for a file that was tried and is no deck (see [`Outcome`]).
     pub hash: u64,
 }
 
-pub(crate) fn sources(storage: &dyn Storage) -> Vec<Source> {
-    let mut out = Vec::new();
-    let _ = paperpaw_sdk::read_file(storage, &ledger(), 64 * 1024).map(|bytes| {
-        for line in String::from_utf8_lossy(&bytes).lines().skip(1) {
-            let mut f = line.split('\t');
-            let parsed = (|| {
-                Some(Source {
-                    name: f.next()?.to_string(),
-                    deck: f.next()?.parse().ok()?,
-                    size: f.next()?.parse().ok()?,
-                    modified: f.next()?.parse().ok()?,
-                    hash: u64::from_str_radix(f.next()?, 16).ok()?,
-                })
-            })();
-            out.extend(parsed.filter(|s| !s.name.is_empty()));
-        }
-    });
-    out
+impl Source {
+    /// Whether the file was tried and failed as it is.
+    pub(crate) fn failed(&self) -> bool {
+        self.hash == 0
+    }
 }
 
-fn write_sources(storage: &dyn Storage, sources: &[Source]) -> Result<(), StorageError> {
+/// What the ledger holds: the files linked, and the lines it did not
+/// understand, which are written back as they are.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Ledger {
+    pub sources: Vec<Source>,
+    other: Vec<String>,
+}
+
+impl Ledger {
+    fn find(&self, name: &str) -> Option<&Source> {
+        self.sources.iter().find(|s| s.name == name)
+    }
+}
+
+/// The ledger: none is no sources. One that cannot be read (a card
+/// error, a file too big, one of another version) is an error, so that no
+/// link is forgotten for it.
+pub(crate) fn sources(storage: &dyn Storage) -> Result<Ledger, StorageError> {
+    let mut ledger = Ledger::default();
+    if !storage.exists(&ledger_path()) {
+        return Ok(ledger);
+    }
+    let bytes = paperpaw_sdk::read_file(storage, &ledger_path(), LEDGER_MAX)?;
+    let text = String::from_utf8_lossy(&bytes);
+    let mut lines = text.lines();
+    match lines.next() {
+        Some(LEDGER_HEADER) | None => {}
+        Some(_) => return Err(StorageError::Io),
+    }
+    for line in lines {
+        let mut f = line.split('\t');
+        let parsed = (|| {
+            Some(Source {
+                name: f.next()?.to_string(),
+                deck: f.next()?.parse().ok()?,
+                size: f.next()?.parse().ok()?,
+                modified: f.next()?.parse().ok()?,
+                hash: u64::from_str_radix(f.next()?, 16).ok()?,
+            })
+        })();
+        match parsed {
+            Some(source) if !source.name.is_empty() => ledger.sources.push(source),
+            _ if line.trim().is_empty() => {}
+            _ => ledger.other.push(line.to_string()),
+        }
+    }
+    Ok(ledger)
+}
+
+fn write_sources(storage: &dyn Storage, ledger: &Ledger) -> Result<(), StorageError> {
     let mut text = alloc::format!("{LEDGER_HEADER}\n");
-    for s in sources {
+    for s in &ledger.sources {
         // A tab or a line break in a name cannot be (the card's names
         // have none that matter): written as spaces.
         let name: String = s
@@ -161,10 +236,14 @@ fn write_sources(storage: &dyn Storage, sources: &[Source]) -> Result<(), Storag
             s.hash
         ));
     }
+    for line in &ledger.other {
+        text.push_str(line);
+        text.push('\n');
+    }
     storage.create_dir(&cards::path("")).ok();
-    let part = paperpaw_sdk::files::part_path(&ledger());
+    let part = paperpaw_sdk::files::part_path(&ledger_path());
     storage.write(&part, text.as_bytes())?;
-    paperpaw_sdk::files::put_in_place(storage, &part, &ledger())
+    paperpaw_sdk::files::put_in_place(storage, &part, &ledger_path())
 }
 
 /// Whether `file` is as the ledger last saw it (size and time).
@@ -180,25 +259,28 @@ pub(crate) struct Pending {
     pub files: usize,
     /// Of them, new or changed since they were merged.
     pub todo: usize,
+    /// Of the others, those that were tried and are not decks (no cards,
+    /// too big, too many equal fronts): told, not tried again until they
+    /// change.
+    pub failed: usize,
 }
 
 /// One listing of the folder against the ledger: no file is read.
 pub(crate) fn pending(storage: &dyn Storage, folder: &str) -> Pending {
     let (folder_there, found) = files(storage, folder);
-    let known = sources(storage);
-    let todo = found
-        .iter()
-        .filter(|f| {
-            known
-                .iter()
-                .find(|s| s.name == f.name)
-                .is_none_or(|s| !unchanged(f, s))
-        })
-        .count();
+    let known = sources(storage).unwrap_or_default();
+    let (mut todo, mut failed) = (0, 0);
+    for f in &found {
+        match known.find(&f.name) {
+            Some(s) if unchanged(f, s) => failed += usize::from(s.failed()),
+            _ => todo += 1,
+        }
+    }
     Pending {
         folder: folder_there,
         files: found.len(),
         todo,
+        failed,
     }
 }
 
@@ -257,20 +339,6 @@ fn texts_hash(parts: &[&str]) -> u32 {
     hash
 }
 
-/// The hash of a file's content, and its size, read a chunk at a time.
-fn hash_file(storage: &dyn Storage, path: &str) -> Result<(u64, u64), StorageError> {
-    let (mut hash, mut at) = (FNV64, 0u64);
-    let mut chunk = [0u8; 512];
-    loop {
-        let n = storage.read_at(path, at, &mut chunk)?;
-        if n == 0 {
-            return Ok((hash, at));
-        }
-        hash = chunk[..n].iter().fold(hash, |h, &b| feed(h, b));
-        at += n as u64;
-    }
-}
-
 /// Bits, one for each card or line.
 #[derive(Debug, Default)]
 struct Bits(Vec<u8>);
@@ -307,6 +375,20 @@ pub(crate) enum Outcome {
     Crowded,
     /// Not one card in it, and lines that are none: no deck is made.
     NoCards,
+    /// More than [`MAX_FILE`] bytes or [`cards::MAX_CARDS`] lines.
+    TooLarge,
+    /// A UTF-16 file (a spreadsheet's "Unicode text").
+    Utf16,
+}
+
+impl Outcome {
+    /// Whether the file itself is to blame: it is not tried again as it is.
+    fn is_the_file(self) -> bool {
+        matches!(
+            self,
+            Outcome::NoCards | Outcome::Crowded | Outcome::TooLarge | Outcome::Utf16
+        )
+    }
 }
 
 /// What was done with a file.
@@ -359,7 +441,10 @@ pub(crate) enum Step {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Stage {
-    Read,
+    /// The file hashed, a step at a time.
+    Hash,
+    /// Its lines counted, a step at a time.
+    Count,
     Decide,
     Asked,
     Merge,
@@ -379,7 +464,10 @@ struct Work {
     stage: Stage,
     deck: u32,
     hash: u64,
-    /// Lines that are cards, and those with an `id`.
+    /// How much of the file is hashed, and where the count goes on.
+    hashed: u64,
+    resume: table::Resume,
+    /// Lines that are cards, and whether any has an `id`.
     lines: usize,
     with_ids: bool,
     /// Cards the deck has.
@@ -389,6 +477,27 @@ struct Work {
     matched_lines: Bits,
     matched_cards: Bits,
     report: FileReport,
+}
+
+/// A line of the slice to be written: a change to the card with the number
+/// `id`, or (`add`) a new card.
+#[derive(Debug, Clone, Copy)]
+struct Edit {
+    id: u32,
+    /// Where the line begins in the file (a file is at most [`MAX_FILE`]).
+    offset: u32,
+    add: bool,
+}
+
+/// Which files a job takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Mode {
+    /// The new and changed (the flash cards opening by themselves).
+    Auto,
+    /// Those and the ones that failed as they are.
+    Manual,
+    /// Every file, its content compared.
+    All,
 }
 
 /// A card of the deck, kept as its key while a slice is merged.
@@ -414,20 +523,20 @@ pub(crate) struct Job {
 }
 
 impl Job {
-    /// The job for the files of `folder` that are new or changed, or for
-    /// all of them (`force`, whose content is compared).
-    pub(crate) fn new(storage: &dyn Storage, folder: &str, force: bool) -> Self {
+    /// The job for the files of `folder` that `mode` takes.
+    pub(crate) fn new(storage: &dyn Storage, folder: &str, mode: Mode) -> Self {
         let (_, found) = files(storage, folder);
+        // A ledger that cannot be read: every file is taken, and fails,
+        // so that nothing is written over it.
         let known = sources(storage);
         let listed = found.iter().map(|f| f.name.clone()).collect();
         let todo = found
             .into_iter()
-            .filter(|f| {
-                force
-                    || known
-                        .iter()
-                        .find(|s| s.name == f.name)
-                        .is_none_or(|s| !unchanged(f, s))
+            .filter(|f| match (&known, mode) {
+                (Err(_), _) | (_, Mode::All) => true,
+                (Ok(known), _) => known
+                    .find(&f.name)
+                    .is_none_or(|s| !unchanged(f, s) || (s.failed() && mode == Mode::Manual)),
             })
             .collect();
         Self {
@@ -450,7 +559,9 @@ impl Job {
         let total = self.todo.len().max(1);
         let name = self.todo.get(self.at).map_or("", |f| f.name.as_str());
         let within = self.work.as_ref().map_or(0, |w| match w.stage {
-            Stage::Read | Stage::Decide | Stage::Asked => 0,
+            Stage::Hash => (50 * w.hashed / w.found.size.max(1)).min(50) as usize,
+            Stage::Count => (50 + 50 * w.resume.at / w.found.size.max(1)).min(100) as usize,
+            Stage::Decide | Stage::Asked => 100,
             Stage::Merge => 100,
             Stage::Slice { round, slice } => {
                 let rounds = if w.with_ids { 2 } else { 1 };
@@ -474,7 +585,7 @@ impl Job {
         let Some(work) = self.work.as_mut() else {
             return;
         };
-        let name = deck_name(&work.found.name);
+        let name = deck_name_among(&work.found.name, &self.listed);
         let deck = if link {
             cards::deck_named(storage, &name)
         } else {
@@ -486,12 +597,15 @@ impl Job {
                 work.deck = deck;
                 work.stage = Stage::Merge;
             }
-            Err(_) => self.finish_with(Outcome::TooManyDecks),
+            Err(_) => self.finish_with(storage, Outcome::TooManyDecks),
         }
     }
 
-    fn finish_with(&mut self, outcome: Outcome) {
+    fn finish_with(&mut self, storage: &dyn Storage, outcome: Outcome) {
         if let Some(mut work) = self.work.take() {
+            if outcome.is_the_file() {
+                note_failed(storage, &work.found);
+            }
             work.report.outcome = outcome;
             self.reports.push(work.report);
         }
@@ -521,12 +635,17 @@ impl Job {
                         id: None,
                     },
                     html: false,
+                    paperpaw: false,
+                    utf16: false,
+                    latin1: false,
                     start: 0,
                     line: 1,
                 },
-                stage: Stage::Read,
+                stage: Stage::Hash,
                 deck: 0,
-                hash: 0,
+                hash: FNV64,
+                hashed: 0,
+                resume: table::Resume { at: 0, line: 0 },
                 lines: 0,
                 with_ids: false,
                 cards: 0,
@@ -538,7 +657,8 @@ impl Job {
         }
         let stage = self.work.as_ref().map_or(Stage::Finish, |w| w.stage);
         let done = match stage {
-            Stage::Read => self.read(storage),
+            Stage::Hash => self.hash(storage),
+            Stage::Count => self.count(storage),
             Stage::Decide => self.decide(storage),
             // Waiting for the answer (asked above).
             Stage::Asked => Ok(()),
@@ -548,8 +668,8 @@ impl Job {
         };
         match done {
             Ok(()) => {}
-            Err(Failure::Outcome(outcome)) => self.finish_with(outcome),
-            Err(Failure::Storage) => self.finish_with(Outcome::Unreadable),
+            Err(Failure::Outcome(outcome)) => self.finish_with(storage, outcome),
+            Err(Failure::Storage) => self.finish_with(storage, Outcome::Unreadable),
         }
         match &self.question {
             Some(question) => Step::Ask(question.clone()),
@@ -557,23 +677,41 @@ impl Job {
         }
     }
 
-    /// The file read once through: its layout, its cards and what is
-    /// wrong, its hash.
-    fn read(&mut self, storage: &dyn Storage) -> Result<(), Failure> {
+    /// The file hashed, [`STEP`] bytes at a time; at its end, a file with
+    /// the content merged before is done, else its layout is looked at.
+    fn hash(&mut self, storage: &dyn Storage) -> Result<(), Failure> {
         let Some(work) = self.work.as_mut() else {
             return Ok(());
         };
-        let (hash, _) = hash_file(storage, &work.path)?;
-        work.hash = hash;
+        let too_large = Failure::Outcome(Outcome::TooLarge);
+        if work.found.size > MAX_FILE {
+            return Err(too_large);
+        }
+        let end = work.hashed + STEP;
+        let mut chunk = [0u8; 512];
+        while work.hashed < end {
+            let n = storage.read_at(&work.path, work.hashed, &mut chunk)?;
+            if n == 0 {
+                break;
+            }
+            work.hash = chunk[..n].iter().fold(work.hash, |h, &b| feed(h, b));
+            work.hashed += n as u64;
+            if work.hashed > MAX_FILE {
+                return Err(too_large);
+            }
+            if work.hashed >= end {
+                return Ok(());
+            }
+        }
         // Content as it was merged: nothing to do (the time may have
         // changed, a copy to the card does it).
-        let known = sources(storage);
-        if let Some(source) = known.iter().find(|s| s.name == work.found.name)
-            && source.hash == hash
+        let known = sources(storage)?;
+        if let Some(source) = known.find(&work.found.name)
+            && source.hash == work.hash
             && cards::decks(storage)?.iter().any(|d| d.id == source.deck)
         {
             let mut kept = known.clone();
-            for s in &mut kept {
+            for s in &mut kept.sources {
                 if s.name == work.found.name {
                     s.size = work.found.size;
                     s.modified = work.found.modified.unwrap_or(0);
@@ -583,29 +721,65 @@ impl Job {
             return Err(Failure::Outcome(Outcome::Same));
         }
         work.layout = table::detect(storage, &work.path)?;
+        if work.layout.utf16 {
+            return Err(Failure::Outcome(Outcome::Utf16));
+        }
+        work.resume = table::Resume {
+            at: work.layout.start,
+            line: work.layout.line,
+        };
+        work.stage = Stage::Count;
+        Ok(())
+    }
+
+    /// The lines counted, [`STEP`] bytes at a time: the cards, and what is
+    /// wrong.
+    fn count(&mut self, storage: &dyn Storage) -> Result<(), Failure> {
+        let Some(work) = self.work.as_mut() else {
+            return Ok(());
+        };
         let layout = work.layout.clone();
-        let (mut lines, mut with_ids, mut skipped) = (0usize, false, 0usize);
-        let mut problems = Vec::new();
-        table::each(storage, &work.path, &layout, None, |item| {
-            match item {
-                Item::Record(record) => {
-                    lines += 1;
-                    with_ids |= record.id.is_some();
-                }
-                Item::Skipped { line, fault } => {
-                    skipped += 1;
-                    if problems.len() < MOST_PROBLEMS {
-                        problems.push((line, fault));
+        let (mut lines, mut with_ids, mut too_many) = (work.lines, work.with_ids, false);
+        let mut report = core::mem::replace(&mut work.report, FileReport::new("", Outcome::Merged));
+        let next = table::scan(
+            storage,
+            &work.path,
+            &layout,
+            work.resume,
+            Some(STEP),
+            |item| {
+                match item {
+                    Item::Record(record) => {
+                        lines += 1;
+                        with_ids |= record.id.is_some();
+                        if lines > cards::MAX_CARDS {
+                            too_many = true;
+                            return ControlFlow::Break(());
+                        }
+                    }
+                    Item::Skipped { line, fault } => {
+                        report.skipped += 1;
+                        if report.problems.len() < MOST_PROBLEMS {
+                            report.problems.push((line, fault));
+                        }
                     }
                 }
-            }
-            ControlFlow::Continue(())
-        })?;
+                ControlFlow::Continue(())
+            },
+        );
+        work.report = report;
+        let next = next?;
+        if too_many {
+            return Err(Failure::Outcome(Outcome::TooLarge));
+        }
         work.lines = lines;
+        work.with_ids = with_ids;
+        if let Some(next) = next {
+            work.resume = next;
+            return Ok(());
+        }
         work.with_ids = with_ids && layout.columns.id.is_some();
-        work.report.skipped = skipped;
-        work.report.problems = problems;
-        if lines == 0 && skipped > 0 {
+        if lines == 0 && work.report.skipped > 0 {
             return Err(Failure::Outcome(Outcome::NoCards));
         }
         work.stage = Stage::Decide;
@@ -620,22 +794,19 @@ impl Job {
             return Ok(());
         };
         let decks = cards::decks(storage)?;
-        let known = sources(storage);
+        let known = sources(storage)?;
         let exists = |id: u32| decks.iter().any(|d| d.id == id);
-        let name = deck_name(&work.found.name);
-        if let Some(source) = known
-            .iter()
-            .find(|s| s.name == work.found.name && exists(s.deck))
-        {
+        let name = deck_name_among(&work.found.name, &self.listed);
+        if let Some(source) = known.find(&work.found.name).filter(|s| exists(s.deck)) {
             work.deck = source.deck;
             work.stage = Stage::Merge;
             return Ok(());
         }
         // A file that was there and is not now, with this content: this
         // one, renamed. Its deck follows the name where it had the old one.
-        let renamed = known
-            .iter()
-            .find(|s| s.hash == work.hash && !self.listed.contains(&s.name) && exists(s.deck));
+        let renamed = known.sources.iter().find(|s| {
+            !s.failed() && s.hash == work.hash && !self.listed.contains(&s.name) && exists(s.deck)
+        });
         if let Some(source) = renamed {
             let old = deck_name(&source.name);
             let current = decks.iter().find(|d| d.id == source.deck);
@@ -645,16 +816,16 @@ impl Job {
             work.deck = source.deck;
             let gone = source.name.clone();
             let mut kept = known.clone();
-            kept.retain(|s| s.name != gone);
+            kept.sources.retain(|s| s.name != gone);
             write_sources(storage, &kept)?;
             work.stage = Stage::Merge;
             return Ok(());
         }
         // A deck of that name no file is linked to: asked, never taken.
         let lower = name.to_lowercase();
-        let same_name = decks
-            .iter()
-            .any(|d| d.name.to_lowercase() == lower && !known.iter().any(|s| s.deck == d.id));
+        let same_name = decks.iter().any(|d| {
+            d.name.to_lowercase() == lower && !known.sources.iter().any(|s| s.deck == d.id)
+        });
         if same_name {
             work.stage = Stage::Asked;
             self.question = Some(Question {
@@ -735,10 +906,10 @@ impl Job {
         let in_slice = |key: u64| (key % slices as u64) as usize == slice;
         let by_front = round == 2;
         let entries = deck_entries(storage, work, by_front, &in_slice)?;
-        let found = match_lines(storage, work, entries, by_front, &in_slice)?;
-        work.report.same += found.same;
-        if !found.changes.is_empty() || !found.adds.is_empty() {
-            write_slice(storage, work, by_front, found)?;
+        let (edits, same) = match_lines(storage, work, entries, by_front, &in_slice)?;
+        work.report.same += same;
+        if !edits.is_empty() {
+            write_slice(storage, work, by_front, edits)?;
         }
         // The next slice, the next round, or the end.
         work.stage = match (round, slice + 1 < slices) {
@@ -757,16 +928,18 @@ impl Job {
         let Some(work) = self.work.take() else {
             return Ok(());
         };
-        let mut known = sources(storage);
-        known.retain(|s| s.name != work.found.name);
-        known.push(Source {
-            name: work.found.name.clone(),
-            deck: work.deck,
-            size: work.found.size,
-            modified: work.found.modified.unwrap_or(0),
-            hash: work.hash,
+        let written = sources(storage).and_then(|mut known| {
+            known.sources.retain(|s| s.name != work.found.name);
+            known.sources.push(Source {
+                name: work.found.name.clone(),
+                deck: work.deck,
+                size: work.found.size,
+                modified: work.found.modified.unwrap_or(0),
+                hash: work.hash,
+            });
+            tidy(storage, &mut known, &self.listed);
+            write_sources(storage, &known)
         });
-        let written = write_sources(storage, &known);
         let mut report = work.report;
         if written.is_err() {
             report.outcome = Outcome::Unreadable;
@@ -782,22 +955,25 @@ impl Job {
     }
 }
 
-/// What a slice found: lines that differ from their card (card id, offset of
-/// the line), lines with no card (offset), and how many were the same.
-struct Matched {
-    changes: Vec<(u32, u64)>,
-    adds: Vec<u64>,
-    same: usize,
+/// Room for `count` of a kind in one allocation, or `Crowded`: a failed
+/// allocation is a failure to tell, not the end of the program.
+fn room<T>(count: usize) -> Result<Vec<T>, Failure> {
+    let mut vec = Vec::new();
+    vec.try_reserve_exact(count)
+        .map_err(|_| Failure::Outcome(Outcome::Crowded))?;
+    Ok(vec)
 }
 
-/// The deck's cards of the slice that no line has yet, by key.
+/// The deck's cards of the slice that no line has yet, by key. At most
+/// [`CROWD`] of them: a deck whose cards share a front fills a slice.
 fn deck_entries(
     storage: &dyn Storage,
     work: &Work,
     by_front: bool,
     in_slice: &dyn Fn(u64) -> bool,
 ) -> Result<Vec<Entry>, Failure> {
-    let mut entries: Vec<Entry> = Vec::new();
+    let most = CROWD.min(work.cards);
+    let mut entries: Vec<Entry> = room(most)?;
     let mut order = 0usize;
     let mut crowded = false;
     cards::each_card(storage, work.deck, |_, card| {
@@ -814,7 +990,7 @@ fn deck_entries(
         if !in_slice(key) {
             return ControlFlow::Continue(());
         }
-        if entries.len() >= CROWD {
+        if entries.len() >= most {
             crowded = true;
             return ControlFlow::Break(());
         }
@@ -839,21 +1015,18 @@ fn deck_entries(
 }
 
 /// The file's lines of the slice: matched with a card of `entries`, or new.
+/// What is to be written, and how many lines were the same as their card.
 fn match_lines(
     storage: &dyn Storage,
     work: &mut Work,
     entries: Vec<Entry>,
     by_front: bool,
     in_slice: &dyn Fn(u64) -> bool,
-) -> Result<Matched, Failure> {
+) -> Result<(Vec<Edit>, usize), Failure> {
     let mut used = alloc::vec![false; entries.len()];
-    let mut found = Matched {
-        changes: Vec::new(),
-        adds: Vec::new(),
-        same: 0,
-    };
-    let mut crowded = false;
-    let mut index = 0usize;
+    let most = CROWD.min(work.lines);
+    let mut edits: Vec<Edit> = room(most)?;
+    let (mut same, mut crowded, mut index) = (0usize, false, 0usize);
     table::each(storage, &work.path, &work.layout, None, |item| {
         let Item::Record(record) = item else {
             return ControlFlow::Continue(());
@@ -863,14 +1036,16 @@ fn match_lines(
         if work.matched_lines.get(this) {
             return ControlFlow::Continue(());
         }
+        // The key is made of the text the card will have.
         let key = if by_front {
-            Some(front_key(&record.front))
+            Some(front_key(&clean(&record.front, MAX_TEXT)))
         } else {
             record.id.map(u64::from)
         };
         let Some(key) = key.filter(|k| in_slice(*k)) else {
             return ControlFlow::Continue(());
         };
+        let offset = u32::try_from(record.offset).unwrap_or(u32::MAX);
         let start = entries.partition_point(|e| e.key < key);
         let hit = (start..entries.len())
             .take_while(|&i| entries[i].key == key)
@@ -885,24 +1060,35 @@ fn match_lines(
                 texts_hash(&[&record.front, &record.back, &record.example])
             };
             if text == entries[i].text {
-                found.same += 1;
+                same += 1;
+            } else if edits.len() < most {
+                edits.push(Edit {
+                    id: entries[i].id,
+                    offset,
+                    add: false,
+                });
             } else {
-                found.changes.push((entries[i].id, record.offset));
-            }
-        } else if by_front {
-            work.matched_lines.set(this);
-            if found.adds.len() >= CROWD {
                 crowded = true;
                 return ControlFlow::Break(());
             }
-            found.adds.push(record.offset);
+        } else if by_front {
+            work.matched_lines.set(this);
+            if edits.len() >= most {
+                crowded = true;
+                return ControlFlow::Break(());
+            }
+            edits.push(Edit {
+                id: 0,
+                offset,
+                add: true,
+            });
         }
         ControlFlow::Continue(())
     })?;
     if crowded {
         return Err(Failure::Outcome(Outcome::Crowded));
     }
-    Ok(found)
+    Ok((edits, same))
 }
 
 /// The changes and the new cards of a slice written, the deck anew beside
@@ -911,22 +1097,22 @@ fn write_slice(
     storage: &dyn Storage,
     work: &mut Work,
     by_front: bool,
-    found: Matched,
+    mut edits: Vec<Edit>,
 ) -> Result<(), Failure> {
-    let Matched {
-        mut changes, adds, ..
-    } = found;
-    changes.sort_unstable_by_key(|c| c.0);
+    // The changes by card number, then the new lines in the file's order.
+    edits.sort_unstable_by_key(|e| (e.add, e.id, e.offset));
+    let split = edits.partition_point(|e| !e.add);
+    let (changes, adds) = edits.split_at(split);
     let (path, layout) = (work.path.clone(), work.layout.clone());
-    let read = |offset: u64| table::record_at(storage, &path, &layout, offset);
+    let read = |offset: u32| table::record_at(storage, &path, &layout, u64::from(offset));
     let mut changed = 0usize;
     let mut pending = adds.iter();
     let added = cards::rewrite_with(
         storage,
         work.deck,
         |card| {
-            if let Ok(i) = changes.binary_search_by_key(&card.state.id, |c| c.0)
-                && let Some(record) = read(changes[i].1)
+            if let Ok(i) = changes.binary_search_by_key(&card.state.id, |c| c.id)
+                && let Some(record) = read(changes[i].offset)
             {
                 if !by_front {
                     card.front = clean(&record.front, MAX_TEXT);
@@ -938,8 +1124,8 @@ fn write_slice(
             true
         },
         &mut || loop {
-            let offset = *pending.next()?;
-            if let Some(record) = read(offset) {
+            let edit = pending.next()?;
+            if let Some(record) = read(edit.offset) {
                 return Some(Texts {
                     front: record.front,
                     back: record.back,
@@ -953,6 +1139,40 @@ fn write_slice(
     work.report.added += added;
     work.report.no_room += adds.len() - added.min(adds.len());
     Ok(())
+}
+
+/// A file that cannot be a deck as it is, kept in the ledger by its size
+/// and time (hash 0), so that it is told and not tried at every opening. A
+/// file linked to a deck keeps its deck.
+fn note_failed(storage: &dyn Storage, found: &Found) {
+    let Ok(mut ledger) = sources(storage) else {
+        return;
+    };
+    let deck = ledger.find(&found.name).map_or(0, |s| s.deck);
+    ledger.sources.retain(|s| s.name != found.name);
+    ledger.sources.push(Source {
+        name: found.name.clone(),
+        deck,
+        size: found.size,
+        modified: found.modified.unwrap_or(0),
+        hash: 0,
+    });
+    let _ = write_sources(storage, &ledger);
+}
+
+/// The ledger without what can be of no use: a link to a deck that is gone,
+/// a failed file that is not in the folder any more.
+fn tidy(storage: &dyn Storage, ledger: &mut Ledger, listed: &[String]) {
+    let Ok(decks) = cards::decks(storage) else {
+        return;
+    };
+    ledger.sources.retain(|s| {
+        if s.deck == 0 {
+            listed.contains(&s.name)
+        } else {
+            decks.iter().any(|d| d.id == s.deck)
+        }
+    });
 }
 
 /// Why a step could not go on.

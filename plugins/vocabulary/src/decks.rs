@@ -124,6 +124,8 @@ impl DecksScreen {
             i18n.format("vocabulary.sd.row.none", &folder)
         } else if files.todo > 0 {
             i18n.plural("vocabulary.sd.row.todo", files.todo as i64, &folder)
+        } else if files.failed > 0 {
+            i18n.plural("vocabulary.sd.row.failed", files.failed as i64, &folder)
         } else if files.files == 0 {
             i18n.format("vocabulary.sd.row.empty", &folder)
         } else {
@@ -208,7 +210,10 @@ impl Screen for DecksScreen {
         if !self.looked {
             self.looked = true;
             if env.settings().read(&SD_AUTO) && self.files.todo > 0 {
-                cx.command(Command::OpenScreen(sdcard::SCREEN, Params::new()));
+                cx.command(Command::OpenScreen(
+                    sdcard::SCREEN,
+                    Params::new().with(sdcard::AUTO, "1"),
+                ));
             }
         }
         cx.request_redraw();

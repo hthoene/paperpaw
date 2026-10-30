@@ -16,7 +16,14 @@
 //!   `id`, or German `vorderseite`, `rückseite`, `beispiel`) says which
 //!   column is which, in any order; else they are the first three.
 //! - A record over [`MAX_RECORD`] bytes, or without a front, is skipped
-//!   and reported.
+//!   and reported. A quote that is opened and not closed within that is
+//!   reported with its line, and reading goes on at the next line.
+//! - The `id` column is the number the reader gave a card, so it counts
+//!   only in a file that says it is the reader's (a line `#paperpaw:`
+//!   before the header); in any other file it is an ordinary column.
+//! - A file that is not UTF-8 as a whole, with no NUL byte (a spreadsheet
+//!   "CSV" in Windows-1252), is read as Windows-1252. UTF-16 (a
+//!   spreadsheet's "Unicode text") is told, not read.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -52,6 +59,13 @@ pub(crate) struct Layout {
     pub columns: Columns,
     /// The texts are HTML (`#html:true` of an Anki export).
     pub html: bool,
+    /// The file says it was made by the reader (`#paperpaw:`): its `id`
+    /// column is the cards' numbers.
+    pub paperpaw: bool,
+    /// The file is UTF-16 (a byte order mark says so): it is not read.
+    pub utf16: bool,
+    /// The file is Windows-1252, not UTF-8.
+    pub latin1: bool,
     /// Where the first card's record begins, and its line (1-based).
     pub start: u64,
     pub line: u32,
@@ -66,6 +80,8 @@ pub(crate) enum Fault {
     NotUtf8,
     /// Longer than [`MAX_RECORD`].
     TooLong,
+    /// A quote opened and not closed within [`MAX_RECORD`] bytes.
+    OpenQuote,
 }
 
 /// A card read from a file.
@@ -128,9 +144,11 @@ fn head(storage: &dyn Storage, path: &str, limit: usize) -> Result<Vec<u8>, Stor
 /// has one, else `;` where it has more of them than commas, else `,`.
 fn guess_separator(line: &[u8]) -> u8 {
     let (mut tabs, mut semis, mut commas, mut quoted) = (0, 0, 0, false);
+    // A quote that is never closed on the line is no quoting.
+    let quotes = line.iter().filter(|&&b| b == b'"').count() % 2 == 0;
     for &byte in line {
         match byte {
-            b'"' => quoted = !quoted,
+            b'"' if quotes => quoted = !quoted,
             b'\t' if !quoted => tabs += 1,
             b';' if !quoted => semis += 1,
             b',' if !quoted => commas += 1,
@@ -150,13 +168,15 @@ fn guess_separator(line: &[u8]) -> u8 {
 /// that cannot be read is the storage's error.
 pub(crate) fn detect(storage: &dyn Storage, path: &str) -> Result<Layout, StorageError> {
     let bytes = head(storage, path, SNIFF)?;
+    let utf16 = bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]);
+    let latin1 = !utf16 && is_latin1(&bytes);
     let mut at = if bytes.starts_with(&BOM) {
         BOM.len()
     } else {
         0
     };
     let mut line = 1u32;
-    let (mut separator, mut html) = (None, false);
+    let (mut separator, mut html, mut paperpaw) = (None, false, false);
     // The lines of an Anki text export that start with `#`.
     while bytes.get(at) == Some(&b'#') {
         let end = bytes[at..]
@@ -175,6 +195,8 @@ pub(crate) fn detect(storage: &dyn Storage, path: &str) -> Result<Layout, Storag
             };
         } else if let Some(value) = text.strip_prefix("#html:") {
             html = value.trim() == "true";
+        } else if text.starts_with("#paperpaw:") {
+            paperpaw = true;
         }
         at = (end + 1).min(bytes.len());
         line += 1;
@@ -191,13 +213,16 @@ pub(crate) fn detect(storage: &dyn Storage, path: &str) -> Result<Layout, Storag
             id: None,
         },
         html,
+        paperpaw,
+        utf16,
+        latin1,
         start: at as u64,
         line,
     };
     // A first record that names columns is not a card (a line too long
     // to be seen whole is no header).
     let seen_whole = first_end < rest.len() || bytes.len() < SNIFF;
-    let roles: Vec<Option<Role>> = cells_of(first, layout.separator)
+    let roles: Vec<Option<Role>> = cells_of(first, layout.separator, latin1)
         .iter()
         .map(|c| role(c))
         .collect();
@@ -207,7 +232,8 @@ pub(crate) fn detect(storage: &dyn Storage, path: &str) -> Result<Layout, Storag
             front: find(Role::Front).unwrap_or(0),
             back: find(Role::Back),
             example: find(Role::Example),
-            id: find(Role::Id),
+            // Only the reader's own files have the cards' numbers.
+            id: find(Role::Id).filter(|_| paperpaw),
         };
         layout.start = (at + first_end + 1).min(at + rest.len()) as u64;
         layout.line += 1;
@@ -216,7 +242,7 @@ pub(crate) fn detect(storage: &dyn Storage, path: &str) -> Result<Layout, Storag
 }
 
 /// The cells of one line.
-fn cells_of(line: &[u8], separator: u8) -> Vec<String> {
+fn cells_of(line: &[u8], separator: u8, latin1: bool) -> Vec<String> {
     let mut parser = Parser::new(separator);
     line.iter()
         .chain(b"\n")
@@ -225,9 +251,61 @@ fn cells_of(line: &[u8], separator: u8) -> Vec<String> {
             cells
                 .fields
                 .iter()
-                .map(|f| String::from_utf8_lossy(f).into_owned())
+                .map(|f| {
+                    if latin1 {
+                        windows_1252(f)
+                    } else {
+                        String::from_utf8_lossy(f).into_owned()
+                    }
+                })
                 .collect()
         })
+}
+
+/// Whether the start of a file is Windows-1252 text: not UTF-8 (an end cut
+/// in the middle of a character does not count), and no NUL byte, which
+/// binary files have.
+fn is_latin1(bytes: &[u8]) -> bool {
+    if bytes.contains(&0) {
+        return false;
+    }
+    match core::str::from_utf8(bytes) {
+        Ok(_) => false,
+        Err(e) => e.error_len().is_some(),
+    }
+}
+
+/// Windows-1252 as text: Latin-1, but for the 32 characters of 0x80-0x9F.
+fn windows_1252(bytes: &[u8]) -> String {
+    const HIGH: [char; 32] = [
+        '\u{20AC}', '\u{81}', '\u{201A}', '\u{0192}', '\u{201E}', '\u{2026}', '\u{2020}',
+        '\u{2021}', '\u{02C6}', '\u{2030}', '\u{0160}', '\u{2039}', '\u{0152}', '\u{8D}',
+        '\u{017D}', '\u{8F}', '\u{90}', '\u{2018}', '\u{2019}', '\u{201C}', '\u{201D}', '\u{2022}',
+        '\u{2013}', '\u{2014}', '\u{02DC}', '\u{2122}', '\u{0161}', '\u{203A}', '\u{0153}',
+        '\u{9D}', '\u{017E}', '\u{0178}',
+    ];
+    bytes
+        .iter()
+        .map(|&b| match b {
+            0x80..=0x9F => HIGH[usize::from(b - 0x80)],
+            _ => char::from(b),
+        })
+        .collect()
+}
+
+/// A field's bytes as text. One cut at [`MAX_FIELD`] may end in the middle of
+/// a character: that end is dropped.
+fn decode(bytes: &[u8], layout: &Layout) -> Result<String, ()> {
+    if layout.latin1 {
+        return Ok(windows_1252(bytes));
+    }
+    match core::str::from_utf8(bytes) {
+        Ok(text) => Ok(String::from(text)),
+        Err(e) if e.error_len().is_none() && bytes.len() >= MAX_FIELD => Ok(String::from(
+            core::str::from_utf8(&bytes[..e.valid_up_to()]).map_err(|_| ())?,
+        )),
+        Err(_) => Err(()),
+    }
 }
 
 /// A record's fields as they were cut, and what it took.
@@ -271,6 +349,12 @@ impl Parser {
     /// Whether a byte of the record in hand was seen.
     fn started(&self) -> bool {
         self.started
+    }
+
+    /// Whether a quote was opened and the record is over its size without
+    /// it being closed: a lone quote, not a quoted text.
+    fn open_quote(&self) -> bool {
+        (self.in_quotes || self.quote_pending) && self.size > MAX_RECORD
     }
 
     fn push(&mut self, byte: u8) {
@@ -363,7 +447,7 @@ fn card(cells: Cells, layout: &Layout, offset: u64, line: u32) -> Option<Item> {
         let Some(bytes) = at.and_then(|i| cells.fields.get(i)) else {
             return Ok(String::new());
         };
-        let text = String::from_utf8(bytes.clone()).map_err(|_| ())?;
+        let text = decode(bytes, layout)?;
         Ok(if layout.html { plain(&text) } else { text })
     };
     let (Ok(front), Ok(back), Ok(example), Ok(id)) = (
@@ -387,6 +471,14 @@ fn card(cells: Cells, layout: &Layout, offset: u64, line: u32) -> Option<Item> {
     }))
 }
 
+/// Where reading a file goes on: a record's start and its line (1-based; 0
+/// where it is not known).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Resume {
+    pub at: u64,
+    pub line: u32,
+}
+
 /// Calls `visit` with each card of `path`, and each record skipped, from
 /// the first card (or from `from`, a record's start) to the end.
 pub(crate) fn each(
@@ -394,16 +486,34 @@ pub(crate) fn each(
     path: &str,
     layout: &Layout,
     from: Option<u64>,
-    mut visit: impl FnMut(Item) -> ControlFlow<()>,
+    visit: impl FnMut(Item) -> ControlFlow<()>,
 ) -> Result<(), StorageError> {
-    let (mut at, mut line) = match from {
-        Some(offset) => (offset, 0),
-        None => (layout.start, layout.line),
+    let from = match from {
+        Some(at) => Resume { at, line: 0 },
+        None => Resume {
+            at: layout.start,
+            line: layout.line,
+        },
     };
+    scan(storage, path, layout, from, None, visit).map(|_| ())
+}
+
+/// As [`each`] from `from`, but stops at the first record's end after
+/// `budget` bytes were read and says where to go on (`None`: the end of the
+/// file, or `visit` broke off). A file is read a step at a time with it.
+pub(crate) fn scan(
+    storage: &dyn Storage,
+    path: &str,
+    layout: &Layout,
+    from: Resume,
+    budget: Option<u64>,
+    mut visit: impl FnMut(Item) -> ControlFlow<()>,
+) -> Result<Option<Resume>, StorageError> {
+    let (mut at, mut line) = (from.at, from.line);
     let mut parser = Parser::new(layout.separator);
     let (mut start, mut start_line) = (at, line);
     let mut chunk = [0u8; 512];
-    loop {
+    'file: loop {
         let n = storage.read_at(path, at, &mut chunk)?;
         if n == 0 {
             break;
@@ -416,11 +526,32 @@ pub(crate) fn each(
             if byte == b'\n' {
                 line = line.saturating_add(1);
             }
-            if let Some(cells) = parser.feed(byte)
-                && let Some(item) = card(cells, layout, start, start_line)
-                && visit(item).is_break()
-            {
-                return Ok(());
+            let ended = parser.feed(byte);
+            if let Some(cells) = ended {
+                if let Some(item) = card(cells, layout, start, start_line)
+                    && visit(item).is_break()
+                {
+                    return Ok(None);
+                }
+                let next = at + i as u64 + 1;
+                if budget.is_some_and(|b| next - from.at >= b) {
+                    return Ok(Some(Resume { at: next, line }));
+                }
+            } else if parser.open_quote() {
+                // A lone quote: the record is told, and reading goes on at
+                // the line after the one the quote was on.
+                let item = Item::Skipped {
+                    line: start_line,
+                    fault: Fault::OpenQuote,
+                };
+                if visit(item).is_break() {
+                    return Ok(None);
+                }
+                at = line_after(storage, path, start)?;
+                line = start_line.saturating_add(1);
+                parser = Parser::new(layout.separator);
+                (start, start_line) = (at, line);
+                continue 'file;
             }
         }
         at += n as u64;
@@ -430,7 +561,23 @@ pub(crate) fn each(
     {
         let _ = visit(item);
     }
-    Ok(())
+    Ok(None)
+}
+
+/// The offset after the first line break at or after `from` (the file's
+/// end if there is none).
+fn line_after(storage: &dyn Storage, path: &str, from: u64) -> Result<u64, StorageError> {
+    let (mut at, mut chunk) = (from, [0u8; 512]);
+    loop {
+        let n = storage.read_at(path, at, &mut chunk)?;
+        if n == 0 {
+            return Ok(at);
+        }
+        if let Some(i) = chunk[..n].iter().position(|&b| b == b'\n') {
+            return Ok(at + i as u64 + 1);
+        }
+        at += n as u64;
+    }
 }
 
 /// The card whose record begins at `offset` (as [`Record::offset`] says).
@@ -526,14 +673,23 @@ mod tests {
 
     #[test]
     fn a_file_with_a_header_names_its_columns() {
-        let (layout, items) = read(b"Beispiel;Back;Front;id\nDie Katze.;cat;Katze;7\n");
-        assert_eq!(layout.line, 2);
+        // The reader's own file (it says so) has the cards' numbers.
+        let (layout, items) = read(b"#paperpaw:\nBeispiel;Back;Front;id\nDie Katze.;cat;Katze;7\n");
+        assert_eq!(layout.line, 3);
         assert_eq!(cards(&items), [("Katze", "cat", "Die Katze.")]);
         let Item::Record(record) = &items[0] else {
             panic!()
         };
         assert_eq!(record.id, Some(7));
-        assert_eq!(record.line, 2);
+        assert_eq!(record.line, 3);
+        // Any other file with an id column: the column is an ordinary one.
+        let (layout, items) = read(b"Beispiel;Back;Front;id\nDie Katze.;cat;Katze;7\n");
+        assert_eq!(layout.line, 2);
+        assert_eq!(layout.columns.id, None);
+        let Item::Record(record) = &items[0] else {
+            panic!()
+        };
+        assert_eq!((record.id, record.front.as_str()), (None, "Katze"));
         // No header: the first three columns.
         let (layout, items) = read(b"Katze,cat\n");
         assert_eq!(layout.line, 1);
@@ -565,7 +721,6 @@ mod tests {
     #[test]
     fn bad_records_are_told_with_their_line_and_the_rest_is_read() {
         let mut file = b"a\tb\n\tno front\n".to_vec();
-        file.extend_from_slice(b"bad\t\xff\xfe\n");
         file.extend_from_slice(b"too\t");
         file.extend_from_slice(&[b'x'; MAX_RECORD + 10]);
         file.extend_from_slice(b"\nlast\tone");
@@ -578,14 +733,114 @@ mod tests {
                 Item::Record(_) => None,
             })
             .collect();
-        assert_eq!(
-            skipped,
-            [
-                (2, Fault::NoFront),
-                (3, Fault::NotUtf8),
-                (4, Fault::TooLong)
-            ]
-        );
+        assert_eq!(skipped, [(2, Fault::NoFront), (3, Fault::TooLong)]);
+    }
+
+    #[test]
+    fn a_record_that_is_not_utf8_is_told_where_the_file_is_utf8() {
+        // Seen whole, the start of the file is UTF-8 (padded past the part
+        // that tells the encoding): a bad record is a problem, not text.
+        let mut file = b"a\tb\n".repeat(SNIFF / 4);
+        file.extend_from_slice(b"bad\t\xff\xfe\nlast\tone\n");
+        let (layout, items) = read(&file);
+        assert!(!layout.latin1);
+        let last = items.last().unwrap();
+        assert_eq!(cards(&items[items.len() - 2..]), [("last", "one", "")]);
+        assert!(matches!(last, Item::Record(_)));
+        assert!(items.iter().any(|i| matches!(
+            i,
+            Item::Skipped {
+                fault: Fault::NotUtf8,
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn a_windows_1252_file_is_read_as_such() {
+        // "Rückseite", "Müll", a euro sign and a curly quote, as Excel saves.
+        let file = b"Front;R\xfcckseite\nM\xfcll;\x80 \x93ok\x94\n";
+        let (layout, items) = read(file);
+        assert!(layout.latin1 && !layout.utf16);
+        assert_eq!(cards(&items), [("Müll", "€ \u{201c}ok\u{201d}", "")]);
+        // UTF-8 is not mistaken for it, nor is a binary file.
+        assert!(!read("Müll;x\n".as_bytes()).0.latin1);
+        assert!(!read(b"a\0\xff;b\n").0.latin1);
+    }
+
+    #[test]
+    fn utf16_is_told_and_not_read_as_text() {
+        assert!(read(b"\xff\xfea\0;\0b\0\n\0").0.utf16);
+        assert!(read(b"\xfe\xff\0a\0;\0b").0.utf16);
+        assert!(!read(b"a;b\n").0.utf16);
+    }
+
+    #[test]
+    fn a_lone_quote_does_not_eat_the_rest_of_the_file() {
+        let mut file = b"\"to be\tsein\nfine\tgut\n".to_vec();
+        // Past the size a record may be, with no closing quote in sight.
+        for _ in 0..MAX_RECORD / 6 {
+            file.extend_from_slice(b"ab\tcd\n");
+        }
+        file.extend_from_slice(b"end\tende\n");
+        let (_, items) = read(&file);
+        assert!(matches!(
+            items[0],
+            Item::Skipped {
+                line: 1,
+                fault: Fault::OpenQuote
+            }
+        ));
+        // The lines after the one with the quote are read again.
+        assert_eq!(cards(&items[1..2]), [("fine", "gut", "")]);
+        assert_eq!(cards(&items[items.len() - 1..]), [("end", "ende", "")]);
+        // A quoted text that does close, of any lines, is one record.
+        let (_, items) = read(b"front\tback\n\"two\nlines\"\tz\n");
+        assert_eq!(cards(&items), [("two\nlines", "z", "")]);
+    }
+
+    #[test]
+    fn a_field_cut_at_its_limit_does_not_break_a_character() {
+        let mut file = "ä".repeat(MAX_FIELD).into_bytes();
+        file.extend_from_slice(b"\tb\n");
+        let (_, items) = read(&file);
+        let Item::Record(record) = &items[0] else {
+            panic!("{items:?}")
+        };
+        assert!(record.front.chars().all(|c| c == 'ä'));
+        assert_eq!(record.front.len(), MAX_FIELD);
+    }
+
+    #[test]
+    fn a_file_is_scanned_in_steps_with_the_same_result() {
+        let storage = MemoryStorage::new();
+        let file: Vec<u8> = (0..500)
+            .flat_map(|i| alloc::format!("w{i}\tb{i}\n").into_bytes())
+            .collect();
+        storage.write("f", &file).unwrap();
+        let layout = detect(&storage, "f").unwrap();
+        let (mut fronts, mut steps) = (Vec::new(), 0);
+        let mut at = Resume {
+            at: layout.start,
+            line: layout.line,
+        };
+        loop {
+            steps += 1;
+            let next = scan(&storage, "f", &layout, at, Some(100), |item| {
+                if let Item::Record(r) = item {
+                    fronts.push(r.front);
+                }
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+            match next {
+                Some(resume) => at = resume,
+                None => break,
+            }
+        }
+        assert!(steps > 20, "{steps}");
+        let expected: Vec<String> = (0..500).map(|i| alloc::format!("w{i}")).collect();
+        assert_eq!(fronts, expected);
     }
 
     #[test]

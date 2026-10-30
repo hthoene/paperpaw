@@ -13,12 +13,15 @@ use paperpaw_sdk::{
 };
 
 use crate::SD_FOLDER;
-use crate::sync::{self, FileReport, Job, Outcome, Question, Step};
+use crate::sync::{self, FileReport, Job, Mode, Outcome, Question, Step};
 use crate::table::Fault;
 
 pub(crate) const SCREEN: Id = Id::new_static("vocabulary.sd-card");
 /// The parameter that reads every file anew, not only the new and changed.
 pub(crate) const FORCE: &str = "force";
+/// The parameter of the screen the flash cards open by themselves: the
+/// files that failed as they are are not tried again.
+pub(crate) const AUTO: &str = "auto";
 /// Rows of the result at most.
 const MOST_ROWS: usize = 40;
 
@@ -41,10 +44,24 @@ pub(crate) struct SdScreen {
     phase: Phase,
     job: Option<Job>,
     folder: String,
-    force: bool,
+    mode: Mode,
+    /// The per mille (in tens) and the file shown last: the screen is drawn
+    /// again, and the e-ink refreshed, when one of them changes.
+    shown: (u16, String),
     /// What the result says: a title and a note for each row.
     rows: Vec<(String, String)>,
     started: bool,
+}
+
+/// Whether progress at `permille` of `file` differs from what `shown` says
+/// (in tens of per mille and the file), and so is drawn; `shown` is then
+/// what is drawn.
+fn worth_drawing(shown: &mut (u16, String), permille: u16, file: &str) -> bool {
+    if shown.0 == permille / 10 && shown.1 == file {
+        return false;
+    }
+    *shown = (permille / 10, file.to_string());
+    true
 }
 
 fn number(n: usize) -> String {
@@ -65,7 +82,14 @@ impl SdScreen {
             phase: Phase::Working,
             job: None,
             folder: folder(env),
-            force: params.get(FORCE).is_some(),
+            mode: if params.get(FORCE).is_some() {
+                Mode::All
+            } else if params.get(AUTO).is_some() {
+                Mode::Auto
+            } else {
+                Mode::Manual
+            },
+            shown: (u16::MAX, String::new()),
             rows: Vec::new(),
             started: false,
         }
@@ -94,7 +118,7 @@ impl SdScreen {
             self.finish(env, alloc::vec![(String::new(), note)]);
             return;
         }
-        let job = Job::new(storage, &self.folder, self.force);
+        let job = Job::new(storage, &self.folder, self.mode);
         if job.is_empty() {
             let key = if seen.files == 0 {
                 "vocabulary.sd.row.empty"
@@ -162,6 +186,8 @@ impl SdScreen {
             Outcome::TooManyDecks => i18n.tr("vocabulary.sd.outcome.too-many").into(),
             Outcome::Crowded => i18n.tr("vocabulary.sd.outcome.crowded").into(),
             Outcome::NoCards => i18n.tr("vocabulary.sd.outcome.no-cards").into(),
+            Outcome::TooLarge => i18n.tr("vocabulary.sd.outcome.too-large").into(),
+            Outcome::Utf16 => i18n.tr("vocabulary.sd.outcome.utf16").into(),
         };
         rows.push((title, note));
         if report.no_room > 0 {
@@ -184,6 +210,7 @@ impl SdScreen {
                 Fault::NoFront => "vocabulary.sd.fault.no-front",
                 Fault::NotUtf8 => "vocabulary.sd.fault.not-utf8",
                 Fault::TooLong => "vocabulary.sd.fault.too-long",
+                Fault::OpenQuote => "vocabulary.sd.fault.open-quote",
             };
             rows.push((
                 i18n.format(
@@ -207,8 +234,16 @@ impl SdScreen {
             cx.request_refresh(RefreshMode::Partial);
             return;
         };
+        // Only a step that changes what is shown draws it again: a refresh
+        // of the e-ink for each of the many steps of a big file would take
+        // longer than the work.
+        let mut show = true;
         match job.step(env.storage()) {
-            Step::Working => cx.wake_at(env.now()),
+            Step::Working => {
+                cx.wake_at(env.now());
+                let (permille, file) = job.progress();
+                show = worth_drawing(&mut self.shown, permille, file);
+            }
             Step::Ask(question) => {
                 let area = self.content(&env);
                 let top = self.question_height(&env, &question) + 2 * self.style.gap();
@@ -231,8 +266,10 @@ impl SdScreen {
                 self.finish(&env, rows);
             }
         }
-        cx.request_redraw();
-        cx.request_refresh(RefreshMode::Partial);
+        if show {
+            cx.request_redraw();
+            cx.request_refresh(RefreshMode::Partial);
+        }
     }
 
     fn question_text(env: &Env<'_>, question: &Question) -> String {
@@ -412,4 +449,23 @@ impl SdScreen {
 /// Whether anything of the folder is to be done, for the list of decks.
 pub(crate) fn pending(env: &Env<'_>) -> sync::Pending {
     sync::pending(env.storage(), &folder(env))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_step_that_shows_the_same_is_not_drawn() {
+        let mut shown = (u16::MAX, String::new());
+        assert!(worth_drawing(&mut shown, 0, "A.tsv"));
+        // Many steps of one file between two whole per cent: no refresh.
+        let drawn = (0..=1000u16)
+            .filter(|p| worth_drawing(&mut shown, *p, "A.tsv"))
+            .count();
+        assert!(drawn <= 101, "{drawn}");
+        assert!(!worth_drawing(&mut shown, 1000, "A.tsv"));
+        // Another file is drawn even at the same per mille.
+        assert!(worth_drawing(&mut shown, 1000, "B.tsv"));
+    }
 }

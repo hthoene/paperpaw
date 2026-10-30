@@ -13,7 +13,8 @@ fn put(storage: &MemoryStorage, name: &str, text: &str) {
 
 /// The job run through, `link` the answer to a question.
 fn run(storage: &MemoryStorage, force: bool, link: bool) -> Vec<FileReport> {
-    let mut job = Job::new(storage, FOLDER, force);
+    let mode = if force { Mode::All } else { Mode::Manual };
+    let mut job = Job::new(storage, FOLDER, mode);
     for _ in 0..10_000 {
         match job.step(storage) {
             Step::Working => {}
@@ -77,10 +78,11 @@ fn a_file_makes_a_deck_named_like_it_and_is_not_read_again() {
         Pending {
             folder: true,
             files: 1,
-            todo: 0
+            todo: 0,
+            failed: 0,
         }
     );
-    assert!(Job::new(&storage, FOLDER, false).is_empty());
+    assert!(Job::new(&storage, FOLDER, Mode::Manual).is_empty());
     // Scanned anew: its content is as it was.
     let again = run(&storage, true, true);
     assert_eq!(again[0].outcome, Outcome::Same);
@@ -140,7 +142,7 @@ fn an_id_column_keeps_what_was_learnt_through_a_changed_front() {
     put(
         &storage,
         "W.tsv",
-        &alloc::format!("id\tfront\tback\n{id}\tgatito\tcat\n\tperro\tdog\n"),
+        &alloc::format!("#paperpaw:\nid\tfront\tback\n{id}\tgatito\tcat\n\tperro\tdog\n"),
     );
     let reports = run(&storage, false, true);
     assert_eq!(reports[0].added, 0, "{:?}", reports[0]);
@@ -152,7 +154,7 @@ fn an_id_column_keeps_what_was_learnt_through_a_changed_front() {
     put(
         &storage,
         "W.tsv",
-        &alloc::format!("id\tfront\tback\n{id}\tgatito\tcat\n\tperro\tdog\n\n"),
+        &alloc::format!("#paperpaw:\nid\tfront\tback\n{id}\tgatito\tcat\n\tperro\tdog\n\n"),
     );
     let reports = run(&storage, true, true);
     assert_eq!(cards_of(&storage, deck).len(), 2, "{reports:?}");
@@ -194,7 +196,7 @@ fn a_deck_of_the_name_that_is_no_file_s_is_asked_about() {
         )
         .unwrap();
         put(&storage, "Spanish.tsv", "casa\thouse\ngato\tcat\n");
-        let mut job = Job::new(&storage, FOLDER, false);
+        let mut job = Job::new(&storage, FOLDER, Mode::Manual);
         let mut asked = false;
         loop {
             match job.step(&storage) {
@@ -235,7 +237,12 @@ fn a_renamed_file_keeps_its_deck_and_its_name_follows() {
     assert_eq!(cards::decks(&storage).unwrap().len(), 1);
     assert_eq!(deck_id(&storage, "New"), deck);
     // The old file is gone from the ledger, the new one is in it.
-    let names: Vec<String> = sources(&storage).into_iter().map(|s| s.name).collect();
+    let names: Vec<String> = sources(&storage)
+        .unwrap()
+        .sources
+        .into_iter()
+        .map(|s| s.name)
+        .collect();
     assert_eq!(names, ["New.tsv"]);
 }
 
@@ -297,7 +304,7 @@ fn a_big_deck_is_merged_in_slices_without_a_card_twice() {
 fn a_file_that_is_no_cards_makes_no_deck_and_tells_why() {
     let storage = MemoryStorage::new();
     storage
-        .write("Flashcards/Junk.tsv", b"\tonly a back\n\xff\xfe\xfd\n")
+        .write("Flashcards/Junk.tsv", b"\tonly a back\n\tmore\n")
         .unwrap();
     let reports = run(&storage, false, true);
     assert_eq!(reports[0].outcome, Outcome::NoCards);
@@ -340,7 +347,8 @@ fn the_folder_is_listed_for_decks_only() {
         Pending {
             folder: true,
             files: 0,
-            todo: 0
+            todo: 0,
+            failed: 0,
         }
     );
     put(&storage, "A.TSV", "a\tb\n");
@@ -405,4 +413,333 @@ fn problems_are_kept_to_the_first_twenty() {
     assert_eq!(reports[0].problems.len(), 20);
     assert_eq!(reports[0].problems[0], (2, Fault::NoFront));
     let _: Option<Problem> = None;
+}
+
+// ---- The senior review of PR #32 -----------------------------------------
+
+/// Counts what one thread allocates, for the tests of the heap a merge takes.
+mod heap {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    pub struct Counting;
+
+    std::thread_local! {
+        static ON: Cell<bool> = const { Cell::new(false) };
+        static LIVE: Cell<isize> = const { Cell::new(0) };
+        static PEAK: Cell<isize> = const { Cell::new(0) };
+        static BIGGEST: Cell<usize> = const { Cell::new(0) };
+    }
+
+    fn note(size: usize, grow: bool) {
+        let _ = ON.try_with(|on| {
+            if !on.get() {
+                return;
+            }
+            let _ = LIVE.try_with(|live| {
+                let now = live.get()
+                    + if grow {
+                        size as isize
+                    } else {
+                        -(size as isize)
+                    };
+                live.set(now);
+                let _ = PEAK.try_with(|peak| peak.set(peak.get().max(now)));
+            });
+            if grow {
+                let _ = BIGGEST.try_with(|big| big.set(big.get().max(size)));
+            }
+        });
+    }
+
+    // SAFETY: only counts, and passes every call to the system allocator.
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            let p = unsafe { System.alloc(layout) };
+            if !p.is_null() {
+                note(layout.size(), true);
+            }
+            p
+        }
+        unsafe fn dealloc(&self, p: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(p, layout) };
+            note(layout.size(), false);
+        }
+        unsafe fn realloc(&self, p: *mut u8, layout: Layout, new: usize) -> *mut u8 {
+            let q = unsafe { System.realloc(p, layout, new) };
+            if !q.is_null() {
+                note(layout.size(), false);
+                note(new, true);
+            }
+            q
+        }
+    }
+
+    /// The largest single allocation and the most held at once (above what
+    /// was held at the start) while `work` runs on this thread.
+    pub fn measure<T>(work: impl FnOnce() -> T) -> (T, usize, usize) {
+        ON.with(|on| on.set(true));
+        LIVE.with(|v| v.set(0));
+        PEAK.with(|v| v.set(0));
+        BIGGEST.with(|v| v.set(0));
+        let out = work();
+        ON.with(|on| on.set(false));
+        (
+            out,
+            BIGGEST.with(Cell::get),
+            usize::try_from(PEAK.with(Cell::get)).unwrap_or(0),
+        )
+    }
+}
+
+#[global_allocator]
+static COUNTING: heap::Counting = heap::Counting;
+
+/// The job run through, with how many steps it took.
+fn run_counting(storage: &MemoryStorage, mode: Mode) -> (Vec<FileReport>, usize) {
+    let mut job = Job::new(storage, FOLDER, mode);
+    for steps in 1..100_000 {
+        match job.step(storage) {
+            Step::Working => {}
+            Step::Ask(_) => job.answer(storage, true),
+            Step::Done => return (job.reports, steps),
+        }
+    }
+    panic!("the job does not end");
+}
+
+fn ledger_text(storage: &MemoryStorage) -> Vec<u8> {
+    paperpaw_sdk::read_file(storage, &ledger_path(), 1 << 20).unwrap_or_default()
+}
+
+#[test]
+fn an_id_column_of_a_spreadsheet_is_no_card_number() {
+    // The reviewer's case: ids that are not the reader's own numbers.
+    let storage = MemoryStorage::new();
+    put(
+        &storage,
+        "W.tsv",
+        "id\tfront\tback\n2\tcat\tKatze\n1\tdog\tHund\n",
+    );
+    run(&storage, false, true);
+    let deck = deck_id(&storage, "W");
+    learn(&storage, deck, "cat");
+    put(
+        &storage,
+        "W.tsv",
+        "id\tfront\tback\n2\tcat\tKatze\n1\tdog\tder Hund\n",
+    );
+    let reports = run(&storage, false, true);
+    assert_eq!(
+        (reports[0].added, reports[0].changed),
+        (0, 1),
+        "{reports:?}"
+    );
+    let cards = cards_of(&storage, deck);
+    let by = |front: &str| cards.iter().find(|c| c.front == front).unwrap();
+    assert!(!by("cat").state.is_new(), "cat kept its progress");
+    assert_eq!(by("cat").back, "Katze");
+    assert!(by("dog").state.is_new());
+    assert_eq!(by("dog").back, "der Hund");
+}
+
+#[test]
+fn a_deck_of_equal_fronts_is_told_and_takes_little_heap() {
+    let storage = MemoryStorage::new();
+    let text: String = (0..5000)
+        .map(|i| alloc::format!("same\tback {i}\n"))
+        .collect();
+    put(&storage, "Same.tsv", &text);
+    run(&storage, false, true);
+    let deck = deck_id(&storage, "Same");
+    assert_eq!(cards_of(&storage, deck).len(), 5000);
+    // Changed, so that it is merged: 5,000 cards in one slice.
+    let text: String = (0..5000)
+        .map(|i| alloc::format!("same\tback {}\n", i + 1))
+        .collect();
+    put(&storage, "Same.tsv", &text);
+    let ((reports, _), biggest, peak) = heap::measure(|| run_counting(&storage, Mode::Manual));
+    assert_eq!(reports[0].outcome, Outcome::Crowded);
+    assert!(biggest <= 64 * 1024, "one allocation of {biggest} bytes");
+    assert!(peak <= 96 * 1024, "{peak} bytes at once");
+    assert_eq!(cards_of(&storage, deck).len(), 5000);
+}
+
+#[test]
+fn a_file_over_the_limits_is_refused_unread() {
+    let storage = MemoryStorage::new();
+    // Over 4 MiB: not even hashed.
+    let big = b"a\tb\n".repeat((MAX_FILE as usize + 1) / 4 + 1);
+    storage.write("Flashcards/Huge.tsv", &big).unwrap();
+    let ((reports, steps), _, _) = heap::measure(|| run_counting(&storage, Mode::Manual));
+    assert_eq!(reports[0].outcome, Outcome::TooLarge);
+    assert!(steps <= 3, "{steps} steps");
+    assert!(cards::decks(&storage).unwrap().is_empty());
+    // More lines than a deck holds.
+    let lines: String = (0..=cards::MAX_CARDS)
+        .map(|i| alloc::format!("w{i}\tb\n"))
+        .collect();
+    put(&storage, "Lines.tsv", &lines);
+    let reports = run(&storage, false, true);
+    let lines_report = reports.iter().find(|r| r.file == "Lines.tsv").unwrap();
+    assert_eq!(lines_report.outcome, Outcome::TooLarge);
+    assert!(cards::decks(&storage).unwrap().is_empty());
+}
+
+#[test]
+fn a_big_file_is_hashed_and_counted_in_steps() {
+    let storage = MemoryStorage::new();
+    let text: String = (0..18_000)
+        .map(|i| alloc::format!("word{i:05}\tback back back\n"))
+        .collect();
+    assert!(text.len() > 4 * STEP as usize);
+    put(&storage, "Steps.tsv", &text);
+    let (reports, steps) = run_counting(&storage, Mode::Manual);
+    assert_eq!(reports[0].outcome, Outcome::Merged);
+    assert_eq!(reports[0].added, 18_000);
+    // The hashing and the counting each took more than a few steps.
+    assert!(steps >= 8, "{steps} steps");
+}
+
+#[test]
+fn a_ledger_that_cannot_be_read_is_not_written_over() {
+    let storage = MemoryStorage::new();
+    put(&storage, "A.tsv", "a\tb\n");
+    run(&storage, false, true);
+    let deck = deck_id(&storage, "A");
+    // A newer version of the ledger, as an older reader meets it.
+    let newer = alloc::format!("paperpaw-sources 9\nA.tsv\t{deck}\t4\t0\tff\n");
+    storage.write(&ledger_path(), newer.as_bytes()).unwrap();
+    put(&storage, "B.tsv", "c\td\n");
+    let reports = run(&storage, false, true);
+    assert!(
+        reports.iter().all(|r| r.outcome == Outcome::Unreadable),
+        "{reports:?}"
+    );
+    assert_eq!(ledger_text(&storage), newer.as_bytes());
+    assert_eq!(cards::decks(&storage).unwrap().len(), 1, "no deck made");
+    // Too big for the ledger: the same.
+    let mut huge = String::from("paperpaw-sources 1\n");
+    while huge.len() <= LEDGER_MAX {
+        huge.push_str(&alloc::format!("{}\t{deck}\t4\t0\tff\n", "x".repeat(200)));
+    }
+    storage.write(&ledger_path(), huge.as_bytes()).unwrap();
+    let reports = run(&storage, false, true);
+    assert!(reports.iter().all(|r| r.outcome == Outcome::Unreadable));
+    assert_eq!(ledger_text(&storage).len(), huge.len());
+}
+
+#[test]
+fn a_line_of_the_ledger_not_understood_is_kept_and_a_dead_link_goes() {
+    let storage = MemoryStorage::new();
+    put(&storage, "A.tsv", "a\tb\n");
+    run(&storage, false, true);
+    let mut text = String::from_utf8(ledger_text(&storage)).unwrap();
+    text.push_str("from a later reader\twith\tmore\n");
+    text.push_str("Dead.tsv\t999\t4\t0\tff\n");
+    storage.write(&ledger_path(), text.as_bytes()).unwrap();
+    put(&storage, "A.tsv", "a\tb\nc\td\n");
+    run(&storage, false, true);
+    let after = String::from_utf8(ledger_text(&storage)).unwrap();
+    assert!(after.contains("from a later reader\twith\tmore"), "{after}");
+    assert!(!after.contains("Dead.tsv"), "{after}");
+    assert!(after.contains("A.tsv"));
+}
+
+#[test]
+fn a_front_over_the_limit_is_not_added_again_at_every_update() {
+    let storage = MemoryStorage::new();
+    let front = "long ".repeat(200);
+    put(&storage, "L.tsv", &alloc::format!("{front}\tone\n"));
+    run(&storage, false, true);
+    let deck = deck_id(&storage, "L");
+    put(&storage, "L.tsv", &alloc::format!("{front}\tsecond\n"));
+    let reports = run(&storage, false, true);
+    assert_eq!(
+        (reports[0].added, reports[0].changed),
+        (0, 1),
+        "{reports:?}"
+    );
+    assert_eq!(cards_of(&storage, deck).len(), 1);
+}
+
+#[test]
+fn a_file_that_failed_is_told_and_not_tried_at_every_opening() {
+    let storage = MemoryStorage::new();
+    put(&storage, "Bad.tsv", "\tno front\n\tnone\n");
+    let reports = run(&storage, false, true);
+    assert_eq!(reports[0].outcome, Outcome::NoCards);
+    let seen = pending(&storage, FOLDER);
+    assert_eq!((seen.todo, seen.failed), (0, 1));
+    // Opened by itself: not tried. Chosen by hand: tried and told.
+    assert!(Job::new(&storage, FOLDER, Mode::Auto).is_empty());
+    assert!(!Job::new(&storage, FOLDER, Mode::Manual).is_empty());
+    let reports = run(&storage, false, true);
+    assert_eq!(reports[0].outcome, Outcome::NoCards);
+    // Mended: it is taken at once.
+    put(&storage, "Bad.tsv", "good\tfine\n");
+    assert!(!Job::new(&storage, FOLDER, Mode::Auto).is_empty());
+    let reports = run(&storage, false, true);
+    assert_eq!(reports[0].outcome, Outcome::Merged);
+    assert_eq!(pending(&storage, FOLDER).failed, 0);
+}
+
+#[test]
+fn utf16_is_told_and_windows_1252_is_read() {
+    let storage = MemoryStorage::new();
+    storage
+        .write("Flashcards/Sheet.txt", b"\xff\xfew\0o\0r\0d\0\t\0b\0\n\0")
+        .unwrap();
+    storage
+        .write("Flashcards/German.csv", b"Front;Back\nM\xfcll;rubbish\n")
+        .unwrap();
+    let reports = run(&storage, false, true);
+    let of = |file: &str| reports.iter().find(|r| r.file == file).unwrap();
+    assert_eq!(of("Sheet.txt").outcome, Outcome::Utf16);
+    assert_eq!(of("German.csv").outcome, Outcome::Merged);
+    let deck = deck_id(&storage, "German");
+    assert_eq!(fronts(&cards_of(&storage, deck)), ["Müll"]);
+    assert!(
+        cards::decks(&storage)
+            .unwrap()
+            .iter()
+            .all(|d| d.name != "Sheet")
+    );
+}
+
+#[test]
+fn two_files_of_one_name_make_two_decks() {
+    let storage = MemoryStorage::new();
+    put(&storage, "Spanish.csv", "casa,house\n");
+    put(&storage, "Spanish.tsv", "gato\tcat\n");
+    let reports = run(&storage, false, true);
+    assert_eq!(reports.len(), 2);
+    assert_eq!(
+        fronts(&cards_of(&storage, deck_id(&storage, "Spanish"))),
+        ["casa"]
+    );
+    assert_eq!(
+        fronts(&cards_of(&storage, deck_id(&storage, "Spanish (tsv)"))),
+        ["gato"]
+    );
+    // Nothing to ask or add the next time.
+    assert!(Job::new(&storage, FOLDER, Mode::Manual).is_empty());
+    let again = run(&storage, true, true);
+    assert!(
+        again.iter().all(|r| r.outcome == Outcome::Same),
+        "{again:?}"
+    );
+    assert_eq!(cards::decks(&storage).unwrap().len(), 2);
+}
+
+#[test]
+fn the_folder_cannot_be_the_plugin_s_own_data_or_a_way_up() {
+    assert_eq!(folder_of(" Words/ "), "Words");
+    assert_eq!(folder_of(""), DEFAULT_FOLDER);
+    assert_eq!(folder_of("../elsewhere"), DEFAULT_FOLDER);
+    assert_eq!(folder_of("a/../b"), DEFAULT_FOLDER);
+    let own = cards::path("");
+    assert_eq!(folder_of(&own), DEFAULT_FOLDER);
+    assert_eq!(folder_of(own.trim_end_matches('/')), DEFAULT_FOLDER);
+    assert_eq!(folder_of(&alloc::format!("{own}sub")), DEFAULT_FOLDER);
 }
