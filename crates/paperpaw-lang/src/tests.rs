@@ -74,3 +74,14 @@ proptest::proptest! {
         let _ = (lang.language(), lang.script(), lang.region());
     }
 }
+
+#[test]
+fn languages_written_right_to_left_say_so() {
+    for tag in ["ar", "he", "fa-IR", "ur", "yi", "ckb", "az-Arab", "pa-Arab"] {
+        assert_eq!(Lang::parse(tag).direction(), Direction::Rtl, "{tag}");
+    }
+    for tag in ["en", "de", "ar-Latn", "ru", "zh-Hant"] {
+        assert_eq!(Lang::parse(tag).direction(), Direction::Ltr, "{tag}");
+    }
+    assert_eq!(Lang::NONE.direction(), Direction::Auto);
+}

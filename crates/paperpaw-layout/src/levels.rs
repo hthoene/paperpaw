@@ -5,15 +5,22 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
-use paperpaw_document::{Block, Direction, Locator};
+use paperpaw_document::{Block, Direction, Lang, Locator, PageProgression};
 use paperpaw_text::bidi::{self, Level};
 
 use crate::LayoutContext;
 
 /// Pieces a walk to the start of a paragraph passes at most (about
-/// 256 KB of text); one longer resolves the pieces past it as if they
-/// started it.
+/// 256 KB of text): up to as many block reads and a pass of the bidi
+/// algorithm over them (about 3.7 ms for 23 pieces on a computer, some
+/// 100 times that on the X4 [estimate]), once per jump; the starts it
+/// passes are kept, so the pages after cost nothing more. Past it, the
+/// piece is resolved as if it started its paragraph, at the paragraph's
+/// level as far as it is known (see [`known_paragraph`]).
 const MAX_WALK: usize = 64;
+/// Pieces read back at most, past [`MAX_WALK`], for the level of a
+/// paragraph nothing else tells: block reads only, no bidi.
+const MAX_SCAN: usize = 1024;
 
 /// The paragraph level of a block and, where its text needs the
 /// algorithm, the level of each of its bytes (a character's on all of
@@ -47,7 +54,14 @@ impl BlockLevels {
     pub(crate) fn in_context(block: &Block, cx: &LayoutContext<'_>, section: u32) -> BlockLevels {
         let own = paragraph_of(block);
         if !own.is_rtl() && !bidi::needs_bidi(&block.text) {
-            return BlockLevels::plain(own);
+            // Latin alone, plain, unless it is a piece of a paragraph
+            // known to run right to left (a stretch of Latin in Arabic):
+            // known without reading, so Latin books read nothing more.
+            let rtl =
+                block.continues && known_paragraph(block, cx, section).is_some_and(|l| l.is_rtl());
+            if !rtl {
+                return BlockLevels::plain(own);
+            }
         }
         let next = next_piece(block, cx, section);
         if !block.continues && next.is_none() {
@@ -56,7 +70,15 @@ impl BlockLevels {
         let mut state = alloc::vec![0u8; bidi::state_len()];
         let found = block.continues && start_of(block, cx, section, &mut state);
         if !found {
-            bidi::start_state(own, &mut state);
+            // Its paragraph's level, not the piece's own: a page in the
+            // middle of a long paragraph runs as the pages before it.
+            let level = match block.continues {
+                true => known_paragraph(block, cx, section)
+                    .or_else(|| first_piece_level(block, cx, section))
+                    .unwrap_or(own),
+                false => own,
+            };
+            bidi::start_state(level, &mut state);
         }
         let paragraph = bidi::state_paragraph(&state).unwrap_or(own);
         let count = block.text.chars().count();
@@ -239,4 +261,47 @@ fn start_of(block: &Block, cx: &LayoutContext<'_>, section: u32, state: &mut [u8
         }
     }
     true
+}
+
+/// The paragraph level of `block`, a piece that continues its paragraph,
+/// as far as it is known without reading: from the state kept nearest
+/// before it in its section, else the block's own direction as the book
+/// gives it, else the book's language or page progression where they run
+/// right to left.
+fn known_paragraph(block: &Block, cx: &LayoutContext<'_>, section: u32) -> Option<Level> {
+    if let Some(level) = cx
+        .pieces
+        .and_then(|p| p.nearest_paragraph(section, block.start))
+    {
+        return Some(level);
+    }
+    match block.dir {
+        Direction::Rtl => return Some(Level::RTL),
+        Direction::Ltr => return Some(Level::LTR),
+        _ => {}
+    }
+    let metadata = cx.document.metadata();
+    let language = metadata.language.as_deref().map(Lang::parse);
+    let rtl = language.is_some_and(|l| l.direction() == Direction::Rtl)
+        || metadata.direction == PageProgression::RightToLeft;
+    rtl.then_some(Level::RTL)
+}
+
+/// The level of the paragraph `block` continues from its first piece's
+/// text, read back at most [`MAX_SCAN`] pieces: none past that, or where
+/// the document cannot be read.
+fn first_piece_level(block: &Block, cx: &LayoutContext<'_>, section: u32) -> Option<Level> {
+    let mut at = block.start;
+    for _ in 0..MAX_SCAN {
+        let before = Locator::new(section, at.checked_sub(1)?);
+        let piece = cx.document.block_at(cx.storage, before).ok().flatten()?;
+        if piece.start >= at || piece.end > at {
+            return None;
+        }
+        if !piece.continues {
+            return Some(paragraph_of(&piece));
+        }
+        at = piece.start;
+    }
+    None
 }

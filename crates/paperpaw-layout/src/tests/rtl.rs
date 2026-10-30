@@ -226,3 +226,64 @@ fn the_pieces_of_a_paragraph_are_resolved_as_the_whole_paragraph() {
     kept.clear();
     assert!(kept.is_empty());
 }
+
+/// A paragraph of 70 pieces of `dir` auto: Hebrew first, so right to
+/// left; the others start with Latin, Hebrew in them but in `latin_only`.
+fn long_doc(latin_only: usize) -> Blocks<impl Fn(Locator) -> Option<Block>> {
+    Blocks::new(move |at: Locator| {
+        let piece = (at.offset / 20) as usize;
+        if piece >= 70 {
+            return None;
+        }
+        let text = match piece {
+            0 => "\u{5d0}\u{5d1} abc def gh ",
+            _ if piece == latin_only => "abcd efg hijk lmno ",
+            _ => "abcd \u{5d2}\u{5d3} efgh ij ",
+        };
+        // Each 20 bytes, so the pieces follow one another.
+        let mut text = String::from(text);
+        while text.len() < 20 {
+            text.push(' ');
+        }
+        let start = piece as u32 * 20;
+        Some(
+            block(&text, start, start + 20)
+                .continues(piece > 0)
+                .continued(piece < 69),
+        )
+    })
+}
+
+#[test]
+fn a_jump_into_a_paragraph_of_70_pieces_keeps_its_direction() {
+    let storage = paperpaw_document::NoStorage;
+    // Piece 66 starts with Latin; the walk back gives up at 64 pieces.
+    let doc = long_doc(usize::MAX);
+    let cold = PieceStarts::new();
+    let cx = LayoutContext::new(&doc, &storage, 100.0, &STYLE, &Flat1).pieces(&cold);
+    let page = layout_page(&cx, Locator::new(0, 66 * 20), 10.0).unwrap();
+    assert!(
+        page.lines[0].bidi.is_rtl(),
+        "the paragraph runs right to left"
+    );
+    // Read forward, the same.
+    let kept = PieceStarts::new();
+    let cx = LayoutContext::new(&doc, &storage, 100.0, &STYLE, &Flat1).pieces(&kept);
+    let mut at = Locator::START;
+    while at.offset < 66 * 20 {
+        at = layout_page(&cx, at, 100.0).unwrap().end;
+    }
+    let page = layout_page(&cx, Locator::new(0, 66 * 20), 10.0).unwrap();
+    assert!(page.lines[0].bidi.is_rtl());
+    // A piece of Latin alone in it: right to left once a state before it
+    // is kept, as it is read forward.
+    let doc = long_doc(30);
+    let kept = PieceStarts::new();
+    let cx = LayoutContext::new(&doc, &storage, 100.0, &STYLE, &Flat1).pieces(&kept);
+    let mut at = Locator::START;
+    while at.offset < 30 * 20 {
+        at = layout_page(&cx, at, 100.0).unwrap().end;
+    }
+    let page = layout_page(&cx, Locator::new(0, 30 * 20), 10.0).unwrap();
+    assert!(page.lines[0].bidi.is_rtl());
+}
