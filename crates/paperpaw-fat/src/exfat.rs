@@ -113,9 +113,13 @@ static NO_CLOCK: NoClock = NoClock;
 const NODES: usize = OPEN_FILES + FOLDERS + 16;
 
 /// The ends of the names a write goes through (see [`ExFatStorage`]):
-/// while it is written, and once it is whole.
+/// while it is written, and once it is whole. The second is preceded by
+/// `~` and eight hex digits, the mark: the state of the file it replaces
+/// when it was made whole (see [`ExFatStorage::state_of`]).
 const TMP: &str = "~pp.tmp";
 const NEW: &str = "~pp.new";
+/// The hex digits of a mark in a name, with the `~` before them.
+const MARK: usize = 8;
 
 /// Longest name of an entry, in UTF-16 units (exFAT's limit).
 const LONGEST: usize = 255;
@@ -125,21 +129,48 @@ fn is_temp(name: &str) -> bool {
     temp_of(name).is_some()
 }
 
-/// The file `name` is written for, and whether it is whole (`.new`), if it
-/// is a name a write goes through.
-fn temp_of(name: &str) -> Option<(&str, bool)> {
-    let tail = name.len().checked_sub(TMP.len())?;
-    let (file, end) = name.split_at_checked(tail)?;
-    if file.is_empty() {
+/// What a name a write goes through is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Temp {
+    /// The content, while written.
+    Writing,
+    /// The content, whole, with the mark of the file it is to replace (none
+    /// where the name has none).
+    Whole(Option<u32>),
+}
+
+/// The file `name` is written for, and what it is, if it is a name a
+/// write goes through.
+fn temp_of(name: &str) -> Option<(&str, Temp)> {
+    let end_of = |end: &str| name.len().checked_sub(end.len());
+    if let Some((file, end)) = end_of(TMP).and_then(|at| name.split_at_checked(at))
+        && !file.is_empty()
+        && end.eq_ignore_ascii_case(TMP)
+    {
+        return Some((file, Temp::Writing));
+    }
+    let (rest, end) = name.split_at_checked(end_of(NEW)?)?;
+    if !end.eq_ignore_ascii_case(NEW) {
         return None;
     }
-    if end.eq_ignore_ascii_case(TMP) {
-        Some((file, false))
-    } else if end.eq_ignore_ascii_case(NEW) {
-        Some((file, true))
-    } else {
-        None
-    }
+    // `<file>~<mark>`: the mark's digits are the last ones before the end.
+    let marked = rest
+        .len()
+        .checked_sub(1 + MARK)
+        .and_then(|at| rest.split_at_checked(at))
+        .and_then(|(file, mark)| {
+            let digits = mark.strip_prefix('~')?;
+            let mark = u32::from_str_radix(digits, 16).ok()?;
+            (!file.is_empty() && digits.bytes().all(|b| b.is_ascii_hexdigit()))
+                .then_some((file, Some(mark)))
+        });
+    let (file, mark) = marked.unwrap_or((rest, None));
+    (!file.is_empty()).then_some((file, Temp::Whole(mark)))
+}
+
+/// The name of the content of `file`, whole, with its `mark`.
+fn whole_name(file: &str, mark: u32) -> String {
+    format!("{file}~{mark:08x}{NEW}")
 }
 
 /// Refuses a path PaperPaw does not take, or one of the storage's own.
@@ -190,9 +221,16 @@ struct Open {
 /// What it leaves to a cut, this storage settles as `FatStorage` does:
 ///
 /// - A file is written whole under a name of the moment (`<name>~pp.tmp`),
-///   synced, renamed to a second one (`<name>~pp.new`) once whole, and
-///   only then renamed over the file it replaces. Cut off at any point,
-///   the file reads its old content or its new one, whole. The names of
+///   synced, renamed to a second one (`<name>~<mark>~pp.new`) once whole,
+///   and only then renamed over the file it replaces. Cut off at any
+///   point, the file reads its old content or its new one, whole. The
+///   mark is the state of the file it replaces (first cluster, size and
+///   time of change): where the card is changed elsewhere after a cut (a
+///   computer writes the file anew) and the file is no longer in that
+///   state, the change is the newer and the whole content is let go, not
+///   put over it. A folder with entry sets a cut left torn (sealed again,
+///   see below) settles as before: the replacement takes the place, as the
+///   state of a torn file tells nothing. The names of
 ///   the moment hold the file's own name, so a replacement cut off where
 ///   the old entry set was overwritten in part (one that crosses a block)
 ///   still finds the name it was for.
@@ -206,9 +244,13 @@ struct Open {
 ///   as it stands (its clusters were taken before it named them), the
 ///   entries of one cut off in its removal are let go
 ///   (`ExFatFs::sweep`, added for PaperPaw); a whole new content takes
-///   its file's place, a part of one goes.
+///   its file's place, a part of one goes. A folder counts as settled
+///   only when this is done: after an error (a read or write failing) it
+///   is not kept as looked at, and its next look settles it anew.
 /// - A move is recorded first in [`JOURNAL`](crate::JOURNAL) at the root,
-///   and finished at the next mount before anything else.
+///   and finished at the next mount before anything else; as the folders,
+///   it is marked finished only when it is, and tried again after an
+///   error.
 ///
 /// The names of the moment are neither listed nor taken by name. Times
 /// are not kept (the X4 has no clock of its own): new entries are dated
@@ -320,7 +362,15 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
         }
         folders.push((path.to_string(), node));
         drop(folders);
-        self.settle_folder(path, node)?;
+        if let Err(e) = self.settle_folder(path, node) {
+            // Not kept unsettled: the next look at the folder settles it
+            // again (a kept folder is not looked at anew).
+            self.folders
+                .borrow_mut()
+                .retain(|(p, _)| !same_path(p, path));
+            self.forget(node);
+            return Err(e);
+        }
         Ok(node)
     }
 
@@ -377,6 +427,25 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
         self.forget(x);
         self.forget(y);
         shared
+    }
+
+    /// What `node`, a file, is now: a digest of its first cluster, size
+    /// and modification time. A name of the content made whole holds the
+    /// state of the file it is to replace when it was made, and the file
+    /// is changed since if its state is another: on a computer, say,
+    /// where the card was taken after a cut. (Not by times alone: the X4
+    /// dates its writes 1980 and keeps none, but any other writer sets
+    /// one.)
+    fn state_of(&self, node: NodeId) -> Result2<u32> {
+        let cluster = self.first_cluster(node)?.unwrap_or(0);
+        let meta = self.fs.borrow_mut().stat(node).map_err(error)?;
+        let modified = meta.modified().map_or(0, |t| t.unix_seconds());
+        let bytes = cluster
+            .to_le_bytes()
+            .into_iter()
+            .chain(meta.len().to_le_bytes())
+            .chain(modified.to_le_bytes());
+        Ok(crate::fnv(bytes) as u32)
     }
 
     // Open files.
@@ -495,16 +564,25 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
     // Settling what a cut left.
 
     /// Settles what a cut left in the folder at `path` (`node`), once a
-    /// mount (see [`ExFatStorage`]).
+    /// mount (see [`ExFatStorage`]): marked settled only when it is, so that
+    /// a failure (a read error, a card taken out) is tried again at the next
+    /// look at the folder, and the folder is not worked in meanwhile.
     fn settle_folder(&self, path: &str, node: NodeId) -> Result2<()> {
         let key = hash(path);
         if self.settled.borrow().contains(&key) {
             return Ok(());
         }
+        self.settle_names(node)?;
         self.settled.borrow_mut().push(key);
+        Ok(())
+    }
+
+    /// The work of [`settle_folder`](Self::settle_folder): idempotent, so
+    /// that it can be done again from the start after a failure.
+    fn settle_names(&self, node: NodeId) -> Result2<()> {
         // Entry sets a cut left torn, sealed or let go (see
         // `ExFatFs::sweep`, added for PaperPaw).
-        self.fs.borrow_mut().sweep(node).map_err(error)?;
+        let swept = self.fs.borrow_mut().sweep(node).map_err(error)?;
         let mut files: Vec<String> = Vec::new();
         self.each(node, &mut |name, _, _| {
             if let Some((file, _)) = temp_of(name)
@@ -514,15 +592,15 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
             }
         })?;
         for file in files {
-            self.settle(node, &file)?;
+            self.settle(node, &file, swept > 0)?;
         }
         self.write_back()
     }
 
-    /// Settles the names a write of `file` in `dir` went through.
-    fn settle(&self, dir: NodeId, file: &str) -> Result2<()> {
+    /// Settles the names a write of `file` in `dir` went through. `torn`:
+    /// the folder had entry sets a cut left torn (and sealed again).
+    fn settle(&self, dir: NodeId, file: &str, torn: bool) -> Result2<()> {
         let tmp = format!("{file}{TMP}");
-        let new = format!("{file}{NEW}");
         let fs_unlink = |name: &str, keep: bool| -> Result2<()> {
             let mut fs = self.fs.borrow_mut();
             let done = if keep {
@@ -535,24 +613,58 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
                 _ => Ok(()),
             }
         };
+        // The contents of the file made whole, with their marks.
+        let mut wholes: Vec<(String, Option<u32>)> = Vec::new();
+        self.each(dir, &mut |name, _, _| {
+            if let Some((of, Temp::Whole(mark))) = temp_of(name)
+                && same_path(of, file)
+            {
+                wholes.push((name.to_string(), mark));
+            }
+        })?;
         if let Some(node) = self.find(dir, &tmp)? {
             self.forget(node);
             // Renamed already, cut off before its old name went: its
             // clusters are the other name's.
-            let renamed = self.share(dir, &tmp, &new)? || self.share(dir, &tmp, file)?;
+            let mut renamed = self.share(dir, &tmp, file)?;
+            for (whole, _) in &wholes {
+                renamed = renamed || self.share(dir, &tmp, whole)?;
+            }
             fs_unlink(&tmp, renamed)?;
         }
-        if let Some(node) = self.find(dir, &new)? {
+        for (whole, mark) in wholes {
+            let Some(node) = self.find(dir, &whole)? else {
+                continue;
+            };
             self.forget(node);
-            if self.share(dir, &new, file)? {
-                fs_unlink(&new, true)?;
+            if self.share(dir, &whole, file)? {
+                fs_unlink(&whole, true)?;
+                continue;
+            }
+            let target = self.find(dir, file)?;
+            // Whole, it takes its file's place, unless the file was changed
+            // since (on a computer, say) while its replacement was cut off:
+            // that change is the newer, and the replacement let go. A file
+            // torn by the replacement itself (sealed again by the sweep
+            // above) is no such change; nor is one whose state the mark
+            // cannot tell (a name without it).
+            let changed = match target {
+                Some(t) => {
+                    let now = self.state_of(t);
+                    self.forget(t);
+                    let now = now?;
+                    !torn && mark.is_some_and(|m| m != now)
+                }
+                None => false,
+            };
+            if changed {
+                fs_unlink(&whole, false)?;
             } else {
-                // Whole: it takes its file's place.
                 self.fs
                     .borrow_mut()
                     .rename(
                         dir,
-                        Name::new(&new),
+                        Name::new(&whole),
                         dir,
                         Name::new(file),
                         RenameMode::Replace,
@@ -565,9 +677,20 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
 
     /// Finishes a move the journal holds, once a mount.
     fn settle_moves(&self) -> Result2<()> {
-        if self.moves_settled.replace(true) {
+        if self.moves_settled.get() {
             return Ok(());
         }
+        self.finish_moves()?;
+        // Only when it is done: a failure (a read error, a card taken
+        // out) is tried again at the next call, before anything else is
+        // changed. What it did before is done again from its start, as it
+        // finds it.
+        self.moves_settled.set(true);
+        Ok(())
+    }
+
+    /// The work of [`settle_moves`](Self::settle_moves).
+    fn finish_moves(&self) -> Result2<()> {
         let root = self.fs.borrow().root();
         let Some(journal) = self.find(root, JOURNAL)? else {
             return Ok(());
@@ -722,11 +845,13 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
     fn write_whole(&self, path: &str, data: &[u8]) -> Result2<()> {
         check(path)?;
         let name = name(path);
-        if name.encode_utf16().count() + TMP.len() > LONGEST {
+        if name.encode_utf16().count() + 1 + MARK + NEW.len() > LONGEST {
             return Err(StorageError::InvalidPath);
         }
         self.close(path, false)?;
         let dir = self.dir(parent(path), true)?;
+        // The state of the file replaced, which its replacement carries in
+        // its name (see `state_of`).
         let there = match self.find(dir, name)? {
             Some(node) => {
                 let is_dir = self
@@ -734,16 +859,17 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
                     .borrow_mut()
                     .stat(node)
                     .map(|m| m.file_type() == FileType::Dir);
+                let state = self.state_of(node);
                 self.forget(node);
                 if is_dir.map_err(error)? {
                     return Err(StorageError::InvalidPath);
                 }
-                true
+                Some(state?)
             }
-            None => false,
+            None => None,
         };
         let tmp = format!("{name}{TMP}");
-        let new = format!("{name}{NEW}");
+        let new = whole_name(name, there.unwrap_or(0));
         let node = self
             .fs
             .borrow_mut()
@@ -769,7 +895,7 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
         }
         let mut fs = self.fs.borrow_mut();
         let (tmp, new, file) = (Name::new(&tmp), Name::new(&new), Name::new(name));
-        if there {
+        if there.is_some() {
             fs.rename(dir, tmp, dir, new, RenameMode::NoReplace)
                 .map_err(error)?;
             fs.rename(dir, new, dir, file, RenameMode::Replace)

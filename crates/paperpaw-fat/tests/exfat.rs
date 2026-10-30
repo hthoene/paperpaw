@@ -486,3 +486,303 @@ fn appended_to_is_as_before_or_longer_after_any_cut() {
         },
     );
 }
+
+/// Whether a name of a replacement made whole (`~pp.new`) is in the
+/// folder `books` of the card: read as a computer would, without any
+/// settling.
+fn has_new(image: &[u8]) -> bool {
+    use hadris_fs::{DirCursor, MountOptions, Name};
+    let (disk, _) = BlockDisk::find(card_of(image)).unwrap();
+    let options = MountOptions::new().with_clock(&Later);
+    let mut fs =
+        hadris_fat::exfat::sync::ExFatFs::mount(ExDisk::new(SharedDisk::new(disk)), options)
+            .unwrap();
+    let root = fs.root();
+    let Ok(books) = fs.lookup(root, Name::new("books")) else {
+        return false;
+    };
+    let mut cursor = DirCursor::START;
+    while let Ok(Some(entry)) = fs.readdir(books, cursor) {
+        cursor = entry.next_cursor();
+        if String::from_utf8_lossy(entry.name().as_bytes()).ends_with("~pp.new") {
+            return true;
+        }
+    }
+    false
+}
+
+/// A computer's clock: not the X4's 1980.
+struct Later;
+
+impl hadris_fs::Clock for Later {
+    fn now(&self) -> hadris_fs::DateTime {
+        hadris_fs::DateTime::from_unix_seconds(1_800_000_000).unwrap()
+    }
+}
+
+/// What a computer does to `books/<name>` with the card put in it after
+/// a cut: the file is written anew, with `data`, and the card unmounted
+/// cleanly. Nothing of PaperPaw's settling runs.
+fn changed_elsewhere(image: &mut Vec<u8>, name: &str, data: &[u8]) {
+    use hadris_fs::{MountOptions, Name, OpenMode, SetAttr};
+    let bytes = card_of(image);
+    let (disk, _) = BlockDisk::find(bytes.clone()).unwrap();
+    let shared = SharedDisk::new(disk);
+    let options = MountOptions::new().with_clock(&Later);
+    let mut fs =
+        hadris_fat::exfat::sync::ExFatFs::mount(ExDisk::new(shared.clone()), options).unwrap();
+    let root = fs.root();
+    let books = fs.lookup(root, Name::new("books")).unwrap();
+    // The file may be gone on the card (cut off in a replacement).
+    let _ = fs.unlink(books, Name::new(name));
+    let node = fs.create(books, Name::new(name), &SetAttr::new()).unwrap();
+    fs.open(node, OpenMode::Write).unwrap();
+    let mut done = 0;
+    while done < data.len() {
+        done += fs.write(node, done as u64, &data[done..]).unwrap();
+    }
+    fs.close(node).unwrap();
+    fs.sync().unwrap();
+    drop(fs);
+    shared.flush_all().unwrap();
+    *image = bytes.0.borrow().clone();
+}
+
+const A_NAME: &str = "A rather long name of a book that takes several entries.epub";
+
+#[test]
+fn a_replacement_cut_off_after_it_was_whole_takes_its_place() {
+    let (old, new) = old_and_new();
+    let mut seen = 0;
+    for shift in SHIFTS {
+        let image = prepared(|s| {
+            beside(s, shift);
+            s.write(A, &old).unwrap();
+        });
+        for (n, cut) in cut_images(image, |s| s.write(A, &new).unwrap())
+            .iter()
+            .enumerate()
+        {
+            if !has_new(cut) {
+                continue;
+            }
+            seen += 1;
+            let card = mount(&card_of(cut));
+            let at = format!("shift {shift}, cut {n}");
+            assert_eq!(whole(&card, A), Ok(new.clone()), "{at}");
+            assert_beside(&card, n);
+        }
+    }
+    assert!(seen > 16, "{seen} cuts with a replacement made whole");
+}
+
+#[test]
+fn a_replacement_cut_off_does_not_overwrite_a_change_made_elsewhere() {
+    let (old, new) = old_and_new();
+    let theirs: Vec<u8> = (0..5000u32).map(|i| (i % 199) as u8 ^ 0x33).collect();
+    let (mut kept, mut replaced) = (0, 0);
+    for shift in SHIFTS {
+        let image = prepared(|s| {
+            beside(s, shift);
+            s.write(A, &old).unwrap();
+        });
+        for (n, cut) in cut_images(image, |s| s.write(A, &new).unwrap())
+            .iter()
+            .enumerate()
+        {
+            if !has_new(cut) {
+                continue;
+            }
+            let mut edited = cut.clone();
+            changed_elsewhere(&mut edited, A_NAME, &theirs);
+            let bytes = card_of(&edited);
+            let card = mount(&bytes);
+            let at = format!("shift {shift}, cut {n}");
+            // Theirs, or (where the replacement was cut off torn, which
+            // is settled as it was) the replacement: whole, never a mix.
+            let a = whole(&card, A);
+            if a == Ok(theirs.clone()) {
+                kept += 1;
+            } else {
+                assert_eq!(a, Ok(new.clone()), "{at}");
+                replaced += 1;
+            }
+            assert_beside(&card, n);
+            card.sync().unwrap();
+            drop(card);
+            assert_eq!(findings(&bytes.0.borrow()), Vec::<String>::new(), "{at}");
+            let card = mount(&bytes);
+            let mut all = Vec::new();
+            for dir in ["", "books"] {
+                card.list(dir, &mut |e| all.push(e.name.to_string()))
+                    .unwrap();
+            }
+            assert!(!all.iter().any(|n| n.contains("~pp")), "{at}: {all:?}");
+        }
+    }
+    assert!(kept > 16, "kept theirs {kept} times, replaced {replaced}");
+}
+
+// A transient error while settling what a cut left.
+
+/// A card that fails every read and write after the `left`-th, until
+/// `left` is set to `usize::MAX` again: a card taken out, or a bus error.
+#[derive(Clone)]
+struct Flaky {
+    bytes: Bytes,
+    left: Rc<std::cell::Cell<usize>>,
+}
+
+impl Flaky {
+    fn pass(&self) -> Result<(), paperpaw_fat::DiskError> {
+        match self.left.get() {
+            usize::MAX => Ok(()),
+            0 => Err(paperpaw_fat::DiskError),
+            n => {
+                self.left.set(n - 1);
+                Ok(())
+            }
+        }
+    }
+}
+
+impl paperpaw_fat::Blocks for Flaky {
+    fn read_block(
+        &mut self,
+        index: u32,
+        block: &mut [u8; 512],
+    ) -> Result<(), paperpaw_fat::DiskError> {
+        self.pass()?;
+        self.bytes.read_block(index, block)
+    }
+
+    fn write_block(
+        &mut self,
+        index: u32,
+        block: &[u8; 512],
+    ) -> Result<(), paperpaw_fat::DiskError> {
+        self.pass()?;
+        self.bytes.write_block(index, block)
+    }
+
+    fn blocks(&mut self) -> Result<u32, paperpaw_fat::DiskError> {
+        self.bytes.blocks()
+    }
+}
+
+use paperpaw_fat::Blocks as _;
+
+/// On the card `image`, a first call (`first`) that fails at its `k`-th
+/// block read or written, the card sound again, then `after` on the same
+/// mount, without a remount. Whether the call came through, i.e. `k` was
+/// past all its blocks.
+fn fails_then_goes_on(
+    image: &[u8],
+    k: usize,
+    first: impl Fn(&dyn Storage) -> bool,
+    after: impl Fn(&ExFatStorage<Flaky>),
+) -> bool {
+    let flaky = Flaky {
+        bytes: card_of(image),
+        left: Rc::new(std::cell::Cell::new(usize::MAX)),
+    };
+    let (disk, _) = BlockDisk::find(flaky.clone()).unwrap();
+    let card = ExFatStorage::mount(SharedDisk::new(disk)).unwrap();
+    flaky.left.set(k);
+    let came_through = first(&card);
+    flaky.left.set(usize::MAX);
+    after(&card);
+    came_through
+}
+
+#[test]
+fn a_replacement_is_settled_after_an_error_in_the_same_mount() {
+    let (old, new) = old_and_new();
+    let mut tried = 0;
+    for shift in [0, 5, 11] {
+        let image = prepared(|s| {
+            beside(s, shift);
+            s.write(A, &old).unwrap();
+        });
+        for (n, cut) in cut_images(image, |s| s.write(A, &new).unwrap())
+            .iter()
+            .enumerate()
+        {
+            if !has_new(cut) {
+                continue;
+            }
+            for k in 0.. {
+                let at = format!("shift {shift}, cut {n}, error at {k}");
+                let through = fails_then_goes_on(
+                    cut,
+                    k,
+                    |card| card.size(A).is_ok(),
+                    |card| {
+                        // The same mount goes on: the replacement is made.
+                        assert_eq!(whole(card, A), Ok(new.clone()), "{at}");
+                        assert_beside(card, n);
+                        let mut all = Vec::new();
+                        for dir in ["", "books"] {
+                            card.list(dir, &mut |e| all.push(e.name.to_string()))
+                                .unwrap();
+                        }
+                        assert!(!all.iter().any(|n| n.contains("~pp")), "{at}: {all:?}");
+                    },
+                );
+                tried += 1;
+                if through {
+                    break;
+                }
+                assert!(k < 400, "{at}: never through");
+            }
+        }
+    }
+    assert!(tried > 50, "{tried} errors tried");
+}
+
+#[test]
+fn a_move_is_settled_after_an_error_in_the_same_mount() {
+    let (old, new) = old_and_new();
+    let to = "elsewhere/deeper/moved.epub";
+    let mut tried = 0;
+    for shift in [0, 7] {
+        let image = prepared(|s| {
+            beside(s, shift);
+            s.write(A, &old).unwrap();
+            s.write("elsewhere/x.txt", &new).unwrap();
+        });
+        for (n, cut) in cut_images(image, |s| s.rename(A, to).unwrap())
+            .iter()
+            .enumerate()
+        {
+            for k in 0.. {
+                let at = format!("shift {shift}, cut {n}, error at {k}");
+                let through = fails_then_goes_on(
+                    cut,
+                    k,
+                    |card| card.size("elsewhere/x.txt").is_ok(),
+                    |card| {
+                        let at_old = whole(card, A).map(|a| a.len());
+                        let at_new = whole(card, to).map(|a| a.len());
+                        let moved =
+                            at_old == Err(StorageError::NotFound) && at_new == Ok(old.len());
+                        let stayed =
+                            at_old == Ok(old.len()) && at_new == Err(StorageError::NotFound);
+                        assert!(moved || stayed, "{at}: {at_old:?} {at_new:?}");
+                        assert_eq!(whole(card, "elsewhere/x.txt"), Ok(new.clone()), "{at}");
+                        assert_beside(card, n);
+                        // The journal is gone: the next write goes on.
+                        card.write("books/after.txt", b"after").unwrap();
+                        card.sync().unwrap();
+                    },
+                );
+                tried += 1;
+                if through {
+                    break;
+                }
+                assert!(k < 400, "{at}: never through");
+            }
+        }
+    }
+    assert!(tried > 100, "{tried} errors tried");
+}
