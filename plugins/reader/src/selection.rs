@@ -82,10 +82,10 @@ impl Selection {
         // line, also where the line runs both ways; at the line's edge on
         // in reading order, which in a word that runs right to left goes
         // on to the left.
-        if *a == actions::LEFT || *a == actions::RIGHT {
-            if let Some(beside) = beside(words, self.cursor, *a == actions::RIGHT) {
-                return Some(beside);
-            }
+        if (*a == actions::LEFT || *a == actions::RIGHT)
+            && let Some(beside) = beside(words, self.cursor, *a == actions::RIGHT)
+        {
+            return Some(beside);
         }
         let rtl = words.get(self.cursor).is_some_and(|w| w.rtl);
         let visual = |side: Id| match (rtl, side) {
