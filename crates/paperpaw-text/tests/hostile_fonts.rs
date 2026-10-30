@@ -150,3 +150,88 @@ fn an_outline_glyph_bitmap_is_bounded() {
         glyph.height
     );
 }
+
+/// The bytes of table `tag` in font `data`: offset and length.
+#[cfg(feature = "outline")]
+#[allow(clippy::unwrap_used, reason = "the test's own fonts have the table")]
+fn table(data: &[u8], tag: &[u8; 4]) -> (usize, usize) {
+    let tables = usize::from(u16::from_be_bytes([data[4], data[5]]));
+    let record = (0..tables)
+        .map(|i| 12 + i * 16)
+        .find(|&r| &data[r..r + 4] == tag)
+        .unwrap();
+    let word = |at: usize| u32::from_be_bytes(data[at..at + 4].try_into().unwrap()) as usize;
+    (word(record + 8), word(record + 12))
+}
+
+/// Fonts whose mark lookups (GPOS) and substitutions (GSUB) are damaged
+/// here and there: a pack with their anchors is still made, with no more
+/// memory asked for at once than for the font undamaged, and drawing the marks with the
+/// font itself panics nowhere.
+#[cfg(feature = "outline")]
+#[test]
+fn damaged_mark_lookups_are_read_without_harm() {
+    use paperpaw_text::{OutlineFont, build_pack, charset};
+
+    let fonts: [(&[u8], &str, &str); 2] = [
+        (
+            include_bytes!("../../../tools/fonts/NotoSerifHebrew.ttf"),
+            "hebrew",
+            "\u{5d1}\u{5b8}\u{5e9}\u{5c1}",
+        ),
+        (
+            include_bytes!("../../../tools/fonts/NotoNaskhArabic.ttf"),
+            "arabic",
+            "\u{628}\u{650}\u{644}\u{651}\u{64e}",
+        ),
+    ];
+    let mut seed = 0x2545_f491_u32;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        seed as usize
+    };
+    for (font, set, text) in fonts {
+        // What the font asks for undamaged (its kerning pairs, the pack).
+        let chars = || charset::chars(charset::named(set).unwrap());
+        let whole = OutlineFont::new(font, &[]).unwrap();
+        let (_, usual) = largest_allocation(|| build_pack(&whole, &[20.0], chars()));
+        for _ in 0..12 {
+            let mut data = font.to_vec();
+            for tag in [b"GPOS", b"GSUB"] {
+                let (at, len) = table(&data, tag);
+                for _ in 0..48 {
+                    let i = at + next() % len.min(4096);
+                    data[i] = next() as u8;
+                }
+            }
+            let outline = OutlineFont::new(data.clone(), &[]).unwrap();
+            let (_, largest) = largest_allocation(|| build_pack(&outline, &[20.0], chars()));
+            assert!(
+                largest <= usual.max(BOUND),
+                "{largest} bytes, {usual} undamaged"
+            );
+            let font = paperpaw_text::Font::from_data(data, &[]).unwrap();
+            let mut frame =
+                paperpaw_graphics::Framebuffer::new(80, 40, paperpaw_platform::PixelFormat::Gray8)
+                    .unwrap();
+            let mut cache = paperpaw_text::GlyphCache::new(16 * 1024);
+            let style =
+                paperpaw_text::TextStyle::new(&font, 0, 20.0, paperpaw_platform::Color::BLACK);
+            let around = paperpaw_text::Around::new(
+                paperpaw_lang::Direction::Rtl,
+                paperpaw_lang::Lang::NONE,
+            );
+            paperpaw_text::draw_text_in(
+                &mut frame.canvas(),
+                &mut cache,
+                &style,
+                10.0,
+                30,
+                text,
+                &around,
+            );
+        }
+    }
+}

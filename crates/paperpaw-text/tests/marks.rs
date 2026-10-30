@@ -190,3 +190,66 @@ fn a_size_the_pack_lacks_is_drawn_at_its_nearest_marks_too() {
     }
     assert_ne!(inked(&font, 44.0, text), inked(&font, 48.0, text));
 }
+
+/// Packs of Latin, Cyrillic and Greek get no anchors table: they are made
+/// byte for byte as before there were anchors (the glyphs and kerning of
+/// `build_pack` alone, version 1, no table directory), so the firmware's
+/// packs and the store's Literata packs stay as they are.
+#[test]
+fn packs_of_other_scripts_are_made_as_before() {
+    use paperpaw_text::{BitmapFont, OutlineFont, PackBuilder};
+
+    const LITERATA: &[u8] = include_bytes!("../../../plugins/fonts-default/fonts/Literata.ttf");
+    let outline = OutlineFont::new(LITERATA, &[("wght", 400.0)]).unwrap();
+    let sizes = [20.0, 32.0];
+    for sets in [&["latin", "ligatures"][..], &["cyrillic"], &["greek"]] {
+        let chars: Vec<char> = sets
+            .iter()
+            .flat_map(|s| charset::chars(charset::named(s).unwrap()))
+            .collect();
+        let pack = build_pack(&outline, &sizes, chars.iter().copied());
+        assert_eq!(pack[4], 1, "{sets:?}: version 1");
+        assert_eq!(
+            BitmapFont::new(pack.clone())
+                .unwrap()
+                .table(BitmapFont::ANCHORS),
+            None
+        );
+        // What build_pack made before anchors.
+        let mut builder = PackBuilder::new();
+        builder.kerning(&outline.kerning_pairs(&chars));
+        for &size in &sizes {
+            let glyphs = chars
+                .iter()
+                .filter(|&&ch| outline.has_char(ch))
+                .map(|&ch| (ch, outline.rasterize(ch, size)))
+                .collect();
+            builder.add_strike(size, outline.line_metrics(size), glyphs);
+        }
+        assert!(builder.build() == pack, "{sets:?}: the same bytes");
+    }
+}
+
+/// Of two sizes as near, the smaller, also where a pack holds its sizes
+/// out of order: in memory and on a card alike.
+#[test]
+fn of_two_sizes_as_near_the_smaller_whatever_their_order() {
+    use paperpaw_text::{Glyph, LineMetrics, PackBuilder};
+
+    let mut builder = PackBuilder::new();
+    for (size, width) in [(24.0, 3.0), (20.0, 2.0)] {
+        builder.add_strike(
+            size,
+            LineMetrics::new(size, 2.0, size),
+            vec![('a', Glyph::empty(width))],
+        );
+    }
+    let bytes = builder.build();
+    let memory = Font::from_data(bytes.clone(), &[]).unwrap();
+    let card = Font::Stored(StoredPack::open(Rc::new(Card(bytes))).unwrap());
+    for font in [&memory, &card] {
+        assert_eq!(font.advance('a', 22.0), 2.0);
+        assert_eq!(font.advance('a', 23.0), 3.0);
+        assert_eq!(font.line_metrics(22.0).ascent, 20.0);
+    }
+}

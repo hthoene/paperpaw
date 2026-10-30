@@ -75,6 +75,14 @@
 //! letter's. A part may list every glyph of its strike, in their order
 //! (those without anchors with none): a key's record is then where its
 //! glyph's is. The builder writes anchors for Arabic and Hebrew alone.
+//! Anchors are whole pixels in an `i8`: one past ±127 px (a mark more
+//! than about 90 px from its letter's pen, so at sizes far beyond 48 px)
+//! is left out, and its mark centred.
+//!
+//! This meaning of version 1 is fixed with plugin interface 5, before any
+//! pack with anchors was published (packs of PaperPaw 0.5 have none); a
+//! change of it takes a table of version 2, which readers of version 1
+//! skip.
 //!
 //! Scripts (version 1):
 //!
@@ -254,12 +262,12 @@ impl BitmapFont {
         self.nearest_quarters((size * 4.0) as i32)
     }
 
-    /// The index of the strike closest to `wanted` quarter pixels; the
-    /// first of those as close.
+    /// The index of the strike closest to `wanted` quarter pixels; of two
+    /// as close, the smaller, whatever their order in the pack.
     fn nearest_quarters(&self, wanted: i32) -> Option<usize> {
         (0..usize::from(self.strikes))
             .filter_map(|i| Some((i, i32::from(u16_at(&self.data, HEADER + i * STRIKE)?))))
-            .min_by_key(|&(_, quarters)| quarters.abs_diff(wanted))
+            .min_by_key(|&(_, quarters)| (quarters.abs_diff(wanted), quarters))
             .map(|(i, _)| i)
     }
 
@@ -267,7 +275,7 @@ impl BitmapFont {
     /// [`BitmapFont::nearest_quarters`]), its number of glyphs and the
     /// largest number any strike has, in one pass over the strikes.
     fn nearest_and_full(&self, wanted: i32) -> Option<(usize, usize, usize)> {
-        let mut nearest: Option<(usize, u32, usize)> = None;
+        let mut nearest: Option<(usize, (u32, u16), usize)> = None;
         let mut full = 0;
         for i in 0..usize::from(self.strikes) {
             let base = HEADER + i * STRIKE;
@@ -277,7 +285,8 @@ impl BitmapFont {
             let Some(quarters) = u16_at(&self.data, base) else {
                 continue;
             };
-            let distance = i32::from(quarters).abs_diff(wanted);
+            // Of two as close, the smaller (as `nearest_quarters`).
+            let distance = (i32::from(quarters).abs_diff(wanted), quarters);
             if nearest.is_none_or(|(_, closest, _)| distance < closest) {
                 nearest = Some((i, distance, glyphs));
             }
@@ -407,7 +416,7 @@ impl BitmapFont {
                 let quarters = i32::from(u16_at(&self.data, HEADER + i * STRIKE)?);
                 let tables = self.tables(i)?;
                 let record = self.record(&tables, ch)?;
-                Some((quarters.abs_diff(wanted), tables, record))
+                Some(((quarters.abs_diff(wanted), quarters), tables, record))
             })
             .min_by_key(|(distance, ..)| *distance)
             .map(|(_, tables, record)| (tables, record))

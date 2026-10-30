@@ -26,6 +26,11 @@ use read_fonts::{FontRef, TableProvider};
 use crate::anchors::{Anchor, Anchors};
 use crate::arabic::{self, Form};
 
+/// The most lookups of one feature, and subtables of one lookup, read:
+/// fonts hold a few dozen; a hostile one cannot make a glyph cost more.
+const MAX_LOOKUPS: usize = 64;
+const MAX_SUBTABLES: usize = 32;
+
 /// The lookups of one script.
 #[derive(Default)]
 struct Script {
@@ -102,10 +107,12 @@ impl<'a> Marks<'a> {
                 let counts: Vec<usize> = match lookup.subtables() {
                     Ok(PositionSubtables::MarkToBase(subtables)) => subtables
                         .iter()
+                        .take(MAX_SUBTABLES)
                         .map(|t| t.map_or(0, |t| usize::from(t.mark_class_count())))
                         .collect(),
                     Ok(PositionSubtables::MarkToMark(subtables)) => subtables
                         .iter()
+                        .take(MAX_SUBTABLES)
                         .map(|t| t.map_or(0, |t| usize::from(t.mark_class_count())))
                         .collect(),
                     _ => Vec::new(),
@@ -269,7 +276,7 @@ impl<'a> Marks<'a> {
                             return;
                         };
                         let anchors = record.base_anchors(bases.offset_data());
-                        for class in 0..usize::from(t.mark_class_count()) {
+                        for class in classes(first, t.mark_class_count()) {
                             if let Some(Ok(anchor)) = anchors.get(class) {
                                 add(class, anchor);
                             }
@@ -286,7 +293,7 @@ impl<'a> Marks<'a> {
                             return;
                         };
                         let anchors = record.mark2_anchors(marks.offset_data());
-                        for class in 0..usize::from(t.mark_class_count()) {
+                        for class in classes(first, t.mark_class_count()) {
                             if let Some(Ok(anchor)) = anchors.get(class) {
                                 add(class, anchor);
                             }
@@ -299,8 +306,10 @@ impl<'a> Marks<'a> {
     }
 
     /// Calls `f` with each mark subtable of GPOS lookup `index` and the
-    /// number of its first class.
-    fn each(&self, index: u16, mut f: impl FnMut(Sub<'a>, Option<u8>)) {
+    /// number of its first class: those whose classes a pack can number
+    /// (all of them below 128, so a glyph's classes are at most 128 in
+    /// all the subtables together).
+    fn each(&self, index: u16, mut f: impl FnMut(Sub<'a>, u8)) {
         let Ok(list) = self.font.gpos().and_then(|g| g.lookup_list()) else {
             return;
         };
@@ -315,16 +324,16 @@ impl<'a> Marks<'a> {
         };
         match lookup.subtables() {
             Ok(PositionSubtables::MarkToBase(subtables)) => {
-                for (i, t) in subtables.iter().enumerate() {
-                    if let Ok(t) = t {
-                        f(Sub::Base(t), first(i));
+                for (i, t) in subtables.iter().enumerate().take(MAX_SUBTABLES) {
+                    if let (Ok(t), Some(first)) = (t, first(i)) {
+                        f(Sub::Base(t), first);
                     }
                 }
             }
             Ok(PositionSubtables::MarkToMark(subtables)) => {
-                for (i, t) in subtables.iter().enumerate() {
-                    if let Ok(t) = t {
-                        f(Sub::Mark(t), first(i));
+                for (i, t) in subtables.iter().enumerate().take(MAX_SUBTABLES) {
+                    if let (Ok(t), Some(first)) = (t, first(i)) {
+                        f(Sub::Mark(t), first);
                     }
                 }
             }
@@ -344,7 +353,7 @@ impl<'a> Marks<'a> {
             };
             match lookup.subtables() {
                 Ok(SubstitutionSubtables::Multiple(subtables)) => {
-                    for t in subtables.iter().flatten() {
+                    for t in subtables.iter().take(MAX_SUBTABLES).flatten() {
                         let Some(i) = t.coverage().ok().and_then(|c| c.get(parts[0])) else {
                             continue;
                         };
@@ -385,7 +394,7 @@ impl<'a> Marks<'a> {
                 // A form given as a sequence (of one glyph, or the glyph
                 // and marks): its first glyph.
                 Ok(SubstitutionSubtables::Multiple(subtables)) => {
-                    for t in subtables.iter().flatten() {
+                    for t in subtables.iter().take(MAX_SUBTABLES).flatten() {
                         let first = t
                             .coverage()
                             .ok()
@@ -401,7 +410,7 @@ impl<'a> Marks<'a> {
                 }
                 _ => continue,
             };
-            for t in subtables.iter().flatten() {
+            for t in subtables.iter().take(MAX_SUBTABLES).flatten() {
                 let to = match &t {
                     SingleSubst::Format1(t) => {
                         t.coverage().ok().and_then(|c| c.get(glyph)).map(|_| {
@@ -453,8 +462,8 @@ enum Sub<'a> {
 }
 
 /// The pack's number of a subtable's class `class`, its first `first`.
-fn number(first: Option<u8>, class: u16) -> Option<u8> {
-    let n = u16::from(first?).checked_add(class)?;
+fn number(first: u8, class: u16) -> Option<u8> {
+    let n = u16::from(first).checked_add(class)?;
     u8::try_from(n).ok().filter(|&n| n < Anchor::OWN)
 }
 
@@ -469,6 +478,12 @@ fn script_of(ch: char) -> Option<bool> {
         '\u{590}'..='\u{5ff}' | '\u{fb1d}'..='\u{fb4f}' => Some(false),
         _ => None,
     }
+}
+
+/// The classes of a subtable of `count` whose first is numbered `first`
+/// that a pack can number: below 128.
+fn classes(first: u8, count: u16) -> core::ops::Range<usize> {
+    0..usize::from(count).min(usize::from(Anchor::OWN.saturating_sub(first)))
 }
 
 fn short(glyph: GlyphId) -> Option<GlyphId16> {
@@ -490,18 +505,21 @@ fn lookups(
     let mut out: Vec<u16> = lang_sys
         .feature_indices()
         .iter()
+        .take(MAX_LOOKUPS * 4)
         .filter_map(|i| features.get(i.get()).ok())
         .filter(|f| f.tag == feature)
         .flat_map(|f| {
             f.element
                 .lookup_list_indices()
                 .iter()
+                .take(MAX_LOOKUPS)
                 .map(|i| i.get())
                 .collect::<Vec<_>>()
         })
         .collect();
     out.sort_unstable();
     out.dedup();
+    out.truncate(MAX_LOOKUPS);
     out
 }
 
@@ -515,6 +533,7 @@ fn lang_sys<'a>(scripts: &ScriptList<'a>, script: Tag) -> Option<LangSys<'a>> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, reason = "tests")]
 mod tests {
+    use super::{classes, number};
     use crate::OutlineFont;
     use crate::anchors::{self, Anchors};
 
@@ -589,6 +608,16 @@ mod tests {
         .unwrap();
         let (low, high) = (ink(&font, shadda, on), ink(&font, fatha, by));
         assert!(high.1 < low.1 && high.3 < low.3, "{high:?} {low:?}");
+    }
+
+    #[test]
+    fn a_subtable_gives_at_most_the_classes_a_pack_numbers() {
+        assert_eq!(classes(0, u16::MAX), 0..128);
+        assert_eq!(classes(120, u16::MAX), 0..8);
+        assert_eq!(classes(127, 5), 0..1);
+        assert_eq!(classes(3, 2), 0..2);
+        assert_eq!(number(120, 7), Some(127));
+        assert_eq!(number(120, 8), None);
     }
 
     #[test]

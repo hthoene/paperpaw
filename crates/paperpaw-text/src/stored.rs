@@ -197,11 +197,14 @@ impl StoredPack {
     } @ text::STORED_LARGEST_SIZE
     }
 
-    /// The strike closest to `size`.
+    /// The strike closest to `size`; of two as close, the smaller.
     fn nearest(&self, size: f32) -> usize {
         let wanted = (size * 4.0) as i32;
         (0..self.strikes.len())
-            .min_by_key(|&i| i32::from(self.strikes[i].size).abs_diff(wanted))
+            .min_by_key(|&i| {
+                let size = self.strikes[i].size;
+                (i32::from(size).abs_diff(wanted), size)
+            })
             .unwrap_or(0)
     }
 
