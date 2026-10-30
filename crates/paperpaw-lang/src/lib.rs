@@ -135,6 +135,30 @@ impl Lang {
         LanguageCode { code, len }
     }
 
+    /// The direction text in it is written in: right to left for the
+    /// scripts written so (Arabic, Hebrew, Syriac, Thaana, N'Ko and
+    /// others), by its script where it names one, else by its language
+    /// (Arabic, Hebrew, Persian, Urdu, Yiddish, Pashto, Sindhi, Sorani,
+    /// Dhivehi, Uyghur, Syriac); else left to right. [`Direction::Auto`]
+    /// for [`Lang::NONE`].
+    #[must_use]
+    pub fn direction(&self) -> Direction {
+        if self.is_none() && self.script().is_none() {
+            return Direction::Auto;
+        }
+        let rtl = match self.script() {
+            Some(script) => matches!(
+                script,
+                "Arab" | "Hebr" | "Syrc" | "Thaa" | "Nkoo" | "Adlm" | "Rohg" | "Mand" | "Samr"
+            ),
+            None => matches!(
+                self.language().as_str(),
+                "ar" | "he" | "fa" | "ur" | "yi" | "ps" | "sd" | "ckb" | "dv" | "ug" | "syr"
+            ),
+        };
+        if rtl { Direction::Rtl } else { Direction::Ltr }
+    }
+
     /// The script (ISO 15924, `Arab`), if the tag named a known one.
     #[must_use]
     pub fn script(&self) -> Option<&'static str> {

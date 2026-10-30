@@ -73,6 +73,24 @@ impl PieceStarts {
         }
     }
 
+    /// The paragraph level of the state kept nearest before `offset` (or
+    /// at it) in `section`, if any.
+    pub(crate) fn nearest_paragraph(&self, section: u32, offset: u32) -> Option<bidi::Level> {
+        let kept = self.kept.try_borrow().ok()?;
+        kept.chunks_exact(record())
+            .filter_map(|r| {
+                let at = |i: usize| {
+                    r.get(i..i + 4)
+                        .and_then(|b| b.try_into().ok())
+                        .map(u32::from_le_bytes)
+                };
+                let (s, o) = (at(0)?, at(4)?);
+                (s == section && o <= offset).then_some((o, r.get(KEY..)?))
+            })
+            .max_by_key(|(o, _)| *o)
+            .and_then(|(_, state)| bidi::state_paragraph(state))
+    }
+
     /// Keeps `state` for the piece at `offset` of `section`, in place of
     /// one kept for it before; the oldest goes where there is no room.
     /// Nothing where memory is short.

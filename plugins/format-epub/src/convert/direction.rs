@@ -35,19 +35,9 @@ impl BookText {
     }
 }
 
-/// Whether `lang` is written right to left: by its script where it names
-/// one, else by its language.
+/// Whether `lang` is written right to left (see [`Lang::direction`]).
 pub(crate) fn is_rtl_language(lang: Lang) -> bool {
-    match lang.script() {
-        Some(script) => matches!(
-            script,
-            "Arab" | "Hebr" | "Syrc" | "Thaa" | "Nkoo" | "Adlm" | "Rohg" | "Mand" | "Samr"
-        ),
-        None => matches!(
-            lang.language().as_str(),
-            "ar" | "he" | "fa" | "ur" | "yi" | "ps" | "sd" | "ckb" | "dv" | "ug" | "syr"
-        ),
-    }
+    lang.direction() == Direction::Rtl
 }
 
 /// The direction an element sets: its `dir` attribute, else its CSS

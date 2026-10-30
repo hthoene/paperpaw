@@ -100,6 +100,10 @@ change the plugin SDK.
   (paragraph levels, rules L1 and L2, mirrors).
 - `paperpaw_text::is_invisible` (also `paperpaw_sdk::text`): the controls
   that draw nothing and take no room.
+- `Block::continued`: the next block continues this one (the pieces of a
+  long paragraph, set by the EPUB and TXT documents), so the layout reads
+  ahead only then. `Lang::direction`: the direction a language is
+  written in.
 - `paperpaw-i18n`: a catalog says its direction, script, digits and
   calendar (`[meta]`); Arabic and Hebrew plural rules.
 - Plugins switch the device off where PaperPaw does so
@@ -124,8 +128,8 @@ change the plugin SDK.
 - `decorations::join_boxes`, and the reader's selection, join the boxes
   of words next to each other in a line that runs right to left (they
   came to nothing) and leave out a word drawn between two of a line that
-  runs both ways; left and right move the selection as its words are
-  drawn.
+  runs both ways; left and right move the selection to the word drawn
+  beside.
 - A time zone rule with an offset of more than 24 hours (such as `<>200`) is now refused instead of read as an offset of days.
 
 ## [0.5.0-beta.12] - 2026-10-28
