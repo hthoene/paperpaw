@@ -15,7 +15,9 @@ use paperpaw_hyphen::Patterns;
 use super::WordBox;
 use crate::builtin::{fonts, settings};
 use crate::document::{Document, DocumentError, Locator};
-use crate::layout::{BookStyles, Face, LineRun, Page, PageImage, PageLine, Style, Typesetter};
+use crate::layout::{
+    BookStyles, Face, LineBidi, LineRun, Page, PageImage, PageLine, Style, Typesetter,
+};
 use crate::text::ToneCurve;
 use crate::{Canvas, Color, Env, FontHandle, FontSet, Id, Point, Rect};
 
@@ -695,19 +697,9 @@ impl<'a> ReadingFaces<'a> {
         ink: Color,
     ) -> f32 {
         let size = self.size(face);
-        // About a pixel per step at 48 px; at least one.
-        let extra = match self.weight {
-            0 => 0,
-            w => (f32::from(w) * size / 48.0 + 0.5).max(1.0) as u16,
-        };
+        let (extra, tone) = self.inking(canvas, size);
         let font = self.font(face);
         let baseline = baseline + self.shift(face);
-        // Without grays from the coverage a frame of black and white draws
-        // from: the letters it would draw.
-        let tone = match self.sharp {
-            true => self.tone.sharp(canvas.mono_coverage()),
-            false => self.tone,
-        };
         // Letter by letter where letters are spaced, each pair kerned as
         // measuring kerns it; at once otherwise.
         let draw = |canvas: &mut Canvas<'_>, size: f32, x: f32, text: &str| -> f32 {
@@ -742,6 +734,69 @@ impl<'a> ReadingFaces<'a> {
         }
         width
     }
+}
+
+impl ReadingFaces<'_> {
+    /// The width of `text` in `face` as [`ReadingFaces::draw_around`]
+    /// sets it.
+    pub fn measure_around(&self, face: Face, text: &str, around: &crate::text::Around) -> f32 {
+        match shaped(text, around) && !face.style.small_caps() {
+            true => self.font(face).measure_in(self.size(face), text, around),
+            false => self.measure(face, text),
+        }
+    }
+
+    /// Draws `text` in `face` and `ink` as what lies `around` it asks:
+    /// Hebrew and Arabic in the order shown, letters joined, without
+    /// letter spacing ([`FontHandle::draw_in`]); other text as
+    /// [`ReadingFaces::draw_in`] draws it. Its width.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "its inputs are separate things; a struct of them would serve this call alone"
+    )]
+    pub fn draw_around(
+        &self,
+        canvas: &mut Canvas<'_>,
+        face: Face,
+        x: f32,
+        baseline: i32,
+        text: &str,
+        ink: Color,
+        around: &crate::text::Around,
+    ) -> f32 {
+        if !shaped(text, around) || face.style.small_caps() {
+            return self.draw_in(canvas, face, x, baseline, text, ink);
+        }
+        let size = self.size(face);
+        let (extra, tone) = self.inking(canvas, size);
+        let baseline = baseline + self.shift(face);
+        self.font(face)
+            .draw_in(canvas, size, x, baseline, text, ink, (extra, tone), around)
+    }
+
+    /// How much bolder and in which tone text at `size` is drawn on
+    /// `canvas`, as the settings ask.
+    fn inking(&self, canvas: &Canvas<'_>, size: f32) -> (u16, ToneCurve) {
+        // About a pixel per step at 48 px; at least one.
+        let extra = match self.weight {
+            0 => 0,
+            w => (f32::from(w) * size / 48.0 + 0.5).max(1.0) as u16,
+        };
+        // Without grays from the coverage a frame of black and white draws
+        // from: the letters it would draw.
+        let tone = match self.sharp {
+            true => self.tone.sharp(canvas.mono_coverage()),
+            false => self.tone,
+        };
+        (extra, tone)
+    }
+}
+
+/// Whether `text` set with `around` is shaped: right to left, or Hebrew
+/// or Arabic in it.
+fn shaped(text: &str, around: &crate::text::Around) -> bool {
+    around.base == crate::lang::Direction::Rtl
+        || text.chars().any(|c| matches!(c, '\u{0590}'..='\u{08FF}'))
 }
 
 impl Typesetter for ReadingFaces<'_> {
@@ -799,9 +854,7 @@ impl Typesetter for ReadingFaces<'_> {
     /// ([`FontHandle::measure_in`]), without letter spacing (it would part
     /// joined letters); other text as its characters and pairs.
     fn advance_text(&self, face: Face, text: &str, around: &crate::text::Around) -> f32 {
-        let shaped = around.base == crate::lang::Direction::Rtl
-            || text.chars().any(|c| matches!(c, '\u{0590}'..='\u{08FF}'));
-        if shaped && !face.style.small_caps() {
+        if shaped(text, around) && !face.style.small_caps() {
             return self.font(face).measure_in(self.size(face), text, around);
         }
         let mut width = 0.0;
@@ -859,6 +912,10 @@ pub fn word_boxes(faces: &ReadingFaces<'_>, page_type: &PageType, page: &Page) -
     let mut words: Vec<WordBox> = Vec::new();
     // Lines a filter inserted have no places: no words of the book.
     for line in page.lines.iter().filter(|l| !l.inserted) {
+        if line.bidi.has(LineBidi::REORDER) {
+            words.extend(reordered_boxes(faces, page_type, line));
+            continue;
+        }
         let mut x = t.x + line.x;
         // Inside a word that continues in the next run (e.g. bold).
         let mut joined = false;
@@ -899,6 +956,55 @@ pub fn word_boxes(faces: &ReadingFaces<'_>, page_type: &PageType, page: &Page) -
         }
     }
     words
+}
+
+/// The words of `line`, whose runs are put in order ([`word_boxes`]):
+/// in reading order, each where it is drawn, a word in two runs one box
+/// around both.
+fn reordered_boxes(
+    faces: &ReadingFaces<'_>,
+    page_type: &PageType,
+    line: &PageLine,
+) -> Vec<WordBox> {
+    let t = page_type;
+    let mut boxes: Vec<(usize, core::ops::Range<usize>, WordBox)> = Vec::new();
+    for piece in super::visual::pieces(faces, line) {
+        let Some(run) = line.runs.get(piece.run).filter(|_| !piece.space) else {
+            continue;
+        };
+        let (ascent, height) = faces.line(run.face);
+        let top = t.y + line.baseline - ascent;
+        let x = t.x + line.x + piece.x;
+        let area = Rect::new(x as u16, top as u16, piece.width as u16, height as u16);
+        match boxes
+            .iter_mut()
+            .find(|(ordinal, _, _)| *ordinal == piece.ordinal)
+        {
+            Some((_, range, word)) => {
+                word.area = word.area.union(&area);
+                *range = range.start.min(piece.range.start)..range.end.max(piece.range.end);
+            }
+            None => {
+                let (start, end) = line.words.get(piece.ordinal).copied().unwrap_or_default();
+                let word = WordBox::new(
+                    area,
+                    "",
+                    Locator::new(line.section, start),
+                    Locator::new(line.section, end),
+                )
+                .rtl(run.is_rtl());
+                boxes.push((piece.ordinal, piece.range, word));
+            }
+        }
+    }
+    boxes.sort_by_key(|(ordinal, _, _)| *ordinal);
+    boxes
+        .into_iter()
+        .map(|(_, range, mut word)| {
+            word.text = String::from(line.text.get(range).unwrap_or_default());
+            word
+        })
+        .collect()
 }
 
 /// The contrast curve of book text ([`settings::TEXT_CONTRAST`]), and
@@ -946,6 +1052,31 @@ pub fn draw_lines(
         let below = baseline + page_type.line_height as i32;
         let shown = below >= i32::from(clip.y) && above <= clip.bottom() as i32;
         if !shown {
+            if !line.inserted {
+                ordinal += words_in(&line.text, &line.runs);
+            }
+            continue;
+        }
+        if line.bidi.has(LineBidi::REORDER) {
+            for piece in super::visual::pieces(faces, line) {
+                let Some(run) = line.runs.get(piece.run) else {
+                    continue;
+                };
+                let x = left + line.x + piece.x;
+                let ink = ink_of(ordinal + piece.ordinal).unwrap_or(Color::BLACK);
+                if piece.space {
+                    // Lines under and through words go on under the space
+                    // between them, in the first word's ink.
+                    if piece.decorated {
+                        faces.decorate(canvas, run.face, (x, piece.width), baseline, ink);
+                    }
+                    continue;
+                }
+                let word = line.text.get(piece.range.clone()).unwrap_or_default();
+                let around = super::visual::around(line, piece.run, &piece.range);
+                let width = faces.draw_around(canvas, run.face, x, baseline, word, ink, &around);
+                faces.decorate(canvas, run.face, (x, width), baseline, ink);
+            }
             if !line.inserted {
                 ordinal += words_in(&line.text, &line.runs);
             }
