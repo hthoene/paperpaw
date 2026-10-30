@@ -105,9 +105,11 @@ static API: Api = Api {
     micros,
     icon,
     alloc_in,
-    // Plugins keep their own copies on a computer.
-    shared: paperpaw_core::sdk::native::support::Table::NONE,
-    shared_len: 0,
+    // The firmware's shared functions, as the X4's table has them: plugins
+    // built for a chip keep none of their own, and a library built in
+    // table mode (`--cfg paperpaw_table_host`, CI) calls them.
+    shared: paperpaw_core::sdk::shared::table(),
+    shared_len: paperpaw_core::sdk::shared::COUNT,
 };
 
 /// One heap here: wherever asked, as `alloc`.
@@ -181,6 +183,17 @@ fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, P
     };
     if entry.fingerprint != FINGERPRINT.0 {
         return Err(PluginProblem::OtherBuild);
+    }
+    // Built for more shared functions than the table has: refused before
+    // anything of it runs, as the firmware does.
+    if entry.needs > API.shared_len {
+        eprintln!(
+            "code plugin {}: needs {} entries of the shared function table, this build has {}",
+            code.id.as_str(),
+            entry.needs,
+            API.shared_len
+        );
+        return Err(PluginProblem::NeedsNewerPaperPaw);
     }
     slot.set(&API);
     // SAFETY: a plugin of this build's fingerprint, made once.

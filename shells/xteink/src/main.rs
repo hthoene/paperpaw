@@ -61,8 +61,6 @@ mod lab;
 mod light;
 mod link;
 mod native;
-#[cfg(any(feature = "proto-all", feature = "proto-big", feature = "proto-ver", feature = "proto-stress"))]
-mod proto_table;
 mod net;
 mod network;
 mod ota;
@@ -70,6 +68,13 @@ mod ota;
 mod peak;
 mod power;
 mod probe;
+#[cfg(any(
+    feature = "proto-all",
+    feature = "proto-big",
+    feature = "proto-ver",
+    feature = "proto-stress"
+))]
+mod proto_table;
 mod provision;
 #[cfg(feature = "remote")]
 mod remote;
@@ -354,7 +359,12 @@ fn now() -> Instant {
 
 #[main]
 fn main() -> ! {
-    #[cfg(any(feature = "proto-all", feature = "proto-big", feature = "proto-ver", feature = "proto-stress"))]
+    #[cfg(any(
+        feature = "proto-all",
+        feature = "proto-big",
+        feature = "proto-ver",
+        feature = "proto-stress"
+    ))]
     core::hint::black_box(proto_table::touch(1));
     stack::paint();
     start().run()

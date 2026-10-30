@@ -14,8 +14,6 @@
 //! [`Entry::needs`](crate::Entry::needs)). The file is made by
 //! `tools/shared-table.py` from `shared.list`.
 
-
-
 /// The addresses of the shared functions, in the order of [`index`]. The
 /// firmware builds it (`paperpaw_sdk::shared::TABLE`); a table is a
 /// plain array, never written.
@@ -50,22 +48,45 @@ pub const NEEDS: u32 = index::COUNT as u32;
 /// `F` must be the type of the function the table keeps at `index`, and
 /// the firmware's table must be at least [`NEEDS`] long (the loader has
 /// seen to it).
-#[cfg(all(paperpaw_plugin, target_os = "none"))]
+#[cfg(any(all(paperpaw_plugin, target_os = "none"), paperpaw_table_host))]
 #[inline(always)]
 pub unsafe fn slot<F: Copy>(index: usize) -> F {
     const { assert!(core::mem::size_of::<F>() == core::mem::size_of::<usize>()) };
-    unsafe extern "C" {
-        /// The firmware's table: `paperpaw-plugin.x` makes the word, the
-        /// loader writes its address before the plugin's code runs.
-        static PAPERPAW_API: *const crate::Api;
-    }
     // SAFETY: a table that lives as long as the firmware runs, written
     // before any code of the plugin ran; the caller's contract for `F`
     // and the index.
     unsafe {
-        let table = (*PAPERPAW_API).shared.0;
+        let table = api().shared.0;
         core::mem::transmute_copy::<*const (), F>(&*table.add(index))
     }
+}
+
+/// The firmware's table, where `paperpaw-plugin.x` makes the word the
+/// loader writes its address into before the plugin's code runs.
+#[cfg(all(paperpaw_plugin, target_os = "none"))]
+#[inline(always)]
+fn api() -> &'static crate::Api {
+    unsafe extern "C" {
+        static PAPERPAW_API: *const crate::Api;
+    }
+    // SAFETY: as `slot` says.
+    unsafe { &*PAPERPAW_API }
+}
+
+/// Host table mode (`--cfg paperpaw_table_host`, tests only): a library
+/// the system loads, built as a chip's plugin is, with the shared
+/// functions as stubs. It takes the table from the `PAPERPAW_API` that
+/// `plugin!` exports, which the shell sets before it makes the plugin.
+#[cfg(all(paperpaw_table_host, not(all(paperpaw_plugin, target_os = "none"))))]
+#[inline(always)]
+fn api() -> &'static crate::Api {
+    unsafe extern "Rust" {
+        /// The SDK's `ApiSlot`: a word, the table's address.
+        static PAPERPAW_API: core::sync::atomic::AtomicPtr<crate::Api>;
+    }
+    // SAFETY: the static `plugin!` exports, set by the shell before it
+    // made the plugin, to a table that lives as long as the shell runs.
+    unsafe { &*PAPERPAW_API.load(core::sync::atomic::Ordering::Acquire) }
 }
 
 /// Declares a function shared through the table: it is the function
@@ -90,7 +111,7 @@ macro_rules! shared {
      ($($arg:ident : $ty:ty),* $(,)?) $(-> $ret:ty)? $body:block @ $index:ident) => {
         $(#[$meta])*
         $vis fn $name $(<$($lt),+>)? ($($arg: $ty),*) $(-> $ret)? {
-            #[cfg(all(paperpaw_plugin, target_os = "none"))]
+            #[cfg(any(all(paperpaw_plugin, target_os = "none"), paperpaw_table_host))]
             {
                 // SAFETY: the firmware's table holds this very function,
                 // of this type, at this index (`tools/shared-table.py`).
@@ -98,7 +119,7 @@ macro_rules! shared {
                     unsafe { $crate::shared::slot($crate::shared::index::$index) };
                 call($($arg),*)
             }
-            #[cfg(not(all(paperpaw_plugin, target_os = "none")))]
+            #[cfg(not(any(all(paperpaw_plugin, target_os = "none"), paperpaw_table_host)))]
             $body
         }
     };
@@ -107,14 +128,14 @@ macro_rules! shared {
      (&$this:ident $(, $arg:ident : $ty:ty)* $(,)?) $(-> $ret:ty)? $body:block @ $index:ident) => {
         $(#[$meta])*
         $vis fn $name $(<$($lt),+>)? (&$this $(, $arg: $ty)*) $(-> $ret)? {
-            #[cfg(all(paperpaw_plugin, target_os = "none"))]
+            #[cfg(any(all(paperpaw_plugin, target_os = "none"), paperpaw_table_host))]
             {
                 // SAFETY: as above.
                 let call: fn(&Self $(, $ty)*) $(-> $ret)? =
                     unsafe { $crate::shared::slot($crate::shared::index::$index) };
                 call($this $(, $arg)*)
             }
-            #[cfg(not(all(paperpaw_plugin, target_os = "none")))]
+            #[cfg(not(any(all(paperpaw_plugin, target_os = "none"), paperpaw_table_host)))]
             $body
         }
     };
@@ -123,14 +144,14 @@ macro_rules! shared {
      (&$self_lt:lifetime mut $this:ident $(, $arg:ident : $ty:ty)* $(,)?) $(-> $ret:ty)? $body:block @ $index:ident) => {
         $(#[$meta])*
         $vis fn $name <$($lt),+> (&$self_lt mut $this $(, $arg: $ty)*) $(-> $ret)? {
-            #[cfg(all(paperpaw_plugin, target_os = "none"))]
+            #[cfg(any(all(paperpaw_plugin, target_os = "none"), paperpaw_table_host))]
             {
                 // SAFETY: as above.
                 let call: fn(&$self_lt mut Self $(, $ty)*) $(-> $ret)? =
                     unsafe { $crate::shared::slot($crate::shared::index::$index) };
                 call($this $(, $arg)*)
             }
-            #[cfg(not(all(paperpaw_plugin, target_os = "none")))]
+            #[cfg(not(any(all(paperpaw_plugin, target_os = "none"), paperpaw_table_host)))]
             $body
         }
     };
@@ -139,14 +160,14 @@ macro_rules! shared {
      (&mut $this:ident $(, $arg:ident : $ty:ty)* $(,)?) $(-> $ret:ty)? $body:block @ $index:ident) => {
         $(#[$meta])*
         $vis fn $name $(<$($lt),+>)? (&mut $this $(, $arg: $ty)*) $(-> $ret)? {
-            #[cfg(all(paperpaw_plugin, target_os = "none"))]
+            #[cfg(any(all(paperpaw_plugin, target_os = "none"), paperpaw_table_host))]
             {
                 // SAFETY: as above.
                 let call: fn(&mut Self $(, $ty)*) $(-> $ret)? =
                     unsafe { $crate::shared::slot($crate::shared::index::$index) };
                 call($this $(, $arg)*)
             }
-            #[cfg(not(all(paperpaw_plugin, target_os = "none")))]
+            #[cfg(not(any(all(paperpaw_plugin, target_os = "none"), paperpaw_table_host)))]
             $body
         }
     };

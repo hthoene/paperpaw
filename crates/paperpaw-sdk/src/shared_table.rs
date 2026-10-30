@@ -1,4 +1,5 @@
 // Made by tools/shared-table.py from shared.list: do not edit.
+#![cfg_attr(rustfmt, rustfmt::skip)]
 pub(super) const COUNT: usize = 43;
 
 pub(super) static ADDRESSES: super::Addresses<COUNT> = super::Addresses([

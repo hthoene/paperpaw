@@ -1068,7 +1068,10 @@ pub mod support {
     /// built here calls through: all of this SDK's where it is built for
     /// a chip with `--cfg paperpaw_plugin` (the stubs), else none.
     pub const fn needs() -> u32 {
-        if cfg!(all(paperpaw_plugin, target_os = "none")) {
+        if cfg!(any(
+            all(paperpaw_plugin, target_os = "none"),
+            paperpaw_table_host
+        )) {
             paperpaw_native::shared::NEEDS
         } else {
             0

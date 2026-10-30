@@ -210,7 +210,7 @@ proptest = { version = "1.5", default-features = false, features = ["std"] }
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 # Set where native plugin files are built (ADR 0024, samples/hello-native).
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(paperpaw_plugin)"] }
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(paperpaw_plugin)", "cfg(paperpaw_table_host)"] }
 missing_debug_implementations = "warn"
 rust_2018_idioms = { level = "warn", priority = -1 }
 

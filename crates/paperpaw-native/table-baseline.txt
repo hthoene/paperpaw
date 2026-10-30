@@ -1,0 +1,5 @@
+# The commit (or tag `interface-<n>`) of the last interface raise that had a
+# shared function table: tools/table-compat.sh (CI job `table-compat`) builds
+# plugins from it and runs them against this tree. The raise PR changes it.
+# `none` until a raise has a table.
+none

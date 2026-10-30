@@ -101,8 +101,8 @@ static API: Api = Api {
     micros,
     icon,
     alloc_in,
-    shared: paperpaw_sdk::native::support::Table::NONE,
-    shared_len: 0,
+    shared: paperpaw_sdk::shared::table(),
+    shared_len: paperpaw_sdk::shared::COUNT,
 };
 
 /// One heap here: wherever asked, as `alloc`.
@@ -111,8 +111,17 @@ unsafe extern "C" fn alloc_in(size: usize, align: usize, _placement: u32) -> *mu
     unsafe { alloc(size, align) }
 }
 
-/// The plugin library, built as the module says.
+/// The same text calls as the plugin makes: with this build's own copies.
+#[path = "native-plugin/src/probe.rs"]
+mod probe;
+
+/// The plugin library, built as the module says (`PAPERPAW_TEST_PLUGIN`
+/// names another build of it: the CI job `table-compat` builds it in
+/// table mode, with `--cfg paperpaw_table_host`).
 fn library() -> PathBuf {
+    if let Some(path) = std::env::var_os("PAPERPAW_TEST_PLUGIN") {
+        return PathBuf::from(path);
+    }
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/native-plugin/target/release");
     let name = format!(
         "{}paperpaw_test_native_plugin{}",
@@ -137,7 +146,7 @@ impl Plugin for Loaded {
 
 /// A plugin of this build that looks for the loaded one's service by
 /// name.
-struct Looks(Rc<Cell<Option<Version>>>);
+struct Looks(Rc<Cell<Option<Version>>>, Rc<Cell<Option<bool>>>);
 
 impl Plugin for Looks {
     fn manifest(&self) -> Manifest {
@@ -148,6 +157,7 @@ impl Plugin for Looks {
 
     fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
         let found = self.0.clone();
+        let text = self.1.clone();
         r.on(
             events::STARTED,
             move |env: &Env<'_>, _, _: &mut paperpaw_sdk::Commands| {
@@ -156,6 +166,13 @@ impl Plugin for Looks {
                     services
                         .get::<HelloVersion>("hello.version", Version::new(1, 0, 0))
                         .map(|v| v.0),
+                );
+                // What the plugin's text calls came to, against the same
+                // calls here (through the table or on its own copies).
+                text.set(
+                    services
+                        .get::<probe::TextProbe>("hello.text-probe", Version::new(1, 0, 0))
+                        .map(|got| *got == probe::probe()),
                 );
             },
         )
@@ -185,9 +202,10 @@ fn a_plugin_built_apart_runs_in_the_kernel() {
     assert_eq!(plugin.manifest().id.as_str(), "hello");
 
     let found = Rc::new(Cell::new(None));
+    let text = Rc::new(Cell::new(None));
     let mut kernel = Kernel::builder(DEVICE)
         .plugin(Loaded(plugin))
-        .plugin(Looks(found.clone()))
+        .plugin(Looks(found.clone(), text.clone()))
         .build()
         .unwrap();
     assert!(kernel.take_warnings().is_empty());
@@ -196,6 +214,12 @@ fn a_plugin_built_apart_runs_in_the_kernel() {
         found.get(),
         Some(Version::new(1, 2, 3)),
         "its service, by name"
+    );
+
+    assert_eq!(
+        text.get(),
+        Some(true),
+        "its text calls come out as the kernel's own"
     );
 
     // Its action opens its screen, drawn by its code; its translations

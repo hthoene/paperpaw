@@ -131,8 +131,11 @@ dependencies = [
 name = "paperpaw-test-native-plugin"
 version = "0.0.0"
 dependencies = [
+ "paperpaw-graphics",
+ "paperpaw-platform",
  "paperpaw-sample-hello",
  "paperpaw-sdk",
+ "paperpaw-text",
 ]
 
 [[package]]
@@ -140,6 +143,7 @@ name = "paperpaw-text"
 version = "0.5.0-beta.12"
 dependencies = [
  "paperpaw-graphics",
+ "paperpaw-native",
  "paperpaw-platform",
 ]
 

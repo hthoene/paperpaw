@@ -15,12 +15,12 @@ pub struct Addresses<const N: usize>(pub [*const (); N]);
 // never written.
 unsafe impl<const N: usize> Sync for Addresses<N> {}
 
-#[cfg(not(all(paperpaw_plugin, target_os = "none")))]
+#[cfg(not(any(all(paperpaw_plugin, target_os = "none"), paperpaw_table_host)))]
 #[path = "shared_table.rs"]
 mod table;
 
 /// The table for `Api::shared`.
-#[cfg(not(all(paperpaw_plugin, target_os = "none")))]
+#[cfg(not(any(all(paperpaw_plugin, target_os = "none"), paperpaw_table_host)))]
 pub const fn table() -> paperpaw_native::shared::Table {
     paperpaw_native::shared::Table(table::ADDRESSES.0.as_ptr())
 }
@@ -28,7 +28,10 @@ pub const fn table() -> paperpaw_native::shared::Table {
 /// How many entries [`table`] has, for `Api::shared_len`.
 pub const COUNT: u32 = paperpaw_native::shared::NEEDS;
 
-#[cfg(all(test, not(all(paperpaw_plugin, target_os = "none"))))]
+#[cfg(all(
+    test,
+    not(any(all(paperpaw_plugin, target_os = "none"), paperpaw_table_host))
+))]
 mod tests {
     use super::*;
 

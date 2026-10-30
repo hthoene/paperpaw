@@ -40,6 +40,7 @@ def index_rs(es):
 
 def table_rs(es):
     s = "// Made by tools/shared-table.py from shared.list: do not edit.\n"
+    s += "#![cfg_attr(rustfmt, rustfmt::skip)]\n"
     s += f"pub(super) const COUNT: usize = {len(es)};\n\n"
     s += "pub(super) static ADDRESSES: super::Addresses<COUNT> = super::Addresses([\n"
     for n, p in es:
@@ -96,9 +97,33 @@ def check_sites(es):
     problems += [f"{n} on the list has no site" for n in listed if n not in seen]
     return problems
 
+def check_against(es, baseline):
+    """The baseline's list (a file in the format of shared.list) must be a
+    prefix of the current one, by name and order: entries are only ever
+    added at the end (B-H2 (c): an old plugin calls an index)."""
+    old = []
+    for line in pathlib.Path(baseline).read_text().splitlines():
+        line = line.split("#")[0].strip()
+        if line:
+            old.append(line.split()[0])
+    new = [n for n, _ in es]
+    problems = []
+    if new[: len(old)] != old:
+        for i, name in enumerate(old):
+            if i >= len(new):
+                problems.append(f"index {i} ({name}) was removed")
+            elif new[i] != name:
+                problems.append(f"index {i} was {name}, is {new[i]}")
+    return problems
+
 es = entries()
 files = {INDEX: index_rs(es), TABLE: table_rs(es)}
-if "--check" in sys.argv:
+if "--against" in sys.argv:
+    problems = check_against(es, sys.argv[sys.argv.index("--against") + 1])
+    if problems:
+        sys.exit("the shared table changed under old plugins:\n" + "\n".join(problems))
+    print("the baseline's list is a prefix of the current one")
+elif "--check" in sys.argv:
     problems = check_sites(es)
     if problems:
         sys.exit("\n".join(problems))
