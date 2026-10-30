@@ -51,7 +51,7 @@ struct Open {
 /// What the weak and neutral rules know of an isolating run sequence.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct Sequence {
-    id: u16,
+    id: u32,
     level: u8,
     /// The type of the character before, after W1 (rule W1).
     w1: Class,
@@ -117,7 +117,9 @@ pub(crate) struct Carry {
     count: u8,
     open: [Open; BRACKETS],
     brackets: u8,
-    next_id: u16,
+    /// Wide enough that ids of sequences open at once never meet,
+    /// however many a hostile paragraph starts.
+    next_id: u32,
 }
 
 impl Carry {
@@ -207,7 +209,7 @@ impl Carry {
         &mut self.sequences[at]
     }
 
-    fn holds(&self, id: u16) -> bool {
+    fn holds(&self, id: u32) -> bool {
         self.sequences[..usize::from(self.count)]
             .iter()
             .any(|s| s.id == id)
@@ -258,7 +260,7 @@ impl Carry {
     /// The run sequence of a character not removed by X9 at `level`
     /// (BD13). `closed` says it is the PDI of an isolate whose run
     /// sequence waits.
-    fn enter(&mut self, level: u8, closed: bool) -> u16 {
+    fn enter(&mut self, level: u8, closed: bool) -> u32 {
         if closed {
             if self.suspend {
                 self.suspend = false;
@@ -351,7 +353,7 @@ struct Explicit {
     class: Class,
     level: u8,
     removed: bool,
-    sequence: u16,
+    sequence: u32,
     /// An isolate initiator without a matching PDI (rule X10's eos).
     unmatched: bool,
 }
@@ -552,7 +554,7 @@ impl<I: Iterator<Item = char> + Clone> Walk<I> {
 
     /// The type after W3 of the next character of run sequence `id`.
     /// With `past_et`, terminators (ET) are passed over first.
-    fn peek(&self, id: u16, past_et: bool) -> Option<Class> {
+    fn peek(&self, id: u32, past_et: bool) -> Option<Class> {
         let mut ahead = self.clone();
         loop {
             let (x, t) = ahead.early_weak()?;
@@ -667,13 +669,13 @@ impl<I: Iterator<Item = char> + Clone> Walk<I> {
             return None;
         }
         let at = usize::from(self.carry.brackets);
-        if at >= BRACKETS || at - base >= BD16_STACK {
+        if at >= BRACKETS || at.checked_sub(base).is_none_or(|n| n >= BD16_STACK) {
             let sequence = self.carry.sequence();
             sequence.stopped = true;
             return None;
         }
         let pair = self.pair_of(close, base, at);
-        self.carry.open[at] = Open { close, pair };
+        *self.carry.open.get_mut(at)? = Open { close, pair };
         self.carry.brackets += 1;
         match pair {
             PAIRED_L => Some(Class::L),
@@ -691,11 +693,11 @@ impl<I: Iterator<Item = char> + Clone> Walk<I> {
         let cp = canonical(u16::try_from(u32::from(ch)).ok()?);
         let base = usize::from(s.brackets);
         let top = usize::from(self.carry.brackets);
-        let found = (base..top)
-            .rev()
-            .find(|&i| self.carry.open[i].close == cp)?;
-        self.carry.brackets = u8::try_from(found).unwrap_or(0);
-        match self.carry.open[found].pair {
+        let open = self.carry.open.get(base..top)?;
+        let found = open.iter().rposition(|o| o.close == cp)?;
+        let pair = open.get(found)?.pair;
+        self.carry.brackets = u8::try_from(base + found).unwrap_or(0);
+        match pair {
             PAIRED_L => Some(Class::L),
             PAIRED_R => Some(Class::R),
             _ => None,
@@ -709,13 +711,19 @@ impl<I: Iterator<Item = char> + Clone> Walk<I> {
         let s = self.carry.sequences[usize::from(self.carry.count.max(1)) - 1];
         let embedding = parity(s.level);
         let mut stack = [0u16; BRACKETS + 1];
-        for (slot, open) in stack.iter_mut().zip(&self.carry.open[base..at]) {
+        let Some(open) = self.carry.open.get(base..at) else {
+            return UNPAIRED;
+        };
+        for (slot, open) in stack.iter_mut().zip(open) {
             *slot = open.close;
         }
         let mine = at - base;
-        stack[mine] = close;
+        let Some(slot) = stack.get_mut(mine) else {
+            return UNPAIRED;
+        };
+        *slot = close;
         let mut len = mine + 1;
-        let limit = (BRACKETS - base).min(BD16_STACK);
+        let limit = BRACKETS.saturating_sub(base).min(BD16_STACK);
         let (mut same, mut opposite) = (false, false);
         let mut ahead = self.clone();
         loop {
@@ -745,10 +753,10 @@ impl<I: Iterator<Item = char> + Clone> Walk<I> {
                 continue;
             };
             if open {
-                if len >= limit {
+                let Some(slot) = stack.get_mut(len).filter(|_| len < limit) else {
                     return UNPAIRED;
-                }
-                stack[len] = pair;
+                };
+                *slot = pair;
                 len += 1;
                 continue;
             }
@@ -756,7 +764,10 @@ impl<I: Iterator<Item = char> + Clone> Walk<I> {
                 continue;
             };
             let cp = canonical(cp);
-            if let Some(k) = (0..len).rev().find(|&k| stack[k] == cp) {
+            if let Some(k) = stack
+                .get(..len)
+                .and_then(|s| s.iter().rposition(|&c| c == cp))
+            {
                 if k == mine {
                     break;
                 }
