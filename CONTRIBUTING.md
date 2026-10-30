@@ -35,6 +35,18 @@ before 1.0.
    oldest supported Rust (1.88), compares each API file, builds the
    firmware and the Android app, fuzzes the parsers and checks licences.
 
+   `tools/ci-local.sh` runs these and the other host-side checks of
+   `.github/workflows/ci.yml` in one command, with `RUSTFLAGS=-D warnings`
+   and 4 cargo jobs (`-j N` changes that): `tools/ci-local.sh` (fmt, lint,
+   tests), `tools/ci-local.sh full` (everything below that can run on a
+   Linux computer), `--only <group>` for one group, `--list` for the
+   names. Each step's exit code is its own: the summary lists the failed
+   steps and the skipped ones (a missing tool is a skip, not a pass).
+   Not run there: the Xtensa firmware (X4 Pro, X4 Classic), the Windows and
+   macOS emulators, the update path, the Android APK, the reproducible
+   build, CodeQL. Run it before pushing a pull request: CI minutes are
+   limited, and a draft pull request starts no CI jobs.
+
 3. Try your change in the emulator:
    `cargo run -p paperpaw-emulator -- --profile xteink-x4`.
    A change to what a screen shows is checked by the snapshot tests of
