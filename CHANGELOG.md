@@ -921,6 +921,20 @@ This is a beta. Keep a copy of your books. The details for plugin authors follow
   `table-compat` checks old plugins against the new firmware once an
   interface has been raised with tables.
 
+### Added
+
+- **exFAT memory cards** (X4, X3, X4 Pro, X4 Classic, and the emulator with
+  `--card`): cards of 64 GB and more, as sold, work as they are formatted;
+  PaperPaw reads and writes them without reformatting and never formats a
+  card. A file written is whole with its old or new content after a power
+  cut, and a change made on a computer after a cut is not overwritten by the
+  write that was cut off (ADR 0033). Power cuts may leave lost clusters
+  that a computer's check of the card frees. The first free-space query on
+  a big card reads the allocation map (a moment). The driver is hadris-fat
+  and hadris-fs 3.0.0-rc.2 (MIT, with changes of ours under `patches/`), a
+  release candidate taken for testing: not for a release before it moves to
+  the stable version. Not yet tested on a device.
+
 ### Fixed
 
 - The device no longer falls asleep while the library is being walked (#105): a first walk of a few thousand books
