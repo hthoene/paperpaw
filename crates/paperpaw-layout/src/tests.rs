@@ -9,6 +9,8 @@ use paperpaw_document::{MAX_INSERTED, MAX_INSERTED_TEXT, Metadata, NoStorage, Of
 struct Text {
     text: &'static str,
     metadata: Metadata,
+    /// Blocks right to left, in Arabic, their bold runs in Persian.
+    arabic: bool,
 }
 
 impl Text {
@@ -16,6 +18,7 @@ impl Text {
         Self {
             text,
             metadata: Metadata::default(),
+            arabic: false,
         }
     }
 }
@@ -43,7 +46,7 @@ impl Document for Text {
             .find('\n')
             .map_or(self.text.len(), |i| offset + i + 1);
         let line = self.text[start..end].trim_end_matches('\n');
-        let runs = line
+        let runs: Vec<Run> = line
             .match_indices('*')
             .collect::<Vec<_>>()
             .chunks(2)
@@ -63,8 +66,21 @@ impl Document for Text {
             Align::Auto
         };
         let spaced = line.starts_with('~');
+        let block = Block::new(kind, start as u32, end as u32, String::from(line));
+        let (block, runs) = match self.arabic {
+            true => (
+                block
+                    .dir(Direction::Rtl)
+                    .lang(Lang::parse("ar"))
+                    .inline_langs(&[Lang::parse("fa")]),
+                runs.into_iter()
+                    .map(|r: Run| Run::new(r.start, r.end, r.style.with_lang_index(1)))
+                    .collect(),
+            ),
+            false => (block, runs),
+        };
         Ok(Some(
-            Block::new(kind, start as u32, end as u32, String::from(line))
+            block
                 .runs(runs)
                 .align(align)
                 .indent(spaced.then_some(0))
@@ -96,16 +112,7 @@ impl Typesetter for Units {
     }
 }
 
-const STYLE: Style = Style {
-    paragraph_spacing: 0.0,
-    indent: 0.0,
-    em: 10.0,
-    justify: false,
-    widows: 1,
-    orphans: 1,
-    book: BookStyles::ALL,
-    balanced: false,
-};
+const STYLE: Style = Style::new(0.0, 0.0, 10.0, false);
 
 #[test]
 fn widows_and_orphans_move_lines_on() {
@@ -749,4 +756,84 @@ fn the_books_alignment_size_and_fonts_can_be_left_to_the_reader() {
     assert_eq!(page.lines[0].x, 0.0);
     assert_eq!(page.lines[0].runs[0].face.size, 0);
     assert_eq!(page.lines[0].runs[0].face.style.family(), 0);
+}
+
+#[test]
+fn lines_know_their_direction_and_runs_their_language() {
+    let mut doc = Text::new("aaa *bb* cc dd ee\n");
+    let page = layout(&doc, 0, 100.0, &STYLE);
+    let first = &page.lines[0];
+    assert_eq!(first.bidi, LineBidi::new(0, LineBidi::PARAGRAPH_START));
+    assert!(!page.lines[1].bidi.has(LineBidi::PARAGRAPH_START));
+    assert!(
+        first
+            .runs
+            .iter()
+            .all(|r| r.level == 0 && r.lang == Lang::NONE)
+    );
+    doc.arabic = true;
+    let page = layout(&doc, 0, 100.0, &STYLE);
+    let first = &page.lines[0];
+    assert!(first.bidi.is_rtl() && first.bidi.has(LineBidi::PARAGRAPH_START));
+    let mut langs: Vec<Lang> = page
+        .lines
+        .iter()
+        .flat_map(|l| &l.runs)
+        .map(|r| r.lang)
+        .collect();
+    langs.dedup();
+    assert_eq!(
+        langs,
+        [Lang::parse("ar"), Lang::parse("fa"), Lang::parse("ar")]
+    );
+    assert!(page.notes.is_empty());
+}
+
+#[test]
+fn text_is_as_wide_as_its_characters_by_default() {
+    struct Kerned;
+    impl Typesetter for Kerned {
+        fn advance(&self, _: Face, c: char) -> f32 {
+            if c == 'w' { 3.0 } else { 1.0 }
+        }
+        fn kern(&self, _: Face, left: char, right: char) -> f32 {
+            if (left, right) == ('a', 'w') {
+                -0.5
+            } else {
+                0.0
+            }
+        }
+        fn line(&self, _: Face) -> (f32, f32) {
+            (8.0, 10.0)
+        }
+    }
+    let face = Face::new(TextStyle::REGULAR, 0, 0);
+    assert_eq!(Kerned.advance_text(face, "aw b", &Around::NONE), 5.5);
+    assert_eq!(Kerned.advance_text(face, "", &Around::NONE), 0.0);
+}
+
+#[test]
+fn reserved_parts_are_built_whole() {
+    let style = Style::new(1.0, 2.0, 10.0, true)
+        .justify_cap(0.25)
+        .kashida(true)
+        .hanging_punctuation(true);
+    assert_eq!(
+        (style.justify_cap, style.kashida, style.hanging_punctuation),
+        (0.25, true, true)
+    );
+    assert_eq!(STYLE.justify_cap, 0.5);
+    let note = PageNote::new(
+        Rect::new(0, 0, 10, 5),
+        Locator::START,
+        Locator::new(0, 9),
+        PageNote::SIDENOTE,
+    );
+    let page = Page::new(Locator::START, Locator::START, Vec::new(), Vec::new()).notes(vec![note]);
+    assert_eq!(page.notes[0].kind, 2);
+    let run = LineRun::new(0, 3, Face::default())
+        .with_level(1)
+        .with_lang(Lang::parse("he"));
+    assert!(run.is_rtl() && run.lang == Lang::parse("he"));
+    assert!(LineBidi::new(3, LineBidi::REORDER | LineBidi::VERTICAL).is_rtl());
 }

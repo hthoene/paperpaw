@@ -21,17 +21,12 @@ use paperpaw_sdk::{Rect, ui};
 use support::{Device, Harness, drawn_in, frame};
 
 fn page_image(path: &str) -> PageImage {
-    PageImage {
-        x: 20.0,
-        y: 30.0,
-        width: 160.0,
-        height: 120.0,
-        image: ImageRef {
-            path: path.into(),
-            width: 8,
-            height: 8,
-        },
-    }
+    let image = ImageRef {
+        path: path.into(),
+        width: 8,
+        height: 8,
+    };
+    PageImage::new(20.0, 30.0, 160.0, 120.0, image)
 }
 
 #[test]

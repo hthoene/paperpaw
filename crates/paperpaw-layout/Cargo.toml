@@ -13,6 +13,7 @@ keywords = ["e-reader", "layout", "pagination"]
 
 [dependencies]
 paperpaw-document.workspace = true
+paperpaw-platform.workspace = true
 paperpaw-text.workspace = true
 
 [dev-dependencies]
