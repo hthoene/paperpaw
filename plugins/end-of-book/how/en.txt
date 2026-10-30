@@ -1,0 +1,1 @@
+When you reach the last page of a book, a screen offers the next book of its series (or the library), lets you give the book one to five stars, and shows whether it is marked as finished. Press Back to return to the last page.
