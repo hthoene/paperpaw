@@ -83,7 +83,8 @@ pub mod signature;
 
 pub use extent::ImageExtent;
 pub use header::{
-    CODE_OFFSET, Chip, FORMAT, HEADER_LEN, Header, LINK_BASE, MAGIC, MAX_IMAGE_LEN, Problem,
+    API_WORDS, CODE_OFFSET, Chip, FORMAT, HEADER_LEN, Header, LINK_BASE, MAGIC, MAX_IMAGE_LEN,
+    Older, Problem,
 };
 pub use interface::{API_SYMBOL, Api, ENTRY_SECTION, ENTRY_SYMBOL, Entry, TABLE_SYMBOLS};
 pub use reloc::{PatchKind, Relocator, check_relocations};

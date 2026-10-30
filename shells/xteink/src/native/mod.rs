@@ -228,13 +228,34 @@ impl Loader {
         let started = crate::micros();
         let mut head = [0; HEADER_LEN];
         read_exact(storage, path, 0, &mut head).map_err(|_| PluginProblem::Damaged)?;
-        let header = Header::read(&head).map_err(problem)?;
+        let header = Header::read(&head).map_err(|p| problem_of(&head, p))?;
         if header.chip != CHIP {
             warn!(
                 "native: {path} is for chip {}, this firmware's is {CHIP}",
                 header.chip
             );
             return Err(PluginProblem::OtherBuild);
+        }
+        // Built for another plugin interface, or needing more of this
+        // firmware than it has: said as such, not as another build.
+        if header.interface != paperpaw_sdk::native::INTERFACE
+            || header.needs_api > paperpaw_native::Api::SIZE
+        {
+            warn!(
+                "native: {path} is built for plugin interface {} and needs {} bytes of the table; \
+                 this firmware has {} and {}",
+                header.interface,
+                header.needs_api,
+                paperpaw_sdk::native::INTERFACE,
+                paperpaw_native::Api::SIZE
+            );
+            return Err(if header.interface < paperpaw_sdk::native::INTERFACE {
+                PluginProblem::OlderInterface {
+                    built_for: header.interface,
+                }
+            } else {
+                PluginProblem::NeedsNewerPaperPaw
+            });
         }
         if let Some(why) = paperpaw_sdk::native::Fingerprint(header.fingerprint).misfit() {
             warn!("native: {path} is {why} ({FINGERPRINT}, {TOOLCHAIN})");
@@ -260,12 +281,16 @@ impl Loader {
         let (base, hot) = self.place.put(storage, path, &header, &words)?;
         drop(words);
         let placed = crate::micros();
+        let entry = (base + header.entry) as *const Entry;
         // SAFETY: the entry lies in the image just placed and relocated,
-        // its address checked to be in the image's read-only data.
-        let entry = unsafe { &*((base + header.entry) as *const Entry) };
-        if entry.fingerprint != FINGERPRINT.0 {
+        // its address checked to be in the image's read-only data, aligned
+        // to 8; its fingerprint first, as an entry of another interface
+        // may be shorter than this one's.
+        if unsafe { Entry::fingerprint_at(entry) } != FINGERPRINT.0 {
             return Err(PluginProblem::Damaged);
         }
+        // SAFETY: as above, an entry of this interface.
+        let entry = unsafe { &*entry };
         critical_section::with(|cs| {
             IMAGES.borrow_ref_mut(cs).push(Image {
                 id: String::from(code.id.as_str()),
@@ -337,19 +362,17 @@ fn internal_free() -> usize {
 
 /// What the plugin manager says for a file that is not right.
 fn problem(problem: Problem) -> PluginProblem {
-    match problem {
-        Problem::OlderFormat => {
-            warn!(
-                "native: a plugin file of an older format, made for an older PaperPaw: it needs a new build"
-            );
-            PluginProblem::OtherBuild
-        }
-        Problem::NewerFormat | Problem::UnknownChip => {
-            warn!("native: {problem}");
-            PluginProblem::OtherBuild
-        }
-        _ => PluginProblem::Damaged,
+    problem_of(&[], problem)
+}
+
+/// Why a plugin file whose header, `head`, does not read does not run:
+/// built for an older PaperPaw, needing a newer one, or damaged.
+fn problem_of(head: &[u8], problem: Problem) -> PluginProblem {
+    let why = paperpaw_sdk::native::Native::problem_of_file(head, problem);
+    if why != PluginProblem::Damaged {
+        warn!("native: {problem}");
     }
+    why
 }
 
 /// The words after the image (those to relocate, then the patches),

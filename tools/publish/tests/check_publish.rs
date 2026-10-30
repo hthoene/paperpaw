@@ -63,21 +63,24 @@ fn data_repo(name: &str) -> PathBuf {
 /// A plugin file for `chip`, of plugin interface `interface`, signed with
 /// the key of `seed` (or not).
 fn ppn(chip: Chip, interface: u16, seed: Option<[u8; 32]>) -> Vec<u8> {
-    let image = [0u8; 96];
+    let image = [0u8; 128];
     let mut header = Header {
         chip,
         fingerprint: (u64::from(interface) << 48) | 0x0123_4567,
         base: LINK_BASE,
         image_len: image.len() as u32,
-        code_at: 64,
+        code_at: 96,
         entry: 0,
-        api: 16,
+        api: 32,
         relocs: 0,
         align: 16,
         compiler: 1,
         hot_at: 0,
         hot_len: 0,
         patches: 0,
+        needs_api: 64,
+        families: [0; 8],
+        interface: interface.max(1),
         sha256: [0; 32],
     };
     let mut sha = header.digest();

@@ -11,12 +11,17 @@ use crate::signature::Signature;
 /// A plugin file's first bytes.
 pub const MAGIC: [u8; 4] = *b"PPNP";
 /// The format this crate reads and writes: 2 named the compiler, 3 adds
-/// hot code and the patches that move it.
-pub const FORMAT: u16 = 3;
+/// hot code and the patches that move it, 4 (plugin interface 5) what the
+/// plugin needs of the firmware: the size of its table, the revisions of
+/// the families of shared functions it uses, and its interface.
+pub const FORMAT: u16 = 4;
 /// The header's length.
-pub const HEADER_LEN: usize = 92;
+pub const HEADER_LEN: usize = 116;
 /// The bytes of the header its digest covers (all before the digest).
-const DIGESTED_LEN: usize = 60;
+const DIGESTED_LEN: usize = 84;
+/// The words `paperpaw-plugin.x` makes at [`Header::api`]: the firmware's
+/// table's address, then one per family of shared functions.
+pub const API_WORDS: u32 = 1 + crate::TABLE_SYMBOLS.len() as u32;
 /// The largest image taken: more than either device has room for.
 pub const MAX_IMAGE_LEN: u32 = 4 << 20;
 /// Where `paperpaw-plugin.x` links a plugin's read-only data.
@@ -143,9 +148,33 @@ pub struct Header {
     /// How many patches follow the words to relocate: the instructions
     /// that reach across the hot code's edge (see [`Relocator`](crate::Relocator)).
     pub patches: u32,
-    /// SHA-256 of the header's first 60 bytes and of all after the header
+    /// The bytes of the firmware's [`Api`](crate::Api) the plugin may use
+    /// ([`Entry::needs_api`](crate::Entry::needs_api)).
+    pub needs_api: u32,
+    /// The revision of each family of shared functions the plugin's code
+    /// uses, 0 for the others (from [`Entry::families`](crate::Entry::families)
+    /// and the words its code reads).
+    pub families: [u16; 8],
+    /// The plugin interface it was built for
+    /// ([`Entry::interface`](crate::Entry::interface)).
+    pub interface: u16,
+    /// SHA-256 of the header's first 84 bytes and of all after the header
     /// (see [`Header::digest`]).
     pub sha256: [u8; 32],
+}
+
+/// What a plugin file of an older format says of itself: enough for a
+/// firmware to tell its user that it was built for an older PaperPaw
+/// ([`Header::read_older`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Older {
+    /// Its format (below [`FORMAT`]).
+    pub format: u16,
+    /// The chip it is for, where this crate knows it.
+    pub chip: Option<Chip>,
+    /// Its fingerprint.
+    pub fingerprint: u64,
 }
 
 impl Header {
@@ -170,6 +199,10 @@ impl Header {
         let chip = Chip::from_id(le16(bytes, 6)).ok_or(Problem::UnknownChip)?;
         let mut sha256 = [0; 32];
         sha256.copy_from_slice(&bytes[DIGESTED_LEN..HEADER_LEN]);
+        let mut families = [0; 8];
+        for (i, family) in families.iter_mut().enumerate() {
+            *family = le16(bytes, 64 + 2 * i);
+        }
         let header = Header {
             chip,
             fingerprint: u64::from(le32(bytes, 8)) | (u64::from(le32(bytes, 12)) << 32),
@@ -184,12 +217,34 @@ impl Header {
             hot_at: le32(bytes, 48),
             hot_len: le32(bytes, 52),
             patches: le32(bytes, 56),
+            needs_api: le32(bytes, 60),
+            families,
+            interface: le16(bytes, 80),
             sha256,
         };
-        if header.compiler == 0 || !header.holds_together() {
+        // The word after `interface` is reserved: 0.
+        if header.compiler == 0 || le16(bytes, 82) != 0 || !header.holds_together() {
             return Err(Problem::Malformed);
         }
         Ok(header)
+    }
+
+    /// What a plugin file of an older format than [`FORMAT`] says of
+    /// itself (every format begins with the magic, the format, the chip
+    /// and the fingerprint); `None` for anything else. For telling "built
+    /// for an older PaperPaw" from "damaged" where [`Header::read`] says
+    /// [`Problem::OlderFormat`].
+    pub fn read_older(bytes: &[u8]) -> Option<Older> {
+        let head = bytes.get(..16)?;
+        if head[..4] != MAGIC {
+            return None;
+        }
+        let format = le16(head, 4);
+        (format < FORMAT).then(|| Older {
+            format,
+            chip: Chip::from_id(le16(head, 6)),
+            fingerprint: u64::from(le32(head, 8)) | (u64::from(le32(head, 12)) << 32),
+        })
     }
 
     /// Whether the parts lie where they can: the entry and the table's
@@ -209,9 +264,10 @@ impl Header {
             && self.api.is_multiple_of(4)
             && self
                 .api
-                .checked_add(4)
+                .checked_add(4 * API_WORDS)
                 .is_some_and(|end| end <= self.code_at)
-            && (self.api + 4 <= self.entry || self.entry + entry_len <= self.api)
+            && (self.api + 4 * API_WORDS <= self.entry || self.entry + entry_len <= self.api)
+            && self.interface > 0
             && self.relocs <= self.image_len / 4
             && self.hot_holds_together()
             && self.align.is_power_of_two()
@@ -277,6 +333,11 @@ impl Header {
         {
             bytes[16 + 4 * i..20 + 4 * i].copy_from_slice(&value.to_le_bytes());
         }
+        bytes[60..64].copy_from_slice(&self.needs_api.to_le_bytes());
+        for (i, family) in self.families.iter().enumerate() {
+            bytes[64 + 2 * i..66 + 2 * i].copy_from_slice(&family.to_le_bytes());
+        }
+        bytes[80..82].copy_from_slice(&self.interface.to_le_bytes());
         bytes
     }
 
@@ -379,17 +440,17 @@ pub(crate) mod tests {
 
     use super::*;
 
-    /// A small, valid plugin file: 64 bytes of read-only data (the entry
-    /// at 0, the table's word at 16, an address of the data at 20, one
-    /// of the code at 24), then 32 bytes of code.
+    /// A small, valid plugin file: 96 bytes of read-only data (the entry
+    /// at 0, the table's word and the families' at 32, an address of the
+    /// data at 68, one of the code at 72), then 32 bytes of code.
     pub(crate) fn file() -> Vec<u8> {
-        let mut image = alloc::vec![0u8; 96];
-        image[20..24].copy_from_slice(&(LINK_BASE + 40).to_le_bytes());
-        image[24..28].copy_from_slice(&(LINK_BASE + CODE_OFFSET + 64).to_le_bytes());
-        for (i, b) in image.iter_mut().enumerate().skip(64) {
+        let mut image = alloc::vec![0u8; 128];
+        image[68..72].copy_from_slice(&(LINK_BASE + 80).to_le_bytes());
+        image[72..76].copy_from_slice(&(LINK_BASE + CODE_OFFSET + 96).to_le_bytes());
+        for (i, b) in image.iter_mut().enumerate().skip(96) {
             *b = i as u8;
         }
-        seal(chip_header(Chip::Esp32C3, 96, 2), &image, &[20, 24])
+        seal(chip_header(Chip::Esp32C3, 128, 2), &image, &[68, 72])
     }
 
     pub(crate) fn chip_header(chip: Chip, image_len: u32, relocs: u32) -> Header {
@@ -398,15 +459,18 @@ pub(crate) mod tests {
             fingerprint: 0x0123_4567_89ab_cdef,
             base: LINK_BASE,
             image_len,
-            code_at: 64,
+            code_at: 96,
             entry: 0,
-            api: 16,
+            api: 32,
             relocs,
             align: 16,
             compiler: crate::compiler::id("1.99.0 (b940084d7 2026-09-28)"),
             hot_at: 0,
             hot_len: 0,
             patches: 0,
+            needs_api: 64,
+            families: [0; 8],
+            interface: 5,
             sha256: [0; 32],
         }
     }
@@ -435,6 +499,15 @@ pub(crate) mod tests {
         assert_eq!(header.file_len(), file.len() as u64);
         assert_eq!(header.to_bytes()[..], file[..HEADER_LEN]);
         assert_eq!(Chip::from_id(Chip::Esp32S3.id()), Some(Chip::Esp32S3));
+        assert_eq!((header.needs_api, header.interface), (64, 5));
+        // What the plugin needs comes back as written.
+        let needing = Header {
+            families: [3, 0, 1, 0, 0, 0, 0, 9],
+            needs_api: 72,
+            interface: 6,
+            ..header
+        };
+        assert_eq!(Header::read(&needing.to_bytes()), Ok(needing));
     }
 
     #[test]
@@ -444,11 +517,22 @@ pub(crate) mod tests {
         assert_eq!(Header::read(b"PPNP\x01\x00"), Err(Problem::Length));
         assert_eq!(Header::read(b""), Err(Problem::Length));
         let mut newer = file();
-        newer[4] = 4;
+        newer[4] = 5;
         assert_eq!(Header::read(&newer), Err(Problem::NewerFormat));
         let mut older = file();
-        older[4] = 2;
+        older[4] = 3;
         assert_eq!(Header::read(&older), Err(Problem::OlderFormat));
+        assert_eq!(
+            Header::read_older(&older),
+            Some(Older {
+                format: 3,
+                chip: Some(Chip::Esp32C3),
+                fingerprint: 0x0123_4567_89ab_cdef
+            })
+        );
+        assert_eq!(Header::read_older(&file()), None);
+        assert_eq!(Header::read_older(b"PPNP\x03\x00"), None);
+        assert_eq!(Header::read_older(b"\x7fELF\x03\x00\x05\x00abcdefgh"), None);
         let mut chip = file();
         chip[6] = 7;
         assert_eq!(Header::read(&chip), Err(Problem::UnknownChip));
@@ -456,7 +540,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_header_that_does_not_hold_together_is_refused() {
-        let good = chip_header(Chip::Esp32S3, 96, 2);
+        let good = chip_header(Chip::Esp32S3, 128, 2);
         let bad = [
             Header {
                 image_len: 0,
@@ -467,19 +551,25 @@ pub(crate) mod tests {
                 ..good
             },
             Header {
-                code_at: 96,
+                code_at: 128,
                 ..good
             },
             Header {
-                code_at: 62,
+                code_at: 94,
                 ..good
             },
             Header { entry: 4, ..good },
-            Header { entry: 56, ..good },
-            Header { api: 18, ..good },
+            Header { entry: 72, ..good },
+            Header { api: 34, ..good },
             Header { api: 64, ..good },
             Header { api: 8, ..good },
-            Header { relocs: 25, ..good },
+            // The families' words reach into the entry.
+            Header { entry: 64, ..good },
+            Header { relocs: 33, ..good },
+            Header {
+                interface: 0,
+                ..good
+            },
             Header { align: 2, ..good },
             Header { align: 24, ..good },
             Header {
@@ -497,31 +587,31 @@ pub(crate) mod tests {
             // Hot code outside the code, not in whole words, or on Xtensa.
             Header {
                 chip: Chip::Esp32C3,
-                hot_at: 60,
+                hot_at: 92,
                 hot_len: 8,
                 ..good
             },
             Header {
                 chip: Chip::Esp32C3,
-                hot_at: 66,
+                hot_at: 98,
                 hot_len: 8,
                 ..good
             },
             Header {
                 chip: Chip::Esp32C3,
-                hot_at: 64,
+                hot_at: 96,
                 hot_len: 6,
                 ..good
             },
             Header {
                 chip: Chip::Esp32C3,
-                hot_at: 88,
+                hot_at: 120,
                 hot_len: 12,
                 ..good
             },
-            Header { hot_at: 64, ..good },
+            Header { hot_at: 96, ..good },
             Header {
-                hot_at: 64,
+                hot_at: 96,
                 hot_len: 8,
                 ..good
             },
@@ -539,6 +629,11 @@ pub(crate) mod tests {
                 "{header:?}"
             );
         }
+    }
+
+    #[test]
+    fn hot_code_a_compiler_and_a_clear_reserved_word_are_wanted() {
+        let good = chip_header(Chip::Esp32S3, 128, 2);
         // No compiler named.
         let unnamed = Header {
             compiler: 0,
@@ -548,13 +643,17 @@ pub(crate) mod tests {
         // Hot code at the code's end, on RISC-V.
         let hot = Header {
             chip: Chip::Esp32C3,
-            hot_at: 88,
+            hot_at: 120,
             hot_len: 8,
             patches: 16,
             ..good
         };
         assert_eq!(Header::read(&hot.to_bytes()), Ok(hot));
-        assert!(hot.in_hot(88) && hot.in_hot(95) && !hot.in_hot(96) && !hot.in_hot(87));
+        assert!(hot.in_hot(120) && hot.in_hot(127) && !hot.in_hot(128) && !hot.in_hot(119));
+        // The reserved word is 0.
+        let mut reserved = good.to_bytes();
+        reserved[82] = 1;
+        assert_eq!(Header::read(&reserved), Err(Problem::Malformed));
     }
 
     #[test]
@@ -573,9 +672,9 @@ pub(crate) mod tests {
             assert_eq!(Header::check_file(&changed), Err(Problem::Damaged), "{at}");
         }
         // Words listed out of order, though sealed.
-        let header = chip_header(Chip::Esp32C3, 96, 2);
-        let image = &file[HEADER_LEN..HEADER_LEN + 96];
-        let unordered = seal(header, image, &[24, 20]);
+        let header = chip_header(Chip::Esp32C3, 128, 2);
+        let image = &file[HEADER_LEN..HEADER_LEN + 128];
+        let unordered = seal(header, image, &[72, 68]);
         assert_eq!(Header::check_file(&unordered), Err(Problem::Relocation));
     }
 
@@ -589,7 +688,7 @@ pub(crate) mod tests {
         sha.update(&prefix);
         sha.update(&file[HEADER_LEN..]);
         assert_eq!(sha.finish(), header.sha256);
-        for at in [0, 8, 16, 44, 48, 56] {
+        for at in [0, 8, 16, 44, 48, 56, 60, 64, 80] {
             let mut changed = prefix;
             changed[at] ^= 1;
             let mut sha = Sha256::new();

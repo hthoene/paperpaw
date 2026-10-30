@@ -362,8 +362,8 @@ mod tests {
     use crate::elf::{EM_RISCV, EM_XTENSA, ET_EXEC, SHF_ALLOC, SHN_ABS};
     use crate::pack::pack;
 
-    const TEXT: u32 = LINK_BASE + CODE_OFFSET + 64;
-    const CONSTANT: u32 = LINK_BASE + 40;
+    const TEXT: u32 = LINK_BASE + CODE_OFFSET + 96;
+    const CONSTANT: u32 = LINK_BASE + 80;
     /// Cold code: `cold` calls `hot` at 0, `helper` at 8. Hot code from
     /// 16: `hot` loads and stores `CONSTANT` and calls `helper` at 28,
     /// then a word holds the address of `cold`.
@@ -398,8 +398,9 @@ mod tests {
     }
 
     fn plugin(machine: u16, hot_from: u32) -> Plugin {
-        let mut rodata = [0u8; 64];
+        let mut rodata = [0u8; 96];
         rodata[..8].copy_from_slice(&1u64.to_le_bytes());
+        rodata[12..16].copy_from_slice(&(64u32 | (5 << 16)).to_le_bytes());
         let to_constant = CONSTANT.wrapping_sub(HOT);
         let to_helper = HELPER.wrapping_sub(HOT + 12);
         let mut text = Vec::new();
@@ -427,8 +428,11 @@ mod tests {
             b"rustc version 1.99.0 (b940084d7 2026-09-28)\0",
             1,
         );
-        b.symbol(ENTRY_SYMBOL, LINK_BASE, 16, ro, false);
-        b.symbol(API_SYMBOL, LINK_BASE + 16, 0, SHN_ABS, false);
+        b.symbol(ENTRY_SYMBOL, LINK_BASE, 32, ro, false);
+        b.symbol(API_SYMBOL, LINK_BASE + 32, 0, SHN_ABS, false);
+        for (n, name) in paperpaw_native::TABLE_SYMBOLS.iter().enumerate() {
+            b.symbol(name, LINK_BASE + 36 + 4 * n as u32, 0, SHN_ABS, false);
+        }
         let constant = b.symbol("CONSTANT", CONSTANT, 4, ro, true);
         let label = b.symbol(".Lpcrel_hi0", HOT, 0, tx as u16, true);
         let cold = b.symbol("cold", TEXT, 8, tx as u16, false);
@@ -453,7 +457,7 @@ mod tests {
     fn reaches_across_the_edge_become_patches() {
         let packed = pack(&plugin(EM_RISCV, HOT).b.build()).unwrap();
         let header = packed.header;
-        assert_eq!((header.hot_at, header.hot_len), (80, 24));
+        assert_eq!((header.hot_at, header.hot_len), (112, 24));
         let words: Vec<u32> = packed.file[HEADER_LEN + header.image_len as usize..]
             .as_chunks::<4>()
             .0
@@ -463,13 +467,13 @@ mod tests {
         assert_eq!(
             words.as_chunks::<2>().0,
             [
-                [PatchKind::Hi20.record(64), 80],
-                [PatchKind::Hi20.record(80), 40],
-                [PatchKind::Hi20.record(92), 72],
-                [PatchKind::Lo12I.record(68), 64],
-                [PatchKind::Lo12I.record(84), 80],
-                [PatchKind::Lo12I.record(96), 92],
-                [PatchKind::Lo12S.record(88), 80],
+                [PatchKind::Hi20.record(96), 112],
+                [PatchKind::Hi20.record(112), 80],
+                [PatchKind::Hi20.record(124), 104],
+                [PatchKind::Lo12I.record(100), 96],
+                [PatchKind::Lo12I.record(116), 112],
+                [PatchKind::Lo12I.record(128), 124],
+                [PatchKind::Lo12S.record(120), 112],
             ]
         );
         // The loader takes them: the call of `hot` reaches it where it
@@ -480,8 +484,8 @@ mod tests {
             .and_then(|r| r.hot_at(0x4039_0000))
             .unwrap();
         relocator.apply(0, &mut image).unwrap();
-        let hi = le32(&image, 64) & 0xFFFF_F000;
-        let lo = ((le32(&image, 68) as i32) >> 20) as u32;
+        let hi = le32(&image, 96) & 0xFFFF_F000;
+        let lo = ((le32(&image, 100) as i32) >> 20) as u32;
         assert_eq!(TEXT.wrapping_add(hi).wrapping_add(lo), 0x4039_0000);
     }
 

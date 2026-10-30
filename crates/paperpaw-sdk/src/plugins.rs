@@ -111,6 +111,16 @@ pub enum PluginProblem {
     NotInstalled,
     /// Its code is not the file installed: changed since.
     Changed,
+    /// Its code was built for an older PaperPaw (an older plugin
+    /// interface, or shared functions this PaperPaw changed since): it
+    /// waits for a new build, which the store may have.
+    OlderInterface {
+        /// The plugin interface it was built for; 0 where its file is of
+        /// a format before interface 5, which does not say.
+        built_for: u16,
+    },
+    /// Its code needs a newer PaperPaw: an update of PaperPaw runs it.
+    NeedsNewerPaperPaw,
 }
 
 /// A plugin and its state.

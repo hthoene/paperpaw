@@ -164,19 +164,22 @@ mod tests {
             chip: Chip::Esp32C3,
             fingerprint: 0x0085_073a_6132_3717,
             base: paperpaw_native::LINK_BASE,
-            image_len: 64,
-            code_at: 32,
+            image_len: 128,
+            code_at: 96,
             entry: 0,
-            api: 16,
+            api: 32,
             relocs: 0,
             align: 16,
             compiler: 1,
             hot_at: 0,
             hot_len: 0,
             patches: 0,
+            needs_api: 0,
+            families: [0; 8],
+            interface: 5,
             sha256: [0; 32],
         };
-        let image = [9u8; 64];
+        let image = [9u8; 128];
         let mut sha = header.digest();
         sha.update(&image);
         header.sha256 = sha.finish();
@@ -215,7 +218,7 @@ mod tests {
             .find(|f| f.check == "package.ppn-size")
             .unwrap();
         assert!(
-            size.message.starts_with("268 bytes: header 92"),
+            size.message.starts_with("356 bytes: header 116"),
             "{}",
             size.message
         );

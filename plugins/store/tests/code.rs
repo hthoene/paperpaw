@@ -44,21 +44,24 @@ fn hex(bytes: &[u8]) -> String {
 /// A plugin file built for `build`, signed with the key of `seed` (or not
 /// at all).
 fn ppn(build: Fingerprint, seed: Option<&[u8; 32]>) -> Vec<u8> {
-    let image = [0u8; 96];
+    let image = [0u8; 128];
     let mut header = Header {
         chip: Chip::Esp32C3,
         fingerprint: build.0,
         base: LINK_BASE,
         image_len: image.len() as u32,
-        code_at: 64,
+        code_at: 96,
         entry: 0,
-        api: 16,
+        api: 32,
         relocs: 0,
         align: 16,
         compiler: 1,
         hot_at: 0,
         hot_len: 0,
         patches: 0,
+        needs_api: 0,
+        families: [0; 8],
+        interface: paperpaw_sdk::native::INTERFACE,
         sha256: [0; 32],
     };
     let mut sha = header.digest();
@@ -172,7 +175,7 @@ fn a_code_plugin_is_installed_and_starts_after_a_restart() {
     // *Back*: the plugin again, nothing installed.
     shopping.run(actions::BACK);
     let shown = shopping.shown();
-    assert!(shown.contains("Install, 349 B"), "{shown}");
+    assert!(shown.contains("Install, 405 B"), "{shown}");
     shopping.run(actions::BACK);
     shopping.run(actions::BACK);
     shopping.run(OPEN);

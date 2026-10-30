@@ -311,20 +311,20 @@ mod tests {
     fn words_move_with_the_image_in_any_pieces() {
         let file = file();
         let (header, _) = Header::check_file(&file).unwrap();
-        let words = [20, 24];
+        let words = [68, 72];
         let base = 0x3C80_0040;
-        for piece in [4, 8, 20, 96] {
+        for piece in [4, 8, 20, 128] {
             let relocator = Relocator::new(&header, &words, base, 0x3FC8_1234).unwrap();
-            let mut image: Vec<u8> = file[HEADER_LEN..HEADER_LEN + 96].to_vec();
+            let mut image: Vec<u8> = file[HEADER_LEN..HEADER_LEN + 128].to_vec();
             for (i, chunk) in image.chunks_mut(piece).enumerate() {
                 relocator.apply((i * piece) as u32, chunk).unwrap();
             }
-            assert_eq!(le(&image, 16), 0x3FC8_1234, "the table's word");
-            assert_eq!(le(&image, 20), base + 40, "data");
-            assert_eq!(le(&image, 24), base + CODE_OFFSET + 64, "code");
+            assert_eq!(le(&image, 32), 0x3FC8_1234, "the table's word");
+            assert_eq!(le(&image, 68), base + 80, "data");
+            assert_eq!(le(&image, 72), base + CODE_OFFSET + 96, "code");
             assert_eq!(
-                image[64..],
-                file[HEADER_LEN + 64..HEADER_LEN + 96],
+                image[96..],
+                file[HEADER_LEN + 96..HEADER_LEN + 128],
                 "code unchanged"
             );
         }
@@ -332,8 +332,8 @@ mod tests {
 
     #[test]
     fn bad_words_are_refused() {
-        let header = chip_header(Chip::Esp32S3, 96, 2);
-        for words in [[24, 20], [20, 20], [21, 24], [20, 96], [16, 20], [20, 94]] {
+        let header = chip_header(Chip::Esp32S3, 128, 2);
+        for words in [[72, 68], [68, 68], [69, 72], [68, 128], [32, 68], [68, 126]] {
             assert_eq!(
                 Relocator::new(&header, &words, LINK_BASE, 0).unwrap_err(),
                 Problem::Relocation,
@@ -341,19 +341,19 @@ mod tests {
             );
         }
         assert_eq!(
-            check_relocations(&header, &[20]),
+            check_relocations(&header, &[68]),
             Err(Problem::Relocation),
             "fewer than the header says"
         );
         assert_eq!(
-            Relocator::new(&header, &[20, 24], LINK_BASE + 8, 0).unwrap_err(),
+            Relocator::new(&header, &[68, 72], LINK_BASE + 8, 0).unwrap_err(),
             Problem::Malformed,
             "a place not aligned as the image wants"
         );
         // A word that holds no address in the image.
-        let relocator = Relocator::new(&header, &[20, 24], LINK_BASE, 0).unwrap();
-        let mut image = [0u8; 96];
-        image[20..24].copy_from_slice(&0x4000_0000u32.to_le_bytes());
+        let relocator = Relocator::new(&header, &[68, 72], LINK_BASE, 0).unwrap();
+        let mut image = [0u8; 128];
+        image[68..72].copy_from_slice(&0x4000_0000u32.to_le_bytes());
         assert_eq!(relocator.apply(0, &mut image), Err(Problem::Relocation));
         assert_eq!(
             relocator.apply(2, &mut image[2..]),
@@ -361,18 +361,19 @@ mod tests {
         );
     }
 
-    // A small RISC-V image with hot code: 64 bytes of read-only data (the
-    // table's word at 16, the address of `hot` at 20, a constant at 40),
-    // then cold code from 64 (a `c.nop`, then a call of `hot` at 66, so
-    // that it lies across words, and `cold` at 76), then hot code from 96
+    // A small RISC-V image with hot code: 96 bytes of read-only data (the
+    // table's words at 32, the address of `hot` at 68, a constant at 80),
+    // then cold code from 96 (a `c.nop`, then a call of `hot` at 98, so
+    // that it lies across words, and `cold` at 108), then hot code from 128
     // (a load and a store of the constant, a call of `cold`).
-    const HOT_AT: u32 = 96;
-    const LEN: u32 = 128;
-    const CALL_HOT: u32 = 66;
-    const COLD: u32 = 76;
-    const LOAD: u32 = 96;
-    const CALL_COLD: u32 = 108;
-    const CONSTANT: u32 = 40;
+    const HOT_AT: u32 = 128;
+    const LEN: u32 = 160;
+    const CALL_HOT: u32 = 98;
+    const COLD: u32 = 108;
+    const LOAD: u32 = 128;
+    const CALL_COLD: u32 = 140;
+    const CONSTANT: u32 = 80;
+    const HOT_WORD: usize = 68;
     const CODE: u32 = LINK_BASE + CODE_OFFSET;
 
     fn auipc(rd: u32, distance: u32) -> u32 {
@@ -394,12 +395,12 @@ mod tests {
     /// The image as linked and its words after it.
     fn hot_image() -> (Header, Vec<u8>, Vec<u32>) {
         let mut image = alloc::vec![0u8; LEN as usize];
-        image[20..24].copy_from_slice(&(CODE + HOT_AT).to_le_bytes());
+        image[HOT_WORD..HOT_WORD + 4].copy_from_slice(&(CODE + HOT_AT).to_le_bytes());
         image[CONSTANT as usize..CONSTANT as usize + 4].copy_from_slice(b"PPaw");
-        for at in (64..LEN).step_by(4) {
+        for at in (96..LEN).step_by(4) {
             put(&mut image, at, 0x0000_0013);
         }
-        image[64..66].copy_from_slice(&0x0001u16.to_le_bytes());
+        image[96..98].copy_from_slice(&0x0001u16.to_le_bytes());
         let to_hot = HOT_AT - CALL_HOT;
         put(&mut image, CALL_HOT, auipc(1, to_hot));
         put(&mut image, CALL_HOT + 4, i_type(0x67, 0, 1, 1, to_hot));
@@ -420,7 +421,7 @@ mod tests {
             [PatchKind::Lo12I.record(CALL_COLD + 4), CALL_COLD],
             [PatchKind::Lo12S.record(LOAD + 8), LOAD],
         ];
-        let mut words = alloc::vec![20];
+        let mut words = alloc::vec![HOT_WORD as u32];
         words.extend(patches.iter().flatten());
         let header = Header {
             image_len: LEN,
@@ -471,7 +472,7 @@ mod tests {
             for piece in [4, 8, 12, 20, 64, 128] {
                 let image = relocated(base, hot, piece);
                 let in_hot = |at: u32| runs + at - HOT_AT;
-                assert_eq!(le(&image, 20), runs, "the word of `hot`");
+                assert_eq!(le(&image, HOT_WORD), runs, "the word of `hot`");
                 assert_eq!(
                     reach(&image, CALL_HOT, CALL_HOT + 4, code + CALL_HOT, false),
                     runs,
@@ -505,8 +506,8 @@ mod tests {
     fn in_place_at_the_link_base_nothing_changes() {
         let (_, linked, _) = hot_image();
         let image = relocated(LINK_BASE, 0, 4);
-        assert_eq!(le(&image, 16), 0x3FC8_1234);
-        assert_eq!(image[20..], linked[20..]);
+        assert_eq!(le(&image, 32), 0x3FC8_1234);
+        assert_eq!(image[36..], linked[36..]);
     }
 
     #[test]
@@ -517,8 +518,8 @@ mod tests {
         // a kind unknown, a site too far; a lower part without its `auipc`.
         for (i, record) in [
             (2, PatchKind::Hi20.record(LOAD)),
-            (1, PatchKind::Hi20.record(60)),
-            (1, PatchKind::Hi20.record(97)),
+            (1, PatchKind::Hi20.record(92)),
+            (1, PatchKind::Hi20.record(129)),
             (2, PatchKind::Hi20.record(LEN - 2)),
             (1, 4 << 28 | LOAD),
             (1, PatchKind::Hi20.record(PatchKind::SITES + LOAD)),
@@ -543,7 +544,7 @@ mod tests {
         }
         // A word whose data address lies in hot code that moves.
         let mut image = alloc::vec![0u8; LEN as usize];
-        image[20..24].copy_from_slice(&(LINK_BASE + HOT_AT).to_le_bytes());
+        image[HOT_WORD..HOT_WORD + 4].copy_from_slice(&(LINK_BASE + HOT_AT).to_le_bytes());
         let relocator = Relocator::new(&header, &words, LINK_BASE, 0).unwrap();
         assert!(relocator.apply(0, &mut image.clone()).is_ok());
         let moved = relocator.hot_at(0x4039_0000).unwrap();
