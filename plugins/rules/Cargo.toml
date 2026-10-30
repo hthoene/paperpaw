@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-rules"
 description = "PaperPaw rules: when something happens, do something (e.g. night mode at 22:00, sync catalogs at start)"
-version = "1.0.3"
+version = "1.0.4"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

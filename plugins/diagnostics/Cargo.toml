@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-diagnostics"
 description = "PaperPaw diagnostics screen: gray levels, focus navigation, refresh modes"
-version = "1.0.4"
+version = "1.0.5"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

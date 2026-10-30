@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-wallabag"
 description = "PaperPaw Wallabag: articles saved to read later, fetched as books"
-version = "1.0.2"
+version = "1.0.3"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

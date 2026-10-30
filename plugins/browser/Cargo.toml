@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-browser"
 description = "PaperPaw browser: reads web pages like books and fetches books and fonts from the web"
-version = "1.0.3"
+version = "1.0.4"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

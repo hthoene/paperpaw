@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-reading-goal"
 description = "PaperPaw reading goal: minutes to read a day, and a cat on the home screen whose mood follows today's reading"
-version = "1.0.3"
+version = "1.0.4"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

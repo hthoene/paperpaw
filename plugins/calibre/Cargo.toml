@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-calibre"
 description = "PaperPaw's Calibre connection: receive books from Calibre over the network, as its wireless device"
-version = "1.0.4"
+version = "1.0.5"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

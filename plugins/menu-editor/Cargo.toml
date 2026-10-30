@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-menu-editor"
 description = "PaperPaw menu editor: reorders, removes and adds the entries of every menu on the device"
-version = "1.0.2"
+version = "1.0.3"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-joplin"
 description = "PaperPaw Joplin: a book's exported highlights and notes kept as a note in Joplin"
-version = "1.0.2"
+version = "1.0.3"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

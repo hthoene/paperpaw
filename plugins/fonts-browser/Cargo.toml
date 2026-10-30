@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-fonts-browser"
 description = "PaperPaw fonts from the internet: browse a catalog of fonts with a sample of each, download one and read with it"
-version = "1.0.2"
+version = "1.0.3"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

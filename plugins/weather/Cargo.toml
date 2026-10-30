@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-weather"
 description = "PaperPaw weather: the weather now and the next days as widgets, from Open-Meteo"
-version = "1.0.2"
+version = "1.0.3"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-battery"
 description = "PaperPaw battery use: records the battery while the device is awake, with what it did, and shows how long it lasts"
-version = "1.0.3"
+version = "1.0.4"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
