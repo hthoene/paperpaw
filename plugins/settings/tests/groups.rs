@@ -94,3 +94,72 @@ fn groups_without_an_order_come_last_among_those_for_customising() {
         assert!(at("Pond") > at("Reading"), "{rows:?}");
     }
 }
+
+/// A plugin that puts an action into its group, with a state.
+struct Mailer;
+
+const MAILER_OPEN: Id = Id::new_static("mailer.open");
+static MAILER_ENTRIES: [paperpaw_sdk::MenuEntry; 1] = [paperpaw_sdk::MenuEntry::new(
+    Id::new_static("mailer.group"),
+    MAILER_OPEN,
+)];
+static MAILER_ACTIONS: [paperpaw_sdk::FixedAction; 1] =
+    [
+        paperpaw_sdk::FixedAction::new(MAILER_OPEN, "Open mail").handler(|_, _, out| {
+            out.push(paperpaw_sdk::Command::Announce("mail opened".into()));
+        }),
+    ];
+static MAILER_SETTINGS: [SettingSpec; 1] = [SettingSpec::switch(
+    "mailer.check",
+    "Check mail",
+    false,
+    Id::new_static("mailer.group"),
+)];
+
+impl Plugin for Mailer {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(Id::new_static("mailer"), "Mailer", Version::new(0, 1, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        r.add_setting_group(SettingGroupSpec::new(
+            Id::new_static("mailer.group"),
+            "Mail",
+        ))?;
+        r.add_settings(&MAILER_SETTINGS)?;
+        r.add_actions(&MAILER_ACTIONS)?;
+        r.add_menu_entries(&MAILER_ENTRIES)?;
+        r.set_item_state(MAILER_OPEN, |_| paperpaw_sdk::ItemState::new().badge("New"))
+    }
+}
+
+#[test]
+fn an_action_of_a_group_is_its_first_row_with_its_state() {
+    for device in DEVICES {
+        let mut app = App::with_plugin(device, Shared::memory("", &[]), Mailer);
+        app.home();
+        app.open_screen(
+            Id::new_static("settings.group"),
+            Params::new().with(params::ID, "mailer.group"),
+        );
+        let rows = titles(&mut app);
+        assert_eq!(
+            rows.first().map(String::as_str),
+            Some("Open mail"),
+            "{rows:?}"
+        );
+        assert_eq!(
+            rows.get(1).map(String::as_str),
+            Some("Check mail"),
+            "{rows:?}"
+        );
+        // Its state at the right.
+        let first = app
+            .parts()
+            .into_iter()
+            .find(|p| p.role == Role::Row)
+            .unwrap();
+        assert!(first.label.contains("New"), "{}", first.label);
+    }
+}

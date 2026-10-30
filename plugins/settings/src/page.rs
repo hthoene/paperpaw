@@ -211,6 +211,18 @@ fn entries(env: &Env<'_>, of: &Id, placed: bool, more: bool, specs: &[SettingSpe
             .map(|g| Row::Part(g.id.clone(), env.i18n().tr(&g.title).to_string()))
             .collect(),
     };
+    // What plugins do with the group (opening the update page, looking
+    // for fonts): its first rows, where the group is opened for them.
+    if !placed && !more {
+        let menus = env.menus();
+        let actions = menus
+            .items(of.as_str())
+            .into_iter()
+            .filter(|item| !item.section && env.actions().contains(item.id.as_str()))
+            .filter(|item| menus.state(env, item.id.as_str()).shown)
+            .map(|item| Row::Action(item.id.clone()));
+        entries.splice(0..0, actions);
+    }
     // Sections: settings without one first, then the standard ones,
     // then the others as they come.
     let mut sections: Vec<Option<Cow<'static, str>>> = Vec::new();
@@ -253,21 +265,21 @@ fn entries(env: &Env<'_>, of: &Id, placed: bool, more: bool, specs: &[SettingSpe
     if has_more {
         entries.push(Row::More);
     }
-    // What plugins do with the group's settings (cleaning up the
-    // storage in the device's).
-    if !placed && !more {
-        entries.extend(
-            env.menus()
-                .items(of.as_str())
-                .into_iter()
-                .filter(|item| !item.section && env.actions().contains(item.id.as_str()))
-                .map(|item| Row::Action(item.id.clone())),
-        );
-    }
     if !specs.is_empty() {
         entries.push(Row::Reset);
     }
     entries
+}
+
+/// An action's title and what it shows at the right: its state (`New`
+/// for an update), else the arrow of a page.
+fn action_texts<'a>(env: &'a Env<'_>, action: &Id) -> (&'a str, Cow<'static, str>) {
+    let title = env.actions().get(action.as_str()).map_or("", |a| a.title());
+    let value = match env.menus().state(env, action.as_str()).badge {
+        Some(badge) => badge,
+        None => Cow::Borrowed("›"),
+    };
+    (env.i18n().tr(title), value)
 }
 
 impl GroupPage {
@@ -558,9 +570,8 @@ impl Screen for GroupPage {
                         return ui::Row::value(title, &name).focused(focused).draw(ui, row);
                     }
                     Row::Action(action) => {
-                        let title = env.actions().get(action.as_str()).map_or("", |a| a.title());
-                        let title = env.i18n().tr(title);
-                        return ui::Row::plain(title).focused(focused).draw(ui, row);
+                        let (title, value) = action_texts(env, action);
+                        return ui::Row::value(title, &value).focused(focused).draw(ui, row);
                     }
                     Row::Part(_, title) => {
                         return ui::Row::value(title, "›").focused(focused).draw(ui, row);

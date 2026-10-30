@@ -36,7 +36,7 @@ use alloc::format;
 use alloc::string::String;
 
 use count::Trigger;
-use paperpaw_sdk::builtin::{events, groups, menus};
+use paperpaw_sdk::builtin::{events, groups};
 use paperpaw_sdk::firmware::Firmware;
 use paperpaw_sdk::{
     Arg, Command, Commands, Env, FixedAction, FixedScreen, Id, ItemState, Manifest, MenuEntry,
@@ -190,8 +190,8 @@ static ACTIONS: [FixedAction; 2] = [
         }
     }),
 ];
-/// In the device's part of the settings, before *About*.
-static ENTRIES: [MenuEntry; 1] = [MenuEntry::new(menus::SETTINGS, OPEN).order(98)];
+/// The first row of the *Updates* settings, with its state.
+static ENTRIES: [MenuEntry; 1] = [MenuEntry::new(GROUP, OPEN)];
 static ICONS: [(Id, &str); 2] = [(CHECK, "cloud-download"), (OPEN, "circle-arrow-up")];
 
 static SCREENS: [FixedScreen; 1] = [FixedScreen::new(PAGE, "update.title", |env, _| {
