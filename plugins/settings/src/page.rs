@@ -2,7 +2,9 @@
 //! in a chooser.
 
 use super::*;
-use paperpaw_sdk::ui::slider::{Slider, SliderDrag, SliderFocus, SliderView};
+use paperpaw_sdk::ui::slider::{SliderDrag, SliderFocus, SliderView};
+
+use crate::track::Track;
 
 /// The id of setting `id` of group `of` for its placement `placement`:
 /// `widgets.clock.face` of `widgets.clock@2` is `widgets.clock@2.face`.
@@ -602,18 +604,19 @@ impl Screen for GroupPage {
                 let note = spec.description.as_deref().map_or("", |d| env.i18n().tr(d));
                 let note = if noted { note } else { "" };
                 let mut value = ui::setting_value(env, spec);
-                if let Some(slider) = Slider::of(spec).filter(|_| ui::slider::shows(env, spec)) {
+                if let Some(track) = Track::of(env, spec).filter(|_| ui::slider::shows(env, spec)) {
                     let focus = match (focused, editing) {
                         (false, _) => SliderFocus::None,
                         (true, false) => SliderFocus::Focused,
                         (true, true) => SliderFocus::Editing,
                     };
-                    let view = SliderView::new(rect, env.settings().int(spec.id.as_str()), &value)
+                    let at = track.at(env.settings().int(spec.id.as_str()));
+                    let view = SliderView::new(rect, at, &value)
                         .title(title)
                         .note(note)
                         .focus(focus)
                         .room(&self.number_room);
-                    slider.draw_row(canvas, env, &style, &view);
+                    track.slider().draw_row(canvas, env, &style, &view);
                     return;
                 }
                 let lines = match all_lines.get(index).copied().flatten() {
@@ -766,10 +769,10 @@ impl Screen for GroupPage {
             None if event.phase == PointerPhase::Down => self.rows.hit(event.point),
             None => None,
         };
-        let Some((index, slider, id, rect)) = index.and_then(|i| {
+        let Some((index, track, id, rect)) = index.and_then(|i| {
             let spec = self.spec(i).filter(|s| ui::slider::shows(&env, s))?;
-            let slider = Slider::of(spec)?;
-            Some((i, slider, spec.id.clone(), self.rows.rect_of(i)?))
+            let track = Track::of(&env, spec)?;
+            Some((i, track, spec.id.clone(), self.rows.rect_of(i)?))
         }) else {
             return Handled::No;
         };
@@ -777,10 +780,10 @@ impl Screen for GroupPage {
             .spec(index)
             .map_or(0, |spec| self.slider_extra(&env, spec, rect));
         let band = ui::slider::band_below(&self.style, rect, extra);
-        let value = env.settings().int(id.as_str());
+        let value = track.at(env.settings().int(id.as_str()));
         let Some(step) = self
             .drag
-            .on_pointer(event, &self.style, &slider, band, value)
+            .on_pointer(event, &self.style, track.slider(), band, value)
         else {
             return Handled::No;
         };
@@ -798,9 +801,9 @@ impl Screen for GroupPage {
             }
         };
         // Only the sizes of book text that look different.
-        let shown = |value: i64| {
+        let shown = |at: i64| {
             self.spec(index)
-                .map_or(value, |s| ui::shown_slider_value(&env, s, before, value))
+                .map_or(at, |s| track.value(&env, s, before, at))
         };
         match step {
             ui::slider::SliderStep::Moved(value) => {

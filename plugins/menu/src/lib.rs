@@ -45,6 +45,7 @@ pub const STYLE_TILES: &str = "menu.style.tiles";
 mod bar;
 mod notice;
 mod panel;
+mod track;
 
 /// The menu plugin.
 #[derive(Debug, Default)]

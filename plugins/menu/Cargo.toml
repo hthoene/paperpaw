@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-menu"
 description = "PaperPaw menu overlay: shows the entries any plugin contributes to a menu"
-version = "1.0.2"
+version = "1.0.3"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

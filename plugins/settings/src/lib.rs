@@ -44,6 +44,7 @@ mod page;
 mod search;
 mod secrets;
 mod themes;
+mod track;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;

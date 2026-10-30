@@ -24,6 +24,7 @@ use paperpaw_sdk::{
     PointerEvent, PointerPhase, Rect, RefreshMode, Screen, SettingKind, SettingSpec, SettingValue,
 };
 
+use crate::track::Track;
 use crate::{choose, is_menu};
 
 /// Most switches or buttons in one row.
@@ -708,8 +709,7 @@ impl PanelScreen {
 /// the focus bar when focused.
 fn draw_slider(ui: &mut ui::Ui<'_>, id: &Id, rect: Rect, focus: ui::slider::SliderFocus) {
     let (env, style) = (ui.env(), ui.style());
-    let Some((spec, slider)) = spec(env, id).and_then(|s| Some((s, ui::slider::Slider::of(s)?)))
-    else {
+    let Some((spec, track)) = spec(env, id).and_then(|s| Some((s, Track::of(env, s)?))) else {
         return;
     };
     if focus != ui::slider::SliderFocus::None {
@@ -717,11 +717,12 @@ fn draw_slider(ui: &mut ui::Ui<'_>, id: &Id, rect: Rect, focus: ui::slider::Slid
     }
     let shown = ui::setting_value(env, spec);
     let room = ui::number_room(env, style, [spec]);
-    let view = ui::slider::SliderView::new(rect, env.settings().int(id.as_str()), &shown)
+    let at = track.at(env.settings().int(id.as_str()));
+    let view = ui::slider::SliderView::new(rect, at, &shown)
         .title(env.i18n().tr(&spec.title))
         .room(&room)
         .focus(focus);
-    slider.draw_row(ui.canvas(), env, style, &view);
+    track.slider().draw_row(ui.canvas(), env, style, &view);
 }
 
 /// How much higher than its line a slider's title is in a row `width`
@@ -1010,24 +1011,24 @@ impl Screen for PanelScreen {
                 .position(|r| r.page == self.page && r.area.contains(event.point)),
             None => None,
         };
-        let Some((row, id, slider, area)) = row.and_then(|index| {
+        let Some((row, id, track, area)) = row.and_then(|index| {
             let row = &self.rows[index];
             let [(Control::Slide(id), area)] = row.controls.as_slice() else {
                 return None;
             };
-            let slider = spec(&env, id).and_then(ui::slider::Slider::of)?;
+            let track = spec(&env, id).and_then(|s| Track::of(&env, s))?;
             // Shown faint by its plugin: not moved.
             Control::Slide(id.clone()).enabled(&env).then_some(())?;
-            Some((index, id.clone(), slider, *area))
+            Some((index, id.clone(), track, *area))
         }) else {
             return Handled::No;
         };
         let extra = spec(&env, &id).map_or(0, |s| slider_extra(&env, &self.style, area.width, s));
         let band = ui::slider::band_below(&self.style, area, extra);
         let value = env.settings().int(id.as_str());
-        let Some(step) = self
-            .drag
-            .on_pointer(event, &self.style, &slider, band, value)
+        let Some(step) =
+            self.drag
+                .on_pointer(event, &self.style, track.slider(), band, track.at(value))
         else {
             return Handled::No;
         };
@@ -1045,9 +1046,7 @@ impl Screen for PanelScreen {
             }
         };
         // Only the sizes of book text that look different.
-        let shown = |value: i64| {
-            spec(&env, &id).map_or(value, |s| ui::shown_slider_value(&env, s, before, value))
-        };
+        let shown = |at: i64| spec(&env, &id).map_or(at, |s| track.value(&env, s, before, at));
         match step {
             ui::slider::SliderStep::Moved(value) => show(cx, id.clone(), shown(value)),
             ui::slider::SliderStep::Same => {}
