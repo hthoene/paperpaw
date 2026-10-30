@@ -739,7 +739,12 @@ impl<'a> ReadingFaces<'a> {
 impl ReadingFaces<'_> {
     /// The width of `text` in `face` as [`ReadingFaces::draw_around`]
     /// sets it.
-    pub fn measure_around(&self, face: Face, text: &str, around: &crate::text::Around) -> f32 {
+    pub(crate) fn measure_around(
+        &self,
+        face: Face,
+        text: &str,
+        around: &crate::text::Around,
+    ) -> f32 {
         match shaped(text, around) && !face.style.small_caps() {
             true => self.font(face).measure_in(self.size(face), text, around),
             false => self.measure(face, text),
@@ -754,7 +759,7 @@ impl ReadingFaces<'_> {
         clippy::too_many_arguments,
         reason = "its inputs are separate things; a struct of them would serve this call alone"
     )]
-    pub fn draw_around(
+    pub(crate) fn draw_around(
         &self,
         canvas: &mut Canvas<'_>,
         face: Face,
