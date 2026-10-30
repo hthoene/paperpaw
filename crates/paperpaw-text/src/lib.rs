@@ -23,11 +23,24 @@ compile_error!(
 
 extern crate alloc;
 
+// Bidirectional text and Arabic shaping (#33): a prototype, crate-private
+// until the plugin interface is raised for it, so code plugins do not see
+// it yet. Fuzzing reaches it through `fuzz` (cargo-fuzz sets `fuzzing`).
+#[allow(dead_code, reason = "a prototype that nothing uses yet (#33)")]
+mod arabic;
+#[allow(
+    dead_code,
+    unused_imports,
+    reason = "a prototype that nothing uses yet (#33)"
+)]
+mod bidi;
 mod bitmap;
 mod cache;
 pub mod charset;
 mod curve;
 mod font;
+#[cfg(fuzzing)]
+pub mod fuzz;
 mod glyph;
 mod kern_table;
 #[cfg(feature = "outline")]
