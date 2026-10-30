@@ -21,7 +21,10 @@ pub enum Effect {
     /// [`Kernel::suspend`], and [`Kernel::resume`] on waking.
     Sleep,
     /// Switch the device off once the frame is shown: call
-    /// [`Kernel::suspend`] first. The next start is a cold one.
+    /// [`Kernel::suspend`] first. The next start is a cold one. A shell
+    /// that marks its sleeps (the X4) leaves the mark here too, so plugins
+    /// still hear [`events::RESUME`](paperpaw_sdk::builtin::events::RESUME)
+    /// after that start, with the time asleep unknown.
     PowerOff,
     /// The frame is best shown in grays (see [`Effects::grays`]).
     Grays,

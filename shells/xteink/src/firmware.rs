@@ -651,7 +651,11 @@ impl Firmware {
         #[cfg(feature = "bluetooth")]
         self.network
             .bluetooth(paperpaw_core::BtCall::Radio { on: false });
-        if !self.finish_work() {
+        let pressed = !self.finish_work();
+        // A plugin may have asked to switch off while it heard core.suspend
+        // or in the work finished: that is honoured now, not after a wake.
+        let next = paperpaw_x4::sleeping::after_suspend(lightly, self.state.power_off, pressed);
+        if next == paperpaw_x4::sleeping::After::Awake {
             // A press meanwhile: awake after all.
             info!("sleep: a press, awake");
             self.state.sleep = false;
@@ -665,11 +669,9 @@ impl Firmware {
         // A real sleep first (the processor lightly asleep, the power button
         // waking it at once), switched off only after a while (#51).
         #[cfg(feature = "esp32c3")]
-        if lightly && self.sleep_lightly() {
+        if next == paperpaw_x4::sleeping::After::Light && self.sleep_lightly() {
             return;
         }
-        #[cfg(not(feature = "esp32c3"))]
-        let _ = lightly;
         self.power_off()
     }
 
@@ -682,7 +684,9 @@ impl Firmware {
     #[inline(never)]
     fn power_off(&mut self) -> ! {
         // The next start ends this sleep: the mark says so, for plugins to
-        // hear the device wake (`core.resume`).
+        // hear the device wake (`core.resume`). A switch-off a plugin asked
+        // for leaves it too: the start is a cold one, but plugins that
+        // count sleeps hear `core.resume` (with the time asleep unknown).
         paperpaw_x4::slept::mark(self.kernel.storage());
         let _ = self.panel.sleep();
         #[cfg(feature = "x4-pro")]
@@ -752,6 +756,7 @@ impl Firmware {
     #[cfg(feature = "esp32c3")]
     fn wake_lightly(&mut self) {
         self.state.sleep = false;
+        self.state.power_off = false;
         // The clock and the battery shown anew soon.
         self.state.status_read = None;
         if let Some(ota) = &mut self.ota {
