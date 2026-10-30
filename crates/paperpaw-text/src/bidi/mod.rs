@@ -2,12 +2,11 @@
 //! one direction, such as Arabic or Hebrew with Latin words and numbers.
 //!
 //! It works without allocation and without a buffer for the paragraph.
-//! A [`Carry`] holds what the algorithm knows at a point of a paragraph:
-//! the paragraph's level, the open embeddings and isolates, the context of
-//! the weak and neutral rules and the open brackets. A layout resolves a
-//! paragraph line by line: it gives each line's characters and the rest of
-//! the paragraph after them, and keeps the carry from one line to the next.
-//! The levels are the same as when the paragraph is resolved at once.
+//! A layout resolves a paragraph's levels ([`resolve`]), gives each
+//! line's ends the paragraph's level (rule L1, [`reset_line_end`]) and
+//! draws its runs in the order the levels give (rule L2,
+//! [`visual_order`]), characters with mirrors mirrored ([`mirror`]) at
+//! odd levels.
 //!
 //! The test `the_example` resolves a paragraph and puts it in visual order.
 //!
@@ -27,7 +26,8 @@ mod conformance;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use walk::{BRACKETS, Carry, DEPTH, ISOLATES};
+pub(crate) use walk::Carry;
+pub use walk::{BRACKETS, DEPTH, ISOLATES};
 
 /// The bidirectional class of a character (`Bidi_Class`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -139,20 +139,20 @@ fn run<T: Ord + Copy>(starts: &[T], value: T) -> Option<usize> {
 
 /// An embedding level: even is left-to-right, odd right-to-left.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
-pub(crate) struct Level(u8);
+pub struct Level(u8);
 
 impl Level {
     /// A left-to-right paragraph.
-    pub(crate) const LTR: Level = Level(0);
+    pub const LTR: Level = Level(0);
     /// A right-to-left paragraph.
-    pub(crate) const RTL: Level = Level(1);
+    pub const RTL: Level = Level(1);
     /// The highest level UAX #9 knows.
-    pub(crate) const MAX: u8 = 125;
+    pub const MAX: u8 = 125;
 
     /// The level `number`, if it is one (at most [`Level::MAX`] + 1, the
     /// level a number in the deepest right-to-left embedding gets).
     #[must_use]
-    pub(crate) const fn new(number: u8) -> Option<Level> {
+    pub const fn new(number: u8) -> Option<Level> {
         if number <= Level::MAX + 1 {
             Some(Level(number))
         } else {
@@ -162,15 +162,26 @@ impl Level {
 
     /// The level as a number.
     #[must_use]
-    pub(crate) const fn number(self) -> u8 {
+    pub const fn number(self) -> u8 {
         self.0
     }
 
     /// Whether text at this level runs right to left.
     #[must_use]
-    pub(crate) const fn is_rtl(self) -> bool {
+    pub const fn is_rtl(self) -> bool {
         self.0 & 1 == 1
     }
+}
+
+/// Resolves the levels of a paragraph's characters (rules X1 to I2), one
+/// per character of `text` into `levels`, `paragraph` its level (from
+/// [`paragraph_level`], or the book's direction). Returns how many it
+/// wrote: one per character, or fewer where `levels` is shorter. The
+/// levels are before rule L1 ([`reset_line_end`]), which each line
+/// applies to its own.
+pub fn resolve(text: &str, paragraph: Level, levels: &mut [Level]) -> usize {
+    let mut carry = Carry::new(paragraph);
+    carry.resolve(text.chars(), levels.len(), levels)
 }
 
 /// The paragraph's level from its first strong character (rules P2 and
@@ -178,7 +189,7 @@ impl Level {
 /// the caller then takes the book's or the interface's direction (rule
 /// HL1), or left-to-right.
 #[must_use]
-pub(crate) fn paragraph_level(text: &str) -> Option<Level> {
+pub fn paragraph_level(text: &str) -> Option<Level> {
     walk::first_strong(text.chars(), false)
 }
 
@@ -186,7 +197,7 @@ pub(crate) fn paragraph_level(text: &str) -> Option<Level> {
 /// `Bidi_Mirroring_Glyph`): `(` for `)`, `»` for `«`. `ch` itself where it
 /// has no mirror.
 #[must_use]
-pub(crate) fn mirror(ch: char) -> char {
+pub fn mirror(ch: char) -> char {
     let Ok(cp) = u16::try_from(u32::from(ch)) else {
         return ch;
     };
@@ -203,7 +214,7 @@ pub(crate) fn mirror(ch: char) -> char {
 /// overrides, `PDF` and boundary neutrals (ZWJ, ZWNJ, soft hyphen). It
 /// gets the level of the character before it; it draws nothing.
 #[must_use]
-pub(crate) fn is_removed(ch: char) -> bool {
+pub fn is_removed(ch: char) -> bool {
     matches!(
         class(ch),
         Class::RLE | Class::LRE | Class::RLO | Class::LRO | Class::PDF | Class::BN
@@ -215,7 +226,7 @@ pub(crate) fn is_removed(ch: char) -> bool {
 /// control. Quotes, dashes, ellipses and ligatures do not count, so
 /// Latin text answers `false` at the cost of a scan of its bytes.
 #[must_use]
-pub(crate) fn needs_bidi(text: &str) -> bool {
+pub fn needs_bidi(text: &str) -> bool {
     text.chars().any(|ch| {
         u32::from(ch) >= 0x0590
             && matches!(
@@ -240,8 +251,8 @@ pub(crate) fn needs_bidi(text: &str) -> bool {
 /// Rule L1 for one line: segment and paragraph separators, and the
 /// whitespace and isolate controls before them or at the line's end,
 /// take the paragraph's level. `levels` has one level per character of
-/// `line`, as [`Carry::resolve`] gave them.
-pub(crate) fn reset_line_end(line: &str, levels: &mut [Level], paragraph: Level) {
+/// `line`, as [`resolve`] gave them.
+pub fn reset_line_end(line: &str, levels: &mut [Level], paragraph: Level) {
     let mut run: Option<usize> = None;
     for (i, ch) in line.chars().enumerate() {
         if i >= levels.len() {
@@ -283,7 +294,7 @@ fn fill(levels: &mut [Level], from: usize, to: usize, level: Level) {
 /// left, as indexes into its levels. Writes `min(levels, order)` indexes
 /// and returns their count. Characters [`is_removed`] leaves out are
 /// ordered too, with their neighbours; they draw nothing.
-pub(crate) fn visual_order(levels: &[Level], order: &mut [u16]) -> usize {
+pub fn visual_order(levels: &[Level], order: &mut [u16]) -> usize {
     let n = levels.len().min(order.len()).min(usize::from(u16::MAX));
     let Some(order) = order.get_mut(..n) else {
         return 0;

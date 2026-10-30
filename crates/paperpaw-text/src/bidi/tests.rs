@@ -239,3 +239,19 @@ fn hostile_text_costs_linear_time() {
         assert!(large < small * 8.0, "{unit:?}: {small} s, then {large} s");
     }
 }
+
+#[test]
+fn a_paragraph_resolves_at_once() {
+    // Hebrew in a left-to-right paragraph, a number in a right-to-left one.
+    let mut levels = [Level::LTR; 16];
+    let text = "ab \u{5d0}\u{5d1}";
+    assert_eq!(resolve(text, Level::LTR, &mut levels), 5);
+    let numbers: Vec<u8> = levels[..5].iter().map(|l| l.number()).collect();
+    assert_eq!(numbers, [0, 0, 0, 1, 1]);
+    let text = "\u{5d0} 12";
+    assert_eq!(resolve(text, Level::RTL, &mut levels), 4);
+    let numbers: Vec<u8> = levels[..4].iter().map(|l| l.number()).collect();
+    assert_eq!(numbers, [1, 1, 2, 2]);
+    // Fewer levels than characters: as many as fit.
+    assert_eq!(resolve(text, Level::RTL, &mut levels[..2]), 2);
+}
