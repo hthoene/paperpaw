@@ -549,6 +549,7 @@ dependencies = [
 name = "paperpaw-document"
 version = "0.5.0-beta.12"
 dependencies = [
+ "paperpaw-lang",
  "paperpaw-platform",
 ]
 
@@ -572,6 +573,7 @@ name = "paperpaw-i18n"
 version = "0.5.0-beta.12"
 dependencies = [
  "paperpaw-config",
+ "paperpaw-lang",
 ]
 
 [[package]]
@@ -590,10 +592,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-lang"
+version = "0.5.0-beta.12"
+
+[[package]]
 name = "paperpaw-layout"
 version = "0.5.0-beta.12"
 dependencies = [
  "paperpaw-document",
+ "paperpaw-platform",
  "paperpaw-text",
 ]
 
@@ -625,10 +632,12 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-image",
  "paperpaw-json",
+ "paperpaw-lang",
  "paperpaw-layout",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-qr",
+ "paperpaw-table",
  "paperpaw-text",
  "paperpaw-update",
  "paperpaw-xml",
@@ -636,10 +645,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-table"
+version = "0.5.0-beta.12"
+
+[[package]]
 name = "paperpaw-text"
 version = "0.5.0-beta.12"
 dependencies = [
  "paperpaw-graphics",
+ "paperpaw-lang",
  "paperpaw-platform",
 ]
 
