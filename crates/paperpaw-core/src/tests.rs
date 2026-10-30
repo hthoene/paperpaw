@@ -760,11 +760,7 @@ impl Plugin for FontPlugin {
     fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
         for name in ["type.serif", "type.sans"] {
             let mut pack = paperpaw_text::PackBuilder::new();
-            let metrics = paperpaw_text::LineMetrics {
-                ascent: 8.0,
-                descent: 2.0,
-                line_height: 12.0,
-            };
+            let metrics = paperpaw_text::LineMetrics::new(8.0, 2.0, 12.0);
             pack.add_strike(
                 10.0,
                 metrics,
@@ -2100,11 +2096,7 @@ fn data_plugins_load_and_go_while_running() {
     use paperpaw_text::{Glyph, LineMetrics, PackBuilder};
 
     let mut builder = PackBuilder::new();
-    let metrics = LineMetrics {
-        ascent: 8.0,
-        descent: 2.0,
-        line_height: 12.0,
-    };
+    let metrics = LineMetrics::new(8.0, 2.0, 12.0);
     builder.add_strike(10.0, metrics, alloc::vec![('a', Glyph::empty(5.0))]);
     let pack = builder.build();
 
@@ -2186,11 +2178,7 @@ regular = round.ppfp
 fn round_pack() -> Vec<u8> {
     use paperpaw_text::{Glyph, LineMetrics, PackBuilder};
     let mut builder = PackBuilder::new();
-    let metrics = LineMetrics {
-        ascent: 8.0,
-        descent: 2.0,
-        line_height: 12.0,
-    };
+    let metrics = LineMetrics::new(8.0, 2.0, 12.0);
     builder.add_strike(10.0, metrics, alloc::vec![('a', Glyph::empty(5.0))]);
     builder.build()
 }

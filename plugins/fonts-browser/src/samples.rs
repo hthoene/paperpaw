@@ -245,11 +245,7 @@ mod tests {
 
     /// A sample of the letters of `text`.
     fn pack(text: &str) -> Vec<u8> {
-        let metrics = LineMetrics {
-            ascent: 20.0,
-            descent: 6.0,
-            line_height: 30.0,
-        };
+        let metrics = LineMetrics::new(20.0, 6.0, 30.0);
         let mut builder = PackBuilder::new();
         builder.add_strike(
             26.0,

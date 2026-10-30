@@ -13,6 +13,7 @@ keywords = ["font", "text", "rasterizer", "no-std"]
 
 [dependencies]
 paperpaw-graphics.workspace = true
+paperpaw-lang.workspace = true
 paperpaw-platform.workspace = true
 
 # Outline fonts only where there is an operating system (a computer, a

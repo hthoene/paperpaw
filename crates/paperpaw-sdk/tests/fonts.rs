@@ -22,11 +22,7 @@ use proptest::prelude::*;
 
 /// A font pack holding `chars`, each `advance` wide.
 fn pack(chars: &str, advance: f32) -> Vec<u8> {
-    let metrics = LineMetrics {
-        ascent: 8.0,
-        descent: 2.0,
-        line_height: 12.0,
-    };
+    let metrics = LineMetrics::new(8.0, 2.0, 12.0);
     let mut builder = PackBuilder::new();
     let glyphs = chars.chars().map(|c| (c, Glyph::empty(advance))).collect();
     builder.add_strike(10.0, metrics, glyphs);
@@ -49,12 +45,7 @@ fn with_builtin() -> Fonts {
 }
 
 fn info(family: &str, bold: bool, italic: bool, weight: u16) -> FontInfo {
-    FontInfo {
-        family: family.into(),
-        bold,
-        italic,
-        weight,
-    }
+    FontInfo::new(family, bold, italic, weight)
 }
 
 proptest! {
