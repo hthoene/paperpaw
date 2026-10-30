@@ -222,6 +222,7 @@ Crates in the apps (Android, the desktop and web emulators) used under the MIT L
 - android_logger 0.15.1: Copyright 2016 The android_logger Developers; Copyright (c) 2016 The android_logger Developers
 - android_system_properties 0.1.6: Copyright 2016 Nicolas Silva; Copyright (c) 2013 Nicolas Silva; COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 - as-raw-xcb-connection 1.0.1: Copyright 2019 as-raw-xcb-connection Contributers
+- async-lock 3.4.2: Copyright Stjepan Glavina (https://github.com/smol-rs/async-lock)
 - bitflags 1.3.2: Copyright (c) 2014 The Rust Project Developers
 - bitflags 2.13.2: Copyright (c) 2014 The Rust Project Developers
 - block2 0.5.1: Copyright Steven Sheldon, Mads Marquart (https://github.com/madsmtm/objc2)
@@ -255,10 +256,15 @@ Crates in the apps (Android, the desktop and web emulators) used under the MIT L
 - dtor 0.8.1: Copyright Matt Mastracci (https://github.com/mmastrac/rust-ctor)
 - ed25519-compact 2.6.0: Copyright (c) 2020-2026 Frank Denis
 - embedded-hal 1.0.0: Copyright (c) 2017-2018 Jorge Aparicio
+- embedded-io 0.7.1: Copyright (c) 2023 The embedded-io authors
+- embedded-io-async 0.7.0: Copyright (c) 2023 The embedded-io-async authors
 - env_filter 0.1.4: Copyright (c) Individual contributors
 - equivalent 1.0.3: Copyright (c) 2016--2023
 - errno 0.3.14: Copyright (c) 2014 Chris Wong
+- event-listener 5.4.2: Copyright Stjepan Glavina, John Nunley (https://github.com/smol-rs/event-listener)
+- event-listener-strategy 0.5.4: Copyright John Nunley (https://github.com/smol-rs/event-listener-strategy)
 - fastrand 2.5.0: Copyright Stjepan Glavina (https://github.com/smol-rs/fastrand)
+- fatfs 0.4.0: Copyright 2017 Rafał Harabień
 - fdeflate 0.3.7: Copyright The image-rs Developers (https://github.com/image-rs/fdeflate)
 - flate2 1.1.10: Copyright (c) 2014-2026 Alex Crichton
 - font-types 0.12.7: Copyright 2019 Fontations Developers; Copyright (c) 2019 Fontations Developers
@@ -270,6 +276,13 @@ Crates in the apps (Android, the desktop and web emulators) used under the MIT L
 - futures-util 0.3.34: Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
 - getrandom 0.3.4: Copyright (c) 2018-2025 The rust-random Project Developers; Copyright (c) 2014 The Rust Project Developers
 - getrandom 0.4.3: Copyright (c) 2018-2026 The rust-random Project Developers; Copyright (c) 2014 The Rust Project Developers
+- hadris-common 3.0.0-rc.2: Copyright (c) 2026 The Hadris Project Contributors
+- hadris-fat 3.0.0-rc.2: Copyright (c) 2026 The Hadris Project Contributors
+- hadris-fat-raw 0.2.0: Copyright (c) 2026 The Hadris Project Contributors
+- hadris-fs 3.0.0-rc.2: Copyright (c) 2026 The Hadris Project Contributors
+- hadris-io 3.0.0-rc.2: Copyright (c) 2026 The Hadris Project Contributors
+- hadris-macros 3.0.0-rc.2: Copyright (c) 2026 The Hadris Project Contributors
+- hadris-storage 3.0.0-rc.2: Copyright (c) 2026 The Hadris Project Contributors
 - hashbrown 0.17.1: Copyright (c) 2016 Amanieu d'Antras
 - iana-time-zone 0.1.65: Copyright 2020 Andrew Straw; Copyright (c) 2020 Andrew D. Straw
 - indexmap 2.14.2: Copyright (c) 2016--2017
@@ -340,6 +353,7 @@ Crates in the apps (Android, the desktop and web emulators) used under the MIT L
 - smithay-client-toolkit 0.19.2: Copyright (c) 2018 Victor Berger
 - smol_str 0.2.2: Copyright Aleksey Kladov (https://github.com/rust-analyzer/smol_str)
 - softbuffer 0.4.8: Copyright 2022 Kirill Chibisov
+- spin 0.12.3: Copyright (c) 2014 Mathijs van de Nes
 - stable_deref_trait 1.2.1: Copyright (c) 2017 Robert Grosse
 - syn 2.0.119: Copyright David Tolnay (https://github.com/dtolnay/syn)
 - syn 3.0.9: Copyright David Tolnay (https://github.com/dtolnay/syn)

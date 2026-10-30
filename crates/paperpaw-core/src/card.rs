@@ -11,9 +11,9 @@ pub enum CardTrouble {
     Missing,
     /// The card answers, but its blocks cannot be read.
     Unreadable,
-    /// It is formatted as exFAT (or NTFS), not FAT32.
-    ExFat,
-    /// It has no FAT file system, nor a partition with one.
+    /// It is formatted as NTFS, not exFAT or FAT32.
+    Ntfs,
+    /// It has no FAT or exFAT file system, nor a partition with one.
     NoFat,
 }
 
@@ -23,7 +23,7 @@ impl CardTrouble {
         match self {
             Self::Missing => "core.card.missing",
             Self::Unreadable => "core.card.unreadable",
-            Self::ExFat => "core.card.exfat",
+            Self::Ntfs => "core.card.ntfs",
             Self::NoFat => "core.card.no-fat",
         }
     }

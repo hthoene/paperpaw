@@ -24,7 +24,7 @@ its driver crates. A port touches these:
 | The display controller | `crates/paperpaw-x4` (`display`, `uc8179`, `panel`, `probe`) | The controller's driver, tested against a simulated controller |
 | Input | the board, `shells/xteink/src/input.rs`, `paperpaw_x4::buttons`, `gt911` | Buttons by pin or by ADC ladder, touch, their names |
 | Power and battery | the board, `power.rs`, `usb_power.rs`, `paperpaw_x4::cw2017` | The power latch, the battery's charge, outer power, sleep |
-| The card | `card.rs` or `card_pro.rs`, `volume.rs`, `paperpaw-fat` | The SD card's bus and its FAT file system |
+| The card | `card.rs` or `card_pro.rs`, `volume.rs`, `paperpaw-fat` | The SD card's bus and its FAT or exFAT file system (`ExFatStorage`, ADR 0033) |
 | The light | `light.rs`, `device.rs` | The front light's brightness and warmth |
 | The clock | `clock.rs`, `paperpaw_x4::bm8563` | A clock chip that keeps the time while off |
 | Wi-Fi | `wifi.rs`, `network.rs` | The radio, usually unchanged within a chip family |

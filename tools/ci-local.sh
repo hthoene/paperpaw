@@ -361,7 +361,7 @@ g_fuzz() {
         cp samples/library/books/*.epub fuzz/corpus/epub/
         cp samples/library/books/*.txt fuzz/corpus/txt/
         cp crates/paperpaw-image/tests/data/*.jpg crates/paperpaw-image/tests/data/*.png fuzz/corpus/image/
-        for target in epub txt xml hyphen image lua; do
+        for target in epub txt xml hyphen image lua exfat; do
           cargo +nightly fuzz run "$target" -- -max_total_time=60 -rss_limit_mb=1024
         done'
 }
