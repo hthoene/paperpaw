@@ -15,15 +15,62 @@ pub static API: Api = Api {
     micros,
     icon,
     alloc_in,
-    // no family shared yet (the text family comes with the firmware step of interface 5).
-    family_revs: [0; 8],
-    family_min: [0; 8],
-    build: BUILD.as_ptr(),
-    build_len: BUILD.len() as u32,
+    family_revs: SHARED_REVISIONS,
+    family_min: SHARED_OLDEST,
+    build: BUILD.0.as_ptr(),
+    build_len: BUILD.1 as u32,
 };
 
-/// What the logs call this build.
-const BUILD: &str = concat!("PaperPaw ", env!("CARGO_PKG_VERSION"));
+/// The revisions of the families of shared functions this firmware has,
+/// and the oldest whose plugins it still runs: the RISC-V chips (X4, X3)
+/// share, the X4 Pro's plugins carry their own copies.
+#[cfg(feature = "esp32c3")]
+const SHARED_REVISIONS: paperpaw_table::Revisions = paperpaw_table::REVISIONS;
+#[cfg(feature = "esp32c3")]
+const SHARED_OLDEST: paperpaw_table::Revisions = paperpaw_table::OLDEST;
+#[cfg(feature = "esp32s3")]
+const SHARED_REVISIONS: paperpaw_table::Revisions = [0; paperpaw_table::FAMILIES];
+#[cfg(feature = "esp32s3")]
+const SHARED_OLDEST: paperpaw_table::Revisions = [0; paperpaw_table::FAMILIES];
+
+/// The address of this firmware's table of each family, by family number,
+/// for the loader to write into a plugin's family words (0: none).
+#[cfg(feature = "esp32c3")]
+pub fn tables() -> [u32; paperpaw_table::FAMILIES] {
+    let mut tables = [0; paperpaw_table::FAMILIES];
+    for (n, table) in tables.iter_mut().enumerate() {
+        if SHARED_REVISIONS[n] != 0
+            && let Some(family) = paperpaw_table::Family::of(n as u8)
+        {
+            *table = paperpaw_sdk::shared::table(family).0 as u32;
+        }
+    }
+    tables
+}
+
+/// What the logs and crash reports call this build: its version and the
+/// hash of its tables (`Api::build`), and its length.
+static BUILD: ([u8; 48], usize) = {
+    let mut text = [0u8; 48];
+    let mut len = 0;
+    let parts = [
+        "PaperPaw ".as_bytes(),
+        env!("CARGO_PKG_VERSION").as_bytes(),
+        " tables ".as_bytes(),
+        paperpaw_table::HASH.as_bytes(),
+    ];
+    let mut p = 0;
+    while p < parts.len() {
+        let mut i = 0;
+        while i < parts[p].len() {
+            text[len] = parts[p][i];
+            len += 1;
+            i += 1;
+        }
+        p += 1;
+    }
+    (text, len)
+};
 
 unsafe extern "C" fn alloc(size: usize, align: usize) -> *mut u8 {
     match Layout::from_size_align(size, align) {

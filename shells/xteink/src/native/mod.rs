@@ -257,6 +257,28 @@ impl Loader {
                 PluginProblem::NeedsNewerPaperPaw
             });
         }
+        // The families of shared functions it calls in this firmware: not
+        // a newer revision than this has, nor one before a change old
+        // plugins would see. Refused before anything is placed.
+        if let Some(misfit) = paperpaw_table::misfit(
+            &header.families,
+            &api::API.family_min,
+            &api::API.family_revs,
+        ) {
+            warn!(
+                "native: {path} calls revisions {:?} of the shared functions; this firmware \
+                 has {:?} and runs plugins from {:?} on",
+                header.families,
+                api::API.family_revs,
+                api::API.family_min
+            );
+            return Err(match misfit {
+                paperpaw_table::Misfit::Newer => PluginProblem::NeedsNewerPaperPaw,
+                paperpaw_table::Misfit::Older => PluginProblem::OlderInterface {
+                    built_for: header.interface,
+                },
+            });
+        }
         if let Some(why) = paperpaw_sdk::native::Fingerprint(header.fingerprint).misfit() {
             warn!("native: {path} is {why} ({FINGERPRINT}, {TOOLCHAIN})");
             return Err(PluginProblem::OtherBuild);

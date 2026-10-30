@@ -148,7 +148,8 @@ impl Flash {
             .erase(placement.at, end)
             .map_err(|e| written_not(path, e))?;
         let mut relocator = Relocator::new(header, words, placement.base, &API as *const _ as u32)
-            .map_err(super::problem)?;
+            .map_err(super::problem)?
+            .tables(super::api::tables());
         if placement.hot != 0 {
             relocator = relocator.hot_at(placement.hot).map_err(super::problem)?;
         }

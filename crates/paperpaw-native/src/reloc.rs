@@ -143,6 +143,9 @@ pub struct Relocator<'a> {
     hot: u32,
     /// The address of the firmware's table.
     api: u32,
+    /// The addresses of the firmware's tables of shared functions, by
+    /// family number (0: none).
+    tables: [u32; crate::TABLE_SYMBOLS.len()],
 }
 
 impl<'a> Relocator<'a> {
@@ -171,7 +174,18 @@ impl<'a> Relocator<'a> {
             delta: base.wrapping_sub(header.base),
             hot: base + CODE_OFFSET + header.hot_at,
             api,
+            tables: [0; crate::TABLE_SYMBOLS.len()],
         })
+    }
+
+    /// Gives the plugin the firmware's tables of shared functions, at
+    /// these addresses by family number (0: the firmware has none): they
+    /// are written into the words `paperpaw-plugin.x` makes for them, as
+    /// the table's address is into `PAPERPAW_API`.
+    #[must_use]
+    pub fn tables(mut self, tables: [u32; crate::TABLE_SYMBOLS.len()]) -> Self {
+        self.tables = tables;
+        self
     }
 
     /// Runs the hot code at instruction address `hot` (a multiple of 4),
@@ -221,6 +235,16 @@ impl<'a> Relocator<'a> {
                 return Err(Problem::Relocation);
             };
             bytes.copy_from_slice(&self.api.to_le_bytes());
+        }
+        for (n, table) in self.tables.iter().enumerate() {
+            let word = api + 4 * (n as u32 + 1);
+            if (at..end).contains(&word) {
+                let i = (word - at) as usize;
+                let Some(bytes) = piece.get_mut(i..i + 4) else {
+                    return Err(Problem::Relocation);
+                };
+                bytes.copy_from_slice(&table.to_le_bytes());
+            }
         }
         self.patch(at, end, piece)
     }
@@ -327,6 +351,29 @@ mod tests {
                 file[HEADER_LEN + 96..HEADER_LEN + 128],
                 "code unchanged"
             );
+        }
+    }
+
+    #[test]
+    fn the_family_words_get_the_tables_in_any_pieces() {
+        let file = file();
+        let (header, _) = Header::check_file(&file).unwrap();
+        let words = [68, 72];
+        let tables = [0x3FC8_2000, 0, 0x3FC8_3000, 0, 0, 0, 0, 0x3FC8_4000];
+        for piece in [4, 8, 20, 128] {
+            let relocator = Relocator::new(&header, &words, 0x3C80_0040, 0x3FC8_1234)
+                .unwrap()
+                .tables(tables);
+            let mut image: Vec<u8> = file[HEADER_LEN..HEADER_LEN + 128].to_vec();
+            for (i, chunk) in image.chunks_mut(piece).enumerate() {
+                relocator.apply((i * piece) as u32, chunk).unwrap();
+            }
+            assert_eq!(le(&image, 32), 0x3FC8_1234, "the table's word");
+            for (n, table) in tables.iter().enumerate() {
+                assert_eq!(le(&image, 36 + 4 * n), *table, "family {n}");
+            }
+            // Without them the words stay 0: no family shared.
+            assert_eq!(le(&image, 68), 0x3C80_0040 + 80, "data still moves");
         }
     }
 
