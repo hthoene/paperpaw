@@ -554,3 +554,219 @@ fn sample_lines_are_drawn_in_fonts_that_have_their_letters() {
         assert_eq!(drawn, measured, "{line}");
     }
 }
+
+/// More parts than are kept on the stack: each still in a font that has
+/// its letters, in order (review S1: past 16 the rest was drawn in the
+/// last part's font, its Hebrew letters missing).
+#[test]
+fn words_of_many_parts_keep_their_letters() {
+    use paperpaw_text::Around;
+    let (fonts, _storage) = latin_and_letters("");
+    let font = fonts.get("a.latin").unwrap();
+    let rtl = Around::new(crate::lang::Direction::Rtl, crate::lang::Lang::NONE);
+    let word = "ש.ל.ו.ם.ב.ר.א.ת.ה.ס";
+    let parts = parts_of(&font, word, &rtl);
+    assert_eq!(parts.len(), 19);
+    // Right to left: the last letter at the left, the first at the right.
+    assert_eq!(parts[0], (false, String::from("ס")));
+    assert_eq!(parts[18], (false, String::from("ש")));
+    for (latin, part) in &parts {
+        assert_eq!(*latin, part == ".", "{part}");
+    }
+    assert_eq!(font.measure_in(10.0, word, &rtl), 10.0 * 2.0 + 9.0 * 5.0);
+}
+
+/// A space between Hebrew words is as wide as the font that has one
+/// draws it: the script's pack has none (review N1).
+#[test]
+fn spaces_take_the_room_of_a_font_that_has_them() {
+    use paperpaw_text::Around;
+    let (fonts, _storage) = latin_and_letters("");
+    let font = fonts.get("a.latin").unwrap();
+    let rtl = Around::new(crate::lang::Direction::Rtl, crate::lang::Lang::NONE);
+    assert_eq!(font.measure_in(10.0, "שלום שלום", &rtl), 8.0 + 5.0 + 8.0);
+    assert_eq!(
+        parts_of(&font, "שלום שלום", &rtl),
+        [
+            (false, String::from("שלום")),
+            (true, String::from(" ")),
+            (false, String::from("שלום"))
+        ]
+    );
+}
+
+/// A mark stays with its letter, also one another font has; and a part
+/// after a letter with marks sees the letter, not its marks, before it
+/// (review N2, N3).
+#[test]
+fn marks_stay_with_their_letters() {
+    use paperpaw_text::Around;
+    // The letters' pack has the fatha and the Hebrew point, Latin the
+    // acute accent.
+    let (fonts, _storage) = latin_and_letters("\u{64e}\u{5b8}");
+    let font = fonts.get("a.latin").unwrap();
+    let rtl = Around::new(crate::lang::Direction::Rtl, crate::lang::Lang::NONE);
+    let ltr = Around::new(crate::lang::Direction::Ltr, crate::lang::Lang::NONE);
+    // An accent Latin has, on a Hebrew letter: in the letter's part.
+    assert_eq!(
+        parts_of(&font, "(ש\u{301})", &rtl),
+        [
+            (true, String::from(")")),
+            (false, String::from("ש\u{301}")),
+            (true, String::from("("))
+        ]
+    );
+    // Hebrew points on a letter in a Latin word's part stay with it.
+    assert_eq!(
+        parts_of(&font, "a\u{5b8}ש", &ltr),
+        [(true, String::from("a\u{5b8}")), (false, String::from("ש"))]
+    );
+    // A beh with a fatha before a colon: the colon's part sees the beh.
+    let mut seen = alloc::vec::Vec::new();
+    font.set_in_parts("\u{628}\u{64e}:", &rtl, |_, _, part, around| {
+        seen.push((String::from(part), around.before, around.after));
+    });
+    assert_eq!(
+        seen,
+        [
+            (String::from(":"), Some('\u{628}'), None),
+            (String::from("\u{628}\u{64e}"), None, Some(':')),
+        ]
+    );
+}
+
+/// Fonts drawn from outlines: Literata's brackets and colon, Noto Serif
+/// Hebrew and Noto Naskh Arabic as the card's packs (extensions of it).
+fn inked_fonts() -> (Fonts, Rc<dyn Storage>) {
+    let outline =
+        |data: &'static [u8]| paperpaw_text::OutlineFont::new(data.to_vec(), &[]).unwrap();
+    let sizes = [20.0];
+    let latin = paperpaw_text::build_pack(
+        &outline(include_bytes!(
+            "../../../../plugins/fonts-default/fonts/Literata.ttf"
+        )),
+        &sizes,
+        "a():. ".chars(),
+    );
+    let script = |data: &'static [u8], set: &str| {
+        let chars = paperpaw_text::charset::chars(paperpaw_text::charset::named(set).unwrap());
+        paperpaw_text::build_pack(&outline(data), &sizes, chars)
+    };
+    let storage: Rc<dyn Storage> = Rc::new(
+        MemoryStorage::new()
+            .with(
+                "plugins/s/fonts/latin-hebrew.ppfp",
+                script(
+                    include_bytes!("../../../../tools/fonts/NotoSerifHebrew.ttf"),
+                    "hebrew",
+                ),
+            )
+            .with(
+                "plugins/s/fonts/latin-arabic.ppfp",
+                script(
+                    include_bytes!("../../../../tools/fonts/NotoNaskhArabic.ttf"),
+                    "arabic",
+                ),
+            ),
+    );
+    let mut fonts = Fonts::new(64 * 1024);
+    let font = Font::from_data(latin, &[]).unwrap();
+    fonts
+        .add(FontSpec::new(Id::new_static("a.latin"), font))
+        .unwrap();
+    for (id, path) in [
+        ("s.latin-hebrew", "plugins/s/fonts/latin-hebrew.ppfp"),
+        ("s.latin-arabic", "plugins/s/fonts/latin-arabic.ppfp"),
+    ] {
+        fonts
+            .add_extension(
+                Id::new_static(id),
+                String::from(path),
+                Id::new_static("a.latin"),
+            )
+            .unwrap();
+    }
+    assert!(fonts.load(&storage).is_empty());
+    (fonts, storage)
+}
+
+/// What `draw` draws, as bytes of a frame.
+fn drawn(draw: impl FnOnce(&mut paperpaw_graphics::Canvas<'_>)) -> alloc::vec::Vec<u8> {
+    let mut frame =
+        paperpaw_graphics::Framebuffer::new(160, 40, paperpaw_platform::PixelFormat::Gray8)
+            .unwrap();
+    draw(&mut frame.canvas());
+    frame.view().data.to_vec()
+}
+
+/// Text in parts looks as its parts drawn one by one where they go: a
+/// bracket in right-to-left text mirrored, the parts from the left in
+/// the order of their levels, an Arabic letter in the form its
+/// neighbours outside its part ask (review S2: pixels, not widths).
+#[test]
+fn text_in_parts_is_drawn_mirrored_in_order_and_joined() {
+    use paperpaw_text::Around;
+    let (fonts, _storage) = inked_fonts();
+    let font = fonts.get("a.latin").unwrap();
+    let tone = paperpaw_text::ToneCurve::SMOOTH;
+    let rtl = Around::new(crate::lang::Direction::Rtl, crate::lang::Lang::NONE);
+    let ltr = Around::new(crate::lang::Direction::Ltr, crate::lang::Lang::NONE);
+    let black = Color::BLACK;
+    let whole = |text: &str, around: &Around| {
+        drawn(|c| {
+            font.draw_in(c, 20.0, 4.0, 30, text, black, (0, tone), around);
+        })
+    };
+    // Pieces one font draws each, from the left: (text, around).
+    let pieces = |pieces: &[(&str, Around)]| {
+        drawn(|c| {
+            let mut x = 4.0;
+            for (text, around) in pieces {
+                x += font.draw_in(c, 20.0, x, 30, text, black, (0, tone), around);
+            }
+        })
+    };
+    assert_ne!(
+        pieces(&[("(", ltr)]),
+        pieces(&[(")", ltr)]),
+        "brackets differ"
+    );
+    // `(שלום)` right to left: `(` shows at the left as `)` mirrored.
+    assert_eq!(
+        whole("(שלום)", &rtl),
+        pieces(&[("(", ltr), ("שלום", rtl), (")", ltr)])
+    );
+    assert_ne!(
+        whole("(שלום)", &rtl),
+        pieces(&[(")", ltr), ("שלום", rtl), ("(", ltr)])
+    );
+    // `a(שלום)` left to right: in place, not mirrored.
+    assert_eq!(
+        whole("a(שלום)", &ltr),
+        pieces(&[("a(", ltr), ("שלום", rtl), (")", ltr)])
+    );
+    // A beh after a beh, before a colon: its final form, the colon left.
+    let beh = "\u{628}";
+    let after_beh = rtl.with_context(Some('\u{628}'), None);
+    let alone = pieces(&[(beh, rtl)]);
+    let last = pieces(&[(beh, rtl.with_context(Some('\u{628}'), Some(':')))]);
+    assert_ne!(alone, last, "the pack draws the final form apart");
+    let colon_width = font.measure(20.0, ":");
+    let joined = drawn(|c| {
+        font.draw_in(c, 20.0, 4.0, 30, ":", black, (0, tone), &ltr);
+        let around = rtl.with_context(Some('\u{628}'), Some(':'));
+        font.draw_in(
+            c,
+            20.0,
+            4.0 + colon_width,
+            30,
+            beh,
+            black,
+            (0, tone),
+            &around,
+        );
+    });
+    let mut text = String::from(beh);
+    text.push(':');
+    assert_eq!(whole(&text, &after_beh), joined);
+}
