@@ -191,6 +191,15 @@ const CROSSING: &[(u64, u64)] = &layouts![
     paperpaw_text::Line,
     paperpaw_text::TextStyle<'static>,
     paperpaw_text::GlyphRef<'static>,
+    // Taken and given by the shared text entries and the methods of the
+    // handles (`StoredPack`, `GlyphCache`) the firmware makes.
+    paperpaw_text::Around,
+    paperpaw_text::ToneCurve,
+    paperpaw_text::LineMetrics,
+    paperpaw_text::FontError,
+    paperpaw_text::Glyph,
+    paperpaw_text::StoredPack,
+    paperpaw_text::PackLimits,
 ];
 
 /// The scalable font, with the `skrifa` location it holds by value: in
