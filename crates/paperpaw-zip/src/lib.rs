@@ -41,6 +41,11 @@ pub enum ZipError {
     TooLarge,
     /// Memory for buffers could not be allocated.
     OutOfMemory,
+    /// A cause this build has no variant for, by its code (0: not said).
+    /// Codes are listed here as they are given and never reused; a build
+    /// that doesn't know one treats it as the most general failure of its
+    /// kind.
+    Other(u16),
 }
 
 impl fmt::Display for ZipError {
@@ -51,6 +56,7 @@ impl fmt::Display for ZipError {
             ZipError::Unsupported(what) => write!(f, "unsupported: {what}"),
             ZipError::TooLarge => f.write_str("entry too large"),
             ZipError::OutOfMemory => f.write_str("not enough memory"),
+            ZipError::Other(code) => write!(f, "archive error {code}"),
         }
     }
 }

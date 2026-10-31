@@ -76,6 +76,11 @@ pub enum Problem {
     Length,
     /// The signature does not hold: the file was changed or damaged.
     Signature,
+    /// A cause this build has no variant for, by its code (0: not said).
+    /// Codes are listed here as they are given and never reused; a build
+    /// that doesn't know one treats it as the most general failure of its
+    /// kind.
+    Other(u16),
 }
 
 impl fmt::Display for Problem {
@@ -86,6 +91,7 @@ impl fmt::Display for Problem {
             Problem::NotAnImage => "no firmware image",
             Problem::Length => "not as long as it says",
             Problem::Signature => "the signature does not hold",
+            Problem::Other(code) => return write!(f, "update problem {code}"),
         })
     }
 }

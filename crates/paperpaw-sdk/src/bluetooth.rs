@@ -592,6 +592,11 @@ pub enum BtError {
     Held(Refusal),
     /// Not done here (e.g. advertising on a shell that cannot).
     Unsupported,
+    /// A cause this build has no variant for, by its code (0: not said).
+    /// Codes are listed here as they are given and never reused; a build
+    /// that doesn't know one treats it as the most general failure of its
+    /// kind.
+    Other(u16),
 }
 
 impl BtError {
@@ -609,6 +614,7 @@ impl BtError {
             BtError::Att(_) => "att",
             BtError::Held(_) => "held",
             BtError::Unsupported => "unsupported",
+            BtError::Other(_) => "other",
         }
     }
 }
@@ -617,6 +623,7 @@ impl core::fmt::Display for BtError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             BtError::Att(error) => write!(f, "att-{:02x}", error.code()),
+            BtError::Other(code) => write!(f, "other-{code}"),
             other => f.write_str(other.as_str()),
         }
     }
@@ -641,9 +648,12 @@ impl ParamValue for BtError {
                 crate::work::Reason::TooOften,
                 crate::work::Retry::WhenAllowed,
             )),
-            other => BtError::Att(AttError(
-                u8::from_str_radix(other.strip_prefix("att-")?, 16).ok()?,
-            )),
+            other => match other.strip_prefix("other-") {
+                Some(code) => BtError::Other(code.parse().ok()?),
+                None => BtError::Att(AttError(
+                    u8::from_str_radix(other.strip_prefix("att-")?, 16).ok()?,
+                )),
+            },
         })
     }
 }

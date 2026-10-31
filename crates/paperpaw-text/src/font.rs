@@ -25,6 +25,11 @@ pub enum FontError {
     TooLarge,
     /// Not enough free memory to open it now; it may open later.
     OutOfMemory,
+    /// A cause this build has no variant for, by its code (0: not said).
+    /// Codes are listed here as they are given and never reused; a build
+    /// that doesn't know one treats it as the most general failure of its
+    /// kind.
+    Other(u16),
 }
 
 impl fmt::Display for FontError {
@@ -36,6 +41,7 @@ impl fmt::Display for FontError {
             FontError::OutlinesNotSupported => "this build only supports bitmap font packs (.ppfp)",
             FontError::TooLarge => "font pack too large for this device's memory",
             FontError::OutOfMemory => "not enough free memory to open the font now",
+            FontError::Other(code) => return write!(f, "font error {code}"),
         })
     }
 }

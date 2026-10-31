@@ -126,6 +126,7 @@ fn errors_by_name() {
         BtError::NotFound,
         BtError::Declined,
         BtError::Att(AttError::INSUFFICIENT_ENCRYPTION),
+        BtError::Other(300),
     ] {
         assert_eq!(BtError::from_param(&error.to_param()), Some(error));
     }

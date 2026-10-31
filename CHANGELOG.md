@@ -81,6 +81,13 @@ change the plugin SDK.
   new interface. No framebuffer is made in such a format (the shell draws
   into a known one and converts); a shell that doesn't know a mode
   refreshes as with `Full`.
+- Plugin interface 5: the error enums have an `Other(u16)` variant (a
+  cause a later build adds, by its code): `StorageError`, `HttpError`,
+  `InstallFailure`, `PluginProblem`, `install::local::Refusal`,
+  `DocumentError`, `ImageError`, `ZipError`, `BtError`, `DevError`,
+  `RegisterError`, `FontError`, `CatalogError`, the plugin header's and
+  the update file's `Problem`. HTTP and Bluetooth errors keep the code in
+  event parameters (`other-7`).
 
 ### Added
 

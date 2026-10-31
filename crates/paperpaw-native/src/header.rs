@@ -98,6 +98,11 @@ pub enum Problem {
     Relocation,
     /// It ends with an author's signature that does not hold.
     Signature,
+    /// A cause this build has no variant for, by its code (0: not said).
+    /// Codes are listed here as they are given and never reused; a build
+    /// that doesn't know one treats it as the most general failure of its
+    /// kind.
+    Other(u16),
 }
 
 impl fmt::Display for Problem {
@@ -112,6 +117,7 @@ impl fmt::Display for Problem {
             Problem::Damaged => "changed or damaged",
             Problem::Relocation => "a word to relocate or a patch is not right",
             Problem::Signature => "its author's signature does not hold",
+            Problem::Other(code) => return write!(f, "plugin file problem {code}"),
         })
     }
 }

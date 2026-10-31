@@ -54,6 +54,11 @@ pub enum ImageError {
     OutOfMemory,
     /// The sink stopped decoding.
     Stopped,
+    /// A cause this build has no variant for, by its code (0: not said).
+    /// Codes are listed here as they are given and never reused; a build
+    /// that doesn't know one treats it as the most general failure of its
+    /// kind.
+    Other(u16),
 }
 
 impl fmt::Display for ImageError {
@@ -65,6 +70,7 @@ impl fmt::Display for ImageError {
             ImageError::Storage(e) => write!(f, "image could not be written: {e}"),
             ImageError::OutOfMemory => f.write_str("not enough memory for the image"),
             ImageError::Stopped => f.write_str("decoding stopped"),
+            ImageError::Other(code) => write!(f, "image error {code}"),
         }
     }
 }

@@ -415,6 +415,11 @@ pub enum CatalogError {
     UnexpectedSection {
         line: u32,
     },
+    /// A cause this build has no variant for, by its code (0: not said).
+    /// Codes are listed here as they are given and never reused; a build
+    /// that doesn't know one treats it as the most general failure of its
+    /// kind.
+    Other(u16),
 }
 
 impl fmt::Display for CatalogError {
@@ -428,6 +433,7 @@ impl fmt::Display for CatalogError {
             CatalogError::UnexpectedSection { line } => {
                 write!(f, "line {line}: only [meta] and [messages] are allowed")
             }
+            CatalogError::Other(code) => write!(f, "catalog error {code}"),
         }
     }
 }

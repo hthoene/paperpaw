@@ -808,6 +808,11 @@ pub enum DocumentError {
     /// Not there yet (still coming, e.g. streamed): readers wait for
     /// the event `core.document-ready` naming it and open it again.
     NotReady,
+    /// A cause this build has no variant for, by its code (0: not said).
+    /// Codes are listed here as they are given and never reused; a build
+    /// that doesn't know one treats it as the most general failure of its
+    /// kind.
+    Other(u16),
 }
 
 impl fmt::Display for DocumentError {
@@ -818,6 +823,7 @@ impl fmt::Display for DocumentError {
             DocumentError::UnsupportedFormat => f.write_str("unsupported format"),
             DocumentError::OutOfMemory => f.write_str("not enough memory"),
             DocumentError::NotReady => f.write_str("not ready yet"),
+            DocumentError::Other(code) => write!(f, "document error {code}"),
         }
     }
 }

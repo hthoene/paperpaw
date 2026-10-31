@@ -171,6 +171,11 @@ pub enum RegisterError {
     },
     /// Something else is wrong with the contribution.
     Invalid { message: Cow<'static, str> },
+    /// A cause this build has no variant for, by its code (0: not said).
+    /// Codes are listed here as they are given and never reused; a build
+    /// that doesn't know one treats it as the most general failure of its
+    /// kind.
+    Other(u16),
 }
 
 impl fmt::Display for RegisterError {
@@ -182,6 +187,7 @@ impl fmt::Display for RegisterError {
             RegisterError::Duplicate { id } => write!(f, "`{id}` is already registered"),
             RegisterError::Parse { line, message } => write!(f, "line {line}: {message}"),
             RegisterError::Invalid { message } => f.write_str(message),
+            RegisterError::Other(code) => write!(f, "registration error {code}"),
         }
     }
 }

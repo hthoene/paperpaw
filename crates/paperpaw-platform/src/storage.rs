@@ -30,6 +30,11 @@ pub enum StorageError {
     /// The file is there but does not hold what was asked for, e.g. text
     /// that is not UTF-8.
     InvalidData,
+    /// A cause this build has no variant for, by its code (0: not said).
+    /// Codes are listed here as they are given and never reused; a build
+    /// that doesn't know one treats it as the most general failure of its
+    /// kind.
+    Other(u16),
 }
 
 impl fmt::Display for StorageError {
@@ -42,6 +47,7 @@ impl fmt::Display for StorageError {
             StorageError::Io => "input/output error",
             StorageError::TooLarge => "file too large",
             StorageError::InvalidData => "invalid data",
+            StorageError::Other(code) => return write!(f, "storage error {code}"),
         })
     }
 }
@@ -392,6 +398,25 @@ pub fn is_reserved_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cause_of_a_newer_build_says_its_code() {
+        struct Text([u8; 32], usize);
+        impl fmt::Write for Text {
+            fn write_str(&mut self, s: &str) -> fmt::Result {
+                let end = self.1 + s.len();
+                self.0
+                    .get_mut(self.1..end)
+                    .ok_or(fmt::Error)?
+                    .copy_from_slice(s.as_bytes());
+                self.1 = end;
+                Ok(())
+            }
+        }
+        let mut text = Text([0; 32], 0);
+        fmt::Write::write_fmt(&mut text, format_args!("{}", StorageError::Other(3))).unwrap();
+        assert_eq!(&text.0[..text.1], b"storage error 3");
+    }
 
     /// A storage holding one file, `name`, of `size` bytes.
     struct One(&'static str, u64);

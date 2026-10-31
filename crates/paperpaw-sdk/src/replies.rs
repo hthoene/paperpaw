@@ -64,6 +64,11 @@ pub enum HttpError {
     Cancelled,
     /// Reading or writing failed (e.g. the file it was saved to).
     Io,
+    /// A cause this build has no variant for, by its code (0: not said).
+    /// Codes are listed here as they are given and never reused; a build
+    /// that doesn't know one treats it as the most general failure of its
+    /// kind.
+    Other(u16),
 }
 
 impl HttpError {
@@ -89,18 +94,27 @@ impl HttpError {
             HttpError::Replaced => "replaced",
             HttpError::Cancelled => "cancelled",
             HttpError::Io => "io",
+            HttpError::Other(_) => "other",
         }
     }
 
-    /// The error named `name` (see [`as_str`](Self::as_str)).
+    /// The error named `name` (see [`as_str`](Self::as_str); an
+    /// [`Other`](Self::Other) as `other-` and its code, as its `Display`
+    /// writes it).
     pub fn parse(name: &str) -> Option<Self> {
+        if let Some(code) = name.strip_prefix("other-") {
+            return code.parse().ok().map(HttpError::Other);
+        }
         Self::ALL.into_iter().find(|e| e.as_str() == name)
     }
 }
 
 impl core::fmt::Display for HttpError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.as_str())
+        match self {
+            HttpError::Other(code) => write!(f, "other-{code}"),
+            other => f.write_str(other.as_str()),
+        }
     }
 }
 
@@ -233,7 +247,7 @@ impl HttpReply {
             params.set(http_params::TRUNCATED, "true");
         }
         if let Some(error) = self.error {
-            params.set(http_params::ERROR, error.as_str());
+            params.set(http_params::ERROR, error.to_string());
         }
         for (key, value) in [
             (http_params::ETAG, &self.etag),
@@ -798,6 +812,11 @@ mod tests {
         let back = HttpReply::from_params(&failed.to_params()).unwrap();
         assert_eq!(back.error, Some(HttpError::Dns));
         assert_eq!(back.text(), "no such host");
+        // A cause of a newer build keeps its code across.
+        let newer = HttpReply::failed(HttpError::Other(7), "", Params::new());
+        let back = HttpReply::from_params(&newer.to_params()).unwrap();
+        assert_eq!(back.error, Some(HttpError::Other(7)));
+        assert_eq!(HttpError::Other(7).as_str(), "other");
         let refusal = crate::work::Refusal::new(
             crate::work::Reason::Offline,
             crate::work::Retry::WhenAllowed,

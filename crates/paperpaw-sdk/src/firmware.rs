@@ -154,6 +154,11 @@ pub enum InstallFailure {
     /// The battery is below [`INSTALL_BATTERY`] percent and the device is
     /// not charging: charged, or plugged in, it may be installed.
     LowBattery,
+    /// A cause this build has no variant for, by its code (0: not said).
+    /// Codes are listed here as they are given and never reused; a build
+    /// that doesn't know one treats it as the most general failure of its
+    /// kind.
+    Other(u16),
 }
 
 impl From<Problem> for InstallFailure {
