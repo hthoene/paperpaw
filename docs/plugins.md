@@ -1543,6 +1543,41 @@ script presses with `ble-key:right` (or `left`, `page-down`,
 heart-rate belt that answers the example above, notifying a rate each
 second.
 
+### Looking different: tone, look, hooks
+
+Three ways to change how things look, from the least to the most code. Each
+changes how a thing *looks*, never where it goes or how wide it is.
+
+- **Numbers (no code).** A theme or a reader sets `core.text-curve` (book
+  text; in place of *Text contrast* when set) or `core.ui-text-curve` (the
+  interface) to a list of `[script=]curve` entries separated by `;`, e.g.
+  `smooth; arab=contrast:1`. A curve is `smooth`, `contrast:-1` to
+  `contrast:2`, `sharp:128` or 16 numbers from 0 to 255 (the opacity of
+  each of the 16 coverage levels of a letter's edge). On a black-and-white
+  panel the curve decides which edge pixels turn black, so it is also the
+  knob for thicker or thinner letters. In code: `ToneCurve::parse_for`,
+  `FontHandle::inked(TextInk::new(curve))`.
+- **A look.** `Painters::text` paints the text that `ui::Label` draws (a
+  shadow, an outline): draw with `part.font.draw(..)` and return `true`; the
+  width stays the stock one. `Painters::extras` takes a `static` list of
+  `ExtraPaint`s for parts of kinds that come later (scrollbars, tabs): a
+  look made now works when the SDK learns to ask
+  (`Capability::LOOK_EXTRAS`). Text drawn with the free functions
+  `ui::draw_label` and `ui::draw_text` does not pass the text painter.
+- **A render hook.** `Registrar::add_render_hook` with a `RenderHookSpec`
+  changes each finished band (night or sepia tint, grain, a better dither of
+  the four-gray pass). **Check `Capability::RENDER_HOOK`:** without it the
+  hook is accepted and never run (today's firmware). A hook sees pixels, not
+  coverage, so it cannot make letter edges softer (use the tone curve for
+  that); it must give the same rows for the same band and carry (no clock or
+  random: `HookCx` has none); state across bands goes in `BandView::carry`,
+  which the kernel zeroes at the start of each pass; a panic aborts the
+  device.
+
+`Canvas::pixel` and `gray_at` read back what *this band* drew, to composite
+pixels you drew, never to decide what to draw (a point in another band is
+`None`, and decisions would show seams).
+
 ### Screens that run in real time
 
 Games, emulators and animations draw many frames a second and want

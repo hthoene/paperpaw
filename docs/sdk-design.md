@@ -134,6 +134,12 @@ must leave its list.
     ([ADR 0026](adr/0026-plugin-interface-version.md)). The test says
     whether the change raises `native::INTERFACE`. The same change
     brings `api.txt`, `docs/plugins.md` and the CHANGELOG up to date.
+15. **Looks are numbers first.** What a theme can say as numbers (a tone
+    curve, a palette) is a setting; code (a painter, a hook) is for what
+    numbers cannot say.
+16. **A crossing struct has a typed spare, not a promise.** A struct that a
+    plugin builds and the kernel (or another plugin) reads has private spare
+    fields, zero now, and getters later; kinds are constants of an open type.
 
 15. **A new API is proposed before it is built.** Send a short sketch:
     the types and one call site. Write it out across the plugins only

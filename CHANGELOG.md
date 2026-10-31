@@ -57,6 +57,20 @@ change the plugin SDK.
 
 ### Added
 
+- More freedom over how things look (ticket #57, interface 5):
+  - **Text tone:** `ToneCurve::from_alphas`, `parse`, `parse_for` and `to_text` make a curve of your own from 16 values or text
+    (`smooth`, `contrast:1`, `sharp:128`, a list of numbers); the settings `core.text-curve` (book text, in place of *Text
+    contrast* when set) and `core.ui-text-curve` (the interface; themes set them) take a list of `[script=]curve` entries.
+    A `FontHandle` carries a `TextInk` (`inked`, `text_ink`) that `draw` and `draw_bolder` use.
+  - **Looks:** `Painters::text` paints the text of `Label`s (a shadow, an outline), never changing its width;
+    `Painters::extras` takes a static list of painters for parts of kinds that come later (`PartKind`), and `Painters::flags` is
+    reserved. `TextRole` is now an open `TextRole(u8)` with constants (`TextRole::BODY`, new `HINT`, `BUTTON`, `ICON`).
+  - **Render hooks:** a plugin can register a hook (`Registrar::add_render_hook`, `RenderHookSpec`, `HookStage`, `BandView`,
+    `HookCx`, `FramePass`, `Region`) that changes finished bands, with kernel-owned carry for dithering across bands. The
+    kernel accepts hooks and does not run them yet: `Capability::RENDER_HOOK`, `RENDER_REGIONS` and `LOOK_EXTRAS` are off.
+  - **Drawing:** `Canvas::pixel`, `gray_at` (read back what this band drew) and `fill_dithered`.
+  - The interface check now follows type aliases to the types they name (a type only a `fn` alias mentioned was not pinned).
+
 - `paperpaw-lang`: `Lang` (a language tag in 32 bits: language, script,
   region; canonical, so `per` and `fa` are one), `Direction` and
   `WritingMode` (#33). `paperpaw_sdk::lang`.
