@@ -3,7 +3,7 @@
 //! grain, the dither of the four-gray pass, an accessibility tint).
 //!
 //! **Check [`Capability::RENDER_HOOK`](crate::Capability::RENDER_HOOK)
-//! first.** A hook is accepted by [`Registrar::add_render_hook`] on every
+//! first.** A hook is accepted by [`Registrar::add_render_hook`](crate::Registrar::add_render_hook) on every
 //! PaperPaw, but runs only where the device says it can: without the
 //! capability it is accepted and never called. Even then it runs only if
 //! the reader allows display hooks and the hook's own switch is on.
