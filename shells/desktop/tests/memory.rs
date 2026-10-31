@@ -5,7 +5,9 @@
 //! book opened (EPUB and TXT), 30 pages forward and 30 back, home, the
 //! library (with many books) opened and scrolled, the main menu, the
 //! settings and a page of them; and the store, online with the
-//! emulator's own catalogue.
+//! emulator's own catalogue: its list, a plugin's page and the install of
+//! a plugin (the TLS session and the Wi-Fi stack are not modelled: a
+//! measured allowance stands for them).
 //!
 //! Each flow runs twice, under the profile's budget and without one. The
 //! runs are deterministic (simulated time, a fixed clock), so the same
@@ -31,6 +33,15 @@ use std::process::{Command, Output};
 const MARGIN_PERCENT: f64 = 85.0;
 /// What a connected remote may add to the peak of reading, at most.
 const BLUETOOTH_KIB: f64 = 8.0;
+/// What the device's store run held beyond what the emulator charges for
+/// the same run, in KiB: the TLS session (mbedTLS' buffers and the
+/// server's chain), the Wi-Fi stack's buffers and what is not modelled.
+/// The emulator answers the store from files, so none of it shows here.
+/// Measured on the X4 on 24 October (ticket #8): 184.4 KiB with the store
+/// open, against 134.5 KiB in the emulator's run of the same screens
+/// (the store test below). To be set again from a new measurement on
+/// the device.
+const STORE_DEVICE_EXTRA_KIB: f64 = 50.0;
 
 /// The repository: two folders above this crate.
 fn root() -> PathBuf {
@@ -105,6 +116,17 @@ fn emulator_with(
 
 /// The emulator headless on `profile` in `library`, with `args`.
 fn run_in(library: &Path, profile: &str, args: &[&str]) -> Command {
+    // No core dump: a budget too small ends the run with `abort()` (the
+    // allocation error handler), and where the shell allows core files that
+    // leaves a megabyte-sized `core.<pid>` in the crate's folder.
+    #[cfg(unix)]
+    let mut command = {
+        let mut sh = Command::new("sh");
+        sh.args(["-c", "ulimit -c 0; exec \"$0\" \"$@\""])
+            .arg(env!("CARGO_BIN_EXE_paperpaw-emu"));
+        sh
+    };
+    #[cfg(not(unix))]
     let mut command = Command::new(env!("CARGO_BIN_EXE_paperpaw-emu"));
     command
         .args(["--profile", profile, "--headless", "--library"])
@@ -267,6 +289,74 @@ fn the_store_stays_within_the_x4_budget() {
         &[],
         &["--network", "fixtures", "--wifi", "online"],
     );
+}
+
+/// Opens the store's list, the group *Reading* and a plugin's page of it,
+/// presses *Install*, looks at the page's screenshots and goes home. The
+/// plugin is a data plugin of the emulator's catalogue: the download of
+/// its files, their check and their install run as on a device (the
+/// shell's installer and the plugin folder on the card).
+fn installing_flow() -> String {
+    [
+        "run:store.open,wait:3000",
+        "run:core.down,run:core.down,run:core.confirm,wait:2000",
+        "run:core.down,run:core.down,run:core.confirm,wait:3000",
+        "run:core.confirm,wait:5000",
+        "run:core.down,run:core.confirm,wait:3000",
+        "run:core.back,run:core.back,run:core.back,run:core.back,run:core.home,wait:300",
+    ]
+    .join(",")
+}
+
+/// A plugin installed from the store on the X4: its page with the
+/// screenshots, the download and the install, then the screenshots page.
+#[test]
+fn installing_from_the_store_stays_within_the_x4_budget() {
+    let heap = flow_stays_within_budget(
+        "x4-store-install",
+        "xteink-x4",
+        "books/die-verwandlung.txt",
+        &installing_flow(),
+        &[],
+        &["--network", "fixtures", "--wifi", "online"],
+    );
+    eprintln!("x4 store install: peak {} KiB", heap.peak);
+}
+
+/// The store on the X4 with what the emulator cannot charge: the run's
+/// peak plus [`STORE_DEVICE_EXTRA_KIB`] (the TLS session and the Wi-Fi
+/// stack of the device) stays under the margin of the budget, so that
+/// the store's growth is noticed before the device runs out. The
+/// emulator's part is the whole run's peak, and the peak from the flow's
+/// start (reset there, the book still open beneath).
+#[test]
+fn the_store_with_the_devices_tls_stays_within_the_x4_budget() {
+    let flow = format!("wait:300,reset-peak,{}", installing_flow());
+    let run = |name: &str, flow: &str| {
+        let library = library(name, Some("books/die-verwandlung.txt"));
+        let mut command = run_in(&library, "xteink-x4", &[]);
+        command
+            .args(["--network", "fixtures", "--wifi", "online"])
+            .args(["--heap-budget", "none", "--script", flow]);
+        let output = command.output().unwrap();
+        // The flow installed the plugin: without it the peaks say little.
+        let installed = library.join("plugins/reading-aids/plugin.ini").exists();
+        let _ = fs::remove_dir_all(&library);
+        assert!(installed, "{name}: the plugin was not installed");
+        heap(&output).peak
+    };
+    let store = run("x4-store-peak", &flow);
+    let whole = run("x4-store-whole", &installing_flow());
+    let allowed = 256.0 * MARGIN_PERCENT / 100.0;
+    eprintln!(
+        "x4 store: peak {store} KiB from the store's start, {whole} KiB in the run; + {STORE_DEVICE_EXTRA_KIB} KiB of the device = {} KiB of {allowed} KiB",
+        whole + STORE_DEVICE_EXTRA_KIB
+    );
+    assert!(
+        whole + STORE_DEVICE_EXTRA_KIB <= allowed,
+        "store: peak {whole} KiB + {STORE_DEVICE_EXTRA_KIB} KiB of the device's TLS and Wi-Fi, over {allowed} KiB"
+    );
+    assert!(store <= whole);
 }
 
 /// The X4 Pro: its own panel (four grays, other bands), touch beside

@@ -16,6 +16,9 @@
 /samples/library/paperpaw.ini
 *.screenshot.png
 
+# Core dumps (a test that aborts on purpose, a crashed process)
+core.[0-9]*
+
 # Editors and OS files
 .idea/
 .vscode/
