@@ -380,6 +380,9 @@ pub enum ActionHint {
     Icon(&'static str),
     /// Nothing, e.g. for an action that does nothing.
     Hidden,
+    /// A value a later build adds, by its name (a constant of that build);
+    /// a build that doesn't know it: it shows no hint.
+    Other(&'static str),
 }
 
 /// Every registered action, e.g. for menu and key map editors.

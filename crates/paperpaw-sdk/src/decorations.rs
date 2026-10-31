@@ -56,6 +56,9 @@ pub enum Tone {
     Pink,
     Orange,
     Red,
+    /// A value a later build adds, by its name (a constant of that build);
+    /// a build that doesn't know it: it draws in the default tone.
+    Other(&'static str),
 }
 
 impl Tone {
@@ -89,6 +92,9 @@ impl Tone {
             Tone::Pink => Color::rgb(240, 120, 170),
             Tone::Orange => Color::rgb(255, 170, 60),
             Tone::Red => Color::rgb(220, 50, 50),
+            // A tone of a later build: drawn as gray, which shows on both
+            // light and dark.
+            Tone::Other(_) => Tone::Gray.color(),
         }
     }
 
@@ -106,6 +112,7 @@ impl Tone {
             Tone::Pink => "core.tone.pink",
             Tone::Orange => "core.tone.orange",
             Tone::Red => "core.tone.red",
+            Tone::Other(id) => id,
         }
     }
 
@@ -124,6 +131,9 @@ pub enum LineKind {
     Dashed,
     Wavy,
     Double,
+    /// A value a later build adds, by its name (a constant of that build);
+    /// a build that doesn't know it: it draws the default line.
+    Other(&'static str),
 }
 
 impl LineKind {
@@ -144,6 +154,7 @@ impl LineKind {
             LineKind::Dashed => "core.line.dashed",
             LineKind::Wavy => "core.line.wavy",
             LineKind::Double => "core.line.double",
+            LineKind::Other(id) => id,
         }
     }
 
@@ -668,7 +679,8 @@ fn draw_line(
     let ti = t as i32;
     let end = x + width as i32;
     match kind {
-        LineKind::Solid => canvas.fill_rect(x, bottom - ti, width, t, color),
+        // A kind of a later build: drawn solid.
+        LineKind::Solid | LineKind::Other(_) => canvas.fill_rect(x, bottom - ti, width, t, color),
         LineKind::Dotted | LineKind::Dashed => {
             let (on, step) = if kind == LineKind::Dotted {
                 (ti, 2 * ti)
@@ -1151,6 +1163,18 @@ impl Decorators {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tones_and_lines_of_a_later_build_keep_their_name() {
+        let purple = Tone::Other("core.tone.purple");
+        assert_eq!(
+            (purple.id(), purple.color()),
+            ("core.tone.purple", Tone::Gray.color())
+        );
+        assert_eq!(LineKind::Other("core.line.zigzag").id(), "core.line.zigzag");
+        // A name this build doesn't know is not read as one of its tones.
+        assert_eq!(Tone::from_id("core.tone.purple"), None);
+    }
 
     #[test]
     fn patterns_mark_the_words_they_touch() {

@@ -102,7 +102,12 @@ fn reaches(
         let left = u32::from(area.x) + width * i as u32 / count;
         (left, u32::from(area.x) + width * (i as u32 + 1) / count)
     };
-    let empty = |j: usize| matches!(hints.get(j), Some(Hint::Default | Hint::Hidden));
+    let empty = |j: usize| {
+        matches!(
+            hints.get(j),
+            Some(Hint::Default | Hint::Hidden | Hint::Other(_))
+        )
+    };
     hints
         .iter()
         .enumerate()
@@ -113,7 +118,7 @@ fn reaches(
             let ink = match hint {
                 Hint::Text(text) => font.as_ref()?.measure(style.small, text),
                 Hint::Icon(name) => icon_width(env, name, style.text),
-                Hint::Default | Hint::Hidden => return None,
+                Hint::Default | Hint::Hidden | Hint::Other(_) => return None,
             };
             if ink <= room + 1.0 || matches!(hint, Hint::Icon(_)) {
                 return Some((
@@ -265,11 +270,11 @@ pub fn draw_button_hints(
                     ink,
                 );
             }
-            Hint::Default | Hint::Hidden if is_pressed => {
+            Hint::Default | Hint::Hidden | Hint::Other(_) if is_pressed => {
                 let radius = style.radius(u32::from(boxed.height));
                 canvas.fill_round(boxed, radius, Color::BLACK);
             }
-            Hint::Default | Hint::Hidden => {}
+            Hint::Default | Hint::Hidden | Hint::Other(_) => {}
         }
     }
 }

@@ -267,6 +267,9 @@ pub enum Hint {
     Icon(&'static str),
     /// Nothing: the button does nothing here.
     Hidden,
+    /// A value a later build adds, by its name (a constant of that build);
+    /// a build that doesn't know it: it shows no hint.
+    Other(&'static str),
 }
 
 impl Hint {

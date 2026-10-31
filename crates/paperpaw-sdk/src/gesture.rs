@@ -38,6 +38,9 @@ pub enum GestureKind {
     DoubleTap,
     /// Two fingers tapped together.
     TwoFingerTap,
+    /// A value a later build adds, by its name (a constant of that build);
+    /// a build that doesn't know it: a gesture it doesn't know never fires.
+    Other(&'static str),
 }
 
 /// A gesture recognized by the kernel from raw pointer samples.

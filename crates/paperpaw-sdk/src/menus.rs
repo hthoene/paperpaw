@@ -24,6 +24,9 @@ pub enum MenuPlace {
     First,
     /// After everything else.
     Last,
+    /// A value a later build adds, by its name (a constant of that build);
+    /// a build that doesn't know it: an entry for a place it doesn't know is not shown.
+    Other(&'static str),
 }
 
 /// What a menu shows of an entry now, where it changes (see
@@ -250,6 +253,9 @@ pub enum MenuNeed {
     /// A Bluetooth radio the kernel uses ([`Env::bluetooth`](crate::Env)),
     /// hidden elsewhere.
     Bluetooth,
+    /// A value a later build adds, by its name (a constant of that build);
+    /// a build that doesn't know it: an entry needing what it doesn't know is not offered.
+    Other(&'static str),
 }
 
 impl MenuNeed {
@@ -269,6 +275,8 @@ impl MenuNeed {
             MenuNeed::NoTouch => !caps.touch,
             MenuNeed::Touch => caps.touch,
             MenuNeed::Frontlight => caps.frontlight,
+            // A need of a later build: not met here.
+            MenuNeed::Other(_) => false,
         }
     }
 }

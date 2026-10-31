@@ -88,6 +88,14 @@ change the plugin SDK.
   `RegisterError`, `FontError`, `CatalogError`, the plugin header's and
   the update file's `Problem`. HTTP and Bluetooth errors keep the code in
   event parameters (`other-7`).
+- Plugin interface 5: kinds have an open value. `Other(&'static str)` (a
+  name; a later build's values are constants of it) in `GestureKind`,
+  `MenuPlace`, `MenuNeed`, `library::catalog::Sort` and `Show`,
+  `ActionHint`, `screen::Hint`, `canvas::Role`, `decorations::Tone` and
+  `LineKind`; `Extended` in `SettingKind` (key and static parameters) and
+  `StatusValue` (key and `Params`). A build that doesn't know a value
+  falls back: the default sort and filter, a gray tone, a solid line, a
+  need not met, a setting's value kept as text, a status value left out.
 
 ### Added
 

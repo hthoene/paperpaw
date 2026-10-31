@@ -382,3 +382,16 @@ fn groups_within_groups_know_their_parents() {
     assert!(!s.within(&reading, &text));
     assert!(!s.within(&text, &other));
 }
+
+/// A kind of a later build, in a `static` list: its value kept as text.
+#[test]
+fn a_setting_of_a_later_kind_keeps_its_value_as_text() {
+    static SLIDER: SettingKind = SettingKind::Extended {
+        key: Id::new_static("core.slider"),
+        params: &[("step", "5")],
+    };
+    let value = SLIDER.parse("35").unwrap();
+    assert_eq!(value, SettingValue::Text(Cow::Borrowed("35")));
+    assert!(SLIDER.accepts(&value));
+    assert!(!SLIDER.accepts(&SettingValue::Int(35)));
+}

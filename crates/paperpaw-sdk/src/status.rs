@@ -225,6 +225,13 @@ pub enum StatusValue {
         icon: Cow<'static, str>,
         text: String,
     },
+    /// A kind a later build adds, by its key, with its parameters (as
+    /// [`Command::Extended`](crate::Command::Extended)); a build that
+    /// doesn't know it leaves the value out.
+    Extended {
+        key: crate::Id,
+        params: crate::Params,
+    },
 }
 
 /// Computes an item's value; `None` hides it (e.g. no battery).
@@ -847,6 +854,8 @@ fn value_width(
         StatusValue::Labelled { icon, text } => {
             crate::ui::icon_width(env, icon, size) + label_gap(size) + font.measure(size, text)
         }
+        // A value of a later build: left out.
+        StatusValue::Extended { .. } => 0.0,
     }
 }
 
@@ -979,6 +988,8 @@ fn draw_value(
     let metrics = font.line_metrics(size);
     let (x, baseline) = (laid.x, middle.baseline);
     match &laid.value {
+        // A value of a later build: left out.
+        StatusValue::Extended { .. } => {}
         StatusValue::Text(text) => {
             font.draw(canvas, size, x, baseline, text, color);
         }

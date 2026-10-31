@@ -35,6 +35,14 @@ pub enum SettingKind {
     /// Ids separated by commas, e.g. the status items of a status line;
     /// shown by their names, chosen on the setting's editor screen.
     List,
+    /// A kind a later build adds (a time, a colour, a slider), by its key,
+    /// with its parameters as names and values (`("step", "5")`): data that
+    /// a `static` list of settings can hold. A build that doesn't know it
+    /// shows the setting read-only, its value as text.
+    Extended {
+        key: crate::Id,
+        params: &'static [(&'static str, &'static str)],
+    },
 }
 
 /// The values of a [`SettingKind::Choice`], each the translation key of
@@ -120,7 +128,8 @@ impl SettingKind {
             SettingKind::Choice(_)
             | SettingKind::Text
             | SettingKind::Language
-            | SettingKind::List => SettingValue::Text(Cow::Owned(String::from(text))),
+            | SettingKind::List
+            | SettingKind::Extended { .. } => SettingValue::Text(Cow::Owned(String::from(text))),
         };
         self.accepts(&value).then_some(value)
     }
@@ -130,7 +139,11 @@ impl SettingKind {
             (SettingKind::Bool, SettingValue::Bool(_)) => true,
             (SettingKind::Int { min, max }, SettingValue::Int(v)) => (min..=max).contains(&v),
             (SettingKind::Choice(options), SettingValue::Text(v)) => options.contains(v),
-            (SettingKind::Text | SettingKind::List, SettingValue::Text(_)) => true,
+            // A kind of a later build keeps its value as text, unchecked.
+            (
+                SettingKind::Text | SettingKind::List | SettingKind::Extended { .. },
+                SettingValue::Text(_),
+            ) => true,
             (SettingKind::Language, SettingValue::Text(v)) => {
                 !v.is_empty() && v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
             }

@@ -179,6 +179,9 @@ pub enum Role {
     Dialog,
     /// How far something has come; its text the share done, e.g. `42%`.
     Progress,
+    /// A value a later build adds, by its name (a constant of that build);
+    /// a build that doesn't know it: it draws as plain text.
+    Other(&'static str),
 }
 
 /// Rings are drawn at most this many pixels across their radius, far

@@ -662,6 +662,9 @@ pub enum Show {
     Reading,
     Finished,
     Favourites,
+    /// A value a later build adds, by its name (a constant of that build);
+    /// a build that doesn't know it: it shows the default.
+    Other(&'static str),
 }
 
 /// In what order a query finds books.
@@ -677,6 +680,9 @@ pub enum Sort {
     Series,
     /// The added last first.
     Added,
+    /// A value a later build adds, by its name (a constant of that build);
+    /// a build that doesn't know it: it sorts by the default.
+    Other(&'static str),
 }
 
 /// What books to find in the catalog ([`query`]): all of the conditions set.
@@ -745,7 +751,8 @@ impl Query {
     /// Whether `record` is found.
     pub fn finds(&self, record: &Record) -> bool {
         let shown = match self.show {
-            Show::All => true,
+            // A choice of a later build: everything.
+            Show::All | Show::Other(_) => true,
             Show::Unread => record.reading() == Reading::Unread,
             Show::Reading => record.reading() == Reading::Begun,
             Show::Finished => record.reading() == Reading::Finished,
@@ -775,7 +782,8 @@ impl Query {
     fn key(&self, record: &Record) -> (u32, String, String) {
         let title = record.title.to_lowercase();
         let (first, text) = match self.sort {
-            Sort::Title => (0, title),
+            // An order of a later build: by title.
+            Sort::Title | Sort::Other(_) => (0, title),
             Sort::Author => (0, format!("{}\u{1}{title}", record.author.to_lowercase())),
             Sort::Series => (
                 0,
