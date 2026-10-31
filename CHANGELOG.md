@@ -74,6 +74,13 @@ change the plugin SDK.
     Arabic book and interface; `PageType.script` and `HookCx::script()` use it. Languages in Latin letters have none.
   - **Rebuild all plugins:** `FontHandle` gained a field (its `TextInk`) that the firmware's `draw` reads, so every plugin has to
     be built against interface 5 again; one built before would pass a shorter handle.
+  - **Colour roles:** `Ink` (the interface's colour roles) is now an open `Ink(u8)` with constants: `Ink::Text` is `Ink::TEXT`
+    and so on (rename it; plugins only change the spelling). New roles `ACCENT`, `ON_ACCENT`, `LINK`, `SELECTION` and
+    `WARNING` (numbers 14 to 18; 19 to 31 are free). `Palette` holds 32 colours (100 bytes, was 42) and knows which a theme set:
+    a role it leaves out reads its `Ink::fallback()` (`LINK` reads `TEXT`, `SELECTION` reads `CARD`), so themes made for 14
+    roles keep working and nothing looks different until a theme sets a new role. `core.ui-palette` also takes `#rrggbb`
+    (older readers skip such a pair; gray panels use its brightness). `Ink` has `value`, `from_value`, `fallback`. `TextInk` is
+    how text is inked (tone); an `Ink` is a colour role.
   - **Render hooks:** a plugin can register a hook (`Registrar::add_render_hook`, `RenderHookSpec`, `HookStage`, `BandView`,
     `HookCx`, `FramePass`, `Region`) that changes finished bands, with kernel-owned carry for dithering across bands. The
     kernel accepts hooks and does not run them yet: `Capability::RENDER_HOOK`, `RENDER_REGIONS` and `LOOK_EXTRAS` are off.

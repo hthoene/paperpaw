@@ -103,7 +103,7 @@ impl Screen for Finishing {
         let below = Rect::new(area.x + margin, middle + gap * 2, inner, row * 2);
         Label::new(text)
             .role(TextRole::SMALL)
-            .ink(Ink::Note)
+            .ink(Ink::NOTE)
             .align(Align::Center)
             .wrap()
             .draw(&mut ui, below);

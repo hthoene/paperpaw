@@ -167,7 +167,7 @@ pub(crate) fn draw_text_field(
         let muted = if focused && style.dark_focus() {
             Color::WHITE
         } else {
-            style.ink(Ink::Muted)
+            style.ink(Ink::MUTED)
         };
         (placeholder, muted)
     } else {
@@ -366,7 +366,7 @@ pub fn draw_check_row(
     let muted = if focused && style.dark_focus() {
         Color::WHITE
     } else {
-        style.ink(Ink::Muted)
+        style.ink(Ink::MUTED)
     };
     for range in notes {
         let at = Rect::new(x, y, width, small);
@@ -535,7 +535,7 @@ impl TextView {
             let y = self.area.y + (whole * self.top as u32 / all) as u16;
             canvas.fill(
                 Rect::new(x, y, bar, length.min(self.area.height)),
-                style.ink(Ink::Muted),
+                style.ink(Ink::MUTED),
             );
         }
     }

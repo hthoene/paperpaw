@@ -313,7 +313,7 @@ pub(super) fn draw_cards<T: Copy>(
                 width,
                 height,
                 style.corner,
-                style.ink(super::Ink::Section),
+                style.ink(super::Ink::SECTION),
             );
         } else {
             let line = (style.line / 2).max(1);

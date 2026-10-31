@@ -393,7 +393,7 @@ impl Header {
         if let (Some((_, at, _)), Some(page), Some(text)) = (parts.pager, page, &label) {
             if self.arrows {
                 // At the first or last page, the arrow is gray.
-                let color = |end: bool| if end { style.ink(Ink::Disabled) } else { ink };
+                let color = |end: bool| if end { style.ink(Ink::DISABLED) } else { ink };
                 let (first, last) = (color(page.is_first()), color(page.is_last()));
                 arrow(canvas, prev_x, crate::icons::PREV, true, first);
                 arrow(canvas, next_x, crate::icons::NEXT, false, last);
@@ -559,7 +559,7 @@ impl Pager {
                 i32::from(a.y),
                 u32::from(a.width).saturating_sub(style.margin * 2),
                 style.line.max(1),
-                style.ink(Ink::Rule),
+                style.ink(Ink::RULE),
             );
         }
         let Some(font) = style.font(env) else {
@@ -583,7 +583,7 @@ impl Pager {
             let (_, y) = center(a);
             let dim = |end: bool| {
                 if end {
-                    style.ink(Ink::Disabled)
+                    style.ink(Ink::DISABLED)
                 } else {
                     Color::BLACK
                 }

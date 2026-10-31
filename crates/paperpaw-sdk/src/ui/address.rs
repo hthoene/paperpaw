@@ -163,7 +163,7 @@ pub fn draw_address(
             x,
             row(y, small),
             part,
-            style.faint(Ink::Note),
+            style.faint(Ink::NOTE),
         );
         y += small;
     }

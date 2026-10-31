@@ -126,7 +126,7 @@ pub(crate) fn draw_faint_button(
         .describe(Role::Button, label, rect)
         .focused(focused)
         .disabled(true);
-    let faint = style.faint(Ink::Note);
+    let faint = style.faint(Ink::NOTE);
     framed(canvas, style, rect, (Color::WHITE, faint), focused);
     let Some(font) = style.font(env) else {
         return;

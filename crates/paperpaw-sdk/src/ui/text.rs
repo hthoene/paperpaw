@@ -172,7 +172,7 @@ pub(crate) fn draw_heading(
         x,
         text_area,
         text,
-        style.ink(Ink::Muted),
+        style.ink(Ink::MUTED),
     );
 }
 
@@ -615,7 +615,7 @@ pub(crate) fn draw_note_line(
     if style.separators != Separators::None {
         canvas.fill_tint(
             Rect::new(area.x + margin, area.y, width, style.line as u16),
-            style.ink(Ink::Line),
+            style.ink(Ink::LINE),
         );
     }
     let Some(font) = style.font(env) else {
@@ -659,7 +659,7 @@ pub(crate) fn draw_note_line(
             f32::from(row.x),
             row,
             &shown,
-            style.ink(Ink::Note),
+            style.ink(Ink::NOTE),
         );
         y += line;
     }
@@ -841,7 +841,7 @@ pub(crate) fn draw_empty(
             icon_size,
             centre(w),
             at,
-            style.ink(Ink::Faint),
+            style.ink(Ink::FAINT),
         );
         y += icon_room;
     }
@@ -886,7 +886,7 @@ pub(crate) fn draw_empty(
             x,
             (y + ascent) as i32,
             shown,
-            style.ink(Ink::Note),
+            style.ink(Ink::NOTE),
         );
         y += line;
     }

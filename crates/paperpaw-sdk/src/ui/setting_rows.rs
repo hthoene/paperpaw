@@ -328,7 +328,7 @@ pub(super) fn draw_note_below(
     );
     let margin = style.margin as f32;
     let width = f32::from(rect.width) - 2.0 * margin;
-    let color = style.focus_faint(focused, Ink::Detail);
+    let color = style.focus_faint(focused, Ink::DETAIL);
     let line = style.small * NOTE_LINE_HEIGHT;
     let ascent = font.line_metrics(style.small).ascent;
     let top = f32::from(below);

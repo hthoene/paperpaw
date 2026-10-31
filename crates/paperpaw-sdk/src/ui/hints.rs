@@ -200,7 +200,7 @@ pub fn draw_button_hints(
                 area.width.saturating_sub(2 * style.margin as u16),
                 line as u16,
             ),
-            style.ink(Ink::Rule),
+            style.ink(Ink::RULE),
         ),
         Separators::None => {}
     }

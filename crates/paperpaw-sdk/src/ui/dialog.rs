@@ -490,7 +490,7 @@ impl Dialog {
                 let x = (self.panel.x + self.panel.width).saturating_sub(bar + style.gap as u16);
                 canvas.fill(
                     Rect::new(x, at, bar, length.min(self.area.height)),
-                    style.ink(super::Ink::Muted),
+                    style.ink(super::Ink::MUTED),
                 );
             }
         }

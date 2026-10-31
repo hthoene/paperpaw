@@ -1152,10 +1152,10 @@ fn the_palette_sets_the_grays_the_parts_draw_in() {
     use paperpaw_sdk::Color;
     use paperpaw_sdk::ui::{Ink, Palette, TextRole};
     let palette = Palette::parse("muted=60 line=100 bad nope=3 faint=x note=300");
-    assert_eq!(palette.color(Ink::Muted), Color::gray(60));
-    assert_eq!(palette.color(Ink::Line), Color::gray(100));
+    assert_eq!(palette.color(Ink::MUTED), Color::gray(60));
+    assert_eq!(palette.color(Ink::LINE), Color::gray(100));
     // What it does not set, or sets wrongly, keeps its default.
-    for ink in [Ink::Faint, Ink::Note, Ink::Rule, Ink::Text, Ink::Paper] {
+    for ink in [Ink::FAINT, Ink::NOTE, Ink::RULE, Ink::TEXT, Ink::PAPER] {
         assert_eq!(palette.color(ink), Palette::DEFAULT.color(ink), "{ink:?}");
     }
     assert_eq!(Palette::parse(""), Palette::DEFAULT);
@@ -1170,11 +1170,11 @@ fn the_palette_sets_the_grays_the_parts_draw_in() {
     ui::Ui::new(&mut lined.canvas(), &env, &style).separator(row, 0);
     let y = row.height - style.line();
     assert_eq!(lined.view().pixel(240, y), Color::gray(100));
-    assert_eq!(style.ink(Ink::Muted), Color::gray(60));
+    assert_eq!(style.ink(Ink::MUTED), Color::gray(60));
     // Strong contrast draws gray text black, not the lines.
     let style = style.with_strong(true);
-    assert_eq!(style.ink(Ink::Muted), Color::BLACK);
-    assert_eq!(style.ink(Ink::Line), Color::gray(100));
+    assert_eq!(style.ink(Ink::MUTED), Color::BLACK);
+    assert_eq!(style.ink(Ink::LINE), Color::gray(100));
     // Text of one kind is as large everywhere.
     assert_eq!(style.size(TextRole::BODY), style.text());
     assert_eq!(style.size(TextRole::HEADLINE), style.title() * 1.6);

@@ -425,11 +425,11 @@ pub fn widget_look(env: &Env<'_>, widget: &str, area: Rect) -> WidgetLook {
             if style.strong {
                 Color::WHITE
             } else {
-                style.ink(ui::Ink::OnDarkMuted)
+                style.ink(ui::Ink::ON_DARK_MUTED)
             },
             Color::BLACK,
         ),
-        _ => (Color::BLACK, style.ink(ui::Ink::Muted), Color::WHITE),
+        _ => (Color::BLACK, style.ink(ui::Ink::MUTED), Color::WHITE),
     };
     WidgetLook {
         area: inner,

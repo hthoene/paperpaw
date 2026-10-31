@@ -117,7 +117,7 @@ must leave its list.
     labels and its length. Its `draw` and `hit` do not take them again.
 
 12. **Colours and sizes come from the theme.** A plugin writes
-    `style.ink(Ink::Note)` and `style.margin()`, never a literal gray or a
+    `style.ink(Ink::NOTE)` and `style.margin()`, never a literal gray or a
     number of pixels.
 
 ## Data formats

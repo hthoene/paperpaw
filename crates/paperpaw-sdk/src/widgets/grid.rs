@@ -548,13 +548,13 @@ pub fn draw_tool_lines(
     let ink = match (on, state.enabled) {
         (true, _) => Color::WHITE,
         (false, true) => Color::BLACK,
-        (false, false) => style.faint(crate::ui::Ink::Note),
+        (false, false) => style.faint(crate::ui::Ink::NOTE),
     };
     if on {
         let back = if state.enabled {
             Color::BLACK
         } else {
-            style.faint(crate::ui::Ink::Note)
+            style.faint(crate::ui::Ink::NOTE)
         };
         canvas.fill_round(area, style.corner, back);
     }
