@@ -71,11 +71,13 @@ change the plugin SDK.
   `Style` reserves `justify_cap`, options for some scripts as flag bits
   (`Style::script_options`, `ScriptOptions`: kashida, hanging
   punctuation, keep-all, and reserved groups for CJK and Thai line
-  breaking), and options and numbers for later page settings
-  (`LayoutOptions`, `Style::numbers`): 0 is today's behaviour, so a later
-  option is a new bit, not a field; `BookStyles::from_bits`, and `ALL`
-  holds styles named later; `Typesetter::advance_text` measures a text as a
-  whole.
+  breaking, read and set with `group` and `set_group`), and options and
+  signed values for later page settings (`LayoutOptions`,
+  `Style::values`): 0 is today's behaviour, so a later option is a new
+  bit, not a field; `BookStyles::from_bits`, and `ALL` holds styles named
+  later; `Typesetter::advance_text` measures a text as a whole. The
+  options are in the page-index key, so every saved page index is made
+  again once after the update.
 - `paperpaw-text`: character sets are no longer public constants; tools
   name them (`charset::named`), so a set grows without a new plugin
   interface (`charset::names` lists them). The Greek and Cyrillic sets

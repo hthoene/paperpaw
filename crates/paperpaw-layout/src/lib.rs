@@ -230,8 +230,24 @@ impl ScriptOptions {
     /// `text-autospace`). Reserved.
     pub const AUTOSPACE: ScriptOptions = ScriptOptions(1 << 9);
 
+    /// Whether every bit of `other` is set: for options of one bit. A
+    /// group's value is read with [`ScriptOptions::group`].
     pub const fn has(self, other: ScriptOptions) -> bool {
         self.0 & other.0 == other.0
+    }
+
+    /// The bits of `mask` alone: the value of a group of bits, to compare
+    /// with `==` (`options.group(ScriptOptions::LINE_BREAK_MASK) == ScriptOptions::LINE_BREAK_STRICT`).
+    #[must_use]
+    pub const fn group(self, mask: ScriptOptions) -> ScriptOptions {
+        ScriptOptions(self.0 & mask.0)
+    }
+
+    /// These with the group of bits `mask` set to `value` (its bits
+    /// outside `mask` left out).
+    #[must_use]
+    pub const fn set_group(self, mask: ScriptOptions, value: ScriptOptions) -> ScriptOptions {
+        ScriptOptions((self.0 & !mask.0) | (value.0 & mask.0))
     }
 
     /// These and `other`'s.
@@ -270,8 +286,24 @@ impl LayoutOptions {
     /// None: pages laid out as by default.
     pub const NONE: LayoutOptions = LayoutOptions(0);
 
+    /// Whether every bit of `other` is set: for options of one bit. A
+    /// group's value is read with [`LayoutOptions::group`].
     pub const fn has(self, other: LayoutOptions) -> bool {
         self.0 & other.0 == other.0
+    }
+
+    /// The bits of `mask` alone: the value of a group of bits, to compare
+    /// with `==`.
+    #[must_use]
+    pub const fn group(self, mask: LayoutOptions) -> LayoutOptions {
+        LayoutOptions(self.0 & mask.0)
+    }
+
+    /// These with the group of bits `mask` set to `value` (its bits
+    /// outside `mask` left out).
+    #[must_use]
+    pub const fn set_group(self, mask: LayoutOptions, value: LayoutOptions) -> LayoutOptions {
+        LayoutOptions((self.0 & !mask.0) | (value.0 & mask.0))
     }
 
     /// These and `other`'s.
@@ -337,11 +369,12 @@ pub struct Style {
     /// Options of the page that are not about scripts; none by default,
     /// all reserved (see [`LayoutOptions`]).
     pub options: LayoutOptions,
-    /// Reserved numbers for later settings of a page (e.g. the fewest
-    /// letters around a hyphen, a line grid): 0 by default, which is
-    /// today's behaviour; each gets its meaning and unit only with a new
-    /// [`VERSION`].
-    pub numbers: [u16; 4],
+    /// Reserved values for later settings of a page (e.g. the fewest
+    /// letters around a hyphen, a line grid, a hanging first-line indent):
+    /// 0 by default, which is today's behaviour; signed, as some are
+    /// tighter or before the margin. Each slot gets its meaning and unit
+    /// only with a new [`VERSION`].
+    pub values: [i16; 4],
 }
 
 impl Style {
@@ -359,7 +392,7 @@ impl Style {
             justify_cap: 0.5,
             script_options: ScriptOptions::NONE,
             options: LayoutOptions::NONE,
-            numbers: [0; 4],
+            values: [0; 4],
         }
     }
 

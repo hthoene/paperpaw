@@ -827,7 +827,7 @@ fn reserved_parts_are_built_whole() {
     assert!(!style.script_options.has(ScriptOptions::KEEP_ALL));
     assert_eq!(style.options.without(LayoutOptions::NONE).bits(), 1 << 31);
     assert_eq!(
-        (STYLE.script_options, STYLE.options, STYLE.numbers),
+        (STYLE.script_options, STYLE.options, STYLE.values),
         (ScriptOptions::NONE, LayoutOptions::NONE, [0; 4])
     );
     // A group's values sit in its mask; "all" book styles holds later ones.
@@ -837,6 +837,40 @@ fn reserved_parts_are_built_whole() {
             && strict.bits() & !ScriptOptions::LINE_BREAK_MASK.bits() == 0
     );
     assert!(BookStyles::ALL.has(BookStyles::from_bits(1 << 15)));
+    // A group is read and set as a whole: `has` is for single bits.
+    let mask = ScriptOptions::LINE_BREAK_MASK;
+    let loose = ScriptOptions::KEEP_ALL.set_group(mask, ScriptOptions::LINE_BREAK_LOOSE);
+    assert_eq!(loose.group(mask), ScriptOptions::LINE_BREAK_LOOSE);
+    assert!(loose.has(ScriptOptions::KEEP_ALL));
+    let strict = loose.set_group(mask, ScriptOptions::LINE_BREAK_STRICT);
+    assert_eq!(strict.group(mask), ScriptOptions::LINE_BREAK_STRICT);
+    assert_ne!(strict.group(mask), ScriptOptions::LINE_BREAK_ANYWHERE);
+    let normal = strict.set_group(mask, ScriptOptions::LINE_BREAK_NORMAL);
+    assert_eq!(normal, ScriptOptions::KEEP_ALL);
+    assert_eq!(normal.group(mask), ScriptOptions::LINE_BREAK_NORMAL);
+    // Bits of a value outside its group are left out.
+    let odd = ScriptOptions::NONE.set_group(mask, ScriptOptions::from_bits(u32::MAX));
+    assert_eq!(odd, ScriptOptions::LINE_BREAK_ANYWHERE);
+    let flags = LayoutOptions::from_bits(0b101).set_group(
+        LayoutOptions::from_bits(0b11),
+        LayoutOptions::from_bits(0b10),
+    );
+    assert_eq!(
+        (
+            flags.bits(),
+            flags.group(LayoutOptions::from_bits(0b110)).bits()
+        ),
+        (0b110, 0b110)
+    );
+    let style = Style::new(1.0, 2.0, 10.0, true);
+    assert_eq!(
+        Style {
+            values: [-4, 0, 0, 0],
+            ..style
+        }
+        .values[0],
+        -4
+    );
     // Reserved bits are kept as they are, for a later layout.
     let later = ScriptOptions::from_bits(1 << 31).with(ScriptOptions::KEEP_ALL);
     assert_eq!(later.without(ScriptOptions::KEEP_ALL).bits(), 1 << 31);

@@ -350,7 +350,7 @@ impl PageType {
                 // Options of later layouts: in the key before any is used.
                 style.script_options.bits(),
                 style.options.bits(),
-                style.numbers,
+                style.values,
             ))
         );
         // Pages without layers' rooms or a frame keep their key (and their
