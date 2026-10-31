@@ -582,7 +582,7 @@ jobs:
           mkdir -p fuzz/corpus/image
           cp crates/paperpaw-image/tests/data/*.jpg crates/paperpaw-image/tests/data/*.png fuzz/corpus/image/
           # `+nightly` overrides rust-toolchain.toml, which pins stable.
-          for target in epub txt xml hyphen image lua bidi; do
+          for target in epub txt xml hyphen image lua bidi wrap; do
             cargo +nightly fuzz run "$target" -- -max_total_time=60 -rss_limit_mb=1024
           done
       - uses: actions/upload-artifact@v7

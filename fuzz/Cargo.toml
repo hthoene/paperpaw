@@ -157,6 +157,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "wrap"
+path = "fuzz_targets/wrap.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "xml"
 path = "fuzz_targets/xml.rs"
 test = false
