@@ -86,6 +86,24 @@ fn zwnj_breaks_and_zwj_and_tatweel_join() {
     );
 }
 
+/// A zero width space and a word joiner (a break place and a no-break mark)
+/// are invisible but join nothing across them, as before they were
+/// invisible: beh, the mark, beh gives two isolated letters (design of
+/// line breaking, M1). Unicode's data says Transparent; this is deliberate.
+#[test]
+fn zero_width_space_and_word_joiner_join_nothing_across_them() {
+    for mark in ['\u{200B}', '\u{2060}', '\u{2061}', '\u{2064}'] {
+        let text = alloc::format!("\u{628}{mark}\u{628}");
+        assert_eq!(keys_of(&text), ['\u{628}', NO_GLYPH, '\u{628}'], "{mark:?}");
+    }
+    // The byte order mark stays Transparent (Unicode's data says so, and it
+    // did before): the letters around it join.
+    assert_eq!(
+        keys_of("\u{628}\u{FEFF}\u{628}"),
+        ['\u{FE91}', NO_GLYPH, '\u{FE90}']
+    );
+}
+
 #[test]
 fn a_run_keeps_its_neighbours_joining() {
     // The middle letter of beh beh beh, drawn as a run of its own.

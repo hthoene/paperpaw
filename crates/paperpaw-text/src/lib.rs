@@ -172,14 +172,20 @@ pub fn is_mark(ch: char) -> bool {
 } @ text::TEXT_IS_MARK
 }
 
-/// Whether `ch` is a control that draws nothing and takes no room: ZWNJ,
-/// ZWJ, the marks, embeddings, overrides and isolates of direction, the
-/// byte order mark.
+/// Whether `ch` is a control that draws nothing and takes no room: the
+/// zero width space (a place to break a line), ZWNJ, ZWJ, the marks,
+/// embeddings, overrides and isolates of direction, the word joiner and
+/// the invisible operators after it, the byte order mark.
 #[must_use]
 pub fn is_invisible(ch: char) -> bool {
     matches!(
         ch,
-        '\u{200C}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{061C}' | '\u{FEFF}'
+        '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{2069}'
+            | '\u{061C}'
+            | '\u{FEFF}'
     )
 }
 

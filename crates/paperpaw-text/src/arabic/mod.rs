@@ -114,6 +114,15 @@ pub(crate) fn joining(ch: char) -> Joining {
     match ch {
         '\u{200C}' => Joining::NonJoining,
         '\u{200D}' => Joining::Causing,
+        // Zero width, and joining nothing across them, as they never did
+        // (they are not in `is_invisible`'s old list, so the last arm
+        // gave them NonJoining). Unicode's data says Transparent for these
+        // (`DerivedJoiningType.txt` 17.0.0: `200B; T`, `2060..2064; T`), so
+        // letters would join across them in a conforming shaper: this keeps
+        // Arabic shaping as it was when they became invisible for line
+        // breaking. A later switch to Unicode's behaviour is a plain
+        // behaviour change (and a layout `VERSION` bump).
+        '\u{200B}' | '\u{2060}'..='\u{2064}' => Joining::NonJoining,
         _ if is_invisible(ch) || bidi::class(ch) == bidi::Class::NSM => Joining::Transparent,
         _ => Joining::NonJoining,
     }
