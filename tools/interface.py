@@ -228,11 +228,18 @@ class Shapes:
         return item["crate_id"] == 0 and next(iter(item["inner"])) in (
             "struct", "enum", "union", "trait")
 
+    def is_alias(self, item):
+        return item["crate_id"] == 0 and next(iter(item["inner"])) == "type_alias"
+
     def reached(self, item):
         """The ids of the types an item's fields and variants name, and
         those its trait's items take and give: a value a trait object's
-        function returns crosses as a field's does."""
+        function returns crosses as a field's does. A type alias is
+        followed to the types it names (`type Hook = fn(&mut Band)`)."""
         (kind, v), = item["inner"].items()
+        if kind == "type_alias":
+            yield from ids_in(v["type"])
+            return
         if kind == "trait":
             for member in v["items"]:
                 inner = self.index.get(str(member), {}).get("inner", {})
@@ -266,10 +273,11 @@ class Shapes:
             item = todo.pop()
             for id_ in self.reached(item):
                 other = self.index.get(str(id_))
-                if other and self.is_type(other) and other["id"] not in seen:
+                if (other and (self.is_type(other) or self.is_alias(other))
+                        and other["id"] not in seen):
                     seen.add(other["id"])
                     todo.append(other)
-        return [self.index[str(i)] for i in seen]
+        return [self.index[str(i)] for i in seen if self.is_type(self.index[str(i)])]
 
     def line(self, item):
         (kind, v), = item["inner"].items()

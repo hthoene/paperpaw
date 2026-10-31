@@ -63,5 +63,62 @@ class TraitItems(unittest.TestCase):
         self.assertIn("struct t::Anchors { x: i16 }", shape(changed))
 
 
+def struct(id_, name, field_ids, visibility="default"):
+    return item(id_, name, {"struct": {
+        "kind": {"plain": {"fields": field_ids}}, "generics": {"params": []}}}, visibility)
+
+
+def path_to(id_, name):
+    return {"resolved_path": {"path": name, "id": id_, "args": None}}
+
+
+def hooked(field_type, extra=None):
+    """A public `Hook { f: <field_type> }` over a private `Band { x: i8 }`
+    that only `field_type` names."""
+    doc = {
+        "paths": {"1": {"path": ["t", "Hook"]}, "4": {"path": ["t", "Band"]},
+                  "7": {"path": ["t", "Alias"]}},
+        "index": {
+            "1": struct(1, "Hook", [2], "public"),
+            "2": item(2, "f", {"struct_field": field_type}),
+            "4": struct(4, "Band", [5]),
+            "5": item(5, "x", {"struct_field": {"primitive": "i8"}}),
+        },
+    }
+    doc["index"].update(extra or {})
+    return doc
+
+
+BAND_MUT = {"borrowed_ref": {"lifetime": None, "is_mutable": True, "type": path_to(4, "Band")}}
+FN_BAND = {"parenthesized": {"inputs": [BAND_MUT], "output": None}}
+BOXED_FN = {"resolved_path": {"path": "Box", "id": 8, "args": {"angle_bracketed": {
+    "args": [{"type": {"dyn_trait": {"traits": [{"trait": {
+        "path": "Fn", "id": 9, "args": FN_BAND}}], "lifetime": None}}}], "constraints": []}}}}
+FN_POINTER = {"function_pointer": {"sig": {"inputs": [["b", BAND_MUT]], "output": None,
+                                           "is_c_variadic": False},
+                                   "generic_params": [], "header": {}}}
+ALIAS = {"7": item(7, "Alias", {"type_alias": {"type": FN_POINTER, "generics": {"params": []}}})}
+
+
+class TypesNamedInCallables(unittest.TestCase):
+    """A type that only a closure bound, a function pointer or an alias of
+    one names crosses all the same (ADR 0026): its layout is pinned."""
+
+    def test_a_type_named_only_in_a_boxed_dyn_fn_is_in_the_shape(self):
+        self.assertIn("struct t::Band { x: i8 }", shape(hooked(BOXED_FN)))
+
+    def test_the_arguments_of_the_dyn_fn_are_in_the_field_s_line(self):
+        self.assertIn("struct t::Hook { f: Box<dyn Fn(&mut t::Band)> }", shape(hooked(BOXED_FN)))
+
+    def test_a_type_named_only_in_a_function_pointer_is_in_the_shape(self):
+        self.assertIn("struct t::Band { x: i8 }", shape(hooked(FN_POINTER)))
+
+    def test_a_type_named_only_in_an_alias_of_a_function_pointer_is_in_the_shape(self):
+        self.assertIn("struct t::Band { x: i8 }", shape(hooked(path_to(7, "Alias"), ALIAS)))
+
+    def test_an_alias_itself_is_not_a_line(self):
+        self.assertFalse([l for l in shape(hooked(path_to(7, "Alias"), ALIAS)) if "Alias {" in l])
+
+
 if __name__ == "__main__":
     unittest.main()
