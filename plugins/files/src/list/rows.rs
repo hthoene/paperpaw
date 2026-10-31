@@ -386,7 +386,7 @@ fn draw_state(
         return x;
     }
     let ink = style.focus_ink(focused);
-    let faint = style.focus_faint(focused, ui::Ink::Detail);
+    let faint = style.focus_faint(focused, ui::Ink::DETAIL);
     let gap = style.gap();
     match book.progress {
         100 => {
@@ -637,7 +637,7 @@ pub(crate) fn draw_book(
     }
     if !note.is_empty() || !book.badge_icons.is_empty() {
         let area = Rect::new(x, y, width, sizes.small_line);
-        let faint = style.focus_faint(focused, ui::Ink::Detail);
+        let faint = style.focus_faint(focused, ui::Ink::DETAIL);
         draw_note(ui, x, area, book, faint);
         y += sizes.small_line;
     }
@@ -654,7 +654,7 @@ pub(crate) fn draw_book(
         let end = draw_state(ui, sizes, at, area, bar, book, focused);
         if !tail.is_empty() {
             let x = if end > at { end + gap * 2 / 3 } else { at };
-            let faint = style.focus_faint(focused, ui::Ink::Detail);
+            let faint = style.focus_faint(focused, ui::Ink::DETAIL);
             ui::Label::new(tail)
                 .px(style.small())
                 .color(faint)
@@ -680,7 +680,7 @@ fn draw_compact_row(
         return;
     }
     let ink = style.focus_ink(focused);
-    let faint = style.focus_faint(focused, ui::Ink::Detail);
+    let faint = style.focus_faint(focused, ui::Ink::DETAIL);
     let margin = style.margin();
     let gap = style.gap();
     let (cw, ch) = sizes.cover;
@@ -737,7 +737,7 @@ fn draw_compact_card(ui: &mut ui::Ui<'_>, sizes: &Sizes, rect: Rect, focused: bo
         ui.focus(rect);
     }
     let ink = style.focus_ink(focused);
-    let faint = style.focus_faint(focused, ui::Ink::Detail);
+    let faint = style.focus_faint(focused, ui::Ink::DETAIL);
     let margin = style.margin();
     let gap = style.gap();
     let (cw, ch) = sizes.card_cover;
@@ -820,7 +820,7 @@ pub(crate) fn draw_card(
     } else {
         Color::WHITE
     };
-    let faint = style.focus_faint(focused, ui::Ink::Detail);
+    let faint = style.focus_faint(focused, ui::Ink::DETAIL);
     let (cw, ch) = sizes.card_cover;
     let place = Rect::new(rect.x + margin, rect.y + (rect.height - ch) / 2, cw, ch);
     draw_cover(ui, place, book, ink);
@@ -887,7 +887,7 @@ pub(crate) fn draw_filter_row(
         ui.focus(rect);
     }
     let ink = style.focus_ink(focused);
-    let faint = style.focus_faint(focused, ui::Ink::Detail);
+    let faint = style.focus_faint(focused, ui::Ink::DETAIL);
     let margin = style.margin();
     let gap = style.gap();
     let x = rect.x + margin;

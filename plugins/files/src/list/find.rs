@@ -166,7 +166,7 @@ impl Screen for FindScreen {
         let size = style.text() * ui::ICON_SCALE;
         let w = ui.icon("search", size, margin, self.search, ink);
         let x = margin + w + style.gap() as f32;
-        let faint = style.focus_faint(focused, ui::Ink::Detail);
+        let faint = style.focus_faint(focused, ui::Ink::DETAIL);
         ui::Label::new(hint)
             .px(style.text())
             .color(faint)

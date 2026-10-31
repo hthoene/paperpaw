@@ -393,7 +393,7 @@ impl BrowseScreen {
                     bar.y.saturating_sub(status.y),
                 );
                 ui.note_line(text_area, &text);
-                let ink = style.ink(ui::Ink::Text);
+                let ink = style.ink(ui::Ink::TEXT);
                 ui.progress(bar, permille, ink);
             }
             None => ui.note_line(status, &text),

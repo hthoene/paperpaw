@@ -436,7 +436,7 @@ pub(crate) fn save_choice(storage: &dyn Storage, chosen: &[String; 2]) {
 
 /// The colour of status lines: gray, or black for strong contrast.
 pub(crate) fn color(env: &Env<'_>) -> paperpaw_sdk::Color {
-    UiStyle::new(env).faint(paperpaw_sdk::ui::Ink::Detail)
+    UiStyle::new(env).faint(paperpaw_sdk::ui::Ink::DETAIL)
 }
 
 /// The book as a bar from the left, filled up to where the page is, with

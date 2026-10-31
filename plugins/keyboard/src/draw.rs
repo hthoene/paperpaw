@@ -44,7 +44,7 @@ impl KeyboardScreen {
         );
         ui::Label::new(&title)
             .px(style.small())
-            .color(style.faint(ui::Ink::Muted))
+            .color(style.faint(ui::Ink::MUTED))
             .draw_from(ui, margin, title_area);
         let box_area = self.text_box();
         ui::stroke_round(

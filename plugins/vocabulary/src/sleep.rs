@@ -108,7 +108,7 @@ impl Screen for SleepCard {
             let row = Rect::new(margin, y, display.width.saturating_sub(2 * margin), small);
             ui::Label::new(note)
                 .px(style.small())
-                .color(style.faint(ui::Ink::Note))
+                .color(style.faint(ui::Ink::NOTE))
                 .draw_from(&mut ui, x, row);
             y += small;
         }

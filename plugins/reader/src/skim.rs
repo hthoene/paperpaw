@@ -229,7 +229,7 @@ impl Screen for SkimScreen {
             let at = label_end + style.gap() as f32 * 2.0;
             ui::Label::new(&self.chapter)
                 .px(style.small())
-                .color(style.faint(ui::Ink::Detail))
+                .color(style.faint(ui::Ink::DETAIL))
                 .draw_from(&mut ui, at, info);
         }
         // The bar has the focus while no button has it, shown as the

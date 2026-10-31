@@ -686,7 +686,7 @@ impl Screen for PageScreen {
             );
             y += style.gap() as f32;
             // The facts each after its icon, their texts lined up.
-            let ink = style.faint(ui::Ink::Detail);
+            let ink = style.faint(ui::Ink::DETAIL);
             for (icon, fact) in &facts {
                 let lines = font.wrap(style.small(), fact, width - room).len().min(3);
                 if y + line * lines as f32 > bottom {

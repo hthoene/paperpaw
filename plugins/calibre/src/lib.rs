@@ -796,7 +796,7 @@ impl Screen for CalibreScreen {
             let text = env
                 .i18n()
                 .format("calibre.library", &[("library", Arg::Str(library))]);
-            line(&mut ui, style.text(), &text, style.faint(ui::Ink::Detail));
+            line(&mut ui, style.text(), &text, style.faint(ui::Ink::DETAIL));
         }
         if self.received > 0 {
             let text = env
@@ -829,7 +829,7 @@ impl Screen for CalibreScreen {
         if let Some(hint) = hint {
             let hint = env.i18n().tr(hint);
             let size = self.hint_size(env, &status, hint, again);
-            line(&mut ui, size, hint, style.faint(ui::Ink::Detail));
+            line(&mut ui, size, hint, style.faint(ui::Ink::DETAIL));
         }
         if let Some(again) = again {
             line(&mut ui, style.small(), env.i18n().tr(again), Color::BLACK);

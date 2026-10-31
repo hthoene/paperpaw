@@ -368,7 +368,7 @@ impl MenuScreen {
         let text = ui::fit(&font, style.small(), env.i18n().tr(key), width);
         ui::Label::new(&text)
             .px(style.small())
-            .color(style.faint(ui::Ink::Detail))
+            .color(style.faint(ui::Ink::DETAIL))
             .draw_from(ui, x, below);
         Rect::new(rect.x, rect.y, rect.width, row)
     }
@@ -392,7 +392,7 @@ impl MenuScreen {
         let ui = &mut ui;
         let ink = match state.enabled {
             true => style.focus_ink(focused),
-            false => style.faint(ui::Ink::Note),
+            false => style.faint(ui::Ink::NOTE),
         };
         let rect = self.draw_description(ui, (item, laid), rect);
         // The label and value right of the icons.

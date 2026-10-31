@@ -263,7 +263,7 @@ impl Screen for InfoScreen {
                     &style,
                     *at,
                     ui::button_border(&style),
-                    style.faint(ui::Ink::Detail),
+                    style.faint(ui::Ink::DETAIL),
                 );
             }
             _ => {}
@@ -282,7 +282,7 @@ impl Screen for InfoScreen {
             let row = Rect::new(text_x, layout.author, text_width, line(style.text()));
             ui::Label::new(&d.author)
                 .px(style.text())
-                .color(style.faint(ui::Ink::Detail))
+                .color(style.faint(ui::Ink::DETAIL))
                 .draw_from(&mut ui, f32::from(text_x), row);
         }
 
@@ -303,7 +303,7 @@ impl Screen for InfoScreen {
                 x,
                 baseline,
                 label,
-                style.faint(ui::Ink::Detail),
+                style.faint(ui::Ink::DETAIL),
             );
             let room = f32::from(width) - layout.label_width;
             let value = ui::fit(&font, style.text(), value, room);

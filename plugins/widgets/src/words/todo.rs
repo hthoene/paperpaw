@@ -774,7 +774,7 @@ impl Screen for TodoScreen {
                 if focused && style.dark_focus() {
                     Color::gray(200)
                 } else {
-                    style.faint(ui::Ink::Muted)
+                    style.faint(ui::Ink::MUTED)
                 },
                 paper,
                 widgets::Frame::None,
@@ -815,8 +815,8 @@ impl Screen for TodoScreen {
             );
             let look = WidgetLook::new(
                 area,
-                style.faint(ui::Ink::Muted),
-                style.faint(ui::Ink::Muted),
+                style.faint(ui::Ink::MUTED),
+                style.faint(ui::Ink::MUTED),
                 Color::WHITE,
                 widgets::Frame::None,
             );

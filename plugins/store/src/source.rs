@@ -98,7 +98,7 @@ impl Screen for SourceScreen {
                 let color = if text == shown {
                     Color::BLACK
                 } else {
-                    style.faint(ui::Ink::Detail)
+                    style.faint(ui::Ink::DETAIL)
                 };
                 ui::Label::new(part)
                     .px(style.small())

@@ -254,7 +254,7 @@ impl Screen for FontScreen {
         let sentence = samples::sentence(env);
         let (face, size, color) = match self.samples.get(&font.id) {
             Some(sample) => (Some(sample), self.samples.size as f32, Color::BLACK),
-            None => (style.font(env), style.text(), style.faint(ui::Ink::Faint)),
+            None => (style.font(env), style.text(), style.faint(ui::Ink::FAINT)),
         };
         let mut bottom = self.sample.y;
         if let Some(face) = face {
@@ -300,7 +300,7 @@ impl Screen for FontScreen {
                     margin,
                     baseline as i32,
                     &text,
-                    style.faint(ui::Ink::Detail),
+                    style.faint(ui::Ink::DETAIL),
                 );
             }
         }

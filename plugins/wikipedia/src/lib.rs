@@ -358,7 +358,7 @@ impl Screen for Summary {
         let right = f32::from(header.width) - margin - source_width;
         ui::Label::new(source)
             .px(style.small())
-            .color(style.faint(ui::Ink::Detail))
+            .color(style.faint(ui::Ink::DETAIL))
             .draw_from(&mut ui, right, header);
         let word = ui::fit(&font, style.title(), &self.word, right - margin * 2.0);
         ui::Label::new(&word)

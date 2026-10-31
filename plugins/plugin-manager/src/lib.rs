@@ -539,7 +539,7 @@ impl Screen for PluginList {
         );
         ui::Label::new(ui::tr_input(env, key))
             .px(style.small())
-            .color(style.faint(ui::Ink::Note))
+            .color(style.faint(ui::Ink::NOTE))
             .draw_from(&mut ui, style.margin() as f32, area);
     }
 

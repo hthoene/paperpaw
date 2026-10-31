@@ -890,7 +890,7 @@ impl Screen for UpdatePage {
                 style.small(),
                 &help,
                 HELP_LINES,
-                style.ink(ui::Ink::Note),
+                style.ink(ui::Ink::NOTE),
             ) + gap * 2;
         } else {
             // Too long even smaller: scrolled with the page buttons, a

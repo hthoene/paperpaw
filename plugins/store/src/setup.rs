@@ -300,7 +300,7 @@ impl Screen for OfferScreen {
         );
         ui::Label::new(hint)
             .px(style.small())
-            .color(style.faint(ui::Ink::Note))
+            .color(style.faint(ui::Ink::NOTE))
             .lines(2)
             .draw(&mut ui, area);
     }

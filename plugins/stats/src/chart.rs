@@ -68,7 +68,7 @@ pub(crate) fn bars(
                 let row = Rect::new(area.x, (base_y - h) as u16 - top_h, area.width, top_h);
                 ui::Label::new(top)
                     .px(style.small())
-                    .color(style.faint(ui::Ink::Note))
+                    .color(style.faint(ui::Ink::NOTE))
                     .draw_from(ui, tx, row);
             }
         }
@@ -91,7 +91,7 @@ pub(crate) fn bars(
             let color = if highlight == Some(i) {
                 Color::BLACK
             } else {
-                style.faint(ui::Ink::Muted)
+                style.faint(ui::Ink::MUTED)
             };
             ui::Label::new(label)
                 .px(style.small())

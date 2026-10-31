@@ -287,7 +287,7 @@ impl Calendar {
             let x = f32::from(area.x) + (f32::from(size) - font.measure(name_size, name)) / 2.0;
             ui::Label::new(name)
                 .px(name_size)
-                .color(style.faint(ui::Ink::Muted))
+                .color(style.faint(ui::Ink::MUTED))
                 .draw_from(ui, x, area);
         }
         let pad = (u32::from(style.line()) * 2).max(2) as u16;
@@ -379,7 +379,7 @@ impl Calendar {
                 ui.canvas().stroke(r, border * 2, Color::BLACK);
             } else if Some(day) == self.today {
                 ui.canvas()
-                    .stroke(inner, border, style.faint(ui::Ink::Muted));
+                    .stroke(inner, border, style.faint(ui::Ink::MUTED));
             }
         }
     }
@@ -432,7 +432,7 @@ impl Calendar {
             .draw_from(ui, margin, line(0));
         ui::Label::new(&summary)
             .px(style.small())
-            .color(style.faint(ui::Ink::Note))
+            .color(style.faint(ui::Ink::NOTE))
             .draw_from(ui, margin, line(1));
         let shown = (0..DAY_BOOKS as u16).take_while(|n| fits(n + 2)).count();
         for (n, (book, s)) in self.day_books.iter().take(shown).enumerate() {
@@ -442,11 +442,11 @@ impl Calendar {
             let r = line(n as u16 + 2);
             ui::Label::new(&book)
                 .px(style.small())
-                .color(style.faint(ui::Ink::Note))
+                .color(style.faint(ui::Ink::NOTE))
                 .draw_from(ui, margin, r);
             ui::Label::new(&value)
                 .px(style.small())
-                .color(style.faint(ui::Ink::Note))
+                .color(style.faint(ui::Ink::NOTE))
                 .draw_from(ui, f32::from(d.width) - margin - vw, r);
         }
     }

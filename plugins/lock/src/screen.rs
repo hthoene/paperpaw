@@ -564,7 +564,7 @@ impl LockScreen {
             let x = (f32::from(below.width) - font.measure(style.small(), &date)) / 2.0;
             ui::Label::new(&date)
                 .px(style.small())
-                .color(style.faint(ui::Ink::Detail))
+                .color(style.faint(ui::Ink::DETAIL))
                 .draw_from(ui, x, below);
         }
     }

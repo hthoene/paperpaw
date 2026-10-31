@@ -707,7 +707,7 @@ impl Screen for Popup {
         }
         ui::Label::new(&note)
             .px(style.small())
-            .color(style.faint(ui::Ink::Detail))
+            .color(style.faint(ui::Ink::DETAIL))
             .draw_from(&mut ui, note_x, header);
         let word = ui::fit(&font, style.title(), &self.word, right - margin * 2.0);
         ui::Label::new(&word)
@@ -728,7 +728,7 @@ impl Screen for Popup {
                 .iter()
                 .any(|&(from, to)| (from..to).contains(&start));
             let ink = if heading {
-                style.faint(ui::Ink::Detail)
+                style.faint(ui::Ink::DETAIL)
             } else {
                 Color::BLACK
             };

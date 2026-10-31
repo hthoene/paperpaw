@@ -413,7 +413,7 @@ impl Screen for BatteryView {
                 Line::Message(text) => {
                     ui::Label::new(text)
                         .px(style.small())
-                        .color(style.faint(ui::Ink::Muted))
+                        .color(style.faint(ui::Ink::MUTED))
                         .draw_from(&mut ui, style.margin() as f32, rect);
                 }
             }
@@ -422,7 +422,7 @@ impl Screen for BatteryView {
         let rect = Rect::new(0, bottom, display.width, footer_height);
         ui::Label::new(&self.footer)
             .px(style.small())
-            .color(style.faint(ui::Ink::Note))
+            .color(style.faint(ui::Ink::NOTE))
             .draw_from(&mut ui, style.margin() as f32, rect);
     }
 

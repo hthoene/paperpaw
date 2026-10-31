@@ -296,14 +296,14 @@ impl Overview {
                     env.i18n().tr(label),
                     style.small(),
                     least,
-                    style.faint(ui::Ink::Muted),
+                    style.faint(ui::Ink::MUTED),
                 ),
                 (value.as_str(), value_size, value_size, Color::BLACK),
                 (
                     note.as_str(),
                     style.small(),
                     least,
-                    style.faint(ui::Ink::Muted),
+                    style.faint(ui::Ink::MUTED),
                 ),
             ];
             for (row, (text, size, least, color)) in lines.into_iter().enumerate() {
@@ -336,7 +336,7 @@ impl Overview {
         );
         ui::Label::new(&label)
             .px(style.small())
-            .color(style.faint(ui::Ink::Muted))
+            .color(style.faint(ui::Ink::MUTED))
             .draw_from(ui, f32::from(c.x), title);
         let Some(today) = self.today else {
             return;
@@ -397,7 +397,7 @@ impl Overview {
         let x = (f32::from(self.totals.width) - w).max(0.0) / 2.0;
         ui::Label::new(&text)
             .px(style.small())
-            .color(style.faint(ui::Ink::Note))
+            .color(style.faint(ui::Ink::NOTE))
             .draw_from(ui, x, self.totals);
     }
 }

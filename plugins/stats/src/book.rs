@@ -132,7 +132,7 @@ impl Screen for BookView {
         let label = env.i18n().tr("stats.by-day");
         ui::Label::new(label)
             .px(style.small())
-            .color(style.faint(ui::Ink::Muted))
+            .color(style.faint(ui::Ink::MUTED))
             .draw_from(&mut ui, f32::from(margin), label_area);
         let days = &self.totals.days[self.totals.days.len().saturating_sub(CHART_DAYS)..];
         let values: Vec<u32> = days.iter().map(|(_, s)| *s).collect();

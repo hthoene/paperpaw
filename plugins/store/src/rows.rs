@@ -87,7 +87,7 @@ pub(crate) fn draw(
             let x = right - width;
             ui::Label::new(&text)
                 .px(style.small())
-                .color(style.focus_faint(focused, ui::Ink::Detail))
+                .color(style.focus_faint(focused, ui::Ink::DETAIL))
                 .draw_from(ui, x, band);
             x
         }
@@ -134,7 +134,7 @@ pub(crate) fn draw(
     let note = Rect::new(rect.x, below, (right - f32::from(rect.x)) as u16, line);
     ui::Label::new(&summary)
         .px(style.small())
-        .color(style.focus_faint(focused, ui::Ink::Detail))
+        .color(style.focus_faint(focused, ui::Ink::DETAIL))
         .draw_from(ui, f32::from(rect.x) + margin, note);
 }
 
@@ -148,7 +148,7 @@ pub(crate) fn draw_note(ui: &mut ui::Ui<'_>, rect: Rect, left: u16, focused: boo
     let right = rect.x + rect.width - margin;
     let area = Rect::new(left, band.y + band.height, right.saturating_sub(left), line);
     let x = f32::from(left + margin);
-    let color = style.focus_faint(focused, ui::Ink::Detail);
+    let color = style.focus_faint(focused, ui::Ink::DETAIL);
     ui::Label::new(text)
         .px(style.small())
         .color(color)

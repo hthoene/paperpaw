@@ -578,7 +578,7 @@ impl Screen for Check {
                 l.help,
                 l.help_size,
                 &help,
-                style.faint(ui::Ink::Note),
+                style.faint(ui::Ink::NOTE),
             );
         }
         match self.step {

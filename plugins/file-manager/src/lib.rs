@@ -673,7 +673,7 @@ impl Screen for Browser {
             let line = Rect::new(0, self.bar.y - style.row(), self.bar.width, style.row());
             ui::Label::new(message)
                 .px(style.small())
-                .color(style.faint(ui::Ink::Note))
+                .color(style.faint(ui::Ink::NOTE))
                 .draw_from(&mut ui, style.margin() as f32, line);
         }
         for (i, button) in self.buttons().into_iter().enumerate() {

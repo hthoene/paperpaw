@@ -346,7 +346,7 @@ impl Screen for BarScreen {
             let width = f32::from(r.width) - 2.0 * margin;
             let (chapter, page, page_width) =
                 ui::fit_pair(&font, style.small(), &self.text, &self.page, width, margin);
-            let gray = style.faint(ui::Ink::Detail);
+            let gray = style.faint(ui::Ink::DETAIL);
             ui::Label::new(&chapter)
                 .px(style.small())
                 .font(font)
@@ -383,7 +383,7 @@ impl Screen for BarScreen {
                 let back = if enabled {
                     Color::BLACK
                 } else {
-                    style.faint(ui::Ink::Note)
+                    style.faint(ui::Ink::NOTE)
                 };
                 ui::fill_round(ui.canvas(), &style, frame, back);
             }
@@ -399,7 +399,7 @@ impl Screen for BarScreen {
             let ink = match (on, enabled) {
                 (true, _) => Color::WHITE,
                 (false, true) => Color::BLACK,
-                (false, false) => style.faint(ui::Ink::Note),
+                (false, false) => style.faint(ui::Ink::NOTE),
             };
             let icon_area = Rect::new(inner.x, inner.y + style.gap(), inner.width, size as u16);
             if let Some(icon) = &entry.icon {

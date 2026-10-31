@@ -131,7 +131,7 @@ impl Screen for ShotsScreen {
                     at,
                     u32::from(style.line()).max(1),
                     0,
-                    style.faint(ui::Ink::Rule),
+                    style.faint(ui::Ink::RULE),
                 );
             }
             Picture::Loading => ui.empty(

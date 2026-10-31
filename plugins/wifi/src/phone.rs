@@ -408,7 +408,7 @@ impl PhoneScreen {
         };
         if let Some(size) = widgets::largest_size(style.small(), style.small() * 0.6, fits) {
             let high = widgets::line_height(env, size);
-            lines(ui, &mut stack, note, size, high, style.faint(ui::Ink::Note));
+            lines(ui, &mut stack, note, size, high, style.faint(ui::Ink::NOTE));
         }
         let button = if button_height > 0 {
             let button = stack.take_bottom(button_height);
@@ -450,7 +450,7 @@ impl PhoneScreen {
             let row = Rect::new(inside.x, y, inside.width, small);
             ui::Label::new(env.i18n().tr(key))
                 .px(style.small())
-                .color(style.faint(ui::Ink::Note))
+                .color(style.faint(ui::Ink::NOTE))
                 .draw_from(ui, x, row);
             // Smaller than the small size where only that fits it whole
             // (the largest text): it is to be typed.

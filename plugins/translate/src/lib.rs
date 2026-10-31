@@ -421,7 +421,7 @@ impl Screen for Panel {
         let right = self.source_x(env);
         ui::Label::new(source)
             .px(style.small())
-            .color(style.faint(ui::Ink::Detail))
+            .color(style.faint(ui::Ink::DETAIL))
             .draw_from(&mut ui, right, header);
         ui::Label::new(&self.heading)
             .px(style.title())

@@ -560,7 +560,7 @@ fn draw_join(ui: &mut ui::Ui<'_>, area: Rect, own: &OwnNetwork) {
     let bottom = area.y + area.height;
     ui::Label::new(&note)
         .px(style.small())
-        .color(style.faint(ui::Ink::Note))
+        .color(style.faint(ui::Ink::NOTE))
         .draw_from(
             ui,
             f32::from(margin),
