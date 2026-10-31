@@ -76,6 +76,11 @@ change the plugin SDK.
   conjoining Hangul vowel or final stay in their letter's font:
   `paperpaw_text::is_mark` is Unicode's general category M (it knew only
   the combining blocks).
+- `PixelFormat::Other { code, bits }` and `RefreshMode::Other(code)`: a
+  device's own pixel format or waveform (a colour e-ink panel's) without a
+  new interface. No framebuffer is made in such a format (the shell draws
+  into a known one and converts); a shell that doesn't know a mode
+  refreshes as with `Full`.
 
 ### Added
 

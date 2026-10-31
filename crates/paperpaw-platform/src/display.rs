@@ -36,6 +36,11 @@ pub enum RefreshMode {
     /// The panel cleared to white before the frame shows, as an e-ink
     /// transition (to a cover, a sleep screen).
     Clear,
+    /// A waveform of a device's own that this build has no variant for,
+    /// by the shell's code for it (0: unspecified). Ordered after the
+    /// others; a shell that doesn't know the code refreshes as with
+    /// [`RefreshMode::Full`].
+    Other(u16),
 }
 
 impl RefreshMode {

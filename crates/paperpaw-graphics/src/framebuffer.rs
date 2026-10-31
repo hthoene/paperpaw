@@ -73,7 +73,11 @@ impl Framebuffer {
         rows: u16,
         format: PixelFormat,
     ) -> Result<Self, GraphicsError> {
-        if format.is_color() && !cfg!(feature = "color") {
+        // A device's own format (`Other`) is the shell's to draw: it gets
+        // a frame in a format drawn here and converts it.
+        if format.is_color() && !cfg!(feature = "color")
+            || matches!(format, PixelFormat::Other { .. })
+        {
             return Err(GraphicsError::UnsupportedFormat(format));
         }
         let rows = rows.clamp(1, height.max(1));
@@ -1051,6 +1055,16 @@ mod tests {
         fb.fill_clipped(Rect::new(10, 5, 2, 2), Color::BLACK);
         assert_eq!(fb.take_dirty(), Some(Rect::new(1, 1, 11, 6)));
         assert_eq!(fb.take_dirty(), None);
+    }
+
+    #[test]
+    fn a_devices_own_format_is_the_shells_to_draw() {
+        let format = PixelFormat::Other { code: 7, bits: 3 };
+        assert_eq!(
+            Framebuffer::new(8, 8, format).unwrap_err(),
+            GraphicsError::UnsupportedFormat(format)
+        );
+        assert_eq!((format.stride(8), format.gray_levels()), (3, None));
     }
 
     #[cfg(not(feature = "color"))]

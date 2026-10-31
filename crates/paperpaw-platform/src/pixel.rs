@@ -19,6 +19,18 @@ pub enum PixelFormat {
     Rgb565,
     /// 24 bits per pixel colour, byte order R, G, B.
     Rgb888,
+    /// A format of a device's own (a colour e-ink panel's, say) that this
+    /// build has no variant for: its code, given by the shell that has it
+    /// (0: unspecified), and its bits per pixel. No framebuffer is made in
+    /// it (`paperpaw-graphics` refuses it): the shell draws into a format
+    /// listed here and converts. Neither gray nor colour to code that
+    /// doesn't know it.
+    Other {
+        /// The format's code.
+        code: u16,
+        /// Bits per pixel.
+        bits: u8,
+    },
 }
 
 impl PixelFormat {
@@ -30,6 +42,7 @@ impl PixelFormat {
             PixelFormat::Gray8 => 8,
             PixelFormat::Rgb565 => 16,
             PixelFormat::Rgb888 => 24,
+            PixelFormat::Other { bits, .. } => bits,
         }
     }
 
@@ -37,14 +50,15 @@ impl PixelFormat {
         matches!(self, PixelFormat::Rgb565 | PixelFormat::Rgb888)
     }
 
-    /// Number of distinct gray levels, or `None` for colour formats.
+    /// Number of distinct gray levels, or `None` for colour formats and
+    /// formats this build doesn't know.
     pub const fn gray_levels(self) -> Option<u16> {
         match self {
             PixelFormat::Mono1 => Some(2),
             PixelFormat::Gray2 => Some(4),
             PixelFormat::Gray4 => Some(16),
             PixelFormat::Gray8 => Some(256),
-            PixelFormat::Rgb565 | PixelFormat::Rgb888 => None,
+            PixelFormat::Rgb565 | PixelFormat::Rgb888 | PixelFormat::Other { .. } => None,
         }
     }
 
