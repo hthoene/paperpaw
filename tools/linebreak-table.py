@@ -246,6 +246,7 @@ def render(data, runs):
         f"/// The Unicode version of the table.",
         f"pub(super) const UNICODE: (u8, u8, u8) = {VERSION};",
         f"/// Runs in the stream (for the tests).",
+        "#[cfg(test)]",
         f"pub(super) const RUNS: usize = {runs};",
         "",
         f"pub(super) static TABLE: [u8; {len(data)}] = [",

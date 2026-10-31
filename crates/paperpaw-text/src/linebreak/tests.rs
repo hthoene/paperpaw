@@ -34,7 +34,7 @@ fn the_header_says_what_the_table_is() {
     assert_eq!(format, 1);
     assert_eq!(version, UNICODE_VERSION);
     assert_eq!(usize::from(classes), super::table_data::CLASSES.len());
-    assert!(RUNS > 1000);
+    const { assert!(RUNS > 1000) };
 }
 
 #[test]

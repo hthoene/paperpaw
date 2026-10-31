@@ -26,6 +26,11 @@ pub(crate) const LINE_BREAK_LOOSE: u32 = 1 << 3;
 pub(crate) const LINE_BREAK_ANYWHERE: u32 = 3 << 3;
 pub(crate) const BREAK_ALL: u32 = 1 << 5;
 
+/// Whether the options lift the compat filter: UAX #14 decides everywhere.
+pub(crate) const fn lifts_filter(options: u32) -> bool {
+    options & LINE_BREAK_MASK == LINE_BREAK_ANYWHERE || options & BREAK_ALL != 0
+}
+
 /// Whether a line may break before a character.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Opportunity {
@@ -201,11 +206,7 @@ impl LineBreaker {
         // the wrappers' old rule decides.
         let decided = if !before.started {
             Opportunity::No
-        } else if !before.compat
-            || before.last_flagged
-            || entry.uax
-            || before.options & LINE_BREAK_MASK == LINE_BREAK_ANYWHERE
-            || before.options & BREAK_ALL != 0
+        } else if !before.compat || before.last_flagged || entry.uax || lifts_filter(before.options)
         {
             uax
         } else if c != ' ' && (before.spaces || before.last_dash) {
@@ -225,6 +226,10 @@ impl LineBreaker {
     }
 
     /// UAX #14 for the position before `now`, and the state after it.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one rule after the other, as the UAX text numbers them"
+    )]
     fn uax(&mut self, now: &mut Seen, rest: &str) -> Opportunity {
         use Opportunity::{Allowed, Mandatory, No};
         let sot = !self.started;

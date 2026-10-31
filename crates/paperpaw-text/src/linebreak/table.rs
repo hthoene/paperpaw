@@ -57,7 +57,7 @@ pub(crate) fn lookup(c: char) -> Entry {
     }
     if (HANGUL.0..=HANGUL.1).contains(&cp) {
         return Entry {
-            class: if (cp - HANGUL.0) % 28 == 0 {
+            class: if (cp - HANGUL.0).is_multiple_of(28) {
                 Class::H2
             } else {
                 Class::H3

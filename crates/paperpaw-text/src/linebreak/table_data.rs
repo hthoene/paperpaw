@@ -73,6 +73,7 @@ pub(super) const CLASSES: [Class; 49] = [
 /// The Unicode version of the table.
 pub(super) const UNICODE: (u8, u8, u8) = (17, 0, 0);
 /// Runs in the stream (for the tests).
+#[cfg(test)]
 pub(super) const RUNS: usize = 2099;
 
 pub(super) static TABLE: [u8; 4828] = [

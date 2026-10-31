@@ -6,7 +6,6 @@
 //! plugin interface, and each rule UAX #14 adds later may need more state.
 //! Only [`UNICODE_VERSION`] and the wrapping functions are public.
 
-#[allow(dead_code, reason = "the wrappers use it (next stage)")]
 mod breaker;
 mod table;
 #[rustfmt::skip]
@@ -18,4 +17,6 @@ mod tests;
 /// The Unicode version of the line-breaking table: `(major, minor, update)`.
 /// One release does not mix versions: the bidi and Arabic tables are of the
 /// same one (a test compares them).
+pub(crate) use breaker::{LineBreaker, Opportunity, lifts_filter};
+
 pub const UNICODE_VERSION: (u8, u8, u8) = table_data::UNICODE;

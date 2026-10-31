@@ -20,8 +20,8 @@ text 1 PACK_SIZE_FOR: fn size_for(&self, size: f32, text: &str, display: bool) -
 text 1 PACK_GLYPH: fn glyph(&self, ch: char, size: f32) -> GlyphRef<'_>
 text 1 PACK_ADVANCE: fn advance(&self, ch: char, size: f32) -> f32
 text 1 PACK_KERN: fn kern(&self, left: char, right: char, size: f32) -> f32
-text 1 LAYOUT_WRAP_KERNED: fn wrap_lines_kerned_in( text: &str, width: &dyn Fn(usize) -> f32, advance: &dyn Fn(usize, char) -> f32, kern: &dyn Fn(usize, char, char) -> f32, hyphenate: Option<Hyphenate<'_>>, ) -> Vec<Line>
-text 1 LAYOUT_WRAP_BALANCED: fn wrap_lines_balanced_in( text: &str, width: &dyn Fn(usize) -> f32, advance: &dyn Fn(usize, char) -> f32, kern: &dyn Fn(usize, char, char) -> f32, hyphenate: Option<Hyphenate<'_>>, extra_cost: &dyn Fn(f32, usize) -> f32, ) -> Vec<Line>
+text 1 LAYOUT_WRAP_KERNED: fn wrap_lines_kerned_in( text: &str, width: &dyn Fn(usize) -> f32, advance: &dyn Fn(usize, char) -> f32, kern: &dyn Fn(usize, char, char) -> f32, hyphenate: Option<Hyphenate<'_>>, options: u32, ) -> Vec<Line>
+text 1 LAYOUT_WRAP_BALANCED: fn wrap_lines_balanced_in( text: &str, width: &dyn Fn(usize) -> f32, advance: &dyn Fn(usize, char) -> f32, kern: &dyn Fn(usize, char, char) -> f32, hyphenate: Option<Hyphenate<'_>>, extra_cost: &dyn Fn(f32, usize) -> f32, options: u32, ) -> Vec<Line>
 text 1 FONTS_HANDLE: fn handle(&self, index: usize) -> FontHandle<'_>
 text 1 HANDLE_LARGEST_SIZE: fn largest_size(&self) -> Option<f32>
 text 1 HANDLE_LINE_METRICS: fn line_metrics(&self, size: f32) -> LineMetrics

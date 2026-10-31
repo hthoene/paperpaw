@@ -3,6 +3,8 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
+use crate::linebreak::{LineBreaker, Opportunity};
+
 /// A line produced by [`wrap_lines`].
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -99,18 +101,37 @@ pub fn wrap_lines_kerned(
     kern: impl Fn(usize, char, char) -> f32,
     hyphenate: Option<Hyphenate<'_>>,
 ) -> Vec<Line> {
-    wrap_lines_kerned_in(text, &width, &advance, &kern, hyphenate)
+    wrap_lines_kerned_opts(text, width, advance, kern, hyphenate, 0)
+}
+
+/// Like [`wrap_lines_kerned`], with the options of the page: the bits of
+/// `paperpaw_layout::ScriptOptions` (bits it does not know are kept and
+/// ignored). With none (0), text in Hangul, Chinese, Japanese and the like
+/// breaks between characters as Unicode line breaking (UAX #14) says, and
+/// at U+200B, and Latin, Cyrillic, Greek, Arabic, Hebrew and Indic text
+/// breaks as before; see [`crate`]'s line-breaking notes in the design.
+pub fn wrap_lines_kerned_opts(
+    text: &str,
+    width: impl Fn(usize) -> f32,
+    advance: impl Fn(usize, char) -> f32,
+    kern: impl Fn(usize, char, char) -> f32,
+    hyphenate: Option<Hyphenate<'_>>,
+    options: u32,
+) -> Vec<Line> {
+    wrap_lines_kerned_in(text, &width, &advance, &kern, hyphenate, options)
 }
 
 paperpaw_table::shared! {
-/// [`wrap_lines_kerned`] without generics, the one function of it that is
-/// shared with the firmware: the caller's closures come as `dyn`.
+/// [`wrap_lines_kerned_opts`] without generics, the one function of it that
+/// is shared with the firmware: the caller's closures come as `dyn`.
+/// `options` are the bits of `paperpaw_layout::ScriptOptions`.
 pub fn wrap_lines_kerned_in(
     text: &str,
     width: &dyn Fn(usize) -> f32,
     advance: &dyn Fn(usize, char) -> f32,
     kern: &dyn Fn(usize, char, char) -> f32,
     hyphenate: Option<Hyphenate<'_>>,
+    options: u32,
 ) -> Vec<Line> {
     let measures = Measures { advance, kern };
     let mut lines = Vec::new();
@@ -125,6 +146,14 @@ pub fn wrap_lines_kerned_in(
     let mut last_break: Option<(usize, usize, f32, usize)> = None;
     // Byte offset of the next character to read.
     let mut at = 0;
+    // The line-break state as it is before the character at `line_start`
+    // in one pass over the paragraph (`carry`), and while reading the line
+    // (`breaker`). A line ends in three ways (at a break place, cut inside
+    // a word at overflow, at a hyphenation point), and the next one starts
+    // at a place the reading never recorded a state for, so the state is
+    // rebuilt by feeding the line that just ended (design, section 5.4).
+    let mut carry = LineBreaker::new(options);
+    let mut breaker = carry;
 
     while let Some(c) = text[at..].chars().next() {
         let i = at;
@@ -134,13 +163,27 @@ pub fn wrap_lines_kerned_in(
             line_start = at;
             word_start = line_start;
             (line_width, trimmed_width, spaces, last_break) = (0.0, 0.0, 0, None);
+            carry = LineBreaker::new(options);
+            breaker = carry;
             continue;
         }
+        // May a line break before `c`? Fed before the overflow check, so that
+        // a place before `c` is the last one when `c` overflows; and never at
+        // the start of the line, where a break was just taken (that would
+        // not move forward: an endless loop).
+        let opportunity = breaker.feed(c, &text[at..]);
         if c == ' ' && i == line_start {
-            // Spaces at the start of a continuation line are dropped.
+            // Spaces at the start of a continuation line are dropped (and
+            // fed once, to the state the line starts from).
+            carry = breaker;
             line_start = at;
             word_start = line_start;
             continue;
+        }
+        if opportunity != Opportunity::No && i > line_start {
+            let end = line_start + text[line_start..i].trim_end_matches(' ').len();
+            last_break = Some((end, i, trimmed_width, spaces.saturating_sub(i - end)));
+            word_start = i;
         }
         let w = measures.add(text, line_start, i, c);
         let available = width(lines.len());
@@ -161,6 +204,11 @@ pub fn wrap_lines_kerned_in(
             // Break at the last opportunity, or inside the word if none.
             let fallback = last_break.unwrap_or((i, i, line_width, spaces));
             let next = end_line(&mut lines, text, (line_start, spaces), hyphenated, fallback);
+            // The state at the new line's start: this line fed again.
+            for (k, ch) in text[line_start..next].char_indices() {
+                carry.feed(ch, &text[line_start + k + ch.len_utf8()..]);
+            }
+            breaker = carry;
             // Read again from the start of the new line, so that what
             // moved there is broken against its width like any other text
             // and the line comes out as it would laid out from its start.
@@ -172,23 +220,10 @@ pub fn wrap_lines_kerned_in(
             continue;
         }
         line_width += w;
-        match c {
-            ' ' => {
-                let trimmed = text[line_start..i].trim_end_matches(' ');
-                let end = line_start + trimmed.len();
-                let end_spaces = spaces.saturating_sub(i - end);
-                last_break = Some((end, at, trimmed_width, end_spaces));
-                spaces += 1;
-                word_start = at;
-            }
-            '-' | '\u{2010}' | '\u{2013}' | '\u{2014}' => {
-                trimmed_width = line_width;
-                if text[at..].chars().next().is_some_and(|n| n != ' ') {
-                    last_break = Some((at, at, line_width, spaces));
-                    word_start = at;
-                }
-            }
-            _ => trimmed_width = line_width,
+        if c == ' ' {
+            spaces += 1;
+        } else {
+            trimmed_width = line_width;
         }
     }
     if line_start < text.len() || lines.is_empty() || text.ends_with('\n') {
@@ -288,7 +323,30 @@ pub fn wrap_lines_balanced_kerned_with_cost(
     hyphenate: Option<Hyphenate<'_>>,
     extra_cost: impl Fn(f32, usize) -> f32,
 ) -> Vec<Line> {
-    wrap_lines_balanced_in(text, &width, &advance, &kern, hyphenate, &extra_cost)
+    wrap_lines_balanced_opts(text, width, advance, kern, hyphenate, extra_cost, 0)
+}
+
+/// Like [`wrap_lines_balanced_kerned_with_cost`], with the options of the
+/// page: the bits of `paperpaw_layout::ScriptOptions`, as
+/// [`wrap_lines_kerned_opts`] takes them.
+pub fn wrap_lines_balanced_opts(
+    text: &str,
+    width: impl Fn(usize) -> f32,
+    advance: impl Fn(usize, char) -> f32,
+    kern: impl Fn(usize, char, char) -> f32,
+    hyphenate: Option<Hyphenate<'_>>,
+    extra_cost: impl Fn(f32, usize) -> f32,
+    options: u32,
+) -> Vec<Line> {
+    wrap_lines_balanced_in(
+        text,
+        &width,
+        &advance,
+        &kern,
+        hyphenate,
+        &extra_cost,
+        options,
+    )
 }
 
 paperpaw_table::shared! {
@@ -301,6 +359,7 @@ pub fn wrap_lines_balanced_in(
     kern: &dyn Fn(usize, char, char) -> f32,
     hyphenate: Option<Hyphenate<'_>>,
     extra_cost: &dyn Fn(f32, usize) -> f32,
+    options: u32,
 ) -> Vec<Line> {
     let mut lines = Vec::new();
     let mut start = 0;
@@ -309,17 +368,18 @@ pub fn wrap_lines_balanced_in(
         let widths = (width(lines.len()), width(lines.len() + 1));
         let measures = Measures { advance, kern };
         let balanced =
-            balanced_paragraph(text, start..end, widths, &measures, hyphenate, extra_cost);
+            balanced_paragraph(text, start..end, widths, &measures, hyphenate, extra_cost, options);
         match balanced {
             Some(mut paragraph) => lines.append(&mut paragraph),
             None => {
                 let offset = lines.len();
-                let greedy = wrap_lines_kerned(
+                let greedy = wrap_lines_kerned_in(
                     &text[start..end],
-                    |n| width(offset + n),
-                    |i, c| advance(start + i, c),
-                    |i, left, c| kern(start + i, left, c),
+                    &|n| width(offset + n),
+                    &|i, c| advance(start + i, c),
+                    &|i, left, c| kern(start + i, left, c),
                     hyphenate,
+                    options,
                 );
                 lines.extend(greedy.into_iter().map(|line| Line {
                     range: start + line.range.start..start + line.range.end,
@@ -367,6 +427,10 @@ impl Measures<'_> {
 /// The lines of the paragraph `range` of `text`, broken over all of it
 /// (see [`wrap_lines_balanced`]); `widths` of its first line and of the
 /// others. `None` where it is broken greedily.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the scan of the paragraph and its places is one pass"
+)]
 fn balanced_paragraph(
     text: &str,
     range: Range<usize>,
@@ -374,17 +438,28 @@ fn balanced_paragraph(
     measures: &Measures<'_>,
     hyphenate: Option<Hyphenate<'_>>,
     extra_cost: &dyn Fn(f32, usize) -> f32,
+    options: u32,
 ) -> Option<Vec<Line>> {
     if text.len() >= usize::from(u16::MAX) {
         return None;
     }
-    // Spaces at the start are dropped, as a line's are.
+    // Spaces at the start are dropped, as a line's are (and fed to the
+    // line-break state, which reads the paragraph from its start).
     let paragraph = &text[range.clone()];
     let start = range.start + (paragraph.len() - paragraph.trim_start_matches(' ').len());
-    // A break after each run of spaces, the first and the last: room for
-    // most, without growing the list step by step.
-    let spaces = paragraph.bytes().filter(|&b| b == b' ').count();
-    let mut breaks: Vec<Break> = Vec::with_capacity(spaces.min(MAX_BREAKS) + 2);
+    let mut breaker = LineBreaker::new(options);
+    for k in range.start..start {
+        breaker.feed(' ', &text[k + 1..range.end]);
+    }
+    // The list of places to break: its capacity is a hint (a paragraph
+    // may have more places than the count says, see `places_hint`); every
+    // push goes through `push_break`, which asks for room and gives up (the
+    // paragraph is broken greedily) where there is none, instead of
+    // aborting.
+    let mut breaks: Vec<Break> = Vec::new();
+    breaks
+        .try_reserve_exact(places_hint(&text[start..range.end], options))
+        .ok()?;
     let at = |end: usize, next: usize, to_end: f32, to_next: f32, hyphen: f32| Break {
         end: end as u16,
         next: next as u16,
@@ -395,55 +470,75 @@ fn balanced_paragraph(
         prev: 0,
         spaces: 0,
     };
-    breaks.push(Break {
-        cost: 0.0,
-        ..at(start, start, 0.0, 0.0, 0.0)
-    });
+    push_break(
+        &mut breaks,
+        Break {
+            cost: 0.0,
+            ..at(start, start, 0.0, 0.0, 0.0)
+        },
+    )?;
     // The places a word may be hyphenated, `x` the width before it.
-    let points = |breaks: &mut Vec<Break>, word: Range<usize>, x: f32| {
-        if let Some(hyphenate) = hyphenate {
-            hyphen_points(text, word, start, x, measures, hyphenate, breaks, &at);
+    let points = |breaks: &mut Vec<Break>, word: Range<usize>, x: f32| -> bool {
+        match hyphenate {
+            Some(hyphenate) => {
+                hyphen_points(text, word, start, x, measures, hyphenate, breaks, &at)
+            }
+            None => true,
         }
     };
     // The places to break, with the width of the text up to them.
     let mut x = 0.0f32;
+    // The width up to the last character that is not a space.
+    let mut x_end = 0.0f32;
     let mut word = start;
-    let mut i = start;
     let mut x_word = 0.0f32;
+    // Where the run of spaces just read began, if one is being read.
+    let mut run: Option<usize> = None;
+    let mut previous: Option<char> = None;
+    let mut i = start;
     while i < range.end {
         let c = text[i..].chars().next()?;
         let len = c.len_utf8();
+        let opportunity = breaker.feed(c, &text[i + len..range.end]);
         if c == ' ' {
-            if i > word {
-                points(&mut breaks, word..i, x_word);
+            run.get_or_insert(i);
+            x += (measures.advance)(i, ' ');
+            i += 1;
+            previous = Some(c);
+            continue;
+        }
+        if opportunity != Opportunity::No && i > start {
+            let end = run.unwrap_or(i);
+            // A word is closed at a run of spaces and next to a flagged
+            // character; not at a dash between unflagged ones (the places
+            // a word may be hyphenated are those of the whole word).
+            let closes =
+                end < i || LineBreaker::flagged(c) || previous.is_some_and(LineBreaker::flagged);
+            if closes && end > word && !points(&mut breaks, word..end, x_word) {
+                return None;
             }
-            let end = i;
-            let to_end = x;
-            while text[i..].starts_with(' ') && i < range.end {
-                x += (measures.advance)(i, ' ');
-                i += 1;
-            }
-            if i < range.end {
-                breaks.push(at(end, i, to_end, x, 0.0));
-            }
-            word = i;
-            x_word = x;
-        } else {
-            x += measures.add(text, start, i, c);
-            i += len;
-            let dash = matches!(c, '-' | '\u{2010}' | '\u{2013}' | '\u{2014}');
-            if dash && i < range.end && !text[i..].starts_with(' ') {
-                // The next line starts with the character after it,
-                // without its pair with the dash.
-                breaks.push(at(i, i, x, x + measures.cut(text, i), 0.0));
+            let place = if end < i {
+                at(end, i, x_end, x, 0.0)
+            } else {
+                at(i, i, x, x + measures.cut(text, i), 0.0)
+            };
+            push_break(&mut breaks, place)?;
+            if closes {
+                word = i;
+                x_word = x;
             }
         }
+        run = None;
+        x += measures.add(text, start, i, c);
+        x_end = x;
+        i += len;
+        previous = Some(c);
         if breaks.len() > MAX_BREAKS {
             return None;
         }
     }
-    if range.end > word {
-        points(&mut breaks, word..range.end, x_word);
+    if range.end > word && !points(&mut breaks, word..range.end, x_word) {
+        return None;
     }
     // Hyphenation points came after the word's start; keep the order.
     // No two breaks share `(end, next)`: a hyphenation point is between
@@ -452,7 +547,7 @@ fn balanced_paragraph(
     // makes two equal breaks. So sorting in place gives the same order.
     breaks.sort_unstable_by_key(|b| (b.end, b.next));
     let last = breaks.len();
-    breaks.push(at(range.end, range.end, x, x, 0.0));
+    push_break(&mut breaks, at(range.end, range.end, x, x, 0.0))?;
     if breaks.len() > MAX_BREAKS {
         return None;
     }
@@ -485,6 +580,39 @@ fn balanced_paragraph(
     Some(lines)
 }
 
+/// Adds `place` to `breaks`, asking for room first; `None` where there is
+/// none (the paragraph is then broken greedily; an allocation failure
+/// would abort the device).
+fn push_break(breaks: &mut Vec<Break>, place: Break) -> Option<()> {
+    if breaks.len() == breaks.capacity() {
+        breaks.try_reserve(1).ok()?;
+    }
+    breaks.push(place);
+    Some(())
+}
+
+/// How many places a paragraph may have to break, as a hint for the
+/// capacity of the list: spaces and dashes, two for each flagged
+/// character (a place before it and one after), and every character when
+/// the options break anywhere; never more than [`MAX_BREAKS`] (a paragraph
+/// with more is broken greedily). A hint only: the list grows through
+/// [`push_break`].
+fn places_hint(paragraph: &str, options: u32) -> usize {
+    let places = if crate::linebreak::lifts_filter(options) {
+        paragraph.chars().count()
+    } else {
+        paragraph
+            .chars()
+            .map(|c| match c {
+                ' ' | '-' | '\u{2010}' | '\u{2013}' | '\u{2014}' => 1,
+                c if !c.is_ascii() && LineBreaker::flagged(c) => 2,
+                _ => 0,
+            })
+            .sum()
+    };
+    places.min(MAX_BREAKS) + 3
+}
+
 /// Prefix counts fit in the padding of each break. Counting once keeps
 /// candidate scoring independent of the length of its text.
 fn count_spaces(text: &str, start: usize, breaks: &mut [Break]) {
@@ -501,6 +629,11 @@ fn count_spaces(text: &str, start: usize, breaks: &mut [Break]) {
 #[cfg(test)]
 #[path = "layout/cost_tests.rs"]
 mod cost_tests;
+
+#[cfg(test)]
+mod legacy;
+#[cfg(test)]
+mod linebreak_tests;
 
 /// The least cost of lines up to each of `breaks` (the last ends the
 /// paragraph, free of cost), and the break before it on that way,
@@ -568,20 +701,21 @@ fn hyphen_points(
     hyphenate: Hyphenate<'_>,
     breaks: &mut Vec<Break>,
     at: &dyn Fn(usize, usize, f32, f32, f32) -> Break,
-) {
+) -> bool {
     let w = &text[word.clone()];
     let Some(first) = w.find(char::is_alphabetic) else {
-        return;
+        return true;
     };
     let letters = w[first..]
         .find(|c: char| !c.is_alphabetic())
         .map_or(w.len(), |k| first + k);
     let core = &w[first..letters];
     if core.chars().count() < BALANCED_HYPHEN_MIN || !core.chars().any(char::is_lowercase) {
-        return;
+        return true;
     }
+    let mut fits = true;
     hyphenate(core, &mut |cut| {
-        if !core.is_char_boundary(cut) || cut == 0 || cut >= core.len() {
+        if !fits || !core.is_char_boundary(cut) || cut == 0 || cut >= core.len() {
             return;
         }
         let end = word.start + first + cut;
@@ -593,8 +727,13 @@ fn hyphen_points(
         // The hyphen with its pair, and the next line without the pair
         // it breaks.
         let hyphen = measures.hyphen(text, start, end);
-        breaks.push(at(end, end, to, to + measures.cut(text, end), hyphen));
+        fits = push_break(
+            breaks,
+            at(end, end, to, to + measures.cut(text, end), hyphen),
+        )
+        .is_some();
     });
+    fits
 }
 
 /// The last hyphenation point of the word at `word_start` that fits on the
