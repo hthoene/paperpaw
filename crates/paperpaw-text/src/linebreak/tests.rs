@@ -71,8 +71,14 @@ fn some_known_characters() {
     assert!(lookup('漢').uax && lookup('漢').wide);
     assert!(!lookup('a').uax && !lookup('a').wide);
     assert!(lookup('\u{200B}').uax);
-    assert!(lookup('\u{3000}').uax, "the ideographic space is in a flagged block");
-    assert!(lookup('Ａ').wide && lookup('Ａ').uax, "fullwidth Latin is flagged");
+    assert!(
+        lookup('\u{3000}').uax,
+        "the ideographic space is in a flagged block"
+    );
+    assert!(
+        lookup('Ａ').wide && lookup('Ａ').uax,
+        "fullwidth Latin is flagged"
+    );
 }
 
 #[test]
@@ -111,18 +117,80 @@ fn every_code_point_decodes_to_its_class() {
             u32::from_str_radix(b, 16).unwrap(),
         );
         for cp in a..=b {
-            let Some(c) = char::from_u32(cp) else { continue };
+            let Some(c) = char::from_u32(cp) else {
+                continue;
+            };
             let got = lookup(c).class;
             let ok = match class.trim() {
-                "AI" | "SG" | "XX" => got == Class::AL,
-                "SA" => got == if gc_cm.contains(&cp) { Class::CM } else { Class::AL },
+                "AI" | "SG" => got == Class::AL,
+                "SA" => {
+                    got == if gc_cm.contains(&cp) {
+                        Class::CM
+                    } else {
+                        Class::AL
+                    }
+                }
                 "QU" => matches!(got, Class::QU | Class::QUPI | Class::QUPF),
                 "ID" => matches!(got, Class::ID | Class::IDEP),
+                "XX" => matches!(got, Class::AL | Class::ALEP),
                 other => std::format!("{got:?}") == other,
             };
-            assert!(ok, "U+{cp:04X}: LineBreak.txt says {class}, the table {got:?}");
+            assert!(
+                ok,
+                "U+{cp:04X}: LineBreak.txt says {class}, the table {got:?}"
+            );
             checked += 1;
         }
     }
     assert!(checked > 100_000, "{checked}");
+}
+
+mod conformance {
+    use super::*;
+    use crate::linebreak::breaker::{LineBreaker, Opportunity};
+
+    /// `LineBreakTest.txt`: `× 0023 × 0020 ÷ 0041 ÷ # comment`. A `×` before
+    /// a character means no break, a `÷` a break; the first mark is the start
+    /// of text and the last the end of text (always a break, LB3).
+    #[test]
+    fn line_break_test_txt() {
+        let Some(dir) = ucd() else { return };
+        let data = fs::read_to_string(dir.join("LineBreakTest.txt")).unwrap();
+        let (mut cases, mut failed) = (0, Vec::new());
+        for line in data.lines() {
+            let body = line.split('#').next().unwrap().trim();
+            if body.is_empty() {
+                continue;
+            }
+            let mut marks = Vec::new();
+            let mut text = String::new();
+            for token in body.split_whitespace() {
+                match token {
+                    "×" => marks.push(false),
+                    "÷" => marks.push(true),
+                    hex => {
+                        text.push(char::from_u32(u32::from_str_radix(hex, 16).unwrap()).unwrap())
+                    }
+                }
+            }
+            assert_eq!(marks.len(), text.chars().count() + 1, "{line}");
+            cases += 1;
+            let mut breaker = LineBreaker::full();
+            let mut got = Vec::new();
+            for (at, c) in text.char_indices() {
+                let opportunity = breaker.feed(c, &text[at + c.len_utf8()..]);
+                got.push(opportunity != Opportunity::No);
+            }
+            // The start of text never breaks (LB2), the end always (LB3).
+            let want: Vec<bool> = marks[..marks.len() - 1].to_vec();
+            if got[1..] != want[1..] || got[0] {
+                failed.push(std::format!("{line}\n    got {got:?}"));
+            }
+        }
+        for f in failed.iter().take(12) {
+            println!("{f}");
+        }
+        assert!(failed.is_empty(), "{} of {cases} cases fail", failed.len());
+        assert!(cases > 19_000, "{cases}");
+    }
 }

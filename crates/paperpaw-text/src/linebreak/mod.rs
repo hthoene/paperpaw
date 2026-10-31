@@ -6,7 +6,8 @@
 //! plugin interface, and each rule UAX #14 adds later may need more state.
 //! Only [`UNICODE_VERSION`] and the wrapping functions are public.
 
-#[allow(dead_code, reason = "the breaker (the next stage) uses it")]
+#[allow(dead_code, reason = "the wrappers use it (next stage)")]
+mod breaker;
 mod table;
 #[rustfmt::skip]
 mod table_data;

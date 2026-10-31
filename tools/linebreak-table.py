@@ -16,7 +16,7 @@ The table (design: paperpaw-notes designs/line-breaking-a5.md, section 4):
 the line-break class of every code point, resolved as far as the rules do not
 need the original (LB1: AI, SG, XX -> AL; SA -> CM for Mn and Mc, else AL;
 Pi and Pf quotation marks split off QU; unassigned Extended_Pictographic as
-IDEP), with two flags, the East Asian width (F, W, H) and "UAX #14 decides
+IDEP or ALEP: their class and the mark LB30b needs), with two flags, the East Asian width (F, W, H) and "UAX #14 decides
 here" (the compat profile). The Hangul syllables U+AC00..U+D7A3 are not
 stored: H2 for every 28th, H3 for the others (checked below against the data).
 
@@ -55,9 +55,10 @@ CLASSES = [
     "CP", "CR", "EB", "EM", "EX", "GL", "H2", "H3", "HH", "HL", "HY", "ID",
     "IDEP", "IN", "IS", "JL", "JT", "JV", "LF", "NL", "NS", "NU", "OP", "PO",
     "PR", "QU", "QUPI", "QUPF", "RI", "SP", "SY", "VF", "VI", "WJ", "ZW", "ZWJ",
+    "ALEP",
 ]
 # Where UAX #14 decides (the compat profile): classes, scripts and blocks.
-UAX_CLASSES = {"ID", "IDEP", "CJ", "H2", "H3", "JL", "JV", "JT", "ZW", "WJ"}
+UAX_CLASSES = {"ID", "IDEP", "ALEP", "CJ", "H2", "H3", "JL", "JV", "JT", "ZW", "WJ"}
 UAX_SCRIPTS = {
     "Han", "Hiragana", "Katakana", "Hangul", "Bopomofo", "Yi", "Thai", "Lao",
     "Khmer", "Myanmar", "Tibetan", "Ethiopic", "Mongolian",
@@ -151,7 +152,9 @@ def build(ucd):
         elif c == "QU":
             c = {"Pi": "QUPI", "Pf": "QUPF"}.get(gc.get(cp), "QU")
         if cp in pict and gc.get(cp, "Cn") == "Cn":
-            c = "IDEP"
+            # An unassigned pictograph keeps its class (ID in the reserved
+            # emoji planes, else AL) and the mark LB30b asks for.
+            c = "IDEP" if c == "ID" else "ALEP"
         uax = (
             c in UAX_CLASSES
             or script.get(cp) in UAX_SCRIPTS
