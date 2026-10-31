@@ -9,6 +9,7 @@ use crate::glyph::{Glyph, GlyphRef};
 /// What a glyph that could not be read now is drawn as (with its
 /// advance, where it is known).
 const NOT_READ: GlyphRef<'static> = GlyphRef {
+    format: crate::glyph::COVERAGE4,
     left: 0,
     top: 0,
     width: 0,

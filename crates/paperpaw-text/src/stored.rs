@@ -601,6 +601,7 @@ impl Paged {
             return None;
         }
         Some(Glyph {
+            format: crate::glyph::COVERAGE4,
             left: i16_le(&record, 8),
             top: i16_le(&record, 10),
             width,
@@ -748,6 +749,7 @@ mod tests {
     fn glyph(width: u16, value: u8, advance: f32) -> Glyph {
         let coverage = alloc::vec![value; usize::from(width) * 2];
         Glyph {
+            format: crate::glyph::COVERAGE4,
             left: 1,
             top: -2,
             width,

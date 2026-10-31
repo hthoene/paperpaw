@@ -541,6 +541,7 @@ mod tests {
             line_height: 10.0,
         };
         let ink = |width: u16, height: u16, top: i16, advance: f32| Glyph {
+            format: crate::glyph::COVERAGE4,
             left: 0,
             top,
             width,

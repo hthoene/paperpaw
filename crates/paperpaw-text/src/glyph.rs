@@ -1,5 +1,11 @@
 use alloc::vec::Vec;
 
+/// A glyph's bitmap format: 4-bit coverage, two pixels per byte, high
+/// nibble first, rows padded to whole bytes. The only one so far; a later
+/// build may add others (8-bit coverage, colour), which a build that
+/// doesn't know them reads as empty.
+pub(crate) const COVERAGE4: u8 = 0;
+
 /// A borrowed glyph bitmap with 4-bit coverage.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
@@ -14,6 +20,8 @@ pub struct GlyphRef<'a> {
     pub advance: f32,
     /// Two pixels per byte, high nibble first, rows padded to whole bytes.
     pub(crate) data: &'a [u8],
+    /// The format of `data` ([`COVERAGE4`]).
+    pub(crate) format: u8,
 }
 
 impl GlyphRef<'_> {
@@ -28,6 +36,9 @@ impl GlyphRef<'_> {
     #[inline]
     pub(crate) fn level(&self, x: u16, y: u16) -> u8 {
         let stride = usize::from(self.width).div_ceil(2);
+        if self.format != COVERAGE4 {
+            return 0;
+        }
         let Some(&byte) = self.data.get(usize::from(y) * stride + usize::from(x) / 2) else {
             return 0;
         };
@@ -43,9 +54,14 @@ impl GlyphRef<'_> {
     #[inline]
     pub(crate) fn levels(&self) -> impl Fn(u32, u32) -> u8 + '_ {
         let stride = usize::from(self.width).div_ceil(2);
+        let data = if self.format == COVERAGE4 {
+            self.data
+        } else {
+            &[]
+        };
         move |x, y| {
             let at = (y as usize) * stride + (x as usize) / 2;
-            match self.data.get(at) {
+            match data.get(at) {
                 Some(&byte) if x % 2 == 0 => byte >> 4,
                 Some(&byte) => byte & 0x0f,
                 None => 0,
@@ -68,12 +84,15 @@ pub struct Glyph {
     pub height: u16,
     pub advance: f32,
     pub(crate) data: Vec<u8>,
+    /// The format of `data` ([`COVERAGE4`]).
+    pub(crate) format: u8,
 }
 
 impl Glyph {
     /// An empty glyph that only advances the pen (e.g. a space).
     pub fn empty(advance: f32) -> Self {
         Self {
+            format: crate::glyph::COVERAGE4,
             left: 0,
             top: 0,
             width: 0,
@@ -85,6 +104,7 @@ impl Glyph {
 
     pub fn as_ref(&self) -> GlyphRef<'_> {
         GlyphRef {
+            format: self.format,
             left: self.left,
             top: self.top,
             width: self.width,
@@ -157,6 +177,7 @@ mod tests {
     fn coverage_round_trips_through_packing() {
         let coverage = [0, 255, 136, 17, 255];
         let glyph = Glyph {
+            format: crate::glyph::COVERAGE4,
             left: 0,
             top: 0,
             width: 5,
@@ -178,6 +199,7 @@ mod tests {
                 .map(|i| (i as u8).wrapping_mul(97) ^ 0xa5)
                 .collect();
             let glyph = GlyphRef {
+                format: crate::glyph::COVERAGE4,
                 left: 0,
                 top: 0,
                 width,

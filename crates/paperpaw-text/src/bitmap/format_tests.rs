@@ -12,6 +12,7 @@ const PACK_V1: &[u8] = include_bytes!("../../testdata/pack.ppfp.v1");
 
 fn glyph(advance: f32, left: i16, top: i16, width: u16, height: u16, data: &[u8]) -> Glyph {
     Glyph {
+        format: crate::glyph::COVERAGE4,
         left,
         top,
         width,

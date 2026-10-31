@@ -475,6 +475,7 @@ impl BitmapFont {
     /// has it. Missing characters fall back to U+FFFD, then `?`.
     pub fn glyph(&self, ch: char, size: f32) -> GlyphRef<'_> {
         let empty = GlyphRef {
+            format: crate::glyph::COVERAGE4,
             left: 0,
             top: 0,
             width: 0,
@@ -506,6 +507,7 @@ impl BitmapFont {
                 .checked_add(u32_at(d, offset + 16)? as usize)?;
             let len = usize::from(width).div_ceil(2) * usize::from(height);
             Some(GlyphRef {
+                format: crate::glyph::COVERAGE4,
                 advance: q6(i32_at(d, offset + 4)?).max(0.0),
                 left: i16_at(d, offset + 8)?,
                 top: i16_at(d, offset + 10)?,
@@ -771,6 +773,7 @@ mod tests {
     fn glyph(width: u16, value: u8, advance: f32) -> Glyph {
         let coverage = alloc::vec![value; usize::from(width) * 2];
         Glyph {
+            format: crate::glyph::COVERAGE4,
             left: 1,
             top: -2,
             width,

@@ -212,6 +212,7 @@ impl OutlineFont {
         };
         // Within `reach`: offsets fit an `i16`, sides a `u16`.
         Glyph {
+            format: crate::glyph::COVERAGE4,
             left: x0 as i16,
             top: y0 as i16,
             width: width as u16,
