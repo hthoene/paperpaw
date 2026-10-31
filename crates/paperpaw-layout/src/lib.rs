@@ -37,7 +37,7 @@ use paperpaw_document::{
 pub use paperpaw_platform::Rect;
 pub use paperpaw_text::Around;
 pub use paperpaw_text::Hyphenate;
-use paperpaw_text::{Line, wrap_lines_balanced_kerned_with_cost, wrap_lines_kerned};
+use paperpaw_text::{Line, wrap_lines_balanced_opts, wrap_lines_kerned_opts};
 
 use levels::BlockLevels;
 pub use pieces::PieceStarts;
@@ -79,7 +79,7 @@ impl Face {
 
 /// Changes whenever the same input is laid out differently, so readers
 /// rebuild page indexes they cached.
-pub const VERSION: u32 = 9;
+pub const VERSION: u32 = 10;
 
 /// Measures text for the layout engine; readers implement it with their
 /// fonts.
@@ -182,7 +182,9 @@ impl BookStyles {
 /// one only with a new [`VERSION`], and a layout keeps the bits it does
 /// not know. A group of bits holds an option of more than two values: its
 /// values are `<GROUP>_<VALUE>`, its bits `<GROUP>_MASK`. Named but
-/// reserved options are not done yet: a layout leaves them.
+/// reserved options are not done yet: a layout leaves them. Bit 10 is
+/// reserved for full Unicode line breaking for every script (not named
+/// until it does something).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ScriptOptions(u32);
 
@@ -194,28 +196,32 @@ impl ScriptOptions {
     pub const KASHIDA: ScriptOptions = ScriptOptions(1);
     /// Punctuation at a line's ends hung into the margin. Reserved.
     pub const HANGING_PUNCTUATION: ScriptOptions = ScriptOptions(1 << 1);
-    /// Korean (and CJK) text broken only at spaces, between words (CSS
-    /// `word-break: keep-all`). Today every line breaks only at spaces, so
-    /// the bit changes nothing yet. Its one exception to "0 is today's
-    /// behaviour": once lines also break between syllables and ideographs
-    /// (Unicode line breaking), that is what a clear bit means, a
-    /// deliberate change with a new [`VERSION`]; a reader that wants
-    /// breaks at spaces alone for Korean sets this bit.
+    /// Korean (and CJK) text broken only at spaces, between words, never
+    /// inside a word of Hangul or of ideographs (CSS `word-break: keep-all`;
+    /// Hanja words stay whole too). Its one exception to "0 is today's
+    /// behaviour": since layout version 10 lines also break between
+    /// syllables and ideographs (Unicode line breaking, UAX #14), which is
+    /// what a clear bit means; a reader sets this bit for a book whose
+    /// language is Korean when the reader asks for lines broken by word,
+    /// never for every book (Chinese and Japanese would lose their line
+    /// breaking rules).
     pub const KEEP_ALL: ScriptOptions = ScriptOptions(1 << 2);
-    /// How strictly lines break before and after CJK punctuation (CSS
-    /// `line-break`), bits 3 and 4: normal (0), loose, strict, anywhere.
-    /// Reserved.
+    /// How strictly lines break before and after CJK punctuation and
+    /// small kana (CSS `line-break`), bits 3 and 4: normal (0, Unicode's
+    /// default), loose (a line may break before small kana and the prolonged
+    /// sound mark), strict (as normal for now), anywhere (between any two
+    /// characters, also in Latin text; a mark stays with its letter).
     pub const LINE_BREAK_NORMAL: ScriptOptions = ScriptOptions(0);
-    /// See [`ScriptOptions::LINE_BREAK_NORMAL`]. Reserved.
+    /// See [`ScriptOptions::LINE_BREAK_NORMAL`].
     pub const LINE_BREAK_LOOSE: ScriptOptions = ScriptOptions(1 << 3);
-    /// See [`ScriptOptions::LINE_BREAK_NORMAL`]. Reserved.
+    /// See [`ScriptOptions::LINE_BREAK_NORMAL`].
     pub const LINE_BREAK_STRICT: ScriptOptions = ScriptOptions(2 << 3);
-    /// See [`ScriptOptions::LINE_BREAK_NORMAL`]. Reserved.
+    /// See [`ScriptOptions::LINE_BREAK_NORMAL`].
     pub const LINE_BREAK_ANYWHERE: ScriptOptions = ScriptOptions(3 << 3);
     /// The bits of the line-break strictness.
     pub const LINE_BREAK_MASK: ScriptOptions = ScriptOptions(3 << 3);
     /// Lines break between any two letters, also within words of
-    /// alphabetic scripts (CSS `word-break: break-all`). Reserved.
+    /// alphabetic scripts (CSS `word-break: break-all`).
     pub const BREAK_ALL: ScriptOptions = ScriptOptions(1 << 5);
     /// Justified CJK lines stretched between characters, not only at
     /// spaces (CSS `text-justify: inter-character`). Reserved.
@@ -887,13 +893,14 @@ fn block_lines(
     let hyphenate = cx.hyphenate.filter(|_| heading == 0);
     if style.balanced {
         let measure = Measure::of(block, style, width, indent);
-        let lines = wrap_lines_balanced_kerned_with_cost(
+        let lines = wrap_lines_balanced_opts(
             &block.text,
             |n| measure.line(n).1,
             advance,
             kern,
             hyphenate,
             |free, spaces| justification_cost(free, spaces, justify_limit),
+            style.script_options.bits(),
         );
         return lines
             .into_iter()
@@ -911,12 +918,13 @@ fn block_lines(
             Measure { first: rest, rest }
         }
     };
-    let lines = wrap_lines_kerned(
+    let lines = wrap_lines_kerned_opts(
         &block.text[from..],
         |n| measure.line(n).1,
         |i, c| advance(from + i, c),
         |i, left, right| kern(from + i, left, right),
         hyphenate,
+        style.script_options.bits(),
     );
     lines
         .into_iter()

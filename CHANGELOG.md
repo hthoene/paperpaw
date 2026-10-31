@@ -8,6 +8,16 @@ change the plugin SDK.
 
 ### Changed
 
+- Line breaking follows Unicode (UAX #14) where the text needs it: Korean breaks between syllables, Chinese and
+  Japanese between characters, never before a closing mark (。」) or after an opening one (「), and U+200B (the zero
+  width space) is a place to break; it and the word joiner U+2060 are now zero width and not drawn (they took
+  the width of a missing letter before). A line that breaks by word (`ScriptOptions::KEEP_ALL`), small kana that
+  may start a line (`LINE_BREAK_LOOSE`) and breaks between any letters (`BREAK_ALL`, `LINE_BREAK_ANYWHERE`) are
+  options of the layout. Layout version 10: every saved page index is made again once after the update (reading
+  positions are kept). Text in Latin, Cyrillic, Greek, Arabic, Hebrew and Indic scripts is laid out as before,
+  except around U+200B and the word joiner, emoji, and fullwidth characters. The line-break table is 4.8 KB of
+  firmware (Unicode 17.0.0, `tools/linebreak-table.py`). Arabic shaping does not change: U+200B and U+2060..U+2064
+  join nothing across them, as before.
 - How an X4, X3, X4 Pro or X4 Classic starts, runs the trial of and
   installs an update moved from the firmware into `paperpaw-x4`
   (`updates`), which the firmware runs as before: CI now tests the whole

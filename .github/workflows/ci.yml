@@ -49,6 +49,27 @@ jobs:
       - run: rustfmt --edition 2024 --check shells/xteink/src/main.rs
       - run: cargo clippy --workspace --all-targets
       - run: cargo test --workspace
+      # The line-break table (crates/paperpaw-text/src/linebreak) is made from
+      # Unicode 17.0.0's files, pinned by SHA-256 in the generator (a changed
+      # mirror fails here, never passes); the conformance test needs them too.
+      # This step fails where the files cannot be had: it never skips.
+      - name: Unicode data for the line-break table
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ucd
+          key: ucd-17.0.0-${{ hashFiles('tools/linebreak-table.py') }}
+      - name: The line-break table is current and passes Unicode's conformance test
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/ucd"
+          base=https://www.unicode.org/Public/17.0.0/ucd
+          mkdir -p "$dir"
+          for f in LineBreak.txt EastAsianWidth.txt UnicodeData.txt Scripts.txt Blocks.txt \
+                   auxiliary/LineBreakTest.txt emoji/emoji-data.txt; do
+            [ -s "$dir/$(basename "$f")" ] || curl -sSf --retry 3 -o "$dir/$(basename "$f")" "$base/$f"
+          done
+          python3 tools/linebreak-table.py "$dir" --check
+          PAPERPAW_UCD_TESTS="$dir" PAPERPAW_REQUIRE_UCD=1 cargo test -p paperpaw-text --lib linebreak
       - name: Bluetooth shell host regressions
         run: |
           cargo fmt --manifest-path tools/bluetooth-tests/Cargo.toml --check

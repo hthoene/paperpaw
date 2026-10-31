@@ -1,6 +1,6 @@
 //! Tests of the class table. `LineBreak.txt` and the other Unicode files are
-//! read where `PAPERPAW_UCD_TESTS` names a folder with them (CI sets it and
-//! fails without it, see `ucd`).
+//! read where `PAPERPAW_UCD_TESTS` names a folder with them (the CI step that has them sets
+//! `PAPERPAW_REQUIRE_UCD` and fails without them, see `ucd`).
 
 extern crate std;
 
@@ -12,15 +12,18 @@ use super::table::{self, lookup};
 use super::table_data::{Class, RUNS};
 use super::*;
 
-/// The folder with the Unicode files, or `None` locally; in CI (`CI` set)
-/// a missing folder is a failure, never a skip.
+/// The folder with the Unicode files, or `None` where there are none; where
+/// they are required (`PAPERPAW_REQUIRE_UCD`) a missing folder is a failure,
+/// never a skip.
 pub(super) fn ucd() -> Option<PathBuf> {
     match std::env::var_os("PAPERPAW_UCD_TESTS") {
         Some(dir) => Some(PathBuf::from(dir)),
         None => {
+            // The CI step that has the files sets PAPERPAW_REQUIRE_UCD: it
+            // fails there, never skips. Other runs say they skipped.
             assert!(
-                std::env::var_os("CI").is_none(),
-                "CI must run the Unicode tests: set PAPERPAW_UCD_TESTS (design, section 4.3)"
+                std::env::var_os("PAPERPAW_REQUIRE_UCD").is_none(),
+                "the Unicode files are required here: set PAPERPAW_UCD_TESTS (design, section 4.3)"
             );
             println!("skipped: no PAPERPAW_UCD_TESTS");
             None

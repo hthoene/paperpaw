@@ -891,3 +891,61 @@ fn reserved_parts_are_built_whole() {
 }
 
 mod rtl;
+
+/// The bits of `ScriptOptions` reach the line breaking of paperpaw-text, and
+/// each means what its name says, with no other effect (line breaking, A5).
+/// Lines are ten characters wide.
+#[test]
+fn script_option_bits_do_what_their_names_say() {
+    let lines = |text: &'static str, options: ScriptOptions| -> Vec<String> {
+        let doc = Text::new(text);
+        let page = layout(&doc, 0, 1000.0, &STYLE.script_options(options));
+        texts(&page).iter().map(|l| String::from(*l)).collect()
+    };
+    let none = ScriptOptions::NONE;
+    // KEEP_ALL: no break inside a Korean word.
+    let korean = "한국어 아름다운언어입니다\n";
+    assert_eq!(lines(korean, none), ["한국어 아름다운언어", "입니다"]);
+    assert_eq!(
+        lines(korean, ScriptOptions::KEEP_ALL),
+        ["한국어", "아름다운언어입니다"]
+    );
+    // ... and not inside a word of Hanja.
+    let hanja = "大韓 民國大韓民國大韓民國\n";
+    assert_eq!(
+        lines(hanja, ScriptOptions::KEEP_ALL),
+        ["大韓", "民國大韓民國大韓民國"]
+    );
+    // LINE_BREAK_LOOSE: a break before a small kana.
+    let kana = "あいうえおかきくけこゃ\n";
+    assert_eq!(lines(kana, none), ["あいうえおかきくけ", "こゃ"]);
+    assert_eq!(
+        lines(kana, ScriptOptions::LINE_BREAK_LOOSE),
+        ["あいうえおかきくけこ", "ゃ"]
+    );
+    assert_eq!(
+        lines(kana, ScriptOptions::LINE_BREAK_STRICT),
+        lines(kana, none)
+    );
+    // BREAK_ALL and LINE_BREAK_ANYWHERE: inside a Latin word.
+    let latin = "ab internationalization\n";
+    let plain = lines(latin, none);
+    assert_eq!(plain, ["ab", "internatio", "nalization"]);
+    assert_eq!(
+        lines(latin, ScriptOptions::BREAK_ALL),
+        ["ab interna", "tionalizat", "ion"]
+    );
+    assert_eq!(
+        lines(latin, ScriptOptions::LINE_BREAK_ANYWHERE),
+        ["ab interna", "tionalizat", "ion"]
+    );
+    // Nothing else changes Latin text: STRICT, LOOSE, KEEP_ALL.
+    for options in [
+        ScriptOptions::LINE_BREAK_STRICT,
+        ScriptOptions::LINE_BREAK_LOOSE,
+        ScriptOptions::KEEP_ALL,
+        ScriptOptions::KEEP_ALL.with(ScriptOptions::LINE_BREAK_STRICT),
+    ] {
+        assert_eq!(lines(latin, options), plain);
+    }
+}
