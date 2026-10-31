@@ -780,6 +780,17 @@ impl Registrar {
         self.add_checked(Contribution::RefreshFilter(filter))
     }
 
+    /// Adds a hook that changes finished bands of the screen (see
+    /// [`render`](crate::render)). **Check
+    /// [`Capability::RENDER_HOOK`](crate::Capability::RENDER_HOOK):** where
+    /// the device lacks it the hook is accepted and never run.
+    pub fn add_render_hook(
+        &mut self,
+        hook: crate::render::RenderHookSpec,
+    ) -> Result<(), RegisterError> {
+        self.add_checked(Contribution::RenderHook(Box::new(hook)))
+    }
+
     /// Puts `handler` in place of action `action`'s own, also of another
     /// plugin's (one with none too, e.g. a screen action where no screen
     /// takes it): of several, the one of the highest priority runs, as

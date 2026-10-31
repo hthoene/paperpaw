@@ -94,6 +94,18 @@ impl Capability {
     /// A USB link to a computer that developer tools may use
     /// ([`developer`](crate::developer)), once the reader allows them.
     pub const USB_LINK: Self = Self(1 << 7);
+    /// The kernel calls render hooks ([`render`](crate::render)). Where it
+    /// is missing a hook is accepted and never run; the devices say so
+    /// from the release that runs them.
+    pub const RENDER_HOOK: Self = Self(1 << 8);
+    /// The kernel fills [`BandView::regions`](crate::render::BandView::regions)
+    /// where it knows what a band holds; where it is missing they are
+    /// empty, which means unknown.
+    pub const RENDER_REGIONS: Self = Self(1 << 9);
+    /// The SDK asks a look for parts of kinds beyond the named ones
+    /// ([`Painters::extras`](crate::ui::look::Painters::extras)); where it
+    /// is missing none is asked.
+    pub const LOOK_EXTRAS: Self = Self(1 << 10);
 }
 
 impl Capabilities {

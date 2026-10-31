@@ -103,6 +103,7 @@ pub mod random;
 pub mod readers;
 pub mod reading;
 pub mod realtime;
+pub mod render;
 pub mod replies;
 mod screen;
 pub mod secrets;

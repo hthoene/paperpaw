@@ -642,6 +642,9 @@ pub(crate) fn stage(
             } => staging.ui_looks.push((painters, priority)),
             // Keys of later releases: none known yet, left as they are.
             Contribution::Extended { .. } => {}
+            // Accepted, not run: the kernel does not call render hooks
+            // yet (`Capability::RENDER_HOOK` is off).
+            Contribution::RenderHook(_) => {}
             // A kind of a newer SDK than this kernel knows: said, not lost.
             other => {
                 return Err(RegisterError::Invalid {

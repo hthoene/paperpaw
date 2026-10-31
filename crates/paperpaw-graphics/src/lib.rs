@@ -9,6 +9,7 @@
 
 extern crate alloc;
 
+mod band;
 mod blit;
 mod canvas;
 pub mod diffuse;
@@ -16,6 +17,7 @@ mod framebuffer;
 mod mask;
 pub mod round;
 
+pub use band::{BandView, FramePass, Region, RegionKind};
 pub use blit::{Bitmap, BitmapError, BitmapFormat, Blit, Dither};
 pub use canvas::{Canvas, Describe, Described, Role};
 pub use framebuffer::{Framebuffer, MONO_COVERAGE};

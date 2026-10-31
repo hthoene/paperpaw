@@ -211,6 +211,9 @@ pub enum Contribution {
         key: Id,
         params: crate::Params,
     },
+    /// A hook that changes a finished band of the screen (see
+    /// [`render`](crate::render)).
+    RenderHook(Box<crate::render::RenderHookSpec>),
 }
 
 impl Contribution {
@@ -280,6 +283,7 @@ impl Contribution {
             Contribution::Translations(_) => "translations",
             Contribution::UiLook { .. } => "ui-look",
             Contribution::Extended { .. } => "extended",
+            Contribution::RenderHook(_) => "render-hook",
         }
     }
 
@@ -316,6 +320,7 @@ impl Contribution {
             Contribution::Reader(r) => &r.id,
             Contribution::InputFilter(f) => &f.id,
             Contribution::RefreshFilter(f) => &f.id,
+            Contribution::RenderHook(h) => &h.id,
             Contribution::Chrome(c) => &c.id,
             Contribution::Input(i) => &i.id,
             Contribution::ActionObserver(o) | Contribution::EventObserver(o) => &o.id,
