@@ -341,3 +341,41 @@ fn status_lines_take_their_own_family_or_the_books() {
     assert_eq!(status(&fonts), "a.ui");
     assert_eq!(fonts.cache_bytes(), 0);
 }
+
+/// A pack on a card that can be pulled.
+struct Card(Vec<u8>, std::cell::Cell<bool>);
+
+impl paperpaw_text::PackSource for Card {
+    fn read_at(&self, at: u64, buf: &mut [u8]) -> bool {
+        let at = at as usize;
+        match self.0.get(at..at + buf.len()) {
+            Some(bytes) if !self.1.get() => {
+                buf.copy_from_slice(bytes);
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+#[test]
+fn reads_that_failed_are_counted_over_the_fonts() {
+    let mut fonts = with_builtin();
+    let card = Rc::new(Card(pack("xy", 6.0), std::cell::Cell::new(false)));
+    let stored = paperpaw_text::StoredPack::open(card.clone()).unwrap();
+    fonts
+        .add(FontSpec::new(
+            Id::new_static("a.card"),
+            Font::Stored(stored),
+        ))
+        .unwrap();
+    let font = fonts.get("a.card").unwrap();
+    assert_eq!(fonts.failed_reads(), 0);
+    card.1.set(true);
+    assert_eq!(font.advance(10.0, 'x'), 0.0);
+    let failed = fonts.failed_reads();
+    assert_ne!(failed, 0);
+    card.1.set(false);
+    assert_eq!(font.advance(10.0, 'x'), 6.0);
+    assert_eq!(fonts.failed_reads(), failed);
+}

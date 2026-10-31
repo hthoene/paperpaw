@@ -78,6 +78,22 @@ change the plugin SDK.
   later; `Typesetter::advance_text` measures a text as a whole. The
   options are in the page-index key, so every saved page index is made
   again once after the update.
+- `paperpaw-text`: `StoredPack` and `GlyphCache` are handles made by the
+  firmware (`StoredPack::open`, `GlyphCache::new`), whose state only the
+  firmware's code reads, so how packs and the cache keep it can change
+  without a new plugin interface. Packs read from a card hold up to
+  65,535 characters (all 11,172 Hangul syllables, #61), in far less
+  memory: a block held whole takes some bytes, advances that are the same
+  are kept as runs, and records are read 8,000 bytes at a time. A pack's
+  index of characters takes at most 8 KiB on the ESP32-C3, 32 KiB
+  elsewhere (else `FontError::TooLarge`), a size's advances at most 4 KiB
+  or 16 KiB kept whole (else read when needed).
+  `StoredPack::render` returns `None` for a glyph it could not read now (a
+  card pulled), which the cache does not keep; an advance that could not
+  be read is 0 and counted (`StoredPack::failed_reads`, over the loaded
+  fonts `Fonts::failed_reads`), so a page index can keep no pages
+  measured meanwhile. `StoredPack::bytes` and `trim`,
+  `GlyphCache::capacity`, `set_capacity` and `trim`.
 - `paperpaw-text`: character sets are no longer public constants; tools
   name them (`charset::named`), so a set grows without a new plugin
   interface (`charset::names` lists them). The Greek and Cyrillic sets

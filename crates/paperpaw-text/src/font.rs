@@ -19,6 +19,9 @@ pub enum FontError {
     UnsupportedVersion,
     /// Scalable fonts need the `outline` feature, which this build lacks.
     OutlinesNotSupported,
+    /// A font pack that would take more memory than a pack may: its
+    /// characters scattered too widely to keep their index small.
+    TooLarge,
 }
 
 impl fmt::Display for FontError {
@@ -28,6 +31,7 @@ impl fmt::Display for FontError {
             FontError::NoCharmap => "font has no character map",
             FontError::UnsupportedVersion => "font pack version not supported",
             FontError::OutlinesNotSupported => "this build only supports bitmap font packs (.ppfp)",
+            FontError::TooLarge => "font pack too large for this device's memory",
         })
     }
 }
@@ -187,6 +191,18 @@ impl Font {
             Font::Stored(font) => font.anchors(ch, size),
             #[cfg(feature = "outline")]
             Font::Outline(font) => font.anchors(ch, size),
+        }
+    }
+
+    /// How many times a pack read from a card could not read an advance
+    /// or a glyph (see [`StoredPack::failed_reads`]); 0 for fonts in
+    /// memory.
+    pub fn failed_reads(&self) -> u32 {
+        match self {
+            Font::Stored(font) => font.failed_reads(),
+            Font::Bitmap(_) => 0,
+            #[cfg(feature = "outline")]
+            Font::Outline(_) => 0,
         }
     }
 

@@ -96,11 +96,32 @@ with that before the betas of 0.5:
   of a trait that was there, a change of order, of a private field or of
   a signature, anything gone. Free is only what no plugin built before
   can rely on: a new type, module or re-export, a new function or
-  constant outside a trait, a new `impl`, and the members of a type that
-  is itself new. A new item of a trait is never free: the firmware would
-  call it through the table of a plugin built before, which does not have
-  it, and the same holds for the firmware's own trait objects a plugin
-  is handed. Either way the files are written anew (`PAPERPAW_BLESS=1`).
+  constant outside a trait, a new `impl`, the members of a type that
+  is itself new, and the type behind a trait object: state that only
+  the firmware's code reads sits behind one (`StoredPack`, `GlyphCache`,
+  made by the shared table's `STORED_OPEN` and `CACHE_NEW`), so how it is
+  kept can change in any firmware. That holds where
+  1. the trait's items are all the other side calls, and none exposes
+     the type behind it (no `Any`, no downcast, no pointer to its
+     fields);
+  2. an object runs the code of the side that made it, and does not
+     outlive that code (plugins are unloaded only by a restart);
+  3. its table of functions is the pinned compiler's;
+  4. the trait has no supertraits, generic items or items returning
+     `Self`, so its table's order is its items' order;
+  5. items are only appended, each with a higher `revision()`, the
+     trait's first item, which code checks before it calls a newer one.
+     The gate lets such a trait (its `GROWING`) gain items at its end and
+     nothing else, and pins every trait's items with their signatures
+     and the layouts of the types those reach;
+  6. both sides allocate from the one global allocator: a plugin that
+     drops the last handle frees what the firmware allocated, with the
+     size the table gives.
+
+  Any other new item of a trait is never free: the firmware would call
+  it through the table of a plugin built before, which does not have it,
+  and the same holds for the firmware's own trait objects a plugin is
+  handed. Either way the files are written anew (`PAPERPAW_BLESS=1`).
 - **Cache revisions can increase without changing the interface.** The
   exact `paperpaw_layout::VERSION: u32` constant identifies the layout
   algorithm in page-index keys. Raising it keeps indexes made by the old

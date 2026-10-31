@@ -5,8 +5,9 @@ a plugin and PaperPaw (ADR 0026), as the plugin interface's test
 
 - `api.txt`, the crate's public API, as cargo-public-api lists it;
 - `shape.txt`, the shape of its types, from rustdoc's JSON with every
-  feature on: the fields, variants and trait items of its public types
-  and of every private type their fields reach, in the order the source
+  feature on: the fields, variants and trait items (with their
+  signatures) of its public types and of every private type their fields
+  and trait items reach, in the order the source
   has them, private fields too, each with its type (functions' pointers
   with their ABI); and the values of its public constants. Order,
   private fields and values change how a type is laid out, how a trait's
@@ -208,17 +209,38 @@ class Shapes:
         return text
 
     def member(self, id_):
+        """A trait's item: its kind and name, and a function's signature
+        (a private trait's is in no `api.txt`, and its table holds it)."""
         item = self.index[str(id_)]
-        (kind, _), = item["inner"].items()
-        return kind + " " + item["name"]
+        (kind, v), = item["inner"].items()
+        text = kind + " " + item["name"]
+        if kind == "function":
+            params = [p["name"] for p in v.get("generics", {}).get("params", [])]
+            if params:
+                text += "<" + ", ".join(params) + ">"
+            sig = v["sig"]
+            text += "(" + ", ".join(self.ty(x[1]) for x in sig["inputs"]) + ")"
+            if sig.get("output"):
+                text += " -> " + self.ty(sig["output"])
+        return text
 
     def is_type(self, item):
         return item["crate_id"] == 0 and next(iter(item["inner"])) in (
             "struct", "enum", "union", "trait")
 
     def reached(self, item):
-        """The ids of the types an item's fields and variants name."""
+        """The ids of the types an item's fields and variants name, and
+        those its trait's items take and give: a value a trait object's
+        function returns crosses as a field's does."""
         (kind, v), = item["inner"].items()
+        if kind == "trait":
+            for member in v["items"]:
+                inner = self.index.get(str(member), {}).get("inner", {})
+                if "function" in inner:
+                    sig = inner["function"]["sig"]
+                    yield from ids_in([x[1] for x in sig["inputs"]])
+                    yield from ids_in(sig.get("output"))
+            return
         members = []
         if kind == "struct" and isinstance(v["kind"], dict):
             (form, f), = v["kind"].items()

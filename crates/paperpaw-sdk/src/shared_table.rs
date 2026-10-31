@@ -1,7 +1,7 @@
 // Made by tools/shared-table.py from shared.list: do not edit.
 #![cfg_attr(rustfmt, rustfmt::skip)]
 
-pub(super) static TEXT: super::Addresses<45> = super::Addresses([
+pub(super) static TEXT: super::Addresses<42> = super::Addresses([
     paperpaw_text::measure as *const (), // TEXT_MEASURE
     paperpaw_text::is_mark as *const (), // TEXT_IS_MARK
     paperpaw_text::glyph_x as *const (), // TEXT_GLYPH_X
@@ -22,12 +22,6 @@ pub(super) static TEXT: super::Addresses<45> = super::Addresses([
     paperpaw_text::BitmapFont::glyph as *const (), // PACK_GLYPH
     paperpaw_text::BitmapFont::advance as *const (), // PACK_ADVANCE
     paperpaw_text::BitmapFont::kern as *const (), // PACK_KERN
-    paperpaw_text::StoredPack::largest_size as *const (), // STORED_LARGEST_SIZE
-    paperpaw_text::StoredPack::has_char as *const (), // STORED_HAS_CHAR
-    paperpaw_text::StoredPack::line_metrics as *const (), // STORED_LINE_METRICS
-    paperpaw_text::StoredPack::advance as *const (), // STORED_ADVANCE
-    paperpaw_text::StoredPack::render as *const (), // STORED_RENDER
-    paperpaw_text::GlyphCache::glyph as *const (), // CACHE_GLYPH
     paperpaw_text::wrap_lines_kerned_in as *const (), // LAYOUT_WRAP_KERNED
     paperpaw_text::wrap_lines_balanced_in as *const (), // LAYOUT_WRAP_BALANCED
     crate::fonts::Fonts::handle as *const (), // FONTS_HANDLE
@@ -47,6 +41,9 @@ pub(super) static TEXT: super::Addresses<45> = super::Addresses([
     crate::fonts::FontHandle::draw_toned as *const (), // HANDLE_DRAW_TONED
     paperpaw_text::measure_in as *const (), // TEXT_MEASURE_IN
     paperpaw_text::draw_text_in as *const (), // TEXT_DRAW_TEXT_IN
+    paperpaw_text::StoredPack::open as *const (), // STORED_OPEN
+    paperpaw_text::GlyphCache::new as *const (), // CACHE_NEW
+    crate::fonts::Fonts::failed_reads as *const (), // FONTS_FAILED_READS
 ]);
 
 /// The table of family number `n`, if the firmware shares it.

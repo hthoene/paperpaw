@@ -5,7 +5,7 @@ pub const REVISIONS: crate::Revisions = [1, 0, 0, 0, 0, 0, 0, 0];
 /// The oldest revision of each family whose plugins still run.
 pub const OLDEST: crate::Revisions = [1, 0, 0, 0, 0, 0, 0, 0];
 /// Eight hex digits naming the tables of this build, for logs.
-pub const HASH: &str = "c45d4c65";
+pub const HASH: &str = "cb708ef1";
 
 /// The text family's table.
 pub mod text {
@@ -51,58 +51,52 @@ pub mod text {
     pub const PACK_ADVANCE: usize = 18;
     /// `paperpaw_text::BitmapFont::kern` (revision 1).
     pub const PACK_KERN: usize = 19;
-    /// `paperpaw_text::StoredPack::largest_size` (revision 1).
-    pub const STORED_LARGEST_SIZE: usize = 20;
-    /// `paperpaw_text::StoredPack::has_char` (revision 1).
-    pub const STORED_HAS_CHAR: usize = 21;
-    /// `paperpaw_text::StoredPack::line_metrics` (revision 1).
-    pub const STORED_LINE_METRICS: usize = 22;
-    /// `paperpaw_text::StoredPack::advance` (revision 1).
-    pub const STORED_ADVANCE: usize = 23;
-    /// `paperpaw_text::StoredPack::render` (revision 1).
-    pub const STORED_RENDER: usize = 24;
-    /// `paperpaw_text::GlyphCache::glyph` (revision 1).
-    pub const CACHE_GLYPH: usize = 25;
     /// `paperpaw_text::wrap_lines_kerned_in` (revision 1).
-    pub const LAYOUT_WRAP_KERNED: usize = 26;
+    pub const LAYOUT_WRAP_KERNED: usize = 20;
     /// `paperpaw_text::wrap_lines_balanced_in` (revision 1).
-    pub const LAYOUT_WRAP_BALANCED: usize = 27;
+    pub const LAYOUT_WRAP_BALANCED: usize = 21;
     /// `crate::fonts::Fonts::handle` (revision 1).
-    pub const FONTS_HANDLE: usize = 28;
+    pub const FONTS_HANDLE: usize = 22;
     /// `crate::fonts::FontHandle::largest_size` (revision 1).
-    pub const HANDLE_LARGEST_SIZE: usize = 29;
+    pub const HANDLE_LARGEST_SIZE: usize = 23;
     /// `crate::fonts::FontHandle::line_metrics` (revision 1).
-    pub const HANDLE_LINE_METRICS: usize = 30;
+    pub const HANDLE_LINE_METRICS: usize = 24;
     /// `crate::fonts::FontHandle::heading_line_height` (revision 1).
-    pub const HANDLE_HEADING_LINE_HEIGHT: usize = 31;
+    pub const HANDLE_HEADING_LINE_HEIGHT: usize = 25;
     /// `crate::fonts::FontHandle::has_char` (revision 1).
-    pub const HANDLE_HAS_CHAR: usize = 32;
+    pub const HANDLE_HAS_CHAR: usize = 26;
     /// `crate::fonts::FontHandle::advance` (revision 1).
-    pub const HANDLE_ADVANCE: usize = 33;
+    pub const HANDLE_ADVANCE: usize = 27;
     /// `crate::fonts::FontHandle::kern` (revision 1).
-    pub const HANDLE_KERN: usize = 34;
+    pub const HANDLE_KERN: usize = 28;
     /// `crate::fonts::FontHandle::size_for` (revision 1).
-    pub const HANDLE_SIZE_FOR: usize = 35;
+    pub const HANDLE_SIZE_FOR: usize = 29;
     /// `crate::fonts::FontHandle::measure` (revision 1).
-    pub const HANDLE_MEASURE: usize = 36;
+    pub const HANDLE_MEASURE: usize = 30;
     /// `crate::fonts::FontHandle::ink` (revision 1).
-    pub const HANDLE_INK: usize = 37;
+    pub const HANDLE_INK: usize = 31;
     /// `crate::fonts::FontHandle::ink_across` (revision 1).
-    pub const HANDLE_INK_ACROSS: usize = 38;
+    pub const HANDLE_INK_ACROSS: usize = 32;
     /// `crate::fonts::FontHandle::wrap` (revision 1).
-    pub const HANDLE_WRAP: usize = 39;
+    pub const HANDLE_WRAP: usize = 33;
     /// `crate::fonts::FontHandle::draw` (revision 1).
-    pub const HANDLE_DRAW: usize = 40;
+    pub const HANDLE_DRAW: usize = 34;
     /// `crate::fonts::FontHandle::draw_bolder` (revision 1).
-    pub const HANDLE_DRAW_BOLDER: usize = 41;
+    pub const HANDLE_DRAW_BOLDER: usize = 35;
     /// `crate::fonts::FontHandle::draw_toned` (revision 1).
-    pub const HANDLE_DRAW_TONED: usize = 42;
+    pub const HANDLE_DRAW_TONED: usize = 36;
     /// `paperpaw_text::measure_in` (revision 1).
-    pub const TEXT_MEASURE_IN: usize = 43;
+    pub const TEXT_MEASURE_IN: usize = 37;
     /// `paperpaw_text::draw_text_in` (revision 1).
-    pub const TEXT_DRAW_TEXT_IN: usize = 44;
+    pub const TEXT_DRAW_TEXT_IN: usize = 38;
+    /// `paperpaw_text::StoredPack::open` (revision 1).
+    pub const STORED_OPEN: usize = 39;
+    /// `paperpaw_text::GlyphCache::new` (revision 1).
+    pub const CACHE_NEW: usize = 40;
+    /// `crate::fonts::Fonts::failed_reads` (revision 1).
+    pub const FONTS_FAILED_READS: usize = 41;
     /// How many entries the table has.
-    pub const COUNT: usize = 45;
+    pub const COUNT: usize = 42;
 }
 
 /// The fonts family's table.

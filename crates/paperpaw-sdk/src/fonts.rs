@@ -578,6 +578,20 @@ impl Fonts {
     }
 
     paperpaw_table::shared! {
+    /// How many times a font pack read from a card could not read an
+    /// advance or a glyph (a card pulled, memory short), over the fonts
+    /// loaded, wrapping. A layout that keeps pages (a book's page index)
+    /// takes it before laying them out and keeps none if it changed:
+    /// their letters may have been measured 0 wide.
+    pub fn failed_reads(&self) -> u32 {
+        self.entries
+            .iter()
+            .filter_map(|entry| entry.font.as_ref())
+            .fold(0, |sum, font| sum.wrapping_add(font.failed_reads()))
+    } @ text::FONTS_FAILED_READS
+    }
+
+    paperpaw_table::shared! {
     /// A handle of loaded entry `index`, with the fonts asked for the
     /// characters it lacks: its extensions, the fallback font and the
     /// fallback's extensions.

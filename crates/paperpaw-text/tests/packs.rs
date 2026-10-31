@@ -102,7 +102,7 @@ fn read_all_stored(pack: &StoredPack) {
     for size in SIZES {
         let _ = pack.line_metrics(size);
         for ch in CHARS {
-            let glyph = pack.render(ch, size);
+            let glyph = pack.render(ch, size).unwrap_or_else(|| Glyph::empty(0.0));
             let _ = (pack.advance(ch, size), pack.has_char(ch));
             let glyph = glyph.as_ref();
             let _ = glyph.coverage(
@@ -119,7 +119,7 @@ fn the_version_1_pack_reads_the_same_in_place_and_stored() {
     let stored = open(PACK).unwrap();
     for (ch, size) in [('A', 12.0), ('?', 13.0), ('é', 24.5), ('A', 30.0)] {
         let a = font.glyph(ch, size);
-        let b = stored.render(ch, size);
+        let b = stored.render(ch, size).unwrap();
         assert_eq!(a, b.as_ref(), "{ch} at {size}");
         assert_eq!(stored.advance(ch, size), a.advance);
     }
@@ -127,7 +127,7 @@ fn the_version_1_pack_reads_the_same_in_place_and_stored() {
     assert!(stored.has_char('é') && !stored.has_char('B'));
     // Characters it lacks: in place '?' stands in, stored ones are empty.
     assert_eq!(font.glyph('B', 12.0).width, 2);
-    assert!(stored.render('B', 12.0).as_ref().is_empty());
+    assert!(stored.render('B', 12.0).unwrap().as_ref().is_empty());
     assert_eq!(stored.advance('B', 12.0), 0.0);
 }
 
@@ -195,9 +195,15 @@ fn counts_and_offsets_past_the_end_are_refused() {
     put_u32(&mut data, BITMAPS, u32::MAX);
     assert!(BitmapFont::new(data.clone()).is_err());
     let stored = open(&data).unwrap();
-    let glyph = stored.render('A', 12.0);
-    assert!(glyph.as_ref().is_empty());
+    assert!(stored.render('A', 12.0).is_none());
+    assert_eq!(stored.advance('A', 12.0), 7.5);
+    // Drawn as nothing, its advance kept, and not kept as its glyph.
+    let font = Font::Stored(stored);
+    let mut cache = GlyphCache::new(4096);
+    let glyph = cache.glyph(0, &font, 'A', 12.0);
+    assert!(glyph.is_empty());
     assert_eq!(glyph.advance, 7.5);
+    assert_eq!(cache.bytes(), 0);
 }
 
 #[test]
@@ -210,7 +216,7 @@ fn glyph_data_past_the_end_draws_nothing() {
     assert!(font.glyph('A', 12.0).is_empty());
     assert_eq!(font.glyph('?', 12.0).width, 2, "the others are still read");
     let stored = open(&data).unwrap();
-    assert!(stored.render('A', 12.0).as_ref().is_empty());
+    assert!(stored.render('A', 12.0).is_none());
     // A glyph claiming more rows than its data has.
     let mut data = PACK.to_vec();
     put_u16(&mut data, record + 14, 500);
@@ -266,7 +272,7 @@ fn rendering_a_damaged_stored_glyph_allocates_no_more_than_it_needs() {
     put_u16(&mut data, record + 14, 4096);
     let memory = Memory::new(&data);
     let stored = StoredPack::open(memory.clone()).unwrap();
-    let glyph = stored.render('A', 12.0);
+    let glyph = stored.render('A', 12.0).unwrap();
     assert!(glyph.as_ref().is_empty());
     assert!(
         memory.largest.get() <= 256 * 1024,
@@ -355,13 +361,13 @@ proptest! {
         let largest = chars
             .iter()
             .flat_map(|&c| sizes.iter().map(move |&s| (c, s)))
-            .map(|(c, s)| pack.render(c, s).byte_size())
+            .map(|(c, s)| pack.render(c, s).unwrap().byte_size())
             .max()
             .unwrap();
         for (index, c, s) in uses {
             let (ch, size) = (chars[c], sizes[s]);
             // The cache keeps sizes in quarter pixels.
-            let expected = pack.render(ch, (size * 4.0).trunc() / 4.0);
+            let expected = pack.render(ch, (size * 4.0).trunc() / 4.0).unwrap();
             let got = cache.glyph(index, &font, ch, size);
             prop_assert_eq!(got, expected.as_ref());
             prop_assert!(cache.bytes() <= capacity.max(largest), "{} bytes", cache.bytes());
@@ -375,7 +381,7 @@ proptest! {
 fn the_glyph_cache_evicts_the_least_recently_used() {
     let memory = Memory::new(PACK);
     let pack = StoredPack::open(memory.clone()).unwrap();
-    let size = |ch| pack.render(ch, 12.0).byte_size();
+    let size = |ch| pack.render(ch, 12.0).unwrap().byte_size();
     let font = Font::Stored(pack.clone());
     // Room for exactly the three glyphs of the small strike.
     let mut cache = GlyphCache::new(size('?') + size('A') + size('é'));
@@ -412,7 +418,7 @@ fn a_glyph_larger_than_the_cache_is_still_drawn() {
     assert!(cache.bytes() >= std::mem::size_of::<Glyph>());
     // The next one replaces it.
     cache.glyph(0, &font, '?', 24.5);
-    assert_eq!(cache.bytes(), pack.render('?', 24.5).byte_size());
+    assert_eq!(cache.bytes(), pack.render('?', 24.5).unwrap().byte_size());
 }
 
 #[test]

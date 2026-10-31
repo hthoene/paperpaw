@@ -13,8 +13,9 @@
 //! on goes without: a new type, module or re-export, a new function or
 //! constant outside a trait, a new `impl`, and the fields, variants and
 //! items of a type that is itself new. A field, a variant or an item of a
-//! trait that was there, any change of order or of a private field, and
-//! anything gone raise it. Either way the files are written anew:
+//! trait that was there (but at the end of a trait behind a handle,
+//! [`GROWING`]), any change of order or of a private field, and anything
+//! gone raise it. Either way the files are written anew:
 //!
 //! PAPERPAW_BLESS=1 cargo test -p paperpaw-sdk --test interface
 
@@ -282,6 +283,29 @@ fn api_appended(path: &str, before: &str, after: &str) -> bool {
             .is_some_and(|rest| rest.starts_with(", "))
 }
 
+/// The private traits behind the handles `StoredPack` and `GlyphCache`,
+/// which grow at their end (ADR 0026): each item new with a higher
+/// `revision()`, the first item, which code checks before it calls a
+/// newer one.
+const GROWING: [&str; 2] = [
+    "trait paperpaw_text::stored::Pack",
+    "trait paperpaw_text::cache::Cache",
+];
+
+/// Whether `after` is `before`, the shape of a trait of [`GROWING`], with
+/// items appended.
+fn trait_appended(path: &str, before: &str, after: &str) -> bool {
+    let Some(open) = before.strip_suffix(" }") else {
+        return false;
+    };
+    GROWING.contains(&path)
+        && open.contains("{ function revision(&Self) -> u16")
+        && after.ends_with(" }")
+        && after
+            .strip_prefix(open)
+            .is_some_and(|rest| rest.starts_with(", "))
+}
+
 /// Whether an `api.txt` line is a field of the firmware's table that is
 /// new where the kept shape has all fields of interface 5.
 fn api_field_appended(line: &str, kept: &BTreeMap<String, &str>) -> bool {
@@ -410,6 +434,7 @@ fn changes(crate_: &str, kept: (&str, &str), now: (&str, &str)) -> Changes {
                     && !user_agent_release_only(path, line, now)
                     && !layout_cache_revision(crate_, path, line, now)
                     && !api_appended(path, line, now)
+                    && !trait_appended(path, line, now)
                     && !table_index_derived(crate_, path) =>
             {
                 out.breaking
@@ -997,6 +1022,33 @@ fn the_firmware_s_table_grows_only_at_its_end() {
         "pub paperpaw_native::Other::more: u8",
         &kept_types
     ));
+}
+
+/// The traits behind the handles grow at their end, after their revision;
+/// other traits, and any other change of theirs, are a raise.
+#[test]
+fn the_handles_traits_grow_only_at_their_end() {
+    let kept = "trait paperpaw_text::stored::Pack { function revision(&Self) -> u16, \
+                function chars(&Self) -> usize }";
+    let grown = "trait paperpaw_text::stored::Pack { function revision(&Self) -> u16, \
+                 function chars(&Self) -> usize, function kern(&Self, usize) -> f32 }";
+    let moved = "trait paperpaw_text::stored::Pack { function revision(&Self) -> u16, \
+                 function kern(&Self, usize) -> f32, function chars(&Self) -> usize }";
+    let retyped = "trait paperpaw_text::stored::Pack { function revision(&Self) -> u16, \
+                   function chars(&Self) -> u32 }";
+    let changed = |before: &str, after: &str| changes("paperpaw-text", ("", before), ("", after));
+    assert!(changed(kept, grown).breaking.is_empty());
+    assert_eq!(changed(kept, grown).new.len(), 1);
+    assert_eq!(changed(kept, moved).breaking.len(), 1);
+    assert_eq!(changed(kept, retyped).breaking.len(), 1);
+    assert_eq!(changed(grown, kept).breaking.len(), 1);
+    let other = |text: &str| text.replace("stored::Pack", "stored::PackSource");
+    assert_eq!(changed(&other(kept), &other(grown)).breaking.len(), 1);
+    // Without its revision first, a trait cannot say what it has.
+    let bare = "trait paperpaw_text::stored::Pack { function chars(&Self) -> usize }";
+    let bare_grown = "trait paperpaw_text::stored::Pack { function chars(&Self) -> usize, \
+                      function kern(&Self, usize) -> f32 }";
+    assert_eq!(changed(bare, bare_grown).breaking.len(), 1);
 }
 
 /// A pinned list may only grow at its end.

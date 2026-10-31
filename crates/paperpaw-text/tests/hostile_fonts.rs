@@ -90,7 +90,7 @@ fn a_stored_glyph_of_absurd_size_is_not_allocated() {
     let record = u32_le(&data, 12 + 20);
     data[record + 12..record + 16].copy_from_slice(&[0xff; 4]);
     let pack = StoredPack::open(Rc::new(Memory(data))).unwrap();
-    let (glyph, largest) = largest_allocation(|| pack.render(' ', 10.0));
+    let (glyph, largest) = largest_allocation(|| pack.render(' ', 10.0).unwrap());
     assert!(largest <= BOUND, "{largest} bytes");
     assert_eq!((glyph.width, glyph.height), (0, 0));
     assert_eq!(glyph.advance, 3.0);

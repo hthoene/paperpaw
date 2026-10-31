@@ -10,13 +10,14 @@
 
 extern crate alloc;
 
+use alloc::rc::Rc;
 use alloc::vec::Vec;
 
 use paperpaw_graphics::Framebuffer;
 use paperpaw_platform::{Color, PixelFormat};
 use paperpaw_text::{
-    Around, Font, GlyphCache, TextStyle, draw_text, draw_text_in, is_mark, measure, measure_in,
-    wrap_lines_kerned,
+    Around, BitmapFont, Font, GlyphCache, PackSource, StoredPack, TextStyle, draw_text,
+    draw_text_in, is_mark, measure, measure_in, wrap_lines_kerned,
 };
 
 const PACK: &[u8] = include_bytes!("../../../../paperpaw-text/testdata/pack.ppfp.v1");
@@ -38,6 +39,58 @@ pub struct TextProbe {
     /// (right-to-left letters, brackets): its width and ink.
     pub width_in: f32,
     pub gray_in: u64,
+    /// Every method of a pack read from a source and of a glyph cache,
+    /// once: the handles' tables are the maker's, so items in another
+    /// order than the plugin's SDK has them would come out wrong here.
+    pub handles: Vec<f32>,
+}
+
+/// The pack, read as from a card.
+struct Bytes;
+
+impl PackSource for Bytes {
+    fn read_at(&self, at: u64, buf: &mut [u8]) -> bool {
+        let at = at as usize;
+        match PACK.get(at..at + buf.len()) {
+            Some(bytes) => {
+                buf.copy_from_slice(bytes);
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+/// Calls every wrapper of `StoredPack` and `GlyphCache`.
+fn handles() -> Vec<f32> {
+    let flag = |b: bool| if b { 1.0 } else { 0.0 };
+    let pack = StoredPack::open(Rc::new(Bytes)).unwrap();
+    let glyph = pack.render('A', 12.0).unwrap();
+    let mut out = alloc::vec![
+        pack.largest_size().unwrap_or(0.0),
+        flag(pack.has_char('A')),
+        flag(pack.has_char('\u{5d0}')),
+        pack.line_metrics(12.0).line_height,
+        pack.advance('A', 12.0),
+        f32::from(glyph.width),
+        glyph.advance,
+        flag(pack.table(BitmapFont::ANCHORS).is_some()),
+        flag(pack.bytes() > 0),
+        pack.failed_reads() as f32,
+    ];
+    pack.trim();
+    let font = Font::Stored(pack);
+    let mut cache = GlyphCache::new(1024);
+    out.push(cache.glyph(0, &font, 'A', 12.0).advance);
+    out.push(flag(cache.bytes() > 0));
+    cache.set_capacity(2048);
+    out.push(cache.capacity() as f32);
+    cache.trim(0);
+    out.push(cache.bytes() as f32);
+    out.push(cache.glyph(0, &font, 'A', 12.0).advance);
+    cache.clear();
+    out.push(cache.bytes() as f32);
+    out
 }
 
 pub fn probe() -> TextProbe {
@@ -95,6 +148,7 @@ pub fn probe() -> TextProbe {
         mark: is_mark('\u{301}'),
         width_in,
         gray_in,
+        handles: handles(),
     }
 }
 

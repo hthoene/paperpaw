@@ -132,8 +132,11 @@ jobs:
       - name: The public API and the shape of the types of every crate that crosses are its api.txt and shape.txt
         # The crates of crates/paperpaw-sdk/interface/crates.txt: the SDK
         # and every crate of PaperPaw it depends on. tools/interface.py
-        # names the nightly it builds with; it is this job's.
-        run: python3 tools/interface.py --check
+        # names the nightly it builds with; it is this job's. Its own
+        # tests first (what a shape pins).
+        run: |
+          python3 -I tools/test_interface.py
+          python3 tools/interface.py --check
       - name: The shared function tables' index and signatures are shared.list's
         # crates/paperpaw-table: src/index.rs and table.sig from shared.list
         # and the `shared!` declarations; entries only appended.

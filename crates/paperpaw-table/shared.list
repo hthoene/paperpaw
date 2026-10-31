@@ -29,12 +29,6 @@ text 1 PACK_SIZE_FOR paperpaw_text::BitmapFont::size_for
 text 1 PACK_GLYPH paperpaw_text::BitmapFont::glyph
 text 1 PACK_ADVANCE paperpaw_text::BitmapFont::advance
 text 1 PACK_KERN paperpaw_text::BitmapFont::kern
-text 1 STORED_LARGEST_SIZE paperpaw_text::StoredPack::largest_size
-text 1 STORED_HAS_CHAR paperpaw_text::StoredPack::has_char
-text 1 STORED_LINE_METRICS paperpaw_text::StoredPack::line_metrics
-text 1 STORED_ADVANCE paperpaw_text::StoredPack::advance
-text 1 STORED_RENDER paperpaw_text::StoredPack::render
-text 1 CACHE_GLYPH paperpaw_text::GlyphCache::glyph
 text 1 LAYOUT_WRAP_KERNED paperpaw_text::wrap_lines_kerned_in
 text 1 LAYOUT_WRAP_BALANCED paperpaw_text::wrap_lines_balanced_in
 text 1 FONTS_HANDLE crate::fonts::Fonts::handle
@@ -54,3 +48,6 @@ text 1 HANDLE_DRAW_BOLDER crate::fonts::FontHandle::draw_bolder
 text 1 HANDLE_DRAW_TONED crate::fonts::FontHandle::draw_toned
 text 1 TEXT_MEASURE_IN paperpaw_text::measure_in
 text 1 TEXT_DRAW_TEXT_IN paperpaw_text::draw_text_in
+text 1 STORED_OPEN paperpaw_text::StoredPack::open
+text 1 CACHE_NEW paperpaw_text::GlyphCache::new
+text 1 FONTS_FAILED_READS crate::fonts::Fonts::failed_reads
