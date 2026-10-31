@@ -42,7 +42,10 @@ pub struct TextPart<'t> {
     pub font: &'t FontHandle<'t>,
     /// What the text is.
     pub role: TextRole,
-    /// On a black row or bar: the colour is white.
+    /// On a black row or bar. A heuristic: it is whether the colour is
+    /// white, which the SDK cannot know better here (text white on a
+    /// dark image is "inverted" too; black on a light gray row is not).
+    /// Use `color` when what matters is the ink.
     pub inverted: bool,
     /// Zero now; read through methods in a later release.
     spare: [u32; 2],

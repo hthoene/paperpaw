@@ -132,11 +132,15 @@ pub(crate) fn draw_text_field(
     canvas.describe(Role::Field, value, field).focused(focused);
     let ink = style.focus_ink(focused);
     if below {
-        draw_lines(canvas, &font, style.text, title_area, line, title, ink);
+        draw_lines(
+            canvas, &font, style, style.text, title_area, line, title, ink,
+        );
     } else {
-        super::draw_label(
+        super::draw_label_in(
             canvas,
             &font,
+            style,
+            super::TextRole::BODY,
             style.text,
             f32::from(title_area.x),
             title_area,
@@ -170,9 +174,11 @@ pub(crate) fn draw_text_field(
         (value, ink)
     };
     let shown = super::fit(&font, style.text, text, f32::from(inside.width));
-    super::draw_label(
+    super::draw_label_in(
         canvas,
         &font,
+        style,
+        super::TextRole::BODY,
         style.text,
         f32::from(inside.x),
         inside,
@@ -186,6 +192,7 @@ pub(crate) fn draw_text_field(
 fn draw_lines(
     canvas: &mut Canvas<'_>,
     font: &crate::fonts::FontHandle<'_>,
+    style: &UiStyle,
     size: f32,
     area: Rect,
     line: u16,
@@ -198,7 +205,17 @@ fn draw_lines(
         .enumerate()
     {
         let at = Rect::new(area.x, area.y + i as u16 * line, area.width, line);
-        super::draw_label(canvas, font, size, f32::from(at.x), at, &text[range], ink);
+        super::draw_label_in(
+            canvas,
+            font,
+            style,
+            super::TextRole::BODY,
+            size,
+            f32::from(at.x),
+            at,
+            &text[range],
+            ink,
+        );
     }
 }
 
@@ -329,9 +346,11 @@ pub fn draw_check_row(
     let mut y = row.y + row.height.saturating_sub(height) / 2;
     for range in titles {
         let at = Rect::new(x, y, width, line);
-        super::draw_label(
+        super::draw_label_in(
             canvas,
             &font,
+            style,
+            super::TextRole::BODY,
             style.text,
             f32::from(x),
             at,
@@ -347,9 +366,11 @@ pub fn draw_check_row(
     };
     for range in notes {
         let at = Rect::new(x, y, width, small);
-        super::draw_label(
+        super::draw_label_in(
             canvas,
             &font,
+            style,
+            super::TextRole::SMALL,
             style.small,
             f32::from(x),
             at,
@@ -489,9 +510,11 @@ impl TextView {
             let part = text
                 .get(range.start as usize..range.end as usize)
                 .unwrap_or_default();
-            super::draw_label(
+            super::draw_label_in(
                 canvas,
                 &font,
+                style,
+                super::TextRole::BODY,
                 style.text,
                 f32::from(at.x),
                 at,

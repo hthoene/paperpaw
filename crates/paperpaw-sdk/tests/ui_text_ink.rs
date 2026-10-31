@@ -92,3 +92,39 @@ fn a_handle_draws_with_its_ink_and_draw_toned_keeps_its_own() {
     );
     assert_eq!(sum(&font, None), sum(&font, Some(ToneCurve::SMOOTH)));
 }
+
+/// `arab=` reaches languages by their usual script (`ar`, `fa`, `ur`), not
+/// only tags that name it (`fa-Arab`), in the interface and in a book.
+#[test]
+fn an_entry_for_a_script_reaches_the_languages_written_in_it() {
+    use paperpaw_sdk::Lang;
+    let curve = |tag: &str| {
+        ToneCurve::parse_for("smooth; arab=contrast:2", Lang::parse(tag).likely_script())
+    };
+    let stock = ToneCurve::parse_for("smooth", None);
+    for tag in ["ar", "fa", "ur", "ps", "fa-Arab"] {
+        assert_eq!(
+            curve(tag),
+            ToneCurve::parse_for("contrast:2", None),
+            "{tag}"
+        );
+    }
+    for tag in ["en", "de", "he", "ko", ""] {
+        assert_eq!(curve(tag), stock, "{tag}");
+    }
+}
+
+#[cfg(feature = "unstable")]
+#[test]
+fn a_page_knows_the_script_of_its_language() {
+    use paperpaw_sdk::reading::{PageType, StatusRoom};
+    let h = Harness::new(Device::BUTTONS);
+    let env = h.env();
+    let font = UiStyle::new(&env).font(&env).unwrap();
+    let script =
+        |language: &str| PageType::new(&env, &font, language, false, StatusRoom::NONE).script;
+    assert_eq!(script("ar"), Some("Arab"));
+    assert_eq!(script("fa"), Some("Arab"));
+    assert_eq!(script("he"), Some("Hebr"));
+    assert_eq!(script("en"), None);
+}

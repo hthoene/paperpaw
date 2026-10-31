@@ -401,7 +401,17 @@ pub(crate) fn draw_value_row(
         let top = rect.y + (rect.height - height) / 2;
         for (i, range) in lines.title.iter().cloned().enumerate() {
             let at = Rect::new(rect.x, top + i as u16 * line, lines.title_width, line);
-            draw_label(canvas, &font, size, title_x, at, title[range].trim(), color);
+            draw_label_in(
+                canvas,
+                &font,
+                style,
+                TextRole::BODY,
+                size,
+                title_x,
+                at,
+                title[range].trim(),
+                color,
+            );
         }
         let at = if lines.below {
             let count = lines.title.len() as u16;
@@ -410,7 +420,17 @@ pub(crate) fn draw_value_row(
             rect
         };
         let x = value_at(lines.value_width);
-        draw_label(canvas, &font, size, x, at, &lines.value, color);
+        draw_label_in(
+            canvas,
+            &font,
+            style,
+            TextRole::BODY,
+            size,
+            x,
+            at,
+            &lines.value,
+            color,
+        );
     };
     // Too long side by side: the title's words on as many lines as the
     // row holds (as [`value_row_height`] made it), the value whole beside
@@ -428,16 +448,28 @@ pub(crate) fn draw_value_row(
             font.measure(size, title) <= room + 1.0
         })
     {
-        draw_label(
+        draw_label_in(
             canvas,
             &font,
+            style,
+            TextRole::BODY,
             style.text,
             value_at(value_width),
             rect,
             &shown,
             color,
         );
-        draw_label(canvas, &font, size, title_x, rect, title, color);
+        draw_label_in(
+            canvas,
+            &font,
+            style,
+            TextRole::BODY,
+            size,
+            title_x,
+            rect,
+            title,
+            color,
+        );
         return;
     }
     if let Some(lines) = below {
@@ -448,9 +480,11 @@ pub(crate) fn draw_value_row(
     let lines = font.wrap(style.small, title, room.max(1.0));
     let line = font.line_metrics(style.small).line_height as u16;
     if title_text != title && lines.len() == 2 && 2 * line <= rect.height {
-        draw_label(
+        draw_label_in(
             canvas,
             &font,
+            style,
+            TextRole::BODY,
             style.text,
             value_at(value_width),
             rect,
@@ -461,9 +495,11 @@ pub(crate) fn draw_value_row(
         let title_width = up_to(rect, title_x + room);
         for (i, range) in lines.into_iter().enumerate() {
             let at = Rect::new(rect.x, top + i as u16 * line, title_width, line);
-            draw_label(
+            draw_label_in(
                 canvas,
                 &font,
+                style,
+                TextRole::SMALL,
                 style.small,
                 title_x,
                 at,
@@ -484,16 +520,28 @@ pub(crate) fn draw_value_row(
         let lines = ValueLines::sized(&font, style, size, rect.width, title, value);
         return draw_lines(canvas, lines);
     }
-    draw_label(
+    draw_label_in(
         canvas,
         &font,
+        style,
+        TextRole::BODY,
         style.text,
         value_at(value_width),
         rect,
         &shown,
         color,
     );
-    draw_label(canvas, &font, style.text, title_x, rect, &title_text, color);
+    draw_label_in(
+        canvas,
+        &font,
+        style,
+        TextRole::BODY,
+        style.text,
+        title_x,
+        rect,
+        &title_text,
+        color,
+    );
 }
 
 /// How wide a part of `rect` from its left to `end` is: the place a
@@ -697,7 +745,17 @@ fn draw_own_title(
     let left = f32::from(line.x) + margin;
     // One line, as most are: nothing to wrap.
     if font.measure(style.text, title) <= room + 1.0 {
-        draw_label(canvas, font, style.text, left, line, title, ink);
+        draw_label_in(
+            canvas,
+            font,
+            style,
+            TextRole::BODY,
+            style.text,
+            left,
+            line,
+            title,
+            ink,
+        );
         return;
     }
     let wrapped = font.wrap(style.text, title, room);
@@ -974,7 +1032,17 @@ pub fn draw_number_lines(
     draw_number_title(canvas, style, &font, lines, minus, title, ink);
     let value_x = centred(&font, style.text, value, minus, plus);
     let row = lines.control;
-    draw_label(canvas, &font, style.text, value_x, row, value, ink);
+    draw_label_in(
+        canvas,
+        &font,
+        style,
+        TextRole::BODY,
+        style.text,
+        value_x,
+        row,
+        value,
+        ink,
+    );
     draw_button(canvas, env, style, minus, "−", false, focus == Some(false));
     draw_button(canvas, env, style, plus, "+", false, focus == Some(true));
 }
@@ -1091,9 +1159,11 @@ pub fn draw_stepper_lines(
     let ink = style.focus_ink(true);
     draw_number_title(canvas, style, &font, lines, minus, title, ink);
     let value_x = centred(&font, style.text, value, minus, plus);
-    draw_label(
+    draw_label_in(
         canvas,
         &font,
+        style,
+        TextRole::BODY,
         style.text,
         value_x,
         lines.control,
@@ -1123,7 +1193,17 @@ fn draw_number_title(
     // From the row's own start, e.g. right of an icon.
     let left = f32::from(line.x) + margin;
     let title = fit(font, style.text, title, f32::from(minus.x) - margin - left);
-    draw_label(canvas, font, style.text, left, line, &title, ink);
+    draw_label_in(
+        canvas,
+        font,
+        style,
+        TextRole::BODY,
+        style.text,
+        left,
+        line,
+        &title,
+        ink,
+    );
 }
 
 /// The `−` and `+` of a focused number, on the focus bar in `row`:
@@ -1156,7 +1236,17 @@ pub(super) fn draw_focused_steps(
         };
         let glyph_width = font.measure(style.text, glyph);
         let glyph_x = f32::from(button.x) + (f32::from(button.width) - glyph_width) / 2.0;
-        draw_label(canvas, font, style.text, glyph_x, row, glyph, glyph_color);
+        draw_label_in(
+            canvas,
+            font,
+            style,
+            TextRole::BODY,
+            style.text,
+            glyph_x,
+            row,
+            glyph,
+            glyph_color,
+        );
     }
 }
 

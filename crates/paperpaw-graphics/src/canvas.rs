@@ -425,8 +425,9 @@ impl<'a> Canvas<'a> {
     /// Fills `area` with the gray `gray`, as a gray between the frame's
     /// levels: [`Dither::ORDERED`] as pictures are (a pattern of the levels
     /// around it; a frame with many grays gets the gray), [`Dither::NONE`]
-    /// the nearest level. A dither this release does not know is
-    /// [`Dither::ORDERED`].
+    /// the nearest level. Every other value, the reserved numbers and
+    /// those of later releases, is drawn as [`Dither::ORDERED`] for now
+    /// (the kind is not honoured yet).
     pub fn fill_dithered(&mut self, area: Rect, gray: u8, dither: Dither) {
         if dither == Dither::NONE {
             self.fill(area, Color::gray(gray));

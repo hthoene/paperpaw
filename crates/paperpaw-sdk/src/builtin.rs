@@ -712,7 +712,9 @@ pub mod settings {
     /// How the edges of book letters are inked, in place of
     /// [`TEXT_CONTRAST`] when it is set: a list of `[script=]curve` entries
     /// (see [`ToneCurve::parse_for`](crate::text::ToneCurve::parse_for)),
-    /// e.g. `smooth; arab=contrast:1`. Empty keeps [`TEXT_CONTRAST`]. Each
+    /// e.g. `smooth; arab=contrast:1` (the script is that of the book's
+    /// language, see [`Lang::likely_script`](crate::Lang::likely_script)). Empty keeps
+    /// [`TEXT_CONTRAST`]. Each
     /// book may have its own ([`SCOPE_ONLY`]).
     pub const TEXT_CURVE: Setting<Text> = Setting::new("core.text-curve");
     pub const TEXT_CONTRAST_LEVELS: &[&str] = &[

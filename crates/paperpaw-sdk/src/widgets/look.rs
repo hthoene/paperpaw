@@ -519,7 +519,17 @@ pub fn draw_caption(
         let x = super::align(env, widget).x(area, font.measure(style.small, &text));
         let row = Rect::new(area.x, area.y, area.width, line_height(env, style.small));
         let mut canvas = canvas.clipped(ink_room(area));
-        ui::draw_label(&mut canvas, &font, style.small, x, row, &text, look.faint);
+        ui::draw_label_in(
+            &mut canvas,
+            &font,
+            &style,
+            ui::TextRole::SMALL,
+            style.small,
+            x,
+            row,
+            &text,
+            look.faint,
+        );
     }
     Rect::new(area.x, area.y + height, area.width, area.height - height)
 }

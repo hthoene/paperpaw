@@ -431,7 +431,7 @@ pub fn text_ink(env: &Env<'_>) -> TextInk {
     if value.is_empty() {
         return TextInk::DEFAULT;
     }
-    ToneCurve::parse_for(value, env.lang().script()).map_or(TextInk::DEFAULT, TextInk::new)
+    ToneCurve::parse_for(value, env.lang().likely_script()).map_or(TextInk::DEFAULT, TextInk::new)
 }
 
 /// What a text is (see [`UiStyle::size`]): its size follows from the

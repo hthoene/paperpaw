@@ -296,9 +296,9 @@ impl<'a> BandView<'a> {
     /// (screen y; rows above count). 0 outside, and in a format this
     /// release does not know.
     pub fn gray(&self, x: u16, y: u16) -> u8 {
-        if x >= self.area.width {
+        let Some(x) = self.column(x) else {
             return 0;
-        }
+        };
         self.row(y).map_or(0, |row| read(self.format, row, x))
     }
 
@@ -306,12 +306,18 @@ impl<'a> BandView<'a> {
     /// format has (one bit: from 128 on is white). Ignored outside the
     /// band and in a format this release does not know.
     pub fn put_gray(&mut self, x: u16, y: u16, gray: u8) {
-        let (width, format) = (self.area.width, self.format);
-        if x < width
+        let (column, format) = (self.column(x), self.format);
+        if let Some(x) = column
             && let Some(row) = self.row_mut(y)
         {
             write(format, row, x, gray);
         }
+    }
+
+    /// The column of frame `x` within a row of the band, if it is in it.
+    fn column(&self, x: u16) -> Option<u16> {
+        let at = x.checked_sub(self.area.x)?;
+        (at < self.area.width).then_some(at)
     }
 
     /// Every pixel of the band through `f`, row by row from the top left.

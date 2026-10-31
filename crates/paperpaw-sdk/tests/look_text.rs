@@ -183,3 +183,51 @@ fn the_new_fields_are_zero_and_kinds_have_numbers() {
         .with_label("x");
     assert!(format!("{part:?}").contains("spare: [0, 0]"));
 }
+
+/// Text drawn outside `Label` (a button, a header, `draw_label_in`) reaches
+/// the text painter with its role; `draw_label` is the stock look.
+#[test]
+fn text_of_buttons_headers_and_draw_label_in_reaches_the_painter() {
+    let h = Harness::new(Device::TOUCH);
+    let env = h.env();
+    let style = UiStyle::new(&env).with_look(Look::of(&SHADOW));
+    let area = Rect::new(10, 10, 300, 40);
+    let asked = |draw: &dyn Fn(&mut ui::Ui<'_>)| {
+        SEEN.with(|s| s.set((0, 255, 0)));
+        let _ = on_paper(320, 60, |canvas| {
+            draw(&mut ui::Ui::new(canvas, &env, &style))
+        });
+        SEEN.with(Cell::get)
+    };
+    let font = style.font(&env).unwrap();
+    let (n, role, _) = asked(&|ui| ui.button(area, "Open", false, false));
+    assert_eq!((n, role), (1, TextRole::BUTTON.value()));
+    let (n, _, _) = asked(&|ui| ui.header(area, "Library", None));
+    assert!(n >= 1, "{n}");
+    let (n, role, chars) = asked(&|ui| {
+        ui::draw_label_in(
+            ui.canvas(),
+            &font,
+            &style,
+            TextRole::HINT,
+            style.small(),
+            12.0,
+            area,
+            "Hint",
+            Color::BLACK,
+        );
+    });
+    assert_eq!((n, role, chars), (1, TextRole::HINT.value(), 4));
+    let (n, _, _) = asked(&|ui| {
+        ui::draw_label(
+            ui.canvas(),
+            &font,
+            style.small(),
+            12.0,
+            area,
+            "Hint",
+            Color::BLACK,
+        );
+    });
+    assert_eq!(n, 0);
+}

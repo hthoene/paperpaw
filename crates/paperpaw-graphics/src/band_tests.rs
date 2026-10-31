@@ -141,3 +141,29 @@ fn passes_are_a_set() {
     assert!(!FramePass::MONO.contains(both) && !both.contains(FramePass::COLOUR));
     assert!(!both.contains(FramePass::from_value(0)));
 }
+
+/// Both coordinates are frame coordinates, also where a band does not
+/// start at x 0.
+#[test]
+fn columns_are_frame_coordinates_like_rows() {
+    let mut rows = [255u8; 32];
+    let mut band = BandView::new(
+        &mut rows,
+        Rect::new(40, 100, 16, 2),
+        PixelFormat::Gray8,
+        FramePass::GRAY,
+    );
+    band.put_gray(40, 100, 7);
+    band.put_gray(55, 101, 9);
+    // Outside the band's columns: ignored, reads zero.
+    band.put_gray(0, 100, 1);
+    band.put_gray(56, 100, 1);
+    assert_eq!((band.gray(40, 100), band.gray(55, 101)), (7, 9));
+    assert_eq!(
+        (band.gray(0, 100), band.gray(39, 100), band.gray(56, 100)),
+        (0, 0, 0)
+    );
+    drop(band);
+    assert_eq!((rows[0], rows[31]), (7, 9));
+    assert_eq!(rows.iter().filter(|g| **g != 255).count(), 2);
+}

@@ -10,7 +10,6 @@ use crate::env::Env;
 use crate::fonts::FontHandle;
 use crate::widgets::Align;
 
-use super::look::TextPart;
 use super::{Ink, TextRole, Ui, UiStyle, fit};
 
 /// A piece of the interface's text, set as the builder says: its size (a
@@ -261,18 +260,21 @@ impl<'t> Label<'t> {
         text: &str,
         color: Color,
     ) -> f32 {
-        if style.look().painters().is_some() {
-            let role = match self.size {
-                Size::Role(role) => role,
-                Size::Px(_) => TextRole::BODY,
-            };
-            let part = TextPart::new(text, x, baseline, size, color, area, font, role);
-            if style.look().text(canvas, style, &part) {
-                // Looks, not metrics: the width is the stock one.
-                return font.measure(size, text);
-            }
-        }
-        font.draw(canvas, size, x, baseline, text, color)
+        let role = match self.size {
+            Size::Role(role) => role,
+            Size::Px(_) => TextRole::BODY,
+        };
+        super::text::put_run(
+            canvas,
+            font,
+            Some((style, role)),
+            size,
+            x,
+            baseline,
+            area,
+            text,
+            color,
+        )
     }
 
     /// Wrapped lines, the block in the middle of the area's height, the

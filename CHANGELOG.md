@@ -62,9 +62,18 @@ change the plugin SDK.
     (`smooth`, `contrast:1`, `sharp:128`, a list of numbers); the settings `core.text-curve` (book text, in place of *Text
     contrast* when set) and `core.ui-text-curve` (the interface; themes set them) take a list of `[script=]curve` entries.
     A `FontHandle` carries a `TextInk` (`inked`, `text_ink`) that `draw` and `draw_bolder` use.
-  - **Looks:** `Painters::text` paints the text of `Label`s (a shadow, an outline), never changing its width;
+  - **Looks:** `Painters::text` paints the text of `Label`s and of the SDK's rows, headers, buttons, hints and captions (a shadow,
+    an outline), never changing its width; `ui::draw_label_in(canvas, font, style, role, ..)` does the same for text a plugin
+    draws itself (`draw_label` stays the stock look);
     `Painters::extras` takes a static list of painters for parts of kinds that come later (`PartKind`), and `Painters::flags` is
     reserved. `TextRole` is now an open `TextRole(u8)` with constants (`TextRole::BODY`, new `HINT`, `BUTTON`, `ICON`).
+    **Breaking for plugin authors:** `TextRole::Body` is now `TextRole::BODY` (and so on for every role); rename it, the compiler
+    finds each one.
+  - **Script:** `Lang::likely_script()` gives the script of a language (the tag's, else the one the language is usually
+    written in: `ar`, `fa`, `ur` and `ps` are `Arab`, `he` is `Hebr`), so `arab=contrast:1` in the curve settings reaches an
+    Arabic book and interface; `PageType.script` and `HookCx::script()` use it. Languages in Latin letters have none.
+  - **Rebuild all plugins:** `FontHandle` gained a field (its `TextInk`) that the firmware's `draw` reads, so every plugin has to
+    be built against interface 5 again; one built before would pass a shorter handle.
   - **Render hooks:** a plugin can register a hook (`Registrar::add_render_hook`, `RenderHookSpec`, `HookStage`, `BandView`,
     `HookCx`, `FramePass`, `Region`) that changes finished bands, with kernel-owned carry for dithering across bands. The
     kernel accepts hooks and does not run them yet: `Capability::RENDER_HOOK`, `RENDER_REGIONS` and `LOOK_EXTRAS` are off.

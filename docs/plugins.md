@@ -1562,8 +1562,11 @@ changes how a thing *looks*, never where it goes or how wide it is.
   width stays the stock one. `Painters::extras` takes a `static` list of
   `ExtraPaint`s for parts of kinds that come later (scrollbars, tabs): a
   look made now works when the SDK learns to ask
-  (`Capability::LOOK_EXTRAS`). Text drawn with the free functions
-  `ui::draw_label` and `ui::draw_text` does not pass the text painter.
+  (`Capability::LOOK_EXTRAS`). The SDK's own rows, headers,
+  buttons, hints and widgets' captions pass it too, with their role
+  (`TextRole::BUTTON`, `HINT`, …); text a plugin draws itself does so with
+  `ui::draw_label_in(canvas, font, style, role, ..)`. `ui::draw_label` is the
+  stock look.
 - **A render hook.** `Registrar::add_render_hook` with a `RenderHookSpec`
   changes each finished band (night or sepia tint, grain, a better dither of
   the four-gray pass). **Check `Capability::RENDER_HOOK`:** without it the

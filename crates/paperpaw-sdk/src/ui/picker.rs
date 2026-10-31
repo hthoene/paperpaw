@@ -11,7 +11,8 @@ use crate::widgets::largest_size;
 use crate::{Canvas, Env, Point, Rect};
 
 use super::{
-    Response, Stack, TextRole, UiStyle, button_height, columns, draw_button, draw_focus, draw_label,
+    Response, Stack, TextRole, UiStyle, button_height, columns, draw_button, draw_focus,
+    draw_label_in,
 };
 
 /// The answer to an action the wheels `taken`, the picker `changed` or not.
@@ -213,10 +214,30 @@ impl Wheels {
         .unwrap_or(style.text);
         let text_width = font.measure(size, text);
         let x = f32::from(value.x) + (f32::from(value.width) - text_width - mark_width) / 2.0;
-        draw_label(canvas, font, size, x, value, text, ink);
+        draw_label_in(
+            canvas,
+            font,
+            style,
+            TextRole::BODY,
+            size,
+            x,
+            value,
+            text,
+            ink,
+        );
         if !mark.is_empty() {
             let at = x + text_width + style.gap as f32 / 2.0;
-            draw_label(canvas, font, small, at, value, mark, ink);
+            draw_label_in(
+                canvas,
+                font,
+                style,
+                TextRole::SMALL,
+                small,
+                at,
+                value,
+                mark,
+                ink,
+            );
         }
     }
 }
@@ -656,7 +677,17 @@ impl TimePicker {
             right.x - left.right() as u16,
             left.height,
         );
-        draw_label(canvas, font, size, x, band, ":", style.focus_ink(false));
+        draw_label_in(
+            canvas,
+            font,
+            style,
+            TextRole::BODY,
+            size,
+            x,
+            band,
+            ":",
+            style.focus_ink(false),
+        );
     }
 }
 

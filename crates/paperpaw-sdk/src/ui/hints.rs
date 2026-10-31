@@ -246,7 +246,17 @@ pub fn draw_button_hints(
                     canvas.fill_round(boxed, radius, Color::BLACK);
                 }
                 for p in placed {
-                    draw_label(canvas, &font, p.size, p.x, p.at, &p.text, ink);
+                    draw_label_in(
+                        canvas,
+                        &font,
+                        &style,
+                        TextRole::HINT,
+                        p.size,
+                        p.x,
+                        p.at,
+                        &p.text,
+                        ink,
+                    );
                 }
             }
             Hint::Icon(name) => {

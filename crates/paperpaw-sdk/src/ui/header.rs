@@ -49,6 +49,7 @@ pub(crate) fn draw_header(
         draw_label_on(
             &mut canvas,
             &font,
+            Some((style, TextRole::SMALL)),
             style.small,
             x,
             area,
@@ -92,7 +93,17 @@ fn draw_title(
             if count < 2 {
                 // On one line in this size.
                 let baseline = cap_baseline(font, band, size);
-                draw_label_on(canvas, font, size, x, area, baseline, title, ink);
+                draw_label_on(
+                    canvas,
+                    font,
+                    Some((style, TextRole::HEAD)),
+                    size,
+                    x,
+                    area,
+                    baseline,
+                    title,
+                    ink,
+                );
                 return;
             }
             // Its lines a heading's apart.
@@ -105,14 +116,34 @@ fn draw_title(
             for (i, range) in lines.into_iter().enumerate() {
                 let at = Rect::new(area.x, top + i as u16 * apart, area.width, line);
                 let baseline = cap_baseline(font, at, size);
-                draw_label_on(canvas, font, size, x, area, baseline, &title[range], ink);
+                draw_label_on(
+                    canvas,
+                    font,
+                    Some((style, TextRole::HEAD)),
+                    size,
+                    x,
+                    area,
+                    baseline,
+                    &title[range],
+                    ink,
+                );
             }
             return;
         }
     }
     let (size, title) = title_fitting(font, style, title, room);
     let baseline = cap_baseline(font, band, size);
-    draw_label_on(canvas, font, size, x, area, baseline, &title, ink);
+    draw_label_on(
+        canvas,
+        font,
+        Some((style, TextRole::HEAD)),
+        size,
+        x,
+        area,
+        baseline,
+        &title,
+        ink,
+    );
 }
 
 /// Whether [`draw_title`] shows `title` whole in `room`, on lines as
@@ -365,7 +396,17 @@ impl Header {
             }
             let x = f32::from(at.x);
             let y = baseline(style.small);
-            draw_label_on(canvas, &font, style.small, x, at, y, text, ink);
+            draw_label_on(
+                canvas,
+                &font,
+                Some((style, TextRole::SMALL)),
+                style.small,
+                x,
+                at,
+                y,
+                text,
+                ink,
+            );
         }
         let mut canvas = canvas.clipped(t);
         if let (Some(note), Some(x)) = (note.as_deref(), note_x) {
@@ -392,7 +433,17 @@ impl Header {
                 ink
             };
             let y = baseline(style.small);
-            draw_label_on(&mut canvas, &font, style.small, x, t, y, note, note_ink);
+            draw_label_on(
+                &mut canvas,
+                &font,
+                Some((style, TextRole::SMALL)),
+                style.small,
+                x,
+                t,
+                y,
+                note,
+                note_ink,
+            );
         }
         let x = f32::from(t.x);
         draw_title(
@@ -512,7 +563,17 @@ impl Pager {
         };
         let label = Header::page_label(env, page);
         let x = f32::from(a.x) + (f32::from(a.width) - font.measure(style.small, &label)) / 2.0;
-        draw_label(canvas, &font, style.small, x, a, &label, Color::BLACK);
+        draw_label_in(
+            canvas,
+            &font,
+            style,
+            TextRole::SMALL,
+            style.small,
+            x,
+            a,
+            &label,
+            Color::BLACK,
+        );
         if self.arrows {
             let side = i32::from(a.width) / 4;
             let (_, y) = center(a);

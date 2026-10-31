@@ -448,7 +448,17 @@ impl Dialog {
                     let row = Rect::new(self.area.x, y, self.area.width, self.title_line);
                     let x = f32::from(row.x)
                         + (f32::from(row.width) - font.measure(title_size, line)).max(0.0) / 2.0;
-                    super::draw_label(canvas, &font, title_size, x, row, line, Color::BLACK);
+                    super::draw_label_in(
+                        canvas,
+                        &font,
+                        style,
+                        super::TextRole::TITLE,
+                        title_size,
+                        x,
+                        row,
+                        line,
+                        Color::BLACK,
+                    );
                     y += self.title_line;
                 } else {
                     if i == self.title.len() && i > 0 && !first {
@@ -456,9 +466,11 @@ impl Dialog {
                     }
                     let line = &self.lines[i - self.title.len()];
                     let row = Rect::new(self.area.x, y, self.area.width, self.text_line);
-                    super::draw_label(
+                    super::draw_label_in(
                         canvas,
                         &font,
+                        style,
+                        super::TextRole::BODY,
                         text_size,
                         f32::from(row.x),
                         row,

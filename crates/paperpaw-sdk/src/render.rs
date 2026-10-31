@@ -111,9 +111,10 @@ impl<'a> HookCx<'a> {
         self.lang
     }
 
-    /// The script of the interface's language (ISO 15924, `Arab`).
+    /// The script of the interface's language (ISO 15924, `Arab`; see
+    /// [`Lang::likely_script`]).
     pub fn script(&self) -> Option<&'static str> {
-        self.lang.script()
+        self.lang.likely_script()
     }
 
     /// The version of the hook interface the kernel runs (0 now), so a

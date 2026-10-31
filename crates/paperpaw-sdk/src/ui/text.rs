@@ -5,6 +5,7 @@
     clippy::wildcard_imports,
     reason = "a part of the module, which shares its imports"
 )]
+use super::look::TextPart;
 use super::*;
 
 /// Lines of a row's note, e.g. a setting's description.
@@ -34,7 +35,7 @@ pub fn draw_icon(
     };
     let mut text = [0u8; 4];
     let text = ch.encode_utf8(&mut text);
-    draw_text(canvas, &font, size, x, area, text, color)
+    draw_text(canvas, &font, None, size, x, area, text, color)
 }
 
 /// The width of icon `name` at `size` pixels, 0 if it cannot be drawn.
@@ -278,7 +279,7 @@ pub(crate) fn draw_row_icon(
         let x = font.ink_across(size, text).map_or(column, |(left, right)| {
             column + (size - (right - left) as f32) / 2.0 - left as f32
         });
-        draw_text(canvas, &font, size, x, rect, text, ink);
+        draw_text(canvas, &font, None, size, x, rect, text, ink);
     }
     Rect::new(
         rect.x + room,
@@ -353,6 +354,10 @@ pub fn tr_input<'a>(env: &Env<'a>, key: &'a str) -> &'a str {
 /// Draws `text` vertically centred in `area`, starting at `x`; text
 /// longer than the rest of the area is shortened with "…", so a label
 /// never runs into what is next to it.
+///
+/// This draws the stock look: a theme's text painter
+/// ([`Painters::text`](super::look::Painters::text)) does not see it. Use
+/// [`draw_label_in`] where the text should follow the theme.
 pub fn draw_label(
     canvas: &mut Canvas<'_>,
     font: &FontHandle<'_>,
@@ -365,13 +370,48 @@ pub fn draw_label(
     let room = f32::from(area.x) + f32::from(area.width) - x;
     let at = Rect::new(x.max(0.0) as u16, area.y, room.max(0.0) as u16, area.height);
     canvas.describe(Role::Text, text, at);
-    draw_text(canvas, font, size, x, area, text, color)
+    draw_text(canvas, font, None, size, x, area, text, color)
 }
 
-/// [`draw_label`] without telling what it draws (icons say nothing).
+/// [`draw_label`] for text that follows the look: `role` says what the
+/// text is ([`TextRole::BUTTON`], [`TextRole::HINT`], [`TextRole::TITLE`]
+/// …) and the look's text painter, if it has one and draws it, paints it
+/// (its width stays the stock one). Same placing, shortening and result as
+/// [`draw_label`].
+#[allow(clippy::too_many_arguments, reason = "draw_label's, and the look")]
+pub fn draw_label_in(
+    canvas: &mut Canvas<'_>,
+    font: &FontHandle<'_>,
+    style: &UiStyle,
+    role: TextRole,
+    size: f32,
+    x: f32,
+    area: Rect,
+    text: &str,
+    color: Color,
+) -> f32 {
+    let room = f32::from(area.x) + f32::from(area.width) - x;
+    let at = Rect::new(x.max(0.0) as u16, area.y, room.max(0.0) as u16, area.height);
+    canvas.describe(Role::Text, text, at);
+    draw_text(
+        canvas,
+        font,
+        Some((style, role)),
+        size,
+        x,
+        area,
+        text,
+        color,
+    )
+}
+
+/// [`draw_label`] without telling what it draws (icons say nothing), and
+/// by the look's text painter where it has `look` (style and role).
+#[allow(clippy::too_many_arguments, reason = "one run of text")]
 pub(super) fn draw_text(
     canvas: &mut Canvas<'_>,
     font: &FontHandle<'_>,
+    look: Option<(&UiStyle, TextRole)>,
     size: f32,
     x: f32,
     area: Rect,
@@ -385,7 +425,33 @@ pub(super) fn draw_text(
     // A pixel of slack for rounding: callers often measured to fit.
     if room > 0.0 && font.measure(size, text) > room + 1.0 {
         let text = fit(font, size, text, room);
-        return font.draw(canvas, size, x, baseline, &text, color);
+        return put_run(canvas, font, look, size, x, baseline, area, &text, color);
+    }
+    put_run(canvas, font, look, size, x, baseline, area, text, color)
+}
+
+/// One run of text: by the look's text painter, if there is a `look`, it
+/// has one and draws it, else as usual; its width.
+#[allow(clippy::too_many_arguments, reason = "one run of text")]
+pub(super) fn put_run(
+    canvas: &mut Canvas<'_>,
+    font: &FontHandle<'_>,
+    look: Option<(&UiStyle, TextRole)>,
+    size: f32,
+    x: f32,
+    baseline: i32,
+    area: Rect,
+    text: &str,
+    color: Color,
+) -> f32 {
+    if let Some((style, role)) = look
+        && style.look().painters().is_some()
+    {
+        let part = TextPart::new(text, x, baseline, size, color, area, font, role);
+        if style.look().text(canvas, style, &part) {
+            // Looks, not metrics: the width is the stock one.
+            return font.measure(size, text);
+        }
     }
     font.draw(canvas, size, x, baseline, text, color)
 }
@@ -407,7 +473,8 @@ pub(super) fn cap_baseline(font: &FontHandle<'_>, band: Rect, size: f32) -> i32 
     i32::from(band.y) + room.div_euclid(2) - top
 }
 
-/// [`draw_label`] on `baseline` rather than centred in `area`.
+/// [`draw_label`] on `baseline` rather than centred in `area`, by the
+/// look's text painter where it has `look` (style and role).
 #[allow(
     clippy::too_many_arguments,
     reason = "its inputs are separate things; a struct of them would serve this call alone"
@@ -415,6 +482,7 @@ pub(super) fn cap_baseline(font: &FontHandle<'_>, band: Rect, size: f32) -> i32 
 pub(super) fn draw_label_on(
     canvas: &mut Canvas<'_>,
     font: &FontHandle<'_>,
+    look: Option<(&UiStyle, TextRole)>,
     size: f32,
     x: f32,
     area: Rect,
@@ -427,9 +495,9 @@ pub(super) fn draw_label_on(
     canvas.describe(Role::Text, text, at);
     if room > 0.0 && font.measure(size, text) > room + 1.0 {
         let text = fit(font, size, text, room);
-        return font.draw(canvas, size, x, baseline, &text, color);
+        return put_run(canvas, font, look, size, x, baseline, area, &text, color);
     }
-    font.draw(canvas, size, x, baseline, text, color)
+    put_run(canvas, font, look, size, x, baseline, area, text, color)
 }
 
 /// A title and a value side by side in `width` pixels: both as they are
@@ -586,6 +654,7 @@ pub(crate) fn draw_note_line(
         draw_text(
             canvas,
             &font,
+            Some((style, TextRole::SMALL)),
             style.small,
             f32::from(row.x),
             row,

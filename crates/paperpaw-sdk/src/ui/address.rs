@@ -138,9 +138,11 @@ pub fn draw_address(
     };
     for part in &lines.address {
         let x = centered(part, style.text);
-        draw_label(
+        draw_label_in(
             canvas,
             &font,
+            style,
+            TextRole::BODY,
             style.text,
             x,
             row(y, line),
@@ -152,9 +154,11 @@ pub fn draw_address(
     y += style.gap as u16;
     for part in &lines.hint {
         let x = centered(part, lines.size);
-        draw_label(
+        draw_label_in(
             canvas,
             &font,
+            style,
+            TextRole::BODY,
             lines.size,
             x,
             row(y, small),
@@ -168,9 +172,11 @@ pub fn draw_address(
     }
     for part in &lines.last {
         let x = centered(part, lines.size);
-        draw_label(
+        draw_label_in(
             canvas,
             &font,
+            style,
+            TextRole::BODY,
             lines.size,
             x,
             row(y, small),
