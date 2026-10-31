@@ -15,12 +15,24 @@ USAGE:
 OPTIONS:
     --sizes <px,...>      Pixel sizes to render (default: 20,24,28,32,36,40,48)
     --axis <tag=value>    Set a variation axis, e.g. --axis wght=700 (repeatable)
-    --chars <set,...>     Character sets: latin and ligatures (default),
-                          cyrillic, greek, arabic, hebrew, hangul, cjk-symbols,
-                          code points: U+EA01, U+EA01-EA0F (e.g. icons), or
-                          @FILE: code points listed in a file (e.g. sets/*.txt)
+    --chars <set,...>     Character sets (default: latin,ligatures; the names
+                          are listed below), code points: U+EA01, U+EA01-EA0F
+                          (e.g. icons), or @FILE: code points listed in a file
+                          that starts with `# paperpaw-charset 1` (sets/*.txt)
     -h, --help            Show this help
+
+CHARACTER SETS:
 ";
+
+/// The first line of a file of code points: its format, so a later one
+/// (names inside files, exclusions) can be told apart.
+const SET_FILE: &str = "# paperpaw-charset 1";
+
+/// The help, with the names of the character sets.
+fn usage() -> String {
+    let names: Vec<&str> = paperpaw_text::charset::names().collect();
+    format!("{USAGE}    {}\n", names.join(", "))
+}
 
 fn main() -> ExitCode {
     match run(std::env::args().skip(1).collect()) {
@@ -41,7 +53,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => {
-                print!("{USAGE}");
+                print!("{}", usage());
                 return Ok(());
             }
             "--sizes" => {
@@ -74,7 +86,10 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
     }
     let [input, output] = positional.as_slice() else {
-        return Err(format!("expected an input and an output file\n\n{USAGE}"));
+        return Err(format!(
+            "expected an input and an output file\n\n{}",
+            usage()
+        ));
     };
 
     let data = std::fs::read(input).map_err(|e| format!("{input}: {e}"))?;
@@ -109,6 +124,11 @@ fn run(args: Vec<String>) -> Result<(), String> {
 /// a new version of the tool.
 fn listed(path: &str) -> Result<Vec<std::ops::RangeInclusive<char>>, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    if text.lines().next().map(str::trim_end) != Some(SET_FILE) {
+        return Err(format!(
+            "{path}: not a set file: its first line must be `{SET_FILE}`"
+        ));
+    }
     let mut ranges = Vec::new();
     for (number, line) in text.lines().enumerate() {
         let line = line.split('#').next().unwrap_or("");
@@ -119,4 +139,48 @@ fn listed(path: &str) -> Result<Vec<std::ops::RangeInclusive<char>>, String> {
         }
     }
     Ok(ranges)
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, reason = "tests")]
+    use super::*;
+
+    #[test]
+    fn set_files_say_their_format() {
+        let dir = std::env::temp_dir().join(format!("fontgen-sets-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = |name: &str, text: &str| {
+            let path = dir.join(name);
+            std::fs::write(&path, text).unwrap();
+            path.to_string_lossy().into_owned()
+        };
+        let good = file(
+            "good.txt",
+            "# paperpaw-charset 1\n# Hangul\nU+AC00-AC01, U+AC04 # two\n\tU+D7A3\n",
+        );
+        assert_eq!(
+            listed(&good).unwrap(),
+            [
+                '\u{ac00}'..='\u{ac01}',
+                '\u{ac04}'..='\u{ac04}',
+                '\u{d7a3}'..='\u{d7a3}'
+            ]
+        );
+        assert!(listed(&file("bare.txt", "U+AC00\n")).is_err());
+        assert!(
+            listed(&file("bad.txt", "# paperpaw-charset 1\nhangul\n"))
+                .unwrap_err()
+                .contains(":2:")
+        );
+        let shipped = concat!(env!("CARGO_MANIFEST_DIR"), "/sets/hangul-ks.txt");
+        let ks: usize = listed(shipped)
+            .unwrap()
+            .iter()
+            .map(|r| r.clone().count())
+            .sum();
+        assert_eq!(ks, 2350);
+        assert!(usage().contains("hangul-jamo"));
+        std::fs::remove_dir_all(dir).ok();
+    }
 }

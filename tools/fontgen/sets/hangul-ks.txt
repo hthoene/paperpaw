@@ -1,3 +1,4 @@
+# paperpaw-charset 1
 # The 2,350 Hangul syllables of KS X 1001 (the Korean national character set,
 # EUC-KR rows 0xB0-0xC8), which most Korean fonts and books keep to: packs of
 # them are about a fifth of all 11,172 (`hangul`). Made from Python's euc_kr

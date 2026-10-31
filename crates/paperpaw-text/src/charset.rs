@@ -26,12 +26,9 @@ const LATIN: &[RangeInclusive<char>] = &[
 const LIGATURES: &[RangeInclusive<char>] = &['\u{fb00}'..='\u{fb04}'];
 
 /// Cyrillic (Russian, Ukrainian, Bulgarian, Serbian and more), for packs
-/// added to fonts made for Latin.
-#[allow(
-    clippy::single_range_in_vec_init,
-    reason = "a set of ranges, of one here"
-)]
-const CYRILLIC: &[RangeInclusive<char>] = &['\u{400}'..='\u{4ff}'];
+/// added to fonts made for Latin, and the modifier letter apostrophe of
+/// Ukrainian and Belarusian.
+const CYRILLIC: &[RangeInclusive<char>] = &['\u{2bc}'..='\u{2bc}', '\u{400}'..='\u{4ff}'];
 
 /// Greek, modern and polytonic (Greek Extended, for older texts), and the
 /// modifier letter apostrophe of elisions (`καθʼ`, #60).
@@ -50,13 +47,41 @@ const GREEK: &[RangeInclusive<char>] = &[
 )]
 const HANGUL: &[RangeInclusive<char>] = &['\u{ac00}'..='\u{d7a3}'];
 
-/// What Korean, Chinese and Japanese text sets around its letters: CJK
-/// punctuation and symbols, Hangul's compatibility letters (jamo written
-/// alone) and the full-width forms of ASCII.
-const CJK_SYMBOLS: &[RangeInclusive<char>] = &[
-    '\u{3000}'..='\u{303f}',
-    '\u{3131}'..='\u{318e}',
-    '\u{ff01}'..='\u{ff5e}',
+/// CJK punctuation and symbols: the ideographic space, full stop and
+/// comma, brackets, marks of repetition.
+#[allow(
+    clippy::single_range_in_vec_init,
+    reason = "a set of ranges, of one here"
+)]
+const CJK_PUNCTUATION: &[RangeInclusive<char>] = &['\u{3000}'..='\u{303f}'];
+
+/// Hangul's compatibility letters (jamo written alone, e.g. ㅋㅋ).
+#[allow(
+    clippy::single_range_in_vec_init,
+    reason = "a set of ranges, of one here"
+)]
+const HANGUL_JAMO: &[RangeInclusive<char>] = &['\u{3131}'..='\u{318e}'];
+
+/// The full-width forms of ASCII that CJK text sets its Latin letters,
+/// digits and punctuation in.
+#[allow(
+    clippy::single_range_in_vec_init,
+    reason = "a set of ranges, of one here"
+)]
+const FULLWIDTH: &[RangeInclusive<char>] = &['\u{ff01}'..='\u{ff5e}'];
+
+/// The sets by name, in the order [`names`] gives them.
+const SETS: [(&str, &[RangeInclusive<char>]); 10] = [
+    ("latin", LATIN),
+    ("ligatures", LIGATURES),
+    ("cyrillic", CYRILLIC),
+    ("greek", GREEK),
+    ("arabic", ARABIC),
+    ("hebrew", HEBREW),
+    ("hangul", HANGUL),
+    ("hangul-jamo", HANGUL_JAMO),
+    ("cjk-punctuation", CJK_PUNCTUATION),
+    ("fullwidth", FULLWIDTH),
 ];
 
 /// Arabic (also Persian, Urdu and other languages written in it, #33):
@@ -100,25 +125,23 @@ pub fn stand_in(ch: char) -> Option<char> {
         '\u{2035}' => '\u{2032}',                           // reversed prime
         '\u{2038}' => '^',                                  // caret
         '\u{fffd}' => '?',                                  // replacement character
+        '\u{2bc}' => '\u{2019}', // modifier letter apostrophe: right quote
+        '\u{2bb}' => '\u{2018}', // turned comma: left quote
         _ => return None,
     })
 } @ text::CHARSET_STAND_IN
 }
 
-/// A character set by name: `latin`, `ligatures`, `cyrillic`, `greek`,
-/// `arabic`, `hebrew`, `hangul` or `cjk-symbols`.
+/// A character set by name (see [`names`]).
 pub fn named(name: &str) -> Option<&'static [RangeInclusive<char>]> {
-    match name {
-        "latin" => Some(LATIN),
-        "ligatures" => Some(LIGATURES),
-        "cyrillic" => Some(CYRILLIC),
-        "greek" => Some(GREEK),
-        "arabic" => Some(ARABIC),
-        "hebrew" => Some(HEBREW),
-        "hangul" => Some(HANGUL),
-        "cjk-symbols" => Some(CJK_SYMBOLS),
-        _ => None,
-    }
+    SETS.iter().find(|(n, _)| *n == name).map(|(_, set)| *set)
+}
+
+/// The names of the character sets: `latin`, `ligatures`, `cyrillic`,
+/// `greek`, `arabic`, `hebrew`, `hangul`, `hangul-jamo`,
+/// `cjk-punctuation`, `fullwidth`.
+pub fn names() -> impl Iterator<Item = &'static str> {
+    SETS.iter().map(|(name, _)| *name)
 }
 
 /// Code points written as `U+EA01` or `U+EA01-EA0F` (e.g. icons, which
@@ -141,6 +164,25 @@ pub fn chars(ranges: &[RangeInclusive<char>]) -> impl Iterator<Item = char> + Cl
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_names_are_the_documented_ones() {
+        let documented = "`latin`, `ligatures`, `cyrillic`, `greek`, `arabic`, `hebrew`, `hangul`, \
+                          `hangul-jamo`, `cjk-punctuation`, `fullwidth`";
+        let listed: alloc::vec::Vec<_> = names().map(|n| alloc::format!("`{n}`")).collect();
+        assert_eq!(listed.join(", "), documented);
+        assert!(names().all(|n| named(n).is_some()));
+        assert_eq!(named("cjk-symbols"), None);
+    }
+
+    #[test]
+    fn apostrophes_stand_in_for_each_other() {
+        assert_eq!(stand_in('\u{2bc}'), Some('\u{2019}'));
+        assert_eq!(stand_in('\u{2bb}'), Some('\u{2018}'));
+        let has =
+            |set: &str, ch: char| named(set).is_some_and(|r| r.iter().any(|r| r.contains(&ch)));
+        assert!(has("greek", '\u{2bc}') && has("cyrillic", '\u{2bc}') && !has("latin", '\u{2bc}'));
+    }
 
     #[test]
     fn code_points_are_read() {
