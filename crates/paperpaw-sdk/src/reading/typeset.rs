@@ -16,7 +16,8 @@ use super::WordBox;
 use crate::builtin::{fonts, settings};
 use crate::document::{Document, DocumentError, Locator};
 use crate::layout::{
-    BookStyles, Face, LineBidi, LineRun, Page, PageImage, PageLine, Style, Typesetter,
+    BookStyles, Face, LineBidi, LineRun, Page, PageImage, PageLine, ScriptOptions, Style,
+    Typesetter,
 };
 use crate::text::ToneCurve;
 use crate::{Canvas, Color, Env, FontHandle, FontSet, Id, Point, Rect};
@@ -252,7 +253,8 @@ impl PageType {
         )
         .lines_kept(widows, orphans)
         .book(book)
-        .balanced(balanced);
+        .balanced(balanced)
+        .script_options(script_options(language, s.read(&settings::KOREAN_BREAKS)));
 
         let display = env.device().display;
         let millimetres = |setting: &crate::setting::Setting<i64>| match whole_pages {
@@ -487,6 +489,17 @@ impl PageType {
             (true, Some(first)) => f32::from(first.width),
             _ => self.width,
         }
+    }
+}
+
+/// The options of the line breaker for a book in `language`: by word
+/// (`KEEP_ALL`) only for a Korean book whose reader chose it. The bit is
+/// never global: it would lay out Chinese and Japanese text badly.
+fn script_options(language: &str, korean: &str) -> ScriptOptions {
+    let primary = language.split(['-', '_']).next().unwrap_or("");
+    match primary.eq_ignore_ascii_case("ko") && korean == settings::KOREAN_BREAKS_WORD {
+        true => ScriptOptions::KEEP_ALL,
+        false => ScriptOptions::NONE,
     }
 }
 

@@ -770,6 +770,12 @@ pub mod settings {
     pub const LINE_BREAKING: Setting<Text> = Setting::new("core.line-breaking");
     pub const LINE_BREAKING_BALANCED: &str = "core.line-breaking.balanced";
     pub const LINE_BREAKING_FAST: &str = "core.line-breaking.fast";
+    /// Where lines of a book in Korean may end: after any syllable, as
+    /// printed Korean books do ([`KOREAN_BREAKS_SYLLABLE`]), or only between
+    /// words ([`KOREAN_BREAKS_WORD`]). Books in other languages ignore it.
+    pub const KOREAN_BREAKS: Setting<Text> = Setting::new("core.korean-breaks");
+    pub const KOREAN_BREAKS_SYLLABLE: &str = "core.korean-breaks.syllable";
+    pub const KOREAN_BREAKS_WORD: &str = "core.korean-breaks.word";
     /// How much space [`PARAGRAPH_SPACING`] leaves, in percent of a line
     /// (20 to 150).
     pub const PARAGRAPH_SPACE: Setting<i64> = Setting::new("core.paragraph-space");

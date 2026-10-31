@@ -270,7 +270,7 @@ const fn book_style(id: &'static str, title: &'static str, on: bool) -> SettingS
 /// of the type: letter spacing, kerning and ligatures, the indent's and
 /// the paragraph space's size. Their defaults keep pages as they were,
 /// but kerning and ligatures are on, as other readers set them.
-static TYPE: [SettingSpec; 13] = [
+static TYPE: [SettingSpec; 14] = [
     SettingSpec::choice(
         settings::LINE_BREAKING.static_str(),
         "core.setting.line-breaking",
@@ -285,6 +285,20 @@ static TYPE: [SettingSpec; 13] = [
     .advanced()
     .scoped()
     .description("core.setting.line-breaking.help"),
+    SettingSpec::choice(
+        settings::KOREAN_BREAKS.static_str(),
+        "core.setting.korean-breaks",
+        &[
+            settings::KOREAN_BREAKS_SYLLABLE,
+            settings::KOREAN_BREAKS_WORD,
+        ],
+        settings::KOREAN_BREAKS_SYLLABLE,
+        groups::READING_LAYOUT,
+    )
+    .with_extra(&IN_PAGE)
+    .advanced()
+    .scoped()
+    .description("core.setting.korean-breaks.help"),
     book_style(
         settings::BOOK_ALIGN.static_str(),
         "core.setting.book-align",

@@ -18,6 +18,8 @@ change the plugin SDK.
   except around U+200B and the word joiner, emoji, and fullwidth characters. The line-break table is 4.8 KB of
   firmware (Unicode 17.0.0, `tools/linebreak-table.py`). Arabic shaping does not change: U+200B and U+2060..U+2064
   join nothing across them, as before.
+- New reading setting "Korean line breaks" (`core.korean-breaks`, `settings::KOREAN_BREAKS`): by syllable (default, as
+  printed books) or by word. It applies to books in Korean only.
 - How an X4, X3, X4 Pro or X4 Classic starts, runs the trial of and
   installs an update moved from the firmware into `paperpaw-x4`
   (`updates`), which the firmware runs as before: CI now tests the whole
