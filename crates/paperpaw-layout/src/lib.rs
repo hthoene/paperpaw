@@ -121,7 +121,8 @@ pub trait Typesetter {
 
 /// Which of a book's own styles are followed (see [`Style::book`]): each
 /// can be left to the reader alone, e.g. a book's alignment but not its
-/// margins.
+/// margins. Bits not named are reserved for later styles: kept as they
+/// are, and in [`BookStyles::ALL`] already.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BookStyles(u16);
 
@@ -142,8 +143,8 @@ impl BookStyles {
     pub const MARGINS: BookStyles = BookStyles(1 << 5);
     /// The distance between lines ([`Block::line_height`]).
     pub const LINE_HEIGHT: BookStyles = BookStyles(1 << 6);
-    /// All of them.
-    pub const ALL: BookStyles = BookStyles(0x7F);
+    /// All of them, also those named later.
+    pub const ALL: BookStyles = BookStyles(u16::MAX);
 
     pub const fn has(self, other: BookStyles) -> bool {
         self.0 & other.0 == other.0
@@ -165,13 +166,23 @@ impl BookStyles {
     pub const fn bits(self) -> u16 {
         self.0
     }
+
+    /// The styles of `bits`, the reserved ones too.
+    pub const fn from_bits(bits: u16) -> BookStyles {
+        BookStyles(bits)
+    }
 }
 
 /// Options of the layout for some scripts and languages (see
-/// [`Style::script`]): flags, so that one for another script comes
-/// without a new field. Bits not named here are reserved: zero now; a
-/// meaning is given to one only with a new [`VERSION`], and a layout
-/// leaves those it does not know.
+/// [`Style::script_options`]): flags, so that one for another script comes
+/// without a new field.
+///
+/// 0 is today's behaviour of every bit, and stays it: plugins built now
+/// keep what they get. Bits not named are reserved: a meaning is given to
+/// one only with a new [`VERSION`], and a layout keeps the bits it does
+/// not know. A group of bits holds an option of more than two values: its
+/// values are `<GROUP>_<VALUE>`, its bits `<GROUP>_MASK`. Named but
+/// reserved options are not done yet: a layout leaves them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ScriptOptions(u32);
 
@@ -179,15 +190,45 @@ impl ScriptOptions {
     /// None: every script laid out as by default.
     pub const NONE: ScriptOptions = ScriptOptions(0);
     /// Justified Arabic lines stretched by lengthening letters (kashida)
-    /// rather than by wider gaps. Reserved: not done yet.
+    /// rather than by wider gaps. Reserved.
     pub const KASHIDA: ScriptOptions = ScriptOptions(1);
-    /// Punctuation at a line's ends hung into the margin. Reserved: not
-    /// done yet.
+    /// Punctuation at a line's ends hung into the margin. Reserved.
     pub const HANGING_PUNCTUATION: ScriptOptions = ScriptOptions(1 << 1);
-    /// Korean (and CJK) text broken only at spaces, between words, not
-    /// between syllables (CSS `word-break: keep-all`). Reserved: lines
-    /// break only at spaces now (#61).
+    /// Korean (and CJK) text broken only at spaces, between words (CSS
+    /// `word-break: keep-all`). Today every line breaks only at spaces, so
+    /// the bit changes nothing yet. Its one exception to "0 is today's
+    /// behaviour": once lines also break between syllables and ideographs
+    /// (Unicode line breaking), that is what a clear bit means, a
+    /// deliberate change with a new [`VERSION`]; a reader that wants
+    /// breaks at spaces alone for Korean sets this bit.
     pub const KEEP_ALL: ScriptOptions = ScriptOptions(1 << 2);
+    /// How strictly lines break before and after CJK punctuation (CSS
+    /// `line-break`), bits 3 and 4: normal (0), loose, strict, anywhere.
+    /// Reserved.
+    pub const LINE_BREAK_NORMAL: ScriptOptions = ScriptOptions(0);
+    /// See [`ScriptOptions::LINE_BREAK_NORMAL`]. Reserved.
+    pub const LINE_BREAK_LOOSE: ScriptOptions = ScriptOptions(1 << 3);
+    /// See [`ScriptOptions::LINE_BREAK_NORMAL`]. Reserved.
+    pub const LINE_BREAK_STRICT: ScriptOptions = ScriptOptions(2 << 3);
+    /// See [`ScriptOptions::LINE_BREAK_NORMAL`]. Reserved.
+    pub const LINE_BREAK_ANYWHERE: ScriptOptions = ScriptOptions(3 << 3);
+    /// The bits of the line-break strictness.
+    pub const LINE_BREAK_MASK: ScriptOptions = ScriptOptions(3 << 3);
+    /// Lines break between any two letters, also within words of
+    /// alphabetic scripts (CSS `word-break: break-all`). Reserved.
+    pub const BREAK_ALL: ScriptOptions = ScriptOptions(1 << 5);
+    /// Justified CJK lines stretched between characters, not only at
+    /// spaces (CSS `text-justify: inter-character`). Reserved.
+    pub const JUSTIFY_INTER_CHARACTER: ScriptOptions = ScriptOptions(1 << 6);
+    /// Thai, Lao, Khmer and Burmese text broken between words found in a
+    /// dictionary, as they are written without spaces. Reserved.
+    pub const SEGMENT_WORDS: ScriptOptions = ScriptOptions(1 << 7);
+    /// The blank half of full-width CJK punctuation trimmed at a line's
+    /// ends and between marks (CSS `text-spacing-trim`). Reserved.
+    pub const TRIM_CJK_PUNCTUATION: ScriptOptions = ScriptOptions(1 << 8);
+    /// A small gap where CJK text meets Latin letters or digits (CSS
+    /// `text-autospace`). Reserved.
+    pub const AUTOSPACE: ScriptOptions = ScriptOptions(1 << 9);
 
     pub const fn has(self, other: ScriptOptions) -> bool {
         self.0 & other.0 == other.0
@@ -214,6 +255,45 @@ impl ScriptOptions {
     /// those it does not know).
     pub const fn from_bits(bits: u32) -> ScriptOptions {
         ScriptOptions(bits)
+    }
+}
+
+/// Options of the layout of a page that are not about scripts (see
+/// [`Style::options`]): none named yet, all reserved. As with
+/// [`ScriptOptions`], 0 is today's behaviour and stays it, a meaning is
+/// given to a bit only with a new [`VERSION`], and a layout keeps the bits
+/// it does not know.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct LayoutOptions(u32);
+
+impl LayoutOptions {
+    /// None: pages laid out as by default.
+    pub const NONE: LayoutOptions = LayoutOptions(0);
+
+    pub const fn has(self, other: LayoutOptions) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// These and `other`'s.
+    #[must_use]
+    pub const fn with(self, other: LayoutOptions) -> LayoutOptions {
+        LayoutOptions(self.0 | other.0)
+    }
+
+    /// These without `other`'s.
+    #[must_use]
+    pub const fn without(self, other: LayoutOptions) -> LayoutOptions {
+        LayoutOptions(self.0 & !other.0)
+    }
+
+    /// For a layout's key, and to keep.
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+
+    /// The options of `bits`, the reserved ones too.
+    pub const fn from_bits(bits: u32) -> LayoutOptions {
+        LayoutOptions(bits)
     }
 }
 
@@ -253,7 +333,15 @@ pub struct Style {
     /// Options for some scripts and languages (kashida, hanging
     /// punctuation, keep-all, ...); none by default. Options of later
     /// scripts are new bits here, not new fields.
-    pub script: ScriptOptions,
+    pub script_options: ScriptOptions,
+    /// Options of the page that are not about scripts; none by default,
+    /// all reserved (see [`LayoutOptions`]).
+    pub options: LayoutOptions,
+    /// Reserved numbers for later settings of a page (e.g. the fewest
+    /// letters around a hyphen, a line grid): 0 by default, which is
+    /// today's behaviour; each gets its meaning and unit only with a new
+    /// [`VERSION`].
+    pub numbers: [u16; 4],
 }
 
 impl Style {
@@ -269,7 +357,9 @@ impl Style {
             book: BookStyles::ALL,
             balanced: false,
             justify_cap: 0.5,
-            script: ScriptOptions::NONE,
+            script_options: ScriptOptions::NONE,
+            options: LayoutOptions::NONE,
+            numbers: [0; 4],
         }
     }
 
@@ -280,10 +370,15 @@ impl Style {
         self
     }
 
-    /// The same, with the options `script` for some scripts (see
-    /// [`ScriptOptions`]).
-    pub const fn script(mut self, script: ScriptOptions) -> Self {
-        self.script = script;
+    /// The same, with `options` for some scripts (see [`ScriptOptions`]).
+    pub const fn script_options(mut self, options: ScriptOptions) -> Self {
+        self.script_options = options;
+        self
+    }
+
+    /// The same, with `options` for the page (see [`LayoutOptions`]).
+    pub const fn options(mut self, options: LayoutOptions) -> Self {
+        self.options = options;
         self
     }
 

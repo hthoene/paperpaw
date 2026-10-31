@@ -334,7 +334,7 @@ impl PageType {
         let key = format!(
             "{:016x}",
             paperpaw_digest::fnv1a64(format!(
-                "{}|{}|{}|{}|{}|{size}|{line_height}|{}|{}|{justify}|{width}x{height}|{}|{}|{}|{word_spacing}|{}|{whole_pages}|{stylesheets:x}|{widows}:{orphans}|{:x}|{letter_spacing}|{balanced}|{kerning}|{ligatures}",
+                "{}|{}|{}|{}|{}|{size}|{line_height}|{}|{}|{justify}|{width}x{height}|{}|{}|{}|{word_spacing}|{}|{whole_pages}|{stylesheets:x}|{widows}:{orphans}|{:x}|{letter_spacing}|{balanced}|{kerning}|{ligatures}|{:x}:{:x}:{:?}",
                 crate::layout::VERSION,
                 font.id(),
                 face_id(env, &fonts::READING_BOLD),
@@ -347,6 +347,10 @@ impl PageType {
                 uses_book_fonts(env),
                 env.text_filters().signature(env),
                 book.bits(),
+                // Options of later layouts: in the key before any is used.
+                style.script_options.bits(),
+                style.options.bits(),
+                style.numbers,
             ))
         );
         // Pages without layers' rooms or a frame keep their key (and their

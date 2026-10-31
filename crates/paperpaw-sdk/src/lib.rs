@@ -234,8 +234,9 @@ pub mod document {
 #[cfg(feature = "unstable")]
 pub mod layout {
     pub use paperpaw_layout::{
-        BookStyles, Face, Hyphenate, LayoutContext, LineBidi, LineRun, Page, PageImage, PageLine,
-        PageNote, PieceStarts, Style, Typesetter, VERSION, layout_page, line_start,
+        BookStyles, Face, Hyphenate, LayoutContext, LayoutOptions, LineBidi, LineRun, Page,
+        PageImage, PageLine, PageNote, PieceStarts, ScriptOptions, Style, Typesetter, VERSION,
+        layout_page, line_start,
     };
     /// Lines broken as the layout breaks them (see `paperpaw-text`): for
     /// laying out text of one's own the way pages are, e.g. a note.

@@ -820,10 +820,23 @@ fn reserved_parts_are_built_whole() {
     let options = ScriptOptions::KASHIDA.with(ScriptOptions::HANGING_PUNCTUATION);
     let style = Style::new(1.0, 2.0, 10.0, true)
         .justify_cap(0.25)
-        .script(options);
-    assert_eq!((style.justify_cap, style.script), (0.25, options));
-    assert!(style.script.has(ScriptOptions::KASHIDA) && !style.script.has(ScriptOptions::KEEP_ALL));
-    assert_eq!(STYLE.script, ScriptOptions::NONE);
+        .script_options(options)
+        .options(LayoutOptions::from_bits(1 << 31));
+    assert_eq!((style.justify_cap, style.script_options), (0.25, options));
+    assert!(style.script_options.has(ScriptOptions::KASHIDA));
+    assert!(!style.script_options.has(ScriptOptions::KEEP_ALL));
+    assert_eq!(style.options.without(LayoutOptions::NONE).bits(), 1 << 31);
+    assert_eq!(
+        (STYLE.script_options, STYLE.options, STYLE.numbers),
+        (ScriptOptions::NONE, LayoutOptions::NONE, [0; 4])
+    );
+    // A group's values sit in its mask; "all" book styles holds later ones.
+    let strict = ScriptOptions::LINE_BREAK_STRICT;
+    assert!(
+        ScriptOptions::LINE_BREAK_MASK.has(strict)
+            && strict.bits() & !ScriptOptions::LINE_BREAK_MASK.bits() == 0
+    );
+    assert!(BookStyles::ALL.has(BookStyles::from_bits(1 << 15)));
     // Reserved bits are kept as they are, for a later layout.
     let later = ScriptOptions::from_bits(1 << 31).with(ScriptOptions::KEEP_ALL);
     assert_eq!(later.without(ScriptOptions::KEEP_ALL).bits(), 1 << 31);

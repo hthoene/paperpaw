@@ -68,17 +68,23 @@ change the plugin SDK.
   cap; links say what they are (`LinkKind`: a note reference, the way
   back). Lines of `paperpaw-layout` carry their direction (`LineBidi`),
   runs their level and language; pages their notes (`PageNote`);
-  `Style` reserves `justify_cap`, and options for some scripts as flag
-  bits (`Style::script`, `ScriptOptions`: kashida, hanging punctuation,
-  keep-all; the other bits reserved, so a later script's option is a new
-  bit, not a field); `Typesetter::advance_text` measures a text as a
+  `Style` reserves `justify_cap`, options for some scripts as flag bits
+  (`Style::script_options`, `ScriptOptions`: kashida, hanging
+  punctuation, keep-all, and reserved groups for CJK and Thai line
+  breaking), and options and numbers for later page settings
+  (`LayoutOptions`, `Style::numbers`): 0 is today's behaviour, so a later
+  option is a new bit, not a field; `BookStyles::from_bits`, and `ALL`
+  holds styles named later; `Typesetter::advance_text` measures a text as a
   whole.
 - `paperpaw-text`: character sets are no longer public constants; tools
   name them (`charset::named`), so a set grows without a new plugin
-  interface. The Greek set has the apostrophe of elisions, U+02BC (#60);
-  new sets `hangul` and `cjk-symbols`. `paperpaw-fontgen --chars @FILE`
-  reads code points from a file, e.g. the 2,350 Hangul syllables of
-  KS X 1001 (`tools/fontgen/sets/hangul-ks.txt`).
+  interface (`charset::names` lists them). The Greek and Cyrillic sets
+  have the modifier apostrophe U+02BC (#60), which packs without it show
+  as a right quote (`stand_in`); new sets `hangul`, `hangul-jamo`,
+  `cjk-punctuation` and `fullwidth`. `paperpaw-fontgen --chars @FILE`
+  reads code points from a file starting `# paperpaw-charset 1`, e.g.
+  the 2,350 Hangul syllables of KS X 1001
+  (`tools/fontgen/sets/hangul-ks.txt`).
 - `paperpaw-text`: `Around` (what lies around a text, its base direction
   and language), `draw_text_in` and `measure_in`: right-to-left order,
   Arabic letters joined (also across a text's edges), mirrored brackets,
