@@ -373,6 +373,10 @@ pub(super) fn draw_note_below(
     clippy::too_many_arguments,
     reason = "its inputs are separate things; a struct of them would serve this call alone"
 )]
+#[expect(
+    clippy::too_many_lines,
+    reason = "grew by the role each label now names; split it when it is next changed"
+)]
 pub(crate) fn draw_value_row(
     canvas: &mut Canvas<'_>,
     env: &Env<'_>,

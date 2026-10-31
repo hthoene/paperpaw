@@ -163,7 +163,6 @@ fn columns_are_frame_coordinates_like_rows() {
         (band.gray(0, 100), band.gray(39, 100), band.gray(56, 100)),
         (0, 0, 0)
     );
-    drop(band);
     assert_eq!((rows[0], rows[31]), (7, 9));
     assert_eq!(rows.iter().filter(|g| **g != 255).count(), 2);
 }

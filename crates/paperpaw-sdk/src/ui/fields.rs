@@ -189,6 +189,10 @@ pub(crate) fn draw_text_field(
 
 /// `text` wrapped into `area`'s width, a line `line` tall each, from its
 /// top.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one run of wrapped text and its look"
+)]
 fn draw_lines(
     canvas: &mut Canvas<'_>,
     font: &crate::fonts::FontHandle<'_>,

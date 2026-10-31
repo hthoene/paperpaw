@@ -318,6 +318,10 @@ impl Header {
     /// Draws the header: the title, an optional note right of it (e.g. a
     /// sort order) and the page number of a paged list (`page` is the
     /// page shown and the number of pages).
+    #[expect(
+        clippy::too_many_lines,
+        reason = "grew by the role each label now names; split it when it is next changed"
+    )]
     pub fn draw(
         &self,
         ui: &mut super::Ui<'_>,

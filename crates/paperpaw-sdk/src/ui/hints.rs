@@ -165,6 +165,10 @@ fn free_span(
 /// sign that its press is being worked on.
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+#[expect(
+    clippy::too_many_lines,
+    reason = "grew by the role each label now names; split it when it is next changed"
+)]
 pub fn draw_button_hints(
     canvas: &mut Canvas<'_>,
     env: &Env<'_>,
