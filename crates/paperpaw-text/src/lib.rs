@@ -60,7 +60,10 @@ pub mod sfnt;
 mod stored;
 #[cfg_attr(
     not(any(test, fuzzing)),
-    allow(dead_code, reason = "read by the shaper that comes with Indic scripts (#92, D5)")
+    allow(
+        dead_code,
+        reason = "read by the shaper that comes with Indic scripts (#92, D5)"
+    )
 )]
 mod substitutions;
 

@@ -115,14 +115,29 @@ fn sample() -> Vec<u8> {
                 (vec![KA, VIRAMA, SSA], KA_SSA),
             ])],
         ),
-        (b"locl", 0, "mr", true, vec![Write::Single(vec![(SSA, 0xF_0002)])]),
-        (b"salt", 0, "", false, vec![Write::Single(vec![(KA, 0xF_0003)])]),
+        (
+            b"locl",
+            0,
+            "mr",
+            true,
+            vec![Write::Single(vec![(SSA, 0xF_0002)])],
+        ),
+        (
+            b"salt",
+            0,
+            "",
+            false,
+            vec![Write::Single(vec![(KA, 0xF_0003)])],
+        ),
         (
             b"pres",
             12,
             "",
             true,
-            vec![Write::Unknown(9), Write::Multiple(vec![(0x0E33, vec![0x0E4D, 0x0E32])])],
+            vec![
+                Write::Unknown(9),
+                Write::Multiple(vec![(0x0E33, vec![0x0E4D, 0x0E32])]),
+            ],
         ),
     ])
 }

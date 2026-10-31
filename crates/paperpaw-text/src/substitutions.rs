@@ -215,11 +215,8 @@ impl Lookup<'_> {
             return None;
         }
         let first = *keys.first()?;
-        let starts = |i: usize| {
-            self.first_key_at(i)
-                .and_then(|at| u32_at(self.data, at))
-                == Some(first)
-        };
+        let starts =
+            |i: usize| self.first_key_at(i).and_then(|at| u32_at(self.data, at)) == Some(first);
         let mut i = self.search(first, |i| self.first_key_at(i))?;
         while i > 0 && starts(i - 1) {
             i -= 1;
