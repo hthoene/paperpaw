@@ -17,6 +17,16 @@
 //! kerning            optional, see below
 //! ```
 //!
+//! A glyph's key ("code point" above) is a Unicode scalar value. A glyph
+//! that has no code point (an Indic conjunct, a Khmer or Burmese stack, a
+//! ligature beyond Unicode's presentation forms) takes a key in the
+//! supplementary private-use planes 15 and 16 (U+F0000 to U+FFFFD,
+//! U+100000 to U+10FFFD), numbered by the pack's builder; only a
+//! substitution (slots 3 and 4, below) gives such a key, while text keeps
+//! its own code points. The private-use area of the first plane (U+E000 to
+//! U+F8FF) is the icons'. The keys of every table (anchors, kerning,
+//! substitutions) are such keys too.
+//!
 //! The first strike's last reserved field is the offset of the pack's
 //! kerning table (0: none), which holds pairs of characters and how much
 //! they move the second one, in classes (see `kern_table.rs`). Readers
@@ -38,8 +48,9 @@
 //!                         0 holds both)
 //! 2  scripts              the scripts the pack is for and their line
 //!                         metrics (below)
-//! 3  language forms       per language, keys drawn as other keys
-//! 4  substitutions        contextual substitutions
+//! 3  language forms       keys a language draws as other keys (below)
+//! 4  substitutions        keys drawn as other keys, as several, several
+//!                         as one (below)
 //! 5  vertical metrics     for vertical lines
 //! 6  reserved             0
 //! 7  next directory       eight more offsets, slots 8 to 15, the same way
@@ -47,8 +58,8 @@
 //!
 //! Every table starts with a version byte, three reserved bytes and its
 //! length in bytes (`u32`, these eight included); a reader skips a table
-//! whose version it does not know. The formats of slots 3 to 5 are given
-//! with their first version.
+//! whose version it does not know. The format of slot 5 is given with its
+//! first version.
 //!
 //! Anchors (version 1), per strike, as packs are per size:
 //!
@@ -93,6 +104,42 @@
 //!   each               from 1), 3 reserved, then per strike of the
 //!                      pack: ascent i32, descent i32 (1/64 px)
 //! ```
+//!
+//! Substitutions (version 1), slot 4, and language forms, slot 3, in the
+//! same format: slot 3's features (OpenType `locl`) apply first, then slot
+//! 4's. Only what a shaper reads, in the manner of OpenType's GSUB:
+//!
+//! ```text
+//! head       8 bytes   version 1, 3 reserved, length u32
+//! count      4 bytes   feature count u16, 2 reserved
+//! features  16 bytes   tag [u8; 4] (an OpenType feature tag: half, blwf,
+//!   each               pres, liga, locl ...), script u8 (its index in
+//!                      paperpaw_lang::scripts(), from 1; 0: any), flags
+//!                      u8 (bit 0: on unless the text turns it off;
+//!                      others reserved), 2 reserved, language [u8; 4]
+//!                      (its code in ASCII, zero-padded; all zero: any),
+//!                      offset u32 of its lookup list
+//! lookups    4 bytes   lookup count u16, 2 reserved, then per lookup
+//!                      8 bytes: kind u8, flags u8 (reserved), entry count
+//!                      u16, offset u32 of its entries
+//! kind 1     8 bytes   single: key u32, drawn as key u32; sorted by key
+//!   each
+//! kind 2     4 bytes   ligature: offset u32 of each entry, sorted by
+//!   each               their first key, of the same first key the longest
+//!                      first; an entry: length u8 (2 to 16), 3 reserved,
+//!                      keys u32 x length, drawn as key u32
+//! kind 3     4 bytes   multiple (one key drawn as several): offset u32 of
+//!   each               each entry, sorted by their key; an entry: key
+//!                      u32, count u8 (1 to 16), 3 reserved, keys u32 x
+//!                      count
+//! ```
+//!
+//! Offsets are from the table's start. Features apply in their order and
+//! each one's lookups in theirs, a lookup to the whole text before the
+//! next. A reader skips a lookup of a kind it does not know (new kinds,
+//! such as contextual rules, need no new version), a feature of another
+//! script or language, and the table of a version it does not know. Of
+//! the ligatures that start at a key, the first that matches is made.
 
 use alloc::borrow::Cow;
 use alloc::vec::Vec;

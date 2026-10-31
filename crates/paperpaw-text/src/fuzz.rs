@@ -60,3 +60,19 @@ pub fn bidi(data: &[u8]) {
         .collect();
     arabic::place_marks(&marks, &mut places);
 }
+
+/// Any bytes as a font pack's substitution table: applied to a few keys
+/// (Devanagari, Thai and plane 15 keys), it must not panic, and the keys
+/// must not grow past the limit.
+pub fn substitutions(data: &[u8]) {
+    let Some(table) = crate::substitutions::Substitutions::new(data) else {
+        return;
+    };
+    let mut keys = vec![0x915, 0x94D, 0x937, 0xE33, 0xF_0000, 0x20];
+    for feature in table.features() {
+        let _ = (feature.tag, feature.applies(feature.script, "hi"));
+    }
+    table.apply(0, "", &mut keys, 12);
+    table.apply(5, "hi", &mut keys, 12);
+    assert!(keys.len() <= 12);
+}

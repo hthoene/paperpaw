@@ -64,6 +64,11 @@ change the plugin SDK.
 - Font packs of version 2 have a table directory (anchors, mark-to-mark
   anchors, line metrics per script, language forms, contextual
   substitutions, vertical metrics); packs of version 1 read as before.
+  Glyphs without a code point (Indic conjuncts, Khmer and Burmese stacks)
+  take keys in the private-use planes 15 and 16; the language forms and
+  substitutions tables have a format (version 1: single, ligature and
+  multiple lookups per OpenType feature, script and language; unknown
+  lookup kinds are skipped), read once a shaper uses them.
 
 ### Added
 

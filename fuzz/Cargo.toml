@@ -38,6 +38,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "substitutions"
+path = "fuzz_targets/substitutions.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "cbz"
 path = "fuzz_targets/cbz.rs"
 test = false
