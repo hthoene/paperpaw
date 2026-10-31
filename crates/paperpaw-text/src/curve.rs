@@ -1,7 +1,9 @@
 //! How a glyph's coverage becomes ink: a table of 16 opacities, one for
 //! each coverage level of a glyph bitmap. A contrast curve makes edges
 //! darker or lighter, finer than widening by whole pixels; a sharp curve
-//! draws each pixel black or white, without grays.
+//! draws each pixel black or white, without grays. A curve of one's own
+//! is made of 16 values and read from and written as text (see
+//! [`ToneCurve::parse_for`] for the grammar of a setting).
 
 /// How the 16 coverage levels of a glyph are drawn: each as an opacity
 /// from 0 to 255. Integers alone, so that chips without floating point
@@ -72,6 +74,25 @@ impl ToneCurve {
     pub fn alpha(&self, level: u8) -> u8 {
         self.alphas[usize::from(level & 0x0f)]
     }
+
+    /// A curve of its own: the opacity, 0 to 255, of coverage levels 0
+    /// to 15. Level 0 is made 0 (no ink where nothing is, or a whole
+    /// band would turn gray); the others need not rise, so a curve may
+    /// thin or fatten edges as it likes.
+    ///
+    /// The 16 values are knots over coverage 0 to 255 (level `k` is
+    /// coverage `17 * k`): a renderer with finer coverage interpolates
+    /// linearly between them, so a curve made today holds for it.
+    pub const fn from_alphas(alphas: [u8; 16]) -> ToneCurve {
+        let mut alphas = alphas;
+        alphas[0] = 0;
+        ToneCurve { alphas }
+    }
+
+    /// The 16 opacities, for coverage levels 0 to 15.
+    pub const fn alphas(&self) -> [u8; 16] {
+        self.alphas
+    }
 }
 
 impl Default for ToneCurve {
@@ -83,6 +104,27 @@ impl Default for ToneCurve {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_curve_of_its_own_keeps_level_0_empty() {
+        let mut alphas = [200; 16];
+        alphas[15] = 255;
+        let tone = ToneCurve::from_alphas(alphas);
+        assert_eq!(tone.alpha(0), 0);
+        assert_eq!((tone.alpha(1), tone.alpha(15)), (200, 255));
+        assert_eq!(
+            ToneCurve::from_alphas(ToneCurve::SMOOTH.alphas()),
+            ToneCurve::SMOOTH
+        );
+        // Curves need not rise.
+        assert_eq!(
+            ToneCurve::from_alphas([
+                0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255
+            ])
+            .alpha(2),
+            0
+        );
+    }
 
     #[test]
     fn smooth_is_coverage_as_it_is() {
