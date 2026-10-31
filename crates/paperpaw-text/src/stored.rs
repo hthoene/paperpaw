@@ -21,6 +21,7 @@ use crate::anchors::{self, Anchors};
 use crate::bitmap::BitmapFont;
 use crate::font::{FontError, LineMetrics};
 use crate::glyph::{self, Glyph, zeroed};
+use paperpaw_platform::MemoryClass;
 
 mod index;
 
@@ -137,9 +138,11 @@ trait Pack {
 /// The revision of [`Pack`] that this code has.
 const PACK_REVISION: u16 = 1;
 
-/// What a pack may take of memory.
-#[derive(Debug, Clone, Copy)]
-struct Budgets {
+/// What a pack read from a source may take of memory: chosen for the
+/// device (its profile's [`MemoryClass`]), not the processor, so that an
+/// emulator of a small device refuses what the device refuses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PackLimits {
     /// The most bytes its index of characters may take (KS X 1001's
     /// Hangul take about 1.75 KiB, GB 2312's or Big5's ideographs about
     /// 3.3 KiB): a pack that would need more is refused
@@ -152,25 +155,39 @@ struct Budgets {
     advances: usize,
 }
 
-impl Budgets {
-    /// Chips without memory beside their own (the ESP32-C3's 256 KiB
-    /// heap).
-    const SMALL: Budgets = Budgets {
+impl PackLimits {
+    /// For devices of a few hundred kilobytes (the Xteink X4's 256 KiB
+    /// heap): an index of 8 KiB, advances of 4 KiB a size.
+    pub const SMALL: PackLimits = PackLimits {
         index: 8 * 1024,
         advances: 4 * 1024,
     };
-    /// Devices with more (PSRAM, phones, computers).
-    const LARGE: Budgets = Budgets {
+    /// For devices of megabytes (PSRAM, phones, computers): 32 KiB and
+    /// 16 KiB.
+    pub const LARGE: PackLimits = PackLimits {
         index: 32 * 1024,
         advances: 16 * 1024,
     };
-    /// This build's.
-    const HERE: Budgets = if cfg!(target_arch = "riscv32") {
-        Budgets::SMALL
-    } else {
-        Budgets::LARGE
-    };
+
+    /// The limits of a device of `memory`.
+    pub const fn for_memory(memory: MemoryClass) -> PackLimits {
+        match memory {
+            MemoryClass::Large => PackLimits::LARGE,
+            _ => PackLimits::SMALL,
+        }
+    }
+
+    /// The most bytes a pack's index of characters may take.
+    pub const fn index_bytes(self) -> usize {
+        self.index
+    }
+
+    /// The most bytes a size's advances may take kept whole.
+    pub const fn advances_bytes(self) -> usize {
+        self.advances
+    }
 }
+
 /// Glyph records read at once for the advances of a strike that has too
 /// many to keep whole (1,280 bytes): small, so that a page of several
 /// scripts (Latin, Greek, Cyrillic and punctuation sit in blocks far
@@ -194,7 +211,7 @@ impl fmt::Debug for StoredPack {
 
 /// A pack as this firmware keeps it in memory: its characters and, for
 /// each size in use, their advances (see [`index`]).
-struct Card {
+struct Paged {
     source: Rc<dyn PackSource>,
     strikes: Vec<Strike>,
     /// The characters it holds (the same in every strike).
@@ -209,7 +226,7 @@ struct Card {
     failed: Cell<u32>,
 }
 
-/// What a [`Card`] keeps of a strike's advances, in 1/16 px.
+/// What a [`Paged`] keeps of a strike's advances, in 1/16 px.
 #[derive(Debug, Default)]
 enum Kept {
     /// Nothing yet.
@@ -264,39 +281,59 @@ fn advance_16(record: &[u8; RECORD]) -> u16 {
     (i32_le(record, 4) / 4).clamp(0, i32::from(u16::MAX)) as u16
 }
 
+/// Why [`read_records`] stopped before the end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Halt {
+    /// The source could not give them.
+    Unread,
+    /// No memory for a block of them.
+    Memory,
+    /// `each` said to stop.
+    Stopped,
+}
+
 /// Reads the `n` glyph records at `at` [`BLOCK`] at a time, handing each
-/// to `each` until it says to stop: `false` if they could not be read
-/// whole, memory ran out or `each` stopped.
+/// to `each` until it says to stop.
 fn read_records(
     source: &dyn PackSource,
     at: u64,
     n: usize,
     mut each: impl FnMut(&[u8; RECORD]) -> bool,
-) -> bool {
-    let Some(mut block) = zeroed(n.min(BLOCK) * RECORD) else {
-        return false;
-    };
+) -> Result<(), Halt> {
+    let mut block = zeroed(n.min(BLOCK) * RECORD).ok_or(Halt::Memory)?;
     let mut done = 0;
     while done < n {
         let count = (n - done).min(BLOCK);
         let bytes = &mut block[..count * RECORD];
         if !source.read_at(at + (done * RECORD) as u64, bytes) {
-            return false;
+            return Err(Halt::Unread);
         }
         if !bytes.as_chunks::<RECORD>().0.iter().all(&mut each) {
-            return false;
+            return Err(Halt::Stopped);
         }
         done += count;
     }
-    true
+    Ok(())
 }
 
 impl StoredPack {
-    paperpaw_table::shared! {
-    /// Reads the pack's header and its characters: the firmware's code,
-    /// so that how it keeps them is the firmware's too.
+    /// Reads the pack's header and its characters, within the limits of
+    /// the smallest devices ([`PackLimits::SMALL`]); see
+    /// [`StoredPack::open_within`].
     pub fn open(source: Rc<dyn PackSource>) -> Result<StoredPack, FontError> {
-        Card::open(source, Budgets::HERE).map(|card| StoredPack(Rc::new(card)))
+        StoredPack::open_within(source, PackLimits::SMALL)
+    }
+
+    paperpaw_table::shared! {
+    /// Reads the pack's header and its characters, within `limits` (the
+    /// device's: [`PackLimits::for_memory`]): the firmware's code, so
+    /// that how it keeps them is the firmware's too.
+    /// [`FontError::OutOfMemory`] may pass: open it again later.
+    pub fn open_within(
+        source: Rc<dyn PackSource>,
+        limits: PackLimits,
+    ) -> Result<StoredPack, FontError> {
+        Paged::open(source, limits).map(|pack| StoredPack(Rc::new(pack)))
     } @ text::STORED_OPEN
     }
 
@@ -377,8 +414,8 @@ impl StoredPack {
     }
 }
 
-impl Card {
-    fn open(source: Rc<dyn PackSource>, budgets: Budgets) -> Result<Card, FontError> {
+impl Paged {
+    fn open(source: Rc<dyn PackSource>, limits: PackLimits) -> Result<Paged, FontError> {
         let mut header = [0u8; HEADER];
         if !source.read_at(0, &mut header) || (&header[..4] != MAGIC && &header[..4] != OLD_MAGIC) {
             return Err(FontError::Invalid);
@@ -390,7 +427,7 @@ impl Card {
         if count == 0 || count > MAX_STRIKES {
             return Err(FontError::Invalid);
         }
-        let mut table = alloc::vec![0u8; count * STRIKE];
+        let mut table = zeroed::<u8>(count * STRIKE).ok_or(FontError::OutOfMemory)?;
         if !source.read_at(HEADER as u64, &mut table) {
             return Err(FontError::Invalid);
         }
@@ -416,7 +453,7 @@ impl Card {
         }
         let n = glyphs.unwrap_or(0);
         // In order, each once, in the index's budget.
-        let mut chars = IndexBuilder::new(budgets.index);
+        let mut chars = IndexBuilder::new(limits.index);
         let mut refused = None;
         let read = read_records(&*source, strikes[0].glyph_table, n, |r| {
             let pushed = match char::from_u32(u32_le(r, 0)) {
@@ -426,13 +463,18 @@ impl Card {
             refused = pushed.err();
             refused.is_none()
         });
-        match refused {
-            Some(Refused::Budget | Refused::Memory) => return Err(FontError::TooLarge),
-            Some(Refused::Order) => return Err(FontError::Invalid),
-            None => {}
+        match (refused, read) {
+            (Some(Refused::Budget), _) => return Err(FontError::TooLarge),
+            (Some(Refused::Memory), _) | (_, Err(Halt::Memory)) => {
+                return Err(FontError::OutOfMemory);
+            }
+            (Some(Refused::Order), _) | (_, Err(Halt::Unread | Halt::Stopped)) => {
+                return Err(FontError::Invalid);
+            }
+            (None, Ok(())) => {}
         }
         let chars = chars.finish();
-        if !read || chars.len() != n {
+        if chars.len() != n {
             return Err(FontError::Invalid);
         }
         let mut tables = [0u32; 8];
@@ -447,20 +489,21 @@ impl Card {
         }
         let mut advances = Vec::new();
         advances.resize_with(strikes.len(), Kept::default);
-        Ok(Card {
+        Ok(Paged {
             source,
             advances: RefCell::new(advances),
             strikes,
             chars,
             tables,
-            advances_budget: budgets.advances,
+            advances_budget: limits.advances,
             failed: Cell::new(0),
         })
     }
 
     /// The advances of `strike` (whose glyph table is at `glyph_table`),
-    /// all of them if they fit its budget, else [`Kept::Blocks`]: `None`
-    /// if they could not be read or memory ran out, to try again.
+    /// all of them if they fit its budget, else [`Kept::Blocks`], also
+    /// where memory ran out (blocks need little; [`Pack::trim`] tries whole
+    /// again): `None` if they could not be read, to try again.
     fn gather(&self, glyph_table: u64) -> Option<Kept> {
         let n = self.chars.len();
         let mut built = AdvancesBuilder::new(n, self.advances_budget);
@@ -469,11 +512,10 @@ impl Card {
             refused = built.push(advance_16(r)).err();
             refused.is_none()
         });
-        match refused {
-            Some(Refused::Memory) => None,
-            Some(_) => Some(Kept::Blocks(Vec::new())),
-            None if !read => None,
-            None => Some(Kept::Whole(built.finish())),
+        match (refused, read) {
+            (Some(_), _) | (_, Err(Halt::Memory)) => Some(Kept::Blocks(Vec::new())),
+            (None, Err(_)) => None,
+            (None, Ok(())) => Some(Kept::Whole(built.finish())),
         }
     }
 
@@ -516,12 +558,11 @@ impl Card {
         let mut advances = Vec::new();
         advances.try_reserve_exact(count).ok()?;
         let at = glyph_table + (first * RECORD) as u64;
-        if !read_records(&*self.source, at, count, |r| {
+        read_records(&*self.source, at, count, |r| {
             advances.push(advance_16(r));
             true
-        }) {
-            return None;
-        }
+        })
+        .ok()?;
         let advance = advances.get(index % ON_DEMAND).copied();
         let kept = self.kept_blocks();
         if blocks.len() >= kept {
@@ -570,7 +611,7 @@ impl Card {
     }
 }
 
-impl Pack for Card {
+impl Pack for Paged {
     fn revision(&self) -> u16 {
         PACK_REVISION
     }
@@ -656,7 +697,7 @@ impl Pack for Card {
             advances.capacity() * size_of::<Kept>()
                 + advances.iter().map(Kept::bytes).sum::<usize>()
         });
-        size_of::<Card>()
+        size_of::<Paged>()
             + self.strikes.capacity() * size_of::<Strike>()
             + self.chars.bytes()
             + advances
@@ -803,7 +844,7 @@ mod tests {
         let mut builder = PackBuilder::new();
         builder.add_strike(10.0, metrics, marks.into_iter().chain(syllables).collect());
         let memory = Rc::new(Memory(builder.build(), Cell::new(0)));
-        let card = Card::open(memory.clone(), Budgets::SMALL).unwrap();
+        let card = Paged::open(memory.clone(), PackLimits::SMALL).unwrap();
         // The header, the strike, 28 blocks of records.
         assert_eq!(memory.1.get(), 2 + 11_175usize.div_ceil(BLOCK));
         let stored = StoredPack(Rc::new(card));
@@ -813,11 +854,11 @@ mod tests {
         assert_eq!(stored.advance('\u{201d}', 10.0), 4.5);
         assert_eq!(stored.render('\u{d7a3}', 10.0).unwrap().width, 1);
         // A block held whole: no bits; the advances as two runs.
-        let card = Card::open(memory, Budgets::SMALL).unwrap();
+        let card = Paged::open(memory, PackLimits::SMALL).unwrap();
         card.advance(0, 5);
         assert_eq!(card.chars.words.len(), 0);
         assert!(
-            matches!(&card.advances.borrow()[0], Kept::Whole(Advances::Runs(r)) if r.len() == 2)
+            matches!(&card.advances.borrow()[0], Kept::Whole(Advances::Runs(r, _)) if r.len() == 2)
         );
         assert!(card.bytes() < 512, "{}", card.bytes());
     }
@@ -840,7 +881,7 @@ mod tests {
     #[test]
     fn reads_advances_in_blocks_past_their_budget() {
         let memory = Rc::new(Memory(proportional(5000), Cell::new(0)));
-        let card = Card::open(memory.clone(), Budgets::SMALL).unwrap();
+        let card = Paged::open(memory.clone(), PackLimits::SMALL).unwrap();
         let at = |i: u32| card.advance(0, i).unwrap();
         // The 4 KiB budget is passed at 2,049: none kept whole.
         assert_eq!(at(4999), 1.0 + 4999.0 / 16.0);
@@ -873,9 +914,9 @@ mod tests {
         assert_eq!(at(0), 1.0);
         assert_eq!(at(5000), 0.0);
         // 2,048 different ones fit whole.
-        let card = Card::open(
+        let card = Paged::open(
             Rc::new(Memory(proportional(2048), Cell::new(0))),
-            Budgets::SMALL,
+            PackLimits::SMALL,
         )
         .unwrap();
         assert_eq!(card.advance(0, 2047), Some(1.0 + 2047.0 / 16.0));
@@ -885,6 +926,31 @@ mod tests {
         ));
         card.trim();
         assert!(matches!(&card.advances.borrow()[0], Kept::None));
+    }
+
+    #[test]
+    fn advances_that_cannot_be_kept_whole_are_read_a_block_at_a_time() {
+        // No room for any whole (as where memory runs out: the same way),
+        // so an advance costs at most one read of 64 records, never the
+        // whole table again.
+        let limits = PackLimits {
+            index: 8 * 1024,
+            advances: 0,
+        };
+        let memory = Rc::new(Memory(proportional(5000), Cell::new(0)));
+        let pack = Paged::open(memory.clone(), limits).unwrap();
+        let opened = memory.1.get();
+        assert_eq!(pack.advance(0, 4000), Some(1.0 + 250.0));
+        // One try to keep them whole (refused at once), one block.
+        assert!(memory.1.get() - opened <= 2, "{}", memory.1.get() - opened);
+        assert!(matches!(&pack.advances.borrow()[0], Kept::Blocks(_)));
+        for i in 0..100 {
+            let reads = memory.1.get();
+            assert_eq!(pack.advance(0, i * 37), Some(1.0 + (i * 37) as f32 / 16.0));
+            assert!(memory.1.get() - reads <= 1);
+        }
+        // Two blocks kept at least.
+        assert_eq!(pack.kept_blocks(), 2);
     }
 
     /// A pack whose source fails once `fail` is set.
@@ -924,15 +990,15 @@ mod tests {
         let mut builder = PackBuilder::new();
         builder.add_strike(10.0, LineMetrics::fallback(10.0), glyphs);
         let memory = Rc::new(Memory(builder.build(), Cell::new(0)));
-        let card = |budgets| Card::open(memory.clone(), budgets).err();
-        assert_eq!(card(Budgets::SMALL), Some(FontError::TooLarge));
-        assert_eq!(card(Budgets::LARGE), None);
+        let card = |limits| Paged::open(memory.clone(), limits).err();
+        assert_eq!(card(PackLimits::SMALL), Some(FontError::TooLarge));
+        assert_eq!(card(PackLimits::LARGE), None);
     }
 
     #[test]
     fn an_advance_not_read_is_counted_and_read_again() {
         let source = Rc::new(Pulled(proportional(5000), Cell::new(false)));
-        let card = Card::open(source.clone(), Budgets::SMALL).unwrap();
+        let card = Paged::open(source.clone(), PackLimits::SMALL).unwrap();
         source.1.set(true);
         assert_eq!(card.advance(0, 10), None);
         assert_eq!(card.failed_reads(), 1);
@@ -950,7 +1016,9 @@ mod tests {
             (Some(0.0), Some(0.0))
         );
         // Through the handle: 0 where it could not be read.
-        let stored = StoredPack(Rc::new(Card::open(source.clone(), Budgets::SMALL).unwrap()));
+        let stored = StoredPack(Rc::new(
+            Paged::open(source.clone(), PackLimits::SMALL).unwrap(),
+        ));
         source.1.set(true);
         assert_eq!(stored.advance('\u{4e0a}', 10.0), 0.0);
         assert!(stored.render('\u{4e0a}', 10.0).is_none());
@@ -962,7 +1030,7 @@ mod tests {
 
     #[test]
     fn every_strike_covers_every_character() {
-        let card = Card::open(Rc::new(Memory(pack(), Cell::new(0))), Budgets::SMALL).unwrap();
+        let card = Paged::open(Rc::new(Memory(pack(), Cell::new(0))), PackLimits::SMALL).unwrap();
         let index = card.index('ж').unwrap();
         assert!(card.covers(0, index) && card.covers(1, index));
         assert!(!card.covers(2, index) && !card.covers(0, 2));

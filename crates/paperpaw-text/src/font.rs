@@ -19,9 +19,12 @@ pub enum FontError {
     UnsupportedVersion,
     /// Scalable fonts need the `outline` feature, which this build lacks.
     OutlinesNotSupported,
-    /// A font pack that would take more memory than a pack may: its
-    /// characters scattered too widely to keep their index small.
+    /// A font pack that would take more memory than a pack may on this
+    /// device: its characters scattered too widely to keep their index
+    /// small.
     TooLarge,
+    /// Not enough free memory to open it now; it may open later.
+    OutOfMemory,
 }
 
 impl fmt::Display for FontError {
@@ -32,6 +35,7 @@ impl fmt::Display for FontError {
             FontError::UnsupportedVersion => "font pack version not supported",
             FontError::OutlinesNotSupported => "this build only supports bitmap font packs (.ppfp)",
             FontError::TooLarge => "font pack too large for this device's memory",
+            FontError::OutOfMemory => "not enough free memory to open the font now",
         })
     }
 }

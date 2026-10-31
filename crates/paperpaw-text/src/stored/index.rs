@@ -243,8 +243,9 @@ pub(super) enum Advances {
     /// One a character.
     Each(Vec<u16>),
     /// Runs of characters of the same advance: where each starts and the
-    /// advance, for packs where that takes less.
-    Runs(Vec<(u16, u16)>),
+    /// advance, for packs where that takes less; and how many characters
+    /// they cover.
+    Runs(Vec<(u16, u16)>, usize),
 }
 
 impl Advances {
@@ -252,14 +253,16 @@ impl Advances {
     pub(super) fn bytes(&self) -> usize {
         match self {
             Advances::Each(each) => each.capacity() * size_of::<u16>(),
-            Advances::Runs(runs) => runs.capacity() * size_of::<(u16, u16)>(),
+            Advances::Runs(runs, _) => runs.capacity() * size_of::<(u16, u16)>(),
         }
     }
 
+    /// The advance at `index`, if there is a character there.
     pub(super) fn get(&self, index: usize) -> Option<u16> {
         match self {
             Advances::Each(each) => each.get(index).copied(),
-            Advances::Runs(runs) => {
+            Advances::Runs(_, len) if index >= *len => None,
+            Advances::Runs(runs, _) => {
                 let at = runs
                     .partition_point(|&(start, _)| usize::from(start) <= index)
                     .checked_sub(1)?;
@@ -283,7 +286,7 @@ impl AdvancesBuilder {
     /// bytes.
     pub(super) fn new(len: usize, budget: usize) -> Self {
         Self {
-            advances: Advances::Runs(Vec::new()),
+            advances: Advances::Runs(Vec::new(), len),
             len,
             added: 0,
             budget,
@@ -295,7 +298,7 @@ impl AdvancesBuilder {
         let index = self.added;
         self.added += 1;
         match &mut self.advances {
-            Advances::Runs(runs) => {
+            Advances::Runs(runs, _) => {
                 if runs.last().is_some_and(|&(_, a)| a == advance) {
                     return Ok(());
                 }
@@ -343,9 +346,9 @@ impl AdvancesBuilder {
 
     pub(super) fn finish(self) -> Advances {
         match self.advances {
-            Advances::Runs(mut runs) => {
+            Advances::Runs(mut runs, len) => {
                 runs.shrink_to_fit();
-                Advances::Runs(runs)
+                Advances::Runs(runs, len)
             }
             each => each,
         }
@@ -465,7 +468,9 @@ mod tests {
     fn same_advances_are_kept_as_runs() {
         let mut values = alloc::vec![160u16; 11_172];
         values.extend([40, 50, 50, 60]);
-        assert!(matches!(advances(&values), Advances::Runs(r) if r.len() == 4));
+        let runs = advances(&values);
+        assert!(matches!(&runs, Advances::Runs(r, _) if r.len() == 4));
+        assert_eq!(runs.get(values.len()), None);
         // All different: one a character.
         let values: Vec<u16> = (0..300).collect();
         assert!(matches!(advances(&values), Advances::Each(e) if e.len() == 300));

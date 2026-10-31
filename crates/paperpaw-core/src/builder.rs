@@ -538,7 +538,8 @@ impl BuilderParts {
                 device: self.device,
                 settings: Settings::new(),
                 translator,
-                fonts: Fonts::new(self.glyph_cache),
+                fonts: Fonts::new(self.glyph_cache)
+                    .with_pack_limits(paperpaw_sdk::PackLimits::for_memory(self.device.memory)),
                 formats: Formats::new(),
                 hyphenation: Hyphenation::new(),
                 menus: Menus::new(),

@@ -107,8 +107,9 @@ with that before the betas of 0.5:
   2. an object runs the code of the side that made it, and does not
      outlive that code (plugins are unloaded only by a restart);
   3. its table of functions is the pinned compiler's;
-  4. the trait has no supertraits, generic items or items returning
-     `Self`, so its table's order is its items' order;
+  4. the trait has no supertraits, items generic over types or
+     constants (lifetimes are fine) or items returning `Self`, so its
+     table's order is its items' order;
   5. items are only appended, each with a higher `revision()`, the
      trait's first item, which code checks before it calls a newer one.
      The gate lets such a trait (its `GROWING`) gain items at its end and

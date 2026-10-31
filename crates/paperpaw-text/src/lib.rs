@@ -64,7 +64,7 @@ pub use bitmap::{BitmapFont, PackBuilder};
 pub use cache::GlyphCache;
 pub use curve::ToneCurve;
 pub use font::{Font, FontError, LineMetrics};
-pub use stored::{PackSource, StoredPack};
+pub use stored::{PackLimits, PackSource, StoredPack};
 
 /// Whether this build renders scalable (OpenType/TrueType) fonts.
 pub const OUTLINES: bool = cfg!(feature = "outline");

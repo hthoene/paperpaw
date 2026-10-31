@@ -85,9 +85,13 @@ change the plugin SDK.
   65,535 characters (all 11,172 Hangul syllables, #61), in far less
   memory: a block held whole takes some bytes, advances that are the same
   are kept as runs, and records are read 8,000 bytes at a time. A pack's
-  index of characters takes at most 8 KiB on the ESP32-C3, 32 KiB
-  elsewhere (else `FontError::TooLarge`), a size's advances at most 4 KiB
-  or 16 KiB kept whole (else read when needed).
+  index of characters takes at most 8 KiB on devices of a few hundred
+  kilobytes, 32 KiB on larger ones (`PackLimits`, from the device's
+  profile, so the emulator of the X4 refuses what the X4 refuses; else
+  `FontError::TooLarge`), a size's advances at most 4 KiB or 16 KiB kept
+  whole (else read when needed); `StoredPack::open_within` takes them,
+  `open` the small ones. `FontError::OutOfMemory`: a pack that may open
+  later.
   `StoredPack::render` returns `None` for a glyph it could not read now (a
   card pulled), which the cache does not keep; an advance that could not
   be read is 0 and counted (`StoredPack::failed_reads`, over the loaded

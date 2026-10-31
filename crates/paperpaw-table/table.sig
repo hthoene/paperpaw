@@ -39,6 +39,6 @@ text 1 HANDLE_DRAW_BOLDER: fn draw_bolder( &self, canvas: &mut Canvas<'_>, size:
 text 1 HANDLE_DRAW_TONED: fn draw_toned( &self, canvas: &mut Canvas<'_>, size: f32, x: f32, baseline: i32, text: &str, color: Color, extra: u16, tone: paperpaw_text::ToneCurve, ) -> f32
 text 1 TEXT_MEASURE_IN: fn measure_in(font: &Font, size: f32, text: &str, around: &Around) -> f32
 text 1 TEXT_DRAW_TEXT_IN: fn draw_text_in( canvas: &mut Canvas<'_>, cache: &mut GlyphCache, style: &TextStyle<'_>, x: f32, baseline: i32, text: &str, around: &Around, ) -> f32
-text 1 STORED_OPEN: fn open(source: Rc<dyn PackSource>) -> Result<StoredPack, FontError>
+text 1 STORED_OPEN: fn open_within( source: Rc<dyn PackSource>, limits: PackLimits, ) -> Result<StoredPack, FontError>
 text 1 CACHE_NEW: fn new(capacity: usize) -> GlyphCache
 text 1 FONTS_FAILED_READS: fn failed_reads(&self) -> u32

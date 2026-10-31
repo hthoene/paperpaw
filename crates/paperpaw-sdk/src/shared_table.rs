@@ -41,7 +41,7 @@ pub(super) static TEXT: super::Addresses<42> = super::Addresses([
     crate::fonts::FontHandle::draw_toned as *const (), // HANDLE_DRAW_TONED
     paperpaw_text::measure_in as *const (), // TEXT_MEASURE_IN
     paperpaw_text::draw_text_in as *const (), // TEXT_DRAW_TEXT_IN
-    paperpaw_text::StoredPack::open as *const (), // STORED_OPEN
+    paperpaw_text::StoredPack::open_within as *const (), // STORED_OPEN
     paperpaw_text::GlyphCache::new as *const (), // CACHE_NEW
     crate::fonts::Fonts::failed_reads as *const (), // FONTS_FAILED_READS
 ]);

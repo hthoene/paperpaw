@@ -48,6 +48,6 @@ text 1 HANDLE_DRAW_BOLDER crate::fonts::FontHandle::draw_bolder
 text 1 HANDLE_DRAW_TONED crate::fonts::FontHandle::draw_toned
 text 1 TEXT_MEASURE_IN paperpaw_text::measure_in
 text 1 TEXT_DRAW_TEXT_IN paperpaw_text::draw_text_in
-text 1 STORED_OPEN paperpaw_text::StoredPack::open
+text 1 STORED_OPEN paperpaw_text::StoredPack::open_within
 text 1 CACHE_NEW paperpaw_text::GlyphCache::new
 text 1 FONTS_FAILED_READS crate::fonts::Fonts::failed_reads

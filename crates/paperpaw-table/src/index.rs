@@ -5,7 +5,7 @@ pub const REVISIONS: crate::Revisions = [1, 0, 0, 0, 0, 0, 0, 0];
 /// The oldest revision of each family whose plugins still run.
 pub const OLDEST: crate::Revisions = [1, 0, 0, 0, 0, 0, 0, 0];
 /// Eight hex digits naming the tables of this build, for logs.
-pub const HASH: &str = "cb708ef1";
+pub const HASH: &str = "c485baa2";
 
 /// The text family's table.
 pub mod text {
@@ -89,7 +89,7 @@ pub mod text {
     pub const TEXT_MEASURE_IN: usize = 37;
     /// `paperpaw_text::draw_text_in` (revision 1).
     pub const TEXT_DRAW_TEXT_IN: usize = 38;
-    /// `paperpaw_text::StoredPack::open` (revision 1).
+    /// `paperpaw_text::StoredPack::open_within` (revision 1).
     pub const STORED_OPEN: usize = 39;
     /// `paperpaw_text::GlyphCache::new` (revision 1).
     pub const CACHE_NEW: usize = 40;

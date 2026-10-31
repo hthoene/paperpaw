@@ -9,7 +9,9 @@ use core::ops::Range;
 use paperpaw_graphics::Canvas;
 use paperpaw_platform::{Color, Storage};
 use paperpaw_text::sfnt::FontInfo;
-use paperpaw_text::{Font, GlyphCache, LineMetrics, PackSource, StoredPack};
+use paperpaw_text::{Font, GlyphCache, LineMetrics, PackLimits, StoredPack};
+
+use storage::{Stored, read_font};
 
 use crate::builtin::fonts as roles;
 use crate::collections::VecMap;
@@ -171,6 +173,9 @@ pub struct Fonts {
     /// Only described, not drawn (see [`Fonts::set_describing`]): no
     /// glyph is made.
     describing: core::cell::Cell<bool>,
+    /// What a font pack read from the storage may take of memory: the
+    /// device's ([`Fonts::with_pack_limits`]).
+    pack_limits: PackLimits,
 }
 
 impl Fonts {
@@ -208,7 +213,22 @@ impl Fonts {
             status: None,
             cache: RefCell::new(GlyphCache::new(cache_bytes)),
             describing: core::cell::Cell::new(false),
+            pack_limits: PackLimits::SMALL,
         }
+    }
+
+    /// The same, opening font packs from the storage within `limits`
+    /// (the device's, [`PackLimits::for_memory`]; the smallest devices'
+    /// by default). The kernel sets them from the device's profile.
+    #[must_use]
+    pub fn with_pack_limits(mut self, limits: PackLimits) -> Self {
+        self.pack_limits = limits;
+        self
+    }
+
+    /// What a font pack read from the storage may take of memory.
+    pub fn pack_limits(&self) -> PackLimits {
+        self.pack_limits
     }
 
     /// Lets the glyphs drawn at runtime go, to make room; they are drawn
@@ -472,7 +492,7 @@ impl Fonts {
                         storage: storage.clone(),
                         path: path.clone(),
                     });
-                    match StoredPack::open(source) {
+                    match StoredPack::open_within(source, self.pack_limits) {
                         Ok(pack) => entry.font = Some(Font::Stored(pack)),
                         Err(_) => failed.push(path.clone()),
                     }
@@ -491,7 +511,9 @@ impl Fonts {
                     storage: storage.clone(),
                     path: path.clone(),
                 });
-                StoredPack::open(source).ok().map(Font::Stored)
+                StoredPack::open_within(source, self.pack_limits)
+                    .ok()
+                    .map(Font::Stored)
             } else {
                 // A variable font at its style's weight.
                 let weight = entry.face.then(|| f32::from(entry.weight));
@@ -685,49 +707,6 @@ impl Fonts {
         self.entries
             .iter()
             .position(|e| e.id.as_str() == id && e.font.is_some())
-    }
-}
-
-/// A pack on the storage, read where it is.
-struct Stored {
-    storage: Rc<dyn Storage>,
-    path: String,
-}
-
-impl PackSource for Stored {
-    fn read_at(&self, at: u64, buf: &mut [u8]) -> bool {
-        let mut done = 0;
-        while done < buf.len() {
-            match self
-                .storage
-                .read_at(&self.path, at + done as u64, &mut buf[done..])
-            {
-                Ok(0) | Err(_) => return false,
-                Ok(n) => done += n,
-            }
-        }
-        true
-    }
-}
-
-/// Reads a font file into memory.
-fn read_font(storage: &dyn Storage, path: &str, weight: Option<f32>) -> Option<Font> {
-    let size = storage.size(path).ok()?;
-    if size > MAX_FONT_FILE {
-        return None;
-    }
-    let mut data = alloc::vec![0u8; size as usize];
-    let mut at = 0;
-    while at < data.len() {
-        let n = storage.read_at(path, at as u64, &mut data[at..]).ok()?;
-        if n == 0 {
-            return None;
-        }
-        at += n;
-    }
-    match weight {
-        Some(weight) => Font::from_data(data, &[("wght", weight)]).ok(),
-        None => Font::from_data(data, &[]).ok(),
     }
 }
 
@@ -1479,6 +1458,7 @@ fn plain_in(text: &str, around: &paperpaw_text::Around) -> bool {
 }
 
 mod split;
+mod storage;
 
 #[cfg(test)]
 mod tests;

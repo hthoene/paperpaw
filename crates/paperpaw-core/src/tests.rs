@@ -3260,6 +3260,7 @@ mod chrome;
 mod clean_up;
 mod declared_work;
 mod developer;
+mod font_packs;
 mod frames;
 mod guard;
 mod hosting;
