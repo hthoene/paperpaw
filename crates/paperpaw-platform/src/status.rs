@@ -10,12 +10,43 @@ use crate::input::Instant;
 pub struct SystemStatus {
     pub clock: Option<WallClock>,
     pub battery: Option<Battery>,
+    /// More of what the shell measures, by name (`temperature-c`,
+    /// `frontlight-percent`): values a later build adds without a new
+    /// plugin interface. Unused places have an empty name.
+    values: [(&'static str, i64); VALUES],
 }
+
+/// How many named values a [`SystemStatus`] holds.
+const VALUES: usize = 4;
 
 impl SystemStatus {
     /// Made of all its fields; the `with_` methods change one.
     pub const fn new(clock: Option<WallClock>, battery: Option<Battery>) -> Self {
-        Self { clock, battery }
+        Self {
+            clock,
+            battery,
+            values: [("", 0); VALUES],
+        }
+    }
+
+    /// The value named `name`, if the shell gave it.
+    pub fn value(&self, name: &str) -> Option<i64> {
+        self.values
+            .iter()
+            .find(|(n, _)| !n.is_empty() && *n == name)
+            .map(|(_, v)| *v)
+    }
+
+    /// With the value `name` (in place of one of that name, else in a free
+    /// place; left out where none is free).
+    #[must_use]
+    pub fn with_value(mut self, name: &'static str, value: i64) -> Self {
+        let place = self.values.iter().position(|(n, _)| *n == name);
+        let place = place.or_else(|| self.values.iter().position(|(n, _)| n.is_empty()));
+        if let (false, Some(slot)) = (name.is_empty(), place.and_then(|i| self.values.get_mut(i))) {
+            *slot = (name, value);
+        }
+        self
     }
 
     #[must_use]
@@ -118,5 +149,26 @@ impl Battery {
     pub const fn with_millivolts(mut self, millivolts: Option<u16>) -> Self {
         self.millivolts = millivolts;
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn values_by_name_in_four_places() {
+        let status = SystemStatus::default()
+            .with_value("temperature-c", 21)
+            .with_value("frontlight-percent", 40)
+            .with_value("temperature-c", 22);
+        assert_eq!(status.value("temperature-c"), Some(22));
+        assert_eq!(status.value("frontlight-percent"), Some(40));
+        assert_eq!(status.value(""), None);
+        let full = status
+            .with_value("a", 1)
+            .with_value("b", 2)
+            .with_value("c", 3);
+        assert_eq!((full.value("b"), full.value("c")), (Some(2), None));
     }
 }

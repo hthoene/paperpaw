@@ -90,12 +90,17 @@ change the plugin SDK.
   event parameters (`other-7`).
 - Plugin interface 5: kinds have an open value. `Other(&'static str)` (a
   name; a later build's values are constants of it) in `GestureKind`,
-  `MenuPlace`, `MenuNeed`, `library::catalog::Sort` and `Show`,
+  `MenuPlace`, `library::catalog::Sort` and `Show`,
   `ActionHint`, `screen::Hint`, `canvas::Role`, `decorations::Tone` and
   `LineKind`; `Extended` in `SettingKind` (key and static parameters) and
   `StatusValue` (key and `Params`). A build that doesn't know a value
-  falls back: the default sort and filter, a gray tone, a solid line, a
-  need not met, a setting's value kept as text, a status value left out.
+  falls back: the default sort and filter, a gray tone, a solid line,
+  a setting's value kept as text, a status value left out.
+- Plugin interface 5: `MenuNeed::Has(Capability)`: a menu entry can need
+  any capability, also one a later build adds (not met where unknown).
+  `SystemStatus` holds four named values (`value`, `with_value`:
+  `temperature-c`, `frontlight-percent`) a later shell can fill without a
+  new interface.
 
 ### Added
 
