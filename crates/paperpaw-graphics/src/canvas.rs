@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 
 use paperpaw_platform::{Color, Point, Rect};
 
-use crate::blit::{Bitmap, Blit};
+use crate::blit::{Bitmap, Blit, Dither};
 use crate::framebuffer::Framebuffer;
 use crate::round::{self, corner_inset};
 
@@ -387,6 +387,52 @@ impl<'a> Canvas<'a> {
     pub fn fill(&mut self, area: Rect, color: Color) {
         let (x, y, width, height) = signed(area);
         self.fill_rect(x, y, width, height, color);
+    }
+
+    /// The colour drawn at `point` (in this canvas's coordinates), to
+    /// composite what this screen drew in this band; `None` outside the
+    /// clip region and the band, and on a canvas that keeps no pixels
+    /// ([`Canvas::is_blind`]) or only describes. In night mode it is the
+    /// colour before the swap of black and white.
+    ///
+    /// **Read-back is for compositing pixels you drew in this band, never
+    /// for decisions:** a screen is drawn again for each band and a point in
+    /// another band is `None`, so a drawing that reads back to decide what
+    /// to draw shows seams at the bands' edges.
+    pub fn pixel(&self, point: Point) -> Option<Color> {
+        if self.described.is_some() {
+            return None;
+        }
+        let x = i64::from(point.x) + i64::from(self.origin.0);
+        let y = i64::from(point.y) + i64::from(self.origin.1);
+        let inside = x >= i64::from(self.clip.x)
+            && y >= i64::from(self.clip.y)
+            && x < i64::from(self.clip.right())
+            && y < i64::from(self.clip.bottom());
+        if !inside {
+            return None;
+        }
+        self.framebuffer
+            .read_pixel(u16::try_from(x).ok()?, u16::try_from(y).ok()?)
+    }
+
+    /// The gray, 0 (black) to 255 (white), drawn at `point`: see
+    /// [`Canvas::pixel`], whose rules it has.
+    pub fn gray_at(&self, point: Point) -> Option<u8> {
+        self.pixel(point).map(Color::luma)
+    }
+
+    /// Fills `area` with the gray `gray`, as a gray between the frame's
+    /// levels: [`Dither::ORDERED`] as pictures are (a pattern of the levels
+    /// around it; a frame with many grays gets the gray), [`Dither::NONE`]
+    /// the nearest level. A dither this release does not know is
+    /// [`Dither::ORDERED`].
+    pub fn fill_dithered(&mut self, area: Rect, gray: u8, dither: Dither) {
+        if dither == Dither::NONE {
+            self.fill(area, Color::gray(gray));
+        } else {
+            self.fill_shaded(area, Color::gray(gray));
+        }
     }
 
     /// Fills `area` with `color` as a tint, e.g. a light line between

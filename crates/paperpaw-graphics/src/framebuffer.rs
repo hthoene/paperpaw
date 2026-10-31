@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use paperpaw_platform::{Color, FrameView, PixelFormat, Rect};
+use paperpaw_platform::{Color, FrameView, PixelFormat, Point, Rect};
 
 use crate::GraphicsError;
 use crate::canvas::Canvas;
@@ -771,6 +771,24 @@ impl Framebuffer {
                 self.data[row + x * 3..row + x * 3 + 3].copy_from_slice(&bytes);
             }
         }
+    }
+
+    /// The colour at `(x, y)` (screen coordinates) as it was drawn, if the
+    /// pixel is held: inside the band and not blind. In night mode (the
+    /// frame is inverted) it is the colour before the swap.
+    pub(crate) fn read_pixel(&self, x: u16, y: u16) -> Option<Color> {
+        if self.blind
+            || x >= self.width
+            || !self.band().contains(Point::new(i32::from(x), i32::from(y)))
+        {
+            return None;
+        }
+        let color = self.view_rows(Rect::new(0, y, self.width, 1)).pixel(x, 0);
+        Some(if self.inverted {
+            color.inverted()
+        } else {
+            color
+        })
     }
 
     /// Converts a colour to the stored pixel value (nearest level).

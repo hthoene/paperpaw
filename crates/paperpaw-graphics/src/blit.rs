@@ -197,6 +197,12 @@ impl<'a> Bitmap<'a> {
 /// How the grays of a [`Bitmap`] become those of the frame where it has
 /// fewer. Kinds are constants of one type, so more can come without a
 /// new plugin interface.
+///
+/// The numbers are stored (a text's ink keeps one), so this type stays a
+/// byte. Reserved, so looks do not clash, and not made yet: 2 blue noise,
+/// 3 Atkinson (error diffusion over bands is the picture code's own and a
+/// render hook's carry does it for hooks), 4 halftone. A number this
+/// release does not know draws as [`Dither::ORDERED`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Dither(u8);
 
@@ -206,6 +212,19 @@ impl Dither {
     pub const ORDERED: Self = Self(0);
     /// The nearest level: sharp edges, flat areas.
     pub const NONE: Self = Self(1);
+}
+
+impl Dither {
+    /// The dither's number: 0 ordered, 1 none; 2 to 4 are reserved (see
+    /// the type).
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+
+    /// The dither of a number.
+    pub const fn from_value(value: u8) -> Self {
+        Self(value)
+    }
 }
 
 impl Default for Dither {
