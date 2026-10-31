@@ -1,11 +1,11 @@
 //! Every character of every translation is one the font packs carry
-//! (`charset::LATIN`): on devices that draw from packs (the X4) any other
+//! (`charset::named("latin")`): on devices that draw from packs (the X4) any other
 //! shows as a question mark.
 
 use std::fs;
 use std::path::Path;
 
-use paperpaw_text::charset::LATIN;
+use paperpaw_text::charset;
 
 #[test]
 fn translations_use_only_packed_characters() {
@@ -30,7 +30,11 @@ fn translations_use_only_packed_characters() {
                         continue;
                     }
                     for c in line.chars() {
-                        if !LATIN.iter().any(|range| range.contains(&c)) {
+                        if !charset::named("latin")
+                            .unwrap()
+                            .iter()
+                            .any(|range| range.contains(&c))
+                        {
                             missing.push(format!("{}:{}: {c:?}", path.display(), n + 1));
                         }
                     }

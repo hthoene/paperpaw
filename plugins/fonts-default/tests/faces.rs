@@ -21,7 +21,7 @@ use paperpaw_plugin_fonts_default::{
 use paperpaw_sdk::Font;
 use paperpaw_sdk::builtin::fonts;
 use paperpaw_sdk::{Contribution, FontSpec, Id, Plugin, Registrar, icons};
-use paperpaw_text::charset::{LATIN, chars};
+use paperpaw_text::charset::{chars, named};
 
 fn registered() -> Vec<Contribution> {
     let mut registrar = Registrar::new(PLUGIN);
@@ -96,12 +96,12 @@ const TEXT_FACES: [&Id; 5] = [
 fn missing_latin(contributions: &[Contribution], id: &Id) -> String {
     let face = &font(contributions, id).font;
     // Drawn as itself or as a stand-in of nearly the same look.
-    chars(LATIN)
+    chars(named("latin").unwrap())
         .filter(|&c| !face.has_char(face.shown(c)))
         .collect()
 }
 
-/// Packs are made of `charset::LATIN`: every character of it is drawn
+/// Packs are made of the `latin` set: every character of it is drawn
 /// by every text face, as itself or, where the face lacks it, as a
 /// stand-in of nearly the same look (`charset::stand_in`): Literata has
 /// no non-breaking hyphen (U+2011, common in EPUBs), long s (U+017F, in
@@ -291,7 +291,7 @@ fn packs_hold_the_latin_set_at_every_size() {
             // replacement character on purpose); others as themselves or
             // their stand-ins.
             let question = pack.glyph('?', size);
-            let missing: String = chars(LATIN)
+            let missing: String = chars(named("latin").unwrap())
                 .filter(|&c| face.shown(c) != '?')
                 .filter(|&c| pack.glyph(face.shown(c), size) == question)
                 .collect();

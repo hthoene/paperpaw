@@ -11,7 +11,7 @@
 
 use std::rc::Rc;
 
-use paperpaw_text::charset::{self, LATIN};
+use paperpaw_text::charset;
 use paperpaw_text::{
     BitmapFont, Font, LineMetrics, OutlineFont, PackBuilder, PackSource, StoredPack, build_pack,
     measure,
@@ -33,7 +33,7 @@ fn pair(pairs: &[(char, char, f32)], left: char, right: char) -> Option<f32> {
 
 #[test]
 fn well_known_pairs_come_out_closer() {
-    let latin: Vec<char> = charset::chars(LATIN).collect();
+    let latin: Vec<char> = charset::chars(charset::named("latin").unwrap()).collect();
     for (data, weight) in [
         (LITERATA, 400.0),
         (LITERATA, 700.0),

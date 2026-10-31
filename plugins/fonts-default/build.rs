@@ -78,8 +78,9 @@ fn main() {
             .unwrap_or_else(|e| panic!("{path}: {e}"));
         // Latin, and the ligatures where the font has them.
         let charset = paperpaw_text::charset::chars;
-        let ligatures = charset(paperpaw_text::charset::LIGATURES).filter(|ch| font.has_char(*ch));
-        let chars = charset(paperpaw_text::charset::LATIN).chain(ligatures);
+        let ligatures = charset(paperpaw_text::charset::named("ligatures").unwrap_or(&[]))
+            .filter(|ch| font.has_char(*ch));
+        let chars = charset(paperpaw_text::charset::named("latin").unwrap_or(&[])).chain(ligatures);
         let reading: Vec<f32> = sizes
             .iter()
             .copied()

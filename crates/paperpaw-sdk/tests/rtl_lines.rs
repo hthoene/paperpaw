@@ -262,7 +262,7 @@ fn literata() -> Font {
     ))
     .unwrap();
     let outline = paperpaw_text::OutlineFont::new(data, &[]).unwrap();
-    let chars = paperpaw_text::charset::chars(paperpaw_text::charset::LATIN);
+    let chars = paperpaw_text::charset::chars(paperpaw_text::charset::named("latin").unwrap());
     let pack = paperpaw_text::build_pack(&outline, &[15.0, 20.0], chars);
     Font::from_data(pack, &[]).unwrap()
 }

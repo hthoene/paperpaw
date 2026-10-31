@@ -16,8 +16,9 @@ OPTIONS:
     --sizes <px,...>      Pixel sizes to render (default: 20,24,28,32,36,40,48)
     --axis <tag=value>    Set a variation axis, e.g. --axis wght=700 (repeatable)
     --chars <set,...>     Character sets: latin and ligatures (default),
-                          cyrillic, greek, arabic, hebrew, or code points: U+EA01,
-                          U+EA01-EA0F (e.g. icons)
+                          cyrillic, greek, arabic, hebrew, hangul, cjk-symbols,
+                          code points: U+EA01, U+EA01-EA0F (e.g. icons), or
+                          @FILE: code points listed in a file (e.g. sets/*.txt)
     -h, --help            Show this help
 ";
 
@@ -86,6 +87,8 @@ fn run(args: Vec<String>) -> Result<(), String> {
             ranges.extend_from_slice(named);
         } else if let Some(points) = paperpaw_text::charset::code_points(set) {
             ranges.push(points);
+        } else if let Some(path) = set.strip_prefix('@') {
+            ranges.extend(listed(path)?);
         } else {
             return Err(format!("unknown character set `{set}`"));
         }
@@ -99,4 +102,21 @@ fn run(args: Vec<String>) -> Result<(), String> {
         pack.len() as f64 / 1024.0
     );
     Ok(())
+}
+
+/// The code points a file lists (`U+AC00` or `U+AC00-AC01`, separated by
+/// spaces, commas or lines; `#` starts a comment): sets as data, without
+/// a new version of the tool.
+fn listed(path: &str) -> Result<Vec<std::ops::RangeInclusive<char>>, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    let mut ranges = Vec::new();
+    for (number, line) in text.lines().enumerate() {
+        let line = line.split('#').next().unwrap_or("");
+        for item in line.split([' ', ',', '\t']).filter(|item| !item.is_empty()) {
+            let range = paperpaw_text::charset::code_points(item)
+                .ok_or_else(|| format!("{path}:{}: not a code point: `{item}`", number + 1))?;
+            ranges.push(range);
+        }
+    }
+    Ok(ranges)
 }

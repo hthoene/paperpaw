@@ -14,7 +14,7 @@ use std::rc::Rc;
 
 use paperpaw_graphics::Framebuffer;
 use paperpaw_platform::{Color, PixelFormat};
-use paperpaw_text::charset::{self, LATIN};
+use paperpaw_text::charset;
 use paperpaw_text::{
     BitmapFont, Font, FontError, GlyphCache, PackSource, StoredPack, TextStyle, draw_text, glyph_x,
     is_mark, measure,
@@ -239,12 +239,18 @@ fn font_files_need_outlines_where_they_are_drawn() {
 
 #[test]
 fn character_sets_by_name_and_code_point() {
-    assert_eq!(charset::named("latin"), Some(LATIN));
+    assert!(charset::named("latin").is_some_and(|set| set.iter().any(|r| r.contains(&'ſ'))));
     assert!(charset::named("cyrillic").is_some_and(|set| set.iter().any(|r| r.contains(&'Ж'))));
     assert!(charset::named("greek").is_some_and(|set| set.iter().any(|r| r.contains(&'λ'))));
+    // The apostrophe of Greek elisions (#60), and all of Hangul (#61).
+    assert!(charset::named("greek").is_some_and(|set| set.iter().any(|r| r.contains(&'\u{2bc}'))));
+    assert_eq!(
+        charset::named("hangul").map(|set| charset::chars(set).count()),
+        Some(11_172)
+    );
     assert_eq!(charset::named("Latin"), None);
     assert_eq!(charset::named(""), None);
-    let latin: Vec<char> = charset::chars(LATIN).collect();
+    let latin: Vec<char> = charset::chars(charset::named("latin").unwrap()).collect();
     for c in ['a', 'Z', 'ä', 'ß', 'ő', '€', '\u{2011}', '\u{fffd}'] {
         assert!(latin.contains(&c), "{c:?}");
     }

@@ -1,10 +1,12 @@
-//! Character sets for bitmap font packs.
+//! Character sets for bitmap font packs, by name ([`named`]), for the
+//! tools that make packs: what a pack holds is in the pack, so the sets
+//! are not part of the plugin interface and grow without changing it.
 
 use core::ops::RangeInclusive;
 
 /// Latin script for Western, Central and Northern European languages,
 /// plus common typographic punctuation.
-pub const LATIN: &[RangeInclusive<char>] = &[
+const LATIN: &[RangeInclusive<char>] = &[
     ' '..='~',
     '\u{a0}'..='\u{17f}',    // Latin-1 Supplement, Latin Extended-A
     '\u{2010}'..='\u{2027}', // dashes, quotes, bullets, ellipsis
@@ -21,7 +23,7 @@ pub const LATIN: &[RangeInclusive<char>] = &[
     clippy::single_range_in_vec_init,
     reason = "a set of ranges, of one here"
 )]
-pub const LIGATURES: &[RangeInclusive<char>] = &['\u{fb00}'..='\u{fb04}'];
+const LIGATURES: &[RangeInclusive<char>] = &['\u{fb00}'..='\u{fb04}'];
 
 /// Cyrillic (Russian, Ukrainian, Bulgarian, Serbian and more), for packs
 /// added to fonts made for Latin.
@@ -29,17 +31,40 @@ pub const LIGATURES: &[RangeInclusive<char>] = &['\u{fb00}'..='\u{fb04}'];
     clippy::single_range_in_vec_init,
     reason = "a set of ranges, of one here"
 )]
-pub const CYRILLIC: &[RangeInclusive<char>] = &['\u{400}'..='\u{4ff}'];
+const CYRILLIC: &[RangeInclusive<char>] = &['\u{400}'..='\u{4ff}'];
 
-/// Greek, modern and polytonic (Greek Extended, for older texts).
-pub const GREEK: &[RangeInclusive<char>] = &['\u{370}'..='\u{3ff}', '\u{1f00}'..='\u{1fff}'];
+/// Greek, modern and polytonic (Greek Extended, for older texts), and the
+/// modifier letter apostrophe of elisions (`καθʼ`, #60).
+const GREEK: &[RangeInclusive<char>] = &[
+    '\u{2bc}'..='\u{2bc}',
+    '\u{370}'..='\u{3ff}',
+    '\u{1f00}'..='\u{1fff}',
+];
+
+/// Hangul: all 11,172 syllables of modern Korean (#61). The 2,350 of KS X
+/// 1001 that most fonts and books keep to are a list of their own, for
+/// smaller packs (`tools/fontgen/sets/hangul-ks.txt`).
+#[allow(
+    clippy::single_range_in_vec_init,
+    reason = "a set of ranges, of one here"
+)]
+const HANGUL: &[RangeInclusive<char>] = &['\u{ac00}'..='\u{d7a3}'];
+
+/// What Korean, Chinese and Japanese text sets around its letters: CJK
+/// punctuation and symbols, Hangul's compatibility letters (jamo written
+/// alone) and the full-width forms of ASCII.
+const CJK_SYMBOLS: &[RangeInclusive<char>] = &[
+    '\u{3000}'..='\u{303f}',
+    '\u{3131}'..='\u{318e}',
+    '\u{ff01}'..='\u{ff5e}',
+];
 
 /// Arabic (also Persian, Urdu and other languages written in it, #33):
 /// its letters, marks and digits, the supplement, and the presentation
 /// forms the joined letters are drawn as (Forms-B, and of Forms-A those
 /// of Persian and Urdu letters and the ligature of Allah: the other
 /// ligatures of Forms-A would triple a pack and are not drawn).
-pub const ARABIC: &[RangeInclusive<char>] = &[
+const ARABIC: &[RangeInclusive<char>] = &[
     '\u{600}'..='\u{6ff}',
     '\u{750}'..='\u{77f}',
     '\u{fb50}'..='\u{fbff}',
@@ -49,7 +74,7 @@ pub const ARABIC: &[RangeInclusive<char>] = &[
 
 /// Hebrew: its letters, points (niqqud) and cantillation marks, and the
 /// presentation forms (letters with points, wide letters).
-pub const HEBREW: &[RangeInclusive<char>] = &['\u{590}'..='\u{5ff}', '\u{fb1d}'..='\u{fb4f}'];
+const HEBREW: &[RangeInclusive<char>] = &['\u{590}'..='\u{5ff}', '\u{fb1d}'..='\u{fb4f}'];
 
 paperpaw_table::shared! {
 /// A character of nearly the same look, for `ch` where a font lacks it,
@@ -81,7 +106,7 @@ pub fn stand_in(ch: char) -> Option<char> {
 }
 
 /// A character set by name: `latin`, `ligatures`, `cyrillic`, `greek`,
-/// `arabic` or `hebrew`.
+/// `arabic`, `hebrew`, `hangul` or `cjk-symbols`.
 pub fn named(name: &str) -> Option<&'static [RangeInclusive<char>]> {
     match name {
         "latin" => Some(LATIN),
@@ -90,6 +115,8 @@ pub fn named(name: &str) -> Option<&'static [RangeInclusive<char>]> {
         "greek" => Some(GREEK),
         "arabic" => Some(ARABIC),
         "hebrew" => Some(HEBREW),
+        "hangul" => Some(HANGUL),
+        "cjk-symbols" => Some(CJK_SYMBOLS),
         _ => None,
     }
 }
