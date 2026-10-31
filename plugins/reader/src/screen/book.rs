@@ -309,8 +309,14 @@ impl Book {
         events::Reading::new(
             self.path.clone(),
             self.title.clone(),
-            // One decimal, as written before.
-            (self.percent() * 10.0 + 0.5) as u32 as f32 / 10.0,
+            // One decimal, as written before; 100 once the last page was
+            // reached (the page's start is how far the book is read only
+            // until then).
+            if self.finished {
+                100.0
+            } else {
+                (self.percent() * 10.0 + 0.5) as u32 as f32 / 10.0
+            },
             self.page.start.section,
             self.page.start.offset,
             chapter.unwrap_or_default(),
@@ -567,6 +573,11 @@ impl Book {
         changed
     }
 
+    /// Whether the page ends the book: it is read to the end.
+    pub(super) fn at_end(&self) -> bool {
+        self.document.progress(self.page.end) >= 0.999
+    }
+
     pub(super) fn percent(&self) -> f32 {
         self.document.progress(self.page.start) * 100.0
     }
@@ -776,7 +787,7 @@ impl Book {
         if !self.web() {
             cx.command(events::PAGE_TURNED.emit(self.reading(&env)));
             // The last page: the book is read to the end.
-            if !self.finished && self.document.progress(self.page.end) >= 0.999 {
+            if !self.finished && self.at_end() {
                 self.finished = true;
                 cx.command(events::BOOK_FINISHED.emit(self.reading(&env)));
             }

@@ -7,6 +7,7 @@ battery system
 browser news
 calibre library
 diagnostics system
+end-of-book reading
 fonts-browser look
 hyphenation-da reading
 hyphenation-de reading

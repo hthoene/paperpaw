@@ -95,6 +95,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "end-of-book"
+path = "src/bin/end-of-book.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "reading-goal"
 path = "src/bin/reading-goal.rs"
 test = false
@@ -219,6 +225,7 @@ paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
 paperpaw-plugin-aids = { path = "../../plugins/aids" }
 paperpaw-plugin-battery = { path = "../../plugins/battery" }
 paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal" }
+paperpaw-plugin-end-of-book = { path = "../../plugins/end-of-book" }
 paperpaw-plugin-browser = { path = "../../plugins/browser" }
 paperpaw-plugin-calibre = { path = "../../plugins/calibre" }
 paperpaw-plugin-diagnostics = { path = "../../plugins/diagnostics" }

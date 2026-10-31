@@ -1378,6 +1378,7 @@ dependencies = [
  "paperpaw-plugin-calibre",
  "paperpaw-plugin-diagnostics",
  "paperpaw-plugin-dictionary",
+ "paperpaw-plugin-end-of-book",
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
  "paperpaw-plugin-fonts-browser",
@@ -1710,6 +1711,18 @@ dependencies = [
  "paperpaw-sdk",
  "paperpaw-stardict",
  "proptest",
+]
+
+[[package]]
+name = "paperpaw-plugin-end-of-book"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-platform",
+ "paperpaw-plugin-files",
+ "paperpaw-plugin-fonts-default",
+ "paperpaw-sdk",
 ]
 
 [[package]]
@@ -2092,7 +2105,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",

@@ -1,0 +1,1 @@
+Wenn du die letzte Seite eines Buches erreichst, bietet ein Bildschirm das nächste Buch der Reihe (oder die Bibliothek) an, lässt dich dem Buch ein bis fünf Sterne geben und zeigt, ob es als gelesen markiert ist. Mit Zurück gelangst du zur letzten Seite.

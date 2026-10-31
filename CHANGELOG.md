@@ -6,6 +6,13 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Added
+
+- *End of book*, a new plugin: when the last page of a book is reached, a screen offers the next book of its
+  series (or the library), a rating of one to five (`4 / 5`, kept as a book field and shown as a badge on the
+  book's row and on its information page) and whether the book counts as finished. Two settings in the reading
+  group: *Show a screen at the end of a book* and *Mark the book as finished* (both on). It needs no SDK change.
+
 ### Changed
 
 - How an X4, X3, X4 Pro or X4 Classic starts, runs the trial of and
@@ -28,6 +35,9 @@ change the plugin SDK.
 
 ### Fixed
 
+- A book read to its last page is now recorded as read to 100 % (it was recorded as how far the start of its last page
+  is, often 95 %, so the library did not list it as finished). The reader's `core.book-finished` and
+  `core.book-closed` now carry 100 once the last page was reached.
 - A time zone rule with an offset of more than 24 hours (such as `<>200`) is now refused instead of read as an offset of days.
 
 ## [0.5.0-beta.12] - 2026-10-28

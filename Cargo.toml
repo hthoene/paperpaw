@@ -49,6 +49,7 @@ members = [
     "plugins/battery",
     "plugins/help",
     "plugins/reading-goal",
+    "plugins/end-of-book",
     "plugins/wifi",
     "plugins/bluetooth",
     "plugins/power",
@@ -153,6 +154,7 @@ paperpaw-plugin-stats = { path = "plugins/stats", version = "1.0.4" }
 paperpaw-plugin-battery = { path = "plugins/battery", version = "1.0.3" }
 paperpaw-plugin-help = { path = "plugins/help", version = "1.0.1" }
 paperpaw-plugin-reading-goal = { path = "plugins/reading-goal", version = "1.0.3" }
+paperpaw-plugin-end-of-book = { path = "plugins/end-of-book", version = "1.0.0" }
 paperpaw-plugin-wifi = { path = "plugins/wifi", version = "1.0.1" }
 paperpaw-plugin-bluetooth = { path = "plugins/bluetooth", version = "1.0.1" }
 paperpaw-plugin-power = { path = "plugins/power", version = "1.0.1" }
@@ -199,7 +201,7 @@ paperpaw-plugin-hyphenation-uk = { path = "plugins/hyphenation-uk", version = "1
 paperpaw-plugin-home = { path = "plugins/home", version = "1.0.2" }
 paperpaw-plugin-settings = { path = "plugins/settings", version = "1.0.2" }
 paperpaw-plugin-files = { path = "plugins/files", version = "1.0.2" }
-paperpaw-plugin-reader = { path = "plugins/reader", version = "1.0.2" }
+paperpaw-plugin-reader = { path = "plugins/reader", version = "1.0.3" }
 paperpaw-plugin-format-epub = { path = "plugins/format-epub", version = "1.0.2" }
 paperpaw-plugin-format-txt = { path = "plugins/format-txt", version = "1.0.0" }
 paperpaw-plugin-format-xtc = { path = "plugins/format-xtc", version = "1.0.0" }

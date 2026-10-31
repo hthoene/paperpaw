@@ -1,0 +1,24 @@
+[package]
+name = "paperpaw-plugin-end-of-book"
+description = "PaperPaw end-of-book screen: the next book of the series, a rating, finished or not"
+version = "1.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+categories = ["no-std"]
+
+[dependencies]
+paperpaw-sdk.workspace = true
+
+[dev-dependencies]
+paperpaw-core.workspace = true
+paperpaw-i18n.workspace = true
+paperpaw-platform.workspace = true
+paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
+paperpaw-plugin-files.workspace = true
+
+[lints]
+workspace = true

@@ -78,11 +78,12 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 33] = [
+pub const STORE_PLUGINS: [&str; 34] = [
     "aids",
     "battery",
     "browser",
     "calibre",
+    "end-of-book",
     "fonts-browser",
     "hyphenation-da",
     "hyphenation-de",
@@ -213,6 +214,7 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_calibre::Calibre);
         b = offered(b, store, paperpaw_plugin_stats::Stats);
         b = offered(b, store, paperpaw_plugin_reading_goal::ReadingGoal);
+        b = offered(b, store, paperpaw_plugin_end_of_book::EndOfBook);
         b = offered(b, store, paperpaw_plugin_battery::Battery);
         b = offer_hyphenation(b, store);
     }

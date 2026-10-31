@@ -130,6 +130,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-end-of-book"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-plugin-files"
 version = "0.0.0"
 dependencies = [
@@ -138,6 +145,7 @@ dependencies = [
  "paperpaw-plugin-browser",
  "paperpaw-plugin-calibre",
  "paperpaw-plugin-diagnostics",
+ "paperpaw-plugin-end-of-book",
  "paperpaw-plugin-fonts-browser",
  "paperpaw-plugin-hyphenation-da",
  "paperpaw-plugin-hyphenation-de",

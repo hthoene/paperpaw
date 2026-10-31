@@ -753,6 +753,78 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    Case {
+        name: "x4-endbook-next",
+        profile: "xteink-x4",
+        book: Some("books/moor-1.epub"),
+        sets: &[],
+        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-endbook-next-de",
+        profile: "xteink-x4",
+        book: Some("books/moor-1.epub"),
+        sets: &["core.language=de"],
+        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-endbook-lone",
+        profile: "xteink-x4",
+        book: Some("books/lone.epub"),
+        sets: &[],
+        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-endbook-lone-de",
+        profile: "xteink-x4",
+        book: Some("books/lone.epub"),
+        sets: &["core.language=de"],
+        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-endbook-rated",
+        profile: "xteink-x4",
+        book: Some("books/moor-2.epub"),
+        sets: &[],
+        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500,right,confirm,confirm,confirm,confirm,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-endbook-large",
+        profile: "xteink-x4",
+        book: Some("books/moor-1.epub"),
+        sets: &["core.ui-size=24"],
+        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-endbook-large-de",
+        profile: "xteink-x4",
+        book: Some("books/moor-1.epub"),
+        sets: &["core.ui-size=24", "core.language=de"],
+        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-endbook-opened-next",
+        profile: "xteink-x4",
+        book: Some("books/moor-1.epub"),
+        sets: &[],
+        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500,confirm,wait:1500",
+        colour: 0,
+        fixtures: false,
+    },
 ];
 
 /// Pixels whose gray differs by more than this count as different.
@@ -781,7 +853,11 @@ fn library(case: &Case) -> PathBuf {
     let books = dir.join("books");
     fs::create_dir_all(&books).unwrap();
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    for dir in [root().join("samples/library/books"), fixtures] {
+    let mut sources = vec![root().join("samples/library/books"), fixtures.clone()];
+    if case.name.contains("endbook") {
+        sources.push(fixtures.with_file_name("fixtures-endbook"));
+    }
+    for dir in sources {
         for entry in fs::read_dir(dir).unwrap() {
             let entry = entry.unwrap();
             if entry.file_type().unwrap().is_file() {
