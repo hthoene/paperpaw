@@ -341,13 +341,13 @@ fn text(ui: &mut ui::Ui<'_>, area: Rect) {
     };
     let mut stack = ui::Stack::new(area, style.gap());
     for (role, name) in [
-        (TextRole::Display, env.i18n().tr("ui-kit.role.display")),
-        (TextRole::Headline, env.i18n().tr("ui-kit.role.headline")),
-        (TextRole::Head, env.i18n().tr("ui-kit.role.head")),
-        (TextRole::Title, env.i18n().tr("ui-kit.role.title")),
-        (TextRole::Body, env.i18n().tr("ui-kit.role.body")),
-        (TextRole::Small, env.i18n().tr("ui-kit.role.small")),
-        (TextRole::Caption, env.i18n().tr("ui-kit.role.caption")),
+        (TextRole::DISPLAY, env.i18n().tr("ui-kit.role.display")),
+        (TextRole::HEADLINE, env.i18n().tr("ui-kit.role.headline")),
+        (TextRole::HEAD, env.i18n().tr("ui-kit.role.head")),
+        (TextRole::TITLE, env.i18n().tr("ui-kit.role.title")),
+        (TextRole::BODY, env.i18n().tr("ui-kit.role.body")),
+        (TextRole::SMALL, env.i18n().tr("ui-kit.role.small")),
+        (TextRole::CAPTION, env.i18n().tr("ui-kit.role.caption")),
     ] {
         let size = style.size(role);
         let height = font.line_metrics(size).line_height as u16;

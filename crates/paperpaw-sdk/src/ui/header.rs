@@ -85,7 +85,7 @@ fn draw_title(
         // As many lines as the bar holds, in the small size, then in the
         // size of captions.
         let high = area.height.max(band.height);
-        for size in [least, style.size(super::TextRole::Caption).min(least)] {
+        for size in [least, style.size(super::TextRole::CAPTION).min(least)] {
             let lines = font.wrap(size, title, room.max(1.0));
             let line = font.line_metrics(size).line_height as u16;
             let count = lines.len() as u16;
@@ -122,7 +122,7 @@ fn title_fits(font: &FontHandle<'_>, style: &UiStyle, high: u16, room: f32, titl
     if font.measure(least, title) <= room + 1.0 {
         return true;
     }
-    [least, style.size(super::TextRole::Caption).min(least)]
+    [least, style.size(super::TextRole::CAPTION).min(least)]
         .into_iter()
         .any(|size| {
             let lines = font.wrap(size, title, room.max(1.0)).len() as u16;

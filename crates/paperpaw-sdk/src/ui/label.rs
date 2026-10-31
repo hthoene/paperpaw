@@ -23,8 +23,8 @@ use super::{Ink, TextRole, Ui, UiStyle, fit};
 /// use paperpaw_sdk::ui::{Ink, Label, TextRole};
 /// use paperpaw_sdk::widgets::Align;
 ///
-/// let title = Label::new("Settings").role(TextRole::Title).align(Align::Center);
-/// let note = Label::new("Changes are kept at once.").role(TextRole::Small).ink(Ink::Note).wrap();
+/// let title = Label::new("Settings").role(TextRole::TITLE).align(Align::Center);
+/// let note = Label::new("Changes are kept at once.").role(TextRole::SMALL).ink(Ink::Note).wrap();
 /// # let _ = (title, note);
 /// ```
 ///
@@ -63,7 +63,7 @@ impl<'t> Label<'t> {
         Self {
             text,
             font: None,
-            size: Size::Role(TextRole::Body),
+            size: Size::Role(TextRole::BODY),
             min: None,
             ink: Paint::Ink(Ink::Text),
             align: Align::Left,

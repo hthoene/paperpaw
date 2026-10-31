@@ -423,25 +423,77 @@ impl Default for Palette {
 
 /// What a text is (see [`UiStyle::size`]): its size follows from the
 /// style's, so text of one kind is as large on every screen.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum TextRole {
+///
+/// The roles are constants of one type, so more can come without a new
+/// plugin interface: a role this release does not know is sized as
+/// [`TextRole::BODY`], and a look's text painter
+/// ([`Painters::text`](crate::ui::look::Painters::text)) gets the role of
+/// every run it is asked about.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TextRole(u8);
+
+impl TextRole {
     /// Smaller than small, e.g. under an icon.
-    Caption,
+    pub const CAPTION: Self = Self(0);
     /// Hints, notes, status lines.
-    Small,
+    pub const SMALL: Self = Self(1);
     /// Most text.
-    Body,
+    pub const BODY: Self = Self(2);
     /// Titles of dialogs and widgets.
-    Title,
+    pub const TITLE: Self = Self(3);
     /// The titles of headers.
-    Head,
+    pub const HEAD: Self = Self(4);
     /// Large, e.g. a widget's main line.
-    Headline,
+    pub const HEADLINE: Self = Self(5);
     /// Larger, e.g. a clock.
-    Display,
+    pub const DISPLAY: Self = Self(6);
     /// Large numbers standing alone, e.g. a page count.
-    Numeral,
+    pub const NUMERAL: Self = Self(7);
+    /// A hint under a control (sized as [`TextRole::SMALL`]).
+    pub const HINT: Self = Self(8);
+    /// The label of a button or a list row (sized as [`TextRole::BODY`]).
+    pub const BUTTON: Self = Self(9);
+    /// A glyph of the icon font (sized as [`TextRole::BODY`]; the caller
+    /// sets an icon's own size).
+    pub const ICON: Self = Self(10);
+
+    /// The role's number, as the constants above have it: 0 to 10 are
+    /// named, the others are free.
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+
+    /// The role of a number; one this release has no name for is a role
+    /// all the same.
+    pub const fn from_value(value: u8) -> Self {
+        Self(value)
+    }
+
+    const fn name(self) -> Option<&'static str> {
+        Some(match self.0 {
+            0 => "CAPTION",
+            1 => "SMALL",
+            2 => "BODY",
+            3 => "TITLE",
+            4 => "HEAD",
+            5 => "HEADLINE",
+            6 => "DISPLAY",
+            7 => "NUMERAL",
+            8 => "HINT",
+            9 => "BUTTON",
+            10 => "ICON",
+            _ => return None,
+        })
+    }
+}
+
+impl core::fmt::Debug for TextRole {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.name() {
+            Some(name) => write!(f, "TextRole::{name}"),
+            None => write!(f, "TextRole({})", self.0),
+        }
+    }
 }
 
 /// How the focus of rows and items is drawn ([`Ui::focus`](super::Ui::focus)).
@@ -635,17 +687,21 @@ impl UiStyle {
         }
     }
 
-    /// The size of text of `role`.
+    /// The size of text of `role` (one this release does not know is
+    /// sized as [`TextRole::BODY`]).
     pub fn size(&self, role: TextRole) -> f32 {
         match role {
-            TextRole::Caption => self.small * 0.8,
-            TextRole::Small => self.small,
-            TextRole::Body => self.text,
-            TextRole::Title => self.title,
-            TextRole::Head => self.head,
-            TextRole::Headline => self.title * 1.6,
-            TextRole::Display => self.title * 2.0,
-            TextRole::Numeral => self.title * 3.0,
+            TextRole::CAPTION => self.small * 0.8,
+            TextRole::SMALL => self.small,
+            TextRole::BODY => self.text,
+            TextRole::TITLE => self.title,
+            TextRole::HEAD => self.head,
+            TextRole::HEADLINE => self.title * 1.6,
+            TextRole::DISPLAY => self.title * 2.0,
+            TextRole::NUMERAL => self.title * 3.0,
+            TextRole::HINT => self.small,
+            // BUTTON, ICON and the roles of later releases.
+            _ => self.text,
         }
     }
 

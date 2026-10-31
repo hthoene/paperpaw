@@ -1176,8 +1176,39 @@ fn the_palette_sets_the_grays_the_parts_draw_in() {
     assert_eq!(style.ink(Ink::Muted), Color::BLACK);
     assert_eq!(style.ink(Ink::Line), Color::gray(100));
     // Text of one kind is as large everywhere.
-    assert_eq!(style.size(TextRole::Body), style.text());
-    assert_eq!(style.size(TextRole::Headline), style.title() * 1.6);
+    assert_eq!(style.size(TextRole::BODY), style.text());
+    assert_eq!(style.size(TextRole::HEADLINE), style.title() * 1.6);
+}
+
+/// Roles are numbers of one open type: the new ones are sized as the
+/// roles they stand for and one nobody named yet as body text.
+#[test]
+fn text_roles_are_open() {
+    use paperpaw_sdk::ui::{TextRole, UiStyle};
+    let h = Harness::new(Device::TOUCH);
+    let env = h.env();
+    let style = UiStyle::new(&env);
+    assert_eq!(style.size(TextRole::HINT), style.size(TextRole::SMALL));
+    assert_eq!(style.size(TextRole::BUTTON), style.size(TextRole::BODY));
+    assert_eq!(style.size(TextRole::ICON), style.size(TextRole::BODY));
+    let later = TextRole::from_value(200);
+    assert_eq!(later.value(), 200);
+    assert_eq!(style.size(later), style.size(TextRole::BODY));
+    // The old order of the enum is the numbers.
+    assert_eq!(
+        [
+            TextRole::CAPTION,
+            TextRole::SMALL,
+            TextRole::BODY,
+            TextRole::NUMERAL
+        ]
+        .map(TextRole::value),
+        [0, 1, 2, 7]
+    );
+    assert_eq!(format!("{:?}", TextRole::BODY), "TextRole::BODY");
+    assert_eq!(format!("{:?}", later), "TextRole(200)");
+    // A role matches as a constant.
+    assert!(matches!(TextRole::from_value(9), TextRole::BUTTON));
 }
 
 /// Semantic icons: what they say has the drawing a theme names for it,

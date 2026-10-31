@@ -114,7 +114,7 @@ Read, in this order, and skim what is relevant to the task:
   `ui::ListView` with `ui::Row` (`Row::value`, `Row::plain`,
   `Row::switch`, `Row::number`, each one value that gives `height`,
   `draw` and `hit`, so they cannot disagree), `ui::Label` for text
-  (`Label::new(text).role(TextRole::Small).align(..).wrap()`),
+  (`Label::new(text).role(TextRole::SMALL).align(..).wrap()`),
   `ui::Segments` and `ui::Chips` (given their labels once, when made),
   `ui::Dialog`, `ui::TextView`, `ui::DatePicker` and `ui::TimePicker`
   (with `time::Date` and `time::Time`). Layout comes from `ui::Stack`,
