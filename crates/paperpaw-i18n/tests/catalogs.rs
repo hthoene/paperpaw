@@ -185,8 +185,8 @@ fn catalogs_that_are_not_well_formed() {
     );
     // Errors are displayed with their line.
     assert_eq!(
-        err("[meta]\nlanguage = en\n[x]\na = b\n").to_string(),
-        "line 4: only [meta] and [messages] are allowed"
+        err("a = b\n[meta]\nlanguage = en\n").to_string(),
+        "line 1: a key before [meta]"
     );
 }
 

@@ -411,7 +411,9 @@ pub enum CatalogError {
     UnknownPluralRule {
         line: u32,
     },
-    /// A key outside the `[meta]` and `[messages]` sections.
+    /// A key before any section. (A section other than `[meta]` and
+    /// `[messages]` is skipped since plugin interface 5: a later catalog
+    /// format may add one.)
     UnexpectedSection {
         line: u32,
     },
@@ -431,7 +433,7 @@ impl fmt::Display for CatalogError {
                 write!(f, "line {line}: unknown plural rule")
             }
             CatalogError::UnexpectedSection { line } => {
-                write!(f, "line {line}: only [meta] and [messages] are allowed")
+                write!(f, "line {line}: a key before [meta]")
             }
             CatalogError::Other(code) => write!(f, "catalog error {code}"),
         }
@@ -554,6 +556,9 @@ impl Catalog {
                         }
                     }
                 }
+                // A section of a later format: skipped, so the catalog
+                // still loads.
+                (section, _) if !section.is_empty() => {}
                 _ => return Err(CatalogError::UnexpectedSection { line: entry.line }),
             }
         }
@@ -925,8 +930,12 @@ a = "two\nlines"
             CatalogError::UnknownPluralRule { line: 3 }
         );
         assert_eq!(
-            Catalog::parse("[meta]\nlanguage = en\n[other]\na = b\n").unwrap_err(),
-            CatalogError::UnexpectedSection { line: 4 }
+            Catalog::parse("a = b\n[meta]\nlanguage = en\n").unwrap_err(),
+            CatalogError::UnexpectedSection { line: 1 }
         );
+        // A section of a later format is skipped; its keys are no messages.
+        let later =
+            Catalog::parse("[meta]\nlanguage = en\n[plurals]\na = b\n[messages]\nc = d\n").unwrap();
+        assert_eq!((later.get("a"), later.get("c")), (None, Some("d")));
     }
 }
