@@ -181,7 +181,7 @@ so a plugin without code cannot set it.
 | Path | Format | Read by, for | Since formats |
 |------|--------|--------------|---------------|
 | `plugin.ini` | ini: `[plugin]` with `id`, `name`, `description`, `version`, `formats`; `[extends]`, `[family]` and `[fonts]` (formats 3) where it brings fonts | the kernel: the plugin, its fonts, the fonts bound to roles | 1 |
-| `i18n/<lang>.ini` | a translation catalog: `[meta]` (`language`, `name`, `plural`) and `[messages]` | the kernel: texts of any plugin, also a whole new language | 1 |
+| `i18n/<lang>.ini` | a translation catalog: `[meta]` (`language`, `name`, `plural`; optional `direction`, `script`, `digits`, `calendar`) and `[messages]` | the kernel: texts of any plugin, also a whole new language | 1 |
 | `settings.ini` | ini: a section per plugin, a key per setting, as `paperpaw.ini` writes them | the kernel: new defaults for any plugin's settings (a theme, a home screen, a logo) | 1 |
 | `keymap.ini` | ini: `[keymap.<layer>]` sections, `button.<name> = <action>` | the kernel: what buttons, taps and swipes do | 1 |
 | `styles.css` | CSS | the reader: a stylesheet for books, after a book's own | 1 |

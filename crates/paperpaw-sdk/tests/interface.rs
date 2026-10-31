@@ -324,7 +324,8 @@ fn api_field_appended(line: &str, kept: &BTreeMap<String, &str>) -> bool {
 /// - `table.sig`: the signature of each of those functions;
 /// - `lang.list`: the scripts and regions whose index a `Lang` keeps;
 /// - `i18n.list`: the plural rules, digits and calendars whose index a
-///   catalog keeps;
+///   catalog keeps (in these two, each kind of name grows at its own end:
+///   see [`pin_kind_changes`]);
 /// - `crate-pins.list`: the dependencies pinned with `=` in the crates that
 ///   cross (`interface/crates.txt`). Types of those crates (the fonts of
 ///   `skrifa`, say) pass by value between the firmware and a plugin, and a
@@ -345,16 +346,8 @@ fn pins() -> Option<Vec<(&'static str, String)>> {
         .collect();
     let i18n: String = paperpaw_i18n::cldr_rules()
         .map(|r| format!("plural {r}\n"))
-        .chain(
-            paperpaw_i18n::DIGITS
-                .iter()
-                .map(|d| format!("digits {d}\n")),
-        )
-        .chain(
-            paperpaw_i18n::CALENDARS
-                .iter()
-                .map(|c| format!("calendar {c}\n")),
-        )
+        .chain(paperpaw_i18n::digit_systems().map(|d| format!("digits {d}\n")))
+        .chain(paperpaw_i18n::calendars().map(|c| format!("calendar {c}\n")))
         .collect();
     Some(vec![
         ("shared.list", lines(read("../paperpaw-table/shared.list")?)),
@@ -404,6 +397,36 @@ fn pin_set_changes(name: &str, kept: &str, now: &str) -> Changes {
     let kept_lines: BTreeSet<&str> = kept.lines().collect();
     for line in now.lines().filter(|l| !kept_lines.contains(l)) {
         out.new.push(format!("{name}: a pin added: {line}"));
+    }
+    out
+}
+
+/// What changed in a pinned list of names of several kinds (`script latn`,
+/// `region DE`) from `kept` to `now`: each kind is a list of its own,
+/// indexed apart, so a name may be appended to any kind.
+fn pin_kind_changes(name: &str, kept: &str, now: &str) -> Changes {
+    let of_kind = |text: &str, kind: &str| -> String {
+        text.lines()
+            .filter(|l| l.split(' ').next() == Some(kind))
+            .map(|l| format!("{l}\n"))
+            .collect()
+    };
+    let mut kinds: Vec<&str> = kept
+        .lines()
+        .chain(now.lines())
+        .filter_map(|l| l.split(' ').next())
+        .collect();
+    kinds.sort_unstable();
+    kinds.dedup();
+    let mut out = Changes::default();
+    for kind in kinds {
+        let found = pin_changes(
+            &format!("{name} ({kind})"),
+            &of_kind(kept, kind),
+            &of_kind(now, kind),
+        );
+        out.breaking.extend(found.breaking);
+        out.new.extend(found.new);
     }
     out
 }
@@ -538,6 +561,29 @@ fn only_what_the_table_list_derives_may_change_in_the_table_index() {
         "paperpaw-table",
         "const paperpaw_table::FAMILIES"
     ));
+}
+
+#[test]
+fn each_kind_of_name_grows_at_its_own_end() {
+    let kept = "plural arabic\ndigits latn\ncalendar gregorian\n";
+    // A rule appended to the plural rules, before the digits: new.
+    let grown = pin_kind_changes(
+        "i",
+        kept,
+        "plural arabic\nplural welsh\ndigits latn\ncalendar gregorian\ncalendar hebrew\n",
+    );
+    assert!(grown.breaking.is_empty(), "{:?}", grown.breaking);
+    assert_eq!(grown.new.len(), 2);
+    // A name put before another of its kind, or gone: breaking.
+    let moved = pin_kind_changes(
+        "i",
+        kept,
+        "plural welsh\nplural arabic\ndigits latn\ncalendar gregorian\n",
+    );
+    assert_eq!(moved.breaking.len(), 1);
+    assert!(moved.breaking[0].contains("(plural)"));
+    let gone = pin_kind_changes("i", kept, "plural arabic\ndigits latn\n");
+    assert_eq!(gone.breaking.len(), 1);
 }
 
 #[test]
@@ -786,6 +832,8 @@ fn what_plugins_see_changes_only_with_the_interface() {
         let kept = read(&format!("interface/{name}")).unwrap_or_default();
         let found = if name == "crate-pins.list" {
             pin_set_changes(name, &kept, &now)
+        } else if name == "lang.list" || name == "i18n.list" {
+            pin_kind_changes(name, &kept, &now)
         } else {
             pin_changes(name, &kept, &now)
         };

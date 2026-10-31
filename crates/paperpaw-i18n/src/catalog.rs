@@ -31,7 +31,8 @@ pub struct Catalog {
     /// `[meta] script`: its place in `paperpaw_lang::scripts()` and 1;
     /// 0 not said.
     script: u8,
-    /// `[meta] digits`: its place in [`DIGITS`] (0: `latn`).
+    /// `[meta] digits`: its place in [`SYSTEMS`] (0: `latn`), or
+    /// [`LITERAL`].
     digits: u8,
     /// `[meta] calendar`: its place in [`CALENDARS`] (0: `gregorian`).
     calendar: u8,
@@ -56,14 +57,124 @@ pub struct Catalog {
     pub(crate) added: u32,
 }
 
-/// The digits a catalog can name (`[meta] digits`), as the CLDR names
-/// the numbering systems: Latin, Arabic-Indic, Extended Arabic-Indic
-/// (Persian, Urdu), Devanagari, Bengali, Thai. Only added at the end.
-pub const DIGITS: [&str; 6] = ["latn", "arab", "arabext", "deva", "beng", "thai"];
+/// The numbering systems a catalog can name (`[meta] digits`), as the
+/// CLDR names them, each with its digit zero: Unicode keeps a system's ten
+/// digits in a row (`hanidec`, which it does not, is [`HANIDEC`]). A
+/// catalog's place is its index here: only added at the end (the
+/// interface test records them). Any other system is given by its ten
+/// digits (`digits = ០១២៣៤៥៦៧៨៩`).
+const SYSTEMS: [(&str, u32); 25] = [
+    ("latn", 0x30),
+    // Arabic-Indic; Extended Arabic-Indic (Persian, Urdu).
+    ("arab", 0x660),
+    ("arabext", 0x6f0),
+    ("deva", 0x966),
+    ("beng", 0x9e6),
+    ("thai", 0xe50),
+    ("fullwide", 0xff10),
+    ("hanidec", 0),
+    ("khmr", 0x17e0),
+    ("laoo", 0xed0),
+    ("mymr", 0x1040),
+    ("tibt", 0xf20),
+    ("guru", 0xa66),
+    ("gujr", 0xae6),
+    ("orya", 0xb66),
+    ("tamldec", 0xbe6),
+    ("telu", 0xc66),
+    ("knda", 0xce6),
+    ("mlym", 0xd66),
+    // Sinhala Lith digits.
+    ("sinh", 0xde6),
+    ("mong", 0x1810),
+    ("java", 0xa9d0),
+    ("bali", 0x1b50),
+    ("adlm", 0x1e950),
+    ("nkoo", 0x7c0),
+];
 
-/// The calendars a catalog can name (`[meta] calendar`), as the CLDR
-/// names them: Gregorian, Hijri, Solar Hijri. Only added at the end.
-pub const CALENDARS: [&str; 3] = ["gregorian", "islamic", "persian"];
+/// The Chinese decimal digits (`hanidec`), not in a row.
+const HANIDEC: [char; 10] = ['〇', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+
+/// Latin digits: where a catalog says none, or none this release knows.
+const LATIN: [char; 10] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+
+/// A catalog's digits place when `[meta] digits` gives the ten digits
+/// themselves: read again from the source when asked.
+const LITERAL: u8 = u8::MAX;
+
+/// The calendars a catalog can name (`[meta] calendar`), as the CLDR names
+/// them; a catalog's place is its index here: only added at the end. A name
+/// is only what a catalog asks for: the dates of a calendar come with what
+/// draws them.
+const CALENDARS: [&str; 18] = [
+    "gregorian",
+    // Hijri; Solar Hijri.
+    "islamic",
+    "persian",
+    "buddhist",
+    "chinese",
+    "coptic",
+    "dangi",
+    "ethioaa",
+    "ethiopic",
+    "hebrew",
+    "indian",
+    "islamic-civil",
+    "islamic-rgsa",
+    "islamic-tbla",
+    "islamic-umalqura",
+    "iso8601",
+    "japanese",
+    "roc",
+];
+
+/// The numbering systems a catalog can name in `[meta] digits`, in the
+/// order of their place in a catalog (others are given by their ten
+/// digits).
+pub fn digit_systems() -> impl Iterator<Item = &'static str> {
+    SYSTEMS.iter().map(|(name, _)| *name)
+}
+
+/// The calendars a catalog can name in `[meta] calendar`, in the order of
+/// their place in a catalog.
+pub fn calendars() -> impl Iterator<Item = &'static str> {
+    CALENDARS.into_iter()
+}
+
+/// The ten digits of the system at `place` in [`SYSTEMS`].
+fn system_digits(place: u8) -> Option<[char; 10]> {
+    match *SYSTEMS.get(usize::from(place))? {
+        ("hanidec", _) => Some(HANIDEC),
+        (_, zero) => {
+            let mut digits = LATIN;
+            for (d, digit) in (0..).zip(digits.iter_mut()) {
+                *digit = char::from_u32(zero + d)?;
+            }
+            Some(digits)
+        }
+    }
+}
+
+/// The ten characters of `value`, if it has exactly ten.
+fn ten(value: &str) -> Option<[char; 10]> {
+    let mut digits = LATIN;
+    let mut chars = value.chars();
+    for digit in &mut digits {
+        *digit = chars.next()?;
+    }
+    chars.next().is_none().then_some(digits)
+}
+
+/// The place of `[meta] digits = value`: a system's name, [`LITERAL`] for
+/// ten digits given, otherwise 0 (Latin).
+fn digits_place(value: &str) -> u8 {
+    match SYSTEMS.iter().position(|(name, _)| *name == value) {
+        Some(i) => u8::try_from(i).unwrap_or(0),
+        None if ten(value).is_some() => LITERAL,
+        None => 0,
+    }
+}
 
 /// Where escaped text of `spans` ends in a catalog's escaped text.
 fn escaped_end(spans: &[Span]) -> u32 {
@@ -96,7 +207,7 @@ fn described(key: &str, value: &str) -> Option<(usize, u8)> {
                 .and_then(|i| u8::try_from(i + 1).ok())
                 .unwrap_or(0),
         ),
-        "digits" => (2, place(&DIGITS, value)),
+        "digits" => (2, digits_place(value)),
         "calendar" => (3, place(&CALENDARS, value)),
         _ => return None,
     })
@@ -538,17 +649,31 @@ impl Catalog {
         paperpaw_lang::scripts().nth(i)
     }
 
-    /// The digits numbers are written with (`[meta] digits`), as the CLDR
-    /// names them (see [`DIGITS`]): `latn` where it does not say.
-    pub fn digits(&self) -> &'static str {
-        DIGITS
-            .get(usize::from(self.digits))
-            .copied()
-            .unwrap_or(DIGITS[0])
+    /// The digits numbers are written with, 0 to 9 (`[meta] digits`: a
+    /// numbering system's CLDR name, see [`digit_systems`], or the ten
+    /// digits themselves). Latin digits where the catalog says none, names
+    /// a system this release does not know, or gives other than ten
+    /// characters. Ten digits given are read from the source again on each
+    /// call: keep the result.
+    pub fn digits(&self) -> [char; 10] {
+        match self.digits {
+            LITERAL => self.literal_digits(),
+            place => system_digits(place),
+        }
+        .unwrap_or(LATIN)
+    }
+
+    /// The ten digits `[meta] digits` gives (the last such line).
+    fn literal_digits(&self) -> Option<[char; 10]> {
+        paperpaw_config::parse(&self.source)
+            .map_while(Result::ok)
+            .filter(|entry| entry.section == "meta" && entry.key == "digits")
+            .last()
+            .and_then(|entry| ten(&entry.value.as_str()))
     }
 
     /// The calendar dates are given in (`[meta] calendar`), as the CLDR
-    /// names it (see [`CALENDARS`]): `gregorian` where it does not say.
+    /// names it (see [`calendars`]): `gregorian` where it does not say.
     pub fn calendar(&self) -> &'static str {
         CALENDARS
             .get(usize::from(self.calendar))

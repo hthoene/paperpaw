@@ -178,7 +178,10 @@ Pebble theme's in `crates/paperpaw-app/i18n/pebble`, the shells' in
 
 1. Copy each `i18n/en.ini` to `i18n/<language>.ini`.
 2. Set `language`, `name` and `plural` in `[meta]` (see `PluralRule` in
-   `crates/paperpaw-i18n/src/plural.rs` for the available rules).
+   `crates/paperpaw-i18n/src/plural.rs` for the available rules), and
+   where they differ from the defaults `direction` (`rtl`), `script`
+   (ISO 15924), `digits` (a CLDR numbering system such as `arab`, or the
+   ten digits themselves) and `calendar` (a CLDR calendar).
 3. Translate the messages; keep `{placeholders}` unchanged.
 4. Register the catalog where the others are registered (the plugin's
    `register`, `r.add_translations(...)`) and run `cargo test`: the

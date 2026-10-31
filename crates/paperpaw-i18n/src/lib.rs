@@ -33,8 +33,8 @@ pub mod check;
 mod format;
 mod plural;
 
-pub use catalog::{CALENDARS, DIGITS};
 pub use catalog::{Catalog, CatalogError, FixedIndexes, fingerprint};
+pub use catalog::{calendars, digit_systems};
 pub use format::Arg;
 pub use paperpaw_lang::{Direction, Lang};
 pub use plural::{PluralCategory, PluralRule, cldr_rules};
@@ -343,7 +343,11 @@ mod tests {
         .unwrap();
         assert_eq!(ar.direction(), Direction::Rtl);
         assert_eq!(ar.script(), Some("Arab"));
-        assert_eq!((ar.digits(), ar.calendar()), ("arab", "islamic"));
+        assert_eq!(
+            ar.digits(),
+            ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩']
+        );
+        assert_eq!(ar.calendar(), "islamic");
         assert_eq!(ar.plural_rule(), PluralRule::Cldr(0));
         let mut t = Translator::new();
         t.add(Catalog::parse(EN).unwrap());
@@ -361,8 +365,46 @@ mod tests {
         assert_eq!(newer.direction(), Direction::Auto);
         assert_eq!(
             (newer.script(), newer.digits(), newer.calendar()),
-            (None, "latn", "gregorian")
+            (
+                None,
+                ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+                "gregorian"
+            )
         );
+    }
+
+    #[test]
+    fn digits_are_named_or_given() {
+        let digits = |value: &str| {
+            Catalog::parse(alloc::format!("[meta]\nlanguage = xx\ndigits = {value}\n"))
+                .unwrap()
+                .digits()
+                .iter()
+                .collect::<String>()
+        };
+        assert_eq!(digits("arabext"), "۰۱۲۳۴۵۶۷۸۹");
+        assert_eq!(digits("hanidec"), "〇一二三四五六七八九");
+        assert_eq!(digits("adlm"), "𞥐𞥑𞥒𞥓𞥔𞥕𞥖𞥗𞥘𞥙");
+        // Any system by its ten digits, escaped or not.
+        assert_eq!(digits("០១២៣៤៥៦៧៨៩"), "០១២៣៤៥៦៧៨៩");
+        assert_eq!(digits("\"\\u{17e0}១២៣៤៥៦៧៨៩\""), "០១២៣៤៥៦៧៨៩");
+        // Not ten, or a name this release does not know: Latin.
+        assert_eq!(digits("០១២"), "0123456789");
+        assert_eq!(digits("klingon"), "0123456789");
+        // The digits of every system named are in a row, 0 to 9.
+        for name in digit_systems() {
+            let found: Vec<u32> = digits(name).chars().map(u32::from).collect();
+            assert_eq!(found.len(), 10, "{name}");
+            if name != "hanidec" {
+                assert!(found.windows(2).all(|w| w[1] == w[0] + 1), "{name}");
+            }
+        }
+        // A parked catalog (a language not in use) keeps them.
+        let mut t = Translator::new();
+        t.add(Catalog::parse(EN).unwrap());
+        t.add(Catalog::parse("[meta]\nlanguage = km\ndigits = ០១២៣៤៥៦៧៨៩\n").unwrap());
+        t.set_language("en");
+        assert_eq!(t.catalogs()[1].digits()[1], '១');
     }
 
     fn translator(language: &str) -> Translator {

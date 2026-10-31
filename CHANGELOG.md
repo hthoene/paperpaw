@@ -51,6 +51,16 @@ change the plugin SDK.
 - `TextStyle` of `paperpaw-document` is 32 bits (bits 24 to 27 a
   block's inline language); cached books and page indexes are made anew
   (EPUB cache version 29, a new `paperpaw_layout::VERSION`).
+- `paperpaw-i18n`: `Catalog::digits()` returns the ten digits (`[char; 10]`),
+  not a name; `[meta] digits` takes a CLDR numbering system's name or the
+  ten digits themselves (`digits = ០១២៣៤៥៦៧៨៩`), so any system is data.
+  `DIGITS` and `CALENDARS` are replaced by `digit_systems()` and
+  `calendars()` (25 systems, all 18 CLDR calendars), and `[meta] plural`
+  knows all of the CLDR's rules for whole numbers (Welsh, Irish, Scottish
+  Gaelic, Breton, Manx, Slovenian, Lithuanian, Latvian, Romanian, Maltese,
+  Icelandic, Bosnian/Croatian/Serbian, Cornish, Tachelhit, Colognian,
+  Filipino, Tamazight, and `one-many-other`, `zero-one-many-other` for the
+  millions of Spanish, Italian, French and Portuguese).
 - Font packs of version 2 have a table directory (anchors, mark-to-mark
   anchors, line metrics per script, language forms, contextual
   substitutions, vertical metrics); packs of version 1 read as before.
