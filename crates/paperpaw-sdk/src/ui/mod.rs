@@ -87,6 +87,7 @@ use crate::env::Env;
 use crate::fonts::FontHandle;
 use crate::screen::Hint;
 use crate::settings::{SettingKind, SettingSpec, SettingValue};
+use paperpaw_text::{TextInk, ToneCurve};
 
 /// Whether a part drawn in `rect` can show on `canvas`: it meets the
 /// canvas's clip (one band of the frame), or the canvas only tells what

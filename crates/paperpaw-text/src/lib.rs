@@ -41,6 +41,7 @@ mod font;
 #[cfg(fuzzing)]
 pub mod fuzz;
 mod glyph;
+mod ink;
 mod kern_table;
 #[cfg(feature = "outline")]
 mod kerning;
@@ -65,6 +66,7 @@ pub use bitmap::{BitmapFont, PackBuilder};
 pub use cache::GlyphCache;
 pub use curve::ToneCurve;
 pub use font::{Font, FontError, LineMetrics};
+pub use ink::TextInk;
 pub use stored::{PackLimits, PackSource, StoredPack};
 
 /// Whether this build renders scalable (OpenType/TrueType) fonts.

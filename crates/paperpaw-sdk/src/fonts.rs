@@ -676,6 +676,7 @@ impl Fonts {
             display: false,
             kerning: true,
             ligatures: false,
+            ink: paperpaw_text::TextInk::DEFAULT,
         }
     } @ text::FONTS_HANDLE
     }
@@ -769,6 +770,7 @@ impl FontSet {
             display: false,
             kerning: true,
             ligatures: false,
+            ink: paperpaw_text::TextInk::DEFAULT,
         })
     }
 }
@@ -798,6 +800,8 @@ pub struct FontHandle<'a> {
     kerning: bool,
     /// Ligatures drawn (see [`FontHandle::ligatures`]).
     ligatures: bool,
+    /// How its text is inked (see [`FontHandle::inked`]).
+    ink: paperpaw_text::TextInk,
 }
 
 /// The ligature of two characters, if there is one: drawn in their place
@@ -958,6 +962,20 @@ impl<'a> FontHandle<'a> {
             ligatures: true,
             ..self
         }
+    }
+
+    /// This font drawing its text as `ink` says: the tone of the letters'
+    /// edges (for `draw` and `draw_bolder`; `draw_toned` has its own),
+    /// and what a later release gives the rest. Every caller that draws
+    /// with the handle inks so, e.g. the interface's font (setting
+    /// `core.ui-text-curve`).
+    pub fn inked(self, ink: paperpaw_text::TextInk) -> Self {
+        Self { ink, ..self }
+    }
+
+    /// How its text is inked (see [`FontHandle::inked`]).
+    pub fn text_ink(&self) -> paperpaw_text::TextInk {
+        self.ink
     }
 
     paperpaw_table::shared! {
@@ -1203,7 +1221,7 @@ impl<'a> FontHandle<'a> {
         color: Color,
         extra: u16,
     ) -> f32 {
-        let tone = paperpaw_text::ToneCurve::SMOOTH;
+        let tone = self.ink.tone();
         self.draw_toned(canvas, size, x, baseline, text, color, extra, tone)
     } @ text::HANDLE_DRAW_BOLDER
     }

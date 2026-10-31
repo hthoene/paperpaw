@@ -421,6 +421,19 @@ impl Default for Palette {
     }
 }
 
+/// How the interface's text is inked: the tone curve of the setting
+/// `core.ui-text-curve` (see
+/// [`ToneCurve::parse_for`](paperpaw_text::ToneCurve::parse_for)), for the
+/// script of the interface's language; the stock ink where it is empty or
+/// says nothing usable.
+pub fn text_ink(env: &Env<'_>) -> TextInk {
+    let value = env.settings().text(settings::UI_TEXT_CURVE.as_str());
+    if value.is_empty() {
+        return TextInk::DEFAULT;
+    }
+    ToneCurve::parse_for(value, env.lang().script()).map_or(TextInk::DEFAULT, TextInk::new)
+}
+
 /// What a text is (see [`UiStyle::size`]): its size follows from the
 /// style's, so text of one kind is as large on every screen.
 ///
@@ -758,9 +771,12 @@ impl UiStyle {
         Rect::new(area.x, area.y, area.width, area.height.saturating_sub(line))
     }
 
-    /// The UI font.
+    /// The UI font, inked as the setting `core.ui-text-curve` says
+    /// ([`text_ink`]).
     pub fn font<'a>(&self, env: &Env<'a>) -> Option<FontHandle<'a>> {
-        env.fonts().role(fonts::UI.as_str())
+        env.fonts()
+            .role(fonts::UI.as_str())
+            .map(|font| font.inked(text_ink(env)))
     }
 
     /// Height of a row with a note: the title line, then up to
