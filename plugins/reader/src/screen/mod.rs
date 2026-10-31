@@ -75,6 +75,10 @@ const PAGES_PER_STEP: usize = 8;
 /// one: buttons wait no longer than that.
 const PAGES_PER_STEP_SMALL: usize = 1;
 
+/// Steps in a row whose pages are laid out again, after a font pack could
+/// not be read meanwhile, before the page count is given up for this layout.
+const INDEX_RETRIES: u8 = 3;
+
 /// Pause between background steps.
 const STEP_DELAY_MS: u64 = 2;
 /// After a press or a tap, how long the status lines wait to be refreshed

@@ -52,6 +52,9 @@ pub(super) struct Book {
     /// Whether pagination stopped for this layout (a page that cannot be
     /// laid out, a storage that takes no more).
     pub(super) index_stopped: bool,
+    /// Steps in a row whose pages were left out because a font pack could
+    /// not be read while they were laid out.
+    index_failures: u8,
     /// Where the bookmarks and highlights are.
     pub(super) marks: Vec<Mark>,
     /// Text to point out on this page, e.g. a search hit.
@@ -231,6 +234,7 @@ impl Book {
             index: None,
             indexing: None,
             index_stopped: false,
+            index_failures: 0,
             page: Page::default(),
             words: core::cell::OnceCell::new(),
             lines: core::cell::OnceCell::new(),
@@ -433,6 +437,7 @@ impl Book {
         self.chapter_first.set(None);
         self.indexing = None;
         self.index_stopped = false;
+        self.index_failures = 0;
     }
 
     /// Whether the page's type is another now than the pages were laid
@@ -806,6 +811,9 @@ impl Book {
     /// Lays out the next pages and adds them to the index: whether more
     /// remain, `None` if it cannot go on.
     fn index_pages(&mut self, env: &Env<'_>) -> Option<bool> {
+        // Taken before the first page is laid out, also the one the batch
+        // goes on from.
+        let failed_before = env.fonts().failed_reads();
         let index = self.index.as_ref()?;
         let mut next = match self.indexing {
             Some(next) => next,
@@ -834,6 +842,15 @@ impl Book {
             }
             next = page.end;
         }
+        // A font pack that could not be read (a card pulled) measured
+        // letters 0 wide meanwhile: the pages are not kept, and laid out
+        // again at the next step, for a few steps; then the card is out.
+        if env.fonts().failed_reads() != failed_before {
+            self.index_failures += 1;
+            self.pieces.clear();
+            return (self.index_failures < INDEX_RETRIES).then_some(true);
+        }
+        self.index_failures = 0;
         let index = self.index.as_mut()?;
         // A storage that is read-only or full.
         if !index.append(env.storage(), &starts) {

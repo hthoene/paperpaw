@@ -179,6 +179,10 @@ change the plugin SDK.
 
 ### Fixed
 
+- The reader no longer keeps pages counted while a font pack on the card could not be read (a card pulled, a
+  hiccup): the letters it could not measure were 0 wide, and a page index of them sent later pages to the
+  wrong place. Such a step is made again (`Fonts::failed_reads` is taken before and after it); after three in a
+  row the count is given up for that layout, as for a page that cannot be laid out.
 - A pack that adds another script's letters in more sizes than the font
   it extends has (the Arabic one, to the firmware's Literata) no longer
   becomes that font's pack of larger sizes: the font's largest size

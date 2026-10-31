@@ -2104,7 +2104,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2113,6 +2113,7 @@ dependencies = [
  "paperpaw-plugin-format-epub",
  "paperpaw-plugin-format-txt",
  "paperpaw-sdk",
+ "paperpaw-text",
  "paperpaw-zip",
  "proptest",
 ]
