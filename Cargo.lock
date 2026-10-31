@@ -2179,7 +2179,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-sleep"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",

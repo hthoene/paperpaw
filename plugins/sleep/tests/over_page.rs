@@ -52,6 +52,8 @@ const X4: DeviceInfo = DeviceInfo {
 const SCREEN: &str = "sleep.screen";
 /// 64 × 64: clear around a black ring with a white middle.
 const RING: &[u8] = include_bytes!("data/ring.png");
+/// 480 × 800, all black: made for the whole X4 screen.
+const FULL: &[u8] = include_bytes!("data/full-screen.png");
 /// Where the ring goes in the middle at half the width: 240 × 240.
 const BOX: (usize, usize, usize) = (120, 280, 240);
 /// The picture in the middle, half the width large.
@@ -247,8 +249,13 @@ impl Device {
     /// With `settings` in `[sleep]`, the overlay's pictures in `sleep/`,
     /// reading if `reading`.
     fn new(settings: &str, reading: bool) -> Self {
+        Self::with_picture(settings, reading, RING)
+    }
+
+    /// The same, the pictures folder holding `picture`.
+    fn with_picture(settings: &str, reading: bool, picture: &[u8]) -> Self {
         let storage = MemoryStorage::new()
-            .with("sleep/ring.png", RING)
+            .with("sleep/ring.png", picture)
             .with("owls/owl.png", RING);
         let kernel = Kernel::builder(X4)
             .storage(storage)
@@ -413,6 +420,42 @@ fn the_page_shows_through_the_picture_as_much_as_asked() {
     assert_eq!(dark_in_ring(""), 120);
     let half = dark_in_ring("overlay-see-through = 50");
     assert!((40..=80).contains(&half), "{half}");
+}
+
+/// The corners of the black the picture made on the page, not counting
+/// the rows of the page's own lines.
+fn black_box(shown: &[Color]) -> Option<(usize, usize, usize, usize)> {
+    let black = |i: &usize| shown[*i] == Color::BLACK && !(*i / 480).is_multiple_of(8);
+    let xs = (0..shown.len()).filter(black).map(|i| i % 480);
+    let ys = (0..shown.len()).filter(black).map(|i| i / 480);
+    Some((xs.clone().min()?, ys.clone().min()?, xs.max()?, ys.max()?))
+}
+
+#[test]
+fn a_picture_made_for_the_screen_fills_it_at_full_size() {
+    // 480 × 800 at 100 %: the whole panel, to the edges, no margin or
+    // status line left uncovered (the page's lines are black, so the
+    // white ones between them tell).
+    let mut device = Device::with_picture("overlay-size = 100", true, FULL);
+    device.run(actions::SLEEP);
+    let shown = device.render().to_vec();
+    assert!(shown.iter().all(|c| *c == Color::BLACK));
+}
+
+#[test]
+fn a_picture_made_for_the_screen_is_a_part_of_it_at_a_part_size() {
+    // Half the screen: 240 × 400, in the middle.
+    let mut device = Device::with_picture(
+        "overlay-size = 50\noverlay-position = sleep.position.center",
+        true,
+        FULL,
+    );
+    device.run(actions::SLEEP);
+    let shown = device.render().to_vec();
+    let (x0, y0, x1, y1) = black_box(&shown).expect("a picture");
+    // Rows 200, 208, ... hold the page's black lines, not told apart.
+    assert_eq!((x0, x1, y1), (120, 359, 599));
+    assert!((200..=201).contains(&y0), "{y0}");
 }
 
 #[test]

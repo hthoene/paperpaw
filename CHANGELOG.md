@@ -42,6 +42,10 @@ change the plugin SDK.
 - Choosing text with the buttons: the page buttons (the X4's side buttons) now move by line, as Up and Down do,
   not word by word, and Left from the first word of the page reaches the last word (Right from the last
   reaches the first), instead of stopping there.
+- *Page with a picture*: a picture made for the whole screen (the X4's 480 × 800, as CrossPoint's) now covers the
+  whole screen at size 100 %. The size was a share of the screen's shorter side, so it was drawn in a square
+  and covered only the middle; it is now a share of the screen, and at 100 % no margin is left. Pictures
+  that are wider than high keep their size.
 - A book read to its last page is now recorded as read to 100 % (it was recorded as how far the start of its last page
   is, often 95 %, so the library did not list it as finished). The reader's `core.book-finished` and
   `core.book-closed` now carry 100 once the last page was reached.
