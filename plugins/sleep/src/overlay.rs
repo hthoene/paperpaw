@@ -49,7 +49,8 @@ pub const POSITIONS: [&str; 7] = [
 /// Where it goes unless set: out of the way of the text, below on the
 /// right.
 pub const DEFAULT_POSITION: &str = POSITIONS[6];
-/// How large: percent of the screen's shorter side.
+/// How large: percent of the screen (a widget: of its shorter side), so
+/// 100 % lets a picture made for the whole screen fill it.
 pub const SIZE: Setting<i64> = Setting::new("sleep.overlay-size");
 /// How large unless set.
 pub const DEFAULT_SIZE: i64 = 35;
@@ -126,7 +127,8 @@ pub(crate) fn over(env: &Env<'_>) -> Result<Over, String> {
 /// may show; the decoded file of the sleep before where it is the same
 /// picture at the same size (nothing written to the card then).
 fn picture(env: &Env<'_>, path: &str) -> Result<ImageRef, String> {
-    let side = u32::from(box_side(env));
+    let (box_w, box_h) = box_size(env);
+    let size = format!("{box_w}x{box_h}");
     let decoded = crate::data("overlay.gray");
     let kept = crate::data("overlay.key");
     let missing = || {
@@ -134,7 +136,7 @@ fn picture(env: &Env<'_>, path: &str) -> Result<ImageRef, String> {
             .tr("sleep.overlay.missing")
             .replace("{name}", path)
     };
-    let key = key(env, path, side).ok_or_else(missing)?;
+    let key = key(env, path, &size).ok_or_else(missing)?;
     let same =
         paperpaw_sdk::read_file(env.storage(), &kept, 1024).is_ok_and(|k| k == key.as_bytes());
     if same && let Some(file) = paperpaw_sdk::image::AlphaFile::open(env.storage(), &decoded) {
@@ -150,7 +152,7 @@ fn picture(env: &Env<'_>, path: &str) -> Result<ImageRef, String> {
         env.storage(),
         path,
         &decoded,
-        paperpaw_sdk::image::Fit::side(side),
+        paperpaw_sdk::image::Fit::screen(u32::from(box_w), u32::from(box_h)),
     )
     .map_err(|e| {
         env.i18n()
@@ -162,10 +164,10 @@ fn picture(env: &Env<'_>, path: &str) -> Result<ImageRef, String> {
     Ok(image)
 }
 
-/// What tells the picture at `path` made `side` large from others: its
+/// What tells the picture at `path` made `size` large from others: its
 /// path, size, the size it is made and a fingerprint of its first and
 /// last bytes (the card keeps no times of change PaperPaw reads).
-fn key(env: &Env<'_>, path: &str, side: u32) -> Option<String> {
+fn key(env: &Env<'_>, path: &str, size_made: &str) -> Option<String> {
     let size = env.storage().size(path).ok()?;
     let mut hash: u32 = 0x811c_9dc5;
     let mut buf = [0u8; 512];
@@ -175,24 +177,43 @@ fn key(env: &Env<'_>, path: &str, side: u32) -> Option<String> {
             hash = (hash ^ u32::from(b)).wrapping_mul(0x0100_0193);
         }
     }
-    Some(format!("{path}\n{size}\n{side}\n{hash:08x}\n"))
+    Some(format!("{path}\n{size}\n{size_made}\n{hash:08x}\n"))
 }
 
-/// The side of the square the picture fits in.
+/// The size setting, in percent.
+fn percent(env: &Env<'_>) -> u32 {
+    env.settings().read(&SIZE).clamp(10, 100) as u32
+}
+
+/// The side of the square a widget fits in.
 fn box_side(env: &Env<'_>) -> u16 {
     let display = env.device().display;
-    let percent = env.settings().read(&SIZE).clamp(10, 100) as u32;
-    (u32::from(display.width.min(display.height)) * percent / 100) as u16
+    (u32::from(display.width.min(display.height)) * percent(env) / 100) as u16
+}
+
+/// The box a picture fits in: the screen, so much of it as the size says;
+/// all of it at 100 %, which no margin or status line narrows.
+fn box_size(env: &Env<'_>) -> (u16, u16) {
+    let display = env.device().display;
+    let percent = percent(env);
+    let part = |side: u16| (u32::from(side) * percent / 100) as u16;
+    (part(display.width), part(display.height))
 }
 
 /// Where something `w` × `h` goes on the screen: inside the margins and
 /// clear of the status lines above and below (the reader's, the time and
 /// battery), as [`POSITION`] says.
-fn placed(env: &Env<'_>, w: u16, h: u16) -> Rect {
+fn placed(env: &Env<'_>, w: u16, h: u16, fill: bool) -> Rect {
     let display = env.device().display;
     let style = UiStyle::new(env);
-    let margin = style.margin();
-    let status = paperpaw_sdk::widgets::line_height(env, style.small()) + style.gap();
+    // A picture at 100 % has the whole screen, to the edges.
+    let (margin, status) = match fill {
+        true => (0, 0),
+        false => (
+            style.margin(),
+            paperpaw_sdk::widgets::line_height(env, style.small()) + style.gap(),
+        ),
+    };
     let (w, h) = (
         w.min(display.width.saturating_sub(2 * margin)),
         h.min(display.height.saturating_sub(2 * (margin + status))),
@@ -239,13 +260,14 @@ pub(crate) fn place(env: &Env<'_>, over: &mut Over) -> Rect {
     let side = box_side(env);
     match over {
         Over::Picture(image) => {
-            let (w, h) = ui::fit_image(image, side, side);
-            placed(env, w, h)
+            let (box_w, box_h) = box_size(env);
+            let (w, h) = ui::fit_image(image, box_w, box_h);
+            placed(env, w, h, percent(env) == 100)
         }
         Over::Widget(widget) => {
             let pad = pad(env);
             let height = widget.height(env, side.saturating_sub(2 * pad)) + 2 * pad;
-            let area = placed(env, side, height);
+            let area = placed(env, side, height, false);
             widget.place(env, inside(area, pad));
             area
         }
