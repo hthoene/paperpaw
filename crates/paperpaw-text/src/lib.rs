@@ -44,6 +44,7 @@ mod kern_table;
 #[cfg(feature = "outline")]
 mod kerning;
 mod layout;
+mod linebreak;
 #[cfg(feature = "outline")]
 mod marks;
 #[cfg(feature = "outline")]
@@ -74,6 +75,7 @@ pub use layout::{
     wrap_lines_balanced_kerned_with_cost, wrap_lines_hyphenated, wrap_lines_kerned,
 };
 pub use layout::{wrap_lines_balanced_in, wrap_lines_kerned_in};
+pub use linebreak::UNICODE_VERSION;
 #[cfg(feature = "outline")]
 pub use outline::OutlineFont;
 
