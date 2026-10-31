@@ -182,9 +182,9 @@ impl BookStyles {
 /// one only with a new [`VERSION`], and a layout keeps the bits it does
 /// not know. A group of bits holds an option of more than two values: its
 /// values are `<GROUP>_<VALUE>`, its bits `<GROUP>_MASK`. Named but
-/// reserved options are not done yet: a layout leaves them. Bit 10 is
-/// reserved for full Unicode line breaking for every script (not named
-/// until it does something).
+/// reserved options are not done yet: a layout leaves them. Bit 10
+/// (`LINE_BREAK_UNICODE`) is reserved for full Unicode line breaking for
+/// every script; it has no constant until it does something.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ScriptOptions(u32);
 
