@@ -154,6 +154,15 @@ does not read. Some files came with a later version of the data
 formats: they are read only where `plugin.ini` says that version or a
 later one (`formats = 3`), else left out, and PaperPaw says so.
 
+A later version of the data formats raises `formats` for every key,
+value or section it adds to these files (a new mark key, a tone name, a
+key map input, a step of `actions.ini` or `setup.ini`): a PaperPaw that
+reads only earlier formats refuses such a plugin as one for a newer
+PaperPaw, rather than reading it wrongly; within a format, the readers
+refuse what they don't know, so mistakes show. Translations are the
+exception: a catalog skips a section it doesn't know (any version), as
+language plugins are read by every PaperPaw.
+
 ### Which file for what
 
 | To change | File | For example |
