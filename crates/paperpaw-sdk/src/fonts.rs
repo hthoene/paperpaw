@@ -1261,6 +1261,7 @@ impl<'a> FontHandle<'a> {
     } @ text::HANDLE_DRAW_TONED
     }
 
+    paperpaw_table::shared! {
     /// Width of `text` at `size` as [`FontHandle::draw_in`] sets it.
     pub fn measure_in(&self, size: f32, text: &str, around: &paperpaw_text::Around) -> f32 {
         if let Some(larger) = self.larger_for(size) {
@@ -1278,8 +1279,10 @@ impl<'a> FontHandle<'a> {
             true => width,
             false => paperpaw_text::measure_in(self.pick_text(text).0, size, text, around),
         }
+    } @ text::HANDLE_MEASURE_IN
     }
 
+    paperpaw_table::shared! {
     /// Draws one line of `text` as what lies `around` it asks (see
     /// [`Around`](paperpaw_text::Around)): its characters in the order
     /// they are shown, Arabic letters joined (also with `around`'s
@@ -1301,9 +1304,10 @@ impl<'a> FontHandle<'a> {
         baseline: i32,
         text: &str,
         color: Color,
-        (extra, tone): (u16, paperpaw_text::ToneCurve),
+        look: (u16, paperpaw_text::ToneCurve),
         around: &paperpaw_text::Around,
     ) -> f32 {
+        let (extra, tone) = look;
         if let Some(larger) = self.larger_for(size) {
             return larger.draw_in(
                 canvas,
@@ -1349,6 +1353,7 @@ impl<'a> FontHandle<'a> {
             text,
             around,
         )
+    } @ text::HANDLE_DRAW_IN
     }
 
     /// The font `text` is drawn in by [`FontHandle::draw_in`]: the one of

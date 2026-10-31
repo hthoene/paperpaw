@@ -69,6 +69,13 @@ change the plugin SDK.
   substitutions tables have a format (version 1: single, ligature and
   multiple lookups per OpenType feature, script and language; unknown
   lookup kinds are skipped), read once a shaper uses them.
+- `FontHandle::draw_in` and `measure_in` (text in parts of several fonts)
+  are shared functions: plugins use the firmware's copy, so the way text
+  is split between fonts improves without rebuilding them. A mark (Thai,
+  Devanagari, Khmer, Burmese or Tibetan vowel signs among them) and a
+  conjoining Hangul vowel or final stay in their letter's font:
+  `paperpaw_text::is_mark` is Unicode's general category M (it knew only
+  the combining blocks).
 
 ### Added
 

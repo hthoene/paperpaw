@@ -32,31 +32,15 @@ struct Part<'a> {
     level: Level,
 }
 
-/// Whether `c` is a mark drawn onto the character before it: the
-/// combining blocks ([`paperpaw_text::is_mark`]) and the points and
-/// vowel marks of Hebrew and Arabic (bidi class NSM there). It stays in
-/// the part of its letter and is passed over as what lies around a part.
+/// Whether `c` belongs to the character before it, so it stays in the
+/// part of its letter and is passed over as what lies around a part: a
+/// mark ([`paperpaw_text::is_mark`], Unicode's category M: accents,
+/// Hebrew and Arabic points, the vowel signs of Indic and South-East
+/// Asian scripts), or a conjoining Hangul vowel or final (of a syllable
+/// written in jamo). Not a zero-width joiner: it joins Arabic letters
+/// itself, so it is what lies around a part.
 fn is_mark(c: char) -> bool {
-    paperpaw_text::is_mark(c)
-        || matches!(
-            c,
-            '\u{0591}'..='\u{05BD}'
-                | '\u{05BF}'
-                | '\u{05C1}'..='\u{05C2}'
-                | '\u{05C4}'..='\u{05C5}'
-                | '\u{05C7}'
-                | '\u{0610}'..='\u{061A}'
-                | '\u{064B}'..='\u{065F}'
-                | '\u{0670}'
-                | '\u{06D6}'..='\u{06DC}'
-                | '\u{06DF}'..='\u{06E4}'
-                | '\u{06E7}'..='\u{06E8}'
-                | '\u{06EA}'..='\u{06ED}'
-                | '\u{0816}'..='\u{082D}'
-                | '\u{0898}'..='\u{089F}'
-                | '\u{08CA}'..='\u{08E1}'
-                | '\u{08E3}'..='\u{08FF}'
-        )
+    paperpaw_text::is_mark(c) || matches!(c, '\u{1160}'..='\u{11FF}' | '\u{D7B0}'..='\u{D7FF}')
 }
 
 impl<'a> FontHandle<'a> {

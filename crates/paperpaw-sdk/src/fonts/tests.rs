@@ -635,6 +635,31 @@ fn marks_stay_with_their_letters() {
     );
 }
 
+/// The vowel signs of Indic and South-East Asian scripts (Unicode's
+/// category M, spacing ones too) and conjoining Hangul vowels stay in the
+/// part of the letter before them, though another font has them (A12).
+#[test]
+fn vowel_signs_and_jamo_stay_with_their_letters() {
+    use paperpaw_text::Around;
+    let (fonts, _storage) = latin_and_letters("\u{915}\u{93e}\u{e01}\u{e34}\u{1100}\u{1161}");
+    let font = fonts.get("a.latin").unwrap();
+    let ltr = Around::new(crate::lang::Direction::Ltr, crate::lang::Lang::NONE);
+    for (sign, letter) in [
+        ("\u{93e}", "\u{915}"),
+        ("\u{e34}", "\u{e01}"),
+        ("\u{1161}", "\u{1100}"),
+    ] {
+        assert_eq!(
+            parts_of(&font, &alloc::format!("a{sign}{letter}"), &ltr),
+            [
+                (true, alloc::format!("a{sign}")),
+                (false, String::from(letter))
+            ],
+            "{sign:?}"
+        );
+    }
+}
+
 /// Fonts drawn from outlines: Literata's brackets and colon, Noto Serif
 /// Hebrew and Noto Naskh Arabic as the card's packs (extensions of it).
 fn inked_fonts() -> (Fonts, Rc<dyn Storage>) {

@@ -42,3 +42,5 @@ text 1 TEXT_DRAW_TEXT_IN: fn draw_text_in( canvas: &mut Canvas<'_>, cache: &mut 
 text 1 STORED_OPEN: fn open_within( source: Rc<dyn PackSource>, limits: PackLimits, ) -> Result<StoredPack, FontError>
 text 1 CACHE_NEW: fn new(capacity: usize) -> GlyphCache
 text 1 FONTS_FAILED_READS: fn failed_reads(&self) -> u32
+text 1 HANDLE_MEASURE_IN: fn measure_in(&self, size: f32, text: &str, around: &paperpaw_text::Around) -> f32
+text 1 HANDLE_DRAW_IN: fn draw_in( &self, canvas: &mut Canvas<'_>, size: f32, x: f32, baseline: i32, text: &str, color: Color, look: (u16, paperpaw_text::ToneCurve), around: &paperpaw_text::Around, ) -> f32

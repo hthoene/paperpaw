@@ -51,3 +51,5 @@ text 1 TEXT_DRAW_TEXT_IN paperpaw_text::draw_text_in
 text 1 STORED_OPEN paperpaw_text::StoredPack::open_within
 text 1 CACHE_NEW paperpaw_text::GlyphCache::new
 text 1 FONTS_FAILED_READS crate::fonts::Fonts::failed_reads
+text 1 HANDLE_MEASURE_IN crate::fonts::FontHandle::measure_in
+text 1 HANDLE_DRAW_IN crate::fonts::FontHandle::draw_in

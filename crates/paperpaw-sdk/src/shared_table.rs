@@ -1,7 +1,7 @@
 // Made by tools/shared-table.py from shared.list: do not edit.
 #![cfg_attr(rustfmt, rustfmt::skip)]
 
-pub(super) static TEXT: super::Addresses<42> = super::Addresses([
+pub(super) static TEXT: super::Addresses<44> = super::Addresses([
     paperpaw_text::measure as *const (), // TEXT_MEASURE
     paperpaw_text::is_mark as *const (), // TEXT_IS_MARK
     paperpaw_text::glyph_x as *const (), // TEXT_GLYPH_X
@@ -44,6 +44,8 @@ pub(super) static TEXT: super::Addresses<42> = super::Addresses([
     paperpaw_text::StoredPack::open_within as *const (), // STORED_OPEN
     paperpaw_text::GlyphCache::new as *const (), // CACHE_NEW
     crate::fonts::Fonts::failed_reads as *const (), // FONTS_FAILED_READS
+    crate::fonts::FontHandle::measure_in as *const (), // HANDLE_MEASURE_IN
+    crate::fonts::FontHandle::draw_in as *const (), // HANDLE_DRAW_IN
 ]);
 
 /// The table of family number `n`, if the firmware shares it.

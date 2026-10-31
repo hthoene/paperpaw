@@ -5,7 +5,7 @@ pub const REVISIONS: crate::Revisions = [1, 0, 0, 0, 0, 0, 0, 0];
 /// The oldest revision of each family whose plugins still run.
 pub const OLDEST: crate::Revisions = [1, 0, 0, 0, 0, 0, 0, 0];
 /// Eight hex digits naming the tables of this build, for logs.
-pub const HASH: &str = "c485baa2";
+pub const HASH: &str = "6e151a88";
 
 /// The text family's table.
 pub mod text {
@@ -95,8 +95,12 @@ pub mod text {
     pub const CACHE_NEW: usize = 40;
     /// `crate::fonts::Fonts::failed_reads` (revision 1).
     pub const FONTS_FAILED_READS: usize = 41;
+    /// `crate::fonts::FontHandle::measure_in` (revision 1).
+    pub const HANDLE_MEASURE_IN: usize = 42;
+    /// `crate::fonts::FontHandle::draw_in` (revision 1).
+    pub const HANDLE_DRAW_IN: usize = 43;
     /// How many entries the table has.
-    pub const COUNT: usize = 42;
+    pub const COUNT: usize = 44;
 }
 
 /// The fonts family's table.
