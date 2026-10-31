@@ -44,6 +44,7 @@ mod kern_table;
 #[cfg(feature = "outline")]
 mod kerning;
 mod layout;
+mod mark_table;
 #[cfg(feature = "outline")]
 mod marks;
 #[cfg(feature = "outline")]
@@ -162,17 +163,19 @@ impl<'a> TextStyle<'a> {
 }
 
 paperpaw_table::shared! {
-/// Whether `ch` is a combining mark, drawn onto the character before it
-/// (an accent, a diaeresis below): the combining blocks of Unicode.
+/// Whether `ch` is a combining mark, drawn onto or beside the character
+/// before it (an accent, a diaeresis below, the vowel signs of Thai,
+/// Devanagari or Khmer): Unicode's general category M (Mn, Mc, Me).
 pub fn is_mark(ch: char) -> bool {
-    matches!(
-        ch,
-        '\u{0300}'..='\u{036F}'
-            | '\u{1AB0}'..='\u{1AFF}'
-            | '\u{1DC0}'..='\u{1DFF}'
-            | '\u{20D0}'..='\u{20FF}'
-            | '\u{FE20}'..='\u{FE2F}'
-    )
+    let cp = u32::from(ch);
+    if cp < 0x300 {
+        return false;
+    }
+    // The last run starting at or before `cp`, and whether it reaches it.
+    let at = mark_table::MARKS.partition_point(|run| run >> mark_table::SHIFT <= cp);
+    at.checked_sub(1)
+        .and_then(|i| mark_table::MARKS.get(i))
+        .is_some_and(|run| cp - (run >> mark_table::SHIFT) <= run & ((1 << mark_table::SHIFT) - 1))
 } @ text::TEXT_IS_MARK
 }
 
@@ -345,6 +348,46 @@ mod tests {
     use super::*;
 
     const FONT: &[u8] = include_bytes!("../../../plugins/fonts-default/fonts/SourceSans3.ttf");
+
+    #[test]
+    fn marks_are_unicodes_category_m() {
+        // Combining accents, Hebrew and Arabic points, Thai, Devanagari
+        // (spacing too), Khmer and Tibetan vowel signs, enclosing marks,
+        // variation selectors.
+        for ch in [
+            '\u{301}',
+            '\u{5B0}',
+            '\u{64E}',
+            '\u{E31}',
+            '\u{E48}',
+            '\u{93E}',
+            '\u{94D}',
+            '\u{17B6}',
+            '\u{F71}',
+            '\u{20DD}',
+            '\u{FE0F}',
+            '\u{1E944}',
+            '\u{E0100}',
+            '\u{E01EF}',
+        ] {
+            assert!(is_mark(ch), "{:04X}", u32::from(ch));
+        }
+        // Letters, spaces, emoji modifiers, the edges of a run.
+        for ch in [
+            'a',
+            ' ',
+            '\u{2FF}',
+            '\u{370}',
+            '\u{915}',
+            '\u{E01}',
+            '\u{1F3FB}',
+            '\u{E01F0}',
+            '\u{10FFFF}',
+        ] {
+            assert!(!is_mark(ch), "{:04X}", u32::from(ch));
+        }
+        assert!(is_mark('\u{36F}'));
+    }
 
     #[test]
     fn packs_render_exactly_like_runtime_rasterization() {
