@@ -1277,7 +1277,14 @@ impl<'a> FontHandle<'a> {
             return self.measure(size, text);
         }
         let size = self.size_for(size, text);
-        paperpaw_text::measure_in(self.pick_text(text).0, size, text, around)
+        let mut width = 0.0;
+        let parted = self.set_in_parts(text, around, |font, _, part, around| {
+            width += paperpaw_text::measure_in(font, size, part, around);
+        });
+        match parted {
+            true => width,
+            false => paperpaw_text::measure_in(self.pick_text(text).0, size, text, around),
+        }
     }
 
     /// Draws one line of `text` as what lies `around` it asks (see
@@ -1286,7 +1293,9 @@ impl<'a> FontHandle<'a> {
     /// neighbours), brackets mirrored in right-to-left text; returns its
     /// width. Text left to right alone, with nothing to join at its edges,
     /// is drawn as [`FontHandle::draw_toned`] draws it. Other text is
-    /// drawn in one font: the one of its first letter.
+    /// drawn in the font of its first letter, in parts where that font
+    /// lacks some of its characters another one draws (a bracket or a
+    /// colon beside Hebrew letters).
     #[allow(
         clippy::too_many_arguments,
         reason = "its inputs are separate things; a struct of them would serve this call alone"
@@ -1321,12 +1330,32 @@ impl<'a> FontHandle<'a> {
             return self.measure_in(size, text, around);
         }
         let size = self.size_for(size, text);
-        let (font, index) = self.pick_text(text);
-        let style = paperpaw_text::TextStyle::new(font, index, size, color)
-            .bolder(extra)
-            .curve(tone);
+        let style = |font, index| {
+            paperpaw_text::TextStyle::new(font, index, size, color)
+                .bolder(extra)
+                .curve(tone)
+        };
         let mut cache = self.cache.borrow_mut();
-        paperpaw_text::draw_text_in(canvas, &mut cache, &style, x, baseline, text, around)
+        let mut pen = x;
+        let parted = self.set_in_parts(text, around, |font, index, part, around| {
+            let style = style(font, index);
+            pen += paperpaw_text::draw_text_in(
+                canvas, &mut cache, &style, pen, baseline, part, around,
+            );
+        });
+        if parted {
+            return pen - x;
+        }
+        let (font, index) = self.pick_text(text);
+        paperpaw_text::draw_text_in(
+            canvas,
+            &mut cache,
+            &style(font, index),
+            x,
+            baseline,
+            text,
+            around,
+        )
     }
 
     /// The font `text` is drawn in by [`FontHandle::draw_in`]: the one of
@@ -1434,6 +1463,8 @@ fn plain_in(text: &str, around: &paperpaw_text::Around) -> bool {
         && !joins(around.after)
         && !paperpaw_text::bidi::needs_bidi(text)
 }
+
+mod split;
 
 #[cfg(test)]
 mod tests;

@@ -358,3 +358,199 @@ fn right_to_left_text_is_drawn_as_measured() {
     );
     assert_eq!(drawn, 8.0);
 }
+
+/// Fonts for text in more than one font: Latin with punctuation and
+/// digits 5 wide, and a pack extending it with Hebrew letters 2 wide and
+/// Arabic ones (beh 1 alone, 4 final, 3 in the middle, 2 initial).
+fn latin_and_letters(also: &str) -> (Fonts, Rc<dyn Storage>) {
+    let metrics = LineMetrics::new(8.0, 2.0, 12.0);
+    let mut letters = PackBuilder::new();
+    let mut glyphs: alloc::vec::Vec<_> = "שלוםבראתהספרמחירעמודלפינכבגוי"
+        .chars()
+        .map(|c| (c, Glyph::empty(2.0)))
+        .collect();
+    glyphs.extend(
+        [
+            ('\u{628}', 1.0),
+            ('\u{fe90}', 4.0),
+            ('\u{fe92}', 3.0),
+            ('\u{fe91}', 2.0),
+        ]
+        .map(|(c, a)| (c, Glyph::empty(a))),
+    );
+    glyphs.extend(also.chars().map(|c| (c, Glyph::empty(2.0))));
+    glyphs.sort_by_key(|(c, _)| *c);
+    glyphs.dedup_by_key(|(c, _)| *c);
+    letters.add_strike(10.0, metrics, glyphs);
+    let storage: Rc<dyn Storage> = Rc::new(
+        MemoryStorage::new().with("plugins/letters/fonts/latin-letters.ppfp", letters.build()),
+    );
+    let mut latin = PackBuilder::new();
+    let glyphs = "abcdefghijklmnopqrstuvwxyz ()[]:.,-'\"«»?0123456789"
+        .chars()
+        .map(|c| (c, Glyph::empty(5.0)))
+        .collect();
+    latin.add_strike(10.0, metrics, glyphs);
+    let mut fonts = Fonts::new(4096);
+    let font = Font::from_data(latin.build(), &[]).unwrap();
+    fonts
+        .add(FontSpec::new(Id::new_static("a.latin"), font))
+        .unwrap();
+    fonts
+        .add_extension(
+            Id::new_static("letters.latin-letters"),
+            String::from("plugins/letters/fonts/latin-letters.ppfp"),
+            Id::new_static("a.latin"),
+        )
+        .unwrap();
+    assert!(fonts.load(&storage).is_empty());
+    (fonts, storage)
+}
+
+/// The parts `text` is set in, from the left: whether the Latin font
+/// draws each, and its text.
+fn parts_of(
+    font: &FontHandle<'_>,
+    text: &str,
+    around: &paperpaw_text::Around,
+) -> alloc::vec::Vec<(bool, String)> {
+    let mut parts = alloc::vec::Vec::new();
+    let latin = font.pick('a').1;
+    font.set_in_parts(text, around, |_, index, part, _| {
+        parts.push((index == latin, String::from(part)));
+    });
+    parts
+}
+
+/// A word in quotes or brackets, a colon or a full stop after a Hebrew
+/// or Arabic word, digits beside letters: each character in a font that
+/// has it, shown in the order the text's direction gives (#33, the
+/// sample books showed "???" and lost punctuation).
+#[test]
+fn text_in_more_than_one_font_is_set_in_parts() {
+    use paperpaw_text::Around;
+    let (fonts, _storage) = latin_and_letters("");
+    let font = fonts.get("a.latin").unwrap();
+    let rtl = Around::new(crate::lang::Direction::Rtl, crate::lang::Lang::NONE);
+    let ltr = Around::new(crate::lang::Direction::Ltr, crate::lang::Lang::NONE);
+    let part = |latin: bool, text: &str| (latin, String::from(text));
+    // Brackets mirror inside their part; the parts go right to left.
+    assert_eq!(
+        parts_of(&font, "(שלום)", &rtl),
+        [part(true, ")"), part(false, "שלום"), part(true, "(")]
+    );
+    assert_eq!(
+        parts_of(&font, "'שלום',", &rtl),
+        [part(true, "',"), part(false, "שלום"), part(true, "'")]
+    );
+    // Digits after a hyphen: their own part, left to right (12-ב).
+    assert_eq!(
+        parts_of(&font, "ב-12", &rtl),
+        [part(true, "12"), part(true, "-"), part(false, "ב")]
+    );
+    assert_eq!(
+        parts_of(&font, "a(שלום)", &ltr),
+        [part(true, "a("), part(false, "שלום"), part(true, ")")]
+    );
+    // One font for all: set as before, in one go.
+    assert!(parts_of(&font, "שלום", &rtl).is_empty());
+    assert!(parts_of(&font, "a(b)", &ltr).is_empty());
+    // A character no font has stays where it is: no part of its own.
+    assert!(parts_of(&font, "שלום₪", &rtl).is_empty());
+    // Widths add up, measured as drawn: 5 + 4 × 2 + 5.
+    assert_eq!(font.measure_in(10.0, "(שלום)", &rtl), 18.0);
+}
+
+/// Arabic letters in a part join what lies beside the whole text and
+/// the parts beside them: beh after a beh is final (4 wide), before a
+/// colon too.
+#[test]
+fn parts_join_what_lies_around_them() {
+    use paperpaw_graphics::Framebuffer;
+    use paperpaw_platform::PixelFormat;
+    use paperpaw_text::Around;
+    let (fonts, _storage) = latin_and_letters("");
+    let font = fonts.get("a.latin").unwrap();
+    let rtl = Around::new(crate::lang::Direction::Rtl, crate::lang::Lang::NONE);
+    assert_eq!(font.measure_in(10.0, "\u{628}:", &rtl), 1.0 + 5.0);
+    let after = rtl.with_context(Some('\u{628}'), None);
+    assert_eq!(font.measure_in(10.0, "\u{628}:", &after), 4.0 + 5.0);
+    let mut frame = Framebuffer::new(60, 20, PixelFormat::Gray8).unwrap();
+    let tone = paperpaw_text::ToneCurve::SMOOTH;
+    let mut canvas = frame.canvas();
+    let drawn = font.draw_in(
+        &mut canvas,
+        10.0,
+        0.0,
+        10,
+        "\u{628}:",
+        Color::BLACK,
+        (0, tone),
+        &after,
+    );
+    assert_eq!(drawn, 9.0);
+}
+
+/// The sample books' lines (scratch EPUBs of #33): every part in a font
+/// that draws its characters, drawn as wide as measured; long text and
+/// more parts than are kept do no harm.
+#[test]
+fn sample_lines_are_drawn_in_fonts_that_have_their_letters() {
+    use paperpaw_graphics::Framebuffer;
+    use paperpaw_platform::PixelFormat;
+    use paperpaw_text::Around;
+    let lines = [
+        "قال: «هذا هو الكتاب (الجزء الأول)»؟",
+        "הספר נכתב בשנת 1893 (לפי הלוח הגרגוריאני).",
+        "קראתי את Alice in Wonderland ב-12 ימים.",
+        "המחיר: 3.50 ₪ [ראו עמוד 7].",
+        "באזנינו את 'השמימית' העליונים",
+    ];
+    let arabic: String = lines[0]
+        .chars()
+        .filter(|c| !c.is_ascii() && *c != '«' && *c != '»')
+        .collect();
+    let (fonts, _storage) = latin_and_letters(&arabic);
+    let font = fonts.get("a.latin").unwrap();
+    let rtl = Around::new(crate::lang::Direction::Rtl, crate::lang::Lang::NONE);
+    // Quotes and colons 5 wide, Hebrew letters 2: none lost or missing.
+    assert_eq!(
+        font.measure_in(10.0, "'השמימית'", &rtl),
+        5.0 + 7.0 * 2.0 + 5.0
+    );
+    assert_eq!(font.measure_in(10.0, "המחיר:", &rtl), 5.0 * 2.0 + 5.0);
+    let long = "(ש) ".repeat(40);
+    let mut frame = Framebuffer::new(800, 20, PixelFormat::Gray8).unwrap();
+    let tone = paperpaw_text::ToneCurve::SMOOTH;
+    for (line, base) in lines
+        .iter()
+        .map(|l| (*l, crate::lang::Direction::Rtl))
+        .chain([(long.as_str(), crate::lang::Direction::Rtl)])
+        .chain([("The word ספר (sefer), 3.", crate::lang::Direction::Ltr)])
+    {
+        let around = Around::new(base, crate::lang::Lang::NONE);
+        for word in line.split(' ').filter(|w| !w.is_empty()) {
+            font.set_in_parts(word, &around, |part_font, _, part, _| {
+                for c in part.chars() {
+                    assert!(
+                        part_font.has_char(c) || !font.has_char(c),
+                        "{c:?} of {word:?} in a font without it"
+                    );
+                }
+            });
+        }
+        let measured = font.measure_in(10.0, line, &around);
+        let mut canvas = frame.canvas();
+        let drawn = font.draw_in(
+            &mut canvas,
+            10.0,
+            0.0,
+            10,
+            line,
+            Color::BLACK,
+            (0, tone),
+            &around,
+        );
+        assert_eq!(drawn, measured, "{line}");
+    }
+}

@@ -88,7 +88,9 @@ change the plugin SDK.
   text apart (isolates and overrides of UAX #9). Lines are resolved by
   UAX #9, start at the right where they run right to left, and are drawn
   run by run in the order of their levels, joined Arabic letters as wide
-  as drawn (`FontHandle::measure_in`, `draw_in`); the words of a page
+  as drawn (`FontHandle::measure_in`, `draw_in`), a word whose
+  characters come from more than one font (in quotes or brackets, with a
+  colon or digits) in parts of one font each; the words of a page
   come in reading order where they are drawn. Not yet checked by readers
   of these languages.
 - The pieces of a long paragraph (a chapter saved by Word as one) are
