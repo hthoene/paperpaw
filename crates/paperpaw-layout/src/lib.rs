@@ -167,6 +167,56 @@ impl BookStyles {
     }
 }
 
+/// Options of the layout for some scripts and languages (see
+/// [`Style::script`]): flags, so that one for another script comes
+/// without a new field. Bits not named here are reserved: zero now; a
+/// meaning is given to one only with a new [`VERSION`], and a layout
+/// leaves those it does not know.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct ScriptOptions(u32);
+
+impl ScriptOptions {
+    /// None: every script laid out as by default.
+    pub const NONE: ScriptOptions = ScriptOptions(0);
+    /// Justified Arabic lines stretched by lengthening letters (kashida)
+    /// rather than by wider gaps. Reserved: not done yet.
+    pub const KASHIDA: ScriptOptions = ScriptOptions(1);
+    /// Punctuation at a line's ends hung into the margin. Reserved: not
+    /// done yet.
+    pub const HANGING_PUNCTUATION: ScriptOptions = ScriptOptions(1 << 1);
+    /// Korean (and CJK) text broken only at spaces, between words, not
+    /// between syllables (CSS `word-break: keep-all`). Reserved: lines
+    /// break only at spaces now (#61).
+    pub const KEEP_ALL: ScriptOptions = ScriptOptions(1 << 2);
+
+    pub const fn has(self, other: ScriptOptions) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    /// These and `other`'s.
+    #[must_use]
+    pub const fn with(self, other: ScriptOptions) -> ScriptOptions {
+        ScriptOptions(self.0 | other.0)
+    }
+
+    /// These without `other`'s.
+    #[must_use]
+    pub const fn without(self, other: ScriptOptions) -> ScriptOptions {
+        ScriptOptions(self.0 & !other.0)
+    }
+
+    /// For a layout's key, and to keep (a reader's settings).
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+
+    /// The options of `bits`, the reserved ones too (a layout leaves
+    /// those it does not know).
+    pub const fn from_bits(bits: u32) -> ScriptOptions {
+        ScriptOptions(bits)
+    }
+}
+
 /// Typographic settings for a page, in pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
@@ -200,12 +250,10 @@ pub struct Style {
     /// the text; 0.5 by default. Reserved: the layout keeps its own cap
     /// (0.6 of a line) until it reads this, with a new [`VERSION`].
     pub justify_cap: f32,
-    /// Justified Arabic lines stretched by lengthening letters (kashida)
-    /// rather than by wider gaps; off by default. Reserved: not done yet.
-    pub kashida: bool,
-    /// Punctuation at a line's ends hung into the margin; off by default.
-    /// Reserved: not done yet.
-    pub hanging_punctuation: bool,
+    /// Options for some scripts and languages (kashida, hanging
+    /// punctuation, keep-all, ...); none by default. Options of later
+    /// scripts are new bits here, not new fields.
+    pub script: ScriptOptions,
 }
 
 impl Style {
@@ -221,8 +269,7 @@ impl Style {
             book: BookStyles::ALL,
             balanced: false,
             justify_cap: 0.5,
-            kashida: false,
-            hanging_punctuation: false,
+            script: ScriptOptions::NONE,
         }
     }
 
@@ -233,17 +280,10 @@ impl Style {
         self
     }
 
-    /// The same, lengthening Arabic letters to justify (see
-    /// [`Style::kashida`]).
-    pub const fn kashida(mut self, kashida: bool) -> Self {
-        self.kashida = kashida;
-        self
-    }
-
-    /// The same, hanging punctuation into the margin (see
-    /// [`Style::hanging_punctuation`]).
-    pub const fn hanging_punctuation(mut self, hanging: bool) -> Self {
-        self.hanging_punctuation = hanging;
+    /// The same, with the options `script` for some scripts (see
+    /// [`ScriptOptions`]).
+    pub const fn script(mut self, script: ScriptOptions) -> Self {
+        self.script = script;
         self
     }
 

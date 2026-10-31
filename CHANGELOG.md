@@ -68,8 +68,17 @@ change the plugin SDK.
   cap; links say what they are (`LinkKind`: a note reference, the way
   back). Lines of `paperpaw-layout` carry their direction (`LineBidi`),
   runs their level and language; pages their notes (`PageNote`);
-  `Style` reserves `justify_cap`, `kashida` and `hanging_punctuation`;
-  `Typesetter::advance_text` measures a text as a whole.
+  `Style` reserves `justify_cap`, and options for some scripts as flag
+  bits (`Style::script`, `ScriptOptions`: kashida, hanging punctuation,
+  keep-all; the other bits reserved, so a later script's option is a new
+  bit, not a field); `Typesetter::advance_text` measures a text as a
+  whole.
+- `paperpaw-text`: character sets are no longer public constants; tools
+  name them (`charset::named`), so a set grows without a new plugin
+  interface. The Greek set has the apostrophe of elisions, U+02BC (#60);
+  new sets `hangul` and `cjk-symbols`. `paperpaw-fontgen --chars @FILE`
+  reads code points from a file, e.g. the 2,350 Hangul syllables of
+  KS X 1001 (`tools/fontgen/sets/hangul-ks.txt`).
 - `paperpaw-text`: `Around` (what lies around a text, its base direction
   and language), `draw_text_in` and `measure_in`: right-to-left order,
   Arabic letters joined (also across a text's edges), mirrored brackets,

@@ -817,14 +817,16 @@ fn text_is_as_wide_as_its_characters_by_default() {
 
 #[test]
 fn reserved_parts_are_built_whole() {
+    let options = ScriptOptions::KASHIDA.with(ScriptOptions::HANGING_PUNCTUATION);
     let style = Style::new(1.0, 2.0, 10.0, true)
         .justify_cap(0.25)
-        .kashida(true)
-        .hanging_punctuation(true);
-    assert_eq!(
-        (style.justify_cap, style.kashida, style.hanging_punctuation),
-        (0.25, true, true)
-    );
+        .script(options);
+    assert_eq!((style.justify_cap, style.script), (0.25, options));
+    assert!(style.script.has(ScriptOptions::KASHIDA) && !style.script.has(ScriptOptions::KEEP_ALL));
+    assert_eq!(STYLE.script, ScriptOptions::NONE);
+    // Reserved bits are kept as they are, for a later layout.
+    let later = ScriptOptions::from_bits(1 << 31).with(ScriptOptions::KEEP_ALL);
+    assert_eq!(later.without(ScriptOptions::KEEP_ALL).bits(), 1 << 31);
     assert_eq!(STYLE.justify_cap, 0.5);
     let note = PageNote::new(
         Rect::new(0, 0, 10, 5),
