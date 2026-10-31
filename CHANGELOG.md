@@ -35,6 +35,9 @@ change the plugin SDK.
 
 ### Fixed
 
+- Choosing text with the buttons: the page buttons (the X4's side buttons) now move by line, as Up and Down do,
+  not word by word, and Left from the first word of the page reaches the last word (Right from the last
+  reaches the first), instead of stopping there.
 - A book read to its last page is now recorded as read to 100 % (it was recorded as how far the start of its last page
   is, often 95 %, so the library did not list it as finished). The reader's `core.book-finished` and
   `core.book-closed` now carry 100 once the last page was reached.

@@ -86,6 +86,9 @@ proptest! {
         let above = words.iter().map(|w| w.area.y).filter(|&l| l < y).max();
         prop_assert_eq!(below.unwrap_or(y), words[down].area.y);
         prop_assert_eq!(above.unwrap_or(y), words[up].area.y);
+        // The page buttons go by line as up and down.
+        prop_assert_eq!(Selection::choosing(from).moved(&actions::NEXT_PAGE, &words), Some(down));
+        prop_assert_eq!(Selection::choosing(from).moved(&actions::PREV_PAGE, &words), Some(up));
     }
 
     #[test]
@@ -139,4 +142,27 @@ fn the_range_is_ordered_either_way() {
     };
     assert_eq!(selection.range(), (2, 7));
     assert_eq!(Selection::touched(4).mode, Mode::Bar);
+}
+
+#[test]
+fn words_go_by_one_and_wrap_round_the_page() {
+    let words = page(&[(3, 20), (2, 20)]);
+    let moved = |at, action| Selection::choosing(at).moved(&action, &words);
+    assert_eq!(moved(1, actions::RIGHT), Some(2));
+    assert_eq!(moved(1, actions::LEFT), Some(0));
+    // Left from the first word reaches the last, right from the last the first.
+    assert_eq!(moved(0, actions::LEFT), Some(4));
+    assert_eq!(moved(4, actions::RIGHT), Some(0));
+}
+
+#[test]
+fn lines_go_by_the_page_buttons_and_stop_at_the_ends() {
+    // Three lines of four words: the page buttons are a line, not a word.
+    let words = page(&[(4, 20), (4, 20), (4, 20)]);
+    let moved = |at, action| Selection::choosing(at).moved(&action, &words);
+    assert_eq!(moved(1, actions::NEXT_PAGE), Some(5));
+    assert_eq!(moved(5, actions::PREV_PAGE), Some(1));
+    // Not past the last line, nor before the first.
+    assert_eq!(moved(10, actions::NEXT_PAGE), Some(10));
+    assert_eq!(moved(2, actions::PREV_PAGE), Some(2));
 }
