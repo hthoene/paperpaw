@@ -368,7 +368,7 @@ impl Book {
         {
             return Some(first);
         }
-        let (first, _) = index.locate(env.storage(), *start)?;
+        let (first, _) = index.locate(env.storage(), self.line_start(env, *start))?;
         self.chapter_first.set(Some((*start, index.pages(), first)));
         Some(first)
     }
@@ -1045,7 +1045,16 @@ impl Book {
                 let (document, page) = (&*self.document, (self.page.start, self.page.end));
                 match (document.sections() > 1, value > 0) {
                     (true, true) => next_chapter(document, storage, entries, page.1),
-                    (true, false) => previous_chapter(document, storage, entries, page.0),
+                    (true, false) => {
+                        // On the page this chapter begins with, it is
+                        // behind us, though its entry's locator is before
+                        // the page's start.
+                        let here = match &self.chapter {
+                            Some((start, ..)) if self.line_start(env, *start) == page.0 => *start,
+                            _ => page.0,
+                        };
+                        previous_chapter(document, storage, entries, here)
+                    }
                     (false, on) => chapter_by_starts(document, storage, entries, page, on),
                 }
             }
@@ -1078,6 +1087,7 @@ impl Book {
         let Some(index) = &self.index else {
             return at;
         };
+        let at = self.line_start(env, at);
         match index.locate(env.storage(), at) {
             Some((page, _)) if index.is_complete() || page + 1 < index.pages() => {
                 index.entry(env.storage(), page).unwrap_or(at)

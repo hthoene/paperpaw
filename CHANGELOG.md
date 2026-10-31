@@ -32,6 +32,10 @@ change the plugin SDK.
   (it uses a little battery all the time, and still switches off when the battery is nearly empty). While it
   charges it stays asleep. *Sleep lightly on battery* (developer group) off, or the choice *At once*, is the old way.
   The X4 Pro and X4 Classic sleep as before. Not yet tested on a device.
+- SDK: `layout::line_start` of a position before a block (a section's start,
+  say) gives that block's start, where a page laid out from there starts, not
+  the position itself. Comparing it with a page's start or looking it up in a
+  `PageIndex` then needs no more care.
 
 ### Fixed
 
@@ -42,6 +46,12 @@ change the plugin SDK.
   is, often 95 %, so the library did not list it as finished). The reader's `core.book-finished` and
   `core.book-closed` now carry 100 once the last page was reached.
 - A time zone rule with an offset of more than 24 hours (such as `<>200`) is now refused instead of read as an offset of days.
+- Reader: going to a chapter whose table of contents entry names no place in
+  it (a whole chapter of an EPUB) showed the last page of the chapter before,
+  from the contents, a link and *Next chapter* alike, and *Next chapter* and
+  *Previous chapter* could go no further from there.
+- Reader: status lines show the page in the chapter in a book's first chapter
+  too, where it starts at the book's start.
 
 ## [0.5.0-beta.12] - 2026-10-28
 

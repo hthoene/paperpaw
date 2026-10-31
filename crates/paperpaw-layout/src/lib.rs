@@ -592,7 +592,9 @@ impl core::fmt::Debug for LayoutContext<'_> {
 /// The start of the line `at` falls in, the block laid out from its
 /// start as [`layout_page`] does: a page shown from a position kept with
 /// another layout (other fonts, a turned screen) or found by a search
-/// starts with that whole line, not inside it.
+/// starts with that whole line, not inside it. Before a block (at the
+/// start of a section, say), the start of that block, as a page from
+/// there starts.
 pub fn line_start(cx: &LayoutContext<'_>, at: Locator) -> Result<Locator, DocumentError> {
     let LayoutContext {
         document,
@@ -603,7 +605,10 @@ pub fn line_start(cx: &LayoutContext<'_>, at: Locator) -> Result<Locator, Docume
     let Some(block) = document.block_at(storage, at)? else {
         return Ok(at);
     };
-    if block.kind == BlockKind::Image || at.offset <= block.start {
+    if at.offset < block.start {
+        return Ok(Locator::new(at.section, block.start));
+    }
+    if block.kind == BlockKind::Image || at.offset == block.start {
         return Ok(at);
     }
     let from = block.text_index(at.offset);

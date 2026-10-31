@@ -487,44 +487,6 @@ fn arrows_turn_pages() {
     assert_eq!(reading.kept(), third);
 }
 
-#[test]
-fn chapters_are_jumped_to_and_turned_back_from() {
-    let epub = include_bytes!("../../../samples/library/books/alice-in-wonderland.epub");
-    let mut reading = Reading::with_book(Shared::default(), EPUB, epub);
-    reading.open();
-    let last = |reading: &Reading| reading.heard.borrow().last().unwrap().1.clone();
-    // Until every page is counted, into the first chapter (a section
-    // of its own, as the chapters after it).
-    let mut turned = 0;
-    while last(&reading).pages.is_none() || !last(&reading).chapter.ends_with("Rabbit-Hole") {
-        reading.run(core_actions::NEXT_PAGE);
-        turned += 1;
-        assert!(turned < 400, "the pages are never counted");
-    }
-    reading.run(core_actions::NEXT_PAGE);
-    let before = last(&reading);
-    let left = before.chapter_left.unwrap();
-    // On to the next chapter's first page.
-    reading.run(actions::NEXT_CHAPTER);
-    let next = last(&reading);
-    assert_ne!(next.chapter, before.chapter, "{before:?} {next:?}");
-    assert_eq!(next.page, before.page.map(|p| p + left + 1));
-    // A page back is the last of the chapter before, not the page left.
-    reading.run(core_actions::PREV_PAGE);
-    let end = last(&reading);
-    assert_eq!(end.page, next.page.map(|p| p - 1));
-    assert_eq!(end.chapter, before.chapter);
-    // Back to this chapter's start, then to the start of the one before.
-    reading.run(actions::PREV_CHAPTER);
-    let start = last(&reading);
-    assert_eq!(start.chapter, before.chapter);
-    assert!(start.page < before.page, "{start:?} {before:?}");
-    // From a chapter's first page, to the page the one before begins on.
-    reading.run(actions::PREV_CHAPTER);
-    let earlier = last(&reading);
-    assert!(earlier.page < start.page, "{earlier:?} {start:?}");
-}
-
 /// Holds the button `name` long enough for a long press.
 fn hold(reading: &mut Reading, name: &'static str) {
     for (after, state) in [(10, ButtonState::Pressed), (1000, ButtonState::Released)] {
@@ -595,13 +557,11 @@ impl Plugin for Probe {
     }
 }
 
-#[test]
-fn status_lines_know_the_page_in_the_chapter() {
-    let epub = include_bytes!("../../../samples/library/books/alice-in-wonderland.epub");
+/// The EPUB `epub` on a card, a status line with [`Probe`]'s item shown.
+fn probed(epub: &[u8], in_chapter: InChapter) -> Reading {
     let storage = Shared::default();
     storage.create_dir("books").unwrap();
     storage.write(EPUB, epub).unwrap();
-    let in_chapter = InChapter::default();
     let heard = Heard::default();
     let mut kernel = Kernel::builder(DEVICE)
         .setting_default_text("reader.status.bottom-left", "probe.chapter")
@@ -610,7 +570,7 @@ fn status_lines_know_the_page_in_the_chapter() {
         .plugin(paperpaw_plugin_format_epub::EpubFormat)
         .plugin(Reader)
         .plugin(Listener(heard.clone()))
-        .plugin(Probe(in_chapter.clone()))
+        .plugin(Probe(in_chapter))
         .build()
         .unwrap();
     let effects = kernel.start(Instant(0));
@@ -622,6 +582,14 @@ fn status_lines_know_the_page_in_the_chapter() {
         book: EPUB,
     };
     reading.settle(effects);
+    reading
+}
+
+#[test]
+fn status_lines_know_the_page_in_the_chapter() {
+    let epub = include_bytes!("../../../samples/library/books/alice-in-wonderland.epub");
+    let in_chapter = InChapter::default();
+    let mut reading = probed(epub, in_chapter.clone());
     reading.open();
     let last = |reading: &Reading| reading.heard.borrow().last().unwrap().1.clone();
     let mut turned = 0;
@@ -1757,6 +1725,9 @@ fn a_book_still_coming_opens_when_it_is_there() {
     reading.run(ARRIVED);
     assert_eq!(asked.get(), 2);
 }
+
+#[path = "reading/chapters.rs"]
+mod chapters;
 
 #[path = "reading/kept.rs"]
 mod kept;
