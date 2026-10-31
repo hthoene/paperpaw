@@ -1037,7 +1037,8 @@ fn reordered_boxes(
         .collect()
 }
 
-/// The contrast curve of book text ([`settings::TEXT_CONTRAST`]), and
+/// The tone curve of book text ([`settings::TEXT_CURVE`] if it says one,
+/// else the contrast of [`settings::TEXT_CONTRAST`]), and
 /// whether it is drawn without grays ([`settings::SMOOTH_TEXT`] off).
 /// Not where the panel shows black and white alone: its frame draws the
 /// same letters already, and a page shown in grays there for its
@@ -1051,7 +1052,12 @@ fn ink(env: &Env<'_>) -> (ToneCurve, bool) {
         .map_or(0, |at| at as i8 + ToneCurve::LIGHTEST);
     let mono = env.device().display.format.gray_levels() == Some(2);
     let sharp = !mono && !s.read(&settings::SMOOTH_TEXT);
-    (ToneCurve::contrast(step), sharp)
+    // A curve of one's own (a theme's, a language's) takes the place of
+    // the contrast; the book's script is not known here yet, so only
+    // the unscripted entry applies.
+    let curve = ToneCurve::parse_for(s.text(settings::TEXT_CURVE.as_str()), None)
+        .unwrap_or_else(|| ToneCurve::contrast(step));
+    (curve, sharp)
 }
 
 /// Draws `lines` laid out with `faces` in `page_type`, their content box

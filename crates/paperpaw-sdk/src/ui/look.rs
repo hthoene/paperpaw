@@ -40,6 +40,8 @@ use paperpaw_platform::{Color, Rect};
 
 use super::UiStyle;
 
+pub use super::look_extra::{ExtraPaint, ExtraPainter, ExtraPart, PartKind, TextPainter, TextPart};
+
 /// The switch of an on/off setting ([`Ui::switch`](super::Ui::switch)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -194,13 +196,29 @@ pub struct TicksPart {
 /// screen's style. More may come; a painter takes what it needs.
 #[non_exhaustive]
 pub struct PaintCx<'c, 'a> {
+    /// The canvas the part is drawn into.
     pub canvas: &'c mut Canvas<'a>,
+    /// The screen's style.
     pub style: &'c UiStyle,
+    /// Zero now; read through methods in a later release.
+    spare: [u32; 4],
+}
+
+impl<'c, 'a> PaintCx<'c, 'a> {
+    pub(super) fn new(canvas: &'c mut Canvas<'a>, style: &'c UiStyle) -> Self {
+        Self {
+            canvas,
+            style,
+            spare: [0; 4],
+        }
+    }
 }
 
 impl fmt::Debug for PaintCx<'_, '_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PaintCx").finish_non_exhaustive()
+        f.debug_struct("PaintCx")
+            .field("spare", &self.spare)
+            .finish_non_exhaustive()
     }
 }
 
@@ -227,6 +245,9 @@ pub struct Painters {
     cover: Option<InkPainter<CoverPart>>,
     pill: Option<InkPainter<PillPart>>,
     ticks: Option<Painter<TicksPart>>,
+    text: Option<TextPainter>,
+    extras: &'static [ExtraPaint],
+    flags: u32,
 }
 
 impl fmt::Debug for Painters {
@@ -246,6 +267,9 @@ impl fmt::Debug for Painters {
             .field("cover", &self.cover.is_some())
             .field("pill", &self.pill.is_some())
             .field("ticks", &self.ticks.is_some())
+            .field("text", &self.text.is_some())
+            .field("extras", &self.extras.len())
+            .field("flags", &self.flags)
             .finish()
     }
 }
@@ -274,6 +298,9 @@ impl Painters {
             cover: None,
             pill: None,
             ticks: None,
+            text: None,
+            extras: &[],
+            flags: 0,
         }
     }
 
@@ -352,6 +379,38 @@ impl Painters {
         self.ticks = Some(painter);
         self
     }
+
+    /// The text of the interface that [`Label`](super::Label)s draw: the
+    /// painter is asked about each run and says whether it drew it. It may
+    /// change how the text looks (a shadow, an outline, a texture), never
+    /// its width; `part.font.draw(..)` draws it as usual. Book text, page
+    /// layers and a plugin's own drawing do not pass through it.
+    pub const fn text(mut self, painter: TextPainter) -> Self {
+        self.text = Some(painter);
+        self
+    }
+
+    /// Painters for parts of kinds beyond the named ones, by
+    /// [`PartKind`], in a `static` list of the look. There is no limit; of
+    /// two entries for one kind the first is used. A kind the SDK does not
+    /// ask for yet is not painted (see
+    /// [`Capability::LOOK_EXTRAS`](crate::Capability::LOOK_EXTRAS)).
+    pub const fn extras(mut self, list: &'static [ExtraPaint]) -> Self {
+        self.extras = list;
+        self
+    }
+
+    /// Reserved bits, zero now: what a later release gives them is "as
+    /// before" where they are clear.
+    pub const fn flags(mut self, flags: u32) -> Self {
+        self.flags = flags;
+        self
+    }
+
+    /// The reserved bits set with [`Painters::flags`].
+    pub const fn flag_bits(&self) -> u32 {
+        self.flags
+    }
 }
 
 /// The look a [`UiStyle`] draws with: the one set, or none.
@@ -382,14 +441,14 @@ impl Look {
     ) -> bool {
         self.0
             .and_then(|p| p.switch)
-            .is_some_and(|paint| paint(&mut PaintCx { canvas, style }, &part))
+            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 
     /// Paints a sheet with the look's painter; `false` where it has none.
     pub fn sheet(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: SheetPart) -> bool {
         self.0
             .and_then(|p| p.sheet)
-            .is_some_and(|paint| paint(&mut PaintCx { canvas, style }, &part))
+            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 
     /// Paints a cover with the look's painter: the ink of its title, or
@@ -402,7 +461,7 @@ impl Look {
     ) -> Option<Color> {
         self.0
             .and_then(|p| p.cover)
-            .and_then(|paint| paint(&mut PaintCx { canvas, style }, &part))
+            .and_then(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 
     /// Paints a pill with the look's painter: the ink of its label, or
@@ -410,32 +469,49 @@ impl Look {
     pub fn pill(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: PillPart) -> Option<Color> {
         self.0
             .and_then(|p| p.pill)
-            .and_then(|paint| paint(&mut PaintCx { canvas, style }, &part))
+            .and_then(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 
     /// Paints ticks with the look's painter; `false` where it has none.
     pub fn ticks(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: TicksPart) -> bool {
         self.0
             .and_then(|p| p.ticks)
-            .is_some_and(|paint| paint(&mut PaintCx { canvas, style }, &part))
+            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
+    }
+
+    /// Paints a run of interface text with the look's text painter;
+    /// `false` where it has none or it did not (draw the text as usual).
+    pub fn text(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: &TextPart<'_>) -> bool {
+        self.0
+            .and_then(|p| p.text)
+            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), part))
+    }
+
+    /// Paints a part of a kind beyond the named ones with the look's
+    /// painter for its kind (the first entry of it); `false` where it has
+    /// none or it did not.
+    pub fn extra(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: &ExtraPart<'_>) -> bool {
+        self.0
+            .and_then(|p| p.extras.iter().find(|e| e.kind() == part.kind))
+            .is_some_and(|e| (e.painter())(&mut PaintCx::new(canvas, style), part))
     }
 
     pub(super) fn check(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: CheckPart) -> bool {
         self.0
             .and_then(|p| p.check)
-            .is_some_and(|paint| paint(&mut PaintCx { canvas, style }, &part))
+            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 
     pub(crate) fn frame(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: FramePart) -> bool {
         self.0
             .and_then(|p| p.frame)
-            .is_some_and(|paint| paint(&mut PaintCx { canvas, style }, &part))
+            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 
     pub(super) fn focus(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: FocusPart) -> bool {
         self.0
             .and_then(|p| p.focus)
-            .is_some_and(|paint| paint(&mut PaintCx { canvas, style }, &part))
+            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 
     pub(super) fn separator(
@@ -446,7 +522,7 @@ impl Look {
     ) -> bool {
         self.0
             .and_then(|p| p.separator)
-            .is_some_and(|paint| paint(&mut PaintCx { canvas, style }, &part))
+            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 
     pub(super) fn button(
@@ -457,7 +533,7 @@ impl Look {
     ) -> Option<Color> {
         self.0
             .and_then(|p| p.button)
-            .and_then(|paint| paint(&mut PaintCx { canvas, style }, &part))
+            .and_then(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 
     pub(super) fn header(
@@ -468,7 +544,7 @@ impl Look {
     ) -> Option<Color> {
         self.0
             .and_then(|p| p.header)
-            .and_then(|paint| paint(&mut PaintCx { canvas, style }, &part))
+            .and_then(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 
     pub(super) fn hints(
@@ -479,7 +555,7 @@ impl Look {
     ) -> bool {
         self.0
             .and_then(|p| p.hints)
-            .is_some_and(|paint| paint(&mut PaintCx { canvas, style }, &part))
+            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 
     pub(super) fn progress(
@@ -490,7 +566,7 @@ impl Look {
     ) -> bool {
         self.0
             .and_then(|p| p.progress)
-            .is_some_and(|paint| paint(&mut PaintCx { canvas, style }, &part))
+            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 
     pub(super) fn slider(
@@ -501,7 +577,7 @@ impl Look {
     ) -> bool {
         self.0
             .and_then(|p| p.slider)
-            .is_some_and(|paint| paint(&mut PaintCx { canvas, style }, &part))
+            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 }
 

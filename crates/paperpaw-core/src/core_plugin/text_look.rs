@@ -4,7 +4,7 @@
 use paperpaw_sdk::SettingSpec;
 use paperpaw_sdk::builtin::{groups, settings};
 
-pub(super) static SETTINGS: [SettingSpec; 2] = [
+pub(super) static SETTINGS: [SettingSpec; 3] = [
     // Off unless the panel shows grays itself (see
     // `smooth_text_default`): on a panel of black and white every page
     // with it is a refresh of the whole screen in grays.
@@ -25,6 +25,17 @@ pub(super) static SETTINGS: [SettingSpec; 2] = [
     )
     .scoped()
     .description("core.setting.text-contrast.help"),
+    // A curve of one's own, for themes and for people who want more: in
+    // place of the contrast when set.
+    SettingSpec::text(
+        settings::TEXT_CURVE.static_str(),
+        "core.setting.text-curve",
+        "",
+        groups::READING_DISPLAY,
+    )
+    .scoped()
+    .advanced()
+    .description("core.setting.text-curve.help"),
 ];
 
 /// The default of [`settings::SMOOTH_TEXT`] on a panel of `gray_levels`

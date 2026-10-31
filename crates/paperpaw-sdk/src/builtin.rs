@@ -652,6 +652,11 @@ pub mod settings {
     /// The grays of the interface by what they are for, e.g. `muted=60
     /// line=170` (see [`ui::Palette`](crate::ui::Palette)): for themes.
     pub const UI_PALETTE: Setting<Text> = Setting::new("core.ui-palette");
+    /// How the edges of the interface's letters are inked, as a list of
+    /// `[script=]curve` entries (see
+    /// [`ToneCurve::parse_for`](crate::text::ToneCurve::parse_for)), e.g.
+    /// `smooth` or `sharp:128`; empty is as it is. For themes.
+    pub const UI_TEXT_CURVE: Setting<Text> = Setting::new("core.ui-text-curve");
     /// How long short messages show, in seconds.
     pub const NOTICE_SECONDS: Setting<i64> = Setting::new("core.notice-seconds");
     /// Milliseconds a button or finger must be held for a long press.
@@ -704,6 +709,12 @@ pub mod settings {
     /// from -1 for the first). Each book may have its own
     /// ([`SCOPE_ONLY`]).
     pub const TEXT_CONTRAST: Setting<Text> = Setting::new("core.text-contrast");
+    /// How the edges of book letters are inked, in place of
+    /// [`TEXT_CONTRAST`] when it is set: a list of `[script=]curve` entries
+    /// (see [`ToneCurve::parse_for`](crate::text::ToneCurve::parse_for)),
+    /// e.g. `smooth; arab=contrast:1`. Empty keeps [`TEXT_CONTRAST`]. Each
+    /// book may have its own ([`SCOPE_ONLY`]).
+    pub const TEXT_CURVE: Setting<Text> = Setting::new("core.text-curve");
     pub const TEXT_CONTRAST_LEVELS: &[&str] = &[
         "core.text-contrast.lighter",
         "core.text-contrast.normal",

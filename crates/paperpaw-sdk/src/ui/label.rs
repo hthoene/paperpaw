@@ -10,6 +10,7 @@ use crate::env::Env;
 use crate::fonts::FontHandle;
 use crate::widgets::Align;
 
+use super::look::TextPart;
 use super::{Ink, TextRole, Ui, UiStyle, fit};
 
 /// A piece of the interface's text, set as the builder says: its size (a
@@ -232,7 +233,46 @@ impl<'t> Label<'t> {
             Cow::Borrowed(self.text)
         };
         let x = from + self.free(room, width);
-        font.draw(canvas, size, x, baseline(font, size, area), &text, color) + x
+        self.put(
+            canvas,
+            font,
+            style,
+            size,
+            x,
+            baseline(font, size, area),
+            area,
+            &text,
+            color,
+        ) + x
+    }
+
+    /// One run of text at `x` on `baseline`: by the look's text painter,
+    /// if it has one and draws it, else as usual; its width.
+    #[allow(clippy::too_many_arguments, reason = "one run of text")]
+    fn put(
+        &self,
+        canvas: &mut Canvas<'_>,
+        font: &FontHandle<'_>,
+        style: &UiStyle,
+        size: f32,
+        x: f32,
+        baseline: i32,
+        area: Rect,
+        text: &str,
+        color: Color,
+    ) -> f32 {
+        if style.look().painters().is_some() {
+            let role = match self.size {
+                Size::Role(role) => role,
+                Size::Px(_) => TextRole::BODY,
+            };
+            let part = TextPart::new(text, x, baseline, size, color, area, font, role);
+            if style.look().text(canvas, style, &part) {
+                // Looks, not metrics: the width is the stock one.
+                return font.measure(size, text);
+            }
+        }
+        font.draw(canvas, size, x, baseline, text, color)
     }
 
     /// Wrapped lines, the block in the middle of the area's height, the
@@ -275,14 +315,14 @@ impl<'t> Label<'t> {
                 let rest = self.text[range.start..].trim_end();
                 let last = fit(font, size, &format!("{rest} …"), room);
                 let x = self.x(area, font.measure(size, &last));
-                end = x + font.draw(canvas, size, x, at, &last, color);
+                end = x + self.put(canvas, font, style, size, x, at, area, &last, color);
                 let told = format!("{}{last}", &self.text[..range.start]);
                 canvas.describe(Role::Text, &told, shown);
                 return end;
             }
             let text = &self.text[range.clone()];
             let x = self.x(area, font.measure(size, text));
-            end = x + font.draw(canvas, size, x, at, text, color);
+            end = x + self.put(canvas, font, style, size, x, at, area, text, color);
         }
         canvas.describe(Role::Text, self.text, shown);
         end
