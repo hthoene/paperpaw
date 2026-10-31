@@ -2,4 +2,4 @@ Die Leseansicht zeigt Bücher Seite für Seite. Öffne ein Buch aus der Biblioth
 
 Mit einem Tipp links oder rechts oder mit den Blättertasten blätterst du. Ein Tipp in die Mitte oder Wählen öffnet das Lesemenü: Inhaltsverzeichnis, Suchen, Gehe zu Seite, Schrift und Layout, Lesezeichen und Markierungen und mehr. Vom oberen Rand nach unten wischen öffnet den Schnellzugriff, vom unteren Rand nach oben geht es zur Startseite; Zurück lange drücken ebenso.
 
-Ein Tipp in die obere rechte Ecke setzt ein Lesezeichen. Ein Wort lange drücken markiert es; mit Tasten dient Text auswählen unter Weitere. Als Markdown exportieren speichert deine Notizen.
+Ein Tipp in die obere rechte Ecke setzt ein Lesezeichen. Ein Wort lange drücken markiert es; mit Tasten dient Text auswählen unter Weitere; Links und Rechts gehen dann Wort für Wort, die Blättertasten Zeile für Zeile. Als Markdown exportieren speichert deine Notizen.

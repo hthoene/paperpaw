@@ -294,19 +294,19 @@ fn check_chosen(reading: &mut Reading, expected: usize) {
 }
 
 #[test]
-fn buttons_move_by_words_and_stop_at_the_ends() {
+fn buttons_move_by_words_and_wrap_round_the_page() {
     let mut reading = numbered(BUTTONS);
     let words = reading.words();
-    // Left from the first word stays there.
+    // Left from the first word reaches the last word of the page.
     reading.press(reader::SELECT);
     reading.press(actions::LEFT);
-    check_chosen(&mut reading, 0);
-    // Right past the last word of the page stays on it.
+    check_chosen(&mut reading, words.len() - 1);
+    // Right from the last word reaches the first.
     reading.press(reader::SELECT);
-    for _ in 0..words.len() + 5 {
+    for _ in 0..words.len() {
         reading.press(actions::RIGHT);
     }
-    check_chosen(&mut reading, words.len() - 1);
+    check_chosen(&mut reading, 0);
     assert_eq!(reading.turned(), 0);
 }
 
@@ -331,11 +331,29 @@ fn buttons_move_by_lines_and_stop_at_the_ends() {
     check_chosen(&mut reading, 1);
     // Down from the last line stays on it.
     reading.press(reader::SELECT);
-    for _ in 0..words.len() {
-        reading.press(actions::RIGHT);
-    }
+    reading.press(actions::LEFT);
     reading.press(actions::DOWN);
     check_chosen(&mut reading, words.len() - 1);
+    assert_eq!(reading.turned(), 0);
+}
+
+/// A device with two page buttons and no up and down: they go by line
+/// while a word is chosen, as up and down do.
+#[test]
+fn the_page_buttons_move_by_lines() {
+    let mut reading = numbered(BUTTONS);
+    let words = reading.words();
+    let below = (0..words.len())
+        .filter(|&i| words[i].y > words[0].y)
+        .min_by_key(|&i| ((words[i].y - words[0].y) * 10_000) + (words[i].x - words[0].x).abs())
+        .unwrap();
+    reading.press(reader::SELECT);
+    reading.press(actions::NEXT_PAGE);
+    check_chosen(&mut reading, below);
+    reading.press(reader::SELECT);
+    reading.press(actions::RIGHT);
+    reading.press(actions::PREV_PAGE);
+    check_chosen(&mut reading, 1);
     assert_eq!(reading.turned(), 0);
 }
 
