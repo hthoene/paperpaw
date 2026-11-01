@@ -1,6 +1,6 @@
 # 0033. exFAT cards
 
-- Status: Accepted
+- Status: Accepted, experimental in 0.6.0-beta.1 (a release-candidate driver)
 - Date: 2026-10-25
 
 ## Context
