@@ -15,6 +15,7 @@ change the plugin SDK.
 
 ### Changed
 
+- The Android app icon takes the website's colours: a dark green sheet with a paper-coloured paw.
 - How an X4, X3, X4 Pro or X4 Classic starts, runs the trial of and
   installs an update moved from the firmware into `paperpaw-x4`
   (`updates`), which the firmware runs as before: CI now tests the whole

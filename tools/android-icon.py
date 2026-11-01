@@ -1,4 +1,4 @@
-"""Draws PaperPaw's Android launcher icon: the paw on a rose sheet with a
+"""Draws PaperPaw's Android launcher icon: the paper-coloured paw on a green sheet with a
 dog-ear, as shells/android/icon.svg has it, at every launcher density.
 
 Usage: python tools/android-icon.py   (needs Pillow; writes
@@ -16,9 +16,9 @@ SIZES = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}
 # Drawn this much larger, then reduced: smooth edges at every size.
 SCALE = 8
 # The logo's colours: the sheet, its dog-ear, the paw.
-ROSE = (0xEE, 0x8F, 0xA4, 255)
-DOG_EAR = (0xC1, 0x76, 0x86, 255)
-INK = (0x1F, 0x1D, 0x1A, 255)
+SHEET = (0x3B, 0x62, 0x5F, 255)
+DOG_EAR = (0x24, 0x40, 0x3C, 255)
+INK = (0xE6, 0xE0, 0xD4, 255)
 
 
 def quad(p0, p1, p2, steps=24):
@@ -47,7 +47,7 @@ def icon(size: int) -> Image.Image:
 
     sheet = ([(24, 12), (82, 12), (108, 38)] + quad((108, 96), (108, 108), (96, 108))
              + quad((24, 108), (12, 108), (12, 96)) + quad((12, 24), (12, 12), (24, 12)))
-    draw.polygon(shape(sheet), fill=ROSE)
+    draw.polygon(shape(sheet), fill=SHEET)
     fold = [(82, 12)] + quad((82, 30), (82, 38), (90, 38)) + [(108, 38)]
     draw.polygon(shape(fold), fill=DOG_EAR)
     for cx, cy in [(40, 54), (58, 45), (76, 54)]:
