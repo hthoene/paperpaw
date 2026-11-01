@@ -1,7 +1,20 @@
 # 0027. Bluetooth Low Energy
 
-- Status: Accepted
+- Status: Accepted; steps 1 to 3 built (the X4 Pro as central: scan, pair,
+  bonded remotes and keyboards, HID keys), step 4 (advertising, the GATT
+  server) not yet: the shell drops it at once. The Pro's current and
+  light sleep with the radio on are not measured yet (ticket #2).
 - Date: 2026-10-24
+
+> **Measured 2026-11-01 (firmware engineer, from the build, not a device):**
+> the X4 Pro image of `iface5` is 6,244,144 bytes with Bluetooth and
+> 5,787,280 without (the same commit with `x4-pro = ["esp32s3"]`): **Bluetooth
+> costs 456,864 bytes of flash (446 KiB)**, not the 75 KB of the spike
+> (trouble-host, the controller's library, coexistence, logging). `.text`
+> grows by 375,460 bytes, `.rodata` by 52,200. The heap is **26 KB smaller
+> for good** (`HEAP_SIZE`, `BLUETOOTH_KB`), also with the radio off. This is
+> most of why the smallest slot margin of the Pro is 302 KiB (CI fails below
+> 256 KiB). Notes: `investigations/2026-11-01-bluetooth-pro.md`.
 
 ## Context
 
