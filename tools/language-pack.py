@@ -53,20 +53,22 @@ META = {
                  "direction": "rtl", "script": "Arab", "digits": "arabext"},
         "name": "Persian (user interface)",
         "description": "PaperPaw's menus and settings in Persian, running from right to left. "
-                       "Machine-made, native review welcome.",
+                       "Needs Arabic letters.",
         "de-name": "Persisch (Oberfläche)",
         "de-description": "PaperPaws Menüs und Einstellungen auf Persisch, von rechts nach links. "
-                          "Maschinell übersetzt, Korrektur durch Muttersprachler willkommen.",
+                          "Braucht die Arabische Schrift.",
+        "requires": "script-arabic",
     },
     "ur": {
         "meta": {"language": "ur", "name": "اردو", "plural": "one-other",
                  "direction": "rtl", "script": "Arab", "digits": "arabext"},
         "name": "Urdu (user interface)",
         "description": "PaperPaw's menus and settings in Urdu, running from right to left. "
-                       "Machine-made, native review welcome.",
+                       "Needs Arabic letters.",
         "de-name": "Urdu (Oberfläche)",
         "de-description": "PaperPaws Menüs und Einstellungen auf Urdu, von rechts nach links. "
-                          "Maschinell übersetzt, Korrektur durch Muttersprachler willkommen.",
+                          "Braucht die Arabische Schrift.",
+        "requires": "script-arabic",
     },
 }
 

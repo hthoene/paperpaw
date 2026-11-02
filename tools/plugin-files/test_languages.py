@@ -1,6 +1,6 @@
 """Tests of the UI language packs (data.toml's `language-*`, ADR 0033): every
 message translated, the placeholders as English's, the pack described in both
-languages as machine-made, the digits and direction of the language:
+languages, the letters pack they need, the digits and direction of the language:
 
     python3 -m unittest discover -s tools/plugin-files
 """
@@ -20,8 +20,9 @@ spec.loader.exec_module(pack)
 
 # Packs whose catalog is complete: every English message has its translation.
 COMPLETE = {"fa": "1.0.0", "ur": "1.0.0"}
-# Machine-made packs say so, where the store shows the description.
-MACHINE_MADE = ("fa", "ur")
+# The pack with the letters these interfaces are drawn in (#97): without it
+# the screens show boxes, so the pack requires it and its description says so.
+LETTERS = "script-arabic"
 # Letters of the Arabic alphabet that Persian and Urdu write otherwise (the
 # Arabic yeh and kaf; Urdu's heh goal and heh doachashmee are ہ ھ).
 ARABIC_ONLY = "يك"
@@ -41,9 +42,12 @@ class LanguagePacks(unittest.TestCase):
             for path in [fields["build"], *fields["inputs"]]:
                 self.assertTrue((data.ROOT / path).exists(), (lang, path))
             self.assertIn(lang, pack.META)
-            if lang in MACHINE_MADE:
-                self.assertIn("Machine-made, native review welcome", fields["description"])
-                self.assertIn("Maschinell übersetzt", fields["de"]["description"])
+            self.assertEqual(fields["requires"], [LETTERS], lang)
+            self.assertIn(f"requires = {LETTERS}\n", data.plugin_ini(f"language-{lang}", fields))
+            self.assertIn("Needs Arabic letters", fields["description"], lang)
+            self.assertIn("Braucht die Arabische Schrift", fields["de"]["description"], lang)
+            self.assertIn(LETTERS, listed, lang)
+            self.assertNotIn("achine", fields["description"], "no machine-made mark (owner)")
 
     def test_the_catalog_has_every_message_of_english_and_no_other(self):
         english = pack.english()
