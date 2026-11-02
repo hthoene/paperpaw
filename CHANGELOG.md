@@ -11,7 +11,9 @@ change the plugin SDK.
 - Devices (#96): a developer setting *Stay awake on USB* (X4, X4 Pro, X4 Classic, X3; off by default). While the cable is in,
   the sleep after *Sleep after* does not come, and *Sleep* shows the sleep picture but does not sleep, so the computer
   keeps the link for remote tests; the next press or command wakes it, and a cable pulled meanwhile puts the device
-  to sleep. No change for plugins.
+  to sleep (two seconds after, so a wiggled plug does not). On the X4 the cable is read at its pin; on the X4 Pro, X4
+  Classic and X3 "on USB" means a computer talking to it or charging, so on a wall charger with a full battery the
+  setting does not hold. No change for plugins.
 
 ## [0.6.0-beta.1] - 2026-11-03
 

@@ -4,8 +4,8 @@
 //! doze: the sleep picture stays, plugins heard `core.suspend`, and the X4
 //! reads USB and the buttons awake, so the computer keeps it. The first
 //! press or command wakes it (`core.resume`); a cable pulled meanwhile puts
-//! it to sleep for real (the choice never leaves a forgotten X4 awake on
-//! its battery).
+//! it to sleep for real, two seconds after (the choice never leaves a
+//! forgotten X4 awake on its battery).
 
 use log::info;
 
@@ -19,7 +19,7 @@ impl Firmware {
         // The cable is looked at only where the choice is on.
         let wanted =
             self.kernel.settings().read(&device::STAY_AWAKE_USB) && self.usb_power.is_high();
-        if let Some(on) = self.state.stay.watch(wanted) {
+        if let Some(on) = self.state.stay.watch(wanted, now().0) {
             info!("stay awake on USB: {}", if on { "on" } else { "off" });
             let effects = self.kernel.set_awake_on_usb(now(), on);
             self.apply(effects);
@@ -50,6 +50,11 @@ impl Firmware {
     pub(super) fn dozing_step(&mut self) {
         power::feed();
         power::allow(false);
+        // The X3 knows the cable from its fuel gauge, which only a reading of
+        // the battery asks (the reading itself rests a second): a cable
+        // pulled while it dozes is noticed so.
+        #[cfg(feature = "x3")]
+        let _ = crate::input::millivolts();
         self.buttons();
         self.usb();
         if self.state.stay.is_dozing() {

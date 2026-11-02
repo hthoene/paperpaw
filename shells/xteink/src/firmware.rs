@@ -961,7 +961,6 @@ impl Firmware {
             let Some(line) = self.usb.next_line() else {
                 break;
             };
-            self.wake_dozing();
             match line {
                 Ok(line) if line.starts_with(paperpaw_core::CABLE_PREFIX.as_bytes()) => {
                     self.state.cable_at = Some(now().0);
@@ -972,6 +971,10 @@ impl Firmware {
                 }
                 #[cfg(feature = "remote")]
                 line => {
+                    // Only a command wakes a doze, not a line too long.
+                    if line.is_ok() {
+                        self.wake_dozing();
+                    }
                     self.remote(line);
                     break;
                 }
