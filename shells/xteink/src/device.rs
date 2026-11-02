@@ -13,6 +13,10 @@ use paperpaw_sdk::{Id, Manifest, Plugin, RegisterError, Registrar, SettingSpec, 
 pub const PLUGIN: Id = Id::new_static("x4");
 /// The processor sleeps lightly while idle on battery (see `power`).
 pub const LIGHT_SLEEP: Setting<bool> = Setting::new("x4.light-sleep");
+/// The device does not sleep by itself while on USB, and a sleep asked for
+/// only shows the sleep picture: the computer keeps the link (a developer's
+/// choice, see `firmware::dozing`).
+pub const STAY_AWAKE_USB: Setting<bool> = Setting::new("x4.stay-awake-usb");
 /// How quickly presses are answered on battery: *Faster* sleeps the
 /// processor less between readings of the buttons, and the X4 Pro's panel
 /// stays powered; *Saving* sleeps it longer, for a little less current
@@ -137,7 +141,7 @@ pub struct X4;
 
 /// How quickly presses are answered; whether it sleeps lightly between
 /// button reads.
-static SETTINGS: [SettingSpec; 2] = [
+static SETTINGS: [SettingSpec; 3] = [
     SettingSpec::choice(
         BUTTON_RESPONSE.static_str(),
         "x4.button-response",
@@ -153,6 +157,13 @@ static SETTINGS: [SettingSpec; 2] = [
         groups::DEVELOPER,
     )
     .description("x4.light-sleep.help"),
+    SettingSpec::switch(
+        STAY_AWAKE_USB.static_str(),
+        "x4.stay-awake-usb",
+        false,
+        groups::DEVELOPER,
+    )
+    .description("x4.stay-awake-usb.help"),
 ];
 
 /// How long asleep before it switches off (next to *Sleep after*).

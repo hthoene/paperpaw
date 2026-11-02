@@ -853,7 +853,7 @@ impl Kernel {
         let due = self.last_activity.add_millis(set.max(asked));
         // Not before plugins' holds end (ADR 0030).
         let due = self.held_until().map_or(due, |held| held.max(due));
-        (self.shared.caps.sleep && minutes > 0).then_some(due)
+        (self.shared.caps.sleep && minutes > 0 && !self.awake_on_usb()).then_some(due)
     }
 
     /// Advances time, e.g. when a requested [`Effect::WakeAt`] is due.

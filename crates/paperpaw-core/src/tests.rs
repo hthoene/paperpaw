@@ -3281,6 +3281,7 @@ mod screen_life;
 mod services_declared;
 mod settings_files;
 mod stack;
+mod stay_awake;
 mod storage;
 mod ui_ink;
 mod work_sockets;

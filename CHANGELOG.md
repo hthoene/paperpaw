@@ -6,6 +6,13 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Added
+
+- Devices (#96): a developer setting *Stay awake on USB* (X4, X4 Pro, X4 Classic, X3; off by default). While the cable is in,
+  the sleep after *Sleep after* does not come, and *Sleep* shows the sleep picture but does not sleep, so the computer
+  keeps the link for remote tests; the next press or command wakes it, and a cable pulled meanwhile puts the device
+  to sleep. No change for plugins.
+
 ## [0.6.0-beta.1] - 2026-11-03
 
 **Plugins of this release must be built from `965d866b` or later** (plugin interface 6, #363; `965d866b` raises the shared interface family `ui` to revision 2, #119: the firmware refuses plugins of revision 1, built before). 0.6.0-beta.1 takes

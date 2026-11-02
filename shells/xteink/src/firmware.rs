@@ -26,6 +26,7 @@ use crate::network::{Network, NetworkIo};
 use crate::ota::Ota;
 use crate::{clock, device, input, now, power, stack};
 
+mod dozing;
 mod paced;
 #[cfg(feature = "esp32c3")]
 mod sleeping_board;
@@ -96,6 +97,8 @@ pub struct State {
     sleep: bool,
     /// The kernel asked to switch the device off (`Effect::PowerOff`).
     power_off: bool,
+    /// Staying awake on USB, the developer's choice (`dozing`).
+    stay: paperpaw_x4::stay_awake::StayAwake,
     /// When the kernel wants to be woken.
     wake_at: Option<Instant>,
     /// When the battery was read last.
@@ -236,11 +239,18 @@ impl Firmware {
             info!("native: the update is kept; restarting to load the code plugins");
             self.restart();
         }
+        self.watch_stay_awake();
         let installing = self.installing();
         match paperpaw_x4::sleeping::wanted(self.state.sleep, self.state.power_off, installing) {
             Some(paperpaw_x4::sleeping::Wanted::SwitchOff) => return self.sleep(false),
+            Some(paperpaw_x4::sleeping::Wanted::Sleep) if self.state.stay.is_on() => {
+                return self.doze();
+            }
             Some(paperpaw_x4::sleeping::Wanted::Sleep) => return self.sleep(true),
             None => {}
+        }
+        if self.state.stay.is_dozing() {
+            return self.dozing_step();
         }
         power::feed();
         power::mark(power::at::LOOP);
@@ -513,6 +523,18 @@ impl Firmware {
                 }
                 input::Change::Touch(touch, at) => (self.pointer(touch), at),
             };
+            // A doze ends at the first press; the power button's only wakes.
+            if self.wake_dozing()
+                && matches!(
+                    event,
+                    InputEvent::Button {
+                        name: paperpaw_platform::buttons::POWER,
+                        ..
+                    }
+                )
+            {
+                continue;
+            }
             // The press that brings the front light back only does that.
             if !self.light_passes(&event) {
                 continue;
@@ -682,9 +704,12 @@ impl Firmware {
         // A press over USB that put it to sleep is let go first.
         #[cfg(feature = "remote")]
         self.release_held();
-        self.pause_trial();
-        let effects = self.kernel.suspend(now());
-        self.apply(effects);
+        // A doze that ends in a sleep (the cable pulled) suspended already.
+        if !self.state.stay.suspended_already() {
+            self.pause_trial();
+            let effects = self.kernel.suspend(now());
+            self.apply(effects);
+        }
         // Bluetooth down now: the main loop does not come by once the
         // pending work is finished and the processor sleeps.
         #[cfg(feature = "bluetooth")]
@@ -936,6 +961,7 @@ impl Firmware {
             let Some(line) = self.usb.next_line() else {
                 break;
             };
+            self.wake_dozing();
             match line {
                 Ok(line) if line.starts_with(paperpaw_core::CABLE_PREFIX.as_bytes()) => {
                     self.state.cable_at = Some(now().0);
