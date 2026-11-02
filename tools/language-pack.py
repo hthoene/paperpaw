@@ -47,6 +47,27 @@ META = {
         # The pack with the letters of its script (the interface shows boxes without it).
         "requires": "script-arabic",
     },
+    # Persian and Urdu write numbers with the extended Arabic-Indic digits.
+    "fa": {
+        "meta": {"language": "fa", "name": "فارسی", "plural": "zero-one-other",
+                 "direction": "rtl", "script": "Arab", "digits": "arabext"},
+        "name": "Persian (user interface)",
+        "description": "PaperPaw's menus and settings in Persian, running from right to left. "
+                       "Machine-made, native review welcome.",
+        "de-name": "Persisch (Oberfläche)",
+        "de-description": "PaperPaws Menüs und Einstellungen auf Persisch, von rechts nach links. "
+                          "Maschinell übersetzt, Korrektur durch Muttersprachler willkommen.",
+    },
+    "ur": {
+        "meta": {"language": "ur", "name": "اردو", "plural": "one-other",
+                 "direction": "rtl", "script": "Arab", "digits": "arabext"},
+        "name": "Urdu (user interface)",
+        "description": "PaperPaw's menus and settings in Urdu, running from right to left. "
+                       "Machine-made, native review welcome.",
+        "de-name": "Urdu (Oberfläche)",
+        "de-description": "PaperPaws Menüs und Einstellungen auf Urdu, von rechts nach links. "
+                          "Maschinell übersetzt, Korrektur durch Muttersprachler willkommen.",
+    },
 }
 
 # English's plural forms, and the forms of Arabic's rule that a translation
