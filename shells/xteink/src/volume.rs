@@ -44,8 +44,9 @@ pub fn mount<B: Blocks + 'static>(blocks: B) -> Result<Box<dyn Storage>, CardTro
             Ok(storage) => {
                 let missing = storage.missing_blocks();
                 if missing > 0 {
+                    let past_end = storage.clusters_past_end();
                     warn!(
-                        "SD card: the exFAT volume is {} KB longer than the card; that end cannot be read or written",
+                        "SD card: the exFAT volume is {} KB longer than the card; its {past_end} clusters there are not used",
                         missing / 2
                     );
                 }

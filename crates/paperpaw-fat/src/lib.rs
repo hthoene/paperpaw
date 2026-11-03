@@ -85,6 +85,7 @@ extern crate alloc;
 mod disk;
 mod exfat;
 mod exfat_boot;
+mod exfat_tail;
 mod found;
 mod free;
 mod listed;

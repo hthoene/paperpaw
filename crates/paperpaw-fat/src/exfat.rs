@@ -17,19 +17,43 @@ use paperpaw_platform::{DirEntry, Storage, StorageError};
 
 use crate::disk::{BLOCK, Blocks, DiskError, SharedDisk};
 use crate::exfat_boot::{BootSizes, MountFailure};
+use crate::exfat_tail::Tail;
 use crate::settle::{MOVE, MOVE_HEAD, move_record, recorded_move};
 use crate::{FOLDERS, JOURNAL, OPEN_FILES, hash, name, parent, same_path};
 
-/// The disk as the exFAT driver reads and writes it, in blocks, and how
-/// many it says the disk holds.
-pub struct ExDisk<B: Blocks>(SharedDisk<B>, u64);
+/// The disk as the exFAT driver reads and writes it, in blocks: how many
+/// it says the disk holds, and the clusters past the card's end of a
+/// volume longer than the card, kept from the driver ([`Tail`]).
+pub struct ExDisk<B: Blocks> {
+    disk: SharedDisk<B>,
+    blocks: u64,
+    tail: Tail,
+}
 
 impl<B: Blocks> ExDisk<B> {
-    /// The disk `disk`, in blocks (e.g. to check the volume on it).
+    /// The disk `disk`, in blocks (e.g. to check the volume on it), as
+    /// the mount gives it to the driver.
     pub fn new(disk: SharedDisk<B>) -> Self {
-        let blocks = disk.blocks();
-        Self(disk, blocks)
+        let missing = missing_blocks(&disk);
+        let tail = Tail::of(&disk, missing);
+        Self {
+            blocks: disk.blocks() + missing,
+            disk,
+            tail,
+        }
     }
+}
+
+/// How many blocks the exFAT volume on `disk` names past the disk's end,
+/// where it does by at most a [`MISSING_MOST`]th of the disk (a partition
+/// said to go past a card's end, as on some cards as sold): such a volume
+/// is mounted as computers mount it. 0 otherwise.
+fn missing_blocks<B: Blocks>(disk: &SharedDisk<B>) -> u64 {
+    let card = disk.blocks();
+    BootSizes::of(disk)
+        .map(|boot| (boot.volume_bytes() / BLOCK as u64).saturating_sub(card))
+        .filter(|&missing| missing <= card / MISSING_MOST)
+        .unwrap_or(0)
 }
 
 impl<B: Blocks> core::fmt::Debug for ExDisk<B> {
@@ -67,7 +91,7 @@ impl<B: Blocks> BlockDevice for ExDisk<B> {
     }
 
     fn block_count(&self) -> u64 {
-        self.1
+        self.blocks
     }
 
     fn writable(&self) -> bool {
@@ -80,7 +104,9 @@ impl<B: Blocks> BlockDevice for ExDisk<B> {
         buf: &mut [u8],
     ) -> Result<(), hadris_io::Error<DiskError>> {
         let at = first.get() * BLOCK as u64;
-        self.0.read_at(at, buf).map_err(failed)
+        self.disk.read_at(at, buf).map_err(failed)?;
+        self.tail.read(at, buf);
+        Ok(())
     }
 
     fn write_blocks(
@@ -89,11 +115,11 @@ impl<B: Blocks> BlockDevice for ExDisk<B> {
         buf: &[u8],
     ) -> Result<(), hadris_io::Error<DiskError>> {
         let at = first.get() * BLOCK as u64;
-        self.0.write_at(at, buf).map_err(failed)
+        self.tail.write(&self.disk, at, buf).map_err(failed)
     }
 
     fn flush(&mut self) -> Result<(), hadris_io::Error<DiskError>> {
-        self.0.flush_all().map_err(failed)
+        self.disk.flush_all().map_err(failed)
     }
 }
 
@@ -288,6 +314,8 @@ pub struct ExFatStorage<B: Blocks + 'static> {
     left_alone: Cell<u32>,
     /// Blocks the volume names past the card's end.
     missing: u64,
+    /// How many clusters lie past the card's end, wholly or in part.
+    past_end: u32,
 }
 
 impl<B: Blocks + 'static> core::fmt::Debug for ExFatStorage<B> {
@@ -303,20 +331,19 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
         let options = MountOptions::new()
             .with_clock(&NO_CLOCK)
             .with_node_limit(NODES);
-        // A volume a little longer than the card (its partition said to
-        // go past the card's end, as on some cards as sold) is mounted as
-        // computers mount it: what lies past the card's end fails to be
-        // read or written, and is not counted as room.
-        let card = disk.blocks();
-        let missing = BootSizes::of(&disk)
-            .map(|boot| (boot.volume_bytes() / BLOCK as u64).saturating_sub(card))
-            .filter(|&missing| missing <= card / MISSING_MOST)
-            .unwrap_or(0);
-        let device = ExDisk(disk.clone(), card + missing);
+        // A volume a little longer than the card (see `missing_blocks`) is
+        // mounted as computers mount it: what lies past the card's end
+        // fails to be read or written. Its clusters there are shown to
+        // the driver as bad and used, never written (see `Tail`), so
+        // nothing is allocated there and they are not counted as room.
+        let missing = missing_blocks(&disk);
+        let device = ExDisk::new(disk.clone());
+        let past_end = device.tail.clusters();
         let fs =
             ExFatFs::mount(device, options).map_err(|e| MountFailure::new(e.to_string(), &disk))?;
         Ok(Self {
             missing,
+            past_end,
             fs: RefCell::new(fs),
             disk,
             open: RefCell::new(Vec::new()),
@@ -334,8 +361,11 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
         self.missing
     }
 
-    fn missing_bytes(&self) -> u64 {
-        self.missing.saturating_mul(BLOCK as u64)
+    /// How many clusters lie past the card's end (wholly or in part):
+    /// never allocated, not counted as room, and left on the card as
+    /// they are. 0 on most cards.
+    pub fn clusters_past_end(&self) -> u32 {
+        self.past_end
     }
 
     /// How many entry sets with a bad checksum the settling of folders left
@@ -1286,15 +1316,15 @@ impl<B: Blocks + 'static> Storage for ExFatStorage<B> {
     /// time), then followed as clusters are taken and freed.
     fn free_space(&self) -> Option<u64> {
         let stats = self.fs.borrow_mut().statfs().ok()?;
-        let free = stats.free_blocks() * u64::from(stats.block_size());
-        Some(free.saturating_sub(self.missing_bytes()))
+        // The clusters past the card's end read as used (see `Tail`).
+        Some(stats.free_blocks() * u64::from(stats.block_size()))
     }
 
     fn total_space(&self) -> Option<u64> {
         let fs = self.fs.borrow();
         let info = fs.info();
-        let total = u64::from(info.cluster_count()) * info.cluster_size();
-        Some(total.saturating_sub(self.missing_bytes()))
+        let within = info.cluster_count().saturating_sub(self.past_end);
+        Some(u64::from(within) * info.cluster_size())
     }
 
     fn create_dir(&self, path: &str) -> Result<(), StorageError> {
