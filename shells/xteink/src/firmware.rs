@@ -243,7 +243,12 @@ impl Firmware {
         let installing = self.installing();
         match paperpaw_x4::sleeping::wanted(self.state.sleep, self.state.power_off, installing) {
             Some(paperpaw_x4::sleeping::Wanted::SwitchOff) => return self.sleep(false),
-            Some(paperpaw_x4::sleeping::Wanted::Sleep) if self.state.stay.is_on() => {
+            // A doze only where the kernel itself holds the sleep: not at a
+            // nearly empty battery that does not charge, which sleeps for
+            // real, the timer's or the reader's.
+            Some(paperpaw_x4::sleeping::Wanted::Sleep)
+                if self.state.stay.is_on() && self.kernel.awake_on_usb() =>
+            {
                 return self.doze();
             }
             Some(paperpaw_x4::sleeping::Wanted::Sleep) => return self.sleep(true),
@@ -644,6 +649,10 @@ impl Firmware {
             return;
         }
         let idle = self.idle_ms();
+        // A doze waits for a press or a command only: what the kernel and
+        // the panel would wake for (a stale time, long past) would make
+        // this return at once, every loop.
+        let dozing = self.state.stay.is_dozing();
         let mut until = now().0
             + if battery {
                 idle
@@ -653,7 +662,9 @@ impl Firmware {
             } else {
                 POLL_MS
             };
-        if let Some(at) = self.state.wake_at {
+        if let Some(at) = self.state.wake_at
+            && !dozing
+        {
             until = until.min(at.0);
         }
         if let Some(worked) = self.state.unsynced {
@@ -667,14 +678,16 @@ impl Firmware {
                 until = until.min(due);
             }
         }
-        if let Some(read) = self.state.status_read {
-            until = until.min(read.0 + STATUS_MS);
-        }
-        if let Some(at) = self.state.panel_idle_at {
-            until = until.min(at);
-        }
-        if let Some(due) = self.frame_due() {
-            until = until.min(due);
+        if !dozing {
+            if let Some(read) = self.state.status_read {
+                until = until.min(read.0 + STATUS_MS);
+            }
+            if let Some(at) = self.state.panel_idle_at {
+                until = until.min(at);
+            }
+            if let Some(due) = self.frame_due() {
+                until = until.min(due);
+            }
         }
         if !power::nap_until(until) {
             self.delay
@@ -964,6 +977,10 @@ impl Firmware {
             match line {
                 Ok(line) if line.starts_with(paperpaw_core::CABLE_PREFIX.as_bytes()) => {
                     self.state.cable_at = Some(now().0);
+                    // The computer talking to the X4 wakes a doze, so that
+                    // what the line does (a frame, a plugin's reply) is
+                    // not drawn over the sleep picture.
+                    self.wake_dozing();
                     let line = alloc::string::String::from_utf8_lossy(&line);
                     let at = self.kernel_now();
                     let effects = self.kernel.cable_line(at, &line);

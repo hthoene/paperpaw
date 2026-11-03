@@ -139,7 +139,7 @@ impl Kernel {
     /// Whether the device is kept awake by outer power (a developer's
     /// choice, [`Kernel::set_awake_on_usb`]): not once the battery is
     /// nearly empty and does not charge.
-    pub(crate) fn awake_on_usb(&self) -> bool {
+    pub fn awake_on_usb(&self) -> bool {
         self.holds.usb && !self.battery_low()
     }
 

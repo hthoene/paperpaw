@@ -22,7 +22,11 @@ impl Firmware {
         if let Some(on) = self.state.stay.watch(wanted, now().0) {
             info!("stay awake on USB: {}", if on { "on" } else { "off" });
             let effects = self.kernel.set_awake_on_usb(now(), on);
-            self.apply(effects);
+            // A doze whose cable is gone sleeps for real next: what the
+            // kernel would draw now must not go over the sleep picture.
+            if !self.state.stay.is_dozing() {
+                self.apply(effects);
+            }
         }
         if self.state.stay.must_sleep() {
             info!("stay awake on USB: the cable is out, sleeping");

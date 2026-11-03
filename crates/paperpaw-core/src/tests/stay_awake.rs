@@ -63,9 +63,13 @@ fn off_changes_nothing_where_it_was_never_on() {
 fn a_nearly_empty_battery_that_does_not_charge_sleeps_as_usual() {
     let mut kernel = kernel();
     kernel.set_awake_on_usb(Instant(1_000), true);
+    assert!(kernel.awake_on_usb());
     battery(&mut kernel, 2_000, 8, false);
     assert!(kernel.tick(Instant(61_000)).sleep());
+    // The shell dozes only where the kernel holds the sleep: here it sleeps.
+    assert!(!kernel.awake_on_usb());
     // Charging, it stays awake again.
     battery(&mut kernel, 62_000, 8, true);
+    assert!(kernel.awake_on_usb());
     assert!(!kernel.tick(Instant(130_000)).sleep());
 }
