@@ -9,7 +9,10 @@
 //! so it never allocates them and does not count them as room (its check
 //! counts such clusters neither free nor lost). What it writes there goes
 //! through [`Tail::write`], which keeps the card's own bytes: the card is
-//! never changed for it, and a computer sees it as it was.
+//! never changed for it, and a computer sees it as it was. Only the
+//! boot sector's `PercentInUse`, which the driver writes from its count,
+//! counts them used: a little high, a hint only, as the specification
+//! says.
 
 use alloc::vec::Vec;
 

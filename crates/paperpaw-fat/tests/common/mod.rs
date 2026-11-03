@@ -144,3 +144,39 @@ pub fn exfat(bytes: &Bytes) -> ExFatStorage<Bytes> {
     assert_eq!(kind, Kind::ExFat);
     ExFatStorage::mount(SharedDisk::new(disk)).unwrap()
 }
+
+pub type Written = (u32, [u8; 512]);
+
+/// A card as blocks in memory with every block written to it in order.
+#[derive(Clone)]
+pub struct Recorded {
+    pub data: Rc<RefCell<Vec<u8>>>,
+    pub writes: Rc<RefCell<Vec<Written>>>,
+}
+
+impl paperpaw_fat::Blocks for Recorded {
+    fn read_block(
+        &mut self,
+        index: u32,
+        block: &mut [u8; 512],
+    ) -> Result<(), paperpaw_fat::DiskError> {
+        let at = index as usize * 512;
+        block.copy_from_slice(&self.data.borrow()[at..at + 512]);
+        Ok(())
+    }
+
+    fn write_block(
+        &mut self,
+        index: u32,
+        block: &[u8; 512],
+    ) -> Result<(), paperpaw_fat::DiskError> {
+        let at = index as usize * 512;
+        self.data.borrow_mut()[at..at + 512].copy_from_slice(block);
+        self.writes.borrow_mut().push((index, *block));
+        Ok(())
+    }
+
+    fn blocks(&mut self) -> Result<u32, paperpaw_fat::DiskError> {
+        Ok((self.data.borrow().len() / 512) as u32)
+    }
+}

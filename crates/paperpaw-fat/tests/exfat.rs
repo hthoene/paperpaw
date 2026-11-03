@@ -14,7 +14,7 @@ mod common;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use common::{Bytes, exfat, exfat_card, image, names, read};
+use common::{Bytes, Recorded, exfat, exfat_card, image, names, read};
 use paperpaw_fat::{BlockDisk, ExDisk, ExFatStorage, SharedDisk};
 use paperpaw_platform::{Storage, StorageError};
 
@@ -183,42 +183,6 @@ fn the_storage_own_names_are_not_listed_or_taken() {
 // Cut off at any point.
 
 /// A block written to a card: its index, its bytes.
-type Written = (u32, [u8; 512]);
-
-/// A card as blocks in memory with every block written to it in order.
-#[derive(Clone)]
-struct Recorded {
-    data: Rc<RefCell<Vec<u8>>>,
-    writes: Rc<RefCell<Vec<Written>>>,
-}
-
-impl paperpaw_fat::Blocks for Recorded {
-    fn read_block(
-        &mut self,
-        index: u32,
-        block: &mut [u8; 512],
-    ) -> Result<(), paperpaw_fat::DiskError> {
-        let at = index as usize * 512;
-        block.copy_from_slice(&self.data.borrow()[at..at + 512]);
-        Ok(())
-    }
-
-    fn write_block(
-        &mut self,
-        index: u32,
-        block: &[u8; 512],
-    ) -> Result<(), paperpaw_fat::DiskError> {
-        let at = index as usize * 512;
-        self.data.borrow_mut()[at..at + 512].copy_from_slice(block);
-        self.writes.borrow_mut().push((index, *block));
-        Ok(())
-    }
-
-    fn blocks(&mut self) -> Result<u32, paperpaw_fat::DiskError> {
-        Ok((self.data.borrow().len() / 512) as u32)
-    }
-}
-
 /// The card `image` after `op` on it, cut off after each block it wrote
 /// (and before the first).
 fn cut_images(image: Vec<u8>, op: impl FnOnce(&ExFatStorage<Recorded>)) -> Vec<Vec<u8>> {
