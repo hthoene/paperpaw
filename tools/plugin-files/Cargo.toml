@@ -143,6 +143,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "pomodoro"
+path = "src/bin/pomodoro.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "reading-goal"
 path = "src/bin/reading-goal.rs"
 test = false
@@ -266,6 +272,7 @@ bench = false
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
 paperpaw-plugin-aids = { path = "../../plugins/aids" }
 paperpaw-plugin-battery = { path = "../../plugins/battery" }
+paperpaw-plugin-pomodoro = { path = "../../plugins/pomodoro", default-features = false }
 paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", default-features = false }
 paperpaw-plugin-end-of-book = { path = "../../plugins/end-of-book" }
 paperpaw-plugin-notes-overview = { path = "../../plugins/notes-overview" }

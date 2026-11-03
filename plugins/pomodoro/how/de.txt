@@ -1,0 +1,7 @@
+Ein Pomodoro-Timer: in Fokusrunden arbeiten, dazwischen pausieren. Er braucht keine Einrichtung: 25 Minuten Fokus, 5 Minuten Pause und nach vier Runden eine lange Pause von 15 Minuten.
+
+Öffne Pomodoro im Werkzeugmenü und tippe auf Start, oder füge die Widgets dem Startbildschirm hinzu (Startbildschirm gedrückt halten, dann Widget hinzufügen): Pomodoro-Timer zeigt die Phase und die Restminuten, Pomodoro Start/Pause ist ein Knopf, und Pomodoro heute zählt die beendeten Runden mit deinem Tagesziel. Ein Tipp auf den Timer startet oder hält ihn an; gedrückt halten öffnet den ganzen Bildschirm.
+
+Der Timer läuft weiter, wenn du den Bildschirm verlässt oder das Lesegerät schläft, und macht nach einem Neustart weiter. Ein Hinweis sagt dir, wann eine Phase vorbei ist. Um den Akku zu schonen, aktualisiert sich die Uhr nur einmal pro Minute (in der letzten Minute alle zehn Sekunden) und hält das Lesegerät nie wach.
+
+In den Einstellungen unter Pomodoro legst du die Längen und die Runden eines Satzes fest und ob die nächste Phase von selbst startet. Unter Mehr: ein Aufblitzen des Bildschirms oder ein Blinken des Frontlichts am Ende einer Phase, ein Tagesziel und den Bildschirm während einer Runde wach halten.

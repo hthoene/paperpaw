@@ -34,6 +34,7 @@ news news
 notes-overview notes
 notes-vault notes
 profiles reading
+pomodoro home
 reading-goal reading
 readwise notes
 read-later-cloud news
