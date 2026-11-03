@@ -10,7 +10,7 @@ Neben Mehr Schriften hat dieselbe Liste den Eintrag Eigene Schriften, der diesen
 
 Auf Android und anderen Geräten, die Schriftdateien zeichnen: Kopiere die Datei in den Ordner fonts (auf Android: PaperPaw/fonts im gemeinsamen Speicher), starte PaperPaw neu und wähle die Schrift in den Einstellungen unter Lesen bei Schriftart.
 
-Auf dem Xteink X4 und X4 Pro: Diese Lesegeräte lesen Schriftpakete, keine Schriftdateien, denn Schriftdateien passen nicht in ihren Speicher. Erstelle ein Paket am Computer mit paperpaw-fontgen, für jeden Schnitt, den du hast (Normal ist nötig):
+Auf dem Xteink X4 und X4 Pro: Diese Lesegeräte lesen Schriftpakete, keine Schriftdateien, denn Schriftdateien passen nicht in ihren Speicher. Am einfachsten: Öffne am Computer paperpaw.org/own-fonts, wähle deine Schriftdateien und lade den fertigen Ordner herunter. Das Paket entsteht in deinem Browser, nichts wird hochgeladen. Oder erstelle ein Paket mit paperpaw-fontgen auf der Kommandozeile, für jeden Schnitt, den du hast (Normal ist nötig):
 
 paperpaw-fontgen --family "Meine Schrift" --regular Meine-Normal.ttf --bold Meine-Fett.ttf --italic Meine-Kursiv.ttf plugins
 
