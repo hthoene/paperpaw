@@ -4,7 +4,7 @@
 #
 #   tools/ci-local.sh [quick|full] [-j N] [--only <group>[,<group>...]] [--list] [-v]
 #
-#   quick   fmt, lint, test: what every change needs (the default)
+#   quick   fmt, lint, test, architecture: what every change needs (the default)
 #   full    every group below except `fuzz` and `firmware-build`
 #   --only  just these groups (names as `--list` prints them)
 #   -j N    cargo's parallel jobs (default 4; the container has 16 GB of RAM,
@@ -54,7 +54,7 @@ export CARGO_BUILD_JOBS="$jobs"
 export RUSTFLAGS="-D warnings"
 
 all_groups=(fmt lint test doc msrv screens sdk embedded native architecture emulator deny firmware android)
-quick_groups=(fmt lint test)
+quick_groups=(fmt lint test architecture)
 opt_groups=(firmware-build fuzz)
 
 if [[ $list -eq 1 ]]; then
