@@ -652,8 +652,12 @@ impl Guide {
         if let Some(spec) = self.setting(env) {
             match spec.kind {
                 SettingKind::Bool => {
+                    // A row as the settings pages have it: the setting's
+                    // name at the left, the switch at the right, both
+                    // centred in the card.
                     let on = env.settings().bool(spec.id.as_str());
-                    ui.switch(inner, on, false);
+                    let title = env.i18n().tr(&spec.title);
+                    ui::Row::switch(title, on).draw(ui, card);
                     return;
                 }
                 SettingKind::Int { .. } => {
