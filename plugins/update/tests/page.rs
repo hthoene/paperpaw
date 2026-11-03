@@ -9,17 +9,19 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use paperpaw_core::{FirmwareCommand, HttpCall, HttpResponse, Io, Kernel};
 use paperpaw_platform::Rotation;
 use paperpaw_plugin_update::{CHECK, OPEN, Update};
-use paperpaw_sdk::builtin::actions;
+use paperpaw_sdk::builtin::{actions, params, slots};
 use paperpaw_sdk::firmware::{Firmware, PLUGINS_AT, PluginCrate, Plugins};
 use paperpaw_sdk::semantics::Role;
 use paperpaw_sdk::{
-    DeviceInfo, DirEntry, DisplayInfo, Id, InputCaps, Instant, MemoryClass, MemoryStorage,
-    PixelFormat, Storage, StorageError,
+    Canvas, Cx, DeviceInfo, DirEntry, DisplayInfo, Env, Handled, Id, InputCaps, Instant, Manifest,
+    MemoryClass, MemoryStorage, PixelFormat, Plugin, Priority, RegisterError, Registrar, Screen,
+    ScreenSpec, Storage, StorageError, Version,
 };
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
@@ -99,7 +101,44 @@ impl Storage for Shared {
 struct Device {
     kernel: Kernel,
     storage: Shared,
+    /// The short messages said, as a notice screen showed them.
+    said: Rc<RefCell<Vec<String>>>,
     now: u64,
+}
+
+/// Short messages, as a notice screen would show them.
+struct Notices(Rc<RefCell<Vec<String>>>);
+
+struct Notice;
+
+impl Screen for Notice {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+
+    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+        Handled::No
+    }
+}
+
+impl Plugin for Notices {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(Id::new_static("notices"), "Notices", Version::new(0, 1, 0))
+            .uses(paperpaw_sdk::Uses::NETWORK)
+    }
+
+    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        let said = self.0.clone();
+        let id = Id::new_static("notices.notice");
+        r.add_screen(ScreenSpec::new(
+            id.clone(),
+            "",
+            Box::new(move |_, p| {
+                said.borrow_mut()
+                    .push(p.get(params::TEXT).unwrap_or_default().to_string());
+                Box::new(Notice)
+            }),
+        ))?;
+        r.bind_slot(slots::NOTICE, id, Priority::DEFAULT)
+    }
 }
 
 impl Device {
@@ -133,6 +172,7 @@ impl Device {
         Self {
             kernel,
             storage,
+            said: Rc::default(),
             now: 0,
         }
     }
@@ -398,6 +438,7 @@ fn with_code_plugin(storage: Shared, version: &str, config: &str) -> Device {
     Device {
         kernel,
         storage,
+        said: Rc::default(),
         now: 0,
     }
 }
@@ -936,6 +977,7 @@ fn with_code_config(storage: Shared, version: &str, config: &str) -> Device {
         .keys(vec![paperpaw_update::public_key(&SEED)])
         .room(1_000_000)
         .plugins(Plugins::new(RUNNING));
+    let said = Rc::default();
     let mut kernel = Kernel::builder(DEVICE)
         .storage(storage.clone())
         .network(true)
@@ -948,12 +990,14 @@ fn with_code_config(storage: Shared, version: &str, config: &str) -> Device {
         .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
         .plugin(BuiltInStats)
         .plugin(Update)
+        .plugin(Notices(Rc::clone(&said)))
         .build()
         .unwrap();
     kernel.start(Instant(0));
     Device {
         kernel,
         storage,
+        said,
         now: 0,
     }
 }
@@ -1126,6 +1170,13 @@ fn a_plugin_without_room_for_its_code_is_not_fetched() {
         "{shown}"
     );
     assert!(!device.storage.exists("plugins/.stats.next/plugin.ini"));
+    // Said as for want of room, which fetching again does not help.
+    let said = device.said.borrow().clone();
+    assert_eq!(
+        said,
+        ["Update downloaded. No room for one plugin. Get it from the store after the update."]
+    );
+    assert!(!device.storage.exists(RETRY));
 }
 
 /// With *Beta updates* on, the question asks for betas; a beta offered
@@ -1306,4 +1357,161 @@ fn another_firmware_installs_only_as_chosen() {
         device.install(),
         FirmwareCommand::install_foreign("firmware.bin")
     );
+}
+
+const FAILED: &str = ".paperpaw/plugins/update/fetch-failed.txt";
+const RETRY: &str = ".paperpaw/plugins/update/fetch-retry.txt";
+const QUEUE: &str = ".paperpaw/plugins/update/fetch.txt";
+
+#[test]
+fn an_update_with_a_plugin_failing_says_it_once_and_plainly() {
+    let storage = Shared::default();
+    let mut device = with_code(storage, "0.4.0");
+    fetch_begun(&mut device);
+    let call = device.request();
+    device.answer(&call, 0, b"no network");
+    // One message: the update is ready, which plugin did not come along,
+    // and where to get it.
+    let said = device.said.borrow().clone();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert_eq!(
+        said[0],
+        "Update downloaded. One plugin did not come along. \
+         It is fetched again at the next check."
+    );
+    // Nothing of the fetch is kept once it is over.
+    // Except that the plugin is to be fetched again.
+    assert!(device.storage.exists(RETRY));
+    for name in [
+        "fetch.txt",
+        "fetch-current.txt",
+        "fetch-failed.txt",
+        "fetch-native.txt",
+    ] {
+        assert!(
+            !device
+                .storage
+                .exists(&format!(".paperpaw/plugins/update/{name}")),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn a_fetch_whose_update_is_gone_from_the_card_is_let_go() {
+    let storage = Shared::default();
+    // An earlier download's fetch, cut off by a restart, with names that
+    // failed; its update file is no longer on the card.
+    storage
+        .write(
+            QUEUE,
+            b"0.5.0\nbuild stats 0.5.0 - Statistics\n\
+              file 120 sha1:0123456789012345678901234567890123456789 plugin.ini https://p.org/stats/plugin.ini\n",
+        )
+        .unwrap();
+    storage.write(FAILED, b"weather").unwrap();
+    storage.write(RETRY, b"0.5.0\n1 weather\n").unwrap();
+    let mut device = with_code(storage, "0.4.0");
+    assert!(!device.storage.exists(QUEUE));
+    assert!(!device.storage.exists(FAILED));
+    assert!(!device.storage.exists(RETRY));
+    // The page shows without fetching anything, nor asking.
+    device.run(OPEN);
+    device.no_request();
+    assert!(device.said.borrow().is_empty());
+}
+
+#[test]
+fn many_plugins_failing_are_said_as_a_count() {
+    let storage = Shared::default();
+    let mut device = with_code(storage.clone(), "0.4.0");
+    fetch_begun(&mut device);
+    // A restart cuts the download off; five had failed before it.
+    storage.write(FAILED, b"a\nb\nc\nd\ne").unwrap();
+    let mut device = with_code(storage, "0.4.0");
+    let call = device.request();
+    device.answer(&call, 0, b"no network");
+    let said = device.said.borrow().clone();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].contains("6 plugins did not come along."),
+        "{said:?}"
+    );
+}
+
+/// The page shows again: the server is asked, and its answer's builds are
+/// fetched; `ok` answers the plugin's files.
+fn fetch_again(device: &mut Device, ok: bool) {
+    // The page was left and is opened again.
+    device.run(actions::BACK);
+    device.run(OPEN);
+    let call = device.request();
+    assert!(call.url.ends_with("/api/v1/updates"), "{}", call.url);
+    let code = code_file();
+    device.answer(&call, 200, offer_with_code(1000, &code).as_bytes());
+    let call = device.request();
+    assert_eq!(call.url, "https://p.org/stats/plugin.ini");
+    if ok {
+        device.answer(&call, 200, PLUGIN_INI.as_bytes());
+        let call = device.request();
+        device.answer(&call, 200, &code);
+    } else {
+        device.answer(&call, 0, b"no network");
+    }
+}
+
+#[test]
+fn a_plugin_that_failed_is_fetched_again_when_the_page_shows() {
+    let storage = Shared::default();
+    let mut device = with_code(storage, "0.4.0");
+    fetch_begun(&mut device);
+    let call = device.request();
+    device.answer(&call, 0, b"no network");
+    assert!(device.storage.exists(RETRY));
+    fetch_again(&mut device, true);
+    assert!(device.storage.exists("plugins/.stats.next/code.ppn"));
+    assert!(!device.storage.exists(RETRY));
+    // Said once, when the update was downloaded; the fetch again is quiet.
+    assert_eq!(device.said.borrow().len(), 1, "{:?}", device.said.borrow());
+    assert!(device.shown().contains("Install"));
+    // Nothing to fetch again: the page shows without asking.
+    device.run(actions::BACK);
+    device.run(OPEN);
+    device.no_request();
+}
+
+#[test]
+fn a_plugin_failing_again_and_again_is_left_to_the_store() {
+    let storage = Shared::default();
+    let mut device = with_code(storage, "0.4.0");
+    fetch_begun(&mut device);
+    let call = device.request();
+    device.answer(&call, 0, b"no network");
+    // Two more tries, then no more: the third says so.
+    fetch_again(&mut device, false);
+    assert_eq!(device.said.borrow().len(), 1);
+    fetch_again(&mut device, false);
+    let said = device.said.borrow().clone();
+    assert_eq!(said.len(), 2, "{said:?}");
+    assert_eq!(
+        said[1],
+        "One plugin could not be fetched after three tries. Get it from the store."
+    );
+    assert!(!device.storage.exists(RETRY));
+    device.run(actions::BACK);
+    device.run(OPEN);
+    device.no_request();
+}
+
+#[test]
+fn plugins_to_fetch_again_are_let_go_when_the_update_is_installed() {
+    let storage = Shared::default();
+    let mut device = with_code(storage.clone(), "0.4.0");
+    fetch_begun(&mut device);
+    let call = device.request();
+    device.answer(&call, 0, b"no network");
+    assert!(device.storage.exists(RETRY));
+    // Installed from elsewhere: started as 0.5.0.
+    let device = with_code(storage, "0.5.0");
+    assert!(!device.storage.exists(RETRY));
 }

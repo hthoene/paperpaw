@@ -422,6 +422,14 @@ pub(crate) fn checked(env: &Env<'_>, reply: &HttpReply, out: &mut Commands) {
     };
     let _ = storage.create_dir(&Env::plugin_dir(crate::PLUGIN.as_str()));
     let _ = storage.write(&file(OFFER), offer.to_text().as_bytes());
+    // The update is downloaded already and plugins failed for it: the
+    // answer's builds are fetched again (the update page stays ready).
+    if storage.exists(&path_for(firmware, &offer.version))
+        && fetch::retry(env, &offer.version, &offer.builds, offer.native, out)
+    {
+        let _ = storage.remove(&file(OFFER));
+        return;
+    }
     // Waiting for plugins: kept and asked for again, offered once ready.
     let holding = offer.holding(env, firmware);
     if !holding.is_empty() {
@@ -456,7 +464,7 @@ pub(crate) fn checked(env: &Env<'_>, reply: &HttpReply, out: &mut Commands) {
 }
 
 /// Where a downloaded update of `version` is kept.
-fn path_for(firmware: &Firmware, version: &str) -> String {
+pub(crate) fn path_for(firmware: &Firmware, version: &str) -> String {
     format!("{UPDATE_DIR}/{}-{version}.bin", firmware.project)
 }
 
@@ -464,6 +472,8 @@ fn path_for(firmware: &Firmware, version: &str) -> String {
 pub(crate) fn download(env: &Env<'_>, offer: &Offer, out: &mut Commands) {
     let _ = env.storage().create_dir(UPDATE_DIR);
     clear_download(env.storage());
+    // The plugins of an update before are not this one's.
+    fetch::reset(env.storage());
     // A path on the server asked.
     let url = if offer.url.starts_with('/') {
         format!("{}{}", server(env), offer.url)
