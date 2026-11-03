@@ -34,14 +34,6 @@ impl Book {
 }
 
 impl ReaderScreen {
-    /// Whether screens are open above it: its time comes then only below
-    /// overlays alone, and only for counting.
-    pub(super) fn covered(cx: &Cx<'_, '_>) -> bool {
-        let top = cx.env().stack().last().map(|entry| entry.key);
-        cx.key()
-            .is_some_and(|key| top.is_some_and(|top| top != key))
-    }
-
     /// A step of the count below overlays; where it ends, the menu bar
     /// (if one is open) and the status line show the pages. Turning pages
     /// by itself and the rest of its time wait until it is on top again.

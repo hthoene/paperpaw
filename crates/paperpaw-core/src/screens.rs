@@ -7,6 +7,11 @@
 )]
 use super::*;
 
+/// The revision of `Screen` that brought `Screen::times_under_overlays`
+/// (see `paperpaw_sdk::SCREEN_REVISION`): asked only of screens built
+/// with it or later.
+const TIMES_UNDER_OVERLAYS_SINCE: u16 = 3;
+
 /// How many tasks not shown are kept ([`Command::SwitchTask`]).
 const TASKS_KEPT: usize = 8;
 
@@ -730,7 +735,10 @@ impl Kernel {
             return None;
         }
         let screen = self.stack[full].screen.as_mut();
-        paperpaw_sdk::call_since(screen, 3, false, |s| s.times_under_overlays()).then_some(full)
+        paperpaw_sdk::call_since(screen, TIMES_UNDER_OVERLAYS_SINCE, false, |s| {
+            s.times_under_overlays()
+        })
+        .then_some(full)
     }
 
     /// The earliest time a screen asked for that comes: the top one's,

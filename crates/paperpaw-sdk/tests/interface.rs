@@ -560,6 +560,18 @@ fn changes(crate_: &str, kept: (&str, &str), now: (&str, &str)) -> Changes {
             out.new.push(format!("{crate_}: {line}"));
         }
     }
+    // Items appended to `Screen` come with the next revision: a screen
+    // built before says the lower one, and is not asked them. Without it
+    // the kernel would call items a screen built before has not.
+    let revision_grew = kept_types
+        .get(SCREEN_REVISION_PATH)
+        .zip(now_types.get(SCREEN_REVISION_PATH))
+        .is_some_and(|(before, after)| screen_revision_grew(SCREEN_REVISION_PATH, before, after));
+    if screen_grew && !revision_grew {
+        out.breaking.push(format!(
+            "{crate_}: Screen grew without SCREEN_REVISION one higher (ADR 0026)"
+        ));
+    }
     let kept_api: BTreeSet<&str> = kept.0.lines().collect();
     let now_api: BTreeSet<&str> = now.0.lines().collect();
     for line in kept_api.difference(&now_api) {
@@ -840,11 +852,13 @@ fn screen_revision_grows_by_one_only_with_the_screen_trait() {
     let grew = compare(shape(trait_before, 2), shape(trait_after, 3));
     assert!(grew.breaking.is_empty(), "{:?}", grew.breaking);
     assert_eq!(grew.new.len(), 2, "{:?}", grew.new);
-    // The revision alone, two steps, or down: changed.
+    // The revision alone, two steps, down, or the trait grown without it:
+    // changed.
     for (before, after) in [
         (shape(trait_before, 2), shape(trait_before, 3)),
         (shape(trait_before, 2), shape(trait_after, 4)),
         (shape(trait_after, 3), shape(trait_after, 2)),
+        (shape(trait_before, 2), shape(trait_after, 2)),
     ] {
         assert!(!compare(before, after).breaking.is_empty());
     }

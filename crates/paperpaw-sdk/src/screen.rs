@@ -822,11 +822,12 @@ pub trait Screen {
     /// cover it (a menu bar, a panel, a dialog over it), as it still
     /// shows below them: for work that goes on there, as a reader that
     /// counts its pages. Asked when the time is due, so it may say so only
-    /// while it has such work. What it does only on top (turning pages
-    /// by itself, reading aloud) waits: its [`Cx::key`] is not the last
-    /// of [`Env::stack`] while it is covered. No by default: the time
-    /// waits until it is on top again. Under a full screen it always
-    /// waits. Revision 3.
+    /// while it has such work. Its [`Screen::on_timer`] then runs below
+    /// the overlays as on top: the screen itself checks
+    /// [`Cx::is_on_top`] and leaves what it does only on top (turning
+    /// pages by itself, reading aloud, opening screens) for later. No by
+    /// default: the time waits until it is on top again. Under a full
+    /// screen it always waits. Revision 3.
     fn times_under_overlays(&self) -> bool {
         false
     }
@@ -910,6 +911,16 @@ impl<'a, 'e> Cx<'a, 'e> {
     /// the stack (a screen made aside, a notice).
     pub fn key(&self) -> Option<ScreenKey> {
         self.key
+    }
+
+    /// Whether the screen this handler runs for is on top, nothing over
+    /// it: its time ([`Cx::wake_at`]) comes otherwise only below overlays
+    /// alone where it asks ([`Screen::times_under_overlays`]), and what it
+    /// does only on top then waits. Outside the stack (a screen made
+    /// aside, a notice) it is not.
+    pub fn is_on_top(&self) -> bool {
+        let top = self.env().stack().last().map(|entry| entry.key);
+        self.key.is_some_and(|key| top == Some(key))
     }
 
     /// This screen as the stack lists it ([`Env::stack`](crate::Env::stack)).

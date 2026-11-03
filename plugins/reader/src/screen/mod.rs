@@ -545,7 +545,8 @@ impl Screen for ReaderScreen {
     }
 
     fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
-        if Self::covered(cx) {
+        // Its time comes below overlays only while it counts (#117).
+        if !cx.is_on_top() {
             self.count_under_overlays(cx);
             return;
         }
