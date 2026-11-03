@@ -46,6 +46,48 @@ struct State {
     awake: bool,
     /// When what each plugin took was last noted.
     plugins_noted: Option<u64>,
+    /// The radio's time on and its starts since start-up, and since when
+    /// it is on now.
+    radio: log::Radio,
+    radio_since: Option<u64>,
+}
+
+impl State {
+    /// The radio's state as `env` has it, counted from `ms` (the time on
+    /// until then, a start when it came on): called at every change and
+    /// before every note.
+    fn sync_radio(&mut self, env: &Env<'_>) {
+        let ms = env.now().millis();
+        let on = env.wifi().is_some_and(|w| w.state.is_on());
+        match (on, self.radio_since) {
+            (true, None) => {
+                self.radio_since = Some(ms);
+                self.radio.starts = self.radio.starts.saturating_add(1);
+            }
+            (false, Some(since)) => {
+                self.radio.on_ms = self.radio.on_ms.saturating_add(ms.saturating_sub(since));
+                self.radio_since = None;
+            }
+            _ => {}
+        }
+    }
+
+    /// The radio's time on up to `ms`, the time on now included.
+    fn radio_at(&self, ms: u64) -> log::Radio {
+        let running = self.radio_since.map_or(0, |since| ms.saturating_sub(since));
+        log::Radio {
+            on_ms: self.radio.on_ms.saturating_add(running),
+            starts: self.radio.starts,
+        }
+    }
+
+    /// The device sleeps: the radio is off for it, whatever the state says,
+    /// and comes on again (a start) if it is on when the device wakes.
+    fn radio_sleeps(&mut self, ms: u64) {
+        if let Some(since) = self.radio_since.take() {
+            self.radio.on_ms = self.radio.on_ms.saturating_add(ms.saturating_sub(since));
+        }
+    }
 }
 
 type Shared = Rc<RefCell<State>>;
@@ -105,6 +147,7 @@ fn record(env: &Env<'_>, state: &mut State, kind: Kind) {
     if kind == Kind::Start && state.awake {
         return;
     }
+    state.sync_radio(env);
     let now = reading(env, state);
     append(
         env,
@@ -125,12 +168,22 @@ fn record(env: &Env<'_>, state: &mut State, kind: Kind) {
             log::PLUGINS_HEADER,
             &log::plugin_lines(now.ms, &env.plugin_usage()),
         );
+        append(
+            env,
+            log::NETWORK,
+            log::NETWORK_OLD,
+            log::NETWORK_HEADER,
+            &log::network_lines(now.ms, &env.plugin_usage(), state.radio_at(now.ms)),
+        );
         // On the card every ten minutes and at sleep or a restart: an
         // empty battery ends it all without warning, and a write to the
         // card each minute wears it for little.
         let _ = env.storage().sync();
     }
     state.awake = kind != Kind::End;
+    if kind == Kind::End {
+        state.radio_sleeps(now.ms);
+    }
 }
 
 /// The battery use plugin.
@@ -201,6 +254,12 @@ impl Plugin for Battery {
             }
             record(env, &mut state, Kind::Sample);
         })?;
+        // The radio's time on, counted from its changes.
+        let s = state.clone();
+        r.subscribe(
+            events::WIFI_CHANGED,
+            Box::new(move |env, _, _| s.borrow_mut().sync_radio(env)),
+        )?;
         let s = state.clone();
         r.subscribe(
             events::PAGE_TURNED,

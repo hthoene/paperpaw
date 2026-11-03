@@ -31,6 +31,18 @@ pub(crate) const PLUGINS_OLD: &str = "plugins.old.csv";
 /// Its first line.
 pub(crate) const PLUGINS_HEADER: &str =
     "ms,plugin,busy_ms,calls,shown_ms,fast,partial,full,kilopixels,read_kb,written_kb\n";
+/// What each plugin asked of the network, and the radio's time on.
+pub(crate) const NETWORK: &str = "network.csv";
+/// What it was before.
+pub(crate) const NETWORK_OLD: &str = "network.old.csv";
+/// Its first line: by plugin the requests (and connections and servers)
+/// that went out, those refused and the time its holds kept the device
+/// awake; on the row `radio` the time the radio was on and how many times
+/// it came on, all since PaperPaw started.
+pub(crate) const NETWORK_HEADER: &str =
+    "ms,plugin,requests,refused,awake_ms,radio_ms,radio_starts\n";
+/// The row of the radio, in place of a plugin.
+pub(crate) const RADIO: &str = "radio";
 /// How often what each plugin took is noted, awake.
 pub(crate) const PLUGINS_EVERY_MS: u64 = 10 * 60 * 1000;
 /// Size at which a new log starts.
@@ -181,6 +193,34 @@ pub(crate) fn plugin_lines(ms: u64, plugins: &[PluginUsage]) -> String {
             p.written / 1024,
         ));
     }
+    text
+}
+
+/// How long the radio was on, and how many times it came on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct Radio {
+    pub on_ms: u64,
+    pub starts: u32,
+}
+
+/// The lines of what each plugin asked of the network by `ms`, for those
+/// that did anything, and the radio's own, so that what the radio costs
+/// can be had from how long it was on without a current meter.
+pub(crate) fn network_lines(ms: u64, plugins: &[PluginUsage], radio: Radio) -> String {
+    let mut text = String::new();
+    for p in plugins {
+        if p.requests == 0 && p.refused == 0 && p.awake_ms == 0 {
+            continue;
+        }
+        text.push_str(&format!(
+            "{ms},{},{},{},{},0,0\n",
+            p.plugin, p.requests, p.refused, p.awake_ms
+        ));
+    }
+    text.push_str(&format!(
+        "{ms},{RADIO},0,0,0,{},{}\n",
+        radio.on_ms, radio.starts
+    ));
     text
 }
 
@@ -380,6 +420,28 @@ impl Totals {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_a_plugin_asked_of_the_network_and_the_radio_are_lines() {
+        let mut busy = PluginUsage::new(paperpaw_sdk::Id::new_static("mail"));
+        busy.requests = 7;
+        busy.refused = 2;
+        busy.awake_ms = 1500;
+        let quiet = PluginUsage::new(paperpaw_sdk::Id::new_static("clock"));
+        let radio = Radio {
+            on_ms: 90_000,
+            starts: 3,
+        };
+        assert_eq!(
+            network_lines(600_000, &[quiet, busy], radio),
+            "600000,mail,7,2,1500,0,0\n600000,radio,0,0,0,90000,3\n"
+        );
+        // Nothing asked: only the radio's row.
+        assert_eq!(
+            network_lines(1, &[], Radio::default()),
+            "1,radio,0,0,0,0,0\n"
+        );
+    }
 
     fn reading(ms: u64, percent: u8, pages: u32) -> Reading {
         Reading {

@@ -10,12 +10,13 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-use paperpaw_core::{Effects, Kernel};
+use paperpaw_core::{Effects, Kernel, WifiEvent};
 use paperpaw_platform::{
     Battery as Charge, DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat,
     Rotation, SystemStatus,
 };
 use paperpaw_plugin_battery::Battery;
+use paperpaw_sdk::wifi::WifiState;
 use paperpaw_sdk::{Env, Id, MemoryStorage};
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
@@ -47,6 +48,7 @@ struct Device {
 impl Device {
     fn new(storage: MemoryStorage, config: &str) -> Self {
         let kernel = Kernel::builder(X4)
+            .wifi(true)
             .storage(storage)
             .user_config(format!("[core]\nlanguage = en\n{config}"))
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
@@ -79,6 +81,29 @@ impl Device {
             SystemStatus::new(None, Some(Charge::new(percent, charging, Some(millivolts))));
         let effects = self.kernel.set_status(Instant(self.now), status);
         self.settle(effects);
+    }
+
+    /// The radio goes on or off, `after` milliseconds on.
+    fn radio(&mut self, after: u64, on: bool) {
+        self.now += after;
+        let state = if on { WifiState::On } else { WifiState::Off };
+        let effects = self
+            .kernel
+            .wifi_event(Instant(self.now), WifiEvent::State(state));
+        self.settle(effects);
+    }
+
+    /// The radio's row in the last note of `network.csv`: its time on and
+    /// its starts.
+    fn radio_row(&self) -> (u64, u32) {
+        let log = self.log("network.csv");
+        let row = log
+            .lines()
+            .rev()
+            .find(|l| l.split(',').nth(1) == Some("radio"))
+            .unwrap_or_else(|| panic!("no row of the radio in {log}"));
+        let cells: Vec<&str> = row.split(',').collect();
+        (cells[5].parse().unwrap(), cells[6].parse().unwrap())
     }
 
     fn log(&self, name: &str) -> String {
@@ -337,4 +362,62 @@ fn the_view_shows_what_each_plugin_did_with_the_network() {
     assert!(has(&rows, "Network this time awake"), "{rows:?}");
     assert!(has(&rows, "2 requests"), "{rows:?}");
     assert!(has(&rows, "1 held back · network off"), "{rows:?}");
+}
+
+#[test]
+fn the_radios_time_on_and_its_starts_are_noted_with_the_plugins_network_use() {
+    let mut device = Device::new(MemoryStorage::new(), "");
+    device.measure(90, 4100, false);
+    device.radio(1_000, true);
+    device.radio(30_000, false);
+    device.radio(10_000, true);
+    device.radio(5_000, false);
+    device.now += 100;
+    let effects = device.kernel.suspend(Instant(device.now));
+    device.settle(effects);
+    assert!(
+        device
+            .log("network.csv")
+            .starts_with("ms,plugin,requests,refused,awake_ms,radio_ms,radio_starts\n")
+    );
+    // 30 s and 5 s on, in two starts.
+    assert_eq!(
+        device.radio_row(),
+        (35_000, 2),
+        "{}",
+        device.log("network.csv")
+    );
+}
+
+#[test]
+fn a_radio_on_at_sleep_stops_counting_there_and_starts_again_on_waking() {
+    let mut device = Device::new(MemoryStorage::new(), "");
+    device.measure(90, 4100, false);
+    device.radio(0, true);
+    device.now += 20_000;
+    let effects = device.kernel.suspend(Instant(device.now));
+    device.settle(effects);
+    assert_eq!(device.radio_row(), (20_000, 1));
+    // Asleep for an hour; the radio's state is still "on" when it wakes,
+    // as the shell has not said otherwise.
+    device.now += 3_600_000;
+    let effects = device.kernel.resume(Instant(device.now));
+    device.settle(effects);
+    device.measure(89, 4090, false);
+    device.now += 5_000;
+    let effects = device.kernel.suspend(Instant(device.now));
+    device.settle(effects);
+    let (on, starts) = device.radio_row();
+    assert_eq!(starts, 2, "{}", device.log("network.csv"));
+    assert!((20_000 + 60_000..20_000 + 70_000).contains(&on), "{on}");
+}
+
+#[test]
+fn a_radio_never_on_is_noted_as_zero() {
+    let mut device = Device::new(MemoryStorage::new(), "");
+    device.measure(90, 4100, false);
+    device.now += 100;
+    let effects = device.kernel.suspend(Instant(device.now));
+    device.settle(effects);
+    assert_eq!(device.radio_row(), (0, 0));
 }

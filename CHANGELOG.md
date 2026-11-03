@@ -6,6 +6,16 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Added
+
+- **The battery record counts the radio (#35, ADR 0025):** besides the log it already keeps, *Battery use* writes
+  `network.csv` next to it (in its folder on the card, every ten minutes awake and at sleep): for each plugin the
+  requests that went out, those refused and the time it kept the device awake, and a row `radio` with how long the
+  Wi-Fi radio was on and how many times it came on since start. It is what lets a change to the radio's use be
+  measured without a current meter. The radio counts as off while the device sleeps. Battery use is now 1.0.5.
+- **Android: the phone's battery saver is followed (#35, ADR 0025):** with *Power* on *Automatic*, PaperPaw wears
+  *Saving* while Android's Battery Saver is on (read with the battery, about once a minute).
+
 ### Changed
 
 - **Wi-Fi goes off sooner after background use (#35, ADR 0025):** when home or a book is showing (no screen of the
