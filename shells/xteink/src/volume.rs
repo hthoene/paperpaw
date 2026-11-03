@@ -34,9 +34,10 @@ pub fn mount<B: Blocks + 'static>(blocks: B) -> Result<Box<dyn Storage>, CardTro
             Ok(fs) => Ok(Box::new(
                 FatStorage::new(Box::leak(Box::new(fs))).with_disk(disk),
             )),
+            // As before exFAT: a FAT volume rust-fatfs does not take.
             Err(_) => {
-                warn!("SD card: FAT volume not readable");
-                Err(CardTrouble::Unreadable)
+                warn!("SD card: no FAT file system");
+                Err(CardTrouble::NoFat)
             }
         },
         Kind::ExFat => match ExFatStorage::mount(disk) {

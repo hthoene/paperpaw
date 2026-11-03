@@ -3368,6 +3368,11 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// new set was written, before the old one was removed). Freeing them
     /// would leave the other set naming free clusters. A folder's set goes
     /// too, with whatever the folder holds: that is the other set's.
+    ///
+    /// Call it only for a set whose clusters another set is known to name
+    /// (its first cluster compared first, as PaperPaw's settling does):
+    /// on any other folder it would leave the folder's clusters and
+    /// entries named by nothing.
     pub async fn unlink_entry(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
         self.remove_entry_with(dir, name, false, false).await
     }
@@ -3421,6 +3426,16 @@ impl<D: BlockDevice> ExFatFs<D> {
                     }
                     // Its entries are its own, sealed or not.
                     slot += held.max(1);
+                }
+                // A benign primary entry (volume GUID, TexFAT padding,
+                // access control table) owns its secondaries, as a File
+                // entry does: they are skipped, never cleared. The loop
+                // ends at the folder's end whatever the count says.
+                kind if kind & raw::IN_USE != 0
+                    && kind & raw::CATEGORY_SECONDARY == 0
+                    && kind & raw::IMPORTANCE_BENIGN != 0 =>
+                {
+                    slot += 1 + u32::from(entry[1]);
                 }
                 kind if kind & raw::IN_USE != 0 && kind & raw::CATEGORY_SECONDARY != 0 => {
                     self.writable()?;

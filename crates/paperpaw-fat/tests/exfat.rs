@@ -582,6 +582,27 @@ fn a_folder_that_names_one_above_it_is_not_followed_for_ever() {
 }
 
 #[test]
+fn a_benign_entry_with_secondaries_is_kept_by_the_sweep() {
+    let mut image = prepared(|s| s.write("g/x.txt", b"x").unwrap());
+    // After the file's set (File, Stream, one Name), where the folder
+    // ended: a benign primary entry (TexFAT padding, 0xA1) with one
+    // secondary (a vendor extension, 0xE0), then the end again.
+    let end = set_of(&image, "x.txt") + 3 * 32;
+    assert_eq!(image[end], 0, "the folder ends after x.txt");
+    image[end] = 0xA1;
+    image[end + 1] = 1;
+    image[end + 32] = 0xE0;
+    let bytes = card_of(&image);
+    let card = mount(&bytes);
+    assert_eq!(folder(&card, "g"), Some(vec!["x.txt".to_string()]));
+    card.write("g/y.txt", b"y").unwrap();
+    card.sync().unwrap();
+    drop(card);
+    let swept = bytes.0.borrow();
+    assert_eq!((swept[end], swept[end + 32]), (0xA1, 0xE0), "cleared");
+}
+
+#[test]
 fn a_file_removed_is_whole_or_gone_after_any_cut() {
     let (old, _) = old_and_new();
     each_cut(

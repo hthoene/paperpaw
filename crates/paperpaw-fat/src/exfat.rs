@@ -495,14 +495,16 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
             None => self.open_file(path, write)?,
         };
         let result = f(&mut self.fs.borrow_mut(), &mut kept);
-        let mut open = self.open.borrow_mut();
-        if open.len() >= OPEN_FILES {
-            let old = open.remove(0);
-            drop(open);
+        // Kept first, then the oldest let go: a card error closing it must
+        // not leave this one open and pinned, counted by no one.
+        let old = {
+            let mut open = self.open.borrow_mut();
+            open.push(kept);
+            (open.len() > OPEN_FILES).then(|| open.remove(0))
+        };
+        if let Some(old) = old {
             self.close_open(old)?;
-            open = self.open.borrow_mut();
         }
-        open.push(kept);
         result
     }
 
@@ -571,6 +573,25 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
                     i += 1;
                 }
             }
+            gone
+        };
+        let mut result = Ok(());
+        for o in gone {
+            if let Err(e) = self.close_open(o) {
+                result = Err(e);
+            }
+        }
+        result
+    }
+
+    /// Closes the open files right in folder `dir` (`""` the root).
+    fn close_in(&self, dir: &str) -> Result2<()> {
+        let gone: Vec<Open> = {
+            let mut open = self.open.borrow_mut();
+            let (gone, kept) = core::mem::take(&mut *open)
+                .into_iter()
+                .partition(|o| same_path(parent(&o.path), dir));
+            *open = kept;
             gone
         };
         let mut result = Ok(());
@@ -1184,8 +1205,9 @@ impl<B: Blocks + 'static> Storage for ExFatStorage<B> {
         if !dir.is_empty() {
             check(dir)?;
         }
-        // The sizes of files appended to, as appended.
-        self.close("", true)?;
+        // The sizes of its files appended to, as appended (only its own:
+        // a book open elsewhere stays open while a walk lists folders).
+        self.close_in(dir)?;
         let node = self.dir(dir, false)?;
         self.each_from(node, from, &mut |name, is_dir, meta| {
             let own = is_temp(name) || (dir.is_empty() && same_path(name, JOURNAL));
