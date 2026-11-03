@@ -60,8 +60,8 @@ impl Blocks for Memory {
     }
 }
 
-/// Everything of a folder, to a depth and a count: lists it, reads a
-/// little of each file.
+/// Everything of a folder, to a depth and a count: lists it (whole and in
+/// pieces), reads a little of each file.
 fn walk(s: &dyn Storage, dir: &str, depth: usize, seen: &mut usize) {
     let mut entries: Vec<(String, bool)> = Vec::new();
     let _ = s.list(dir, &mut |e| {
@@ -69,6 +69,21 @@ fn walk(s: &dyn Storage, dir: &str, depth: usize, seen: &mut usize) {
             entries.push((e.name.to_string(), e.is_dir));
         }
     });
+    // And a few entries at a time, as the library walks a big folder.
+    let (mut from, mut pieces) = (Some(0), 0);
+    while let Some(at) = from {
+        let mut taken = 0;
+        from = s
+            .list_from(dir, at, &mut |_| {
+                taken += 1;
+                taken <= 3
+            })
+            .unwrap_or(None);
+        pieces += 1;
+        if pieces > 100 {
+            break;
+        }
+    }
     for (name, is_dir) in entries {
         *seen += 1;
         if *seen > 200 {
