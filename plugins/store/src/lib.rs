@@ -24,6 +24,7 @@ mod origin;
 mod page;
 mod queue;
 mod request;
+mod requires;
 mod revoked;
 mod room;
 mod rows;
@@ -205,8 +206,17 @@ impl Plugin for Store {
 /// in the queue ([`queue`]) has its turn.
 fn received(env: &Env<'_>, reply: &HttpReply, out: &mut Commands) {
     let mut said = paperpaw_sdk::Commands::new();
+    // Plugins put in quietly by the first-run setup ask for nothing more;
+    // those another plugin asked for may (a chain of requirements).
+    let quiet = queue::quiet(env) && !queue::requested(env);
+    let mut required = alloc::vec::Vec::new();
     let installed = match INSTALLER.received(env, reply, out) {
-        Received::Complete(done) => (finish(env, &done, &mut said), done.name, done.plugin),
+        Received::Complete(done) => {
+            // Read before it is put in its place.
+            let folder = INSTALLER.folder(env.storage()).unwrap_or_default();
+            required = requires::missing(env, &folder, &done.plugin);
+            (finish(env, &done, &mut said), done.name, done.plugin)
+        }
         Received::Failed(job) => {
             said.push(failed(env, &job.name));
             (false, job.name, job.plugin)
@@ -233,6 +243,10 @@ fn received(env: &Env<'_>, reply: &HttpReply, out: &mut Commands) {
         out.extend(said);
     }
     queue::next(env, out);
+    // What the plugin installed requires, and the device lacks, is offered.
+    if installed.0 && !quiet {
+        requires::offer(required, out);
+    }
 }
 
 /// Installs the plugin all of whose files are here, if it may be, and
