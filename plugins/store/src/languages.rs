@@ -186,10 +186,17 @@ pub(crate) fn wanted<'a>(rows: &'a [Row], has: &dyn Fn(&str) -> bool) -> Vec<&'a
 pub(crate) enum Fit {
     Yes,
     /// Files take this much; this much is free.
-    Files { need: u64, free: u64 },
+    Files {
+        need: u64,
+        free: u64,
+    },
     /// Code takes this much; this much is left, and a full flash gives
     /// more (the X4 after an SD install).
-    Code { need: u64, left: u64, flash: bool },
+    Code {
+        need: u64,
+        left: u64,
+        flash: bool,
+    },
 }
 
 pub(crate) fn fit(room: &Room, packs: &[&Pack]) -> Fit {
@@ -457,7 +464,9 @@ impl LanguagesScreen {
             let _ = env
                 .storage()
                 .create_dir(&Env::plugin_dir(crate::PLUGIN.as_str()));
-            let _ = env.storage().write(&chosen_path(), ids.join("\n").as_bytes());
+            let _ = env
+                .storage()
+                .write(&chosen_path(), ids.join("\n").as_bytes());
             // This page said what they are.
             trust::tell(env.storage());
             let mut out = paperpaw_sdk::Commands::new();

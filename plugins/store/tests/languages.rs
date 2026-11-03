@@ -58,7 +58,11 @@ fn list() -> String {
         data("script-arabic", "Arabic letters", 900_000),
         data("language-ar", "Arabic (user interface)", 210_000),
         // Only for books that need them: not a language of its own.
-        data("script-korean-extra", "Korean letters, rare syllables", 30_000_000),
+        data(
+            "script-korean-extra",
+            "Korean letters, rare syllables",
+            30_000_000,
+        ),
     ];
     format!(r#"{{"format": 2, "plugins": [{}]}}"#, packs.join(","))
 }
@@ -164,7 +168,10 @@ fn without_a_connection_the_page_says_so_and_the_setup_goes_on() {
     );
     let shown = shopping.shown();
     assert!(shown.contains("No connection"), "{shown}");
-    assert!(shown.contains("in the settings later, under Languages"), "{shown}");
+    assert!(
+        shown.contains("in the settings later, under Languages"),
+        "{shown}"
+    );
     assert!(shopping.requests().is_empty());
 }
 
