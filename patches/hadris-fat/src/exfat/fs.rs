@@ -1153,12 +1153,26 @@ impl<D: BlockDevice> ExFatFs<D> {
         if !self.find(start, &query, &mut found).await? {
             return Err(ErrorKind::NotFound.into());
         }
+        let pinned = self.pinned_at(found.set.offset);
+        if !free {
+            // Modified for PaperPaw: nothing is freed, so a folder's set
+            // goes as a file's does, whatever is in the folder: its
+            // clusters and entries are the other set's, which names them
+            // too (a folder moved, cut off before its old set went).
+            if pinned.is_some_and(|id| self.is_open(id)) {
+                return Err(ErrorKind::Busy.into());
+            }
+            self.clear_set(&found.set).await?;
+            if let Some(id) = pinned {
+                self.mark_unlinked(id);
+            }
+            return Ok(());
+        }
         match (want_dir, found.set.is_dir()) {
             (false, true) => return Err(ErrorKind::IsADirectory.into()),
             (true, false) => return Err(ErrorKind::NotADirectory.into()),
             _ => {}
         }
-        let pinned = self.pinned_at(found.set.offset);
         if pinned.is_some_and(|id| self.is_open(id)) {
             return Err(ErrorKind::Busy.into());
         }
@@ -1168,13 +1182,6 @@ impl<D: BlockDevice> ExFatFs<D> {
         };
         if state.dir && !self.dir_is_empty(state.alloc(), state.len).await? {
             return Err(ErrorKind::DirectoryNotEmpty.into());
-        }
-        if !free {
-            self.clear_set(&found.set).await?;
-            if let Some(id) = pinned {
-                self.mark_unlinked(id);
-            }
-            return Ok(());
         }
         self.check_set_allocs(&found.set, &state).await?;
         if state.dir {
@@ -3355,11 +3362,12 @@ impl<D: BlockDevice> ExFatFs<D> {
         self.remove_entry(dir, name, false).await
     }
 
-    /// Modified for PaperPaw: removes the file `name` from `dir` as
+    /// Modified for PaperPaw: removes the entry set `name` from `dir` as
     /// `unlink` does, but leaves its clusters allocated, for an entry set
     /// whose clusters another set names too (a rename cut off after the
     /// new set was written, before the old one was removed). Freeing them
-    /// would leave the other set naming free clusters.
+    /// would leave the other set naming free clusters. A folder's set goes
+    /// too, with whatever the folder holds: that is the other set's.
     pub async fn unlink_entry(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
         self.remove_entry_with(dir, name, false, false).await
     }

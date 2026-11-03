@@ -49,7 +49,7 @@ formatted.
   | `hadris-fs` `api/read_tree.rs`, `api/tree.rs`, `api/volume.rs`, `tree.rs` | `Rc` used as `Arc` where pointers have no atomics (one core, never shared) |
   | `hadris-fs/Cargo.toml` | `async-lock` and `spin` only where `target_has_atomic = "ptr"` |
   | `hadris-fat/src/exfat/fs.rs` | `valid_set` split into `shaped_set` and the checksum (same result for reads) |
-  | same | `unlink_entry`: an entry set taken away without freeing its clusters |
+  | same | `unlink_entry`: an entry set taken away without freeing its clusters (a folder's too, whatever it holds: a folder moved, cut off before its old set went) |
   | same | `sweep` and `reseal`: see below |
 
   All of them are to go upstream or into the list of ticket #54, so that

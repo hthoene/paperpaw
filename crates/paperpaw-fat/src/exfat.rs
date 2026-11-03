@@ -16,7 +16,7 @@ use paperpaw_platform::storage::is_valid_path;
 use paperpaw_platform::{DirEntry, Storage, StorageError};
 
 use crate::disk::{BLOCK, Blocks, DiskError, SharedDisk};
-use crate::settle::{move_record, recorded_move};
+use crate::settle::{MOVE, MOVE_HEAD, move_record, recorded_move};
 use crate::{FOLDERS, JOURNAL, OPEN_FILES, hash, name, parent, same_path};
 
 /// The disk as the exFAT driver reads and writes it, in blocks.
@@ -123,6 +123,15 @@ const MARK: usize = 8;
 
 /// Longest name of an entry, in UTF-16 units (exFAT's limit).
 const LONGEST: usize = 255;
+
+/// How deep [`Storage::remove_dir_all`] goes into folders: deeper ones
+/// are a damaged card's (a folder that names one above it), and each
+/// level takes stack.
+const TREE_DEPTH: usize = 32;
+
+/// The most a move's two paths take in the journal: a record that says
+/// more is damaged (and is no move).
+const JOURNAL_PATHS_MAX: u64 = 16 * 1024;
 
 /// Whether `name` is one a write goes through.
 fn is_temp(name: &str) -> bool {
@@ -717,9 +726,11 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
         let Some(journal) = self.find(root, JOURNAL)? else {
             return Ok(());
         };
-        let record = self.read_node(journal, 64 * 1024);
+        let record = self.read_journal(journal);
         self.forget(journal);
-        let record = record?;
+        let Some(record) = record? else {
+            return Ok(());
+        };
         let Some((from, to)) = recorded_move(&record) else {
             return Ok(());
         };
@@ -750,19 +761,9 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
             };
             let mut fs = self.fs.borrow_mut();
             if source.is_some() && same && !same_path(&from, &to) {
-                // Moved, its old name left: taken away, the clusters kept.
+                // Moved, its old name left: taken away, the clusters kept
+                // (a folder's with its entries: they are the moved one's).
                 match fs.unlink_entry(from_dir, Name::new(name(&from))) {
-                    Err(e) if e.kind() == ErrorKind::IsADirectory => {
-                        // A folder's: its entries are the moved one's.
-                        fs.rename(
-                            from_dir,
-                            Name::new(name(&from)),
-                            to_dir,
-                            Name::new(name(&to)),
-                            RenameMode::NoReplace,
-                        )
-                        .ok();
-                    }
                     Err(e) if e.kind() != ErrorKind::NotFound => return Err(error(e)),
                     _ => {}
                 }
@@ -781,16 +782,40 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
         self.write_back()
     }
 
-    /// Up to `max` bytes of the file `node`.
-    fn read_node(&self, node: NodeId, max: usize) -> Result2<Vec<u8>> {
+    /// The move recorded in the journal `node`, as FAT's settling reads
+    /// it: its head first, then only as many bytes as the head says, and
+    /// not more than the file holds; memory for them asked for, not taken
+    /// (a damaged journal is no move, never a start that runs out of
+    /// memory). `None` where it records none.
+    fn read_journal(&self, node: NodeId) -> Result2<Option<Vec<u8>>> {
+        let len = self.fs.borrow_mut().stat(node).map_err(error)?.len();
+        if len < MOVE_HEAD as u64 {
+            return Ok(None);
+        }
+        let mut head = [0u8; MOVE_HEAD];
+        self.read_node_at(node, &mut head)?;
+        let paths = u64::from(u32::from_le_bytes([head[4], head[5], head[6], head[7]]));
+        // Two paths: more is a damaged record, not a move of ours.
+        if head[..4] != MOVE[..] || MOVE_HEAD as u64 + paths > len || paths > JOURNAL_PATHS_MAX {
+            return Ok(None);
+        }
+        let paths = usize::try_from(paths).map_err(|_| StorageError::TooLarge)?;
+        let mut record = Vec::new();
+        record
+            .try_reserve_exact(MOVE_HEAD + paths)
+            .map_err(|_| StorageError::TooLarge)?;
+        record.resize(MOVE_HEAD + paths, 0);
+        self.read_node_at(node, &mut record)?;
+        Ok(Some(record))
+    }
+
+    /// Fills `data` from the start of the file `node`.
+    fn read_node_at(&self, node: NodeId, data: &mut [u8]) -> Result2<()> {
         let mut fs = self.fs.borrow_mut();
-        let len = fs.stat(node).map_err(error)?.len();
-        let len = usize::try_from(len).unwrap_or(usize::MAX).min(max);
-        let mut data = alloc::vec![0u8; len];
         fs.open(node, OpenMode::Read).map_err(error)?;
         let mut at = 0;
         let read = loop {
-            if at == len {
+            if at == data.len() {
                 break Ok(());
             }
             match fs.read(node, at as u64, &mut data[at..]) {
@@ -800,8 +825,7 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
             }
         };
         let closed = fs.close(node).map_err(error);
-        read.and(closed)?;
-        Ok(data)
+        read.and(closed)
     }
 
     /// Writes `data` at the start of the journal, made where missing, and
@@ -1025,27 +1049,49 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
 
     /// [`Storage::remove_dir_all`], its blocks not yet written back.
     fn remove_tree(&self, path: &str) -> Result2<()> {
+        self.remove_tree_below(path, &mut Vec::new())
+    }
+
+    /// [`Self::remove_tree`] of `path`, below the folders whose first
+    /// clusters are `above`. A damaged card's folder may name a folder
+    /// above it as its own subfolder: such a folder is not followed (the
+    /// removal fails, nothing more of it goes), nor one deeper than
+    /// [`TREE_DEPTH`], so that the stack stays bounded.
+    fn remove_tree_below(&self, path: &str, above: &mut Vec<u64>) -> Result2<()> {
         let dir = match self.dir(path, false) {
             Ok(dir) => dir,
             Err(StorageError::NotFound) => return Ok(()),
             Err(e) => return Err(e),
         };
+        let first = self.first_cluster(dir)?;
+        if above.len() >= TREE_DEPTH || first.is_some_and(|c| above.contains(&c)) {
+            return Err(StorageError::Io);
+        }
         let mut entries: Vec<(String, bool)> = Vec::new();
         self.each(dir, &mut |name, is_dir, _| {
             entries.push((name.to_string(), is_dir))
         })?;
+        above.push(first.unwrap_or(0));
         for (entry, is_dir) in entries {
             let below = format!("{path}/{entry}");
             if is_dir {
-                self.remove_tree(&below)?;
+                let removed = self.remove_tree_below(&below, above);
+                if removed.is_err() {
+                    above.pop();
+                    return removed;
+                }
             } else {
                 let dir = self.dir(path, false)?;
                 match self.fs.borrow_mut().unlink(dir, Name::new(&entry)) {
-                    Err(e) if e.kind() != ErrorKind::NotFound => return Err(error(e)),
+                    Err(e) if e.kind() != ErrorKind::NotFound => {
+                        above.pop();
+                        return Err(error(e));
+                    }
                     _ => {}
                 }
             }
         }
+        above.pop();
         self.drop_folders(path);
         let up = self.dir(parent(path), false)?;
         match self.fs.borrow_mut().rmdir(up, Name::new(name(path))) {

@@ -455,6 +455,132 @@ fn a_file_moved_is_at_one_place_whole_after_any_cut() {
     }
 }
 
+/// The names in folder `dir`, sorted; `None` where there is no folder.
+fn folder(s: &dyn Storage, dir: &str) -> Option<Vec<String>> {
+    let mut names = Vec::new();
+    match s.list(dir, &mut |e| names.push(e.name.to_string())) {
+        Ok(()) => {
+            names.sort();
+            Some(names)
+        }
+        Err(StorageError::NotFound) => None,
+        Err(e) => panic!("{dir}: {e:?}"),
+    }
+}
+
+#[test]
+fn a_folder_moved_is_at_one_place_whole_after_any_cut() {
+    let (old, new) = old_and_new();
+    for to in ["elsewhere/shelf", "shelf renamed"] {
+        each_cut(
+            |s| {
+                s.write("shelf/a.epub", &old).unwrap();
+                s.write("shelf/b.txt", &new).unwrap();
+                s.write("elsewhere/x.txt", &new).unwrap();
+            },
+            |s| s.rename("shelf", to).unwrap(),
+            |card, at| {
+                let both = Some(vec!["a.epub".to_string(), "b.txt".to_string()]);
+                let (at_old, at_new) = (folder(card, "shelf"), folder(card, to));
+                let moved = at_old.is_none() && at_new == both;
+                let stayed = at_old == both && at_new.is_none();
+                assert!(moved || stayed, "{to} {at}: {at_old:?} {at_new:?}");
+                let now = if moved { to } else { "shelf" };
+                assert_eq!(
+                    whole(card, &format!("{now}/a.epub")),
+                    Ok(old.clone()),
+                    "{to} {at}"
+                );
+                assert_eq!(
+                    whole(card, &format!("{now}/b.txt")),
+                    Ok(new.clone()),
+                    "{to} {at}"
+                );
+                assert_eq!(whole(card, "elsewhere/x.txt"), Ok(new.clone()), "{at}");
+            },
+        );
+    }
+}
+
+#[test]
+fn a_damaged_journal_is_no_move_and_the_card_goes_on() {
+    let image = prepared(|s| s.write(A, b"old").unwrap());
+    let cuts = cut_images(image, |s| s.rename(A, "books/renamed.epub").unwrap());
+    let mut checked = 0;
+    for (n, image) in cuts.iter().enumerate() {
+        // The journal's head in this cut: its paths' length said huge.
+        let Some(at) = image.windows(4).position(|w| w == b"PPMV") else {
+            continue;
+        };
+        for len in [u32::MAX, 1 << 20, 64 * 1024] {
+            let mut damaged = image.clone();
+            damaged[at + 4..at + 8].copy_from_slice(&len.to_le_bytes());
+            let card = mount(&card_of(&damaged));
+            let (a, renamed) = (whole(&card, A), whole(&card, "books/renamed.epub"));
+            assert!(
+                a == Ok(b"old".to_vec()) || renamed == Ok(b"old".to_vec()),
+                "cut {n}, {len}: {a:?} {renamed:?}"
+            );
+            card.write("after.txt", b"x").unwrap();
+            checked += 1;
+        }
+    }
+    assert!(checked > 0, "no cut with the journal");
+}
+
+/// Where in `image` the entry set named `name` starts (its File entry),
+/// found by its name entry (`0xC1`); names of up to 15 units.
+fn set_of(image: &[u8], name: &str) -> usize {
+    let units: Vec<u8> = name.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    (0..image.len() / 32)
+        .map(|n| n * 32)
+        .find(|&at| {
+            image[at] == 0xC1
+                && image[at + 2..at + 2 + units.len()] == units[..]
+                && image[at - 32] == 0xC0
+        })
+        .map(|at| at - 64)
+        .unwrap_or_else(|| panic!("no set for {name}"))
+}
+
+/// Seals the entry set at `at` again: its checksum, as exFAT sums it.
+fn seal(image: &mut [u8], at: usize) {
+    let entries = usize::from(image[at + 1]) + 1;
+    let mut sum: u16 = 0;
+    for (i, byte) in image[at..at + entries * 32].iter().enumerate() {
+        if i == 2 || i == 3 {
+            continue;
+        }
+        sum = sum.rotate_right(1).wrapping_add(u16::from(*byte));
+    }
+    image[at + 2..at + 4].copy_from_slice(&sum.to_le_bytes());
+}
+
+#[test]
+fn a_folder_that_names_one_above_it_is_not_followed_for_ever() {
+    let mut image = prepared(|s| {
+        s.write("cache/top/loopdir/x.txt", b"x").unwrap();
+        s.write("cache/top/y.txt", b"y").unwrap();
+    });
+    // loopdir's stream (the set's second entry) takes top's clusters:
+    // its flags, valid length, first cluster and length.
+    let (top, looped) = (set_of(&image, "top") + 32, set_of(&image, "loopdir") + 32);
+    for range in [1..2, 8..16, 20..32] {
+        let from: Vec<u8> = image[top + range.start..top + range.end].to_vec();
+        image[looped + range.start..looped + range.end].copy_from_slice(&from);
+    }
+    seal(&mut image, looped - 32);
+    let bytes = card_of(&image);
+    let card = mount(&bytes);
+    assert_eq!(
+        folder(&card, "cache/top/loopdir"),
+        folder(&card, "cache/top")
+    );
+    // Refused where it loops, not a stack that overflows.
+    assert_eq!(card.remove_dir_all("cache"), Err(StorageError::Io));
+    card.write("after.txt", b"x").unwrap();
+}
+
 #[test]
 fn a_file_removed_is_whole_or_gone_after_any_cut() {
     let (old, _) = old_and_new();

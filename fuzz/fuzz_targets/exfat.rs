@@ -147,5 +147,16 @@ fuzz_target!(|data: &[u8]| {
     let mut seen = 0;
     walk(&storage, "", 0, &mut seen);
     let _ = storage.remove_dir_all("fuzz");
+    // And the card's own folders, as a cache is cleared: a damaged one
+    // may name a folder above it as its subfolder.
+    let mut folders = Vec::new();
+    let _ = storage.list("", &mut |e| {
+        if e.is_dir && folders.len() < 8 {
+            folders.push(e.name.to_string());
+        }
+    });
+    for folder in folders {
+        let _ = storage.remove_dir_all(&folder);
+    }
     let _ = storage.sync();
 });
