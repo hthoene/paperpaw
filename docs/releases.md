@@ -14,6 +14,12 @@ not mean its SDK and plugin crates are available to plugin authors.
    A source refactor or changed package resource needs a new crate
    version even when the plugin's runtime behaviour stayed the same:
    crates.io cannot replace the sources of a published version.
+   `python3 tools/plugin-files/versions.py --release --bytes` (or
+   `tools/ci-local.sh --only release-versions`) builds the store files of
+   the last release's tag and of this tree and fails for each plugin whose
+   file differs under the same version, through the SDK or a crate it
+   depends on or a bump that rippled, which the commit check cannot see;
+   raise the versions it lists and run it again.
 2. Build every plugin of the release (store, test cards, Workshop) from
    the baseline the CHANGELOG's section names, or later. The firmware
    refuses plugins of another interface fingerprint, but not those built

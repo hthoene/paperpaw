@@ -5,7 +5,7 @@
 #   tools/ci-local.sh [quick|full] [-j N] [--only <group>[,<group>...]] [--list] [-v]
 #
 #   quick   fmt, lint, test: what every change needs (the default)
-#   full    every group below except `fuzz` and `firmware-build`
+#   full    every group below except `fuzz`, `firmware-build` and `release-versions`
 #   --only  just these groups (names as `--list` prints them)
 #   -j N    cargo's parallel jobs (default 4; the container has 16 GB of RAM,
 #           an out-of-memory kill takes every agent's work with it)
@@ -16,6 +16,9 @@
 # listed in the summary and the script exits 1, whatever the output looked
 # like. RUSTFLAGS is `-D warnings` as in CI. A step whose tool is not
 # installed is SKIPPED, with the reason, and listed; it is not a pass.
+#
+# `release-versions` (only on request) builds the store files twice, once for the last
+# release's tag (kept afterwards), and takes minutes.
 #
 # CI jobs that cannot run here: the X4 Pro and X4 Classic firmware (Xtensa
 # compiler, `esp` toolchain), the Windows and macOS emulator, the update path
@@ -55,7 +58,7 @@ export RUSTFLAGS="-D warnings"
 
 all_groups=(fmt lint test doc msrv screens sdk embedded native architecture emulator deny firmware android)
 quick_groups=(fmt lint test)
-opt_groups=(firmware-build fuzz)
+opt_groups=(firmware-build fuzz release-versions)
 
 if [[ $list -eq 1 ]]; then
     echo "quick: ${quick_groups[*]}"
@@ -354,6 +357,22 @@ g_firmware-build() {
         out=target/ci-local/plugins
         rm -rf "$out"
         tools/plugin-files/build.sh x4 "$out" --fingerprint "$fp"'
+}
+
+g_release-versions() {
+    # The release's check (RELEASING.md): the store files built from this tree against
+    # the last release tag's, a plugin whose bytes changed under the same version fails.
+    # The tag's build is made once (a few minutes) and kept in ~/.cache/paperpaw/store-baseline.
+    if ! git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD > /dev/null 2>&1; then
+        skip "release-versions: store files against the last release" "no release tag in the history"
+        return
+    fi
+    if ! have_toolchain "$x4_toolchain"; then
+        skip "release-versions: store files against the last release" "toolchain $x4_toolchain not installed"
+        return
+    fi
+    run "release-versions: commits and built store files against the last release" \
+        "python3 tools/plugin-files/versions.py --release --bytes"
 }
 
 g_fuzz() {
