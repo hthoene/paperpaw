@@ -12,7 +12,11 @@
 
 mod common;
 
-use common::{LIST, Shopping};
+use common::{BuiltInOff, LIST, Shopping};
+use paperpaw_platform::{Battery, SystemStatus};
+use paperpaw_plugin_power::Power;
+use paperpaw_plugin_wifi::Wifi;
+use paperpaw_sdk::builtin::settings;
 use paperpaw_sdk::native::{Fingerprint, Native};
 use paperpaw_sdk::{Id, Instant, Params, Storage};
 
@@ -192,4 +196,182 @@ fn the_list_is_fetched_where_the_store_has_none_yet() {
     let shown = shopping.shown();
     // No code loaded here: the data packs only.
     assert!(shown.contains("Greek"), "{shown}");
+}
+
+/// The library as Android has it: the hyphenation pack is built in but
+/// switched off, so it is switched on and never fetched.
+fn built_in_list() -> String {
+    format!(
+        r#"{{"format": 2, "plugins": [
+ {{"id": "hyphenation-de", "name": "Hyphenation: German", "summary": "Pack.",
+   "group": "reading", "author": "PaperPaw", "licence": "Apache-2.0", "kind": "code",
+   "latest": {{"version": "1.0.0", "sdk": "0.4", "formats": 1, "size": 100}}}},
+ {}]}}"#,
+        data("script-greek", "Greek letters", 3_670_464)
+    )
+}
+
+#[test]
+fn a_built_in_pack_is_switched_on_and_never_fetched() {
+    let mut shopping = Shopping::custom(
+        |b| b.plugin_off(BuiltInOff("hyphenation-de")),
+        common::Shared::default(),
+        &built_in_list(),
+        true,
+    );
+    shopping.now += 100;
+    shopping.kernel.open_screen(
+        Instant(shopping.now),
+        Id::new_static("store.languages"),
+        Params::new(),
+    );
+    let shown = shopping.shown();
+    // Nothing to download for German: built in.
+    assert!(shown.contains("German, hyphenation · built in"), "{shown}");
+    shopping.choose("German");
+    let shown = shopping.shown();
+    assert!(shown.contains("Nothing to download"), "{shown}");
+    assert!(shown.contains("| Add"), "{shown}");
+    shopping.choose("Add");
+    assert!(shopping.requests().is_empty());
+    // Switched on, and said.
+    let shown = shopping.shown();
+    assert!(
+        shown.contains("The languages chosen are switched"),
+        "{shown}"
+    );
+}
+
+/// A battery at 5 % puts Automatic in Offline: the page offers to go
+/// online, in its own layout, and *Go online* fetches the list.
+#[test]
+fn offline_mode_offers_to_go_online_in_place() {
+    let mut shopping = Shopping::custom(|b| b.plugin(Power), common::Shared::default(), "{}", true);
+    shopping.now += 60_000;
+    shopping.kernel.set_status(
+        Instant(shopping.now),
+        SystemStatus::new(None, Some(Battery::new(5, false, None))),
+    );
+    shopping.now += 100;
+    shopping.kernel.open_screen(
+        Instant(shopping.now),
+        Id::new_static("store.languages"),
+        Params::new(),
+    );
+    // The list is refused in Offline: the offer shows.
+    let _ = shopping.requests();
+    let shown = shopping.shown();
+    assert!(shown.contains("Go online"), "{shown}");
+    assert!(shown.contains("Not now"), "{shown}");
+}
+
+/// Where PaperPaw runs the radio, the page without a list offers the
+/// Wi-Fi page, and opens it.
+#[test]
+fn without_a_connection_the_wifi_page_is_one_press_away() {
+    let mut shopping = Shopping::custom(
+        |b| b.wifi(true).plugin(Wifi).network(false),
+        common::Shared::default(),
+        &list(),
+        false,
+    );
+    shopping.now += 100;
+    shopping.kernel.open_screen(
+        Instant(shopping.now),
+        Id::new_static("store.languages"),
+        Params::new(),
+    );
+    let shown = shopping.shown();
+    assert!(shown.contains("No connection"), "{shown}");
+    assert!(shown.contains("| Wi-Fi"), "{shown}");
+    shopping.run(paperpaw_sdk::builtin::actions::CONFIRM);
+    let shown = shopping.shown();
+    assert!(!shown.contains("No connection"), "{shown}");
+}
+
+/// What was chosen shows where it is: waiting for its turn, then
+/// downloading, the line beside the button counts the languages left.
+#[test]
+fn the_page_shows_how_far_the_downloads_are() {
+    let mut shopping = page(None);
+    shopping.choose("Greek");
+    shopping.choose("Download");
+    // The setup goes on; the page opened again says what is going on.
+    shopping.now += 100;
+    shopping.kernel.open_screen(
+        Instant(shopping.now),
+        Id::new_static("store.languages"),
+        Params::new(),
+    );
+    let shown = shopping.shown();
+    assert!(
+        shown.contains("Greek, Waiting for its turn") || shown.contains("Greek, Downloading"),
+        "{shown}"
+    );
+    assert!(shown.contains("1 language still downloading"), "{shown}");
+    // Not chosen a second time while it goes on: no Download for it.
+    assert!(!shown.contains("| Download"), "{shown}");
+}
+
+/// A language pack that came: PaperPaw asks before the menus change,
+/// once; *Switch* changes the language, *Not now* leaves it.
+fn with_language_pack_installed() -> Shopping {
+    let storage = common::Shared::default();
+    storage
+        .write(
+            "plugins/language-ar/plugin.ini",
+            b"[plugin]\nid = language-ar\nname = Arabic\nversion = 1.0.0\n",
+        )
+        .unwrap();
+    storage
+        .write(
+            "plugins/language-ar/i18n/ar.ini",
+            b"[meta]\nlanguage = ar\nname = Arabic\n",
+        )
+        .unwrap();
+    storage
+        .write(
+            ".paperpaw/plugins/store/languages-chosen.txt",
+            b"script-arabic\nlanguage-ar",
+        )
+        .unwrap();
+    let mut shopping = Shopping::custom(|b| b, storage, &list(), true);
+    shopping.kernel.send_event(
+        Instant(shopping.now + 100),
+        paperpaw_sdk::builtin::events::PLUGINS_CHANGED.id().clone(),
+        Params::new(),
+    );
+    shopping.now += 200;
+    shopping
+}
+
+#[test]
+fn a_menu_pack_that_came_is_switched_to_only_when_the_reader_says_so() {
+    let mut shopping = with_language_pack_installed();
+    let shown = shopping.shown();
+    assert!(shown.contains("PaperPaw is now available in"), "{shown}");
+    assert_ne!(
+        shopping.kernel.settings().read(&settings::LANGUAGE),
+        "ar",
+        "not before the answer"
+    );
+    shopping.choose("Switch");
+    assert_eq!(shopping.kernel.settings().read(&settings::LANGUAGE), "ar");
+}
+
+#[test]
+fn not_now_leaves_the_language_and_it_is_not_asked_again() {
+    let mut shopping = with_language_pack_installed();
+    shopping.choose("Not now");
+    assert_ne!(shopping.kernel.settings().read(&settings::LANGUAGE), "ar");
+    shopping.kernel.send_event(
+        Instant(shopping.now + 100),
+        paperpaw_sdk::builtin::events::PLUGINS_CHANGED.id().clone(),
+        Params::new(),
+    );
+    assert!(
+        !shopping.shown().contains("PaperPaw is now available"),
+        "{}",
+        shopping.shown()
+    );
 }

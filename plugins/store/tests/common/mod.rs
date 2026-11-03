@@ -126,6 +126,25 @@ impl Plugin for BuiltInStats {
     }
 }
 
+/// A plugin built in under `id` (as Android's hyphenation packs), off
+/// until switched on.
+pub struct BuiltInOff(pub &'static str);
+
+impl Plugin for BuiltInOff {
+    fn manifest(&self) -> paperpaw_sdk::Manifest {
+        paperpaw_sdk::Manifest::new(
+            Id::new_static(self.0),
+            "Built in",
+            paperpaw_sdk::Version::new(1, 0, 0),
+        )
+        .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn register(&self, _: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        Ok(())
+    }
+}
+
 /// What came of plugins asked for, as the one who asked hears it.
 pub type Answers = Rc<RefCell<Vec<events::PluginsAnswered>>>;
 
@@ -266,6 +285,39 @@ impl Shopping {
             (network, Some(Hear(answers.clone()))),
         );
         (shopping, answers)
+    }
+
+    /// The store on the X4 with the kernel set up as `configure` says
+    /// (more plugins, Wi-Fi, a catalog device...), its list answered
+    /// with `list` if `answered`.
+    pub fn custom(
+        configure: impl FnOnce(paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder,
+        storage: Shared,
+        list: &str,
+        answered: bool,
+    ) -> Self {
+        let builder = Kernel::builder(DEVICE)
+            .storage(storage.clone())
+            .network(true)
+            .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+            .plugin(paperpaw_plugin_fonts_browser::FontsBrowser)
+            .plugin(paperpaw_plugin_menu::Menu)
+            .plugin(paperpaw_plugin_keyboard::Keyboard)
+            .plugin(Store)
+            .catalog_device("x4");
+        let mut kernel = configure(builder).build().unwrap();
+        kernel.start(Instant(0));
+        let mut shopping = Self {
+            kernel,
+            storage,
+            now: 0,
+        };
+        shopping.run(OPEN);
+        if answered {
+            let call = shopping.request(LIST);
+            shopping.answer(&call, 200, list.as_bytes());
+        }
+        shopping
     }
 
     /// Time passing, `millis` of it.

@@ -8,10 +8,13 @@ change the plugin SDK.
 
 ### Added
 
-- **Languages in the first-run setup (#116, prototype):** a step after Wi-Fi lists the languages the plugin library
-  has packs for (the letters of their script, hyphenation, menus), each with its size, and downloads those chosen in
-  the background; the same page is in the settings under Languages. It says before it fetches whether what is chosen
-  fits on the card and in the room for code plugins.
+- **Languages in the first-run setup (#116):** a step after Wi-Fi, and Settings, Languages, list the languages the
+  plugin library has packs for (the letters of their script, hyphenation, the menus), each with its size, and fetch
+  those chosen in the background, letters first, once you press *Download* (leaving the page fetches nothing). The
+  menus' language is chosen to begin with. It says before it starts whether the choice fits on the card and in the
+  room for code plugins, shows which language waits or downloads, offers Wi-Fi (or *Go online* in Offline mode)
+  without a connection, switches on hyphenation that is built in (Android), and after a menu pack came asks whether
+  to show the menus in that language, changing nothing before you say yes.
 
 ## [0.6.0-beta.1] - 2026-11-03
 
