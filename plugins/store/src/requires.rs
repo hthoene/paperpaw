@@ -1,6 +1,8 @@
-//! What a plugin the store just installed needs (`requires` in its
+//! What a plugin the store installs needs (`requires` in its
 //! `plugin.ini`, data formats 4: e.g. the Arabic menus need the Arabic
-//! letters): the plugins it names that the device lacks are offered in the
+//! letters), read from the downloaded folder before the plugin is put in
+//! its place: once it is installed, the plugins it names that the device
+//! lacks are offered in the
 //! dialog of [`request`](crate::request), asked as the store's own
 //! request, so that the reader decides (*Download* or *Not now*) and sees
 //! their sizes. The plugin stays installed either way: the kernel starts a

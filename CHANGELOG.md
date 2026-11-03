@@ -6,6 +6,13 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Changed
+
+- **The store installs what a plugin requires** (#97): after the store installs a plugin whose `plugin.ini` names
+  `requires` (the Arabic, Persian and Urdu menus need their letters, Korean extra needs Korean), the plugins the
+  device lacks are offered in the store's dialog with their sizes (*Download* or *Not now*). The plugin stays
+  installed either way. A chain asks step by step; what is on the device or not in the library is passed over.
+
 ## [0.6.0-beta.1] - 2026-11-03
 
 **Plugins of this release must be built from `965d866b` or later** (plugin interface 6, #363; `965d866b` raises the shared interface family `ui` to revision 2, #119: the firmware refuses plugins of revision 1, built before). 0.6.0-beta.1 takes
