@@ -425,6 +425,15 @@ impl Firmware {
     fn panel_idle(&mut self) {
         if self.state.panel_idle_at.is_some_and(|at| now().0 >= at) {
             self.state.panel_idle_at = None;
+            #[cfg(feature = "fade-lab")]
+            if self.panel.powered() {
+                // LAB ONLY (#168): the variant from the card, a digit.
+                let mut digit = *b"0";
+                let _ = self.kernel.storage().read_at("fade-lab.txt", 0, &mut digit);
+                let variant = digit[0].saturating_sub(b'0').min(3);
+                info!("fade-lab: variant {variant}");
+                self.panel.set_fade_variant(variant);
+            }
             if self.panel.powered()
                 && let Err(e) = self.panel.power_down()
             {

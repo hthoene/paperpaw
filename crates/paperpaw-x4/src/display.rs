@@ -240,6 +240,11 @@ pub struct Display<SPI, DC, RST, BUSY, D> {
     /// How fast refreshes are shown, in place of the panel's own, while
     /// an experiment is on ([`Display::set_experiment`]).
     experiment: Option<Experiment>,
+    /// LAB ONLY (#168): how `power_down` goes: 0 as always, 1 not at all
+    /// (the analog stays on), 2 with the border parked at `0x80` first, 3
+    /// after one more fast refresh of the same frame.
+    #[cfg(feature = "fade-lab")]
+    fade: u8,
     buffer: Vec<u8>,
 }
 
@@ -264,6 +269,8 @@ where
             gray: false,
             tone: GrayTone::default(),
             experiment: None,
+            #[cfg(feature = "fade-lab")]
+            fade: 0,
             buffer: Vec::new(),
         }
     }
@@ -558,12 +565,28 @@ where
     /// and the next refresh powers it up again (its sequence does).
     pub fn power_down(&mut self) -> Result<(), Error> {
         if self.powered {
+            #[cfg(feature = "fade-lab")]
+            match self.fade {
+                // V1: the analog stays on.
+                1 => return Ok(()),
+                // V2: the border parked (VCOM) before the power goes.
+                2 => self.command(cmd::BORDER, &[0x80])?,
+                // V3: the same frame driven once more, then the power goes.
+                3 => self.refresh(Refresh::Fast, false)?,
+                _ => {}
+            }
             self.command(cmd::UPDATE_CONTROL_2, &[0x03])?;
             self.command(cmd::ACTIVATE, &[])?;
             self.wait()?;
             self.powered = false;
         }
         Ok(())
+    }
+
+    /// LAB ONLY (#168): chooses how [`Display::power_down`] goes (see `fade`).
+    #[cfg(feature = "fade-lab")]
+    pub fn set_fade_variant(&mut self, variant: u8) {
+        self.fade = variant;
     }
 
     /// Whether the panel's power is on (after a fast refresh).
@@ -1327,6 +1350,45 @@ mod tests {
             .map(|&(_, two)| two)
             .collect();
         assert_eq!(sequences, [0xD7, 0xFC, 0x03]);
+    }
+
+    /// LAB ONLY (#168): what each variant of the power-down sends.
+    #[cfg(feature = "fade-lab")]
+    #[test]
+    fn the_fade_variants_power_down_as_chosen() {
+        let sequences_for = |variant: u8| {
+            let controller = Controller::new();
+            let mut display = Display::new(
+                Spi(controller.clone()),
+                Dc(controller.clone()),
+                Pin,
+                Busy,
+                Delay,
+            );
+            display.init().unwrap();
+            display.refresh(Refresh::Fast, false).unwrap();
+            display.refresh(Refresh::Fast, false).unwrap();
+            display.set_fade_variant(variant);
+            display.power_down().unwrap();
+            let powered = display.powered();
+            let c = controller.borrow();
+            let sequences: Vec<u8> = c.refreshes.iter().map(|&(_, two)| two).collect();
+            let border = c.commands.iter().filter(|&&b| b == cmd::BORDER).count();
+            (sequences, powered, border)
+        };
+        // Borders: two refreshes and the init each write one.
+        let (v0, powered0, border0) = sequences_for(0);
+        assert_eq!(v0, [0xD7, 0xFC, 0x03]);
+        assert!(!powered0);
+        let (v1, powered1, _) = sequences_for(1);
+        assert_eq!(v1, [0xD7, 0xFC], "the analog stays on");
+        assert!(powered1);
+        let (v2, _, border2) = sequences_for(2);
+        assert_eq!(v2, [0xD7, 0xFC, 0x03]);
+        assert_eq!(border2, border0 + 1, "the border parked once more");
+        let (v3, powered3, _) = sequences_for(3);
+        assert_eq!(v3, [0xD7, 0xFC, 0xFC, 0x03], "one more fast refresh first");
+        assert!(!powered3);
     }
 
     type Shown = (Rc<RefCell<Controller>>, Display<Spi, Dc, Pin, Busy, Delay>);

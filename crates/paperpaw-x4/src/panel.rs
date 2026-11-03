@@ -286,6 +286,14 @@ where
         each!(self, d => d.power_down())
     }
 
+    /// LAB ONLY (#168): the SSD1677's power-down variant (the others have none).
+    #[cfg(feature = "fade-lab")]
+    pub fn set_fade_variant(&mut self, variant: u8) {
+        if let Panel::Ssd1677 { display, .. } = self {
+            display.set_fade_variant(variant);
+        }
+    }
+
     /// Whether the panel's power is on.
     pub fn powered(&self) -> bool {
         each!(self, d => d.powered())
