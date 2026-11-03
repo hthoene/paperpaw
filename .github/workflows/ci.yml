@@ -48,6 +48,10 @@ jobs:
       # The firmware is a crate of its own, outside the workspace.
       - run: rustfmt --edition 2024 --check shells/xteink/src/main.rs
       - run: cargo clippy --workspace --all-targets
+      # fsck.exfat checks the exFAT cards the storage's tests write
+      # (crates/paperpaw-fat/tests/exfat.rs).
+      - name: exfatprogs
+        run: sudo apt-get install -y exfatprogs
       - run: cargo test --workspace
       # The line-break table (crates/paperpaw-text/src/linebreak) is made from
       # Unicode 17.0.0's files, pinned by SHA-256 in the generator (a changed
@@ -590,7 +594,7 @@ jobs:
           mkdir -p fuzz/corpus/image
           cp crates/paperpaw-image/tests/data/*.jpg crates/paperpaw-image/tests/data/*.png fuzz/corpus/image/
           # `+nightly` overrides rust-toolchain.toml, which pins stable.
-          for target in epub txt xml hyphen image lua bidi wrap; do
+          for target in epub txt xml hyphen image lua bidi wrap exfat; do
             cargo +nightly fuzz run "$target" -- -max_total_time=60 -rss_limit_mb=1024
           done
       - uses: actions/upload-artifact@v7

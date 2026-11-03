@@ -52,8 +52,7 @@ cargo run --release
 ```
 
 flashes the X4 and shows its log. Books go on a microSD card formatted
-with FAT32, e.g. in `Books`. PaperPaw does not read exFAT, which large
-cards often come with.
+with FAT32 or exFAT (as large cards come), e.g. in `Books`.
 
 [`tools/flash-x4.py`](../../tools/flash-x4.py) does the same for each reader
 (`python tools/flash-x4.py`, or `x4-pro`, `x4-classic`, `x3`): it says

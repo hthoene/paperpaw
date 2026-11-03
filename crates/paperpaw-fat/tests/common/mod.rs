@@ -13,7 +13,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use paperpaw_fat::fatfs::{FileSystem, FormatVolumeOptions, FsOptions, Seek, SeekFrom, Write};
-use paperpaw_fat::{BLOCK, BlockDisk, Blocks, DiskError, FatStorage, SharedDisk};
+use paperpaw_fat::{
+    BLOCK, BlockDisk, Blocks, DiskError, ExFatStorage, FatStorage, Kind, SharedDisk,
+};
 
 /// The bytes of a card, shared.
 #[derive(Clone)]
@@ -115,4 +117,66 @@ pub fn names(storage: &dyn paperpaw_platform::Storage, dir: &str) -> Vec<String>
         .unwrap();
     out.sort();
     out
+}
+
+/// An image kept sparse (`tests/images`): `PPSPARSE`, its size (8 bytes),
+/// then each block that is not all zeros as its number (4 bytes) and its
+/// 512 bytes.
+pub fn image(sparse: &[u8]) -> Bytes {
+    assert_eq!(&sparse[..8], b"PPSPARSE");
+    let size = u64::from_le_bytes(sparse[8..16].try_into().unwrap()) as usize;
+    let mut bytes = vec![0u8; size];
+    for chunk in sparse[16..].chunks(516) {
+        let index = u32::from_le_bytes(chunk[..4].try_into().unwrap()) as usize;
+        bytes[index * 512..(index + 1) * 512].copy_from_slice(&chunk[4..]);
+    }
+    Bytes(Rc::new(RefCell::new(bytes)))
+}
+
+/// An exFAT card of 8 MB as `mkfs.exfat` made it, empty.
+pub fn exfat_card() -> Bytes {
+    image(include_bytes!("../images/small.sparse"))
+}
+
+/// The storage on the exFAT card `bytes`, as the X4 mounts it.
+pub fn exfat(bytes: &Bytes) -> ExFatStorage<Bytes> {
+    let (disk, kind) = BlockDisk::find(bytes.clone()).unwrap();
+    assert_eq!(kind, Kind::ExFat);
+    ExFatStorage::mount(SharedDisk::new(disk)).unwrap()
+}
+
+pub type Written = (u32, [u8; 512]);
+
+/// A card as blocks in memory with every block written to it in order.
+#[derive(Clone)]
+pub struct Recorded {
+    pub data: Rc<RefCell<Vec<u8>>>,
+    pub writes: Rc<RefCell<Vec<Written>>>,
+}
+
+impl paperpaw_fat::Blocks for Recorded {
+    fn read_block(
+        &mut self,
+        index: u32,
+        block: &mut [u8; 512],
+    ) -> Result<(), paperpaw_fat::DiskError> {
+        let at = index as usize * 512;
+        block.copy_from_slice(&self.data.borrow()[at..at + 512]);
+        Ok(())
+    }
+
+    fn write_block(
+        &mut self,
+        index: u32,
+        block: &[u8; 512],
+    ) -> Result<(), paperpaw_fat::DiskError> {
+        let at = index as usize * 512;
+        self.data.borrow_mut()[at..at + 512].copy_from_slice(block);
+        self.writes.borrow_mut().push((index, *block));
+        Ok(())
+    }
+
+    fn blocks(&mut self) -> Result<u32, paperpaw_fat::DiskError> {
+        Ok((self.data.borrow().len() / 512) as u32)
+    }
 }

@@ -6,6 +6,21 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Added
+
+- **exFAT memory cards, experimental** (X4, X3, X4 Pro, X4 Classic, and the
+  emulator with `--card`): cards of 64 GB and more, as sold, work as they
+  are formatted; PaperPaw reads and writes them without reformatting and never formats a
+  card. A file written is whole with its old or new content after a power
+  cut, and a change made on a computer after a cut is not overwritten by the
+  write that was cut off (ADR 0034). Power cuts may leave lost clusters
+  that a computer's check of the card frees. The first free-space query on
+  a big card reads the allocation map (a moment). The driver is hadris-fat
+  and hadris-fs 3.0.0-rc.2 (MIT, with changes of ours under `patches/`), a
+  release candidate, which is why exFAT is marked experimental: keep a copy
+  of what matters on the card, and tell us what you see. Moving to the
+  stable driver release follows. Not yet tested on a device.
+
 ## [0.6.0-beta.1] - 2026-11-03
 
 **Plugins of this release must be built from `965d866b` or later** (plugin interface 6, #363; `965d866b` raises the shared interface family `ui` to revision 2, #119: the firmware refuses plugins of revision 1, built before). 0.6.0-beta.1 takes

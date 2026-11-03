@@ -19,6 +19,7 @@ required-features = ["window"]
 paperpaw-app = { workspace = true, features = ["outline", "packs"] }
 paperpaw-core = { workspace = true, features = ["color", "outline"] }
 paperpaw-table.workspace = true
+paperpaw-fat.workspace = true
 paperpaw-fs.workspace = true
 paperpaw-serve.workspace = true
 paperpaw-graphics = { workspace = true, features = ["color"] }

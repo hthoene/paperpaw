@@ -1,4 +1,5 @@
-//! `FatStorage` against a model in memory: random writes, appends,
+//! `FatStorage` and `ExFatStorage` against a model in memory: random
+//! writes, appends,
 //! reads at any offset, removals and moves of files in a few folders,
 //! with data crossing cluster and block boundaries. After every step the
 //! storage reads as the model says; after a sync, so does the card
@@ -14,7 +15,7 @@ mod common;
 
 use std::collections::BTreeMap;
 
-use common::{Card, read};
+use common::{Card, exfat, exfat_card, read};
 use paperpaw_platform::{Storage, StorageError};
 use proptest::prelude::*;
 
@@ -82,52 +83,67 @@ proptest! {
     #[test]
     fn storage_follows_the_model(ops in prop::collection::vec(op(), 1..40)) {
         let card = Card::new(2 << 20);
-        let s = card.storage;
-        let mut model: BTreeMap<&str, Vec<u8>> = BTreeMap::new();
-        for op in ops {
-            match op {
-                Op::Write(p, d) => {
-                    s.write(PATHS[p], &d).unwrap();
-                    model.insert(PATHS[p], d);
-                }
-                Op::Append(p, d) => {
-                    s.append(PATHS[p], &d).unwrap();
-                    model.entry(PATHS[p]).or_default().extend_from_slice(&d);
-                }
-                Op::Read(p, offset, len) => {
-                    let mut buf = vec![0u8; len];
-                    let result = s.read_at(PATHS[p], offset, &mut buf);
-                    match model.get(PATHS[p]) {
-                        Some(data) => {
-                            let start = (offset as usize).min(data.len());
-                            let end = (start + len).min(data.len());
-                            prop_assert_eq!(result, Ok(end - start));
-                            prop_assert!(buf[..end - start] == data[start..end]);
-                        }
-                        None => prop_assert_eq!(result, Err(StorageError::NotFound)),
-                    }
-                }
-                Op::Remove(p) => {
-                    s.remove(PATHS[p]).unwrap();
-                    model.remove(PATHS[p]);
-                }
-                Op::Rename(a, b) => {
-                    let result = s.rename(PATHS[a], PATHS[b]);
-                    if a == b {
-                        prop_assert_eq!(result, Ok(()));
-                    } else if let Some(data) = model.remove(PATHS[a]) {
-                        prop_assert_eq!(result, Ok(()));
-                        model.insert(PATHS[b], data);
-                    } else {
-                        prop_assert_eq!(result, Err(StorageError::NotFound));
-                    }
-                }
-                Op::Sync => s.sync().unwrap(),
-            }
-            check(s, &model)?;
-        }
-        s.sync().unwrap();
-        let after = card.remounted();
-        check(after.storage, &model)?;
+        let model = follows(card.storage, ops)?;
+        check(card.remounted().storage, &model)?;
     }
+
+    #[test]
+    fn exfat_storage_follows_the_model(ops in prop::collection::vec(op(), 1..40)) {
+        let bytes = exfat_card();
+        let model = follows(&exfat(&bytes), ops)?;
+        check(&exfat(&bytes), &model)?;
+    }
+}
+
+/// Runs `ops` on `s` and the model, checking after each, then syncs; the
+/// model, for the card mounted anew to read as it says too.
+fn follows(
+    s: &dyn Storage,
+    ops: Vec<Op>,
+) -> Result<BTreeMap<&'static str, Vec<u8>>, TestCaseError> {
+    let mut model: BTreeMap<&'static str, Vec<u8>> = BTreeMap::new();
+    for op in ops {
+        match op {
+            Op::Write(p, d) => {
+                s.write(PATHS[p], &d).unwrap();
+                model.insert(PATHS[p], d);
+            }
+            Op::Append(p, d) => {
+                s.append(PATHS[p], &d).unwrap();
+                model.entry(PATHS[p]).or_default().extend_from_slice(&d);
+            }
+            Op::Read(p, offset, len) => {
+                let mut buf = vec![0u8; len];
+                let result = s.read_at(PATHS[p], offset, &mut buf);
+                match model.get(PATHS[p]) {
+                    Some(data) => {
+                        let start = (offset as usize).min(data.len());
+                        let end = (start + len).min(data.len());
+                        prop_assert_eq!(result, Ok(end - start));
+                        prop_assert!(buf[..end - start] == data[start..end]);
+                    }
+                    None => prop_assert_eq!(result, Err(StorageError::NotFound)),
+                }
+            }
+            Op::Remove(p) => {
+                s.remove(PATHS[p]).unwrap();
+                model.remove(PATHS[p]);
+            }
+            Op::Rename(a, b) => {
+                let result = s.rename(PATHS[a], PATHS[b]);
+                if a == b {
+                    prop_assert_eq!(result, Ok(()));
+                } else if let Some(data) = model.remove(PATHS[a]) {
+                    prop_assert_eq!(result, Ok(()));
+                    model.insert(PATHS[b], data);
+                } else {
+                    prop_assert_eq!(result, Err(StorageError::NotFound));
+                }
+            }
+            Op::Sync => s.sync().unwrap(),
+        }
+        check(s, &model)?;
+    }
+    s.sync().unwrap();
+    Ok(model)
 }
