@@ -41,9 +41,18 @@ pub fn mount<B: Blocks + 'static>(blocks: B) -> Result<Box<dyn Storage>, CardTro
             }
         },
         Kind::ExFat => match ExFatStorage::mount(disk) {
-            Ok(storage) => Ok(Box::new(storage)),
-            Err(_) => {
-                warn!("SD card: exFAT volume not readable");
+            Ok(storage) => {
+                let missing = storage.missing_blocks();
+                if missing > 0 {
+                    warn!(
+                        "SD card: the exFAT volume is {} KB longer than the card; that end cannot be read or written",
+                        missing / 2
+                    );
+                }
+                Ok(Box::new(storage))
+            }
+            Err(failure) => {
+                warn!("SD card: exFAT volume not readable: {failure}");
                 Err(CardTrouble::Unreadable)
             }
         },

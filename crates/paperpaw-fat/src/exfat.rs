@@ -16,16 +16,19 @@ use paperpaw_platform::storage::is_valid_path;
 use paperpaw_platform::{DirEntry, Storage, StorageError};
 
 use crate::disk::{BLOCK, Blocks, DiskError, SharedDisk};
+use crate::exfat_boot::{BootSizes, MountFailure};
 use crate::settle::{MOVE, MOVE_HEAD, move_record, recorded_move};
 use crate::{FOLDERS, JOURNAL, OPEN_FILES, hash, name, parent, same_path};
 
-/// The disk as the exFAT driver reads and writes it, in blocks.
-pub struct ExDisk<B: Blocks>(SharedDisk<B>);
+/// The disk as the exFAT driver reads and writes it, in blocks, and how
+/// many it says the disk holds.
+pub struct ExDisk<B: Blocks>(SharedDisk<B>, u64);
 
 impl<B: Blocks> ExDisk<B> {
     /// The disk `disk`, in blocks (e.g. to check the volume on it).
     pub fn new(disk: SharedDisk<B>) -> Self {
-        Self(disk)
+        let blocks = disk.blocks();
+        Self(disk, blocks)
     }
 }
 
@@ -64,7 +67,7 @@ impl<B: Blocks> BlockDevice for ExDisk<B> {
     }
 
     fn block_count(&self) -> u64 {
-        self.0.blocks()
+        self.1
     }
 
     fn writable(&self) -> bool {
@@ -128,6 +131,11 @@ const LONGEST: usize = 255;
 /// are a damaged card's (a folder that names one above it), and each
 /// level takes stack.
 const TREE_DEPTH: usize = 32;
+
+/// A volume longer than the card by at most this share of it (1/32,
+/// some 3 %) is mounted (see [`ExFatStorage::mount`]); one longer still
+/// is no volume for this card.
+const MISSING_MOST: u64 = 32;
 
 /// The most a move's two paths take in the journal: a record that says
 /// more is damaged (and is no move).
@@ -278,6 +286,8 @@ pub struct ExFatStorage<B: Blocks + 'static> {
     /// Entry sets with a bad checksum that were left as they are, their
     /// clusters not being possible on this card (see `ExFatFs::sweep`).
     left_alone: Cell<u32>,
+    /// Blocks the volume names past the card's end.
+    missing: u64,
 }
 
 impl<B: Blocks + 'static> core::fmt::Debug for ExFatStorage<B> {
@@ -288,13 +298,25 @@ impl<B: Blocks + 'static> core::fmt::Debug for ExFatStorage<B> {
 
 impl<B: Blocks + 'static> ExFatStorage<B> {
     /// The exFAT volume on `disk` (one [`BlockDisk::find`](crate::BlockDisk::find)
-    /// found), mounted. Never formats anything.
-    pub fn mount(disk: SharedDisk<B>) -> Result<Self, StorageError> {
+    /// found), mounted; else why not, for the log. Never formats anything.
+    pub fn mount(disk: SharedDisk<B>) -> Result<Self, MountFailure> {
         let options = MountOptions::new()
             .with_clock(&NO_CLOCK)
             .with_node_limit(NODES);
-        let fs = ExFatFs::mount(ExDisk(disk.clone()), options).map_err(|_| StorageError::Io)?;
+        // A volume a little longer than the card (its partition said to
+        // go past the card's end, as on some cards as sold) is mounted as
+        // computers mount it: what lies past the card's end fails to be
+        // read or written, and is not counted as room.
+        let card = disk.blocks();
+        let missing = BootSizes::of(&disk)
+            .map(|boot| (boot.volume_bytes() / BLOCK as u64).saturating_sub(card))
+            .filter(|&missing| missing <= card / MISSING_MOST)
+            .unwrap_or(0);
+        let device = ExDisk(disk.clone(), card + missing);
+        let fs =
+            ExFatFs::mount(device, options).map_err(|e| MountFailure::new(e.to_string(), &disk))?;
         Ok(Self {
+            missing,
             fs: RefCell::new(fs),
             disk,
             open: RefCell::new(Vec::new()),
@@ -303,6 +325,17 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
             moves_settled: Cell::new(false),
             left_alone: Cell::new(0),
         })
+    }
+
+    /// How many blocks the volume names past the card's end (its
+    /// partition said to go past it): they fail to be read or written,
+    /// and are not counted as room. 0 on most cards.
+    pub fn missing_blocks(&self) -> u64 {
+        self.missing
+    }
+
+    fn missing_bytes(&self) -> u64 {
+        self.missing.saturating_mul(BLOCK as u64)
     }
 
     /// How many entry sets with a bad checksum the settling of folders left
@@ -1253,13 +1286,15 @@ impl<B: Blocks + 'static> Storage for ExFatStorage<B> {
     /// time), then followed as clusters are taken and freed.
     fn free_space(&self) -> Option<u64> {
         let stats = self.fs.borrow_mut().statfs().ok()?;
-        Some(stats.free_blocks() * u64::from(stats.block_size()))
+        let free = stats.free_blocks() * u64::from(stats.block_size());
+        Some(free.saturating_sub(self.missing_bytes()))
     }
 
     fn total_space(&self) -> Option<u64> {
         let fs = self.fs.borrow();
         let info = fs.info();
-        Some(u64::from(info.cluster_count()) * info.cluster_size())
+        let total = u64::from(info.cluster_count()) * info.cluster_size();
+        Some(total.saturating_sub(self.missing_bytes()))
     }
 
     fn create_dir(&self, path: &str) -> Result<(), StorageError> {

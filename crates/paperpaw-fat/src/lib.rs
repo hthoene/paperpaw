@@ -84,6 +84,7 @@ extern crate alloc;
 
 mod disk;
 mod exfat;
+mod exfat_boot;
 mod found;
 mod free;
 mod listed;
@@ -91,6 +92,7 @@ mod settle;
 
 pub use disk::{BLOCK, BlockDisk, Blocks, DiskError, Kind, SharedDisk, VolumeError};
 pub use exfat::{ExDisk, ExFatStorage};
+pub use exfat_boot::{BootSizes, MountFailure};
 
 use alloc::format;
 use alloc::string::{String, ToString};

@@ -83,7 +83,7 @@ pub fn mount(blocks: ImageBlocks) -> std::io::Result<Box<dyn Storage>> {
             Box::new(FatStorage::new(Box::leak(Box::new(fs))).with_disk(disk))
         }
         Kind::ExFat => {
-            Box::new(ExFatStorage::mount(disk).map_err(|e| invalid(format!("exFAT: {e:?}")))?)
+            Box::new(ExFatStorage::mount(disk).map_err(|e| invalid(format!("exFAT: {e}")))?)
         }
     })
 }
