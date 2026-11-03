@@ -39,7 +39,7 @@ is a new record that links back.
 | [0031](0031-developer-link.md) | A developer link over USB for plugins | Accepted; reserved, carried out later |
 | [0032](0032-writing-between-the-lines.md) | Writing between a book's lines | Accepted; annotations reserved, carried out later |
 | [0033](0033-catalogs-read-as-needed.md) | Catalogs on the card read as needed | Accepted (owner decision 40); amends interface 5 |
-| [0033](0033-exfat-cards.md) | exFAT cards | Accepted |
+| [0034](0034-exfat-cards.md) | exFAT cards | Accepted |
 
 ## Template
 
