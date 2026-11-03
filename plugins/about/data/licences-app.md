@@ -234,7 +234,7 @@ Crates in the apps (Android, the desktop and web emulators) used under the MIT L
 - android_logger 0.15.1: Copyright 2016 The android_logger Developers; Copyright (c) 2016 The android_logger Developers
 - android_system_properties 0.1.6: Copyright 2016 Nicolas Silva; Copyright (c) 2013 Nicolas Silva; COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 - as-raw-xcb-connection 1.0.1: Copyright 2019 as-raw-xcb-connection Contributers
-- async-lock 3.4.2: Copyright Stjepan Glavina (https://github.com/smol-rs/async-lock)
+- async-lock 3.5.0: Copyright Stjepan Glavina (https://github.com/smol-rs/async-lock)
 - bitflags 1.3.2: Copyright (c) 2014 The Rust Project Developers
 - bitflags 2.13.2: Copyright (c) 2014 The Rust Project Developers
 - block2 0.5.1: Copyright Steven Sheldon, Mads Marquart (https://github.com/madsmtm/objc2)

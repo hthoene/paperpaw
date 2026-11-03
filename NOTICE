@@ -133,6 +133,8 @@ as-slice 0.2.1 (MIT OR Apache-2.0, used under MIT)
     Copyright (c) 2018 Jorge Aparicio
 async-lock 3.4.2 (Apache-2.0 OR MIT, used under MIT)
     Copyright Stjepan Glavina (https://github.com/smol-rs/async-lock)
+async-lock 3.5.0 (Apache-2.0 OR MIT, used under MIT)
+    Copyright Stjepan Glavina (https://github.com/smol-rs/async-lock)
 base16ct 0.2.0 (Apache-2.0 OR MIT, used under MIT)
     Copyright (c) 2014 Steve "Sc00bz" Thomas (steve at tobtu dot com)
     Copyright (c) 2022 The RustCrypto Project Developers

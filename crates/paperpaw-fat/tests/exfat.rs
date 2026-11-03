@@ -15,7 +15,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use common::{Bytes, exfat, exfat_card, image, names, read};
-use paperpaw_fat::{BlockDisk, Blocks as _, ExDisk, ExFatStorage, SharedDisk};
+use paperpaw_fat::{BlockDisk, ExDisk, ExFatStorage, SharedDisk};
 use paperpaw_platform::{Storage, StorageError};
 
 fn small() -> Bytes {
