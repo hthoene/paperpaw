@@ -849,16 +849,37 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
         dir: NodeId,
         visit: &mut dyn FnMut(&str, bool, &hadris_fs::Metadata),
     ) -> Result2<()> {
-        let mut cursor = DirCursor::START;
+        self.each_from(dir, 0, &mut |name, is_dir, meta| {
+            visit(name, is_dir, meta);
+            true
+        })
+        .map(|_| ())
+    }
+
+    /// [`Self::each`] from place `from` (a raw [`DirCursor`]: the index of
+    /// a directory entry, 0 the first), until `visit` answers `false` for
+    /// an entry; returns that entry's place, where a listing from it starts
+    /// with it again, or `None` at the folder's end. hadris lists from the
+    /// first entry set at or after a place, so a place whose set is gone
+    /// goes on with the next one there is.
+    fn each_from(
+        &self,
+        dir: NodeId,
+        from: u64,
+        visit: &mut dyn FnMut(&str, bool, &hadris_fs::Metadata) -> bool,
+    ) -> Result2<Option<u64>> {
+        let mut cursor = DirCursor::from_raw(from);
         // Bounded: a folder whose clusters loop (a damaged card) ends.
         for _ in 0..crate::ENTRIES_MAX {
             let entry = self.fs.borrow_mut().readdir(dir, cursor).map_err(error)?;
             let Some(entry) = entry else {
-                return Ok(());
+                return Ok(None);
             };
-            cursor = entry.next_cursor();
             let name = core::str::from_utf8(entry.name().as_bytes()).unwrap_or("");
-            visit(name, entry.file_type() == FileType::Dir, entry.metadata());
+            if !visit(name, entry.file_type() == FileType::Dir, entry.metadata()) {
+                return Ok(Some(cursor.into_raw()));
+            }
+            cursor = entry.next_cursor();
         }
         Err(StorageError::Io)
     }
@@ -1097,6 +1118,22 @@ impl<B: Blocks + 'static> Storage for ExFatStorage<B> {
     }
 
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.list_from(dir, 0, &mut |entry| {
+            visit(entry);
+            true
+        })
+        .map(|_| ())
+    }
+
+    /// A piece goes on where the last one stopped (the place is hadris'
+    /// directory cursor), so a folder of thousands of books is read about
+    /// once in all, not once a piece.
+    fn list_from(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
         self.settle_moves()?;
         if !dir.is_empty() {
             check(dir)?;
@@ -1104,15 +1141,16 @@ impl<B: Blocks + 'static> Storage for ExFatStorage<B> {
         // The sizes of files appended to, as appended.
         self.close("", true)?;
         let node = self.dir(dir, false)?;
-        self.each(node, &mut |name, is_dir, meta| {
+        self.each_from(node, from, &mut |name, is_dir, meta| {
             let own = is_temp(name) || (dir.is_empty() && same_path(name, JOURNAL));
-            if !own {
-                let modified = meta.modified().map(|t| t.unix_seconds());
-                visit(
-                    DirEntry::new(name, is_dir, if is_dir { 0 } else { meta.len() })
-                        .with_modified(modified),
-                );
+            if own {
+                return true;
             }
+            let modified = meta.modified().map(|t| t.unix_seconds());
+            visit(
+                DirEntry::new(name, is_dir, if is_dir { 0 } else { meta.len() })
+                    .with_modified(modified),
+            )
         })
     }
 

@@ -15,7 +15,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use common::{Bytes, exfat, exfat_card, image, names, read};
-use paperpaw_fat::{BlockDisk, ExDisk, ExFatStorage, SharedDisk};
+use paperpaw_fat::{BlockDisk, Blocks as _, ExDisk, ExFatStorage, SharedDisk};
 use paperpaw_platform::{Storage, StorageError};
 
 fn small() -> Bytes {
@@ -890,5 +890,183 @@ fn a_set_another_system_damaged_is_not_sealed_to_name_clusters_it_may_not_own() 
         let image = bytes.0.borrow();
         let at = set_offset(&image, "damaged.txt");
         assert_eq!(image[at], 0x85, "{what}");
+    }
+}
+
+// A folder listed a piece at a time (`Storage::list_from`), as on FAT
+// (`src/tests/listed.rs`).
+
+/// A card's blocks, with the blocks read counted.
+#[derive(Clone)]
+struct Counted(Bytes, Rc<std::cell::Cell<usize>>);
+
+impl paperpaw_fat::Blocks for Counted {
+    fn read_block(
+        &mut self,
+        index: u32,
+        block: &mut [u8; 512],
+    ) -> Result<(), paperpaw_fat::DiskError> {
+        self.1.set(self.1.get() + 1);
+        self.0.read_block(index, block)
+    }
+
+    fn write_block(
+        &mut self,
+        index: u32,
+        block: &[u8; 512],
+    ) -> Result<(), paperpaw_fat::DiskError> {
+        self.0.write_block(index, block)
+    }
+
+    fn blocks(&mut self) -> Result<u32, paperpaw_fat::DiskError> {
+        self.0.blocks()
+    }
+}
+
+/// The path of the `n`th file of folder `big`: names of different
+/// lengths, so that their entry sets take different numbers of entries.
+fn big_name(n: usize) -> String {
+    format!("big/{n:04} {}.epub", "book ".repeat(n % 7))
+}
+
+/// An empty card with `count` files in folder `big`, mounted anew with
+/// its blocks read counted.
+fn big(count: usize) -> (ExFatStorage<Counted>, Rc<std::cell::Cell<usize>>, Bytes) {
+    let bytes = small();
+    let card = mount(&bytes);
+    for n in 0..count {
+        card.write(&big_name(n), b"x").unwrap();
+    }
+    card.sync().unwrap();
+    drop(card);
+    let reads = Rc::new(std::cell::Cell::new(0));
+    let (disk, _) = BlockDisk::find(Counted(bytes.clone(), reads.clone())).unwrap();
+    (
+        ExFatStorage::mount(SharedDisk::new(disk)).unwrap(),
+        reads,
+        bytes,
+    )
+}
+
+/// The names of `dir` as listed whole, in the folder's order.
+fn whole_list(s: &dyn Storage, dir: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    s.list(dir, &mut |e| names.push(e.name.to_string()))
+        .unwrap();
+    names
+}
+
+/// The names of `dir` listed `piece` at a time; how many pieces.
+fn in_pieces(s: &dyn Storage, dir: &str, piece: usize) -> (Vec<String>, usize) {
+    let (mut names, mut pieces, mut from) = (Vec::new(), 0, Some(0));
+    while let Some(at) = from {
+        pieces += 1;
+        let mut taken = 0;
+        from = s
+            .list_from(dir, at, &mut |e| {
+                if taken == piece {
+                    return false;
+                }
+                taken += 1;
+                names.push(e.name.to_string());
+                true
+            })
+            .unwrap();
+        assert!(pieces <= names.len() + 2, "no progress at {at}");
+    }
+    (names, pieces)
+}
+
+#[test]
+fn a_folder_in_pieces_lists_as_whole() {
+    let (s, _, _) = big(300);
+    s.write("small.txt", b"x").unwrap();
+    for dir in ["big", ""] {
+        let all = whole_list(&s, dir);
+        for piece in [1, 7, 64, 299, 300, 1000] {
+            let (listed, pieces) = in_pieces(&s, dir, piece);
+            assert_eq!(listed, all, "{dir:?} by {piece}");
+            assert_eq!(
+                pieces,
+                all.len().div_ceil(piece).max(1),
+                "{dir:?} by {piece}"
+            );
+        }
+    }
+    assert_eq!(
+        s.list_from("none-here-yet", 0, &mut |_| true),
+        Err(StorageError::NotFound)
+    );
+    // A piece refused at once: the first entry's place, which lists it.
+    let at = s.list_from("big", 0, &mut |_| false).unwrap().unwrap();
+    let mut again = None;
+    s.list_from("big", at, &mut |e| {
+        again.get_or_insert(e.name.to_string());
+        false
+    })
+    .unwrap();
+    assert_eq!(again.as_deref(), Some(&whole_list(&s, "big")[0][..]));
+    // A place past the folder's end ends the listing.
+    assert_eq!(s.list_from("big", u64::MAX, &mut |_| true), Ok(None));
+}
+
+#[test]
+fn a_folder_changed_between_pieces_never_shows_an_entry_that_is_not_there() {
+    let (s, _, bytes) = big(200);
+    let touched = |n: usize, rounds: usize| {
+        (0..rounds).any(|r| [r * 9 % 200, (r * 9 + 17) % 200, (r * 9 + 40) % 200].contains(&n))
+    };
+    let (mut seen, mut from, mut round) = (Vec::<String>::new(), Some(0), 0);
+    while let Some(at) = from {
+        let mut piece = Vec::new();
+        from = s
+            .list_from("big", at, &mut |e| {
+                if piece.len() == 13 {
+                    return false;
+                }
+                piece.push(e.name.to_string());
+                true
+            })
+            .unwrap();
+        // What a piece shows is there.
+        let now = names(&s, "big");
+        for name in &piece {
+            assert!(now.contains(name), "{name} listed, not there");
+        }
+        seen.extend(piece);
+        // Between pieces: files before and after the place go, a new one
+        // comes, and one is written anew (its new entry set elsewhere).
+        let gone = round * 9 % 200;
+        let _ = s.remove(&big_name(gone));
+        let _ = s.remove(&big_name((gone + 17) % 200));
+        s.write(&format!("big/new {round}.epub"), b"n").unwrap();
+        let _ = s.write(&big_name((gone + 40) % 200), b"again");
+        round += 1;
+        assert!(round < 400, "no end");
+    }
+    // A file there all along, never changed, was seen once.
+    for n in (0..200).filter(|&n| !touched(n, round)) {
+        let name = &big_name(n)["big/".len()..];
+        assert_eq!(seen.iter().filter(|s| *s == name).count(), 1, "{name}");
+    }
+    s.sync().unwrap();
+    assert_clean(&bytes);
+}
+
+#[test]
+fn a_big_folder_in_pieces_is_read_about_once_not_once_a_piece() {
+    for count in [300, 1200] {
+        let (s, reads, _) = big(count);
+        names(&s, "big");
+        let once = reads.get();
+        let (s, reads, _) = big(count);
+        let (listed, _) = in_pieces(&s, "big", 20);
+        assert_eq!(listed.len(), count);
+        // Mounting reads a few blocks either way; pieces go on.
+        assert!(
+            reads.get() <= once * 3 / 2,
+            "{count}: {} in pieces, {once} once",
+            reads.get()
+        );
     }
 }

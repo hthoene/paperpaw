@@ -163,6 +163,7 @@ impl Storage for Card {
         match self {
             Card::Dir(storage) => storage.list_from(dir, from, visit),
             Card::Memory(files) => files.list_from(dir, from, visit),
+            Card::Image(mounted) => mounted.0.list_from(dir, from, visit),
         }
     }
     fn remove(&self, path: &str) -> Result<(), StorageError> {
