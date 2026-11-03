@@ -9,7 +9,7 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-use paperpaw_core::{Io, Kernel, WifiEvent};
+use paperpaw_core::{HttpCall, HttpResponse, Io, Kernel, WifiEvent};
 use paperpaw_platform::Rotation;
 use paperpaw_plugin_wifi::Wifi;
 use paperpaw_sdk::builtin::slots;
@@ -90,6 +90,8 @@ impl Plugin for Probe {
 struct Test {
     kernel: Kernel,
     at: u64,
+    /// The requests the shell was asked for and has not answered.
+    calls: Vec<HttpCall>,
 }
 
 impl Test {
@@ -107,7 +109,11 @@ impl Test {
             .build()
             .unwrap();
         kernel.start(Instant(0));
-        let mut test = Test { kernel, at: 0 };
+        let mut test = Test {
+            kernel,
+            at: 0,
+            calls: Vec::new(),
+        };
         test.radio();
         test
     }
@@ -120,12 +126,50 @@ impl Test {
 
     /// What the radio is told to do.
     fn radio(&mut self) -> Vec<WifiCommand> {
-        let io = self.kernel.take_io().into_iter();
-        io.filter_map(|io| match io {
-            Io::Wifi(command) => Some(command),
-            _ => None,
-        })
-        .collect()
+        let mut told = Vec::new();
+        for io in self.kernel.take_io() {
+            match io {
+                Io::Wifi(command) => told.push(command),
+                Io::Http(call) => self.calls.push(call),
+                _ => {}
+            }
+        }
+        told
+    }
+
+    /// The shell answers the requests it was asked for.
+    fn answer_requests(&mut self) -> Vec<WifiCommand> {
+        for call in core::mem::take(&mut self.calls) {
+            let now = self.later(1);
+            self.kernel.http_response(
+                now,
+                HttpResponse {
+                    id: call.id,
+                    status: 200,
+                    ..HttpResponse::default()
+                },
+            );
+        }
+        self.radio()
+    }
+
+    /// A plugin wants the network, the radio joins `Home`, and the
+    /// request is answered: the use is over.
+    fn used_once(&mut self) {
+        self.want();
+        let home = [WifiNetwork::new("Home", -50, true)];
+        let told = self.event(WifiEvent::Scanned(home.to_vec()));
+        assert!(matches!(&told[..], [WifiCommand::Join { .. }]), "{told:?}");
+        self.event(WifiEvent::State(WifiState::Joining {
+            ssid: "Home".into(),
+        }));
+        self.event(WifiEvent::State(WifiState::Online {
+            ssid: "Home".into(),
+            address: "10.0.0.2".into(),
+            name: None,
+        }));
+        assert_eq!(self.calls.len(), 1, "the request goes out once online");
+        assert_eq!(self.answer_requests(), []);
     }
 
     fn event(&mut self, event: WifiEvent) -> Vec<WifiCommand> {
@@ -276,4 +320,49 @@ fn the_radio_stays_on_at_home_while_work_waits() {
     test.ask(OPEN_TOOL);
     test.want();
     assert_eq!(test.ask(GO_HOME), []);
+}
+
+/// Use that nothing on the screen watched (home shows) is not waited
+/// for as long as the user's choice: the radio goes off a few seconds
+/// after the last request, not after the minute of *Switch off after*
+/// (ADR 0025: off at once after background work).
+#[test]
+fn the_radio_goes_off_in_seconds_after_use_at_home() {
+    let mut test = Test::new();
+    test.used_once();
+    // The next request of the same work would still find it on.
+    assert_eq!(test.wait(4, &[]), []);
+    let told = test.wait(4, &[]);
+    assert_eq!(told, [WifiCommand::Off], "{told:?}");
+}
+
+/// At a screen of the network the next page may follow: the user's
+/// choice (a minute) holds, as before.
+#[test]
+fn the_radio_waits_for_its_idle_time_after_use_at_a_screen() {
+    let mut test = Test::new();
+    test.ask(OPEN_TOOL);
+    test.used_once();
+    assert_eq!(test.wait(50, &[]), []);
+    let told = test.wait(20, &[]);
+    assert_eq!(told, [WifiCommand::Off], "{told:?}");
+}
+
+/// Use at a screen, then back home: off at once, as before; and a new
+/// request while the tail runs keeps the radio on and starts it again.
+#[test]
+fn a_request_in_the_tail_keeps_the_radio_on() {
+    let mut test = Test::new();
+    test.used_once();
+    assert_eq!(test.wait(3, &[]), []);
+    // The same work asks again (e.g. the queue's next pack).
+    let now = test.later(1);
+    test.kernel.send_event(now, FETCH, Params::new());
+    test.radio();
+    assert_eq!(test.wait(3, &[]), []);
+    assert_eq!(test.answer_requests(), []);
+    // The tail starts anew after that answer: not off a few seconds
+    // after the first use, but after the last.
+    assert_eq!(test.wait(4, &[]), []);
+    assert_eq!(test.wait(4, &[]), [WifiCommand::Off]);
 }
