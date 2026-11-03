@@ -1,6 +1,88 @@
+#[cfg(not(feature = "small"))]
 use alloc::collections::BTreeMap;
 
 use hadris_fs::{ErrorKind, NodeId};
+
+/// Modified for PaperPaw (feature `small`): the table is a vector kept
+/// sorted by id, not a `BTreeMap`. A driver pins a few nodes at a time,
+/// and the B-tree's code took about 5 KB of flash on a microcontroller.
+#[cfg(feature = "small")]
+type BTreeMap<K, V> = sorted::SortedVec<K, V>;
+
+#[cfg(feature = "small")]
+mod sorted {
+    use alloc::vec::Vec;
+    use core::ops::RangeInclusive;
+
+    /// The part of `BTreeMap`'s interface the table uses, on a vector
+    /// sorted by key: a binary search finds a key.
+    pub(crate) struct SortedVec<K, V>(Vec<(K, V)>);
+
+    impl<K: Ord + Copy, V> SortedVec<K, V> {
+        pub(crate) const fn new() -> Self {
+            Self(Vec::new())
+        }
+
+        pub(crate) fn len(&self) -> usize {
+            self.0.len()
+        }
+
+        pub(crate) fn is_empty(&self) -> bool {
+            self.0.is_empty()
+        }
+
+        fn at(&self, key: &K) -> Result<usize, usize> {
+            self.0.binary_search_by(|(k, _)| k.cmp(key))
+        }
+
+        pub(crate) fn get(&self, key: &K) -> Option<&V> {
+            self.at(key).ok().map(|i| &self.0[i].1)
+        }
+
+        pub(crate) fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+            self.at(key).ok().map(|i| &mut self.0[i].1)
+        }
+
+        pub(crate) fn insert(&mut self, key: K, value: V) -> Option<V> {
+            match self.at(&key) {
+                Ok(i) => Some(core::mem::replace(&mut self.0[i].1, value)),
+                Err(i) => {
+                    self.0.insert(i, (key, value));
+                    None
+                }
+            }
+        }
+
+        pub(crate) fn remove(&mut self, key: &K) -> Option<V> {
+            self.at(key).ok().map(|i| self.0.remove(i).1)
+        }
+
+        pub(crate) fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
+            self.0.iter().map(|(k, v)| (k, v))
+        }
+
+        pub(crate) fn range(&self, range: RangeInclusive<K>) -> impl Iterator<Item = (&K, &V)> {
+            let from = self.at(range.start()).unwrap_or_else(|i| i);
+            let to = *range.end();
+            self.0[from..]
+                .iter()
+                .take_while(move |(k, _)| *k <= to)
+                .map(|(k, v)| (k, v))
+        }
+    }
+
+    impl<'a, K, V> IntoIterator for &'a mut SortedVec<K, V> {
+        type Item = (&'a K, &'a mut V);
+        type IntoIter = core::iter::Map<
+            core::slice::IterMut<'a, (K, V)>,
+            fn(&'a mut (K, V)) -> (&'a K, &'a mut V),
+        >;
+
+        fn into_iter(self) -> Self::IntoIter {
+            self.0.iter_mut().map(|(k, v)| (&*k, v))
+        }
+    }
+}
 
 /// Per-node driver state with a pin count per node, for pinned and open
 /// nodes. An entry goes when its last pin does, or on `remove`.

@@ -18,8 +18,12 @@ pub(crate) const MAX_BLOCK_SIZE: usize = 4096;
 ///
 /// Modified for PaperPaw: 4 KiB, not 64 (the largest device block still
 /// fills from it): the zeros take room in the firmware's flash, and
-/// fills are rare (a folder's new cluster).
+/// fills are rare (a folder's new cluster). With the feature `small`, one
+/// block of 512 bytes (larger blocks fill through the block buffer).
+#[cfg(not(feature = "small"))]
 static ZEROS: [u8; 4 * 1024] = [0; 4 * 1024];
+#[cfg(feature = "small")]
+static ZEROS: [u8; 512] = [0; 512];
 
 /// One device block, the driver's only buffer.
 pub(crate) type BlockBuf = hadris_fat_raw::io::BlockBuf<[u8; MAX_BLOCK_SIZE]>;

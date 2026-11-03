@@ -40,20 +40,11 @@ formatted.
   PaperPaw"): built where pointers have no atomics (the ESP32-C3), an
   entry set taken away without freeing its clusters (`unlink_entry`),
   what a cut at an earlier mount left in a folder settled (`sweep`), and
-  a smaller buffer of zeros in flash. The patches against crates.io
-  3.0.0-rc.2, each marked "Modified for PaperPaw" in the source:
-
-  | Where | Change |
-  |---|---|
-  | `hadris-fat/src/block_io.rs` | `ZEROS` 64 KiB → 4 KiB (60 KB less flash) |
-  | `hadris-fs` `api/read_tree.rs`, `api/tree.rs`, `api/volume.rs`, `tree.rs` | `Rc` used as `Arc` where pointers have no atomics (one core, never shared) |
-  | `hadris-fs/Cargo.toml` | `async-lock` and `spin` only where `target_has_atomic = "ptr"` |
-  | `hadris-fat/src/exfat/fs.rs` | `valid_set` split into `shaped_set` and the checksum (same result for reads) |
-  | same | `unlink_entry`: an entry set taken away without freeing its clusters (a folder's too, whatever it holds: a folder moved, cut off before its old set went) |
-  | same | `sweep` and `reseal`: see below |
-
-  All of them are to go upstream or into the list of ticket #54, so that
-  the move to the stable release is a rebase.
+  a smaller buffer of zeros and a smaller node table in flash (feature
+  `small`). Every patch against crates.io 3.0.0-rc.2 is listed in
+  `patches/HADRIS-PATCHES.md`, and `patches/hadris-diff.sh` prints them as
+  one diff, so that the move to a newer release is mechanical. They are
+  to go upstream (or into the list of ticket #54).
 - **The sweep trusts nothing a computer could have torn.** A set with a
   bad checksum is sealed again only if its stream is possible on this
   card: the first cluster lies in the cluster heap and is marked used in
