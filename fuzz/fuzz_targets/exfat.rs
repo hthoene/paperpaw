@@ -155,6 +155,13 @@ fuzz_target!(|data: &[u8]| {
             folders.push(e.name.to_string());
         }
     });
+    // A folder moved into another, as the reader moves a shelf (the
+    // journal and its settling), and back out.
+    if let [first, second, ..] = folders.as_slice() {
+        let inside = format!("{second}/{first}");
+        let _ = storage.rename(first, &inside);
+        let _ = storage.rename(&inside, first);
+    }
     for folder in folders {
         let _ = storage.remove_dir_all(&folder);
     }
