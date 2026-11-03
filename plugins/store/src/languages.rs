@@ -526,11 +526,17 @@ impl LanguagesScreen {
             .collect();
         let mut order: Vec<usize> = Vec::with_capacity(rows.len());
         for at in 0..rows.len() {
-            let place = order.iter().position(|&o| names[o] > names[at]).unwrap_or(order.len());
+            let place = order
+                .iter()
+                .position(|&o| names[o] > names[at])
+                .unwrap_or(order.len());
             order.insert(place, at);
         }
         let mut slots: Vec<Option<Row>> = rows.into_iter().map(Some).collect();
-        self.rows = order.into_iter().filter_map(|at| slots[at].take()).collect();
+        self.rows = order
+            .into_iter()
+            .filter_map(|at| slots[at].take())
+            .collect();
         self.trouble = Trouble::None;
         self.room = Room::of(env, None);
     }
