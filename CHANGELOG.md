@@ -6,6 +6,13 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Changed
+
+- **Wi-Fi goes off sooner after background use (#35, ADR 0025):** when home or a book is showing (no screen of the
+  network), the radio goes off 5 seconds after the last network use instead of after *Switch off after* (1 minute by
+  default): sync, weather, a quiet download queue. At a screen of the network (store, catalogs, tools) it is the
+  setting, as before.
+
 ## [0.6.0-beta.1] - 2026-11-03
 
 **Plugins of this release must be built from `965d866b` or later** (plugin interface 6, #363; `965d866b` raises the shared interface family `ui` to revision 2, #119: the firmware refuses plugins of revision 1, built before). 0.6.0-beta.1 takes

@@ -101,12 +101,28 @@ fn charging_keeps_it(env: &Env<'_>) -> bool {
         && env.power().online()
 }
 
+/// How long the radio stays on after use that nothing on the screen
+/// watched (ADR 0025: "off at once after background work that no reader
+/// watched"): long enough for the next request of the same work to
+/// follow (a queue's next pack, the second half of a sync), short
+/// enough that the radio is not left idling for a minute.
+pub(crate) const BACKGROUND_TAIL_SECONDS: u64 = 5;
+
+/// How long the radio waits for more use before it goes off: the user's
+/// choice after use at a screen of the network, where the next page of a
+/// catalog may follow; only [`BACKGROUND_TAIL_SECONDS`] where home or a
+/// book shows, as then nobody looks at what the radio does.
 fn idle_seconds(env: &Env<'_>) -> u64 {
     let choice = env.settings().read(&IDLE_OFF);
-    IDLE_OFF_CHOICES
+    let chosen = IDLE_OFF_CHOICES
         .iter()
         .find(|(id, _)| *id == choice)
-        .map_or(60, |(_, seconds)| *seconds)
+        .map_or(60, |(_, seconds)| *seconds);
+    if at_rest(env) {
+        chosen.min(BACKGROUND_TAIL_SECONDS)
+    } else {
+        chosen
+    }
 }
 
 fn wifi_commands(out: &mut Commands, commands: Vec<WifiCommand>) {
