@@ -6,12 +6,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use android_activity::AndroidApp;
 use jni::JNIEnv;
 use jni::objects::{JObject, JValue};
-use paperpaw_platform::{Battery, Instant, SystemStatus, WallClock};
+use paperpaw_platform::{Instant, SystemStatus, WallClock};
 
 use crate::access::with_activity;
-
-/// `BatteryManager.BATTERY_STATUS_CHARGING`.
-const CHARGING: i32 = 2;
+use crate::power::battery_of;
 
 /// The current wall clock, time zone offset and battery.
 pub fn read(app: &AndroidApp, now: Instant) -> SystemStatus {
@@ -39,7 +37,10 @@ pub fn read(app: &AndroidApp, now: Instant) -> SystemStatus {
 }
 
 /// The battery from the sticky `ACTION_BATTERY_CHANGED` broadcast.
-fn battery(env: &mut JNIEnv<'_>, activity: &JObject<'_>) -> jni::errors::Result<Option<Battery>> {
+fn battery(
+    env: &mut JNIEnv<'_>,
+    activity: &JObject<'_>,
+) -> jni::errors::Result<Option<paperpaw_platform::Battery>> {
     let action = env.new_string("android.intent.action.BATTERY_CHANGED")?;
     let filter = env.new_object(
         "android/content/IntentFilter",
@@ -69,13 +70,27 @@ fn battery(env: &mut JNIEnv<'_>, activity: &JObject<'_>) -> jni::errors::Result<
     };
     let (level, scale, status) = (extra("level")?, extra("scale")?, extra("status")?);
     let voltage = extra("voltage")?;
-    if level < 0 || scale <= 0 {
-        return Ok(None);
+    // The system's own saver: an unreadable one counts as off.
+    let saver = power_save(env, activity).unwrap_or(false);
+    Ok(battery_of(level, scale, status, voltage, saver))
+}
+
+/// Whether the system's battery saver is on (`PowerManager.isPowerSaveMode`),
+/// which the status carries as [`Battery::saver`]: Automatic wears Saving
+/// while it is (ADR 0025). Read with the battery, at the status's pace.
+fn power_save(env: &mut JNIEnv<'_>, activity: &JObject<'_>) -> jni::errors::Result<bool> {
+    let name = env.new_string("power")?;
+    let service = env
+        .call_method(
+            activity,
+            "getSystemService",
+            "(Ljava/lang/String;)Ljava/lang/Object;",
+            &[JValue::Object(&name)],
+        )?
+        .l()?;
+    if service.is_null() {
+        return Ok(false);
     }
-    Ok(Some(Battery::new(
-        (level * 100 / scale).clamp(0, 100) as u8,
-        status == CHARGING,
-        // In millivolts; some devices report volts.
-        u16::try_from(voltage).ok().filter(|mv| *mv > 1000),
-    )))
+    env.call_method(&service, "isPowerSaveMode", "()Z", &[])?
+        .z()
 }

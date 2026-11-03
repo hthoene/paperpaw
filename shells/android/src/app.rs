@@ -493,7 +493,9 @@ fn start_kernel(
         .system_clipboard(true)
         .speech(true)
         .rotation(true)
-        .colors(true);
+        .colors(true)
+        // The system's battery saver is followed (ADR 0025).
+        .power(crate::power::power_controls());
     builder = match shared {
         Some(shared) => builder
             .storage(removable.into_iter().fold(
