@@ -6,6 +6,13 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Added
+
+- **Languages in the first-run setup (#116, prototype):** a step after Wi-Fi lists the languages the plugin library
+  has packs for (the letters of their script, hyphenation, menus), each with its size, and downloads those chosen in
+  the background; the same page is in the settings under Languages. It says before it fetches whether what is chosen
+  fits on the card and in the room for code plugins.
+
 ## [0.6.0-beta.1] - 2026-11-03
 
 **Plugins of this release must be built from `965d866b` or later** (plugin interface 6, #363; `965d866b` raises the shared interface family `ui` to revision 2, #119: the firmware refuses plugins of revision 1, built before). 0.6.0-beta.1 takes

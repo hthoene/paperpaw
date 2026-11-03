@@ -1,0 +1,7 @@
+Heading "Languages"
+Row "Arabic, letters, menus · 1.1 MB" (focused)
+Row "German, hyphenation · 362 KB"
+Row "Greek, letters · 3.5 MB"
+Row "Norwegian, hyphenation · 265 KB"
+Row "Russian, letters, hyphenation · 1.3 MB"
+Text "Select a language to choose it."
