@@ -441,12 +441,13 @@ fn set_share(size: TextSize) -> f32 {
 const DATE_SHARE: f32 = 0.24;
 
 /// Where the time's digits end and what follows them begins ("AM"): the
-/// digits (or the dashes of a clock not yet set) are drawn large, from a
+/// digits (those of the language's own numerals too: Persian and Urdu write
+/// ۱۰:۴۱; or the dashes of a clock not yet set) are drawn large, from a
 /// pack's large sizes where it has them (see [`FontHandle::display`]),
 /// the rest beside them at the date's size.
 fn split_time(clock: &str) -> (&str, &str) {
     let end = clock
-        .find(|c: char| !(c.is_ascii_digit() || c == ':' || c == '-'))
+        .find(|c: char| !(c.is_numeric() || c == ':' || c == '-'))
         .unwrap_or(clock.len());
     (&clock[..end], clock[end..].trim())
 }
@@ -1358,4 +1359,21 @@ pub(crate) fn missing_covers(env: &Env<'_>, books: usize) -> Vec<String> {
         .filter(|b| !b.indexed)
         .map(|b| b.path)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_time;
+
+    #[test]
+    fn the_digits_of_every_numeral_system_are_the_large_part_of_the_time() {
+        assert_eq!(split_time("10:41"), ("10:41", ""));
+        assert_eq!(split_time("10:41 PM"), ("10:41", "PM"));
+        assert_eq!(split_time("--:--"), ("--:--", ""));
+        // Persian and Urdu write ۱۰:۴۱ (extended Arabic-Indic digits), Arabic
+        // ١٠:٤١: not all of it beside the date in small letters.
+        assert_eq!(split_time("۱۰:۴۱"), ("۱۰:۴۱", ""));
+        assert_eq!(split_time("١٠:٤١"), ("١٠:٤١", ""));
+        assert_eq!(split_time("۲:۰۵ م"), ("۲:۰۵", "م"));
+    }
 }
