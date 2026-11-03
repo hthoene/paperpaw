@@ -17,6 +17,7 @@
 extern crate alloc;
 
 mod catalog;
+mod languages;
 mod letters;
 mod list;
 mod needs;
@@ -179,6 +180,8 @@ impl Plugin for Store {
         r.on(queue::FETCHED, queue::fetched)?;
         // The first-run setup's offer of the plugins most readers add.
         setup::register(r)?;
+        // The first-run setup's languages, and the same page in the settings.
+        languages::register(r)?;
         // Plugins another plugin asks for (the reader's packs of letters).
         request::register(r)?;
         r.on(events::STARTED, |env, _, out| {

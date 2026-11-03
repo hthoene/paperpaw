@@ -6,6 +6,16 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Added
+
+- **Languages in the first-run setup (#116):** a step after Wi-Fi, and Settings, Languages, list the languages the
+  plugin library has packs for (the letters of their script, hyphenation, the menus), each with its size, and fetch
+  those chosen in the background, letters first, once you press *Download* (leaving the page fetches nothing). The
+  menus' language is chosen to begin with. It says before it starts whether the choice fits on the card and in the
+  room for code plugins, shows which language waits or downloads, offers Wi-Fi (or *Go online* in Offline mode)
+  without a connection, switches on hyphenation that is built in (Android), and after a menu pack came asks whether
+  to show the menus in that language, changing nothing before you say yes.
+
 ## [0.6.0-beta.1] - 2026-11-03
 
 **Plugins of this release must be built from `965d866b` or later** (plugin interface 6, #363; `965d866b` raises the shared interface family `ui` to revision 2, #119: the firmware refuses plugins of revision 1, built before). 0.6.0-beta.1 takes
