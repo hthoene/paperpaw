@@ -283,6 +283,51 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
+        name: "x4-pomodoro-home",
+        profile: "xteink-x4",
+        book: None,
+        sets: &[
+            "home.columns=4",
+            "home.page-1=pomodoro.timer 0/0 4x3, pomodoro.button 0/3 2x1, pomodoro.today 2/3 2x1",
+            "pomodoro.goal=6",
+        ],
+        script: "wait:300",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-pomodoro-home-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &[
+            "core.language=de",
+            "home.columns=4",
+            "home.page-1=pomodoro.timer 0/0 4x3, pomodoro.button 0/3 2x1, pomodoro.today 2/3 2x1",
+            "pomodoro.goal=6",
+        ],
+        script: "wait:300",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-pomodoro-screen",
+        profile: "xteink-x4",
+        book: None,
+        sets: &[],
+        script: "run:pomodoro.open,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-pomodoro-screen-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["core.language=de"],
+        script: "run:pomodoro.open,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
         name: "boox-settings",
         profile: "boox-go-7",
         book: None,
@@ -1119,6 +1164,18 @@ fn library(case: &Case) -> PathBuf {
         fs::write(
             notes.join("6faa8b0d8dac72e2.txt"),
             "b\t0\t0\t0\t0\t3\t1793528000\t1793528000\tAls Gregor Samsa eines Morgens\t\n",
+        )
+        .unwrap();
+    }
+    // Pomodoro: paused with ten minutes left, two rounds of the set done,
+    // three finished on the day shown (a day not before the fixed clock's
+    // keeps them).
+    if case.name.contains("pomodoro") {
+        let folder = dir.join(".paperpaw/plugins/pomodoro");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(
+            folder.join("state.txt"),
+            "0|0|0|600000|2|20760|3,1,0,0,2,0,0",
         )
         .unwrap();
     }

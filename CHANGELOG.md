@@ -6,6 +6,10 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Added
+
+- **Pomodoro** (#107), a store plugin: a focus timer with work and break rounds, three home screen widgets (timer, start/pause button, today's rounds, each in any size), a daily goal, a flash or front light blink at the end of a phase, and the minutes left in the status line. It redraws once a minute and works with no setup.
+
 ## [0.6.0-beta.1] - 2026-11-03
 
 **Plugins of this release must be built from `965d866b` or later** (plugin interface 6, #363; `965d866b` raises the shared interface family `ui` to revision 2, #119: the firmware refuses plugins of revision 1, built before). 0.6.0-beta.1 takes

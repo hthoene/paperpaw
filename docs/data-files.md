@@ -87,6 +87,7 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/plugins/battery/log.old.csv`, `plugins.old.csv` | battery | the logs before, kept once a log grew large | |
 | `.paperpaw/plugins/sleep/next.txt` | sleep | the next picture, counted | version 1 |
 | `.paperpaw/plugins/reading-goal/today.txt` | reading-goal | the day (days since 1970, local time) and the seconds read on it, as the statistics told them | |
+| `.paperpaw/plugins/pomodoro/state.txt` | pomodoro | the phase, whether it runs, when it ends (Unix seconds), the milliseconds left, the rounds of the set, the day and the last seven days' rounds: `phase\|running\|end\|left\|done\|day\|c0,…,c6` | |
 | `.paperpaw/plugins/setup/done` | setup | its presence | version 1 (the app's screen tests) |
 | `.paperpaw/plugins/help/seen.txt` | help | a screen per line whose hints were shown | |
 | `.paperpaw/plugins/update/installing.txt`, `offered.txt` | update | a path and a version, a line each (`offered.txt`: `online` and the version for an update the server named) | version 1 |

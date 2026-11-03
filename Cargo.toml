@@ -54,6 +54,7 @@ members = [
     "plugins/battery",
     "plugins/help",
     "plugins/reading-goal",
+    "plugins/pomodoro",
     "plugins/end-of-book",
     "plugins/notes-overview",
     "plugins/notes-vault",
@@ -166,6 +167,7 @@ paperpaw-plugin-stats = { path = "plugins/stats", version = "1.0.4" }
 paperpaw-plugin-battery = { path = "plugins/battery", version = "1.0.3" }
 paperpaw-plugin-help = { path = "plugins/help", version = "1.0.2" }
 paperpaw-plugin-reading-goal = { path = "plugins/reading-goal", version = "1.0.3" }
+paperpaw-plugin-pomodoro = { path = "plugins/pomodoro", version = "1.0.0" }
 paperpaw-plugin-end-of-book = { path = "plugins/end-of-book", version = "1.0.0" }
 paperpaw-plugin-notes-overview = { path = "plugins/notes-overview", version = "1.0.0" }
 paperpaw-plugin-notes-vault = { path = "plugins/notes-vault", version = "1.0.0" }

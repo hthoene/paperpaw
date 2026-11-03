@@ -1,0 +1,7 @@
+A Pomodoro timer: work in focused rounds, then rest. It needs no setup: 25 minutes of focus, 5 of rest, and after four rounds a long break of 15.
+
+Open Pomodoro from the tools menu and press Start, or add its widgets to the home screen (hold the home screen, then add a widget): Pomodoro timer shows the phase and the minutes left, Pomodoro start/pause is a button, and Pomodoro today counts the rounds you finished, with your daily goal. A tap on the timer starts or pauses it; hold it to open the full screen.
+
+The timer keeps running when you leave the screen or the reader sleeps, and carries on after a restart. A notice tells you when a phase is over. To save battery the clock updates once a minute (every ten seconds in the last minute) and never keeps the reader awake.
+
+Under Pomodoro in the settings you set the lengths and the rounds of a set, and whether the next phase starts by itself. Under More: a flash of the screen or a blink of the front light when a phase ends, a daily goal, and keeping the screen awake during a round.
