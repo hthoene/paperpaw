@@ -520,5 +520,17 @@ impl Screen for BarScreen {
             // What it covered before too, should it have shrunk.
             cx.request_redraw_area(before.union(&self.region));
         }
+        // Its page text, from whoever opened it (a reader that finished
+        // counting its pages below it, #117).
+        if let Some(changed) = events::MENU_PAGE.read(event, params)
+            && self.params.get(params::MENU) == Some(changed.menu.as_str())
+            && self.page != changed.page
+        {
+            let env = *cx.env();
+            let before = self.region;
+            self.params = self.params.clone().with(params::PAGE, changed.page);
+            self.remake(&env);
+            cx.request_redraw_area(before.union(&self.region));
+        }
     }
 }

@@ -719,6 +719,55 @@ impl Kernel {
         handled
     }
 
+    /// The full screen whose time comes below overlays alone: the topmost
+    /// full screen, where every screen above it is an overlay and it asks
+    /// for it ([`Screen::times_under_overlays`], revision 3). `None` where
+    /// a full screen is on top.
+    fn timed_under_overlays(&mut self) -> Option<usize> {
+        let top = self.stack.len().checked_sub(1)?;
+        let full = (0..top).rev().find(|&i| self.overlay(i).is_none())?;
+        if (full + 1..=top).any(|i| self.overlay(i).is_none()) {
+            return None;
+        }
+        let screen = self.stack[full].screen.as_mut();
+        paperpaw_sdk::call_since(screen, 3, false, |s| s.times_under_overlays()).then_some(full)
+    }
+
+    /// The earliest time a screen asked for that comes: the top one's,
+    /// and that of the one below overlays alone that runs.
+    pub(crate) fn screen_timer(&mut self) -> Option<Instant> {
+        let top = self.stack.last().and_then(|top| top.timer);
+        let below = self
+            .timed_under_overlays()
+            .and_then(|index| self.stack[index].timer);
+        top.into_iter().chain(below).min()
+    }
+
+    /// Calls [`Screen::on_timer`] of the screens whose time has come: the
+    /// one on top, then the one below overlays alone that asks for it
+    /// (found anew, as the top one may have closed).
+    pub(crate) fn screen_timers_due(&mut self) {
+        let now = self.now;
+        if let Some(top) = self.stack.last_mut()
+            && top.timer.is_some_and(|at| at <= now)
+        {
+            top.timer = None;
+            self.with_top(|screen, cx| {
+                screen.on_timer(cx);
+                Handled::Yes
+            });
+        }
+        if let Some(index) = self.timed_under_overlays()
+            && self.stack[index].timer.is_some_and(|at| at <= now)
+        {
+            self.stack[index].timer = None;
+            self.with_screen(index, |screen, cx| {
+                screen.on_timer(cx);
+                Handled::Yes
+            });
+        }
+    }
+
     /// Runs `f` with the active screen and a context for it.
     pub(crate) fn with_top(
         &mut self,

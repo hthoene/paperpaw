@@ -898,15 +898,7 @@ impl Kernel {
         }
         self.tick_recognizers();
         self.tick_chromes();
-        if let Some(top) = self.stack.last_mut()
-            && top.timer.is_some_and(|at| at <= now)
-        {
-            top.timer = None;
-            self.with_top(|screen, cx| {
-                screen.on_timer(cx);
-                Handled::Yes
-            });
-        }
+        self.screen_timers_due();
         if self.notice.as_ref().is_some_and(|(_, until)| *until <= now) {
             self.end_notice();
         }

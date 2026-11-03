@@ -90,6 +90,16 @@ crate::event_data! {
 }
 
 crate::event_data! {
+    /// The page text of an open menu bar ([`MENU_PAGE`]).
+    pub struct MenuPage {
+        /// The menu the bar shows ([`params::MENU`](super::params::MENU)).
+        pub menu: String,
+        /// Its page text now ([`params::PAGE`](super::params::PAGE)).
+        pub page: String,
+    }
+}
+
+crate::event_data! {
     /// Which setting changed ([`SETTING_CHANGED`]).
     pub struct SettingChanged {
         pub id: Id,
@@ -532,6 +542,13 @@ pub const TYPE_TEXT: Event<TypeText> = Event::new("core.type-text");
 /// ([`FocusChanged`]): for screen readers of one's own. Worked out
 /// only while a plugin listens or the focus is spoken.
 pub const FOCUS_CHANGED: Event<FocusChanged> = Event::new("core.focus-changed");
+/// What the page text of an open menu bar says changed ([`MenuPage`]):
+/// whoever opened the menu slot ([`slots::MENU`](super::slots::MENU))
+/// in mode `bar` with [`params::PAGE`](super::params::PAGE) emits it
+/// where that text changes while the bar is open (a reader that finished
+/// counting its pages under it). The bar that shows that menu shows the
+/// new text.
+pub const MENU_PAGE: Event<MenuPage> = Event::new("core.menu-page");
 /// A book was opened for reading ([`Reading`]). Every reader plugin
 /// emits it, so home screens, statistics or sync plugins work with any
 /// reader. Not for documents in hidden folders

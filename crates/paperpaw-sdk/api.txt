@@ -668,6 +668,15 @@ impl paperpaw_sdk::event::EventData for paperpaw_sdk::builtin::events::MenuChang
 pub fn paperpaw_sdk::builtin::events::MenuChanged::from_params(&paperpaw_sdk::Params) -> core::option::Option<Self>
 pub fn paperpaw_sdk::builtin::events::MenuChanged::into_params(self) -> paperpaw_sdk::Params
 pub fn paperpaw_sdk::builtin::events::MenuChanged::to_params(&self) -> paperpaw_sdk::Params
+#[non_exhaustive] pub struct paperpaw_sdk::builtin::events::MenuPage
+pub paperpaw_sdk::builtin::events::MenuPage::menu: alloc::string::String
+pub paperpaw_sdk::builtin::events::MenuPage::page: alloc::string::String
+impl paperpaw_sdk::builtin::events::MenuPage
+pub fn paperpaw_sdk::builtin::events::MenuPage::new(alloc::string::String, alloc::string::String) -> Self
+impl paperpaw_sdk::event::EventData for paperpaw_sdk::builtin::events::MenuPage
+pub fn paperpaw_sdk::builtin::events::MenuPage::from_params(&paperpaw_sdk::Params) -> core::option::Option<Self>
+pub fn paperpaw_sdk::builtin::events::MenuPage::into_params(self) -> paperpaw_sdk::Params
+pub fn paperpaw_sdk::builtin::events::MenuPage::to_params(&self) -> paperpaw_sdk::Params
 #[non_exhaustive] pub struct paperpaw_sdk::builtin::events::NotesExported
 pub paperpaw_sdk::builtin::events::NotesExported::path: alloc::string::String
 pub paperpaw_sdk::builtin::events::NotesExported::title: alloc::string::String
@@ -905,6 +914,7 @@ pub const paperpaw_sdk::builtin::events::GOTO: paperpaw_sdk::event::Event<paperp
 pub const paperpaw_sdk::builtin::events::LIBRARY_CHANGED: paperpaw_sdk::event::Event<()>
 pub const paperpaw_sdk::builtin::events::LOOKUP_ANSWERED: paperpaw_sdk::event::Event<paperpaw_sdk::builtin::events::LookupAnswered>
 pub const paperpaw_sdk::builtin::events::MENU_CHANGED: paperpaw_sdk::event::Event<paperpaw_sdk::builtin::events::MenuChanged>
+pub const paperpaw_sdk::builtin::events::MENU_PAGE: paperpaw_sdk::event::Event<paperpaw_sdk::builtin::events::MenuPage>
 pub const paperpaw_sdk::builtin::events::NETWORK_IDLE: paperpaw_sdk::event::Event<()>
 pub const paperpaw_sdk::builtin::events::NETWORK_WANTED: paperpaw_sdk::event::Event<()>
 pub const paperpaw_sdk::builtin::events::NOTES_EXPORTED: paperpaw_sdk::event::Event<paperpaw_sdk::builtin::events::NotesExported>
@@ -1697,6 +1707,10 @@ impl paperpaw_sdk::event::EventData for paperpaw_sdk::builtin::events::MenuChang
 pub fn paperpaw_sdk::builtin::events::MenuChanged::from_params(&paperpaw_sdk::Params) -> core::option::Option<Self>
 pub fn paperpaw_sdk::builtin::events::MenuChanged::into_params(self) -> paperpaw_sdk::Params
 pub fn paperpaw_sdk::builtin::events::MenuChanged::to_params(&self) -> paperpaw_sdk::Params
+impl paperpaw_sdk::event::EventData for paperpaw_sdk::builtin::events::MenuPage
+pub fn paperpaw_sdk::builtin::events::MenuPage::from_params(&paperpaw_sdk::Params) -> core::option::Option<Self>
+pub fn paperpaw_sdk::builtin::events::MenuPage::into_params(self) -> paperpaw_sdk::Params
+pub fn paperpaw_sdk::builtin::events::MenuPage::to_params(&self) -> paperpaw_sdk::Params
 impl paperpaw_sdk::event::EventData for paperpaw_sdk::builtin::events::NotesExported
 pub fn paperpaw_sdk::builtin::events::NotesExported::from_params(&paperpaw_sdk::Params) -> core::option::Option<Self>
 pub fn paperpaw_sdk::builtin::events::NotesExported::into_params(self) -> paperpaw_sdk::Params
@@ -4073,6 +4087,7 @@ pub fn paperpaw_sdk::ui::choice::Choice::secret(&self) -> bool
 pub fn paperpaw_sdk::ui::choice::Choice::shows_through(&self) -> paperpaw_sdk::ShowsThrough
 pub fn paperpaw_sdk::ui::choice::Choice::takes_buttons(&self) -> bool
 pub fn paperpaw_sdk::ui::choice::Choice::takes_double_taps(&self) -> bool
+pub fn paperpaw_sdk::ui::choice::Choice::times_under_overlays(&self) -> bool
 #[non_exhaustive] pub struct paperpaw_sdk::ui::choice::Picked
 pub paperpaw_sdk::ui::choice::Picked::option: alloc::string::String
 pub paperpaw_sdk::ui::choice::Picked::path: alloc::string::String
@@ -4122,6 +4137,7 @@ pub fn paperpaw_sdk::ui::confirm::Confirm::secret(&self) -> bool
 pub fn paperpaw_sdk::ui::confirm::Confirm::shows_through(&self) -> paperpaw_sdk::ShowsThrough
 pub fn paperpaw_sdk::ui::confirm::Confirm::takes_buttons(&self) -> bool
 pub fn paperpaw_sdk::ui::confirm::Confirm::takes_double_taps(&self) -> bool
+pub fn paperpaw_sdk::ui::confirm::Confirm::times_under_overlays(&self) -> bool
 pub const paperpaw_sdk::ui::confirm::ANSWER: &str
 pub const paperpaw_sdk::ui::confirm::FOCUS_YES: &str
 pub const paperpaw_sdk::ui::confirm::NO_LABEL: &str
@@ -4168,6 +4184,7 @@ pub fn paperpaw_sdk::ui::items::ItemsScreen::secret(&self) -> bool
 pub fn paperpaw_sdk::ui::items::ItemsScreen::shows_through(&self) -> paperpaw_sdk::ShowsThrough
 pub fn paperpaw_sdk::ui::items::ItemsScreen::takes_buttons(&self) -> bool
 pub fn paperpaw_sdk::ui::items::ItemsScreen::takes_double_taps(&self) -> bool
+pub fn paperpaw_sdk::ui::items::ItemsScreen::times_under_overlays(&self) -> bool
 pub const paperpaw_sdk::ui::items::LINES: &str
 pub mod paperpaw_sdk::ui::look
 #[non_exhaustive] pub struct paperpaw_sdk::ui::look::ButtonPart
@@ -4469,6 +4486,7 @@ pub fn paperpaw_sdk::ui::widget_list::AddScreen::secret(&self) -> bool
 pub fn paperpaw_sdk::ui::widget_list::AddScreen::shows_through(&self) -> paperpaw_sdk::ShowsThrough
 pub fn paperpaw_sdk::ui::widget_list::AddScreen::takes_buttons(&self) -> bool
 pub fn paperpaw_sdk::ui::widget_list::AddScreen::takes_double_taps(&self) -> bool
+pub fn paperpaw_sdk::ui::widget_list::AddScreen::times_under_overlays(&self) -> bool
 pub struct paperpaw_sdk::ui::widget_list::ListScreen
 impl paperpaw_sdk::ui::widget_list::ListScreen
 pub fn paperpaw_sdk::ui::widget_list::ListScreen::open(&paperpaw_sdk::Env<'_>, &paperpaw_sdk::Params) -> Self
@@ -4507,6 +4525,7 @@ pub fn paperpaw_sdk::ui::widget_list::ListScreen::secret(&self) -> bool
 pub fn paperpaw_sdk::ui::widget_list::ListScreen::shows_through(&self) -> paperpaw_sdk::ShowsThrough
 pub fn paperpaw_sdk::ui::widget_list::ListScreen::takes_buttons(&self) -> bool
 pub fn paperpaw_sdk::ui::widget_list::ListScreen::takes_double_taps(&self) -> bool
+pub fn paperpaw_sdk::ui::widget_list::ListScreen::times_under_overlays(&self) -> bool
 #[non_exhaustive] pub enum paperpaw_sdk::ui::DateOrder
 pub paperpaw_sdk::ui::DateOrder::DayMonthYear
 pub paperpaw_sdk::ui::DateOrder::MonthDayYear
@@ -7335,6 +7354,10 @@ impl paperpaw_sdk::event::EventData for paperpaw_sdk::builtin::events::MenuChang
 pub fn paperpaw_sdk::builtin::events::MenuChanged::from_params(&paperpaw_sdk::Params) -> core::option::Option<Self>
 pub fn paperpaw_sdk::builtin::events::MenuChanged::into_params(self) -> paperpaw_sdk::Params
 pub fn paperpaw_sdk::builtin::events::MenuChanged::to_params(&self) -> paperpaw_sdk::Params
+impl paperpaw_sdk::event::EventData for paperpaw_sdk::builtin::events::MenuPage
+pub fn paperpaw_sdk::builtin::events::MenuPage::from_params(&paperpaw_sdk::Params) -> core::option::Option<Self>
+pub fn paperpaw_sdk::builtin::events::MenuPage::into_params(self) -> paperpaw_sdk::Params
+pub fn paperpaw_sdk::builtin::events::MenuPage::to_params(&self) -> paperpaw_sdk::Params
 impl paperpaw_sdk::event::EventData for paperpaw_sdk::builtin::events::NotesExported
 pub fn paperpaw_sdk::builtin::events::NotesExported::from_params(&paperpaw_sdk::Params) -> core::option::Option<Self>
 pub fn paperpaw_sdk::builtin::events::NotesExported::into_params(self) -> paperpaw_sdk::Params
@@ -7497,6 +7520,7 @@ pub fn paperpaw_sdk::Screen::secret(&self) -> bool
 pub fn paperpaw_sdk::Screen::shows_through(&self) -> paperpaw_sdk::ShowsThrough
 pub fn paperpaw_sdk::Screen::takes_buttons(&self) -> bool
 pub fn paperpaw_sdk::Screen::takes_double_taps(&self) -> bool
+pub fn paperpaw_sdk::Screen::times_under_overlays(&self) -> bool
 impl paperpaw_sdk::Screen for paperpaw_sdk::ui::choice::Choice
 pub fn paperpaw_sdk::ui::choice::Choice::dims_below(&self) -> bool
 pub fn paperpaw_sdk::ui::choice::Choice::direction(&self) -> paperpaw_lang::Direction
@@ -7532,6 +7556,7 @@ pub fn paperpaw_sdk::ui::choice::Choice::secret(&self) -> bool
 pub fn paperpaw_sdk::ui::choice::Choice::shows_through(&self) -> paperpaw_sdk::ShowsThrough
 pub fn paperpaw_sdk::ui::choice::Choice::takes_buttons(&self) -> bool
 pub fn paperpaw_sdk::ui::choice::Choice::takes_double_taps(&self) -> bool
+pub fn paperpaw_sdk::ui::choice::Choice::times_under_overlays(&self) -> bool
 impl paperpaw_sdk::Screen for paperpaw_sdk::ui::confirm::Confirm
 pub fn paperpaw_sdk::ui::confirm::Confirm::dims_below(&self) -> bool
 pub fn paperpaw_sdk::ui::confirm::Confirm::direction(&self) -> paperpaw_lang::Direction
@@ -7567,6 +7592,7 @@ pub fn paperpaw_sdk::ui::confirm::Confirm::secret(&self) -> bool
 pub fn paperpaw_sdk::ui::confirm::Confirm::shows_through(&self) -> paperpaw_sdk::ShowsThrough
 pub fn paperpaw_sdk::ui::confirm::Confirm::takes_buttons(&self) -> bool
 pub fn paperpaw_sdk::ui::confirm::Confirm::takes_double_taps(&self) -> bool
+pub fn paperpaw_sdk::ui::confirm::Confirm::times_under_overlays(&self) -> bool
 impl paperpaw_sdk::Screen for paperpaw_sdk::ui::items::ItemsScreen
 pub fn paperpaw_sdk::ui::items::ItemsScreen::dims_below(&self) -> bool
 pub fn paperpaw_sdk::ui::items::ItemsScreen::direction(&self) -> paperpaw_lang::Direction
@@ -7602,6 +7628,7 @@ pub fn paperpaw_sdk::ui::items::ItemsScreen::secret(&self) -> bool
 pub fn paperpaw_sdk::ui::items::ItemsScreen::shows_through(&self) -> paperpaw_sdk::ShowsThrough
 pub fn paperpaw_sdk::ui::items::ItemsScreen::takes_buttons(&self) -> bool
 pub fn paperpaw_sdk::ui::items::ItemsScreen::takes_double_taps(&self) -> bool
+pub fn paperpaw_sdk::ui::items::ItemsScreen::times_under_overlays(&self) -> bool
 impl paperpaw_sdk::Screen for paperpaw_sdk::ui::widget_list::AddScreen
 pub fn paperpaw_sdk::ui::widget_list::AddScreen::dims_below(&self) -> bool
 pub fn paperpaw_sdk::ui::widget_list::AddScreen::direction(&self) -> paperpaw_lang::Direction
@@ -7637,6 +7664,7 @@ pub fn paperpaw_sdk::ui::widget_list::AddScreen::secret(&self) -> bool
 pub fn paperpaw_sdk::ui::widget_list::AddScreen::shows_through(&self) -> paperpaw_sdk::ShowsThrough
 pub fn paperpaw_sdk::ui::widget_list::AddScreen::takes_buttons(&self) -> bool
 pub fn paperpaw_sdk::ui::widget_list::AddScreen::takes_double_taps(&self) -> bool
+pub fn paperpaw_sdk::ui::widget_list::AddScreen::times_under_overlays(&self) -> bool
 impl paperpaw_sdk::Screen for paperpaw_sdk::ui::widget_list::ListScreen
 pub fn paperpaw_sdk::ui::widget_list::ListScreen::dims_below(&self) -> bool
 pub fn paperpaw_sdk::ui::widget_list::ListScreen::direction(&self) -> paperpaw_lang::Direction
@@ -7672,6 +7700,7 @@ pub fn paperpaw_sdk::ui::widget_list::ListScreen::secret(&self) -> bool
 pub fn paperpaw_sdk::ui::widget_list::ListScreen::shows_through(&self) -> paperpaw_sdk::ShowsThrough
 pub fn paperpaw_sdk::ui::widget_list::ListScreen::takes_buttons(&self) -> bool
 pub fn paperpaw_sdk::ui::widget_list::ListScreen::takes_double_taps(&self) -> bool
+pub fn paperpaw_sdk::ui::widget_list::ListScreen::times_under_overlays(&self) -> bool
 pub fn paperpaw_sdk::call_since<T>(&mut dyn paperpaw_sdk::Screen, u16, T, impl core::ops::function::FnOnce(&mut dyn paperpaw_sdk::Screen) -> T) -> T
 pub fn paperpaw_sdk::cover_fit(paperpaw_image::Fit) -> paperpaw_image::Fit
 pub fn paperpaw_sdk::read_file(&dyn paperpaw_platform::storage::Storage, &str, usize) -> core::result::Result<alloc::vec::Vec<u8>, paperpaw_platform::storage::StorageError>

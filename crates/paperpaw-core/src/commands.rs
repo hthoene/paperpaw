@@ -215,15 +215,12 @@ impl Kernel {
             .screenshot
             .is_some()
             .then(|| self.now.add_millis(300));
-        // Only the screen on top runs: a covered one's time waits. Bars
-        // shown run too.
-        let timer = [
-            self.stack.last().and_then(|top| top.timer),
-            self.chromes_due(),
-        ]
-        .into_iter()
-        .flatten()
-        .min();
+        // Only the screen on top runs, and one below overlays alone that
+        // asks to: a covered one's time waits. Bars shown run too.
+        let timer = [self.screen_timer(), self.chromes_due()]
+            .into_iter()
+            .flatten()
+            .min();
         effects.wake_at = [
             self.hint.until,
             input,

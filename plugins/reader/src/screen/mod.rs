@@ -2,6 +2,7 @@
 //! does on it.
 
 mod book;
+mod counting;
 mod draw;
 mod hands_free;
 mod linking;
@@ -538,7 +539,16 @@ impl Screen for ReaderScreen {
         self.update_status(cx);
     }
 
+    /// While it counts its pages, which goes on below a menu (#117).
+    fn times_under_overlays(&self) -> bool {
+        self.book.as_ref().is_ok_and(book::Book::counting)
+    }
+
     fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
+        if Self::covered(cx) {
+            self.count_under_overlays(cx);
+            return;
+        }
         let env = *cx.env();
         if self.prepare(cx) {
             return;
@@ -708,11 +718,7 @@ impl Screen for ReaderScreen {
                 .as_ref()
                 .map(|(_, _, title)| title.clone())
                 .unwrap_or_default();
-            let reading = book.reading(&env);
-            let page = match (reading.page, reading.pages) {
-                (Some(page), Some(pages)) => format!("{page} / {pages}"),
-                _ => format!("{} %", reading.progress),
-            };
+            let page = book.menu_page(&env);
             // Pictures of pages: no text to search, hear or set.
             let mut hide: Vec<Id> = Vec::new();
             if book.document.whole_pages() {

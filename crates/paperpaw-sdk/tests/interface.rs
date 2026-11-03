@@ -299,7 +299,7 @@ const GROWING: [&str; 3] = [
 /// built before an item has no such item to call, so each call goes
 /// through `paperpaw_sdk::call_since`, which checks the screen's
 /// revision first.
-const NEWER_SCREEN_ITEMS: [&str; 2] = [".on_resize(", ".pane()"];
+const NEWER_SCREEN_ITEMS: [&str; 3] = [".on_resize(", ".pane()", ".times_under_overlays()"];
 
 /// The Rust files under `dir` (of the repository), tests left out: files
 /// of a `tests` folder, `tests.rs` and `*_tests.rs`.
@@ -530,6 +530,12 @@ fn pin_changes(name: &str, kept: &str, now: &str) -> Changes {
 fn changes(crate_: &str, kept: (&str, &str), now: (&str, &str)) -> Changes {
     let mut out = Changes::default();
     let (kept_types, now_types) = (types(kept.1), types(now.1));
+    let screen_grew = kept_types
+        .get(SCREEN_TRAIT)
+        .zip(now_types.get(SCREEN_TRAIT))
+        .is_some_and(|(before, after)| {
+            before != after && trait_appended(SCREEN_TRAIT, before, after)
+        });
     for (path, line) in &kept_types {
         match now_types.get(path) {
             None => out.breaking.push(format!("{crate_}: gone: {line}")),
@@ -539,6 +545,7 @@ fn changes(crate_: &str, kept: (&str, &str), now: (&str, &str)) -> Changes {
                     && !layout_cache_revision(crate_, path, line, now)
                     && !api_appended(path, line, now)
                     && !trait_appended(path, line, now)
+                    && !(screen_grew && screen_revision_grew(path, line, now))
                     && !table_index_derived(crate_, path) =>
             {
                 out.breaking
@@ -568,6 +575,29 @@ fn changes(crate_: &str, kept: (&str, &str), now: (&str, &str)) -> Changes {
         }
     }
     out
+}
+
+/// The shape of `Screen` and the path of its revision.
+const SCREEN_TRAIT: &str = "trait paperpaw_sdk::screen::Screen";
+const SCREEN_REVISION_PATH: &str = "const paperpaw_sdk::screen::SCREEN_REVISION";
+
+/// Whether `after` is `before`, the line of `SCREEN_REVISION`, one higher:
+/// what items appended to `Screen` come with (ADR 0026), so it is new,
+/// not changed, where the trait grew in the same comparison (and
+/// changed otherwise). A screen built before says its lower revision,
+/// and the kernel calls none of the newer items on it.
+fn screen_revision_grew(path: &str, before: &str, after: &str) -> bool {
+    let value = |line: &str| -> Option<u16> {
+        line.strip_prefix(SCREEN_REVISION_PATH)?
+            .strip_prefix(": u16 = ")?
+            .strip_suffix("u16")?
+            .parse()
+            .ok()
+    };
+    path == SCREEN_REVISION_PATH
+        && value(before)
+            .zip(value(after))
+            .is_some_and(|(b, a)| b.checked_add(1) == Some(a))
 }
 
 /// The SDK release in an HTTP header is metadata, not a crossing layout.
@@ -795,6 +825,28 @@ fn layout_cache_revisions_only_increase_as_u32_metadata() {
                 .breaking
                 .is_empty()
         );
+    }
+}
+
+#[test]
+fn screen_revision_grows_by_one_only_with_the_screen_trait() {
+    let trait_before = "trait paperpaw_sdk::screen::Screen { function revision(&Self) -> u16, function pane(&Self) -> Pane }";
+    let trait_after = "trait paperpaw_sdk::screen::Screen { function revision(&Self) -> u16, function pane(&Self) -> Pane, function times_under_overlays(&Self) -> bool }";
+    let revision = |n: u16| format!("const paperpaw_sdk::screen::SCREEN_REVISION: u16 = {n}u16");
+    let shape = |screen: &str, n: u16| format!("{screen}\n{}", revision(n));
+    let compare =
+        |before: String, after: String| changes("paperpaw-sdk", ("", &before), ("", &after));
+    // Appended with the next revision: new.
+    let grew = compare(shape(trait_before, 2), shape(trait_after, 3));
+    assert!(grew.breaking.is_empty(), "{:?}", grew.breaking);
+    assert_eq!(grew.new.len(), 2, "{:?}", grew.new);
+    // The revision alone, two steps, or down: changed.
+    for (before, after) in [
+        (shape(trait_before, 2), shape(trait_before, 3)),
+        (shape(trait_before, 2), shape(trait_after, 4)),
+        (shape(trait_after, 3), shape(trait_after, 2)),
+    ] {
+        assert!(!compare(before, after).breaking.is_empty());
     }
 }
 

@@ -6,6 +6,22 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The reader's menu shows the page and the pages** (#117). Opened right after a book opens, before its pages were
+  counted, the menu bar showed a percentage ("0 %") for as long as it was open, as the count waited for it to close.
+  The count now goes on below the menu, and the bar shows "2 / 185" once it ends.
+
+### Added
+
+- Screens: `Screen::times_under_overlays` (`SCREEN_REVISION` 3, #117). A screen that says so has its time
+  (`Cx::wake_at`) while overlays alone cover it (a menu bar, a panel), as it still shows below them: for work that goes
+  on there, as the reader counting its pages. No by default: the time waits until it is on top again, as before.
+  Called through `call_since`, so screens built before are asked nothing. New item at the end of a growing trait, no
+  change of what plugins built before see.
+- Events: `events::MENU_PAGE` (`MenuPage { menu, page }`, #117): whoever opened the menu slot as a bar with a page
+  text tells the open bar its new text; the menu plugin's bar shows it. New constant and type.
+
 ## [0.6.0-beta.1] - 2026-11-02
 
 **Plugins of this release must be built from `965d866b` or later** (plugin interface 6, #363; `965d866b` raises the shared interface family `ui` to revision 2, #119: the firmware refuses plugins of revision 1, built before). 0.6.0-beta.1 takes
