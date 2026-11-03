@@ -202,8 +202,13 @@ pub(crate) fn wanted<'a>(rows: &'a [Row], has: &dyn Fn(&str) -> Have) -> Vec<&'a
             packs.push(pack);
         }
     }
-    packs.sort_by_key(|p| p.rank());
-    packs
+    // Letters first, by rank, in the order the rows gave (no sort: its
+    // generic code costs more than the whole list is worth).
+    let mut ordered = Vec::with_capacity(packs.len());
+    for rank in 0..3 {
+        ordered.extend(packs.iter().copied().filter(|p| p.rank() == rank));
+    }
+    ordered
 }
 
 /// Whether `packs` fit in `room`, and if not, what is short: the files
@@ -514,8 +519,18 @@ impl LanguagesScreen {
             row.on = turn(env, row).is_none();
         }
         // By name in the reader's language.
-        rows.sort_by_cached_key(|r| env.i18n().tr(&format!("store.lang.{}", r.tag)).to_string());
-        self.rows = rows;
+        // (An insertion sort: a few rows, and no sort code to carry.)
+        let names: Vec<String> = rows
+            .iter()
+            .map(|r| env.i18n().tr(&format!("store.lang.{}", r.tag)).to_string())
+            .collect();
+        let mut order: Vec<usize> = Vec::with_capacity(rows.len());
+        for at in 0..rows.len() {
+            let place = order.iter().position(|&o| names[o] > names[at]).unwrap_or(order.len());
+            order.insert(place, at);
+        }
+        let mut slots: Vec<Option<Row>> = rows.into_iter().map(Some).collect();
+        self.rows = order.into_iter().filter_map(|at| slots[at].take()).collect();
         self.trouble = Trouble::None;
         self.room = Room::of(env, None);
     }
