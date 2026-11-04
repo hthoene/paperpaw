@@ -285,6 +285,32 @@ impl Shopping {
         (shopping, answers)
     }
 
+    /// The store opened again on `storage`, which holds the list of an
+    /// earlier visit, its fresh list asked for and not yet answered (the
+    /// call asked for is returned).
+    pub fn reopened(storage: Shared) -> (Self, HttpCall) {
+        let mut kernel = Kernel::builder(DEVICE)
+            .storage(storage.clone())
+            .network(true)
+            .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+            .plugin(paperpaw_plugin_fonts_browser::FontsBrowser)
+            .plugin(paperpaw_plugin_menu::Menu)
+            .plugin(paperpaw_plugin_keyboard::Keyboard)
+            .plugin(Store)
+            .catalog_device("x4")
+            .build()
+            .unwrap();
+        kernel.start(Instant(0));
+        let mut shopping = Self {
+            kernel,
+            storage,
+            now: 0,
+        };
+        shopping.run(OPEN);
+        let call = shopping.request(LIST);
+        (shopping, call)
+    }
+
     /// Time passing, `millis` of it.
     pub fn wait(&mut self, millis: u64) {
         self.now += millis;

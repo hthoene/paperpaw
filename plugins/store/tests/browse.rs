@@ -546,3 +546,90 @@ fn a_plugins_page_draws_its_parts_apart() {
         }
     }
 }
+
+/// A group opened from the list kept, while the fresh list is still being
+/// fetched, shows its plugins before and after the fresh list arrives
+/// (it replaced the index the open list picked from: the rows were left
+/// empty, only their dividers drawn) (#169).
+#[test]
+fn a_group_opened_while_the_list_loads_shows_its_plugins_after_it() {
+    let first = Shopping::new(&fruit());
+    let (mut shopping, call) = Shopping::reopened(first.storage.clone());
+    shopping.choose("Reading");
+    let shown = shopping.shown();
+    assert!(before(&shown, "Apple", "Berry"), "{shown}");
+    // The fresh list arrives with another plugin and another order.
+    let fresh = list(&[
+        entry("apple", "reading", "1.0.0", "2025-01-01", "2026-01-01", 300),
+        entry(
+            "avocado",
+            "reading",
+            "1.0.0",
+            "2025-01-01",
+            "2026-01-01",
+            300,
+        ),
+        entry("berry", "reading", "1.0.0", "2026-05-01", "2026-02-01", 300),
+        entry(
+            "cherry",
+            "reading",
+            "1.0.0",
+            "2025-06-01",
+            "2026-09-01",
+            300,
+        ),
+    ]);
+    shopping.answer(&call, 200, fresh.as_bytes());
+    let shown = shopping.shown();
+    for name in ["Apple", "Avocado", "Berry", "Cherry"] {
+        assert!(shown.contains(name), "{name} missing: {shown}");
+    }
+    assert!(before(&shown, "Apple", "Avocado") && before(&shown, "Avocado", "Berry"));
+    // Opening one still works.
+    shopping.choose("Avocado");
+    assert!(shopping.shown().contains("Avocado"), "{}", shopping.shown());
+}
+
+/// The same on a page past the first, and the focus stays on it.
+#[test]
+fn a_page_of_a_long_group_is_not_left_empty_when_the_list_arrives() {
+    let first = Shopping::new(&many(40));
+    let (mut shopping, call) = Shopping::reopened(first.storage.clone());
+    shopping.choose("Reading");
+    shopping.now += 100;
+    let typed = Params::new().with(params::TEXT, "3");
+    shopping
+        .kernel
+        .send_event(Instant(shopping.now), Id::new_static("store.jumped"), typed);
+    let shown = shopping.shown();
+    assert!(shown.contains("Does p"), "{shown}");
+    shopping.answer(&call, 200, many(41).as_bytes());
+    let shown = shopping.shown();
+    assert!(shown.contains("Does p"), "empty rows: {shown}");
+    assert!(shown.matches("Does p").count() >= 3, "{shown}");
+    // Paging on after it: the next page has its plugins too (the hits were
+    // of the list before, and gone).
+    shopping.run(actions::NEXT_PAGE);
+    let shown = shopping.shown();
+    assert!(shown.matches("Does p").count() >= 3, "empty page: {shown}");
+    shopping.run(actions::PREV_PAGE);
+    shopping.run(actions::PREV_PAGE);
+    let shown = shopping.shown();
+    assert!(shown.matches("Does p").count() >= 3, "empty page: {shown}");
+}
+
+/// A search or the newest, open while the fresh list arrives, are picked
+/// again from it too.
+#[test]
+fn the_newest_are_not_left_empty_when_the_list_arrives() {
+    let first = Shopping::new(&fruit());
+    let (mut shopping, call) = Shopping::reopened(first.storage.clone());
+    shopping.choose("New");
+    assert!(shopping.shown().contains("Berry"), "{}", shopping.shown());
+    shopping.answer(&call, 200, fruit().as_bytes());
+    let shown = shopping.shown();
+    assert!(
+        shown.contains("Berry") && shown.contains("Cherry"),
+        "{shown}"
+    );
+}

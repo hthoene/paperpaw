@@ -77,6 +77,9 @@ change the plugin SDK.
   the menu. *Done* and *Add* are buttons at least two rows wide, with the word *Done*, instead of a small tick that taps
   missed and that landed on the page.
 
+- **The store's lists are not left empty when the list arrives** (#169). A group (e.g. Languages) opened while a fresh list of
+  plugins was still being fetched showed its pages with every row blank, only the lines between them: the fresh list took
+  the place of the one the open list had picked its plugins from. The open list now picks again from the fresh one.
 - A rotated picture-home photo is prepared only for the part the screen shows, avoiding a full-image transpose
   at high zoom (#205).
 

@@ -33,6 +33,10 @@ use crate::{CATALOG, PAGE_SCREEN, VIEW_SCREEN, rows};
 const LOADED: Event<HttpReply> = Event::new("store.loaded");
 /// What is searched for.
 const SEARCHED: Event<Typed> = Event::new("store.searched");
+/// A fresh list took the place of the one kept: the lists open above this
+/// one pick their plugins from it again (the hits they hold were of the
+/// list before).
+pub(crate) const LIST_CHANGED: Id = Id::new_static("store.list-changed");
 /// Parameter of a plugin's page: its place in the index.
 pub(crate) const ENTRY: &str = "entry";
 
@@ -281,6 +285,7 @@ impl ListScreen {
                 self.index = Some(index);
                 self.trouble = Trouble::None;
                 self.count(&env);
+                cx.command(Command::Emit(LIST_CHANGED, Params::new()));
             }
             // Another screen of the store took the same answer first (the
             // store opened twice): its index is the fresh one.
@@ -289,6 +294,7 @@ impl ListScreen {
                     self.index = Some(index);
                     self.trouble = Trouble::None;
                     self.count(&env);
+                    cx.command(Command::Emit(LIST_CHANGED, Params::new()));
                 }
             }
             None => {

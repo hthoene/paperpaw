@@ -23,7 +23,7 @@ use paperpaw_sdk::{
 
 use crate::catalog::{self, Entry, Index, Order, SECTIONS, name_key};
 use crate::letters::LETTER;
-use crate::list::{group_name, open_page, section_name};
+use crate::list::{LIST_CHANGED, group_name, open_page, section_name};
 use crate::room::Room;
 use crate::{DOWNLOADED, INSTALLER, LETTERS_SCREEN, queue, rows};
 
@@ -555,6 +555,20 @@ impl Screen for ViewScreen {
                 self.read_page(&env);
                 self.redraw(cx);
             }
+        } else if *event == LIST_CHANGED {
+            // A fresh list took the place of the one this list picked its
+            // plugins from: picked again from it, the focus kept where it
+            // still is (else the rows would stay empty).
+            self.index = Index::kept(env.storage());
+            if self.index.is_none() {
+                self.hits = 0;
+                self.top.clear();
+                self.page.clear();
+            }
+            self.pick(&env);
+            self.list.set_len(self.len());
+            self.read_page(&env);
+            self.redraw(cx);
         } else if DOWNLOADED.read(event, params).is_some() || *event == events::PLUGINS_CHANGED {
             self.job = INSTALLER.progress(env.storage());
             self.queued = queue::waiting(&env);
