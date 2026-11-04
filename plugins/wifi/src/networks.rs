@@ -29,9 +29,10 @@ pub(crate) struct NetworksPage {
     header: ui::Header,
     list: ListView,
     /// What the rows said when they were drawn last (see [`view`]): their
-    /// height is measured again only when that changes, and an event that
-    /// leaves it as it is draws nothing.
-    shown: u64,
+    /// height is measured again only when that changes, an event that
+    /// leaves it as it is draws nothing, and one that changes some rows
+    /// draws those.
+    seen: ui::RowsSeen,
 }
 
 impl core::fmt::Debug for NetworksPage {
@@ -81,18 +82,16 @@ pub(crate) fn search(cx: &mut Cx<'_, '_>) {
 }
 
 /// FNV-1a over `bytes`, continuing from `hash`.
-fn fnv(hash: u64, bytes: &[u8]) -> u64 {
-    bytes.iter().fold(hash, |h, b| {
-        (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3)
-    })
-}
-
-/// What the rows say: the notes of the rows, and a key of the names and
-/// the notes (what a drawing of them depends on besides the focus).
-fn view(env: &Env<'_>, rows: &[Row]) -> (Vec<String>, u64) {
+/// What the rows say: the notes of the rows, and a key of each of the
+/// names and the notes (what a drawing of them depends on besides the
+/// focus).
+fn view(env: &Env<'_>, rows: &[Row]) -> (Vec<String>, Vec<u64>) {
     let Some(wifi) = env.wifi() else {
         // No radio: every row is there, with nothing to say.
-        return (rows.iter().map(|_| String::new()).collect(), 0);
+        return (
+            rows.iter().map(|_| String::new()).collect(),
+            rows.iter().map(|_| 0).collect(),
+        );
     };
     let known = wifi::known(env.secrets().iter());
     let tr = |key| env.i18n().tr(key);
@@ -108,17 +107,18 @@ fn view(env: &Env<'_>, rows: &[Row]) -> (Vec<String>, u64) {
             Row::Search => String::new(),
         })
         .collect();
-    let key = rows
+    let keys = rows
         .iter()
         .zip(&notes)
-        .fold(0xcbf2_9ce4_8422_2325, |h, (row, note)| {
+        .map(|(row, note)| {
             let name = match row {
                 Row::Network(network) => network.ssid.as_str(),
                 Row::Search => "",
             };
-            fnv(fnv(fnv(h, name.as_bytes()), b"\t"), note.as_bytes())
-        });
-    (notes, key)
+            ui::RowsSeen::row_key([name, note.as_str()])
+        })
+        .collect();
+    (notes, keys)
 }
 
 impl NetworksPage {
@@ -133,7 +133,7 @@ impl NetworksPage {
             list: ListView::new(area, style.noted_row()).focus_on_keys(env),
             style,
             header,
-            shown: 0,
+            seen: ui::RowsSeen::fresh(),
         }
     }
 
@@ -145,6 +145,16 @@ impl NetworksPage {
             .unwrap_or_default();
         rows.push(Row::Search);
         rows
+    }
+
+    /// The rows as high as the longest note needs (the largest text).
+    fn measure(&mut self, env: &Env<'_>, notes: &[String]) {
+        let row = self.style.noted_row_for(
+            env,
+            self.list.area().width,
+            notes.iter().map(String::as_str),
+        );
+        self.list.set_row(row);
     }
 
     fn changed(cx: &mut Cx<'_, '_>) {
@@ -242,15 +252,10 @@ impl Screen for NetworksPage {
         let tr = |key| env.i18n().tr(key);
         // The height of the rows is as high as the longest note needs (the
         // largest text), measured when what they say changes.
-        let (notes, key) = view(env, &rows);
-        if key != self.shown {
-            self.shown = key;
-            let row = style.noted_row_for(
-                env,
-                self.list.area().width,
-                notes.iter().map(String::as_str),
-            );
-            self.list.set_row(row);
+        let (notes, keys) = view(env, &rows);
+        if self.seen.rows_differ(&keys) {
+            self.measure(env, &notes);
+            self.seen.see_rows(&self.list, &keys);
         }
         let mut ui = ui::Ui::new(canvas, env, &style);
         self.header
@@ -278,13 +283,17 @@ impl Screen for NetworksPage {
             cx.close();
             return;
         }
-        // Drawn again only where the rows say something else: a signal
-        // that moved a little, a setting of another page, draw nothing (a
-        // frame takes the device's time, and a key pressed meanwhile waits).
+        // Drawn again only where the rows say something else, and then
+        // only those: a signal that moved a little, a setting of another
+        // page, draw nothing, and a scan that finds a network the rows
+        // that changed (a frame of the whole page takes the device's time,
+        // and a key pressed meanwhile waits).
         let env = *cx.env();
         let rows = Self::rows(&env);
-        if view(&env, &rows).1 != self.shown {
-            Self::changed(cx);
+        let (notes, keys) = view(&env, &rows);
+        if self.seen.rows_differ(&keys) {
+            self.measure(&env, &notes);
+            self.seen.see_rows(&self.list, &keys).ask_for_it(cx);
         }
     }
 

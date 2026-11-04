@@ -19,7 +19,7 @@ use paperpaw_core::{
 };
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, MemoryClass, PixelFormat, Point,
-    PointerEvent, PointerPhase, PointerTool, Rotation,
+    PointerEvent, PointerPhase, PointerTool, Rect, Rotation,
 };
 use paperpaw_plugin_keyboard::Keyboard;
 use paperpaw_plugin_wifi::Wifi;
@@ -1005,11 +1005,16 @@ impl Device {
     /// screen: what a draw costs the device is paid for only when
     /// something shown has changed.
     fn radio_refreshes(&mut self, event: WifiEvent) -> bool {
+        self.radio_refresh_area(event).is_some()
+    }
+
+    /// The part of the screen the kernel refreshes for `event`, if any.
+    fn radio_refresh_area(&mut self, event: WifiEvent) -> Option<Rect> {
         self.now += 100;
         let effects = self.kernel.wifi_event(Instant(self.now), event);
-        let refreshes = effects.refresh().is_some();
+        let area = effects.refresh().map(|(area, _)| area);
         self.settle(effects);
-        refreshes
+        area
     }
 }
 
@@ -1048,4 +1053,66 @@ fn what_the_radio_says_that_changes_nothing_shown_draws_nothing() {
     device.parts();
     assert!(!device.radio_refreshes(WifiEvent::Scanned(again)));
     assert!(device.radio_refreshes(WifiEvent::Scanned(vec![network("Home", -60, true)])));
+}
+
+/// The area of the rows of the page that start with `first` and `last`.
+fn rows_area(device: &mut Device, first: &str, last: &str) -> Rect {
+    let (a, b) = (device.row(first).area, device.row(last).area);
+    a.union(&b)
+}
+
+#[test]
+fn a_scan_that_changes_some_rows_refreshes_only_those_rows() {
+    for info in [BUTTONS, TOUCH] {
+        let mut device = Device::new(info);
+        device.open();
+        device.radio_on_with(vec![
+            network("Home", -50, true),
+            network("Hotel", -70, false),
+            network("Cafe", -75, false),
+        ]);
+        let screen = device.kernel.device().display;
+        let whole = Rect::new(0, 0, screen.width, screen.height);
+        // A signal that fell to another word: its row alone.
+        let after = vec![
+            network("Home", -50, true),
+            network("Hotel", -70, false),
+            network("Cafe", -92, false),
+        ];
+        device.parts();
+        let area = device.radio_refresh_area(WifiEvent::Scanned(after.clone()));
+        let row = device.row("Cafe").area;
+        assert_eq!(area, Some(row), "{info:?}");
+        assert!(row.height < whole.height / 4);
+        // A network that came in the middle moves the ones below it: those
+        // rows and the new one, not the rows above.
+        let mut more = after;
+        more.insert(1, network("Library", -52, false));
+        device.parts();
+        let area = device.radio_refresh_area(WifiEvent::Scanned(more));
+        let below = rows_area(&mut device, "Library", "Look for");
+        assert_eq!(area, Some(below), "{info:?}");
+        assert!(below.y > device.row("Home").area.y);
+    }
+}
+
+#[test]
+fn the_wifi_page_refreshes_only_the_row_of_the_networks_after_a_scan() {
+    let mut device = Device::new(BUTTONS);
+    device.open();
+    device.radio_on_with(vec![network("Home", -50, true)]);
+    device.run(actions::BACK);
+    device.told();
+    device.parts();
+    device.radio(WifiEvent::Scanned(vec![network("Home", -60, true)]));
+    device.parts();
+    // Two more networks in reach: "Networks" says "3 in reach".
+    let more = vec![
+        network("Home", -60, true),
+        network("Cafe", -70, false),
+        network("Hotel", -80, false),
+    ];
+    let area = device.radio_refresh_area(WifiEvent::Scanned(more));
+    let row = device.row("Networks").area;
+    assert_eq!(area, Some(row));
 }

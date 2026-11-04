@@ -4605,6 +4605,13 @@ pub paperpaw_sdk::ui::RowPart::Minus
 pub paperpaw_sdk::ui::RowPart::Plus
 pub paperpaw_sdk::ui::RowPart::Row
 pub paperpaw_sdk::ui::RowPart::Switch
+#[non_exhaustive] pub enum paperpaw_sdk::ui::RowsChange
+pub paperpaw_sdk::ui::RowsChange::All
+pub paperpaw_sdk::ui::RowsChange::None
+pub paperpaw_sdk::ui::RowsChange::Rows(paperpaw_platform::geometry::Rect)
+impl paperpaw_sdk::ui::RowsChange
+pub fn paperpaw_sdk::ui::RowsChange::ask_for_it(self, &mut paperpaw_sdk::Cx<'_, '_>)
+pub fn paperpaw_sdk::ui::RowsChange::draws_nothing(self) -> bool
 #[non_exhaustive] pub enum paperpaw_sdk::ui::ScreenClass
 pub paperpaw_sdk::ui::ScreenClass::Compact
 pub paperpaw_sdk::ui::ScreenClass::Expanded
@@ -4831,6 +4838,12 @@ pub fn paperpaw_sdk::ui::Rows::step(&mut self, bool) -> paperpaw_sdk::ui::ListCh
 pub fn paperpaw_sdk::ui::Rows::step_in(&mut self, &paperpaw_sdk::Env<'_>, bool) -> paperpaw_sdk::ui::ListChange
 pub fn paperpaw_sdk::ui::Rows::turn(&mut self, bool) -> paperpaw_sdk::ui::ListChange
 pub fn paperpaw_sdk::ui::Rows::visible(&self) -> alloc::vec::Vec<(usize, paperpaw_platform::geometry::Rect)>
+pub struct paperpaw_sdk::ui::RowsSeen
+impl paperpaw_sdk::ui::RowsSeen
+pub fn paperpaw_sdk::ui::RowsSeen::fresh() -> Self
+pub fn paperpaw_sdk::ui::RowsSeen::row_key<'a>(impl core::iter::traits::collect::IntoIterator<Item = &'a str>) -> u64
+pub fn paperpaw_sdk::ui::RowsSeen::rows_differ(&self, &[u64]) -> bool
+pub fn paperpaw_sdk::ui::RowsSeen::see_rows(&mut self, &paperpaw_sdk::ui::ListView, &[u64]) -> paperpaw_sdk::ui::RowsChange
 pub struct paperpaw_sdk::ui::SearchField<'s>
 impl<'s> paperpaw_sdk::ui::SearchField<'s>
 pub fn paperpaw_sdk::ui::SearchField<'s>::draw(&self, &mut paperpaw_sdk::ui::Ui<'_>, paperpaw_platform::geometry::Rect)
