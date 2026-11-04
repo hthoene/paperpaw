@@ -413,7 +413,9 @@ impl GridView {
 
     /// [`draw`](Self::draw) with `plate` under the items: nothing over a
     /// picture, a colour on a dark page; a widget's own paper is its own to
-    /// paint ([`draw_frame`](crate::widgets::draw_frame)). With [`Plate::None`] the
+    /// paint ([`draw_frame`](crate::widgets::draw_frame)). A widget with
+    /// nothing to show ([`Widget::height`] 0, e.g. a shelf without books)
+    /// has no plate, except while editing. With [`Plate::None`] the
     /// screen paints what lies under the items first, also before a
     /// partial redraw (the grid clears nothing).
     pub fn draw_on(&self, canvas: &mut Canvas<'_>, env: &Env<'_>, plate: Plate) {
@@ -441,7 +443,9 @@ impl GridView {
             if shown.area.intersection(&clip).is_none() {
                 continue;
             }
-            fill_plate(canvas, shown, plate);
+            if editing || !shows_nothing(shown, env) {
+                fill_plate(canvas, shown, plate);
+            }
             match (&shown.item.what, &shown.widget) {
                 (What::Widget(_), Some(widget)) => widget.draw(canvas, env, shown.area),
                 (What::Widget(_), None) => {}
@@ -1323,6 +1327,15 @@ fn fill_plate(canvas: &mut Canvas<'_>, shown: &Shown, plate: Plate) {
         Plate::Colour(colour) => canvas.fill_shaded(shown.area, colour),
         Plate::None => {}
     }
+}
+
+/// Whether `shown` is a widget with nothing to show at its width
+/// ([`Widget::height`] 0): what lies under the grid shows there.
+fn shows_nothing(shown: &Shown, env: &Env<'_>) -> bool {
+    shown
+        .widget
+        .as_ref()
+        .is_some_and(|widget| widget.height(env, shown.area.width) == 0)
 }
 
 /// The ink of the lines drawn while editing, which read on `plate`.
