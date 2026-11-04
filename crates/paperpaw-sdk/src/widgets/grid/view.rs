@@ -444,7 +444,7 @@ impl GridView {
                 continue;
             }
             if editing || !shows_nothing(shown, env) {
-                fill_plate(canvas, shown, plate);
+                fill_plate(canvas, env, shown, plate);
             }
             match (&shown.item.what, &shown.widget) {
                 (What::Widget(_), Some(widget)) => widget.draw(canvas, env, shown.area),
@@ -1321,10 +1321,18 @@ fn handle(area: Rect, style: &UiStyle) -> Rect {
 /// that a widget drawing all of itself is drawn on what the screen chose,
 /// whatever the reader set for widgets ([`draw_frame`](crate::widgets::draw_frame)
 /// paints a widget's own paper).
-fn fill_plate(canvas: &mut Canvas<'_>, shown: &Shown, plate: Plate) {
+fn fill_plate(canvas: &mut Canvas<'_>, env: &Env<'_>, shown: &Shown, plate: Plate) {
+    // A widget's in the shape of its own plate, so that nothing shows
+    // past its corners or beside its shadow; a tool's square.
+    let (area, radius) = match &shown.item.what {
+        What::Widget(id) => crate::widgets::shape::plate_shape(env, id, shown.area),
+        What::Tool(_) => (shown.area, 0),
+    };
     match plate {
-        Plate::Paper => canvas.fill(shown.area, Color::WHITE),
-        Plate::Colour(colour) => canvas.fill_shaded(shown.area, colour),
+        Plate::Paper if radius == 0 => canvas.fill(area, Color::WHITE),
+        Plate::Paper => canvas.fill_round(area, radius, Color::WHITE),
+        Plate::Colour(colour) if radius == 0 => canvas.fill_shaded(area, colour),
+        Plate::Colour(colour) => canvas.fill_round_shaded(area, radius, colour),
         Plate::None => {}
     }
 }
