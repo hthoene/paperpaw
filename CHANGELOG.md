@@ -59,6 +59,11 @@ change the plugin SDK.
 
 ### Fixed
 
+- **X4 beside the X4 dualbooter** (#167). The X4 finds the slot it runs from by its own code, so a dualbooter's
+  bootloader no longer hides the OTA state. PaperPaw recognises the dualbooter's bootloader by its `x4boot` tag
+  (besides `paperpaw-dualboot:1` and `dual-boot = on` in `paperpaw.ini`), decides at every start, writes
+  `.paperpaw/boot.txt`, and the Updates page says that the device holds two firmwares and installs nothing
+  here, also where it has no firmware information. Update plugin 1.0.5.
 - **Widget plates follow rounded corners** (#206). A grid plate no longer sticks out past a widget's corners or
   fills the space beside its shadow. Frameless paper follows explicitly chosen corners; Automatic stays square.
   Empty widgets have no grid plate outside editing mode.
