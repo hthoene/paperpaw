@@ -21,6 +21,15 @@ change the plugin SDK.
   picture or a dark page. Additive: plugin interface 6 stays, plugins built before draw as they did; their widgets
   follow the colours, those of all widgets too, once rebuilt with this SDK (each plugin carries its own copy of
   `widget_look`). Transparent widgets take the page to be light: on a dark picture, choose a light text colour.
+- **Picture home screen** (#205), a store plugin (`picture-home`, group Look; needs no new firmware). Your own
+  picture behind the widgets, from a folder on the card: fill, whole picture, stretch, original size or tile, in one
+  of nine places, zoomed and made paler; prepared once into a screen-sized gray file and drawn from it, a few rows at
+  a time. Pages of widgets and tools placed anywhere in the SDK's grid, on plates over the picture. The status bar is
+  yours to configure: on, off or automatic (a button press or a tap shows it for a few seconds, and that press does
+  nothing else), top or bottom, full width or a compact pill at the left, middle or right, on a light, inverted, light
+  grey or dark grey plate or on the picture (black or white text, whichever reads). The row naming the buttons (X4)
+  can be on, off or automatic. While the plugin is on it is the home screen; switched off, the built-in home screen
+  is back with its own pages.
 
 ### Fixed
 
