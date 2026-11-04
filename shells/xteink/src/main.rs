@@ -712,8 +712,8 @@ enum CodePlugins {
     /// Safe mode: none loaded.
     SafeMode(paperpaw_sdk::native::SafeMode),
     /// None this start: an update is on trial, which must show it starts
-    /// by itself.
-    None,
+    /// by itself. What the firmware takes is told once it is kept (#164).
+    OnTrial,
 }
 
 /// What this firmware loads, as plugins see it ([`paperpaw_sdk::Env`]),
@@ -745,7 +745,7 @@ fn code_plugins(ota: Option<&ota::Ota>, flash: &ota::Flash) -> CodePlugins {
     if ota.is_some_and(ota::Ota::on_trial) {
         info!("native: an update on trial starts without code plugins");
         native::no_hot_code();
-        return CodePlugins::None;
+        return CodePlugins::OnTrial;
     }
     if let Some(safe_mode) = safe_mode::check(input::held(safe_mode::KEY)) {
         warn!(
@@ -891,7 +891,7 @@ fn kernel(
         CodePlugins::SafeMode(safe_mode) => builder
             .code_plugins(native(staged.not_installed), Box::new(NoCode))
             .safe_mode(safe_mode),
-        CodePlugins::None => builder,
+        CodePlugins::OnTrial => builder.native_after_trial(native(staged.not_installed)),
     };
     let builder = staged
         .installs

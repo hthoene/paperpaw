@@ -1865,7 +1865,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-browser"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2171,7 +2171,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-joplin"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2390,7 +2390,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-read-later-cloud"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2432,7 +2432,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-readwise"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2502,7 +2502,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
@@ -2578,7 +2578,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-wallabag"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",

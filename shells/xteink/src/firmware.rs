@@ -224,15 +224,18 @@ impl Firmware {
     /// so what it calls aside from the kernel (the USB lines, updates,
     /// sleeping) keeps frames of its own (`#[inline(never)]`).
     fn step(&mut self) {
-        if let Some(ota) = &mut self.ota
-            && ota.check_trial(now().0)
-        {
+        // Kept only where the mark was written: a flash that fails to write
+        // leaves the update on trial (it may still go back), and the hold
+        // on code plugins with it (`Kernel::trial_kept`).
+        let end = self.ota.as_mut().map(|ota| ota.check_trial(now().0));
+        if end == Some(paperpaw_x4::updates::TrialEnd::Kept) {
             // An update on trial starts without code plugins: those
             // installed before (an update that keeps the fingerprint
             // fetches none) and those fetched for it wait for a start once
             // it is kept, which installs and loads them (ADR 0024).
             let native = crate::native::this_firmware();
             Ota::trial_over(self.kernel.storage());
+            self.kernel.trial_kept();
             self.state.restart_for_code =
                 paperpaw_core::code_to_load(self.kernel.storage(), &native);
         }

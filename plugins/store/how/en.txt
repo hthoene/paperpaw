@@ -1,4 +1,4 @@
-More plugins is the plugin store: it finds plugins for this device on the internet and installs, updates and removes them. Open it from Tools; it needs Wi-Fi.
+The Plugin store finds plugins for this device on the internet and installs, updates and removes them. Open it from Tools; it needs Wi-Fi.
 
 The start shows what the library recommends, what is new or popular now, then the groups. A group lists its plugins in a fair mix that changes daily, so that every plugin gets seen; sort them from A to Z, by newest or by last update, and go to a letter in long lists. Open one to see its page, with its size and the memory it takes, then choose Install, Update or Remove. Update all brings every installed plugin up to date.
 

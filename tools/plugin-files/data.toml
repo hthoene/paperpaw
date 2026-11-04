@@ -109,7 +109,7 @@ de.name = "Kyrillische Schrift"
 de.description = "Bücher auf Russisch, Ukrainisch, Bulgarisch, Serbisch und anderen kyrillischen Sprachen in Literata."
 
 [language-ar]
-version = "1.0.2"
+version = "1.0.3"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4

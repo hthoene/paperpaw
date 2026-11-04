@@ -12,7 +12,7 @@
 //! [`TRIES`] times, counted where a page of the store answered (see
 //! [`answered`]), not at the starts: a start without a network costs no
 //! try, and says once, in a hint, to connect once. A library without it
-//! after that is left to the reader, who finds it under More plugins.
+//! after that is left to the reader, who finds it in the Plugin store.
 //!
 //! A web flasher's bundle brings it with the firmware, and there is
 //! nothing to fetch.

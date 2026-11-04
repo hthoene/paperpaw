@@ -1049,6 +1049,17 @@ impl Kernel {
         Some(self.send_event(now, events::TYPE_TEXT.id().clone(), typed.to_params()))
     }
 
+    /// The update on trial is kept, its mark written for good
+    /// ([`KernelBuilder::native_after_trial`]): plugins now see what the
+    /// firmware takes, and the store, opened or opened again, asks for the
+    /// builds that fit. Nothing is told where the update is not (the mark
+    /// could not be written: it may still go back).
+    pub fn trial_kept(&mut self) {
+        if let Some(native) = self.shared.after_trial.take() {
+            self.shared.native = Some(native);
+        }
+    }
+
     /// Returns and clears the collected warnings.
     pub fn take_warnings(&mut self) -> Vec<Warning> {
         mem::take(&mut self.warnings)
@@ -1281,6 +1292,9 @@ struct Shared {
     /// How code plugins are loaded, where they are (see
     /// [`KernelBuilder::code_plugins`]).
     native: Option<paperpaw_sdk::native::Native>,
+    /// What the firmware takes, told to plugins once the update on trial is
+    /// kept ([`KernelBuilder::native_after_trial`]).
+    after_trial: Option<paperpaw_sdk::native::Native>,
     /// The power level and mode in use (see [`paperpaw_sdk::power`]).
     power: paperpaw_sdk::power::Power,
     /// Where declared work stands, and plugins' notes (see [`work`]).

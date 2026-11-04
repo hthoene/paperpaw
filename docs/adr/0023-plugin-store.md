@@ -57,7 +57,7 @@ download written as it arrives, nothing unpacked in memory.
   (`GET /api/v1/plugins/{id}/{version}/{*path}`), so a device needs no
   unpacking. A `plugin.ini` is always among them. Plugins with code get
   `latest.builds` there later.
-- **The device's store** is a plugin (`store`, *More plugins*), the same
+- **The device's store** is a plugin (`store`, *Plugin store*), the same
   on every device, by buttons and by touch. The shell says what plugin
   libraries call its device (`KernelBuilder::catalog_device`, read as
   `Env::catalog_device`: `x4`, `x4-pro`, `android`); a device without

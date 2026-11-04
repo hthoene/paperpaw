@@ -2,7 +2,7 @@
 
 How to guide an author, step by step, from a finished plugin to its
 listing in the plugin library on paperpaw.org, which the website and
-every reader's store (*More plugins*) read. It is written for an AI
+every reader's store (*Plugin store*) read. It is written for an AI
 assistant that helps the author. The site's own guide for authors,
 <https://paperpaw.org/authors>, is the reference for the site's side
 (its names of files, keys, fields and checks); this file follows it and
