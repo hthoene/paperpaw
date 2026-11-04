@@ -255,9 +255,10 @@ impl Screen for NetworksPage {
             return;
         }
         // The radio went off (by itself after a while, or from elsewhere):
-        // there is nothing to choose from here, back to the Wi-Fi page.
+        // there is nothing to choose from here, so this page goes, not
+        // what lies above it (a password being typed stays).
         if !cx.env().wifi().is_some_and(|w| w.state.is_on()) {
-            cx.command(Command::Back);
+            cx.close();
             return;
         }
         Self::changed(cx);

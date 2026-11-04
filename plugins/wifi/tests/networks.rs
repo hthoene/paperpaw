@@ -980,3 +980,22 @@ fn the_networks_row_says_the_network_the_device_is_in() {
     let row = rows.iter().find(|r| r.starts_with("Networks")).unwrap();
     assert!(row.contains("Home · 2 in reach"), "{rows:?}");
 }
+
+#[test]
+fn the_radio_going_off_under_the_password_dialog_closes_only_the_networks_page() {
+    let mut device = Device::new(TOUCH);
+    device.open();
+    device.radio_on_with(vec![network("Home", -50, true)]);
+    device.tap("Home");
+    assert_eq!(device.on_top(), Some("keyboard.screen"));
+    device.told();
+    // The radio goes off while the password is being typed: the dialog
+    // (and what is typed in it) stays on top; the page of the networks
+    // under it, which has nothing to show now, goes.
+    device.radio(WifiEvent::State(WifiState::Off));
+    assert_eq!(device.on_top(), Some("keyboard.screen"));
+    device.run(actions::BACK);
+    assert_eq!(device.on_top(), Some("wifi.page"));
+    let rows = page_rows(&mut device);
+    assert!(rows[0].starts_with("Wi-Fi, Off"), "{rows:?}");
+}
