@@ -69,7 +69,7 @@ fn the_picture_is_made_once_for_the_screen() {
     assert!(!names.contains(&"background.part".to_string()), "{names:?}");
     assert_eq!(app.storage.size(BAKED).unwrap(), 12 + 480 * 800);
     let note = app.storage.text(NOTE).unwrap();
-    assert!(note.ends_with("|Fill|11|100|0|false|480x800"), "{note}");
+    assert!(note.ends_with("|Fill|11|100|0|00|false|480x800"), "{note}");
     assert!(note.len() < 100, "{note}");
     // Shown again, restarted: the same file, nothing made anew.
     let before = app.storage.size(BAKED).unwrap();
@@ -532,4 +532,39 @@ fn what_a_stopped_bake_left_goes_when_the_picture_is_taken_away() {
         names.iter().all(|n| !n.starts_with("background.")),
         "{names:?}"
     );
+}
+
+#[test]
+fn the_tone_of_the_picture_follows_the_settings_and_makes_it_anew_once() {
+    let normal = open(X4, "picture = wide.jpg\nlighten = 0");
+    let lighter = open(
+        X4,
+        "picture = wide.jpg\nlighten = 0\nbrightness = picture-home.brightness.much-lighter",
+    );
+    let darker = open(
+        X4,
+        "picture = wide.jpg\nlighten = 0\nbrightness = picture-home.brightness.much-darker",
+    );
+    let mut brighter_somewhere = false;
+    for (x, y) in [(240u64, 400u64), (100, 200), (400, 600), (240, 100)] {
+        let (n, l, d) = (
+            baked(&normal, x, y),
+            baked(&lighter, x, y),
+            baked(&darker, x, y),
+        );
+        assert!(d <= n && n <= l, "{x},{y}: {d} {n} {l}");
+        brighter_somewhere |= l > n && d < n;
+    }
+    assert!(brighter_somewhere);
+    // A change in the settings: made anew, once.
+    let mut app = open(X4, "picture = wide.jpg\nlighten = 0");
+    let note = app.storage.text(NOTE).unwrap();
+    app.set("picture-home.brightness", "picture-home.brightness.lighter");
+    app.home();
+    let again = app.storage.text(NOTE).unwrap();
+    assert_ne!(note, again);
+    assert!(again.len() < 100, "{again}");
+    app.set("picture-home.contrast", "picture-home.contrast.higher");
+    app.home();
+    assert_ne!(app.storage.text(NOTE).unwrap(), again);
 }
