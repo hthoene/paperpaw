@@ -11,7 +11,7 @@ use crate::builtin::{actions, params, slots};
 use crate::event::Event;
 use crate::ui::choice::Picked;
 use crate::ui::{self, UiStyle};
-use crate::widgets::{ColourSpec, Plate, SizeClass, Widget, WidgetContext, WidgetInput};
+use crate::widgets::{Plate, SizeClass, Widget, WidgetContext, WidgetInput};
 use crate::{
     Canvas, Color, Command, Cx, Env, Gesture, GestureKind, Handled, Hint, Id, Params, Point,
     PointerEvent, PointerPhase, Rect, RefreshMode, semantics::Role,
@@ -412,8 +412,8 @@ impl GridView {
     }
 
     /// [`draw`](Self::draw) with `plate` under the items: nothing over a
-    /// picture, a colour on a dark page. A widget without a frame whose
-    /// paper the reader chose sits on its paper. With [`Plate::None`] the
+    /// picture, a colour on a dark page; a widget's own paper is its own to
+    /// paint ([`draw_frame`](crate::widgets::draw_frame)). With [`Plate::None`] the
     /// screen paints what lies under the items first, also before a
     /// partial redraw (the grid clears nothing).
     pub fn draw_on(&self, canvas: &mut Canvas<'_>, env: &Env<'_>, plate: Plate) {
@@ -441,7 +441,7 @@ impl GridView {
             if shown.area.intersection(&clip).is_none() {
                 continue;
             }
-            fill_plate(canvas, env, shown, plate);
+            fill_plate(canvas, shown, plate);
             match (&shown.item.what, &shown.widget) {
                 (What::Widget(_), Some(widget)) => widget.draw(canvas, env, shown.area),
                 (What::Widget(_), None) => {}
@@ -1313,24 +1313,15 @@ fn handle(area: Rect, style: &UiStyle) -> Rect {
     )
 }
 
-/// Fills `shown`'s area with what lies under it: `plate`, or the paper of
-/// a widget without a frame whose paper the reader chose.
-fn fill_plate(canvas: &mut Canvas<'_>, env: &Env<'_>, shown: &Shown, plate: Plate) {
-    let own = match &shown.item.what {
-        What::Widget(id)
-            if crate::widgets::frame(env, id.as_str()) == crate::widgets::Frame::None =>
-        {
-            match crate::widgets::paper(env, id.as_str()) {
-                ColourSpec::Is(colour) => Some(colour),
-                _ => None,
-            }
-        }
-        _ => None,
-    };
-    match (own, plate) {
-        (Some(colour), _) | (None, Plate::Colour(colour)) => canvas.fill_shaded(shown.area, colour),
-        (None, Plate::Paper) => canvas.fill(shown.area, Color::WHITE),
-        (None, Plate::None) => {}
+/// Fills `shown`'s area with what lies under it, `plate`: only that, so
+/// that a widget drawing all of itself is drawn on what the screen chose,
+/// whatever the reader set for widgets ([`draw_frame`](crate::widgets::draw_frame)
+/// paints a widget's own paper).
+fn fill_plate(canvas: &mut Canvas<'_>, shown: &Shown, plate: Plate) {
+    match plate {
+        Plate::Paper => canvas.fill(shown.area, Color::WHITE),
+        Plate::Colour(colour) => canvas.fill_shaded(shown.area, colour),
+        Plate::None => {}
     }
 }
 

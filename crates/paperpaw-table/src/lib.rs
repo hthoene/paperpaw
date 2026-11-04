@@ -42,11 +42,16 @@ impl Family {
     /// Reading data: translations (`paperpaw_i18n`), settings, JSON, INI
     /// (`paperpaw_config`) and XML.
     pub const DATA: Family = Family(5);
-    /// Reserved for the firmware's own `core` and `alloc` code, which
-    /// plugins would then call rather than carry a copy of (#259: about
-    /// 8 KiB a plugin). No firmware fills it yet, and no function is in
-    /// it: a plugin file names it only once one is.
+    /// Family 6 under the name it was first kept by: for the firmware's
+    /// own `core` and `alloc` code, which plugins would then call rather
+    /// than carry a copy of (#259: about 8 KiB a plugin). The widget look
+    /// took it ([`WIDGETS`](Self::WIDGETS)); that code goes to a chained
+    /// family (8 and up) once there is the chain.
     pub const CORE: Family = Family(6);
+    /// The look widgets share (`paperpaw_sdk::widgets`: their frame,
+    /// colours and shape, #206), in a family of its own so that a plugin
+    /// without widgets does not need a firmware that has it.
+    pub const WIDGETS: Family = Family(6);
 
     /// The family of number `n` (below [`FAMILIES`]).
     #[must_use]

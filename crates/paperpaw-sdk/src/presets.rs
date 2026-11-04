@@ -180,17 +180,32 @@ pub fn theme_changes(settings: &Settings, theme: &Preset) -> Vec<(Id, Option<Set
 pub const WIDGET_LOOK: &str = "core.widget-look";
 
 /// The settings a widget look covers: each registered widget's frame,
-/// padding, size, alignment and colours (`<widget>.frame` …, of
-/// `widgets`), and the frame and colours of all
+/// padding, size, alignment, colours and shape (`<widget>.frame` …, of
+/// `widgets`), and those of all and the gap between widgets
 /// ([`WIDGET_FRAME`](crate::builtin::settings::WIDGET_FRAME) …); not the
 /// settings of other things that end so (the status lines' size).
 pub fn widget_look_settings(settings: &Settings, widgets: &crate::widgets::Widgets) -> Vec<Id> {
-    use crate::builtin::settings::{WIDGET_FRAME, WIDGET_INK, WIDGET_PAPER};
-    const PARTS: [&str; 6] = [".frame", ".padding", ".size", ".align", ".paper", ".ink"];
+    use crate::builtin::settings as s;
+    const PARTS: [&str; 9] = [
+        ".frame",
+        ".padding",
+        ".size",
+        ".align",
+        ".paper",
+        ".ink",
+        ".corners",
+        ".frame-line",
+        ".drop-shadow",
+    ];
     let all = [
-        WIDGET_FRAME.static_str(),
-        WIDGET_PAPER.static_str(),
-        WIDGET_INK.static_str(),
+        s::WIDGET_FRAME.static_str(),
+        s::WIDGET_PAPER.static_str(),
+        s::WIDGET_INK.static_str(),
+        s::WIDGET_CORNERS.static_str(),
+        s::WIDGET_FRAME_LINE.static_str(),
+        s::WIDGET_SHADOW.static_str(),
+        s::WIDGET_PADDING.static_str(),
+        s::WIDGET_GAP.static_str(),
     ];
     let of_widget = |id: &str| {
         PARTS.iter().any(|part| {

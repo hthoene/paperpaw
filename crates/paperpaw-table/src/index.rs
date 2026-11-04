@@ -1,11 +1,11 @@
 // Made by tools/shared-table.py from shared.list: do not edit.
 
 /// The revision of each family (`shared.list`).
-pub const REVISIONS: crate::Revisions = [1, 0, 2, 1, 0, 1, 0, 0];
+pub const REVISIONS: crate::Revisions = [1, 0, 2, 1, 0, 1, 1, 0];
 /// The oldest revision of each family whose plugins still run.
-pub const OLDEST: crate::Revisions = [1, 0, 2, 1, 0, 1, 0, 0];
+pub const OLDEST: crate::Revisions = [1, 0, 2, 1, 0, 1, 1, 0];
 /// Eight hex digits naming the tables of this build, for logs.
-pub const HASH: &str = "3ceb8132";
+pub const HASH: &str = "6e69e0a3";
 
 /// The text family's table.
 pub mod text {
@@ -359,4 +359,20 @@ pub mod data {
     pub const XML_DECODE: usize = 29;
     /// How many entries the table has.
     pub const COUNT: usize = 30;
+}
+
+/// The widgets family's table.
+pub mod widgets {
+    /// The family.
+    pub const FAMILY: crate::Family = crate::Family::WIDGETS;
+    /// `crate::widgets::look::widget_look` (revision 1).
+    pub const WIDGET_LOOK: usize = 0;
+    /// `crate::widgets::look::draw_frame` (revision 1).
+    pub const WIDGET_DRAW_FRAME: usize = 1;
+    /// `crate::widgets::look::frame_height` (revision 1).
+    pub const WIDGET_FRAME_HEIGHT: usize = 2;
+    /// `crate::widgets::look::draw_caption` (revision 1).
+    pub const WIDGET_DRAW_CAPTION: usize = 3;
+    /// How many entries the table has.
+    pub const COUNT: usize = 4;
 }

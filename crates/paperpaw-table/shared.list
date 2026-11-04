@@ -163,3 +163,7 @@ graphics 1 ROUND_CORNER_INSET paperpaw_graphics::round::corner_inset
 graphics 1 ROUND_SIN_COS paperpaw_graphics::round::sin_cos
 graphics 1 ROUND_POINT_AT paperpaw_graphics::round::point_at
 bump ui 2
+widgets 1 WIDGET_LOOK crate::widgets::look::widget_look
+widgets 1 WIDGET_DRAW_FRAME crate::widgets::look::draw_frame
+widgets 1 WIDGET_FRAME_HEIGHT crate::widgets::look::frame_height
+widgets 1 WIDGET_DRAW_CAPTION crate::widgets::look::draw_caption
