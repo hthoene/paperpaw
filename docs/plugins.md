@@ -215,6 +215,13 @@ Some rules every screen should follow:
   `ui::button_reach`, as a focus frame goes round them). Where the focus
   changes more, such as a line about the focused item, ask for that
   part too.
+  Where rows change by themselves (a scan that finds networks, a
+  download that moves on), keep a `ui::RowsSeen` beside the `ListView`:
+  make a key of each row (`RowsSeen::row_key`), and where `rows_differ`
+  says so, `see_rows(&list, &keys)` tells what to draw, and its
+  `RowsChange::ask_for_it(cx)` asks for the rows that changed alone (the
+  whole list where a row got another height or the number of pages
+  changed, nothing where no visible row did).
 - **Overlays** are screens with a `region`. One that takes the reader's
   attention (a menu, a question) washes out what lies below it
   (`dims_below`); one looked through (a keyboard over the field it

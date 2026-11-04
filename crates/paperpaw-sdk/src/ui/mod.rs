@@ -14,6 +14,7 @@
 
 mod address;
 pub(crate) mod button;
+mod changed;
 mod chips;
 pub mod choice;
 pub mod confirm;
@@ -52,6 +53,7 @@ pub mod widget_list;
 
 pub use address::*;
 pub use button::*;
+pub use changed::{RowsChange, RowsSeen};
 pub use chips::Chips;
 pub use context::Ui;
 pub use dialog::Dialog;

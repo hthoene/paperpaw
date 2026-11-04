@@ -72,6 +72,13 @@ change the plugin SDK.
 
 ### Fixed
 
+- **The Wi-Fi pages draw only the rows that changed** (#223, follow-up of #160). A scan that finds a network, loses
+  one or hears a signal move to another word used to draw the whole page again (on the X4 about 0.7 s, and a key
+  pressed meanwhile waited); now only the rows that say something else are drawn and refreshed, the page as a whole
+  only where a row got another height or the number of pages changed. The page below the list draws nothing while
+  covered. New in the SDK, additive (plugin interface 6 stays): `ui::RowsSeen` and `ui::RowsChange` for lists of a
+  plugin's own.
+
 - **Dual boot: no write to the OTA data before the setup is known** (#222). Where the bootloader carries a
   dual-boot tag (`x4boot` or `paperpaw-dualboot:1`), an update PaperPaw put on trial itself, or one that failed its
   trial, is no longer marked (or gone back from) before the card is read: nothing is written to the OTA data at all,

@@ -36,9 +36,10 @@ pub(crate) struct WifiPage {
     header: ui::Header,
     list: ListView,
     /// What the page said when it was drawn last (see [`view`]): the
-    /// height of its rows is measured again only when that changes, and an
-    /// event that leaves it as it is draws nothing.
-    shown: u64,
+    /// height of its rows is measured again only when that changes, an
+    /// event that leaves it as it is draws nothing, and one that changes
+    /// some rows draws those.
+    seen: ui::RowsSeen,
 }
 
 impl core::fmt::Debug for WifiPage {
@@ -82,16 +83,9 @@ fn networks_note(env: &Env<'_>, wifi: &wifi::Wifi) -> String {
     }
 }
 
-/// FNV-1a over `bytes`, continuing from `hash`.
-fn fnv(hash: u64, bytes: &[u8]) -> u64 {
-    bytes.iter().fold(hash, |h, b| {
-        (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3)
-    })
-}
-
 /// What the page says that changes: where the radio is, the row of the
-/// networks, whether a network is kept, the settings; and a key of them.
-fn view(env: &Env<'_>) -> (String, String, u64) {
+/// networks, and a key of each row (what it says, besides the focus).
+fn view(env: &Env<'_>, rows: &[Row]) -> (String, String, Vec<u64>) {
     let state = env
         .wifi()
         .map(|w| state_text(env, &w.state, w.scanning))
@@ -100,22 +94,23 @@ fn view(env: &Env<'_>) -> (String, String, u64) {
         .wifi()
         .map(|w| networks_note(env, w))
         .unwrap_or_default();
-    let kept = !wifi::known(env.secrets().iter()).is_empty();
     let on = env.wifi().is_some_and(|w| w.state.is_on());
-    let settings = alloc::format!(
-        "{}{}{}{}{}",
-        u8::from(kept),
-        u8::from(on),
-        u8::from(env.settings().read(&ON_DEMAND)),
-        u8::from(env.settings().read(&WHILE_CHARGING)),
-        env.settings().read(&IDLE_OFF)
-    );
-    let key = [state.as_str(), networks.as_str(), settings.as_str()]
+    let flag = |on: bool| if on { "1" } else { "0" };
+    let key = |parts: &[&str]| ui::RowsSeen::row_key(parts.iter().copied());
+    let keys = rows
         .iter()
-        .fold(0xcbf2_9ce4_8422_2325, |h, text| {
-            fnv(fnv(h, text.as_bytes()), b"\t")
-        });
-    (state, networks, key)
+        .map(|row| match row {
+            Row::Radio => key(&["radio", state.as_str(), flag(on)]),
+            Row::Phone => key(&["phone"]),
+            Row::Networks => key(&["networks", networks.as_str()]),
+            Row::OnDemand => key(&["on-demand", flag(env.settings().read(&ON_DEMAND))]),
+            Row::WhileCharging => {
+                key(&["while-charging", flag(env.settings().read(&WHILE_CHARGING))])
+            }
+            Row::IdleOff => key(&["idle-off", env.settings().read(&IDLE_OFF)]),
+        })
+        .collect();
+    (state, networks, keys)
 }
 
 impl WifiPage {
@@ -130,7 +125,7 @@ impl WifiPage {
             list: ListView::new(area, style.noted_row()).focus_on_keys(env),
             style,
             header,
-            shown: 0,
+            seen: ui::RowsSeen::fresh(),
         }
     }
 
@@ -150,6 +145,22 @@ impl WifiPage {
         }
         rows.extend([Row::OnDemand, Row::IdleOff, Row::WhileCharging]);
         rows
+    }
+
+    /// Rows as high as the notes of the radio and the settings need (the
+    /// largest text).
+    fn measure(&mut self, env: &Env<'_>, state: &str, networks: &str) {
+        let tr = |key| env.i18n().tr(key);
+        let notes = [
+            state,
+            networks,
+            tr("wifi.phone.note"),
+            tr("wifi.setting.on-demand.help"),
+            tr("wifi.setting.while-charging.help"),
+            tr("wifi.setting.idle-off.help"),
+        ];
+        let row = self.style.noted_row_for(env, self.list.area().width, notes);
+        self.list.set_row(row);
     }
 
     fn changed(cx: &mut Cx<'_, '_>) {
@@ -214,20 +225,10 @@ impl Screen for WifiPage {
         let title = env.i18n().tr("wifi.title");
         // Rows as high as the notes of the radio and the settings need
         // (the largest text), measured when what the page says changes.
-        let (state, networks, key) = view(env);
-        if key != self.shown {
-            self.shown = key;
-            let tr = |key| env.i18n().tr(key);
-            let notes = [
-                state.as_str(),
-                networks.as_str(),
-                tr("wifi.phone.note"),
-                tr("wifi.setting.on-demand.help"),
-                tr("wifi.setting.while-charging.help"),
-                tr("wifi.setting.idle-off.help"),
-            ];
-            let row = style.noted_row_for(env, self.list.area().width, notes);
-            self.list.set_row(row);
+        let (state, networks, keys) = view(env, &rows);
+        if self.seen.rows_differ(&keys) {
+            self.measure(env, &state, &networks);
+            self.seen.see_rows(&self.list, &keys);
         }
         let mut ui = ui::Ui::new(canvas, env, &style);
         self.header
@@ -294,9 +295,12 @@ impl Screen for WifiPage {
         {
             crate::networks::search(cx);
         }
-        // Drawn again only where the page says something else (see `view`).
-        if view(&env).2 != self.shown {
-            Self::changed(cx);
+        // Drawn again only where the page says something else, and then
+        // only the rows that changed (see `view`).
+        let (state, networks, keys) = view(&env, &Self::rows(&env));
+        if self.seen.rows_differ(&keys) {
+            self.measure(&env, &state, &networks);
+            self.seen.see_rows(&self.list, &keys).ask_for_it(cx);
         }
     }
 
