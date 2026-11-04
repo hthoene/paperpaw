@@ -23,6 +23,14 @@ change the plugin SDK.
 
 ### Fixed
 
+- **X4 Pro: the charging bolt on battery, and a sleep that never switched off** (#209). The Pro took "a computer sends USB
+  frames" for charging: the bolt, the kernel's low-battery rules, its install check and the sleeping reader's *Switch off
+  after sleeping* all went by it, so a Pro on battery could show the bolt, run no idle naps and stay asleep all night.
+  Charging is now the charging pin alone (the X3: its gauge and the frames, as before); the frames only keep an awake
+  reader from napping while a computer is on the cable, and count only when the frame number moves on like a bus, at two
+  looks a second apart. A reader asleep on a cable with a full cell is switched off after its time like one on a
+  battery; while it charges it stays asleep, which the setting's help text now says (en, de). The diagnostics page
+  shows the charging pin's level and whether USB frames come on the Pro and the X3 (diagnostics 1.0.7). The X4 is as before.
 - **A book opened before its font pack came no longer keeps a wrong page count** (#163). A Hebrew book opened before the
   Hebrew letters were installed was counted with those letters measured as `?`: 2 pages for a book of one. The count was
   kept under a name that did not change when the pack arrived, so the book showed `1 / 2` and no turn went to the

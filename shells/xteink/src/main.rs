@@ -83,7 +83,6 @@ mod tls_slots;
 #[cfg(feature = "remote")]
 mod traced;
 mod usb_lines;
-#[cfg(any(feature = "esp32s3", feature = "x3"))]
 mod usb_power;
 mod volume;
 mod wifi;
