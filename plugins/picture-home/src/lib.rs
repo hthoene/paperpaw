@@ -6,7 +6,7 @@
 //!
 //! - **Picture**: chosen from a folder on the card; fill, whole, stretch,
 //!   original size or tiled, in one of nine places, zoomed, paler; made
-//!   once into a screen-sized gray file ([`picture`]) and drawn from it.
+//!   once into a screen-sized gray file (`picture`) and drawn from it.
 //! - **Widgets**: any plugin's, on plates over the picture, in the grid
 //!   the built-in home screen uses (`paperpaw_sdk::widgets::grid`): drag
 //!   to move, by the corner to size, tap for the options.
