@@ -39,9 +39,11 @@ const CELLS: [&str; 2] = ["stats.cells.square", "stats.cells.round"];
 
 /// Its settings, kept in the program: its look, its choices and
 /// switches for its parts.
-static SETTINGS: [SettingSpec; 11] = [
+static SETTINGS: [SettingSpec; 13] = [
     widgets::frame_spec("stats.widget.calendar.frame", CALENDAR, Frame::None),
     widgets::padding_spec("stats.widget.calendar.padding", CALENDAR, Padding::Auto),
+    widgets::paper_spec("stats.widget.calendar.paper", CALENDAR),
+    widgets::ink_spec("stats.widget.calendar.ink", CALENDAR),
     widgets::align_spec("stats.widget.calendar.align", CALENDAR, Align::Center),
     SettingSpec::choice(
         "stats.widget.calendar.style",

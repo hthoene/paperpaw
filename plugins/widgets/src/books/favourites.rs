@@ -23,10 +23,12 @@ const WIDGET: &str = "widgets.favourites";
 pub(crate) const LAYOUTS: [&str; 2] = ["widgets.books.layout.row", "widgets.books.layout.grid"];
 
 /// Its settings, kept in the program.
-static SETTINGS: [SettingSpec; 10] = [
+static SETTINGS: [SettingSpec; 12] = [
     widgets::align_spec("widgets.favourites.align", ID, Align::Center),
     widgets::frame_spec("widgets.favourites.frame", ID, Frame::None),
     widgets::padding_spec("widgets.favourites.padding", ID, Padding::Auto),
+    widgets::paper_spec("widgets.favourites.paper", ID),
+    widgets::ink_spec("widgets.favourites.ink", ID),
     widgets::size_spec("widgets.favourites.size", ID, TextSize::Medium, false),
     SettingSpec::choice(
         "widgets.favourites.layout",

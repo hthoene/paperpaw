@@ -27,10 +27,12 @@ const LOOKS: [&str; 3] = [
 const GROUPS: [&str; 2] = ["widgets.tiles.digits", "widgets.tiles.pairs"];
 
 /// Its settings, kept in the program.
-static SETTINGS: [SettingSpec; 9] = [
+static SETTINGS: [SettingSpec; 11] = [
     widgets::align_spec("widgets.tile-clock.align", ID, Align::Center),
     widgets::frame_spec("widgets.tile-clock.frame", ID, Frame::None),
     widgets::padding_spec("widgets.tile-clock.padding", ID, Padding::Auto),
+    widgets::paper_spec("widgets.tile-clock.paper", ID),
+    widgets::ink_spec("widgets.tile-clock.ink", ID),
     SettingSpec::choice(
         "widgets.tile-clock.tiles",
         "widgets.setting.tiles",

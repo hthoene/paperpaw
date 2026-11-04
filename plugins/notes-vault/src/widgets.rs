@@ -75,9 +75,11 @@ impl Kind {
 
 // Each widget's settings, kept in the program: its look, then its own.
 
-static RECENT_SETTINGS: [SettingSpec; 7] = [
+static RECENT_SETTINGS: [SettingSpec; 9] = [
     widgets::frame_spec("notes-vault.recent.frame", RECENT, Frame::None),
     widgets::padding_spec("notes-vault.recent.padding", RECENT, Padding::Auto),
+    widgets::paper_spec("notes-vault.recent.paper", RECENT),
+    widgets::ink_spec("notes-vault.recent.ink", RECENT),
     widgets::align_spec("notes-vault.recent.align", RECENT, Align::Start),
     widgets::part_spec(
         "notes-vault.recent.heading",
@@ -108,9 +110,11 @@ static RECENT_SETTINGS: [SettingSpec; 7] = [
     .description("notes-vault.widget.folder.help"),
 ];
 
-static PINNED_SETTINGS: [SettingSpec; 6] = [
+static PINNED_SETTINGS: [SettingSpec; 8] = [
     widgets::frame_spec("notes-vault.pinned.frame", PINNED, Frame::None),
     widgets::padding_spec("notes-vault.pinned.padding", PINNED, Padding::Auto),
+    widgets::paper_spec("notes-vault.pinned.paper", PINNED),
+    widgets::ink_spec("notes-vault.pinned.ink", PINNED),
     widgets::align_spec("notes-vault.pinned.align", PINNED, Align::Start),
     widgets::part_spec(
         "notes-vault.pinned.heading",
@@ -133,9 +137,11 @@ static PINNED_SETTINGS: [SettingSpec; 6] = [
     .description("notes-vault.widget.title.help"),
 ];
 
-static DAY_SETTINGS: [SettingSpec; 6] = [
+static DAY_SETTINGS: [SettingSpec; 8] = [
     widgets::frame_spec("notes-vault.day.frame", DAY, Frame::None),
     widgets::padding_spec("notes-vault.day.padding", DAY, Padding::Auto),
+    widgets::paper_spec("notes-vault.day.paper", DAY),
+    widgets::ink_spec("notes-vault.day.ink", DAY),
     widgets::align_spec("notes-vault.day.align", DAY, Align::Start),
     widgets::part_spec(
         "notes-vault.day.heading",
@@ -158,9 +164,11 @@ static DAY_SETTINGS: [SettingSpec; 6] = [
     .description("notes-vault.widget.folder.help"),
 ];
 
-static RANDOM_SETTINGS: [SettingSpec; 6] = [
+static RANDOM_SETTINGS: [SettingSpec; 8] = [
     widgets::frame_spec("notes-vault.random.frame", RANDOM, Frame::None),
     widgets::padding_spec("notes-vault.random.padding", RANDOM, Padding::Auto),
+    widgets::paper_spec("notes-vault.random.paper", RANDOM),
+    widgets::ink_spec("notes-vault.random.ink", RANDOM),
     widgets::align_spec("notes-vault.random.align", RANDOM, Align::Start),
     widgets::part_spec(
         "notes-vault.random.heading",
@@ -183,9 +191,11 @@ static RANDOM_SETTINGS: [SettingSpec; 6] = [
     .description("notes-vault.widget.folder.help"),
 ];
 
-static TAGS_SETTINGS: [SettingSpec; 5] = [
+static TAGS_SETTINGS: [SettingSpec; 7] = [
     widgets::frame_spec("notes-vault.tags.frame", TAGS, Frame::None),
     widgets::padding_spec("notes-vault.tags.padding", TAGS, Padding::Auto),
+    widgets::paper_spec("notes-vault.tags.paper", TAGS),
+    widgets::ink_spec("notes-vault.tags.ink", TAGS),
     widgets::align_spec("notes-vault.tags.align", TAGS, Align::Start),
     widgets::part_spec(
         "notes-vault.tags.heading",
@@ -203,9 +213,11 @@ static TAGS_SETTINGS: [SettingSpec; 5] = [
     ),
 ];
 
-static SEARCH_SETTINGS: [SettingSpec; 3] = [
+static SEARCH_SETTINGS: [SettingSpec; 5] = [
     widgets::frame_spec("notes-vault.search.frame", SEARCH, Frame::Line),
     widgets::padding_spec("notes-vault.search.padding", SEARCH, Padding::Auto),
+    widgets::paper_spec("notes-vault.search.paper", SEARCH),
+    widgets::ink_spec("notes-vault.search.ink", SEARCH),
     widgets::align_spec("notes-vault.search.align", SEARCH, Align::Start),
 ];
 

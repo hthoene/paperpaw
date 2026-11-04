@@ -30,9 +30,16 @@ change the plugin SDK.
   grey or dark grey plate or on the picture (black or white text, whichever reads). The row naming the buttons (X4)
   can be on, off or automatic. While the plugin is on it is the home screen; switched off, the built-in home screen
   is back with its own pages.
+- **Colour rows in every first-party widget** (#206): each widget of the widget pack, the home screen, statistics,
+  weather, reading goal, mail, news, notes vault and vocabulary has *Colours* (its paper) and *Text* beside its frame
+  and spacing. The picture home screen's *Widgets sit on* sets the plate under the widgets: white, light gray or none.
 
 ### Fixed
 
+- **The empty start card reads on a dark card** (#207). Its words were black on the black card of a dark frame (and on
+  an inverted paper); the home screen draws them in the widget's own ink now, as its status line does. The pack's
+  world clock, library numbers and weather forecast chose their lines and shades by the frame being dark; they follow
+  the paper's lightness now, so a dark gray or inverted paper works too.
 - **A book opened before its font pack came no longer keeps a wrong page count** (#163). A Hebrew book opened before the
   Hebrew letters were installed was counted with those letters measured as `?`: 2 pages for a book of one. The count was
   kept under a name that did not change when the pack arrived, so the book showed `1 / 2` and no turn went to the

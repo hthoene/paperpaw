@@ -46,10 +46,12 @@ const MAX_BOOKS: usize = 200;
 const MAX_FILE: u64 = 128 * 1024;
 
 /// Its settings, kept in the program.
-static SETTINGS: [SettingSpec; 11] = [
+static SETTINGS: [SettingSpec; 13] = [
     widgets::align_spec("widgets.highlight.align", ID, Align::Center),
     widgets::frame_spec("widgets.highlight.frame", ID, Frame::None),
     widgets::padding_spec("widgets.highlight.padding", ID, Padding::Auto),
+    widgets::paper_spec("widgets.highlight.paper", ID),
+    widgets::ink_spec("widgets.highlight.ink", ID),
     widgets::size_spec("widgets.highlight.size", ID, TextSize::Fit, true),
     SettingSpec::choice(
         "widgets.highlight.source",

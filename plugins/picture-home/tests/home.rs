@@ -618,3 +618,25 @@ fn a_turned_picture_zoomed_in_is_the_same_as_one_made_upright_beforehand() {
         }
     }
 }
+
+#[test]
+fn the_widgets_sit_on_a_plate_a_gray_one_or_none() {
+    // A black picture (its left edge) behind the first widget's place.
+    let base = "picture = wide.jpg\nlighten = 0\nanchor = picture-home.anchor.left\nbar = picture-home.bar.off\n";
+    let mut white = open(X4, base);
+    let mut clear = open(X4, &format!("{base}plate = core.plate.none"));
+    let mut gray = open(X4, &format!("{base}plate = core.plate.light-gray"));
+    // Over the first widget the white plate hides the picture; with none
+    // the picture shows through.
+    let (mut hidden, mut shown, mut tinted) = (0, 0, 0);
+    for y in (70..300).step_by(3) {
+        for x in (6..40).step_by(3) {
+            hidden += usize::from(white.dark(x, y));
+            shown += usize::from(clear.dark(x, y));
+            tinted += usize::from(gray.dark(x, y));
+        }
+    }
+    assert!(shown > hidden + 20, "none {shown}, white {hidden}");
+    assert!(tinted > hidden, "gray {tinted}, white {hidden}");
+    assert!(tinted <= shown, "gray {tinted}, none {shown}");
+}

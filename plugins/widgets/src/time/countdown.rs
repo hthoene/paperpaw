@@ -28,10 +28,12 @@ const STYLES: [&str; 2] = [
 ];
 
 /// Its settings, kept in the program.
-static SETTINGS: [SettingSpec; 10] = [
+static SETTINGS: [SettingSpec; 12] = [
     widgets::align_spec("widgets.countdown.align", ID, Align::Left),
     widgets::frame_spec("widgets.countdown.frame", ID, Frame::None),
     widgets::padding_spec("widgets.countdown.padding", ID, Padding::Auto),
+    widgets::paper_spec("widgets.countdown.paper", ID),
+    widgets::ink_spec("widgets.countdown.ink", ID),
     SettingSpec::text(
         "widgets.countdown.title",
         "widgets.setting.countdown-title",
