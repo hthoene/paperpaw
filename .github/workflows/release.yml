@@ -228,7 +228,12 @@ jobs:
           if [[ -z "$RUST_TARGET" ]]; then
             printf '%s\n' '{"op": "quit"}' | dist/pkg/paperpaw-emu$exe --stdio > ready.json
             grep -q '"event": "ready"' ready.json
-            grep -q '"release": true' ready.json
+            # A tagged commit says "release": true; a dry run has no tag, so it says false.
+            if [[ "$DRY_RUN" == true ]]; then
+              grep -q '"release": false' ready.json
+            else
+              grep -q '"release": true' ready.json
+            fi
             rm ready.json
           fi
           name="paperpaw-emu-$version-${{ matrix.target }}.zip"
