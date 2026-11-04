@@ -437,7 +437,12 @@ fn full_pages_turned_on_the_side_are_all_reachable_and_the_layout_is_not_cut() {
         Shared::memory(&format!("{BASE_CONFIG}{}", full_pages()), &[]),
     );
     edit(&mut side);
-    let first = tools(&mut side)[0].1;
+    // The first tool (the buttons of the footer, add and done, are not).
+    let first = tools(&mut side)
+        .into_iter()
+        .find(|t| t.0 != "+" && t.0 != "Done")
+        .unwrap()
+        .1;
     // A tap on a tool in edit mode offers what to do with it.
     side.tap(center(first));
     side.tap_on("Remove");
