@@ -19,7 +19,7 @@ change the plugin SDK.
 
 - **Spanish user interface.** All 3,861 messages of the kernel and the plugins in Spanish, as the data plugin
   `language-es` from the store. Machine-translated and checked with `tools/language-pack.py check es`; corrections
-  from Spanish readers are welcome.
+  from Spanish readers are welcome. Spanish dates, shorter labels and consistent *Elegir* are included (#170).
 - **Colours of widgets** (#206, SDK). Each widget has a paper (`<widget>.paper`: normal, inverted, light gray, dark
   gray, transparent; on colour panels also any tone or a code such as `#3b6fd4`) and a text colour (`<widget>.ink`,
   automatic: black or white, whichever reads on the paper), and the kernel's `core.widgets.paper` and
@@ -28,8 +28,8 @@ change the plugin SDK.
   `widgets::colour_spec`, `paper`, `ink` and the settings' builders are new. `GridView::draw_on` takes what lies
   under the items (`widgets::Plate`: white as before, nothing over a picture, a colour), so widgets can sit on a
   picture or a dark page. Additive: plugin interface 6 stays, plugins built before draw as they did; their widgets
-  follow the colours, those of all widgets too, once rebuilt with this SDK (each plugin carries its own copy of
-  `widget_look`). Transparent widgets take the page to be light: on a dark picture, choose a light text colour.
+  follow the colours, those of all widgets too, once rebuilt with this SDK and run on firmware with the shared
+  widget family described below. Transparent widgets take the page to be light: on a dark picture, choose a light text colour.
 - **Shape of widgets** (#206, SDK). Each widget has corners (`<widget>.corners`: automatic, square, slightly
   rounded, round, soft), a frame line (`<widget>.frame-line`: automatic, thin, medium, thick) and a solid shadow
   below and to the right of its card or paper (`<widget>.drop-shadow`; dark gray below a black plate, which a black
@@ -41,7 +41,7 @@ change the plugin SDK.
   each widget plugin is 3.5 to 5.8 KB smaller on the X4 and its widgets follow the firmware's look. Plugins built
   with this SDK that have widgets need this firmware: beta.2 refuses them cleanly ("needs a newer PaperPaw") and
   the store does not offer them to it; plugins without widgets are unaffected. Plugin interface 6 stays.
-- **Picture home screen** (#205), a store plugin (`picture-home`, group Look; needs no new firmware). Your own
+- **Picture home screen** (#205), a store plugin (`picture-home`, group Look; its current build needs the shared widget family above). Your own
   picture behind the widgets, from a folder on the card: fill, whole picture, stretch, original size or tile, in one
   of nine places, zoomed and made paler; prepared once into a screen-sized gray file and drawn from it, a few rows at
   a time. Pages of widgets and tools placed anywhere in the SDK's grid, on plates over the picture. The status bar is
@@ -49,7 +49,8 @@ change the plugin SDK.
   nothing else), top or bottom, full width or a compact pill at the left, middle or right, on a light, inverted, light
   grey or dark grey plate or on the picture (black or white text, whichever reads). The row naming the buttons (X4)
   can be on, off or automatic. While the plugin is on it is the home screen; switched off, the built-in home screen
-  is back with its own pages.
+  is back with its own pages. Brightness and contrast controls adjust the background while keeping black and white;
+  changing them prepares the picture once again.
 - **Colour rows in every first-party widget** (#206): each widget of the widget pack, the home screen, statistics,
   weather, reading goal, mail, news, notes vault and vocabulary has *Colours* (its paper) and *Text* beside its frame
   and spacing. The picture home screen's *Widgets sit on* sets the plate under the widgets: white, light gray or none.
@@ -59,10 +60,20 @@ change the plugin SDK.
 
 ### Changed
 
+- **Release page: plugin files out of the firmware release** (#89, #171). A firmware release now holds 73 files; every plugin
+  file and every plugin or data folder's ZIP goes to one store release of the year (`plugins-2026`, a pre-release that is
+  added to and never replaced; only versions not published before; the next number at 800 assets). The release uploads
+  them before it creates the firmware release, so the catalogue never names a file that is not there. The workflow
+  *Store plugin update* now takes several plugins at once, and builds from `main` against the base release's fingerprint;
+  both workflows have a `dry_run`. Releases already out are untouched.
+
 - **"More plugins" is now "Plugin store"** (#213; de: "Plugin-Store"). The name of the store on the device, its title
   and the help texts that send you to it.
 
 ### Fixed
+
+- A rotated picture-home photo is prepared only for the part the screen shows, avoiding a full-image transpose
+  at high zoom (#205).
 
 - Adding a UI language pack no longer changes the shared language builder or makes CI ask for version
   bumps of other languages (#172). Language metadata comes from its catalog header, and store texts and
@@ -177,13 +188,6 @@ This is a beta. Keep a copy of your books. The details for plugin authors follow
   setting does not hold. No change for plugins.
 
 ### Changed
-
-- **Release page: plugin files out of the firmware release** (#89, #171). A firmware release now holds 73 files; every plugin
-  file and every plugin or data folder's ZIP goes to one store release of the year (`plugins-2026`, a pre-release that is
-  added to and never replaced; only versions not published before; the next number at 800 assets). The release uploads
-  them before it creates the firmware release, so the catalogue never names a file that is not there. The workflow
-  *Store plugin update* now takes several plugins at once, and builds from `main` against the base release's fingerprint;
-  both workflows have a `dry_run`. Releases already out are untouched.
 
 - **X4 Pro: a real sleep before it switches off** (#153). Sleep (the power button, the power menu, the idle time) used to
   switch the Pro off at once, as the X4 did before 0.5. Now the Pro sleeps lightly as the X4 does: the screen stays, a press of
