@@ -345,7 +345,7 @@ report the numbers; never claim a speed-up from reading code alone.
 ## 9. Publishing
 
 When the user wants the plugin in the store (on paperpaw.org and in
-every device's *More plugins*), follow
+every device's *Plugin store*), follow
 [`publishing.md`](publishing.md) in this folder, step by step, with the
 site's guide for authors (<https://paperpaw.org/authors>) as the
 reference for the site's names: what to upload (the folder with

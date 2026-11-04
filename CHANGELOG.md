@@ -8,6 +8,15 @@ change the plugin SDK.
 
 ### Added
 
+- **The Wi-Fi page: the networks have a page of their own** (#161). The Wi-Fi page is short whatever is in the air:
+  the switch with where it is, a row *Networks ›* (the network the device is in and how many are in reach; it opens
+  the list), the setup with a phone and the three settings. While no network is kept, *Set up with a phone* comes
+  first, below the switch. Back on the list returns to the Wi-Fi page; if the radio goes off meanwhile it does
+  too. Opening the list does not scan again (the Wi-Fi page has just); its last row looks again. Both pages measure
+  their rows again only when what they say changes, and an event of the radio that changes nothing they show (a
+  signal that moved a little) draws nothing: each frame costs the X4 a screen refresh, and a key pressed meanwhile
+  waits for it (#160, partial: the cause of the slow Up and Down is not settled).
+
 - **Spanish user interface.** All 3,861 messages of the kernel and the plugins in Spanish, as the data plugin
   `language-es` from the store. Machine-translated and checked with `tools/language-pack.py check es`; corrections
   from Spanish readers are welcome.
@@ -48,12 +57,39 @@ change the plugin SDK.
   their colours, and the home screen and the picture home screen place their widgets with the gap the reader set for
   all widgets (small, normal, large).
 
+### Changed
+
+- **"More plugins" is now "Plugin store"** (#213; de: "Plugin-Store"). The name of the store on the device, its title
+  and the help texts that send you to it.
+
 ### Fixed
 
 - **Card language packs keep translating later commands** (#208). The kernel reclaims a nearly full message
   cache between commands, so a preceding callback cannot exhaust translations for later notices and dialog labels.
   Smaller caches stay resident; the 16 KiB budget and plugin interface stay unchanged.
 
+- Adding a UI language pack no longer changes the shared language builder or makes CI ask for version
+  bumps of other languages (#172). Language metadata comes from its catalog header, and store texts and
+  dependencies from its data-plugin entry. Existing language packs build to the same bytes.
+
+- **The store shows every plugin after an update, without a restart** (#164). The first start after an update runs on trial
+  and loads no code plugins, on purpose, and the kernel then did not know what the firmware takes: the store asked for no
+  builds and showed only data plugins (Look, Languages) until the next cold start, which a Pro on light sleep may not have
+  for days. Nothing changes during the trial (no code plugin is offered or installed, so a bad update still goes back and
+  the plugins before stay as they were), but once the update is kept, its mark written for good (about 30 seconds on), the
+  kernel tells plugins what the firmware takes: the store, opened or opened again, lists and installs the builds that fit
+  (*Restart now* as for any code plugin); a mark that could not be written keeps it as before.
+- **Widget plates follow rounded corners** (#206). A grid plate no longer sticks out past a widget's corners or
+  fills the space beside its shadow. Frameless paper follows explicitly chosen corners; Automatic stays square.
+  Empty widgets have no grid plate outside editing mode.
+- **X4 Pro: the charging bolt on battery, and a sleep that never switched off** (#209). The Pro took "a computer sends USB
+  frames" for charging: the bolt, the kernel's low-battery rules, its install check and the sleeping reader's *Switch off
+  after sleeping* all went by it, so a Pro on battery could show the bolt, run no idle naps and stay asleep all night.
+  Charging is now the charging pin alone (the X3: its gauge and the frames, as before); the frames only keep an awake
+  reader from napping while a computer is on the cable, and count only when the frame number moves on like a bus. The
+  Pro's charging pin is high on a cable and low on battery (measured on a Pro; the first port had it the other way round). A reader asleep on a cable with a full cell is switched off after its time like one on a
+  battery; while it charges it stays asleep, which the setting's help text now says (en, de). The diagnostics page
+  shows the charging pin's level and whether USB frames come on the Pro and the X3 (diagnostics 1.0.7). The X4 is as before.
 - **The empty start card reads on a dark card** (#207). Its words were black on the black card of a dark frame (and on
   an inverted paper); the home screen draws them in the widget's own ink now, as its status line does. The pack's
   world clock, library numbers and weather forecast chose their lines and shades by the frame being dark; they follow

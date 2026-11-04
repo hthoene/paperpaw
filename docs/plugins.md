@@ -1288,7 +1288,11 @@ read again each minute; one that can be drawn smaller says how small
 (`min_height`), so that a grid fits it where its full height has no
 room. `widgets::grid` puts widgets
 and tools in a grid as the home screen does, edited in place
-(`GridView`). Say which kind a widget is
+(`GridView`). Its screen plate follows each widget's corners and leaves
+room for its shadow.
+Widgets with zero content height have no plate outside editing mode. Frameless
+widget paper follows chosen corners; Automatic keeps it square.
+Say which kind a widget is
 (`.category(widgets::categories::TIME)`, or `BOOKS`, `READING`, `WORDS`,
 `PERSONAL`, `WORLD`, `DEVICE`): the home screen offers widgets by their
 kind, each drawn as it would show.
@@ -2271,7 +2275,7 @@ PaperPaw, switched off in the plugin manager.
 The fonts browser (`plugins/fonts-browser`) downloads fonts as such
 plugins from paperpaw.org: font files for devices with scalable fonts
 and the memory for them, packs for the others. The store
-(`plugins/store`, *More plugins*) lists the other plugins of the plugin
+(`plugins/store`, *Plugin store*) lists the other plugins of the plugin
 library made for the device, data plugins and, where PaperPaw loads
 them and a build fits, plugins with code, and installs, updates and
 removes them ([ADR 0023](adr/0023-plugin-store.md)). Both build on the
@@ -2319,7 +2323,7 @@ three themes (airy, paw, calm ink) and a home screen (reading nook).
 ## Publishing
 
 The plugin library on paperpaw.org is what the website lists and every
-reader's store (*More plugins*) installs from (ADR 0023). A plugin gets
+reader's store (*Plugin store*) installs from (ADR 0023). A plugin gets
 there with the upload form at <https://paperpaw.org/submit>: sign in
 with a link sent by e-mail, upload the plugin's folder as a ZIP (and a
 code plugin's builds), read the checks, complete the entry, look at the

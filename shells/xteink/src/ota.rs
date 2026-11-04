@@ -267,19 +267,17 @@ impl Ota {
     }
 
     /// The running firmware on trial ran long enough, at `now` (ms since
-    /// the start): it is marked as good. Whether it was, just now.
-    pub fn check_trial(&mut self, now: u64) -> bool {
-        match self.updates.check_trial(now) {
-            Ok(false) => false,
-            Ok(true) => {
-                info!("OTA: the update works");
-                true
-            }
-            Err(_) => {
+    /// the start): it is marked as good, if the mark could be written.
+    pub fn check_trial(&mut self, now: u64) -> paperpaw_x4::updates::TrialEnd {
+        let end = self.updates.end_of_trial(now);
+        match end {
+            paperpaw_x4::updates::TrialEnd::Running => {}
+            paperpaw_x4::updates::TrialEnd::Kept => info!("OTA: the update works"),
+            paperpaw_x4::updates::TrialEnd::Unmarked => {
                 warn!("OTA: could not mark the update as good");
-                true
             }
         }
+        end
     }
 
     /// The running firmware goes to sleep or restarts at `now`, ending

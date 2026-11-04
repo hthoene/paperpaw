@@ -189,6 +189,26 @@ pub(crate) fn styled(env: &Env<'_>, widget: &str, style: UiStyle) -> UiStyle {
     style
 }
 
+/// How round `widget`'s plate is, in pixels, with `style` as [`styled`]
+/// makes it: as its frame's corners; without a frame square, unless the
+/// reader chose corners (for it or for all widgets).
+pub(crate) fn plate_corner(env: &Env<'_>, widget: &str, style: &UiStyle, frame: Frame) -> u32 {
+    match frame {
+        Frame::None => corners(env, widget).map_or(0, u32::from),
+        _ => style.corner,
+    }
+}
+
+/// Where `widget`'s plate lies in its place `area` (less the room its
+/// shadow takes) and how round it is: what lies under it fills that
+/// shape alone (the grid's plate), so nothing shows past its corners.
+pub(crate) fn plate_shape(env: &Env<'_>, widget: &str, area: Rect) -> (Rect, u32) {
+    let style = styled(env, widget, UiStyle::new(env));
+    let frame = super::frame(env, widget);
+    let plate = plate_of(area, shadow_offset(env, widget, &style, frame));
+    (plate, plate_corner(env, widget, &style, frame))
+}
+
 /// How far `widget`'s shadow falls, in pixels: none where it casts none
 /// or nothing is drawn to cast it (no frame or only a line, and no paper
 /// of its own).

@@ -14,6 +14,7 @@
 
 extern crate alloc;
 
+mod networks;
 mod page;
 mod phone;
 mod policy;
@@ -43,6 +44,8 @@ pub const PLUGIN: Id = Id::new_static("wifi");
 pub const GROUP: Id = Id::new_static("wifi.group");
 /// The Wi-Fi page.
 pub const PAGE: Id = Id::new_static("wifi.page");
+/// The page of the networks in reach, opened from the Wi-Fi page.
+pub const NETWORKS: Id = Id::new_static("wifi.networks");
 /// Opens the Wi-Fi page: what a tap on Wi-Fi's status item runs.
 pub const OPEN: Id = Id::new_static("wifi.open");
 /// Setting up Wi-Fi with a phone (see `phone`).
@@ -350,6 +353,15 @@ impl Plugin for Wifi {
                 PAGE,
                 "wifi.title",
                 Box::new(move |env, _| Box::new(page::WifiPage::new(env, p.clone()))),
+            )
+            .instances(paperpaw_sdk::Instances::SINGLE),
+        )?;
+        let p = policy.clone();
+        r.add_screen(
+            ScreenSpec::new(
+                NETWORKS,
+                "wifi.networks.title",
+                Box::new(move |env, _| Box::new(networks::NetworksPage::new(env, p.clone()))),
             )
             .instances(paperpaw_sdk::Instances::SINGLE),
         )?;

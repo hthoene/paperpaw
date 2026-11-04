@@ -336,6 +336,31 @@ fn update_signed_by(
 }
 
 #[test]
+fn after_an_update_the_store_lists_the_builds_once_the_trial_is_kept_without_a_restart() {
+    // The first start after an update runs on trial, without code plugins:
+    // the library is asked without the build, and shows no code plugin. The
+    // trial kept, the store opened again asks for the builds that fit (#164).
+    let mut shopping = Shopping::after_update(native(), &list("1.0.0"));
+    let shown = shopping.shown().replace(" | ", " ");
+    assert!(!shown.contains("Reading"), "{shown}");
+    // The mark could not be written (the update may go back): not told.
+    shopping.run(actions::BACK);
+    shopping.run(OPEN);
+    let calls = shopping.requests();
+    assert!(calls.iter().all(|c| !c.url.contains("abi=")), "{calls:?}");
+    // Kept.
+    shopping.kernel.trial_kept();
+    shopping.run(actions::BACK);
+    shopping.run(OPEN);
+    let call = shopping.request(LIST);
+    shopping.answer(&call, 200, list("1.0.0").as_bytes());
+    shopping.choose("Reading");
+    shopping.choose("Clock");
+    let shown = shopping.shown().replace(" | ", " ");
+    assert!(shown.contains("Clock"), "{shown}");
+}
+
+#[test]
 fn a_rotation_by_the_recovery_key_moves_the_plugin_to_the_new_key() {
     let to = public_key(&OTHER);
     let (shopping, done) = update_signed_by(true, &OTHER, &[(to, moved(&to))]);

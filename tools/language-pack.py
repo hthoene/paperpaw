@@ -4,6 +4,8 @@ plugin and of the kernel in one catalog, kept on the card compiled
 
 The source of a language is one `.ini` catalog, `tools/plugin-files/languages/<lang>.ini`:
 its `[meta]` and the messages of every plugin's `i18n/en.ini`, translated.
+The source header holds the language metadata; data.toml holds its store
+texts and dependencies. Adding a language needs no change to this tool.
 This tool helps to make it and checks it:
 
     python3 tools/language-pack.py split OUT_DIR [N]
@@ -33,28 +35,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LANGUAGES = ROOT / "tools/plugin-files/languages"
-
-# Per language: its [meta] (name, plural rule, direction, script, digits),
-# the plugin's name and description in English and German.
-META = {
-    "ar": {
-        "meta": {"language": "ar", "name": "العربية", "plural": "arabic",
-                 "direction": "rtl", "script": "Arab"},
-        "name": "Arabic (user interface)",
-        "description": "PaperPaw's menus and settings in Arabic, running from right to left.",
-        "de-name": "Arabisch (Oberfläche)",
-        "de-description": "PaperPaws Menüs und Einstellungen auf Arabisch, von rechts nach links.",
-        # The pack with the letters of its script (the interface shows boxes without it).
-        "requires": "script-arabic",
-    },
-    "es": {
-        "meta": {"language": "es", "name": "Español", "plural": "one-many-other"},
-        "name": "Spanish (user interface)",
-        "description": "PaperPaw's menus and settings in Spanish.",
-        "de-name": "Spanisch (Oberfläche)",
-        "de-description": "PaperPaws Menüs und Einstellungen auf Spanisch.",
-    },
-}
 
 # English's plural forms, and the forms of Arabic's rule that a translation
 # of such a pair may bring (a form it lacks reads as `other`).
@@ -172,7 +152,10 @@ def merge(lang, out, chunks):
     translated = {}
     for chunk in chunks:
         translated.update(parse(chunk, "messages")[1])
-    lines = ["[meta]"] + [f"{k} = {v}" for k, v in META[lang]["meta"].items()]
+    meta, _ = parse(LANGUAGES / f"{lang}.ini")
+    if meta.get("language") != lang:
+        raise ValueError(f"{lang}: set language = {lang} in the source catalog's [meta]")
+    lines = ["[meta]"] + [f"{k} = {quote(v)}" for k, v in meta.items()]
     lines += ["", "[messages]"]
     done = set()
     for key in english_messages:
@@ -194,8 +177,7 @@ def merge(lang, out, chunks):
 
 def build(lang, base):
     """The data plugin of `lang` in `base`/language-<lang>: from its entry in
-    data.toml where it has one (its version, name and description), else
-    from META."""
+    data.toml (its version, dependencies, name and description)."""
     sys.path.insert(0, str(ROOT / "tools" / "plugin-files"))
     import data
 
@@ -203,16 +185,12 @@ def build(lang, base):
     id = f"language-{lang}"
     out = Path(base) / id
     (out / "i18n").mkdir(parents=True, exist_ok=True)
-    info = META[lang]
     listed = data.plugins().get(id)
-    if listed:
-        head = data.plugin_ini(id, listed)
-        for path, text in data.catalogs(id, listed):
-            (out / path).write_text(text, encoding="utf-8", newline="\n")
-    else:
-        head = (f"[plugin]\nid = {id}\nname = {info['name']}\n"
-                f"description = {info['description']}\nversion = 0.1.0\nformats = 4\n"
-                f"requires = {info['requires']}\n")
+    if listed is None:
+        sys.exit(f"{id}: add its entry to tools/plugin-files/data.toml before building")
+    head = data.plugin_ini(id, listed)
+    for path, text in data.catalogs(id, listed):
+        (out / path).write_text(text, encoding="utf-8", newline="\n")
     (out / "plugin.ini").write_text(head, encoding="utf-8", newline="\n")
     subprocess.run(["cargo", "run", "-q", "--release", "-p", "paperpaw-sign", "--", "catalog",
                     str(source), str(out / "i18n" / f"{lang}.ppcat")], cwd=ROOT, check=True)
