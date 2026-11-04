@@ -1322,6 +1322,9 @@ fn handle(area: Rect, style: &UiStyle) -> Rect {
 /// whatever the reader set for widgets ([`draw_frame`](crate::widgets::draw_frame)
 /// paints a widget's own paper).
 fn fill_plate(canvas: &mut Canvas<'_>, env: &Env<'_>, shown: &Shown, plate: Plate) {
+    if matches!(plate, Plate::None) {
+        return;
+    }
     // A widget's in the shape of its own plate, so that nothing shows
     // past its corners or beside its shadow; a tool's square.
     let (area, radius) = match &shown.item.what {

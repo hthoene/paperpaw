@@ -47,6 +47,10 @@ change the plugin SDK.
 
 ### Fixed
 
+- **Widget plates follow rounded corners** (#206). A grid plate no longer sticks out past a widget's corners or
+  fills the space beside its shadow. Frameless paper follows explicitly chosen corners; Automatic stays square.
+  Empty widgets have no grid plate outside editing mode.
+
 - **The empty start card reads on a dark card** (#207). Its words were black on the black card of a dark frame (and on
   an inverted paper); the home screen draws them in the widget's own ink now, as its status line does. The pack's
   world clock, library numbers and weather forecast chose their lines and shades by the frame being dark; they follow

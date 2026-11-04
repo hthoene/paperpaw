@@ -1288,7 +1288,11 @@ read again each minute; one that can be drawn smaller says how small
 (`min_height`), so that a grid fits it where its full height has no
 room. `widgets::grid` puts widgets
 and tools in a grid as the home screen does, edited in place
-(`GridView`). Say which kind a widget is
+(`GridView`). Its screen plate follows each widget's corners and leaves
+room for its shadow.
+Widgets with zero content height have no plate outside editing mode. Frameless
+widget paper follows chosen corners; Automatic keeps it square.
+Say which kind a widget is
 (`.category(widgets::categories::TIME)`, or `BOOKS`, `READING`, `WORDS`,
 `PERSONAL`, `WORLD`, `DEVICE`): the home screen offers widgets by their
 kind, each drawn as it would show.
