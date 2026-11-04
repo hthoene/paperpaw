@@ -30,6 +30,7 @@ use crate::{clock, device, input, now, power, stack};
 mod cable;
 mod card_swap;
 mod dozing;
+mod gray_clock;
 mod paced;
 #[cfg(feature = "asleep-light")]
 mod sleeping_board;
@@ -125,6 +126,7 @@ pub struct State {
     /// gray test over USB): the next change is shown with the whole screen
     /// drawn again.
     gray_shown: bool,
+    gray_clock: gray_clock::Clock, // #218
     /// When the kernel first worked since the card was last written back,
     /// if what it wrote may not be on the card yet: written back
     /// [`SYNC_MS`] after, so nothing is lost when the X4 is cut off
@@ -985,6 +987,8 @@ impl Firmware {
                 if !(self.state.gray_shown && small) {
                     self.show_gray(area, mode.cleans() && self.on_sleep_screen());
                     self.state.frame_stale = false;
+                } else {
+                    self.clock_in_grays(area, mode);
                 }
             } else if self.state.gray_shown && effects.refresh().is_some() {
                 // After grays, the whole screen, not only what changed.
@@ -1018,7 +1022,7 @@ impl Firmware {
         let kind = kind(refresh);
         let started = now();
         self.panel.take_busy_ms();
-        self.panel.start_refresh(refresh, false)?;
+        self.start_panel_refresh(refresh)?;
         let start_busy = self.panel.take_busy_ms();
         // What the start took: the setup and the new frame sent (the rest
         // of the time is the waveform and the old frame sent after it).
@@ -1118,6 +1122,7 @@ impl Firmware {
 
     fn show_gray(&mut self, area: Rect, clean: bool) {
         power::mark(power::at::SHOWING);
+        self.gray_begin();
         let started = now();
         let panel = &mut self.panel;
         let mut failed = None;
@@ -1155,6 +1160,7 @@ impl Firmware {
             shown,
         );
         self.state.gray_shown = true;
+        self.gray_synced();
         if let Some(e) = failed {
             warn!("display: {e:?}");
         }
