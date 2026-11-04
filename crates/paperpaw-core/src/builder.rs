@@ -28,6 +28,9 @@ struct BuilderParts {
     caps: Capabilities,
     firmware: Option<Firmware>,
     code: Option<crate::code_plugin::CodePlugins>,
+    /// What the firmware takes, told once an update on trial is kept
+    /// ([`KernelBuilder::native_after_trial`]).
+    after_trial: Option<Native>,
     safe_mode: Option<paperpaw_sdk::native::SafeMode>,
     /// Plugins the shell put into folders, to install before plugins load.
     staged: Vec<(Id, String)>,
@@ -38,6 +41,7 @@ struct BuilderParts {
     card_trouble: Option<crate::CardTrouble>,
     clock: Option<fn() -> u64>,
     busy_mark: bool,
+    busy_mark_ms: u32,
     setting_defaults: Vec<(String, String)>,
     plugin_dirs: Vec<String>,
     font_dirs: Vec<String>,
@@ -139,6 +143,15 @@ impl KernelBuilder {
     /// [`clock`](KernelBuilder::clock) to know what is slow.
     pub fn busy_mark(mut self, on: bool) -> Self {
         self.0.busy_mark = on;
+        self
+    }
+
+    /// How long work must have taken the last time to show the
+    /// [`busy_mark`](KernelBuilder::busy_mark), in milliseconds: about as
+    /// long as the panel takes to show the mark, so that shorter work does
+    /// not wait for it. 500 unless said (the X4's panel takes ~504 ms).
+    pub fn busy_mark_after(mut self, ms: u32) -> Self {
+        self.0.busy_mark_ms = ms;
         self
     }
 
@@ -290,6 +303,19 @@ impl KernelBuilder {
             loader,
             safe_mode: None,
         });
+        self
+    }
+
+    /// This start loads no code plugins, because an update is on trial (it
+    /// must show it starts by itself, and the plugins before must stay as
+    /// the firmware before finds them): what the firmware takes is told to
+    /// plugins (which plugins see as [`Env::native`](paperpaw_sdk::Env), so
+    /// that the store asks for the builds that fit) only once
+    /// [`Kernel::trial_kept`] says the update is kept (#164). Until then
+    /// code plugins are not offered nor installed, as without
+    /// [`KernelBuilder::code_plugins`].
+    pub fn native_after_trial(mut self, native: Native) -> Self {
+        self.0.after_trial = Some(native);
         self
     }
 
@@ -523,6 +549,8 @@ impl BuilderParts {
         }
         // The power mode worn before, over the reader's settings.
         kernel.restore_power();
+        // How long work took at the last start, for the busy mark.
+        kernel.restore_timing();
         kernel.apply_reading_font();
         kernel.apply_status_font();
         kernel.validate();
@@ -613,6 +641,7 @@ impl BuilderParts {
                     .then(|| paperpaw_sdk::bluetooth::Bluetooth::new(links)),
                 firmware: self.firmware.take(),
                 native: None,
+                after_trial: self.after_trial.take(),
                 power: paperpaw_sdk::power::Power::default(),
                 work_states: paperpaw_sdk::work::WorkStates::default(),
                 reader: false,
@@ -672,6 +701,7 @@ impl BuilderParts {
                 last_tap: None,
                 recognizers: Vec::new(),
                 pressed_on: None,
+                pane_keys: None,
                 thresholds: core::cell::Cell::new(None),
             },
             io: network::IoState {
@@ -692,7 +722,7 @@ impl BuilderParts {
             chromes: Vec::new(),
             chrome_strips: Vec::new(),
             stylesheet_owners: Vec::new(),
-            timing: drawing::Timing::default(),
+            timing: crate::timing::Timing::new(self.busy_mark_ms),
             framebuffer,
             subscriptions: crate::registry::Subscriptions::default(),
             offered_down_to: 0,
@@ -1165,6 +1195,7 @@ impl Kernel {
             caps: Capabilities::default(),
             firmware: None,
             code: None,
+            after_trial: None,
             safe_mode: None,
             staged: Vec::new(),
             button_row: &[],
@@ -1174,6 +1205,7 @@ impl Kernel {
             card_trouble: None,
             clock: None,
             busy_mark: false,
+            busy_mark_ms: crate::timing::SLOW_MS,
             setting_defaults: Vec::new(),
             plugin_dirs: Vec::new(),
             font_dirs: Vec::new(),

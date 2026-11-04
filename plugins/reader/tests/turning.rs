@@ -476,3 +476,68 @@ fn a_swipe_in_from_the_left_edge_turns_on_where_pages_go_right_to_left() {
     reading.finger(PointerPhase::Up, paperpaw_sdk::Point::new(240, 400));
     assert!(reading.shown().offset > first, "{}", reading.shown().offset);
 }
+
+/// A page index that counts a page too many (made when a letter measured
+/// otherwise, before a font pack came): the turn past the last real page
+/// finds nothing, the book stays on its last page, and the pages are
+/// counted again, the count right after.
+#[test]
+fn a_turn_past_the_last_page_counts_the_pages_again_when_the_index_says_more() {
+    let storage = Shared::default();
+    let mut reading = numbered(BUTTONS, storage.clone());
+    reading.open();
+    reading.kept();
+    let dir = paperpaw_plugin_reader_dir(BOOK);
+    let mut indexes = Vec::new();
+    storage
+        .list(&dir, &mut |e: paperpaw_sdk::DirEntry<'_>| {
+            if e.name.starts_with("pages-") {
+                indexes.push(format!("{dir}/{}", e.name));
+            }
+        })
+        .unwrap();
+    assert_eq!(indexes.len(), 1, "{indexes:?}");
+    let right = paperpaw_sdk::read_file(&storage, &indexes[0], 1 << 20).unwrap();
+    // The last page of the book, as the turns lead there.
+    let mut last = reading.shown().at();
+    loop {
+        reading.press(actions::NEXT_PAGE);
+        let now = reading.shown().at();
+        if now == last {
+            break;
+        }
+        last = now;
+    }
+    // One page more in a complete index: after the last real start.
+    let mut wrong = right[..right.len() - 8].to_vec();
+    wrong.extend_from_slice(&last.section.to_le_bytes());
+    wrong.extend_from_slice(&(last.offset + 1).to_le_bytes());
+    wrong.extend_from_slice(&right[right.len() - 8..]);
+    assert_eq!(wrong.len(), right.len() + 8);
+    storage.write(&indexes[0], &wrong).unwrap();
+    let mut again = numbered(BUTTONS, storage.clone());
+    again.open();
+    let mut at = again.shown().at();
+    loop {
+        again.press(actions::NEXT_PAGE);
+        let now = again.shown().at();
+        if now == at {
+            break;
+        }
+        at = now;
+    }
+    assert_eq!(at, last);
+    // The wrong count is gone, the right one is made again; the turn that
+    // found no page says nothing: no page turned, no book finished again.
+    let heard = again.events();
+    again.press(actions::NEXT_PAGE);
+    assert_eq!(again.shown().at(), last);
+    assert_eq!(again.events(), heard);
+    assert_eq!(
+        heard.iter().filter(|e| **e == "finished").count(),
+        1,
+        "{heard:?}"
+    );
+    let mended = paperpaw_sdk::read_file(&storage, &indexes[0], 1 << 20).unwrap();
+    assert_eq!(mended, right);
+}

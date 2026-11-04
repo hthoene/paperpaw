@@ -14,15 +14,15 @@
 //!  "plugins": ["paperpaw-plugin-stats 0.4.0", "..."],
 //!  "abi": "f1f6cd5dd377bb4d", "compiler": "6a1f03c2",
 //!  "code": ["hello 0.1.0", "..."], "trigger": "manual",
-//!  "first": ["day", "week"]}
+//!  "first": ["day", "week"], "age": "new"}
 //! ```
 //!
 //! `abi` is the fingerprint native code plugins must have to run here
 //! (ADR 0024), `compiler` the compiler they must name (ADR 0026), `code`
 //! the code plugins installed with their versions, so
 //! the server can say which have builds for an update; both are left out
-//! where the firmware loads no code plugins. `trigger` and `first` count
-//! devices without knowing them (module `count`).
+//! where the firmware loads no code plugins. `trigger`, `first` and `age`
+//! count devices without knowing them (module `count`).
 //!
 //! The answer names the newest update for it, or none (`version`
 //! empty, or no newer than the one running):
@@ -376,6 +376,10 @@ pub(crate) fn check(env: &Env<'_>, quiet: bool, trigger: Trigger, out: &mut Comm
     let Some(firmware) = env.firmware() else {
         return;
     };
+    // Beside another firmware nothing is installed: nobody is asked.
+    if crate::dual::declared(env.storage()) {
+        return;
+    }
     let url = format!("{}/api/v1/updates", server(env));
     let request = HttpRequest::new("POST", &url, CHECKED).header(
         String::from("content-type"),
@@ -422,6 +426,14 @@ pub(crate) fn checked(env: &Env<'_>, reply: &HttpReply, out: &mut Commands) {
     };
     let _ = storage.create_dir(&Env::plugin_dir(crate::PLUGIN.as_str()));
     let _ = storage.write(&file(OFFER), offer.to_text().as_bytes());
+    // The update is downloaded already and plugins failed for it: the
+    // answer's builds are fetched again (the update page stays ready).
+    if storage.exists(&path_for(firmware, &offer.version))
+        && fetch::retry(env, &offer.version, &offer.builds, offer.native, out)
+    {
+        let _ = storage.remove(&file(OFFER));
+        return;
+    }
     // Waiting for plugins: kept and asked for again, offered once ready.
     let holding = offer.holding(env, firmware);
     if !holding.is_empty() {
@@ -456,7 +468,7 @@ pub(crate) fn checked(env: &Env<'_>, reply: &HttpReply, out: &mut Commands) {
 }
 
 /// Where a downloaded update of `version` is kept.
-fn path_for(firmware: &Firmware, version: &str) -> String {
+pub(crate) fn path_for(firmware: &Firmware, version: &str) -> String {
     format!("{UPDATE_DIR}/{}-{version}.bin", firmware.project)
 }
 
@@ -464,6 +476,8 @@ fn path_for(firmware: &Firmware, version: &str) -> String {
 pub(crate) fn download(env: &Env<'_>, offer: &Offer, out: &mut Commands) {
     let _ = env.storage().create_dir(UPDATE_DIR);
     clear_download(env.storage());
+    // The plugins of an update before are not this one's.
+    fetch::reset(env.storage());
     // A path on the server asked.
     let url = if offer.url.starts_with('/') {
         format!("{}{}", server(env), offer.url)

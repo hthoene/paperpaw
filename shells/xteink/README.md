@@ -1,7 +1,7 @@
 # PaperPaw on the Xteink X4
 
 The firmware for the Xteink X4 and the X4 Pro, in beta with
-0.6.0-beta.1. See
+0.6.0-beta.2. See
 [ADR 0013](../../docs/adr/0013-x4-firmware.md) for how it is built; its
 hardware parts are in [`paperpaw-x4`](../../crates/paperpaw-x4) and
 [`paperpaw-fat`](../../crates/paperpaw-fat), tested on a computer.
@@ -158,7 +158,8 @@ starts it; the running firmware is not touched until then.
   buttons, the battery, the SD card with long file names, sleep (the
   power button puts it to a light sleep where a press wakes it at once; it
   switches off after a while asleep, 30 minutes by default, and the next
-  press starts it again; the X4 Pro switches off at once), light sleep
+  press starts it again; the X4 Pro does the same, with its front light
+  off meanwhile; the X4 Classic keeps its deep sleep), light sleep
   between button reads on battery.
 - Wi-Fi (ADR 0016): on when something needs the network, chosen on the
   Wi-Fi page in the settings; HTTP and HTTPS (ADR 0017) for plugins,

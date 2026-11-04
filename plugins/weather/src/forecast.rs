@@ -41,9 +41,14 @@ const NAMES: [&str; 3] = [
     "weather.names.long",
 ];
 /// Its look, kept in the program.
-static LOOK: [SettingSpec; 4] = [
+static LOOK: [SettingSpec; 9] = [
     widgets::frame_spec("weather.forecast.frame", ID, Frame::None),
     widgets::padding_spec("weather.forecast.padding", ID, Padding::Auto),
+    widgets::paper_spec("weather.forecast.paper", ID),
+    widgets::ink_spec("weather.forecast.ink", ID),
+    widgets::corners_spec("weather.forecast.corners", ID),
+    widgets::frame_line_spec("weather.forecast.frame-line", ID),
+    widgets::shadow_spec("weather.forecast.drop-shadow", ID),
     widgets::size_spec("weather.forecast.size", ID, TextSize::Fit, true),
     widgets::align_spec("weather.forecast.align", ID, Align::Center),
 ];
@@ -285,7 +290,7 @@ impl Context<'_, '_> {
     /// Draws a light line in `area`: a gray, dithered where the panel has
     /// few grays; on a dark card the faint colour.
     fn rule(&self, canvas: &mut Canvas<'_>, area: Rect) {
-        if self.look.paper == Color::BLACK {
+        if self.look.paper.luma() < 128 {
             canvas.fill(area, self.look.faint);
         } else {
             canvas.fill_shaded(area, Color::gray(150));

@@ -187,7 +187,8 @@ fn a_screen_that_lays_itself_out_anew_is_kept() {
 }
 
 /// One that does not is closed where it was, dropped, and only then made
-/// anew: the two never take memory at once.
+/// anew: the two never take memory at once. Made anew, it is asked how
+/// it shows where the screen is wide.
 #[test]
 fn a_screen_made_anew_goes_before_the_new_one_is_made() {
     let log = log();
@@ -195,7 +196,7 @@ fn a_screen_made_anew_goes_before_the_new_one_is_made() {
     kernel.resize(Instant(100), 120, 60);
     assert_eq!(
         *log.borrow(),
-        ["resize 120x60", "close", "drop", "made 120x60"]
+        ["resize 120x60", "close", "drop", "made 120x60", "pane"]
     );
     assert!(kernel.notice.is_none(), "what it asked for was not done");
 }

@@ -248,3 +248,32 @@ with that before the betas of 0.5:
   format 2 that name their compiler.
 - The stable, C-shaped plugin API of ADR 0024 for 1.0 is still to come;
   then its major version becomes the interface version.
+- Interface 5 was never released either: 0.6.0-beta.1 took the
+  interface-6 round too, as one raise from 4 to 6 (#363).
+
+## Amendment: the fingerprint kept (2026-11, #94)
+
+A plugin is loaded where its fingerprint is the firmware's, and the
+fingerprint holds the interface and the sizes and alignments of what
+crosses, not the order of a trait's items or an enum's variants. The
+first bless of the interface-6 round stayed at interface 5 with the
+number in `interface.txt` lowered by hand: the `Screen` trait's items
+moved, the fingerprint stayed, and plugins built before would have been
+loaded and called the wrong functions. So:
+
+- `interface.txt` keeps the fingerprint the bless was made with, and
+  what made it: the computer's architecture, with `+outline` where the
+  `outline` feature added its layouts (`fingerprint = x86_64 …`; a
+  workspace build turns the feature on, `-p paperpaw-sdk` does not).
+- A bless of a change plugins rely on is refused unless the interface
+  is above both the number `interface.txt` says and the interface of the
+  fingerprint it keeps.
+- Layouts that changed while the shapes did not (the fingerprint of the
+  same architecture and features is another at the same interface) are
+  such a change.
+- Outside a bless the fingerprint kept must be the build's: its
+  interface on any computer, its value on one of the same architecture
+  and features.
+- Items appended to a growing trait and anything new stay free: they
+  change neither the shapes kept nor the fingerprint.
+

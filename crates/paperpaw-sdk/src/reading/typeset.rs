@@ -347,10 +347,17 @@ impl PageType {
         let stylesheets = env.stylesheets().iter().fold(0u64, |hash, sheet| {
             hash.rotate_left(5) ^ paperpaw_digest::fnv1a64(sheet.as_bytes())
         });
+        // The letters other fonts and packs add (a script's pack, whose
+        // letters measure 0 or another width before it is there): a
+        // pack that comes or goes makes other pages. In no order, so
+        // that how they were registered does not matter.
+        let fonts = env.fonts().ids().fold(0u64, |sum, id| {
+            sum.wrapping_add(paperpaw_digest::fnv1a64(id.as_str()))
+        });
         let key = format!(
             "{:016x}",
             paperpaw_digest::fnv1a64(format!(
-                "{}|{}|{}|{}|{}|{size}|{line_height}|{}|{}|{justify}|{width}x{height}|{}|{}|{}|{word_spacing}|{}|{whole_pages}|{stylesheets:x}|{widows}:{orphans}|{:x}|{letter_spacing}|{balanced}|{kerning}|{ligatures}|{:x}:{:x}:{:?}",
+                "{}|{}|{}|{}|{}|{size}|{line_height}|{}|{}|{justify}|{width}x{height}|{}|{}|{}|{word_spacing}|{}|{whole_pages}|{stylesheets:x}|{widows}:{orphans}|{:x}|{letter_spacing}|{balanced}|{kerning}|{ligatures}|{:x}:{:x}:{:?}|{fonts:x}",
                 crate::layout::VERSION,
                 font.id(),
                 face_id(env, &fonts::READING_BOLD),

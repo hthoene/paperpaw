@@ -758,7 +758,10 @@ fn every_value_of_every_setting_stays_in_its_place() {
                     let what = format!("{} = {value:?}", spec.id);
                     let what: String = what.chars().take(80).collect();
                     // An empty text may leave nothing to draw.
-                    let must = !matches!(spec.kind, SettingKind::Text);
+                    // White text on the page's own white leaves nothing to see.
+                    let white = spec.id.as_str().ends_with(".ink")
+                        && format!("{value:?}").contains("core.tone.white");
+                    let must = !matches!(spec.kind, SettingKind::Text) && !white;
                     problems.check(&h, &id, &sizes, &what, must);
                 }
                 h.settings.reset(spec.id.as_str()).unwrap();

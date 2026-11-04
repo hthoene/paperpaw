@@ -78,7 +78,7 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 41] = [
+pub const STORE_PLUGINS: [&str; 42] = [
     "aids",
     "battery",
     "browser",
@@ -109,6 +109,7 @@ pub const STORE_PLUGINS: [&str; 41] = [
     "news",
     "notes-overview",
     "notes-vault",
+    "picture-home",
     "profiles",
     "read-later-cloud",
     "reading-goal",
@@ -233,6 +234,7 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_end_of_book::EndOfBook);
         b = offered(b, store, paperpaw_plugin_notes_overview::NotesOverview);
         b = offered(b, store, paperpaw_plugin_notes_vault::NotesVault);
+        b = offered_replacing_home(b, store, paperpaw_plugin_picture_home::PictureHome);
         b = offered(b, store, paperpaw_plugin_format_mobi::MobiFormat);
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
@@ -329,6 +331,22 @@ fn offer_hyphenation(mut b: KernelBuilder, store: StorePlugins<'_>) -> KernelBui
     b = offered(b, store, paperpaw_plugin_hyphenation_sv::Swedish);
     b = offered(b, store, paperpaw_plugin_hyphenation_uk::Ukrainian);
     b
+}
+
+/// Adds `plugin`, one the store offers as a file too that takes the place of
+/// a built-in screen (the home screen): as [`offered`], but switched off
+/// where `store` says on for all, so that the tests keep the screen they
+/// test unless one switches the plugin on.
+#[cfg(feature = "store-plugins")]
+fn offered_replacing_home(
+    builder: KernelBuilder,
+    store: StorePlugins<'_>,
+    plugin: impl paperpaw_core::sdk::Plugin + 'static,
+) -> KernelBuilder {
+    match store {
+        StorePlugins::On => builder.plugin_off(plugin),
+        other => offered(builder, other, plugin),
+    }
 }
 
 /// Adds `plugin`, one the store offers as a file too, as `store` says.

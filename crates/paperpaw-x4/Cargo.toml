@@ -14,6 +14,9 @@ keywords = ["e-reader", "e-ink", "epaper", "ssd1677", "xteink"]
 [dependencies]
 embedded-hal = "1.0"
 paperpaw-platform.workspace = true
+# The `[firmware]` section of paperpaw.ini, read as the kernel reads the file
+# (`dual_boot`).
+paperpaw-config.workspace = true
 # Updates' files, their signatures and the firmware as plugins see it
 # (`updates`): the kernel's part, as the firmware has it.
 paperpaw-sdk = { workspace = true, features = ["kernel"] }

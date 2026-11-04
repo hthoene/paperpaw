@@ -13,8 +13,8 @@ mod common;
 
 use common::{Recording, blocks, container, opf, xhtml, zip};
 use paperpaw_plugin_format_epub::EpubDocument;
-use paperpaw_sdk::document::Document;
-use paperpaw_sdk::{MemoryStorage, Storage};
+use paperpaw_sdk::document::{Document, Locator};
+use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError};
 
 const KAFKA: &[u8] = include_bytes!("../../../samples/library/books/die-verwandlung.epub");
 const ALICE: &[u8] = include_bytes!("../../../samples/library/books/alice-in-wonderland.epub");
@@ -231,16 +231,10 @@ fn a_package_that_cannot_be_cached_is_not_tried_again_and_again() {
     let storage = Recording::limited(MemoryStorage::new().with("books/alice.epub", ALICE), 0);
     let doc = EpubDocument::open(&storage, "books/alice.epub").unwrap();
     assert!(doc.metadata().title.is_some());
-    assert!(
-        doc.block_at(&storage, paperpaw_sdk::document::Locator::new(0, 0))
-            .is_err()
-    );
+    assert!(doc.block_at(&storage, Locator::new(0, 0)).is_err());
     let tried = storage.written.borrow().len();
     assert!(tried > 0);
-    assert!(
-        doc.block_at(&storage, paperpaw_sdk::document::Locator::new(0, 0))
-            .is_err()
-    );
+    assert!(doc.block_at(&storage, Locator::new(0, 0)).is_err());
     assert_eq!(doc.toc_len(&storage), 0);
     assert!(doc.toc_entry(&storage, 0).is_none());
     assert!(doc.fonts(&storage).is_empty());
@@ -282,4 +276,76 @@ fn a_broken_ncx_reads_without_contents() {
     let text = blocks(&doc, &storage);
     assert_eq!(text.len(), 1);
     assert_eq!(text[0].1.text, "Text");
+}
+
+/// A card where another book's cache folder cannot be removed (damaged,
+/// #388), nor listed if `unlisted`: counted writes, nothing else changed.
+struct Stuck {
+    inner: MemoryStorage,
+    writes: std::cell::Cell<usize>,
+    unlisted: bool,
+}
+
+impl Storage for Stuck {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        self.inner.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        self.inner.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.writes.set(self.writes.get() + 1);
+        self.inner.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.writes.set(self.writes.get() + 1);
+        self.inner.append(path, data)
+    }
+    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        match self.unlisted {
+            true => Err(StorageError::Io),
+            false => self.inner.list(dir, visit),
+        }
+    }
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        self.inner.remove(path)
+    }
+    fn create_dir(&self, path: &str) -> Result<(), StorageError> {
+        self.writes.set(self.writes.get() + 1);
+        self.inner.create_dir(path)
+    }
+    fn remove_dir_all(&self, _: &str) -> Result<(), StorageError> {
+        Err(StorageError::InvalidPath)
+    }
+}
+
+/// Another book's cache that cannot be removed, listed or not (#397 N4):
+/// the book replacing it shows its details, and nothing of the folder
+/// (chapters, contents, printed pages, cover) is read as its own, nor
+/// written there.
+#[test]
+fn a_cache_that_cannot_be_cleared_is_never_read_from() {
+    for unlisted in [false, true] {
+        let storage = MemoryStorage::new().with("books/book.epub", ALICE);
+        let alice = EpubDocument::open(&storage, "books/book.epub").unwrap();
+        let _ = alice.cover(&storage).unwrap();
+        assert!(!blocks(&alice, &storage).is_empty());
+        drop(alice);
+        storage.write("books/book.epub", KAFKA).unwrap();
+        let stuck = Stuck {
+            inner: storage,
+            writes: std::cell::Cell::new(0),
+            unlisted,
+        };
+        let kafka = EpubDocument::open(&stuck, "books/book.epub").unwrap();
+        assert_eq!(kafka.metadata().title.as_deref(), Some("Die Verwandlung"));
+        let start = Locator::new(0, 0);
+        assert!(kafka.block_at(&stuck, start).is_err(), "{unlisted}");
+        assert!(kafka.cover(&stuck).is_err());
+        assert_eq!(kafka.toc_len(&stuck), 0);
+        assert!(kafka.toc_entry(&stuck, 0).is_none());
+        assert!(kafka.page_label(&stuck, start).is_none());
+        assert!(kafka.fonts(&stuck).is_empty());
+        assert_eq!(stuck.writes.get(), 0);
+    }
 }

@@ -90,7 +90,7 @@ fn page(id: &str, code: &[u8]) -> String {
 }
 
 fn page_url(id: &str) -> String {
-    format!("https://paperpaw.org/api/v1/plugins/{id}.json?device=x4&lang=en")
+    format!("https://paperpaw.org/api/v1/plugins/{id}.json?device=x4&lang=en&abi={BUILD}")
 }
 
 /// The offer opened as the setup opens it, on an X4 loading code plugins.
@@ -332,9 +332,7 @@ fn one_that_cannot_come_is_named() {
     shopping.answer(&call, 404, b"not found");
     let shown = shopping.shown().replace(" | ", " ");
     assert!(
-        shown.contains(
-            "Could not be added: Home widgets. They are in the store, under More plugins."
-        ),
+        shown.contains("Could not be added: Home widgets. They are in the Plugin store."),
         "{shown}"
     );
     assert!(shopping.kernel.plugins().get("widgets").is_none());

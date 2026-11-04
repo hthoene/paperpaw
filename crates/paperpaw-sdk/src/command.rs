@@ -1128,6 +1128,15 @@ impl Command {
         Command::SetSetting(setting.id().clone(), T::write(value))
     }
 
+    /// [`Command::Extended`]: a command of a later release by its `key`,
+    /// with `params`; a kernel that does not know the key leaves it.
+    pub fn extended(key: impl Into<Id>, params: Params) -> Command {
+        Command::Extended {
+            key: key.into(),
+            params,
+        }
+    }
+
     /// [`Command::RunAction`]: runs `action` without params.
     pub fn run(action: impl Into<Id>) -> Command {
         Command::RunAction(action.into(), Params::new())

@@ -50,6 +50,7 @@ mod card;
 mod clock;
 mod crash;
 mod device;
+mod dual;
 mod firmware;
 #[cfg(feature = "remote")]
 mod gray_test;
@@ -82,7 +83,6 @@ mod tls_slots;
 #[cfg(feature = "remote")]
 mod traced;
 mod usb_lines;
-#[cfg(any(feature = "esp32s3", feature = "x3"))]
 mod usb_power;
 mod volume;
 mod wifi;
@@ -358,6 +358,7 @@ fn start() -> Firmware {
         remote: remote::Remote,
         #[cfg(feature = "x4-pro")]
         light: ready.light,
+        card_swap: ready.card_swap,
         state: State::default(),
         // Last, and built right in its place: the kernel is large.
         kernel: kernel(
@@ -393,6 +394,8 @@ struct Ready {
     #[cfg(feature = "x4-pro")]
     light: Option<light::Light>,
     storage: Box<dyn Storage>,
+    /// What watches the card being taken out and put back, if there is one.
+    card_swap: Option<Box<dyn volume::Swap>>,
     /// Why there is no card to keep things on, if there is none.
     card_trouble: Option<paperpaw_core::CardTrouble>,
     firmware: Option<paperpaw_sdk::firmware::Firmware>,
@@ -447,8 +450,9 @@ fn prepare() -> Ready {
     // Taken only now: an update that failed its trial goes back after its
     // note (`install_note`), which has the update's panic message.
     // A start that goes back (a failed trial) leaves the message where it
-    // is: the firmware it goes back to reads it as its own.
-    let going_back = ota.as_ref().is_some_and(|ota| ota.failed_trial().is_some());
+    // is: the firmware it goes back to reads it as its own. Whether it does
+    // is known once the card has said this is no dual-boot setup (`dual`).
+    let going_back = ota.as_ref().is_some_and(ota::Ota::plans_to_go_back);
     let panicked = if going_back {
         crash::last()
     } else {
@@ -466,10 +470,24 @@ fn prepare() -> Ready {
     #[cfg(feature = "x4-classic")]
     let board = Board::take(p, probe::factory_controller(&flash));
     power::mark(power::at::START_BOARD);
-    let (storage, card_trouble) = match card::mount(board.card) {
-        Ok(storage) => (storage, None),
-        Err(trouble) => (Box::new(NoStorage) as Box<dyn Storage>, Some(trouble)),
+    let (storage, card_swap, card_trouble) = match card::mount(board.card) {
+        Ok(mounted) => (mounted.storage, Some(mounted.swap), None),
+        Err(trouble) => (Box::new(NoStorage) as Box<dyn Storage>, None, Some(trouble)),
     };
+    // The reader's choice and the bootloader say whether this is a dual-boot
+    // setup, nothing in the other firmware's partition or the OTA data
+    // changed: only then the start does what it needs (a tool's update
+    // marked as on trial, one undone), as before anything else is written
+    // to the card. An update this firmware installed, or one that failed its
+    // trial, was marked before the board's start (`Ota::start`), so that a
+    // hang there still ends in the way back.
+    let mut ota = ota;
+    let dual = dual::settle(&mut ota, storage.as_ref());
+    // A failed trial that the setup left alone: the message is no longer
+    // the other firmware's to read.
+    if going_back && ota.as_ref().is_some_and(|ota| ota.failed_trial().is_none()) {
+        crash::take_last();
+    }
     // After the card, which the note below goes to; before anything else
     // is written to it.
     #[cfg(feature = "x3")]
@@ -543,7 +561,7 @@ fn prepare() -> Ready {
     // Plugins the web flasher wrote behind the image, onto the card first.
     let staged = {
         let mut startup = startup::Startup::new(&mut panel);
-        let staged = native::bundle::stage(&flash, storage.as_ref(), &mut |progress| {
+        let staged = native::bundle::stage(&flash, storage.as_ref(), !dual, &mut |progress| {
             startup.update(progress)
         })
         .unwrap_or_default();
@@ -572,6 +590,7 @@ fn prepare() -> Ready {
         #[cfg(feature = "x4-pro")]
         light: board.light,
         storage,
+        card_swap,
         card_trouble,
         code,
         staged,
@@ -693,8 +712,8 @@ enum CodePlugins {
     /// Safe mode: none loaded.
     SafeMode(paperpaw_sdk::native::SafeMode),
     /// None this start: an update is on trial, which must show it starts
-    /// by itself.
-    None,
+    /// by itself. What the firmware takes is told once it is kept (#164).
+    OnTrial,
 }
 
 /// What this firmware loads, as plugins see it ([`paperpaw_sdk::Env`]),
@@ -726,7 +745,7 @@ fn code_plugins(ota: Option<&ota::Ota>, flash: &ota::Flash) -> CodePlugins {
     if ota.is_some_and(ota::Ota::on_trial) {
         info!("native: an update on trial starts without code plugins");
         native::no_hot_code();
-        return CodePlugins::None;
+        return CodePlugins::OnTrial;
     }
     if let Some(safe_mode) = safe_mode::check(input::held(safe_mode::KEY)) {
         warn!(
@@ -799,8 +818,10 @@ fn kernel(
         // refreshes' times as they are measured (ADR 0030).
         .panel(paperpaw_sdk::realtime::PanelInfo::new(2))
         // The panel refreshes on its own: a mark shows at once while slow
-        // work goes on.
+        // work goes on; for work that took as long as the refresh showing
+        // it (~504 ms on the X4), so shorter work does not wait (#118).
         .busy_mark(true)
+        .busy_mark_after(500)
         // Built-in packs are read in place; glyphs of packs on the card
         // (other scripts) are kept here once read. Empty until one is.
         .glyph_cache(12 * 1024)
@@ -870,7 +891,7 @@ fn kernel(
         CodePlugins::SafeMode(safe_mode) => builder
             .code_plugins(native(staged.not_installed), Box::new(NoCode))
             .safe_mode(safe_mode),
-        CodePlugins::None => builder,
+        CodePlugins::OnTrial => builder.native_after_trial(native(staged.not_installed)),
     };
     let builder = staged
         .installs

@@ -16,10 +16,10 @@ use esp_hal::sdmmc::{
 use esp_hal::time::{Duration, Instant};
 use log::{info, warn};
 use paperpaw_core::CardTrouble;
-use paperpaw_fat::{BLOCK, Blocks, DiskError};
-use paperpaw_platform::Storage;
+use paperpaw_fat::{BLOCK, Blocks, DiskError, Restart};
 
 use crate::board::CardParts;
+use crate::volume::Mounted;
 
 /// The card's clock while it starts, and after (the default speed's most).
 const START_HZ: u32 = 400_000;
@@ -57,11 +57,12 @@ static BUFFER: Shared = Shared(UnsafeCell::new(InternalMemory::new([0; BLOCK * A
 
 type CardSlot = Slot<'static, 1, Blocking>;
 
-/// The card's FAT file system as PaperPaw's storage; without a card or
-/// one PaperPaw cannot read, no storage.
+/// The card's FAT file system as PaperPaw's storage, the card watched for
+/// being taken out and put back (see `volume::mount_swappable`); without a
+/// card or one PaperPaw cannot read, no storage.
 // A frame of its own, off the stack before the kernel is built.
 #[inline(never)]
-pub fn mount(parts: CardParts) -> Result<Box<dyn Storage>, CardTrouble> {
+pub fn mount(parts: CardParts) -> Result<Mounted, CardTrouble> {
     let CardParts {
         host,
         clock,
@@ -82,16 +83,12 @@ pub fn mount(parts: CardParts) -> Result<Box<dyn Storage>, CardTrouble> {
         return Err(CardTrouble::Missing);
     };
     let mut slot = slot.with_clk(clock).with_cmd(command).with_data0(data);
-    let mut started = Err("not started");
-    for attempt in 1..=TRIES {
+    let started = Card::start_tries(
+        &mut slot,
+        &delay,
         #[cfg(feature = "x4-classic")]
-        crate::board::power_card(&mut power, &delay);
-        started = Card::start(&mut slot, &delay);
-        match started {
-            Err(e) if attempt < TRIES => warn!("SD card: {e}, started again"),
-            _ => break,
-        }
-    }
+        &mut power,
+    );
     // SAFETY: mounted once, so the buffer is taken once.
     let buffer = unsafe { &mut *BUFFER.0.get() };
     match started.map(|found| Card {
@@ -101,10 +98,12 @@ pub fn mount(parts: CardParts) -> Result<Box<dyn Storage>, CardTrouble> {
         by_block: found.by_block,
         blocks: found.blocks,
         delay,
+        #[cfg(feature = "x4-classic")]
+        power,
     }) {
         Ok(card) => {
             info!("SD card: {} MB", card.blocks >> 11);
-            crate::volume::mount(card)
+            crate::volume::mount_swappable(card)
         }
         Err(e) => {
             warn!("SD card: {e}");
@@ -123,6 +122,9 @@ struct Card {
     by_block: bool,
     blocks: u32,
     delay: Delay,
+    /// The X4 Classic's card power, off and on before each start.
+    #[cfg(feature = "x4-classic")]
+    power: esp_hal::gpio::Output<'static>,
 }
 
 /// What starting a card found out.
@@ -139,6 +141,26 @@ const NONE: CommandFlags = CommandFlags {
 };
 
 impl Card {
+    /// Starts the card in `slot` as often as the device tries ([`TRIES`]),
+    /// the X4 Classic's power off and on before each.
+    fn start_tries(
+        slot: &mut CardSlot,
+        delay: &Delay,
+        #[cfg(feature = "x4-classic")] power: &mut esp_hal::gpio::Output<'static>,
+    ) -> Result<Found, &'static str> {
+        let mut started = Err("not started");
+        for attempt in 1..=TRIES {
+            #[cfg(feature = "x4-classic")]
+            crate::board::power_card(power, delay);
+            started = Card::start(slot, delay);
+            match started {
+                Err(e) if attempt < TRIES => warn!("SD card: {e}, started again"),
+                _ => break,
+            }
+        }
+        started
+    }
+
     /// Starts the card in `slot`, as the SD specification says.
     fn start(slot: &mut CardSlot, delay: &Delay) -> Result<Found, &'static str> {
         slot.set_bus_low_level(BusWidth::Bit1, START_HZ)
@@ -248,6 +270,32 @@ fn blocks_of(csd: [u32; 4]) -> u32 {
             let read_bl_len = bits(83, 80);
             let bytes = u64::from(c_size + 1) << (mult + 2 + read_bl_len);
             (bytes / BLOCK as u64) as u32
+        }
+    }
+}
+
+impl Restart for Card {
+    /// Started as at the start (a card put in waits for that), the card
+    /// in the slot now taken as another: its address and size anew.
+    fn restart(&mut self) -> Result<(), DiskError> {
+        let started = Card::start_tries(
+            &mut self.slot,
+            &self.delay,
+            #[cfg(feature = "x4-classic")]
+            &mut self.power,
+        );
+        match started {
+            Ok(found) => {
+                self.rca = found.rca;
+                self.by_block = found.by_block;
+                self.blocks = found.blocks;
+                info!("SD card: started again, {} MB", self.blocks >> 11);
+                Ok(())
+            }
+            Err(e) => {
+                warn!("SD card: not started again: {e}");
+                Err(DiskError)
+            }
         }
     }
 }

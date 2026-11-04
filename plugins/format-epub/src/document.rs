@@ -9,7 +9,7 @@ use paperpaw_sdk::document::{
 };
 use paperpaw_sdk::image::Fit;
 use paperpaw_sdk::zip::ZipArchive;
-use paperpaw_sdk::{Env, Storage};
+use paperpaw_sdk::{Env, Storage, StorageError};
 
 use crate::PLUGIN;
 use crate::cached;
@@ -38,6 +38,10 @@ enum Held {
     Stamped,
     /// The package.
     Package,
+    /// Another book's, or what was left, and it could not be removed (a
+    /// damaged folder): nothing of the book is written there nor read
+    /// from there.
+    Uncleared(StorageError),
 }
 
 /// An open EPUB. The package is read once into the cache, when the book is
@@ -61,7 +65,9 @@ pub struct EpubDocument {
     book: String,
     state: Cell<Held>,
     /// The package could not be written (its contents or stylesheets are
-    /// unreadable): not tried again until the book is opened again.
+    /// unreadable, or the card refused it, e.g. full): not tried again
+    /// until the book is opened again, each try reading the package and
+    /// writing to the card anew.
     broken: Cell<bool>,
     /// The book's path, and the stylesheets to apply after its own (e.g.
     /// the plugins'): for [`EpubDocument::styled`].
@@ -227,6 +233,16 @@ fn position(line: &str) -> Option<(u32, &str)> {
 /// block holds: a position further from where its text node is listed
 /// is past the chapter.
 const MAX_SPAN: u32 = 16 * 1024;
+
+/// Whether anything may be in folder `dir`: something listed, or it
+/// cannot be listed (but is there).
+fn left_in(storage: &dyn Storage, dir: &str) -> bool {
+    let mut any = false;
+    match storage.list(dir, &mut |_| any = true) {
+        Ok(()) | Err(StorageError::NotFound) => any,
+        Err(_) => true,
+    }
+}
 
 /// The cache of a book.
 fn book_cache(path: &str) -> String {
@@ -407,8 +423,15 @@ impl EpubDocument {
                 // Another book, file version or cache format, or what a
                 // removal cut off left: start over, also with its pictures
                 // and its chapters converted with stylesheets or without.
-                let _ = storage.remove_dir_all(&cache);
-                (package::read(storage, &archive)?, Held::Nothing)
+                let state = match storage.remove_dir_all(&cache) {
+                    Ok(()) => Held::Nothing,
+                    // Not there, or empty (a storage that removes no
+                    // folders): nothing to read from. One that cannot be
+                    // listed may hold anything.
+                    Err(e) if left_in(storage, &cache) => Held::Uncleared(e),
+                    Err(_) => Held::Nothing,
+                };
+                (package::read(storage, &archive)?, state)
             }
         };
         let styled = OnceCell::new();
@@ -452,8 +475,10 @@ impl EpubDocument {
     /// The package in the cache, written the first time the book is read
     /// (see [`EpubDocument`]); an error where it cannot be.
     fn built(&self, storage: &dyn Storage) -> Result<(), DocumentError> {
-        if self.state.get() == Held::Package {
-            return Ok(());
+        match self.state.get() {
+            Held::Package => return Ok(()),
+            Held::Uncleared(e) => return Err(DocumentError::Storage(e)),
+            Held::Nothing | Held::Stamped => {}
         }
         if self.broken.get() {
             return Err(DocumentError::Malformed(Cow::Borrowed(
@@ -478,9 +503,13 @@ impl EpubDocument {
     /// The cache marked as this book's before anything of it is written
     /// without the package (see [`package::stamp`]).
     fn stamped(&self, storage: &dyn Storage) -> Result<(), DocumentError> {
-        if self.state.get() == Held::Nothing {
-            package::stamp(storage, &self.cache, &self.book)?;
-            self.state.set(Held::Stamped);
+        match self.state.get() {
+            Held::Nothing => {
+                package::stamp(storage, &self.cache, &self.book)?;
+                self.state.set(Held::Stamped);
+            }
+            Held::Uncleared(e) => return Err(DocumentError::Storage(e)),
+            Held::Stamped | Held::Package => {}
         }
         Ok(())
     }
@@ -610,8 +639,11 @@ impl EpubDocument {
             before: None,
             here: Vec::new(),
         };
+        let Some(path) = self.pages_path(storage) else {
+            return pages;
+        };
         let mut at = 0;
-        cached::lines_from(storage, &self.pages_path(storage), 0, |line, next| {
+        cached::lines_from(storage, &path, 0, |line, next| {
             let line_at = core::mem::replace(&mut at, next);
             let mut fields = line.splitn(3, '\t');
             let (Some(Ok(s)), Some(fragment)) =
@@ -633,10 +665,11 @@ impl EpubDocument {
         pages
     }
 
-    fn pages_path(&self, storage: &dyn Storage) -> String {
-        // Listed with the contents.
-        let _ = self.built(storage);
-        alloc::format!("{}/pages.txt", self.cache)
+    /// Where the printed pages are listed, with the contents: none where
+    /// they cannot be.
+    fn pages_path(&self, storage: &dyn Storage) -> Option<String> {
+        self.built(storage).ok()?;
+        Some(alloc::format!("{}/pages.txt", self.cache))
     }
 }
 
@@ -663,7 +696,7 @@ impl Document for EpubDocument {
             .map(|(_, line)| *line)
             .or(pages.before)?;
         let mut label = None;
-        cached::lines_from(storage, &self.pages_path(storage), line, |line, _| {
+        cached::lines_from(storage, &self.pages_path(storage)?, line, |line, _| {
             label = line.splitn(3, '\t').nth(2).map(String::from);
             false
         });
@@ -728,6 +761,9 @@ impl Document for EpubDocument {
         // Named by its size: decoded anew for a screen that shows it larger.
         // What is in the cache is this book's (see `open_styled`).
         let base = alloc::format!("{}/cover-{}", self.cache, self.cover_fit.long);
+        if let Held::Uncleared(e) = self.state.get() {
+            return Err(DocumentError::Storage(e));
+        }
         if crate::pictures::failed(storage, &base) {
             return Ok(None);
         }

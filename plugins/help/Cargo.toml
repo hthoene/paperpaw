@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-help"
 description = "PaperPaw first-time help: what a screen's controls do, shown over it the first time it opens"
-version = "1.0.2"
+version = "1.0.3"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

@@ -53,7 +53,7 @@ env:
   # *About* names them; PaperPaw's shells/xteink/rust-toolchain.toml and
   # versions.env of that release pin them). RUST_X4 is also this
   # repository's rust-toolchain.toml.
-  PAPERPAW: "0.6.0-beta.1"
+  PAPERPAW: "0.6.0-beta.2"
   RUST_X4: "1.99.0"
   RUST_X4_PRO: "1.97.0.0"
   ESP_GCC: "14.2.0_20241119"

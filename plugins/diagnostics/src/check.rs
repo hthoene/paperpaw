@@ -10,8 +10,9 @@
 //!
 //! Buttons: left and right (or the page buttons) move between the
 //! controls, *Select* chooses, *Back* leaves; the check goes on where it
-//! was when opened again. While the buttons are asked for, every button
-//! counts as pressed; holding another one gives the one asked up.
+//! was when opened again. The buttons page begins with *Start*: before,
+//! it is moved over and left like the others; after, every button counts
+//! as the one asked for, and holding another one gives that one up.
 
 use alloc::boxed::Box;
 use alloc::format;
@@ -70,6 +71,9 @@ enum Control {
     Flip,
     /// The screen page: a full refresh, which clears it.
     FullRefresh,
+    /// The buttons page: begins asking for the buttons, which take every
+    /// press from then on.
+    StartButtons,
     /// The light page: its levels once more.
     LightAgain,
     /// The Wi-Fi page: the Wi-Fi plugin's page, to join a network.
@@ -91,6 +95,7 @@ impl Control {
             Control::Help => "diagnostics.check.title",
             Control::Flip => "diagnostics.check.flip",
             Control::FullRefresh => "diagnostics.check.full-refresh",
+            Control::StartButtons => "diagnostics.check.buttons.start",
             Control::LightAgain => "diagnostics.check.light-again",
             Control::WifiPage => "diagnostics.check.wifi-page",
             Control::SleepNow => "diagnostics.check.sleep-now",
@@ -149,6 +154,15 @@ pub(crate) struct Check {
     started: bool,
     flipped: bool,
     buttons: Buttons,
+    /// Whether the buttons are being asked for: not before *Start*, so
+    /// that a page of buttons can be moved over and left like any other.
+    buttons_on: bool,
+    /// Whether the screen page is shown in grays, the panel's own four
+    /// (see [`Screen::grays`]): when it opens and after *Full refresh*,
+    /// not while the focus moves or the pattern flips. A page best in
+    /// grays is a whole-screen refresh of the X4 for any change, and a
+    /// small change after it is not shown at all until the next page.
+    gray_view: bool,
     tapped: [bool; steps::TOUCH_TARGETS.len()],
     light: Option<LightTest>,
     /// Charging seen and not charging seen, while on the battery page.
@@ -184,6 +198,8 @@ impl Check {
             started: false,
             flipped: false,
             buttons: Buttons::new(env.device().input.keys),
+            buttons_on: false,
+            gray_view: true,
             tapped: [false; steps::TOUCH_TARGETS.len()],
             light: None,
             charging_seen: [false; 2],
@@ -254,6 +270,8 @@ impl Check {
         self.step = step;
         self.flipped = false;
         self.buttons = Buttons::new(env.device().input.keys);
+        self.buttons_on = false;
+        self.gray_view = true;
         self.tapped = [false; steps::TOUCH_TARGETS.len()];
         self.charging_seen = [false; 2];
         self.card = None;
@@ -354,17 +372,19 @@ impl Check {
         }
     }
 
-    /// The control focused at first: the answer suggested, else the first
-    /// tool, else *Pass*.
+    /// The control focused at first: the answer a measurement suggests,
+    /// else the first tool, else *Pass*. The screen page suggests *Pass*
+    /// without measuring anything: it is judged by the tools (flip the
+    /// pattern, refresh in full), so they come first.
     fn suggested_focus(&self, env: &Env<'_>) -> usize {
         let controls = &self.layout.controls;
         let wanted = match (self.step, self.measured(env).0) {
             (None, _) => Control::Done,
-            (_, Some(outcome)) => Control::Answer(outcome),
-            (_, None) => controls
+            (Some(Step::Screen), _) | (_, None) => controls
                 .iter()
                 .find(|c| c.0 != Control::Help)
                 .map_or(Control::Answer(Outcome::Pass), |c| c.0),
+            (_, Some(outcome)) => Control::Answer(outcome),
         };
         controls.iter().position(|c| c.0 == wanted).unwrap_or(0)
     }
@@ -384,13 +404,21 @@ impl Check {
                 );
             }
             Control::Flip => {
+                self.gray_view = false;
                 self.flipped = !self.flipped;
                 cx.request_redraw_area(self.layout.body);
                 cx.request_refresh(RefreshMode::Fast);
             }
             Control::FullRefresh => {
+                self.gray_view = true;
                 cx.request_redraw();
                 cx.request_refresh(RefreshMode::Full);
+            }
+            Control::StartButtons => {
+                self.buttons_on = true;
+                self.layout = self.layout(&env);
+                cx.request_redraw();
+                cx.request_refresh(RefreshMode::Partial);
             }
             Control::LightAgain => self.start_light(cx),
             Control::WifiPage => cx.command(Command::run(Id::new_static(WIFI_PAGE))),
@@ -502,6 +530,7 @@ impl Check {
     }
 
     fn move_focus(&mut self, delta: isize, cx: &mut Cx<'_, '_>) {
+        self.gray_view = false;
         let count = self.layout.controls.len();
         let before = self.focus;
         if !self.shown {
@@ -616,7 +645,7 @@ impl Screen for Check {
     fn grays(&self) -> bool {
         // The gray levels as the panel shows them; the pattern turned
         // shows ghosting, with fast refreshes in black and white.
-        self.step == Some(Step::Screen) && !self.flipped
+        self.step == Some(Step::Screen) && !self.flipped && self.gray_view
     }
 
     fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
@@ -636,7 +665,7 @@ impl Screen for Check {
     }
 
     fn takes_buttons(&self) -> bool {
-        self.step == Some(Step::Buttons) && self.buttons.asked().is_some()
+        self.step == Some(Step::Buttons) && self.buttons_on && self.buttons.asked().is_some()
     }
 
     fn on_button(&mut self, name: &str, long: bool, cx: &mut Cx<'_, '_>) -> Handled {
@@ -694,6 +723,7 @@ impl Screen for Check {
             return Handled::No;
         }
         self.shown = false;
+        self.gray_view = false;
         let touch = self.step == Some(Step::Touch);
         if touch && self.tap_target(gesture.start, cx) {
             return Handled::Yes;
@@ -884,6 +914,7 @@ impl Check {
     fn tools(&self, env: &Env<'_>) -> Vec<Control> {
         match self.step {
             Some(Step::Screen) => alloc::vec![Control::Flip, Control::FullRefresh],
+            Some(Step::Buttons) if !self.buttons_on => alloc::vec![Control::StartButtons],
             Some(Step::Light) if self.light.is_none() => alloc::vec![Control::LightAgain],
             Some(Step::Wifi) if env.actions().contains(WIFI_PAGE) => alloc::vec![Control::WifiPage],
             Some(Step::Sleep) => alloc::vec![Control::SleepNow],
@@ -897,7 +928,7 @@ impl Check {
         let mut lines = Vec::new();
         match self.step {
             Some(Step::Buttons) => {
-                let asked = self.buttons.asked();
+                let asked = self.buttons.asked().filter(|_| self.buttons_on);
                 for name in &self.buttons.names {
                     let state = if self.buttons.pressed.contains(name) {
                         "diagnostics.check.button.pressed"
@@ -1156,6 +1187,27 @@ fn battery_lines(env: &Env<'_>, lines: &mut Vec<(String, String)>) {
         lines.push((tr("diagnostics.check.voltage"), format!("{mv} mV")));
     }
     lines.push((tr("diagnostics.check.charging"), yes_no(env, b.charging)));
+    // What the inputs say by themselves, where the device has two (#209):
+    // the level of the charging pin, and whether USB frames come.
+    let status = env.status();
+    if let Some(high) = status.value("usb-pin-high") {
+        let level = if high != 0 { "usb-high" } else { "usb-low" };
+        lines.push((
+            tr("diagnostics.check.usb-pin"),
+            tr(&format!("diagnostics.check.{level}")),
+        ));
+    }
+    if let Some(moving) = status.value("usb-frames") {
+        let state = if moving != 0 {
+            "usb-moving"
+        } else {
+            "usb-still"
+        };
+        lines.push((
+            tr("diagnostics.check.usb-frames"),
+            tr(&format!("diagnostics.check.{state}")),
+        ));
+    }
 }
 
 fn memory_lines(env: &Env<'_>, lines: &mut Vec<(String, String)>) {

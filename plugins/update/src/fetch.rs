@@ -47,11 +47,20 @@ const INSTALLER: Installer = Installer::new(PLUGIN, FETCHED);
 const QUEUE: &str = "fetch.txt";
 /// The plugin being fetched and the author the server names for it.
 const CURRENT: &str = "fetch-current.txt";
-/// The names of those that could not be fetched, a line each.
+/// Those that could not be fetched: a line `<id>` each, then `\troom`
+/// where there was no room for them (fetching again is no use).
 const FAILED: &str = "fetch-failed.txt";
 /// The fingerprint and compiler the update's code plugins must have, where
 /// the server named them: `<16 hex digits> <8 hex digits>`.
 const WANTED: &str = "fetch-native.txt";
+/// The update's version, then a line `<tries> <id>` for each plugin that
+/// failed and is fetched again at a later check.
+const RETRY: &str = "fetch-retry.txt";
+/// Names of failed plugins kept at most.
+const MAX_FAILED: usize = 100;
+/// How often a plugin is fetched for an update, the first time and the
+/// checks after it, before it is left to the store.
+const MAX_TRIES: u32 = 3;
 /// A crate of a first-party plugin, named after it.
 const CRATE_PREFIX: &str = "paperpaw-plugin-";
 
@@ -249,7 +258,7 @@ fn fitting(env: &Env<'_>, builds: Vec<Build>) -> (Vec<Build>, Vec<String>) {
             count += 1;
             fit.push(build);
         } else {
-            left_out.push(build.package.name);
+            left_out.push(build.package.plugin);
         }
     }
     (fit, left_out)
@@ -309,12 +318,25 @@ pub(crate) fn start(
     native: Option<(u64, u32)>,
     out: &mut Commands,
 ) -> bool {
+    // What an earlier download left (a plugin cut off, names that failed)
+    // belongs to that one, also where this one has nothing to fetch.
+    reset(env.storage());
     if builds.is_empty() {
         return false;
     }
+    begin(env, version, builds, native, out);
+    true
+}
+
+fn begin(
+    env: &Env<'_>,
+    version: &str,
+    builds: &[Build],
+    native: Option<(u64, u32)>,
+    out: &mut Commands,
+) {
     let storage = env.storage();
     let _ = storage.create_dir(&paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str()));
-    let _ = storage.remove(&file(FAILED));
     let _ = match native {
         Some((abi, compiler)) => storage.write(
             &file(WANTED),
@@ -323,11 +345,99 @@ pub(crate) fn start(
         None => storage.remove(&file(WANTED)),
     };
     let (builds, no_room) = fitting(env, builds.to_vec());
-    for name in no_room {
-        failed(storage, &name);
+    for id in no_room {
+        failed(storage, &id, true);
     }
     keep(storage, version, &builds);
     next(env, version, out);
+}
+
+/// Lets go of the fetch of an update: what is left to fetch, the plugin
+/// being fetched, the names of those that failed, and what is to be
+/// fetched again.
+pub(crate) fn reset(storage: &dyn Storage) {
+    let _ = storage.remove(&file(RETRY));
+    reset_run(storage);
+}
+
+/// Lets go of one run of the fetch, not of the plugins to fetch again.
+fn reset_run(storage: &dyn Storage) {
+    if INSTALLER.progress(storage).is_some() {
+        INSTALLER.cancel(storage);
+    }
+    for name in [QUEUE, CURRENT, FAILED, WANTED] {
+        let _ = storage.remove(&file(name));
+    }
+}
+
+/// The plugins to fetch again for the downloaded update `version`, with
+/// the tries made; `None` where there are none for it.
+fn retries(storage: &dyn Storage, version: &str) -> Option<Vec<(String, u32)>> {
+    let text = paperpaw_sdk::read_file(storage, &file(RETRY), 8192).ok()?;
+    let text = String::from_utf8(text).ok()?;
+    let mut lines = text.lines();
+    (lines.next()?.trim() == version).then(|| {
+        lines
+            .filter_map(|l| {
+                let (tries, id) = l.split_once(' ')?;
+                Some((id.trim().to_string(), tries.parse().ok()?))
+            })
+            .collect()
+    })
+}
+
+fn keep_retries(storage: &dyn Storage, version: &str, list: &[(String, u32)]) {
+    if list.is_empty() {
+        let _ = storage.remove(&file(RETRY));
+        return;
+    }
+    let mut text = format!("{version}\n");
+    for (id, tries) in list {
+        text.push_str(&format!("{tries} {id}\n"));
+    }
+    let _ = storage.write(&file(RETRY), text.as_bytes());
+}
+
+/// The version of the downloaded update whose failed plugins are to be
+/// fetched again, if any.
+pub(crate) fn retry_version(storage: &dyn Storage) -> Option<String> {
+    let text = paperpaw_sdk::read_file(storage, &file(RETRY), 8192).ok()?;
+    let text = String::from_utf8(text).ok()?;
+    text.lines().next().map(|v| v.trim().to_string())
+}
+
+/// A check named the update `version`, downloaded: fetches again the
+/// plugins that failed before, from the builds the answer names now.
+/// `false` where there is nothing to fetch again.
+pub(crate) fn retry(
+    env: &Env<'_>,
+    version: &str,
+    builds: &[Build],
+    native: Option<(u64, u32)>,
+    out: &mut Commands,
+) -> bool {
+    let storage = env.storage();
+    if fetching(storage).is_some() {
+        return false;
+    }
+    let Some(tries) = retries(storage, version) else {
+        return false;
+    };
+    let again: Vec<Build> = wanted(env, builds)
+        .into_iter()
+        .filter(|b| tries.iter().any(|(id, _)| *id == b.package.plugin))
+        .collect();
+    // What the answer does not name has nothing to fetch: the store's.
+    let kept: Vec<(String, u32)> = tries
+        .into_iter()
+        .filter(|(id, _)| again.iter().any(|b| b.package.plugin == *id))
+        .collect();
+    keep_retries(storage, version, &kept);
+    if again.is_empty() {
+        return false;
+    }
+    reset_run(storage);
+    begin(env, version, &again, native, out);
     true
 }
 
@@ -365,10 +475,14 @@ pub(crate) fn interrupted(storage: &dyn Storage, firmware: &Firmware) {
         .ok()
         .and_then(|t| String::from_utf8(t).ok())
         .and_then(|t| t.lines().next().map(|v| v.trim().to_string()));
-    if version.is_some_and(|v| !compare_versions(&v, &firmware.version).is_gt()) {
-        for name in [QUEUE, CURRENT, FAILED] {
-            let _ = storage.remove(&file(name));
-        }
+    // What is left for an update installed meanwhile (or no longer newer),
+    // or whose file is gone from the card, is let go whole.
+    let gone = |v: &str| {
+        !compare_versions(v, &firmware.version).is_gt()
+            || !storage.exists(&crate::online::path_for(firmware, v))
+    };
+    if version.is_some_and(|v| gone(&v)) || retry_version(storage).is_some_and(|v| gone(&v)) {
+        reset(storage);
     }
 }
 
@@ -379,6 +493,10 @@ pub(crate) fn resume(env: &Env<'_>, out: &mut Commands) {
     }
     if let Some(version) = fetching(env.storage()) {
         next(env, &version, out);
+    } else if retry_version(env.storage()).is_some() {
+        // Plugins that failed for the downloaded update: the server is
+        // asked again, and what it names now is fetched.
+        crate::online::check(env, false, crate::count::Trigger::Auto, out);
     }
 }
 
@@ -393,41 +511,114 @@ fn next(env: &Env<'_>, version: &str, out: &mut Commands) {
         if INSTALLER.start(env, &build.package, out) {
             return;
         }
-        failed(storage, &build.package.name);
+        failed(storage, &build.package.plugin, false);
         left.remove(0);
         keep(storage, version, &left);
     }
-    let _ = storage.remove(&file(QUEUE));
-    let _ = storage.remove(&file(CURRENT));
-    out.push(Command::Notify(env.i18n().format(
-        "update.downloaded",
-        &[(
-            "version",
-            Arg::Str(&crate::shown_version(env.i18n(), version)),
-        )],
-    )));
-    if let Some(names) = failed_names(storage) {
-        out.push(Command::Notify(
-            env.i18n()
-                .format("update.not-fetched", &[("plugins", Arg::Str(&names))]),
-        ));
+    let failed = failed_entries(storage);
+    // A fetch again, said not at all, except where it gives up.
+    let before = retries(storage, version);
+    let tries = |id: &str| {
+        before
+            .as_ref()
+            .and_then(|l| l.iter().find(|(i, _)| i == id))
+            .map_or(0, |(_, n)| *n)
+    };
+    // Those with no room are not fetched again: it would not help.
+    let again: Vec<(String, u32)> = failed
+        .iter()
+        .filter(|f| !f.room)
+        .map(|f| (f.id.clone(), tries(&f.id) + 1))
+        .filter(|(_, n)| *n < MAX_TRIES)
+        .collect();
+    keep_retries(storage, version, &again);
+    reset_run(storage);
+    let count = |room: bool, given_up: bool| -> usize {
+        failed
+            .iter()
+            .filter(|f| f.room == room)
+            .filter(|f| !given_up || !again.iter().any(|(a, _)| *a == f.id))
+            .count()
+    };
+    let i18n = env.i18n();
+    if before.is_none() {
+        let version = crate::shown_version(i18n, version);
+        let notice = downloaded_notice(env, &version, count(false, false), count(true, false));
+        out.push(Command::Notify(notice));
+        return;
+    }
+    // Fetched again: said only for those given up.
+    let given_up = count(false, true);
+    if given_up > 0 {
+        out.push(Command::Notify(i18n.plural(
+            "update.gave-up",
+            given_up as i64,
+            &[],
+        )));
     }
 }
 
-fn failed(storage: &dyn Storage, name: &str) {
-    let mut names = failed_names(storage).unwrap_or_default();
-    if !names.is_empty() {
-        names.push_str(", ");
-    }
-    names.push_str(name);
-    let _ = storage.write(&file(FAILED), names.as_bytes());
+/// The one notice when the update and its plugins are done. A notice
+/// shows about three lines, so: the update is ready, and how many plugins
+/// did not come along, and what happens to them.
+fn downloaded_notice(env: &Env<'_>, version: &str, failed: usize, no_room: usize) -> String {
+    let i18n = env.i18n();
+    let (key, count) = match (failed, no_room) {
+        (0, 0) => {
+            return i18n.format("update.downloaded", &[("version", Arg::Str(version))]);
+        }
+        (n, 0) => ("update.fetch-failed", n),
+        (0, n) => ("update.no-room", n),
+        (n, m) => ("update.missing", n + m),
+    };
+    let mut text = String::from(i18n.tr("update.downloaded.short"));
+    text.push(' ');
+    text.push_str(&i18n.plural(key, count as i64, &[]));
+    text
 }
 
-/// The plugins that could not be fetched for the update, by name.
-pub(crate) fn failed_names(storage: &dyn Storage) -> Option<String> {
-    let text = paperpaw_sdk::read_file(storage, &file(FAILED), 4096).ok()?;
-    let text = String::from_utf8(text).ok()?;
-    (!text.trim().is_empty()).then(|| text.trim().to_string())
+/// A plugin that could not be fetched (`room`: for want of room): kept
+/// once, a line.
+fn failed(storage: &dyn Storage, id: &str, room: bool) {
+    let id = id.replace(['\n', '\r', '\t'], " ");
+    let mut entries = failed_entries(storage);
+    if entries.len() >= MAX_FAILED || entries.iter().any(|f| f.id == id) {
+        return;
+    }
+    entries.push(Failed { id, room });
+    let text: Vec<String> = entries
+        .iter()
+        .map(|f| format!("{}{}", f.id, if f.room { "\troom" } else { "" }))
+        .collect();
+    let _ = storage.write(&file(FAILED), text.join("\n").as_bytes());
+}
+
+/// A plugin that could not be fetched for the update.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Failed {
+    id: String,
+    room: bool,
+}
+
+/// The plugins that could not be fetched for the update, in the order
+/// they failed.
+fn failed_entries(storage: &dyn Storage) -> Vec<Failed> {
+    paperpaw_sdk::read_file(storage, &file(FAILED), 8192)
+        .ok()
+        .and_then(|text| String::from_utf8(text).ok())
+        .map(|text| {
+            text.lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| {
+                    let mut parts = l.split('\t');
+                    Failed {
+                        id: parts.next().unwrap_or_default().trim().to_string(),
+                        room: parts.next() == Some("room"),
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// A download of a plugin's file done: the next one asked for, or the
@@ -445,13 +636,13 @@ pub(crate) fn received(env: &Env<'_>, reply: &HttpReply, out: &mut Commands) {
         Received::Other | Received::Next(_) => return,
         Received::Complete(progress) => {
             if !place(env, &progress.plugin) {
-                failed(storage, &progress.name);
+                failed(storage, &progress.plugin, false);
             }
             INSTALLER.cancel(storage);
             done_with(storage, &version, &progress.plugin);
         }
         Received::Failed(progress) => {
-            failed(storage, &progress.name);
+            failed(storage, &progress.plugin, false);
             done_with(storage, &version, &progress.plugin);
         }
         _ => return,
@@ -567,6 +758,35 @@ mod tests {
         let builds = parse(ANSWER);
         let text = to_text(&builds);
         assert_eq!(from_lines(text.lines()), builds);
+    }
+
+    #[test]
+    fn a_plugin_that_failed_is_kept_once_as_a_line() {
+        let storage = paperpaw_sdk::MemoryStorage::new();
+        failed(&storage, "stats", false);
+        failed(&storage, "chess\nclub", true);
+        failed(&storage, "stats", false);
+        let entry = |id: &str, room| Failed {
+            id: id.to_string(),
+            room,
+        };
+        assert_eq!(
+            failed_entries(&storage),
+            [entry("stats", false), entry("chess club", true)]
+        );
+        for n in 0..MAX_FAILED + 20 {
+            failed(&storage, &format!("p{n}"), false);
+        }
+        assert_eq!(failed_entries(&storage).len(), MAX_FAILED);
+        keep_retries(&storage, "0.5.0", &[(String::from("stats"), 1)]);
+        assert_eq!(
+            retries(&storage, "0.5.0"),
+            Some(alloc::vec![(String::from("stats"), 1)])
+        );
+        assert_eq!(retries(&storage, "0.6.0"), None);
+        reset(&storage);
+        assert!(failed_entries(&storage).is_empty());
+        assert!(retry_version(&storage).is_none());
     }
 
     #[test]

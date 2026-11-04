@@ -323,10 +323,36 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         let folder_there = there.entry.as_ref().is_some_and(FatEntry::is_dir);
         match new {
             Some(new) if new.is_dir() && (same || there.entry.is_none()) => {
-                rename_in(&to_dir, temps.ready(), &to_dir, name(to))
+                rename_in(&to_dir, temps.ready(), &to_dir, name(to))?;
             }
             Some(new) if new.is_file() && !folder_there => {
-                to_dir.replace(temps.ready(), name(to)).map_err(error)
+                to_dir.replace(temps.ready(), name(to)).map_err(error)?;
+            }
+            _ => {}
+        }
+        // A folder moved names its new parent `..`, the last step of a
+        // move: folders are followed only where it does (see `damaged`).
+        // Not in a damaged one (nothing is written there), and the move
+        // settled even where it cannot be done: the folder is then cut
+        // off when removed, its space left.
+        #[expect(
+            clippy::let_underscore_must_use,
+            reason = "a folder not pointed up is cut off when removed"
+        )]
+        let _ = self.point_up(&to_dir, name(to));
+        Ok(())
+    }
+
+    /// Points the `..` of folder `name` in `dir` at `dir`, where it is
+    /// intact (see [`FatStorage::is_intact`]).
+    fn point_up(&self, dir: &FatDir<IO>, name: &str) -> Result<(), StorageError> {
+        match lookup(dir, name, true)? {
+            Lookup {
+                entry: Some(entry),
+                others: false,
+                ..
+            } if entry.is_dir() && self.is_intact(&entry)? => {
+                entry.to_dir().point_up(dir).map_err(error)
             }
             _ => Ok(()),
         }

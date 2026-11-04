@@ -224,11 +224,16 @@ impl Free {
     /// storage. A count going on starts anew (the part counted may have
     /// changed); the count known follows.
     pub(crate) fn changed(&mut self, taken: u64, freed: u64) {
-        if self.geometry.is_none() {
+        let Some(geometry) = self.geometry else {
             return;
-        }
+        };
+        // Never more than the card holds: the sizes of a damaged entry
+        // may tell more freed.
         if let Some(known) = self.known.as_mut() {
-            *known = (*known + freed).saturating_sub(taken);
+            *known = known
+                .saturating_add(freed)
+                .saturating_sub(taken)
+                .min(u64::from(geometry.clusters));
         }
         if self.counting.is_some() {
             self.counting = Some((2, 0));

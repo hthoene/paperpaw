@@ -69,6 +69,24 @@ fn written_to(taken: &str, kind: &str) -> u64 {
         .map_or(0, |w| w.parse().unwrap())
 }
 
+/// Calls on paths of `kind` in `taken`, as [`tallied`] says.
+fn calls_to(taken: &str, kind: &str) -> u64 {
+    taken
+        .split("; ")
+        .find_map(|part| part.strip_prefix(&format!("{kind}: ")))
+        .and_then(|rest| rest.split(' ').next())
+        .map_or(0, |c| c.parse().unwrap())
+}
+
+/// Blocks read from paths of `kind` in `taken`, as [`tallied`] says.
+fn read_from(taken: &str, kind: &str) -> u64 {
+    taken
+        .split("; ")
+        .find_map(|part| part.strip_prefix(&format!("{kind}: ")))
+        .and_then(|rest| rest.split(' ').nth(2))
+        .map_or(0, |r| r.parse().unwrap())
+}
+
 #[test]
 fn the_first_walk_writes_next_to_nothing_of_the_books_formats() {
     // FAT32 with clusters of 32 KiB, as in the bench.
@@ -105,4 +123,25 @@ fn the_first_walk_writes_next_to_nothing_of_the_books_formats() {
         .map(|kind| written_to(&taken, kind))
         .sum();
     assert_eq!(written, own, "{taken}");
+    // Walked again without the catalog (another start, the catalog
+    // lost): its books are taken from their details, read from the book
+    // once (their covers not, #398): no book is opened, and nothing is
+    // written of them.
+    card.remove(&format!("{}/catalog.txt", paperpaw_sdk::library::DIR))
+        .unwrap();
+    let mut kernel = Kernel::builder(DEVICE)
+        .storage(card)
+        .setting_default(&settings::LIBRARY_FOLDER, "books".into())
+        .plugin(paperpaw_plugin_format_epub::EpubFormat)
+        .plugin(Walker)
+        .build()
+        .unwrap();
+    kernel.start(paperpaw_platform::Instant(0));
+    let again = TAKEN.lock().unwrap().clone();
+    println!("again: {again}");
+    assert_eq!(written_to(&again, "details"), 0, "{again}");
+    assert!(read_from(&again, "details") > 0, "{again}");
+    // The books' folder and its six listed, no book read.
+    assert_eq!(calls_to(&again, "books"), 7, "{again}");
+    assert_eq!(written_to(&again, ".paperpaw/plugins"), 0, "{again}");
 }

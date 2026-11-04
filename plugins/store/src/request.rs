@@ -141,7 +141,7 @@ fn answer(
 
 /// The names of the plugins `ids` (the library's, else their ids), where
 /// the index has them, with their sizes.
-fn entries(env: &Env<'_>, ids: &[String]) -> Vec<(String, Option<Entry>)> {
+pub(crate) fn entries(env: &Env<'_>, ids: &[String]) -> Vec<(String, Option<Entry>)> {
     let Some(index) = Index::kept(env.storage()) else {
         return ids.iter().map(|id| (id.clone(), None)).collect();
     };
@@ -162,7 +162,7 @@ fn entries(env: &Env<'_>, ids: &[String]) -> Vec<(String, Option<Entry>)> {
 }
 
 /// The plugins' names, joined, for a notice.
-fn names(list: &[(String, Option<Entry>)]) -> String {
+pub(crate) fn names(list: &[(String, Option<Entry>)]) -> String {
     list.iter()
         .map(|(id, entry)| entry.as_ref().map_or(id.as_str(), |e| e.name.as_str()))
         .collect::<Vec<_>>()
@@ -274,6 +274,25 @@ fn confirmed(env: &Env<'_>, answered: &Confirmed, out: &mut Commands, last: &Las
         return answer(out, by, (&[], &ids), false, error);
     }
     queue::add_requested(env, &ids, out);
+    // What the reader sees of it: the names, how far, how it ends.
+    out.push(crate::fetch::open(&by, &ids));
+}
+
+/// Fetches `ids` again for `by` after a download that did not end well
+/// (the screen's *Try again*): the reader said *Download* before, so no
+/// dialog; the one who asked is told once more what came of it.
+pub(crate) fn again(env: &Env<'_>, by: &Id, ids: &[String], out: &mut Commands) {
+    #[expect(
+        clippy::let_underscore_must_use,
+        reason = "a request not kept is not answered when its download ends: the screen shows what was fetched, and tries again"
+    )]
+    {
+        let _ = env.storage().create_dir(&Env::plugin_dir(PLUGIN.as_str()));
+        let text = alloc::format!("{by}\n{}\n", ids.join("\n"));
+        let _ = env.storage().remove(&result_path());
+        let _ = env.storage().write(&path(), text.as_bytes());
+    }
+    queue::add_requested(env, ids, out);
 }
 
 /// The queue is empty: every plugin asked for is installed or not; the

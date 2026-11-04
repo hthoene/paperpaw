@@ -48,6 +48,7 @@ use paperpaw_sdk::firmware::{
     Check, Firmware, FirmwareState, ForeignCheck, ForeignImage, InstallFailure, Update,
 };
 
+use crate::dual_boot::Source;
 use crate::ota::{self, Flash, FlashError, Image, OtaData, Start, State};
 use crate::partitions::Slots;
 
@@ -149,6 +150,18 @@ pub struct Installing {
     pub offset: u32,
 }
 
+/// How the trial of the running firmware stands ([`Updates::end_of_trial`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrialEnd {
+    /// Not on trial, or not yet run long enough.
+    Running,
+    /// Marked as good: the update is kept.
+    Kept,
+    /// It ran long enough, but the mark could not be written: the OTA data
+    /// still says on trial, and the update may go back.
+    Unmarked,
+}
+
 /// Updates on the flash `F` (in the chip's own addresses), for the
 /// firmware this is.
 pub struct Updates<F> {
@@ -168,6 +181,14 @@ pub struct Updates<F> {
     /// An update did not start cleanly, and this firmware came back.
     undone: bool,
     install: Option<Install>,
+    /// This is a declared dual-boot setup (`dual_boot`): the other app
+    /// partition is another firmware's, nothing is installed there.
+    dual: Option<Source>,
+    /// What the start did at once (`open`), for [`Updates::settle`] to say.
+    early: Option<Option<Start>>,
+    /// The OTA data as the start found it, where the start would write it:
+    /// held until [`Updates::settle`] knows whether it may.
+    pending: Option<OtaData>,
 }
 
 impl<F> core::fmt::Debug for Updates<F> {
@@ -189,44 +210,102 @@ impl<F: Flash> Updates<F> {
     /// [`Start::Failed`] means an update failed its trial and is marked bad,
     /// and the device restarts now into the firmware before it; `None`
     /// where the start could not be marked. `Err` where the OTA data cannot
-    /// be read.
+    /// be read. Writes the OTA data at once where the start needs it; a
+    /// firmware that may share the flash with another (`dual_boot`) uses
+    /// [`Updates::open`] and [`Updates::settle`] instead.
     pub fn start(
-        mut flash: F,
+        flash: F,
         slots: &Slots,
         running: u32,
         this: Firmware,
         board: &'static str,
     ) -> Result<(Self, Option<Start>), FlashError> {
-        let partition = &mut Partition {
+        let (mut updates, _) = Self::open(flash, slots, running, this, board)?;
+        let start = updates.settle(None);
+        Ok((updates, start))
+    }
+
+    /// The first half of [`Updates::start`]: looks at the OTA data and what
+    /// it says this start is ([`OtaData::plan`], returned), and writes
+    /// nothing. Whether the setup is a dual-boot one is not known yet (the
+    /// reader's choice is on the card): [`Updates::settle`] says, and does
+    /// what the start needs only where it is not.
+    #[inline(never)]
+    pub fn open(
+        mut flash: F,
+        slots: &Slots,
+        running: u32,
+        this: Firmware,
+        board: &'static str,
+    ) -> Result<(Self, Start), FlashError> {
+        let ota_data = OtaData::read(&mut Partition {
             flash: &mut flash,
             offset: slots.data,
-        };
-        let mut ota_data = OtaData::read(partition)?;
-        let start = ota_data.start(partition, running);
-        let mut trial = None;
-        let mut undone = false;
-        match start {
-            Some(Start::Undone) => undone = true,
-            Some(Start::Trial { ran } | Start::Marked { ran }) => {
-                trial = Some(Trial {
-                    before: u64::from(ran),
-                    since: 0,
-                });
-            }
-            Some(Start::Kept | Start::Failed { .. }) | None => {}
-        }
-        let updates = Self {
+        })?;
+        let plan = ota_data.plan(running);
+        let early = ota_data.acts_early(running);
+        let mut updates = Self {
             flash,
             data: slots.data,
             apps: slots.apps,
             running,
             this,
             board,
-            trial,
-            undone,
+            trial: None,
+            undone: false,
             install: None,
+            dual: None,
+            pending: (plan != Start::Kept).then_some(ota_data),
+            early: None,
         };
-        Ok((updates, start))
+        // What an update this firmware installed needs, or one that failed,
+        // is done now (a hang before the card would leave it undone for
+        // good); the rest waits for [`Updates::settle`].
+        if early {
+            updates.early = Some(updates.apply());
+        }
+        Ok((updates, plan))
+    }
+
+    /// The second half of [`Updates::start`]: whether the setup is a
+    /// declared dual-boot one (`dual_boot::decide`, from the reader's choice
+    /// and the bootloader). If it is, nothing is written to the OTA data,
+    /// no trial begins, and installs are refused from now on: the start is
+    /// [`Start::Kept`]. If not, what the start needs is done now, and its
+    /// result returned (`None` where it could not be marked). Once only;
+    /// again it says [`Start::Kept`] and changes what is declared.
+    #[inline(never)]
+    pub fn settle(&mut self, declared: Option<Source>) -> Option<Start> {
+        self.dual = declared;
+        if let Some(done) = self.early.take() {
+            return done;
+        }
+        if self.pending.is_none() || declared.is_some() {
+            self.pending = None;
+            return Some(Start::Kept);
+        }
+        self.apply()
+    }
+
+    /// What the start needs, written (the OTA data held in `pending`).
+    fn apply(&mut self) -> Option<Start> {
+        let mut ota_data = self.pending.take()?;
+        let partition = &mut Partition {
+            flash: &mut self.flash,
+            offset: self.data,
+        };
+        let start = ota_data.start(partition, self.running);
+        match start {
+            Some(Start::Undone) => self.undone = true,
+            Some(Start::Trial { ran } | Start::Marked { ran }) => {
+                self.trial = Some(Trial {
+                    before: u64::from(ran),
+                    since: 0,
+                });
+            }
+            Some(Start::Kept | Start::Failed { .. }) | None => {}
+        }
+        start
     }
 
     /// The app partition running.
@@ -283,6 +362,18 @@ impl<F: Flash> Updates<F> {
         self.mark(State::Valid, 0).map(|()| true)
     }
 
+    /// [`Updates::check_trial`] as the shell needs it: `Kept` only where the
+    /// mark of the update as good was written (a flash that fails to write
+    /// leaves the OTA data on trial, and the update may still go back:
+    /// `Unmarked`, #164).
+    pub fn end_of_trial(&mut self, now: u64) -> TrialEnd {
+        match self.check_trial(now) {
+            Ok(false) => TrialEnd::Running,
+            Ok(true) => TrialEnd::Kept,
+            Err(_) => TrialEnd::Unmarked,
+        }
+    }
+
     /// The running firmware goes to sleep or restarts at `now`, ending
     /// cleanly: on trial, it is new again with the time it ran, so the
     /// next start goes on with the trial.
@@ -327,7 +418,12 @@ impl<F: Flash> Updates<F> {
         let target = (self.running + 1) % ota::SLOTS;
         self.this
             .clone()
-            .room(u64::from(self.apps[target as usize].1))
+            // Nothing goes into another firmware's partition: no room.
+            .room(if self.dual.is_some() {
+                0
+            } else {
+                u64::from(self.apps[target as usize].1)
+            })
             .undone(self.undone)
             .state(FirmwareState::Idle)
     }
@@ -336,6 +432,22 @@ impl<F: Flash> Updates<F> {
     /// meanwhile).
     pub fn installing(&self) -> bool {
         self.install.is_some()
+    }
+
+    /// Whether the start found something to write to the OTA data, held
+    /// until [`Updates::settle`].
+    pub fn start_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    /// Whether, and by what, the setup is declared a dual-boot one.
+    pub fn dual(&self) -> Option<Source> {
+        self.dual
+    }
+
+    /// The partition running, for the note plugins read.
+    pub fn slot(&self) -> u32 {
+        self.running
     }
 
     /// Starts installing the update file at `path`, with the `key` the
@@ -349,6 +461,9 @@ impl<F: Flash> Updates<F> {
         key: Option<&[u8; 32]>,
         older: bool,
     ) -> Result<Installing, InstallFailure> {
+        if self.dual.is_some() {
+            return Err(InstallFailure::Other(crate::dual_boot::REFUSED));
+        }
         let update = Update::read(storage, path)?;
         update.may_install(&self.firmware(), key, older)?;
         let check = Checking::Signed(Check::new(&update.trailer)?);
@@ -364,6 +479,9 @@ impl<F: Flash> Updates<F> {
         storage: &dyn Storage,
         path: &str,
     ) -> Result<(Installing, String), InstallFailure> {
+        if self.dual.is_some() {
+            return Err(InstallFailure::Other(crate::dual_boot::REFUSED));
+        }
         let image = ForeignImage::read(storage, path)?;
         image.fits(&self.firmware())?;
         let len = u32::try_from(image.len).map_err(|_| InstallFailure::TooLarge)?;

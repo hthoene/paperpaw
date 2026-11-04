@@ -166,6 +166,13 @@ pub(super) static DATA: super::Addresses<30> = super::Addresses([
     paperpaw_xml::decode as *const (), // XML_DECODE
 ]);
 
+pub(super) static WIDGETS: super::Addresses<4> = super::Addresses([
+    crate::widgets::look::widget_look as *const (), // WIDGET_LOOK
+    crate::widgets::look::draw_frame as *const (), // WIDGET_DRAW_FRAME
+    crate::widgets::look::frame_height as *const (), // WIDGET_FRAME_HEIGHT
+    crate::widgets::look::draw_caption as *const (), // WIDGET_DRAW_CAPTION
+]);
+
 /// The table of family number `n`, if the firmware shares it.
 pub(super) const fn of(n: usize) -> paperpaw_table::Table {
     match n {
@@ -173,6 +180,7 @@ pub(super) const fn of(n: usize) -> paperpaw_table::Table {
         2 => paperpaw_table::Table(UI.0.as_ptr()),
         3 => paperpaw_table::Table(GRAPHICS.0.as_ptr()),
         5 => paperpaw_table::Table(DATA.0.as_ptr()),
+        6 => paperpaw_table::Table(WIDGETS.0.as_ptr()),
         _ => paperpaw_table::Table::NONE,
     }
 }

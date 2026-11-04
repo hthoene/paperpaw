@@ -1,4 +1,4 @@
-<p><b>Beta:</b> Das ist Version 0.6.0-beta.1, für Tester. Es gibt noch Ecken und Kanten; bitte die Bücher sichern.</p>
+<p><b>Beta:</b> Das ist Version 0.6.0-beta.2, für Tester. Es gibt noch Ecken und Kanten; bitte die Bücher sichern.</p>
 
 <p>PaperPaw ist ein freier E-Reader für E-Ink-Geräte wie die Onyx-Boox-Reader. Er ist schnell, schont den Akku und ist von Haus aus einfach: einschalten und weiterlesen. Alles, was er kann, kommt aus Plugins, und jeder Bildschirm, jedes Menü, jede Taste und jede Geste lässt sich ändern.</p>
 

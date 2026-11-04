@@ -77,6 +77,12 @@ impl SecretList {
 }
 
 impl Screen for SecretList {
+    /// No pictures on it: whole-screen frames need no extra pass to count
+    /// them (see [`Screen::pictures_in_grays`]).
+    fn pictures_in_grays(&self) -> bool {
+        false
+    }
+
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         let style = self.style;
         let mut ui = ui::Ui::new(canvas, env, &style);
@@ -208,6 +214,12 @@ impl SecretPage {
 }
 
 impl Screen for SecretPage {
+    /// No pictures on it: whole-screen frames need no extra pass to count
+    /// them (see [`Screen::pictures_in_grays`]).
+    fn pictures_in_grays(&self) -> bool {
+        false
+    }
+
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         let style = self.style;
         let mut ui = ui::Ui::new(canvas, env, &style);

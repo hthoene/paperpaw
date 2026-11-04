@@ -56,8 +56,12 @@ class Handbook(unittest.TestCase):
             self.assertIn(part, readme)
         # Grown past 3 MB with the plugins' docs and sources (flash cards, store),
         # and by 0.1 MB with the Mail plugin's sources (3.2 to 3.3 MB), and by
-        # 0.1 MB with the sorted library and the TLS sockets (3.4 to 3.5 MB).
-        self.assertLess(size, 3_500_000, "near 3.5 MB")
+        # 0.1 MB with the sorted library and the TLS sockets (3.4 to 3.5 MB), and
+        # past 3.5 MB with the picture home (#205) and the widget colours (#206).
+        # The Workshop takes no whole handbook into a prompt (it hands out topics of
+        # at most MAX_TOPIC_TOKENS, src/handbook/handbook.ts), so its size has no
+        # hard limit there: this keeps growth seen, a step at a time.
+        self.assertLess(size, 3_600_000, "near 3.6 MB")
 
 
 if __name__ == "__main__":

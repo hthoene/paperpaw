@@ -48,9 +48,14 @@ const MOST_DOTS: u32 = 60;
 
 /// Its settings, kept in the program: its look, its choices and
 /// switches for its parts.
-static SETTINGS: [SettingSpec; 9] = [
+static SETTINGS: [SettingSpec; 14] = [
     widgets::frame_spec("stats.widget.year.frame", YEAR, Frame::None),
     widgets::padding_spec("stats.widget.year.padding", YEAR, Padding::Auto),
+    widgets::paper_spec("stats.widget.year.paper", YEAR),
+    widgets::ink_spec("stats.widget.year.ink", YEAR),
+    widgets::corners_spec("stats.widget.year.corners", YEAR),
+    widgets::frame_line_spec("stats.widget.year.frame-line", YEAR),
+    widgets::shadow_spec("stats.widget.year.drop-shadow", YEAR),
     widgets::size_spec("stats.widget.year.size", YEAR, TextSize::Medium, true),
     widgets::align_spec("stats.widget.year.align", YEAR, Align::Left),
     SettingSpec::choice(

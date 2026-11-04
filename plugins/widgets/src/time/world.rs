@@ -67,10 +67,15 @@ const LAYOUTS: [&str; 3] = [
 ];
 
 /// Its settings, kept in the program.
-static SETTINGS: [SettingSpec; 10] = [
+static SETTINGS: [SettingSpec; 15] = [
     widgets::align_spec("widgets.world-clock.align", ID, Align::Left),
     widgets::frame_spec("widgets.world-clock.frame", ID, Frame::None),
     widgets::padding_spec("widgets.world-clock.padding", ID, Padding::Auto),
+    widgets::paper_spec("widgets.world-clock.paper", ID),
+    widgets::ink_spec("widgets.world-clock.ink", ID),
+    widgets::corners_spec("widgets.world-clock.corners", ID),
+    widgets::frame_line_spec("widgets.world-clock.frame-line", ID),
+    widgets::shadow_spec("widgets.world-clock.drop-shadow", ID),
     SettingSpec::choice(
         "widgets.world-clock.place-1",
         "widgets.setting.place-1",
@@ -360,7 +365,7 @@ fn draw(canvas: &mut Canvas<'_>, env: &Env<'_>, area: Rect) {
             draw_row(canvas, env, &font, &look, cell, place);
         }
         // A fine line between places.
-        if i > 0 && look.frame != Frame::Dark {
+        if i > 0 && look.paper.luma() >= 128 {
             let thick = style.line();
             let back = (gap / 2 + thick / 2).min(gap);
             let between = if columns {

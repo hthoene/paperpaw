@@ -167,7 +167,15 @@ scrolled, a connection) lays itself out anew in `on_resize` instead,
 from `cx.env().content()`, and answers `Handled::Yes`: it stays as it
 is. A screen that shows one thing of the list below it (a book's
 details, a message) says `Pane::DETAIL` in `pane`; where the screen is
-wide that will show it beside the list. `Screen::revision` is never
+expanded (a tablet, a phone on its side; never the X4) the kernel shows
+it beside the list: the list at the start, each laid out for its part
+(`on_resize`), a tap or `core.pane.other` moving keys between the two,
+and a detail the list opens taking the place of the one shown. How much
+room a screen has is `cx.env().screen_class()` (`ui::ScreenClass`:
+compact, medium or expanded, by its width at the reader's text size) and
+`cx.env().landscape()`; `events::DISPLAY_CHANGED` tells a plugin the
+display's new size once its screens were laid out, for what it keeps at
+a size outside them. `Screen::revision` is never
 implemented: the kernel calls items added later only on screens built
 with them. A screen that shows another inside it (`host::ScreenHost`)
 answers `ScreenHost::revision` there, and calls the newer items of the
@@ -654,10 +662,10 @@ plugin and the app share one:
 
 ```toml
 [dev-dependencies]
-paperpaw-dev = { git = "https://github.com/hthoene/paperpaw", tag = "v0.6.0-beta.1" }
+paperpaw-dev = { git = "https://github.com/hthoene/paperpaw", tag = "v0.6.0-beta.2" }
 
 [patch.crates-io]
-paperpaw-sdk = { git = "https://github.com/hthoene/paperpaw", tag = "v0.6.0-beta.1" }
+paperpaw-sdk = { git = "https://github.com/hthoene/paperpaw", tag = "v0.6.0-beta.2" }
 ```
 
 `examples/paperpaw-dev.rs` adds the plugin to the app:
@@ -1280,7 +1288,11 @@ read again each minute; one that can be drawn smaller says how small
 (`min_height`), so that a grid fits it where its full height has no
 room. `widgets::grid` puts widgets
 and tools in a grid as the home screen does, edited in place
-(`GridView`). Say which kind a widget is
+(`GridView`). Its screen plate follows each widget's corners and leaves
+room for its shadow.
+Widgets with zero content height have no plate outside editing mode. Frameless
+widget paper follows chosen corners; Automatic keeps it square.
+Say which kind a widget is
 (`.category(widgets::categories::TIME)`, or `BOOKS`, `READING`, `WORDS`,
 `PERSONAL`, `WORLD`, `DEVICE`): the home screen offers widgets by their
 kind, each drawn as it would show.
@@ -1905,11 +1917,11 @@ below) takes it. One manifest gives each its own, by target:
 
 ```toml
 [dependencies]
-paperpaw-sdk = "0.6.0-beta.1"
+paperpaw-sdk = "0.6.0-beta.2"
 
 # Outline fonts for the emulator's build only: the X4s draw font packs.
 [target.'cfg(not(target_os = "none"))'.dependencies]
-paperpaw-sdk = { version = "0.6.0-beta.1", features = ["outline"] }
+paperpaw-sdk = { version = "0.6.0-beta.2", features = ["outline"] }
 ```
 
 A build for a device that asks for `outline` stops and says so.
@@ -1944,7 +1956,7 @@ format's linker script keeps, and a device loads the file only where
 that compiler built the firmware too. A beta or a release that keeps
 the interface runs the plugin as it is. The store and the update check
 show which plugins wait for a build. Interface 4 came with 0.5.0-beta.8
-(reading, settings and real-time screens), interface 6 with 0.6.0-beta.1
+(reading, settings and real-time screens), interface 6 with 0.6.0-beta.2
 (right-to-left text, shared functions, plugin files of format 4, TLS
 sockets, screens that fit another size; interface 5 was never released): a plugin
 built for an earlier interface is to be built again for it.
@@ -2055,7 +2067,9 @@ source, which the library rebuilds to compare. The sample's `build.sh`
 builds, packs and signs both files, and its CI job
 (`samples/hello-native/.github/workflows/build.yml`, for a plugin's own
 repository) runs it on every tag, with the author's key kept as a
-secret of the repository. [Publishing](#publishing) says how.
+secret of the repository. [Publishing](#publishing) says how, and
+[Which devices your plugin is for](#which-devices-your-plugin-is-for) that
+a plugin may be for one reader only.
 
 ## Plugins without code
 
@@ -2261,7 +2275,7 @@ PaperPaw, switched off in the plugin manager.
 The fonts browser (`plugins/fonts-browser`) downloads fonts as such
 plugins from paperpaw.org: font files for devices with scalable fonts
 and the memory for them, packs for the others. The store
-(`plugins/store`, *More plugins*) lists the other plugins of the plugin
+(`plugins/store`, *Plugin store*) lists the other plugins of the plugin
 library made for the device, data plugins and, where PaperPaw loads
 them and a build fits, plugins with code, and installs, updates and
 removes them ([ADR 0023](adr/0023-plugin-store.md)). Both build on the
@@ -2309,7 +2323,7 @@ three themes (airy, paw, calm ink) and a home screen (reading nook).
 ## Publishing
 
 The plugin library on paperpaw.org is what the website lists and every
-reader's store (*More plugins*) installs from (ADR 0023). A plugin gets
+reader's store (*Plugin store*) installs from (ADR 0023). A plugin gets
 there with the upload form at <https://paperpaw.org/submit>: sign in
 with a link sent by e-mail, upload the plugin's folder as a ZIP (and a
 code plugin's builds), read the checks, complete the entry, look at the
@@ -2370,6 +2384,45 @@ those builds: `[source]` names a public repository on `github.com`,
 and `bin` when the crate is not at the top or the binary not named as
 its package), or the source goes up as a ZIP (`source-zip`).
 
+### Which devices your plugin is for
+
+A plugin does not have to be for every device. Publish it for the devices
+it works on and nothing else: the store, on the site and on each reader,
+shows it only to those. Nobody sees a plugin that is not for their device,
+and nobody is offered one that would not run.
+
+- **A data plugin** is files, so it works anywhere PaperPaw does. Left
+  alone it is offered on every device. To limit it, name the devices in
+  `[store]` of `store/store.ini`, separated by commas, of `android`,
+  `x4`, `x4-pro` and `x4-classic`:
+
+  ```ini
+  [store]
+  devices = x4, x4-pro
+  ```
+
+  The upload form has the same as the boxes "Runs on". A device not named
+  does not see it, also one of the same family: name `x4-classic` too if
+  the plugin is for it. The X3 asks the store as an `x4`, so it sees what
+  is for the `x4`; there is no `x3` to name.
+- **A code plugin** is a build for one chip, so it is for the readers you
+  give a build. Upload (or release on GitHub) one signed `.ppn` per reader
+  (`x4` is the ESP32-C3 of the X4 and X3, `x4-pro` the ESP32-S3 of the X4
+  Pro and the X4 Classic): its devices are those, whatever `devices` says,
+  and a build for only the X4 is a plugin for the X4 only. A reader
+  needs the build made for its own fingerprint; one that has none for it
+  (an older release, a chip you did not build for) does not list the
+  plugin, and the site shows it as waiting for a build. Android takes no
+  plugin with code from the store, so a code plugin never shows there.
+- **Where it shows.** The plugin's page and the library's lists on
+  paperpaw.org say "X4 and X4 Pro only" for a plugin that is not for all,
+  and the library can be filtered by device. The reader's store (*More
+  plugins*) asks for its own device and lists only what fits it. A
+  catalogue entry (`catalogue/<id>.toml`) names `devices` the same way,
+  and every build it lists must be for one of them.
+- **Later.** A new version may add a device: add its build (or name it in
+  `devices`) and publish the version.
+
 ### The author's key
 
 Code plugins are signed by their author with an Ed25519 key of their
@@ -2414,7 +2467,7 @@ installs as authors do (see [The crate](#the-crate)). So:
 - commit `Cargo.lock`;
 - keep the release's compilers pinned (`rust-toolchain.toml`, the job's
   `RUST_X4`, `RUST_X4_PRO`, `ESP_GCC`), its SDK
-  (`paperpaw-sdk = "0.6.0-beta.1"`) and, for the X4 Pro, its core libraries
+  (`paperpaw-sdk = "0.6.0-beta.2"`) and, for the X4 Pro, its core libraries
   installed, and build again for every release until 1.0 (see
   [Which build fits](#which-build-fits));
 - never set `RUSTFLAGS`, which would replace the flags that link the

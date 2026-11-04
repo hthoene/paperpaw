@@ -502,6 +502,14 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         self.bpb.cluster_size()
     }
 
+    // Modified for PaperPaw: added.
+
+    /// Clusters of the volume's data: they are numbered from 2 to this many and one.
+    #[must_use]
+    pub fn total_clusters(&self) -> u32 {
+        self.total_clusters
+    }
+
     // Modified for PaperPaw: `dir_note`, `set_dir_note`, `dir_chain`, `set_dir_chain`,
     // `entries_written`, `note_entry_written`, `drop_dir_note` and `forget_dir_notes` added (see
     // `Dir::note`).

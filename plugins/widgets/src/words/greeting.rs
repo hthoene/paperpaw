@@ -26,7 +26,7 @@ const ICON: &str = "icon";
 const FACE: Setting<Text> = Setting::new("widgets.greeting.face");
 
 /// The greeting's settings, kept in the program.
-static SETTINGS: [SettingSpec; 8] = [
+static SETTINGS: [SettingSpec; 13] = [
     SettingSpec::text(
         "widgets.greeting.name",
         "widgets.greeting.setting.name",
@@ -60,6 +60,11 @@ static SETTINGS: [SettingSpec; 8] = [
     widgets::align_spec("widgets.greeting.align", ID, Align::Center),
     widgets::frame_spec("widgets.greeting.frame", ID, Frame::None),
     widgets::padding_spec("widgets.greeting.padding", ID, Padding::Auto),
+    widgets::paper_spec("widgets.greeting.paper", ID),
+    widgets::ink_spec("widgets.greeting.ink", ID),
+    widgets::corners_spec("widgets.greeting.corners", ID),
+    widgets::frame_line_spec("widgets.greeting.frame-line", ID),
+    widgets::shadow_spec("widgets.greeting.drop-shadow", ID),
 ];
 
 pub(super) fn register(r: &mut Registrar) -> Result<(), RegisterError> {

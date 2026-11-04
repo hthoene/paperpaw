@@ -11,13 +11,14 @@ const paperpaw_table::Family::FONTS: paperpaw_table::Family = Family(1)
 const paperpaw_table::Family::GRAPHICS: paperpaw_table::Family = Family(3)
 const paperpaw_table::Family::TEXT: paperpaw_table::Family = Family(0)
 const paperpaw_table::Family::UI: paperpaw_table::Family = Family(2)
+const paperpaw_table::Family::WIDGETS: paperpaw_table::Family = Family(6)
 const paperpaw_table::HASH: &str = index::HASH
 const paperpaw_table::OLDEST: paperpaw_table::Revisions = index::OLDEST
 const paperpaw_table::REVISIONS: paperpaw_table::Revisions = index::REVISIONS
 const paperpaw_table::Table::NONE: paperpaw_table::Table = Table(core::ptr::null())
-const paperpaw_table::index::HASH: &str = "3ceb8132"
-const paperpaw_table::index::OLDEST: paperpaw_table::Revisions = [1, 0, 2, 1, 0, 1, 0, 0]
-const paperpaw_table::index::REVISIONS: paperpaw_table::Revisions = [1, 0, 2, 1, 0, 1, 0, 0]
+const paperpaw_table::index::HASH: &str = "6e69e0a3"
+const paperpaw_table::index::OLDEST: paperpaw_table::Revisions = [1, 0, 2, 1, 0, 1, 1, 0]
+const paperpaw_table::index::REVISIONS: paperpaw_table::Revisions = [1, 0, 2, 1, 0, 1, 1, 0]
 const paperpaw_table::index::contribution::COUNT: usize = 0usize
 const paperpaw_table::index::contribution::FAMILY: paperpaw_table::Family = crate::Family::CONTRIBUTION
 const paperpaw_table::index::data::CONFIG_AS_I64: usize = 19usize
@@ -183,6 +184,12 @@ const paperpaw_table::index::ui::TEXT_NOTE_LINE_HEIGHT: usize = 23usize
 const paperpaw_table::index::ui::TEXT_PUT_RUN: usize = 17usize
 const paperpaw_table::index::ui::TEXT_TR_INPUT: usize = 13usize
 const paperpaw_table::index::ui::UI_SHOWS: usize = 4usize
+const paperpaw_table::index::widgets::COUNT: usize = 4usize
+const paperpaw_table::index::widgets::FAMILY: paperpaw_table::Family = crate::Family::WIDGETS
+const paperpaw_table::index::widgets::WIDGET_DRAW_CAPTION: usize = 3usize
+const paperpaw_table::index::widgets::WIDGET_DRAW_FRAME: usize = 1usize
+const paperpaw_table::index::widgets::WIDGET_FRAME_HEIGHT: usize = 2usize
+const paperpaw_table::index::widgets::WIDGET_LOOK: usize = 0usize
 enum paperpaw_table::Misfit { Newer, Older }
 struct paperpaw_table::Family(0: u8)
 struct paperpaw_table::HostTables(0: [core::sync::atomic::AtomicPtr<*const ()>; 8])

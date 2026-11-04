@@ -1,0 +1,170 @@
+//! Staying awake on USB, a developer's choice (#96): while the cable is in
+//! and the choice is on, the sleep after *Sleep after* does not come (the
+//! kernel holds it, `Kernel::set_awake_on_usb`), and a sleep the reader asks
+//! for shows the sleep picture but does not sleep: the X4 *dozes*, awake
+//! with USB alive (a light sleep or a deep one cuts the cable's link, the
+//! computer loses the X4 until the power button is pressed), and wakes at the
+//! next press or command. A cable pulled while it dozes puts it to sleep
+//! for real at once, so that a forgotten X4 does not drain its battery. This
+//! is the state of it, on a computer-tested machine; the firmware
+//! (`shells/xteink`) does the sleeping, the waking and the telling.
+//!
+//! The cable counts as out only after [`GONE_MS`] without it, so that a
+//! wiggled plug does not put a dozing X4 to sleep. A doze does not tick the
+//! kernel, on purpose: a plugin's timer would draw over the sleep picture the
+//! doze is there to keep, and what it waits for comes with the wake. The
+//! reader's *Switch off after sleeping* belongs to a real sleep, which a doze
+//! is not, so nothing of it is lost; on USB it never counted anyway.
+
+/// The cable counts as out after so many milliseconds without it.
+pub const GONE_MS: u64 = 2000;
+
+/// What the firmware keeps of staying awake.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct StayAwake {
+    /// The choice is on and the cable is in, as the kernel was told.
+    on: bool,
+    /// Since when (ms) the cable seems out, while it is told in.
+    gone_since: Option<u64>,
+    /// The sleep picture is shown, plugins heard `core.suspend`, and the X4
+    /// waits awake for a press or a command.
+    dozing: bool,
+}
+
+impl StayAwake {
+    /// Looks at the choice and the cable (`wanted`: both) at `now_ms`. What
+    /// the kernel is to be told, if that changed: the cable in at once, out
+    /// only once it stayed out for [`GONE_MS`].
+    pub fn watch(&mut self, wanted: bool, now_ms: u64) -> Option<bool> {
+        if wanted || !self.on {
+            self.gone_since = None;
+        } else if now_ms.saturating_sub(*self.gone_since.get_or_insert(now_ms)) < GONE_MS {
+            return None;
+        }
+        (self.on != wanted).then(|| {
+            self.on = wanted;
+            self.gone_since = None;
+            wanted
+        })
+    }
+
+    /// Whether the X4 stays awake now: a request to sleep dozes.
+    pub fn is_on(&self) -> bool {
+        self.on
+    }
+
+    /// The X4 dozes: the sleep was shown and heard.
+    pub fn doze(&mut self) {
+        self.dozing = true;
+    }
+
+    /// Whether the X4 dozes.
+    pub fn is_dozing(&self) -> bool {
+        self.dozing
+    }
+
+    /// A press or a command came: whether the X4 was dozing, and is awake
+    /// again now (plugins hear `core.resume`).
+    pub fn wake(&mut self) -> bool {
+        core::mem::take(&mut self.dozing)
+    }
+
+    /// The cable went while the X4 dozed: it sleeps for real now.
+    pub fn must_sleep(&self) -> bool {
+        self.dozing && !self.on
+    }
+
+    /// A real sleep begins: whether plugins heard `core.suspend` already
+    /// (the doze before it), then not again.
+    pub fn suspended_already(&mut self) -> bool {
+        core::mem::take(&mut self.dozing)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn it_tells_the_kernel_only_what_changed() {
+        let mut stay = StayAwake::default();
+        assert_eq!(stay.watch(false, 0), None);
+        assert_eq!(stay.watch(true, 10), Some(true));
+        assert_eq!(stay.watch(true, 20), None);
+        assert!(stay.is_on());
+        assert_eq!(stay.watch(false, 30), None);
+        assert_eq!(stay.watch(false, 30 + GONE_MS), Some(false));
+        assert!(!stay.is_on());
+    }
+
+    #[test]
+    fn a_doze_ends_at_the_first_press_or_command() {
+        let mut stay = StayAwake::default();
+        stay.watch(true, 0);
+        stay.doze();
+        assert!(stay.is_dozing());
+        assert!(stay.wake());
+        assert!(!stay.is_dozing());
+        // A second one finds it awake: no second resume.
+        assert!(!stay.wake());
+    }
+
+    #[test]
+    fn a_cable_pulled_while_dozing_sleeps_for_real_without_a_second_suspend() {
+        let mut stay = StayAwake::default();
+        stay.watch(true, 0);
+        stay.doze();
+        assert!(!stay.must_sleep());
+        assert_eq!(stay.watch(false, 100), None);
+        assert!(!stay.must_sleep());
+        assert_eq!(stay.watch(false, 100 + GONE_MS), Some(false));
+        assert!(stay.must_sleep());
+        // The sleep takes the doze over: plugins heard core.suspend once.
+        assert!(stay.suspended_already());
+        assert!(!stay.must_sleep());
+        // A later sleep is a plain one.
+        assert!(!stay.suspended_already());
+    }
+
+    #[test]
+    fn a_cable_in_and_awake_is_no_reason_to_sleep() {
+        let mut stay = StayAwake::default();
+        stay.watch(true, 0);
+        assert!(!stay.must_sleep());
+        stay.watch(false, 10);
+        stay.watch(false, 10 + GONE_MS);
+        assert!(!stay.must_sleep());
+    }
+
+    #[test]
+    fn a_stale_reading_keeps_it_awake_and_only_a_fresh_one_ends_it() {
+        // The X3's "on USB" is its gauge's last reading: while nobody reads
+        // the gauge it says "in" for ever, and the doze never ends. Read
+        // again every loop (`dozing_step`), the first reading of "out" counts.
+        let mut stay = StayAwake::default();
+        stay.watch(true, 0);
+        stay.doze();
+        for loop_ms in (0..60_000).step_by(10) {
+            assert_eq!(stay.watch(true, loop_ms), None);
+        }
+        assert!(!stay.must_sleep());
+        assert_eq!(stay.watch(false, 60_000), None);
+        assert_eq!(stay.watch(false, 60_000 + GONE_MS), Some(false));
+        assert!(stay.must_sleep());
+    }
+
+    #[test]
+    fn a_wiggled_plug_does_not_end_it() {
+        let mut stay = StayAwake::default();
+        stay.watch(true, 0);
+        stay.doze();
+        // Out for a moment, in again: the count starts over.
+        assert_eq!(stay.watch(false, 1_000), None);
+        assert_eq!(stay.watch(true, 1_500), None);
+        assert_eq!(stay.watch(false, 2_000), None);
+        assert_eq!(stay.watch(false, 2_000 + GONE_MS - 1), None);
+        assert!(!stay.must_sleep());
+        assert_eq!(stay.watch(false, 2_000 + GONE_MS), Some(false));
+        assert!(stay.must_sleep());
+    }
+}

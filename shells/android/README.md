@@ -4,7 +4,7 @@ A native activity in Rust; its only Java code is a small listener for the
 system's speech output (reading aloud). The app runs on Android
 e-readers (Boox and others) and on any Android device with an arm64 CPU
 and Android 8 or later. It is tested on a Boox Go 7 (Android 13). It is a
-beta (0.6.0-beta.1), for testers: expect rough edges, and keep a copy of
+beta (0.6.0-beta.2), for testers: expect rough edges, and keep a copy of
 your books.
 
 ## Building

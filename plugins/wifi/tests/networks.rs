@@ -402,6 +402,18 @@ impl Device {
         // Switched on here: the page looks for networks.
         assert_eq!(self.told(), [WifiCommand::Scan]);
         self.radio(WifiEvent::Scanned(networks));
+        self.open_networks();
+    }
+
+    /// Opens the page of the networks from the Wi-Fi page.
+    fn open_networks(&mut self) {
+        if self.kernel.device().input.touch {
+            self.tap("Networks");
+        } else {
+            self.focus("Networks");
+            self.run(actions::CONFIRM);
+        }
+        assert_eq!(self.on_top(), Some("wifi.networks"));
     }
 
     fn says(&mut self, text: &str) -> bool {
@@ -426,10 +438,11 @@ fn odd_network_names_are_listed_strongest_first_each_once() {
     device.open();
     assert!(device.rows()[0].starts_with("Wi-Fi, Off"));
     device.radio_on_with(odd_networks());
+    // The networks have a page of their own, not the Wi-Fi page's.
+    assert!(!device.rows().iter().any(|r| r.starts_with("Wi-Fi")));
     let rows = device.rows();
     let names: Vec<&str> = rows
         .iter()
-        .skip(1)
         .take(4)
         .map(|r| r.split(", ").next().unwrap())
         .collect();
@@ -443,8 +456,8 @@ fn odd_network_names_are_listed_strongest_first_each_once() {
         "{rows:?}"
     );
     assert!(names[2].starts_with("abcdefghijklmnop"), "{rows:?}");
-    assert!(rows[1].contains("Excellent signal"), "{rows:?}");
-    assert!(rows[3].contains("Open, no password"), "{rows:?}");
+    assert!(rows[0].contains("Excellent signal"), "{rows:?}");
+    assert!(rows[2].contains("Open, no password"), "{rows:?}");
 }
 
 #[test]
@@ -476,9 +489,20 @@ fn a_secured_network_joined_with_a_password_by_touch() {
     }));
     assert_eq!(device.saved(), [(UNICODE.into(), "hunter22".into())]);
     assert!(
-        device.rows()[0].contains("Connected to"),
+        device.rows()[1].contains("Connected"),
         "{:?}",
         device.rows()
+    );
+    // Back on the Wi-Fi page, which says where the radio is and has the
+    // network in its row of the networks.
+    device.run(actions::BACK);
+    assert_eq!(device.on_top(), Some("wifi.page"));
+    let rows = device.rows();
+    assert!(rows[0].contains("Connected to"), "{rows:?}");
+    assert!(
+        rows.iter()
+            .any(|r| r.starts_with("Networks") && r.contains(UNICODE)),
+        "{rows:?}"
     );
     // Among the secrets, veiled; not in the configuration nor anywhere in
     // clear.
@@ -557,7 +581,7 @@ fn a_password_typed_and_cancelled_joins_nothing() {
     device.radio_on_with(vec![network("Home", -50, true)]);
     device.tap("Home");
     device.run(actions::BACK);
-    assert_eq!(device.on_top(), Some("wifi.page"));
+    assert_eq!(device.on_top(), Some("wifi.networks"));
     // Back on the page it may look for networks again; it joins nothing.
     let told = device.told();
     assert!(told.iter().all(|c| *c == WifiCommand::Scan), "{told:?}");
@@ -573,7 +597,7 @@ fn an_open_network_is_joined_without_asking_and_not_saved() {
     device.open();
     device.radio_on_with(vec![network("Library", -50, false)]);
     device.tap("Library");
-    assert_eq!(device.on_top(), Some("wifi.page"));
+    assert_eq!(device.on_top(), Some("wifi.networks"));
     assert_eq!(
         device.told(),
         [WifiCommand::Join {
@@ -613,7 +637,7 @@ fn a_saved_network_is_joined_again_without_asking_and_forgotten() {
     ]);
     assert!(device.row("Home").label.contains("Saved"));
     device.tap("Home");
-    assert_eq!(device.on_top(), Some("wifi.page"));
+    assert_eq!(device.on_top(), Some("wifi.networks"));
     assert_eq!(
         device.told(),
         [WifiCommand::Join {
@@ -863,4 +887,165 @@ fn a_password_that_got_no_answer_is_offered_again() {
         name: None,
     }));
     assert_eq!(device.saved(), [("Hannes".into(), "secret1".into())]);
+}
+
+/// The labels of the rows of the Wi-Fi page.
+fn page_rows(device: &mut Device) -> Vec<String> {
+    assert_eq!(device.on_top(), Some("wifi.page"));
+    device.rows()
+}
+
+#[test]
+fn the_phone_setup_comes_first_while_no_network_is_kept_and_the_networks_row_after_it() {
+    let mut device = Device::new(TOUCH);
+    device.open();
+    // Radio off: the radio, the phone, the settings; no networks to open.
+    let rows = page_rows(&mut device);
+    assert!(rows[0].starts_with("Wi-Fi, Off"), "{rows:?}");
+    assert!(rows[1].starts_with("Set up with a phone"), "{rows:?}");
+    assert!(!rows.iter().any(|r| r.starts_with("Networks")), "{rows:?}");
+    // On: the networks row follows the phone, and says how many.
+    device.radio_on_with(vec![
+        network("Home", -50, true),
+        network("Cafe", -60, false),
+    ]);
+    device.run(actions::BACK);
+    let rows = page_rows(&mut device);
+    assert!(rows[1].starts_with("Set up with a phone"), "{rows:?}");
+    assert!(rows[2].starts_with("Networks"), "{rows:?}");
+    assert!(rows[2].contains("2 in reach"), "{rows:?}");
+    assert!(rows[3].starts_with("Connect when needed"), "{rows:?}");
+}
+
+#[test]
+fn with_a_network_kept_the_networks_row_comes_before_the_phone_setup() {
+    let mut device = Device::new(TOUCH);
+    device
+        .kernel
+        .set_secret(paperpaw_sdk::wifi::keep("Home", "pw"));
+    device.open();
+    device.radio_on_with(vec![network("Home", -50, true)]);
+    device.run(actions::BACK);
+    let rows = page_rows(&mut device);
+    assert!(rows[1].starts_with("Networks"), "{rows:?}");
+    assert!(rows[1].contains("1 in reach"), "{rows:?}");
+    assert!(rows[2].starts_with("Set up with a phone"), "{rows:?}");
+}
+
+#[test]
+fn the_networks_page_is_left_with_back_and_does_not_scan_again_on_opening() {
+    let mut device = Device::new(BUTTONS);
+    device.open();
+    device.radio_on_with(vec![network("Home", -50, true)]);
+    // Opened from the Wi-Fi page, which had the networks looked for: no
+    // second scan for it.
+    assert!(device.told().is_empty());
+    assert!(device.row("Home").label.contains("Excellent signal"));
+    device.run(actions::BACK);
+    assert_eq!(device.on_top(), Some("wifi.page"));
+    // The row of the networks was the focus; Select opens the page again.
+    device.run(actions::CONFIRM);
+    assert_eq!(device.on_top(), Some("wifi.networks"));
+}
+
+#[test]
+fn the_networks_page_closes_when_the_radio_goes_off() {
+    let mut device = Device::new(BUTTONS);
+    device.open();
+    device.radio_on_with(vec![network("Home", -50, true)]);
+    device.radio(WifiEvent::State(WifiState::Off));
+    assert_eq!(device.on_top(), Some("wifi.page"));
+    let rows = page_rows(&mut device);
+    assert!(rows[0].starts_with("Wi-Fi, Off"), "{rows:?}");
+    assert!(!rows.iter().any(|r| r.starts_with("Networks")), "{rows:?}");
+}
+
+#[test]
+fn the_networks_row_says_the_network_the_device_is_in() {
+    let mut device = Device::new(TOUCH);
+    device.open();
+    device.radio_on_with(vec![
+        network("Home", -50, false),
+        network("Cafe", -60, false),
+    ]);
+    device.tap("Home");
+    device.told();
+    device.radio(WifiEvent::State(WifiState::Online {
+        ssid: "Home".into(),
+        address: "10.0.0.2".into(),
+        name: None,
+    }));
+    device.run(actions::BACK);
+    let rows = page_rows(&mut device);
+    let row = rows.iter().find(|r| r.starts_with("Networks")).unwrap();
+    assert!(row.contains("Home · 2 in reach"), "{rows:?}");
+}
+
+#[test]
+fn the_radio_going_off_under_the_password_dialog_closes_only_the_networks_page() {
+    let mut device = Device::new(TOUCH);
+    device.open();
+    device.radio_on_with(vec![network("Home", -50, true)]);
+    device.tap("Home");
+    assert_eq!(device.on_top(), Some("keyboard.screen"));
+    device.told();
+    // The radio goes off while the password is being typed: the dialog
+    // (and what is typed in it) stays on top; the page of the networks
+    // under it, which has nothing to show now, goes.
+    device.radio(WifiEvent::State(WifiState::Off));
+    assert_eq!(device.on_top(), Some("keyboard.screen"));
+    device.run(actions::BACK);
+    assert_eq!(device.on_top(), Some("wifi.page"));
+    let rows = page_rows(&mut device);
+    assert!(rows[0].starts_with("Wi-Fi, Off"), "{rows:?}");
+}
+
+impl Device {
+    /// Whether the radio telling `event` makes the kernel refresh the
+    /// screen: what a draw costs the device is paid for only when
+    /// something shown has changed.
+    fn radio_refreshes(&mut self, event: WifiEvent) -> bool {
+        self.now += 100;
+        let effects = self.kernel.wifi_event(Instant(self.now), event);
+        let refreshes = effects.refresh().is_some();
+        self.settle(effects);
+        refreshes
+    }
+}
+
+#[test]
+fn what_the_radio_says_that_changes_nothing_shown_draws_nothing() {
+    let mut device = Device::new(BUTTONS);
+    device.open();
+    device.radio_on_with(vec![
+        network("Home", -50, true),
+        network("Cafe", -75, false),
+    ]);
+    device.parts();
+    // The networks page: the same networks, signals a little different
+    // (the same words), draw nothing; a network more, or one gone, does.
+    let same = vec![network("Home", -52, true), network("Cafe", -74, false)];
+    assert!(!device.radio_refreshes(WifiEvent::Scanned(same)));
+    let more = vec![
+        network("Home", -52, true),
+        network("Cafe", -74, false),
+        network("Library", -80, false),
+    ];
+    assert!(device.radio_refreshes(WifiEvent::Scanned(more)));
+    device.parts();
+    // The Wi-Fi page: its row of the networks says how many are in reach.
+    // Coming back it looks for networks (its switch says so); done, it
+    // says the same again.
+    device.run(actions::BACK);
+    device.told();
+    device.parts();
+    let again = vec![
+        network("Home", -60, true),
+        network("Cafe", -70, false),
+        network("Library", -85, false),
+    ];
+    device.radio(WifiEvent::Scanned(again.clone()));
+    device.parts();
+    assert!(!device.radio_refreshes(WifiEvent::Scanned(again)));
+    assert!(device.radio_refreshes(WifiEvent::Scanned(vec![network("Home", -60, true)])));
 }

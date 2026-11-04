@@ -277,8 +277,9 @@ fn a_card_that_cannot_be_read_says_so() {
     }
 }
 
-/// A card whose books folder cannot be listed (a failing card).
-struct BrokenFolder(paperpaw_sdk::MemoryStorage);
+/// A card whose books folder cannot be listed (a failing card), and how
+/// its listing fails.
+struct BrokenFolder(paperpaw_sdk::MemoryStorage, paperpaw_platform::StorageError);
 
 impl paperpaw_platform::Storage for BrokenFolder {
     fn read_at(
@@ -291,6 +292,9 @@ impl paperpaw_platform::Storage for BrokenFolder {
     }
 
     fn size(&self, path: &str) -> Result<u64, paperpaw_platform::StorageError> {
+        if path.is_empty() && self.1 == paperpaw_platform::StorageError::CARD_GONE {
+            return Err(self.1);
+        }
         self.0.size(path)
     }
 
@@ -308,7 +312,7 @@ impl paperpaw_platform::Storage for BrokenFolder {
         visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
     ) -> Result<(), paperpaw_platform::StorageError> {
         if dir.trim_matches('/').starts_with("books") {
-            return Err(paperpaw_platform::StorageError::Io);
+            return Err(self.1);
         }
         self.0.list(dir, visit)
     }
@@ -325,7 +329,10 @@ fn a_books_folder_that_cannot_be_read_says_so() {
     let _turn = turn();
     for device in DEVICES {
         let memory = paperpaw_sdk::MemoryStorage::new().with("books/a.txt", TEXT);
-        let storage = Shared(std::rc::Rc::new(BrokenFolder(memory)));
+        let storage = Shared(std::rc::Rc::new(BrokenFolder(
+            memory,
+            paperpaw_platform::StorageError::Io,
+        )));
         storage.set_config("");
         storage.write(SETUP_DONE, b"").unwrap();
         let mut app = App::new(device, storage);
@@ -333,6 +340,28 @@ fn a_books_folder_that_cannot_be_read_says_so() {
         app.wait(3000);
         assert!(!app.shows("Collecting"), "{}", app.described());
         assert!(app.shows("Couldn’t read the books"), "{}", app.described());
+    }
+}
+
+/// The memory card lost until a restart (taken out and put back more
+/// often than a run allows, #145): the library asks for a restart rather
+/// than saying it tries again by itself.
+#[test]
+fn a_card_lost_until_a_restart_asks_for_one() {
+    let _turn = turn();
+    for device in DEVICES {
+        let memory = paperpaw_sdk::MemoryStorage::new().with("books/a.txt", TEXT);
+        let storage = Shared(std::rc::Rc::new(BrokenFolder(
+            memory,
+            paperpaw_platform::StorageError::CARD_GONE,
+        )));
+        storage.set_config("");
+        storage.write(SETUP_DONE, b"").unwrap();
+        let mut app = App::new(device, storage);
+        app.run(actions::LIBRARY);
+        app.wait(3000);
+        assert!(app.shows("Restart PaperPaw"), "{}", app.described());
+        assert!(!app.shows("tries again"), "{}", app.described());
     }
 }
 

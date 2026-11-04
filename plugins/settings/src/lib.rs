@@ -227,7 +227,7 @@ fn reset(env: &Env<'_>, picked: &choice::Picked, cx: &mut Cx<'_, '_>) {
         .filter(|spec| !spec.is_kept_on_reset() && reset_has_value(env.settings(), &spec.id))
     {
         let chosen = match &group {
-            Some(group) => env.settings().group_of(spec) == *group && visible(env, spec),
+            Some(group) => group_is(env.settings(), spec, group) && visible(env, spec),
             None => spec.id != *language.id(),
         };
         if chosen {
@@ -262,7 +262,47 @@ fn visible(env: &Env<'_>, spec: &SettingSpec) -> bool {
     offered(env, spec)
         && (spec.level == Level::Basic
             || env.settings().read(&ADVANCED)
-            || env.settings().group_of(spec) == groups::DEVELOPER)
+            || group_is(env.settings(), spec, &groups::DEVELOPER))
+}
+
+/// Whether `spec` is shown in group `of` (what `Settings::group_of` says
+/// of it), without making the group's id: the pages ask it of every setting
+/// there is, each time one is opened (#118).
+fn group_is(settings: &paperpaw_sdk::Settings, spec: &SettingSpec, of: &Id) -> bool {
+    let registered = |group: &Id| settings.groups().any(|g| g.id == *group);
+    if spec.group == *of {
+        // A group that is not registered shows nothing of its own.
+        *of == groups::OTHER || registered(of)
+    } else {
+        *of == groups::OTHER && !registered(&spec.group)
+    }
+}
+
+/// The groups that hold a setting `shown` is true of, each setting counted
+/// in the group it is shown in: asked once for all of them, not once for each
+/// part of a group (#118). A setting is asked about only if its group is not
+/// in the list yet.
+fn groups_holding(env: &Env<'_>, shown: impl Fn(&SettingSpec) -> bool) -> Vec<Id> {
+    let other = groups::OTHER;
+    let mut found: Vec<Id> = Vec::new();
+    // The last setting's group, and whether it is a registered one:
+    // settings of a plugin come together.
+    let mut last: Option<(&Id, bool)> = None;
+    for spec in env.settings().specs() {
+        let registered = match last {
+            Some((group, registered)) if *group == spec.group => registered,
+            _ => {
+                let registered = env.settings().groups().any(|g| g.id == spec.group);
+                last = Some((&spec.group, registered));
+                registered
+            }
+        };
+        let group = if registered { &spec.group } else { &other };
+        if !found.contains(group) && shown(spec) {
+            found.push(group.clone());
+        }
+    }
+    found
 }
 
 /// Whether `spec` is offered here at all, advanced or not: it means
@@ -286,7 +326,7 @@ fn offered(env: &Env<'_>, spec: &SettingSpec) -> bool {
     }
     // For developers, once they asked for it; then without the advanced
     // switch.
-    if env.settings().group_of(spec) == groups::DEVELOPER {
+    if group_is(env.settings(), spec, &groups::DEVELOPER) {
         return env
             .settings()
             .bool(paperpaw_sdk::builtin::settings::DEVELOPER.as_str());
@@ -453,5 +493,37 @@ mod tests {
         settings.reset(id.as_str()).unwrap();
         assert!(!reset_has_value(&settings, &id));
         assert_eq!(settings.int(id.as_str()), 9, "the global value remains");
+    }
+
+    #[test]
+    fn group_is_says_what_group_of_says() {
+        let mut settings = paperpaw_sdk::Settings::new();
+        for id in ["a.one", "a.two"] {
+            settings
+                .add_group(paperpaw_sdk::SettingGroupSpec::new(Id::new_static(id), "G"))
+                .unwrap();
+        }
+        let ids = ["a.one", "a.two", "a.none"];
+        let others = [
+            groups::OTHER,
+            groups::DEVELOPER,
+            Id::new_static("b.nowhere"),
+        ];
+        for group in ids.iter().copied().map(Id::new_static).chain(others) {
+            let spec = SettingSpec::switch("t.x", "X", false, group);
+            for of in ids
+                .iter()
+                .copied()
+                .map(Id::new_static)
+                .chain([groups::OTHER, groups::DEVELOPER])
+            {
+                assert_eq!(
+                    group_is(&settings, &spec, &of),
+                    settings.group_of(&spec) == of,
+                    "{} in {of}",
+                    spec.group
+                );
+            }
+        }
     }
 }

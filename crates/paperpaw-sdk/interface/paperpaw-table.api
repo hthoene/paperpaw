@@ -171,6 +171,13 @@ pub const paperpaw_table::index::ui::TEXT_NOTE_LINE_HEIGHT: usize
 pub const paperpaw_table::index::ui::TEXT_PUT_RUN: usize
 pub const paperpaw_table::index::ui::TEXT_TR_INPUT: usize
 pub const paperpaw_table::index::ui::UI_SHOWS: usize
+pub mod paperpaw_table::index::widgets
+pub const paperpaw_table::index::widgets::COUNT: usize
+pub const paperpaw_table::index::widgets::FAMILY: paperpaw_table::Family
+pub const paperpaw_table::index::widgets::WIDGET_DRAW_CAPTION: usize
+pub const paperpaw_table::index::widgets::WIDGET_DRAW_FRAME: usize
+pub const paperpaw_table::index::widgets::WIDGET_FRAME_HEIGHT: usize
+pub const paperpaw_table::index::widgets::WIDGET_LOOK: usize
 pub const paperpaw_table::index::HASH: &str
 pub const paperpaw_table::index::OLDEST: paperpaw_table::Revisions
 pub const paperpaw_table::index::REVISIONS: paperpaw_table::Revisions
@@ -187,6 +194,7 @@ pub const paperpaw_table::Family::FONTS: paperpaw_table::Family
 pub const paperpaw_table::Family::GRAPHICS: paperpaw_table::Family
 pub const paperpaw_table::Family::TEXT: paperpaw_table::Family
 pub const paperpaw_table::Family::UI: paperpaw_table::Family
+pub const paperpaw_table::Family::WIDGETS: paperpaw_table::Family
 pub const fn paperpaw_table::Family::number(self) -> usize
 pub const fn paperpaw_table::Family::of(u8) -> core::option::Option<paperpaw_table::Family>
 pub struct paperpaw_table::HostTables(_)

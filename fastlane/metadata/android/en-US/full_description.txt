@@ -1,4 +1,4 @@
-<p><b>Beta:</b> this is version 0.6.0-beta.1, for testers. Expect rough edges, and keep a copy of your books.</p>
+<p><b>Beta:</b> this is version 0.6.0-beta.2, for testers. Expect rough edges, and keep a copy of your books.</p>
 
 <p>PaperPaw is a free e-reader made for e-ink devices such as Onyx Boox readers. It is fast, light on the battery and simple by default: turn it on and keep reading. Everything it does comes from plugins, and every screen, menu, button and gesture can be changed.</p>
 

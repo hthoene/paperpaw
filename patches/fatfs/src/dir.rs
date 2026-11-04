@@ -536,6 +536,24 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         self.remove_entries(&e)
     }
 
+    // Modified for PaperPaw: added.
+
+    /// Removes the entries of `e`, found by `iter` (or `iter_from`) and nothing changed in the
+    /// directory since, leaving its data: for an entry that cannot be named (one of a damaged
+    /// directory), whose data may be another's. A directory's entries are left as they are.
+    /// Make sure there is no reference to it (no File instance) or filesystem corruption can
+    /// happen.
+    ///
+    /// # Errors
+    ///
+    /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
+    pub fn unlink_found(&self, e: &DirEntry<'a, IO, TP, OCC>) -> Result<(), Error<IO::Error>> {
+        if let Some(n) = e.first_cluster().filter(|_| e.is_dir()) {
+            self.fs.drop_dir_note(n);
+        }
+        self.remove_entries(e)
+    }
+
     /// Puts file `src_name` in the place of file `dst_name`, both in this directory, removing the
     /// file that was there.
     ///
@@ -718,14 +736,30 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         dst_dir.write_entry(dst_name, sfn_entry)?;
         self.remove_entries(e)?;
         if e.is_dir() {
-            let parent_cluster = if dst_dir.stream.is_root_dir() {
-                None
-            } else {
-                dst_dir.stream.first_cluster()
-            };
-            e.to_dir()
-                .find_entry("..", Some(true), None)?
-                .set_first_cluster(parent_cluster)?;
+            e.to_dir().point_up(dst_dir)?;
+        }
+        Ok(())
+    }
+
+    // Modified for PaperPaw: added.
+
+    /// Points the `..` entry of this directory at `parent`, the directory it is in, where it
+    /// points elsewhere: the last step of moving a directory (`rename_found`), which a move cut
+    /// off (power lost) may not have made.
+    ///
+    /// # Errors
+    ///
+    /// * `Error::NotFound` will be returned if this directory has no `..` entry (the root).
+    /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
+    pub fn point_up(&self, parent: &Dir<IO, TP, OCC>) -> Result<(), Error<IO::Error>> {
+        let parent_cluster = if parent.stream.is_root_dir() {
+            None
+        } else {
+            parent.stream.first_cluster()
+        };
+        let dotdot = self.find_entry("..", Some(true), None)?;
+        if dotdot.first_cluster() != parent_cluster {
+            dotdot.set_first_cluster(parent_cluster)?;
         }
         Ok(())
     }

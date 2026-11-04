@@ -171,7 +171,7 @@ fn specs(env: &Env<'_>, group: &Id, own: Option<&Id>, more: bool) -> Vec<Setting
     };
     env.settings()
         .specs()
-        .filter(|spec| env.settings().group_of(spec) == *of && shown(spec))
+        .filter(|spec| group_is(env.settings(), spec, of) && shown(spec))
         .cloned()
         .map(|mut spec| {
             if own.is_some() {
@@ -192,12 +192,13 @@ fn entries(env: &Env<'_>, of: &Id, placed: bool, more: bool, specs: &[SettingSpe
     let has_more = !more
         && !specs.iter().any(|spec| spec.level == Level::Advanced)
         && env.settings().specs().any(|spec| {
-            env.settings().group_of(spec) == *of
-                && spec.level == Level::Advanced
+            spec.level == Level::Advanced
+                && group_is(env.settings(), spec, of)
                 && offered(env, spec)
         });
     // Its parts, each a page of its own, where they hold something (if
     // only advanced settings, shown there at once).
+    let mut holding: Option<Vec<Id>> = None;
     let mut entries: Vec<Row> = match more || placed {
         true => Vec::new(),
         false => env
@@ -205,10 +206,11 @@ fn entries(env: &Env<'_>, of: &Id, placed: bool, more: bool, specs: &[SettingSpe
             .groups()
             .filter(|g| g.parent.as_ref() == Some(of))
             .filter(|g| {
-                env.settings().specs().any(|spec| {
-                    env.settings().within(&env.settings().group_of(spec), &g.id)
-                        && offered(env, spec)
-                })
+                // Asked of the settings once, for all the parts.
+                holding
+                    .get_or_insert_with(|| groups_holding(env, |spec| offered(env, spec)))
+                    .iter()
+                    .any(|held| env.settings().within(held, &g.id))
             })
             .map(|g| Row::Part(g.id.clone(), env.i18n().tr(&g.title).to_string()))
             .collect(),
@@ -584,6 +586,12 @@ impl GroupPage {
 }
 
 impl Screen for GroupPage {
+    /// No pictures on it: whole-screen frames need no extra pass to count
+    /// them (see [`Screen::pictures_in_grays`]).
+    fn pictures_in_grays(&self) -> bool {
+        false
+    }
+
     /// Turned or resized: the page laid out anew, the focus on its row.
     fn on_resize(&mut self, cx: &mut Cx<'_, '_>) -> Handled {
         let focus = self.rows.focus();

@@ -17,7 +17,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 paperpaw-emulator = { path = "../desktop", default-features = false }
 paperpaw-dev = { path = "../../tools/dev" }
-paperpaw-core = { workspace = true, features = ["color", "outline"] }
+paperpaw-core = { workspace = true, features = ["color", "outline", "panes"] }
 paperpaw-platform.workspace = true
 # The remote control's commands, parsed as on an X4.
 paperpaw-x4.workspace = true

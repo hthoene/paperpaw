@@ -227,6 +227,8 @@ pub paperpaw_platform::storage::StorageError::NotFound
 pub paperpaw_platform::storage::StorageError::Other(u16)
 pub paperpaw_platform::storage::StorageError::TooLarge
 pub paperpaw_platform::storage::StorageError::Unsupported
+impl paperpaw_platform::storage::StorageError
+pub const paperpaw_platform::storage::StorageError::CARD_GONE: Self
 impl core::error::Error for paperpaw_platform::storage::StorageError
 impl core::fmt::Debug for paperpaw_platform::storage::StorageError
 pub fn paperpaw_platform::storage::StorageError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -410,6 +412,8 @@ pub paperpaw_platform::StorageError::NotFound
 pub paperpaw_platform::StorageError::Other(u16)
 pub paperpaw_platform::StorageError::TooLarge
 pub paperpaw_platform::StorageError::Unsupported
+impl paperpaw_platform::storage::StorageError
+pub const paperpaw_platform::storage::StorageError::CARD_GONE: Self
 impl core::error::Error for paperpaw_platform::storage::StorageError
 impl core::fmt::Debug for paperpaw_platform::storage::StorageError
 pub fn paperpaw_platform::storage::StorageError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result

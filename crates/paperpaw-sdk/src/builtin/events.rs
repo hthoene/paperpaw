@@ -78,6 +78,21 @@ crate::event_data! {
 }
 
 crate::event_data! {
+    /// The display's new size ([`DISPLAY_CHANGED`]).
+    pub struct DisplayChanged {
+        /// All of the display, in pixels: bars and the row of hints
+        /// included.
+        pub width: u16,
+        pub height: u16,
+        /// The display's [class](crate::ui::ScreenClass) by its width, at
+        /// the reader's size of text.
+        pub class: crate::ui::ScreenClass,
+        /// Wider than high.
+        pub landscape: bool,
+    }
+}
+
+crate::event_data! {
     /// Text typed from outside the screen ([`TYPE_TEXT`]).
     pub struct TypeText {
         /// What was typed, as many characters as there are.
@@ -86,6 +101,16 @@ crate::event_data! {
     optional {
         /// The text is then confirmed, as with the keyboard's *OK*.
         pub done: bool,
+    }
+}
+
+crate::event_data! {
+    /// The page text of an open menu bar ([`MENU_PAGE`]).
+    pub struct MenuPage {
+        /// The menu the bar shows ([`params::MENU`](super::params::MENU)).
+        pub menu: String,
+        /// Its page text now ([`params::PAGE`](super::params::PAGE)).
+        pub page: String,
     }
 }
 
@@ -532,6 +557,13 @@ pub const TYPE_TEXT: Event<TypeText> = Event::new("core.type-text");
 /// ([`FocusChanged`]): for screen readers of one's own. Worked out
 /// only while a plugin listens or the focus is spoken.
 pub const FOCUS_CHANGED: Event<FocusChanged> = Event::new("core.focus-changed");
+/// What the page text of an open menu bar says changed ([`MenuPage`]):
+/// whoever opened the menu slot ([`slots::MENU`](super::slots::MENU))
+/// in mode `bar` with [`params::PAGE`](super::params::PAGE) emits it
+/// where that text changes while the bar is open (a reader that finished
+/// counting its pages under it). The bar that shows that menu shows the
+/// new text.
+pub const MENU_PAGE: Event<MenuPage> = Event::new("core.menu-page");
 /// A book was opened for reading ([`Reading`]). Every reader plugin
 /// emits it, so home screens, statistics or sync plugins work with any
 /// reader. Not for documents in hidden folders
@@ -749,3 +781,9 @@ pub const WORK_ALLOWED: Event<()> = Event::new("core.work-allowed");
 /// once a second), sent to that plugin, e.g. for its page; the work's
 /// id comes as [`params::ID`](super::params::ID).
 pub const WORK_CHANGED: Event<()> = Event::new("core.work-changed");
+/// The display changed its size, e.g. the device turned or a window was
+/// resized ([`DisplayChanged`]): sent once, after the screens open were
+/// laid out for it ([`Screen::on_resize`](crate::Screen::on_resize)). For
+/// what a plugin keeps outside its screens at a size, e.g. pictures made
+/// for a cell. Screens need not listen: they are laid out anew.
+pub const DISPLAY_CHANGED: Event<DisplayChanged> = Event::new("core.display-changed");

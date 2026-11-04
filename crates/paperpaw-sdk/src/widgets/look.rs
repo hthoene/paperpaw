@@ -20,6 +20,24 @@
 //! }
 //! ```
 //!
+//! **The shared look is a helper, never a must.** A widget may draw all
+//! of itself: its own frame, plate, shape and colours, without
+//! [`draw_frame`] or [`widget_look`], and then no setting for widgets
+//! (the reader's own or those of all widgets: frame, paper, ink,
+//! corners, frame line, shadow, spacing) changes what it draws; a grid
+//! lays only the screen's [`Plate`](super::Plate) under it. A widget
+//! using the helpers may still take what it likes: make its own
+//! [`WidgetLook`] ([`WidgetLook::new`]), change the fields of the one it
+//! is given, or leave out the settings it does not offer (each reads as
+//! automatic). A theme or look plugin paints every frame itself with a
+//! frame painter ([`Painters::frame`](crate::ui::look::Painters)); it is
+//! given the widget's corners and line in the style, and a paper the
+//! reader chose for a widget is painted instead of it. Since interface 6,
+//! revision 1 of the `widgets` family, [`widget_look`], [`draw_frame`], [`frame_height`] and
+//! [`draw_caption`] run the firmware's code (shared functions, ADR 0026),
+//! so the look stays alike across plugins and a later change reaches
+//! plugins built from then on without a rebuild.
+//!
 //! Text in a widget fits its place rather than running out of it: what
 //! must stay on one line (a time, a date, a number, a title in a small
 //! cell) is made smaller down to a least size and only then shortened
@@ -210,7 +228,8 @@ pub struct WidgetLook {
     pub ink: Color,
     /// Text that matters less (captions, notes).
     pub faint: Color,
-    /// What lies behind it: white, or black on a dark card.
+    /// What lies behind it: white, black on a dark card, or as the
+    /// widget's paper setting says ([`paper`](super::paper)).
     pub paper: Color,
     pub frame: Frame,
 }
@@ -287,9 +306,11 @@ pub const fn padding_spec(id: &'static str, widget: Id, default: Padding) -> Set
 }
 
 /// How far `widget`'s content keeps from its frame, by its
-/// [`padding_setting`]; automatic without one.
+/// [`padding_setting`], else by that of all widgets
+/// ([`WIDGET_PADDING`](crate::builtin::settings::WIDGET_PADDING));
+/// automatic without one.
 pub fn padding(env: &Env<'_>, widget: &str) -> Padding {
-    Padding::of(env.settings().text(&format!("{widget}.padding")))
+    Padding::of(super::shape::padding_value(env, widget))
 }
 
 /// [`size_setting`] kept in the program (a `static` list): `id`
@@ -403,13 +424,18 @@ pub fn choice_setting(
     spec
 }
 
+paperpaw_table::shared! {
 /// `widget`'s place inside its frame in `area` and the colours there,
 /// without drawing (e.g. for its targets). Its content keeps from the
 /// frame as its [`padding`] says, but never more than a quarter of the
-/// place on each side, so small places keep room for it.
+/// place on each side, so small places keep room for it; a shadow
+/// ([`shadow`](super::shadow)) takes its room right and below. Shared:
+/// plugins built from interface 6, revision 1 of the
+/// `widgets` family on run the firmware's.
 pub fn widget_look(env: &Env<'_>, widget: &str, area: Rect) -> WidgetLook {
-    let style = UiStyle::new(env);
+    let style = super::shape::styled(env, widget, UiStyle::new(env));
     let frame = frame(env, widget);
+    let area = super::shape::plate_of(area, super::shape::shadow_offset(env, widget, &style, frame));
     let pad = padding(env, widget).pixels(&style, frame);
     let pad_x = pad.min(area.width / 4);
     let pad_y = pad.min(area.height / 4);
@@ -419,18 +445,7 @@ pub fn widget_look(env: &Env<'_>, widget: &str, area: Rect) -> WidgetLook {
         area.width.saturating_sub(2 * pad_x),
         area.height.saturating_sub(2 * pad_y),
     );
-    let (ink, faint, paper) = match frame {
-        Frame::Dark => (
-            Color::WHITE,
-            if style.strong {
-                Color::WHITE
-            } else {
-                style.ink(ui::Ink::ON_DARK_MUTED)
-            },
-            Color::BLACK,
-        ),
-        _ => (Color::BLACK, style.ink(ui::Ink::MUTED), Color::WHITE),
-    };
+    let [paper, ink, faint] = super::colours::colours(env, &style, widget, frame);
     WidgetLook {
         area: inner,
         ink,
@@ -438,24 +453,48 @@ pub fn widget_look(env: &Env<'_>, widget: &str, area: Rect) -> WidgetLook {
         paper,
         frame,
     }
+} @ widgets::WIDGET_LOOK
 }
 
-/// Draws `widget`'s frame in `area` (cleared before) and returns where
-/// its content goes and in which colours.
+paperpaw_table::shared! {
+/// Draws `widget`'s frame in `area` (cleared before), in its corners and
+/// line, its shadow below it, and returns where its content goes and in
+/// which colours ([`widget_look`]).
 pub fn draw_frame(canvas: &mut Canvas<'_>, env: &Env<'_>, widget: &str, area: Rect) -> WidgetLook {
-    let style = UiStyle::new(env);
+    let style = super::shape::styled(env, widget, UiStyle::new(env));
     let look = widget_look(env, widget, area);
-    // As cards are: a look of a plugin's own paints it, else the usual.
-    crate::ui::layout::paint_frame(canvas, &style, area, look.frame);
+    let offset = super::shape::shadow_offset(env, widget, &style, look.frame);
+    let plate = super::shape::plate_of(area, offset);
+    if offset > 0 {
+        let below = Rect::new(
+            plate.x.saturating_add(offset),
+            plate.y.saturating_add(offset),
+            plate.width,
+            plate.height,
+        );
+        let corner = super::shape::plate_corner(env, widget, &style, look.frame);
+        match super::shape::shadow_colour(look.paper) {
+            Color::BLACK => canvas.fill_round(below, corner, Color::BLACK),
+            shade => canvas.fill_round_shaded(below, corner, shade),
+        }
+    }
+    // A paper the reader chose, else as cards are: a look of a plugin's
+    // own paints it, else the usual.
+    if !super::colours::paint_paper(canvas, env, &style, widget, plate, &look) {
+        crate::ui::layout::paint_frame(canvas, &style, plate, look.frame);
+    }
     look
+} @ widgets::WIDGET_DRAW_FRAME
 }
 
+paperpaw_table::shared! {
 /// The height `widget`'s frame takes above and below its content, as its
 /// settings make it ([`widget_look`]): what a widget adds to the height of what
 /// it shows.
 pub fn frame_height(env: &Env<'_>, widget: &str) -> u16 {
     let probe = Rect::new(0, 0, 1000, 1000);
     1000 - widget_look(env, widget, probe).area.height
+} @ widgets::WIDGET_FRAME_HEIGHT
 }
 
 /// The height of a line of text `size` pixels large in the UI font.
@@ -501,6 +540,7 @@ fn ink_room(area: Rect) -> Rect {
     )
 }
 
+paperpaw_table::shared! {
 /// Draws `text` small at the top of `look`'s area, placed as `widget`'s
 /// alignment says ([`align`](super::align)), e.g. "Today" over the
 /// numbers; returns the area left below it.
@@ -532,6 +572,7 @@ pub fn draw_caption(
         );
     }
     Rect::new(area.x, area.y + height, area.width, area.height - height)
+} @ widgets::WIDGET_DRAW_CAPTION
 }
 
 /// The largest size from `max` down to `min` at which `fits` holds, or

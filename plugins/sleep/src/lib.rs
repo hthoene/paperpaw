@@ -75,6 +75,11 @@ pub const WIDGET_LIST: Setting<Text> = Setting::new("sleep.widgets");
 /// The folder of the pictures.
 pub const FOLDER: Setting<Text> = Setting::new("sleep.folder");
 const SCREEN: Id = Id::new_static("sleep.screen");
+/// Parameter of the slot `core.sleep` (set to `1`): the device is switched
+/// off after this screen, not put to sleep (the power menu's *Switch off*).
+/// Modes that leave the page as it is show the message "Switched off"
+/// instead, or it would look as if the device were on.
+pub const OFF: &str = "off";
 
 pub(crate) fn data(name: &str) -> String {
     format!("{}/{name}", Env::plugin_dir(PLUGIN.as_str()))
@@ -210,8 +215,8 @@ static SCREENS: [FixedScreen; 2] = [
         "sleep.setting.overlay-picture",
         |env, params| Box::new(overlay::Picker::new(env, params)),
     ),
-    FixedScreen::new(SCREEN, "sleep.title", |env, _| {
-        Box::new(SleepScreen::new(env))
+    FixedScreen::new(SCREEN, "sleep.title", |env, params| {
+        Box::new(SleepScreen::new(env, params.get(OFF) == Some("1")))
     })
     .instances(paperpaw_sdk::Instances::SINGLE),
 ];
@@ -381,11 +386,17 @@ struct SleepScreen {
     logo: Option<Logo>,
     /// Whether the device woke since the screen opened.
     woke: bool,
+    /// The device is switched off, not asleep (see [`OFF`]).
+    off: bool,
 }
 
 impl SleepScreen {
-    fn new(env: &Env<'_>) -> Self {
+    fn new(env: &Env<'_>, off: bool) -> Self {
         let mut show = env.settings().read(&SHOW).to_string();
+        // Off, the page staying would look like a device that is on.
+        if off && matches!(show.as_str(), PAGE | OVERLAY) {
+            show = MESSAGE.to_string();
+        }
         // What goes over the page where it is used now, and there is
         // something; else the cover. Why not is kept for the picker.
         let mut over_page = None;
@@ -450,6 +461,7 @@ impl SleepScreen {
             widgets,
             logo,
             woke: false,
+            off,
         }
     }
 }
@@ -537,7 +549,11 @@ impl Screen for SleepScreen {
             None => {
                 let style = UiStyle::new(env);
                 let mut ui = ui::Ui::new(canvas, env, &style);
-                let text = env.i18n().tr("sleep.sleeping");
+                let text = env.i18n().tr(if self.off {
+                    "sleep.off"
+                } else {
+                    "sleep.sleeping"
+                });
                 let Some(logo) = &self.logo else {
                     ui.message(screen, text);
                     return;
@@ -547,11 +563,17 @@ impl Screen for SleepScreen {
                 let (_, h) = logo.fit(side, side);
                 let line = paperpaw_sdk::widgets::line_height(env, style.text());
                 let gap = style.gap() * 2;
-                let top = display.height.saturating_sub(h + gap + line) / 2;
+                // Off, a second line tells how to switch on.
+                let lines = if self.off { 2 * line + gap / 2 } else { line };
+                let top = display.height.saturating_sub(h + gap + lines) / 2;
                 let area = Rect::new(0, top, display.width, h);
                 logo.draw(ui.canvas(), env.storage(), area, Color::BLACK);
                 let below = Rect::new(0, top + h + gap, display.width, line);
                 ui.message(below, text);
+                if self.off {
+                    let hint = Rect::new(0, below.y + line + gap / 2, display.width, line);
+                    ui.message(hint, env.i18n().tr("sleep.off-hint"));
+                }
             }
         }
     }

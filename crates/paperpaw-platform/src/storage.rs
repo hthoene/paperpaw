@@ -37,6 +37,14 @@ pub enum StorageError {
     Other(u16),
 }
 
+impl StorageError {
+    /// The memory card was taken out, and PaperPaw cannot read it again
+    /// in this run (it was put back more often than a run allows, or
+    /// holds nothing PaperPaw reads): nothing is read or written until
+    /// PaperPaw starts again. Code 1 of [`StorageError::Other`].
+    pub const CARD_GONE: Self = Self::Other(1);
+}
+
 // By hand: a derived one would bring the formatter's tuple printing into
 // every plugin that prints a storage error.
 impl fmt::Debug for StorageError {

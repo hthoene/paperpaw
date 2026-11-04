@@ -7,7 +7,7 @@
 //!
 //! # Status
 //!
-//! This is a beta (0.6.0-beta.1). The SDK may still change before 1.0;
+//! This is a beta (0.6.0-beta.2). The SDK may still change before 1.0;
 //! the CHANGELOG lists every breaking change with what replaces it.
 //! A plugin with code is built for a plugin interface
 //! ([`native::INTERFACE`]) and rebuilt when a release raises it.

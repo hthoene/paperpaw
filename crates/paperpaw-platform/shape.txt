@@ -15,6 +15,7 @@ const paperpaw_platform::input::buttons::RIGHT: &str = "right"
 const paperpaw_platform::input::buttons::UP: &str = "up"
 const paperpaw_platform::pixel::Color::BLACK: paperpaw_platform::pixel::Color = Color::gray(0)
 const paperpaw_platform::pixel::Color::WHITE: paperpaw_platform::pixel::Color = Color::gray(255)
+const paperpaw_platform::storage::StorageError::CARD_GONE: Self = Self::Other(1)
 enum paperpaw_platform::MemoryClass { Small, Large }
 enum paperpaw_platform::display::RefreshMode { Mono, Fast, Partial, Gray, Full, Clear, Other(0: u16) }
 enum paperpaw_platform::display::Rotation { Deg0, Deg90, Deg180, Deg270 }

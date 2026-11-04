@@ -13,6 +13,10 @@ use paperpaw_sdk::{Id, Manifest, Plugin, RegisterError, Registrar, SettingSpec, 
 pub const PLUGIN: Id = Id::new_static("x4");
 /// The processor sleeps lightly while idle on battery (see `power`).
 pub const LIGHT_SLEEP: Setting<bool> = Setting::new("x4.light-sleep");
+/// The device does not sleep by itself while on USB, and a sleep asked for
+/// only shows the sleep picture: the computer keeps the link (a developer's
+/// choice, see `firmware::dozing`).
+pub const STAY_AWAKE_USB: Setting<bool> = Setting::new("x4.stay-awake-usb");
 /// How quickly presses are answered on battery: *Faster* sleeps the
 /// processor less between readings of the buttons, and the X4 Pro's panel
 /// stays powered; *Saving* sleeps it longer, for a little less current
@@ -21,7 +25,7 @@ pub const BUTTON_RESPONSE: Setting<paperpaw_sdk::setting::Text> =
     Setting::new("x4.button-response");
 /// How long the reader sleeps before it switches itself off (the choices
 /// are in `paperpaw_x4::sleeping`).
-#[cfg(feature = "esp32c3")]
+#[cfg(feature = "asleep-light")]
 pub const POWER_OFF_AFTER: Setting<paperpaw_sdk::setting::Text> =
     Setting::new("x4.power-off-after");
 /// The choices of [`BUTTON_RESPONSE`].
@@ -137,7 +141,7 @@ pub struct X4;
 
 /// How quickly presses are answered; whether it sleeps lightly between
 /// button reads.
-static SETTINGS: [SettingSpec; 2] = [
+static SETTINGS: [SettingSpec; 3] = [
     SettingSpec::choice(
         BUTTON_RESPONSE.static_str(),
         "x4.button-response",
@@ -153,10 +157,17 @@ static SETTINGS: [SettingSpec; 2] = [
         groups::DEVELOPER,
     )
     .description("x4.light-sleep.help"),
+    SettingSpec::switch(
+        STAY_AWAKE_USB.static_str(),
+        "x4.stay-awake-usb",
+        false,
+        groups::DEVELOPER,
+    )
+    .description("x4.stay-awake-usb.help"),
 ];
 
 /// How long asleep before it switches off (next to *Sleep after*).
-#[cfg(feature = "esp32c3")]
+#[cfg(feature = "asleep-light")]
 static SLEEP_SETTINGS: [SettingSpec; 1] = [SettingSpec::choice(
     POWER_OFF_AFTER.static_str(),
     "x4.power-off-after",
@@ -376,7 +387,7 @@ impl Plugin for X4 {
 
     fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
         r.add_settings(&SETTINGS)?;
-        #[cfg(feature = "esp32c3")]
+        #[cfg(feature = "asleep-light")]
         r.add_settings(&SLEEP_SETTINGS)?;
         #[cfg(feature = "x4")]
         if SSD1677.load(core::sync::atomic::Ordering::Relaxed) {

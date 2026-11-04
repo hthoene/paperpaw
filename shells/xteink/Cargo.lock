@@ -2372,7 +2372,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-app"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2408,14 +2408,14 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-config"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-table",
 ]
 
 [[package]]
 name = "paperpaw-core"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-config",
  "paperpaw-graphics",
@@ -2427,14 +2427,14 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-digest"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-platform",
 ]
 
 [[package]]
 name = "paperpaw-document"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-lang",
  "paperpaw-platform",
@@ -2442,7 +2442,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-fat"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "fatfs",
  "hadris-fat",
@@ -2454,7 +2454,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-graphics"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-platform",
  "paperpaw-table",
@@ -2462,19 +2462,19 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-hid"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 
 [[package]]
 name = "paperpaw-http"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 
 [[package]]
 name = "paperpaw-hyphen"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 
 [[package]]
 name = "paperpaw-i18n"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-config",
  "paperpaw-lang",
@@ -2483,7 +2483,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-image"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "miniz_oxide",
  "paperpaw-platform",
@@ -2491,7 +2491,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-json"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-platform",
  "paperpaw-table",
@@ -2499,11 +2499,11 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-lang"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 
 [[package]]
 name = "paperpaw-layout"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-document",
  "paperpaw-platform",
@@ -2512,7 +2512,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-native"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "ed25519-compact",
  "paperpaw-digest",
@@ -2520,7 +2520,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-platform"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 
 [[package]]
 name = "paperpaw-plugin-about"
@@ -2539,7 +2539,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-diagnostics"
-version = "1.0.5"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -2561,7 +2561,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-files"
-version = "1.0.4"
+version = "1.0.6"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -2576,7 +2576,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-epub"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "miniz_oxide",
  "paperpaw-sdk",
@@ -2598,14 +2598,14 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-help"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-home"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -2634,7 +2634,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-menu"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -2655,42 +2655,42 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-power"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.0.6"
+version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-settings"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-setup"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-sleep"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.4"
+version = "1.0.6"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -2705,14 +2705,14 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-update"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-wifi"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -2726,18 +2726,18 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-qr"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 
 [[package]]
 name = "paperpaw-sample-frame-test"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-sdk"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-config",
  "paperpaw-digest",
@@ -2761,7 +2761,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-stardict"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "miniz_oxide",
  "paperpaw-platform",
@@ -2769,11 +2769,11 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-table"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 
 [[package]]
 name = "paperpaw-text"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "font-types",
  "paperpaw-graphics",
@@ -2786,23 +2786,24 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-update"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "ed25519-compact",
 ]
 
 [[package]]
 name = "paperpaw-x4"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "embedded-hal 1.0.0",
+ "paperpaw-config",
  "paperpaw-platform",
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-xml"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-table",
 ]
@@ -2853,7 +2854,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-zip"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "miniz_oxide",
  "paperpaw-platform",

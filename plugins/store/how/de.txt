@@ -1,4 +1,4 @@
-Mehr Plugins ist der Plugin-Store: Er findet Plugins für dieses Gerät im Internet und installiert, aktualisiert und entfernt sie. Du öffnest ihn unter Werkzeuge; er braucht WLAN.
+Der Plugin-Store findet Plugins für dieses Gerät im Internet und installiert, aktualisiert und entfernt sie. Du öffnest ihn unter Werkzeuge; er braucht WLAN.
 
 Der Anfang zeigt, was die Bibliothek empfiehlt, was neu oder gerade beliebt ist, dann die Gruppen. Eine Gruppe zeigt ihre Plugins gemischt, jeden Tag anders, damit jedes gesehen wird; sortiere sie von A bis Z, nach neu oder zuletzt aktualisiert, und springe in langen Listen zu einem Buchstaben. Öffne eines für seine Seite mit Größe und Speicherbedarf, dann Installieren, Aktualisieren oder Entfernen. Alle aktualisieren erneuert alle installierten.
 

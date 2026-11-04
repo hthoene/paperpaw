@@ -23,9 +23,14 @@ pub(crate) const WIDGET: Id = Id::new_static(NAME);
 const NAME: &str = "reading-goal.widget";
 
 /// The widget's settings, kept in the program.
-static SETTINGS: [SettingSpec; 3] = [
+static SETTINGS: [SettingSpec; 8] = [
     widgets::frame_spec("reading-goal.widget.frame", WIDGET, Frame::None),
     widgets::padding_spec("reading-goal.widget.padding", WIDGET, Padding::Auto),
+    widgets::paper_spec("reading-goal.widget.paper", WIDGET),
+    widgets::ink_spec("reading-goal.widget.ink", WIDGET),
+    widgets::corners_spec("reading-goal.widget.corners", WIDGET),
+    widgets::frame_line_spec("reading-goal.widget.frame-line", WIDGET),
+    widgets::shadow_spec("reading-goal.widget.drop-shadow", WIDGET),
     widgets::part_spec(
         "reading-goal.widget.minutes",
         WIDGET,
@@ -95,6 +100,7 @@ pub(crate) fn says(
     style: &UiStyle,
     text: &str,
     room: Rect,
+    color: Color,
 ) {
     let width = f32::from(room.width);
     let text = ui::fit(font, style.small(), text, width);
@@ -103,7 +109,7 @@ pub(crate) fn says(
     let y = room.y + room.height.saturating_sub(line) / 2;
     ui::Label::new(&text)
         .px(style.small())
-        .color(Color::BLACK)
+        .color(color)
         .draw_from(ui, x, Rect::new(room.x, y, room.width, line));
 }
 
@@ -225,7 +231,14 @@ impl Widget for Cat {
                 inner.width,
                 inner.height.saturating_sub(line),
             );
-            says(&mut ui, &font, &style, &described(env, today), room);
+            says(
+                &mut ui,
+                &font,
+                &style,
+                &described(env, today),
+                room,
+                look.ink,
+            );
         }
         if line == 0 {
             return;

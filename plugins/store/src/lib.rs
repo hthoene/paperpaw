@@ -17,6 +17,7 @@
 extern crate alloc;
 
 mod catalog;
+mod fetch;
 mod letters;
 mod list;
 mod needs;
@@ -24,6 +25,7 @@ mod origin;
 mod page;
 mod queue;
 mod request;
+mod requires;
 mod revoked;
 mod room;
 mod rows;
@@ -56,6 +58,7 @@ const PAGE_SCREEN: Id = Id::new_static("store.plugin");
 const VIEW_SCREEN: Id = Id::new_static("store.view");
 const SOURCE_SCREEN: Id = Id::new_static("store.source");
 const SHOTS_SCREEN: Id = Id::new_static("store.shots");
+const FETCH_SCREEN: Id = Id::new_static("store.fetch");
 const LETTERS_SCREEN: Id = Id::new_static("store.letters");
 /// The fonts browser's list, offered as the entry *Fonts*.
 pub(crate) const FONTS: Id = Id::new_static("fonts-browser.open");
@@ -137,7 +140,7 @@ static ENTRIES: [MenuEntry; 3] = [
 ];
 static ICONS: [(Id, &str); 2] = [(OPEN, "cloud-download"), (DISCOVER_FONTS, "typography")];
 
-static SCREENS: [FixedScreen; 6] = [
+static SCREENS: [FixedScreen; 7] = [
     FixedScreen::new(PAGE_SCREEN, "store.title", |env, params| {
         Box::new(page::PageScreen::new(env, params))
     }),
@@ -150,6 +153,10 @@ static SCREENS: [FixedScreen; 6] = [
     FixedScreen::new(SOURCE_SCREEN, "store.source", |env, params| {
         Box::new(source::SourceScreen::new(env, params))
     }),
+    FixedScreen::new(FETCH_SCREEN, "store.fetch.title", |env, params| {
+        Box::new(fetch::FetchScreen::new(env, params))
+    })
+    .instances(paperpaw_sdk::Instances::SINGLE),
     FixedScreen::new(SHOTS_SCREEN, "store.shots", |env, params| {
         Box::new(shots::ShotsScreen::new(env, params))
     }),
@@ -161,7 +168,7 @@ static SCREENS: [FixedScreen; 6] = [
 
 impl Plugin for Store {
     fn manifest(&self) -> Manifest {
-        Manifest::new(PLUGIN, "More plugins", paperpaw_sdk::package_version!())
+        Manifest::new(PLUGIN, "Plugin store", paperpaw_sdk::package_version!())
             .description("Finds, installs, updates and removes plugins for this device.")
             .how(&HOW)
             .uses(paperpaw_sdk::Uses::NETWORK)
@@ -205,8 +212,17 @@ impl Plugin for Store {
 /// in the queue ([`queue`]) has its turn.
 fn received(env: &Env<'_>, reply: &HttpReply, out: &mut Commands) {
     let mut said = paperpaw_sdk::Commands::new();
+    // Plugins put in quietly by the first-run setup ask for nothing more;
+    // those another plugin asked for may (a chain of requirements).
+    let quiet = queue::quiet(env) && !queue::requested(env);
+    let mut required = alloc::vec::Vec::new();
     let installed = match INSTALLER.received(env, reply, out) {
-        Received::Complete(done) => (finish(env, &done, &mut said), done.name, done.plugin),
+        Received::Complete(done) => {
+            // Read before it is put in its place.
+            let folder = INSTALLER.folder(env.storage()).unwrap_or_default();
+            required = requires::missing(env, &folder, &done.plugin);
+            (finish(env, &done, &mut said), done.name, done.plugin)
+        }
         Received::Failed(job) => {
             said.push(failed(env, &job.name));
             (false, job.name, job.plugin)
@@ -233,6 +249,10 @@ fn received(env: &Env<'_>, reply: &HttpReply, out: &mut Commands) {
         out.extend(said);
     }
     queue::next(env, out);
+    // What the plugin installed requires, and the device lacks, is offered.
+    if installed.0 && !quiet {
+        requires::offer(required, out);
+    }
 }
 
 /// Installs the plugin all of whose files are here, if it may be, and

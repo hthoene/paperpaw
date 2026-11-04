@@ -18,7 +18,7 @@ bench = false
 
 [dependencies]
 # A plugin's own repository names the SDK by the release it is built for,
-# e.g. `paperpaw-sdk = "0.6.0-beta.1"`; here it is the repository's.
+# e.g. `paperpaw-sdk = "0.6.0-beta.2"`; here it is the repository's.
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
 # The plugin itself: a crate of its own, tested on a computer and tried
 # in the emulator like any other.

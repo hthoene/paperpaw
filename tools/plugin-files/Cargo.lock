@@ -25,21 +25,21 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-config"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-table",
 ]
 
 [[package]]
 name = "paperpaw-digest"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-platform",
 ]
 
 [[package]]
 name = "paperpaw-document"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-lang",
  "paperpaw-platform",
@@ -47,7 +47,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-graphics"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-platform",
  "paperpaw-table",
@@ -55,11 +55,11 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-hyphen"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 
 [[package]]
 name = "paperpaw-i18n"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-config",
  "paperpaw-lang",
@@ -68,7 +68,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-image"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "miniz_oxide",
  "paperpaw-platform",
@@ -76,7 +76,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-json"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-platform",
  "paperpaw-table",
@@ -84,11 +84,11 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-lang"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 
 [[package]]
 name = "paperpaw-layout"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-document",
  "paperpaw-platform",
@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-native"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "ed25519-compact",
  "paperpaw-digest",
@@ -105,46 +105,46 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-platform"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 
 [[package]]
 name = "paperpaw-plugin-aids"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-battery"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-browser"
-version = "1.0.4"
+version = "1.0.6"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-calibre"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-diagnostics"
-version = "1.0.5"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-end-of-book"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -184,6 +184,7 @@ dependencies = [
  "paperpaw-plugin-news",
  "paperpaw-plugin-notes-overview",
  "paperpaw-plugin-notes-vault",
+ "paperpaw-plugin-picture-home",
  "paperpaw-plugin-profiles",
  "paperpaw-plugin-read-later-cloud",
  "paperpaw-plugin-reading-goal",
@@ -200,21 +201,21 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-fonts-browser"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-format-docx"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-format-epub"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "miniz_oxide",
  "paperpaw-sdk",
@@ -222,21 +223,21 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-images"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-format-mobi"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-hyphenation-da"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-hyphen",
  "paperpaw-sdk",
@@ -244,7 +245,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-hyphenation-de"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-hyphen",
  "paperpaw-sdk",
@@ -252,7 +253,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-hyphenation-es"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-hyphen",
  "paperpaw-sdk",
@@ -260,7 +261,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-hyphenation-fr"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-hyphen",
  "paperpaw-sdk",
@@ -268,7 +269,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-hyphenation-it"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-hyphen",
  "paperpaw-sdk",
@@ -276,7 +277,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-hyphenation-nb"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-hyphen",
  "paperpaw-sdk",
@@ -284,7 +285,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-hyphenation-nl"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-hyphen",
  "paperpaw-sdk",
@@ -292,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-hyphenation-pl"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-hyphen",
  "paperpaw-sdk",
@@ -300,7 +301,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-hyphenation-pt"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-hyphen",
  "paperpaw-sdk",
@@ -308,7 +309,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-hyphenation-ru"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-hyphen",
  "paperpaw-sdk",
@@ -316,7 +317,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-hyphenation-sv"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-hyphen",
  "paperpaw-sdk",
@@ -324,7 +325,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-hyphenation-uk"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "paperpaw-hyphen",
  "paperpaw-sdk",
@@ -332,7 +333,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-joplin"
-version = "1.0.3"
+version = "1.0.5"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-xml",
@@ -340,99 +341,106 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-keys"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-koreader"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-kosync"
-version = "1.0.3"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-mail"
-version = "1.0.0"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-menu-editor"
-version = "1.0.3"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-news"
-version = "1.0.6"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-notes-overview"
-version = "1.0.0"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-notes-vault"
-version = "1.0.0"
-dependencies = [
- "paperpaw-plugin-format-epub",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-profiles"
-version = "1.0.5"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-read-later-cloud"
-version = "1.0.0"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-reading-goal"
-version = "1.0.5"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-readwise"
-version = "1.0.3"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-rules"
 version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
-name = "paperpaw-plugin-stats"
+name = "paperpaw-plugin-mail"
+version = "1.0.2"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-menu-editor"
+version = "1.0.4"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-news"
+version = "1.0.8"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-notes-overview"
+version = "1.0.1"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-notes-vault"
+version = "1.0.2"
+dependencies = [
+ "paperpaw-plugin-format-epub",
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-picture-home"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-profiles"
+version = "1.0.6"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-read-later-cloud"
+version = "1.0.2"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-reading-goal"
+version = "1.0.7"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-readwise"
 version = "1.0.5"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-rules"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-stats"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-sqlite",
@@ -440,14 +448,14 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-translate"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-vocabulary"
-version = "1.1.1"
+version = "1.1.3"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-sqlite",
@@ -456,32 +464,32 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-wallabag"
-version = "1.0.3"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-weather"
-version = "1.0.3"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-widgets"
 version = "1.0.5"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
+name = "paperpaw-plugin-weather"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-widgets"
+version = "1.0.7"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-qr"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 
 [[package]]
 name = "paperpaw-sdk"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-config",
  "paperpaw-digest",
@@ -505,18 +513,18 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-sqlite"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-platform",
 ]
 
 [[package]]
 name = "paperpaw-table"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 
 [[package]]
 name = "paperpaw-text"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-graphics",
  "paperpaw-lang",
@@ -526,21 +534,21 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-update"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "ed25519-compact",
 ]
 
 [[package]]
 name = "paperpaw-xml"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "paperpaw-table",
 ]
 
 [[package]]
 name = "paperpaw-zip"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "miniz_oxide",
  "paperpaw-platform",

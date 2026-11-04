@@ -1,4 +1,4 @@
-The browser opens web pages in the reader, which shows their text like a book, and fetches books and fonts. It needs a network connection. It is off at first: add it with More plugins, or switch it on under Plugins if it is listed there.
+The browser opens web pages in the reader, which shows their text like a book, and fetches books and fonts. It needs a network connection. It is off at first: add it from the Plugin store, or switch it on under Plugins if it is listed there.
 
 Open Browser from the Tools menu. The start screen offers Search or enter address, your bookmarks and the pages you read lately. Hold an entry (with buttons, hold Select) to open it, delete it or add it to the bookmarks. Links in a page lead to further pages, and Back returns to the page before.
 

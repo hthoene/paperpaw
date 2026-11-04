@@ -65,6 +65,11 @@ macro_rules! looks {
         [
             widgets::frame_spec(concat!($id, ".frame"), $group, Frame::None),
             widgets::padding_spec(concat!($id, ".padding"), $group, Padding::Auto),
+            widgets::paper_spec(concat!($id, ".paper"), $group),
+            widgets::ink_spec(concat!($id, ".ink"), $group),
+            widgets::corners_spec(concat!($id, ".corners"), $group),
+            widgets::frame_line_spec(concat!($id, ".frame-line"), $group),
+            widgets::shadow_spec(concat!($id, ".drop-shadow"), $group),
             widgets::size_spec(concat!($id, ".size"), $group, TextSize::Medium, true),
             widgets::align_spec(concat!($id, ".align"), $group, $align),
             widgets::part_spec(concat!($id, ".caption"), $group, "mail.part.caption", true),
@@ -72,11 +77,11 @@ macro_rules! looks {
     };
 }
 
-static UNREAD_LOOK: [SettingSpec; 5] = looks!("mail.widget.unread", UNREAD, Align::Left);
-static LATEST_LOOK: [SettingSpec; 5] = looks!("mail.widget.latest", LATEST, Align::Left);
-static FLAGGED_LOOK: [SettingSpec; 5] = looks!("mail.widget.flagged", FLAGGED, Align::Left);
-static FOLDER_LOOK: [SettingSpec; 5] = looks!("mail.widget.folder", FOLDER, Align::Left);
-static WRITE_LOOK: [SettingSpec; 5] = looks!("mail.widget.write", NEW, Align::Center);
+static UNREAD_LOOK: [SettingSpec; 10] = looks!("mail.widget.unread", UNREAD, Align::Left);
+static LATEST_LOOK: [SettingSpec; 10] = looks!("mail.widget.latest", LATEST, Align::Left);
+static FLAGGED_LOOK: [SettingSpec; 10] = looks!("mail.widget.flagged", FLAGGED, Align::Left);
+static FOLDER_LOOK: [SettingSpec; 10] = looks!("mail.widget.folder", FOLDER, Align::Left);
+static WRITE_LOOK: [SettingSpec; 10] = looks!("mail.widget.write", NEW, Align::Center);
 
 /// What each shows, besides the look.
 static UNREAD_OWN: [SettingSpec; 2] = [

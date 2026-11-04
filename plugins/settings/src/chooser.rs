@@ -98,6 +98,12 @@ impl Chooser {
 }
 
 impl Screen for Chooser {
+    /// No pictures on it: whole-screen frames need no extra pass to count
+    /// them (see [`Screen::pictures_in_grays`]).
+    fn pictures_in_grays(&self) -> bool {
+        false
+    }
+
     /// Turned or resized: laid out anew, the focus on its option.
     fn on_resize(&mut self, cx: &mut Cx<'_, '_>) -> Handled {
         let (style, header, fresh) = frame(cx.env(), false);

@@ -144,10 +144,16 @@ impl Screen for LinesProbe {
 
 /// A screen standing in for another plugin's: it shows nothing and closes
 /// on *Back* as any screen does.
-struct Stand;
+/// A screen of the recorder: all of the screen, or an overlay over
+/// `.0` (the menu, a bar at the top as the menu plugin's).
+struct Stand(Option<paperpaw_sdk::Rect>);
 
 impl Screen for Stand {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+
+    fn region(&self, _: &Env<'_>) -> Option<paperpaw_sdk::Rect> {
+        self.0
+    }
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
@@ -175,6 +181,7 @@ impl Plugin for Recorder {
             ("core.word-looked-up", "looked-up"),
             ("core.text-chosen", "text-chosen"),
             ("core.annotations-changed", "annotations"),
+            ("core.menu-page", "menu-page"),
         ] {
             let heard = self.0.clone();
             let event: paperpaw_sdk::event::Event<Params> = paperpaw_sdk::event::Event::new(event);
@@ -196,7 +203,10 @@ impl Plugin for Recorder {
                 "recorder",
                 Box::new(move |_, params| {
                     heard.borrow_mut().slots.push((name, params.clone()));
-                    Box::new(Stand)
+                    // The menu as the menu plugin shows it over a book: a
+                    // bar at the top, the page below it.
+                    let bar = (name == "menu").then(|| paperpaw_sdk::Rect::new(0, 0, 480, 120));
+                    Box::new(Stand(bar))
                 }),
             ))?;
             r.bind_slot(slot, screen, Priority::DEFAULT)?;
@@ -347,6 +357,16 @@ impl Reading {
             self.now = self.now.max(at.0);
             effects = self.kernel.tick(Instant(self.now));
         }
+    }
+
+    /// Opens the book in the reader and lets no time pass: its pages are
+    /// not counted yet.
+    pub fn open_unsettled(&mut self) {
+        self.now += 10;
+        let params = Params::new().with(params::PATH, self.book.clone());
+        self.kernel
+            .open_slot(Instant(self.now), slots::READER, params);
+        assert_eq!(self.screen(), "reader.screen");
     }
 
     /// Opens the book in the reader.

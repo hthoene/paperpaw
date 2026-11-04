@@ -23,6 +23,7 @@
 extern crate alloc;
 
 mod count;
+mod dual;
 mod fetch;
 mod found;
 mod look;
@@ -36,6 +37,7 @@ use alloc::format;
 use alloc::string::String;
 
 use count::Trigger;
+pub use dual::declared as dual_boot_declared;
 use paperpaw_sdk::builtin::{events, groups};
 use paperpaw_sdk::firmware::Firmware;
 use paperpaw_sdk::{
@@ -147,6 +149,10 @@ fn started(env: &Env<'_>, firmware: &Firmware, out: &mut Commands) {
                 Arg::Str(&crate::shown_version(env.i18n(), &firmware.version)),
             )],
         )));
+        return;
+    }
+    // Beside another firmware, nothing is installed, so nothing is offered.
+    if dual::declared(storage) {
         return;
     }
     // An update waiting for plugins: asked for again where due; a week

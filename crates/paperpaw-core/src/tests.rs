@@ -311,10 +311,9 @@ fn slow_work_shows_the_busy_mark_first() {
     kernel.proceed(Instant(200));
     render(&mut kernel);
     assert_eq!(kernel.active_screen(), Some(&screens::PLACEHOLDER));
-    // Back, also not timed yet; then opening again, known to be quick:
-    // no mark.
-    assert!(press(&mut kernel, 300, "back").proceed());
-    kernel.proceed(Instant(400));
+    // Back, not timed yet but going back is taken to be quick (#118);
+    // then opening again, known to be quick: no mark.
+    assert!(!press(&mut kernel, 300, "back").proceed());
     render(&mut kernel);
     let effects = press(&mut kernel, 500, "confirm");
     assert!(!effects.proceed());
@@ -3260,6 +3259,8 @@ fn overlays_leave_the_rows_they_do_not_cover() {
 }
 
 mod action_runs;
+mod busy_mark;
+mod card_hints;
 mod chrome;
 mod clean_up;
 mod declared_work;
@@ -3272,6 +3273,7 @@ mod input;
 mod input_kinds;
 mod kernel_calls;
 mod library_catalog;
+mod panes;
 mod pictures_in_grays;
 mod plugins_loaded;
 mod realtime;
@@ -3281,6 +3283,7 @@ mod screen_life;
 mod services_declared;
 mod settings_files;
 mod stack;
+mod stay_awake;
 mod storage;
 mod ui_ink;
 mod work_sockets;

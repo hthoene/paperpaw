@@ -55,6 +55,9 @@ enum View {
     Nothing,
     /// Files, but none for this device.
     Unfit(InstallFailure),
+    /// PaperPaw shares the device with another firmware, which no update
+    /// may touch (`dual`).
+    DualBoot,
     /// An update to install, the plugin crates it leaves out, and how its
     /// version compares with the one running (older: going back).
     Ready {
@@ -237,6 +240,9 @@ impl UpdatePage {
         let Some(firmware) = env.firmware() else {
             return View::Nothing;
         };
+        if crate::dual::declared(env.storage()) {
+            return View::DualBoot;
+        }
         match &firmware.state {
             FirmwareState::Installing { done, total } => {
                 return View::Installing {
@@ -400,7 +406,9 @@ impl UpdatePage {
             // others.
             View::Waiting { .. } => alloc::vec![Button::Close, Button::Download, Button::Check],
             View::Unreachable { .. } => alloc::vec![Button::Check, Button::Close],
-            View::Unfit(_) | View::Failed(_) | View::UpToDate => alloc::vec![Button::Close],
+            View::Unfit(_) | View::Failed(_) | View::UpToDate | View::DualBoot => {
+                alloc::vec![Button::Close]
+            }
             View::Installing { .. } | View::Installed | View::Checking | View::Downloading(_) => {
                 Vec::new()
             }
@@ -472,6 +480,7 @@ impl UpdatePage {
                 with("update.nothing.help", &[("current", Arg::Str(current))]),
             ),
             View::Unfit(why) => (tr("update.unfit.title"), tr(reason(*why))),
+            View::DualBoot => (tr("update.dual-boot.title"), tr("update.dual-boot.help")),
             View::Ready {
                 update,
                 signer,

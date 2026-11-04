@@ -5,7 +5,7 @@
 #   tools/ci-local.sh [quick|full] [-j N] [--only <group>[,<group>...]] [--list] [-v]
 #
 #   quick   fmt, lint, test: what every change needs (the default)
-#   full    every group below except `fuzz` and `firmware-build`
+#   full    every group below except `fuzz`, `firmware-build` and `release-versions`
 #   --only  just these groups (names as `--list` prints them)
 #   -j N    cargo's parallel jobs (default 4; the container has 16 GB of RAM,
 #           an out-of-memory kill takes every agent's work with it)
@@ -16,6 +16,9 @@
 # listed in the summary and the script exits 1, whatever the output looked
 # like. RUSTFLAGS is `-D warnings` as in CI. A step whose tool is not
 # installed is SKIPPED, with the reason, and listed; it is not a pass.
+#
+# `release-versions` (only on request) builds the store files twice, once for the last
+# release's tag (kept afterwards), and takes minutes.
 #
 # CI jobs that cannot run here: the X4 Pro and X4 Classic firmware (Xtensa
 # compiler, `esp` toolchain), the Windows and macOS emulator, the update path
@@ -55,7 +58,7 @@ export RUSTFLAGS="-D warnings"
 
 all_groups=(fmt lint test doc msrv screens sdk embedded native architecture emulator deny firmware android)
 quick_groups=(fmt lint test)
-opt_groups=(firmware-build fuzz)
+opt_groups=(firmware-build fuzz release-versions)
 
 if [[ $list -eq 1 ]]; then
     echo "quick: ${quick_groups[*]}"
@@ -131,7 +134,7 @@ g_lint() {
 g_test() {
     run "test: workspace" "cargo test --workspace"
     run "test: tools/bluetooth-tests" "cargo test --manifest-path tools/bluetooth-tests/Cargo.toml --locked --target x86_64-unknown-linux-gnu"
-    run "test: text and fonts without default features" "cargo test -p paperpaw-text -p paperpaw-plugin-fonts-default --no-default-features"
+    run "test: text and fonts without default features" "cargo test -p paperpaw-text -p paperpaw-plugin-fonts-default -p paperpaw-core --no-default-features"
 }
 
 g_doc() {
@@ -199,9 +202,13 @@ g_embedded() {
     # 16.4 MB: 16 held until the Mail plugin (about 0.25 MB of code and
     # texts, with what its generics pull in) came, 16.3 with it; 0.6.0-beta.1's
     # last fixes (#112, #119, #120, #122: kernel and SDK code in the browser
-    # emulator, +15.6 KB) took it to 16.4. Keep the limits in ci.yml and
-    # release.yml the same.
-    run "embedded: build the web emulator" "python3 shells/web/build.py --limit-mb 16.4"
+    # emulator, +15.6 KB) took it to 16.4. The 0.6.0-beta.2 train (card swap,
+    # search field, store fetch and more, ~+2 KB on a build already at
+    # 16.40 MB) went over it, so 16.8 leaves about 0.4 MB. The browser emulator
+    # is not memory-bound like the X4; the limit is there to catch what is
+    # pulled in by accident (debug info, a host-only dependency), not 2 KB.
+    # Keep the limits in ci.yml and release.yml the same.
+    run "embedded: build the web emulator" "python3 shells/web/build.py --limit-mb 16.8"
 }
 
 g_native() {
@@ -259,7 +266,7 @@ g_architecture() {
     run "architecture: CI tool setup tests" "python3 -m unittest discover -s tools -p test_ci_tools.py"
     run "architecture: Android version codes" '
         for pair in "0.4.0-dev 40050" "0.5.0-beta.1 50001" "0.5.0-beta.2 50002" \
-          "0.5.0-beta.10 50010" "0.6.0-beta.1 60001" "0.5.0-dev 50050" "0.5.0-rc.1 50051" "0.5.0 50099" \
+          "0.5.0-beta.10 50010" "0.6.0-beta.1 60001" "0.6.0-beta.2 60002" "0.5.0-dev 50050" "0.5.0-rc.1 50051" "0.5.0 50099" \
           "0.5.1-beta.1 50101"; do
           set -- $pair
           got="$(shells/android/version-code.sh "$1")"
@@ -354,6 +361,22 @@ g_firmware-build() {
         out=target/ci-local/plugins
         rm -rf "$out"
         tools/plugin-files/build.sh x4 "$out" --fingerprint "$fp"'
+}
+
+g_release-versions() {
+    # The release's check (RELEASING.md): the store files built from this tree against
+    # the last release tag's, a plugin whose bytes changed under the same version fails.
+    # The tag's build is made once (a few minutes) and kept in ~/.cache/paperpaw/store-baseline.
+    if ! git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD > /dev/null 2>&1; then
+        skip "release-versions: store files against the last release" "no release tag in the history"
+        return
+    fi
+    if ! have_toolchain "$x4_toolchain"; then
+        skip "release-versions: store files against the last release" "toolchain $x4_toolchain not installed"
+        return
+    fi
+    run "release-versions: commits and built store files against the last release" \
+        "python3 tools/plugin-files/versions.py --release --bytes"
 }
 
 g_fuzz() {

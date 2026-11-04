@@ -52,7 +52,12 @@ impl FindScreen {
         let margin = style.margin();
         let gap = style.gap();
         let row = style.touch_row(u32::from(style.row())) as u16;
-        let search = Rect::new(0, header.area().height + gap, display.width, row);
+        let search = Rect::new(
+            0,
+            header.area().height + gap,
+            display.width,
+            ui::SearchField::height(&style),
+        );
         // Which letters have books: by title (without "The") or surname.
         let mut has = [false; 27];
         library::service(env).each(env, &mut |_, line| {
@@ -181,30 +186,16 @@ impl Screen for FindScreen {
         let Some(font) = style.font(env) else {
             return;
         };
-        // The search, as a field.
+        // The search, as every screen draws it.
         let focused = self.shown && self.focus == 0;
         let hint = env.i18n().tr("files.list.find.search");
+        // A button, of the hint drawn inside it.
         ui.canvas()
-            .describe(Role::Button, hint, self.search)
+            .describe(Role::Button, "", self.search)
             .focused(focused);
-        if focused {
-            ui.focus(self.search);
-        } else {
-            let field = ui::focus_rect(&style, self.search);
-            let radius = style.radius(u32::from(field.height));
-            ui.canvas()
-                .stroke_round(field, u32::from(style.line()).max(1), radius, Color::BLACK);
-        }
-        let ink = style.focus_ink(focused);
-        let margin = style.margin() as f32;
-        let size = style.text() * ui::ICON_SCALE;
-        let w = ui.icon("search", size, margin, self.search, ink);
-        let x = margin + w + style.gap() as f32;
-        let faint = style.focus_faint(focused, ui::Ink::DETAIL);
-        ui::Label::new(hint)
-            .px(style.text())
-            .color(faint)
-            .draw_from(&mut ui, x, self.search);
+        ui::SearchField::new(hint)
+            .focused(focused)
+            .draw(&mut ui, self.search);
         // The letters, the focused one on a dark circle.
         let big = style.title() * 1.2;
         for (n, (cell, letter)) in self.cells.iter().zip(&self.letters).enumerate() {

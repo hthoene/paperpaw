@@ -51,6 +51,15 @@ const TIGHT_HEAP: u64 = 32 * 1024;
 const SMALL_SHOT_SIDE: u32 = 1280;
 const SMALL_SHOT_BYTES: u64 = 300 * 1000;
 
+/// The row that says no build of `plugin` runs on this PaperPaw.
+fn unbuilt_row(plugin: &Entry) -> Row {
+    if plugin.waits_author {
+        Row::NoBuild
+    } else {
+        Row::NeedsNewer
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Row {
     Install,
@@ -70,6 +79,8 @@ enum Row {
     NoRoom,
     /// Its newest build is made for a newer PaperPaw than this one.
     NeedsNewer,
+    /// Its author has not built it for this PaperPaw yet.
+    NoBuild,
     /// Its screenshots, one after another.
     Shots,
     /// Where its source is, as a QR code.
@@ -208,8 +219,8 @@ impl PageScreen {
             return alloc::vec![Row::Stop];
         }
         let Some(info) = env.plugins().get(&plugin.id) else {
-            if plugin.needs_newer {
-                return alloc::vec![Row::NeedsNewer];
+            if plugin.unbuilt() {
+                return alloc::vec![unbuilt_row(plugin)];
             }
             if !self.room.fits(plugin, self.image_len()) {
                 return alloc::vec![Row::NoRoom];
@@ -238,8 +249,8 @@ impl PageScreen {
             rows.push(Row::Restart);
         }
         if info.enabled {
-            if plugin.needs_newer {
-                rows.push(Row::NeedsNewer);
+            if plugin.unbuilt() {
+                rows.push(unbuilt_row(plugin));
             } else if plugin.newer(env) {
                 rows.push(Row::Update);
             } else if plugin.local(env) {
@@ -267,7 +278,14 @@ impl PageScreen {
         let list = env.settings().read(&CATALOG);
         let language = env.i18n().language();
         let community = crate::community(&env);
-        let url = catalog::plugin_url(list.trim(), device.name, language, &self.id, community);
+        let url = catalog::plugin_url(
+            list.trim(),
+            device.name,
+            language,
+            &self.id,
+            community,
+            device.fingerprint,
+        );
         let mut request = HttpRequest::new("GET", &url, DETAILS);
         request = request
             .save_to(catalog::plugin_part(&self.id))
@@ -383,6 +401,11 @@ impl PageScreen {
                     env.i18n().tr("store.needs-newer.help").to_string(),
                 ));
             }
+            Some(Row::NoBuild) => {
+                cx.command(Command::Notify(
+                    env.i18n().tr("store.no-build.help").to_string(),
+                ));
+            }
             Some(Row::NoRoom) => {
                 if let Some(text) = self.room.needs(&env, plugin, self.image_len()) {
                     cx.command(Command::Notify(text));
@@ -479,6 +502,7 @@ impl PageScreen {
             Row::Cancel => (tr("store.not-now"), String::new()),
             Row::NoRoom => (tr("store.no-room"), files::shown_size(env, plugin.size)),
             Row::NeedsNewer => (tr("store.needs-newer"), String::new()),
+            Row::NoBuild => (tr("store.no-build"), String::new()),
             Row::Shots => {
                 let count = match &self.details {
                     Details::Here(details) => details.more.shots.len(),

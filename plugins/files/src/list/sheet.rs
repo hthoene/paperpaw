@@ -71,6 +71,9 @@ impl BookSheet {
         let sizes = Sizes::new(env, &style);
         let path = params.get(params::PATH).unwrap_or_default().to_string();
         let storage = env.storage();
+        // Its cover read from the book where the library's walk did not
+        // yet (one book: a moment).
+        let _ = library::indexed(env, &path);
         let details = library::service(env).book(env, &path).unwrap_or_default();
         let opened = library::opened_books(storage).contains(&path);
         let favourite = library::favourites(storage).contains(&path);

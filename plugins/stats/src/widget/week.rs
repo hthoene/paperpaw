@@ -29,9 +29,14 @@ const SHAPES: [&str; 2] = ["stats.shape.round", "stats.shape.square"];
 
 /// Its settings, kept in the program: its look, its choices and
 /// switches for its parts.
-static SETTINGS: [SettingSpec; 9] = [
+static SETTINGS: [SettingSpec; 14] = [
     widgets::frame_spec("stats.widget.week.frame", WEEK, Frame::None),
     widgets::padding_spec("stats.widget.week.padding", WEEK, Padding::Auto),
+    widgets::paper_spec("stats.widget.week.paper", WEEK),
+    widgets::ink_spec("stats.widget.week.ink", WEEK),
+    widgets::corners_spec("stats.widget.week.corners", WEEK),
+    widgets::frame_line_spec("stats.widget.week.frame-line", WEEK),
+    widgets::shadow_spec("stats.widget.week.drop-shadow", WEEK),
     widgets::align_spec("stats.widget.week.align", WEEK, Align::Left),
     SettingSpec::choice(
         "stats.widget.week.period",

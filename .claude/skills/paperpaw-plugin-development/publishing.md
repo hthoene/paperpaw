@@ -2,7 +2,7 @@
 
 How to guide an author, step by step, from a finished plugin to its
 listing in the plugin library on paperpaw.org, which the website and
-every reader's store (*More plugins*) read. It is written for an AI
+every reader's store (*Plugin store*) read. It is written for an AI
 assistant that helps the author. The site's own guide for authors,
 <https://paperpaw.org/authors>, is the reference for the site's side
 (its names of files, keys, fields and checks); this file follows it and
@@ -128,7 +128,16 @@ Ask the user for each, and suggest values from the plugin where you can
 - **sdk**: the PaperPaw SDK it is made for, such as `0.5`.
 - **devices** (data plugins): those it runs on, of `android`, `x4`,
   `x4-pro`, `x4-classic`; left out, every device. A code plugin runs on
-  the readers it has builds for.
+  the readers it has builds for. **A plugin does not have to be for every
+  device**: ask the author which devices it is for (never assume all), and
+  publish only for those. The store shows it, on the site and on each
+  reader, only on the devices it names; a code plugin only on the readers
+  it has a build for, never on Android. To limit a data plugin, write
+  `devices = x4, x4-pro` in `[store]`; to limit a code plugin, give only
+  those readers' `.ppn` files. The X3 is served as `x4`. Say the limit in
+  the description ("for the X4 and X4 Pro"), as the page shows "only"
+  beside it. `docs/plugins.md`, "Which devices your plugin is for", has
+  the rest.
 - **translations** of name and summary, and **screenshots** (up to four,
   of the plugin at work, with what each shows).
 - The author's name is the account's.
@@ -298,8 +307,8 @@ library crate, tested on a computer and tried in the emulator.
 ### The key (once per author)
 
 ```sh
-# paperpaw-sign of the release built for (its tag, here v0.6.0-beta.1):
-cargo install --locked --git https://github.com/hthoene/paperpaw --tag v0.6.0-beta.1 paperpaw-sign
+# paperpaw-sign of the release built for (its tag, here v0.6.0-beta.2):
+cargo install --locked --git https://github.com/hthoene/paperpaw --tag v0.6.0-beta.2 paperpaw-sign
 mkdir -p ~/.paperpaw
 paperpaw-sign key ~/.paperpaw/author.key
 ```
@@ -341,7 +350,7 @@ files with its own. *About* on the reader shows its fingerprint and
 compiler; each PaperPaw release lists the fingerprints in its files
 `paperpaw-<reader>-<version>-abi.txt`.
 
-- Name the SDK of the release in `Cargo.toml` (`paperpaw-sdk = "0.6.0-beta.1"`),
+- Name the SDK of the release in `Cargo.toml` (`paperpaw-sdk = "0.6.0-beta.2"`),
   never a path or a development version.
 - Build for the readers without the SDK's `outline` feature: it is in the
   fingerprint, and the readers' firmware has none. Give it to the
@@ -623,7 +632,7 @@ site's newest, `https://paperpaw.org/api/v1/store-rules.json`). The
 workflow runs the same check before it builds and again on the files it
 made (`--release-dir`), and releases nothing where it fails. paperpaw-dev
 comes from PaperPaw's repository at the release's tag (`cargo install
---git https://github.com/hthoene/paperpaw --tag v0.6.0-beta.1
+--git https://github.com/hthoene/paperpaw --tag v0.6.0-beta.2
 paperpaw-dev`); paperpaw-sign the same way, and much smaller.
 
 1. **The repository**: public on `github.com`, not archived, not a

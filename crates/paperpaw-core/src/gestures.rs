@@ -52,6 +52,11 @@ pub(crate) struct InputState {
     /// The screen on top when the last button was pressed or finger came
     /// down: what is held is resolved for it.
     pub(crate) pressed_on: Option<u32>,
+    /// The list shown beside the item chosen in it ([`Kernel::panes`]),
+    /// by its serial, where keys and buttons go to it (after a tap in it,
+    /// or [`actions::PANE_OTHER`](paperpaw_sdk::builtin::actions::PANE_OTHER));
+    /// else they go to the screen on top.
+    pub(crate) pane_keys: Option<u32>,
     /// The thresholds of recognition, read from the settings once until
     /// they change.
     pub(crate) thresholds: core::cell::Cell<Option<Thresholds>>,
@@ -119,11 +124,11 @@ impl Kernel {
                 }
                 if self.input.captured.contains(&p.id) {
                     self.input.captured.retain(|&id| id != p.id);
-                    let area = self.stack.last().map_or(Rect::default(), |top| top.area);
+                    let area = self.input_area();
                     let gone = p
                         .with_phase(PointerPhase::Cancel)
                         .with_point(chrome::local(p.point, area));
-                    self.with_top(|screen, cx| screen.on_pointer(&gone, cx));
+                    self.with_input(|screen, cx| screen.on_pointer(&gone, cx));
                 }
             }
             _ => {}
@@ -142,7 +147,7 @@ impl Kernel {
         }
         let down = event.phase == PointerPhase::Down;
         let standard = self.policy() == keymap::Policy::Standard;
-        let area = self.stack.last().map_or(Rect::default(), |top| top.area);
+        let area = self.input_area();
         let seen = (*event).with_point(chrome::local(event.point, area));
         let ends = matches!(event.phase, PointerPhase::Up | PointerPhase::Cancel);
         let (now, meter) = (self.now, self.shared.meter.clone());
@@ -193,7 +198,7 @@ impl Kernel {
     /// Finger `event.id` was taken away (by an input filter): the
     /// recognizers that follow it see it go and no longer follow it.
     pub(crate) fn recognizers_lose(&mut self, event: &PointerEvent) {
-        let area = self.stack.last().map_or(Rect::default(), |top| top.area);
+        let area = self.input_area();
         let gone = (*event)
             .with_phase(PointerPhase::Cancel)
             .with_point(chrome::local(event.point, area));
@@ -261,7 +266,8 @@ impl Kernel {
 
     pub(crate) fn pointer(&mut self, event: PointerEvent) {
         if event.phase == PointerPhase::Down {
-            self.input.pressed_on = self.stack.last().map(|top| top.serial);
+            self.pane_touched(event.point);
+            self.input.pressed_on = self.input_index().map(|index| self.stack[index].serial);
         }
         // Swipes in from an edge come before the screen sees the finger.
         // Held still there, it becomes a long press all the same.
@@ -297,9 +303,9 @@ impl Kernel {
         // A finger on a bar is the bar's: its gestures go to it.
         let on_bar = event.phase == PointerPhase::Down && self.chrome_at(event.point).is_some();
         if captured || (event.phase == PointerPhase::Down && !on_bar) {
-            let area = self.stack.last().map_or(Rect::default(), |top| top.area);
+            let area = self.input_area();
             let seen = event.with_point(chrome::local(event.point, area));
-            let handled = self.with_top(|screen, cx| screen.on_pointer(&seen, cx));
+            let handled = self.with_input(|screen, cx| screen.on_pointer(&seen, cx));
             if captured {
                 if matches!(event.phase, PointerPhase::Up | PointerPhase::Cancel) {
                     self.input.captured.retain(|&id| id != event.id);
@@ -348,15 +354,18 @@ impl Kernel {
     pub(crate) fn edge_at(&self, point: Point) -> Option<Direction> {
         if self.policy() == keymap::Policy::Off
             || self
-                .stack
-                .last()
-                .is_some_and(|top| top.screen.holds_edges())
+                .input_index()
+                .is_some_and(|index| self.stack[index].screen.holds_edges())
         {
             return None;
         }
-        // Inside the part of the screen the screen on top has: not on a
-        // bar or the row of hints.
+        // Inside the part of the screen the screen on top has (with the
+        // list beside it): not on a bar or the row of hints.
         let display = self.stack.last().map_or(self.content(), |top| top.area);
+        let display = match self.panes() {
+            Some((list, _)) => display.union(&self.stack[list].area),
+            None => display,
+        };
         if !display.contains(point) {
             return None;
         }
@@ -397,7 +406,8 @@ impl Kernel {
     /// way, or by default the interface's.
     fn mirrored(&self) -> bool {
         use paperpaw_sdk::lang::Direction as Way;
-        match self.stack.last().map(|top| top.screen.direction()) {
+        let input = self.input_index().map(|index| &self.stack[index]);
+        match input.map(|active| active.screen.direction()) {
             Some(Way::Rtl) => true,
             Some(Way::Auto) => self.shared.translator.direction() == Way::Rtl,
             _ => false,
@@ -458,9 +468,8 @@ impl Kernel {
 
     /// Whether the screen on top takes buttons by name now.
     pub(crate) fn takes_buttons(&self) -> bool {
-        self.stack
-            .last()
-            .is_some_and(|top| top.screen.takes_buttons())
+        self.input_index()
+            .is_some_and(|index| self.stack[index].screen.takes_buttons())
     }
 
     /// Button `name` pressed (`long`: held): offered to the screen on
@@ -471,7 +480,7 @@ impl Kernel {
             self.show_hints();
         }
         if self.takes_buttons()
-            && self.with_top(|screen, cx| screen.on_button(name, long, cx)) == Handled::Yes
+            && self.with_input(|screen, cx| screen.on_button(name, long, cx)) == Handled::Yes
         {
             return;
         }
@@ -528,8 +537,8 @@ impl Kernel {
                         _ => return self.close_top(paperpaw_sdk::CloseCause::TapOutside),
                     }
                 }
-                // In the coordinates of the screen on top.
-                let area = self.stack.last().map_or(Rect::default(), |top| top.area);
+                // In the coordinates of the screen input goes to.
+                let area = self.input_area();
                 let gesture = self.doubled(chrome::local_gesture(gesture, area));
                 if self.offer(|screen, cx| screen.on_gesture(gesture, cx)) == Handled::Yes {
                     return;
@@ -546,8 +555,7 @@ impl Kernel {
                 if self.policy() != keymap::Policy::Standard {
                     return;
                 }
-                let display = self.shared.device.display;
-                let mut zone = Zone::of(gesture.start, display.width, display.height);
+                let mut zone = Zone::of(gesture.start, area.width, area.height);
                 // A screen that goes right to left (a book's pages, an
                 // Arabic interface): sides and swipes the other way.
                 if self.mirrored() {
@@ -633,7 +641,7 @@ impl Kernel {
                 self.input.pending = other;
                 self.route_key_pending();
                 let until = self.now.add_millis(self.double_ms());
-                let on = self.stack.last().map(|top| top.serial);
+                let on = self.input_index().map(|index| self.stack[index].serial);
                 self.input.pending = Some((single, until, on));
             }
         }
@@ -643,9 +651,8 @@ impl Kernel {
     /// to the tap before, for a screen on top that takes double taps.
     fn doubled(&mut self, mut gesture: Gesture) -> Gesture {
         let wanted = self
-            .stack
-            .last()
-            .is_some_and(|top| top.screen.takes_double_taps());
+            .input_index()
+            .is_some_and(|index| self.stack[index].screen.takes_double_taps());
         if gesture.kind != GestureKind::Tap || !wanted {
             return gesture;
         }
@@ -665,7 +672,7 @@ impl Kernel {
     /// What the tap (or long tap) at `point` in a zone of a layer's own
     /// (`[zones.<layer>]`) is bound to, if anything.
     fn own_zone(&self, point: Point, long: bool) -> Option<Id> {
-        let display = self.shared.device.display;
+        let display = self.input_area();
         let percent = |at: i32, of: u16| {
             let at = u64::try_from(at).unwrap_or(0);
             (at.saturating_mul(100) / u64::from(of).max(1)).min(100) as u8
@@ -684,8 +691,8 @@ impl Kernel {
     /// top, the layer put in front for it ([`Command::SetKeyLayer`]), the
     /// screen's slot, the global layer; and how many there are.
     fn layers(&self) -> ([&str; 4], usize) {
-        match self.stack.len().checked_sub(1) {
-            Some(top) => self.layers_of(top),
+        match self.input_index() {
+            Some(index) => self.layers_of(index),
             None => ([GLOBAL_KEYMAP_LAYER; 4], 1),
         }
     }
@@ -727,16 +734,28 @@ impl Kernel {
     /// ([`Screen::passes_through`]).
     /// The topmost screen that gets input: not one above a screen guarding
     /// the device that the guard did not open (a sleep screen).
+    /// Beside a detail, the list where input went to it
+    /// ([`Kernel::input_index`]; no screen guards the device then).
     pub(crate) fn input_top(&self) -> Option<usize> {
+        match self.guard() {
+            None => self.input_index(),
+            Some(_) => self.unshut_top(),
+        }
+    }
+
+    /// The topmost screen not shut out by a screen guarding the device
+    /// (see [`Self::input_top`]).
+    fn unshut_top(&self) -> Option<usize> {
         let guard = self.guard();
         (0..self.stack.len())
             .rev()
             .find(|&i| guard.is_none_or(|g| i <= g || self.stack[i].by_guard))
     }
 
-    /// Whether the screen on top gets no input (see [`Self::input_top`]).
+    /// Whether the screen on top gets no input (see [`Self::input_top`]):
+    /// one above a guard, not a detail whose list input went to.
     pub(crate) fn top_shut_out(&self) -> bool {
-        self.input_top() != self.stack.len().checked_sub(1)
+        self.unshut_top() != self.stack.len().checked_sub(1)
     }
 
     pub(crate) fn offer(

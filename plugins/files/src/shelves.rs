@@ -149,6 +149,8 @@ pub(crate) struct ShelfScreen {
     collecting: bool,
     /// The kernel could not make the catalog (`CATALOG_FAILED`).
     failed: bool,
+    /// The memory card is lost until a restart (`list::card_gone`).
+    card_gone: bool,
 }
 
 impl ShelfScreen {
@@ -173,6 +175,7 @@ impl ShelfScreen {
             after: false,
             collecting: false,
             failed: false,
+            card_gone: false,
             shelf,
             style,
             header,
@@ -281,8 +284,8 @@ impl Screen for ShelfScreen {
             // An empty view says what would be in it.
             let (icon, text) = match self.shelf {
                 _ if self.failed => {
-                    let title = env.i18n().tr("files.list.failed.title");
-                    let text = env.i18n().tr("files.list.failed");
+                    let (title, text) = crate::list::failed_words(self.card_gone);
+                    let (title, text) = (env.i18n().tr(title), env.i18n().tr(text));
                     ui.empty(area, "books", title, text);
                     return;
                 }
@@ -331,6 +334,7 @@ impl Screen for ShelfScreen {
         // The folder could not be read: said until a catalog is made.
         if *event == events::CATALOG_FAILED {
             self.failed = true;
+            self.card_gone = crate::list::card_gone(cx.env());
             self.collecting = false;
             self.redraw(cx);
             return;
@@ -347,6 +351,7 @@ impl Screen for ShelfScreen {
             let env = *cx.env();
             self.collecting = false;
             self.failed = false;
+            self.card_gone = false;
             let bound = match self.names.first() {
                 Some((first, _)) if self.before => Bound::From(first.clone()),
                 _ => Bound::First,

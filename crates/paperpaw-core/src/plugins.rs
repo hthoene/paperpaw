@@ -14,7 +14,8 @@ pub(crate) const FONT_SIZES: (i64, i64) = (6, 40);
 
 /// Sections of `paperpaw.ini` that are no plugin's settings: no plugin
 /// may take their name as its id (its settings would be read as these).
-pub(crate) const RESERVED_IDS: [&str; 5] = ["plugins", "fonts", "menus", KNOWN, "slots"];
+pub(crate) const RESERVED_IDS: [&str; 6] =
+    ["plugins", "fonts", "menus", KNOWN, "slots", "firmware"];
 
 /// After a menu's id in `[menus]`: the entries plugins contributed when
 /// the user redefined it.

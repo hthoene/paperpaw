@@ -46,16 +46,6 @@ pub(crate) struct FrameState {
 /// filters say.
 pub(crate) const MAX_DEFERS: u8 = 3;
 
-/// How long what a call opened, closed or ran takes (for the busy mark).
-#[derive(Debug, Default)]
-pub(crate) struct Timing {
-    /// What the call opened, closed or ran, and when it began (the clock's
-    /// microseconds), until the call is done.
-    pub(crate) running: Option<(String, u64)>,
-    /// How long that took the last time, in milliseconds.
-    pub(crate) durations: Vec<(String, u32)>,
-}
-
 /// How a framebuffer draws, kept while it is made anew.
 #[derive(Debug, Clone, Copy)]
 struct Look {
@@ -354,17 +344,23 @@ impl Kernel {
             .zip(&regions)
             .map(|(s, own)| own.is_some() && s.screen.dims_below())
             .collect();
-        let base = regions.iter().rposition(Option::is_none).unwrap_or(0);
+        let full = regions.iter().rposition(Option::is_none).unwrap_or(0);
+        // From the list where a detail shows beside it.
+        let (base, line) = (self.shown_base(), self.pane_line());
         // The overlays one above shows the full screen through: not
         // drawn, covering nothing (a menu left open under a picture over
         // the page).
         let hidden: Vec<bool> = (0..regions.len())
-            .map(|k| k > base && through[k + 1..].contains(&ShowsThrough::FullScreen))
+            .map(|k| k > full && through[k + 1..].contains(&ShowsThrough::FullScreen))
             .collect();
         let row = self.hint_row();
         let mut canvas = self.framebuffer.canvas();
         let mut canvas = canvas.clipped(region);
         canvas.clear(Color::WHITE);
+        // Below the screens, which do not draw over it, and their overlays.
+        if let Some(line) = line.and_then(|line| line.intersection(&region)) {
+            canvas.fill(line, Color::BLACK);
+        }
         for (index, (active, own)) in self.stack[base..]
             .iter_mut()
             .zip(&regions[base..])
@@ -487,8 +483,11 @@ impl Kernel {
         let regions: Vec<Option<Rect>> = (0..self.stack.len()).map(|i| self.overlay(i)).collect();
         let row = self.hint_row();
         let env = self.shared.env(self.now);
-        let base = regions.iter().rposition(Option::is_none).unwrap_or(0);
+        let (base, line) = (self.shown_base(), self.pane_line());
         {
+            if let Some(line) = line {
+                canvas.fill(line, Color::BLACK);
+            }
             for (active, own) in self.stack[base..].iter_mut().zip(&regions[base..]) {
                 let area = own.unwrap_or(active.area);
                 let device = env.device_within(active.area);
@@ -557,7 +556,8 @@ impl Kernel {
     }
 
     /// Times what the input started, and shows the busy mark first if it
-    /// was slow the last time (or is a screen not opened yet), holding the
+    /// was slow the last time (or is a screen not opened yet; see
+    /// `Timing::slow`), holding the
     /// work back until [`Kernel::proceed`].
     pub(crate) fn mark_if_slow(&mut self) -> Option<Effects> {
         let key = self
@@ -566,12 +566,7 @@ impl Kernel {
             .iter()
             .find_map(|command| self.work_key(command))?;
         let started = self.shared.meter.micros()?;
-        let slow = match self.timing.durations.iter().find(|(k, _)| *k == key) {
-            Some((_, ms)) => *ms >= SLOW_MS,
-            // Not timed yet: another screen may take long; an action is
-            // taken to be quick until it was not.
-            None => !key.starts_with("run:"),
-        };
+        let slow = self.timing.slow(&key);
         self.timing.running = Some((key, started));
         if !self.busy_mark || !slow {
             return None;
@@ -614,6 +609,18 @@ impl Kernel {
         self.finish()
     }
 
+    /// Tells plugins the display's new size, the screens laid out for it
+    /// ([`events::DISPLAY_CHANGED`]).
+    fn display_changed(&mut self) {
+        let panel = self.framebuffer.bounds();
+        let class = paperpaw_sdk::ui::ScreenClass::of(&self.shared.env(self.now), panel);
+        let landscape = panel.width > panel.height;
+        let changed = events::DisplayChanged::new(panel.width, panel.height, class, landscape);
+        self.output
+            .commands
+            .push(events::DISPLAY_CHANGED.emit(changed));
+    }
+
     /// The screen has another size, e.g. turned (see
     /// [`Kernel::rotation`]): every open screen is made anew for it, with
     /// what it was opened with, and the whole screen is drawn again. Turned
@@ -642,6 +649,7 @@ impl Kernel {
                 None => height,
             };
             let look = Look::of(&self.framebuffer);
+            let shown = self.shown_base();
             let before = self.framebuffer.rows();
             // The old frame goes first, the new one taking its place: beside
             // it, it would split the largest free block where memory is
@@ -654,7 +662,8 @@ impl Kernel {
                 self.shared.device.display.width = width;
                 self.shared.device.display.height = height;
                 self.hint.height = self.wanted_hint_height();
-                self.remake_screens();
+                self.remake_screens(shown);
+                self.display_changed();
             } else {
                 self.restore_frame(look, panel.width, panel.height, before, format);
             }

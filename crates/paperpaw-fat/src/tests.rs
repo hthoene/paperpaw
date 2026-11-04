@@ -1436,6 +1436,7 @@ fn short_names_alone_are_names() {
 }
 
 mod after_cuts;
+mod damaged;
 mod failing_writes;
 mod listed;
 mod noted;

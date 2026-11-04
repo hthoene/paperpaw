@@ -55,8 +55,8 @@ de.description = "Fett-kursiver Buchtext in Literata, wo sonst Fett dafür steht
 # points from there on.
 
 [script-arabic]
-version = "1.1.1"
-group = "look"
+version = "1.1.2"
+group = "languages"
 licence = "OFL-1.1"
 formats = 3
 devices = ["x4", "x4-pro", "x4-classic"]
@@ -69,8 +69,8 @@ de.name = "Arabische Schrift"
 de.description = "Bücher auf Arabisch, Persisch und Urdu in Noto Naskh Arabic, mit ihren Vokalzeichen, und Tastaturen dafür."
 
 [script-hebrew]
-version = "1.1.1"
-group = "look"
+version = "1.1.2"
+group = "languages"
 licence = "OFL-1.1"
 formats = 3
 devices = ["x4", "x4-pro", "x4-classic"]
@@ -83,8 +83,8 @@ de.name = "Hebräische Schrift"
 de.description = "Bücher auf Hebräisch in Noto Serif Hebrew, mit ihren Punkten, und eine Tastatur dafür."
 
 [script-greek]
-version = "1.0.1"
-group = "look"
+version = "1.0.2"
+group = "languages"
 licence = "OFL-1.1"
 devices = ["x4", "x4-pro", "x4-classic"]
 off_by_default = true
@@ -96,8 +96,8 @@ de.name = "Griechische Schrift"
 de.description = "Bücher auf Griechisch in Literata, modern und mit den älteren Akzenten."
 
 [script-cyrillic]
-version = "1.0.1"
-group = "look"
+version = "1.0.2"
+group = "languages"
 licence = "OFL-1.1"
 devices = ["x4", "x4-pro", "x4-classic"]
 off_by_default = true
@@ -109,8 +109,8 @@ de.name = "Kyrillische Schrift"
 de.description = "Bücher auf Russisch, Ukrainisch, Bulgarisch, Serbisch und anderen kyrillischen Sprachen in Literata."
 
 [language-ar]
-version = "1.0.1"
-group = "look"
+version = "1.0.3"
+group = "languages"
 licence = "Apache-2.0"
 formats = 4
 requires = ["script-arabic"]
@@ -125,6 +125,20 @@ de.description = "PaperPaws Menüs und Einstellungen auf Arabisch, von rechts na
 how = "PaperPaw's menus and settings in Arabic, running from right to left.\n\nIt needs the Arabic letters pack (Arabic letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
 de.how = "PaperPaws Menüs und Einstellungen auf Arabisch, von rechts nach links.\n\nSie braucht die Arabische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
+[language-es]
+version = "1.0.1"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/es.ini", "tools/language-pack.py", "tools/sign"]
+name = "Spanish (user interface)"
+description = "PaperPaw's menus and settings in Spanish."
+de.name = "Spanisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Spanisch."
+
 # The Korean packs (#61; owner decision: in the store from the beta).
 # script-korean (#61): the 2,350 Hangul syllables of KS X 1001 with CJK
 # punctuation, compatibility jamo and full-width forms (2,602 characters),
@@ -133,8 +147,8 @@ de.how = "PaperPaws Menüs und Einstellungen auf Arabisch, von rechts nach links
 # fall back to it. A pack holds up to 65,535 characters, so all 11,172
 # syllables (`hangul`) can come later as data, without a new interface.
 [script-korean]
-version = "1.1.2"
-group = "look"
+version = "1.1.3"
+group = "languages"
 licence = "OFL-1.1"
 formats = 3
 devices = ["x4", "x4-pro", "x4-classic"]
@@ -152,8 +166,8 @@ de.description = "Bücher auf Koreanisch in einer klassischen Buchschrift: die 2
 # brings no letters of its own beyond them). About 30 MiB on the card, so
 # the reader offers it only for a book that uses such syllables.
 [script-korean-extra]
-version = "1.0.1"
-group = "look"
+version = "1.0.2"
+group = "languages"
 licence = "OFL-1.1"
 formats = 4
 requires = ["script-korean"]

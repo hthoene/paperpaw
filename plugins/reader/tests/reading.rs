@@ -113,6 +113,9 @@ impl Storage for Shared {
     fn create_dir(&self, path: &str) -> Result<(), StorageError> {
         self.0.create_dir(path)
     }
+    fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
+        self.0.remove_dir_all(path)
+    }
 }
 
 /// What a plugin hears of the reading: the event and what it carries.

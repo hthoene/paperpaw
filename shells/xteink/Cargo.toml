@@ -26,8 +26,12 @@ default = ["x4", "remote", "waveform-lab"]
 # the X4 Classic (ESP32-S3, Xtensa: espup's `esp` toolchain of
 # `versions.env`, `cargo +esp x4pro`, `cargo +esp x4classic`). Exactly
 # one.
-x4 = ["esp32c3"]
-x3 = ["esp32c3"]
+x4 = ["esp32c3", "asleep-light"]
+x3 = ["esp32c3", "asleep-light"]
+# The reader sleeps lightly before it switches itself off (`firmware.rs`
+# `sleep_lightly`, `paperpaw_x4::sleeping`): the X4, the X3 and the X4 Pro
+# (#153); the X4 Classic keeps its deep sleep.
+asleep-light = []
 # What both ESP32-C3 devices build with; chosen by `x4` or `x3`, not by
 # hand.
 esp32c3 = [
@@ -45,7 +49,7 @@ esp32c3 = [
 # `ESP_LOG = "info"` anyway) are not compiled into the release image, to
 # keep room in CrossPoint's slot. A developer build wanting them takes it
 # out.
-x4-pro = ["esp32s3", "bluetooth", "log/release_max_level_info"]
+x4-pro = ["esp32s3", "asleep-light", "bluetooth", "log/release_max_level_info"]
 x4-classic = ["esp32s3"]
 # What both ESP32-S3 devices build with; chosen by `x4-pro` or
 # `x4-classic`, not by hand.
@@ -99,7 +103,8 @@ paperpaw-app = { path = "../../crates/paperpaw-app", default-features = false, f
 # The sample that runs in real time (ADR 0030), built in for measuring:
 # feature `frame-test`, never in released firmware.
 paperpaw-sample-frame-test = { path = "../../samples/frame-test", optional = true }
-paperpaw-core = { path = "../../crates/paperpaw-core" }
+# Without `panes`: no Xteink screen is ever wide enough for two.
+paperpaw-core = { path = "../../crates/paperpaw-core", default-features = false }
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk", features = ["kernel"] }
 paperpaw-platform = { path = "../../crates/paperpaw-platform" }
 paperpaw-graphics = { path = "../../crates/paperpaw-graphics" }

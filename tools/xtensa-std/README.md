@@ -35,10 +35,10 @@ A release's archive fits only the `esp` toolchain of that release
 install it without this repository:
 
 ```sh
-paperpaw-sign check-asset paperpaw-xtensa-std-0.6.0-beta.1.tar.gz paperpaw-xtensa-std-0.6.0-beta.1.tar.gz.sig
+paperpaw-sign check-asset paperpaw-xtensa-std-0.6.0-beta.2.tar.gz paperpaw-xtensa-std-0.6.0-beta.2.tar.gz.sig
 sysroot="$(rustc +esp --print sysroot)"
 rm -rf "$sysroot/lib/rustlib/xtensa-esp32s3-none-elf"
-tar -xzf paperpaw-xtensa-std-0.6.0-beta.1.tar.gz -C "$sysroot"
+tar -xzf paperpaw-xtensa-std-0.6.0-beta.2.tar.gz -C "$sysroot"
 ```
 
 The signer is PaperPaw's release key, fingerprint 55A9 F626 DB17 EB90,

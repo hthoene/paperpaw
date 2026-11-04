@@ -9,17 +9,19 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use paperpaw_core::{FirmwareCommand, HttpCall, HttpResponse, Io, Kernel};
 use paperpaw_platform::Rotation;
 use paperpaw_plugin_update::{CHECK, OPEN, Update};
-use paperpaw_sdk::builtin::actions;
+use paperpaw_sdk::builtin::{actions, params, slots};
 use paperpaw_sdk::firmware::{Firmware, PLUGINS_AT, PluginCrate, Plugins};
 use paperpaw_sdk::semantics::Role;
 use paperpaw_sdk::{
-    DeviceInfo, DirEntry, DisplayInfo, Id, InputCaps, Instant, MemoryClass, MemoryStorage,
-    PixelFormat, Storage, StorageError,
+    Canvas, Cx, DeviceInfo, DirEntry, DisplayInfo, Env, Handled, Id, InputCaps, Instant, Manifest,
+    MemoryClass, MemoryStorage, PixelFormat, Plugin, Priority, RegisterError, Registrar, Screen,
+    ScreenSpec, Storage, StorageError, Version,
 };
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
@@ -99,7 +101,44 @@ impl Storage for Shared {
 struct Device {
     kernel: Kernel,
     storage: Shared,
+    /// The short messages said, as a notice screen showed them.
+    said: Rc<RefCell<Vec<String>>>,
     now: u64,
+}
+
+/// Short messages, as a notice screen would show them.
+struct Notices(Rc<RefCell<Vec<String>>>);
+
+struct Notice;
+
+impl Screen for Notice {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+
+    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+        Handled::No
+    }
+}
+
+impl Plugin for Notices {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(Id::new_static("notices"), "Notices", Version::new(0, 1, 0))
+            .uses(paperpaw_sdk::Uses::NETWORK)
+    }
+
+    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        let said = self.0.clone();
+        let id = Id::new_static("notices.notice");
+        r.add_screen(ScreenSpec::new(
+            id.clone(),
+            "",
+            Box::new(move |_, p| {
+                said.borrow_mut()
+                    .push(p.get(params::TEXT).unwrap_or_default().to_string());
+                Box::new(Notice)
+            }),
+        ))?;
+        r.bind_slot(slots::NOTICE, id, Priority::DEFAULT)
+    }
 }
 
 impl Device {
@@ -133,6 +172,7 @@ impl Device {
         Self {
             kernel,
             storage,
+            said: Rc::default(),
             now: 0,
         }
     }
@@ -398,6 +438,7 @@ fn with_code_plugin(storage: Shared, version: &str, config: &str) -> Device {
     Device {
         kernel,
         storage,
+        said: Rc::default(),
         now: 0,
     }
 }
@@ -713,6 +754,37 @@ fn the_server_knows_nothing_newer() {
 }
 
 #[test]
+fn the_check_says_how_long_the_device_is_in_use_and_nothing_more() {
+    // Noon on 1 November 2026 (UTC), then 8 and 40 days later.
+    let first = 1_793_534_400;
+    let storage = Shared::default();
+    for (at, age) in [
+        (first, "new"),
+        (first + 8 * 86_400, "week"),
+        (first + 40 * 86_400, "month"),
+    ] {
+        let mut device = Device::at(storage.clone(), Some(at));
+        device.run(OPEN);
+        device.run(actions::CONFIRM);
+        let call = device.request();
+        let question = String::from_utf8(call.body.clone().unwrap_or_default()).unwrap();
+        assert!(
+            question.contains(&format!("\"age\":\"{age}\"")),
+            "{question}"
+        );
+        // The age, never a date.
+        assert!(!question.contains("2026-"), "{question}");
+    }
+    // Without a clock, no age.
+    let mut device = Device::new(Shared::default());
+    device.run(OPEN);
+    device.run(actions::CONFIRM);
+    let call = device.request();
+    let question = String::from_utf8(call.body.clone().unwrap_or_default()).unwrap();
+    assert!(!question.contains("age"), "{question}");
+}
+
+#[test]
 fn no_answer_is_said() {
     let mut device = Device::new(Shared::default());
     device.run(OPEN);
@@ -936,6 +1008,7 @@ fn with_code_config(storage: Shared, version: &str, config: &str) -> Device {
         .keys(vec![paperpaw_update::public_key(&SEED)])
         .room(1_000_000)
         .plugins(Plugins::new(RUNNING));
+    let said = Rc::default();
     let mut kernel = Kernel::builder(DEVICE)
         .storage(storage.clone())
         .network(true)
@@ -948,12 +1021,14 @@ fn with_code_config(storage: Shared, version: &str, config: &str) -> Device {
         .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
         .plugin(BuiltInStats)
         .plugin(Update)
+        .plugin(Notices(Rc::clone(&said)))
         .build()
         .unwrap();
     kernel.start(Instant(0));
     Device {
         kernel,
         storage,
+        said,
         now: 0,
     }
 }
@@ -1126,6 +1201,13 @@ fn a_plugin_without_room_for_its_code_is_not_fetched() {
         "{shown}"
     );
     assert!(!device.storage.exists("plugins/.stats.next/plugin.ini"));
+    // Said as for want of room, which fetching again does not help.
+    let said = device.said.borrow().clone();
+    assert_eq!(
+        said,
+        ["Update downloaded. No room for one plugin. Get it from the store after the update."]
+    );
+    assert!(!device.storage.exists(RETRY));
 }
 
 /// With *Beta updates* on, the question asks for betas; a beta offered
@@ -1307,3 +1389,69 @@ fn another_firmware_installs_only_as_chosen() {
         FirmwareCommand::install_foreign("firmware.bin")
     );
 }
+
+/// What the firmware leaves on the card where PaperPaw shares the device
+/// with another firmware (`paperpaw_x4::dual_boot`).
+const DUAL_NOTE: &str = ".paperpaw/boot.txt";
+
+#[test]
+fn beside_another_firmware_the_page_installs_nothing_and_says_why() {
+    let storage = Shared::default();
+    storage
+        .write(
+            "updates/paperpaw-x4-0.5.0.bin",
+            &update_file(
+                "0.5.0",
+                &[
+                    ("chess-for-paperpaw", "1.1.0"),
+                    ("paperpaw-plugin-stats", "0.5.0"),
+                ],
+            ),
+        )
+        .unwrap();
+    storage
+        .write(DUAL_NOTE, b"dual-boot source=ini slot=1\n")
+        .unwrap();
+    let mut device = Device::new(storage);
+    device.run(OPEN);
+    let shown = device.shown();
+    assert!(shown.contains("Two firmwares on this device"), "{shown}");
+    assert!(shown.contains("installs no updates here"), "{shown}");
+    // An update that is ready, as on any other device, is not offered; nor
+    // is anyone asked for one.
+    assert!(!shown.contains("PaperPaw 0.5.0"), "{shown}");
+    assert!(!shown.contains("Install"), "{shown}");
+    assert!(!shown.contains("Check"), "{shown}");
+    device.run(CHECK);
+    device.no_request();
+}
+
+#[test]
+fn without_the_note_the_same_card_offers_the_update() {
+    let storage = Shared::default();
+    storage
+        .write(
+            "updates/paperpaw-x4-0.5.0.bin",
+            &update_file(
+                "0.5.0",
+                &[
+                    ("chess-for-paperpaw", "1.1.0"),
+                    ("paperpaw-plugin-stats", "0.5.0"),
+                ],
+            ),
+        )
+        .unwrap();
+    // A note that does not say it (cut short, another thing) changes nothing.
+    storage.write(DUAL_NOTE, b"").unwrap();
+    let mut device = Device::new(storage);
+    device.run(OPEN);
+    let shown = device.shown();
+    assert!(!shown.contains("Two firmwares"), "{shown}");
+    assert!(shown.contains("PaperPaw 0.5.0"), "{shown}");
+}
+const FAILED: &str = ".paperpaw/plugins/update/fetch-failed.txt";
+
+const RETRY: &str = ".paperpaw/plugins/update/fetch-retry.txt";
+const QUEUE: &str = ".paperpaw/plugins/update/fetch.txt";
+
+mod fetching;

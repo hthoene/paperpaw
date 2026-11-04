@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-format-images"
 description = "PaperPaw pictures as books: a JPEG, PNG or GIF and those after it in its folder, a page each"
-version = "1.0.0"
+version = "1.0.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

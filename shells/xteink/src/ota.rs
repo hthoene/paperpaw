@@ -85,13 +85,37 @@ impl ota::Flash for Chip {
 }
 
 /// Updates on this device.
-pub struct Ota(Updates<Chip>, Option<u32>, bool);
+pub struct Ota {
+    updates: Updates<Chip>,
+    /// The milliseconds a trial ran before it failed (`Ota::failed_trial`).
+    failed: Option<u32>,
+    /// The bootloader marked the start pending (`Ota::marked_by_bootloader`).
+    marked: bool,
+    /// The start found an update that failed its trial (`Ota::plans_to_go_back`).
+    going_back: bool,
+    /// The start is done (`Ota::settle`).
+    settled: bool,
+    /// The flash, to look at the bootloader again.
+    shared: Flash,
+}
+
+/// Whether the bootloader carries the marker of a dual-boot setup
+/// (`paperpaw_x4::dual_boot`), looked for on the flash `shared`. Where the
+/// flash cannot be read it counts as there: nothing is written to the OTA
+/// data where it cannot be told.
+pub fn marker(shared: &Flash) -> bool {
+    paperpaw_x4::dual_boot::scan_marker(&mut Chip(shared.clone())).unwrap_or_else(|_| {
+        warn!("dual boot: the bootloader could not be read, so it counts as marked");
+        true
+    })
+}
 
 impl Ota {
-    /// Looks at what started and why (see `paperpaw_x4::updates`): an
-    /// update that failed its trial restarts into the firmware before it
-    /// at once. `None` without two app partitions (flashed before they
-    /// came: the web flasher sets them up once).
+    /// Looks at what started and why (see `paperpaw_x4::updates`), and
+    /// writes nothing: [`Ota::settle`] does what the start needs once the
+    /// card has said whether this is a dual-boot setup. `None` without two
+    /// app partitions (flashed before they came: the web flasher sets them
+    /// up once).
     // A frame of its own, off the stack before the kernel is built.
     #[inline(never)]
     pub fn start(shared: Flash) -> Option<Self> {
@@ -106,10 +130,60 @@ impl Ota {
         let this = Firmware::new(env!("PAPERPAW_VERSION"), PROJECT, CHIP)
             .keys(paperpaw_x4::updates::KEYS.to_vec())
             .plugins(Plugins::read_static(&PLUGINS).unwrap_or_default());
-        let (updates, start) =
-            Updates::start(Chip(shared), &slots, running, this, BOARD_TAG).ok()?;
-        let mut failed = None;
-        let mut marked = false;
+        let (updates, plan) =
+            Updates::open(Chip(shared.clone()), &slots, running, this, BOARD_TAG).ok()?;
+        let mut this = Self {
+            updates,
+            failed: None,
+            marked: false,
+            going_back: matches!(plan, Start::Failed { .. }),
+            settled: false,
+            shared,
+        };
+        // An update this firmware installed, or one that failed its trial,
+        // was marked at once (`Updates::open`): before the card, since a
+        // hang in the board's start would leave it unmarked for good.
+        if plan != Start::Kept && !this.updates.start_pending() {
+            this.settle(None);
+        }
+        Some(this)
+    }
+
+    /// Whether the start found an update that failed its trial: unless the
+    /// setup turns out a dual-boot one, it goes back to the firmware before
+    /// it ([`Ota::settle`], [`Ota::failed_trial`]).
+    pub fn plans_to_go_back(&self) -> bool {
+        self.going_back
+    }
+
+    /// Whether the start is done: marked at once, or settled.
+    pub fn settled(&self) -> bool {
+        self.settled
+    }
+
+    /// Whether the start found something to write to the OTA data (an
+    /// update to put on trial, one undone or failed): only then is it
+    /// settled by reading the card and the bootloader, at the start.
+    pub fn start_pending(&self) -> bool {
+        self.updates.start_pending()
+    }
+
+    /// The flash, for the bootloader's marker.
+    pub fn flash(&self) -> &Flash {
+        &self.shared
+    }
+
+    /// Says whether this is a declared dual-boot setup (`dual_boot::decide`,
+    /// once the card gave `paperpaw.ini`) and does what the start needs:
+    /// the OTA data is written, an update put on trial, one undone or marked
+    /// bad, only where it is not (see `Updates::settle`).
+    pub fn settle(&mut self, source: Option<paperpaw_x4::dual_boot::Source>) {
+        let running = self.updates.running();
+        self.settled = true;
+        let start = self.updates.settle(source);
+        if source.is_some() {
+            warn!("OTA: a declared dual-boot setup: the OTA data is left as it is");
+        }
         match start {
             Some(Start::Kept) => info!("OTA: started {running}"),
             Some(Start::Undone) => warn!("OTA: the update did not start, {running} is back"),
@@ -122,18 +196,17 @@ impl Ota {
                 info!(
                     "OTA: an update on trial in {running}, marked pending by the bootloader, {ran} ms run before"
                 );
-                marked = true;
+                self.marked = true;
             }
             Some(Start::Failed { ran }) => {
                 // Marked bad already: whatever happens now, the bootloader
                 // passes over this firmware at its next start. It goes back
                 // once the card has the note (`main`, `failed_trial`).
                 warn!("OTA: the update failed on trial ({ran} ms run before): going back");
-                failed = Some(ran);
+                self.failed = Some(ran);
             }
             None => warn!("OTA: could not mark the start of {running}"),
         }
-        Some(Self(updates, failed, marked))
     }
 
     /// An update on trial that cannot work on this device (an X3 whose
@@ -142,7 +215,7 @@ impl Ota {
     /// Nothing where none is on trial.
     #[cfg_attr(not(feature = "x3"), expect(dead_code, reason = "the X3's"))]
     pub fn give_up(&mut self, why: &str) {
-        match self.0.give_up() {
+        match self.updates.give_up() {
             Ok(false) => return,
             Ok(true) => warn!("OTA: {why}: back to the firmware before"),
             Err(_) => warn!("OTA: {why}: could not mark the update as bad"),
@@ -155,7 +228,7 @@ impl Ota {
     /// goes back to the firmware before it ([`Ota::go_back`]) after it left
     /// its note.
     pub fn failed_trial(&self) -> Option<u32> {
-        self.1
+        self.failed
     }
 
     /// The trial is over: the note of its start (`main::install_note`) has
@@ -174,7 +247,7 @@ impl Ota {
     /// The bootloader marked this start `PendingVerify` itself (it has app
     /// rollback): the trial's first start, not a failure of one.
     pub fn marked_by_bootloader(&self) -> bool {
-        self.2
+        self.marked
     }
 
     /// Restarts into the firmware before, after a failed trial.
@@ -184,35 +257,33 @@ impl Ota {
 
     /// Whether the running firmware is on trial.
     pub fn on_trial(&self) -> bool {
-        self.0.on_trial()
+        self.updates.on_trial()
     }
 
     /// How long the running firmware is still on trial, at `now` (ms
     /// since the start); `None` where it is not.
     pub fn trial_left(&self, now: u64) -> Option<u64> {
-        self.0.trial_left(now)
+        self.updates.trial_left(now)
     }
 
     /// The running firmware on trial ran long enough, at `now` (ms since
-    /// the start): it is marked as good. Whether it was, just now.
-    pub fn check_trial(&mut self, now: u64) -> bool {
-        match self.0.check_trial(now) {
-            Ok(false) => false,
-            Ok(true) => {
-                info!("OTA: the update works");
-                true
-            }
-            Err(_) => {
+    /// the start): it is marked as good, if the mark could be written.
+    pub fn check_trial(&mut self, now: u64) -> paperpaw_x4::updates::TrialEnd {
+        let end = self.updates.end_of_trial(now);
+        match end {
+            paperpaw_x4::updates::TrialEnd::Running => {}
+            paperpaw_x4::updates::TrialEnd::Kept => info!("OTA: the update works"),
+            paperpaw_x4::updates::TrialEnd::Unmarked => {
                 warn!("OTA: could not mark the update as good");
-                true
             }
         }
+        end
     }
 
     /// The running firmware goes to sleep or restarts at `now`, ending
     /// cleanly: on trial, the next start goes on with the trial.
     pub fn pause_trial(&mut self, now: u64) {
-        if self.0.pause_trial(now).is_err() {
+        if self.updates.pause_trial(now).is_err() {
             warn!("OTA: could not note the time on trial");
         }
     }
@@ -220,20 +291,36 @@ impl Ota {
     /// Awake again at `now` after pending work cancelled sleep: on
     /// trial again.
     pub fn resume_trial(&mut self, now: u64) {
-        if self.0.resume_trial(now).is_err() {
+        if self.updates.resume_trial(now).is_err() {
             warn!("OTA: could not put the update on trial again");
         }
     }
 
     /// The firmware as plugins see it.
     pub fn firmware(&self) -> Firmware {
-        self.0.firmware()
+        self.updates.firmware()
     }
 
     /// Whether an install goes on (the device neither sleeps nor waits
     /// meanwhile).
     pub fn installing(&self) -> bool {
-        self.0.installing()
+        self.updates.installing()
+    }
+
+    /// Whether, and by what, the setup is a declared dual-boot one.
+    pub fn dual(&self) -> Option<paperpaw_x4::dual_boot::Source> {
+        self.updates.dual()
+    }
+
+    /// The setup is declared a dual-boot one, or not, again (before an
+    /// install, `dual::guard`): nothing is written to the OTA data by it.
+    pub fn declare(&mut self, source: Option<paperpaw_x4::dual_boot::Source>) {
+        self.updates.settle(source);
+    }
+
+    /// The partition running, 0 or 1.
+    pub fn slot(&self) -> u32 {
+        self.updates.slot()
     }
 
     /// Starts installing the update file at `path`, with the `key` the
@@ -246,15 +333,27 @@ impl Ota {
         key: Option<&[u8; 32]>,
         older: bool,
     ) -> FirmwareState {
-        let begun = self.0.begin(storage, path, key, older);
+        if crate::dual::guard(self, storage) {
+            return said(
+                path,
+                Err(InstallFailure::Other(paperpaw_x4::dual_boot::REFUSED)),
+            );
+        }
+        let begun = self.updates.begin(storage, path, key, older);
         said(path, begun)
     }
 
     /// Starts installing another firmware's image at `path`, which the
     /// reader chose as such (see `FirmwareCommand::InstallForeign`).
     pub fn begin_foreign(&mut self, storage: &dyn Storage, path: &str) -> FirmwareState {
+        if crate::dual::guard(self, storage) {
+            return said(
+                path,
+                Err(InstallFailure::Other(paperpaw_x4::dual_boot::REFUSED)),
+            );
+        }
         let begun = self
-            .0
+            .updates
             .begin_foreign(storage, path)
             .map(|(installing, what)| {
                 info!("OTA: {path} is another firmware ({what}), not signed");
@@ -266,7 +365,7 @@ impl Ota {
     /// Writes the next part; the new state when the install went on (every
     /// 5 %: the page shows each with a refresh), ended or failed.
     pub fn step(&mut self, storage: &dyn Storage) -> Option<FirmwareState> {
-        let state = self.0.step(storage)?;
+        let state = self.updates.step(storage)?;
         match &state {
             FirmwareState::Installed => info!("OTA: installed, started at the next start"),
             FirmwareState::Failed(why) => warn!("OTA: the install failed: {why:?}"),

@@ -1,4 +1,4 @@
-Merkliste-Artikel (Cloud) holt die Artikel, die du in Readwise Reader gespeichert hast, als Bücher in den Ordner Reader deiner Bibliothek. Sie enthalten den Text des Artikels, ohne Bilder. Es ist anfangs aus: Füge es mit Mehr Plugins hinzu, oder schalte es unter Plugins ein, wenn es dort steht.
+Merkliste-Artikel (Cloud) holt die Artikel, die du in Readwise Reader gespeichert hast, als Bücher in den Ordner Reader deiner Bibliothek. Sie enthalten den Text des Artikels, ohne Bilder. Es ist anfangs aus: Füge es aus dem Plugin-Store hinzu, oder schalte es unter Plugins ein, wenn es dort steht.
 
 Öffne Merkliste-Artikel (Cloud) unter Werkzeuge. Gib deinen Zugangstoken ein (readwise.io/access_token; er ist derselbe wie bei Readwise, wird hier aber getrennt gespeichert). Wähle dann Artikel holen, bei eingeschaltetem WLAN. In den Einstellungen wählst du, ob die Artikel aus Später oder aus deinem Posteingang kommen. Ein Holen bringt höchstens zehn neue Artikel; hole noch einmal für weitere.
 

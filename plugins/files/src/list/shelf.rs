@@ -21,7 +21,7 @@ use paperpaw_sdk::{
 };
 
 use super::index::{letter, sort_key, surname};
-use super::rows::{self, Loaded, Sizes};
+use super::rows::{self, CoverPace, Loaded, Sizes};
 
 /// The parameter naming the series, folder, letter or search words.
 const NAME: &str = "name";
@@ -142,6 +142,8 @@ pub(crate) struct ShelfScreen {
     summary_text: String,
     list: ListView,
     loaded: Vec<Loaded>,
+    /// When the covers not read yet are read.
+    pace: CoverPace,
     loaded_page: Option<usize>,
     /// The version of the library's books the entries' keys are of
     /// ([`library::Library::version`]).
@@ -179,6 +181,7 @@ impl ShelfScreen {
             title_text: String::new(),
             summary_text: String::new(),
             loaded: Vec::new(),
+            pace: CoverPace::default(),
             loaded_page: None,
             version: library::service(env).version(env),
             stamp,
@@ -479,6 +482,47 @@ impl Screen for ShelfScreen {
     }
 
     fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+        self.pace.heard(cx.env().now());
+        self.shown(cx);
+        self.wake_for_covers(cx);
+    }
+
+    fn on_event(&mut self, event: &Id, params: &Params, cx: &mut Cx<'_, '_>) {
+        self.heard(event, params, cx);
+        self.wake_for_covers(cx);
+    }
+
+    /// The covers of the page shown not read yet, one a tick, none while
+    /// input comes, as the library's list reads them.
+    fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
+        if self.pace.tick(cx, &mut self.loaded) {
+            cx.request_redraw();
+        }
+    }
+
+    fn on_hide(&mut self) {
+        self.loaded = Vec::new();
+        self.loaded_page = None;
+    }
+
+    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+        self.pace.heard(cx.env().now());
+        let handled = self.act(action, cx);
+        self.wake_for_covers(cx);
+        handled
+    }
+
+    fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
+        self.pace.heard(cx.env().now());
+        let handled = self.gesture(gesture, cx);
+        self.wake_for_covers(cx);
+        handled
+    }
+}
+
+/// What the screen does, its covers looked for after each.
+impl ShelfScreen {
+    fn shown(&mut self, cx: &mut Cx<'_, '_>) {
         self.grays = crate::covers_in_grays(cx.env());
         if core::mem::take(&mut self.fresh) {
             return;
@@ -496,29 +540,7 @@ impl Screen for ShelfScreen {
         cx.request_redraw();
     }
 
-    fn on_event(&mut self, event: &Id, _: &Params, cx: &mut Cx<'_, '_>) {
-        // A new catalog (its books where their lines are now), or a book
-        // gone (noted beside it).
-        if [
-            events::CATALOG_CHANGED.id(),
-            events::BOOK_REMOVED.id(),
-            events::BOOK_MOVED.id(),
-        ]
-        .contains(&event)
-        {
-            let env = *cx.env();
-            self.find_again(&env);
-            cx.request_redraw();
-            cx.request_refresh(RefreshMode::Partial);
-        }
-    }
-
-    fn on_hide(&mut self) {
-        self.loaded = Vec::new();
-        self.loaded_page = None;
-    }
-
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn act(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
         let a = action;
         let len = self.entries.len();
         if let Some(change) = self.list.navigate_in(cx.env(), a, len) {
@@ -542,7 +564,7 @@ impl Screen for ShelfScreen {
         Handled::Yes
     }
 
-    fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
+    fn gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
         let len = self.entries.len();
         let hit = self.list.hit(gesture.start, len);
         match gesture.kind {
@@ -574,5 +596,27 @@ impl Screen for ShelfScreen {
             }
             _ => Handled::No,
         }
+    }
+
+    fn heard(&mut self, event: &Id, _: &Params, cx: &mut Cx<'_, '_>) {
+        // A new catalog (its books where their lines are now), or a book
+        // gone (noted beside it).
+        if [
+            events::CATALOG_CHANGED.id(),
+            events::BOOK_REMOVED.id(),
+            events::BOOK_MOVED.id(),
+        ]
+        .contains(&event)
+        {
+            let env = *cx.env();
+            self.find_again(&env);
+            cx.request_redraw();
+            cx.request_refresh(RefreshMode::Partial);
+        }
+    }
+
+    /// Wakes for the covers of the page shown not read yet.
+    fn wake_for_covers(&self, cx: &mut Cx<'_, '_>) {
+        self.pace.wake(cx, &self.loaded);
     }
 }

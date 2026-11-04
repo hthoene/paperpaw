@@ -50,6 +50,10 @@ const UNWRITTEN: u32 = u32::MAX;
 const ARMED: u32 = 0x5050_4131;
 /// Seals the time on trial the same way.
 const TIMED: u32 = 0x5050_4132;
+/// The label word of an entry this firmware wrote as `New`: an update it
+/// installed itself (or a trial it ended cleanly), so a PaperPaw that was
+/// not told it shares the flash with another firmware had decided so.
+const VOUCHED: u32 = 0x5050_4133;
 
 /// The state of an image, as ESP-IDF keeps it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,6 +204,12 @@ impl Entry {
         self.sequence().is_some() && self.word(8) == self.seal(ARMED, 0)
     }
 
+    /// Whether the firmware itself wrote the entry as `New` (see
+    /// [`VOUCHED`]); not a tool's, nor an older image's.
+    fn vouched(&self) -> bool {
+        self.sequence().is_some() && self.word(16) == self.seal(VOUCHED, 0)
+    }
+
     /// How long its image ran on trial, in the label's first word; 0 if
     /// the label is not this image's.
     fn trial_ms(&self) -> u32 {
@@ -227,6 +237,12 @@ impl Entry {
             self.seal(TIMED, ms)
         };
         self.0[12..16].copy_from_slice(&timed.to_le_bytes());
+        let vouched = if state == State::New {
+            self.seal(VOUCHED, 0)
+        } else {
+            UNWRITTEN
+        };
+        self.0[16..20].copy_from_slice(&vouched.to_le_bytes());
     }
 }
 
@@ -281,6 +297,28 @@ impl OtaData {
     pub fn armed(&self, slot: u32) -> bool {
         self.newest_of(slot)
             .is_some_and(|i| self.entries[i].armed())
+    }
+
+    /// Whether `slot`'s image was put on the flash as an update by this
+    /// firmware (`false` for a tool's: its entry says `New` or `Undefined`
+    /// with no word of ours).
+    pub fn vouched(&self, slot: u32) -> bool {
+        self.newest_of(slot)
+            .is_some_and(|i| self.entries[i].vouched())
+    }
+
+    /// Whether the start is one that must be marked at once, before the card
+    /// is read (`dual_boot`): an update this firmware put on the flash itself
+    /// that is to go on trial, or one it put on trial that failed. A hang
+    /// or a panic in the board's start would otherwise leave it unmarked
+    /// for good, with no way back. A tool's `New` or `Undefined`, and what
+    /// undoes an update, wait for the setup to be known.
+    pub fn acts_early(&self, running: u32) -> bool {
+        match self.plan(running) {
+            Start::Failed { .. } => true,
+            Start::Trial { .. } => self.vouched(running),
+            Start::Kept | Start::Undone | Start::Marked { .. } => false,
+        }
     }
 
     /// Chooses `slot` to start, its image in `state` after `trial_ms` on
@@ -343,29 +381,33 @@ impl OtaData {
     /// again where the update did not start (see [`Start`]). `None` where
     /// writing failed.
     pub fn start(&mut self, flash: &mut impl Flash, running: u32) -> Option<Start> {
+        let start = self.plan(running);
+        match start {
+            Start::Undone => self.choose(flash, running, State::Valid, 0).ok()?,
+            Start::Trial { ran } | Start::Marked { ran } => self
+                .set_state(flash, running, State::PendingVerify, ran)
+                .ok()?,
+            Start::Failed { .. } => self.set_state(flash, running, State::Invalid, 0).ok()?,
+            Start::Kept => {}
+        }
+        Some(start)
+    }
+
+    /// What [`OtaData::start`] would find and do at a start of `running`,
+    /// without doing it: anything but [`Start::Kept`] writes the OTA data.
+    #[inline(never)]
+    pub fn plan(&self, running: u32) -> Start {
         match (self.chosen(), self.state_of(running)) {
-            (Some(chosen), _) if chosen != running => {
-                self.choose(flash, running, State::Valid, 0).ok()?;
-                Some(Start::Undone)
-            }
+            (Some(chosen), _) if chosen != running => Start::Undone,
             // Undefined: chosen by a tool.
-            (Some(_), Some((State::New | State::Undefined, ran))) => {
-                self.set_state(flash, running, State::PendingVerify, ran)
-                    .ok()?;
-                Some(Start::Trial { ran })
-            }
+            (Some(_), Some((State::New | State::Undefined, ran))) => Start::Trial { ran },
             // Marked by a bootloader with app rollback, not by this
             // firmware: the update's start, not a run that failed.
             (Some(_), Some((State::PendingVerify, ran))) if !self.armed(running) => {
-                self.set_state(flash, running, State::PendingVerify, ran)
-                    .ok()?;
-                Some(Start::Marked { ran })
+                Start::Marked { ran }
             }
-            (Some(_), Some((State::PendingVerify, ran))) => {
-                self.set_state(flash, running, State::Invalid, 0).ok()?;
-                Some(Start::Failed { ran })
-            }
-            _ => Some(Start::Kept),
+            (Some(_), Some((State::PendingVerify, ran))) => Start::Failed { ran },
+            _ => Start::Kept,
         }
     }
 

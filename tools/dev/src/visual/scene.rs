@@ -308,6 +308,51 @@ impl Ink {
         }
     }
 
+    /// Leaves out the sides of a frame round the area: ink that runs
+    /// unbroken from its top edge to its bottom edge (an outline's side or
+    /// a rounded end passing by), which no icon or letter drawn within
+    /// the area does.
+    pub fn clear_sides(&mut self) {
+        let (w, h) = (self.w(), usize::from(self.area.height));
+        if w == 0 || h == 0 {
+            return;
+        }
+        // The shapes of ink touching the top edge, each pixel joined to
+        // its eight neighbours.
+        let mut shape = vec![usize::MAX; w * h];
+        let mut stack = Vec::new();
+        for start in 0..w {
+            if !self.cells[start] || shape[start] != usize::MAX {
+                continue;
+            }
+            shape[start] = start;
+            stack.push(start);
+            let mut reaches_bottom = false;
+            let mut pixels = Vec::new();
+            while let Some(i) = stack.pop() {
+                pixels.push(i);
+                let (x, y) = (i % w, i / w);
+                reaches_bottom |= y + 1 == h;
+                for (dx, dy) in NEIGHBOURS {
+                    let (nx, ny) = (x as isize + dx, y as isize + dy);
+                    if nx < 0 || ny < 0 || nx as usize >= w || ny as usize >= h {
+                        continue;
+                    }
+                    let n = ny as usize * w + nx as usize;
+                    if self.cells[n] && shape[n] == usize::MAX {
+                        shape[n] = start;
+                        stack.push(n);
+                    }
+                }
+            }
+            if reaches_bottom {
+                for i in pixels {
+                    self.cells[i] = false;
+                }
+            }
+        }
+    }
+
     /// A box filled with ink in the area (rows of it unbroken across
     /// three fifths of the area or more, above and below what is in it,
     /// half the area high or more): where it is (absolute), and a pixel
@@ -585,6 +630,18 @@ impl Ink {
         Some((first, last))
     }
 }
+
+/// The eight neighbours of a pixel.
+const NEIGHBOURS: [(isize, isize); 8] = [
+    (-1, -1),
+    (0, -1),
+    (1, -1),
+    (-1, 0),
+    (1, 0),
+    (-1, 1),
+    (0, 1),
+    (1, 1),
+];
 
 #[cfg(test)]
 mod tests {

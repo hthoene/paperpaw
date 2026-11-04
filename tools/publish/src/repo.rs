@@ -715,7 +715,7 @@ fn code_checks(
             "Cargo.toml",
             format!(
                 "`{}`: name the SDK of a PaperPaw release by its version, such as \
-                 paperpaw-sdk = \"0.6.0-beta.1\", never a path or a git checkout",
+                 paperpaw-sdk = \"0.6.0-beta.2\", never a path or a git checkout",
                 line.trim()
             ),
         ));

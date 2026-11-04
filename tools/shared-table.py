@@ -38,9 +38,11 @@ INDEX = CRATE / "src" / "index.rs"
 SIG = CRATE / "table.sig"
 BODY = CRATE / "table.body"
 ADDRESSES = REPO / "crates" / "paperpaw-sdk" / "src" / "shared_table.rs"
-# Families 0 to 6 by number; 7 is kept for the chain to 8 and up
+# Families 0 to 6 by number (6, `widgets`, was kept for the firmware's
+# own `core` and `alloc` code: that goes to a chained family when there
+# is one); 7 is kept for the chain to 8 and up
 # (paperpaw_table::FAMILIES).
-FAMILIES = ["text", "fonts", "ui", "graphics", "contribution", "data"]
+FAMILIES = ["text", "fonts", "ui", "graphics", "contribution", "data", "widgets"]
 assert len(FAMILIES) <= 7, "family 7 is kept for the chain"
 COUNT = 8
 

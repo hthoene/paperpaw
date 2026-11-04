@@ -24,20 +24,19 @@ use paperpaw_x4::sent::Sent;
 use crate::board::Panel;
 use crate::network::{Network, NetworkIo};
 use crate::ota::Ota;
+use crate::usb_power::Sense;
 use crate::{clock, device, input, now, power, stack};
 
+mod cable;
+mod card_swap;
+mod dozing;
 mod paced;
-#[cfg(feature = "esp32c3")]
+#[cfg(feature = "asleep-light")]
 mod sleeping_board;
 mod waveform;
 
 /// How long the main loop rests when there is nothing to do.
 const POLL_MS: u64 = 10;
-/// Lines of the cable transfer read in one turn of the main loop at most.
-const CABLE_LINES: usize = 32;
-/// After a line of the cable transfer, the main loop reads on without
-/// resting for this long.
-const CABLE_QUIET_MS: u64 = 300;
 /// How often the battery is read.
 const STATUS_MS: u64 = 60_000;
 /// On battery, the longest the processor sleeps between readings of the
@@ -86,16 +85,23 @@ pub struct Firmware {
     /// The X4 Pro's front light.
     #[cfg(feature = "x4-pro")]
     pub light: Option<crate::light::Light>,
+    /// The card taken out and put back while running (#145).
+    pub card_swap: Option<alloc::boxed::Box<dyn crate::volume::Swap>>,
     pub state: State,
 }
 
 /// Where the main loop is.
 #[derive(Debug, Default)]
 pub struct State {
+    /// What the card's watch said last, where it was not `No` (logged as
+    /// it changes).
+    card_said: Option<paperpaw_fat::Swapped>,
     /// The kernel asked to sleep.
     sleep: bool,
     /// The kernel asked to switch the device off (`Effect::PowerOff`).
     power_off: bool,
+    /// Staying awake on USB, the developer's choice (`dozing`).
+    stay: paperpaw_x4::stay_awake::StayAwake,
     /// When the kernel wants to be woken.
     wake_at: Option<Instant>,
     /// When the battery was read last.
@@ -218,15 +224,18 @@ impl Firmware {
     /// so what it calls aside from the kernel (the USB lines, updates,
     /// sleeping) keeps frames of its own (`#[inline(never)]`).
     fn step(&mut self) {
-        if let Some(ota) = &mut self.ota
-            && ota.check_trial(now().0)
-        {
+        // Kept only where the mark was written: a flash that fails to write
+        // leaves the update on trial (it may still go back), and the hold
+        // on code plugins with it (`Kernel::trial_kept`).
+        let end = self.ota.as_mut().map(|ota| ota.check_trial(now().0));
+        if end == Some(paperpaw_x4::updates::TrialEnd::Kept) {
             // An update on trial starts without code plugins: those
             // installed before (an update that keeps the fingerprint
             // fetches none) and those fetched for it wait for a start once
             // it is kept, which installs and loads them (ADR 0024).
             let native = crate::native::this_firmware();
             Ota::trial_over(self.kernel.storage());
+            self.kernel.trial_kept();
             self.state.restart_for_code =
                 paperpaw_core::code_to_load(self.kernel.storage(), &native);
         }
@@ -236,16 +245,29 @@ impl Firmware {
             info!("native: the update is kept; restarting to load the code plugins");
             self.restart();
         }
+        self.watch_stay_awake();
         let installing = self.installing();
         match paperpaw_x4::sleeping::wanted(self.state.sleep, self.state.power_off, installing) {
             Some(paperpaw_x4::sleeping::Wanted::SwitchOff) => return self.sleep(false),
+            // A doze only where the kernel itself holds the sleep: not at a
+            // nearly empty battery that does not charge, which sleeps for
+            // real, the timer's or the reader's.
+            Some(paperpaw_x4::sleeping::Wanted::Sleep)
+                if self.state.stay.is_on() && self.kernel.awake_on_usb() =>
+            {
+                return self.doze();
+            }
             Some(paperpaw_x4::sleeping::Wanted::Sleep) => return self.sleep(true),
             None => {}
+        }
+        if self.state.stay.is_dozing() {
+            return self.dozing_step();
         }
         power::feed();
         power::mark(power::at::LOOP);
         stack::check();
         self.io();
+        self.watch_card();
         for effects in self.network.step(&mut self.kernel, now()) {
             self.apply(effects);
         }
@@ -257,7 +279,7 @@ impl Firmware {
         let battery = !self.network.radio_on()
             && !installing
             && !light
-            && ((self.usb_power.is_low() && self.kernel.settings().read(&device::LIGHT_SLEEP))
+            && ((!self.usb_power.cable() && self.kernel.settings().read(&device::LIGHT_SLEEP))
                 || self.trying_sleep());
         power::allow(battery);
         self.status();
@@ -469,19 +491,36 @@ impl Firmware {
             .state
             .status_read
             .is_none_or(|read| at.since(read) >= STATUS_MS);
-        let on_usb = self.usb_power.is_high();
-        let plugged = on_usb != self.state.status_on_usb;
-        if !clock::take_changed() && !due && !plugged {
+        // What the cable does (#209): charging is what the bolt, the kernel's
+        // low-battery rules and the install check take for it, and only a
+        // change of it makes a status at once. The pin and the frames by
+        // themselves go to the diagnostics page with the regular readings: a
+        // frames reading that flickers must not send a status (and a line
+        // to the battery log) every second.
+        let on_usb = self.usb_power.charging();
+        if !paperpaw_x4::usb_link::status_due(
+            clock::take_changed(),
+            due,
+            self.state.status_on_usb,
+            on_usb,
+        ) {
             return;
         }
+        let readings = self.usb_power.readings();
         power::mark(power::at::STATUS);
         self.state.status_read = Some(at);
         self.state.status_on_usb = on_usb;
         let millivolts = input::millivolts();
-        let status = SystemStatus::new(
+        let mut status = SystemStatus::new(
             clock::wall(at),
             Some(Battery::new(input::percent(), on_usb, Some(millivolts))),
         );
+        if let Some(high) = readings.pin_high {
+            status = status.with_value("usb-pin-high", i64::from(high));
+        }
+        if let Some(frames) = readings.frames {
+            status = status.with_value("usb-frames", i64::from(frames));
+        }
         let effects = self.kernel.set_status(at, status);
         self.apply(effects);
     }
@@ -513,6 +552,18 @@ impl Firmware {
                 }
                 input::Change::Touch(touch, at) => (self.pointer(touch), at),
             };
+            // A doze ends at the first press; the power button's only wakes.
+            if self.wake_dozing()
+                && matches!(
+                    event,
+                    InputEvent::Button {
+                        name: paperpaw_platform::buttons::POWER,
+                        ..
+                    }
+                )
+            {
+                continue;
+            }
             // The press that brings the front light back only does that.
             if !self.light_passes(&event) {
                 continue;
@@ -622,6 +673,10 @@ impl Firmware {
             return;
         }
         let idle = self.idle_ms();
+        // A doze waits for a press or a command only: what the kernel and
+        // the panel would wake for (a stale time, long past) would make
+        // this return at once, every loop.
+        let dozing = self.state.stay.is_dozing();
         let mut until = now().0
             + if battery {
                 idle
@@ -631,7 +686,9 @@ impl Firmware {
             } else {
                 POLL_MS
             };
-        if let Some(at) = self.state.wake_at {
+        if let Some(at) = self.state.wake_at
+            && !dozing
+        {
             until = until.min(at.0);
         }
         if let Some(worked) = self.state.unsynced {
@@ -645,14 +702,16 @@ impl Firmware {
                 until = until.min(due);
             }
         }
-        if let Some(read) = self.state.status_read {
-            until = until.min(read.0 + STATUS_MS);
-        }
-        if let Some(at) = self.state.panel_idle_at {
-            until = until.min(at);
-        }
-        if let Some(due) = self.frame_due() {
-            until = until.min(due);
+        if !dozing {
+            if let Some(read) = self.state.status_read {
+                until = until.min(read.0 + STATUS_MS);
+            }
+            if let Some(at) = self.state.panel_idle_at {
+                until = until.min(at);
+            }
+            if let Some(due) = self.frame_due() {
+                until = until.min(due);
+            }
         }
         if !power::nap_until(until) {
             self.delay
@@ -682,9 +741,12 @@ impl Firmware {
         // A press over USB that put it to sleep is let go first.
         #[cfg(feature = "remote")]
         self.release_held();
-        self.pause_trial();
-        let effects = self.kernel.suspend(now());
-        self.apply(effects);
+        // A doze that ends in a sleep (the cable pulled) suspended already.
+        if !self.state.stay.suspended_already() {
+            self.pause_trial();
+            let effects = self.kernel.suspend(now());
+            self.apply(effects);
+        }
         // Bluetooth down now: the main loop does not come by once the
         // pending work is finished and the processor sleeps.
         #[cfg(feature = "bluetooth")]
@@ -707,7 +769,7 @@ impl Firmware {
         }
         // A real sleep first (the processor lightly asleep, the power button
         // waking it at once), switched off only after a while (#51).
-        #[cfg(feature = "esp32c3")]
+        #[cfg(feature = "asleep-light")]
         if next == paperpaw_x4::sleeping::After::Light && self.sleep_lightly() {
             return;
         }
@@ -733,8 +795,9 @@ impl Firmware {
             light.off();
         }
         info!(
-            "sleeping: hardware shutdown (USB {})",
-            self.usb_power.is_high()
+            "sleeping: hardware shutdown (USB {}, charging {})",
+            self.usb_power.cable(),
+            self.usb_power.charging()
         );
         // The power goes, the radio's with it: the network left first, and
         // before the wait below, which has no end while the button is held
@@ -767,7 +830,7 @@ impl Firmware {
     /// every [`paperpaw_x4::sleeping::CHECK_MS`] it wakes for a moment to
     /// look at the battery. The order of it is
     /// [`paperpaw_x4::sleeping::run`], tested on a computer.
-    #[cfg(feature = "esp32c3")]
+    #[cfg(feature = "asleep-light")]
     #[inline(never)]
     fn sleep_lightly(&mut self) -> bool {
         use paperpaw_x4::sleeping::{Ended, Off};
@@ -775,11 +838,19 @@ impl Firmware {
         if !self.kernel.settings().read(&device::LIGHT_SLEEP) {
             return false;
         }
+        // The front light goes off for the sleep (its PWM stops in a light
+        // sleep, the LEDs must not be left half lit); `wake_lightly` and the
+        // next frame bring it back as the settings say.
+        #[cfg(feature = "x4-pro")]
+        if let Some(light) = self.light.as_mut() {
+            light.off();
+        }
         let choice = self.kernel.settings().read(&device::POWER_OFF_AFTER);
         let off = Off::of(choice);
         info!(
-            "sleeping: light sleep, off {off:?}, USB {}",
-            self.usb_power.is_high()
+            "sleeping: light sleep, off {off:?}, USB {}, charging {}",
+            self.usb_power.cable(),
+            self.usb_power.charging()
         );
         let started = now().0;
         let ended = paperpaw_x4::sleeping::run(off, &mut sleeping_board::Light { firmware: self });
@@ -795,16 +866,28 @@ impl Firmware {
 
     /// Awake again after a light sleep: plugins hear it (`core.resume`),
     /// the screen is drawn as it was before the sleep screen.
-    #[cfg(feature = "esp32c3")]
+    #[cfg(feature = "asleep-light")]
     fn wake_lightly(&mut self) {
         self.state.sleep = false;
         self.state.power_off = false;
         // The clock and the battery shown anew soon.
         self.state.status_read = None;
+        // The press that woke it is input: the front light, off for the
+        // sleep, comes back as set and its timer starts anew.
+        #[cfg(feature = "x4-pro")]
+        {
+            self.state.light_timer = paperpaw_x4::light_timer::LightTimer::new(now().0);
+        }
         if let Some(ota) = &mut self.ota {
             ota.resume_trial(now().0);
         }
-        let effects = self.kernel.resume(now());
+        // A card swapped while asleep is mounted anew first: waking is
+        // then told as after a USB drive (which resumes too).
+        let effects = if self.card_swapped_asleep() {
+            self.kernel.usb_drive_ended(now())
+        } else {
+            self.kernel.resume(now())
+        };
         self.apply(effects);
     }
 
@@ -925,48 +1008,6 @@ impl Firmware {
             }
             return;
         }
-    }
-
-    /// What came over USB: the cable transfer's lines for the kernel (all
-    /// that is there, a few at most), the test remote control's commands
-    /// (`remote` builds, one at a time).
-    #[inline(never)]
-    fn usb(&mut self) {
-        for _ in 0..CABLE_LINES {
-            let Some(line) = self.usb.next_line() else {
-                break;
-            };
-            match line {
-                Ok(line) if line.starts_with(paperpaw_core::CABLE_PREFIX.as_bytes()) => {
-                    self.state.cable_at = Some(now().0);
-                    let line = alloc::string::String::from_utf8_lossy(&line);
-                    let at = self.kernel_now();
-                    let effects = self.kernel.cable_line(at, &line);
-                    self.apply(effects);
-                }
-                #[cfg(feature = "remote")]
-                line => {
-                    self.remote(line);
-                    break;
-                }
-                #[cfg(not(feature = "remote"))]
-                _ => {}
-            }
-        }
-        #[cfg(feature = "remote")]
-        if self.state.held.is_some_and(|(_, at)| at <= now()) {
-            self.release_held();
-        }
-    }
-
-    /// Whether the cable transfer's lines are coming (one came a moment
-    /// ago, or one is half there).
-    fn cable_moving(&self) -> bool {
-        self.usb.in_line()
-            || self
-                .state
-                .cable_at
-                .is_some_and(|at| now().0 < at + CABLE_QUIET_MS)
     }
 
     /// Refreshes the panel: on battery the processor sleeps lightly for

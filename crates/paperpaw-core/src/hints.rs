@@ -135,16 +135,17 @@ impl Kernel {
         if height == self.hint.height {
             return;
         }
+        let shown = self.shown_as_laid_out();
         self.hint.height = height;
-        self.remake_screens();
+        self.remake_screens(shown);
     }
 
     /// What the row of hints shows for each button in it: what the button
-    /// runs here, as the screen on top names it.
+    /// runs here, as the screen input goes to names it.
     pub(crate) fn current_hints(&self) -> Vec<Hint> {
         use paperpaw_sdk::builtin::actions;
         let env = self.shared.env(self.now);
-        let top = self.stack.last();
+        let top = self.input_index().map(|index| &self.stack[index]);
         self.hint
             .buttons
             .iter()

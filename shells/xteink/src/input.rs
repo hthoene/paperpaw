@@ -419,7 +419,7 @@ fn battery() -> (u8, u16) {
 /// not be read: never the last one kept, which a failing reading would
 /// leave in place for good (a sleeping reader must notice a battery it
 /// cannot read).
-#[cfg(feature = "esp32c3")]
+#[cfg(feature = "asleep-light")]
 pub fn percent_now() -> Option<u8> {
     let (percent, millivolts) = with_keys(Keys::battery).flatten()?;
     if millivolts == 0 {
@@ -479,7 +479,7 @@ pub fn power_down() -> bool {
 
 /// Stops the readings but keeps the sampler, for a light sleep that only
 /// the power button or the clock ends ([`power_nap`]); [`resume`] goes on.
-#[cfg(feature = "esp32c3")]
+#[cfg(feature = "asleep-light")]
 pub fn pause() {
     critical_section::with(|cs| {
         if let Some(sampler) = SAMPLER.borrow_ref_mut(cs).as_mut() {
@@ -491,7 +491,7 @@ pub fn pause() {
 
 /// Goes on reading after [`pause`]. The press of the power button that
 /// ended the sleep, still down, counts once it is let go, not as a press.
-#[cfg(feature = "esp32c3")]
+#[cfg(feature = "asleep-light")]
 pub fn resume() {
     critical_section::with(|cs| {
         if let Some(sampler) = SAMPLER.borrow_ref_mut(cs).as_mut() {
@@ -507,7 +507,7 @@ pub fn resume() {
 /// it, and says whether the button is down after it. With the readings
 /// paused: nothing else runs while it sleeps, interrupts are held off, so
 /// that the button's interrupt is neither taken nor left pending.
-#[cfg(feature = "esp32c3")]
+#[cfg(feature = "asleep-light")]
 pub fn power_nap(sleep: impl FnOnce()) -> bool {
     critical_section::with(|cs| {
         let mut sampler = SAMPLER.borrow_ref_mut(cs);
@@ -524,7 +524,7 @@ pub fn power_nap(sleep: impl FnOnce()) -> bool {
 
 /// Whether the power button is down, read from the pin (the readings may
 /// be paused).
-#[cfg(feature = "esp32c3")]
+#[cfg(feature = "asleep-light")]
 pub fn power_pin_low() -> bool {
     critical_section::with(|cs| {
         SAMPLER

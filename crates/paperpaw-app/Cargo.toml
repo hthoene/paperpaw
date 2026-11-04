@@ -13,7 +13,11 @@ categories = ["no-std"]
 links = "paperpaw-app"
 
 [features]
-default = ["store-plugins", "diagnostics"]
+default = ["store-plugins", "diagnostics", "panes"]
+# A list and its detail beside each other on wide screens (the kernel's
+# `panes`): every shell with the app's defaults has it; the Xteink
+# firmware, never wide, leaves it out.
+panes = ["paperpaw-core/panes"]
 # The plugins the store offers as files too (ADR 0024): built in where a
 # shell takes them (Android, the emulator, tests), left out of the X4's
 # and the X4 Pro's firmware (see `StorePlugins`).
@@ -38,6 +42,7 @@ store-plugins = [
     "dep:paperpaw-plugin-end-of-book",
     "dep:paperpaw-plugin-notes-overview",
     "dep:paperpaw-plugin-notes-vault",
+    "dep:paperpaw-plugin-picture-home",
     "dep:paperpaw-plugin-format-mobi",
     "dep:paperpaw-plugin-format-docx",
     "dep:paperpaw-plugin-format-images",
@@ -107,6 +112,7 @@ paperpaw-plugin-reading-goal = { workspace = true, optional = true }
 paperpaw-plugin-end-of-book = { workspace = true, optional = true }
 paperpaw-plugin-notes-overview = { workspace = true, optional = true }
 paperpaw-plugin-notes-vault = { workspace = true, optional = true }
+paperpaw-plugin-picture-home = { workspace = true, optional = true }
 paperpaw-plugin-format-mobi = { workspace = true, optional = true }
 paperpaw-plugin-format-docx = { workspace = true, optional = true }
 paperpaw-plugin-format-images = { workspace = true, optional = true }

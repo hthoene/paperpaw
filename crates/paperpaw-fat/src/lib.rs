@@ -82,6 +82,7 @@
 
 extern crate alloc;
 
+mod damaged;
 mod disk;
 mod exfat;
 mod exfat_boot;
@@ -90,10 +91,15 @@ mod found;
 mod free;
 mod listed;
 mod settle;
+mod swap;
 
 pub use disk::{BLOCK, BlockDisk, Blocks, DiskError, Kind, SharedDisk, VolumeError};
 pub use exfat::{ExDisk, ExFatStorage};
 pub use exfat_boot::{BootSizes, MountFailure};
+pub use swap::{
+    CardSwap, LOST_AFTER, MOUNT_TRIES, Mount, PROBE_MS, REMOUNTS, RETRY_MS, Restart, Swappable,
+    Swapped, Watched,
+};
 
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -713,27 +719,43 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
     }
 
     /// The clusters the files and folders below `path` take, as bytes in
-    /// whole clusters, where the free space is followed.
+    /// whole clusters, where the free space is followed: what removing
+    /// them frees (see `remove_tree`), none of a damaged folder.
     fn tree_len(&self, path: &str) -> u64 {
         if self.read.is_none() {
             return 0;
         }
+        let cluster = self.cluster();
         let mut taken = 0;
-        let mut dirs = alloc::vec![String::from(path)];
-        while let Some(dir) = dirs.pop() {
-            taken += self.free.borrow().clusters(1) * self.cluster();
-            #[expect(
-                clippy::let_underscore_must_use,
-                reason = "a folder that cannot be listed counts as empty"
-            )]
-            let _ = Storage::list(self, &dir, &mut |entry| {
-                let path = format!("{dir}/{}", entry.name);
-                if entry.is_dir {
-                    dirs.push(path);
-                } else {
-                    taken += self.free.borrow().clusters(entry.size) * self.cluster();
+        let mut dirs = alloc::vec![(String::from(path), None)];
+        while let Some((path, place)) = dirs.pop() {
+            // One that cannot be read counts as empty.
+            let Ok(dir) = self.dir(&path) else {
+                continue;
+            };
+            let (mut here, mut below, mut damaged) = (cluster, alloc::vec::Vec::new(), false);
+            let mut own = None;
+            for (at, entry) in entries(&dir).enumerate() {
+                let Ok(entry) = entry else {
+                    break;
+                };
+                let name = entry.file_name();
+                damaged |= damaged::is_damaged(self.fs, &entry, &name, at, place);
+                if at == 0 {
+                    own = entry.first_cluster();
                 }
-            });
+                if name == "." || name == ".." || is_temp_name(&name) && entry.is_dir() {
+                    // Its clusters stay taken.
+                } else if entry.is_dir() {
+                    below.push((format!("{path}/{name}"), Some((entry.first_cluster(), own))));
+                } else {
+                    here += self.free.borrow().clusters(entry.len()) * cluster;
+                }
+            }
+            if !damaged {
+                taken += here;
+                dirs.append(&mut below);
+            }
         }
         taken
     }
@@ -1091,8 +1113,10 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         Ok(())
     }
 
-    /// [`Storage::remove_dir_all`], its blocks not yet written back.
-    fn remove_tree(&self, path: &str) -> Result<(), StorageError> {
+    /// [`Storage::remove_dir_all`], its blocks not yet written back; a
+    /// folder followed from its parent at `place` (see
+    /// [`damaged::Place`]).
+    fn remove_tree(&self, path: &str, place: Option<damaged::Place>) -> Result<(), StorageError> {
         check(path)?;
         self.hold(path)?;
         self.close(path)?;
@@ -1102,31 +1126,43 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             Err(StorageError::NotFound) => return Ok(()),
             Err(e) => return Err(e),
         };
-        let mut names: alloc::vec::Vec<(String, bool)> = alloc::vec::Vec::new();
+        // Each with whether it is a folder, and its first cluster.
+        let mut names: alloc::vec::Vec<(String, bool, Option<u32>)> = alloc::vec::Vec::new();
+        let mut own = None;
         // Names of new content left by cuts (see `settled`).
         let mut ready = alloc::vec::Vec::new();
-        for entry in entries(&dir) {
+        let mut damaged = false;
+        for (at, entry) in entries(&dir).enumerate() {
             let entry = entry?;
             let name = entry.file_name();
+            damaged |= damaged::is_damaged(self.fs, &entry, &name, at, place);
+            if at == 0 {
+                own = entry.first_cluster();
+            }
             if name != "." && name != ".." {
                 if entry.is_file() && name.len() == 12 && name.starts_with('~') {
                     ready.push(name.to_ascii_uppercase());
                 }
-                names.push((name, entry.is_dir()));
+                names.push((name, entry.is_dir(), entry.first_cluster()));
             }
+        }
+        if damaged {
+            // Its cluster holds another's data, the entries that look
+            // sane too: none is followed (see `damaged`).
+            return self.unlink_damaged(path);
         }
         // A file and its new content may be the same file: settled first,
         // its clusters are not freed twice.
-        for (name, _) in names
+        for (name, ..) in names
             .iter()
-            .filter(|(_, is_dir)| !is_dir && !ready.is_empty())
+            .filter(|(_, is_dir, _)| !is_dir && !ready.is_empty())
         {
             let temps = Temps::of(name);
             if ready.iter().any(|n| n == temps.ready()) {
                 dir.replace(temps.ready(), name).map_err(error)?;
             }
         }
-        for (name, is_dir) in names {
+        for (name, is_dir, first) in names {
             let child = format!("{path}/{name}");
             if is_temp_name(&name) {
                 // Not taken by name (see `check`). A folder's new name in a
@@ -1135,14 +1171,18 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
                     true => dir.unlink(&name).map_err(error)?,
                     false => remove_in(&dir, &name)?,
                 }
+            } else if check(&child).is_err() {
+                // Made elsewhere (`nul.txt`): swept below.
             } else if is_dir {
-                self.remove_tree(&child)?;
+                self.remove_tree(&child, Some((first, own)))?;
             } else {
                 self.remove_entry(&child, false)?;
             }
         }
+        self.sweep(&dir, 0)?;
         self.forget(path);
-        remove_in(&self.dir(parent(path))?, name(path))
+        let parent = self.dir(parent(path))?;
+        remove_in(&parent, name(path))
     }
 }
 
@@ -1336,7 +1376,7 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
     fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
         self.settle_moves()?;
         let before = self.tree_len(path);
-        let removed = self.written(self.remove_tree(path));
+        let removed = self.written(self.remove_tree(path, None));
         if removed.is_ok() {
             self.follow(0, before);
         }

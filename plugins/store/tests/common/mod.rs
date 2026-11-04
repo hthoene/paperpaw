@@ -246,7 +246,24 @@ impl Shopping {
             storage,
             firmware,
             stats_off,
-            (true, None),
+            (true, None, false),
+        )
+    }
+
+    /// The store on the X4 in the first start after an update, which is on
+    /// trial: no code plugins are loaded, and what the firmware takes
+    /// (`native`) is told only once `kernel.trial_kept()` says it is kept
+    /// (#164). Its list is asked for without the build.
+    pub fn after_update(native: Native, list: &str) -> Self {
+        Self::built(
+            DEVICE,
+            Some("x4"),
+            Some(native),
+            list,
+            Shared::default(),
+            None,
+            false,
+            (true, None, true),
         )
     }
 
@@ -263,7 +280,7 @@ impl Shopping {
             Shared::default(),
             None,
             false,
-            (network, Some(Hear(answers.clone()))),
+            (network, Some(Hear(answers.clone())), false),
         );
         (shopping, answers)
     }
@@ -294,7 +311,7 @@ impl Shopping {
         storage: Shared,
         firmware: Option<paperpaw_sdk::firmware::Firmware>,
         stats_off: bool,
-        (network, hear): (bool, Option<Hear>),
+        (network, hear, on_trial): (bool, Option<Hear>, bool),
     ) -> Self {
         let mut builder = Kernel::builder(info)
             .storage(storage.clone())
@@ -315,8 +332,17 @@ impl Shopping {
         if let Some(device) = device {
             builder = builder.catalog_device(device);
         }
+        // A device that loads code plugins names its build to the library.
+        let abi = native
+            .as_ref()
+            .filter(|_| !on_trial)
+            .map_or_else(String::new, |native| format!("&abi={}", native.fingerprint));
         if let Some(native) = native {
-            builder = builder.code_plugins(native, Box::new(NoCode));
+            builder = if on_trial {
+                builder.native_after_trial(native)
+            } else {
+                builder.code_plugins(native, Box::new(NoCode))
+            };
         }
         if let Some(firmware) = firmware {
             builder = builder.firmware(firmware);
@@ -330,7 +356,9 @@ impl Shopping {
         };
         shopping.run(OPEN);
         if let Some(device) = device.filter(|_| network) {
-            let list_url = LIST.replace("device=x4&", &format!("device={device}&"));
+            let list_url = LIST
+                .replace("device=x4&", &format!("device={device}&"))
+                .replace("&order=", &format!("{abi}&order="));
             let call = shopping.request(&list_url);
             shopping.answer(&call, 200, list.as_bytes());
         }

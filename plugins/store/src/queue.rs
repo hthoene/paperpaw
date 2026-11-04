@@ -236,6 +236,7 @@ fn page_url(env: &Env<'_>, device: &Device<'_>, id: &str) -> String {
         env.i18n().language(),
         id,
         community,
+        device.fingerprint,
     )
 }
 
@@ -295,7 +296,7 @@ pub(crate) fn fetched(env: &Env<'_>, reply: &HttpReply, out: &mut Commands) {
                 // A built-in plugin is switched on, never downloaded.
                 && !plugin.entry.switched_off(env)
                 // Made for a newer PaperPaw: nothing to install.
-                && !plugin.entry.needs_newer
+                && !plugin.entry.unbuilt()
                 && (plugin.entry.installed(env).is_none() || plugin.entry.newer(env))
         });
     let _ = env.storage().remove(&fetched);

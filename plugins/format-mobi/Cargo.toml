@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-format-mobi"
 description = "PaperPaw Mobipocket format: .mobi and .azw books without DRM, PalmDOC compression"
-version = "1.0.0"
+version = "1.0.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

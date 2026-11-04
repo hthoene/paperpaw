@@ -136,7 +136,26 @@ impl Kernel {
     /// above it, and the screen on top's part is above both; a full screen
     /// below an overlay keeps its part, the row and bars lying over its
     /// bottom meanwhile.
+    ///
+    /// A list and the detail beside it ([`Kernel::panes`]) part what the
+    /// detail would have alone.
     pub(crate) fn area_of(&self, index: usize) -> Rect {
+        if let Some((list, detail)) = self.panes()
+            && (index == list || index == detail)
+        {
+            let (list_part, _, detail_part) = self.pane_parts(self.whole_area(detail));
+            return if index == list {
+                list_part
+            } else {
+                detail_part
+            };
+        }
+        self.whole_area(index)
+    }
+
+    /// The part of the screen screen `index` has alone, as
+    /// [`Kernel::area_of`] tells, no detail beside it.
+    pub(crate) fn whole_area(&self, index: usize) -> Rect {
         let base = (0..=index)
             .rev()
             .find(|&i| self.overlay(i).is_none())
@@ -172,7 +191,7 @@ impl Kernel {
             .stack
             .len()
             .checked_sub(1)
-            .map(|top| self.shown_base().min(top));
+            .map(|top| self.full_base().min(top));
         let entry = if screen.guards() || self.guard().is_some() || screen.mode().is_full_screen() {
             None
         } else if overlay && let Some(base) = below {
@@ -191,12 +210,15 @@ impl Kernel {
     /// Only strips that are new or moved are drawn again: a bar whose
     /// look follows the screen shown asks for it, hearing
     /// [`events::SCREEN_SHOWN`].
+    ///
+    /// Bars show over a list and its detail as over the detail alone.
     pub(crate) fn sync_chromes(&mut self) {
         if self.chromes.is_empty() {
-            return;
+            // Only a list and its detail can change their parts.
+            return self.lay_out_shown();
         }
         let mut strips: Vec<(usize, Rect)> = Vec::new();
-        let base = self.shown_base();
+        let base = self.full_base();
         // Above the row of hints as the screen on top shows it, as its
         // part is (see `area_of`).
         let hinted = self.stack.last().is_some_and(|top| top.hinted);
@@ -261,7 +283,8 @@ impl Kernel {
     }
 
     /// Makes the screens shown anew where the part of the screen they
-    /// have changed (a bar came, went or changed its size).
+    /// have changed (a bar came, went or changed its size; a detail
+    /// showed beside a list, or went).
     fn lay_out_shown(&mut self) {
         let mut remade = false;
         for index in self.shown_base()..self.stack.len() {

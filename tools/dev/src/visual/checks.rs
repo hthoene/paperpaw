@@ -751,6 +751,9 @@ fn drawn_before(scene: &Scene<'_>, container: Rect, text: &Described) -> Option<
     .intersection(&scene.screen)?;
     let mut ink = scene.ink_in(before);
     ink.clear_lines();
+    // A field's outline (the settings' search) passes by at the focus,
+    // inside the margin: its side is not drawn before the words.
+    ink.clear_sides();
     ink.bounds()
 }
 

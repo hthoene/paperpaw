@@ -131,6 +131,23 @@ fn a_config_that_cannot_be_read_is_said_and_left_as_it_is() {
     }
 }
 
+/// `[firmware]` is the firmware's own section (the X4's dual-boot choice,
+/// read before the kernel exists): the kernel leaves it alone, says nothing of
+/// it, and keeps it when it saves a setting.
+#[test]
+fn the_firmwares_own_section_is_no_plugins_and_stays() {
+    let config = "[firmware]\ndual-boot = on\n[core]\nui-size = 12\n";
+    let mut kernel = kernel_with(MemoryStorage::new().with(CONFIG_FILE, config));
+    assert_eq!(kernel.settings().int("core.ui-size"), 12);
+    assert!(kernel.take_warnings().is_empty());
+    kernel.start(Instant(0));
+    kernel
+        .set_setting(Instant(10), "core.night-mode", "on")
+        .unwrap();
+    let saved = String::from_utf8(bytes(&kernel, CONFIG_FILE)).unwrap();
+    assert!(saved.contains("[firmware]\ndual-boot = on"), "{saved}");
+}
+
 /// A file saved as "UTF-8 with BOM" (Windows Notepad) is read whole and
 /// changed as it is.
 #[test]

@@ -30,6 +30,7 @@ pub mod emptiness;
 mod fingerprint;
 pub mod index;
 pub mod listing;
+mod metadata;
 pub mod service;
 pub mod sorted;
 #[cfg(any(test, feature = "kernel"))]

@@ -155,6 +155,12 @@ impl SearchScreen {
 }
 
 impl Screen for SearchScreen {
+    /// No pictures on it: whole-screen frames need no extra pass to count
+    /// them (see [`Screen::pictures_in_grays`]).
+    fn pictures_in_grays(&self) -> bool {
+        false
+    }
+
     /// Turned or resized: laid out anew, the focus on its hit.
     fn on_resize(&mut self, cx: &mut Cx<'_, '_>) -> Handled {
         let env = *cx.env();

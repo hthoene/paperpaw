@@ -21,12 +21,19 @@ impl Entry {
     pub(crate) fn newer_in(&self, env: &Env<'_>, origins: &Origins) -> bool {
         // Its newer version is made for a newer PaperPaw: what is
         // installed stays.
-        if self.needs_newer {
+        if self.unbuilt() {
             return false;
         }
         let Some(installed) = self.installed(env) else {
             return false;
         };
+        // The same version, built for this PaperPaw: what is installed was
+        // built for another (a 0.5 build kept over the update), and shows
+        // "update it in the store" in the plugin manager. Offered as the
+        // update it is, whatever put it there.
+        if self.repairs(env.plugins().get(&self.id)) {
+            return true;
+        }
         if origins.of(&self.id, installed) != Origin::Store {
             return false;
         }
@@ -36,11 +43,34 @@ impl Entry {
         offers(&self.version, here, takes_betas(env))
     }
 
+    /// Whether this entry's build runs on this PaperPaw while the plugin
+    /// `installed` does not: its code was built for an older interface or
+    /// another build, whatever its version says (#148).
+    pub(crate) fn repairs(&self, installed: Option<&paperpaw_sdk::PluginInfo>) -> bool {
+        self.code
+            && !self.unbuilt()
+            && installed.is_some_and(|info| {
+                matches!(
+                    info.problem,
+                    Some(
+                        paperpaw_sdk::PluginProblem::OlderInterface { .. }
+                            | paperpaw_sdk::PluginProblem::OtherBuild
+                    )
+                )
+            })
+    }
+
+    /// Whether no build of it runs on this PaperPaw yet: its newest is for
+    /// a newer one, or its author has not made one for this.
+    pub(crate) fn unbuilt(&self) -> bool {
+        self.needs_newer || self.waits_author
+    }
+
     /// Whether the plugin is installed, but not by this store (the Wi-Fi
     /// transfer, a memory card, one's own build): its version here may be
     /// used in its place, when the reader says so, never as an update.
     pub(crate) fn local(&self, env: &Env<'_>) -> bool {
-        !self.needs_newer
+        !self.unbuilt()
             && self
                 .installed(env)
                 .is_some_and(|installed| self.origin(env, installed) == Origin::Local)

@@ -24,7 +24,7 @@ use paperpaw_sdk::help;
 use paperpaw_sdk::setting::Setting;
 use paperpaw_sdk::{
     Command, Commands, Env, FixedScreen, Id, Manifest, Params, Plugin, RegisterError, Registrar,
-    SettingExtra, SettingSpec, Storage,
+    SettingExtra, SettingSpec, Storage, StorageError,
 };
 
 pub const PLUGIN: Id = Id::new_static("help");
@@ -52,13 +52,16 @@ fn seen_file() -> String {
     format!("{}/seen.txt", Env::plugin_dir(PLUGIN.as_str()))
 }
 
-/// Whether the hints of `screen` were shown on this device.
+/// Whether the hints of `screen` were shown on this device. Where what
+/// was shown cannot be read (the memory card taken out, #145), they count
+/// as shown: a card PaperPaw cannot read is not one it never saw.
 pub(crate) fn seen(storage: &dyn Storage, screen: &str) -> bool {
-    paperpaw_sdk::read_file(storage, &seen_file(), 64 * 1024)
-        .ok()
-        .is_some_and(|text| {
+    match paperpaw_sdk::read_file(storage, &seen_file(), 64 * 1024) {
+        Ok(text) => {
             core::str::from_utf8(&text).is_ok_and(|t| t.lines().any(|l| l.trim() == screen))
-        })
+        }
+        Err(error) => error != StorageError::NotFound,
+    }
 }
 
 /// The hints of `screen` were shown; whether that is kept.

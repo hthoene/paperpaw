@@ -754,6 +754,34 @@ mod tests {
     }
 
     #[test]
+    fn what_the_firmware_takes_is_told_once_the_update_on_trial_is_kept() {
+        // An update on trial loads no code and offers none (as without
+        // `code_plugins`); once its mark is written for good the kernel is
+        // told, and plugins (the store) see what the firmware takes (#164).
+        let mut kernel = Kernel::builder(DEVICE)
+            .storage(storage())
+            .native_after_trial(Native::new("code.ppn"))
+            .build()
+            .unwrap();
+        assert!(kernel.shared.native.is_none());
+        let hello = info(&kernel, "hello");
+        assert_eq!(
+            (hello.state, hello.enabled, hello.problem),
+            (PluginState::Failed, true, Some(PluginProblem::Unsupported))
+        );
+        // A mark that could not be written: the shell does not call it.
+        assert!(kernel.shared.native.is_none());
+        kernel.trial_kept();
+        assert_eq!(
+            kernel.shared.native.as_ref().map(|n| n.fingerprint),
+            Some(Native::new("code.ppn").fingerprint)
+        );
+        // Again: nothing changes.
+        kernel.trial_kept();
+        assert!(kernel.shared.native.is_some());
+    }
+
+    #[test]
     fn code_installed_while_running_starts_after_a_restart() {
         let loader = loader();
         let mut kernel = Kernel::builder(DEVICE)

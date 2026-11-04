@@ -1,0 +1,27 @@
+[package]
+name = "paperpaw-plugin-picture-home"
+description = "PaperPaw picture home screen: your own picture behind the widgets, free placement, a status bar you configure"
+version = "1.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+categories = ["no-std"]
+
+[dependencies]
+paperpaw-sdk.workspace = true
+
+[dev-dependencies]
+# By path alone: the app has this plugin built in, so a version here
+# would make the two wait for each other on crates.io; cargo publish
+# leaves a dev-dependency without one out.
+paperpaw-app = { path = "../../crates/paperpaw-app" }
+paperpaw-core.workspace = true
+paperpaw-i18n.workspace = true
+paperpaw-platform.workspace = true
+paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
+
+[lints]
+workspace = true

@@ -218,11 +218,30 @@ pub fn menu_options(env: &Env<'_>) -> alloc::vec::Vec<&'static str> {
     options
 }
 
-/// What the option chosen in the power menu does.
-fn chosen(option: &str, out: &mut paperpaw_sdk::Commands) {
+/// What the option chosen in the power menu does. Sleeping and switching
+/// off show the sleep screen first, as the power button's short press does:
+/// e-ink keeps it, so a device that is off does not look as if it were on
+/// (#146).
+fn chosen(env: &Env<'_>, option: &str, out: &mut paperpaw_sdk::Commands) {
+    let sleep_screen = env.has_slot(&paperpaw_sdk::builtin::slots::SLEEP);
+    let (sleeps, switches_off) = (env.caps().sleep, env.caps().power_off);
     match option {
-        "sleep" => out.push(Command::Sleep),
-        "off" => out.push(Command::PowerOff),
+        "sleep" => {
+            if sleep_screen && sleeps {
+                out.push(Command::open_slot(paperpaw_sdk::builtin::slots::SLEEP));
+            }
+            out.push(Command::Sleep);
+        }
+        "off" => {
+            if sleep_screen && switches_off {
+                // `off`: the sleep screen's parameter (plugin `sleep`).
+                out.push(Command::OpenSlot(
+                    paperpaw_sdk::builtin::slots::SLEEP,
+                    paperpaw_sdk::Params::new().with("off", "1"),
+                ));
+            }
+            out.push(Command::PowerOff);
+        }
         "restart" => out.push(Command::Restart),
         "lock" | "unlock" => out.push(Command::run(TOUCH_TOGGLE)),
         _ => {}
@@ -271,7 +290,7 @@ impl Plugin for Power {
         )?;
         r.add_actions(&ACTIONS)?;
         r.add_keymap(HELD)?;
-        r.on(CHOSEN, |_, picked, out| chosen(&picked.option, out))?;
+        r.on(CHOSEN, |env, picked, out| chosen(env, &picked.option, out))?;
         // Silently: the mode changes, only the status mark says so.
         for event in [
             events::STARTED.id(),

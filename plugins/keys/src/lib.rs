@@ -1102,13 +1102,10 @@ impl Screen for PickScreen {
             match &entries[index] {
                 Pick::Heading(key) => ui.heading(rect, env.i18n().tr(key)),
                 Pick::Search => {
-                    let rect = ui.row_icon(rect, room, Some("search"), ink);
-                    let title = if query.is_empty() {
-                        env.i18n().tr("keys.search")
-                    } else {
-                        query.as_str()
-                    };
-                    ui::Row::plain(title).focused(focused).draw(ui, rect);
+                    ui::SearchField::new(env.i18n().tr("keys.search"))
+                        .text(query)
+                        .focused(focused)
+                        .draw(ui, rect);
                 }
                 Pick::Standard => {
                     let rect = ui.row_icon(rect, room, None, ink);

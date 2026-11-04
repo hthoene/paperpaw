@@ -194,7 +194,7 @@ fn sleep_until(deadline: Instant) -> bool {
 /// since start) or until the power button goes down, with the readings
 /// paused ([`crate::input::pause`]); whether the button is down at waking.
 /// The watchdogs are off meanwhile ([`watchdogs`]).
-#[cfg(feature = "esp32c3")]
+#[cfg(feature = "asleep-light")]
 pub fn sleep_asleep(until_ms: u64) -> bool {
     let Some(mut low_power) = critical_section::with(|cs| LOW_POWER.borrow_ref_mut(cs).take())
     else {
@@ -216,7 +216,7 @@ pub fn sleep_asleep(until_ms: u64) -> bool {
 /// never ends is then a reset after those minutes, not a reader awake with
 /// nobody looking until the battery is flat. [`watchdogs_awake`] puts them
 /// back, on every way out of the sleep.
-#[cfg(feature = "esp32c3")]
+#[cfg(feature = "asleep-light")]
 pub fn watchdogs_for_sleep(ms: u64) {
     critical_section::with(|cs| {
         if let Some((rtc, wdt)) = WATCHDOGS.borrow_ref_mut(cs).as_mut() {
@@ -229,7 +229,7 @@ pub fn watchdogs_for_sleep(ms: u64) {
 }
 
 /// Both watchdogs as they are awake, with their seconds, fed.
-#[cfg(feature = "esp32c3")]
+#[cfg(feature = "asleep-light")]
 pub fn watchdogs_awake() {
     critical_section::with(|cs| {
         if let Some((rtc, wdt)) = WATCHDOGS.borrow_ref_mut(cs).as_mut() {
@@ -286,6 +286,31 @@ fn arm_ms(rwdt: &mut esp_hal::rtc_cntl::Rwdt, ms: u64) {
     rwdt.set_stage_action(RwdtStage::Stage0, RwdtStageAction::ResetSystem);
     rwdt.set_timeout(RwdtStage::Stage0, Duration::from_millis(ms));
     rwdt.enable();
+    count_in_light_sleep();
+}
+
+/// Makes the RTC's watchdog count on in light sleep (esp-hal pauses it
+/// there): a sleep that does not end is what it is for. `Rwdt::enable`
+/// writes the whole register with the pause bit set, so this runs after
+/// every enable, not once.
+fn count_in_light_sleep() {
+    let regs = esp_hal::peripherals::LPWR::regs();
+    // SAFETY: the key that unlocks the watchdog's registers, then locks.
+    regs.wdtwprotect().write(|w| unsafe { w.bits(0x50D8_3AA1) });
+    regs.wdtconfig0()
+        .modify(|_, w| w.wdt_pause_in_slp().clear_bit());
+    regs.wdtwprotect().write(|w| unsafe { w.bits(0) });
+}
+
+/// Whether the RTC's watchdog is paused in light sleep (it must not be:
+/// [`count_in_light_sleep`]); logged once per sleep to check it on a device.
+#[cfg(feature = "asleep-light")]
+pub fn watchdog_pauses_in_sleep() -> bool {
+    esp_hal::peripherals::LPWR::regs()
+        .wdtconfig0()
+        .read()
+        .wdt_pause_in_slp()
+        .bit_is_set()
 }
 
 /// Starts the X4 again if the firmware does not come by: after `rtc_s`
@@ -298,14 +323,6 @@ pub fn watch(
     (rtc_s, timer_s): (u64, u64),
 ) {
     arm(&mut rtc.rwdt, rtc_s);
-    // It counts on in light sleep too (esp-hal pauses it there): a sleep
-    // that does not end is what it is for.
-    let regs = esp_hal::peripherals::LPWR::regs();
-    // SAFETY: the key that unlocks the watchdog's registers, then locks.
-    regs.wdtwprotect().write(|w| unsafe { w.bits(0x50D8_3AA1) });
-    regs.wdtconfig0()
-        .modify(|_, w| w.wdt_pause_in_slp().clear_bit());
-    regs.wdtwprotect().write(|w| unsafe { w.bits(0) });
     wdt.set_timeout(
         esp_hal::timer::timg::MwdtStage::Stage0,
         Duration::from_secs(timer_s),

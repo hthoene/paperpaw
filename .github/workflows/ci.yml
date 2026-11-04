@@ -84,8 +84,9 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
       # Builds without runtime font rendering use bitmap font packs; the plugins of the
-      # store that carry a copy of their card files for the apps read the card without it.
-      - run: cargo test -p paperpaw-text -p paperpaw-plugin-fonts-default -p paperpaw-plugin-reading-goal -p paperpaw-plugin-widgets -p paperpaw-plugin-vocabulary --no-default-features
+      # store that carry a copy of their card files for the apps read the card without it;
+      # the kernel without panes is that of the Xteink devices.
+      - run: cargo test -p paperpaw-text -p paperpaw-plugin-fonts-default -p paperpaw-core -p paperpaw-plugin-reading-goal -p paperpaw-plugin-widgets -p paperpaw-plugin-vocabulary --no-default-features
 
   screens:
     name: Screens checked (paperpaw-dev)
@@ -210,9 +211,9 @@ jobs:
         run: cargo clippy --target wasm32-unknown-unknown -p paperpaw-web -- -D warnings
       - name: Build the web emulator
         # As it is served, its size told and kept in bounds (16 MB held
-        # until the Mail plugin; see tools/ci-local.sh).
+        # until the Mail plugin, now 16.8; see tools/ci-local.sh).
         if: matrix.target == 'wasm32-unknown-unknown'
-        run: python3 shells/web/build.py --limit-mb 16.4
+        run: python3 shells/web/build.py --limit-mb 16.8
 
   firmware:
     name: Firmware (${{ matrix.device }})
@@ -486,7 +487,7 @@ jobs:
         # The order itself against compare_versions: crates/paperpaw-sdk/tests/android_codes.rs.
         run: |
           for pair in "0.4.0-dev 40050" "0.5.0-beta.1 50001" "0.5.0-beta.2 50002" \
-            "0.5.0-beta.10 50010" "0.6.0-beta.1 60001" "0.5.0-dev 50050" "0.5.0-rc.1 50051" "0.5.0 50099" \
+            "0.5.0-beta.10 50010" "0.6.0-beta.1 60001" "0.6.0-beta.2 60002" "0.5.0-dev 50050" "0.5.0-rc.1 50051" "0.5.0 50099" \
             "0.5.1-beta.1 50101"; do
             set -- $pair
             got="$(shells/android/version-code.sh "$1")"

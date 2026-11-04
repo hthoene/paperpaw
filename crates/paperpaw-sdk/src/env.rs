@@ -568,6 +568,21 @@ impl<'a> Env<'a> {
         self.content
     }
 
+    /// How much room the part of the screen this is for has
+    /// ([`content`](Self::content)): its [class](crate::ui::ScreenClass)
+    /// by width, at the reader's size of text. Compact on the X4 in both
+    /// orientations.
+    pub fn screen_class(&self) -> crate::ui::ScreenClass {
+        crate::ui::ScreenClass::of(self, self.content)
+    }
+
+    /// Whether the part of the screen this is for
+    /// ([`content`](Self::content)) is wider than high: the device on its
+    /// side (or, for a list beside an item, the part it has).
+    pub fn landscape(&self) -> bool {
+        self.content.width > self.content.height
+    }
+
     /// The open screens, the one shown last (see [`StackEntry`](crate::StackEntry)):
     /// what is shown, e.g. for a rule or a refresh filter.
     pub fn stack(&self) -> &'a [crate::StackEntry] {

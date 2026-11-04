@@ -10,12 +10,26 @@ use paperpaw_sdk::{
 use paperpaw_text::{Glyph, LineMetrics, PackBuilder};
 
 const INSTALL: Id = Id::new_static("installer.install");
+const INSTALL_PACK: Id = Id::new_static("installer.install-pack");
+const REMOVE_PACK: Id = Id::new_static("installer.remove-pack");
 
 /// A pack of the letters a, e and t, `advance` wide.
 fn pack(advance: f32) -> Vec<u8> {
     let mut builder = PackBuilder::new();
     let metrics = LineMetrics::new(16.0, 4.0, 24.0);
     let glyphs = "aet".chars().map(|c| (c, Glyph::empty(advance))).collect();
+    builder.add_strike(20.0, metrics, glyphs);
+    builder.build()
+}
+
+/// A pack of the letters the lean font lacks (b, c, d, ...), 14 wide.
+fn letters() -> Vec<u8> {
+    let mut builder = PackBuilder::new();
+    let metrics = LineMetrics::new(16.0, 4.0, 24.0);
+    let glyphs = "bcdfghijklmnopqrsuvwxyz "
+        .chars()
+        .map(|c| (c, Glyph::empty(14.0)))
+        .collect();
     builder.add_strike(20.0, metrics, glyphs);
     builder.build()
 }
@@ -62,7 +76,24 @@ impl Plugin for Installer {
                     String::from("plugins/.styles.part"),
                 ));
             },
-        ))
+        ))?;
+        r.add_action(
+            ActionSpec::new(INSTALL_PACK, "installer.install-pack").handler(
+                |_: &Env<'_>, _, out: &mut Commands| {
+                    out.push(Command::InstallPlugin(
+                        Id::new_static("script-more"),
+                        String::from("plugins/.script.part"),
+                    ));
+                },
+            ),
+        )?;
+        r.add_action(
+            ActionSpec::new(REMOVE_PACK, "installer.remove-pack").handler(
+                |_: &Env<'_>, _, out: &mut Commands| {
+                    out.push(Command::RemovePlugin(Id::new_static("script-more")));
+                },
+            ),
+        )
     }
 }
 
@@ -78,18 +109,37 @@ fn styles() -> Memory {
         .with("plugins/.styles.part/fonts/bold.ppfp", pack(12.0))
 }
 
+/// A script pack: more letters for Literata, a pack that extends it.
+fn script() -> Memory {
+    Memory::new()
+        .with(
+            "plugins/.script.part/plugin.ini",
+            "[plugin]\nid = script-more\nname = More letters\nversion = 1.0.0\nformats = 3\n\n\
+             [extends]\nmore.ppfp = fonts-default.literata\n",
+        )
+        .with("plugins/.script.part/fonts/more.ppfp", letters())
+}
+
 /// Opens the book on a lean firmware, with the pack waiting on the card.
 fn lean_reading() -> Reading {
-    let storage = Shared::default();
     let text = include_str!("../../../../samples/library/books/alice-in-wonderland.txt");
+    lean_reading_of(BOOK, text.as_bytes())
+}
+
+/// The same for the book `bytes` at `book`.
+fn lean_reading_of(book: &'static str, bytes: &[u8]) -> Reading {
+    let storage = Shared::default();
     storage.create_dir("books").unwrap();
-    storage.write(BOOK, text.as_bytes()).unwrap();
+    storage.write(book, bytes).unwrap();
     let stored = styles();
-    for path in [
-        "plugins/.styles.part/plugin.ini",
-        "plugins/.styles.part/fonts/bold.ppfp",
+    let more = script();
+    for (from, path) in [
+        (&stored, "plugins/.styles.part/plugin.ini"),
+        (&stored, "plugins/.styles.part/fonts/bold.ppfp"),
+        (&more, "plugins/.script.part/plugin.ini"),
+        (&more, "plugins/.script.part/fonts/more.ppfp"),
     ] {
-        let data = paperpaw_sdk::read_file(&stored, path, 1 << 16).unwrap();
+        let data = paperpaw_sdk::read_file(from, path, 1 << 16).unwrap();
         storage.create_dir(path.rsplit_once('/').unwrap().0).ok();
         storage.write(path, &data).unwrap();
     }
@@ -99,6 +149,7 @@ fn lean_reading() -> Reading {
         .plugin(Lean)
         .plugin(Installer)
         .plugin(paperpaw_plugin_format_txt::TxtFormat)
+        .plugin(paperpaw_plugin_format_epub::EpubFormat)
         .plugin(Reader)
         .plugin(Listener(heard.clone()))
         .build()
@@ -108,7 +159,7 @@ fn lean_reading() -> Reading {
         storage,
         heard,
         now: 0,
-        book: BOOK,
+        book,
     };
     let effects = reading.kernel.start(Instant(0));
     reading.settle(effects);
@@ -147,4 +198,109 @@ fn a_book_open_when_the_faces_arrive_is_laid_out_again() {
     let after = indexes(&reading.storage, BOOK);
     assert_eq!(after.len(), 2, "{after:?}");
     assert!(after.iter().any(|name| !before.contains(name)));
+}
+
+/// A pack of letters for a font, installed after the book was opened: the
+/// letters it adds measure otherwise, so the pages are counted anew, not
+/// taken from the count made without it (the count said 2 pages for a
+/// book of one: the second never came).
+#[test]
+fn a_script_pack_that_arrives_makes_the_pages_be_counted_anew() {
+    let mut reading = lean_reading();
+    reading.open();
+    let before = indexes(&reading.storage, BOOK);
+    assert_eq!(before.len(), 1, "{before:?}");
+    reading.now += 100;
+    let effects = reading
+        .kernel
+        .run_action(Instant(reading.now), INSTALL_PACK);
+    reading.settle(effects);
+    assert!(reading.kernel.fonts().contains("script-more.more"));
+    assert_eq!(
+        reading.kernel.active_screen().map(Id::as_str),
+        Some("reader.screen")
+    );
+    let after = indexes(&reading.storage, BOOK);
+    assert_eq!(after.len(), 2, "{after:?}");
+    assert!(after.iter().any(|name| !before.contains(name)));
+}
+
+/// Where the page shown starts, as the reader last said.
+fn here(reading: &Reading) -> (u32, u32) {
+    let heard = reading.heard.borrow();
+    let (_, r) = heard
+        .iter()
+        .rev()
+        .find(|(n, _)| *n == "opened" || *n == "turned")
+        .unwrap();
+    (r.section, r.offset)
+}
+
+/// Turns to the first page, then forward to the last: the start of every
+/// page on the way, and the pages the reader says the book has by then.
+fn whole_book(reading: &mut Reading) -> (Vec<(u32, u32)>, Option<u32>) {
+    for _ in 0..2000 {
+        let at = here(reading);
+        reading.run(core_actions::PREV_PAGE);
+        if here(reading) == at {
+            break;
+        }
+    }
+    let mut starts = vec![here(reading)];
+    loop {
+        reading.run(core_actions::NEXT_PAGE);
+        let at = here(reading);
+        if starts.last() == Some(&at) {
+            break;
+        }
+        starts.push(at);
+        assert!(starts.len() < 2000, "no end to the book");
+    }
+    // Some more moments for the count to end.
+    for _ in 0..40 {
+        reading.run(core_actions::NEXT_PAGE);
+    }
+    let pages = reading.heard.borrow().last().unwrap().1.pages;
+    (starts, pages)
+}
+
+/// A long book of chapters, a pack that comes and goes: the pages of each
+/// layout are counted right (each page after the one before, as many as
+/// the count says) and the place read stays.
+#[test]
+fn a_script_pack_that_comes_and_goes_keeps_a_long_book_whole() {
+    let epub = include_bytes!("../../../../samples/library/books/alice-in-wonderland.epub");
+    let mut reading = lean_reading_of("books/alice.epub", epub);
+    reading.open();
+    let (without, counted) = whole_book(&mut reading);
+    assert!(without.windows(2).all(|p| p[0] < p[1]), "{without:?}");
+    assert_eq!(counted, Some(without.len() as u32));
+    // Back to the middle of it.
+    for _ in 0..without.len() / 2 {
+        reading.run(core_actions::PREV_PAGE);
+    }
+    let place = here(&reading);
+    let kept = reading.kept();
+    // The pack arrives: the letters measure otherwise.
+    reading.now += 100;
+    let effects = reading
+        .kernel
+        .run_action(Instant(reading.now), INSTALL_PACK);
+    reading.settle(effects);
+    assert!(reading.kernel.fonts().contains("script-more.more"));
+    assert_eq!(reading.kept(), kept, "the place read moved");
+    let (with, counted) = whole_book(&mut reading);
+    assert!(with.windows(2).all(|p| p[0] < p[1]), "{with:?}");
+    assert_eq!(counted, Some(with.len() as u32));
+    assert_ne!(with.len(), without.len(), "the pack changes no page");
+    // The pack goes again: the count as it was.
+    reading.now += 100;
+    let effects = reading.kernel.run_action(Instant(reading.now), REMOVE_PACK);
+    reading.settle(effects);
+    assert!(!reading.kernel.fonts().contains("script-more.more"));
+    let (again, counted) = whole_book(&mut reading);
+    assert_eq!(again, without);
+    assert_eq!(counted, Some(without.len() as u32));
+    // Where one was, the page of it: a page that holds the place.
+    assert!(without.iter().any(|start| *start <= place));
 }

@@ -165,9 +165,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_copy_reads_and_names_the_twelve_groups() {
+    fn the_copy_reads_and_names_the_thirteen_groups() {
         let rules = Rules::built_in();
-        assert_eq!(rules.groups.len(), 12);
+        assert_eq!(rules.groups.len(), 13);
         assert_eq!(rules.groups.last().map(String::as_str), Some("system"));
         assert_eq!(rules.max_tags, 5);
         assert_eq!(rules.readers, ["x4", "x4-pro", "x4-classic", "x3"]);

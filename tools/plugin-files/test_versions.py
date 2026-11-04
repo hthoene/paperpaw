@@ -74,6 +74,49 @@ class Versions(unittest.TestCase):
         self.assertEqual(versions.own_tags("reading", tags), ["reading-v2.0.0"])
 
 
+class BuiltFiles(unittest.TestCase):
+    """The comparison of built store files: no build needed."""
+
+    def files(self, folder, **plugins):
+        """store files in `folder`: id (underscores for hyphens) -> (version, bytes)."""
+        folder = pathlib.Path(folder)
+        for name, (version, data) in plugins.items():
+            (folder / f"{name.replace('_', '-')}-{version}-x4.ppn").write_bytes(data)
+        return versions.store_files(folder, "x4")
+
+    def test_files_are_found_by_their_names(self):
+        with tempfile.TemporaryDirectory() as folder:
+            found = self.files(folder, end_of_book=("1.0.0", b"a"), stats=("1.0.3-beta.1", b"b"))
+            (pathlib.Path(folder) / "stats-1.0.3-x4-pro.ppn").write_bytes(b"other device")
+            (pathlib.Path(folder) / "readme.txt").write_text("x")
+            found = versions.store_files(folder, "x4")
+            self.assertEqual({k: v[0] for k, v in found.items()},
+                             {"end-of-book": "1.0.0", "stats": "1.0.3-beta.1"})
+
+    def test_the_next_patch(self):
+        self.assertEqual(versions.next_patch("1.0.4"), "1.0.5")
+        self.assertEqual(versions.next_patch("1.9.9"), "1.9.10")
+        self.assertIsNone(versions.next_patch("1.0.0-beta.2"))
+
+    def test_other_bytes_under_the_same_version_are_wrong(self):
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            then = self.files(a, kosync=("1.0.2", b"old"), stats=("1.0.0", b"same"),
+                              widgets=("1.0.4", b"old"), gone=("1.0.0", b"x"))
+            now = self.files(b, kosync=("1.0.2", b"new"), stats=("1.0.0", b"same"),
+                             widgets=("1.0.5", b"new"), fresh=("1.0.0", b"y"))
+            wrong, apart, new = versions.built_problems(then, now)
+            self.assertEqual(wrong, [("kosync", "1.0.2")])
+            self.assertEqual((apart, new), ([], ["fresh"]))
+
+    def test_files_for_another_firmware_are_not_compared(self):
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            then = self.files(a, kosync=("1.0.2", b"fp1|code"))
+            now = self.files(b, kosync=("1.0.2", b"fp2|code"))
+            identity = lambda path: path.read_bytes().split(b"|")[0]  # noqa: E731
+            self.assertEqual(versions.built_problems(then, now, identity), ([], ["kosync"], []))
+            self.assertEqual(versions.built_problems(then, now), ([("kosync", "1.0.2")], [], []))
+
+
 class Repository(unittest.TestCase):
     """The check in a repository of one plugin: released with PaperPaw
     (`v0.5.0-beta.2`), then alone (`vocabulary-v1.0.1`, from a branch of
@@ -294,6 +337,87 @@ class Repository(unittest.TestCase):
         self.data("1.0.0")
         self.commit("back")
         self.assertFalse(self.check())
+
+
+    BUILD = """#!/usr/bin/env bash
+# A fake build.sh: each plugin's file holds its source, the crate it depends on
+# (crates/dep: no part of plugins/<id>/) and the firmware's name (fingerprint.txt).
+set -e
+device=$1; out=$2; root="$(cd "$(dirname "$0")/../.." && pwd)"
+mkdir -p "$out"
+for id in $(awk 'NF { print $1 }' "$root/tools/plugin-files/plugins.txt"); do
+  [ -f "$root/plugins/$id/Cargo.toml" ] || continue
+  v=$(sed -n 's/^version = "\\(.*\\)"/\\1/p' "$root/plugins/$id/Cargo.toml")
+  { cat "$root/fingerprint.txt"; cat "$root/plugins/$id/src/lib.rs" "$root/crates/dep/lib.rs"; } \\
+    > "$out/$id-$v-$device.ppn"
+done
+"""
+    SIGN = """#!/usr/bin/env bash
+# A fake paperpaw-sign: `plugin <file>` says the firmware the file's first line names.
+echo "fingerprint: $(head -1 "$2")"; echo "interface: 6"; echo "compiler: abc"
+"""
+
+    def released_with_a_dependency(self):
+        """A release (`v0.5.0-beta.3`) whose store files are built by a fake build.sh from
+        the plugin and a crate it depends on."""
+        self.write("tools/plugin-files/build.sh", self.BUILD)
+        self.write("fingerprint.txt", "fp1\n")
+        self.write("crates/dep/lib.rs", "// the SDK, one\n")
+        self.commit("a dependency and a builder")
+        self.git("tag", "v0.5.0-beta.3")
+        self.sign = self.root / "fake-sign"
+        self.sign.write_text(self.SIGN, encoding="utf-8")
+        self.sign.chmod(0o755)
+        self.cache = tempfile.TemporaryDirectory()
+        self.addCleanup(self.cache.cleanup)
+        env = unittest.mock.patch.dict(os.environ, {"PAPERPAW_STORE_BASELINE": self.cache.name})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def bytes_check(self):
+        return self.check("--release", "--bytes", "--sign", str(self.sign))
+
+    def test_a_change_in_a_dependency_needs_a_newer_version(self):
+        self.released_with_a_dependency()
+        self.assertTrue(self.bytes_check())
+        self.write("crates/dep/lib.rs", "// the SDK, two\n")
+        self.commit("sdk: a change no plugins/<id>/ shows")
+        # The commit check cannot see it; the built files can.
+        self.assertTrue(self.check("--release"))
+        self.assertFalse(self.bytes_check())
+        self.version("1.0.2")
+        self.commit("vocabulary 1.0.2")
+        self.assertTrue(self.bytes_check())
+
+    def test_a_change_that_leaves_the_files_alone_needs_no_version(self):
+        self.released_with_a_dependency()
+        self.write("README.md", "docs\n")
+        self.commit("docs")
+        self.assertTrue(self.bytes_check())
+
+    def test_files_built_for_another_firmware_are_left_to_the_version_rules(self):
+        self.released_with_a_dependency()
+        self.write("fingerprint.txt", "fp2\n")
+        self.commit("the firmware's fingerprint changed")
+        self.assertTrue(self.bytes_check())
+
+    def test_the_release_s_build_is_kept_and_not_made_twice(self):
+        self.released_with_a_dependency()
+        built = []
+
+        def build(root, out, device, target=None):
+            built.append(device)
+            versions.build_store(root, out, device, target)
+
+        with unittest.mock.patch.object(versions, "ROOT", self.root):
+            first = versions.baseline_files("v0.5.0-beta.3", "x4", build)
+            second = versions.baseline_files("v0.5.0-beta.3", "x4", build)
+        self.assertEqual((first, built), (second, ["x4"]))
+        self.assertEqual(sorted(versions.store_files(first, "x4")), ["vocabulary"])
+        # No worktree is left behind in the repository.
+        listed = subprocess.run(["git", "worktree", "list"], cwd=self.root, capture_output=True,
+                                text=True).stdout.splitlines()
+        self.assertEqual(len(listed), 1)
 
 
 if __name__ == "__main__":

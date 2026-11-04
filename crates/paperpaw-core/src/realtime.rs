@@ -69,17 +69,21 @@ impl Kernel {
         }
     }
 
-    /// Offers button `name` to the screen on top where it takes raw keys;
+    /// Offers button `name` to the screen input goes to (the one on top,
+    /// or the list beside it) where it takes raw keys;
     /// whether it took it (then nothing else sees it). A release goes
     /// where its press went; the power button is never offered.
     pub(crate) fn raw_key(&mut self, name: &'static str, state: ButtonState, now: Instant) -> bool {
         let pressed = state == ButtonState::Pressed;
         if pressed {
-            if name == buttons::POWER || !self.top_mode().takes_raw_keys() {
+            let input = self
+                .input_index()
+                .map(|index| self.stack[index].screen.mode());
+            if name == buttons::POWER || !input.is_some_and(|mode| mode.takes_raw_keys()) {
                 return false;
             }
             let key = KeyEvent::pressed(name, now);
-            if self.with_top(|screen, cx| screen.on_key(&key, cx)) != Handled::Yes {
+            if self.with_input(|screen, cx| screen.on_key(&key, cx)) != Handled::Yes {
                 return false;
             }
             self.raw.taken.push(name);
@@ -96,7 +100,7 @@ impl Kernel {
             self.raw.back_since = None;
         }
         let key = KeyEvent::released(name, now);
-        self.with_top(|screen, cx| screen.on_key(&key, cx));
+        self.with_input(|screen, cx| screen.on_key(&key, cx));
         true
     }
 

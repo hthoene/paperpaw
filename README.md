@@ -22,7 +22,7 @@ firmware of its own on the Xteink X4 and X4 Pro, and as an app for
 Android e-readers. Free and open source: no account, no ads, no
 tracking.
 
-> **Status: beta (0.6.0-beta.1), for testers and plugin developers.**
+> **Status: beta (0.6.0-beta.2), for testers and plugin developers.**
 > The firmware for the Xteink X4 and X4 Pro runs on both readers and in
 > the desktop emulator. It is a beta: expect rough edges, and keep a
 > copy of your books. The plugin SDK is a beta too: it may still change

@@ -140,6 +140,26 @@ mod tests {
     }
 
     #[test]
+    fn a_background_socket_ends_after_the_idle_cap_and_not_before() {
+        // The cap a plugin may ask for (30 minutes) is kept to the
+        // millisecond, a long way into the run too.
+        let cap = u64::from(paperpaw_sdk::MAX_TLS_IDLE_MS);
+        let start = 3_600_000;
+        let mut watch = Watch::new(start, 20_000, paperpaw_sdk::MAX_TLS_IDLE_MS);
+        watch.secured(start);
+        assert_eq!(watch.expired(start + cap, Stage::Secure), None);
+        assert_eq!(
+            watch.expired(start + cap + 1, Stage::Secure),
+            Some((SocketError::Timeout, "idle"))
+        );
+        assert_eq!(watch.next_due(start + 1, Stage::Secure), cap);
+        // Traffic keeps it open for another whole cap.
+        watch.touch(start + cap);
+        assert_eq!(watch.expired(start + 2 * cap, Stage::Secure), None);
+        assert!(watch.expired(start + 2 * cap + 1, Stage::Secure).is_some());
+    }
+
+    #[test]
     fn idle_zero_never_ends() {
         let mut watch = Watch::new(0, 20_000, 0);
         watch.secured(0);

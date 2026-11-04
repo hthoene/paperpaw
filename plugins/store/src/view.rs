@@ -229,7 +229,7 @@ impl ViewScreen {
         match self.view {
             View::Group(group) => {
                 let fonts = env.actions().contains(crate::FONTS.as_str());
-                if fonts && catalog::GROUPS[group] == "look" {
+                if fonts && catalog::GROUPS.get(group) == Some(&"look") {
                     self.top.push(Top::Fonts);
                 }
                 if self.hits > 0 {

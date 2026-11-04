@@ -86,6 +86,35 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
+    // The search fields of the library's Find screen and of the settings
+    // (#113): one SDK part, focused in English, unfocused in German.
+    Case {
+        name: "x4-library-find-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["core.language=de"],
+        script: "run:core.library,wait:1500,run:files.list.find,wait:300,right,right,wait:300",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-settings-search",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["slots.core.home=settings.list"],
+        script: "right",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-settings-search-de",
+        profile: "xteink-x4",
+        book: None,
+        sets: &["slots.core.home=settings.list", "core.language=de"],
+        script: "right,right",
+        colour: 0,
+        fixtures: false,
+    },
     // The keyboard on buttons with a phone to type on (#111): the focus
     // starts on *Phone*, and Right goes to the first key.
     Case {
@@ -322,12 +351,23 @@ const CASES: &[Case] = &[
     },
     Case {
         // The Wi-Fi page (the emulator pretends to manage Wi-Fi on the X4
-        // profiles), switched on: the networks found.
+        // profiles), switched on: the phone setup first (no network is
+        // kept), the row of the networks found.
         name: "x4-pro-wifi",
         profile: "xteink-x4-pro",
         book: None,
         sets: &[],
         script: "swipe:240:700:240:300,wait:300,tap-on:Settings,wait:500,swipe:240:700:240:350,wait:300,tap-on:Wi-Fi,wait:500,tap:240:140,wait:2500",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        // The same, the page of the networks found opened.
+        name: "x4-pro-wifi-networks",
+        profile: "xteink-x4-pro",
+        book: None,
+        sets: &[],
+        script: "swipe:240:700:240:300,wait:300,tap-on:Settings,wait:500,swipe:240:700:240:350,wait:300,tap-on:Wi-Fi,wait:500,tap:240:140,wait:2500,tap-on:Networks,wait:500",
         colour: 0,
         fixtures: false,
     },
@@ -445,7 +485,7 @@ const CASES: &[Case] = &[
         profile: "xteink-x4",
         book: None,
         sets: &[],
-        script: "run:core.library,wait:300",
+        script: "run:core.library,wait:1000",
         colour: 0,
         fixtures: false,
     },
@@ -695,20 +735,20 @@ const CASES: &[Case] = &[
         profile: "boox-go-7",
         book: None,
         sets: &[],
-        script: "run:core.library,wait:300",
+        script: "run:core.library,wait:1000",
         colour: 0,
         fixtures: false,
     },
     Case {
-        // A tap in the middle of the page: the reader's menu bar. The
-        // pages are counted first (a page turns as its button goes down,
-        // so a tap right after it would find the menu bar before the
-        // count, and show a percentage instead of "2 / 185").
+        // A tap in the middle of the page: the reader's menu bar, opened
+        // before the pages are counted (a page turns as its button goes
+        // down). The count goes on below it, and the bar shows "2 / 185"
+        // once it ends (#117).
         name: "boox-reader-menu",
         profile: "boox-go-7",
         book: Some("books/alice-in-wonderland.epub"),
         sets: &[],
-        script: "wait:500,page-forward,tap:632:840,wait:300",
+        script: "page-forward,tap:632:840,wait:300",
         colour: 0,
         fixtures: false,
     },

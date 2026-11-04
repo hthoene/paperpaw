@@ -57,6 +57,7 @@ const GROUP_ICON: &str = "puzzle";
 /// their order, a group that names none at the end of the section for
 /// customising, by name; each with its icon, or a plugin's.
 fn groups(env: &Env<'_>) -> Vec<(i32, bool, Entry)> {
+    let holding = groups_holding(env, |spec| visible(env, spec));
     let mut found: Vec<(i32, bool, Entry)> = env
         .settings()
         .groups()
@@ -64,11 +65,9 @@ fn groups(env: &Env<'_>) -> Vec<(i32, bool, Entry)> {
         // a group on that group's page.
         .filter(|group| !env.widgets().has(group.id.as_str()) && group.parent.is_none())
         .filter(|group| {
-            env.settings().specs().any(|spec| {
-                env.settings()
-                    .within(&env.settings().group_of(spec), &group.id)
-                    && visible(env, spec)
-            })
+            holding
+                .iter()
+                .any(|held| env.settings().within(held, &group.id))
         })
         .map(|group| {
             let order = if group.order == 0 {
@@ -188,12 +187,10 @@ impl GroupList {
         let heading = ui::heading_height(env, &style);
         let heights = entries
             .iter()
-            .map(|e| {
-                if e.link.is_none() {
-                    heading
-                } else {
-                    style.row()
-                }
+            .map(|e| match e.link {
+                None => heading,
+                Some(Link::Search) => ui::SearchField::height(&style),
+                Some(_) => style.row(),
             })
             .collect();
         let headings = entries.iter().map(|e| e.link.is_none()).collect();
@@ -255,6 +252,12 @@ impl GroupList {
 }
 
 impl Screen for GroupList {
+    /// No pictures on it: whole-screen frames need no extra pass to count
+    /// them (see [`Screen::pictures_in_grays`]).
+    fn pictures_in_grays(&self) -> bool {
+        false
+    }
+
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         let style = self.style;
         let mut ui = ui::Ui::new(canvas, env, &style);
@@ -272,6 +275,12 @@ impl Screen for GroupList {
                     ui.heading(rect, &entry.title);
                     return;
                 };
+                if *link == Link::Search {
+                    ui::SearchField::new(&entry.title)
+                        .focused(focused)
+                        .draw(ui, rect);
+                    return;
+                }
                 let ink = style.focus_ink(focused);
                 let icon = entry.icon.as_deref();
                 let rect = ui.row_icon(rect, room, icon, ink);
@@ -280,7 +289,7 @@ impl Screen for GroupList {
                     ui::Row::switch(&entry.title, on)
                         .focused(focused)
                         .draw(ui, rect);
-                } else if matches!(link, Link::Search | Link::Reset | Link::Restart) {
+                } else if matches!(link, Link::Reset | Link::Restart) {
                     ui::Row::value(&entry.title, "")
                         .focused(focused)
                         .draw(ui, rect);

@@ -93,7 +93,7 @@ fn only_what_fits_is_listed_in_its_order() {
     let (entries, runs) = entries(&storage);
     assert_eq!(ids(&entries), ["plain", "theme", "odd"]);
     // Groups as they come, an unknown one under `system`, the last.
-    assert_eq!(runs, [(0, 1), (5, 1), (11, 1)]);
+    assert_eq!(runs, [(0, 1), (5, 1), (12, 1)]);
     assert_eq!(entries[0].summary, "Does plain.");
     assert_eq!((entries[0].size, entries[0].code), (30, false));
 }
@@ -296,30 +296,53 @@ fn unsafe_files_are_refused() {
 fn addresses_name_the_device_and_the_language() {
     let list = "https://paperpaw.org/api/v1/plugins.json";
     assert_eq!(
-        list_url(list, "x4-pro", "de", false),
+        list_url(list, "x4-pro", "de", false, None),
         "https://paperpaw.org/api/v1/plugins.json?device=x4-pro&lang=de"
     );
     assert_eq!(
-        list_url("https://x/p.json?key=1", "x4", "en", false),
+        list_url("https://x/p.json?key=1", "x4", "en", false, None),
         "https://x/p.json?key=1&device=x4&lang=en"
     );
     assert_eq!(
-        plugin_url(list, "x4", "en", "airy", false),
+        plugin_url(list, "x4", "en", "airy", false, None),
         "https://paperpaw.org/api/v1/plugins/airy.json?device=x4&lang=en"
     );
     // Community plugins only where the reader asked for them.
     assert_eq!(
-        list_url(list, "x4", "en", true),
+        list_url(list, "x4", "en", true, None),
         "https://paperpaw.org/api/v1/plugins.json?device=x4&lang=en&community=1"
     );
     assert_eq!(
-        plugin_url(list, "x4", "en", "airy", true),
+        plugin_url(list, "x4", "en", "airy", true, None),
         "https://paperpaw.org/api/v1/plugins/airy.json?device=x4&lang=en&community=1"
     );
     // A library's key goes with its pages.
     assert_eq!(
-        plugin_url("https://x/lib/p.json?key=1#top", "x4", "en", "airy", false),
+        plugin_url(
+            "https://x/lib/p.json?key=1#top",
+            "x4",
+            "en",
+            "airy",
+            false,
+            None
+        ),
         "https://x/lib/plugins/airy.json?key=1&device=x4&lang=en"
+    );
+}
+
+#[test]
+fn addresses_name_the_build_the_device_runs() {
+    // The library gives a device the builds of its own PaperPaw only where
+    // it is told which that is (#148): 16 lower-case hex digits.
+    let list = "https://paperpaw.org/api/v1/plugins.json";
+    let abi = Some(Fingerprint(0x0006_0003_2e94_0609));
+    assert_eq!(
+        list_url(list, "x4-pro", "de", false, abi),
+        "https://paperpaw.org/api/v1/plugins.json?device=x4-pro&lang=de&abi=000600032e940609"
+    );
+    assert_eq!(
+        plugin_url(list, "x4", "en", "airy", true, abi),
+        "https://paperpaw.org/api/v1/plugins/airy.json?device=x4&lang=en&community=1&abi=000600032e940609"
     );
 }
 
@@ -711,4 +734,103 @@ fn a_page_of_a_plugin_made_for_a_newer_paperpaw_has_no_code_to_install() {
     let plugin = read_plugin(&storage, "a.json", &roomy, BASE).unwrap();
     assert!(!plugin.entry.needs_newer);
     assert!(plugin.package.files.iter().any(|f| f.path == "code.ppn"));
+}
+
+#[test]
+fn a_group_this_store_does_not_know_is_system() {
+    // A later library may add a fourteenth group (#148): its plugins are
+    // listed under `system`, the last, and the groups are all different.
+    let system = GROUPS.len() - 1;
+    for name in ["fourteenth", "", "LANGUAGES", "languages "] {
+        assert_eq!(group(name), system, "{name:?}");
+    }
+    assert_eq!(group("languages"), GROUPS.len() - 2);
+    for (n, name) in GROUPS.iter().enumerate() {
+        assert_eq!(group(name), n);
+    }
+    let storage = list(&[plugin("future", "fourteenth", "")]);
+    let (entries, runs) = entries(&storage);
+    assert_eq!(ids(&entries), ["future"]);
+    assert_eq!(runs, [(system, 1)]);
+}
+
+#[test]
+fn a_plugin_the_library_has_no_build_of_for_this_paperpaw_is_listed_waiting() {
+    // Asked with `abi`, the library keeps such a plugin in the list with
+    // `waits` and no builds (#148): the device says so, and offers nothing.
+    let waiting = |id: &str, waits: &str| {
+        code(id, &[]).replacen(
+            r#""kind": "code""#,
+            &format!(r#""kind": "code", "waits": "{waits}""#),
+            1,
+        )
+    };
+    let storage = list(&[
+        waiting("by-author", "author"),
+        waiting("by-update", "update"),
+        code("plain", &[build_of("x4", &abi())]),
+        // No builds and no word on it: not a plugin for this device.
+        code("silent", &[]),
+    ]);
+    let (entries, _) = entries(&storage);
+    assert_eq!(ids(&entries), ["by-author", "by-update", "plain"]);
+    let by = |id: &str| entries.iter().find(|e| e.id == id).unwrap();
+    let author = by("by-author");
+    assert!(author.waits_author && author.unbuilt() && !author.needs_newer);
+    let update = by("by-update");
+    assert!(update.needs_newer && update.unbuilt() && !update.waits_author);
+    assert!(!by("plain").unbuilt());
+    // The index keeps the mark.
+    assert!(Entry::parse(&author.line()).unwrap().waits_author);
+}
+
+#[test]
+fn a_build_for_this_paperpaw_repairs_an_installed_one_built_for_an_older_one() {
+    // The owner's case (#148): a plugin installed from the 0.5 store is of
+    // the same version as the build the library now gives this PaperPaw,
+    // and the plugin manager says "update it in the store".
+    let storage = list(&[
+        code("stats", &[build_of("x4", &abi())]),
+        code("waits", &[]).replacen(
+            r#""kind": "code""#,
+            r#""kind": "code", "waits": "author""#,
+            1,
+        ),
+    ]);
+    let (entries, _) = entries(&storage);
+    let (stats, waits) = (&entries[0], &entries[1]);
+    let installed = |problem| {
+        let mut info = paperpaw_sdk::PluginInfo::new(
+            paperpaw_sdk::Manifest::new(
+                paperpaw_sdk::Id::new_static("stats"),
+                "Name",
+                Version::new(1, 0, 0),
+            ),
+            paperpaw_sdk::PluginState::Failed,
+            true,
+            paperpaw_sdk::RequiredFor::default(),
+            PluginKind::Code,
+            None,
+            None,
+        );
+        info.problem = problem;
+        info
+    };
+    use paperpaw_sdk::PluginProblem as Problem;
+    for problem in [
+        Problem::OlderInterface { built_for: 4 },
+        Problem::OtherBuild,
+    ] {
+        assert!(
+            stats.repairs(Some(&installed(Some(problem)))),
+            "{problem:?}"
+        );
+    }
+    // One that runs, one that crashed, one that is not there: nothing to
+    // repair.
+    assert!(!stats.repairs(Some(&installed(None))));
+    assert!(!stats.repairs(Some(&installed(Some(Problem::Crashed)))));
+    assert!(!stats.repairs(None));
+    // Nothing to offer where the library has no build for this PaperPaw.
+    assert!(!waits.repairs(Some(&installed(Some(Problem::OtherBuild)))));
 }

@@ -36,10 +36,15 @@ const MARKS: [&str; 4] = [
 const INITIALS: [&str; 2] = ["widgets.initials.one", "widgets.initials.two"];
 
 /// Its settings, kept in the program.
-static SETTINGS: [SettingSpec; 13] = [
+static SETTINGS: [SettingSpec; 18] = [
     widgets::align_spec("widgets.calendar.align", ID, Align::Center),
     widgets::frame_spec("widgets.calendar.frame", ID, Frame::None),
     widgets::padding_spec("widgets.calendar.padding", ID, Padding::Auto),
+    widgets::paper_spec("widgets.calendar.paper", ID),
+    widgets::ink_spec("widgets.calendar.ink", ID),
+    widgets::corners_spec("widgets.calendar.corners", ID),
+    widgets::frame_line_spec("widgets.calendar.frame-line", ID),
+    widgets::shadow_spec("widgets.calendar.drop-shadow", ID),
     SettingSpec::choice(
         "widgets.calendar.week-start",
         "widgets.setting.week-start",

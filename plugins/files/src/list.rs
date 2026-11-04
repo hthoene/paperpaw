@@ -36,6 +36,7 @@
 mod find;
 mod grid;
 mod index;
+mod layout;
 mod rows;
 mod sheet;
 pub(crate) mod shelf;
@@ -48,17 +49,18 @@ use alloc::vec::Vec;
 
 use paperpaw_sdk::builtin::{actions, events, params, settings, slots};
 use paperpaw_sdk::event::Event;
-use paperpaw_sdk::library::{self, catalog::State};
+use paperpaw_sdk::library;
 use paperpaw_sdk::semantics::Role;
-use paperpaw_sdk::ui::{self, UiStyle};
+use paperpaw_sdk::ui;
 use paperpaw_sdk::{
     Arg, Canvas, Command, Cx, Env, FixedAction, FixedScreen, Gesture, GestureKind, Handled, Id,
-    Params, Rect, RefreshMode, RegisterError, Registrar, Screen,
+    Instant, Params, Rect, RefreshMode, RegisterError, Registrar, Screen,
 };
 
 use index::{Filter, NEVER, hash};
+use layout::Layout;
 use paperpaw_sdk::library::sorted::{self, Entry, Sorted};
-use rows::{Loaded, Sizes};
+use rows::{CoverPace, Loaded};
 
 use crate::names::{self, Bound, Distinct, Firsts};
 
@@ -115,7 +117,7 @@ static ACTIONS: [FixedAction; 2] = [
     walking::ACTION,
 ];
 static ICONS: [(Id, &str); 2] = [(FIND, "letter-case"), (LOOK_AGAIN, "refresh")];
-pub(crate) use walking::LOOK_AGAIN;
+pub(crate) use walking::{LOOK_AGAIN, card_gone, collecting, failed_words};
 
 /// The library screen.
 pub(crate) fn screen(env: &Env<'_>, _params: &Params) -> Box<dyn Screen> {
@@ -133,16 +135,6 @@ fn open_sorted(env: &Env<'_>, archive: &str) -> Option<Sorted> {
         let _ = env.storage().remove(KEPT);
     }
     Sorted::open(env, archive)
-}
-
-/// Whether the catalog is still to be made (none yet). Not where the
-/// storage cannot be read (a card the device cannot use): none would
-/// ever come, and the empty library says where books go.
-pub(crate) fn collecting(env: &Env<'_>) -> bool {
-    matches!(
-        library::service(env).catalog_state(env),
-        State::Missing | State::Building
-    ) && env.storage().list("", &mut |_| {}).is_ok()
 }
 
 /// The archive folder, as the setting names it: its books are on the
@@ -267,69 +259,6 @@ impl ShelfRow {
     }
 }
 
-/// Where things go on the screen: made anew when a setting changes (the
-/// view, the size of the interface).
-struct Layout {
-    style: UiStyle,
-    sizes: Sizes,
-    header: ui::Header,
-    /// The filters' chips (larger screens; none on small ones).
-    chips: ui::Chips,
-    /// The filter's row (small screens).
-    filter_row: Option<Rect>,
-    /// Where the books (or shelves) go.
-    area: Rect,
-    /// The covers' grid, where books show as covers ([`crate::VIEW`]).
-    grid: Option<grid::Grid>,
-    /// Covers in grays ([`crate::COVERS`]).
-    grays: bool,
-}
-
-impl Layout {
-    fn new(env: &Env<'_>) -> Self {
-        let style = UiStyle::new(env);
-        let sizes = Sizes::new(env, &style);
-        let header = ui::Header::new(env, &style, true);
-        let display = env.device().display;
-        let gap = style.gap();
-        let (chips, filter_row, top) = if sizes.compact {
-            let row = Rect::new(0, header.area().height, display.width, sizes.filter_row);
-            (
-                ui::Chips::default(),
-                Some(row),
-                row.y + row.height + gap / 2,
-            )
-        } else {
-            // From margin to margin, with room round them for the focus.
-            let margin = style.margin();
-            let labels = Filter::ALL.map(Filter::label);
-            let width = display.width.saturating_sub(2 * margin);
-            // As many rows as the words need: none is shortened.
-            let band = Rect::new(
-                margin,
-                header.area().height,
-                width,
-                ui::Chips::height_for(env, &style, width, &labels) + gap,
-            );
-            let chips = ui::Chips::new(env, &style, band, labels);
-            (chips, None, band.y + band.height)
-        };
-        let area = Rect::new(0, top, display.width, display.height.saturating_sub(top));
-        let grid = (env.settings().read(&crate::VIEW) == crate::VIEW_COVERS)
-            .then(|| grid::Grid::new(env, &style, &sizes, area.height));
-        Layout {
-            style,
-            sizes,
-            header,
-            chips,
-            filter_row,
-            area,
-            grid,
-            grays: crate::covers_in_grays(env),
-        }
-    }
-}
-
 /// The library; see the [module documentation](self).
 struct ListScreen {
     layout: Layout,
@@ -342,11 +271,17 @@ struct ListScreen {
     sorted: Option<Sorted>,
     /// The kernel was asked for them since they were last there.
     asked: bool,
+    /// Since when the library waits for a kernel that does nothing
+    /// (`watch`).
+    idle_since: Option<Instant>,
     /// No catalog yet: the kernel is making the first.
     collecting: bool,
     /// The kernel could not make the catalog (`CATALOG_FAILED`): the
     /// folder could not be read; until a catalog is made.
     failed: bool,
+    /// The memory card is lost until a restart ([`card_gone`]), where the
+    /// catalog failed.
+    card_gone: bool,
     filter: Filter,
     by_recent: bool,
     /// How many books (or stacks) the filter shows.
@@ -386,6 +321,8 @@ struct ListScreen {
     /// index is kept in a file.
     kept_focus: Option<u32>,
     covered: bool,
+    /// When the covers not read yet are read.
+    pace: CoverPace,
     /// Just opened: the first `on_show` need not load again.
     fresh: bool,
 }
@@ -398,9 +335,11 @@ impl ListScreen {
             root: library::folder(env).to_string(),
             sorted: open_sorted(env, &archive),
             asked: false,
+            idle_since: None,
             archive,
             collecting: collecting(env),
             failed: false,
+            card_gone: false,
             filter: Filter::All,
             by_recent: env.settings().read(&crate::SORT) != crate::SORT_NAME,
             count: 0,
@@ -422,6 +361,7 @@ impl ListScreen {
             gone: Vec::new(),
             kept_focus: None,
             covered: false,
+            pace: CoverPace::default(),
             fresh: true,
         };
         // A catalog without books may be out of date (books copied onto
@@ -429,8 +369,9 @@ impl ListScreen {
         // the first show after a start, and tells the view either way
         // (`CATALOG_CHANGED`); until then it says so, not that there are
         // no books.
-        screen.collecting |= screen.sorted.as_ref().is_some_and(|s| !s.has_books())
-            && env.storage().list("", &mut |_| {}).is_ok();
+        screen.collecting |=
+            screen.sorted.as_ref().is_some_and(|s| !s.has_books()) && walking::readable(env);
+        screen.unreadable(env);
         screen.refilter(env);
         screen
     }
@@ -490,6 +431,7 @@ impl ListScreen {
             sorted.hide_all(env.storage(), &self.gone);
         }
         self.forget_gone();
+        self.unreadable(env);
     }
 
     /// The sorted books let go of where their file went meanwhile (the
@@ -503,12 +445,13 @@ impl ListScreen {
     }
 
     /// Asks the kernel for the sorted books where they are being made
-    /// anew, once.
+    /// anew, once; and watches that the kernel answers ([`walking`]).
     fn ask(&mut self, cx: &mut Cx<'_, '_>) {
         if self.sorted.is_none() && !self.asked {
             self.asked = true;
             cx.command(sorted::request(&self.archive));
         }
+        self.watch(cx);
     }
 
     /// Takes the shown books (or shelves) anew from the index, the focus
@@ -592,9 +535,10 @@ impl ListScreen {
         self.look_again = total == 0 && archived == 0;
         self.look_again &= !self.failed && !self.collecting && !self.preparing();
         (self.empty_title, self.empty_text) = if self.failed && total == 0 {
+            let (title, text) = failed_words(self.card_gone);
             (
-                env.i18n().tr("files.list.failed.title").to_string(),
-                env.i18n().tr("files.list.failed").to_string(),
+                env.i18n().tr(title).to_string(),
+                env.i18n().tr(text).to_string(),
             )
         } else if self.collecting && total == 0 {
             (
@@ -1216,23 +1160,9 @@ impl Screen for ListScreen {
     }
 
     fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
-        let env = *cx.env();
-        if core::mem::take(&mut self.fresh) {
-            // The kernel makes the catalog where it is not there, or was
-            // not made since PaperPaw started; it shows once it is.
-            cx.command(library::request_catalog());
-        } else if core::mem::take(&mut self.covered) {
-            // Back from a book or a screen over the whole library: the
-            // sorted books read through again, with what changed
-            // meanwhile (the books read last, the status of those read).
-            self.archive = archive(&env);
-            self.reopen(&env);
-            self.collecting = collecting(&env);
-            let keep = self.kept_focus.take();
-            self.refilter_keeping(&env, keep, true);
-            cx.request_redraw();
-        }
-        self.ask(cx);
+        self.pace.heard(cx.env().now());
+        self.shown(cx);
+        self.wake_for_covers(cx);
     }
 
     /// Turned or resized: laid out anew for the size, the focus on its
@@ -1267,6 +1197,59 @@ impl Screen for ListScreen {
     }
 
     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+        self.pace.heard(cx.env().now());
+        let handled = self.act(action, cx);
+        self.wake_for_covers(cx);
+        handled
+    }
+
+    fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
+        self.pace.heard(cx.env().now());
+        let handled = self.gesture(gesture, cx);
+        self.wake_for_covers(cx);
+        handled
+    }
+
+    fn on_event(&mut self, event: &Id, params: &Params, cx: &mut Cx<'_, '_>) {
+        self.heard(event, params, cx);
+        self.wake_for_covers(cx);
+    }
+
+    /// The covers of the page shown not read yet, one a tick (each opens
+    /// its book), the first shown first, none while input comes; drawn as
+    /// each comes.
+    fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
+        self.looked(cx);
+        if !self.covered && self.pace.tick(cx, &mut self.loaded) {
+            cx.request_redraw();
+        }
+    }
+}
+
+/// What the screen does, its covers looked for after each
+/// ([`ListScreen::wake_for_covers`]).
+impl ListScreen {
+    fn shown(&mut self, cx: &mut Cx<'_, '_>) {
+        let env = *cx.env();
+        if core::mem::take(&mut self.fresh) {
+            // The kernel makes the catalog where it is not there, or was
+            // not made since PaperPaw started; it shows once it is.
+            cx.command(library::request_catalog());
+        } else if core::mem::take(&mut self.covered) {
+            // Back from a book or a screen over the whole library: the
+            // sorted books read through again, with what changed
+            // meanwhile (the books read last, the status of those read).
+            self.archive = archive(&env);
+            self.reopen(&env);
+            self.collecting = collecting(&env);
+            let keep = self.kept_focus.take();
+            self.refilter_keeping(&env, keep, true);
+            cx.request_redraw();
+        }
+        self.ask(cx);
+    }
+
+    fn act(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
         let a = action;
         if *a == LOOK_AGAIN {
             return self.looking(cx);
@@ -1309,7 +1292,7 @@ impl Screen for ListScreen {
         Handled::Yes
     }
 
-    fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
+    fn gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
         let point = gesture.start;
         let hit = self
             .page_range(self.page_of(self.focus))
@@ -1371,11 +1354,7 @@ impl Screen for ListScreen {
         }
     }
 
-    fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
-        self.looked(cx);
-    }
-
-    fn on_event(&mut self, event: &Id, params: &Params, cx: &mut Cx<'_, '_>) {
+    fn heard(&mut self, event: &Id, params: &Params, cx: &mut Cx<'_, '_>) {
         if let Some(picked) = SHOWN.read(event, params) {
             match SHOW_OPTIONS.iter().position(|o| *o == picked.option) {
                 Some(n) if n < SHOW_FILTERS.len() => {
@@ -1393,6 +1372,7 @@ impl Screen for ListScreen {
             // The folder could not be read: said instead of "collecting"
             // (the old catalog, if any, stays shown) until one is made.
             self.failed = true;
+            self.card_gone = card_gone(&env);
             self.collecting = false;
             self.refilter(&env);
             cx.request_redraw();
@@ -1403,6 +1383,7 @@ impl Screen for ListScreen {
             // or, while covered, when it shows (the one kept is of the old
             // catalog).
             self.failed = false;
+            self.card_gone = false;
             if self.covered {
                 self.gone.clear();
                 self.collecting = false;
@@ -1492,9 +1473,13 @@ impl Screen for ListScreen {
                 self.layout = Layout::new(&env);
             }
             cx.request_redraw();
-            if !self.covered {
-                cx.wake_at(env.now());
-            }
+        }
+    }
+
+    /// Wakes for the covers of the page shown not read yet.
+    fn wake_for_covers(&self, cx: &mut Cx<'_, '_>) {
+        if !self.covered {
+            self.pace.wake(cx, &self.loaded);
         }
     }
 }

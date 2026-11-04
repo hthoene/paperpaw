@@ -154,8 +154,19 @@ fn refreshing_the_saved_list_shows_loading_until_success_or_failure() {
 #[test]
 fn loading_changes_the_visible_header_even_beside_touch_paging() {
     let groups = [
-        "reading", "formats", "library", "sync", "home", "look", "notes", "learning", "news",
-        "tools", "games", "system",
+        "reading",
+        "formats",
+        "library",
+        "sync",
+        "home",
+        "look",
+        "notes",
+        "learning",
+        "news",
+        "tools",
+        "games",
+        "languages",
+        "system",
     ];
     let entries: Vec<_> = groups
         .iter()

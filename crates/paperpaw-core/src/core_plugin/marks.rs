@@ -1,3 +1,6 @@
+//! The roles of the marks every reader draws: highlights, links, a
+//! search hit, the sentence read aloud (see `paperpaw_sdk::decorations`).
+
 use paperpaw_sdk::decorations::{Decoration, LineKind, Tone};
 use paperpaw_sdk::role_settings;
 use paperpaw_sdk::{RegisterError, Registrar, SettingSpec};

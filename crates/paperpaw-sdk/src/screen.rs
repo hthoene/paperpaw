@@ -419,8 +419,9 @@ pub enum Handled {
 
 /// The revision of [`Screen`]'s items in this SDK: what a screen built
 /// with it says in [`Screen::revision`]. 1: the items up to
-/// [`Screen::on_timer`]; 2: [`Screen::on_resize`] and [`Screen::pane`].
-pub const SCREEN_REVISION: u16 = 2;
+/// [`Screen::on_timer`]; 2: [`Screen::on_resize`] and [`Screen::pane`];
+/// 3: [`Screen::times_under_overlays`].
+pub const SCREEN_REVISION: u16 = 3;
 
 /// How a screen shows where the screen is wide ([`Screen::pane`]).
 /// Constants of one type, so more can come without a new plugin
@@ -813,8 +814,37 @@ pub trait Screen {
 
     /// How it shows where the screen is wide: [`Pane::DETAIL`] for a
     /// screen that shows one thing of the list below it. Revision 2.
+    ///
+    /// Asked once, when it is made. Where the part of the screen it would
+    /// have is [expanded](crate::ui::ScreenClass::Expanded) and the screen
+    /// below it is a full screen that is no detail itself, the two show
+    /// beside each other: the list at the start (on the left, on the right
+    /// in a right-to-left interface), at least 60 mm or 38 % wide, the
+    /// detail in the rest, a line between them, bars and the row of hints
+    /// over both. Each is laid out for its part ([`on_resize`](Self::on_resize)).
+    /// A tap goes to the part it lands in, and keys and buttons go there
+    /// from then on (to the detail at first);
+    /// [`actions::PANE_OTHER`](crate::builtin::actions::PANE_OTHER) moves
+    /// them to the other. A detail the list opens while keys are its own
+    /// takes the place of the one shown, so that going through a list
+    /// never piles details up. Elsewhere (compact and medium screens, the
+    /// X4 in either orientation) a detail is a full screen as any other.
     fn pane(&self) -> Pane {
         Pane::FULL
+    }
+
+    /// Whether its time ([`Cx::wake_at`]) comes while overlays alone
+    /// cover it (a menu bar, a panel, a dialog over it), as it still
+    /// shows below them: for work that goes on there, as a reader that
+    /// counts its pages. Asked when the time is due, so it may say so only
+    /// while it has such work. Its [`Screen::on_timer`] then runs below
+    /// the overlays as on top: the screen itself checks
+    /// [`Cx::is_on_top`] and leaves what it does only on top (turning
+    /// pages by itself, reading aloud, opening screens) for later. No by
+    /// default: the time waits until it is on top again. Under a full
+    /// screen it always waits. Revision 3.
+    fn times_under_overlays(&self) -> bool {
+        false
     }
 }
 
@@ -898,6 +928,16 @@ impl<'a, 'e> Cx<'a, 'e> {
         self.key
     }
 
+    /// Whether the screen this handler runs for is on top, nothing over
+    /// it: its time ([`Cx::wake_at`]) comes otherwise only below overlays
+    /// alone where it asks ([`Screen::times_under_overlays`]), and what it
+    /// does only on top then waits. Outside the stack (a screen made
+    /// aside, a notice) it is not.
+    pub fn is_on_top(&self) -> bool {
+        let top = self.env().stack().last().map(|entry| entry.key);
+        self.key.is_some_and(|key| top == Some(key))
+    }
+
     /// This screen as the stack lists it ([`Env::stack`](crate::Env::stack)).
     pub fn entry(&self) -> Option<&StackEntry> {
         let key = self.key?;
@@ -975,8 +1015,10 @@ impl<'a, 'e> Cx<'a, 'e> {
     /// Requests a call to [`Screen::on_timer`] of this screen at `at` (the
     /// earliest request wins). Use `cx.env().now()` for "as soon as
     /// possible". It comes while the screen is on top: covered by another
-    /// (a menu, a keyboard), the time waits until it is on top again. It
-    /// is kept when the screen is made anew for another size.
+    /// (a menu, a keyboard), the time waits until it is on top again,
+    /// unless overlays alone cover it and it asks for it
+    /// ([`Screen::times_under_overlays`]). It is kept when the screen is
+    /// made anew for another size.
     /// Keeps the device from going to sleep by itself while this screen
     /// is on top, for as long as `hold` lasts (renew it before it ends):
     /// a clock, a timer, a slideshow. It ends when the screen closes.

@@ -63,7 +63,10 @@ impl Row {
             Row::Installed => "circle-check",
             Row::New => "sparkles",
             Row::Section(s) => SECTION_ICONS[s],
-            Row::Group(g) => GROUP_ICONS[g],
+            Row::Group(g) => GROUP_ICONS
+                .get(g)
+                .copied()
+                .unwrap_or(GROUP_ICONS[GROUPS.len() - 1]),
         }
     }
 }
@@ -72,7 +75,10 @@ impl Row {
 const SECTION_ICONS: [&str; 5] = ["star", "sparkles", "chart-bar", "circle-arrow-up", "bulb"];
 
 /// The icons of the groups, as [`GROUPS`].
-const GROUP_ICONS: [&str; 12] = [
+/// One for each group: a group added to [`GROUPS`] without its icon does
+/// not compile; an index past them (a list from a later store) is the
+/// last, `system`.
+const GROUP_ICONS: [&str; GROUPS.len()] = [
     "book",
     "file-text",
     "books",
@@ -84,6 +90,7 @@ const GROUP_ICONS: [&str; 12] = [
     "rss",
     "apps",
     "puzzle",
+    "language",
     "settings",
 ];
 
@@ -204,7 +211,7 @@ impl ListScreen {
         // The looks also without plugins of their own: *Fonts* is there.
         let fonts = env.actions().contains(crate::FONTS.as_str());
         for (group, &count) in counts.groups.iter().enumerate() {
-            if count > 0 || (fonts && GROUPS[group] == "look") {
+            if count > 0 || (fonts && GROUPS.get(group) == Some(&"look")) {
                 self.rows.push(Row::Group(group));
             }
         }
@@ -250,6 +257,7 @@ impl ListScreen {
                 device,
                 env.i18n().language(),
                 crate::community(&env),
+                env.native().map(|native| native.fingerprint),
             )
         );
         let mut request = HttpRequest::new("GET", &url, LOADED);
@@ -365,7 +373,11 @@ pub(crate) fn section_name(env: &Env<'_>, section: usize) -> alloc::string::Stri
 
 /// The name of group `group`.
 pub(crate) fn group_name(env: &Env<'_>, group: usize) -> alloc::string::String {
-    let key = format!("store.group.{}", GROUPS[group]);
+    // One past the groups (not from this store's own index) is `system`.
+    let key = format!(
+        "store.group.{}",
+        GROUPS.get(group).unwrap_or(&GROUPS[GROUPS.len() - 1])
+    );
     env.i18n().tr(&key).to_string()
 }
 
@@ -416,6 +428,12 @@ impl Screen for ListScreen {
                 let Some(&row) = self.rows.get(entry) else {
                     return;
                 };
+                if row == Row::Search {
+                    ui::SearchField::new(env.i18n().tr("store.search"))
+                        .focused(focused)
+                        .draw(ui, rect);
+                    return;
+                }
                 let ink = style.focus_ink(focused);
                 let rest = ui.row_icon(rect, room, Some(row.icon()), ink);
                 let name = match row {
@@ -555,5 +573,20 @@ impl Screen for ListScreen {
             self.count(&env);
             self.redraw(cx);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_group_past_the_known_ones_is_drawn_as_system() {
+        // A list from a later store may name more groups than this one
+        // knows: they are `system` (see `catalog::group`), never a panic.
+        let last = Row::Group(GROUPS.len() - 1).icon();
+        assert_eq!(Row::Group(GROUPS.len()).icon(), last);
+        assert_eq!(Row::Group(usize::MAX).icon(), last);
+        assert_eq!(GROUPS[GROUPS.len() - 1], "system");
     }
 }

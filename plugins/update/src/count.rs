@@ -2,11 +2,14 @@
 //! started it (`trigger`, `auto` for the weekly look, `manual` where the
 //! reader asked) and of which periods it is this device's first check
 //! (`first`: any of `day`, `week` and `month`, in UTC, the week as ISO
-//! 8601 counts). The server counts devices by them: no id, no
-//! fingerprint, no request of its own. The device keeps only the date of
-//! its last check (`last-check.txt`), never sent. Without the time (the
-//! clock not set yet) `first` is left out and the date kept as it was.
-//! A check counts when it is asked, whatever its answer.
+//! 8601 counts), and how long it has been in use (`age`: `new` under
+//! seven days since its first check, `week` up to thirty, `month` after).
+//! The server counts devices by them: no id, no fingerprint, no request
+//! of its own. The device keeps only the date of its last check
+//! (`last-check.txt`) and of its first (`first-check.txt`), never sent.
+//! Without the time (the clock not set yet) `first` and `age` are left
+//! out and the dates kept as they were. A check counts when it is asked,
+//! whatever its answer.
 
 use alloc::format;
 use alloc::string::String;
@@ -19,6 +22,8 @@ use crate::{PLUGIN, file};
 
 /// The date of the last check, as `YYYY-MM-DD` (UTC).
 const LAST: &str = "last-check.txt";
+/// The date of the first check, as `YYYY-MM-DD` (UTC).
+const FIRST: &str = "first-check.txt";
 const DAY: i64 = 24 * 3600;
 
 /// What started a check.
@@ -77,8 +82,8 @@ pub(crate) fn first(last: Option<i64>, today: i64) -> Vec<&'static str> {
     periods
 }
 
-fn read_last(storage: &dyn Storage) -> Option<i64> {
-    let text = paperpaw_sdk::read_file(storage, &file(LAST), 64).ok()?;
+fn read_date(storage: &dyn Storage, name: &str) -> Option<i64> {
+    let text = paperpaw_sdk::read_file(storage, &file(name), 64).ok()?;
     let text = core::str::from_utf8(&text).ok()?.trim();
     let mut parts = text.splitn(3, '-').map(str::parse::<u32>);
     let (Some(Ok(year)), Some(Ok(month)), Some(Ok(day))) =
@@ -93,13 +98,45 @@ fn read_last(storage: &dyn Storage) -> Option<i64> {
     Some(days_from_civil(i32::try_from(year).ok()?, month, day))
 }
 
-fn write_last(storage: &dyn Storage, days: i64) {
+fn read_last(storage: &dyn Storage) -> Option<i64> {
+    read_date(storage, LAST)
+}
+
+fn write_date(storage: &dyn Storage, name: &str, days: i64) {
     let (year, month, day) = civil_from_days(days);
     let _ = storage.create_dir(&Env::plugin_dir(PLUGIN.as_str()));
     let _ = storage.write(
-        &file(LAST),
+        &file(name),
         format!("{year:04}-{month:02}-{day:02}\n").as_bytes(),
     );
+}
+
+fn write_last(storage: &dyn Storage, days: i64) {
+    write_date(storage, LAST, days);
+}
+
+/// The day of this device's first check as far as it is known on `today`:
+/// the one kept; where none is kept (the first check, or a device that
+/// counted before this was kept) the day of its last check, else today;
+/// where the one kept is after today (the clock went back) the same
+/// again. Kept when it changed.
+fn first_day(storage: &dyn Storage, last: Option<i64>, today: i64) -> i64 {
+    let kept = read_date(storage, FIRST).filter(|&kept| kept <= today);
+    let first = kept.unwrap_or_else(|| last.filter(|&last| last <= today).unwrap_or(today));
+    if kept != Some(first) {
+        write_date(storage, FIRST, first);
+    }
+    first
+}
+
+/// How long a device has been in use, as the server counts it: under
+/// seven days `new`, up to thirty `week`, after that `month`.
+pub(crate) fn age(first: i64, today: i64) -> &'static str {
+    match today.saturating_sub(first) {
+        ..7 => "new",
+        7..=30 => "week",
+        _ => "month",
+    }
 }
 
 /// The question's members for counting (`,"trigger":…,"first":[…]`), at
@@ -115,6 +152,8 @@ pub(crate) fn members(storage: &dyn Storage, trigger: Trigger, unix: Option<i64>
             .map(|p| format!("\"{p}\""))
             .collect();
         members.push_str(&format!(",\"first\":[{}]", periods.join(",")));
+        let first = first_day(storage, last, today);
+        members.push_str(&format!(",\"age\":\"{}\"", age(first, today)));
         if last.is_none_or(|last| today > last) {
             write_last(storage, today);
         }
@@ -125,6 +164,7 @@ pub(crate) fn members(storage: &dyn Storage, trigger: Trigger, unix: Option<i64>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::string::ToString;
     use paperpaw_sdk::MemoryStorage;
 
     fn day(year: i32, month: u8, day: u8) -> i64 {
@@ -197,7 +237,7 @@ mod tests {
         let noon = day(2026, 10, 25) * DAY + 12 * 3600;
         assert_eq!(
             members(&storage, Trigger::Manual, Some(noon)),
-            ",\"trigger\":\"manual\",\"first\":[\"day\",\"week\",\"month\"]"
+            ",\"trigger\":\"manual\",\"first\":[\"day\",\"week\",\"month\"],\"age\":\"new\""
         );
         assert_eq!(
             members(&storage, Trigger::Auto, None),
@@ -207,14 +247,79 @@ mod tests {
         // Later the same day: nothing is the first.
         assert_eq!(
             members(&storage, Trigger::Auto, Some(noon + 3600)),
-            ",\"trigger\":\"auto\",\"first\":[]"
+            ",\"trigger\":\"auto\",\"first\":[],\"age\":\"new\""
         );
         // The next day, Monday.
         assert_eq!(
             members(&storage, Trigger::Auto, Some(noon + DAY)),
-            ",\"trigger\":\"auto\",\"first\":[\"day\",\"week\"]"
+            ",\"trigger\":\"auto\",\"first\":[\"day\",\"week\"],\"age\":\"new\""
         );
         assert_eq!(read_last(&storage), Some(day(2026, 10, 26)));
+    }
+
+    #[test]
+    fn the_age_is_new_under_a_week_then_week_then_month() {
+        let first = day(2026, 10, 1);
+        assert_eq!(age(first, first), "new");
+        assert_eq!(age(first, first + 6), "new");
+        assert_eq!(age(first, first + 7), "week");
+        assert_eq!(age(first, first + 30), "week");
+        assert_eq!(age(first, first + 31), "month");
+        assert_eq!(age(first, first + 400), "month");
+        // A day before the first (the clock went back) is new.
+        assert_eq!(age(first, first - 3), "new");
+    }
+
+    /// The age a check on day `at` sent, as the question says it.
+    fn sent_age(storage: &MemoryStorage, at: i64) -> String {
+        let text = members(storage, Trigger::Auto, Some(at * DAY + 3600));
+        let (_, rest) = text.split_once("\"age\":\"").unwrap();
+        rest.split('"').next().unwrap().to_string()
+    }
+
+    #[test]
+    fn the_age_counts_from_the_first_check_kept_on_the_card() {
+        let storage = MemoryStorage::new();
+        let first = day(2026, 10, 1);
+        assert_eq!(sent_age(&storage, first), "new");
+        assert_eq!(sent_age(&storage, first + 6), "new");
+        assert_eq!(sent_age(&storage, first + 7), "week");
+        assert_eq!(sent_age(&storage, first + 31), "month");
+        let kept = paperpaw_sdk::read_file(&storage, &file(FIRST), 64).unwrap();
+        assert_eq!(kept, b"2026-10-01\n");
+    }
+
+    #[test]
+    fn a_device_that_counted_before_starts_from_its_last_check() {
+        let storage = MemoryStorage::new();
+        write_last(&storage, day(2026, 9, 1));
+        // The first check kept is the last one's date: the age is from it.
+        assert_eq!(sent_age(&storage, day(2026, 10, 2)), "month");
+        let kept = paperpaw_sdk::read_file(&storage, &file(FIRST), 64).unwrap();
+        assert_eq!(kept, b"2026-09-01\n");
+    }
+
+    #[test]
+    fn a_clock_gone_back_starts_the_age_anew() {
+        let storage = MemoryStorage::new();
+        assert_eq!(sent_age(&storage, day(2026, 10, 1)), "new");
+        // Later the clock shows a day before the first check: new, and
+        // that day is the first now.
+        assert_eq!(sent_age(&storage, day(2026, 9, 1)), "new");
+        assert_eq!(sent_age(&storage, day(2026, 9, 10)), "week");
+    }
+
+    #[test]
+    fn without_the_time_no_age_is_sent_and_no_date_kept() {
+        let storage = MemoryStorage::new();
+        assert_eq!(
+            members(&storage, Trigger::Manual, None),
+            ",\"trigger\":\"manual\""
+        );
+        assert!(!storage.exists(&file(FIRST)));
+        // A damaged first date is made anew.
+        storage.write(&file(FIRST), b"not a date").unwrap();
+        assert_eq!(sent_age(&storage, day(2026, 10, 1)), "new");
     }
 
     #[test]

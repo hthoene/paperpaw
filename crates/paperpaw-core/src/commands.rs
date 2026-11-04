@@ -45,6 +45,9 @@ impl Kernel {
         self.check_network();
         self.run_commands();
         if let Some(row) = self.hint_row() {
+            // A screen that read much as it opened may have filled what is
+            // read from a card catalog: the row's labels would fall back.
+            self.forget_read_messages_if_full();
             let hints = self.current_hints();
             if hints != self.hint.shown {
                 self.hint.shown = hints;
@@ -215,11 +218,13 @@ impl Kernel {
             .screenshot
             .is_some()
             .then(|| self.now.add_millis(300));
-        // Only the screen on top runs: a covered one's time waits. Bars
-        // shown run too.
+        // Only the screen on top runs, and one below overlays alone that
+        // asks to: a covered one's time waits. Bars shown run too, and a
+        // list beside its detail.
         let timer = [
-            self.stack.last().and_then(|top| top.timer),
+            self.screen_timer(),
             self.chromes_due(),
+            self.pane_list_due(),
         ]
         .into_iter()
         .flatten()
@@ -268,10 +273,18 @@ impl Kernel {
     /// near the most that is read.
     fn forget_read_messages(&mut self) {
         let top = self.stack.last().map(|s| s.serial);
-        let full = self.shared.translator.read_bytes() > paperpaw_i18n::MAX_READ / 4 * 3;
-        if top != self.read_top || full {
+        if top != self.read_top {
             self.shared.translator.forget_read();
             self.read_top = top;
+        }
+        self.forget_read_messages_if_full();
+    }
+
+    /// Forgets the messages read from catalogs on the card once they near
+    /// the most that is read, none lent out now.
+    fn forget_read_messages_if_full(&mut self) {
+        if self.shared.translator.read_bytes() > paperpaw_i18n::MAX_READ / 4 * 3 {
+            self.shared.translator.forget_read();
         }
     }
 
@@ -287,6 +300,7 @@ impl Kernel {
                 // the screen that had it is gone (ADR 0030).
                 self.sync_room();
                 self.hint_escape();
+                self.show_pane_list();
                 self.with_top(|screen, cx| {
                     screen.on_show(cx);
                     Handled::Yes
@@ -410,7 +424,10 @@ impl Kernel {
             }
             Command::KeepAwake(hold) => self.keep_awake(hold),
             Command::LetSleep(id) => self.let_sleep(&id),
-            // Keys of later releases: none known yet, left as they are.
+            Command::Extended { key, .. } if key == paperpaw_sdk::builtin::actions::PANE_OTHER => {
+                self.other_pane();
+            }
+            // Keys of later releases: left as they are.
             Command::Extended { .. } => {}
             command @ (Command::SetSetting(..)
             | Command::ResetSetting(_)

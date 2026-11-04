@@ -105,9 +105,20 @@ const MAX_SECTION: usize = 20;
 /// The groups, in the order the website shows them (its `catalogue.rs`,
 /// and paperpaw-dev's `package/folder.rs`: keep them in step). `system`
 /// stays last: it takes a plugin of a group this plugin does not know.
-pub(crate) const GROUPS: [&str; 12] = [
-    "reading", "formats", "library", "sync", "home", "look", "notes", "learning", "news", "tools",
-    "games", "system",
+pub(crate) const GROUPS: [&str; 13] = [
+    "reading",
+    "formats",
+    "library",
+    "sync",
+    "home",
+    "look",
+    "notes",
+    "learning",
+    "news",
+    "tools",
+    "games",
+    "languages",
+    "system",
 ];
 
 /// The group of `name`, the last (`system`) for one this plugin does not
@@ -204,6 +215,10 @@ pub(crate) struct Entry {
     /// runs (it has a table or a family of shared functions the firmware
     /// lacks): not offered, and what is installed is kept as it is.
     pub needs_newer: bool,
+    /// The library has builds of it for this device, but none for the
+    /// PaperPaw that runs (`waits`: its author has to build it): listed,
+    /// nothing to install, and what is installed is kept as it is.
+    pub waits_author: bool,
     /// Bytes to download, its code with them.
     pub size: u64,
     /// When it was first published and when its newest version, as
@@ -237,7 +252,8 @@ impl Entry {
             u8::from(self.code)
                 | (u8::from(self.official) << 1)
                 | (u8::from(self.unreviewed) << 2)
-                | (u8::from(self.needs_newer) << 3),
+                | (u8::from(self.needs_newer) << 3)
+                | (u8::from(self.waits_author) << 4),
             self.added,
             self.updated,
             clean(&self.id),
@@ -262,6 +278,7 @@ impl Entry {
             official: flags & 2 != 0,
             unreviewed: flags & 4 != 0,
             needs_newer: flags & 8 != 0,
+            waits_author: flags & 16 != 0,
             added: f.next()?.parse().ok()?,
             updated: f.next()?.parse().ok()?,
             id: f.next()?.to_string(),
@@ -323,6 +340,8 @@ struct Item {
     code: Option<PackageFile>,
     /// A build for this device is there, but needs a newer PaperPaw.
     needs_newer: bool,
+    /// What the library says it `waits` for: `author` or `update`.
+    waits: String,
     /// What only a plugin's page says.
     more: More,
     shot: Shot,
@@ -393,7 +412,15 @@ impl Item {
     /// Whether no build for this device runs here but one needs a newer
     /// PaperPaw: listed, with that said, nothing to install.
     fn waits_for_newer(&self) -> bool {
-        self.needs_newer && self.code.is_none()
+        self.code.is_none()
+            && (self.needs_newer || self.waits == "update" || self.waits_for_author())
+    }
+
+    /// Whether the library has no build of it for the PaperPaw that runs
+    /// yet, and says its author has to make one (`waits`, asked with
+    /// `abi`).
+    fn waits_for_author(&self) -> bool {
+        self.waits == "author"
     }
 
     /// Whether this device can install it: a data plugin, or one with code
@@ -435,6 +462,7 @@ impl Item {
                 "licence" => entry.licence = cut(value, MAX_NAME),
                 "group" => entry.group = group(value),
                 "kind" => self.kind = cut(value, MAX_NAME),
+                "waits" => self.waits = cut(value, MAX_NAME),
                 "built_in" => self.built_in = value == "true",
                 "official" => self.official = value == "true",
                 "unreviewed" => entry.unreviewed = value == "true",
@@ -623,9 +651,12 @@ impl Item {
         if let Some(code) = &self.code {
             self.entry.code = true;
             self.entry.size = self.entry.size.saturating_add(code.size);
-        } else if self.needs_newer {
+        } else if self.needs_newer || self.waits == "update" {
             self.entry.code = true;
             self.entry.needs_newer = true;
+        } else if self.waits_for_author() {
+            self.entry.code = true;
+            self.entry.waits_author = true;
         }
         // PaperPaw's, where its own library says so (code signed with its
         // key, as the library names it, which the install checks).
@@ -891,12 +922,22 @@ fn sections_path() -> String {
 const HEADER: &str = "store-index 5";
 
 /// The address of the list at `list` for `device` in `language`, with
-/// the community plugins where `community`.
-pub(crate) fn list_url(list: &str, device: &str, language: &str, community: bool) -> String {
+/// the community plugins where `community`, and the builds for the
+/// fingerprint `abi` of the PaperPaw that runs (without it the library
+/// answers as it did to clients before plugin interface 5: with builds
+/// this PaperPaw drops).
+pub(crate) fn list_url(
+    list: &str,
+    device: &str,
+    language: &str,
+    community: bool,
+    abi: Option<Fingerprint>,
+) -> String {
     let join = if list.contains('?') { '&' } else { '?' };
     let community = if community { "&community=1" } else { "" };
+    let abi = abi.map_or_else(String::new, |abi| format!("&abi={abi}"));
     format!(
-        "{list}{join}device={}&lang={}{community}",
+        "{list}{join}device={}&lang={}{community}{abi}",
         encode(device),
         encode(language)
     )
@@ -912,6 +953,7 @@ pub(crate) fn plugin_url(
     language: &str,
     id: &str,
     community: bool,
+    abi: Option<Fingerprint>,
 ) -> String {
     let list = list.split('#').next().unwrap_or(list);
     let (address, query) = list.split_once('?').unwrap_or((list, ""));
@@ -920,7 +962,7 @@ pub(crate) fn plugin_url(
         page.push('?');
         page.push_str(query);
     }
-    list_url(&page, device, language, community)
+    list_url(&page, device, language, community, abi)
 }
 
 /// Writes the index of the list at `json` (`index`, `offsets`, `head` on

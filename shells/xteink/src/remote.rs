@@ -12,6 +12,7 @@ use esp_println::println;
 use paperpaw_core::{HttpResponse, JoinFailure, Kernel, WifiNetwork, WifiState};
 use paperpaw_platform::FrameView;
 use paperpaw_x4::remote::{Command, hex_bytes, part_state, runs};
+use paperpaw_x4::upload::Upload;
 
 use crate::usb_lines::{TooLong, UsbLines};
 
@@ -302,9 +303,12 @@ impl Remote {
     /// that follow, a piece at a time.
     fn receive(&mut self, kernel: &Kernel, lines: &mut UsbLines, size: usize, path: &str) {
         let storage = kernel.storage();
-        if let Err(e) = storage.write(path, &[]) {
-            return println!("PP:ERR {path}: {e:?}");
-        }
+        // To a file beside the target, moved over it only when whole (#106):
+        // a put that is cut off leaves the old file as it was.
+        let mut upload = match Upload::begin(storage, path) {
+            Ok(upload) => upload,
+            Err(e) => return println!("PP:ERR {path}: {e:?}"),
+        };
         println!("PP:READY");
         let millis = || {
             esp_hal::time::Instant::now()
@@ -331,14 +335,15 @@ impl Remote {
             got += bytes.len();
             piece.extend_from_slice(&bytes);
             if piece.len() >= CHUNK || got >= size {
-                if let Err(e) = storage.append(path, &piece) {
+                if let Err(e) = upload.push(&piece) {
                     return println!("PP:ERR {path}: {e:?}");
                 }
                 piece.clear();
             }
         }
-        // On the card before saying so: the X4 may be reset right after.
-        if let Err(e) = storage.sync() {
+        // On the card, in its place, before saying so: the X4 may be reset
+        // right after.
+        if let Err(e) = upload.finish(size as u64) {
             return println!("PP:ERR {path}: {e:?}");
         }
         println!("PP:OK {got}");

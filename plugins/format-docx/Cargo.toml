@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-format-docx"
 description = "PaperPaw DOCX documents: .docx text, headings, lists, tables, links and pictures"
-version = "1.0.0"
+version = "1.0.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
