@@ -150,6 +150,18 @@ pub struct Installing {
     pub offset: u32,
 }
 
+/// How the trial of the running firmware stands ([`Updates::end_of_trial`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrialEnd {
+    /// Not on trial, or not yet run long enough.
+    Running,
+    /// Marked as good: the update is kept.
+    Kept,
+    /// It ran long enough, but the mark could not be written: the OTA data
+    /// still says on trial, and the update may go back.
+    Unmarked,
+}
+
 /// Updates on the flash `F` (in the chip's own addresses), for the
 /// firmware this is.
 pub struct Updates<F> {
@@ -348,6 +360,18 @@ impl<F: Flash> Updates<F> {
         }
         self.trial = None;
         self.mark(State::Valid, 0).map(|()| true)
+    }
+
+    /// [`Updates::check_trial`] as the shell needs it: `Kept` only where the
+    /// mark of the update as good was written (a flash that fails to write
+    /// leaves the OTA data on trial, and the update may still go back:
+    /// `Unmarked`, #164).
+    pub fn end_of_trial(&mut self, now: u64) -> TrialEnd {
+        match self.check_trial(now) {
+            Ok(false) => TrialEnd::Running,
+            Ok(true) => TrialEnd::Kept,
+            Err(_) => TrialEnd::Unmarked,
+        }
     }
 
     /// The running firmware goes to sleep or restarts at `now`, ending

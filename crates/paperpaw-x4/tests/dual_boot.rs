@@ -20,7 +20,7 @@ use paperpaw_sdk::firmware::{CHIP_ESP32_C3, Firmware, InstallFailure};
 use paperpaw_x4::dual_boot::{MARKER, REFUSED, Source, WINDOW, scan_marker};
 use paperpaw_x4::ota::{Flash, FlashError, OtaData, SLOTS, Start, State};
 use paperpaw_x4::partitions::{Slots, TABLE_AT, TABLE_LEN};
-use paperpaw_x4::updates::{TRIAL_MS, Updates};
+use paperpaw_x4::updates::{TRIAL_MS, TrialEnd, Updates};
 
 /// The whole flash, in the chip's addresses, as the firmware has it.
 struct Chip(Vec<u8>);
@@ -343,5 +343,69 @@ fn the_note_the_firmware_writes_is_the_one_the_update_plugin_reads() {
             card.write(NOTE, b"").unwrap();
             assert!(!paperpaw_plugin_update::dual_boot_declared(&card));
         }
+    }
+}
+
+/// A flash whose writes can be made to fail.
+struct Failing(Chip, std::rc::Rc<std::cell::Cell<bool>>);
+
+impl Flash for Failing {
+    fn read(&mut self, at: u32, buf: &mut [u8]) -> Result<(), FlashError> {
+        self.0.read(at, buf)
+    }
+
+    fn program(&mut self, at: u32, data: &[u8]) -> Result<(), FlashError> {
+        if self.1.get() {
+            return Err(FlashError);
+        }
+        self.0.program(at, data)
+    }
+
+    fn erase(&mut self, from: u32, to: u32) -> Result<(), FlashError> {
+        if self.1.get() {
+            return Err(FlashError);
+        }
+        self.0.erase(from, to)
+    }
+}
+
+#[test]
+fn a_trial_is_kept_only_where_its_mark_was_written() {
+    // What holds back code plugins until the update is kept (#164) must not
+    // end where the OTA data still says on trial: the update may go back.
+    for fail in [false, true] {
+        let (chip, slots) = flash(layouts()[0].1);
+        let mut chip = chip;
+        disagreeing(&mut chip, &slots, 0, State::New);
+        as_tool(&mut chip, &slots);
+        let broken = std::rc::Rc::new(std::cell::Cell::new(false));
+        let (mut updates, _) =
+            Updates::open(Failing(chip, broken.clone()), &slots, 0, this(), "x4").unwrap();
+        assert_eq!(updates.settle(None), Some(Start::Trial { ran: 0 }));
+        assert!(updates.on_trial());
+        assert_eq!(updates.end_of_trial(TRIAL_MS / 2), TrialEnd::Running);
+        broken.set(fail);
+        let end = updates.end_of_trial(TRIAL_MS + 1);
+        assert_eq!(
+            end,
+            if fail {
+                TrialEnd::Unmarked
+            } else {
+                TrialEnd::Kept
+            }
+        );
+        // What the flash says now: kept, or still to be proven.
+        broken.set(false);
+        let mut chip = updates.into_flash().0;
+        let data = OtaData::read(&mut Part(&mut chip, slots.data)).unwrap();
+        let state = data.state_of(0).map(|(state, _)| state);
+        assert_eq!(
+            state,
+            Some(if fail {
+                State::PendingVerify
+            } else {
+                State::Valid
+            })
+        );
     }
 }

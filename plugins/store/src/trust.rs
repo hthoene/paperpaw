@@ -43,14 +43,7 @@ pub(crate) enum Refusal {
     /// Signed by another key than the one this device knows for the
     /// plugin, from its first install.
     KeyChanged,
-    /// An update of PaperPaw is on trial: it may still go back, and the
-    /// firmware before must find its plugins as it left them (#164).
-    OnTrial,
 }
-
-/// The file the kernel keeps while an update is on trial (`paperpaw-core`'s
-/// `code_plugin::TRIAL_MARK`, `docs/data-files.md`).
-const TRIAL_MARK: &str = ".paperpaw/update-on-trial.txt";
 
 impl Refusal {
     /// What the reader is told, a translation key taking `{name}`.
@@ -65,7 +58,6 @@ impl Refusal {
             Refusal::Taken => "store.refused.taken",
             Refusal::NoRoom => "store.refused.no-room",
             Refusal::KeyChanged => "store.refused.key-changed",
-            Refusal::OnTrial => "store.refused.on-trial",
         }
     }
 }
@@ -231,11 +223,6 @@ pub(crate) fn verdict(env: &Env<'_>, plugin: &str, folder: &str) -> Verdict {
     let Some(code) = code else {
         return Verdict::Install { code: None };
     };
-    // Before anything is changed (taking a rotation changes what is known of
-    // the plugin): code waits until the update is kept.
-    if storage.exists(TRIAL_MARK) {
-        return Verdict::Refused(Refusal::OnTrial);
-    }
     let Some(native) = env.native().filter(|native| code.ends_with(&*native.file)) else {
         return Verdict::Refused(Refusal::Unsupported);
     };

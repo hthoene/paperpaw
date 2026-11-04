@@ -713,8 +713,7 @@ enum CodePlugins {
     /// Safe mode: none loaded.
     SafeMode(paperpaw_sdk::native::SafeMode),
     /// None this start: an update is on trial, which must show it starts
-    /// by itself. The kernel still knows what the firmware takes, so the
-    /// store asks for the builds that fit (#164).
+    /// by itself. What the firmware takes is told once it is kept (#164).
     OnTrial,
 }
 
@@ -893,7 +892,7 @@ fn kernel(
         CodePlugins::SafeMode(safe_mode) => builder
             .code_plugins(native(staged.not_installed), Box::new(NoCode))
             .safe_mode(safe_mode),
-        CodePlugins::OnTrial => builder.code_plugins_held(native(staged.not_installed)),
+        CodePlugins::OnTrial => builder.native_after_trial(native(staged.not_installed)),
     };
     let builder = staged
         .installs

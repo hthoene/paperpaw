@@ -115,31 +115,6 @@ pub(crate) struct CodePlugins {
     pub(crate) loader: Box<dyn CodeLoader>,
     /// This start goes without them.
     pub(crate) safe_mode: Option<SafeMode>,
-    /// This start goes without them while an update is on trial: nothing is
-    /// loaded or installed, nothing switched off, but the firmware's
-    /// [`Native`] is known (the store asks for builds that fit).
-    pub(crate) held: bool,
-}
-
-/// The file that says an update is on trial (it exists from the trial's
-/// start until it is kept, [`Kernel::trial_kept`]): the store reads it and
-/// installs no code plugin meanwhile, since it would change what the
-/// firmware before sees if the update goes back (#164). Another file, not
-/// an SDK item: `plugins/store` names it too (`trial::MARK`), and
-/// `docs/data-files.md`.
-pub(crate) const TRIAL_MARK: &str = ".paperpaw/update-on-trial.txt";
-
-/// The loader of a start that loads no code ([`CodePlugins::held`]).
-pub(crate) struct Held;
-
-impl CodeLoader for Held {
-    fn load(
-        &mut self,
-        _: &dyn Storage,
-        _: &CodeFile<'_>,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
-        Err(PluginProblem::Unsupported)
-    }
 }
 
 /// A code plugin: its code, then its folder's data.
@@ -178,21 +153,19 @@ impl Kernel {
             mut native,
             mut loader,
             safe_mode,
-            held,
         }) = code
         else {
-            self.list_unsupported(found, disabled);
+            for plugin in found {
+                self.list_code_plugin(
+                    &plugin,
+                    disabled,
+                    PluginState::Failed,
+                    PluginProblem::Unsupported,
+                );
+            }
             return;
         };
         let storage = self.shared.storage.clone();
-        // A mark of an earlier trial that ended without clearing it (power
-        // lost, the firmware before): this start is not on trial.
-        if !held && storage.exists(TRIAL_MARK) {
-            let _ = storage.remove(TRIAL_MARK);
-        }
-        if held {
-            return self.hold(found, disabled, native);
-        }
         if let Some(mut safe_mode) = safe_mode {
             self.hold_back(found, disabled, &mut safe_mode);
             native.safe_mode = Some(safe_mode);
@@ -279,35 +252,6 @@ impl Kernel {
         drop(installed);
         loader.finish(storage.as_ref());
         self.shared.native = Some(native);
-    }
-
-    /// An update is on trial ([`CodePlugins::held`]): the code plugins found
-    /// are listed as not running, the trial marked ([`TRIAL_MARK`]), and the
-    /// firmware's `native` made known to plugins.
-    fn hold(&mut self, found: Vec<DataPlugin>, disabled: &[String], native: Native) {
-        let storage = self.shared.storage.clone();
-        let _ = storage.create_dir(".paperpaw");
-        let marked = storage.write(TRIAL_MARK, b"").is_ok() && storage.exists(TRIAL_MARK);
-        self.list_unsupported(found, disabled);
-        self.shared.code_held = true;
-        // Without the mark (a full card, none) the store would not know the
-        // update is on trial: the firmware then does not tell what it
-        // takes, as before, and no code plugin is offered (fail closed).
-        if marked {
-            self.shared.native = Some(native);
-        }
-    }
-
-    /// Lists the code plugins found as not running: this start loads none.
-    fn list_unsupported(&mut self, found: Vec<DataPlugin>, disabled: &[String]) {
-        for plugin in found {
-            self.list_code_plugin(
-                &plugin,
-                disabled,
-                PluginState::Failed,
-                PluginProblem::Unsupported,
-            );
-        }
     }
 
     /// A code plugin installed while PaperPaw runs (`Command::LoadPlugin`):
@@ -810,119 +754,31 @@ mod tests {
     }
 
     #[test]
-    fn a_start_on_trial_knows_what_the_firmware_takes_but_loads_nothing() {
-        // An update's trial start loads no code, yet the kernel is told what
-        // the firmware takes, so the store asks for builds that fit (#164);
-        // nothing is switched off, what was fetched for the update waits.
-        let native = Native::new("code.ppn");
-        let storage = fetched(native.fingerprint.0, true);
+    fn what_the_firmware_takes_is_told_once_the_update_on_trial_is_kept() {
+        // An update on trial loads no code and offers none (as without
+        // `code_plugins`); once its mark is written for good the kernel is
+        // told, and plugins (the store) see what the firmware takes (#164).
         let mut kernel = Kernel::builder(DEVICE)
-            .storage(storage)
-            .code_plugins_held(Native::new("code.ppn"))
+            .storage(storage())
+            .native_after_trial(Native::new("code.ppn"))
             .build()
             .unwrap();
-        assert_eq!(
-            kernel.shared.native.as_ref().map(|n| n.fingerprint),
-            Some(native.fingerprint),
-            "what plugins see as Env::native"
-        );
-        assert_eq!(kernel.shared.native.as_ref().unwrap().safe_mode, None);
+        assert!(kernel.shared.native.is_none());
         let hello = info(&kernel, "hello");
         assert_eq!(
             (hello.state, hello.enabled, hello.problem),
             (PluginState::Failed, true, Some(PluginProblem::Unsupported))
         );
-        assert!(kernel.plugins().get("stats").is_none(), "not installed");
-        assert!(kernel.storage().exists("plugins/.stats.next/code.ppn"));
-        // The start once it is kept takes them.
-        assert!(super::code_to_load(kernel.storage(), &native));
-        // Code installed meanwhile waits for that start too: the store
-        // offers *Restart now*.
-        let _ = kernel.storage().create_dir("plugins/late");
-        for (path, data) in [
-            ("plugins/late/plugin.ini", "[plugin]\nname = Late\n"),
-            ("plugins/late/code.ppn", "PPNP"),
-        ] {
-            kernel.storage().write(path, data.as_bytes()).unwrap();
-        }
-        kernel.load_plugin("plugins/late");
-        assert!(info(&kernel, "late").restart_needed());
-    }
-
-    #[test]
-    fn a_code_plugin_is_not_installed_on_trial_and_the_mark_follows_the_trial() {
-        // The update may go back: the code of the plugins before, and what
-        // it is named as installed, stay as they are meanwhile (the store
-        // does not even ask, see its `nothing_of_a_code_plugin_changes...`).
-        let native = Native::new("code.ppn");
-        let put = |kernel: &Kernel| {
-            let _ = kernel.storage().create_dir("plugins/.zeta.part");
-            kernel
-                .storage()
-                .write(
-                    "plugins/.zeta.part/plugin.ini",
-                    b"[plugin]\nid = zeta\nname = Zeta\nversion = 9.0.0\n",
-                )
-                .unwrap();
-            kernel
-                .storage()
-                .write(
-                    "plugins/.zeta.part/code.ppn",
-                    &code_file(native.fingerprint.0, [9; 32]),
-                )
-                .unwrap();
-        };
-        let read = |kernel: &Kernel, path: &str| {
-            let mut buf = alloc::vec![0u8; 512];
-            let len = kernel.storage().read_at(path, 0, &mut buf).unwrap();
-            buf.truncate(len);
-            buf
-        };
-        let mut kernel = Kernel::builder(DEVICE)
-            .storage(storage())
-            .code_plugins_held(Native::new("code.ppn"))
-            .build()
-            .unwrap();
-        assert!(kernel.storage().exists(super::TRIAL_MARK), "the mark");
-        let ini = read(&kernel, "plugins/zeta/plugin.ini");
-        let code = read(&kernel, "plugins/zeta/code.ppn");
-        let digest = paperpaw_sdk::native::installed_code(kernel.storage(), "zeta");
-        assert_eq!(digest, Some(installed("zeta")));
-        put(&kernel);
-        kernel.install_plugin(&Id::new_static("zeta"), "plugins/.zeta.part");
-        assert_eq!(read(&kernel, "plugins/zeta/plugin.ini"), ini);
-        assert_eq!(read(&kernel, "plugins/zeta/code.ppn"), code);
-        let storage = kernel.storage();
-        assert_eq!(
-            paperpaw_sdk::native::installed_code(storage, "zeta"),
-            digest
-        );
-        assert!(!storage.exists("plugins/.zeta.part"), "refused, removed");
-        // Kept in the same run: the mark goes, installs go on as before.
-        kernel.trial_kept();
-        assert!(!kernel.storage().exists(super::TRIAL_MARK));
-        put(&kernel);
-        kernel.install_plugin(&Id::new_static("zeta"), "plugins/.zeta.part");
-        assert_ne!(read(&kernel, "plugins/zeta/plugin.ini"), ini);
-    }
-
-    #[test]
-    fn a_start_on_trial_without_the_mark_tells_nothing_of_what_the_firmware_takes() {
-        // No storage to write the mark to: the store must not be told it may
-        // install code (fail closed).
-        let kernel = Kernel::builder(DEVICE)
-            .code_plugins_held(Native::new("code.ppn"))
-            .build()
-            .unwrap();
+        // A mark that could not be written: the shell does not call it.
         assert!(kernel.shared.native.is_none());
-    }
-
-    #[test]
-    fn a_start_not_on_trial_clears_the_mark_an_earlier_trial_left() {
-        let loader = loader();
-        let storage = storage().with(super::TRIAL_MARK, "");
-        let kernel = kernel_on(storage, &loader, "");
-        assert!(!kernel.storage().exists(super::TRIAL_MARK));
+        kernel.trial_kept();
+        assert_eq!(
+            kernel.shared.native.as_ref().map(|n| n.fingerprint),
+            Some(Native::new("code.ppn").fingerprint)
+        );
+        // Again: nothing changes.
+        kernel.trial_kept();
+        assert!(kernel.shared.native.is_some());
     }
 
     #[test]

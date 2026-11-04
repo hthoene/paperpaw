@@ -28,6 +28,9 @@ struct BuilderParts {
     caps: Capabilities,
     firmware: Option<Firmware>,
     code: Option<crate::code_plugin::CodePlugins>,
+    /// What the firmware takes, told once an update on trial is kept
+    /// ([`KernelBuilder::native_after_trial`]).
+    after_trial: Option<Native>,
     safe_mode: Option<paperpaw_sdk::native::SafeMode>,
     /// Plugins the shell put into folders, to install before plugins load.
     staged: Vec<(Id, String)>,
@@ -299,27 +302,20 @@ impl KernelBuilder {
             native,
             loader,
             safe_mode: None,
-            held: false,
         });
         self
     }
 
-    /// This start loads no code plugins, though the firmware takes them: an
-    /// update is on trial, which must show it starts by itself. The kernel
-    /// still knows what the firmware takes (`native`, which plugins see as
-    /// [`Env::native`](paperpaw_sdk::Env), so the store asks for builds that
-    /// fit), lists the code plugins installed as not running, installs none
-    /// fetched for the update (they wait for the start once it is kept)
-    /// and switches none off (unlike safe mode). No code plugin is installed
-    /// either until [`Kernel::trial_kept`], so a failed trial leaves the
-    /// plugins before as they were.
-    pub fn code_plugins_held(mut self, native: Native) -> Self {
-        self.0.code = Some(crate::code_plugin::CodePlugins {
-            native,
-            loader: Box::new(crate::code_plugin::Held),
-            safe_mode: None,
-            held: true,
-        });
+    /// This start loads no code plugins, because an update is on trial (it
+    /// must show it starts by itself, and the plugins before must stay as
+    /// the firmware before finds them): what the firmware takes is told to
+    /// plugins (which plugins see as [`Env::native`](paperpaw_sdk::Env), so
+    /// that the store asks for the builds that fit) only once
+    /// [`Kernel::trial_kept`] says the update is kept (#164). Until then
+    /// code plugins are not offered nor installed, as without
+    /// [`KernelBuilder::code_plugins`].
+    pub fn native_after_trial(mut self, native: Native) -> Self {
+        self.0.after_trial = Some(native);
         self
     }
 
@@ -517,7 +513,6 @@ impl BuilderParts {
         // without code plugins.
         if let Some(code) = &self.code
             && self.safe_mode.is_none()
-            && !code.held
         {
             let storage = kernel.shared.storage.clone();
             self.staged
@@ -646,7 +641,7 @@ impl BuilderParts {
                     .then(|| paperpaw_sdk::bluetooth::Bluetooth::new(links)),
                 firmware: self.firmware.take(),
                 native: None,
-                code_held: false,
+                after_trial: self.after_trial.take(),
                 power: paperpaw_sdk::power::Power::default(),
                 work_states: paperpaw_sdk::work::WorkStates::default(),
                 reader: false,
@@ -1200,6 +1195,7 @@ impl Kernel {
             caps: Capabilities::default(),
             firmware: None,
             code: None,
+            after_trial: None,
             safe_mode: None,
             staged: Vec::new(),
             button_row: &[],
