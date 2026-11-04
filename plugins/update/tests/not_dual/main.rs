@@ -16,7 +16,8 @@ use paperpaw_plugin_update::{OPEN, Update};
 use paperpaw_sdk::builtin::actions;
 use paperpaw_sdk::firmware::Firmware;
 use paperpaw_sdk::{
-    DeviceInfo, DisplayInfo, Id, InputCaps, Instant, MemoryClass, MemoryStorage, PixelFormat,
+    DeviceInfo, DirEntry, DisplayInfo, Id, InputCaps, Instant, MemoryClass, MemoryStorage,
+    PixelFormat, Storage, StorageError,
 };
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
@@ -36,7 +37,7 @@ struct Device {
 }
 
 impl Device {
-    fn new(storage: MemoryStorage, firmware: bool) -> Self {
+    fn new(storage: impl Storage + 'static, firmware: bool) -> Self {
         let mut builder = Kernel::builder(DEVICE)
             .storage(storage)
             .network(true)
@@ -194,6 +195,98 @@ fn a_file_that_cannot_be_read_whole_is_not_written_over() {
     assert_eq!(&data[..n], &[0xFF, 0xFE, b'[', 0x80]);
     assert!(device.file(NOTE).is_some());
     assert!(!device.restarted);
+}
+
+/// A storage whose reads of the ini end early: the size is the whole file,
+/// the reads give half of it, then nothing (a card that fails half way).
+struct ShortReads(MemoryStorage);
+
+impl Storage for ShortReads {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        if path != INI {
+            return self.0.read_at(path, offset, buf);
+        }
+        let half = self.0.size(path)? / 2;
+        if offset >= half {
+            return Ok(0);
+        }
+        let room = usize::try_from(half - offset).unwrap_or(usize::MAX);
+        let n = buf.len().min(room);
+        self.0.read_at(path, offset, &mut buf[..n])
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        self.0.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.0.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.0.append(path, data)
+    }
+    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.0.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        self.0.remove(path)
+    }
+}
+
+#[test]
+fn a_read_that_ends_early_does_not_write_the_part_it_got_over_the_file() {
+    // The half read is valid text; written back, the rest would be lost.
+    let storage = ShortReads(dual(BEFORE));
+    let mut device = Device::new(storage, true);
+    device.run(OPEN);
+    device.run(actions::CONFIRM);
+    yes(&mut device);
+    assert!(!device.restarted);
+    let storage = device.kernel.storage();
+    let mut data = vec![0u8; BEFORE.len()];
+    let n = storage.read_at(NOTE, 0, &mut data).unwrap();
+    assert!(n > 0, "the note is kept");
+    let inner = storage.size(INI).unwrap();
+    assert_eq!(inner, BEFORE.len() as u64, "the file is as long as it was");
+}
+
+/// A comment-only ini of `len` bytes, lines of 80 bytes.
+fn comments(len: usize) -> String {
+    let mut text = String::new();
+    while text.len() + 80 < len {
+        text.push_str(&format!("# {}\n", "x".repeat(77)));
+    }
+    let rest = len - text.len();
+    text.push_str(&format!("#{}\n", "y".repeat(rest - 2)));
+    assert_eq!(text.len(), len);
+    text
+}
+
+#[test]
+fn a_file_the_choice_would_grow_past_what_is_read_is_not_written() {
+    const MAX: usize = 64 * 1024;
+    let added = "\n[firmware]\ndual-boot = off\n".len();
+    // One byte too many: not written, said so, the note kept, no restart.
+    let big = comments(MAX - added + 1);
+    let mut device = Device::new(dual(&big), true);
+    device.run(OPEN);
+    device.run(actions::CONFIRM);
+    yes(&mut device);
+    assert!(!device.restarted);
+    assert_eq!(device.kernel.storage().size(INI).unwrap(), big.len() as u64);
+    assert!(device.file(NOTE).is_some());
+    // Exactly the size the readers take: written.
+    let fits = comments(MAX - added);
+    let mut device = Device::new(dual(&fits), true);
+    device.run(OPEN);
+    device.run(actions::CONFIRM);
+    yes(&mut device);
+    assert!(device.restarted);
+    assert_eq!(device.kernel.storage().size(INI).unwrap(), MAX as u64);
+    assert!(
+        device
+            .file(INI)
+            .unwrap()
+            .ends_with("[firmware]\ndual-boot = off\n")
+    );
 }
 
 #[test]

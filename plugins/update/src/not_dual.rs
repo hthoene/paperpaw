@@ -15,7 +15,7 @@ use paperpaw_sdk::ask;
 use paperpaw_sdk::config;
 use paperpaw_sdk::event::Event;
 use paperpaw_sdk::replies::Confirmed;
-use paperpaw_sdk::{Command, Commands, Env, Storage};
+use paperpaw_sdk::{Command, Commands, Env, Storage, StorageError};
 
 /// The file, its section and its key (`paperpaw_x4::dual_boot` reads them).
 const FILE: &str = "paperpaw.ini";
@@ -59,14 +59,42 @@ pub(crate) fn choose(env: &Env<'_>, value: &str, out: &mut Commands) {
 }
 
 /// `dual-boot = value` in `paperpaw.ini`, the rest of the file as it was;
-/// not written where the file cannot be read whole (another encoding).
+/// not written where the file cannot be read whole (another encoding, a
+/// read that ends early) or where the change would make it larger than
+/// the firmware and the kernel read ([`MAX`]).
 fn write(storage: &dyn Storage, value: &str) -> bool {
-    let Ok(source) = paperpaw_sdk::files::load_text_for_update(storage, FILE, MAX) else {
+    let Ok(source) = read_whole(storage) else {
         return false;
     };
     let source = source.unwrap_or_default();
     let updated = config::set(&source, SECTION, KEY, value);
-    updated == source || storage.write(FILE, updated.as_bytes()).is_ok()
+    if updated == source {
+        return true;
+    }
+    // A file the readers cut would lose its tail, and the choice with it.
+    updated.len() <= MAX && storage.write(FILE, updated.as_bytes()).is_ok()
+}
+
+/// The file as text: `None` where there is none. An error where it cannot
+/// be read, is not UTF-8, or where the read ends before the size the
+/// storage gave (the part not read would be lost by a write).
+fn read_whole(storage: &dyn Storage) -> Result<Option<String>, StorageError> {
+    let size = match storage.size(FILE) {
+        Ok(size) => size,
+        Err(StorageError::NotFound) => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let mut data = paperpaw_sdk::read_file(storage, FILE, MAX)?;
+    if data.len() as u64 != size {
+        return Err(StorageError::Io);
+    }
+    // The mark is left out; the file is written without it.
+    if data.starts_with(b"\xEF\xBB\xBF") {
+        data.drain(..3);
+    }
+    String::from_utf8(data)
+        .map(Some)
+        .map_err(|_| StorageError::InvalidData)
 }
 
 /// Whether the file says `dual-boot = off` (as the firmware reads the
