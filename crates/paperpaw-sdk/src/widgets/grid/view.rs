@@ -1328,7 +1328,9 @@ fn fill_plate(canvas: &mut Canvas<'_>, env: &Env<'_>, shown: &Shown, plate: Plat
     // A widget's in the shape of its own plate, so that nothing shows
     // past its corners or beside its shadow; a tool's square.
     let (area, radius) = match &shown.item.what {
-        What::Widget(id) => crate::widgets::shape::plate_shape(env, id, shown.area),
+        What::Widget(id) => env.settings().with_placement(Some(id), || {
+            crate::widgets::shape::plate_shape(env, crate::widgets::base(id), shown.area)
+        }),
         What::Tool(_) => (shown.area, 0),
     };
     match plate {

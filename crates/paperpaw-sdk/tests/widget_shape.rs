@@ -447,3 +447,57 @@ fn grid_plates_leave_every_pixel_outside_the_widget_shape_untouched() {
         }
     }
 }
+
+#[test]
+fn duplicate_grid_plate_uses_base_choices_and_placement_overrides() {
+    use paperpaw_sdk::event::Event;
+    use paperpaw_sdk::ui::choice::Picked;
+    use paperpaw_sdk::widgets::grid::{Cells, Geometry, GridView, Item, What};
+    let mut h = harness(true);
+    set(&mut h, WIDGET_CORNERS.static_str(), CORNERS[0]);
+    set(&mut h, "t.clock.corners", CORNERS[2]);
+    set(&mut h, "t.clock.frame", Frame::Card.value());
+    set(&mut h, "t.clock.paper", PAPER_INVERTED);
+    set(&mut h, "t.clock.drop-shadow", SHADOW_HARD);
+    for overridden in [false, true] {
+        if overridden {
+            set(&mut h, "t.clock@2.corners", CORNERS[3]);
+            set(&mut h, "t.clock@2.frame", Frame::None.value());
+            set(&mut h, "t.clock@2.drop-shadow", widgets::SHADOW_NONE);
+        }
+        let env = h.env();
+        let geometry = Geometry::of(AREA, 1, 1, 0);
+        let cells = Cells::new(0, 0, 1, 1);
+        let area = geometry.rect(cells);
+        let mut view = GridView::asking(&env, Event::<Picked>::new("t.chosen"));
+        view.layout(
+            &env,
+            geometry,
+            &[Item::placed(What::Widget("t.clock@2".into()), cells)],
+            &[],
+        );
+        let mut expected = frame(480, 800);
+        env.settings().with_placement(Some("t.clock@2"), || {
+            clock_frame(&mut expected.canvas(), &env, area);
+        });
+        for plate in [
+            widgets::Plate::Paper,
+            widgets::Plate::Colour(Color::gray(180)),
+        ] {
+            let mut actual = frame(480, 800);
+            view.draw_on(&mut actual.canvas(), &env, plate);
+            let expected = expected.canvas();
+            let actual = actual.canvas();
+            for y in 0..200 {
+                for x in 0..260 {
+                    let p = Point::new(x, y);
+                    assert_eq!(
+                        actual.pixel(p),
+                        expected.pixel(p),
+                        "placement override {overridden}, {plate:?} at {p:?}"
+                    );
+                }
+            }
+        }
+    }
+}
