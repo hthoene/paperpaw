@@ -1,10 +1,13 @@
 name: Throw-away keys
 description: >
   For a dry run of release.yml or store-plugin.yml (a workflow_dispatch, never
-  a tag): makes new signing keys for the job, so that the signing steps run
-  without the real ones, and puts them into the job's environment. Does
-  nothing for a real release (DRY_RUN is not "true"). The keys exist for this
-  job only and are worth nothing: nothing signed with them is published.
+  a tag): makes signing keys for the run, so that the signing steps run
+  without the real ones, and puts them into the job's environment. The same
+  keys in every job of one run (a key is a hash of the run's number and the
+  key's name): the plugin files of the three devices must have one signer.
+  Does nothing for a real release (DRY_RUN is not "true"). The keys are
+  worth nothing, the run's number being public: nothing signed with them is
+  published.
 runs:
   using: composite
   steps:
@@ -12,11 +15,8 @@ runs:
       shell: bash
       run: |
         [[ "$DRY_RUN" == true ]] || exit 0
-        cargo build -q --release -p paperpaw-sign
+        # A key is 32 bytes as 64 hex digits (paperpaw-sign key).
         for name in PAPERPAW_SIGNING_KEY PAPERPAW_PLUGIN_KEY; do
-          file="$RUNNER_TEMP/dry-$name.key"
-          target/release/paperpaw-sign key "$file" > /dev/null
-          echo "$name=$(cat "$file")" >> "$GITHUB_ENV"
-          rm -f "$file"
+          echo "$name=$(printf 'dry-run-%s-%s' "$GITHUB_RUN_ID" "$name" | sha256sum | cut -d' ' -f1)" >> "$GITHUB_ENV"
         done
-        echo "::notice::dry run: signing keys made for this job only; nothing is published"
+        echo "::notice::dry run: throw-away signing keys for this run; nothing is published"
