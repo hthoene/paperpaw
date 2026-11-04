@@ -262,10 +262,12 @@ pub(crate) fn baked(env: &Env<'_>, recipe: &Recipe) -> Option<ImageRef> {
 /// away): the card keeps nothing of it.
 pub(crate) fn forget_made(env: &Env<'_>) {
     let storage = env.storage();
-    if !storage.exists(&data(BAKED)) && !storage.exists(&data(NOTE)) {
+    // What is left of a bake a power cut stopped is forgotten too.
+    const NAMES: [&str; 4] = [NOTE, BAKED, TEMP, TURNED];
+    if !NAMES.iter().any(|name| storage.exists(&data(name))) {
         return;
     }
-    for name in [NOTE, BAKED, TEMP] {
+    for name in NAMES {
         let _ = paperpaw_sdk::files::delete(storage, &data(name));
     }
 }

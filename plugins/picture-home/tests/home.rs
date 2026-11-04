@@ -511,3 +511,25 @@ fn a_note_that_cannot_be_written_leaves_no_picture_and_no_loop() {
     assert!(shared.text(NOTE).is_none());
     assert!(app.shows("Start reading"), "{}", app.described());
 }
+
+#[test]
+fn what_a_stopped_bake_left_goes_when_the_picture_is_taken_away() {
+    let app = open(X4, "picture = wide.jpg");
+    for name in ["background.part", "background.turn"] {
+        app.storage
+            .write(&format!("{DIR}/{name}"), b"left over")
+            .unwrap();
+    }
+    app.storage.remove(BAKED).unwrap();
+    app.storage.remove(NOTE).unwrap();
+    // The picture is taken away: nothing is kept.
+    app.storage
+        .set_config(&format!("{ON}[picture-home]\npicture =\n"));
+    let mut app = app.restart();
+    app.home();
+    let names = app.storage.names(DIR);
+    assert!(
+        names.iter().all(|n| !n.starts_with("background.")),
+        "{names:?}"
+    );
+}
