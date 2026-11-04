@@ -1,0 +1,7 @@
+Die Bild-Startseite ersetzt die Startseite, solange sie an ist: dein eigenes Bild hinter den Widgets und die Seiten mit Widgets und Werkzeugen, die du anordnest. Schalte sie im Plugin-Manager aus, und die eingebaute Startseite ist wieder da, mit ihren eigenen Seiten.
+
+Lege Bilder (JPEG, PNG oder GIF) in einen Ordner auf der Karte (standardmäßig wallpapers) und wähle eines unter Einstellungen, Anpassen, Bild-Startseite. Anpassung sagt, wie es den Bildschirm füllt (füllen, ganzes Bild, strecken, Originalgröße, kacheln), Position, welcher Teil bleibt, Zoom, wie groß, und Bild aufhellen, wie blass: Ein blasseres Bild macht die Widgets besser lesbar. Das Bild wird einmal für jede Bildschirmgröße vorbereitet, das dauert einen Moment.
+
+Die Widgets liegen auf Platten über dem Bild. Ordne die Seite an wie auf der eingebauten Startseite: mit dem Stift unter der Seite oder mit Startseite bearbeiten im Menü.
+
+Die Statusleiste (Uhrzeit, WLAN, Akku oder was du wählst) kann an, aus oder automatisch sein, oben oder unten, in voller Breite oder als kleine Pille links, in der Mitte oder rechts, auf einer hellen, dunklen oder grauen Platte oder direkt auf dem Bild. Die Zeile, die die Tasten nennt (am X4), kann ebenfalls an, aus oder automatisch sein. Automatisch heißt: Ein Tastendruck zeigt sie für ein paar Sekunden; dieser Druck tut sonst nichts.

@@ -1,0 +1,7 @@
+Picture home screen replaces the home screen while it is on: your own picture behind the widgets, and the pages of widgets and tools you arrange. Switch it off in the plugin manager and the built-in home screen is back, with its own pages.
+
+Put pictures (JPEG, PNG or GIF) in a folder on the card (wallpapers by default), then choose one in Settings, Customise, Picture home screen. Fit says how it fills the screen (fill, whole picture, stretch, original size, tile), Position which part stays, Zoom how large, and Lighten picture how pale: a paler picture makes the widgets easier to read. The picture is prepared once for each screen size, which takes a moment.
+
+Widgets sit on plates over the picture. Arrange the page as on the built-in home screen: the pencil below the page, or Edit home screen in the menu.
+
+The status bar (time, Wi-Fi, battery, or what you choose) can be on, off or automatic, at the top or the bottom, full width or a small pill at the left, middle or right, on a light, dark or grey plate or on the picture itself. The row naming the buttons (on the X4) can be on, off or automatic too. Automatic means a button press shows them for a few seconds; that press does nothing else.

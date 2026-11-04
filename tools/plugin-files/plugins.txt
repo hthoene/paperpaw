@@ -33,6 +33,7 @@ menu-editor look
 news news
 notes-overview notes
 notes-vault notes
+picture-home look
 profiles reading
 reading-goal reading
 readwise notes
