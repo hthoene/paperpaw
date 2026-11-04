@@ -17,9 +17,10 @@ change the plugin SDK.
   signal that moved a little) draws nothing: each frame costs the X4 a screen refresh, and a key pressed meanwhile
   waits for it (#160, partial: the cause of the slow Up and Down is not settled).
 
-- **Spanish user interface.** All 3,861 messages of the kernel and the plugins in Spanish, as the data plugin
-  `language-es` from the store. Machine-translated and checked with `tools/language-pack.py check es`; corrections
-  from Spanish readers are welcome. Spanish dates, shorter labels and consistent *Elegir* are included (#170).
+- **Spanish user interface.** Kernel and plugin menus in Spanish, as the data plugin `language-es` from the store.
+  Machine-translated and checked with `tools/language-pack.py check es`; corrections from Spanish readers are welcome.
+  New or untranslated messages fall back to English. Spanish dates, shorter labels and consistent *Elegir* are
+  included (#170).
 - **Colours of widgets** (#206, SDK). Each widget has a paper (`<widget>.paper`: normal, inverted, light gray, dark
   gray, transparent; on colour panels also any tone or a code such as `#3b6fd4`) and a text colour (`<widget>.ink`,
   automatic: black or white, whichever reads on the paper), and the kernel's `core.widgets.paper` and
@@ -62,8 +63,9 @@ change the plugin SDK.
 
 - **Release page: plugin files out of the firmware release** (#89, #171). A firmware release now holds 73 files; every plugin
   file and every plugin or data folder's ZIP goes to one store release of the year (`plugins-2026`, a pre-release that is
-  added to and never replaced; only versions not published before; the next number at 800 assets). The release uploads
-  them before it creates the firmware release, so the catalogue never names a file that is not there. The workflow
+  added to and never replaced; only versions not published before; a numbered successor when the projected count exceeds
+  800 assets). The release uploads them before it creates the firmware release, so the catalogue never names a file
+  that is not there. The workflow
   *Store plugin update* now takes several plugins at once, and builds from `main` against the base release's fingerprint;
   both workflows have a `dry_run`. Releases already out are untouched.
 
