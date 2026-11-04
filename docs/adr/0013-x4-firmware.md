@@ -186,3 +186,5 @@ Classic has no other off. Its partition table (`partitions-classic.csv`)
 keeps the factory's NVS (0x9000 to 0xE000) whole, the OTA data after it
 at 0xE000. The side buttons stay the FreeInk SDK's (GPIO 0 up); key
 settings swap them if they turn the wrong way.
+
+Update (2026-11-04, #209): on the owner's X4 Pro the charging pin (GPIO 21, the board's pull-up kept) reads **low on battery and high on a computer's cable** with the cell charging (gauge 69 %, 4063 mV), so it is high while on power, like the Classic's; the first port had assumed low. Whether it says "charging" or only "power present" is not told apart by these readings (a full cell on a cable would). The X4's pin (GPIO 20) and the X3 (fuel gauge) are unchanged.

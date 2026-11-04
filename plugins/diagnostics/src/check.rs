@@ -1187,6 +1187,27 @@ fn battery_lines(env: &Env<'_>, lines: &mut Vec<(String, String)>) {
         lines.push((tr("diagnostics.check.voltage"), format!("{mv} mV")));
     }
     lines.push((tr("diagnostics.check.charging"), yes_no(env, b.charging)));
+    // What the inputs say by themselves, where the device has two (#209):
+    // the level of the charging pin, and whether USB frames come.
+    let status = env.status();
+    if let Some(high) = status.value("usb-pin-high") {
+        let level = if high != 0 { "usb-high" } else { "usb-low" };
+        lines.push((
+            tr("diagnostics.check.usb-pin"),
+            tr(&format!("diagnostics.check.{level}")),
+        ));
+    }
+    if let Some(moving) = status.value("usb-frames") {
+        let state = if moving != 0 {
+            "usb-moving"
+        } else {
+            "usb-still"
+        };
+        lines.push((
+            tr("diagnostics.check.usb-frames"),
+            tr(&format!("diagnostics.check.{state}")),
+        ));
+    }
 }
 
 fn memory_lines(env: &Env<'_>, lines: &mut Vec<(String, String)>) {
