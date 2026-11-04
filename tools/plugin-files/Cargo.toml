@@ -119,6 +119,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "picture-home"
+path = "src/bin/picture-home.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "notes-vault"
 path = "src/bin/notes-vault.rs"
 test = false
@@ -270,6 +276,7 @@ paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", default-fe
 paperpaw-plugin-end-of-book = { path = "../../plugins/end-of-book" }
 paperpaw-plugin-notes-overview = { path = "../../plugins/notes-overview" }
 paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault" }
+paperpaw-plugin-picture-home = { path = "../../plugins/picture-home" }
 paperpaw-plugin-format-mobi = { path = "../../plugins/format-mobi" }
 paperpaw-plugin-format-docx = { path = "../../plugins/format-docx" }
 paperpaw-plugin-format-images = { path = "../../plugins/format-images" }

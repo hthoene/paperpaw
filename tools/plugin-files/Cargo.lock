@@ -184,6 +184,7 @@ dependencies = [
  "paperpaw-plugin-news",
  "paperpaw-plugin-notes-overview",
  "paperpaw-plugin-notes-vault",
+ "paperpaw-plugin-picture-home",
  "paperpaw-plugin-profiles",
  "paperpaw-plugin-read-later-cloud",
  "paperpaw-plugin-reading-goal",
@@ -392,6 +393,13 @@ name = "paperpaw-plugin-notes-vault"
 version = "1.0.1"
 dependencies = [
  "paperpaw-plugin-format-epub",
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-picture-home"
+version = "1.0.0"
+dependencies = [
  "paperpaw-sdk",
 ]
 
