@@ -64,8 +64,12 @@ on:
         type: boolean
         default: true
 
+# Read only: the build jobs run the repository's code and its dependencies'
+# build scripts, so their token cannot write a release or a tag. Only the
+# `release` job writes (it runs the tag's code too, but after every file is
+# built; no job keeps the token in .git/config: persist-credentials false).
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -95,6 +99,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: The tag is the workspace's version
         run: |
           version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
@@ -161,6 +167,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -196,6 +204,8 @@ jobs:
           - { os: ubuntu-latest, target: linux-x64, rust: "" }
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       # The toolchain of rust-toolchain.toml: code plugins built for the
       # computer must be built with it (`--stdio` says it).
       - uses: dtolnay/rust-toolchain@stable
@@ -273,6 +283,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - name: The handbook of this release
         run: |
@@ -296,6 +308,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/xteink-tools
         with:
           device: x4-pro
@@ -319,6 +333,8 @@ jobs:
       DEVICE: ${{ matrix.device }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: The tag is the workspace's version
         run: |
           version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
@@ -468,6 +484,8 @@ jobs:
     name: Release
     needs: [guard, android, xtensa-std, firmware, web, emulator, handbook]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     # One run at a time adds to the store release (store-plugin.yml has the
     # same group): two would choose and plan from the same list. A run waits
     # for the one before it (GitHub keeps one waiting run for a group; start
@@ -478,6 +496,8 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v8
         with:
           path: dist
