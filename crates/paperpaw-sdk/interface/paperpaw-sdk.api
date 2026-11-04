@@ -1180,6 +1180,8 @@ pub const paperpaw_sdk::builtin::settings::VOICE: paperpaw_sdk::setting::Setting
 pub const paperpaw_sdk::builtin::settings::VOICE_SYSTEM: &str
 pub const paperpaw_sdk::builtin::settings::WEEK_START: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
 pub const paperpaw_sdk::builtin::settings::WIDGET_FRAME: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
+pub const paperpaw_sdk::builtin::settings::WIDGET_INK: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
+pub const paperpaw_sdk::builtin::settings::WIDGET_PAPER: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
 pub const paperpaw_sdk::builtin::settings::WIDOWS: paperpaw_sdk::setting::Setting<i64>
 pub const paperpaw_sdk::builtin::settings::WORD_SPACING: paperpaw_sdk::setting::Setting<i64>
 pub fn paperpaw_sdk::builtin::settings::parse_rgb(&str) -> core::option::Option<[u8; 3]>
@@ -5196,6 +5198,7 @@ pub struct paperpaw_sdk::widgets::grid::GridView
 impl paperpaw_sdk::widgets::grid::GridView
 pub fn paperpaw_sdk::widgets::grid::GridView::asking(&paperpaw_sdk::Env<'_>, paperpaw_sdk::event::Event<paperpaw_sdk::ui::choice::Picked>) -> Self
 pub fn paperpaw_sdk::widgets::grid::GridView::draw(&self, &mut paperpaw_graphics::canvas::Canvas<'_>, &paperpaw_sdk::Env<'_>)
+pub fn paperpaw_sdk::widgets::grid::GridView::draw_on(&self, &mut paperpaw_graphics::canvas::Canvas<'_>, &paperpaw_sdk::Env<'_>, paperpaw_sdk::widgets::Plate)
 pub fn paperpaw_sdk::widgets::grid::GridView::editing(&self) -> bool
 pub fn paperpaw_sdk::widgets::grid::GridView::geometry(&self) -> &paperpaw_sdk::widgets::grid::Geometry
 pub fn paperpaw_sdk::widgets::grid::GridView::hint(&self, &paperpaw_sdk::Id, &paperpaw_sdk::Env<'_>) -> paperpaw_sdk::Hint
@@ -5251,6 +5254,10 @@ pub fn paperpaw_sdk::widgets::Align::of(&str) -> Self
 pub const fn paperpaw_sdk::widgets::Align::resolved(self, bool) -> paperpaw_sdk::widgets::Align
 pub const fn paperpaw_sdk::widgets::Align::value(self) -> &'static str
 pub fn paperpaw_sdk::widgets::Align::x(self, paperpaw_platform::geometry::Rect, f32) -> f32
+#[non_exhaustive] pub enum paperpaw_sdk::widgets::ColourSpec
+pub paperpaw_sdk::widgets::ColourSpec::Auto
+pub paperpaw_sdk::widgets::ColourSpec::Is(paperpaw_platform::pixel::Color)
+pub paperpaw_sdk::widgets::ColourSpec::None
 #[non_exhaustive] pub enum paperpaw_sdk::widgets::Frame
 pub paperpaw_sdk::widgets::Frame::Card
 pub paperpaw_sdk::widgets::Frame::Dark
@@ -5272,6 +5279,10 @@ pub const fn paperpaw_sdk::widgets::Padding::value(self) -> &'static str
 #[non_exhaustive] pub enum paperpaw_sdk::widgets::PlaceKind
 pub paperpaw_sdk::widgets::PlaceKind::Grid
 pub paperpaw_sdk::widgets::PlaceKind::Stack
+#[non_exhaustive] pub enum paperpaw_sdk::widgets::Plate
+pub paperpaw_sdk::widgets::Plate::Colour(paperpaw_platform::pixel::Color)
+pub paperpaw_sdk::widgets::Plate::None
+pub paperpaw_sdk::widgets::Plate::Paper
 #[non_exhaustive] pub enum paperpaw_sdk::widgets::Refresh
 pub paperpaw_sdk::widgets::Refresh::Live
 pub paperpaw_sdk::widgets::Refresh::Nothing
@@ -5425,8 +5436,16 @@ pub const paperpaw_sdk::widgets::ALIGNMENTS: &[&str]
 pub const paperpaw_sdk::widgets::ALL_FRAMES: &[&str]
 pub const paperpaw_sdk::widgets::FILL: &str
 pub const paperpaw_sdk::widgets::FRAMES: &[&str]
+pub const paperpaw_sdk::widgets::INKS: &[&str]
+pub const paperpaw_sdk::widgets::INK_AUTO: &str
 pub const paperpaw_sdk::widgets::OWN_FRAME: &str
 pub const paperpaw_sdk::widgets::PADDINGS: &[&str]
+pub const paperpaw_sdk::widgets::PAPERS: &[&str]
+pub const paperpaw_sdk::widgets::PAPER_DARK_GRAY: &str
+pub const paperpaw_sdk::widgets::PAPER_INVERTED: &str
+pub const paperpaw_sdk::widgets::PAPER_LIGHT_GRAY: &str
+pub const paperpaw_sdk::widgets::PAPER_NONE: &str
+pub const paperpaw_sdk::widgets::PAPER_NORMAL: &str
 pub const paperpaw_sdk::widgets::SIZES: &[&str]
 pub const paperpaw_sdk::widgets::SPACE: &str
 pub const paperpaw_sdk::widgets::SPACE_SIZE: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text>
@@ -5446,10 +5465,13 @@ pub fn paperpaw_sdk::widgets::Widget::update(&mut self, &paperpaw_sdk::Env<'_>) 
 pub fn paperpaw_sdk::widgets::align(&paperpaw_sdk::Env<'_>, &str) -> paperpaw_sdk::widgets::Align
 pub fn paperpaw_sdk::widgets::align_setting(&paperpaw_sdk::Id, paperpaw_sdk::widgets::Align) -> paperpaw_sdk::SettingSpec
 pub const fn paperpaw_sdk::widgets::align_spec(&'static str, paperpaw_sdk::Id, paperpaw_sdk::widgets::Align) -> paperpaw_sdk::SettingSpec
+pub const fn paperpaw_sdk::widgets::all_ink_spec(paperpaw_sdk::Id) -> paperpaw_sdk::SettingSpec
+pub const fn paperpaw_sdk::widgets::all_paper_spec(paperpaw_sdk::Id) -> paperpaw_sdk::SettingSpec
 pub fn paperpaw_sdk::widgets::base(&str) -> &str
 pub fn paperpaw_sdk::widgets::caption_height(&paperpaw_sdk::Env<'_>) -> u16
 pub fn paperpaw_sdk::widgets::changed(&paperpaw_sdk::Id) -> paperpaw_sdk::Command
 pub fn paperpaw_sdk::widgets::choice_setting(&paperpaw_sdk::Id, &str, impl core::convert::Into<alloc::borrow::Cow<'static, str>>, &'static [&'static str], &'static str) -> paperpaw_sdk::SettingSpec
+pub fn paperpaw_sdk::widgets::colour_spec(&str) -> paperpaw_sdk::widgets::ColourSpec
 pub fn paperpaw_sdk::widgets::draw_caption(&mut paperpaw_graphics::canvas::Canvas<'_>, &paperpaw_sdk::Env<'_>, &str, &paperpaw_sdk::widgets::WidgetLook, &str) -> paperpaw_platform::geometry::Rect
 pub fn paperpaw_sdk::widgets::draw_frame(&mut paperpaw_graphics::canvas::Canvas<'_>, &paperpaw_sdk::Env<'_>, &str, paperpaw_platform::geometry::Rect) -> paperpaw_sdk::widgets::WidgetLook
 pub fn paperpaw_sdk::widgets::draw_line(&mut paperpaw_graphics::canvas::Canvas<'_>, &paperpaw_sdk::Env<'_>, paperpaw_platform::geometry::Rect, paperpaw_sdk::widgets::Align, f32, f32, &str, paperpaw_platform::pixel::Color) -> f32
@@ -5464,13 +5486,19 @@ pub const fn paperpaw_sdk::widgets::frame_spec(&'static str, paperpaw_sdk::Id, p
 pub fn paperpaw_sdk::widgets::free_placement(&paperpaw_sdk::Env<'_>, &str, impl core::ops::function::Fn(&str) -> bool) -> alloc::string::String
 pub fn paperpaw_sdk::widgets::has_settings(&paperpaw_sdk::Env<'_>, &str) -> bool
 pub fn paperpaw_sdk::widgets::heading_line_height(&paperpaw_sdk::Env<'_>, f32) -> u16
+pub fn paperpaw_sdk::widgets::ink(&paperpaw_sdk::Env<'_>, &str) -> paperpaw_sdk::widgets::ColourSpec
 pub fn paperpaw_sdk::widgets::ink_baseline(&paperpaw_sdk::FontHandle<'_>, f32, &str, paperpaw_platform::geometry::Rect) -> i32
+pub fn paperpaw_sdk::widgets::ink_setting(&paperpaw_sdk::Id) -> paperpaw_sdk::SettingSpec
+pub const fn paperpaw_sdk::widgets::ink_spec(&'static str, paperpaw_sdk::Id) -> paperpaw_sdk::SettingSpec
 pub fn paperpaw_sdk::widgets::largest_size(f32, f32, impl core::ops::function::FnMut(f32) -> bool) -> core::option::Option<f32>
 pub fn paperpaw_sdk::widgets::line_height(&paperpaw_sdk::Env<'_>, f32) -> u16
 pub fn paperpaw_sdk::widgets::next_minute(&paperpaw_sdk::Env<'_>) -> paperpaw_platform::input::Instant
 pub fn paperpaw_sdk::widgets::padding(&paperpaw_sdk::Env<'_>, &str) -> paperpaw_sdk::widgets::Padding
 pub fn paperpaw_sdk::widgets::padding_setting(&paperpaw_sdk::Id, paperpaw_sdk::widgets::Padding) -> paperpaw_sdk::SettingSpec
 pub const fn paperpaw_sdk::widgets::padding_spec(&'static str, paperpaw_sdk::Id, paperpaw_sdk::widgets::Padding) -> paperpaw_sdk::SettingSpec
+pub fn paperpaw_sdk::widgets::paper(&paperpaw_sdk::Env<'_>, &str) -> paperpaw_sdk::widgets::ColourSpec
+pub fn paperpaw_sdk::widgets::paper_setting(&paperpaw_sdk::Id) -> paperpaw_sdk::SettingSpec
+pub const fn paperpaw_sdk::widgets::paper_spec(&'static str, paperpaw_sdk::Id) -> paperpaw_sdk::SettingSpec
 pub fn paperpaw_sdk::widgets::part_setting(&paperpaw_sdk::Id, &str, impl core::convert::Into<alloc::borrow::Cow<'static, str>>, bool) -> paperpaw_sdk::SettingSpec
 pub const fn paperpaw_sdk::widgets::part_spec(&'static str, paperpaw_sdk::Id, &'static str, bool) -> paperpaw_sdk::SettingSpec
 pub fn paperpaw_sdk::widgets::refresh(&paperpaw_sdk::Id, &paperpaw_sdk::Params, &str, &[alloc::string::String]) -> paperpaw_sdk::widgets::Refresh

@@ -210,7 +210,8 @@ pub struct WidgetLook {
     pub ink: Color,
     /// Text that matters less (captions, notes).
     pub faint: Color,
-    /// What lies behind it: white, or black on a dark card.
+    /// What lies behind it: white, black on a dark card, or as the
+    /// widget's paper setting says ([`paper`](super::paper)).
     pub paper: Color,
     pub frame: Frame,
 }
@@ -419,18 +420,7 @@ pub fn widget_look(env: &Env<'_>, widget: &str, area: Rect) -> WidgetLook {
         area.width.saturating_sub(2 * pad_x),
         area.height.saturating_sub(2 * pad_y),
     );
-    let (ink, faint, paper) = match frame {
-        Frame::Dark => (
-            Color::WHITE,
-            if style.strong {
-                Color::WHITE
-            } else {
-                style.ink(ui::Ink::ON_DARK_MUTED)
-            },
-            Color::BLACK,
-        ),
-        _ => (Color::BLACK, style.ink(ui::Ink::MUTED), Color::WHITE),
-    };
+    let [paper, ink, faint] = super::colours::colours(env, &style, widget, frame);
     WidgetLook {
         area: inner,
         ink,
@@ -445,8 +435,11 @@ pub fn widget_look(env: &Env<'_>, widget: &str, area: Rect) -> WidgetLook {
 pub fn draw_frame(canvas: &mut Canvas<'_>, env: &Env<'_>, widget: &str, area: Rect) -> WidgetLook {
     let style = UiStyle::new(env);
     let look = widget_look(env, widget, area);
-    // As cards are: a look of a plugin's own paints it, else the usual.
-    crate::ui::layout::paint_frame(canvas, &style, area, look.frame);
+    // A paper the reader chose, else as cards are: a look of a plugin's
+    // own paints it, else the usual.
+    if !super::colours::paint_paper(canvas, env, &style, widget, area, &look) {
+        crate::ui::layout::paint_frame(canvas, &style, area, look.frame);
+    }
     look
 }
 

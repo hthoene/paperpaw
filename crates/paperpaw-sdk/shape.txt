@@ -323,6 +323,8 @@ const paperpaw_sdk::builtin::settings::VOICE: paperpaw_sdk::setting::Setting<pap
 const paperpaw_sdk::builtin::settings::VOICE_SYSTEM: &str = "core.voice.system"
 const paperpaw_sdk::builtin::settings::WEEK_START: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.week-start")
 const paperpaw_sdk::builtin::settings::WIDGET_FRAME: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.widgets.frame")
+const paperpaw_sdk::builtin::settings::WIDGET_INK: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.widgets.ink")
+const paperpaw_sdk::builtin::settings::WIDGET_PAPER: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.widgets.paper")
 const paperpaw_sdk::builtin::settings::WIDOWS: paperpaw_sdk::setting::Setting<i64> = Setting::new("core.widows")
 const paperpaw_sdk::builtin::settings::WORD_SPACING: paperpaw_sdk::setting::Setting<i64> = Setting::new("core.word-spacing")
 const paperpaw_sdk::builtin::settings_page::CUSTOMISE: paperpaw_sdk::id::Id = Id::new_static("core.settings-section.customise")
@@ -644,6 +646,14 @@ const paperpaw_sdk::widgets::categories::READING: &str = "core.widgets.reading"
 const paperpaw_sdk::widgets::categories::TIME: &str = "core.widgets.time"
 const paperpaw_sdk::widgets::categories::WORDS: &str = "core.widgets.words"
 const paperpaw_sdk::widgets::categories::WORLD: &str = "core.widgets.world"
+const paperpaw_sdk::widgets::colours::INKS: &[&str] = &[INK_AUTO, Tone::Black.id(), Tone::White.id()]
+const paperpaw_sdk::widgets::colours::INK_AUTO: &str = "core.ink.auto"
+const paperpaw_sdk::widgets::colours::PAPERS: &[&str] = &[ PAPER_NORMAL, PAPER_INVERTED, PAPER_LIGHT_GRAY, PAPER_DARK_GRAY, PAPER_NONE, ]
+const paperpaw_sdk::widgets::colours::PAPER_DARK_GRAY: &str = "core.plate.dark-gray"
+const paperpaw_sdk::widgets::colours::PAPER_INVERTED: &str = "core.plate.inverted"
+const paperpaw_sdk::widgets::colours::PAPER_LIGHT_GRAY: &str = "core.plate.light-gray"
+const paperpaw_sdk::widgets::colours::PAPER_NONE: &str = "core.plate.none"
+const paperpaw_sdk::widgets::colours::PAPER_NORMAL: &str = "core.plate.normal"
 const paperpaw_sdk::widgets::grid::MAX_COLUMNS: u8 = 6u8
 const paperpaw_sdk::widgets::grid::MAX_ROWS: u8 = 12u8
 const paperpaw_sdk::widgets::look::ALL_FRAMES: &[&str] = &[ OWN_FRAME, "core.frame.none", "core.frame.line", "core.frame.card", "core.frame.dark", ]
@@ -798,6 +808,8 @@ enum paperpaw_sdk::widgets::PlaceKind { Stack, Grid }
 enum paperpaw_sdk::widgets::Refresh { Nothing, Remake, Read, ReadOne(0: paperpaw_sdk::id::Id), Live }
 enum paperpaw_sdk::widgets::SizeClass { Small, Medium, Large }
 enum paperpaw_sdk::widgets::WidgetInput { Swipe(0: paperpaw_sdk::gesture::Direction), Focus(0: core::option::Option<paperpaw_platform::geometry::Rect>) }
+enum paperpaw_sdk::widgets::colours::ColourSpec { Auto, None, Is(0: paperpaw_platform::pixel::Color) }
+enum paperpaw_sdk::widgets::colours::Plate { Paper, None, Colour(0: paperpaw_platform::pixel::Color) }
 enum paperpaw_sdk::widgets::grid::What { Widget(0: alloc::string::String), Tool(0: paperpaw_sdk::id::Id) }
 enum paperpaw_sdk::widgets::grid::view::GridResponse { Ignored, Handled, Changed(0: alloc::vec::Vec<paperpaw_sdk::widgets::grid::Item>), Editing(0: bool), Button(0: u16), Option { item: paperpaw_sdk::widgets::grid::Item, option: alloc::string::String } }
 enum paperpaw_sdk::widgets::grid::view::Mode { Choose, Move, Resize }

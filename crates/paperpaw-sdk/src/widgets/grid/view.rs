@@ -11,7 +11,7 @@ use crate::builtin::{actions, params, slots};
 use crate::event::Event;
 use crate::ui::choice::Picked;
 use crate::ui::{self, UiStyle};
-use crate::widgets::{SizeClass, Widget, WidgetContext, WidgetInput};
+use crate::widgets::{ColourSpec, Plate, SizeClass, Widget, WidgetContext, WidgetInput};
 use crate::{
     Canvas, Color, Command, Cx, Env, Gesture, GestureKind, Handled, Hint, Id, Params, Point,
     PointerEvent, PointerPhase, Rect, RefreshMode, semantics::Role,
@@ -405,8 +405,16 @@ impl GridView {
 
     /// Draws the items (while editing: the cells, the items' frames and
     /// the corners that size them, where a dragged item would go) and the
-    /// focus once buttons are used. The screen draws its buttons itself.
+    /// focus once buttons are used, each item on white
+    /// ([`Plate::Paper`]). The screen draws its buttons itself.
     pub fn draw(&self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+        self.draw_on(canvas, env, Plate::Paper);
+    }
+
+    /// [`draw`](Self::draw) with `plate` under the items: nothing over a
+    /// picture, a colour on a dark page. A widget without a frame whose
+    /// paper the reader chose sits on its paper.
+    pub fn draw_on(&self, canvas: &mut Canvas<'_>, env: &Env<'_>, plate: Plate) {
         let editing = self.edit.is_some();
         if editing {
             self.draw_cells(canvas);
@@ -431,7 +439,7 @@ impl GridView {
             if shown.area.intersection(&clip).is_none() {
                 continue;
             }
-            canvas.fill(shown.area, Color::WHITE);
+            fill_plate(canvas, env, shown, plate);
             match (&shown.item.what, &shown.widget) {
                 (What::Widget(_), Some(widget)) => widget.draw(canvas, env, shown.area),
                 (What::Widget(_), None) => {}
@@ -460,24 +468,12 @@ impl GridView {
                     shown.area.height + 2 * pad,
                 );
                 let corner = self.style.corner;
-                canvas.stroke_round(around, line, corner + u32::from(pad), Color::BLACK);
-                canvas.fill_round(handle(shown.area, &self.style), corner, Color::BLACK);
+                let ink = plate_ink(plate);
+                canvas.stroke_round(around, line, corner + u32::from(pad), ink);
+                canvas.fill_round(handle(shown.area, &self.style), corner, ink);
             }
         }
-        if let Some(Edit {
-            drag: Some(drag), ..
-        }) = &self.edit
-            && drag.moved
-        {
-            let width = if self.free(drag.index, drag.to) && self.allowed(env, drag.index, drag.to)
-            {
-                self.style.line * 4
-            } else {
-                self.style.line
-            };
-            let to = self.geometry.rect(drag.to);
-            canvas.stroke_round(to, width, self.style.corner, Color::BLACK);
-        }
+        self.draw_drag(canvas, env, plate_ink(plate));
         // The place with the focus told by its item's name, as a
         // button: what a screen reader says, and tools follow, as the
         // buttons move the focus.
@@ -504,6 +500,24 @@ impl GridView {
             && let Some((area, _)) = self.targets.get(self.focus)
         {
             draw_cell_focus(canvas, &self.style, *area, tool_ink);
+        }
+    }
+
+    /// Where a dragged item would go, in a thick line where it may.
+    fn draw_drag(&self, canvas: &mut Canvas<'_>, env: &Env<'_>, ink: Color) {
+        if let Some(Edit {
+            drag: Some(drag), ..
+        }) = &self.edit
+            && drag.moved
+        {
+            let width = if self.free(drag.index, drag.to) && self.allowed(env, drag.index, drag.to)
+            {
+                self.style.line * 4
+            } else {
+                self.style.line
+            };
+            let to = self.geometry.rect(drag.to);
+            canvas.stroke_round(to, width, self.style.corner, ink);
         }
     }
 
@@ -1295,6 +1309,35 @@ fn handle(area: Rect, style: &UiStyle) -> Rect {
         side,
         side,
     )
+}
+
+/// Fills `shown`'s area with what lies under it: `plate`, or the paper of
+/// a widget without a frame whose paper the reader chose.
+fn fill_plate(canvas: &mut Canvas<'_>, env: &Env<'_>, shown: &Shown, plate: Plate) {
+    let own = match &shown.item.what {
+        What::Widget(id)
+            if crate::widgets::frame(env, id.as_str()) == crate::widgets::Frame::None =>
+        {
+            match crate::widgets::paper(env, id.as_str()) {
+                ColourSpec::Is(colour) => Some(colour),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    match (own, plate) {
+        (Some(colour), _) | (None, Plate::Colour(colour)) => canvas.fill_shaded(shown.area, colour),
+        (None, Plate::Paper) => canvas.fill(shown.area, Color::WHITE),
+        (None, Plate::None) => {}
+    }
+}
+
+/// The ink of the lines drawn while editing, which read on `plate`.
+fn plate_ink(plate: Plate) -> Color {
+    match plate {
+        Plate::Colour(colour) if crate::widgets::colours::is_dark(colour) => Color::WHITE,
+        _ => Color::BLACK,
+    }
 }
 
 #[cfg(test)]

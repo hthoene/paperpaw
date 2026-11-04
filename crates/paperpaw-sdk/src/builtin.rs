@@ -628,6 +628,15 @@ pub mod settings {
     /// of [`widgets::ALL_FRAMES`](crate::widgets::ALL_FRAMES)
     /// (each widget its own at first).
     pub const WIDGET_FRAME: Setting<Text> = Setting::new("core.widgets.frame");
+    /// The paper of every widget whose own the reader did not choose: one
+    /// of [`widgets::PAPERS`](crate::widgets::PAPERS), a tone or a colour
+    /// code ([`widgets::colour_spec`](crate::widgets::colour_spec)); normal
+    /// leaves each widget its own.
+    pub const WIDGET_PAPER: Setting<Text> = Setting::new("core.widgets.paper");
+    /// The ink of every widget whose own the reader did not choose: one of
+    /// [`widgets::INKS`](crate::widgets::INKS), a tone or a colour code;
+    /// automatic leaves each widget its own.
+    pub const WIDGET_INK: Setting<Text> = Setting::new("core.widgets.ink");
     /// Corners of highlights, buttons and boxes: one of [`CORNERS`].
     pub const UI_CORNERS: Setting<Text> = Setting::new("core.ui-corners");
     /// The values of [`UI_CORNERS`]: square, slightly rounded, round,

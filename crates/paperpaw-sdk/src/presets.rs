@@ -180,13 +180,18 @@ pub fn theme_changes(settings: &Settings, theme: &Preset) -> Vec<(Id, Option<Set
 pub const WIDGET_LOOK: &str = "core.widget-look";
 
 /// The settings a widget look covers: each registered widget's frame,
-/// padding, size and alignment (`<widget>.frame` …, of `widgets`), and
-/// the frame of all
-/// ([`WIDGET_FRAME`](crate::builtin::settings::WIDGET_FRAME)); not the
+/// padding, size, alignment and colours (`<widget>.frame` …, of
+/// `widgets`), and the frame and colours of all
+/// ([`WIDGET_FRAME`](crate::builtin::settings::WIDGET_FRAME) …); not the
 /// settings of other things that end so (the status lines' size).
 pub fn widget_look_settings(settings: &Settings, widgets: &crate::widgets::Widgets) -> Vec<Id> {
-    const PARTS: [&str; 4] = [".frame", ".padding", ".size", ".align"];
-    let all = crate::builtin::settings::WIDGET_FRAME.static_str();
+    use crate::builtin::settings::{WIDGET_FRAME, WIDGET_INK, WIDGET_PAPER};
+    const PARTS: [&str; 6] = [".frame", ".padding", ".size", ".align", ".paper", ".ink"];
+    let all = [
+        WIDGET_FRAME.static_str(),
+        WIDGET_PAPER.static_str(),
+        WIDGET_INK.static_str(),
+    ];
     let of_widget = |id: &str| {
         PARTS.iter().any(|part| {
             id.strip_suffix(part)
@@ -195,7 +200,7 @@ pub fn widget_look_settings(settings: &Settings, widgets: &crate::widgets::Widge
     };
     settings
         .specs()
-        .filter(|spec| spec.id.as_str() == all || of_widget(spec.id.as_str()))
+        .filter(|spec| all.contains(&spec.id.as_str()) || of_widget(spec.id.as_str()))
         .map(|spec| spec.id.clone())
         .collect()
 }
