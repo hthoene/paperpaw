@@ -322,9 +322,14 @@ const paperpaw_sdk::builtin::settings::UI_TITLE: paperpaw_sdk::setting::Setting<
 const paperpaw_sdk::builtin::settings::VOICE: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.voice")
 const paperpaw_sdk::builtin::settings::VOICE_SYSTEM: &str = "core.voice.system"
 const paperpaw_sdk::builtin::settings::WEEK_START: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.week-start")
+const paperpaw_sdk::builtin::settings::WIDGET_CORNERS: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.widgets.corners")
 const paperpaw_sdk::builtin::settings::WIDGET_FRAME: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.widgets.frame")
+const paperpaw_sdk::builtin::settings::WIDGET_FRAME_LINE: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.widgets.frame-line")
+const paperpaw_sdk::builtin::settings::WIDGET_GAP: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.widgets.gap")
 const paperpaw_sdk::builtin::settings::WIDGET_INK: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.widgets.ink")
+const paperpaw_sdk::builtin::settings::WIDGET_PADDING: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.widgets.padding")
 const paperpaw_sdk::builtin::settings::WIDGET_PAPER: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.widgets.paper")
+const paperpaw_sdk::builtin::settings::WIDGET_SHADOW: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.widgets.shadow")
 const paperpaw_sdk::builtin::settings::WIDOWS: paperpaw_sdk::setting::Setting<i64> = Setting::new("core.widows")
 const paperpaw_sdk::builtin::settings::WORD_SPACING: paperpaw_sdk::setting::Setting<i64> = Setting::new("core.word-spacing")
 const paperpaw_sdk::builtin::settings_page::CUSTOMISE: paperpaw_sdk::id::Id = Id::new_static("core.settings-section.customise")
@@ -661,6 +666,20 @@ const paperpaw_sdk::widgets::look::FRAMES: &[&str] = &[ "core.frame.none", "core
 const paperpaw_sdk::widgets::look::OWN_FRAME: &str = "core.frame.own"
 const paperpaw_sdk::widgets::look::PADDINGS: &[&str] = &[ "core.padding.auto", "core.padding.none", "core.padding.small", "core.padding.normal", "core.padding.large", ]
 const paperpaw_sdk::widgets::look::SIZES: &[&str] = &[ "core.size.small", "core.size.medium", "core.size.large", "core.size.fit", ]
+const paperpaw_sdk::widgets::shape::CORNERS_AUTO: &str = "core.corners.auto"
+const paperpaw_sdk::widgets::shape::CORNER_CHOICES: &[&str] = &[ CORNERS_AUTO, settings::CORNERS[0], settings::CORNERS[1], settings::CORNERS[2], settings::CORNERS[3], ]
+const paperpaw_sdk::widgets::shape::GAPS: &[&str] = &[GAP_SMALL, GAP_NORMAL, GAP_LARGE]
+const paperpaw_sdk::widgets::shape::GAP_LARGE: &str = "core.gap.large"
+const paperpaw_sdk::widgets::shape::GAP_NORMAL: &str = "core.gap.normal"
+const paperpaw_sdk::widgets::shape::GAP_SMALL: &str = "core.gap.small"
+const paperpaw_sdk::widgets::shape::LINE_AUTO: &str = "core.lines.auto"
+const paperpaw_sdk::widgets::shape::LINE_CHOICES: &[&str] = &[LINE_AUTO, LINE_THIN, LINE_MEDIUM, LINE_THICK]
+const paperpaw_sdk::widgets::shape::LINE_MEDIUM: &str = "core.lines.medium"
+const paperpaw_sdk::widgets::shape::LINE_THICK: &str = "core.lines.thick"
+const paperpaw_sdk::widgets::shape::LINE_THIN: &str = "core.lines.thin"
+const paperpaw_sdk::widgets::shape::SHADOWS: &[&str] = &[SHADOW_NONE, SHADOW_HARD]
+const paperpaw_sdk::widgets::shape::SHADOW_HARD: &str = "core.shadow.hard"
+const paperpaw_sdk::widgets::shape::SHADOW_NONE: &str = "core.shadow.none"
 const paperpaw_sdk::wifi::NETWORK_WAIT_MS: u64 = 30_000u64
 const paperpaw_sdk::wifi::SECRET_PREFIX: &str = "wifi."
 const paperpaw_sdk::work::Moments::ALL: paperpaw_sdk::work::Moments = Moments(0xff)
@@ -817,6 +836,7 @@ enum paperpaw_sdk::widgets::grid::view::Target { Run(0: paperpaw_sdk::command::C
 enum paperpaw_sdk::widgets::look::Frame { None, Line, Card, Dark }
 enum paperpaw_sdk::widgets::look::Padding { Auto, None, Small, Normal, Large }
 enum paperpaw_sdk::widgets::look::TextSize { Small, Medium, Large, Fit }
+enum paperpaw_sdk::widgets::shape::Shadow { None, Hard }
 enum paperpaw_sdk::wifi::JoinFailure { NotFound, Password, Timeout, Other }
 enum paperpaw_sdk::wifi::WifiCommand { On, Off, Scan, Join { ssid: alloc::string::String, password: alloc::string::String }, Leave, Host { ssid: alloc::string::String, password: alloc::string::String } }
 enum paperpaw_sdk::wifi::WifiState { Off, On, Joining { ssid: alloc::string::String }, Online { ssid: alloc::string::String, address: alloc::string::String, name: core::option::Option<alloc::string::String> }, Hosting { ssid: alloc::string::String, address: alloc::string::String, guests: u8 } }
