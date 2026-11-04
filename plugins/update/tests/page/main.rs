@@ -1417,6 +1417,8 @@ fn beside_another_firmware_the_page_installs_nothing_and_says_why() {
     let shown = device.shown();
     assert!(shown.contains("Two firmwares on this device"), "{shown}");
     assert!(shown.contains("installs no updates here"), "{shown}");
+    // The way out for a device without a second firmware (#224).
+    assert!(shown.contains("paperpaw.org/flash"), "{shown}");
     // An update that is ready, as on any other device, is not offered; nor
     // is anyone asked for one.
     assert!(!shown.contains("PaperPaw 0.5.0"), "{shown}");

@@ -29,9 +29,11 @@ use crate::ota::{Flash, FlashError};
 pub const MARKER: &[u8] = b"paperpaw-dualboot:1";
 /// The tag inside the X4 dualbooter's bootloader (lowio.xyz, "x4boot", an
 /// ESP-IDF 4.4.7 based one): it says the slots are managed by a tool that
-/// knows nothing of PaperPaw. Read from the tool's page, not from its
-/// binary (not available): the reader's `dual-boot = on` decides where the
-/// tag is not found.
+/// knows nothing of PaperPaw. Found in the tool's hosted `bootloader.bin`
+/// (SHA-256 9855f7b2…3dfd) as a string of its own at offset 0xe0, between
+/// NULs, and looked for as a whole word ([`TagScan`]): `x4bootloader` or a
+/// path `…/x4boot.c` in another bootloader is not it (#224). The reader's
+/// `dual-boot = on` decides where the tag is not found.
 pub const X4BOOT: &[u8] = b"x4boot";
 /// The bootloader's window of the flash, in bytes: the marker is looked for
 /// in all of it (the partition table follows at 0x8000).
@@ -223,6 +225,69 @@ impl MarkerScan {
     }
 }
 
+/// Looks for a tag as a word in a flash read a piece at a time (#224): the
+/// bytes before and after it are not part of a name (a letter, a digit,
+/// `_`, `.` or `/`), so the tag in a string of its own matches, and
+/// `x4bootloader`, `libx4boot` or `x4boot.c` do not. The start and the end
+/// of the window count as boundaries.
+#[derive(Debug)]
+pub struct TagScan {
+    tag: &'static [u8],
+    /// The last `tag.len() + 2` bytes read (the start: zeros).
+    last: [u8; Self::MAX + 2],
+    found: bool,
+}
+
+impl TagScan {
+    /// The longest tag.
+    const MAX: usize = 14;
+
+    /// A look for `tag` (not longer than 14 bytes, not empty).
+    pub const fn of(tag: &'static [u8]) -> Self {
+        Self {
+            tag,
+            last: [0; Self::MAX + 2],
+            found: false,
+        }
+    }
+
+    /// Whether `byte` may be part of a name the tag would be inside of.
+    fn in_name(byte: u8) -> bool {
+        byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'/')
+    }
+
+    fn push(&mut self, byte: u8) {
+        let n = self.tag.len() + 2;
+        let end = self.last.len();
+        if self.tag.is_empty() || n > end {
+            return;
+        }
+        self.last.copy_within(1.., 0);
+        self.last[end - 1] = byte;
+        let window = &self.last[end - n..];
+        if window[1..n - 1] == *self.tag
+            && !Self::in_name(window[0])
+            && !Self::in_name(window[n - 1])
+        {
+            self.found = true;
+        }
+    }
+
+    /// More of the flash. Whether the tag has been seen by now.
+    pub fn feed(&mut self, piece: &[u8]) -> bool {
+        for &byte in piece {
+            self.push(byte);
+        }
+        self.found
+    }
+
+    /// The window ends here: a tag at its very end counts.
+    pub fn finish(&mut self) -> bool {
+        self.push(0);
+        self.found
+    }
+}
+
 /// Which marker the bootloader's window of `flash` carries, if one
 /// ([`MARKER`], else [`X4BOOT`]), read in pieces of 1 KB (about 32 KB in
 /// all, so only where it is needed; both are looked for in the same pass).
@@ -231,17 +296,16 @@ impl MarkerScan {
 pub fn scan_marker(flash: &mut impl Flash) -> Result<Option<Source>, FlashError> {
     let mut piece = [0u8; 1024];
     let mut ours = MarkerScan::of(MARKER);
-    let mut lowio = MarkerScan::of(X4BOOT);
-    let mut tag = false;
+    let mut lowio = TagScan::of(X4BOOT);
     for at in (0..WINDOW).step_by(piece.len()) {
         flash.read(at, &mut piece)?;
         if ours.feed(&piece) {
             return Ok(Some(Source::Marker));
         }
         // Ours wins where both are there: the whole window is read for it.
-        tag = lowio.feed(&piece) || tag;
+        lowio.feed(&piece);
     }
-    Ok(tag.then_some(Source::X4Boot))
+    Ok(lowio.finish().then_some(Source::X4Boot))
 }
 
 /// What PaperPaw knows of its setup.
@@ -462,7 +526,7 @@ mod tests {
         let mut flash = alloc::vec![0xFFu8; 0x400];
         flash[0x3F0 - 3..0x3F0 - 3 + X4BOOT.len()].copy_from_slice(X4BOOT);
         for size in [1, 2, 5, 64, 4096] {
-            let mut scan = MarkerScan::of(X4BOOT);
+            let mut scan = TagScan::of(X4BOOT);
             let found = flash.chunks(size).any(|piece| scan.feed(piece));
             assert!(found, "x4boot in pieces of {size}");
         }
@@ -475,6 +539,46 @@ mod tests {
             assert!(!scan.feed(text));
             assert!(!scan.feed(&[0xFF; 64]));
         }
+    }
+
+    #[test]
+    fn the_tag_counts_as_a_word_only() {
+        let seen = |text: &[u8], size: usize| {
+            let mut scan = TagScan::of(X4BOOT);
+            let mut found = text.chunks(size).any(|piece| scan.feed(piece));
+            found |= scan.finish();
+            found
+        };
+        for size in [1, 2, 3, 64] {
+            // As lowio's has it, and as other tags and texts would write it.
+            for yes in [
+                &b"\0x4boot\0"[..],
+                b"x4boot",
+                b"\xffx4boot\xff",
+                b"a x4boot v2\0",
+                b"x4boot-2\0",
+                b"[x4boot]",
+                b"\0\0\0x4boot\0\0E (%lu) %s",
+            ] {
+                assert!(seen(yes, size), "{:?} in pieces of {size}", yes);
+            }
+            // Part of a longer name: not it.
+            for no in [
+                &b"x4bootloader"[..],
+                b"libx4boot\0",
+                b"x4boot.c\0",
+                b"/src/x4boot/main\0",
+                b"my_x4boot_2",
+                b"x4boo",
+                b"x4 boot",
+                b"X4BOOT",
+                b"x4bootx4boo",
+            ] {
+                assert!(!seen(no, size), "{:?} in pieces of {size}", no);
+            }
+        }
+        // Twice, the second a word.
+        assert!(seen(b"x4bootloader \0x4boot\0", 5));
     }
 
     #[test]
