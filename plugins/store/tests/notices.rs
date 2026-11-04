@@ -21,7 +21,7 @@ use paperpaw_sdk::{
 };
 
 /// The notices, by their translation keys, each taking `{name}`.
-const NOTICES: [&str; 12] = [
+const NOTICES: [&str; 13] = [
     "store.styles.later",
     "store.installed",
     "store.updated",
@@ -34,6 +34,7 @@ const NOTICES: [&str; 12] = [
     "store.refused.unsigned",
     "store.refused.not-the-author",
     "store.refused.unsupported",
+    "store.refused.on-trial",
 ];
 
 /// A plugin's name as long as many are.

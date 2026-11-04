@@ -987,6 +987,20 @@ impl Kernel {
                 format!("{folder}: not the plugin `{id}`; not installed"),
             );
         }
+        // An update on trial may go back: the code of the plugins before,
+        // built for the firmware it goes back to, stays as it is. The
+        // store installs none meanwhile (it reads `TRIAL_MARK`, before it
+        // changes anything it keeps of the plugin); this is for any other
+        // that sends the command.
+        if self.shared.code_held
+            && let Some(native) = &self.shared.native
+            && storage.exists(&native.path(folder))
+        {
+            return refuse(
+                self,
+                format!("{folder}: an update is on trial; code plugin `{id}` not installed"),
+            );
+        }
         let plugin = match data_plugin::load_folder_as(&storage, folder, id.as_str()) {
             Ok(plugin) => plugin,
             Err(problem) => return refuse(self, problem),

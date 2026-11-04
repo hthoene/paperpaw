@@ -1049,6 +1049,13 @@ impl Kernel {
         Some(self.send_event(now, events::TYPE_TEXT.id().clone(), typed.to_params()))
     }
 
+    /// The update on trial is kept ([`KernelBuilder::code_plugins_held`]):
+    /// code plugins may be installed again.
+    pub fn trial_kept(&mut self) {
+        self.shared.code_held = false;
+        let _ = self.shared.storage.remove(code_plugin::TRIAL_MARK);
+    }
+
     /// Returns and clears the collected warnings.
     pub fn take_warnings(&mut self) -> Vec<Warning> {
         mem::take(&mut self.warnings)
@@ -1281,6 +1288,10 @@ struct Shared {
     /// How code plugins are loaded, where they are (see
     /// [`KernelBuilder::code_plugins`]).
     native: Option<paperpaw_sdk::native::Native>,
+    /// An update is on trial (see [`KernelBuilder::code_plugins_held`]): no
+    /// code plugin is installed until it is kept ([`Kernel::trial_kept`]), so
+    /// the plugins before stay as they are if it goes back.
+    code_held: bool,
     /// The power level and mode in use (see [`paperpaw_sdk::power`]).
     power: paperpaw_sdk::power::Power,
     /// Where declared work stands, and plugins' notes (see [`work`]).

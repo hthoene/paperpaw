@@ -310,7 +310,9 @@ impl KernelBuilder {
     /// [`Env::native`](paperpaw_sdk::Env), so the store asks for builds that
     /// fit), lists the code plugins installed as not running, installs none
     /// fetched for the update (they wait for the start once it is kept)
-    /// and switches none off (unlike safe mode).
+    /// and switches none off (unlike safe mode). No code plugin is installed
+    /// either until [`Kernel::trial_kept`], so a failed trial leaves the
+    /// plugins before as they were.
     pub fn code_plugins_held(mut self, native: Native) -> Self {
         self.0.code = Some(crate::code_plugin::CodePlugins {
             native,
@@ -644,6 +646,7 @@ impl BuilderParts {
                     .then(|| paperpaw_sdk::bluetooth::Bluetooth::new(links)),
                 firmware: self.firmware.take(),
                 native: None,
+                code_held: false,
                 power: paperpaw_sdk::power::Power::default(),
                 work_states: paperpaw_sdk::work::WorkStates::default(),
                 reader: false,

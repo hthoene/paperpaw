@@ -312,12 +312,29 @@ fn update_signed_by(
     signer: &[u8; 32],
     steps: &[([u8; 32], [u8; 64])],
 ) -> (Shopping, bool) {
+    update_signed_by_on(pinned, signer, steps, false)
+}
+
+/// As [`update_signed_by`], with an update of PaperPaw on trial (the kernel's
+/// mark) when the update of the clock is fetched, if `on_trial`.
+fn update_signed_by_on(
+    pinned: bool,
+    signer: &[u8; 32],
+    steps: &[([u8; 32], [u8; 64])],
+    on_trial: bool,
+) -> (Shopping, bool) {
     let mut shopping = store("1.0.0");
     let first = ppn(BUILD, Some(&AUTHOR));
     if pinned {
         install_naming(&mut shopping, "1.0.0", &first, &RECOVERY);
     } else {
         first_install(&mut shopping, "1.0.0", &first);
+    }
+    if on_trial {
+        shopping
+            .storage
+            .write(".paperpaw/update-on-trial.txt", b"")
+            .unwrap();
     }
     let signed = ppn(BUILD, Some(signer));
     shopping.run(actions::BACK);
@@ -348,6 +365,31 @@ fn a_rotation_by_the_recovery_key_moves_the_plugin_to_the_new_key() {
     );
     let code = ppn(BUILD, Some(&OTHER));
     assert_eq!(installed_code(storage, "clock"), Some(digest(&code)));
+}
+
+#[test]
+fn nothing_of_a_code_plugin_changes_while_an_update_is_on_trial() {
+    // The update of PaperPaw may go back: what the firmware before finds,
+    // the plugin's code, its installed digest and its author, stays as it
+    // was, also where the library carries a valid rotation of the author's
+    // key, which taking would change them (#164).
+    let to = public_key(&OTHER);
+    let (mut shopping, done) = update_signed_by_on(true, &OTHER, &[(to, moved(&to))], true);
+    assert!(!done);
+    assert_eq!(installed(&shopping), Some(Version::new(1, 0, 0)));
+    let shown = shopping.shown().replace(" | ", " ");
+    assert!(shown.contains("update is not confirmed"), "{shown}");
+    let storage = &shopping.storage;
+    assert_eq!(known_author(storage, "clock"), Some(public_key(&AUTHOR)));
+    let first = ppn(BUILD, Some(&AUTHOR));
+    assert_eq!(installed_code(storage, "clock"), Some(digest(&first)));
+    assert_eq!(
+        known_recovery(storage, "clock"),
+        Some(public_key(&RECOVERY)),
+        "the pinned recovery key too"
+    );
+    // Not the plugin's folder, nor the code waiting beside it.
+    assert!(!storage.exists("plugins/.clock.next/code.ppn"));
 }
 
 #[test]
