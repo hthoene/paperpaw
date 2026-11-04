@@ -71,7 +71,7 @@ pub fn mount<B: Blocks + 'static>(blocks: B) -> Result<Box<dyn Storage>, CardTro
         });
     match fs {
         Ok((fs, disk)) => Ok(Box::new(
-            FatStorage::new(Box::leak(Box::new(fs))).with_disk(disk),
+            FatStorage::owned(fs).with_disk(disk),
         )),
         Err(e) => Err(match e {
             VolumeError::ExFat => {

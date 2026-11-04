@@ -74,6 +74,10 @@ change the plugin SDK.
 
 ### Fixed
 
+- **Card mount memory** (#151): the firmware now owns each FAT file system and frees it after
+  its cached files and folders when replacing the mount. The existing one-remount limit stays
+  until repeated-swap validation is complete.
+
 - **Dual boot: no false positive on plain devices, and a way out** (#224). The dualbooter's `x4boot` tag counts only
   as a word of its own (not inside `x4bootloader` or a path); the bootloaders PaperPaw ships for X4, X3, X4 Pro and
   X4 Classic, CrossPoint's and others are scanned in a test and none is taken for a dual-boot one. Where a device is
