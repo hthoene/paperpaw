@@ -1,4 +1,4 @@
-Heading "More plugins"
+Heading "Plugin store"
 Row "Search" (focused)
 Row "New"
 Row "Reading, 1"

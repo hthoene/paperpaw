@@ -1,4 +1,4 @@
-Merkliste-Artikel (eigener Server) holt die Artikel, die du in wallabag gespeichert hast, als Bücher mit ihren Bildern in den Ordner Wallabag deiner Bibliothek. Es ist anfangs aus: Füge es mit Mehr Plugins hinzu, oder schalte es unter Plugins ein, wenn es dort steht.
+Merkliste-Artikel (eigener Server) holt die Artikel, die du in wallabag gespeichert hast, als Bücher mit ihren Bildern in den Ordner Wallabag deiner Bibliothek. Es ist anfangs aus: Füge es aus dem Plugin-Store hinzu, oder schalte es unter Plugins ein, wenn es dort steht.
 
 Öffne Merkliste-Artikel (eigener Server) unter Werkzeuge. Gib Server, Benutzernamen und Passwort ein sowie ID und Secret eines API-Clients, den du in Wallabag unter API-Clients verwalten anlegst. Wähle dann Artikel holen, bei eingeschaltetem WLAN.
 

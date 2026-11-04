@@ -168,7 +168,7 @@ static SCREENS: [FixedScreen; 7] = [
 
 impl Plugin for Store {
     fn manifest(&self) -> Manifest {
-        Manifest::new(PLUGIN, "More plugins", paperpaw_sdk::package_version!())
+        Manifest::new(PLUGIN, "Plugin store", paperpaw_sdk::package_version!())
             .description("Finds, installs, updates and removes plugins for this device.")
             .how(&HOW)
             .uses(paperpaw_sdk::Uses::NETWORK)

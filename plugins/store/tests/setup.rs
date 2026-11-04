@@ -333,7 +333,7 @@ fn one_that_cannot_come_is_named() {
     let shown = shopping.shown().replace(" | ", " ");
     assert!(
         shown.contains(
-            "Could not be added: Home widgets. They are in the store, under More plugins."
+            "Could not be added: Home widgets. They are in the Plugin store."
         ),
         "{shown}"
     );
