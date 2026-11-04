@@ -299,6 +299,24 @@ impl KernelBuilder {
             native,
             loader,
             safe_mode: None,
+            held: false,
+        });
+        self
+    }
+
+    /// This start loads no code plugins, though the firmware takes them: an
+    /// update is on trial, which must show it starts by itself. The kernel
+    /// still knows what the firmware takes (`native`, which plugins see as
+    /// [`Env::native`](paperpaw_sdk::Env), so the store asks for builds that
+    /// fit), lists the code plugins installed as not running, installs none
+    /// fetched for the update (they wait for the start once it is kept)
+    /// and switches none off (unlike safe mode).
+    pub fn code_plugins_held(mut self, native: Native) -> Self {
+        self.0.code = Some(crate::code_plugin::CodePlugins {
+            native,
+            loader: Box::new(crate::code_plugin::Held),
+            safe_mode: None,
+            held: true,
         });
         self
     }
@@ -497,6 +515,7 @@ impl BuilderParts {
         // without code plugins.
         if let Some(code) = &self.code
             && self.safe_mode.is_none()
+            && !code.held
         {
             let storage = kernel.shared.storage.clone();
             self.staged

@@ -115,6 +115,23 @@ pub(crate) struct CodePlugins {
     pub(crate) loader: Box<dyn CodeLoader>,
     /// This start goes without them.
     pub(crate) safe_mode: Option<SafeMode>,
+    /// This start goes without them while an update is on trial: nothing is
+    /// loaded or installed, nothing switched off, but the firmware's
+    /// [`Native`] is known (the store asks for builds that fit).
+    pub(crate) held: bool,
+}
+
+/// The loader of a start that loads no code ([`CodePlugins::held`]).
+pub(crate) struct Held;
+
+impl CodeLoader for Held {
+    fn load(
+        &mut self,
+        _: &dyn Storage,
+        _: &CodeFile<'_>,
+    ) -> Result<Box<dyn Plugin>, PluginProblem> {
+        Err(PluginProblem::Unsupported)
+    }
 }
 
 /// A code plugin: its code, then its folder's data.
@@ -153,6 +170,7 @@ impl Kernel {
             mut native,
             mut loader,
             safe_mode,
+            held,
         }) = code
         else {
             for plugin in found {
@@ -166,6 +184,18 @@ impl Kernel {
             return;
         };
         let storage = self.shared.storage.clone();
+        if held {
+            for plugin in found {
+                self.list_code_plugin(
+                    &plugin,
+                    disabled,
+                    PluginState::Failed,
+                    PluginProblem::Unsupported,
+                );
+            }
+            self.shared.native = Some(native);
+            return;
+        }
         if let Some(mut safe_mode) = safe_mode {
             self.hold_back(found, disabled, &mut safe_mode);
             native.safe_mode = Some(safe_mode);
@@ -751,6 +781,46 @@ mod tests {
                 (false, Some(PluginProblem::SafeMode))
             );
         }
+    }
+
+    #[test]
+    fn a_start_on_trial_knows_what_the_firmware_takes_but_loads_nothing() {
+        // An update's trial start loads no code, yet the kernel is told what
+        // the firmware takes, so the store asks for builds that fit (#164);
+        // nothing is switched off, what was fetched for the update waits.
+        let native = Native::new("code.ppn");
+        let storage = fetched(native.fingerprint.0, true);
+        let mut kernel = Kernel::builder(DEVICE)
+            .storage(storage)
+            .code_plugins_held(Native::new("code.ppn"))
+            .build()
+            .unwrap();
+        assert_eq!(
+            kernel.shared.native.as_ref().map(|n| n.fingerprint),
+            Some(native.fingerprint),
+            "what plugins see as Env::native"
+        );
+        assert_eq!(kernel.shared.native.as_ref().unwrap().safe_mode, None);
+        let hello = info(&kernel, "hello");
+        assert_eq!(
+            (hello.state, hello.enabled, hello.problem),
+            (PluginState::Failed, true, Some(PluginProblem::Unsupported))
+        );
+        assert!(kernel.plugins().get("stats").is_none(), "not installed");
+        assert!(kernel.storage().exists("plugins/.stats.next/code.ppn"));
+        // The start once it is kept takes them.
+        assert!(super::code_to_load(kernel.storage(), &native));
+        // Code installed meanwhile waits for that start too: the store
+        // offers *Restart now*.
+        let _ = kernel.storage().create_dir("plugins/late");
+        for (path, data) in [
+            ("plugins/late/plugin.ini", "[plugin]\nname = Late\n"),
+            ("plugins/late/code.ppn", "PPNP"),
+        ] {
+            kernel.storage().write(path, data.as_bytes()).unwrap();
+        }
+        kernel.load_plugin("plugins/late");
+        assert!(info(&kernel, "late").restart_needed());
     }
 
     #[test]
