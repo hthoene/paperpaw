@@ -50,6 +50,10 @@ change the plugin SDK.
 
 ### Fixed
 
+- **Card language packs keep translating later commands** (#208). The kernel reclaims a nearly full message
+  cache between commands, so a preceding callback cannot exhaust translations for later notices and dialog labels.
+  Smaller caches stay resident; the 16 KiB budget and plugin interface stay unchanged.
+
 - **The empty start card reads on a dark card** (#207). Its words were black on the black card of a dark frame (and on
   an inverted paper); the home screen draws them in the widget's own ink now, as its status line does. The pack's
   world clock, library numbers and weather forecast chose their lines and shades by the frame being dark; they follow
