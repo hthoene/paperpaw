@@ -290,6 +290,9 @@ impl Kernel {
 
     pub(crate) fn run_commands(&mut self) {
         for _ in 0..MAX_COMMAND_ROUNDS {
+            // Callbacks from the previous round have returned their borrowed
+            // messages. Make room before on_show or another command translates.
+            self.forget_read_messages_if_full();
             if self.output.commands.is_empty() {
                 // All done: the screen on top now is told it shows, if it
                 // changed; what that asks for runs too.
@@ -316,6 +319,9 @@ impl Kernel {
             for (i, command) in mem::take(&mut self.output.commands).into_iter().enumerate() {
                 self.from_guard = trusted.contains(&i);
                 self.from_guard_own = own.contains(&i);
+                // One callback can fill the cache; the next command must still
+                // be able to translate notices and dialog labels.
+                self.forget_read_messages_if_full();
                 self.apply(command);
             }
             self.from_guard = false;
@@ -1089,3 +1095,6 @@ pub(crate) fn vet_reserved(
     });
     out.len() != before
 }
+
+#[cfg(test)]
+mod catalog_tests;

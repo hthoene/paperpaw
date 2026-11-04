@@ -209,7 +209,37 @@ Pebble theme's in `crates/paperpaw-app/i18n/pebble`, the shells' in
    tests report missing, unknown and mismatched messages.
 
 A language can also come as a data plugin, without changing PaperPaw
-([docs/plugins.md](docs/plugins.md#plugins-without-code)).
+([docs/plugins.md](docs/plugins.md#plugins-without-code)):
+
+1. Add `tools/plugin-files/languages/<language>.ini`. Its `[meta]` header
+   holds the language code, native name, plural rule and any direction,
+   script, digits or calendar settings, as above. Its `[messages]` holds
+   the translations of the kernel and all plugins.
+2. Add `[language-<language>]` to `tools/plugin-files/data.toml`: its
+   version, store name and description in English and German, devices,
+   `formats = 4`, and any required script pack in `requires`. Use
+   `build = "tools/language-pack.py"` and list the new catalog,
+   `tools/language-pack.py` and `tools/sign` in `inputs`, as the other
+   languages do. All store texts and dependencies belong in this entry.
+3. To work in chunks, `python3 tools/language-pack.py split /tmp/chunks`
+   writes the English messages for translation. Merge translated chunks
+   with `python3 tools/language-pack.py merge <language> /tmp/merged.ini
+   <chunk> ...`: it copies `[meta]` from the catalog added in step 1.
+   Copy the merged file back to that catalog when ready.
+4. Check and build it:
+
+   ```sh
+   python3 tools/language-pack.py check <language>
+   python3 tools/language-pack.py build <language> /tmp/language-packs
+   ```
+
+   Copy `/tmp/language-packs/language-<language>` into the device's
+   `plugins/` folder to try it.
+
+Adding a language does not change the shared builder or require version
+bumps of other language packs. A builder change still affects every pack
+that lists it: prove unchanged outputs before using the documented
+`Plugin-unchanged: <id>` commit trailers instead of version bumps.
 
 ## Adding a device
 

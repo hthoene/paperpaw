@@ -205,26 +205,71 @@ impl PluginList {
                 (id.clone(), origins.of(id.as_str(), version))
             })
             .collect();
-        // Rows as high as their notes need (the largest text).
-        let mut notes: Vec<String> = self
-            .more
-            .iter()
-            .filter_map(|action| env.plugins().owner(action))
-            .map(|p| p.description(env.i18n()).to_string())
+        // Rows about as high as the longest note needs, estimated from the
+        // descriptions in memory (the manifests', not the language's: those
+        // of all the plugins would fill what a language on the card may
+        // read in one call); `fit_rows` makes them higher where a page
+        // needs more.
+        let notes: Vec<String> = (0..self.len())
+            .map(|i| self.note_of(env, i, true))
             .collect();
-        notes.extend(plugins.iter().map(|info| {
-            let origin = self
-                .origins
-                .iter()
-                .find(|(id, _)| *id == info.manifest.id)
-                .map(|(_, origin)| *origin);
-            details(env, info, origin)
-        }));
         let width = self.list.area().width;
         let row = self
             .style
             .noted_row_for(env, width, notes.iter().map(String::as_str));
-        self.list.set_row(row);
+        self.list.set_row(row.max(self.list.row()));
+    }
+
+    /// The note of row `index`: what a place to get more says, or the
+    /// details of a plugin.
+    fn note_of(&self, env: &Env<'_>, index: usize, estimate: bool) -> String {
+        if let Some(action) = self.more.get(index) {
+            return env.plugins().owner(action).map_or_else(String::new, |p| {
+                let text = if estimate {
+                    &p.manifest.description
+                } else {
+                    p.description(env.i18n())
+                };
+                text.to_string()
+            });
+        }
+        let Some(info) = index
+            .checked_sub(self.more.len())
+            .and_then(|i| self.plugins.get(i))
+            .and_then(|id| env.plugins().get(id.as_str()))
+        else {
+            return String::new();
+        };
+        let origin = self
+            .origins
+            .iter()
+            .find(|(id, _)| *id == info.manifest.id)
+            .map(|(_, origin)| *origin);
+        details(env, info, origin, estimate)
+    }
+
+    /// Makes the rows as high as the notes of the rows shown need (the
+    /// largest text), and never lower while the list is open: a page whose
+    /// notes are longer than estimated (a language longer than English)
+    /// makes them higher from then on, so the pages keep their rows. Only
+    /// the rows shown are read: the notes of all of them would fill the
+    /// read budget of a language on the card in one call.
+    fn fit_rows(&mut self, env: &Env<'_>) {
+        let width = self.list.area().width;
+        // A taller row shows fewer rows, which need no more than those
+        // measured: a few rounds at most.
+        for _ in 0..3 {
+            let first = self.list.page() * self.list.rows();
+            let last = (first + self.list.rows()).min(self.len());
+            let notes: Vec<String> = (first..last).map(|i| self.note_of(env, i, false)).collect();
+            let row = self
+                .style
+                .noted_row_for(env, width, notes.iter().map(String::as_str));
+            if row <= self.list.row() {
+                break;
+            }
+            self.list.set_row(row);
+        }
     }
 
     /// The *Restart now* button, while a change waits for a restart.
@@ -321,8 +366,9 @@ fn state(info: &PluginInfo) -> &'static str {
 }
 
 /// The note below a plugin's name: what happens to it, its description,
-/// version and where it came from (`origin`, for one not built in).
-fn details(env: &Env<'_>, info: &PluginInfo, origin: Option<Origin>) -> String {
+/// version and where it came from (`origin`, for one not built in); with
+/// `estimate`, for measuring only (see [`PluginList::fit_rows`]).
+fn details(env: &Env<'_>, info: &PluginInfo, origin: Option<Origin>, estimate: bool) -> String {
     let i18n = env.i18n();
     let version = i18n.format(
         "plugin-manager.version",
@@ -368,7 +414,13 @@ fn details(env: &Env<'_>, info: &PluginInfo, origin: Option<Origin>) -> String {
     } else {
         None
     };
-    let description = info.description(i18n);
+    // An estimate keeps to what is in memory: the manifest's description,
+    // not the language's, which a catalog on the card gives by reading.
+    let description = if estimate {
+        &info.manifest.description
+    } else {
+        info.description(i18n)
+    };
     let code = if info.kind == PluginKind::Code {
         i18n.tr("plugin-manager.code")
     } else {
@@ -510,6 +562,7 @@ impl Screen for PluginList {
         let style = self.style;
         let len = self.len();
         self.list.set_len(len);
+        self.fit_rows(env);
         if self.focus == Focus::Restart && self.restart_button(env).is_none() {
             self.focus = Focus::List;
         }
@@ -542,7 +595,7 @@ impl Screen for PluginList {
                     .iter()
                     .find(|(id, _)| *id == info.manifest.id)
                     .map(|(_, origin)| *origin);
-                let note = details(env, info, origin);
+                let note = details(env, info, origin, false);
                 ui::Row::value(name, value)
                     .note(&note)
                     .focused(focused)

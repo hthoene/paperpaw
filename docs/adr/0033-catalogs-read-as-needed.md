@@ -154,3 +154,17 @@ lists from the card. The store only carries bytes.
 - Tables: format-epub fills `TableRow`, the layout sets a row's cells in
   their columns, keeps a row on one page, repeats header rows and adds
   the rules; the reader draws `Page::rules` (#27).
+
+
+## Interface 6 follow-up (#208)
+
+The kernel also checks the 12 KiB threshold between commands and before
+command rounds, once the preceding callback has returned every borrowed
+message. Later commands can translate notices and dialog labels even if
+an earlier callback filled the cache. Smaller caches remain resident.
+
+The borrowed `&str` API still prevents eviction during a callback: a
+plugin may retain any earlier message until that callback returns.
+Reading more than 16 KiB within one callback can still fall back. An
+owned or scoped text API that permits bounded eviction is a candidate
+for the next interface round; the budget is not increased here.
