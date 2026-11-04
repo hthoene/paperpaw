@@ -6,6 +6,8 @@ on:
     paths-ignore:
       - "docs/**"
       - "CHANGELOG.md"
+      - "changelog.d/**"
+      - "RELEASING.md"
       - "README.md"
       - "CONTRIBUTING.md"
       - "AGENTS.md"
@@ -15,6 +17,8 @@ on:
     paths-ignore:
       - "docs/**"
       - "CHANGELOG.md"
+      - "changelog.d/**"
+      - "RELEASING.md"
       - "README.md"
       - "CONTRIBUTING.md"
       - "AGENTS.md"
