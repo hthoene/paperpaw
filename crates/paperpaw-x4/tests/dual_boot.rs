@@ -226,6 +226,100 @@ fn an_update_this_firmware_installed_is_marked_at_once_and_goes_back_if_it_dies(
     }
 }
 
+/// The flash already carries the bootloader's marker (#222): the start asks
+/// before it writes anything at once.
+fn open_declared(chip: Chip, slots: &Slots) -> (Updates<Chip>, Start) {
+    Updates::open_with(chip, slots, 0, this(), "x4", || Some(Source::X4Boot)).unwrap()
+}
+
+#[test]
+fn a_vouched_trial_in_a_marked_bootloader_writes_nothing_at_any_step() {
+    // The same start as above, but the bootloader says dual boot: no mark
+    // before the card, none after it, none at the trial's end, none at a
+    // sleep (OTA data, other slot and all).
+    for (name, csv) in layouts() {
+        let (mut chip, slots) = flash(csv);
+        disagreeing(&mut chip, &slots, 0, State::New);
+        let before = chip.0.clone();
+        let (mut updates, plan) = open_declared(chip, &slots);
+        assert_eq!(plan, Start::Trial { ran: 0 }, "{name}");
+        assert!(updates.start_pending(), "{name}: waits for the setup");
+        assert!(!updates.on_trial(), "{name}");
+        assert_eq!(updates.settle(Some(Source::X4Boot)), Some(Start::Kept));
+        assert!(!updates.on_trial(), "{name}");
+        // Time passes: the trial's end, a nap, a wake-up, a give-up.
+        assert_eq!(updates.check_trial(TRIAL_MS * 2), Ok(false), "{name}");
+        assert_eq!(updates.pause_trial(1000), Ok(()), "{name}");
+        assert_eq!(updates.resume_trial(2000), Ok(()), "{name}");
+        assert_eq!(updates.give_up(), Ok(false), "{name}");
+        assert!(updates.into_flash().0 == before, "{name}: wrote");
+    }
+}
+
+#[test]
+fn a_failed_vouched_trial_in_a_marked_bootloader_does_not_go_back() {
+    // The update died before (marked pending by this firmware): in a plain
+    // setup this start marks it bad and chooses the firmware before it. Here
+    // the other slot is another firmware, chosen by the tool: not touched.
+    for (name, csv) in layouts() {
+        let (mut chip, slots) = flash(csv);
+        disagreeing(&mut chip, &slots, 0, State::New);
+        let (updates, _) = Updates::open(chip, &slots, 0, this(), "x4").unwrap();
+        let chip = updates.into_flash(); // died after the early mark
+        let before = chip.0.clone();
+        let (mut updates, plan) = open_declared(chip, &slots);
+        assert!(matches!(plan, Start::Failed { .. }), "{name}: {plan:?}");
+        assert!(updates.start_pending(), "{name}");
+        assert_eq!(updates.settle(Some(Source::X4Boot)), Some(Start::Kept));
+        assert_eq!(updates.check_trial(TRIAL_MS * 2), Ok(false), "{name}");
+        assert!(updates.into_flash().0 == before, "{name}: wrote");
+    }
+}
+
+#[test]
+fn the_bootloader_is_asked_only_where_the_start_would_write() {
+    for (name, csv) in layouts() {
+        // Nothing to write (a start kept): not asked.
+        let (chip, slots) = flash(csv);
+        let mut asked = 0;
+        let (_, plan) = Updates::open_with(chip, &slots, 0, this(), "x4", || {
+            asked += 1;
+            None
+        })
+        .unwrap();
+        assert_eq!((plan, asked), (Start::Kept, 0), "{name}");
+        // A vouched trial: asked once, and unmarked it is done at once.
+        let (mut chip, slots) = flash(csv);
+        disagreeing(&mut chip, &slots, 0, State::New);
+        let (updates, _) = Updates::open_with(chip, &slots, 0, this(), "x4", || {
+            asked += 1;
+            None
+        })
+        .unwrap();
+        assert_eq!(asked, 1, "{name}");
+        assert!(updates.on_trial() && !updates.start_pending(), "{name}");
+    }
+}
+
+#[test]
+fn a_marked_bootloader_the_reader_switched_off_still_marks_the_trial() {
+    // `dual-boot = off` in the ini wins over the marker: the start does what
+    // it would have done at once, once the card has said so.
+    for (name, csv) in layouts() {
+        let (mut chip, slots) = flash(csv);
+        disagreeing(&mut chip, &slots, 0, State::New);
+        let before = chip.0.clone();
+        let (mut updates, _) = open_declared(chip, &slots);
+        assert_eq!(
+            updates.settle(None),
+            Some(Start::Trial { ran: 0 }),
+            "{name}"
+        );
+        assert!(updates.on_trial(), "{name}");
+        assert!(updates.into_flash().0 != before, "{name}: marked");
+    }
+}
+
 #[test]
 fn what_a_tool_chose_waits_for_the_setup_and_a_hang_leaves_it_as_it_was() {
     for (name, csv) in layouts() {

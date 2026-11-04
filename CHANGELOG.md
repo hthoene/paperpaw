@@ -72,6 +72,11 @@ change the plugin SDK.
 
 ### Fixed
 
+- **Dual boot: no write to the OTA data before the setup is known** (#222). Where the bootloader carries a
+  dual-boot tag (`x4boot` or `paperpaw-dualboot:1`), an update PaperPaw put on trial itself, or one that failed its
+  trial, is no longer marked (or gone back from) before the card is read: nothing is written to the OTA data at all,
+  so the dualbooter's choice of slot stays. A setup declared only by `dual-boot = on` in `paperpaw.ini` cannot be
+  known before the card is read; there a trial PaperPaw itself began is still marked at once, as before.
 - **X4 beside the X4 dualbooter** (#167). The X4 finds the slot it runs from by its own code, so a dualbooter's
   bootloader no longer hides the OTA state. PaperPaw recognises the dualbooter's bootloader by its `x4boot` tag
   (besides `paperpaw-dualboot:1` and `dual-boot = on` in `paperpaw.ini`), decides at every start, writes

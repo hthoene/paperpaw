@@ -230,20 +230,37 @@ impl<F: Flash> Updates<F> {
     /// nothing. Whether the setup is a dual-boot one is not known yet (the
     /// reader's choice is on the card): [`Updates::settle`] says, and does
     /// what the start needs only where it is not.
-    #[inline(never)]
     pub fn open(
+        flash: F,
+        slots: &Slots,
+        running: u32,
+        this: Firmware,
+        board: &'static str,
+    ) -> Result<(Self, Start), FlashError> {
+        Self::open_with(flash, slots, running, this, board, || None)
+    }
+
+    /// [`Updates::open`] where the flash alone may already declare a
+    /// dual-boot setup (the marker in the bootloader, #222): `declared` is
+    /// asked only where the start would write at once, and if it says so,
+    /// that write waits for [`Updates::settle`] like any other (a declared
+    /// setup never has it; a reader who switched dual boot off in the ini
+    /// has it then).
+    #[inline(never)]
+    pub fn open_with(
         mut flash: F,
         slots: &Slots,
         running: u32,
         this: Firmware,
         board: &'static str,
+        declared: impl FnOnce() -> Option<Source>,
     ) -> Result<(Self, Start), FlashError> {
         let ota_data = OtaData::read(&mut Partition {
             flash: &mut flash,
             offset: slots.data,
         })?;
         let plan = ota_data.plan(running);
-        let early = ota_data.acts_early(running);
+        let early = ota_data.acts_early(running) && declared().is_none();
         let mut updates = Self {
             flash,
             data: slots.data,
@@ -260,7 +277,8 @@ impl<F: Flash> Updates<F> {
         };
         // What an update this firmware installed needs, or one that failed,
         // is done now (a hang before the card would leave it undone for
-        // good); the rest waits for [`Updates::settle`].
+        // good) unless the flash already says dual boot; the rest waits for
+        // [`Updates::settle`].
         if early {
             updates.early = Some(updates.apply());
         }

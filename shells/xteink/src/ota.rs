@@ -130,8 +130,15 @@ impl Ota {
         let this = Firmware::new(env!("PAPERPAW_VERSION"), PROJECT, CHIP)
             .keys(paperpaw_x4::updates::KEYS.to_vec())
             .plugins(Plugins::read_static(&PLUGINS).unwrap_or_default());
-        let (updates, plan) =
-            Updates::open(Chip(shared.clone()), &slots, running, this, BOARD_TAG).ok()?;
+        let (updates, plan) = Updates::open_with(
+            Chip(shared.clone()),
+            &slots,
+            running,
+            this,
+            BOARD_TAG,
+            || marker(&shared),
+        )
+        .ok()?;
         let mut this = Self {
             updates,
             failed: None,
@@ -141,8 +148,10 @@ impl Ota {
             shared,
         };
         // An update this firmware installed, or one that failed its trial,
-        // was marked at once (`Updates::open`): before the card, since a
-        // hang in the board's start would leave it unmarked for good.
+        // was marked at once (`Updates::open_with`): before the card, since a
+        // hang in the board's start would leave it unmarked for good; not
+        // where the bootloader already carries a dual-boot marker (#222),
+        // nothing is written to the OTA data then.
         if plan != Start::Kept && !this.updates.start_pending() {
             this.settle(None);
         }
