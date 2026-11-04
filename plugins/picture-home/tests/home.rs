@@ -568,3 +568,53 @@ fn the_tone_of_the_picture_follows_the_settings_and_makes_it_anew_once() {
     app.home();
     assert_ne!(app.storage.text(NOTE).unwrap(), again);
 }
+
+const TURNED: [(u16, &[u8]); 4] = [
+    (5, include_bytes!("data/wide-turned-5.jpg")),
+    (6, include_bytes!("data/wide-turned-6.jpg")),
+    (7, include_bytes!("data/wide-turned-7.jpg")),
+    (8, include_bytes!("data/wide-turned-8.jpg")),
+];
+
+fn at_zoom(file: &[u8], zoom: u32, anchor: &str) -> App {
+    let mut app = App::new(
+        X4,
+        Shared::memory(
+            &format!(
+                "{ON}[picture-home]\npicture = p.jpg\nlighten = 0\nzoom = {zoom}\nanchor = picture-home.anchor.{anchor}\n"
+            ),
+            &[("wallpapers/p.jpg", file)],
+        ),
+    );
+    app.home();
+    app
+}
+
+#[test]
+fn a_turned_picture_zoomed_in_is_the_same_as_one_made_upright_beforehand() {
+    // Only what the screen shows is turned, wherever it sits.
+    for (orientation, upright) in TURNED {
+        for (zoom, anchor) in [
+            (100, "center"),
+            (300, "center"),
+            (300, "top-left"),
+            (250, "bottom-right"),
+        ] {
+            let turned = at_zoom(&with_orientation(WIDE, orientation), zoom, anchor);
+            let reference = at_zoom(upright, zoom, anchor);
+            for (x, y) in [
+                (10u64, 10u64),
+                (240, 400),
+                (470, 790),
+                (100, 600),
+                (400, 150),
+            ] {
+                let (a, b) = (baked(&turned, x, y), baked(&reference, x, y));
+                assert!(
+                    a.abs_diff(b) < 40,
+                    "orientation {orientation} zoom {zoom} {anchor} at {x},{y}: {a} against {b}"
+                );
+            }
+        }
+    }
+}

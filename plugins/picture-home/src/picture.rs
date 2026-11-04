@@ -17,7 +17,7 @@ use alloc::vec::Vec;
 use paperpaw_sdk::document::ImageRef;
 use paperpaw_sdk::image::{Fit, GrayFile, GrayWriter, ImageError, ImageSink, dimensions};
 
-use crate::orient::{Turn, jpeg_orientation, jpeg_size, transposed};
+use crate::orient::{Crop, Turn, jpeg_orientation, jpeg_size, transposed};
 use paperpaw_sdk::{Canvas, Env, Rect};
 
 use crate::settings;
@@ -371,35 +371,70 @@ fn make(env: &Env<'_>, recipe: &Recipe) -> Result<ImageRef, Failure> {
         false,
     )
     .ok_or(Failure::Unreadable)?;
-    let decoded = if turn.transpose {
+    // The plan once the size is known, from what was decoded: that is the
+    // picture's own size where it is no larger than `LARGEST`, and in its
+    // proportions where it was made smaller.
+    let upright = turn.size((decoded.width, decoded.height));
+    let plan = plan(recipe, known.unwrap_or(upright));
+    // A turned picture is turned only as far as the screen shows it.
+    let (decoded, origin) = if turn.transpose {
         let file = GrayFile {
             path: decoded.path.clone(),
             width: decoded.width,
             height: decoded.height,
         };
-        let turned = transposed(storage, &file, &data(TURNED)).map_err(failed)?;
-        ImageRef {
+        let crop = visible(recipe, &plan, upright, turn);
+        let turned = transposed(storage, &file, &data(TURNED), crop).map_err(failed)?;
+        let image = ImageRef {
             path: turned.path,
             width: turned.width,
             height: turned.height,
-        }
+        };
+        (image, (crop.x, crop.y))
     } else {
-        decoded
+        (decoded, (0, 0))
     };
-    // The plan once the size is known, from what was decoded: that is the
-    // picture's own size where it is no larger than `LARGEST`, and in its
-    // proportions where it was made smaller.
-    let source = match known {
-        Some(source) => source,
-        None => (decoded.width, decoded.height),
-    };
-    let plan = plan(recipe, source);
-    compose(env, recipe, &plan, &decoded, turn).map_err(failed)?;
+    compose(env, recipe, &plan, &decoded, (upright, origin), turn).map_err(failed)?;
     Ok(ImageRef {
         path: data(BAKED),
         width: u32::from(recipe.width),
         height: u32::from(recipe.height),
     })
+}
+
+/// The part of a picture of `upright` pixels (the decoded one, upright)
+/// that the screen shows as `plan` places it, in the coordinates of the
+/// picture before it is mirrored, with a pixel to spare on each side.
+fn visible(recipe: &Recipe, plan: &Plan, upright: (u32, u32), turn: Turn) -> Crop {
+    if recipe.fitting == Fitting::Tile {
+        return Crop::all(upright);
+    }
+    // The visible span of one axis, in the picture's pixels: the plan's
+    // pixels from `from` to `to` of `across`, which are `size`.
+    let span = |left: i32, across: u32, screen: u16, size: u32, mirrored: bool| {
+        let (left, across, size) = (i64::from(left), i64::from(across).max(1), i64::from(size));
+        let from = (-left).max(0);
+        let to = (i64::from(screen) - left).min(across);
+        if to <= from {
+            return (0, 1);
+        }
+        let start = (from * size / across - 1).max(0);
+        let end = ((to * size + across - 1) / across + 1).min(size);
+        let (start, end) = if mirrored {
+            (size - end, size - start)
+        } else {
+            (start, end)
+        };
+        (start as u32, (end - start).max(1) as u32)
+    };
+    let (x, width) = span(plan.left, plan.width, recipe.width, upright.0, turn.flip_x);
+    let (y, height) = span(plan.top, plan.height, recipe.height, upright.1, turn.flip_y);
+    Crop {
+        x,
+        y,
+        width,
+        height,
+    }
 }
 
 /// What a failure of the decode or the work on files means.
@@ -416,6 +451,7 @@ fn compose(
     recipe: &Recipe,
     plan: &Plan,
     decoded: &ImageRef,
+    (whole, origin): ((u32, u32), (u32, u32)),
     turn: Turn,
 ) -> Result<(), ImageError> {
     let storage = env.storage();
@@ -425,7 +461,9 @@ fn compose(
         height: decoded.height,
     };
     let (width, height) = (u32::from(recipe.width), u32::from(recipe.height));
+    // The file holds a part of the picture (`whole` is its size) from `origin`.
     let (sw, sh) = (source.width.max(1), source.height.max(1));
+    let (ww, wh) = (whole.0.max(1), whole.1.max(1));
     // Rows of the decoded picture are read a few at a time, in the order
     // the screen's rows need them.
     let per = (8192 / sw as usize).max(1);
@@ -465,8 +503,9 @@ fn compose(
         match row {
             None => out.fill(255),
             Some(at) => {
-                let sy = ((at * i64::from(sh) / ph) as u32).min(sh - 1);
-                let sy = if turn.flip_y { sh - 1 - sy } else { sy };
+                let sy = ((at * i64::from(wh) / ph) as u32).min(wh - 1);
+                let sy = if turn.flip_y { wh - 1 - sy } else { sy };
+                let sy = sy.saturating_sub(origin.1).min(sh - 1);
                 if !(first..first.saturating_add(count)).contains(&sy) {
                     // Upside down, the rows read lie before the one wanted.
                     first = if turn.flip_y {
@@ -489,12 +528,13 @@ fn compose(
                         (0..pw).contains(&at).then_some(at)
                     };
                     *pixel = column.map_or(255, |c| {
-                        let sx = ((c * i64::from(sw) / pw) as usize).min(sw as usize - 1);
+                        let sx = ((c * i64::from(ww) / pw) as usize).min(ww as usize - 1);
                         let sx = if turn.flip_x {
-                            sw as usize - 1 - sx
+                            ww as usize - 1 - sx
                         } else {
                             sx
                         };
+                        let sx = sx.saturating_sub(origin.0 as usize).min(sw as usize - 1);
                         let value = lighten(curve[usize::from(line[sx])], recipe.lighten);
                         if recipe.dotted {
                             dotted(value, x as usize, y as usize)
