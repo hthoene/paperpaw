@@ -20,6 +20,10 @@ change the plugin SDK.
   second page. The pages' key now covers the fonts and packs there are (a pack that comes or goes makes the pages be
   counted again, also while the book is open), and a turn that finds no page though the count says more throws the
   count away and makes it again. Reader 1.0.8.
+- **The button bar speaks a store language from the first frame** (#204). A screen that read much of a language pack as
+  it opened (the plugins list reads every plugin's name and description) filled what is read of the pack at once, so
+  the bar's labels fell back to English (*Back*, *Select*) until the next redraw. The kernel now forgets the messages
+  read before it looks up the bar's labels when they near that limit, as it already did at the end of each call.
 
 ## [0.6.0-beta.2] - 2026-11-03
 

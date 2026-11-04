@@ -3260,6 +3260,7 @@ fn overlays_leave_the_rows_they_do_not_cover() {
 
 mod action_runs;
 mod busy_mark;
+mod card_hints;
 mod chrome;
 mod clean_up;
 mod declared_work;

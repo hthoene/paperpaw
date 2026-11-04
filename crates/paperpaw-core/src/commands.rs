@@ -45,6 +45,9 @@ impl Kernel {
         self.check_network();
         self.run_commands();
         if let Some(row) = self.hint_row() {
+            // A screen that read much as it opened may have filled what is
+            // read from a card catalog: the row's labels would fall back.
+            self.forget_read_messages_if_full();
             let hints = self.current_hints();
             if hints != self.hint.shown {
                 self.hint.shown = hints;
@@ -270,10 +273,18 @@ impl Kernel {
     /// near the most that is read.
     fn forget_read_messages(&mut self) {
         let top = self.stack.last().map(|s| s.serial);
-        let full = self.shared.translator.read_bytes() > paperpaw_i18n::MAX_READ / 4 * 3;
-        if top != self.read_top || full {
+        if top != self.read_top {
             self.shared.translator.forget_read();
             self.read_top = top;
+        }
+        self.forget_read_messages_if_full();
+    }
+
+    /// Forgets the messages read from catalogs on the card once they near
+    /// the most that is read, none lent out now.
+    fn forget_read_messages_if_full(&mut self) {
+        if self.shared.translator.read_bytes() > paperpaw_i18n::MAX_READ / 4 * 3 {
+            self.shared.translator.forget_read();
         }
     }
 
