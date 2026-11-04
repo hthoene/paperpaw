@@ -23,7 +23,7 @@ use crate::{FOLDERS, JOURNAL, OPEN_FILES, hash, name, parent, same_path};
 
 /// The disk as the exFAT driver reads and writes it, in blocks: how many
 /// it says the disk holds, and the clusters past the card's end of a
-/// volume longer than the card, kept from the driver ([`Tail`]).
+/// volume longer than the card, kept from the driver by a bounded view.
 pub struct ExDisk<B: Blocks> {
     disk: SharedDisk<B>,
     blocks: u64,
