@@ -1426,9 +1426,8 @@ fn beside_another_firmware_the_page_installs_nothing_and_says_why() {
     device.no_request();
 }
 
-/// A firmware that found no slot to update (a dualbooter's partitions the
-/// shell did not read before, #167) has no firmware info, yet the page
-/// still says why nothing is installed here.
+/// No slot found to update (#167): no firmware info, but the page still
+/// says why nothing is installed here.
 fn without_firmware(storage: Shared) -> Device {
     let mut kernel = Kernel::builder(DEVICE)
         .storage(storage.clone())
@@ -1457,16 +1456,10 @@ fn the_page_says_it_shares_the_device_also_without_firmware_info() {
         let mut device = without_firmware(storage);
         device.run(OPEN);
         let shown = device.shown();
-        assert!(
-            shown.contains("Two firmwares on this device"),
-            "{note}: {shown}"
-        );
-        assert!(
-            shown.contains("installs no updates here"),
-            "{note}: {shown}"
-        );
+        for said in ["Two firmwares on this device", "installs no updates here"] {
+            assert!(shown.contains(said), "{note}: {shown}");
+        }
     }
-    // No note: as before, nothing to say.
     let mut device = without_firmware(Shared::default());
     device.run(OPEN);
     assert!(!device.shown().contains("Two firmwares"));

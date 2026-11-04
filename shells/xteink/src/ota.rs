@@ -161,13 +161,6 @@ impl Ota {
         self.settled
     }
 
-    /// Whether the start found something to write to the OTA data (an
-    /// update to put on trial, one undone or failed): only then is it
-    /// settled by reading the card and the bootloader, at the start.
-    pub fn start_pending(&self) -> bool {
-        self.updates.start_pending()
-    }
-
     /// The flash, for the bootloader's marker.
     pub fn flash(&self) -> &Flash {
         &self.shared

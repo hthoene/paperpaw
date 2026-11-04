@@ -210,6 +210,8 @@ impl MarkerScan {
             if needle[self.matched] == byte {
                 self.matched += 1;
                 if self.matched == needle.len() {
+                    // Ready for more pieces of the same flash.
+                    self.matched = 0;
                     return true;
                 }
             }

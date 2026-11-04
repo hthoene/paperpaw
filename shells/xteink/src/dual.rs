@@ -101,10 +101,7 @@ fn decide(flash: &ota::Flash, slot: Option<u32>, storage: &dyn Storage) -> Optio
         None if choice == Choice::Off => info!("dual boot: switched off in {CONFIG}"),
         None => {}
     }
-    note(
-        storage,
-        source.map(|source| dual_boot::note(source, slot)),
-    );
+    note(storage, source.map(|source| dual_boot::note(source, slot)));
     source
 }
 
