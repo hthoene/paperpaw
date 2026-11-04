@@ -244,6 +244,40 @@ where
         }
     }
 
+    /// Whether the driver can keep the grays on the panel while a small
+    /// part of the screen changes (#218, an experiment): only the
+    /// SSD1677's can, with the memories of both frames.
+    pub fn can_change_in_grays(&self) -> bool {
+        matches!(self, Panel::Ssd1677 { .. })
+    }
+
+    /// The part of a band in `rect` (`x0, y0, x1, y1`) into `planes`, the
+    /// rest of the memory as it is, inverted where asked (see
+    /// [`display::Display::write_rect`]); `Error::Rows` where the driver
+    /// cannot (see [`Panel::can_change_in_grays`]).
+    pub fn write_rect(
+        &mut self,
+        top: u16,
+        rows: FrameView<'_>,
+        rect: (u16, u16, u16, u16),
+        planes: Planes,
+        invert: bool,
+    ) -> Result<(), Error> {
+        match self {
+            Panel::Ssd1677 { display, .. } => display.write_rect(top, rows, rect, planes, invert),
+            _ => Err(Error::Rows),
+        }
+    }
+
+    /// Starts a fast refresh that leaves the grays where both memories
+    /// agree (see [`display::Display::start_refresh_keeping_grays`]).
+    pub fn start_refresh_keeping_grays(&mut self, power_off: bool) -> Result<(), Error> {
+        match self {
+            Panel::Ssd1677 { display, .. } => display.start_refresh_keeping_grays(power_off),
+            _ => Err(Error::Rows),
+        }
+    }
+
     pub fn refresh(&mut self, refresh: Refresh, power_off: bool) -> Result<(), Error> {
         each!(self, d => d.refresh(refresh, power_off))
     }
