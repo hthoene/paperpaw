@@ -126,7 +126,7 @@ how = "PaperPaw's menus and settings in Arabic, running from right to left.\n\nI
 de.how = "PaperPaws Menüs und Einstellungen auf Arabisch, von rechts nach links.\n\nSie braucht die Arabische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-es]
-version = "1.0.0"
+version = "1.0.1"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
