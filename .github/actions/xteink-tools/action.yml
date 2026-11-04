@@ -55,6 +55,10 @@ runs:
     - name: espup's toolchain
       if: inputs.device != 'x4' && inputs.device != 'x3' && steps.esp-cache.outputs.cache-hit != 'true'
       shell: bash
+      # espup asks GitHub's API for its releases: without the token a fresh
+      # repository (no cache) is stopped by the unauthenticated rate limit.
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
       run: |
         cargo install espup --version "$ESPUP_VERSION" --locked
         espup install --targets esp32s3 --toolchain-version "$ESP_RUST_VERSION" \
