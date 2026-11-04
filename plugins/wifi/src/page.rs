@@ -1,30 +1,30 @@
 //! The Wi-Fi page (the settings group's own page): the radio's switch
-//! with where it is, the networks in reach (choose one to join; the menu
-//! button forgets a saved one), the setup with a phone, and the
+//! with where it is, the setup with a phone (first while no network is
+//! kept), the page of the networks in reach (see `networks`), and the
 //! plugin's settings.
 
 use alloc::borrow::Cow;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use paperpaw_sdk::builtin::{actions, events, params};
+use paperpaw_sdk::builtin::{actions, events};
 use paperpaw_sdk::ui::{self, ListView, UiStyle};
-use paperpaw_sdk::wifi::{self, WifiCommand, WifiNetwork, WifiState};
+use paperpaw_sdk::wifi::{self, WifiCommand, WifiState};
 use paperpaw_sdk::{
-    Arg, Canvas, Command, Cx, Env, Gesture, GestureKind, Handled, Hint, Id, Params, Rect,
-    RefreshMode, Screen,
+    Arg, Canvas, Command, Cx, Env, Gesture, GestureKind, Handled, Id, Params, Rect, RefreshMode,
+    Screen,
 };
 
-use crate::{IDLE_OFF, IDLE_OFF_CHOICES, ON_DEMAND, PASSWORD_ENTERED, Shared, WHILE_CHARGING};
+use crate::{IDLE_OFF, IDLE_OFF_CHOICES, NETWORKS, ON_DEMAND, Shared, WHILE_CHARGING};
 
 /// A row of the page.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Row {
     Radio,
     /// Setting it up with a phone.
     Phone,
-    Network(WifiNetwork),
-    Search,
+    /// The page of the networks in reach.
+    Networks,
     OnDemand,
     IdleOff,
     WhileCharging,
@@ -35,6 +35,10 @@ pub(crate) struct WifiPage {
     style: UiStyle,
     header: ui::Header,
     list: ListView,
+    /// What the page said when it was drawn last (see [`view`]): the
+    /// height of its rows is measured again only when that changes, and an
+    /// event that leaves it as it is draws nothing.
+    shown: u64,
 }
 
 impl core::fmt::Debug for WifiPage {
@@ -60,31 +64,58 @@ fn state_text(env: &Env<'_>, state: &WifiState, scanning: bool) -> String {
     }
 }
 
-/// What is known of a network, in words: joined or saved, its signal,
-/// open or not.
-fn network_note(env: &Env<'_>, network: &WifiNetwork, state: &WifiState, saved: bool) -> String {
-    let mut parts: Vec<&str> = Vec::new();
-    match state {
-        WifiState::Online { ssid, .. } if *ssid == network.ssid => {
-            parts.push(env.i18n().tr("wifi.network.connected"));
-        }
-        WifiState::Joining { ssid } if *ssid == network.ssid => {
-            parts.push(env.i18n().tr("wifi.network.connecting"));
-        }
-        _ if saved => parts.push(env.i18n().tr("wifi.network.saved")),
-        _ => {}
-    }
-    let signal = match network.bars() {
-        4 => "wifi.signal.excellent",
-        3 => "wifi.signal.good",
-        2 => "wifi.signal.fair",
-        _ => "wifi.signal.weak",
+/// What the row of the networks says: the network the device is in, if
+/// any, and how many are in reach (or that they are being looked for).
+fn networks_note(env: &Env<'_>, wifi: &wifi::Wifi) -> String {
+    let count = wifi.networks.len();
+    let reach = if count == 0 && wifi.scanning {
+        env.i18n().tr("wifi.state.searching").to_string()
+    } else if count == 0 {
+        env.i18n().tr("wifi.no-networks").to_string()
+    } else {
+        env.i18n()
+            .format("wifi.networks.reach", &[("count", Arg::Int(count as i64))])
     };
-    parts.push(env.i18n().tr(signal));
-    if !network.secured {
-        parts.push(env.i18n().tr("wifi.network.open"));
+    match &wifi.state {
+        WifiState::Online { ssid, .. } => alloc::format!("{ssid} · {reach}"),
+        _ => reach,
     }
-    parts.join(" · ")
+}
+
+/// FNV-1a over `bytes`, continuing from `hash`.
+fn fnv(hash: u64, bytes: &[u8]) -> u64 {
+    bytes.iter().fold(hash, |h, b| {
+        (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+/// What the page says that changes: where the radio is, the row of the
+/// networks, whether a network is kept, the settings; and a key of them.
+fn view(env: &Env<'_>) -> (String, String, u64) {
+    let state = env
+        .wifi()
+        .map(|w| state_text(env, &w.state, w.scanning))
+        .unwrap_or_default();
+    let networks = env
+        .wifi()
+        .map(|w| networks_note(env, w))
+        .unwrap_or_default();
+    let kept = !wifi::known(env.secrets().iter()).is_empty();
+    let on = env.wifi().is_some_and(|w| w.state.is_on());
+    let settings = alloc::format!(
+        "{}{}{}{}{}",
+        u8::from(kept),
+        u8::from(on),
+        u8::from(env.settings().read(&ON_DEMAND)),
+        u8::from(env.settings().read(&WHILE_CHARGING)),
+        env.settings().read(&IDLE_OFF)
+    );
+    let key = [state.as_str(), networks.as_str(), settings.as_str()]
+        .iter()
+        .fold(0xcbf2_9ce4_8422_2325, |h, text| {
+            fnv(fnv(h, text.as_bytes()), b"\t")
+        });
+    (state, networks, key)
 }
 
 impl WifiPage {
@@ -99,18 +130,24 @@ impl WifiPage {
             list: ListView::new(area, style.noted_row()).focus_on_keys(env),
             style,
             header,
+            shown: 0,
         }
     }
 
+    /// The rows: where no network is kept the setup with a phone comes
+    /// first, below the radio; else the networks and then the setup.
     fn rows(env: &Env<'_>) -> Vec<Row> {
         let mut rows = alloc::vec![Row::Radio];
-        if let Some(wifi) = env.wifi()
-            && wifi.state.is_on()
-        {
-            rows.extend(wifi.networks.iter().cloned().map(Row::Network));
-            rows.push(Row::Search);
+        let kept = !wifi::known(env.secrets().iter()).is_empty();
+        if !kept {
+            rows.push(Row::Phone);
         }
-        rows.push(Row::Phone);
+        if env.wifi().is_some_and(|w| w.state.is_on()) {
+            rows.push(Row::Networks);
+        }
+        if kept {
+            rows.push(Row::Phone);
+        }
         rows.extend([Row::OnDemand, Row::IdleOff, Row::WhileCharging]);
         rows
     }
@@ -118,17 +155,6 @@ impl WifiPage {
     fn changed(cx: &mut Cx<'_, '_>) {
         cx.request_redraw();
         cx.request_refresh(RefreshMode::Fast);
-    }
-
-    /// Looks for networks if the radio is on and nothing else goes on.
-    fn search(&self, cx: &mut Cx<'_, '_>) {
-        let env = *cx.env();
-        if let Some(wifi) = env.wifi()
-            && wifi.state.is_on()
-            && !wifi.scanning
-        {
-            cx.command(Command::Wifi(WifiCommand::Scan));
-        }
     }
 
     /// What choosing a row does.
@@ -140,55 +166,18 @@ impl WifiPage {
         let Some(row) = Self::rows(&env).into_iter().nth(index) else {
             return;
         };
-        let mut policy = self.policy.borrow_mut();
         match row {
             Row::Radio if wifi.state.is_on() => {
-                policy.manual = false;
+                self.policy.borrow_mut().manual = false;
                 cx.command(Command::Wifi(WifiCommand::Off));
             }
             Row::Radio => {
-                policy.manual = true;
+                self.policy.borrow_mut().manual = true;
                 cx.command(Command::Wifi(WifiCommand::On));
             }
-            Row::Network(network) => {
-                let known = wifi::known(env.secrets().iter());
-                let saved = known.iter().find(|(ssid, _)| *ssid == network.ssid);
-                if wifi.state.ssid() == Some(&network.ssid) {
-                    // Joined already (or joining).
-                } else if let Some((ssid, password)) = saved {
-                    for command in policy.choose(&wifi.state, ssid, password) {
-                        cx.command(Command::Wifi(command));
-                    }
-                } else if network.secured {
-                    let title = env
-                        .i18n()
-                        .format("wifi.password", &[("ssid", Arg::Str(&network.ssid))]);
-                    // Typed before and not taken (not wrong, e.g. no
-                    // answer): offered again, not typed anew.
-                    let typed = policy
-                        .pending
-                        .as_ref()
-                        .filter(|(ssid, _)| *ssid == network.ssid)
-                        .map(|(_, password)| password.clone())
-                        .unwrap_or_default();
-                    cx.command(
-                        paperpaw_sdk::ask::text(title, &PASSWORD_ENTERED)
-                            .password()
-                            .initial(typed)
-                            .with(params::ID, network.ssid.clone())
-                            .command(),
-                    );
-                } else {
-                    // Not kept: an open network is not joined by itself
-                    // again (see `policy::best_known`).
-                    for command in policy.choose(&wifi.state, &network.ssid, "") {
-                        cx.command(Command::Wifi(command));
-                    }
-                }
-            }
-            Row::Search => {
-                drop(policy);
-                self.search(cx);
+            Row::Networks => {
+                cx.command(Command::OpenScreen(NETWORKS, Params::new()));
+                return;
             }
             Row::Phone => {
                 cx.command(Command::OpenScreen(crate::PHONE, Params::new()));
@@ -215,30 +204,6 @@ impl WifiPage {
         }
         Self::changed(cx);
     }
-
-    /// Forgets the saved network in row `index`, leaving it if joined.
-    fn forget(&self, index: usize, cx: &mut Cx<'_, '_>) -> bool {
-        let env = *cx.env();
-        let Some(Row::Network(network)) = Self::rows(&env).into_iter().nth(index) else {
-            return false;
-        };
-        if !wifi::known(env.secrets().iter())
-            .iter()
-            .any(|(ssid, _)| *ssid == network.ssid)
-        {
-            return false;
-        }
-        cx.command(Command::set_secret(wifi::forget(&network.ssid)));
-        if env.wifi().and_then(|w| w.state.ssid()) == Some(&network.ssid) {
-            cx.command(Command::Wifi(WifiCommand::Leave));
-        }
-        cx.command(Command::Notify(
-            env.i18n()
-                .format("wifi.forgotten", &[("ssid", Arg::Str(&network.ssid))]),
-        ));
-        Self::changed(cx);
-        true
-    }
 }
 
 impl Screen for WifiPage {
@@ -248,56 +213,38 @@ impl Screen for WifiPage {
         let len = rows.len();
         let title = env.i18n().tr("wifi.title");
         // Rows as high as the notes of the radio and the settings need
-        // (the largest text); a network's note is short.
-        let state = env
-            .wifi()
-            .map(|w| state_text(env, &w.state, w.scanning))
-            .unwrap_or_default();
-        let tr = |key| env.i18n().tr(key);
-        let notes = [
-            state.as_str(),
-            tr("wifi.phone.note"),
-            tr("wifi.setting.on-demand.help"),
-            tr("wifi.setting.while-charging.help"),
-            tr("wifi.setting.idle-off.help"),
-        ];
-        let row = style.noted_row_for(env, self.list.area().width, notes);
-        self.list.set_row(row);
+        // (the largest text), measured when what the page says changes.
+        let (state, networks, key) = view(env);
+        if key != self.shown {
+            self.shown = key;
+            let tr = |key| env.i18n().tr(key);
+            let notes = [
+                state.as_str(),
+                networks.as_str(),
+                tr("wifi.phone.note"),
+                tr("wifi.setting.on-demand.help"),
+                tr("wifi.setting.while-charging.help"),
+                tr("wifi.setting.idle-off.help"),
+            ];
+            let row = style.noted_row_for(env, self.list.area().width, notes);
+            self.list.set_row(row);
+        }
         let mut ui = ui::Ui::new(canvas, env, &style);
         self.header
             .draw(&mut ui, title, None, self.list.paging(len));
         let Some(wifi) = env.wifi() else {
             return;
         };
-        let known = wifi::known(env.secrets().iter());
         self.list.draw(&mut ui, len, |ui, row, rect, focused| {
             let tr = |key| env.i18n().tr(key);
-            let line = match &rows[row] {
+            let line = match rows[row] {
                 Row::Radio => {
-                    let state = state_text(env, &wifi.state, wifi.scanning);
                     return ui::Row::switch(title, wifi.state.is_on())
                         .note(&state)
                         .focused(focused)
                         .draw(ui, rect);
                 }
-                Row::Network(network) => {
-                    let saved = known.iter().any(|(ssid, _)| *ssid == network.ssid);
-                    let note = network_note(env, network, &wifi.state, saved);
-                    return ui::Row::plain(&network.ssid)
-                        .note(&note)
-                        .focused(focused)
-                        .draw(ui, rect);
-                }
-                Row::Search => {
-                    let note = if wifi.scanning {
-                        tr("wifi.state.searching")
-                    } else if wifi.networks.is_empty() {
-                        tr("wifi.no-networks")
-                    } else {
-                        ""
-                    };
-                    ui::Row::plain(tr("wifi.search")).note(note)
-                }
+                Row::Networks => ui::Row::value(tr("wifi.networks.title"), "›").note(&networks),
                 Row::OnDemand | Row::WhileCharging => {
                     let (id, key) = if rows[row] == Row::OnDemand {
                         (ON_DEMAND, "wifi.setting.on-demand")
@@ -324,9 +271,9 @@ impl Screen for WifiPage {
     }
 
     fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
-        // Fresh networks, unless joining one is going on.
+        // Fresh networks to count, unless joining one is going on.
         if self.policy.borrow().goal == crate::policy::Goal::Nothing {
-            self.search(cx);
+            crate::networks::search(cx);
         }
     }
 
@@ -337,7 +284,7 @@ impl Screen for WifiPage {
         if !ours {
             return;
         }
-        // Switched on here: the networks to choose from.
+        // Switched on here: the networks to count.
         let env = *cx.env();
         if *event == events::WIFI_CHANGED
             && env
@@ -345,38 +292,22 @@ impl Screen for WifiPage {
                 .is_some_and(|w| w.state == WifiState::On && w.networks.is_empty())
             && self.policy.borrow().goal == crate::policy::Goal::Nothing
         {
-            self.search(cx);
+            crate::networks::search(cx);
         }
-        Self::changed(cx);
-    }
-
-    fn hint(&self, action: &Id, env: &Env<'_>) -> Hint {
-        let row = Self::rows(env).into_iter().nth(self.list.focus());
-        let saved = |network: &WifiNetwork| {
-            wifi::known(env.secrets().iter())
-                .iter()
-                .any(|(ssid, _)| *ssid == network.ssid)
-        };
-        match row {
-            Some(Row::Network(network)) if *action == actions::MENU && saved(&network) => {
-                Hint::Text(env.i18n().tr("wifi.forget").to_string())
-            }
-            _ => Hint::Default,
+        // Drawn again only where the page says something else (see `view`).
+        if view(&env).2 != self.shown {
+            Self::changed(cx);
         }
     }
 
     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
         let len = Self::rows(cx.env()).len();
         let rows = self.list.rows() as isize;
-        let a = action;
-        let delta = if let Some(delta) = ui::list_step(a, rows) {
-            delta
-        } else if *a == actions::CONFIRM {
+        if *action == actions::CONFIRM {
             self.activate(self.list.focus(), cx);
             return Handled::Yes;
-        } else if *a == actions::MENU && self.forget(self.list.focus(), cx) {
-            return Handled::Yes;
-        } else {
+        }
+        let Some(delta) = ui::list_step(action, rows) else {
             return Handled::No;
         };
         self.list.move_focus_in(cx.env(), delta, len).request(cx);
@@ -398,15 +329,10 @@ impl Screen for WifiPage {
             return Handled::No;
         };
         self.list.set_focus(index);
-        match gesture.kind {
-            GestureKind::Tap => {
-                self.activate(index, cx);
-                Handled::Yes
-            }
-            // A long press forgets a saved network (the menu button's
-            // part on devices without touch).
-            GestureKind::LongPress if self.forget(index, cx) => Handled::Yes,
-            _ => Handled::No,
+        if gesture.kind == GestureKind::Tap {
+            self.activate(index, cx);
+            return Handled::Yes;
         }
+        Handled::No
     }
 }

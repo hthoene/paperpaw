@@ -8,6 +8,15 @@ change the plugin SDK.
 
 ### Added
 
+- **The Wi-Fi page: the networks have a page of their own** (#161). The Wi-Fi page is short whatever is in the air:
+  the switch with where it is, a row *Networks ›* (the network the device is in and how many are in reach; it opens
+  the list), the setup with a phone and the three settings. While no network is kept, *Set up with a phone* comes
+  first, below the switch. Back on the list returns to the Wi-Fi page; if the radio goes off meanwhile it does
+  too. Opening the list does not scan again (the Wi-Fi page has just); its last row looks again. Both pages measure
+  their rows again only when what they say changes, and an event of the radio that changes nothing they show (a
+  signal that moved a little) draws nothing: each frame costs the X4 a screen refresh, and a key pressed meanwhile
+  waits for it (#160, partial: the cause of the slow Up and Down is not settled).
+
 - **Spanish user interface.** All 3,861 messages of the kernel and the plugins in Spanish, as the data plugin
   `language-es` from the store. Machine-translated and checked with `tools/language-pack.py check es`; corrections
   from Spanish readers are welcome.
@@ -57,6 +66,9 @@ change the plugin SDK.
   the plugins before stay as they were), but once the update is kept, its mark written for good (about 30 seconds on), the
   kernel tells plugins what the firmware takes: the store, opened or opened again, lists and installs the builds that fit
   (*Restart now* as for any code plugin); a mark that could not be written keeps it as before.
+- **Widget plates follow rounded corners** (#206). A grid plate no longer sticks out past a widget's corners or
+  fills the space beside its shadow. Frameless paper follows explicitly chosen corners; Automatic stays square.
+  Empty widgets have no grid plate outside editing mode.
 - **X4 Pro: the charging bolt on battery, and a sleep that never switched off** (#209). The Pro took "a computer sends USB
   frames" for charging: the bolt, the kernel's low-battery rules, its install check and the sleeping reader's *Switch off
   after sleeping* all went by it, so a Pro on battery could show the bolt, run no idle naps and stay asleep all night.

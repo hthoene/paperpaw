@@ -413,7 +413,9 @@ impl GridView {
 
     /// [`draw`](Self::draw) with `plate` under the items: nothing over a
     /// picture, a colour on a dark page; a widget's own paper is its own to
-    /// paint ([`draw_frame`](crate::widgets::draw_frame)). With [`Plate::None`] the
+    /// paint ([`draw_frame`](crate::widgets::draw_frame)). A widget with
+    /// nothing to show ([`Widget::height`] 0, e.g. a shelf without books)
+    /// has no plate, except while editing. With [`Plate::None`] the
     /// screen paints what lies under the items first, also before a
     /// partial redraw (the grid clears nothing).
     pub fn draw_on(&self, canvas: &mut Canvas<'_>, env: &Env<'_>, plate: Plate) {
@@ -441,7 +443,9 @@ impl GridView {
             if shown.area.intersection(&clip).is_none() {
                 continue;
             }
-            fill_plate(canvas, shown, plate);
+            if editing || !shows_nothing(shown, env) {
+                fill_plate(canvas, env, shown, plate);
+            }
             match (&shown.item.what, &shown.widget) {
                 (What::Widget(_), Some(widget)) => widget.draw(canvas, env, shown.area),
                 (What::Widget(_), None) => {}
@@ -1317,12 +1321,34 @@ fn handle(area: Rect, style: &UiStyle) -> Rect {
 /// that a widget drawing all of itself is drawn on what the screen chose,
 /// whatever the reader set for widgets ([`draw_frame`](crate::widgets::draw_frame)
 /// paints a widget's own paper).
-fn fill_plate(canvas: &mut Canvas<'_>, shown: &Shown, plate: Plate) {
+fn fill_plate(canvas: &mut Canvas<'_>, env: &Env<'_>, shown: &Shown, plate: Plate) {
+    if matches!(plate, Plate::None) {
+        return;
+    }
+    // A widget's in the shape of its own plate, so that nothing shows
+    // past its corners or beside its shadow; a tool's square.
+    let (area, radius) = match &shown.item.what {
+        What::Widget(id) => env.settings().with_placement(Some(id), || {
+            crate::widgets::shape::plate_shape(env, crate::widgets::base(id), shown.area)
+        }),
+        What::Tool(_) => (shown.area, 0),
+    };
     match plate {
-        Plate::Paper => canvas.fill(shown.area, Color::WHITE),
-        Plate::Colour(colour) => canvas.fill_shaded(shown.area, colour),
+        Plate::Paper if radius == 0 => canvas.fill(area, Color::WHITE),
+        Plate::Paper => canvas.fill_round(area, radius, Color::WHITE),
+        Plate::Colour(colour) if radius == 0 => canvas.fill_shaded(area, colour),
+        Plate::Colour(colour) => canvas.fill_round_shaded(area, radius, colour),
         Plate::None => {}
     }
+}
+
+/// Whether `shown` is a widget with nothing to show at its width
+/// ([`Widget::height`] 0): what lies under the grid shows there.
+fn shows_nothing(shown: &Shown, env: &Env<'_>) -> bool {
+    shown
+        .widget
+        .as_ref()
+        .is_some_and(|widget| widget.height(env, shown.area.width) == 0)
 }
 
 /// The ink of the lines drawn while editing, which read on `plate`.
