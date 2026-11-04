@@ -25,6 +25,26 @@ pub(crate) const FIT: Setting<Text> = Setting::new("picture-home.fit");
 pub(crate) const ANCHOR: Setting<Text> = Setting::new("picture-home.anchor");
 pub(crate) const ZOOM: Setting<i64> = Setting::new("picture-home.zoom");
 pub(crate) const LIGHTEN: Setting<i64> = Setting::new("picture-home.lighten");
+/// How light the picture is and how strongly its dark and light parts
+/// differ (values of [`BRIGHTNESSES`] and [`CONTRASTS`]): panels differ.
+pub(crate) const BRIGHTNESS: Setting<Text> = Setting::new("picture-home.brightness");
+pub(crate) const CONTRAST: Setting<Text> = Setting::new("picture-home.contrast");
+
+/// From much darker to much lighter, the middle as it is.
+pub(crate) const BRIGHTNESSES: [&str; 5] = [
+    "picture-home.brightness.much-darker",
+    "picture-home.brightness.darker",
+    "picture-home.brightness.normal",
+    "picture-home.brightness.lighter",
+    "picture-home.brightness.much-lighter",
+];
+/// Lower, as it is, higher.
+pub(crate) const CONTRASTS: [&str; 3] = [
+    "picture-home.contrast.lower",
+    "picture-home.contrast.normal",
+    "picture-home.contrast.higher",
+];
+
 /// How the picture is rendered (values of [`RENDERS`]).
 pub(crate) const RENDER: Setting<Text> = Setting::new("picture-home.render");
 
@@ -164,7 +184,7 @@ const fn items(id: &'static str, title: &'static str, default: &'static str) -> 
 }
 
 /// The settings, in the order they are listed.
-pub(crate) static SETTINGS: [SettingSpec; 25] = [
+pub(crate) static SETTINGS: [SettingSpec; 27] = [
     SettingSpec::text(
         FOLDER.static_str(),
         "picture-home.setting.folder",
@@ -219,6 +239,24 @@ pub(crate) static SETTINGS: [SettingSpec; 25] = [
     )
     .with_extra(&IN_PLUGIN)
     .description("picture-home.setting.lighten.help"),
+    SettingSpec::choice(
+        BRIGHTNESS.static_str(),
+        "picture-home.setting.brightness",
+        &BRIGHTNESSES,
+        BRIGHTNESSES[2],
+        GROUP,
+    )
+    .with_extra(&IN_PLUGIN)
+    .description("picture-home.setting.brightness.help"),
+    SettingSpec::choice(
+        CONTRAST.static_str(),
+        "picture-home.setting.contrast",
+        &CONTRASTS,
+        CONTRASTS[1],
+        GROUP,
+    )
+    .with_extra(&IN_PLUGIN)
+    .description("picture-home.setting.contrast.help"),
     SettingSpec::choice(
         RENDER.static_str(),
         "picture-home.setting.render",

@@ -13,8 +13,10 @@ use paperpaw_sdk::image::{GrayFile, GrayWriter, ImageError, ImageSink};
 const SEGMENTS: usize = 256;
 /// The entries of the first directory of the EXIF block looked at.
 const ENTRIES: u64 = 64;
-/// The bytes a turn of a picture holds in memory at most.
-const TILE: usize = 32 * 1024;
+/// The bytes a turn of a picture holds in memory at most. The decode is
+/// done by then; 48 KiB would peak above the decode's own 142 KiB on the
+/// X4's profile, 40 KiB (139 KiB) does not.
+const TILE: usize = 40 * 1024;
 
 /// Calls `visit` with the marker, where the data begins and how long it is
 /// for each segment of the JPEG at `path`, until it returns something or
@@ -163,27 +165,62 @@ impl Turn {
     }
 }
 
-/// Writes the transpose of `source` (its columns as rows) to `to`, a tile
-/// of columns at a time: a read of a few bytes for each row of the source.
+/// A part of a picture, in pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Crop {
+    pub(crate) x: u32,
+    pub(crate) y: u32,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+}
+
+impl Crop {
+    /// All of a picture of `size`.
+    pub(crate) fn all((width, height): (u32, u32)) -> Self {
+        Self {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        }
+    }
+}
+
+/// Writes the part `crop` of the transpose of `source` (its columns as
+/// rows) to `to`, a tile of columns at a time: a read of a few bytes for
+/// each row of the source the part has, and nothing of the rest.
 pub(crate) fn transposed(
     storage: &dyn Storage,
     source: &GrayFile,
     to: &str,
+    crop: Crop,
 ) -> Result<GrayFile, ImageError> {
-    let (width, height) = (source.width as usize, source.height as usize);
-    let columns = (TILE / height.max(1)).clamp(1, width);
+    // The transpose is `source.height` wide and `source.width` high.
+    let crop = Crop {
+        x: crop.x.min(source.height.saturating_sub(1)),
+        y: crop.y.min(source.width.saturating_sub(1)),
+        width: crop
+            .width
+            .clamp(1, source.height - crop.x.min(source.height - 1)),
+        height: crop
+            .height
+            .clamp(1, source.width - crop.y.min(source.width - 1)),
+    };
+    let (rows, high) = (crop.width as usize, crop.height as usize);
+    let columns = (TILE / rows.max(1)).clamp(1, high);
     let mut tile: Vec<u8> = Vec::new();
-    tile.try_reserve_exact(columns * height)
+    tile.try_reserve_exact(columns * rows)
         .map_err(|_| ImageError::OutOfMemory)?;
-    tile.resize(columns * height, 0);
+    tile.resize(columns * rows, 0);
     let mut across = alloc::vec![0u8; columns];
     let mut writer = GrayWriter::new(storage, to);
-    writer.start(source.height, source.width)?;
+    writer.start(crop.width, crop.height)?;
     let mut first = 0;
-    while first < width {
-        let count = columns.min(width - first);
-        for y in 0..height {
-            let at = 12 + y as u64 * width as u64 + first as u64;
+    while first < high {
+        let count = columns.min(high - first);
+        for y in 0..rows {
+            let row = u64::from(crop.x) + y as u64;
+            let at = 12 + row * u64::from(source.width) + u64::from(crop.y) + first as u64;
             let mut filled = 0;
             while filled < count {
                 match storage.read_at(&source.path, at + filled as u64, &mut across[filled..count])
@@ -193,19 +230,19 @@ pub(crate) fn transposed(
                 }
             }
             for (c, value) in across[..count].iter().enumerate() {
-                tile[c * height + y] = *value;
+                tile[c * rows + y] = *value;
             }
         }
         for c in 0..count {
-            writer.row(&tile[c * height..(c + 1) * height])?;
+            writer.row(&tile[c * rows..(c + 1) * rows])?;
         }
         first += count;
     }
     writer.finish()?;
     Ok(GrayFile {
         path: String::from(to),
-        width: source.height,
-        height: source.width,
+        width: crop.width,
+        height: crop.height,
     })
 }
 
@@ -348,7 +385,8 @@ mod tests {
             writer.finish().unwrap();
         }
         let source = GrayFile::open(&storage, "s.gray").unwrap();
-        let turned = transposed(&storage, &source, "t.gray").unwrap();
+        let turned =
+            transposed(&storage, &source, "t.gray", Crop::all((h as u32, w as u32))).unwrap();
         assert_eq!((turned.width, turned.height), (h as u32, w as u32));
         let opened = GrayFile::open(&storage, "t.gray").unwrap();
         let mut row = alloc::vec![0u8; h];
@@ -358,5 +396,50 @@ mod tests {
                 assert_eq!(*v, (x * 3 + y * 7) as u8, "{x},{y}");
             }
         }
+    }
+
+    #[test]
+    fn a_part_of_the_transpose_is_the_part_of_the_whole_transpose() {
+        let storage = MemoryStorage::new();
+        let (w, h) = (70usize, 50usize);
+        {
+            let mut writer = GrayWriter::new(&storage, "s.gray");
+            writer.start(w as u32, h as u32).unwrap();
+            for y in 0..h {
+                let row: Vec<u8> = (0..w).map(|x| (x * 3 + y * 7) as u8).collect();
+                writer.row(&row).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+        let source = GrayFile::open(&storage, "s.gray").unwrap();
+        // The transpose is 50 wide and 70 high: a part of it.
+        let part = Crop {
+            x: 10,
+            y: 20,
+            width: 30,
+            height: 25,
+        };
+        let turned = transposed(&storage, &source, "p.gray", part).unwrap();
+        assert_eq!((turned.width, turned.height), (30, 25));
+        let opened = GrayFile::open(&storage, "p.gray").unwrap();
+        let mut row = alloc::vec![0u8; 30];
+        for r in [0u32, 7, 24] {
+            assert!(opened.read_row(&storage, r, &mut row));
+            for (c, v) in row.iter().enumerate() {
+                // T(x, y) = source(y, x): column x of the transpose is row x
+                // of the source.
+                let (x, y) = (10 + c, 20 + r as usize);
+                assert_eq!(*v, (y * 3 + x * 7) as u8, "{r},{c}");
+            }
+        }
+        // More than there is: kept to the picture.
+        let all = Crop {
+            x: 40,
+            y: 60,
+            width: 100,
+            height: 100,
+        };
+        let turned = transposed(&storage, &source, "q.gray", all).unwrap();
+        assert_eq!((turned.width, turned.height), (10, 10));
     }
 }
