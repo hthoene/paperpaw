@@ -27,8 +27,8 @@ change the plugin SDK.
   frames" for charging: the bolt, the kernel's low-battery rules, its install check and the sleeping reader's *Switch off
   after sleeping* all went by it, so a Pro on battery could show the bolt, run no idle naps and stay asleep all night.
   Charging is now the charging pin alone (the X3: its gauge and the frames, as before); the frames only keep an awake
-  reader from napping while a computer is on the cable, and count only when the frame number moves on like a bus, at two
-  looks a second apart. A reader asleep on a cable with a full cell is switched off after its time like one on a
+  reader from napping while a computer is on the cable, and count only when the frame number moves on like a bus. The
+  Pro's charging pin is high on a cable and low on battery (measured on a Pro; the first port had it the other way round). A reader asleep on a cable with a full cell is switched off after its time like one on a
   battery; while it charges it stays asleep, which the setting's help text now says (en, de). The diagnostics page
   shows the charging pin's level and whether USB frames come on the Pro and the X3 (diagnostics 1.0.7). The X4 is as before.
 - **A book opened before its font pack came no longer keeps a wrong page count** (#163). A Hebrew book opened before the

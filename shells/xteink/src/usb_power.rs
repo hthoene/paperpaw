@@ -1,6 +1,7 @@
 //! Outer power. The X4 has a pin that is high while a cable is in; the
 //! ESP32-S3's X4 Pro and X4 Classic (USB through pogo pins) have a pin that
-//! says the cell is charging; the X3 has only its fuel gauge. Two different
+//! is high while a cable charges the cell (measured on the Pro, #209; it may
+//! mean "power present", which the pin alone does not tell from "charging"); the X3 has only its fuel gauge. Two different
 //! things are asked (#209):
 //!
 //! - **charging**: the device is on outer power and the cell takes it: the
