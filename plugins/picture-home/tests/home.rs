@@ -263,3 +263,30 @@ fn the_picture_is_chosen_from_the_folder() {
         "wide.jpg"
     );
 }
+
+/// How many different grays the baked picture has along row `y`.
+fn grays_in_row(app: &App, y: u64) -> usize {
+    let mut seen = std::collections::BTreeSet::new();
+    for x in 0..480 {
+        seen.insert(baked(app, x, y));
+    }
+    seen.len()
+}
+
+#[test]
+fn the_picture_is_made_in_dots_where_it_is_to_be_dithered() {
+    let automatic = open(X4, "picture = wide.jpg\nlighten = 0");
+    assert!(grays_in_row(&automatic, 400) > 2);
+    let grays = open(
+        X4,
+        "picture = wide.jpg\nlighten = 0\nrender = picture-home.render.grays",
+    );
+    assert!(grays_in_row(&grays, 400) > 2);
+    let dots = open(
+        X4,
+        "picture = wide.jpg\nlighten = 0\nrender = picture-home.render.dither",
+    );
+    for y in [10, 200, 400, 600] {
+        assert!(grays_in_row(&dots, y) <= 2, "row {y}");
+    }
+}

@@ -57,6 +57,37 @@ impl Fitting {
     }
 }
 
+/// How the picture is rendered (see [`settings::RENDERS`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Render {
+    /// As the built-in home screen.
+    Automatic,
+    /// Every gray the panel shows, always.
+    Grays,
+    /// Dots of black and white, always.
+    Dithered,
+}
+
+impl Render {
+    pub(crate) fn of(value: &str) -> Self {
+        match settings::RENDERS.iter().position(|r| *r == value) {
+            Some(1) => Render::Grays,
+            Some(2) => Render::Dithered,
+            _ => Render::Automatic,
+        }
+    }
+}
+
+/// The 4 by 4 pattern of the thresholds of an ordered dither.
+const BAYER: [[u8; 4]; 4] = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+
+/// `value` as black or white by the ordered dither's pattern at (`x`, `y`):
+/// a gray comes as the share of white dots it asks for.
+pub(crate) fn dotted(value: u8, x: usize, y: usize) -> u8 {
+    let threshold = u16::from(BAYER[y % 4][x % 4]) * 16 + 8;
+    if u16::from(value) > threshold { 255 } else { 0 }
+}
+
 /// What the baked picture is made of.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Recipe {
@@ -71,6 +102,8 @@ pub(crate) struct Recipe {
     pub(crate) zoom: u32,
     /// How much paler, in percent.
     pub(crate) lighten: u32,
+    /// Made in black and white dots, for a panel with grays too.
+    pub(crate) dotted: bool,
     pub(crate) width: u16,
     pub(crate) height: u16,
 }
@@ -93,6 +126,7 @@ impl Recipe {
             down: (at / 3) as u8,
             zoom: env.settings().read(&settings::ZOOM).clamp(100, 300) as u32,
             lighten: env.settings().read(&settings::LIGHTEN).clamp(0, 60) as u32,
+            dotted: Render::of(env.settings().text(settings::RENDER.as_str())) == Render::Dithered,
             width,
             height,
         })
@@ -101,7 +135,7 @@ impl Recipe {
     /// The note kept beside the baked picture.
     pub(crate) fn key(&self) -> String {
         format!(
-            "{}|{}|{:?}|{}{}|{}|{}|{}x{}",
+            "{}|{}|{:?}|{}{}|{}|{}|{}|{}x{}",
             self.path,
             self.bytes,
             self.fitting,
@@ -109,6 +143,7 @@ impl Recipe {
             self.down,
             self.zoom,
             self.lighten,
+            self.dotted,
             self.width,
             self.height
         )
@@ -359,7 +394,12 @@ fn compose(
                     };
                     *pixel = column.map_or(255, |c| {
                         let sx = ((c * i64::from(sw) / pw) as usize).min(sw as usize - 1);
-                        lighten(line[sx], recipe.lighten)
+                        let value = lighten(line[sx], recipe.lighten);
+                        if recipe.dotted {
+                            dotted(value, x as usize, y as usize)
+                        } else {
+                            value
+                        }
                     });
                 }
             }
@@ -421,6 +461,7 @@ mod tests {
             down,
             zoom,
             lighten: 0,
+            dotted: false,
             width: 480,
             height: 800,
         }
@@ -474,6 +515,22 @@ mod tests {
     fn a_tile_is_at_most_half_the_screen() {
         let p = plan(&recipe(Fitting::Tile, 100, 0, 0), (1000, 500));
         assert_eq!((p.width, p.height), (240, 120));
+    }
+
+    #[test]
+    fn dots_are_black_or_white_and_follow_the_gray() {
+        let white = (0..16).filter(|i| dotted(128, i % 4, i / 4) == 255).count();
+        assert_eq!(white, 8);
+        assert!((0..16).all(|i| dotted(255, i % 4, i / 4) == 255));
+        assert!((0..16).all(|i| dotted(0, i % 4, i / 4) == 0));
+    }
+
+    #[test]
+    fn the_render_is_read_from_the_choice() {
+        assert_eq!(Render::of("picture-home.render.grays"), Render::Grays);
+        assert_eq!(Render::of("picture-home.render.dither"), Render::Dithered);
+        assert_eq!(Render::of("picture-home.render.auto"), Render::Automatic);
+        assert_eq!(Render::of("nonsense"), Render::Automatic);
     }
 
     #[test]

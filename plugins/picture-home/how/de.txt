@@ -5,3 +5,5 @@ Lege Bilder (JPEG, PNG oder GIF) in einen Ordner auf der Karte (standardmäßig 
 Die Widgets liegen auf Platten über dem Bild. Ordne die Seite an wie auf der eingebauten Startseite: mit dem Stift unter der Seite oder mit Startseite bearbeiten im Menü.
 
 Die Statusleiste (Uhrzeit, WLAN, Akku oder was du wählst) kann an, aus oder automatisch sein, oben oder unten, in voller Breite oder als kleine Pille links, in der Mitte oder rechts, auf einer hellen, dunklen oder grauen Platte oder direkt auf dem Bild. Die Zeile, die die Tasten nennt (am X4), kann ebenfalls an, aus oder automatisch sein. Automatisch heißt: Ein Tastendruck zeigt sie für ein paar Sekunden; dieser Druck tut sonst nichts.
+
+Bilddarstellung legt fest, wie das Bild gezeichnet wird: Graustufen in allen Grautönen des Bildschirms (auf dem X4 langsamer), Gerastert in Schwarz-Weiß-Punkten (schnell) oder Automatisch wie auf der eingebauten Startseite: Graustufen beim Zeichnen, Raster nach der ersten Änderung. Wo der Bildschirm keine Graustufen hat, werden Graustufen zu Rastern.

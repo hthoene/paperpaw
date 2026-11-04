@@ -25,6 +25,17 @@ pub(crate) const FIT: Setting<Text> = Setting::new("picture-home.fit");
 pub(crate) const ANCHOR: Setting<Text> = Setting::new("picture-home.anchor");
 pub(crate) const ZOOM: Setting<i64> = Setting::new("picture-home.zoom");
 pub(crate) const LIGHTEN: Setting<i64> = Setting::new("picture-home.lighten");
+/// How the picture is rendered (values of [`RENDERS`]).
+pub(crate) const RENDER: Setting<Text> = Setting::new("picture-home.render");
+
+/// Automatic is as the built-in home screen: the screen drawn in the
+/// panel's grays where it has them to show, then dots after a change;
+/// grey levels always; dots always.
+pub(crate) const RENDERS: [&str; 3] = [
+    "picture-home.render.auto",
+    "picture-home.render.grays",
+    "picture-home.render.dither",
+];
 
 /// How the picture fills the screen (values of [`FIT`]).
 pub(crate) const FITS: [&str; 5] = [
@@ -153,7 +164,7 @@ const fn items(id: &'static str, title: &'static str, default: &'static str) -> 
 }
 
 /// The settings, in the order they are listed.
-pub(crate) static SETTINGS: [SettingSpec; 24] = [
+pub(crate) static SETTINGS: [SettingSpec; 25] = [
     SettingSpec::text(
         FOLDER.static_str(),
         "picture-home.setting.folder",
@@ -208,6 +219,15 @@ pub(crate) static SETTINGS: [SettingSpec; 24] = [
     )
     .with_extra(&IN_PLUGIN)
     .description("picture-home.setting.lighten.help"),
+    SettingSpec::choice(
+        RENDER.static_str(),
+        "picture-home.setting.render",
+        &RENDERS,
+        RENDERS[0],
+        GROUP,
+    )
+    .with_extra(&IN_PLUGIN)
+    .description("picture-home.setting.render.help"),
     SettingSpec::choice(
         BAR.static_str(),
         "picture-home.setting.bar",

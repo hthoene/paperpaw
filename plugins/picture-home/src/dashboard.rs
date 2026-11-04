@@ -25,7 +25,7 @@ use paperpaw_sdk::{
 };
 
 use crate::bar::{self, Look, Placing, Visible};
-use crate::picture::{self, Failure, Recipe};
+use crate::picture::{self, Failure, Recipe, Render};
 use crate::settings;
 use crate::{ADD_SCREEN, PLUGIN, SCREEN, add, pages};
 
@@ -64,6 +64,8 @@ pub(crate) struct Dashboard {
     picture: Option<ImageRef>,
     /// What the picture is to be made of, while it is not made yet.
     pending: Option<Recipe>,
+    /// How the picture is rendered, as the settings said at the last layout.
+    render: Render,
     /// The notice "preparing" shows before the picture is made.
     preparing: bool,
     /// What failed to be made, so that it is not tried again and again.
@@ -201,6 +203,7 @@ impl Dashboard {
             plus: Rect::default(),
             picture: None,
             pending: None,
+            render: Render::Automatic,
             preparing: false,
             failed: None,
             revealed_until: None,
@@ -272,6 +275,7 @@ impl Dashboard {
         self.style = style;
         self.stale = false;
         self.auto = auto(env);
+        self.render = Render::of(env.settings().text(settings::RENDER.as_str()));
         self.find_picture(env);
         // Where the bar has no plate, its ink follows the picture.
         self.behind = match (self.bar, &self.picture) {
@@ -313,10 +317,11 @@ impl Dashboard {
     }
 
     /// How a small change is shown: the fast refresh is black and white,
-    /// which would break the picture's grays into dots, so with a picture
-    /// the screen is refreshed in part, with its grays.
+    /// which breaks the picture's grays into dots (as on the built-in home
+    /// screen after a change); with grey levels the screen is refreshed in
+    /// part, with its grays.
     fn quick(&self) -> RefreshMode {
-        if self.picture.is_some() {
+        if self.picture.is_some() && self.render == Render::Grays {
             RefreshMode::Partial
         } else {
             RefreshMode::Fast
@@ -386,6 +391,7 @@ impl Dashboard {
             cx.request_redraw_area(bar);
         }
         cx.request_refresh(RefreshMode::Partial);
+        self.widen(cx);
         self.wake(cx);
     }
 
@@ -399,11 +405,25 @@ impl Dashboard {
                 cx.request_redraw_area(bar);
             }
             cx.request_refresh(RefreshMode::Partial);
+            self.widen(cx);
+        }
+    }
+
+    /// With grey levels a change shows with the whole screen: where the
+    /// panel shows its grays with a refresh of the whole screen, a small
+    /// change over a picture in grays would wait for the next page.
+    fn widen(&self, cx: &mut Cx<'_, '_>) {
+        if self.picture.is_some() && self.render == Render::Grays {
+            cx.request_redraw();
+            cx.request_refresh(RefreshMode::Partial);
         }
     }
 
     fn respond(&mut self, response: GridResponse, cx: &mut Cx<'_, '_>) -> Handled {
         let handled = response.handled();
+        if response != GridResponse::Ignored {
+            self.widen(cx);
+        }
         match response {
             GridResponse::Changed(items) => self.store(&items, cx),
             GridResponse::Editing(_) => self.relayout(cx),
@@ -579,8 +599,18 @@ impl Screen for Dashboard {
         self.hints
     }
 
+    /// Whether the picture is shown in grays: where the user's setting for
+    /// pictures says so too (automatic, as the built-in home screen), not
+    /// where the picture is made in dots.
     fn pictures_in_grays(&self) -> bool {
-        self.shows_picture()
+        self.shows_picture() && self.render != Render::Dithered
+    }
+
+    /// Grey levels: the screen is shown so whenever it is on top (where the
+    /// panel has few grays but shows more with a refresh of its own; other
+    /// panels refresh as asked, and show the picture's dots).
+    fn grays(&self) -> bool {
+        self.shows_picture() && self.render == Render::Grays
     }
 
     /// While a bar that shows after a press is hidden, the first press is
