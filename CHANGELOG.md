@@ -74,6 +74,8 @@ change the plugin SDK.
 
 ### Fixed
 
+- **The Linux emulator and tools run on Debian 12 and older Ubuntu LTS** (#165). The released `paperpaw-emu`, `paperpaw-dev` and `paperpaw-sign` for Linux are built on Ubuntu 22.04 (glibc 2.35) instead of 24.04 (glibc 2.39), which Debian 12 (2.36) and Ubuntu 22.04 did not have.
+
 - **Dual boot: no false positive on plain devices, and a way out** (#224). The dualbooter's `x4boot` tag counts only
   as a word of its own (not inside `x4bootloader` or a path); the bootloaders PaperPaw ships for X4, X3, X4 Pro and
   X4 Classic, CrossPoint's and others are scanned in a test and none is taken for a dual-boot one. Where a device is
