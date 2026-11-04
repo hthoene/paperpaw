@@ -21,6 +21,17 @@ change the plugin SDK.
   picture or a dark page. Additive: plugin interface 6 stays, plugins built before draw as they did; their widgets
   follow the colours, those of all widgets too, once rebuilt with this SDK (each plugin carries its own copy of
   `widget_look`). Transparent widgets take the page to be light: on a dark picture, choose a light text colour.
+- **Shape of widgets** (#206, SDK). Each widget has corners (`<widget>.corners`: automatic, square, slightly
+  rounded, round, soft), a frame line (`<widget>.frame-line`: automatic, thin, medium, thick) and a solid shadow
+  below and to the right of its card or paper (`<widget>.drop-shadow`; dark gray below a black plate, which a black
+  one would not stand out from, dithered where the panel has few grays). The kernel's `core.widgets.corners`,
+  `.frame-line`, `.shadow`, `.padding` and `.gap` set them for every widget that has none of its own; "Widget look"
+  presets cover them. `widgets::draw_frame` draws them, so widgets need no change; a widget that draws all of itself
+  stays as it is. `widgets::widget_look`, `draw_frame`, `frame_height` and `draw_caption` now come from the
+  firmware (shared-table family `widgets`, `Family::WIDGETS` = 6, revision 1; `Family::CORE` is deprecated), so
+  each widget plugin is 3.5 to 5.8 KB smaller on the X4 and its widgets follow the firmware's look. Plugins built
+  with this SDK that have widgets need this firmware: beta.2 refuses them cleanly ("needs a newer PaperPaw") and
+  the store does not offer them to it; plugins without widgets are unaffected. Plugin interface 6 stays.
 - **Picture home screen** (#205), a store plugin (`picture-home`, group Look; needs no new firmware). Your own
   picture behind the widgets, from a folder on the card: fill, whole picture, stretch, original size or tile, in one
   of nine places, zoomed and made paler; prepared once into a screen-sized gray file and drawn from it, a few rows at

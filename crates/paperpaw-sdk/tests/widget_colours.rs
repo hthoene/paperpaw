@@ -221,7 +221,7 @@ fn grid(env: &Env<'_>) -> (GridView, Rect) {
 }
 
 /// What a grid lays under its items: white as before, nothing, or a
-/// colour; a widget without a frame on its own paper.
+/// colour, whatever the widget's own paper.
 #[test]
 fn a_grid_lays_its_plate_under_the_items() {
     let mut h = harness();
@@ -248,14 +248,9 @@ fn a_grid_lays_its_plate_under_the_items() {
     assert_eq!(pixel(&h, Plate::Paper), Some(Color::WHITE));
     assert_eq!(pixel(&h, Plate::None), Some(PAPER), "nothing: the page");
     assert_eq!(pixel(&h, Plate::Colour(Color::BLACK)), Some(Color::BLACK));
+    // A widget's own paper is its own to paint (draw_frame): the plate
+    // stays what the screen chose.
     set(&mut h, "t.clock.paper", PAPER_INVERTED);
-    assert_eq!(pixel(&h, Plate::Paper), Some(Color::BLACK), "its own paper");
-    assert_eq!(pixel(&h, Plate::None), Some(Color::BLACK));
-    set(&mut h, "t.clock.paper", PAPER_NONE);
-    assert_eq!(
-        pixel(&h, Plate::Paper),
-        Some(Color::WHITE),
-        "cleared as before"
-    );
+    assert_eq!(pixel(&h, Plate::Paper), Some(Color::WHITE));
     assert_eq!(pixel(&h, Plate::None), Some(PAPER));
 }

@@ -151,3 +151,7 @@ graphics 1 CANVAS_TAKE_DIFFUSION: fn take_diffusion(&mut self, key: u64, y: i32)
 graphics 1 ROUND_CORNER_INSET: fn corner_inset(radius: u32, row: u32, height: u32) -> u32
 graphics 1 ROUND_SIN_COS: fn sin_cos(degrees: i32) -> (i32, i32)
 graphics 1 ROUND_POINT_AT: fn point_at(center: Point, radius: i32, degrees: i32) -> Point
+widgets 1 WIDGET_LOOK: fn widget_look(env: &Env<'_>, widget: &str, area: Rect) -> WidgetLook
+widgets 1 WIDGET_DRAW_FRAME: fn draw_frame(canvas: &mut Canvas<'_>, env: &Env<'_>, widget: &str, area: Rect) -> WidgetLook
+widgets 1 WIDGET_FRAME_HEIGHT: fn frame_height(env: &Env<'_>, widget: &str) -> u16
+widgets 1 WIDGET_DRAW_CAPTION: fn draw_caption( canvas: &mut Canvas<'_>, env: &Env<'_>, widget: &str, look: &WidgetLook, text: &str, ) -> Rect

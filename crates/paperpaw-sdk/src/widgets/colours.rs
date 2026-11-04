@@ -38,8 +38,8 @@ use crate::settings::{SettingExtra, SettingSpec};
 use crate::ui::{self, UiStyle};
 
 /// What lies under the widgets of a grid
-/// ([`GridView::draw_on`](super::grid::GridView::draw_on)); a widget with
-/// a paper of its own and no frame sits on its paper instead.
+/// ([`GridView::draw_on`](super::grid::GridView::draw_on)); a widget's
+/// own paper is painted by [`draw_frame`](super::draw_frame).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Plate {
