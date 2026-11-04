@@ -999,3 +999,53 @@ fn the_radio_going_off_under_the_password_dialog_closes_only_the_networks_page()
     let rows = page_rows(&mut device);
     assert!(rows[0].starts_with("Wi-Fi, Off"), "{rows:?}");
 }
+
+impl Device {
+    /// Whether the radio telling `event` makes the kernel refresh the
+    /// screen: what a draw costs the device is paid for only when
+    /// something shown has changed.
+    fn radio_refreshes(&mut self, event: WifiEvent) -> bool {
+        self.now += 100;
+        let effects = self.kernel.wifi_event(Instant(self.now), event);
+        let refreshes = effects.refresh().is_some();
+        self.settle(effects);
+        refreshes
+    }
+}
+
+#[test]
+fn what_the_radio_says_that_changes_nothing_shown_draws_nothing() {
+    let mut device = Device::new(BUTTONS);
+    device.open();
+    device.radio_on_with(vec![
+        network("Home", -50, true),
+        network("Cafe", -75, false),
+    ]);
+    device.parts();
+    // The networks page: the same networks, signals a little different
+    // (the same words), draw nothing; a network more, or one gone, does.
+    let same = vec![network("Home", -52, true), network("Cafe", -74, false)];
+    assert!(!device.radio_refreshes(WifiEvent::Scanned(same)));
+    let more = vec![
+        network("Home", -52, true),
+        network("Cafe", -74, false),
+        network("Library", -80, false),
+    ];
+    assert!(device.radio_refreshes(WifiEvent::Scanned(more)));
+    device.parts();
+    // The Wi-Fi page: its row of the networks says how many are in reach.
+    // Coming back it looks for networks (its switch says so); done, it
+    // says the same again.
+    device.run(actions::BACK);
+    device.told();
+    device.parts();
+    let again = vec![
+        network("Home", -60, true),
+        network("Cafe", -70, false),
+        network("Library", -85, false),
+    ];
+    device.radio(WifiEvent::Scanned(again.clone()));
+    device.parts();
+    assert!(!device.radio_refreshes(WifiEvent::Scanned(again)));
+    assert!(device.radio_refreshes(WifiEvent::Scanned(vec![network("Home", -60, true)])));
+}

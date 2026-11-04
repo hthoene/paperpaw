@@ -28,9 +28,10 @@ pub(crate) struct NetworksPage {
     style: UiStyle,
     header: ui::Header,
     list: ListView,
-    /// What the notes of the rows were when their height was measured:
-    /// measured again only when they change, not with every key press.
-    measured: u64,
+    /// What the rows said when they were drawn last (see [`view`]): their
+    /// height is measured again only when that changes, and an event that
+    /// leaves it as it is draws nothing.
+    shown: u64,
 }
 
 impl core::fmt::Debug for NetworksPage {
@@ -86,6 +87,39 @@ fn fnv(hash: u64, bytes: &[u8]) -> u64 {
     })
 }
 
+/// What the rows say: the notes of the rows, and a key of the names and
+/// the notes (what a drawing of them depends on besides the focus).
+fn view(env: &Env<'_>, rows: &[Row]) -> (Vec<String>, u64) {
+    let Some(wifi) = env.wifi() else {
+        return (Vec::new(), 0);
+    };
+    let known = wifi::known(env.secrets().iter());
+    let tr = |key| env.i18n().tr(key);
+    let notes: Vec<String> = rows
+        .iter()
+        .map(|row| match row {
+            Row::Network(network) => {
+                let saved = known.iter().any(|(ssid, _)| *ssid == network.ssid);
+                network_note(env, network, &wifi.state, saved)
+            }
+            Row::Search if wifi.scanning => String::from(tr("wifi.state.searching")),
+            Row::Search if wifi.networks.is_empty() => String::from(tr("wifi.no-networks")),
+            Row::Search => String::new(),
+        })
+        .collect();
+    let key = rows
+        .iter()
+        .zip(&notes)
+        .fold(0xcbf2_9ce4_8422_2325, |h, (row, note)| {
+            let name = match row {
+                Row::Network(network) => network.ssid.as_str(),
+                Row::Search => "",
+            };
+            fnv(fnv(fnv(h, name.as_bytes()), b"\t"), note.as_bytes())
+        });
+    (notes, key)
+}
+
 impl NetworksPage {
     pub(crate) fn new(env: &Env<'_>, policy: Shared) -> Self {
         let style = UiStyle::new(env);
@@ -98,7 +132,7 @@ impl NetworksPage {
             list: ListView::new(area, style.noted_row()).focus_on_keys(env),
             style,
             header,
-            measured: 0,
+            shown: 0,
         }
     }
 
@@ -204,30 +238,12 @@ impl Screen for NetworksPage {
         let rows = Self::rows(env);
         let len = rows.len();
         let title = env.i18n().tr("wifi.networks.title");
-        let Some(wifi) = env.wifi() else {
-            return;
-        };
-        let known = wifi::known(env.secrets().iter());
         let tr = |key| env.i18n().tr(key);
-        // The notes the rows have; their height is as high as the
-        // longest needs (the largest text), measured when they change.
-        let notes: Vec<String> = rows
-            .iter()
-            .map(|row| match row {
-                Row::Network(network) => {
-                    let saved = known.iter().any(|(ssid, _)| *ssid == network.ssid);
-                    network_note(env, network, &wifi.state, saved)
-                }
-                Row::Search if wifi.scanning => String::from(tr("wifi.state.searching")),
-                Row::Search if wifi.networks.is_empty() => String::from(tr("wifi.no-networks")),
-                Row::Search => String::new(),
-            })
-            .collect();
-        let key = notes.iter().fold(0xcbf2_9ce4_8422_2325, |h, note| {
-            fnv(fnv(h, note.as_bytes()), b"\n")
-        });
-        if key != self.measured {
-            self.measured = key;
+        // The height of the rows is as high as the longest note needs (the
+        // largest text), measured when what they say changes.
+        let (notes, key) = view(env, &rows);
+        if key != self.shown {
+            self.shown = key;
             let row = style.noted_row_for(
                 env,
                 self.list.area().width,
@@ -261,7 +277,14 @@ impl Screen for NetworksPage {
             cx.close();
             return;
         }
-        Self::changed(cx);
+        // Drawn again only where the rows say something else: a signal
+        // that moved a little, a setting of another page, draw nothing (a
+        // frame takes the device's time, and a key pressed meanwhile waits).
+        let env = *cx.env();
+        let rows = Self::rows(&env);
+        if view(&env, &rows).1 != self.shown {
+            Self::changed(cx);
+        }
     }
 
     fn hint(&self, action: &Id, env: &Env<'_>) -> Hint {

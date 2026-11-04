@@ -12,7 +12,10 @@ change the plugin SDK.
   the switch with where it is, a row *Networks ›* (the network the device is in and how many are in reach; it opens
   the list), the setup with a phone and the three settings. While no network is kept, *Set up with a phone* comes
   first, below the switch. Back on the list returns to the Wi-Fi page; if the radio goes off meanwhile it does
-  too. Opening the list does not scan again (the Wi-Fi page has just); its last row looks again.
+  too. Opening the list does not scan again (the Wi-Fi page has just); its last row looks again. Both pages measure
+  their rows again only when what they say changes, and an event of the radio that changes nothing they show (a
+  signal that moved a little) draws nothing: each frame costs the X4 a screen refresh, and a key pressed meanwhile
+  waits for it (#160, partial: the cause of the slow Up and Down is not settled).
 
 - **Spanish user interface.** All 3,861 messages of the kernel and the plugins in Spanish, as the data plugin
   `language-es` from the store. Machine-translated and checked with `tools/language-pack.py check es`; corrections
