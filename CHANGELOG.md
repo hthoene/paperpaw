@@ -18,7 +18,9 @@ change the plugin SDK.
   `widgets::draw_frame` paints the paper, so widgets that draw in `look.ink` on `look.paper` follow without a change;
   `widgets::colour_spec`, `paper`, `ink` and the settings' builders are new. `GridView::draw_on` takes what lies
   under the items (`widgets::Plate`: white as before, nothing over a picture, a colour), so widgets can sit on a
-  picture or a dark page. Additive: plugin interface 6 stays, plugins built before draw as they did.
+  picture or a dark page. Additive: plugin interface 6 stays, plugins built before draw as they did; their widgets
+  follow the colours, those of all widgets too, once rebuilt with this SDK (each plugin carries its own copy of
+  `widget_look`). Transparent widgets take the page to be light: on a dark picture, choose a light text colour.
 
 ### Fixed
 

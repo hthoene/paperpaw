@@ -413,7 +413,9 @@ impl GridView {
 
     /// [`draw`](Self::draw) with `plate` under the items: nothing over a
     /// picture, a colour on a dark page. A widget without a frame whose
-    /// paper the reader chose sits on its paper.
+    /// paper the reader chose sits on its paper. With [`Plate::None`] the
+    /// screen paints what lies under the items first, also before a
+    /// partial redraw (the grid clears nothing).
     pub fn draw_on(&self, canvas: &mut Canvas<'_>, env: &Env<'_>, plate: Plate) {
         let editing = self.edit.is_some();
         if editing {
