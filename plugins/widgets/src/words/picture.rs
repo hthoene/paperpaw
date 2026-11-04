@@ -68,7 +68,7 @@ static FOLDER_SETTING: [SettingSpec; 1] = [SettingSpec::text(
 .with_extra(&CHOSEN_FOLDER)
 .description("widgets.picture.setting.folder.help")];
 
-static SETTINGS: [SettingSpec; 8] = [
+static SETTINGS: [SettingSpec; 11] = [
     SettingSpec::choice(
         "widgets.picture.change",
         "widgets.setting.change",
@@ -96,6 +96,9 @@ static SETTINGS: [SettingSpec; 8] = [
     widgets::padding_spec("widgets.picture.padding", ID, Padding::Auto),
     widgets::paper_spec("widgets.picture.paper", ID),
     widgets::ink_spec("widgets.picture.ink", ID),
+    widgets::corners_spec("widgets.picture.corners", ID),
+    widgets::frame_line_spec("widgets.picture.frame-line", ID),
+    widgets::shadow_spec("widgets.picture.drop-shadow", ID),
 ];
 
 pub(super) fn register(r: &mut Registrar, changes: &Changes) -> Result<(), RegisterError> {

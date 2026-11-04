@@ -23,11 +23,14 @@ pub(crate) const WIDGET: Id = Id::new_static(NAME);
 const NAME: &str = "reading-goal.widget";
 
 /// The widget's settings, kept in the program.
-static SETTINGS: [SettingSpec; 5] = [
+static SETTINGS: [SettingSpec; 8] = [
     widgets::frame_spec("reading-goal.widget.frame", WIDGET, Frame::None),
     widgets::padding_spec("reading-goal.widget.padding", WIDGET, Padding::Auto),
     widgets::paper_spec("reading-goal.widget.paper", WIDGET),
     widgets::ink_spec("reading-goal.widget.ink", WIDGET),
+    widgets::corners_spec("reading-goal.widget.corners", WIDGET),
+    widgets::frame_line_spec("reading-goal.widget.frame-line", WIDGET),
+    widgets::shadow_spec("reading-goal.widget.drop-shadow", WIDGET),
     widgets::part_spec(
         "reading-goal.widget.minutes",
         WIDGET,

@@ -240,7 +240,7 @@ fn frame(env: &Env<'_>, wide: bool) -> (Option<Rect>, Geometry, Rect) {
     let footer_height = style.row();
     let (width, height) = extent(env, wide);
     let margin = style.margin();
-    let gap = style.gap();
+    let gap = widgets::gap(env);
     let footer = Rect::new(
         0,
         height.saturating_sub(footer_height),

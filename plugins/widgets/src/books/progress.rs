@@ -32,12 +32,15 @@ const STYLES: [&str; 4] = [
 ];
 
 /// Its settings, kept in the program.
-static SETTINGS: [SettingSpec; 12] = [
+static SETTINGS: [SettingSpec; 15] = [
     widgets::align_spec("widgets.progress.align", ID, Align::Center),
     widgets::frame_spec("widgets.progress.frame", ID, Frame::None),
     widgets::padding_spec("widgets.progress.padding", ID, Padding::Auto),
     widgets::paper_spec("widgets.progress.paper", ID),
     widgets::ink_spec("widgets.progress.ink", ID),
+    widgets::corners_spec("widgets.progress.corners", ID),
+    widgets::frame_line_spec("widgets.progress.frame-line", ID),
+    widgets::shadow_spec("widgets.progress.drop-shadow", ID),
     widgets::size_spec("widgets.progress.size", ID, TextSize::Medium, false),
     SettingSpec::choice(
         "widgets.progress.style",

@@ -51,12 +51,15 @@ const LEADS: [&str; 3] = [
 const KEY: &str = "widgets.word-clock";
 
 /// Its settings, kept in the program.
-static SETTINGS: [SettingSpec; 11] = [
+static SETTINGS: [SettingSpec; 14] = [
     widgets::align_spec("widgets.word-clock.align", ID, Align::Left),
     widgets::frame_spec("widgets.word-clock.frame", ID, Frame::None),
     widgets::padding_spec("widgets.word-clock.padding", ID, Padding::Auto),
     widgets::paper_spec("widgets.word-clock.paper", ID),
     widgets::ink_spec("widgets.word-clock.ink", ID),
+    widgets::corners_spec("widgets.word-clock.corners", ID),
+    widgets::frame_line_spec("widgets.word-clock.frame-line", ID),
+    widgets::shadow_spec("widgets.word-clock.drop-shadow", ID),
     SettingSpec::choice(
         "widgets.word-clock.style",
         "widgets.setting.style",

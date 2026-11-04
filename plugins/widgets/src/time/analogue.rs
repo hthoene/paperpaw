@@ -38,12 +38,15 @@ const DATES: [&str; 3] = [
 ];
 
 /// Its settings, kept in the program.
-static SETTINGS: [SettingSpec; 11] = [
+static SETTINGS: [SettingSpec; 14] = [
     widgets::align_spec("widgets.analogue-clock.align", ID, Align::Center),
     widgets::frame_spec("widgets.analogue-clock.frame", ID, Frame::None),
     widgets::padding_spec("widgets.analogue-clock.padding", ID, Padding::Auto),
     widgets::paper_spec("widgets.analogue-clock.paper", ID),
     widgets::ink_spec("widgets.analogue-clock.ink", ID),
+    widgets::corners_spec("widgets.analogue-clock.corners", ID),
+    widgets::frame_line_spec("widgets.analogue-clock.frame-line", ID),
+    widgets::shadow_spec("widgets.analogue-clock.drop-shadow", ID),
     SettingSpec::choice(
         "widgets.analogue-clock.face",
         "widgets.setting.face",

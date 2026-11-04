@@ -74,7 +74,7 @@ fn file() -> String {
 }
 
 /// The list's settings, kept in the program.
-static SETTINGS: [SettingSpec; 10] = [
+static SETTINGS: [SettingSpec; 13] = [
     SettingSpec::number(
         "widgets.todo.count",
         "widgets.todo.setting.count",
@@ -112,6 +112,9 @@ static SETTINGS: [SettingSpec; 10] = [
     widgets::padding_spec("widgets.todo.padding", ID, Padding::Auto),
     widgets::paper_spec("widgets.todo.paper", ID),
     widgets::ink_spec("widgets.todo.ink", ID),
+    widgets::corners_spec("widgets.todo.corners", ID),
+    widgets::frame_line_spec("widgets.todo.frame-line", ID),
+    widgets::shadow_spec("widgets.todo.drop-shadow", ID),
 ];
 
 static ACTIONS: [FixedAction; 1] = [FixedAction::new(OPEN, "widgets.todo")

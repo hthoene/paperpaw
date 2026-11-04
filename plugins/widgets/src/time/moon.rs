@@ -35,12 +35,15 @@ const LUNATION: i64 = 2_551_442_877;
 const EPOCH: i64 = 947_168_373_824;
 
 /// Its settings, kept in the program.
-static SETTINGS: [SettingSpec; 11] = [
+static SETTINGS: [SettingSpec; 14] = [
     widgets::align_spec("widgets.moon.align", ID, Align::Left),
     widgets::frame_spec("widgets.moon.frame", ID, Frame::None),
     widgets::padding_spec("widgets.moon.padding", ID, Padding::Auto),
     widgets::paper_spec("widgets.moon.paper", ID),
     widgets::ink_spec("widgets.moon.ink", ID),
+    widgets::corners_spec("widgets.moon.corners", ID),
+    widgets::frame_line_spec("widgets.moon.frame-line", ID),
+    widgets::shadow_spec("widgets.moon.drop-shadow", ID),
     widgets::part_spec("widgets.moon.name", ID, "widgets.setting.phase-name", true),
     widgets::part_spec(
         "widgets.moon.full",

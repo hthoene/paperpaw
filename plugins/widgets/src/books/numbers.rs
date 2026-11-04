@@ -40,12 +40,15 @@ const LABELS: [&str; 4] = [
 ];
 
 /// Its settings, kept in the program.
-static SETTINGS: [SettingSpec; 12] = [
+static SETTINGS: [SettingSpec; 15] = [
     widgets::align_spec("widgets.library.align", ID, Align::Center),
     widgets::frame_spec("widgets.library.frame", ID, Frame::None),
     widgets::padding_spec("widgets.library.padding", ID, Padding::Auto),
     widgets::paper_spec("widgets.library.paper", ID),
     widgets::ink_spec("widgets.library.ink", ID),
+    widgets::corners_spec("widgets.library.corners", ID),
+    widgets::frame_line_spec("widgets.library.frame-line", ID),
+    widgets::shadow_spec("widgets.library.drop-shadow", ID),
     widgets::size_spec("widgets.library.size", ID, TextSize::Fit, true),
     widgets::part_spec(
         "widgets.library.books",

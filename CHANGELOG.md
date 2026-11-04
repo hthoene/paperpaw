@@ -44,6 +44,9 @@ change the plugin SDK.
 - **Colour rows in every first-party widget** (#206): each widget of the widget pack, the home screen, statistics,
   weather, reading goal, mail, news, notes vault and vocabulary has *Colours* (its paper) and *Text* beside its frame
   and spacing. The picture home screen's *Widgets sit on* sets the plate under the widgets: white, light gray or none.
+- **Shape rows in every first-party widget** (#206): the same widgets have *Corners*, *Frame line* and *Shadow* beside
+  their colours, and the home screen and the picture home screen place their widgets with the gap the reader set for
+  all widgets (small, normal, large).
 
 ### Fixed
 
