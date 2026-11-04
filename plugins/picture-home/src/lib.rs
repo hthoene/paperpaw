@@ -22,6 +22,7 @@ extern crate alloc;
 mod add;
 mod bar;
 mod dashboard;
+mod orient;
 mod pages;
 mod pick;
 mod picture;

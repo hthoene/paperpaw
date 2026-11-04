@@ -16,6 +16,8 @@ use alloc::vec::Vec;
 
 use paperpaw_sdk::document::ImageRef;
 use paperpaw_sdk::image::{Fit, GrayFile, GrayWriter, ImageError, ImageSink, dimensions};
+
+use crate::orient::{Turn, jpeg_orientation, jpeg_size, transposed};
 use paperpaw_sdk::{Canvas, Env, Rect};
 
 use crate::settings;
@@ -25,6 +27,8 @@ const BAKED: &str = "background.gray";
 const NOTE: &str = "background.txt";
 /// The picture decoded for its size, before it is set into the screen.
 const TEMP: &str = "background.part";
+/// The decoded picture turned on its side (a phone held upright).
+const TURNED: &str = "background.turn";
 
 /// The most pixels a picture has on a side once decoded: more would be
 /// time and card for nothing the panel can show.
@@ -94,6 +98,9 @@ pub(crate) struct Recipe {
     pub(crate) path: String,
     /// The picture file's size, so that another with the name is noticed.
     pub(crate) bytes: u64,
+    /// When it was last changed, where the card tells: a picture of the
+    /// same size put in its place is noticed too.
+    pub(crate) modified: i64,
     pub(crate) fitting: Fitting,
     /// Where it sits: 0 left or top, 1 middle, 2 right or bottom.
     pub(crate) across: u8,
@@ -120,6 +127,7 @@ impl Recipe {
             .unwrap_or(4);
         Some(Self {
             bytes: env.storage().size(&path).unwrap_or(0),
+            modified: env.storage().modified(&path).unwrap_or(0),
             path,
             fitting: Fitting::of(env.settings().text(settings::FIT.as_str())),
             across: (at % 3) as u8,
@@ -136,9 +144,10 @@ impl Recipe {
     pub(crate) fn key(&self) -> String {
         // The path by its hash: a long one must not make a long note.
         format!(
-            "{:016x}|{}|{:?}|{}{}|{}|{}|{}|{}x{}",
+            "{:016x}|{}|{}|{:?}|{}{}|{}|{}|{}|{}x{}",
             hash(&self.path),
             self.bytes,
+            self.modified,
             self.fitting,
             self.across,
             self.down,
@@ -268,6 +277,7 @@ pub(crate) fn bake(env: &Env<'_>, recipe: &Recipe) -> Result<ImageRef, Failure> 
     let _ = paperpaw_sdk::files::delete(storage, &data(NOTE));
     let result = make(env, recipe);
     let _ = paperpaw_sdk::files::delete(storage, &data(TEMP));
+    let _ = paperpaw_sdk::files::delete(storage, &data(TURNED));
     match result {
         Ok(image) => {
             if storage.write(&data(NOTE), recipe.key().as_bytes()).is_err() {
@@ -294,8 +304,11 @@ fn make(env: &Env<'_>, recipe: &Recipe) -> Result<ImageRef, Failure> {
         .map_err(|_| Failure::Unreadable)?;
     head.truncate(n);
     // A phone's JPEG may keep its size after more than the head holds.
-    let known = dimensions(&head).or_else(|| jpeg_size(storage, &recipe.path));
+    let stored = dimensions(&head).or_else(|| jpeg_size(storage, &recipe.path));
     drop(head);
+    // As the camera was held: the picture is turned upright.
+    let turn = Turn::of(jpeg_orientation(storage, &recipe.path));
+    let known = stored.map(|size| turn.size(size));
     let wanted = match known {
         Some(source) => plan(recipe, source),
         None => Plan {
@@ -314,6 +327,21 @@ fn make(env: &Env<'_>, recipe: &Recipe) -> Result<ImageRef, Failure> {
         false,
     )
     .ok_or(Failure::Unreadable)?;
+    let decoded = if turn.transpose {
+        let file = GrayFile {
+            path: decoded.path.clone(),
+            width: decoded.width,
+            height: decoded.height,
+        };
+        let turned = transposed(storage, &file, &data(TURNED)).map_err(failed)?;
+        ImageRef {
+            path: turned.path,
+            width: turned.width,
+            height: turned.height,
+        }
+    } else {
+        decoded
+    };
     // The plan once the size is known, from what was decoded: that is the
     // picture's own size where it is no larger than `LARGEST`, and in its
     // proportions where it was made smaller.
@@ -322,10 +350,7 @@ fn make(env: &Env<'_>, recipe: &Recipe) -> Result<ImageRef, Failure> {
         None => (decoded.width, decoded.height),
     };
     let plan = plan(recipe, source);
-    compose(env, recipe, &plan, &decoded).map_err(|e| match e {
-        ImageError::OutOfMemory | ImageError::Io => Failure::Short,
-        _ => Failure::Unreadable,
-    })?;
+    compose(env, recipe, &plan, &decoded, turn).map_err(failed)?;
     Ok(ImageRef {
         path: data(BAKED),
         width: u32::from(recipe.width),
@@ -333,45 +358,12 @@ fn make(env: &Env<'_>, recipe: &Recipe) -> Result<ImageRef, Failure> {
     })
 }
 
-/// The size of a JPEG, found by walking its segments with small reads (a
-/// large block of metadata before the frame is skipped, not read).
-fn jpeg_size(storage: &dyn paperpaw_sdk::Storage, path: &str) -> Option<(u32, u32)> {
-    let mut at = 2u64;
-    let mut soi = [0u8; 2];
-    storage.read_at(path, 0, &mut soi).ok()?;
-    if soi != [0xff, 0xd8] {
-        return None;
+/// What a failure of the decode or the work on files means.
+fn failed(error: ImageError) -> Failure {
+    match error {
+        ImageError::OutOfMemory | ImageError::Io => Failure::Short,
+        _ => Failure::Unreadable,
     }
-    // A picture has few segments before its frame.
-    for _ in 0..256 {
-        let mut head = [0u8; 4];
-        if storage.read_at(path, at, &mut head).ok()? < 4 || head[0] != 0xff {
-            return None;
-        }
-        let marker = head[1];
-        if marker == 0xff {
-            // Fill byte.
-            at += 1;
-            continue;
-        }
-        let length = u64::from(u16::from_be_bytes([head[2], head[3]]));
-        let frame = matches!(marker, 0xc0..=0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf);
-        if frame {
-            let mut sof = [0u8; 9];
-            if storage.read_at(path, at + 4, &mut sof).ok()? < 5 {
-                return None;
-            }
-            let height = u32::from(u16::from_be_bytes([sof[1], sof[2]]));
-            let width = u32::from(u16::from_be_bytes([sof[3], sof[4]]));
-            return (width > 0 && height > 0).then_some((width, height));
-        }
-        // Start of scan or end: no frame came.
-        if marker == 0xda || marker == 0xd9 || length < 2 {
-            return None;
-        }
-        at += 2 + length;
-    }
-    None
 }
 
 /// Sets the decoded picture into the baked file, row by row.
@@ -380,6 +372,7 @@ fn compose(
     recipe: &Recipe,
     plan: &Plan,
     decoded: &ImageRef,
+    turn: Turn,
 ) -> Result<(), ImageError> {
     let storage = env.storage();
     let source = GrayFile {
@@ -428,9 +421,15 @@ fn compose(
             None => out.fill(255),
             Some(at) => {
                 let sy = ((at * i64::from(sh) / ph) as u32).min(sh - 1);
+                let sy = if turn.flip_y { sh - 1 - sy } else { sy };
                 if !(first..first.saturating_add(count)).contains(&sy) {
-                    first = sy;
-                    count = source.read_rows(storage, sy, &mut chunk);
+                    // Upside down, the rows read lie before the one wanted.
+                    first = if turn.flip_y {
+                        (sy + 1).saturating_sub(per as u32)
+                    } else {
+                        sy
+                    };
+                    count = source.read_rows(storage, first, &mut chunk);
                     if count == 0 {
                         return Err(ImageError::Io);
                     }
@@ -446,6 +445,11 @@ fn compose(
                     };
                     *pixel = column.map_or(255, |c| {
                         let sx = ((c * i64::from(sw) / pw) as usize).min(sw as usize - 1);
+                        let sx = if turn.flip_x {
+                            sw as usize - 1 - sx
+                        } else {
+                            sx
+                        };
                         let value = lighten(line[sx], recipe.lighten);
                         if recipe.dotted {
                             dotted(value, x as usize, y as usize)
@@ -508,6 +512,7 @@ mod tests {
         Recipe {
             path: String::from("p.png"),
             bytes: 1,
+            modified: 0,
             fitting,
             across,
             down,
@@ -593,31 +598,6 @@ mod tests {
         other.path = "b".repeat(600);
         assert!(long.key().len() < 120, "{}", long.key().len());
         assert_ne!(long.key(), other.key());
-    }
-
-    /// A JPEG's head: a block of `meta` bytes before the frame of 4000 by
-    /// 3000.
-    fn jpeg_head(meta: usize) -> Vec<u8> {
-        let mut bytes = alloc::vec![0xff, 0xd8, 0xff, 0xe1];
-        bytes.extend((meta as u16 + 2).to_be_bytes());
-        bytes.extend(core::iter::repeat_n(0u8, meta));
-        bytes.extend([0xff, 0xc0, 0, 17, 8, 0x0b, 0xb8, 0x0f, 0xa0, 3]);
-        bytes.extend([0u8; 9]);
-        bytes
-    }
-
-    #[test]
-    fn the_size_of_a_jpeg_is_found_behind_a_large_block_of_metadata() {
-        use paperpaw_sdk::Storage as _;
-        let storage = paperpaw_sdk::MemoryStorage::new();
-        storage.write("a.jpg", &jpeg_head(40_000)).unwrap();
-        assert_eq!(jpeg_size(&storage, "a.jpg"), Some((4000, 3000)));
-        storage.write("b.jpg", &jpeg_head(10)).unwrap();
-        assert_eq!(jpeg_size(&storage, "b.jpg"), Some((4000, 3000)));
-        storage.write("c.jpg", b"not a picture").unwrap();
-        assert_eq!(jpeg_size(&storage, "c.jpg"), None);
-        storage.write("d.jpg", &[0xff, 0xd8, 0xff]).unwrap();
-        assert_eq!(jpeg_size(&storage, "d.jpg"), None);
     }
 
     #[test]

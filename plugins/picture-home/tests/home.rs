@@ -12,6 +12,8 @@
 
 mod common;
 
+use std::rc::Rc;
+
 use common::*;
 
 const WIDE: &[u8] = include_bytes!("data/wide.jpg");
@@ -329,4 +331,183 @@ fn a_jpeg_with_a_large_block_of_metadata_is_made_as_one_without() {
     for (x, y) in [(10, 400), (240, 400), (470, 100), (240, 700)] {
         assert_eq!(baked(&app, x, y), baked(&plain, x, y), "{x},{y}");
     }
+}
+
+/// `jpeg` with an EXIF block that notes `orientation`, as a camera does.
+fn with_orientation(jpeg: &[u8], orientation: u16) -> Vec<u8> {
+    let mut exif = Vec::new();
+    exif.extend(b"Exif\0\0II");
+    exif.extend(42u16.to_le_bytes());
+    exif.extend(8u32.to_le_bytes());
+    exif.extend(1u16.to_le_bytes());
+    exif.extend(0x0112u16.to_le_bytes());
+    exif.extend(3u16.to_le_bytes());
+    exif.extend(1u32.to_le_bytes());
+    exif.extend(orientation.to_le_bytes());
+    exif.extend([0u8; 2]);
+    exif.extend(0u32.to_le_bytes());
+    let mut bytes = vec![0xff, 0xd8, 0xff, 0xe1];
+    bytes.extend((exif.len() as u16 + 2).to_be_bytes());
+    bytes.extend(exif);
+    bytes.extend_from_slice(&jpeg[2..]);
+    bytes
+}
+
+fn stretched(file: &[u8]) -> App {
+    let mut app = App::new(
+        X4,
+        Shared::memory(
+            &format!(
+                "{ON}[picture-home]\npicture = p.jpg\nlighten = 0\nfit = picture-home.fit.stretch\n"
+            ),
+            &[("wallpapers/p.jpg", file)],
+        ),
+    );
+    app.home();
+    app
+}
+
+#[test]
+fn a_picture_noted_as_held_upright_is_turned_upright() {
+    let plain = stretched(WIDE);
+    let turned = stretched(&with_orientation(WIDE, 6));
+    // Turned a quarter clockwise: the picture's left edge is at the top.
+    for (x, y) in [
+        (40u64, 100u64),
+        (400, 100),
+        (40, 700),
+        (400, 700),
+        (240, 400),
+    ] {
+        let (px, py) = (y * 480 / 800, 799 - x * 800 / 480);
+        let (a, b) = (baked(&turned, x, y), baked(&plain, px, py));
+        assert!(a.abs_diff(b) < 48, "{x},{y}: {a} against {b}");
+    }
+    // Not the picture as it is stored.
+    let differs = [(40u64, 100u64), (400, 100), (40, 700), (400, 700)]
+        .iter()
+        .any(|&(x, y)| baked(&turned, x, y).abs_diff(baked(&plain, x, y)) > 48);
+    assert!(differs);
+    // Upside down, and mirrored, without the sides swapped.
+    let upside_down = stretched(&with_orientation(WIDE, 3));
+    for (x, y) in [(40u64, 100u64), (400, 700), (240, 300)] {
+        let (a, b) = (baked(&upside_down, x, y), baked(&plain, 479 - x, 799 - y));
+        assert!(a.abs_diff(b) < 48, "{x},{y}: {a} against {b}");
+    }
+}
+
+#[test]
+fn a_gray_file_cut_off_is_made_anew() {
+    let app = open(X4, "picture = wide.jpg\nlighten = 0");
+    let whole = app.storage.size(BAKED).unwrap();
+    let mut half = vec![0u8; whole as usize / 2];
+    app.storage.read_at(BAKED, 0, &mut half).unwrap();
+    app.storage.write(BAKED, &half).unwrap();
+    let mut app = app.restart();
+    app.home();
+    assert_eq!(app.storage.size(BAKED).unwrap(), whole);
+    assert!(baked(&app, 240, 400) > 0);
+}
+
+#[test]
+fn a_picture_that_cannot_be_read_is_given_up_once() {
+    let mut app = App::new(
+        X4,
+        Shared::memory(
+            &format!("{ON}[picture-home]\npicture = bad.jpg\n"),
+            &[(
+                "wallpapers/bad.jpg",
+                b"this is not a picture, and not a short one either",
+            )],
+        ),
+    );
+    app.home();
+    assert_eq!(app.screen(), "picture-home.dashboard");
+    assert!(app.storage.text(NOTE).is_none());
+    assert!(app.storage.size(BAKED).is_err());
+    assert!(
+        app.storage
+            .names(DIR)
+            .iter()
+            .all(|n| !n.starts_with("background.")),
+        "{:?}",
+        app.storage.names(DIR)
+    );
+    // It still shows the page, and the widgets.
+    assert!(app.shows("Start reading"), "{}", app.described());
+}
+
+/// A card that says when a file was changed, and may refuse to keep the
+/// note beside the baked picture.
+struct Card {
+    files: MemoryStorage,
+    stamp: std::cell::Cell<i64>,
+    refuse_note: std::cell::Cell<bool>,
+}
+
+impl Storage for Card {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        self.files.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        self.files.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        if self.refuse_note.get() && path == NOTE {
+            return Err(StorageError::Other(7));
+        }
+        self.files.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.files.append(path, data)
+    }
+    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.files.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        self.files.remove(path)
+    }
+    fn modified(&self, path: &str) -> Option<i64> {
+        (path == "wallpapers/wide.jpg").then(|| self.stamp.get())
+    }
+}
+
+fn card(config: &str) -> (Rc<Card>, Shared) {
+    let card = Rc::new(Card {
+        files: MemoryStorage::new().with("wallpapers/wide.jpg", WIDE),
+        stamp: std::cell::Cell::new(1),
+        refuse_note: std::cell::Cell::new(false),
+    });
+    let shared = Shared(card.clone());
+    shared.set_config(&format!("{ON}[picture-home]\n{config}\n"));
+    shared.write(SETUP_DONE, b"").unwrap();
+    (card, shared)
+}
+
+#[test]
+fn a_picture_changed_in_place_is_made_anew_where_the_card_says_when() {
+    let (card, shared) = card("picture = wide.jpg\nlighten = 0");
+    let mut app = App::new(X4, shared.clone());
+    app.home();
+    let note = shared.text(NOTE).unwrap();
+    card.stamp.set(2);
+    let mut app = app.restart();
+    app.home();
+    assert_ne!(shared.text(NOTE).unwrap(), note);
+    assert!(shared.size(BAKED).is_ok());
+}
+
+#[test]
+fn a_note_that_cannot_be_written_leaves_no_picture_and_no_loop() {
+    let (card, shared) = card("picture = wide.jpg\nlighten = 0");
+    card.refuse_note.set(true);
+    let mut app = App::new(X4, shared.clone());
+    app.home();
+    assert_eq!(app.screen(), "picture-home.dashboard");
+    assert!(
+        shared.size(BAKED).is_err(),
+        "no picture kept without its note"
+    );
+    assert!(shared.text(NOTE).is_none());
+    assert!(app.shows("Start reading"), "{}", app.described());
 }

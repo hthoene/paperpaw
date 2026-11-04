@@ -133,6 +133,9 @@ impl Storage for Shared {
     fn sync(&self) -> Result<(), StorageError> {
         self.0.sync()
     }
+    fn modified(&self, path: &str) -> Option<i64> {
+        self.0.modified(path)
+    }
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
         self.0.list(dir, visit)
     }
