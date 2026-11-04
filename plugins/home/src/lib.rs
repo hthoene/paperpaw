@@ -363,9 +363,17 @@ impl Dashboard {
         // it is wanted; add at the left when editing.
         let margin = style.margin();
         let side = footer.height;
-        self.pencil = Rect::new(display.width - margin - side, footer.y, side, side);
-        self.plus = Rect::new(margin, footer.y, side, side);
         let editing = self.grid.editing();
+        // Editing: add and done are buttons a finger finds, at least two
+        // rows wide (a tick alone was too small to hit: a missed tap fell
+        // on the page and turned it).
+        let (plus, done) = if editing {
+            (side * 2, done_width(env, &style, side))
+        } else {
+            (side, side)
+        };
+        self.pencil = Rect::new(display.width - margin - done, footer.y, done, side);
+        self.plus = Rect::new(margin, footer.y, plus, side);
         let mut buttons = Vec::new();
         // The footer's actions left of the pencil, from the right, as many
         // as leave the dots of the pages their room in the middle.
@@ -516,8 +524,17 @@ impl Dashboard {
             ui.icon(name, size, x, area, ink);
         };
         if editing {
-            icon("plus", self.plus, Color::BLACK);
-            icon("check", self.pencil, Color::BLACK);
+            // Buttons, drawn on the edge of what a finger hits.
+            // (drawn a little in from the target's edges, which the finger
+            // has, so that they keep off the line of the hints below)
+            let air = style.gap() / 3;
+            ui.button(self.plus.inset(0, air), "+", false, false);
+            ui.button(
+                self.pencil.inset(0, air),
+                env.i18n().tr("core.grid.done"),
+                true,
+                false,
+            );
         } else if env.settings().read(&pages::FOOTER_PENCIL) {
             icon("pencil", self.pencil, style.faint(ui::Ink::NOTE));
         }
@@ -536,6 +553,15 @@ impl Dashboard {
             }
         }
     }
+}
+
+/// The width of the *Done* button: its word with room round it, and at
+/// least two rows.
+fn done_width(env: &Env<'_>, style: &UiStyle, side: u16) -> u16 {
+    let word = style.font(env).map_or(0, |f| {
+        f.measure(style.text(), env.i18n().tr("core.grid.done")) as u16
+    });
+    (word + 2 * style.margin()).max(side * 2)
 }
 
 impl Screen for Dashboard {
@@ -713,7 +739,14 @@ impl Screen for Dashboard {
             }
         }
         let response = self.grid.on_gesture(gesture, cx);
-        self.respond(response, cx)
+        let handled = self.respond(response, cx);
+        // Arranging: a swipe or a tap that hits nothing does nothing. It
+        // must not reach the key map, which turns the page, opens the
+        // tools or the menu (a finger moving a widget strays often).
+        if handled == Handled::No && self.grid.editing() {
+            return Handled::Yes;
+        }
+        handled
     }
 }
 

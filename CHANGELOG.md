@@ -76,6 +76,11 @@ change the plugin SDK.
   cache between commands, so a preceding callback cannot exhaust translations for later notices and dialog labels.
   Smaller caches stay resident; the 16 KiB budget and plugin interface stay unchanged.
 
+- **Arranging the home screen no longer turns the page or opens the tools by mistake** (#215). While the page is arranged, a
+  swipe or tap that hits nothing (a finger straying off a widget) does nothing, instead of turning the page or opening
+  the menu. *Done* and *Add* are buttons at least two rows wide, with the word *Done*, instead of a small tick that taps
+  missed and that landed on the page.
+
 - A rotated picture-home photo is prepared only for the part the screen shows, avoiding a full-image transpose
   at high zoom (#205).
 
