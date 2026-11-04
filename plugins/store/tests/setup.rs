@@ -332,9 +332,7 @@ fn one_that_cannot_come_is_named() {
     shopping.answer(&call, 404, b"not found");
     let shown = shopping.shown().replace(" | ", " ");
     assert!(
-        shown.contains(
-            "Could not be added: Home widgets. They are in the Plugin store."
-        ),
+        shown.contains("Could not be added: Home widgets. They are in the Plugin store."),
         "{shown}"
     );
     assert!(shopping.kernel.plugins().get("widgets").is_none());
