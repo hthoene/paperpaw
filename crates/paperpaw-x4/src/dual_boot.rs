@@ -197,6 +197,9 @@ impl MarkerScan {
     /// More of the flash. Whether the marker has been seen by now.
     pub fn feed(&mut self, piece: &[u8]) -> bool {
         let needle = self.needle;
+        if needle.is_empty() {
+            return false;
+        }
         for &byte in piece {
             // On a mismatch, fall back to the longest start of the marker
             // that the bytes before it end in, and try again.

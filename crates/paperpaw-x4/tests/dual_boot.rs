@@ -352,6 +352,12 @@ const LOWIO_EXCERPT: [u8; 86] = [
 const LOWIO_EXCERPT_AT: usize = 0xb8;
 
 #[test]
+fn a_look_for_nothing_finds_nothing() {
+    use paperpaw_x4::dual_boot::MarkerScan;
+    assert!(!MarkerScan::of(b"").feed(b"anything"));
+}
+
+#[test]
 fn the_real_dualbooter_bootloader_is_recognised() {
     let (mut chip, _) = flash(layouts()[0].1);
     chip.0[LOWIO_EXCERPT_AT..LOWIO_EXCERPT_AT + LOWIO_EXCERPT.len()]
