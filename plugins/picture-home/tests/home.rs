@@ -67,7 +67,8 @@ fn the_picture_is_made_once_for_the_screen() {
     assert!(!names.contains(&"background.part".to_string()), "{names:?}");
     assert_eq!(app.storage.size(BAKED).unwrap(), 12 + 480 * 800);
     let note = app.storage.text(NOTE).unwrap();
-    assert!(note.starts_with("wallpapers/wide.jpg|"), "{note}");
+    assert!(note.ends_with("|Fill|11|100|0|false|480x800"), "{note}");
+    assert!(note.len() < 100, "{note}");
     // Shown again, restarted: the same file, nothing made anew.
     let before = app.storage.size(BAKED).unwrap();
     let mut app = app.restart();
@@ -288,5 +289,44 @@ fn the_picture_is_made_in_dots_where_it_is_to_be_dithered() {
     );
     for y in [10, 200, 400, 600] {
         assert!(grays_in_row(&dots, y) <= 2, "row {y}");
+    }
+}
+
+#[test]
+fn a_picture_with_a_very_long_path_is_made_once_and_shown() {
+    let folder = "w".repeat(501);
+    let mut app = App::new(
+        X4,
+        Shared::memory(
+            &format!("{ON}[picture-home]\nfolder = {folder}\npicture = wide.jpg\nlighten = 0\n"),
+            &[(&format!("{folder}/wide.jpg"), WIDE)],
+        ),
+    );
+    app.home();
+    assert_eq!(app.screen(), "picture-home.dashboard");
+    assert!(app.storage.read_at(BAKED, 0, &mut [0u8; 4]).is_ok());
+    assert!(app.storage.read_at(NOTE, 0, &mut [0u8; 4]).is_ok());
+    // Another draw finds it made.
+    app.home();
+    assert!(app.storage.read_at(NOTE, 0, &mut [0u8; 4]).is_ok());
+}
+
+#[test]
+fn a_jpeg_with_a_large_block_of_metadata_is_made_as_one_without() {
+    let mut with = vec![0xff, 0xd8, 0xff, 0xe1];
+    with.extend((40_000u16).to_be_bytes());
+    with.extend(std::iter::repeat_n(0u8, 40_000 - 2));
+    with.extend_from_slice(&WIDE[2..]);
+    let plain = open(X4, "picture = wide.jpg\nlighten = 0");
+    let mut app = App::new(
+        X4,
+        Shared::memory(
+            &format!("{ON}[picture-home]\npicture = wide.jpg\nlighten = 0\n"),
+            &[("wallpapers/wide.jpg", &with)],
+        ),
+    );
+    app.home();
+    for (x, y) in [(10, 400), (240, 400), (470, 100), (240, 700)] {
+        assert_eq!(baked(&app, x, y), baked(&plain, x, y), "{x},{y}");
     }
 }

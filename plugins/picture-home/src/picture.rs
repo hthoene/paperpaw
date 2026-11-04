@@ -134,9 +134,10 @@ impl Recipe {
 
     /// The note kept beside the baked picture.
     pub(crate) fn key(&self) -> String {
+        // The path by its hash: a long one must not make a long note.
         format!(
-            "{}|{}|{:?}|{}{}|{}|{}|{}|{}x{}",
-            self.path,
+            "{:016x}|{}|{:?}|{}{}|{}|{}|{}|{}x{}",
+            hash(&self.path),
             self.bytes,
             self.fitting,
             self.across,
@@ -148,6 +149,13 @@ impl Recipe {
             self.height
         )
     }
+}
+
+/// A 64-bit FNV-1a hash of `text`.
+fn hash(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 /// Where the picture goes: its size on the screen, and the offset of its
@@ -262,9 +270,11 @@ pub(crate) fn bake(env: &Env<'_>, recipe: &Recipe) -> Result<ImageRef, Failure> 
     let _ = paperpaw_sdk::files::delete(storage, &data(TEMP));
     match result {
         Ok(image) => {
-            storage
-                .write(&data(NOTE), recipe.key().as_bytes())
-                .map_err(|_| Failure::Short)?;
+            if storage.write(&data(NOTE), recipe.key().as_bytes()).is_err() {
+                // No note: the picture could never be taken for a made one.
+                let _ = paperpaw_sdk::files::delete(storage, &data(BAKED));
+                return Err(Failure::Short);
+            }
             Ok(image)
         }
         Err(failure) => {
@@ -283,7 +293,8 @@ fn make(env: &Env<'_>, recipe: &Recipe) -> Result<ImageRef, Failure> {
         .read_at(&recipe.path, 0, &mut head)
         .map_err(|_| Failure::Unreadable)?;
     head.truncate(n);
-    let known = dimensions(&head);
+    // A phone's JPEG may keep its size after more than the head holds.
+    let known = dimensions(&head).or_else(|| jpeg_size(storage, &recipe.path));
     drop(head);
     let wanted = match known {
         Some(source) => plan(recipe, source),
@@ -320,6 +331,47 @@ fn make(env: &Env<'_>, recipe: &Recipe) -> Result<ImageRef, Failure> {
         width: u32::from(recipe.width),
         height: u32::from(recipe.height),
     })
+}
+
+/// The size of a JPEG, found by walking its segments with small reads (a
+/// large block of metadata before the frame is skipped, not read).
+fn jpeg_size(storage: &dyn paperpaw_sdk::Storage, path: &str) -> Option<(u32, u32)> {
+    let mut at = 2u64;
+    let mut soi = [0u8; 2];
+    storage.read_at(path, 0, &mut soi).ok()?;
+    if soi != [0xff, 0xd8] {
+        return None;
+    }
+    // A picture has few segments before its frame.
+    for _ in 0..256 {
+        let mut head = [0u8; 4];
+        if storage.read_at(path, at, &mut head).ok()? < 4 || head[0] != 0xff {
+            return None;
+        }
+        let marker = head[1];
+        if marker == 0xff {
+            // Fill byte.
+            at += 1;
+            continue;
+        }
+        let length = u64::from(u16::from_be_bytes([head[2], head[3]]));
+        let frame = matches!(marker, 0xc0..=0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf);
+        if frame {
+            let mut sof = [0u8; 9];
+            if storage.read_at(path, at + 4, &mut sof).ok()? < 5 {
+                return None;
+            }
+            let height = u32::from(u16::from_be_bytes([sof[1], sof[2]]));
+            let width = u32::from(u16::from_be_bytes([sof[3], sof[4]]));
+            return (width > 0 && height > 0).then_some((width, height));
+        }
+        // Start of scan or end: no frame came.
+        if marker == 0xda || marker == 0xd9 || length < 2 {
+            return None;
+        }
+        at += 2 + length;
+    }
+    None
 }
 
 /// Sets the decoded picture into the baked file, row by row.
@@ -531,6 +583,41 @@ mod tests {
         assert_eq!(Render::of("picture-home.render.dither"), Render::Dithered);
         assert_eq!(Render::of("picture-home.render.auto"), Render::Automatic);
         assert_eq!(Render::of("nonsense"), Render::Automatic);
+    }
+
+    #[test]
+    fn a_long_path_makes_a_short_key() {
+        let mut long = recipe(Fitting::Fill, 100, 1, 1);
+        long.path = "a".repeat(600);
+        let mut other = long.clone();
+        other.path = "b".repeat(600);
+        assert!(long.key().len() < 120, "{}", long.key().len());
+        assert_ne!(long.key(), other.key());
+    }
+
+    /// A JPEG's head: a block of `meta` bytes before the frame of 4000 by
+    /// 3000.
+    fn jpeg_head(meta: usize) -> Vec<u8> {
+        let mut bytes = alloc::vec![0xff, 0xd8, 0xff, 0xe1];
+        bytes.extend((meta as u16 + 2).to_be_bytes());
+        bytes.extend(core::iter::repeat_n(0u8, meta));
+        bytes.extend([0xff, 0xc0, 0, 17, 8, 0x0b, 0xb8, 0x0f, 0xa0, 3]);
+        bytes.extend([0u8; 9]);
+        bytes
+    }
+
+    #[test]
+    fn the_size_of_a_jpeg_is_found_behind_a_large_block_of_metadata() {
+        use paperpaw_sdk::Storage as _;
+        let storage = paperpaw_sdk::MemoryStorage::new();
+        storage.write("a.jpg", &jpeg_head(40_000)).unwrap();
+        assert_eq!(jpeg_size(&storage, "a.jpg"), Some((4000, 3000)));
+        storage.write("b.jpg", &jpeg_head(10)).unwrap();
+        assert_eq!(jpeg_size(&storage, "b.jpg"), Some((4000, 3000)));
+        storage.write("c.jpg", b"not a picture").unwrap();
+        assert_eq!(jpeg_size(&storage, "c.jpg"), None);
+        storage.write("d.jpg", &[0xff, 0xd8, 0xff]).unwrap();
+        assert_eq!(jpeg_size(&storage, "d.jpg"), None);
     }
 
     #[test]

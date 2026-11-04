@@ -70,6 +70,8 @@ pub(crate) struct Dashboard {
     preparing: bool,
     /// What failed to be made, so that it is not tried again and again.
     failed: Option<String>,
+    /// The key of the picture made last, so that one made is not made again.
+    made: Option<String>,
     /// When a bar that shows after a press goes again.
     revealed_until: Option<Instant>,
     /// How bright the picture is behind the bar where it has no plate.
@@ -105,7 +107,9 @@ fn hint_visibility(env: &Env<'_>) -> HintVisibility {
 
 /// Whether a bar shows after a press.
 fn auto(env: &Env<'_>) -> bool {
-    visible(env, &settings::BAR) == Visible::Auto || visible(env, &settings::HINTS) == Visible::Auto
+    // A device without buttons has no row of hints to show.
+    visible(env, &settings::BAR) == Visible::Auto
+        || (visible(env, &settings::HINTS) == Visible::Auto && env.device().input.buttons)
 }
 
 /// The pages' items for this screen: as kept upright; on its side placed
@@ -206,6 +210,7 @@ impl Dashboard {
             render: Render::Automatic,
             preparing: false,
             failed: None,
+            made: None,
             revealed_until: None,
             behind: None,
             hints: Some(hint_visibility(env)),
@@ -276,6 +281,7 @@ impl Dashboard {
         self.stale = false;
         self.auto = auto(env);
         self.render = Render::of(env.settings().text(settings::RENDER.as_str()));
+        self.hints = Some(hint_visibility(env));
         self.find_picture(env);
         // Where the bar has no plate, its ink follows the picture.
         self.behind = match (self.bar, &self.picture) {
@@ -307,6 +313,13 @@ impl Dashboard {
         match picture::baked(env, &recipe) {
             Some(image) => {
                 self.picture = Some(image);
+                self.pending = None;
+            }
+            // Made on this screen already, and still not found: it would be
+            // made again and again. Taken as failed.
+            None if self.made.as_deref() == Some(recipe.key().as_str()) => {
+                self.failed = self.made.take();
+                self.picture = None;
                 self.pending = None;
             }
             None => {
@@ -368,7 +381,10 @@ impl Dashboard {
         self.preparing = false;
         self.pending = None;
         match made {
-            Ok(image) => self.picture = Some(image),
+            Ok(image) => {
+                self.made = Some(recipe.key());
+                self.picture = Some(image);
+            }
             Err(failure) => {
                 self.failed = Some(recipe.key());
                 let key = match failure {
