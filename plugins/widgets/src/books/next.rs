@@ -49,12 +49,15 @@ const SEEN_PLACES: u64 = 5;
 const MAX_NEWEST: usize = 16;
 
 /// Its settings, kept in the program.
-static SETTINGS: [SettingSpec; 11] = [
+static SETTINGS: [SettingSpec; 14] = [
     widgets::align_spec("widgets.next.align", ID, Align::Left),
     widgets::frame_spec("widgets.next.frame", ID, Frame::None),
     widgets::padding_spec("widgets.next.padding", ID, Padding::Auto),
     widgets::paper_spec("widgets.next.paper", ID),
     widgets::ink_spec("widgets.next.ink", ID),
+    widgets::corners_spec("widgets.next.corners", ID),
+    widgets::frame_line_spec("widgets.next.frame-line", ID),
+    widgets::shadow_spec("widgets.next.drop-shadow", ID),
     widgets::size_spec("widgets.next.size", ID, TextSize::Medium, false),
     SettingSpec::choice(
         "widgets.next.pick",

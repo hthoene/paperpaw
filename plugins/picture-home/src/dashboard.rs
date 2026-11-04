@@ -144,7 +144,7 @@ fn frame(env: &Env<'_>) -> (Option<Rect>, Geometry, Rect) {
     let (width, height) = (display.width, display.height);
     let wide = width > height;
     let margin = style.margin();
-    let gap = style.gap();
+    let gap = widgets::gap(env);
     let footer = Rect::new(0, height.saturating_sub(style.row()), width, style.row());
     let mut top = gap / 2;
     let mut bottom = footer.y;

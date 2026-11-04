@@ -33,7 +33,7 @@ const FACE: Setting<Text> = Setting::new("widgets.note.face");
 const TYPED: Event<Typed> = Event::new("widgets.note.typed");
 
 /// The note's settings, kept in the program.
-static SETTINGS: [SettingSpec; 9] = [
+static SETTINGS: [SettingSpec; 12] = [
     SettingSpec::text("widgets.note.text", "widgets.note.setting.text", "", ID)
         .description("widgets.note.setting.text.help"),
     SettingSpec::text(
@@ -57,6 +57,9 @@ static SETTINGS: [SettingSpec; 9] = [
     widgets::padding_spec("widgets.note.padding", ID, Padding::Auto),
     widgets::paper_spec("widgets.note.paper", ID),
     widgets::ink_spec("widgets.note.ink", ID),
+    widgets::corners_spec("widgets.note.corners", ID),
+    widgets::frame_line_spec("widgets.note.frame-line", ID),
+    widgets::shadow_spec("widgets.note.drop-shadow", ID),
 ];
 
 pub(super) fn register(r: &mut Registrar) -> Result<(), RegisterError> {
