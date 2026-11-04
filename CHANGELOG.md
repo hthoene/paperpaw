@@ -8,6 +8,12 @@ change the plugin SDK.
 
 ### Added
 
+- **The Wi-Fi page: the networks have a page of their own** (#161). The Wi-Fi page is short whatever is in the air:
+  the switch with where it is, a row *Networks ›* (the network the device is in and how many are in reach; it opens
+  the list), the setup with a phone and the three settings. While no network is kept, *Set up with a phone* comes
+  first, below the switch. Back on the list returns to the Wi-Fi page; if the radio goes off meanwhile it does
+  too. Opening the list does not scan again (the Wi-Fi page has just); its last row looks again.
+
 - **Spanish user interface.** All 3,861 messages of the kernel and the plugins in Spanish, as the data plugin
   `language-es` from the store. Machine-translated and checked with `tools/language-pack.py check es`; corrections
   from Spanish readers are welcome.
