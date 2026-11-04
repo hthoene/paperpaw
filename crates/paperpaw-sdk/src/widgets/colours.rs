@@ -253,10 +253,7 @@ pub(crate) fn paint_paper(
     area: Rect,
     look: &super::WidgetLook,
 ) -> bool {
-    let corner = match look.frame {
-        Frame::None => 0,
-        _ => style.corner,
-    };
+    let corner = super::shape::plate_corner(env, widget, style, look.frame);
     match paper(env, widget) {
         ColourSpec::Auto => return false,
         ColourSpec::Is(colour) => canvas.fill_round_shaded(area, corner, colour),

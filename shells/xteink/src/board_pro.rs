@@ -9,7 +9,7 @@
 //! | Touch (GT911), fuel gauge (CW2017), clock (BM8563) | I²C: data GPIO 39, clock GPIO 38; the touch's interrupt GPIO 10, reset GPIO 4, power GPIO 2 (on while low) |
 //! | Side buttons (up, down) | GPIO 0 and GPIO 7, low while pressed |
 //! | Power button | GPIO 3, low while pressed |
-//! | Charging | GPIO 21 |
+//! | Charging | GPIO 21, high while a cable powers it (measured on a Pro, #209: low on battery, high on a computer's cable, a charging cell; whether it means "charging" or "power present" is not told apart yet) |
 //! | Front light | GPIO 8 (cool) and GPIO 9 (warm), by PWM |
 //! | The battery's power | held on by GPIO 1, cut when it goes low |
 //!
@@ -315,7 +315,9 @@ impl Board {
             power_button: Input::new(p.GPIO3, pulled),
             light: crate::light::Light::new(p.LEDC, p.GPIO8, p.GPIO9),
             clock_ms,
-            usb_power: UsbPower::new(Input::new(p.GPIO21, pulled), Level::Low),
+            // High on a cable, low on battery (measured on a Pro, #209): the
+            // opposite of what the first port assumed.
+            usb_power: UsbPower::new(Input::new(p.GPIO21, pulled), Level::High),
             timers: TimerGroup::new(p.TIMG0),
             timers1: TimerGroup::new(p.TIMG1),
             rtc: p.RTC_TIMER,

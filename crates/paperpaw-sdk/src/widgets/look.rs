@@ -472,9 +472,10 @@ pub fn draw_frame(canvas: &mut Canvas<'_>, env: &Env<'_>, widget: &str, area: Re
             plate.width,
             plate.height,
         );
+        let corner = super::shape::plate_corner(env, widget, &style, look.frame);
         match super::shape::shadow_colour(look.paper) {
-            Color::BLACK => canvas.fill_round(below, style.corner, Color::BLACK),
-            shade => canvas.fill_round_shaded(below, style.corner, shade),
+            Color::BLACK => canvas.fill_round(below, corner, Color::BLACK),
+            shade => canvas.fill_round_shaded(below, corner, shade),
         }
     }
     // A paper the reader chose, else as cards are: a look of a plugin's
