@@ -91,7 +91,8 @@ fn fnv(hash: u64, bytes: &[u8]) -> u64 {
 /// the notes (what a drawing of them depends on besides the focus).
 fn view(env: &Env<'_>, rows: &[Row]) -> (Vec<String>, u64) {
     let Some(wifi) = env.wifi() else {
-        return (Vec::new(), 0);
+        // No radio: every row is there, with nothing to say.
+        return (rows.iter().map(|_| String::new()).collect(), 0);
     };
     let known = wifi::known(env.secrets().iter());
     let tr = |key| env.i18n().tr(key);
