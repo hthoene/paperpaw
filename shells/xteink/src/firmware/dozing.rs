@@ -18,8 +18,7 @@ impl Firmware {
     /// when they change, and a doze whose cable is gone ends in a sleep.
     pub(super) fn watch_stay_awake(&mut self) {
         // The cable is looked at only where the choice is on.
-        let wanted =
-            self.kernel.settings().read(&device::STAY_AWAKE_USB) && self.usb_power.cable();
+        let wanted = self.kernel.settings().read(&device::STAY_AWAKE_USB) && self.usb_power.cable();
         if let Some(on) = self.state.stay.watch(wanted, now().0) {
             info!("stay awake on USB: {}", if on { "on" } else { "off" });
             let effects = self.kernel.set_awake_on_usb(now(), on);
