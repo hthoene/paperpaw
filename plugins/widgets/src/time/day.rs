@@ -25,10 +25,12 @@ const STYLES: [&str; 3] = [
 ];
 
 /// Its settings, kept in the program.
-static SETTINGS: [SettingSpec; 8] = [
+static SETTINGS: [SettingSpec; 10] = [
     widgets::align_spec("widgets.day.align", ID, Align::Left),
     widgets::frame_spec("widgets.day.frame", ID, Frame::None),
     widgets::padding_spec("widgets.day.padding", ID, Padding::Auto),
+    widgets::paper_spec("widgets.day.paper", ID),
+    widgets::ink_spec("widgets.day.ink", ID),
     SettingSpec::choice(
         "widgets.day.style",
         "widgets.setting.style",

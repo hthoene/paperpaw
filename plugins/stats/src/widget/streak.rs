@@ -29,9 +29,11 @@ const DAYS: [&str; 2] = ["stats.marks.7", "stats.marks.14"];
 
 /// Its settings, kept in the program: its look, its choices and
 /// switches for its parts.
-static SETTINGS: [SettingSpec; 11] = [
+static SETTINGS: [SettingSpec; 13] = [
     widgets::frame_spec("stats.widget.streak.frame", STREAK, Frame::None),
     widgets::padding_spec("stats.widget.streak.padding", STREAK, Padding::Auto),
+    widgets::paper_spec("stats.widget.streak.paper", STREAK),
+    widgets::ink_spec("stats.widget.streak.ink", STREAK),
     widgets::size_spec("stats.widget.streak.size", STREAK, TextSize::Medium, true),
     widgets::align_spec("stats.widget.streak.align", STREAK, Align::Center),
     SettingSpec::choice(

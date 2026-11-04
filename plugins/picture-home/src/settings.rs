@@ -45,6 +45,15 @@ pub(crate) const CONTRASTS: [&str; 3] = [
     "picture-home.contrast.higher",
 ];
 
+/// What the widgets sit on (values of [`PLATES`]): a white plate under each,
+/// a light gray one, or none (the picture shows through).
+pub(crate) const PLATE: Setting<Text> = Setting::new("picture-home.plate");
+pub(crate) const PLATES: [&str; 3] = [
+    paperpaw_sdk::widgets::PAPER_NORMAL,
+    paperpaw_sdk::widgets::PAPER_LIGHT_GRAY,
+    paperpaw_sdk::widgets::PAPER_NONE,
+];
+
 /// How the picture is rendered (values of [`RENDERS`]).
 pub(crate) const RENDER: Setting<Text> = Setting::new("picture-home.render");
 
@@ -184,7 +193,7 @@ const fn items(id: &'static str, title: &'static str, default: &'static str) -> 
 }
 
 /// The settings, in the order they are listed.
-pub(crate) static SETTINGS: [SettingSpec; 27] = [
+pub(crate) static SETTINGS: [SettingSpec; 28] = [
     SettingSpec::text(
         FOLDER.static_str(),
         "picture-home.setting.folder",
@@ -257,6 +266,15 @@ pub(crate) static SETTINGS: [SettingSpec; 27] = [
     )
     .with_extra(&IN_PLUGIN)
     .description("picture-home.setting.contrast.help"),
+    SettingSpec::choice(
+        PLATE.static_str(),
+        "picture-home.setting.plate",
+        &PLATES,
+        PLATES[0],
+        GROUP,
+    )
+    .with_extra(&IN_PLUGIN)
+    .description("picture-home.setting.plate.help"),
     SettingSpec::choice(
         RENDER.static_str(),
         "picture-home.setting.render",

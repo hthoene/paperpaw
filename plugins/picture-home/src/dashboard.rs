@@ -18,7 +18,7 @@ use paperpaw_sdk::document::ImageRef;
 use paperpaw_sdk::event::Event;
 use paperpaw_sdk::ui::{self, UiStyle, choice};
 use paperpaw_sdk::widgets::grid::{self, Geometry, GridResponse, GridView, Item, What};
-use paperpaw_sdk::widgets::{self, next_minute};
+use paperpaw_sdk::widgets::{self, Plate, next_minute};
 use paperpaw_sdk::{
     Canvas, Color, Command, Cx, Env, Gesture, GestureKind, Handled, Hint, HintVisibility, Id,
     Instant, Params, PointerEvent, Rect, RefreshMode, Screen,
@@ -66,6 +66,8 @@ pub(crate) struct Dashboard {
     pending: Option<Recipe>,
     /// How the picture is rendered, as the settings said at the last layout.
     render: Render,
+    /// What the widgets sit on, as the settings said at the last layout.
+    plate: Plate,
     /// The notice "preparing" shows before the picture is made.
     preparing: bool,
     /// What failed to be made, so that it is not tried again and again.
@@ -106,6 +108,16 @@ fn hint_visibility(env: &Env<'_>) -> HintVisibility {
 }
 
 /// Whether a bar shows after a press.
+/// What the widgets sit on: white, as the built-in home screen; a gray or
+/// colour; or nothing.
+fn widget_plate(env: &Env<'_>) -> Plate {
+    match widgets::colour_spec(env.settings().text(settings::PLATE.as_str())) {
+        widgets::ColourSpec::Is(colour) => Plate::Colour(colour),
+        widgets::ColourSpec::None => Plate::None,
+        _ => Plate::Paper,
+    }
+}
+
 fn auto(env: &Env<'_>) -> bool {
     // A device without buttons has no row of hints to show.
     visible(env, &settings::BAR) == Visible::Auto
@@ -208,6 +220,7 @@ impl Dashboard {
             picture: None,
             pending: None,
             render: Render::Automatic,
+            plate: Plate::Paper,
             preparing: false,
             failed: None,
             made: None,
@@ -282,6 +295,7 @@ impl Dashboard {
         self.auto = auto(env);
         self.render = Render::of(env.settings().text(settings::RENDER.as_str()));
         self.hints = Some(hint_visibility(env));
+        self.plate = widget_plate(env);
         self.find_picture(env);
         // Where the bar has no plate, its ink follows the picture.
         self.behind = match (self.bar, &self.picture) {
@@ -607,7 +621,7 @@ impl Screen for Dashboard {
         }
         self.draw_bar(&mut ui);
         self.draw_footer(&mut ui);
-        self.grid.draw(ui.canvas(), env);
+        self.grid.draw_on(ui.canvas(), env, self.plate);
     }
 
     /// Read when the screen is made (and where the row would come).

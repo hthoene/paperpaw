@@ -130,8 +130,10 @@ static RECENT_SETTINGS: [SettingSpec; 1] = [SettingSpec::number(
 .description("home.setting.recent-count.help")];
 
 /// The widgets' settings: where each sits, its frame, size and parts.
-static SETTINGS: [SettingSpec; 21] = {
-    use widgets::{Padding, align_spec, frame_spec, padding_spec, part_spec, size_spec};
+static SETTINGS: [SettingSpec; 31] = {
+    use widgets::{
+        Padding, align_spec, frame_spec, ink_spec, padding_spec, paper_spec, part_spec, size_spec,
+    };
     const STATUS_ID: Id = Id::new_static(STATUS);
     const DATE_ID: Id = Id::new_static(DATE);
     const CLOCK_ID: Id = Id::new_static(CLOCK);
@@ -140,18 +142,26 @@ static SETTINGS: [SettingSpec; 21] = {
     [
         frame_spec("home.status.frame", STATUS_ID, Frame::None),
         padding_spec("home.status.padding", STATUS_ID, Padding::Auto),
+        paper_spec("home.status.paper", STATUS_ID),
+        ink_spec("home.status.ink", STATUS_ID),
         align_spec("home.date.align", DATE_ID, Align::Center),
         frame_spec("home.date.frame", DATE_ID, Frame::None),
         padding_spec("home.date.padding", DATE_ID, Padding::Auto),
+        paper_spec("home.date.paper", DATE_ID),
+        ink_spec("home.date.ink", DATE_ID),
         size_spec("home.date.size", DATE_ID, TextSize::Medium, false),
         align_spec("home.clock.align", CLOCK_ID, Align::Center),
         frame_spec("home.clock.frame", CLOCK_ID, Frame::None),
         padding_spec("home.clock.padding", CLOCK_ID, Padding::Auto),
+        paper_spec("home.clock.paper", CLOCK_ID),
+        ink_spec("home.clock.ink", CLOCK_ID),
         size_spec("home.clock.size", CLOCK_ID, TextSize::Medium, true),
         part_spec("home.clock.date", CLOCK_ID, "home.setting.clock-date", true),
         align_spec("home.continue.align", CONTINUE_ID, Align::Left),
         frame_spec("home.continue.frame", CONTINUE_ID, Frame::Line),
         padding_spec("home.continue.padding", CONTINUE_ID, Padding::Auto),
+        paper_spec("home.continue.paper", CONTINUE_ID),
+        ink_spec("home.continue.ink", CONTINUE_ID),
         part_spec(
             "home.continue.cover",
             CONTINUE_ID,
@@ -167,6 +177,8 @@ static SETTINGS: [SettingSpec; 21] = {
         align_spec("home.recent.align", RECENT_ID, Align::Center),
         frame_spec("home.recent.frame", RECENT_ID, Frame::None),
         padding_spec("home.recent.padding", RECENT_ID, Padding::Auto),
+        paper_spec("home.recent.paper", RECENT_ID),
+        ink_spec("home.recent.ink", RECENT_ID),
         part_spec(
             "home.recent.heading",
             RECENT_ID,
@@ -295,13 +307,23 @@ fn draw_status_line(
     area: Rect,
 ) {
     let style = UiStyle::new(env);
-    let color = if look.frame == Frame::Dark {
+    // The widget's own ink where the reader set a look of it (a dark card,
+    // a paper, a text colour); else the interface's note ink as before.
+    let color = if has_own_look(env, look, STATUS) {
         look.faint
     } else {
         style.faint(ui::Ink::NOTE)
     };
     let context = Params::new();
     PLACE.draw(canvas, env, &status_frame(env, area, color, &context));
+}
+
+/// Whether the reader gave widget `id` a look of its own: a dark card, a
+/// paper or a text colour. Where not, the interface's colours stay.
+fn has_own_look(env: &Env<'_>, look: &widgets::WidgetLook, id: &str) -> bool {
+    look.frame == Frame::Dark
+        || widgets::paper(env, id) != widgets::ColourSpec::Auto
+        || widgets::ink(env, id) != widgets::ColourSpec::Auto
 }
 
 /// The frame of the status line in `area`, in the interface's font.
@@ -881,6 +903,62 @@ impl Widget for Card {
     }
 }
 
+/// What the card says where there is nothing to show: an icon, a title and
+/// a text, together a little above the middle, in the widget's own ink (the
+/// interface's empty state draws black, which a dark card or a dark picture
+/// behind it makes unreadable).
+fn draw_empty(
+    ui: &mut ui::Ui<'_>,
+    env: &Env<'_>,
+    look: &widgets::WidgetLook,
+    icon: &str,
+    (title, text): (&str, &str),
+) {
+    let style = UiStyle::new(env);
+    let area = look.area;
+    let gap = style.gap();
+    let words = widgets::Wrapped::heading(
+        env,
+        title,
+        style.title(),
+        style.small(),
+        area.width,
+        area.height,
+    );
+    let below = area.height.saturating_sub(words.height(env) + gap);
+    let text = widgets::Wrapped::fitting(env, text, style.text(), style.small(), area.width, below);
+    let (title_h, text_h) = (words.height(env), text.height(env));
+    let icon_size = style.title() * 2.4;
+    let lines = title_h + if text_h > 0 { gap + text_h } else { 0 };
+    // The icon where there is room for it too.
+    let with_icon = lines + gap + icon_size as u16 <= area.height;
+    let total = lines + if with_icon { gap + icon_size as u16 } else { 0 };
+    let mut y = area.y + (area.height.saturating_sub(total)) * 2 / 5;
+    if with_icon {
+        let row = Rect::new(area.x, y, area.width, icon_size as u16);
+        let x = f32::from(area.x) + (f32::from(area.width) - icon_size) / 2.0;
+        ui.icon(icon, icon_size, x, row, look.faint);
+        y += icon_size as u16 + gap;
+    }
+    words.draw(
+        ui.canvas(),
+        env,
+        Rect::new(area.x, y, area.width, title_h),
+        widgets::Align::Center,
+        look.ink,
+    );
+    y += title_h + gap;
+    if text_h > 0 {
+        text.draw(
+            ui.canvas(),
+            env,
+            Rect::new(area.x, y, area.width, text_h),
+            widgets::Align::Center,
+            look.faint,
+        );
+    }
+}
+
 fn draw_card(
     canvas: &mut Canvas<'_>,
     env: &Env<'_>,
@@ -897,12 +975,15 @@ fn draw_card(
     let look = widgets::draw_frame(ui.canvas(), env, CONTINUE, area);
     let Some(Book { book, cover }) = shown else {
         // Nothing read yet: where the books are (a tap opens the library).
-        ui.empty(
-            look.area,
-            "books",
+        let (title, text) = (
             env.i18n().tr("home.start.title"),
             env.i18n().tr("home.start.text"),
         );
+        if has_own_look(env, &look, CONTINUE) {
+            draw_empty(&mut ui, env, &look, "books", (title, text));
+        } else {
+            ui.empty(look.area, "books", title, text);
+        }
         return;
     };
     // The cover on the left, where there is one.

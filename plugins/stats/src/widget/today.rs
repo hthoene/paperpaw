@@ -23,9 +23,11 @@ const NAME: &str = "stats.widget.today";
 
 /// Its settings, kept in the program: its look, its choices and
 /// switches for its parts.
-static SETTINGS: [SettingSpec; 8] = [
+static SETTINGS: [SettingSpec; 10] = [
     widgets::frame_spec("stats.widget.today.frame", TODAY, Frame::None),
     widgets::padding_spec("stats.widget.today.padding", TODAY, Padding::Auto),
+    widgets::paper_spec("stats.widget.today.paper", TODAY),
+    widgets::ink_spec("stats.widget.today.ink", TODAY),
     widgets::size_spec("stats.widget.today.size", TODAY, TextSize::Medium, true),
     widgets::align_spec("stats.widget.today.align", TODAY, Align::Left),
     widgets::part_spec(

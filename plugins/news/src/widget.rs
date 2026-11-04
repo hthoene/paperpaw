@@ -39,9 +39,11 @@ const LINES: [&str; 2] = ["news.lines.1", "news.lines.2"];
 
 /// Its settings, kept in the program: its look, its choices and
 /// switches for its parts.
-static SETTINGS: [SettingSpec; 9] = [
+static SETTINGS: [SettingSpec; 11] = [
     widgets::frame_spec("news.widget.headlines.frame", HEADLINES, Frame::None),
     widgets::padding_spec("news.widget.headlines.padding", HEADLINES, Padding::Auto),
+    widgets::paper_spec("news.widget.headlines.paper", HEADLINES),
+    widgets::ink_spec("news.widget.headlines.ink", HEADLINES),
     widgets::size_spec(
         "news.widget.headlines.size",
         HEADLINES,

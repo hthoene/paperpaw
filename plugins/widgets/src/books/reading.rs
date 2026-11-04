@@ -185,10 +185,12 @@ impl Recorder {
 }
 
 /// Its settings, kept in the program.
-static SETTINGS: [SettingSpec; 12] = [
+static SETTINGS: [SettingSpec; 14] = [
     widgets::align_spec("widgets.reading.align", ID, Align::Left),
     widgets::frame_spec("widgets.reading.frame", ID, Frame::None),
     widgets::padding_spec("widgets.reading.padding", ID, Padding::Auto),
+    widgets::paper_spec("widgets.reading.paper", ID),
+    widgets::ink_spec("widgets.reading.ink", ID),
     widgets::size_spec("widgets.reading.size", ID, TextSize::Medium, false),
     widgets::part_spec(
         "widgets.reading.caption",

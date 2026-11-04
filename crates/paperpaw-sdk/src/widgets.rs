@@ -66,11 +66,27 @@ use crate::id::Id;
 use crate::params::Params;
 use crate::settings::{SettingGroupSpec, SettingKind, SettingSpec, SettingValue};
 
+mod colours;
 pub mod grid;
-mod look;
+pub(crate) mod look;
+mod shape;
 mod stack;
 
 pub use stack::WidgetStack;
+
+pub use shape::{
+    CORNER_CHOICES, CORNERS_AUTO, GAP_LARGE, GAP_NORMAL, GAP_SMALL, GAPS, LINE_AUTO, LINE_CHOICES,
+    LINE_MEDIUM, LINE_THICK, LINE_THIN, SHADOW_HARD, SHADOW_NONE, SHADOWS, Shadow,
+    all_corners_spec, all_frame_line_spec, all_gap_spec, all_padding_spec, all_shadow_spec,
+    corners, corners_setting, corners_spec, frame_line, frame_line_setting, frame_line_spec, gap,
+    shadow, shadow_setting, shadow_spec,
+};
+
+pub use colours::{
+    ColourSpec, INK_AUTO, INKS, PAPER_DARK_GRAY, PAPER_INVERTED, PAPER_LIGHT_GRAY, PAPER_NONE,
+    PAPER_NORMAL, PAPERS, Plate, all_ink_spec, all_paper_spec, colour_spec, ink, ink_setting,
+    ink_spec, paper, paper_setting, paper_spec,
+};
 
 pub use look::{
     ALL_FRAMES, FRAMES, Frame, OWN_FRAME, PADDINGS, Padding, SIZES, TextSize, WidgetLook, Wrapped,

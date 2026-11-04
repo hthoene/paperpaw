@@ -628,6 +628,31 @@ pub mod settings {
     /// of [`widgets::ALL_FRAMES`](crate::widgets::ALL_FRAMES)
     /// (each widget its own at first).
     pub const WIDGET_FRAME: Setting<Text> = Setting::new("core.widgets.frame");
+    /// The paper of every widget whose own the reader did not choose: one
+    /// of [`widgets::PAPERS`](crate::widgets::PAPERS), a tone or a colour
+    /// code ([`widgets::colour_spec`](crate::widgets::colour_spec)); normal
+    /// leaves each widget its own.
+    pub const WIDGET_PAPER: Setting<Text> = Setting::new("core.widgets.paper");
+    /// The ink of every widget whose own the reader did not choose: one of
+    /// [`widgets::INKS`](crate::widgets::INKS), a tone or a colour code;
+    /// automatic leaves each widget its own.
+    pub const WIDGET_INK: Setting<Text> = Setting::new("core.widgets.ink");
+    /// The corners of every widget whose own the reader did not choose:
+    /// one of [`widgets::CORNER_CHOICES`](crate::widgets::CORNER_CHOICES);
+    /// automatic leaves each widget its own.
+    pub const WIDGET_CORNERS: Setting<Text> = Setting::new("core.widgets.corners");
+    /// The frame line of every widget whose own the reader did not choose:
+    /// one of [`widgets::LINE_CHOICES`](crate::widgets::LINE_CHOICES).
+    pub const WIDGET_FRAME_LINE: Setting<Text> = Setting::new("core.widgets.frame-line");
+    /// The shadow of every widget whose own the reader did not choose: one
+    /// of [`widgets::SHADOWS`](crate::widgets::SHADOWS).
+    pub const WIDGET_SHADOW: Setting<Text> = Setting::new("core.widgets.shadow");
+    /// The spacing inside every widget whose own the reader did not
+    /// choose: one of [`widgets::PADDINGS`](crate::widgets::PADDINGS).
+    pub const WIDGET_PADDING: Setting<Text> = Setting::new("core.widgets.padding");
+    /// The gap between widgets: one of
+    /// [`widgets::GAPS`](crate::widgets::GAPS) ([`widgets::gap`](crate::widgets::gap)).
+    pub const WIDGET_GAP: Setting<Text> = Setting::new("core.widgets.gap");
     /// Corners of highlights, buttons and boxes: one of [`CORNERS`].
     pub const UI_CORNERS: Setting<Text> = Setting::new("core.ui-corners");
     /// The values of [`UI_CORNERS`]: square, slightly rounded, round,

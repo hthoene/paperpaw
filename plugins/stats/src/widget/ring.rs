@@ -37,9 +37,11 @@ const LINES: [&str; 3] = ["stats.line.thin", "stats.line.medium", "stats.line.th
 
 /// Its settings, kept in the program: its look, its choices and
 /// switches for its parts.
-static SETTINGS: [SettingSpec; 9] = [
+static SETTINGS: [SettingSpec; 11] = [
     widgets::frame_spec("stats.widget.goal.frame", RING, Frame::None),
     widgets::padding_spec("stats.widget.goal.padding", RING, Padding::Auto),
+    widgets::paper_spec("stats.widget.goal.paper", RING),
+    widgets::ink_spec("stats.widget.goal.ink", RING),
     widgets::size_spec("stats.widget.goal.size", RING, TextSize::Fit, true),
     widgets::align_spec("stats.widget.goal.align", RING, Align::Center),
     SettingSpec::choice(

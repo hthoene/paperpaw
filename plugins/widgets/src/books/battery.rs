@@ -28,10 +28,12 @@ const STYLES: [&str; 3] = [
 ];
 
 /// Its settings, kept in the program.
-static SETTINGS: [SettingSpec; 8] = [
+static SETTINGS: [SettingSpec; 10] = [
     widgets::align_spec("widgets.battery.align", ID, Align::Center),
     widgets::frame_spec("widgets.battery.frame", ID, Frame::None),
     widgets::padding_spec("widgets.battery.padding", ID, Padding::Auto),
+    widgets::paper_spec("widgets.battery.paper", ID),
+    widgets::ink_spec("widgets.battery.ink", ID),
     widgets::size_spec("widgets.battery.size", ID, TextSize::Fit, true),
     SettingSpec::choice(
         "widgets.battery.style",

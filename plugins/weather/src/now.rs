@@ -38,9 +38,11 @@ const PLACINGS: [&str; 3] = [
     "weather.placing.above",
 ];
 /// Its settings, kept in the program: its look, its symbol, its parts.
-static SETTINGS: [SettingSpec; 17] = [
+static SETTINGS: [SettingSpec; 19] = [
     widgets::frame_spec("weather.now.frame", ID, Frame::None),
     widgets::padding_spec("weather.now.padding", ID, Padding::Auto),
+    widgets::paper_spec("weather.now.paper", ID),
+    widgets::ink_spec("weather.now.ink", ID),
     widgets::size_spec("weather.now.size", ID, TextSize::Fit, true),
     widgets::align_spec("weather.now.align", ID, Align::Center),
     SettingSpec::choice(

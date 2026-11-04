@@ -63,7 +63,7 @@ impl Screen for GoalSleep {
         if self.image.is_none() {
             // No cat on the card: its mood in words above the minutes.
             let above = Rect::new(margin, top.saturating_sub(line), room_w, line);
-            widget::says(&mut ui, &font, &style, &self.described, above);
+            widget::says(&mut ui, &font, &style, &self.described, above, Color::BLACK);
         }
         let width = f32::from(room_w);
         let text = ui::fit(&font, style.text(), &self.text, width);

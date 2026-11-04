@@ -11,6 +11,27 @@ change the plugin SDK.
 - **Spanish user interface.** All 3,861 messages of the kernel and the plugins in Spanish, as the data plugin
   `language-es` from the store. Machine-translated and checked with `tools/language-pack.py check es`; corrections
   from Spanish readers are welcome.
+- **Colours of widgets** (#206, SDK). Each widget has a paper (`<widget>.paper`: normal, inverted, light gray, dark
+  gray, transparent; on colour panels also any tone or a code such as `#3b6fd4`) and a text colour (`<widget>.ink`,
+  automatic: black or white, whichever reads on the paper), and the kernel's `core.widgets.paper` and
+  `core.widgets.ink` set them for every widget that has none of its own. `widgets::widget_look` gives the colours and
+  `widgets::draw_frame` paints the paper, so widgets that draw in `look.ink` on `look.paper` follow without a change;
+  `widgets::colour_spec`, `paper`, `ink` and the settings' builders are new. `GridView::draw_on` takes what lies
+  under the items (`widgets::Plate`: white as before, nothing over a picture, a colour), so widgets can sit on a
+  picture or a dark page. Additive: plugin interface 6 stays, plugins built before draw as they did; their widgets
+  follow the colours, those of all widgets too, once rebuilt with this SDK (each plugin carries its own copy of
+  `widget_look`). Transparent widgets take the page to be light: on a dark picture, choose a light text colour.
+- **Shape of widgets** (#206, SDK). Each widget has corners (`<widget>.corners`: automatic, square, slightly
+  rounded, round, soft), a frame line (`<widget>.frame-line`: automatic, thin, medium, thick) and a solid shadow
+  below and to the right of its card or paper (`<widget>.drop-shadow`; dark gray below a black plate, which a black
+  one would not stand out from, dithered where the panel has few grays). The kernel's `core.widgets.corners`,
+  `.frame-line`, `.shadow`, `.padding` and `.gap` set them for every widget that has none of its own; "Widget look"
+  presets cover them. `widgets::draw_frame` draws them, so widgets need no change; a widget that draws all of itself
+  stays as it is. `widgets::widget_look`, `draw_frame`, `frame_height` and `draw_caption` now come from the
+  firmware (shared-table family `widgets`, `Family::WIDGETS` = 6, revision 1; `Family::CORE` is deprecated), so
+  each widget plugin is 3.5 to 5.8 KB smaller on the X4 and its widgets follow the firmware's look. Plugins built
+  with this SDK that have widgets need this firmware: beta.2 refuses them cleanly ("needs a newer PaperPaw") and
+  the store does not offer them to it; plugins without widgets are unaffected. Plugin interface 6 stays.
 - **Picture home screen** (#205), a store plugin (`picture-home`, group Look; needs no new firmware). Your own
   picture behind the widgets, from a folder on the card: fill, whole picture, stretch, original size or tile, in one
   of nine places, zoomed and made paler; prepared once into a screen-sized gray file and drawn from it, a few rows at
@@ -20,6 +41,9 @@ change the plugin SDK.
   grey or dark grey plate or on the picture (black or white text, whichever reads). The row naming the buttons (X4)
   can be on, off or automatic. While the plugin is on it is the home screen; switched off, the built-in home screen
   is back with its own pages.
+- **Colour rows in every first-party widget** (#206): each widget of the widget pack, the home screen, statistics,
+  weather, reading goal, mail, news, notes vault and vocabulary has *Colours* (its paper) and *Text* beside its frame
+  and spacing. The picture home screen's *Widgets sit on* sets the plate under the widgets: white, light gray or none.
 
 ### Fixed
 
@@ -31,6 +55,10 @@ change the plugin SDK.
   Pro's charging pin is high on a cable and low on battery (measured on a Pro; the first port had it the other way round). A reader asleep on a cable with a full cell is switched off after its time like one on a
   battery; while it charges it stays asleep, which the setting's help text now says (en, de). The diagnostics page
   shows the charging pin's level and whether USB frames come on the Pro and the X3 (diagnostics 1.0.7). The X4 is as before.
+- **The empty start card reads on a dark card** (#207). Its words were black on the black card of a dark frame (and on
+  an inverted paper); the home screen draws them in the widget's own ink now, as its status line does. The pack's
+  world clock, library numbers and weather forecast chose their lines and shades by the frame being dark; they follow
+  the paper's lightness now, so a dark gray or inverted paper works too.
 - **A book opened before its font pack came no longer keeps a wrong page count** (#163). A Hebrew book opened before the
   Hebrew letters were installed was counted with those letters measured as `?`: 2 pages for a book of one. The count was
   kept under a name that did not change when the pack arrived, so the book showed `1 / 2` and no turn went to the

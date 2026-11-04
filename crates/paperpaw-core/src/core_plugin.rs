@@ -6,6 +6,7 @@ mod catalog_job;
 mod clean_up;
 mod finishing;
 mod reading;
+mod widget_settings;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
@@ -1150,7 +1151,7 @@ fn register_general_settings(r: &mut Registrar) -> Result<(), RegisterError> {
 /// advanced settings its header, corners, highlight, lines, groups,
 /// titles and room. The defaults are PaperPaw's look (soft corners,
 /// pills, plain headers, faint lines); themes (data plugins) set others.
-static LOOK: [SettingSpec; 15] = [
+static LOOK: [SettingSpec; 14] = [
     SettingSpec::number(
         settings::UI_SIZE.static_str(),
         "core.setting.ui-size",
@@ -1182,15 +1183,6 @@ static LOOK: [SettingSpec; 15] = [
     )
     .advanced()
     .description("core.setting.ui-header.help"),
-    SettingSpec::choice(
-        settings::WIDGET_FRAME.static_str(),
-        "core.setting.widget-frame",
-        paperpaw_sdk::widgets::ALL_FRAMES,
-        paperpaw_sdk::widgets::OWN_FRAME,
-        Id::new_static("home.group"),
-    )
-    .advanced()
-    .description("core.setting.widget-frame.help"),
     SettingSpec::choice(
         settings::UI_CORNERS.static_str(),
         "core.setting.ui-corners",
@@ -1311,7 +1303,8 @@ static LOOK: [SettingSpec; 15] = [
 ];
 
 fn register_look_settings(r: &mut Registrar) -> Result<(), RegisterError> {
-    r.add_settings(&LOOK)
+    r.add_settings(&LOOK)?;
+    r.add_settings(&widget_settings::ALL_WIDGETS)
 }
 
 /// Buttons, the panel's refresh, sleep, rotation, notices and long

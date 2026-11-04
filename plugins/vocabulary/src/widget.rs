@@ -46,9 +46,11 @@ const DUE_NAME: &str = "vocabulary.widget.due";
 const PICKS: [&str; 2] = ["vocabulary.pick.daily", "vocabulary.pick.newest"];
 
 /// The word of the day's settings, kept in the program.
-static WORD_SETTINGS: [SettingSpec; 8] = [
+static WORD_SETTINGS: [SettingSpec; 10] = [
     widgets::frame_spec("vocabulary.widget.word.frame", WORD, Frame::None),
     widgets::padding_spec("vocabulary.widget.word.padding", WORD, Padding::Auto),
+    widgets::paper_spec("vocabulary.widget.word.paper", WORD),
+    widgets::ink_spec("vocabulary.widget.word.ink", WORD),
     widgets::size_spec("vocabulary.widget.word.size", WORD, TextSize::Medium, true),
     widgets::align_spec("vocabulary.widget.word.align", WORD, Align::Left),
     SettingSpec::choice(
@@ -80,9 +82,11 @@ static WORD_SETTINGS: [SettingSpec; 8] = [
 ];
 
 /// The words saved's settings, kept in the program.
-static SAVED_SETTINGS: [SettingSpec; 8] = [
+static SAVED_SETTINGS: [SettingSpec; 10] = [
     widgets::frame_spec("vocabulary.widget.saved.frame", SAVED, Frame::None),
     widgets::padding_spec("vocabulary.widget.saved.padding", SAVED, Padding::Auto),
+    widgets::paper_spec("vocabulary.widget.saved.paper", SAVED),
+    widgets::ink_spec("vocabulary.widget.saved.ink", SAVED),
     widgets::size_spec(
         "vocabulary.widget.saved.size",
         SAVED,
@@ -117,9 +121,11 @@ static SAVED_SETTINGS: [SettingSpec; 8] = [
 ];
 
 /// The cards due's settings, kept in the program.
-static DUE_SETTINGS: [SettingSpec; 5] = [
+static DUE_SETTINGS: [SettingSpec; 7] = [
     widgets::frame_spec("vocabulary.widget.due.frame", DUE, Frame::None),
     widgets::padding_spec("vocabulary.widget.due.padding", DUE, Padding::Auto),
+    widgets::paper_spec("vocabulary.widget.due.paper", DUE),
+    widgets::ink_spec("vocabulary.widget.due.ink", DUE),
     widgets::size_spec("vocabulary.widget.due.size", DUE, TextSize::Medium, true),
     widgets::align_spec("vocabulary.widget.due.align", DUE, Align::Left),
     widgets::part_spec(
