@@ -6,6 +6,12 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Added
+
+- **Spanish user interface.** All 3,861 messages of the kernel and the plugins in Spanish, as the data plugin
+  `language-es` from the store. Machine-translated and checked with `tools/language-pack.py check es`; corrections
+  from Spanish readers are welcome.
+
 ### Fixed
 
 - **A book opened before its font pack came no longer keeps a wrong page count** (#163). A Hebrew book opened before the

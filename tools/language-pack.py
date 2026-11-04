@@ -47,6 +47,13 @@ META = {
         # The pack with the letters of its script (the interface shows boxes without it).
         "requires": "script-arabic",
     },
+    "es": {
+        "meta": {"language": "es", "name": "Español", "plural": "one-many-other"},
+        "name": "Spanish (user interface)",
+        "description": "PaperPaw's menus and settings in Spanish.",
+        "de-name": "Spanisch (Oberfläche)",
+        "de-description": "PaperPaws Menüs und Einstellungen auf Spanisch.",
+    },
 }
 
 # English's plural forms, and the forms of Arabic's rule that a translation
