@@ -64,6 +64,10 @@ change the plugin SDK.
 
 ### Fixed
 
+- Adding a UI language pack no longer changes the shared language builder or makes CI ask for version
+  bumps of other languages (#172). Language metadata comes from its catalog header, and store texts and
+  dependencies from its data-plugin entry. Existing language packs build to the same bytes.
+
 - **The store shows every plugin after an update, without a restart** (#164). The first start after an update runs on trial
   and loads no code plugins, on purpose, and the kernel then did not know what the firmware takes: the store asked for no
   builds and showed only data plugins (Look, Languages) until the next cold start, which a Pro on light sleep may not have
