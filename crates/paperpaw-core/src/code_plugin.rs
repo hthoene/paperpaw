@@ -173,26 +173,12 @@ impl Kernel {
             held,
         }) = code
         else {
-            for plugin in found {
-                self.list_code_plugin(
-                    &plugin,
-                    disabled,
-                    PluginState::Failed,
-                    PluginProblem::Unsupported,
-                );
-            }
+            self.list_unsupported(found, disabled);
             return;
         };
         let storage = self.shared.storage.clone();
         if held {
-            for plugin in found {
-                self.list_code_plugin(
-                    &plugin,
-                    disabled,
-                    PluginState::Failed,
-                    PluginProblem::Unsupported,
-                );
-            }
+            self.list_unsupported(found, disabled);
             self.shared.native = Some(native);
             return;
         }
@@ -282,6 +268,18 @@ impl Kernel {
         drop(installed);
         loader.finish(storage.as_ref());
         self.shared.native = Some(native);
+    }
+
+    /// Lists the code plugins found as not running: this start loads none.
+    fn list_unsupported(&mut self, found: Vec<DataPlugin>, disabled: &[String]) {
+        for plugin in found {
+            self.list_code_plugin(
+                &plugin,
+                disabled,
+                PluginState::Failed,
+                PluginProblem::Unsupported,
+            );
+        }
     }
 
     /// A code plugin installed while PaperPaw runs (`Command::LoadPlugin`):
