@@ -237,12 +237,14 @@ impl UpdatePage {
 
     /// What there is now: an install going on, or the files on the card.
     fn look(&self, env: &Env<'_>) -> View {
-        let Some(firmware) = env.firmware() else {
-            return View::Nothing;
-        };
+        // Before the firmware is asked: a setup the firmware has no updates
+        // for (it found no slot to update, #167) is told as well.
         if crate::dual::declared(env.storage()) {
             return View::DualBoot;
         }
+        let Some(firmware) = env.firmware() else {
+            return View::Nothing;
+        };
         match &firmware.state {
             FirmwareState::Installing { done, total } => {
                 return View::Installing {

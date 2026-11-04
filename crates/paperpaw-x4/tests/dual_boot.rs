@@ -17,7 +17,7 @@ mod common;
 use common::{FLASH, layouts, table};
 use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::firmware::{CHIP_ESP32_C3, Firmware, InstallFailure};
-use paperpaw_x4::dual_boot::{MARKER, REFUSED, Source, WINDOW, scan_marker};
+use paperpaw_x4::dual_boot::{MARKER, REFUSED, Source, WINDOW, X4BOOT, scan_marker};
 use paperpaw_x4::ota::{Flash, FlashError, OtaData, SLOTS, Start, State};
 use paperpaw_x4::partitions::{Slots, TABLE_AT, TABLE_LEN};
 use paperpaw_x4::updates::{TRIAL_MS, Updates};
@@ -314,18 +314,26 @@ fn what_is_declared_guards_from_the_settling_on() {
 #[test]
 fn the_marker_is_looked_for_in_the_bootloaders_window_only() {
     let (mut chip, _) = flash(layouts()[0].1);
-    assert_eq!(scan_marker(&mut chip), Ok(false));
+    assert_eq!(scan_marker(&mut chip), Ok(None));
     // Across two pieces, at the very end of the window, and just beyond it.
-    for (at, found) in [
-        (0x1000 - 7, true),
-        (WINDOW as usize - MARKER.len(), true),
-        (WINDOW as usize - MARKER.len() + 1, false),
-        (WINDOW as usize + 0x100, false),
-    ] {
-        let (mut chip, _) = flash(layouts()[0].1);
-        chip.0[at..at + MARKER.len()].copy_from_slice(MARKER);
-        assert_eq!(scan_marker(&mut chip), Ok(found), "at {at:#x}");
+    for (tag, source) in [(MARKER, Source::Marker), (X4BOOT, Source::X4Boot)] {
+        for (at, found) in [
+            (0x1000 - 3, true),
+            (WINDOW as usize - tag.len(), true),
+            (WINDOW as usize - tag.len() + 1, false),
+            (WINDOW as usize + 0x100, false),
+        ] {
+            let (mut chip, _) = flash(layouts()[0].1);
+            chip.0[at..at + tag.len()].copy_from_slice(tag);
+            let want = found.then_some(source);
+            assert_eq!(scan_marker(&mut chip), Ok(want), "{source:?} at {at:#x}");
+        }
     }
+    // Both: ours is the one said.
+    let (mut chip, _) = flash(layouts()[0].1);
+    chip.0[0x100..0x100 + X4BOOT.len()].copy_from_slice(X4BOOT);
+    chip.0[0x7000..0x7000 + MARKER.len()].copy_from_slice(MARKER);
+    assert_eq!(scan_marker(&mut chip), Ok(Some(Source::Marker)));
 }
 
 #[test]
@@ -334,9 +342,9 @@ fn the_note_the_firmware_writes_is_the_one_the_update_plugin_reads() {
     use paperpaw_x4::dual_boot::{NOTE, note, noted};
     let card = MemoryStorage::new();
     assert!(!paperpaw_plugin_update::dual_boot_declared(&card));
-    for source in [Source::Ini, Source::Marker] {
+    for source in [Source::Ini, Source::Marker, Source::X4Boot] {
         for slot in 0..SLOTS {
-            let text = note(source, slot);
+            let text = note(source, Some(slot));
             assert!(noted(&text));
             card.write(NOTE, text.as_bytes()).unwrap();
             assert!(paperpaw_plugin_update::dual_boot_declared(&card));

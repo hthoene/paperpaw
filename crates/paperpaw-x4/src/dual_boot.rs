@@ -8,7 +8,9 @@
 //!   `paperpaw.ini` (`off` says the opposite and wins; `auto`, the default,
 //!   follows the marker), or
 //! - the tool's bootloader carries the marker string [`MARKER`] anywhere in
-//!   the bootloader's window of the flash (0 to [`WINDOW`]).
+//!   the bootloader's window of the flash (0 to [`WINDOW`]), or the tag
+//!   [`X4BOOT`] of the X4 dualbooter's (lowio.xyz) bootloader, a tool that
+//!   was made before this contract.
 //!
 //! [`Evidence`] is what [`decide`] weighs; a later phase adds what it
 //! finds by itself (another firmware's image in the other slot, a bootloader
@@ -25,6 +27,12 @@ use crate::ota::{Flash, FlashError};
 /// never writes the other slot or the OTA data. Documented for tools in
 /// `docs/dual-boot.md`.
 pub const MARKER: &[u8] = b"paperpaw-dualboot:1";
+/// The tag inside the X4 dualbooter's bootloader (lowio.xyz, "x4boot", an
+/// ESP-IDF 4.4.7 based one): it says the slots are managed by a tool that
+/// knows nothing of PaperPaw. Read from the tool's page, not from its
+/// binary (not available): the reader's `dual-boot = on` decides where the
+/// tag is not found.
+pub const X4BOOT: &[u8] = b"x4boot";
 /// The bootloader's window of the flash, in bytes: the marker is looked for
 /// in all of it (the partition table follows at 0x8000).
 pub const WINDOW: u32 = 0x8000;
@@ -165,30 +173,43 @@ impl IniScan {
     }
 }
 
-/// Looks for [`MARKER`] in a flash read a piece at a time (a piece may end
-/// inside it).
-#[derive(Debug, Default)]
+/// Looks for a marker ([`MARKER`] by default) in a flash read a piece at a
+/// time (a piece may end inside it).
+#[derive(Debug)]
 pub struct MarkerScan {
+    needle: &'static [u8],
     /// How much of the marker the last bytes read are the start of.
     matched: usize,
 }
 
+impl Default for MarkerScan {
+    fn default() -> Self {
+        Self::of(MARKER)
+    }
+}
+
 impl MarkerScan {
+    /// A look for `needle`.
+    pub const fn of(needle: &'static [u8]) -> Self {
+        Self { needle, matched: 0 }
+    }
+
     /// More of the flash. Whether the marker has been seen by now.
     pub fn feed(&mut self, piece: &[u8]) -> bool {
+        let needle = self.needle;
         for &byte in piece {
             // On a mismatch, fall back to the longest start of the marker
             // that the bytes before it end in, and try again.
-            while self.matched > 0 && MARKER[self.matched] != byte {
+            while self.matched > 0 && needle[self.matched] != byte {
                 let m = self.matched;
                 self.matched = (0..m)
                     .rev()
-                    .find(|&n| MARKER[..n] == MARKER[m - n..m])
+                    .find(|&n| needle[..n] == needle[m - n..m])
                     .unwrap_or(0);
             }
-            if MARKER[self.matched] == byte {
+            if needle[self.matched] == byte {
                 self.matched += 1;
-                if self.matched == MARKER.len() {
+                if self.matched == needle.len() {
                     return true;
                 }
             }
@@ -197,20 +218,25 @@ impl MarkerScan {
     }
 }
 
-/// Whether the bootloader's window of `flash` carries [`MARKER`], read in
-/// pieces of 1 KB (about 32 KB in all, so only where it is needed).
+/// Which marker the bootloader's window of `flash` carries, if one
+/// ([`MARKER`], else [`X4BOOT`]), read in pieces of 1 KB (about 32 KB in
+/// all, so only where it is needed; both are looked for in the same pass).
 #[cold]
 #[inline(never)]
-pub fn scan_marker(flash: &mut impl Flash) -> Result<bool, FlashError> {
+pub fn scan_marker(flash: &mut impl Flash) -> Result<Option<Source>, FlashError> {
     let mut piece = [0u8; 1024];
-    let mut scan = MarkerScan::default();
+    let mut ours = MarkerScan::of(MARKER);
+    let mut lowio = MarkerScan::of(X4BOOT);
+    let mut tag = false;
     for at in (0..WINDOW).step_by(piece.len()) {
         flash.read(at, &mut piece)?;
-        if scan.feed(&piece) {
-            return Ok(true);
+        if ours.feed(&piece) {
+            return Ok(Some(Source::Marker));
         }
+        // Ours wins where both are there: the whole window is read for it.
+        tag = lowio.feed(&piece) || tag;
     }
-    Ok(false)
+    Ok(tag.then_some(Source::X4Boot))
 }
 
 /// What PaperPaw knows of its setup.
@@ -218,9 +244,9 @@ pub fn scan_marker(flash: &mut impl Flash) -> Result<bool, FlashError> {
 pub struct Evidence {
     /// The reader's choice in `paperpaw.ini`.
     pub choice: Choice,
-    /// The bootloader carries [`MARKER`]; `None` where it was not looked
-    /// for.
-    pub marker: Option<bool>,
+    /// The marker the bootloader carries ([`scan_marker`]); `None` where it
+    /// carries none or was not looked for.
+    pub marker: Option<Source>,
 }
 
 /// Why the setup is a dual-boot one, for the note the plugins read and the
@@ -231,6 +257,8 @@ pub enum Source {
     Ini,
     /// The marker in the bootloader.
     Marker,
+    /// The tag of the X4 dualbooter's bootloader ([`X4BOOT`]).
+    X4Boot,
 }
 
 impl Source {
@@ -238,6 +266,7 @@ impl Source {
         match self {
             Source::Ini => "ini",
             Source::Marker => "marker",
+            Source::X4Boot => "x4boot",
         }
     }
 }
@@ -249,7 +278,7 @@ pub fn decide(evidence: Evidence) -> Option<Source> {
     match evidence.choice {
         Choice::Off => None,
         Choice::On => Some(Source::Ini),
-        Choice::Auto => (evidence.marker == Some(true)).then_some(Source::Marker),
+        Choice::Auto => evidence.marker,
     }
 }
 
@@ -264,9 +293,12 @@ pub fn needs_marker(choice: Choice) -> bool {
 pub const NOTE: &str = ".paperpaw/boot.txt";
 
 /// The note's text: `dual-boot source=marker slot=1` (the slot counts from
-/// 0, the one running).
-pub fn note(source: Source, slot: u32) -> String {
-    alloc::format!("dual-boot source={} slot={slot}\n", source.name())
+/// 0, the one running; `slot=?` where which runs could not be told).
+pub fn note(source: Source, slot: Option<u32>) -> String {
+    match slot {
+        Some(slot) => alloc::format!("dual-boot source={} slot={slot}\n", source.name()),
+        None => alloc::format!("dual-boot source={} slot=?\n", source.name()),
+    }
 }
 
 /// Whether a note's text says a dual-boot setup is declared (what plugins
@@ -421,6 +453,14 @@ mod tests {
             let found = flash.chunks(size).any(|piece| scan.feed(piece));
             assert!(found, "pieces of {size}");
         }
+        // The dualbooter's tag, the same way.
+        let mut flash = alloc::vec![0xFFu8; 0x400];
+        flash[0x3F0 - 3..0x3F0 - 3 + X4BOOT.len()].copy_from_slice(X4BOOT);
+        for size in [1, 2, 5, 64, 4096] {
+            let mut scan = MarkerScan::of(X4BOOT);
+            let found = flash.chunks(size).any(|piece| scan.feed(piece));
+            assert!(found, "x4boot in pieces of {size}");
+        }
         // Cut short, or another version, is not it.
         for text in [
             &MARKER[..MARKER.len() - 1],
@@ -456,20 +496,34 @@ mod tests {
     fn what_declares_the_setup_and_what_overrules() {
         let ev = |choice, marker| Evidence { choice, marker };
         assert_eq!(decide(ev(Choice::Auto, None)), None);
-        assert_eq!(decide(ev(Choice::Auto, Some(false))), None);
-        assert_eq!(decide(ev(Choice::Auto, Some(true))), Some(Source::Marker));
+        assert_eq!(
+            decide(ev(Choice::Auto, Some(Source::Marker))),
+            Some(Source::Marker)
+        );
+        assert_eq!(
+            decide(ev(Choice::Auto, Some(Source::X4Boot))),
+            Some(Source::X4Boot)
+        );
         assert_eq!(decide(ev(Choice::On, None)), Some(Source::Ini));
-        assert_eq!(decide(ev(Choice::On, Some(true))), Some(Source::Ini));
+        assert_eq!(
+            decide(ev(Choice::On, Some(Source::X4Boot))),
+            Some(Source::Ini)
+        );
         // Off wins over the marker.
-        assert_eq!(decide(ev(Choice::Off, Some(true))), None);
+        assert_eq!(decide(ev(Choice::Off, Some(Source::Marker))), None);
+        assert_eq!(decide(ev(Choice::Off, Some(Source::X4Boot))), None);
         assert!(needs_marker(Choice::Auto));
         assert!(!needs_marker(Choice::On) && !needs_marker(Choice::Off));
     }
 
     #[test]
     fn the_note_says_it_and_a_cut_one_does_not() {
-        let text = note(Source::Marker, 1);
+        let text = note(Source::Marker, Some(1));
         assert_eq!(text, "dual-boot source=marker slot=1\n");
+        let text = note(Source::X4Boot, None);
+        assert_eq!(text, "dual-boot source=x4boot slot=?\n");
+        assert!(noted(&text));
+        let text = note(Source::Marker, Some(1));
         assert!(noted(&text));
         assert!(noted("dual-boot"));
         assert!(!noted(""));

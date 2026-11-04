@@ -483,7 +483,7 @@ fn prepare() -> Ready {
     // trial, was marked before the board's start (`Ota::start`), so that a
     // hang there still ends in the way back.
     let mut ota = ota;
-    let dual = dual::settle(&mut ota, storage.as_ref());
+    let dual = dual::settle(&mut ota, &flash, storage.as_ref());
     // A failed trial that the setup left alone: the message is no longer
     // the other firmware's to read.
     if going_back && ota.as_ref().is_some_and(|ota| ota.failed_trial().is_none()) {

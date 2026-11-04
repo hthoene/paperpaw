@@ -22,7 +22,7 @@ pub mod bundle;
 mod flash;
 #[cfg(feature = "esp32c3")]
 mod hot;
-mod partition;
+pub mod partition;
 #[cfg(feature = "esp32s3")]
 mod psram;
 

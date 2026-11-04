@@ -103,10 +103,10 @@ pub struct Ota {
 /// (`paperpaw_x4::dual_boot`), looked for on the flash `shared`. Where the
 /// flash cannot be read it counts as there: nothing is written to the OTA
 /// data where it cannot be told.
-pub fn marker(shared: &Flash) -> bool {
+pub fn marker(shared: &Flash) -> Option<paperpaw_x4::dual_boot::Source> {
     paperpaw_x4::dual_boot::scan_marker(&mut Chip(shared.clone())).unwrap_or_else(|_| {
         warn!("dual boot: the bootloader could not be read, so it counts as marked");
-        true
+        Some(paperpaw_x4::dual_boot::Source::Marker)
     })
 }
 
@@ -422,10 +422,12 @@ fn running_from() -> Option<u32> {
     Some(((value & 0x3FFF) << 16) | (here as u32 & 0xFFFF))
 }
 
-/// Elsewhere the MMU's first entry tells.
+/// On the ESP32-C3 the MMU's entry for this code's page (the first entry,
+/// which `booted_partition` reads, is the bootloader's to map as it likes:
+/// a dualbooter's does not map the app's first page there, #167).
 #[cfg(not(feature = "esp32s3"))]
 fn running_from() -> Option<u32> {
-    None
+    crate::native::partition::code_address().ok()
 }
 
 /// The partitions updates use (`paperpaw_x4::partitions`, as the release
@@ -441,14 +443,16 @@ fn partitions_of(flash: &mut FlashStorage<'static>) -> Option<Partitions> {
             return None;
         }
     };
-    // Where the bootloader started this: as the MMU's first entry says,
-    // else (the ESP32-S3) by where this code is.
-    let booted = partitions::read_partition_table(flash, &mut table[..PARTITION_TABLE_MAX_LEN])
-        .ok()
-        .and_then(|pt| pt.booted_partition().ok().flatten())
-        .map(|p| p.offset());
-    let running = booted
+    // Where this code runs, by the MMU's entry for its page (the first
+    // entry is the bootloader's to map as it likes, and is a guess a
+    // dualbooter's gets wrong), else as the MMU's first entry says.
+    let running = running_from()
         .and_then(|at| slots.slot_at(at))
-        .or_else(|| running_from().and_then(|at| slots.slot_at(at)))?;
+        .or_else(|| {
+            partitions::read_partition_table(flash, &mut table[..PARTITION_TABLE_MAX_LEN])
+                .ok()
+                .and_then(|pt| pt.booted_partition().ok().flatten())
+                .and_then(|p| slots.slot_at(p.offset()))
+        })?;
     Some(Partitions { slots, running })
 }

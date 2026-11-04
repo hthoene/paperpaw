@@ -45,26 +45,22 @@ fn choice(storage: &dyn Storage) -> Choice {
     scan.finish()
 }
 
-/// Settles the start: where it would write the OTA data (an update to put
-/// on trial, one undone or failed), or where an earlier start left the note
-/// of a declared setup, the reader's choice and the bootloader are looked at
-/// (`decide`) before anything is written. A normal start, with nothing to
-/// write and no note, reads neither: it costs nothing here. Whether the
-/// setup is declared, for what else must not touch the other partition.
-pub fn settle(ota: &mut Option<Ota>, storage: &dyn Storage) -> bool {
-    let Some(ota) = ota else {
-        return false;
-    };
-    // Done at once (an update this firmware installed): nothing to decide.
-    if ota.settled() {
-        return false;
+/// Settles the start. The reader's choice and the bootloader are looked at
+/// (`decide`) at every start, the card there: a setup declared is noted on
+/// the card for the update page and the plugins (`.paperpaw/boot.txt`, also
+/// where updates are not available at all, as under a dualbooter that made
+/// finding the running slot fail before, #167), and it is known before
+/// anything is written to the OTA data (an update to put on trial, one
+/// undone or failed), which a declared setup never has. Whether the setup
+/// is declared, for what else must not touch the other partition.
+pub fn settle(ota: &mut Option<Ota>, flash: &ota::Flash, storage: &dyn Storage) -> bool {
+    let source = decide(flash, ota.as_ref().map(Ota::slot), storage);
+    // Done at once (an update this firmware installed): nothing more.
+    if let Some(ota) = ota
+        && !ota.settled()
+    {
+        ota.settle(source);
     }
-    if !ota.start_pending() && !noted(storage) {
-        ota.settle(None);
-        return false;
-    }
-    let source = decide(ota, storage);
-    ota.settle(source);
     source.is_some()
 }
 
@@ -73,7 +69,7 @@ pub fn settle(ota: &mut Option<Ota>, storage: &dyn Storage) -> bool {
 /// tool set the bootloader up). Where it is, nothing is installed.
 pub fn guard(ota: &mut Ota, storage: &dyn Storage) -> bool {
     if ota.dual().is_none() {
-        let source = decide(ota, storage);
+        let source = decide(ota.flash(), Some(ota.slot()), storage);
         ota.declare(source);
     }
     ota.dual().is_some()
@@ -84,11 +80,13 @@ pub fn guard(ota: &mut Ota, storage: &dyn Storage) -> bool {
 /// and the note for plugins to match.
 #[cold]
 #[inline(never)]
-fn decide(ota: &Ota, storage: &dyn Storage) -> Option<Source> {
+fn decide(flash: &ota::Flash, slot: Option<u32>, storage: &dyn Storage) -> Option<Source> {
     let began = millis();
     let choice = choice(storage);
     let read = millis();
-    let marker = dual_boot::needs_marker(choice).then(|| ota::marker(ota.flash()));
+    let marker = dual_boot::needs_marker(choice)
+        .then(|| ota::marker(flash))
+        .flatten();
     info!(
         "dual boot: the ini took {} ms, the bootloader {} ms",
         read - began,
@@ -105,19 +103,9 @@ fn decide(ota: &Ota, storage: &dyn Storage) -> Option<Source> {
     }
     note(
         storage,
-        source.map(|source| dual_boot::note(source, ota.slot())),
+        source.map(|source| dual_boot::note(source, slot)),
     );
     source
-}
-
-/// Whether an earlier start left the note of a declared setup.
-fn noted(storage: &dyn Storage) -> bool {
-    let mut head = [0u8; 64];
-    storage
-        .read_at(dual_boot::NOTE, 0, &mut head)
-        .ok()
-        .and_then(|n| core::str::from_utf8(&head[..n]).ok())
-        .is_some_and(dual_boot::noted)
 }
 
 /// The note on the card, only where it changes.
