@@ -76,6 +76,10 @@ change the plugin SDK.
 
 ### Fixed
 
+- **Experimental exFAT recovery** (#5): a failed parent-directory lookup keeps a pending move
+  journal for retry, instead of leaving two names sharing the moved folder's data.
+  Directory metadata errors retain their original error instead of appearing as a missing path.
+
 - Adding a UI language pack no longer changes the shared language builder or makes CI ask for version
   bumps of other languages (#172). Language metadata comes from its catalog header, and store texts and
   dependencies from its data-plugin entry. Existing language packs build to the same bytes.

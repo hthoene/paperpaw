@@ -10,6 +10,8 @@
 )]
 
 mod common;
+#[path = "exfat/one_shot.rs"]
+mod one_shot;
 
 use std::cell::RefCell;
 use std::rc::Rc;

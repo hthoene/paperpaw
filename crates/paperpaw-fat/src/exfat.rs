@@ -435,7 +435,10 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
             .map(|m| m.file_type() == FileType::Dir);
         if !matches!(is_dir, Ok(true)) {
             self.forget(node);
-            return Err(StorageError::NotFound);
+            return Err(match is_dir {
+                Err(e) => error(e),
+                Ok(_) => StorageError::NotFound,
+            });
         }
         let mut folders = self.folders.borrow_mut();
         if folders.len() >= FOLDERS {
@@ -819,8 +822,11 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
             return Ok(());
         };
         let (from, to) = (from.to_string(), to.to_string());
-        let (from_dir, to_dir) = (self.dir(parent(&from), false), self.dir(parent(&to), true));
-        if let (Ok(from_dir), Ok(to_dir)) = (from_dir, to_dir) {
+        // A failed lookup leaves the move pending. Clearing its journal
+        // could leave two folder names sharing the same data clusters.
+        let from_dir = self.dir(parent(&from), false)?;
+        let to_dir = self.dir(parent(&to), true)?;
+        {
             let source = self.find(from_dir, name(&from))?;
             let target = self.find(to_dir, name(&to))?;
             let same = match (source, target) {
