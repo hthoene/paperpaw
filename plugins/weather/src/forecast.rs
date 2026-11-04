@@ -41,11 +41,14 @@ const NAMES: [&str; 3] = [
     "weather.names.long",
 ];
 /// Its look, kept in the program.
-static LOOK: [SettingSpec; 6] = [
+static LOOK: [SettingSpec; 9] = [
     widgets::frame_spec("weather.forecast.frame", ID, Frame::None),
     widgets::padding_spec("weather.forecast.padding", ID, Padding::Auto),
     widgets::paper_spec("weather.forecast.paper", ID),
     widgets::ink_spec("weather.forecast.ink", ID),
+    widgets::corners_spec("weather.forecast.corners", ID),
+    widgets::frame_line_spec("weather.forecast.frame-line", ID),
+    widgets::shadow_spec("weather.forecast.drop-shadow", ID),
     widgets::size_spec("weather.forecast.size", ID, TextSize::Fit, true),
     widgets::align_spec("weather.forecast.align", ID, Align::Center),
 ];

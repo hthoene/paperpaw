@@ -24,7 +24,7 @@ const PAPERPAW: &str = "PaperPaw";
 const FACE: Setting<Text> = Setting::new("widgets.logo.face");
 
 /// The logo's settings, kept in the program.
-static SETTINGS: [SettingSpec; 8] = [
+static SETTINGS: [SettingSpec; 11] = [
     widgets::part_spec("widgets.logo.name", ID, "widgets.logo.setting.name", false),
     SettingSpec::choice(
         "widgets.logo.face",
@@ -40,6 +40,9 @@ static SETTINGS: [SettingSpec; 8] = [
     widgets::padding_spec("widgets.logo.padding", ID, Padding::Auto),
     widgets::paper_spec("widgets.logo.paper", ID),
     widgets::ink_spec("widgets.logo.ink", ID),
+    widgets::corners_spec("widgets.logo.corners", ID),
+    widgets::frame_line_spec("widgets.logo.frame-line", ID),
+    widgets::shadow_spec("widgets.logo.drop-shadow", ID),
 ];
 
 pub(super) fn register(r: &mut Registrar) -> Result<(), RegisterError> {

@@ -74,7 +74,7 @@ fn turns_file() -> String {
 }
 
 /// The quote's settings, kept in the program.
-static SETTINGS: [SettingSpec; 13] = [
+static SETTINGS: [SettingSpec; 16] = [
     SettingSpec::choice(
         "widgets.quote.source",
         "widgets.quote.setting.source",
@@ -129,6 +129,9 @@ static SETTINGS: [SettingSpec; 13] = [
     widgets::padding_spec("widgets.quote.padding", ID, Padding::Auto),
     widgets::paper_spec("widgets.quote.paper", ID),
     widgets::ink_spec("widgets.quote.ink", ID),
+    widgets::corners_spec("widgets.quote.corners", ID),
+    widgets::frame_line_spec("widgets.quote.frame-line", ID),
+    widgets::shadow_spec("widgets.quote.drop-shadow", ID),
 ];
 
 pub(super) fn register(r: &mut Registrar, changes: &Changes) -> Result<(), RegisterError> {

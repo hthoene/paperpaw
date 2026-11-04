@@ -36,12 +36,15 @@ const STARTS: [&str; 2] = ["widgets.series.around", "widgets.series.first"];
 const MAX_MEMBERS: usize = 60;
 
 /// Its settings, kept in the program.
-static SETTINGS: [SettingSpec; 14] = [
+static SETTINGS: [SettingSpec; 17] = [
     widgets::align_spec("widgets.series.align", ID, Align::Center),
     widgets::frame_spec("widgets.series.frame", ID, Frame::None),
     widgets::padding_spec("widgets.series.padding", ID, Padding::Auto),
     widgets::paper_spec("widgets.series.paper", ID),
     widgets::ink_spec("widgets.series.ink", ID),
+    widgets::corners_spec("widgets.series.corners", ID),
+    widgets::frame_line_spec("widgets.series.frame-line", ID),
+    widgets::shadow_spec("widgets.series.drop-shadow", ID),
     widgets::size_spec("widgets.series.size", ID, TextSize::Medium, false),
     SettingSpec::text(
         "widgets.series.name",

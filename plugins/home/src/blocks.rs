@@ -130,9 +130,10 @@ static RECENT_SETTINGS: [SettingSpec; 1] = [SettingSpec::number(
 .description("home.setting.recent-count.help")];
 
 /// The widgets' settings: where each sits, its frame, size and parts.
-static SETTINGS: [SettingSpec; 31] = {
+static SETTINGS: [SettingSpec; 46] = {
     use widgets::{
-        Padding, align_spec, frame_spec, ink_spec, padding_spec, paper_spec, part_spec, size_spec,
+        Padding, align_spec, corners_spec, frame_line_spec, frame_spec, ink_spec, padding_spec,
+        paper_spec, part_spec, shadow_spec, size_spec,
     };
     const STATUS_ID: Id = Id::new_static(STATUS);
     const DATE_ID: Id = Id::new_static(DATE);
@@ -144,17 +145,26 @@ static SETTINGS: [SettingSpec; 31] = {
         padding_spec("home.status.padding", STATUS_ID, Padding::Auto),
         paper_spec("home.status.paper", STATUS_ID),
         ink_spec("home.status.ink", STATUS_ID),
+        corners_spec("home.status.corners", STATUS_ID),
+        frame_line_spec("home.status.frame-line", STATUS_ID),
+        shadow_spec("home.status.drop-shadow", STATUS_ID),
         align_spec("home.date.align", DATE_ID, Align::Center),
         frame_spec("home.date.frame", DATE_ID, Frame::None),
         padding_spec("home.date.padding", DATE_ID, Padding::Auto),
         paper_spec("home.date.paper", DATE_ID),
         ink_spec("home.date.ink", DATE_ID),
+        corners_spec("home.date.corners", DATE_ID),
+        frame_line_spec("home.date.frame-line", DATE_ID),
+        shadow_spec("home.date.drop-shadow", DATE_ID),
         size_spec("home.date.size", DATE_ID, TextSize::Medium, false),
         align_spec("home.clock.align", CLOCK_ID, Align::Center),
         frame_spec("home.clock.frame", CLOCK_ID, Frame::None),
         padding_spec("home.clock.padding", CLOCK_ID, Padding::Auto),
         paper_spec("home.clock.paper", CLOCK_ID),
         ink_spec("home.clock.ink", CLOCK_ID),
+        corners_spec("home.clock.corners", CLOCK_ID),
+        frame_line_spec("home.clock.frame-line", CLOCK_ID),
+        shadow_spec("home.clock.drop-shadow", CLOCK_ID),
         size_spec("home.clock.size", CLOCK_ID, TextSize::Medium, true),
         part_spec("home.clock.date", CLOCK_ID, "home.setting.clock-date", true),
         align_spec("home.continue.align", CONTINUE_ID, Align::Left),
@@ -162,6 +172,9 @@ static SETTINGS: [SettingSpec; 31] = {
         padding_spec("home.continue.padding", CONTINUE_ID, Padding::Auto),
         paper_spec("home.continue.paper", CONTINUE_ID),
         ink_spec("home.continue.ink", CONTINUE_ID),
+        corners_spec("home.continue.corners", CONTINUE_ID),
+        frame_line_spec("home.continue.frame-line", CONTINUE_ID),
+        shadow_spec("home.continue.drop-shadow", CONTINUE_ID),
         part_spec(
             "home.continue.cover",
             CONTINUE_ID,
@@ -179,6 +192,9 @@ static SETTINGS: [SettingSpec; 31] = {
         padding_spec("home.recent.padding", RECENT_ID, Padding::Auto),
         paper_spec("home.recent.paper", RECENT_ID),
         ink_spec("home.recent.ink", RECENT_ID),
+        corners_spec("home.recent.corners", RECENT_ID),
+        frame_line_spec("home.recent.frame-line", RECENT_ID),
+        shadow_spec("home.recent.drop-shadow", RECENT_ID),
         part_spec(
             "home.recent.heading",
             RECENT_ID,

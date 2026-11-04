@@ -34,6 +34,13 @@ standard output and fails, saying why on standard error, when
 - the plugin depends by path on anything but another crate of the
   workspace (a copy of the SDK in its own folder).
 
+With `--main` (the source is the repository's main, #171): the same, except
+that a change elsewhere since the base is no refusal but a note (main moves on
+with the next firmware; what a plugin may use of it is the firmware's table,
+whose fingerprint check_files.sh holds the files to), and Cargo.toml and
+Cargo.lock may differ too. The plugin must still come from a descendant of the
+base's tag, have a newer version, and depend on no copy of the SDK.
+
 The plugin's fingerprint is not checked here: check_files.sh does, with
 the build's files, before they are signed.
 """
@@ -184,7 +191,7 @@ def base_manifest(source, plugin, base):
     return result.stdout if result.returncode == 0 else None
 
 
-def check(source, plugin, base, accepted=()):
+def check(source, plugin, base, accepted=(), main=False):
     """The plugin's version; a list of problems, and one of notes."""
     source = pathlib.Path(source)
     problems, notes = [], []
@@ -218,12 +225,15 @@ def check(source, plugin, base, accepted=()):
     checks = (("Cargo.toml", lambda then, now: manifest_problems(plugin, then, now)),
               ("Cargo.lock", lambda then, now: lock_problems(package, then, now)))
     for path, check_file in checks:
-        if path in workspace:
+        if path in workspace and not main:
             then_text = run(source, "git", "show", f"{base}:{path}").stdout
             now_text = run(source, "git", "show", f"HEAD:{path}").stdout
             problems += [f"{p} (the workspace's {path} may gain a new plugin only; name {path} in `accept` "
                          "if it must change otherwise)" for p in check_file(then_text, now_text)]
-    if refused:
+    if refused and main:
+        notes.append(f"main differs from {base} outside the plugin ({len(refused)} paths, e.g. "
+                     + ", ".join(refused[:5]) + "): the base's fingerprint decides whether the file fits its firmware")
+    elif refused:
         problems.append(f"changed outside the plugin since {base}, so not the firmware's source: "
                         + ", ".join(refused)
                         + " (a change there may differ from the published firmware; name a path in `accept` "
@@ -237,8 +247,9 @@ def main(argv):
     parser.add_argument("base")
     parser.add_argument("--source", required=True, help="the checkout of the source to publish")
     parser.add_argument("--accept", default="", help="paths or folders outside the plugin that may differ")
+    parser.add_argument("--main", action="store_true", help="the source is main: other changes are notes")
     args = parser.parse_args(argv)
-    version, problems, notes = check(args.source, args.plugin, args.base, args.accept.split(","))
+    version, problems, notes = check(args.source, args.plugin, args.base, args.accept.split(","), args.main)
     for note in notes:
         print(f"::notice::{note}", file=sys.stderr)
     for problem in problems:

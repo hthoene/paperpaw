@@ -3,6 +3,7 @@
     python3 -m unittest discover -s tools/plugin-files
 """
 
+import hashlib
 import json
 import pathlib
 import struct
@@ -26,6 +27,38 @@ def ppn(fingerprint, body, compiler=0x6A1F03C2, chip=5):
 def release(tag, created, names):
     return {"tag_name": tag, "created_at": created, "draft": False,
             "assets": [{"name": n, "browser_download_url": f"https://r/{tag}/{n}"} for n in names]}
+
+
+class Digests(unittest.TestCase):
+    def listing(self, **more):
+        asset = {"name": "a-1.0.0-x4.ppn", "size": 3, "browser_download_url": "https://r/t/a-1.0.0-x4.ppn", **more}
+        return json.dumps([[{"tag_name": "t", "created_at": "2026-11-01", "draft": False, "assets": [asset]}]])
+
+    def test_the_digest_github_gives_is_used_without_a_download(self):
+        digest = hashlib.sha256(b"abc").hexdigest()
+        checksum = published.checksums(self.listing(state="uploaded", digest="sha256:" + digest.upper()),
+                                       fetch=lambda url: self.fail("no download"))
+        self.assertEqual(checksum("a-1.0.0-x4.ppn"), digest)
+
+    def test_without_a_digest_the_bytes_are_downloaded_once(self):
+        asked = []
+
+        def fetch(url):
+            asked.append(url)
+            return b"abc"
+
+        checksum = published.checksums(self.listing(state="uploaded"), fetch=fetch)
+        self.assertEqual(checksum("a-1.0.0-x4.ppn"), hashlib.sha256(b"abc").hexdigest())
+        checksum("a-1.0.0-x4.ppn")
+        self.assertEqual(asked, ["https://r/t/a-1.0.0-x4.ppn"])
+
+    def test_an_asset_that_is_not_finished_is_no_published_asset(self):
+        text = self.listing(state="starter")
+        self.assertEqual(published.assets(text), {})
+        self.assertEqual(published.partial(text), {"a-1.0.0-x4.ppn": "t"})
+        self.assertEqual(published.assets(self.listing(state="uploaded")),
+                         {"a-1.0.0-x4.ppn": ("t", "https://r/t/a-1.0.0-x4.ppn")})
+        self.assertEqual(published.partial(self.listing(state="uploaded")), {})
 
 
 class Published(unittest.TestCase):

@@ -44,6 +44,9 @@ change the plugin SDK.
 - **Colour rows in every first-party widget** (#206): each widget of the widget pack, the home screen, statistics,
   weather, reading goal, mail, news, notes vault and vocabulary has *Colours* (its paper) and *Text* beside its frame
   and spacing. The picture home screen's *Widgets sit on* sets the plate under the widgets: white, light gray or none.
+- **Shape rows in every first-party widget** (#206): the same widgets have *Corners*, *Frame line* and *Shadow* beside
+  their colours, and the home screen and the picture home screen place their widgets with the gap the reader set for
+  all widgets (small, normal, large).
 
 ### Fixed
 
@@ -142,6 +145,13 @@ This is a beta. Keep a copy of your books. The details for plugin authors follow
   setting does not hold. No change for plugins.
 
 ### Changed
+
+- **Release page: plugin files out of the firmware release** (#89, #171). A firmware release now holds 73 files; every plugin
+  file and every plugin or data folder's ZIP goes to one store release of the year (`plugins-2026`, a pre-release that is
+  added to and never replaced; only versions not published before; the next number at 800 assets). The release uploads
+  them before it creates the firmware release, so the catalogue never names a file that is not there. The workflow
+  *Store plugin update* now takes several plugins at once, and builds from `main` against the base release's fingerprint;
+  both workflows have a `dry_run`. Releases already out are untouched.
 
 - **X4 Pro: a real sleep before it switches off** (#153). Sleep (the power button, the power menu, the idle time) used to
   switch the Pro off at once, as the X4 did before 0.5. Now the Pro sleeps lightly as the X4 does: the screen stays, a press of
