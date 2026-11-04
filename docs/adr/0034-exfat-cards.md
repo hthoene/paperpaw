@@ -1,6 +1,6 @@
 # 0034. exFAT cards
 
-- Status: Accepted, experimental in 0.6.0-beta.1 (a release-candidate driver)
+- Status: Accepted, planned as experimental for 0.6.0-beta.3 (a release-candidate driver)
 - Date: 2026-10-25
 
 ## Context

@@ -307,7 +307,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-fat"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.2"
 dependencies = [
  "fatfs",
  "hadris-fat",
