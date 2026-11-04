@@ -337,6 +337,51 @@ fn what_a_tool_chose_waits_for_the_setup_and_a_hang_leaves_it_as_it_was() {
 }
 
 #[test]
+fn the_choice_the_update_page_writes_is_the_one_the_firmware_reads() {
+    // #224: the page's button writes `off` (updates work again), its way
+    // back `auto` (the bootloader's tag counts again); the firmware reads
+    // both as the file has them, where the bootloader carries the tag.
+    use paperpaw_sdk::config;
+    use paperpaw_x4::dual_boot::{Choice, Evidence, IniScan, decide};
+    let read = |text: &str| {
+        let mut scan = IniScan::default();
+        scan.feed(text.as_bytes());
+        scan.finish()
+    };
+    let mut ini = String::from("[core]\nui-size = 12\n[firmware]\ndual-boot = on\n");
+    for (value, choice, declared) in [
+        ("off", Choice::Off, None),
+        ("auto", Choice::Auto, Some(Source::X4Boot)),
+        ("off", Choice::Off, None),
+    ] {
+        ini = config::set(&ini, "firmware", "dual-boot", value);
+        assert_eq!(read(&ini), choice, "{value}");
+        let marker = Some(Source::X4Boot);
+        assert_eq!(decide(Evidence { choice, marker }), declared, "{value}");
+        for (name, csv) in layouts() {
+            let (chip, slots) = flash(csv);
+            let (mut updates, _, _) = start(chip, &slots, 0, declared);
+            let card = MemoryStorage::new();
+            let refused = Some(InstallFailure::Other(REFUSED));
+            let begun = updates
+                .begin(&card, "updates/paperpaw.bin", None, true)
+                .err();
+            assert_eq!(
+                begun == refused,
+                declared.is_some(),
+                "{name} {value}: {begun:?}"
+            );
+            assert_eq!(
+                updates.firmware().room == 0,
+                declared.is_some(),
+                "{name} {value}"
+            );
+        }
+    }
+    assert!(ini.contains("ui-size = 12"));
+}
+
+#[test]
 fn nothing_installs_in_a_declared_setup() {
     for (name, csv) in layouts() {
         let (chip, slots) = flash(csv);

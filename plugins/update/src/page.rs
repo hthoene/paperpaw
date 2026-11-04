@@ -114,6 +114,10 @@ enum Button {
     Check,
     Download,
     Transfer,
+    /// The notice's: this is no dual-boot setup (#224).
+    NotDual,
+    /// The way back: the firmware looks for one again.
+    DualAuto,
     Close,
 }
 
@@ -128,6 +132,8 @@ pub(crate) struct UpdatePage {
     shown: bool,
     /// An update that waits chosen anyway: offered as one that does not.
     anyway: bool,
+    /// `paperpaw.ini` says `dual-boot = off` (the way back is offered).
+    dual_off: bool,
     /// The help text scrolled, where it does not fit whole even smaller
     /// (the largest text), and where it is.
     help: Option<(ui::TextView, Rect)>,
@@ -164,6 +170,7 @@ impl UpdatePage {
             focus: 0,
             shown: ui::focus_shown(env),
             anyway: false,
+            dual_off: crate::not_dual::is_off(env.storage()),
             help: None,
             online: ui::offline::OfflineOffer::new(),
             waiting: None,
@@ -382,6 +389,9 @@ impl UpdatePage {
                 if env.actions().get(TRANSFER.as_str()).is_some() {
                     buttons.push(Button::Transfer);
                 }
+                if self.dual_off {
+                    buttons.push(Button::DualAuto);
+                }
                 buttons
             }
             // Before going back, the way to search for a newer one; not
@@ -408,9 +418,9 @@ impl UpdatePage {
             // others.
             View::Waiting { .. } => alloc::vec![Button::Close, Button::Download, Button::Check],
             View::Unreachable { .. } => alloc::vec![Button::Check, Button::Close],
-            View::Unfit(_) | View::Failed(_) | View::UpToDate | View::DualBoot => {
-                alloc::vec![Button::Close]
-            }
+            View::DualBoot => alloc::vec![Button::NotDual, Button::Close],
+            View::UpToDate if self.dual_off => alloc::vec![Button::DualAuto, Button::Close],
+            View::Unfit(_) | View::Failed(_) | View::UpToDate => alloc::vec![Button::Close],
             View::Installing { .. } | View::Installed | View::Checking | View::Downloading(_) => {
                 Vec::new()
             }
@@ -456,6 +466,8 @@ impl UpdatePage {
             (Button::Check, View::Waiting { .. }) => "update.check-again",
             (Button::Check, _) => "update.check",
             (Button::Transfer, _) => "update.transfer",
+            (Button::NotDual, _) => "update.not-dual.button",
+            (Button::DualAuto, _) => "update.dual-auto.button",
             (Button::Close, View::Waiting { .. }) => "update.keep-waiting",
             (Button::Close, View::Ready { .. } | View::Offer { .. } | View::Foreign(_)) => {
                 "update.later"
@@ -699,6 +711,12 @@ impl UpdatePage {
         match button {
             Button::Close => cx.command(Command::Back),
             Button::Transfer => cx.command(Command::run(TRANSFER)),
+            Button::NotDual => cx.command(crate::not_dual::question(&env)),
+            Button::DualAuto => {
+                let mut out = paperpaw_sdk::Commands::new();
+                crate::not_dual::choose(&env, "auto", &mut out);
+                out.into_iter().for_each(|command| cx.command(command));
+            }
             Button::Check => {
                 let mut out = paperpaw_sdk::Commands::new();
                 online::check(&env, false, crate::count::Trigger::Manual, &mut out);

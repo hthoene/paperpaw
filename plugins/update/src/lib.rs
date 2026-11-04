@@ -27,6 +27,7 @@ mod dual;
 mod fetch;
 mod found;
 mod look;
+mod not_dual;
 pub mod online;
 mod page;
 mod waiting;
@@ -206,7 +207,7 @@ static SCREENS: [FixedScreen; 1] = [FixedScreen::new(PAGE, "update.title", |env,
 .instances(paperpaw_sdk::Instances::SINGLE)];
 
 /// The events it hears, kept in the program.
-static HEARS: [paperpaw_sdk::FixedSubscription; 7] = [
+static HEARS: [paperpaw_sdk::FixedSubscription; 8] = [
     paperpaw_sdk::hears!(CHECK_DUE, |env, (), out| {
         online::check(env, true, Trigger::Auto, out);
     }),
@@ -222,6 +223,7 @@ static HEARS: [paperpaw_sdk::FixedSubscription; 7] = [
     paperpaw_sdk::hears!(online::CHECKED, online::checked),
     paperpaw_sdk::hears!(online::DOWNLOADED, online::downloaded),
     paperpaw_sdk::hears!(fetch::FETCHED, fetch::received),
+    paperpaw_sdk::hears!(not_dual::ASKED, not_dual::answered),
     paperpaw_sdk::hears!(events::STARTED, |env, _, out| {
         if let Some(firmware) = env.firmware() {
             started(env, firmware, out);

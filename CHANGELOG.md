@@ -72,6 +72,13 @@ change the plugin SDK.
 
 ### Fixed
 
+- **Dual boot: no false positive on plain devices, and a way out** (#224). The dualbooter's `x4boot` tag counts only
+  as a word of its own (not inside `x4bootloader` or a path); the bootloaders PaperPaw ships for X4, X3, X4 Pro and
+  X4 Classic, CrossPoint's and others are scanned in a test and none is taken for a dual-boot one. Where a device is
+  taken for one wrongly, the notice on the Updates page has a button, *This is not a dual-boot setup* (de: *Kein
+  Dual-Boot-Gerät*): after a question that warns an update can overwrite a second firmware, it writes `dual-boot =
+  off` in `paperpaw.ini` and restarts, and updates work again. Where the file says off, *Detect dual boot again*
+  writes `auto`. Update plugin 1.0.6.
 - **Dual boot: no write to the OTA data before the setup is known** (#222). Where the bootloader carries a
   dual-boot tag (`x4boot` or `paperpaw-dualboot:1`), an update PaperPaw put on trial itself, or one that failed its
   trial, is no longer marked (or gone back from) before the card is read: nothing is written to the OTA data at all,

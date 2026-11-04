@@ -24,6 +24,16 @@ dual-boot = on
 A value that is none of these (`dual-boot = onn`) counts as `on`: a typo must
 not leave the other firmware open to an update. `dual-boot = off` undoes it.
 
+Where a device is taken for a dual-boot one that is none, the *Updates* page
+has a button, *This is not a dual-boot setup*: after a question that warns that
+an update can overwrite a second firmware, it writes `dual-boot = off` here,
+takes the note away and restarts. Where the file says `off`, the page offers
+*Detect dual boot again*, which writes `dual-boot = auto` and restarts (or
+delete the line by hand). The dualbooter's own bootloader is recognised by its
+tag `x4boot` as a word of its own; the bootloaders PaperPaw ships and a plain
+X4 runs are scanned in a test (`crates/paperpaw-x4/tests/bootloaders/`,
+`PAPERPAW_BOOTLOADER_DIR` runs it on more) and none is taken for one.
+
 ## What a tool can do
 
 Carry the string `paperpaw-dualboot:1` anywhere in the bootloader's window of
