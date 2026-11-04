@@ -7,6 +7,7 @@ published, and the lists are checked.
 """
 
 import contextlib
+import hashlib
 import io
 import json
 import pathlib
@@ -35,9 +36,16 @@ def signed(fingerprint, chip, body=b""):
 
 
 def release(tag, created, assets):
+    """`assets`: (name, size) or (name, size, sha256 of its bytes)."""
     return {"tag_name": tag, "created_at": created, "draft": False, "assets": [
-        {"name": n, "size": s, "browser_download_url": f"https://github.com/{REPO}/releases/download/{tag}/{n}"}
-        for n, s in assets]}
+        {"name": a[0], "size": a[1], "state": "uploaded",
+         "digest": "sha256:" + (a[2] if len(a) > 2 else hashlib.sha256(b"x").hexdigest()),
+         "browser_download_url": f"https://github.com/{REPO}/releases/download/{tag}/{a[0]}"}
+        for a in assets]}
+
+
+def checksum_of(listing):
+    return store_release.published.checksums(listing.read_text(encoding="utf-8"))
 
 
 class Flow(unittest.TestCase):
@@ -79,7 +87,7 @@ class Flow(unittest.TestCase):
         self.assertEqual(len(names), 3 * len(self.ids) + len(self.ids))
         self.assertTrue(all(n.endswith((".ppn", ".zip")) for n in names))
         planned = {f["name"]: (tag, f["sha256"]) for f in made["files"]}
-        wrong = release_assets.check(self.dist, VERSION, REPO, planned, {})
+        wrong = release_assets.check(self.dist, VERSION, REPO, planned, {}, checksum_of(listing))
         self.assertEqual(wrong, [])
         # The firmware release lists none of them.
         self.assertFalse(set(names) & set(release_assets.names(VERSION)))
@@ -88,7 +96,7 @@ class Flow(unittest.TestCase):
         first = self.ids[0]
         version = catalogue.plugin_version(first)
         ppn = self.plugins / f"{first}-{version}-x4.ppn"
-        old = [(ppn.name, ppn.stat().st_size)]
+        old = [(ppn.name, ppn.stat().st_size, hashlib.sha256(ppn.read_bytes()).hexdigest())]
         tag, listing = self.run_catalogue([
             release("plugins-2026", "2026-11-01", old),
             release("v0.6.0-beta.2", "2026-10-25", [("paperpaw-0.6.0-beta.2.apk", 1)]),
@@ -99,7 +107,7 @@ class Flow(unittest.TestCase):
         self.assertFalse(made["create"])
         planned = {f["name"]: (tag, f["sha256"]) for f in made["files"]}
         found = store_release.published.assets(json.dumps([store_release.load(listing)]))
-        self.assertEqual(release_assets.check(self.dist, VERSION, REPO, planned, found), [])
+        self.assertEqual(release_assets.check(self.dist, VERSION, REPO, planned, found, checksum_of(listing)), [])
         entry = (self.plugins / "catalogue" / f"{first}.toml").read_text(encoding="utf-8")
         self.assertIn(f"https://github.com/{REPO}/releases/download/plugins-2026/{ppn.name}", entry)
 
@@ -109,8 +117,31 @@ class Flow(unittest.TestCase):
         planned = {f["name"]: (tag, f["sha256"]) for f in made["files"]}
         dropped = next(iter(planned))
         del planned[dropped]
-        wrong = release_assets.check(self.dist, VERSION, REPO, planned, {})
+        wrong = release_assets.check(self.dist, VERSION, REPO, planned, {}, checksum_of(listing))
         self.assertTrue(any(dropped in line for line in wrong), wrong)
+
+    def test_a_published_name_with_other_bytes_stops_the_release_before_anything_is_made(self):
+        first = self.ids[0]
+        ppn = self.plugins / f"{first}-{catalogue.plugin_version(first)}-x4.ppn"
+        # Published under this name with the same size and other bytes: a
+        # fingerprint change without a new version of the plugin.
+        old = [(ppn.name, ppn.stat().st_size, hashlib.sha256(b"other bytes, same name").hexdigest())]
+        with contextlib.redirect_stderr(io.StringIO()) as said, self.assertRaises(SystemExit):
+            self.run_catalogue([release("plugins-2026", "2026-11-01", old)])
+        self.assertIn("raise the plugin's version", said.getvalue())
+        listing = self.root / "releases.json"
+        with self.assertRaises(store_release.Stop) as stopped:
+            store_release.plan(store_release.load(listing), "plugins-2026", store_release.files_of(self.plugins), repo=REPO)
+        self.assertIn("raise the plugin's version", str(stopped.exception))
+
+    def test_a_run_started_again_after_it_broke_off_adds_only_what_is_missing(self):
+        first = self.ids[0]
+        ppn = self.plugins / f"{first}-{catalogue.plugin_version(first)}-x4.ppn"
+        old = [(ppn.name, ppn.stat().st_size, hashlib.sha256(ppn.read_bytes()).hexdigest())]
+        tag, listing = self.run_catalogue([release("plugins-2026", "2026-11-01", old)])
+        made = store_release.plan(store_release.load(listing), tag, store_release.files_of(self.plugins), repo=REPO)
+        self.assertNotIn(ppn.name, [f["name"] for f in made["files"]])
+        self.assertIn(f"{ppn.name}: published in plugins-2026, the same bytes", made["published"])
 
     def test_a_full_store_release_gives_way_to_the_next(self):
         filler = [(f"old-{i}.ppn", 1) for i in range(790)]

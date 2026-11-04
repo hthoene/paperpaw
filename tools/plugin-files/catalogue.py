@@ -168,13 +168,23 @@ def folder_zip(path, plugin_ini, files=()):
             z.writestr(info, text)
 
 
-def locator(base, published_assets=None):
+def locator(base, published_assets=None, checksum=None):
     """The address of a file by its name: where it was published before,
-    else under `base` (the release this run adds it to)."""
+    else under `base` (the release this run adds it to). Given the file's
+    SHA-256, one published before must be the same bytes (`checksum` says the
+    published ones'), else the entry would name an address whose file has
+    another checksum."""
     found = published_assets or {}
 
-    def url_of(name):
-        return found[name][1] if name in found else f"{base}/{name}"
+    def url_of(name, digest=None):
+        if name not in found:
+            return f"{base}/{name}"
+        if digest is not None and checksum is not None and checksum(name) != digest:
+            fail(
+                f"{name} is published in {found[name][0]} with other bytes than this build's: "
+                "a version is published once, so raise the plugin's version"
+            )
+        return found[name][1]
 
     return url_of
 
@@ -233,7 +243,7 @@ def data_entries(source, dist, release, base, date, only=None, url_of=None):
             f"version = {toml(version)}",
             f"sdk = {toml(sdk)}",
             f"date = {toml(date)}",
-            f"url = {toml(url_of(zipped.name))}",
+            f"url = {toml(url_of(zipped.name, digest))}",
             f"sha256 = {toml(digest)}",
         ]
         (dist / "catalogue" / f"{plugin}.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -255,7 +265,12 @@ def main():
     parser.add_argument("--releases", type=pathlib.Path)
     args = parser.parse_args()
     dist, release, base = args.dist, args.release, args.base_url.rstrip("/")
-    url_of = locator(base, published.assets(args.releases.read_text(encoding="utf-8")) if args.releases else None)
+    listing = args.releases.read_text(encoding="utf-8") if args.releases else None
+    url_of = locator(
+        base,
+        published.assets(listing) if listing else None,
+        published.checksums(listing) if listing else None,
+    )
     tag = args.tag or f"v{release}"
     sdk = ".".join(release.split("-")[0].split("+")[0].split(".")[:2])
     (dist / "catalogue").mkdir(parents=True, exist_ok=True)
@@ -284,7 +299,7 @@ def main():
                 keys.add(key)
                 digest = sha256(path)
                 sums.append((digest, path.name))
-                builds.append((device, abi, url_of(path.name), digest))
+                builds.append((device, abi, url_of(path.name, digest), digest))
         if not builds:
             fail(f"{plugin}: no file built for any reader")
         plugin_ini = (
@@ -296,7 +311,8 @@ def main():
         )
         folder = dist / f"{plugin}-{version}.zip"
         folder_zip(folder, plugin_ini, [*how, *card_files(plugin)])
-        sums.append((sha256(folder), folder.name))
+        folder_digest = sha256(folder)
+        sums.append((folder_digest, folder.name))
         lines = [
             f"# PaperPaw's own plugin, built for PaperPaw {release} (tools/plugin-files).",
             "# Newer versions are added above older ones.",
@@ -324,8 +340,8 @@ def main():
             f"version = {toml(version)}",
             f"sdk = {toml(sdk)}",
             f"date = {toml(args.date)}",
-            f"url = {toml(url_of(folder.name))}",
-            f"sha256 = {toml(sha256(folder))}",
+            f"url = {toml(url_of(folder.name, folder_digest))}",
+            f"sha256 = {toml(folder_digest)}",
             "",
             "[versions.source]",
             f"repository = {toml(REPOSITORY)}",

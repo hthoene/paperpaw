@@ -194,7 +194,7 @@ jobs:
           # Each plugin brings a file for three devices, its folder's ZIP, the
           # entry's ZIP and its checksums.
           store="$(python3 -I "$trusted/tools/plugin-files/store_release.py" choose \
-            --releases "$RUNNER_TEMP/releases.json" --year "$(date -u +%Y)" --dist . --incoming $((${#ids[@]} * 6)))"
+            --releases "$RUNNER_TEMP/releases.json" --year "$(date -u +%Y)" --dist . --repo "$GITHUB_REPOSITORY" --incoming $((${#ids[@]} * 6)))"
           {
             echo "commit=$(git rev-parse HEAD)"
             echo "plugins=$list"
@@ -399,9 +399,14 @@ jobs:
     runs-on: ubuntu-latest
     # The only job that writes, and it runs none of the source's code: it
     # takes the signed files and the catalogue's ZIPs and sums, and adds them
-    # to the store release (this workflow's own scripts).
+    # to the store release (this workflow's own scripts). One run at a time
+    # adds to the store release (release.yml has the same group); dry runs
+    # add nothing and wait for no one.
     permissions:
       contents: write
+    concurrency:
+      group: ${{ inputs.dry_run && format('store-release-dry-{0}', github.run_id) || 'store-release' }}
+      cancel-in-progress: false
     env:
       LIST: ${{ needs.check.outputs.plugins }}
       STORE: ${{ needs.check.outputs.store }}
@@ -434,7 +439,7 @@ jobs:
           # The store release chosen by the check must still be the one this
           # batch goes to (another run may have filled it meanwhile).
           now="$(python3 tools/plugin-files/store_release.py choose --releases "$RUNNER_TEMP/releases.json" \
-            --year "$(date -u +%Y)" --dist dist/store --incoming $(( $(ls dist/store | wc -l) + $(ls dist/out/paperpaw-*-catalogue.zip dist/out/paperpaw-*.sha256 | wc -l) )))"
+            --year "$(date -u +%Y)" --dist dist/store --repo "$GITHUB_REPOSITORY" --incoming $(( $(ls dist/store | wc -l) + $(ls dist/out/paperpaw-*-catalogue.zip dist/out/paperpaw-*.sha256 | wc -l) )))"
           if [[ "$now" != "$STORE" ]]; then
             echo "::error::the store release was $STORE when the entries were made, it is $now now: run again"
             exit 1

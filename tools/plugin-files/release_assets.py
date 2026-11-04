@@ -81,11 +81,12 @@ def entry_urls(zip_path):
     return out
 
 
-def check_catalogue(urls, repo, planned, published_assets):
+def check_catalogue(urls, repo, planned, published_assets, checksum):
     """What is wrong with the addresses of a catalogue: `urls` as
     `entry_urls` gives them, `planned` name to (tag, sha256) of the files a
     run adds, `published_assets` name to (tag, address) of those out
-    already."""
+    already, `checksum` the SHA-256 of a published one by its name (the
+    entry's must be the same)."""
     prefix = f"https://github.com/{repo}/releases/download/"
     wrong = []
     for member, url, digest in urls:
@@ -101,12 +102,17 @@ def check_catalogue(urls, repo, planned, published_assets):
         elif name in published_assets:
             if published_assets[name][1] != url:
                 wrong.append(f"{member}: {name} is published at {published_assets[name][1]}, not {url}")
+            elif checksum(name) != digest:
+                wrong.append(
+                    f"{member}: {name} is published with other bytes than the entry's checksum: "
+                    "a version is published once, so raise the plugin's version"
+                )
         else:
             wrong.append(f"{member}: {url} has no asset, planned or published")
     return wrong
 
 
-def check(dist, version, repo, planned, published_assets, catalogues=()):
+def check(dist, version, repo, planned, published_assets, checksum, catalogues=()):
     """Everything wrong with `dist` as the firmware release of `version`."""
     wrong = []
     listed = names(version)
@@ -119,7 +125,7 @@ def check(dist, version, repo, planned, published_assets, catalogues=()):
             wrong.append(f"{name} is a plugin file: those go to the store release")
     for catalogue in [dist / f"paperpaw-{version}-catalogue.zip", *catalogues]:
         if catalogue.is_file():
-            wrong += check_catalogue(entry_urls(catalogue), repo, planned, published_assets)
+            wrong += check_catalogue(entry_urls(catalogue), repo, planned, published_assets, checksum)
     return wrong
 
 
@@ -132,9 +138,12 @@ def load_plan(path):
 
 
 def load_published(path):
+    """(name to (tag, address), name to SHA-256) of the assets a releases
+    list holds; the SHA-256 is GitHub's digest, or the downloaded bytes'."""
     if not path:
-        return {}
-    return published.assets(pathlib.Path(path).read_text(encoding="utf-8"))
+        return {}, lambda name: None
+    text = pathlib.Path(path).read_text(encoding="utf-8")
+    return published.assets(text), published.checksums(text)
 
 
 def main(argv=None):
@@ -159,24 +168,19 @@ def main(argv=None):
         print("\n".join(names(args.version)))
         return
     if args.what == "catalogue":
-        planned, found = load_plan(args.plan), load_published(args.releases)
+        planned, (found, checksum) = load_plan(args.plan), load_published(args.releases)
         wrong = []
         for zipped in args.zips:
-            wrong += check_catalogue(entry_urls(zipped), args.repo, planned, found)
+            wrong += check_catalogue(entry_urls(zipped), args.repo, planned, found, checksum)
         for line in wrong:
             print(f"release_assets.py: {line}", file=sys.stderr)
         if wrong:
             sys.exit(1)
         print(f"{len(args.zips)} catalogue ZIPs: every address has an asset")
         return
-    planned = {}
-    if args.plan:
-        made = json.loads(pathlib.Path(args.plan).read_text(encoding="utf-8"))
-        planned = {item["name"]: (made["tag"], item["sha256"]) for item in made["files"]}
-    found = {}
-    if args.releases:
-        found = published.assets(pathlib.Path(args.releases).read_text(encoding="utf-8"))
-    wrong = check(args.dist, args.version, args.repo, planned, found, args.catalogue)
+    planned = load_plan(args.plan)
+    found, checksum = load_published(args.releases)
+    wrong = check(args.dist, args.version, args.repo, planned, found, checksum, args.catalogue)
     for line in wrong:
         print(f"release_assets.py: {line}", file=sys.stderr)
     if wrong:

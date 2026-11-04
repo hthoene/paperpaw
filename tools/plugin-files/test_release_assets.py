@@ -56,8 +56,8 @@ class Catalogue(unittest.TestCase):
         with zipfile.ZipFile(self.dist / "paperpaw-0.6.0-beta.3-catalogue.zip", "w") as z:
             z.writestr("catalogue/news.toml", text)
 
-    def wrong(self, planned, found):
-        return release_assets.check(self.dist, "0.6.0-beta.3", REPO, planned, found)
+    def wrong(self, planned, found, checksum=lambda name: "cc"):
+        return release_assets.check(self.dist, "0.6.0-beta.3", REPO, planned, found, checksum)
 
     def test_every_address_has_an_asset(self):
         self.catalogue(entry((f"{STORE}/news-1.0.3.zip", "aa"), (f"{STORE}/news-1.0.3-x4.ppn", "bb"),
@@ -65,6 +65,17 @@ class Catalogue(unittest.TestCase):
         planned = {"news-1.0.3.zip": ("plugins-2026", "aa"), "news-1.0.3-x4.ppn": ("plugins-2026", "bb")}
         found = {"news-1.0.2-x4.ppn": ("v0.6.0-beta.2", f"https://github.com/{REPO}/releases/download/v0.6.0-beta.2/news-1.0.2-x4.ppn")}
         self.assertEqual(self.wrong(planned, found), [])
+
+    def test_a_published_file_with_other_bytes_than_the_entry_s_is_caught(self):
+        old = f"https://github.com/{REPO}/releases/download/v0.6.0-beta.2/news-1.0.2-x4.ppn"
+        self.catalogue(entry((f"{STORE}/news-1.0.3.zip", "aa"), (old, "cc")))
+        found = {"news-1.0.2-x4.ppn": ("v0.6.0-beta.2", old)}
+        planned = {"news-1.0.3.zip": ("plugins-2026", "aa")}
+        self.assertEqual(self.wrong(planned, found, lambda name: "cc"), [])
+        wrong = self.wrong(planned, found, lambda name: "dd")
+        self.assertEqual(len(wrong), 1)
+        self.assertIn("other bytes", wrong[0])
+        self.assertIn("raise the plugin's version", wrong[0])
 
     def test_an_address_without_an_asset_is_caught(self):
         self.catalogue(entry((f"{STORE}/news-1.0.3.zip", "aa"), (f"{STORE}/news-1.0.3-x4-pro.ppn", "bb")))

@@ -27,17 +27,23 @@ uploaded again, and a name that is published with other bytes stops the run
     store_release.py plan --releases releases.json --tag <tag> --dist <dir>
         [--extra <file>...] --out plan.json
         the files to upload: those of <dist> (and the extras, a catalogue ZIP
-        and its sums) not published before; fails for a name published with
-        other bytes, or when the release would hold more than 900
+        and its sums) not published before; a name published with the same
+        SHA-256 is skipped (so a run that broke off can be started again), one
+        with other bytes, or a file whose upload was never finished, fails
+        ("raise the plugin's version"); also when the release would hold
+        more than 900
     store_release.py upload --plan plan.json [--dry-run]
         makes the release if it is not there (a pre-release, not the
         latest), uploads the files in batches without ever replacing one,
-        retries each that fails, and checks the release lists them all with
-        their sizes; --dry-run prints what it would run and changes nothing
+        retries each that fails, and checks the release lists them all, each
+        in full (state uploaded) with its SHA-256; --dry-run prints what it
+        would run and changes nothing
     store_release.py versions --releases releases.json <id>=<version>...
         the version each plugin has in the source (its crate's, or
-        data.toml's) against those published: fails for one published
-        already or older than one published; prints `<id> <version>`
+        data.toml's) against those published: fails for one older than one
+        published, or an id like `v2-reader` whose git tag would start
+        release.yml; prints `<id> <version>` (one published already is
+        left to `plan`, which skips the same bytes and fails other ones)
 
 The workflows (release.yml, store-plugin.yml) run it; `release_assets.py`
 checks what they plan.
@@ -95,10 +101,12 @@ def shards(releases, year):
     return found
 
 
-def choose(releases, year, incoming):
+def choose(releases, year, incoming, counted=None):
     """The tag to add `incoming` files to, and whether it exists: the newest
     store release of the year, or the next number where it would hold more
-    than SOFT_LIMIT."""
+    than SOFT_LIMIT. `counted` (tag to the number of assets it holds, every
+    page of them) replaces the count of the releases list, which may stop at
+    a page."""
     if incoming > SOFT_LIMIT:
         raise Stop(f"{incoming} files are more than a store release holds ({SOFT_LIMIT}): publish fewer at a time")
     found = shards(releases, year)
@@ -106,6 +114,8 @@ def choose(releases, year, incoming):
         return store_tag(year), False
     newest = max(found)
     tag, count = found[newest]
+    if counted is not None:
+        count = max(count, counted(tag))
     if count + incoming <= SOFT_LIMIT:
         return tag, True
     return store_tag(year, newest + 1), False
@@ -120,25 +130,39 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def plan(releases, tag, files, extras=(), repo=""):
+def plan(releases, tag, files, extras=(), repo="", fetch=None, counted=None):
     """What to upload to `tag`: the files and extras (paths) whose names are
-    not published yet; a name published with other bytes stops the run."""
-    names = published.assets(json.dumps([releases]))
-    sizes = published.sizes(json.dumps([releases]))
+    not published yet. A name that is published must be the same bytes
+    (SHA-256, not the size), else the run stops; so does a name whose upload
+    was never finished. `fetch` downloads an asset GitHub gives no digest of;
+    `counted` is as for `choose`."""
+    text = json.dumps([releases])
+    names = published.details(text)
+    checksum = published.checksums(text, fetch)
+    broken = published.partial(text)
     held = next((len(r.get("assets", [])) for r in releases if r["tag_name"] == tag), 0)
+    if counted is not None and any(r["tag_name"] == tag for r in releases):
+        held = max(held, counted(tag))
     new, said = [], []
     for path in [*files, *map(pathlib.Path, extras)]:
-        size = path.stat().st_size
-        if path.name in names:
-            where, _ = names[path.name]
-            if sizes.get(path.name, size) != size:
+        name = path.name
+        if name in broken:
+            raise Stop(
+                f"{name} is in {broken[name]} but its upload was never finished: delete it there "
+                f"(gh release delete-asset {broken[name]} {name}) and run again"
+            )
+        mine = digest(path)
+        if name in names:
+            where = names[name]["tag"]
+            theirs = checksum(name)
+            if theirs != mine:
                 raise Stop(
-                    f"{path.name} is published in {where} with another size ({sizes[path.name]}, built {size}): "
-                    "a version is published once, so the plugin needs a newer version"
+                    f"{name} is published in {where} with other bytes (sha256 {theirs[:12]}, built {mine[:12]}): "
+                    "a version is published once, so raise the plugin's version"
                 )
-            said.append(f"{path.name}: published in {where}")
+            said.append(f"{name}: published in {where}, the same bytes")
             continue
-        new.append({"name": path.name, "path": str(path), "size": size, "sha256": digest(path)})
+        new.append({"name": name, "path": str(path), "size": path.stat().st_size, "sha256": mine})
     seen = [item["name"] for item in new]
     if len(seen) != len(set(seen)):
         raise Stop("the same name twice in one run: " + ", ".join(sorted({n for n in seen if seen.count(n) > 1})))
@@ -180,18 +204,57 @@ def run(argv):
 
 
 def listed(tag, repo, runner):
-    """Name to size of the assets the release has now."""
+    """Name to {"size", "state", "digest"} of the assets the release has now,
+    every page of them; None where the release cannot be read."""
+    code, out = runner(["gh", "api", f"repos/{repo}/releases/tags/{tag}", "--jq", ".id"])
+    if code != 0 or not out.strip().isdigit():
+        return None
     code, out = runner(
-        ["gh", "api", f"repos/{repo}/releases/tags/{tag}", "--jq", '.assets[] | "\\(.name) \\(.size)"']
+        ["gh", "api", "--paginate", f"repos/{repo}/releases/{out.strip()}/assets",
+         "--jq", ".[] | {name, size, state, digest}"]
     )
     if code != 0:
         return None
-    return {line.rsplit(" ", 1)[0]: int(line.rsplit(" ", 1)[1]) for line in out.splitlines() if line.strip()}
+    found = {}
+    for line in out.splitlines():
+        if line.strip():
+            asset = json.loads(line)
+            found[asset["name"]] = {
+                "size": asset.get("size"),
+                "state": asset.get("state") or "uploaded",
+                "digest": asset.get("digest"),
+            }
+    return found
 
 
-def upload(plan_, runner=run, sleep=time.sleep, say=print):
-    """Does what `commands` says, and checks the release has every file with
-    its size; a batch that fails goes file by file, each tried again."""
+def asset_count(tag, repo, runner=run):
+    """How many assets the release has, every page counted; 0 for one that
+    is not there."""
+    return len(listed(tag, repo, runner) or {})
+
+
+def status(item, now, tag, repo, fetch):
+    """`ok` where the release has the item in full with its bytes, `missing`
+    or `partial` where it has not (a partial one has to go before a new
+    try); other bytes under the name stop the run."""
+    if now is None:
+        return "missing"
+    if now["state"] != "uploaded":
+        return "partial"
+    info = {"digest": now.get("digest"), "url": f"https://github.com/{repo}/releases/download/{tag}/{item['name']}"}
+    theirs = published.sha256_of(info, fetch)
+    if theirs != item["sha256"]:
+        raise Stop(
+            f"{tag} holds {item['name']} with other bytes (sha256 {theirs[:12]}, built {item['sha256'][:12]}): "
+            "a version is published once, so raise the plugin's version"
+        )
+    return "ok"
+
+
+def upload(plan_, runner=run, sleep=time.sleep, say=print, fetch=None):
+    """Does what `commands` says, and checks the release has every file in
+    full with its SHA-256; a batch that fails goes file by file, each tried
+    again (an unfinished asset of the failed try is deleted first)."""
     tag, repo = plan_["tag"], plan_["repo"]
     flag = ["-R", repo] if repo else []
     if plan_["create"]:
@@ -208,8 +271,11 @@ def upload(plan_, runner=run, sleep=time.sleep, say=print):
             continue
         for item in batch:
             for attempt in range(1, RETRIES + 1):
-                if (listed(tag, repo, runner) or {}).get(item["name"]) == item["size"]:
+                where = status(item, (listed(tag, repo, runner) or {}).get(item["name"]), tag, repo, fetch)
+                if where == "ok":
                     break
+                if where == "partial":
+                    runner(["gh", "release", "delete-asset", tag, item["name"], *flag, "--yes"])
                 code, out = runner(["gh", "release", "upload", tag, *flag, item["path"]])
                 if code == 0:
                     break
@@ -220,9 +286,9 @@ def upload(plan_, runner=run, sleep=time.sleep, say=print):
     present = listed(tag, repo, runner)
     if present is None:
         raise Stop(f"{tag} cannot be listed after the upload")
-    missing = [i["name"] for i in items if present.get(i["name"]) != i["size"]]
+    missing = [i["name"] for i in items if status(i, present.get(i["name"]), tag, repo, fetch) != "ok"]
     if missing:
-        raise Stop(f"{tag} lacks or has another size of: " + ", ".join(missing))
+        raise Stop(f"{tag} lacks, or has an unfinished upload of: " + ", ".join(missing))
     say(f"{tag}: {len(items)} files added, {len(present)} assets now")
 
 
@@ -235,18 +301,19 @@ def newest_published(names, plugin):
 
 def versions(releases, current):
     """`<id> <version>` for each plugin of `current` (id to the version the
-    source has now) whose version is new: not published before and not older
-    than a published one."""
+    source has now) that is not older than a published one. A version that
+    is published already is allowed: `plan` skips its files when they are the
+    same bytes (a run that broke off starts again) and stops for other ones."""
     names = published.assets(json.dumps([releases]))
     lines = []
     for plugin, version in current.items():
+        if re.match(r"v\d", plugin):
+            # Its git tag `<id>-v<version>` would begin like a firmware tag
+            # (`v[0-9]*`) and start release.yml.
+            raise Stop(f"{plugin}: an id that begins with v and a digit would make a tag that starts a firmware release")
         before = newest_published(names, plugin)
         if before is not None and version_tuple(version) < version_tuple(before):
             raise Stop(f"{plugin} {version} is older than {before}, which is published")
-        if f"{plugin}-{version}.zip" in names or any(
-            name.startswith(f"{plugin}-{version}-") and name.endswith(".ppn") for name in names
-        ):
-            raise Stop(f"{plugin} {version} is published already: its version needs to be raised")
         lines.append(f"{plugin} {version}")
     return lines
 
@@ -273,6 +340,12 @@ def upper_bound(dist):
     return len(files_of(dist)) + len(catalogue.plugins()) + len(data.plugins())
 
 
+def counter(repo):
+    """The exact count of a release's assets (`choose`, `plan`), or none
+    where there is no repository to ask."""
+    return (lambda tag: asset_count(tag, repo)) if repo else None
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="what", required=True)
@@ -281,6 +354,7 @@ def main(argv=None):
     one.add_argument("--year", type=int, required=True)
     one.add_argument("--dist", required=True)
     one.add_argument("--incoming", type=int)
+    one.add_argument("--repo", default="")
     two = sub.add_parser("plan")
     two.add_argument("--releases", required=True)
     two.add_argument("--tag", required=True)
@@ -298,12 +372,12 @@ def main(argv=None):
     try:
         if args.what == "choose":
             incoming = args.incoming if args.incoming is not None else upper_bound(args.dist)
-            tag, _ = choose(load(args.releases), args.year, incoming)
+            tag, _ = choose(load(args.releases), args.year, incoming, counter(args.repo))
             print(tag)
         elif args.what == "plan":
             if not STORE_TAG.match(args.tag):
                 raise Stop(f"{args.tag} is no store release (plugins-<year>)")
-            made = plan(load(args.releases), args.tag, files_of(args.dist), args.extra, args.repo)
+            made = plan(load(args.releases), args.tag, files_of(args.dist), args.extra, args.repo, counted=counter(args.repo))
             pathlib.Path(args.out).write_text(json.dumps(made, indent=2) + "\n", encoding="utf-8")
             for line in made["published"]:
                 print(line)

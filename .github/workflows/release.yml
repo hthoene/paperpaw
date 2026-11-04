@@ -463,6 +463,14 @@ jobs:
     name: Release
     needs: [guard, android, xtensa-std, firmware, web, emulator, handbook]
     runs-on: ubuntu-latest
+    # One run at a time adds to the store release (store-plugin.yml has the
+    # same group): two would choose and plan from the same list. A run waits
+    # for the one before it (GitHub keeps one waiting run for a group; start
+    # a run that was cancelled waiting again). Dry runs add nothing and wait
+    # for no one.
+    concurrency:
+      group: ${{ github.event_name == 'push' && 'store-release' || format('store-release-dry-{0}', github.run_id) }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -491,7 +499,7 @@ jobs:
           # folders and entries beside the plugins with code.
           python3 tools/plugin-files/data.py "$RUNNER_TEMP/data"
           store="$(python3 tools/plugin-files/store_release.py choose --releases "$RUNNER_TEMP/releases.json" \
-            --year "$(date -u +%Y)" --dist dist/plugins)"
+            --year "$(date -u +%Y)" --dist dist/plugins --repo "$GITHUB_REPOSITORY")"
           echo "STORE_TAG=$store" >> "$GITHUB_ENV"
           echo "The store release: $store"
           python3 tools/plugin-files/catalogue.py dist/plugins "$VERSION" \

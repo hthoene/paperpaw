@@ -4,6 +4,7 @@
 """
 
 import contextlib
+import hashlib
 import io
 import json
 import pathlib
@@ -260,7 +261,8 @@ class Versions(unittest.TestCase):
             listing = dist / "releases.json"
             listing.write_text(json.dumps([[{
                 "tag_name": "plugins-2026", "created_at": "2026-11-01", "draft": False,
-                "assets": [{"name": ppn, "browser_download_url": old, "size": 1}]}]]))
+                "assets": [{"name": ppn, "browser_download_url": old, "size": 1, "state": "uploaded",
+                            "digest": "sha256:" + hashlib.sha256(dist.joinpath(ppn).read_bytes()).hexdigest()}]}]]))
             argv = ["catalogue.py", str(dist), "0.6.0-beta.3", "https://github.com/o/r/releases/download/plugins-2026-2",
                     "--only", "vocabulary", "--releases", str(listing)]
             with unittest.mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
@@ -269,6 +271,26 @@ class Versions(unittest.TestCase):
             # The file published before: where it is. The folder, new: the release this run adds to.
             self.assertIn(f'url = "{old}"', entry)
             self.assertIn(f'url = "https://github.com/o/r/releases/download/plugins-2026-2/vocabulary-{own}.zip"', entry)
+
+    def test_a_file_published_before_with_other_bytes_is_refused(self):
+        with tempfile.TemporaryDirectory() as dist:
+            dist = pathlib.Path(dist)
+            own = catalogue.plugin_version("vocabulary")
+            ppn = f"vocabulary-{own}-x4.ppn"
+            dist.joinpath(ppn).write_bytes(signed(0x85073A61323717FF))
+            listing = dist / "releases.json"
+            listing.write_text(json.dumps([[{
+                "tag_name": "plugins-2026", "created_at": "2026-11-01", "draft": False,
+                "assets": [{"name": ppn, "size": dist.joinpath(ppn).stat().st_size, "state": "uploaded",
+                            "browser_download_url": "https://github.com/o/r/releases/download/plugins-2026/" + ppn,
+                            "digest": "sha256:" + hashlib.sha256(b"other bytes").hexdigest()}]}]]))
+            argv = ["catalogue.py", str(dist), "0.6.0-beta.3", "https://github.com/o/r/releases/download/plugins-2026",
+                    "--only", "vocabulary", "--releases", str(listing)]
+            said = io.StringIO()
+            with unittest.mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(said), self.assertRaises(SystemExit):
+                catalogue.main()
+            self.assertIn("raise the plugin's version", said.getvalue())
 
     def test_a_plugin_without_a_version_of_its_own_is_refused(self):
         with tempfile.TemporaryDirectory() as root:

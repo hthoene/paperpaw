@@ -159,12 +159,21 @@ release that holds it). At 800 assets the next number is opened
 (`plugins-2026-2`); the run stops at 900 (GitHub's limit is 1000). The tag does
 not begin with `v`, so `release.yml` does not start for it.
 
-`tools/plugin-files/store_release.py` chooses the release, plans the upload (it
-refuses a name that is published with other bytes: raise the plugin's version),
+`tools/plugin-files/store_release.py` chooses the release, plans the upload,
 uploads in batches with each file tried again, and checks that the release
-lists every file with its size. `release_assets.py` holds the list of the
-firmware release's files and checks that every address in a catalogue has an
-asset. The release job uploads the plugin files **before** it creates the
+lists every file in full (state `uploaded`) with its SHA-256. **A published
+name means the same bytes**, compared by SHA-256 (GitHub's `digest` of the
+asset, else the downloaded bytes), never by size: the same bytes are skipped (so a
+run that broke off can be started again), other bytes stop the run with "raise
+the plugin's version", and so does a file whose upload was never finished
+(delete it with `gh release delete-asset <tag> <name>`). `release_assets.py`
+holds the list of the firmware release's files and checks that every address in
+a catalogue has an asset and that a published file has the checksum the entry
+names. Runs that add to the store release (this workflow and *Store plugin
+update*) wait for one another (concurrency group `store-release`). **Never delete
+or replace a plugin file in any release**, old firmware releases (`v0.x`)
+included: a plugin whose version did not change keeps its catalogue address
+there. The release job uploads the plugin files **before** it creates the
 firmware release, so paperpaw.org never reads an address without a file.
 
 Try it without publishing: run the workflow *Release* by hand from a branch
@@ -188,7 +197,9 @@ catalogue ZIP for each plugin (`paperpaw-<id>-v<version>-catalogue.zip`, in the
 store release too); the plugin's commit gets the git tag `<id>-v<version>`
 (`versions.py` reads it). Devices are offered no firmware with it. Before it
 builds, `store_release.py versions` checks each version against what is
-published: not published already, not older than a published one.
+published: not older than a published one (a version published already is
+allowed: the upload skips the same bytes and stops for other ones), and its id
+may not begin with `v` and a digit (its tag would start `release.yml`).
 
 From `main` (`ref` = `main`): what main has of the plugins now, built against the
 base release's fingerprint and core libraries. A plugin that needs a newer SDK
