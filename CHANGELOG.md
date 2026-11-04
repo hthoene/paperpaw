@@ -72,6 +72,9 @@ change the plugin SDK.
   bumps of other languages (#172). Language metadata comes from its catalog header, and store texts and
   dependencies from its data-plugin entry. Existing language packs build to the same bytes.
 
+- **The plugin manager reads only the rows it shows** (#208). It translated the description of every plugin to find how high the
+  rows must be, which filled the 16 KiB a language on the card may read in one go; later texts of that call came out in
+  English. Now only the rows of the page shown are read, and the rows get higher, never lower, when a page needs it.
 - **The store shows every plugin after an update, without a restart** (#164). The first start after an update runs on trial
   and loads no code plugins, on purpose, and the kernel then did not know what the firmware takes: the store asked for no
   builds and showed only data plugins (Look, Languages) until the next cold start, which a Pro on light sleep may not have
