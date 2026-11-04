@@ -47,6 +47,9 @@ impl Family {
     /// than carry a copy of (#259: about 8 KiB a plugin). The widget look
     /// took it ([`WIDGETS`](Self::WIDGETS)); that code goes to a chained
     /// family (8 and up) once there is the chain.
+    #[deprecated(
+        note = "family 6 is `Family::WIDGETS`; core and alloc code goes to a chained family"
+    )]
     pub const CORE: Family = Family(6);
     /// The look widgets share (`paperpaw_sdk::widgets`: their frame,
     /// colours and shape, #206), in a family of its own so that a plugin

@@ -10,15 +10,17 @@
 
 mod support;
 
+use paperpaw_graphics::Framebuffer;
 use paperpaw_sdk::builtin::settings::{
     CORNERS, WIDGET_CORNERS, WIDGET_FRAME_LINE, WIDGET_GAP, WIDGET_PADDING, WIDGET_SHADOW,
 };
+use paperpaw_sdk::decorations::Tone;
 use paperpaw_sdk::ui::UiStyle;
 use paperpaw_sdk::widgets::{
-    self, Drawn, FRAMES, Frame, GAP_LARGE, GAP_SMALL, LINE_THICK, LINE_THIN, PAPER_INVERTED,
-    SHADOW_HARD, Shadow, WidgetSpec,
+    self, Drawn, FRAMES, Frame, GAP_LARGE, GAP_SMALL, LINE_THICK, LINE_THIN, PAPER_DARK_GRAY,
+    PAPER_INVERTED, SHADOW_HARD, Shadow, WidgetSpec,
 };
-use paperpaw_sdk::{Canvas, Color, Env, Id, Point, Rect, SettingValue};
+use paperpaw_sdk::{Canvas, Color, Env, Id, PixelFormat, Point, Rect, SettingValue};
 
 use support::{Device, Harness, PAPER, drawn_outside, frame};
 
@@ -212,9 +214,62 @@ fn a_shadow_falls_below_a_card_inside_the_place() {
     assert_eq!(with.1, without.1);
     assert!(with.0 == without.0, "a line casts no shadow");
     set(&mut h, "t.clock.drop-shadow", SHADOW_HARD);
-    // A paper of its own does.
+    // A paper of its own does: a black one a dark gray shadow.
     set(&mut h, "t.clock.paper", PAPER_INVERTED);
-    assert_eq!(pixel(&h, 239, 159), Color::BLACK);
+    assert_eq!(pixel(&h, 239, 159), Tone::DarkGray.color());
+}
+
+/// Below a black plate, a dark frame's or inverted paper's, the shadow is
+/// dark gray, which stands out from it (owner decision 106); a dark gray
+/// plate keeps a black one; a panel of two grays dithers it.
+#[test]
+fn a_shadow_below_a_black_plate_is_dark_gray() {
+    let mut h = harness(true);
+    set(&mut h, "t.clock.corners", CORNERS[0]);
+    set(&mut h, "t.clock.drop-shadow", SHADOW_HARD);
+    let dark_gray = Tone::DarkGray.color();
+    set(&mut h, "t.clock.frame", Frame::Dark.value());
+    assert_eq!(pixel(&h, 239, 159), dark_gray, "below a dark frame");
+    set(&mut h, "t.clock.frame", Frame::Card.value());
+    assert_eq!(pixel(&h, 239, 159), Color::BLACK, "below a card");
+    set(&mut h, "t.clock.paper", PAPER_DARK_GRAY);
+    assert_eq!(pixel(&h, 239, 159), Color::BLACK, "below dark gray");
+    set(&mut h, "t.clock.paper", PAPER_INVERTED);
+    assert_eq!(pixel(&h, 239, 159), dark_gray, "below inverted paper");
+    // Black and white only: the dark gray dithered, as grays are.
+    let mut mono = Framebuffer::new(480, 800, PixelFormat::Mono1).unwrap();
+    mono.canvas().clear(Color::WHITE);
+    widgets::draw_frame(&mut mono.canvas(), &h.env(), "t.clock", AREA);
+    let canvas = mono.canvas();
+    let corner: Vec<Color> = (156..160)
+        .flat_map(|y| (236..240).map(move |x| Point::new(x, y)))
+        .map(|p| canvas.pixel(p).unwrap())
+        .collect();
+    assert!(corner.contains(&Color::BLACK) && corner.contains(&Color::WHITE));
+}
+
+/// Places too small for round corners and a shadow, or at the far end of
+/// the coordinates, are drawn in without a panic and nothing outside.
+#[test]
+fn a_tiny_place_with_round_corners_and_a_shadow_is_safe() {
+    let mut h = harness(true);
+    set(&mut h, "t.clock.frame", Frame::Card.value());
+    set(&mut h, "t.clock.corners", CORNERS[2]);
+    set(&mut h, "t.clock.drop-shadow", SHADOW_HARD);
+    let far = u16::MAX - 1;
+    for area in [
+        Rect::new(10, 10, 1, 1),
+        Rect::new(10, 10, 0, 0),
+        Rect::new(10, 10, 3, 40),
+        Rect::new(far, far, 1, 1),
+    ] {
+        let mut frame = frame(480, 800);
+        let look = widgets::draw_frame(&mut frame.canvas(), &h.env(), "t.clock", area);
+        assert!(look.area.width <= area.width && look.area.height <= area.height);
+        if area.x < 480 {
+            assert_eq!(drawn_outside(&mut frame, area), None, "{area:?}");
+        }
+    }
 }
 
 #[test]

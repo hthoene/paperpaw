@@ -15,13 +15,14 @@
 
 use alloc::format;
 
-use paperpaw_platform::Rect;
+use paperpaw_platform::{Color, Rect};
 
 use super::colours::{self, ColourSpec};
 use super::look::{Frame, choice_setting};
 use crate::builtin::settings::{
     self, WIDGET_CORNERS, WIDGET_FRAME_LINE, WIDGET_GAP, WIDGET_PADDING, WIDGET_SHADOW,
 };
+use crate::decorations::Tone;
 use crate::env::Env;
 use crate::id::Id;
 use crate::settings::SettingSpec;
@@ -87,7 +88,7 @@ fn chosen<'a>(env: &'a Env<'_>, widget: &str, key: &str, all: &str, auto: &str) 
 }
 
 /// Tenths of a millimetre in pixels, by the style's gap (2 mm).
-fn tenth_mm(style: &UiStyle, tenths: u32) -> u32 {
+fn shape_px(style: &UiStyle, tenths: u32) -> u32 {
     (style.gap * tenths / 20).max(1)
 }
 
@@ -107,9 +108,9 @@ pub fn corners(env: &Env<'_>, widget: &str) -> Option<u16> {
     // As the interface's corners are (`UiStyle::new`).
     let radius = match settings::CORNERS.iter().position(|c| *c == value)? {
         0 => 0,
-        1 => tenth_mm(&style, 8),
-        2 => tenth_mm(&style, 20),
-        _ => tenth_mm(&style, 35),
+        1 => shape_px(&style, 8),
+        2 => shape_px(&style, 20),
+        _ => shape_px(&style, 35),
     };
     Some(radius as u16)
 }
@@ -132,7 +133,7 @@ pub fn frame_line(env: &Env<'_>, widget: &str) -> Option<u16> {
         LINE_THICK => 8,
         _ => return None,
     };
-    Some(tenth_mm(&UiStyle::new(env), tenths) as u16)
+    Some(shape_px(&UiStyle::new(env), tenths) as u16)
 }
 
 /// The shadow `widget`'s plate casts, by its [`shadow_setting`], else by
@@ -195,9 +196,22 @@ pub(crate) fn shadow_offset(env: &Env<'_>, widget: &str, style: &UiStyle, frame:
     let opaque = matches!(frame, Frame::Card | Frame::Dark)
         || matches!(colours::paper(env, widget), ColourSpec::Is(_));
     if shadow(env, widget) == Shadow::Hard && opaque {
-        tenth_mm(style, 10) as u16
+        shape_px(style, 10) as u16
     } else {
         0
+    }
+}
+
+/// The colour of the shadow below a plate of `paper`: black, except below
+/// a plate (nearly) as black, which a black shadow would not stand out
+/// from: there dark gray (owner decision 106), drawn as grays are,
+/// dithered where the panel has few. A dark gray plate keeps a black one.
+pub(crate) fn shadow_colour(paper: Color) -> Color {
+    let dark_gray = Tone::DarkGray.color();
+    if paper.luma() < dark_gray.luma() / 2 {
+        dark_gray
+    } else {
+        Color::BLACK
     }
 }
 

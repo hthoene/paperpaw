@@ -466,8 +466,16 @@ pub fn draw_frame(canvas: &mut Canvas<'_>, env: &Env<'_>, widget: &str, area: Re
     let offset = super::shape::shadow_offset(env, widget, &style, look.frame);
     let plate = super::shape::plate_of(area, offset);
     if offset > 0 {
-        let below = Rect::new(plate.x + offset, plate.y + offset, plate.width, plate.height);
-        canvas.fill_round(below, style.corner, Color::BLACK);
+        let below = Rect::new(
+            plate.x.saturating_add(offset),
+            plate.y.saturating_add(offset),
+            plate.width,
+            plate.height,
+        );
+        match super::shape::shadow_colour(look.paper) {
+            Color::BLACK => canvas.fill_round(below, style.corner, Color::BLACK),
+            shade => canvas.fill_round_shaded(below, style.corner, shade),
+        }
     }
     // A paper the reader chose, else as cards are: a look of a plugin's
     // own paints it, else the usual.
