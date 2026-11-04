@@ -32,10 +32,9 @@ def fail(message):
     sys.exit(1)
 
 
-def assets(text):
-    """Name to (tag, address) of every asset of the releases in GitHub's
-    list `text` (pages as `--slurp` or `--paginate` give them), drafts
-    left out; a name in several, the first release's."""
+def releases(text):
+    """The releases of GitHub's list `text` (pages as `--slurp` or
+    `--paginate` give them), drafts left out, the oldest first."""
     decoder = json.JSONDecoder()
     pages, at = [], 0
     text = text.strip()
@@ -44,17 +43,33 @@ def assets(text):
         pages.append(page)
         while at < len(text) and text[at].isspace():
             at += 1
-    releases = []
+    found = []
     for page in pages:
         for item in page:
-            releases.extend(item if isinstance(item, list) else [item])
-    found = {}
+            found.extend(item if isinstance(item, list) else [item])
     # Oldest first: GitHub lists the newest first.
-    for release in sorted(releases, key=lambda r: r.get("created_at") or ""):
-        if release.get("draft"):
-            continue
+    found = sorted(found, key=lambda r: r.get("created_at") or "")
+    return [release for release in found if not release.get("draft")]
+
+
+def assets(text):
+    """Name to (tag, address) of every asset of the releases in GitHub's
+    list `text`, drafts left out; a name in several, the first (oldest)
+    release's."""
+    found = {}
+    for release in releases(text):
         for asset in release.get("assets", []):
             found.setdefault(asset["name"], (release["tag_name"], asset["browser_download_url"]))
+    return found
+
+
+def sizes(text):
+    """Name to size in bytes of the same assets (`assets`)."""
+    found = {}
+    for release in releases(text):
+        for asset in release.get("assets", []):
+            if "size" in asset:
+                found.setdefault(asset["name"], asset["size"])
     return found
 
 

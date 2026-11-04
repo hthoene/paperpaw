@@ -5,6 +5,7 @@
 
 import contextlib
 import io
+import json
 import pathlib
 import struct
 import sys
@@ -248,6 +249,26 @@ class Versions(unittest.TestCase):
             self.assertIn(f'revision = "vocabulary-v{own}"', entry)
             sums = dist.joinpath("SHA256SUMS").read_text(encoding="utf-8")
             self.assertNotIn("battery", sums)
+
+    def test_a_file_published_before_keeps_the_address_of_its_release(self):
+        with tempfile.TemporaryDirectory() as dist:
+            dist = pathlib.Path(dist)
+            own = catalogue.plugin_version("vocabulary")
+            ppn = f"vocabulary-{own}-x4.ppn"
+            dist.joinpath(ppn).write_bytes(signed(0x85073A61323717FF))
+            old = "https://github.com/o/r/releases/download/plugins-2026/" + ppn
+            listing = dist / "releases.json"
+            listing.write_text(json.dumps([[{
+                "tag_name": "plugins-2026", "created_at": "2026-11-01", "draft": False,
+                "assets": [{"name": ppn, "browser_download_url": old, "size": 1}]}]]))
+            argv = ["catalogue.py", str(dist), "0.6.0-beta.3", "https://github.com/o/r/releases/download/plugins-2026-2",
+                    "--only", "vocabulary", "--releases", str(listing)]
+            with unittest.mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
+                catalogue.main()
+            entry = dist.joinpath("catalogue", "vocabulary.toml").read_text(encoding="utf-8")
+            # The file published before: where it is. The folder, new: the release this run adds to.
+            self.assertIn(f'url = "{old}"', entry)
+            self.assertIn(f'url = "https://github.com/o/r/releases/download/plugins-2026-2/vocabulary-{own}.zip"', entry)
 
     def test_a_plugin_without_a_version_of_its_own_is_refused(self):
         with tempfile.TemporaryDirectory() as root:

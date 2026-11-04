@@ -34,34 +34,79 @@ name: Release
 # key over a domain of its own (`paperpaw-sign check-asset` reads it). The release notes come from
 # CHANGELOG.md.
 # Only tags of PaperPaw's versions: a plugin's update between releases is
-# tagged `<id>-v<version>` (store-plugin.yml).
+# published by store-plugin.yml.
+#
+# The plugins' files do not go into the release (#89): a release of 73
+# files is a page one can read. Every plugin file, the folders' ZIPs
+# included, goes to the store release of the year (`plugins-<year>`, a
+# pre-release that is added to and never replaced, `store_release.py`),
+# only those of versions not published before; the catalogue in this
+# release names each file by the release that holds it. They are uploaded
+# before this release is made, so that paperpaw.org never reads an address
+# that has no file.
+#
+# A dry run (run the workflow by hand, with the version of the workspace,
+# from a branch): everything is built and signed with throw-away keys (the
+# real ones are for a tag only), the store release's and this release's
+# `gh` commands are printed and their lists checked
+# (`tools/plugin-files/release_assets.py`), and nothing is made or
+# uploaded. A release is made by a tag alone.
 on:
   push:
     tags: ["v[0-9]*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The workspace's version to try (e.g. 0.6.0-beta.3), for a dry run
+        required: true
+      dry_run:
+        description: "Always on (a release is made by a tag, never by hand)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
 
 env:
   CARGO_TERM_COLOR: always
+  # The tag this run is for: the pushed one, or for a dry run the version's.
+  RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', inputs.version) }}
+  DRY_RUN: ${{ github.event_name == 'push' && 'false' || 'true' }}
 
 jobs:
+  guard:
+    name: A release is made by a tag
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          DRY_INPUT: ${{ inputs.dry_run }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" != push && "$DRY_INPUT" != true ]]; then
+            echo "::error::a release is made by pushing a tag; by hand only a dry run (dry_run on)"
+            exit 1
+          fi
+          if [[ "$DRY_RUN" == true ]]; then
+            echo "::notice::DRY RUN of $RELEASE_TAG: no tag, no release, no upload"
+          fi
+
   android:
     name: Android app
+    needs: [guard]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - name: The tag is the workspace's version
         run: |
           version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
-          if [[ "v$version" != "$GITHUB_REF_NAME" ]]; then
-            echo "::error::tag $GITHUB_REF_NAME, but Cargo.toml says $version"
+          if [[ "v$version" != "$RELEASE_TAG" ]]; then
+            echo "::error::tag $RELEASE_TAG, but Cargo.toml says $version"
             exit 1
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
       # The tools F-Droid builds with too: the same app, byte for byte.
       - uses: ./.github/actions/android-tools
       - name: Build the app, signed with the release key
+        if: env.DRY_RUN != 'true'
         env:
           PAPERPAW_REPRODUCIBLE: 1
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -81,9 +126,22 @@ jobs:
           mkdir -p dist
           cp target/android/paperpaw.apk "dist/paperpaw-$VERSION.apk"
           (cd dist && sha256sum "paperpaw-$VERSION.apk" > "paperpaw-$VERSION.apk.sha256")
+      # A dry run has no keystore (the real one is for a tag): the unsigned
+      # app takes the signed one's place, for the list of files.
+      - name: Build the app, unsigned (a dry run)
+        if: env.DRY_RUN == 'true'
+        env:
+          PAPERPAW_REPRODUCIBLE: 1
+          PAPERPAW_UNSIGNED: 1
+        run: |
+          shells/android/build-apk.sh
+          mkdir -p dist
+          cp target/android/paperpaw-unsigned.apk "dist/paperpaw-$VERSION.apk"
+          (cd dist && sha256sum "paperpaw-$VERSION.apk" > "paperpaw-$VERSION.apk.sha256")
       # As F-Droid checks it: its own build, unsigned, must verify with the
       # signature of this one.
       - name: The signature fits the unsigned build
+        if: env.DRY_RUN != 'true'
         env:
           PAPERPAW_REPRODUCIBLE: 1
           PAPERPAW_UNSIGNED: 1
@@ -99,6 +157,7 @@ jobs:
 
   web:
     name: Web emulator
+    needs: [guard]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -109,7 +168,7 @@ jobs:
         run: python3 shells/web/build.py --limit-mb 16.8
       - name: The module and its pages
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           mkdir -p dist
           # Everything the pages load, as it lies in its folder, so that it
           # runs from any path (its URLs are relative).
@@ -124,6 +183,7 @@ jobs:
 
   emulator:
     name: Emulator (${{ matrix.target }})
+    needs: [guard]
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -147,7 +207,7 @@ jobs:
           # whether it is the release, Git says by the tag).
           PAPERPAW_COMMIT: ${{ github.sha }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           built=target/release
           if [[ -n "$RUST_TARGET" ]]; then
             rustup target add "$RUST_TARGET"
@@ -204,13 +264,14 @@ jobs:
 
   handbook:
     name: Handbook
+    needs: [guard]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: The handbook of this release
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           mkdir -p dist
           cargo run --release -p paperpaw-emulator -- --registry "$RUNNER_TEMP/registry.json"
           python3 tools/handbook.py "$RUNNER_TEMP/registry.json" "$version" \
@@ -226,6 +287,7 @@ jobs:
   # system writes it).
   xtensa-std:
     name: Core libraries for the ESP32-S3
+    needs: [guard]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -255,8 +317,8 @@ jobs:
       - name: The tag is the workspace's version
         run: |
           version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
-          if [[ "v$version" != "$GITHUB_REF_NAME" ]]; then
-            echo "::error::tag $GITHUB_REF_NAME, but Cargo.toml says $version"
+          if [[ "v$version" != "$RELEASE_TAG" ]]; then
+            echo "::error::tag $RELEASE_TAG, but Cargo.toml says $version"
             exit 1
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
@@ -336,12 +398,15 @@ jobs:
           tools/plugin-files/build.sh "$DEVICE" dist/plugins --fingerprint "$FINGERPRINT"
           # The signing tool, built before the key comes near the disk.
           cargo build -q --release -p paperpaw-sign
+      # A dry run signs with keys made for the job (the real ones are for a
+      # tag only).
+      - uses: ./.github/actions/dry-run-keys
       # Apart from every build: the key is on the disk only while the
       # files are signed (audit O-17).
       - name: Sign the store's first-party plugins
         if: matrix.device != 'x3'
         env:
-          PAPERPAW_PLUGIN_KEY: ${{ secrets.PAPERPAW_PLUGIN_KEY }}
+          PAPERPAW_PLUGIN_KEY: ${{ github.event_name == 'push' && secrets.PAPERPAW_PLUGIN_KEY || env.PAPERPAW_PLUGIN_KEY }}
         run: |
           if [[ -z "$PAPERPAW_PLUGIN_KEY" ]]; then
             echo "::error::no PAPERPAW_PLUGIN_KEY: devices install only signed plugins"
@@ -353,7 +418,7 @@ jobs:
           tools/plugin-files/sign.sh dist/plugins target/release/paperpaw-sign --key "$key"
       - name: Sign the update and the flash image with the firmware's key
         env:
-          PAPERPAW_SIGNING_KEY: ${{ secrets.PAPERPAW_SIGNING_KEY }}
+          PAPERPAW_SIGNING_KEY: ${{ github.event_name == 'push' && secrets.PAPERPAW_SIGNING_KEY || env.PAPERPAW_SIGNING_KEY }}
         run: |
           if [[ -z "$PAPERPAW_SIGNING_KEY" ]]; then
             echo "::error::no PAPERPAW_SIGNING_KEY: devices install only signed updates"
@@ -396,7 +461,7 @@ jobs:
 
   release:
     name: Release
-    needs: [android, xtensa-std, firmware, web, emulator, handbook]
+    needs: [guard, android, xtensa-std, firmware, web, emulator, handbook]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -405,12 +470,15 @@ jobs:
           path: dist
           merge-multiple: true
       - name: The version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-      # The plugins' folders and their entries for the plugin library,
-      # each file named by its address in this release.
-      # A plugin's version is published once (published.py): one that did
+        run: echo "VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
+      # The plugins' folders and their entries for the plugin library. A
+      # plugin's version is published once (published.py): one that did
       # not change since a release keeps the bytes it was published with
-      # where its firmware's fingerprint did not change either.
+      # where its firmware's fingerprint did not change either, and the
+      # address of the release it was published in. What is new goes to the
+      # store release of the year (store_release.py), which this run
+      # chooses before it writes the catalogue, so that each address says
+      # where its file will be.
       - name: The first-party plugins' folders and catalogue entries
         env:
           GH_TOKEN: ${{ github.token }}
@@ -422,12 +490,20 @@ jobs:
           # PaperPaw's own data plugins (data.toml): built here, their
           # folders and entries beside the plugins with code.
           python3 tools/plugin-files/data.py "$RUNNER_TEMP/data"
+          store="$(python3 tools/plugin-files/store_release.py choose --releases "$RUNNER_TEMP/releases.json" \
+            --year "$(date -u +%Y)" --dist dist/plugins)"
+          echo "STORE_TAG=$store" >> "$GITHUB_ENV"
+          echo "The store release: $store"
           python3 tools/plugin-files/catalogue.py dist/plugins "$VERSION" \
-            "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME" \
-            --date "$(date -u +%F)" --data "$RUNNER_TEMP/data"
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/$store" \
+            --date "$(date -u +%F)" --data "$RUNNER_TEMP/data" --releases "$RUNNER_TEMP/releases.json"
           python3 tools/plugin-files/published.py folders dist/plugins "$RUNNER_TEMP/releases.json"
           (cd dist/plugins && zip -q -X -r "../paperpaw-$VERSION-catalogue.zip" catalogue)
           mv dist/plugins/SHA256SUMS "dist/paperpaw-$VERSION-plugins.sha256"
+          python3 tools/plugin-files/store_release.py plan --releases "$RUNNER_TEMP/releases.json" \
+            --tag "$store" --dist dist/plugins --repo "$GITHUB_REPOSITORY" --out "$RUNNER_TEMP/store-plan.json"
+      # A dry run signs with throw-away keys (the real ones are for a tag).
+      - uses: ./.github/actions/dry-run-keys
       # The emulators, the handbook, the web emulator and the ESP32-S3's
       # core libraries: a checksum and a signature of their own each, with
       # the firmware's key (the workshop, plugin authors and paperpaw.org
@@ -435,7 +511,7 @@ jobs:
       # signed.
       - name: Sign the emulators, font generator, handbook, web emulator and core libraries
         env:
-          PAPERPAW_SIGNING_KEY: ${{ secrets.PAPERPAW_SIGNING_KEY }}
+          PAPERPAW_SIGNING_KEY: ${{ github.event_name == 'push' && secrets.PAPERPAW_SIGNING_KEY || env.PAPERPAW_SIGNING_KEY }}
         run: |
           if [[ -z "$PAPERPAW_SIGNING_KEY" ]]; then
             echo "::error::no PAPERPAW_SIGNING_KEY: the workshop takes only signed emulators"
@@ -461,44 +537,68 @@ jobs:
             echo "::error::CHANGELOG.md has no section for $VERSION"
             exit 1
           fi
+      # Before anything is uploaded: the release holds exactly its 73 files
+      # and no plugin file, and every address in the catalogue has an asset,
+      # in the store release's plan or in a release that has it already.
+      - name: The lists are right
+        run: |
+          python3 tools/plugin-files/release_assets.py check --dist dist --version "$VERSION" \
+            --repo "$GITHUB_REPOSITORY" --plan "$RUNNER_TEMP/store-plan.json" \
+            --releases "$RUNNER_TEMP/releases.json"
+          python3 tools/plugin-files/release_assets.py names "$VERSION" > dist/assets.txt
+      # Plugin files first: the firmware release holds a catalogue whose
+      # addresses must exist when paperpaw.org reads it. A run that fails
+      # after this leaves files that the next run takes as published (the
+      # same version and firmware, the same bytes).
+      - name: Add the new plugin files to the store release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$DRY_RUN" == true ]]; then
+            {
+              echo "### Dry run: the store release $STORE_TAG"
+              echo '```'
+              python3 tools/plugin-files/store_release.py upload --plan "$RUNNER_TEMP/store-plan.json" --dry-run
+              echo '```'
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            python3 tools/plugin-files/store_release.py upload --plan "$RUNNER_TEMP/store-plan.json"
+          fi
       - name: Make the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           # PaperPaw's own releases, betas too, are GitHub's "latest": what
           # firmware directories (readme.club) read; a beta says so in its
-          # version. A store plugin released alone (store-plugin.yml) is a
-          # pre-release that never becomes the latest.
-          assets=("dist/paperpaw-$VERSION.apk" "dist/paperpaw-$VERSION.apk.sha256")
-          # The devices of the firmware job; the X4 Classic's and the
-          # X3's are experimental (not yet tried on one).
-          for device in x4 x4-pro x4-classic x3; do
-            for part in .bin .bin.sha256 .bin.sig -update.bin -update.bin.sha256 -install.bin \
-              -install.bin.sha256 -plugins.txt -abi.txt; do
-              assets+=("dist/paperpaw-$device-$VERSION$part")
-            done
-          done
-          # The store's first-party plugins: a file per device, the
-          # folders, the catalogue entries, their checksums.
-          assets+=(dist/plugins/*.ppn dist/plugins/*.zip \
-            "dist/paperpaw-$VERSION-catalogue.zip" "dist/paperpaw-$VERSION-plugins.sha256")
-          # The web emulator: its module and pages.
-          assets+=("dist/paperpaw-web-$VERSION.zip" "dist/paperpaw-web-$VERSION.zip.sha256" \
-            "dist/paperpaw-web-$VERSION.zip.sig")
-          # The desktop emulators and the handbook, for the workshop.
-          for target in windows-x64 macos-arm64 macos-x64 linux-x64; do
-            for part in "" .sha256 .sig; do
-              assets+=("dist/paperpaw-emu-$VERSION-$target.zip$part")
-              # The font generator, a zip for each computer too.
-              assets+=("dist/paperpaw-fontgen-$VERSION-$target.zip$part")
-            done
-          done
-          for part in "" .sha256 .sig; do
-            assets+=("dist/paperpaw-handbook-$VERSION.zip$part")
-          done
-          # The ESP32-S3's core libraries, for building code plugins.
-          for part in "" .sha256 .sig; do
-            assets+=("dist/paperpaw-xtensa-std-$VERSION.tar.gz$part")
-          done
-          gh release create "$GITHUB_REF_NAME" --latest \
-            --title "PaperPaw $VERSION" --notes-file dist/notes.md "${assets[@]}"
+          # version. The store release is a pre-release that is never the
+          # latest (store_release.py). The files are those of
+          # release_assets.py: the firmware's, the emulators', the
+          # handbook's, the web emulator's, the core libraries', and the
+          # catalogue with its checksums; the X4 Classic's and the X3's are
+          # experimental (not yet tried on one).
+          assets=()
+          while read -r name; do assets+=("dist/$name"); done < dist/assets.txt
+          if [[ "$DRY_RUN" == true ]]; then
+            {
+              echo "### Dry run: the release $RELEASE_TAG (${#assets[@]} files)"
+              echo '```'
+              echo "gh release create $RELEASE_TAG --latest --title \"PaperPaw $VERSION\" --notes-file dist/notes.md <the files below>"
+              printf '%s\n' "${assets[@]}"
+              echo '```'
+              echo "The store release: $STORE_TAG; the plan:"
+              echo '```'
+              python3 -c 'import json, sys; [print(i["name"], i["size"]) for i in json.load(open(sys.argv[1]))["files"]]' \
+                "$RUNNER_TEMP/store-plan.json"
+              echo '```'
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            gh release create "$RELEASE_TAG" --latest \
+              --title "PaperPaw $VERSION" --notes-file dist/notes.md "${assets[@]}"
+          fi
+      - uses: actions/upload-artifact@v7
+        if: always() && env.DRY_RUN == 'true'
+        with:
+          name: dry-run-lists
+          path: |
+            dist/assets.txt
+            ${{ runner.temp }}/store-plan.json

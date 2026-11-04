@@ -160,8 +160,8 @@ class Check(unittest.TestCase):
         self.git("add", "-A")
         self.git("commit", "-q", "-m", message)
 
-    def check(self, plugin, accepted=()):
-        return store_update.check(self.root, plugin, "v0.6.0-beta.1", accepted)
+    def check(self, plugin, accepted=(), main=False):
+        return store_update.check(self.root, plugin, "v0.6.0-beta.1", accepted, main)
 
     def test_a_new_plugin_needs_no_older_version(self):
         self.write("plugins/new/Cargo.toml", manifest("1.0.0"))
@@ -189,6 +189,24 @@ class Check(unittest.TestCase):
         version, problems, notes = self.check("new", ["crates/core"])
         self.assertEqual((version, problems), ("1.0.0", []))
         self.assertTrue(any("accepted by name: crates/core" in n and "crates/core/lib.rs" in n for n in notes), notes)
+
+    def test_main_with_other_changes_is_noted_not_refused(self):
+        # Main moved on since the base: the kernel and a workspace list changed.
+        self.write("plugins/old/Cargo.toml", manifest("1.0.1"))
+        self.write("crates/core/lib.rs", "// main moved on\n")
+        self.write("Cargo.toml", WORKSPACE + "\n[patch.crates-io]\nx = { path = \"x\" }\n")
+        self.commit("main")
+        _, problems, _ = self.check("old")
+        self.assertTrue(problems, "a branch is held to the base")
+        version, problems, notes = self.check("old", main=True)
+        self.assertEqual((version, problems), ("1.0.1", []))
+        self.assertTrue(any("main differs from v0.6.0-beta.1" in n and "crates/core/lib.rs" in n for n in notes), notes)
+
+    def test_main_still_needs_a_newer_version_and_the_base_as_its_ancestor(self):
+        self.write("crates/core/lib.rs", "// main moved on\n")
+        self.commit("main without a new version")
+        _, problems, _ = self.check("old", main=True)
+        self.assertTrue(any("raise it" in p for p in problems), problems)
 
     def test_a_branch_with_its_own_signing_script_is_refused(self):
         self.write("plugins/new/Cargo.toml", manifest("1.0.0"))

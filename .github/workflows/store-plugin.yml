@@ -1,66 +1,94 @@
 name: Store plugin update
 
-# One of PaperPaw's own store plugins, updated between releases, for the
-# firmware of a release already out (`base`): built at `ref` (a branch
-# from the base's tag with the fix, the plugin's crate at a newer
-# version of its own), checked against the base firmware's fingerprint,
-# signed with the first-party plugin key, and released as a pre-release
-# tagged `<id>-v<version>` with the plugin's files and its catalogue
-# entry alone (`paperpaw-<id>-v<version>-catalogue.zip`). paperpaw.org
-# imports it as it imports a release, adding the version to that
-# plugin's entry; with no firmware in it, devices are offered no update
-# of their own. The next release builds the plugin again, at the version
-# it has then, for its own firmware.
+# One or several of PaperPaw's own store plugins, updated between releases
+# (#171), for the firmware of a release already out (`base`): built at `ref`,
+# checked against the base firmware's fingerprint, signed with the
+# first-party plugin key and added to the store release of the year
+# (`plugins-<year>`, store_release.py: a pre-release that is added to and
+# never replaced, never the latest). Beside the plugins' files it gets, for
+# each plugin, its catalogue entry alone
+# (`paperpaw-<id>-v<version>-catalogue.zip`) and its checksums;
+# paperpaw.org imports the ZIP as it imports a release's, adding the
+# version to that plugin's entry; with no firmware in it, devices are
+# offered no update of their own. The next release builds the plugins again,
+# at the versions they have then, for its own firmware. Nothing is a release
+# of its own any more: the list of releases stays the firmware's and one
+# store release for each year. The plugin's git tag `<id>-v<version>` marks
+# the commit (versions.py reads it).
 #
-# One of PaperPaw's own data plugins (tools/plugin-files/data.toml, no
-# code) takes the same path: its version is data.toml's, newer than the
-# base's; its builder makes its folder, nothing is built for a device or
-# signed, and the release holds its folder's ZIP and its entry alone.
+# `plugins`: the ids, separated by commas or spaces (tools/plugin-files/
+# plugins.txt or data.toml): a batch is built, checked and published
+# together, or not at all.
+#
+# `ref`: `main` (the default) publishes what main has of the plugins now,
+# built against the base release's fingerprint and core libraries: a plugin
+# that needs a newer SDK or kernel than the base's firmware does not get that
+# fingerprint, the build or the check before the signing fails, and it needs a
+# firmware release. Any other `ref` is a branch cut from the base's tag with
+# the fix, held to the base: it may differ from it only in the plugins, their
+# tooling (tools/plugin-files), the CHANGELOG and docs, unless `accept`
+# names the rest (store_update.py).
+#
+# One of PaperPaw's own data plugins (tools/plugin-files/data.toml, no code)
+# takes the same path: its version is data.toml's, newer than the base's;
+# its builder makes its folder, nothing is built for a device or signed, and
+# the store release gets its folder's ZIP and its entry alone.
 #
 # A code plugin the base does not have (a new one, first published between
-# releases) takes the same path with the version its manifest has. Its
-# source must be made from the base's tag, and differ from it only in the
-# plugin, its tooling (tools/plugin-files), the CHANGELOG and docs, unless
-# `accept` names the rest: the published firmware is the base's, so a change
-# to the kernel, the SDK, the shells or another plugin is not in it
-# (store_update.py). The plugin file must have the base firmware's
-# fingerprint, which build.sh and, before the signing, check_files.sh check.
+# releases) takes the same path with the version its manifest has. The
+# plugin file must have the base firmware's fingerprint, which build.sh and,
+# before the signing, check_files.sh check.
 #
-# The source (`ref`) is a branch somebody pushed, so its code never meets
-# the key or a token that can write. The jobs that hold either (the check,
-# the signing, the release) run this workflow's own scripts, from a
-# checkout of `github.workflow_sha` (run the workflow from main): the check
-# and the fingerprint test (store_update.py, check_files.sh) and the signing
-# (sign.sh, paperpaw-sign built there). The jobs that run the source's code
-# (building the plugin, its catalogue entry) have a token that only reads
-# and no secret. The one hand-over is the files: the signing job takes the
-# build's files, accepts only the names and the base firmware's fingerprint
-# it expects, and signs them.
+# The version of each plugin is checked against what is published
+# (store_release.py versions): not published already, not older than a
+# version that is. The source (`ref`) is a branch somebody pushed, so its
+# code never meets the key or a token that can write. The jobs that hold
+# either (the check, the signing, the release) run this workflow's own
+# scripts, from a checkout of `github.workflow_sha` (run the workflow from
+# main): the check and the fingerprint test (store_update.py,
+# check_files.sh), the signing (sign.sh, paperpaw-sign built there) and the
+# upload (store_release.py). The jobs that run the source's code (building
+# the plugin, its catalogue entry) have a token that only reads and no
+# secret. The one hand-over is the files: the signing job takes the build's
+# files, accepts only the names and the base firmware's fingerprint it
+# expects, and signs them.
 #
-# The release is made with this workflow's token, and release.yml runs
-# only for tags of PaperPaw's versions, so nothing else starts with it.
+# `dry_run` (on by default): everything is built and signed with throw-away
+# keys, and the commands that would upload and tag are printed with the lists
+# they are checked by; nothing is uploaded and no tag is made. Turn it off
+# for the real run.
+#
+# The upload is made with this workflow's token, and release.yml runs only
+# for tags of PaperPaw's versions, so nothing else starts with it.
 on:
   workflow_dispatch:
     inputs:
-      plugin:
-        description: The plugin's id (tools/plugin-files/plugins.txt or data.toml)
+      plugins:
+        description: The plugins' ids, separated by commas or spaces (tools/plugin-files/plugins.txt or data.toml)
         required: true
       base:
-        description: The release whose firmware it is for (e.g. v0.5.0-beta.2)
+        description: The release whose firmware it is for (e.g. v0.6.0-beta.2)
         required: true
       ref:
-        description: The branch or commit with the fix, from the base's tag
-        required: true
+        description: >-
+          main (the default: what main has of the plugins now), or a branch or
+          commit with the fix, from the base's tag
+        required: false
+        default: main
       notes:
-        description: What the update changes, one line for the release notes
+        description: What the update changes, one line (the git tag's message)
         required: true
       accept:
         description: >-
-          Paths or folders outside the plugin that differ from the base's tag and
-          may (comma separated, e.g. plugins/format-epub); anything else that
-          differs stops the run
+          For a ref other than main: paths or folders outside the plugins that differ
+          from the base's tag and may (comma separated, e.g. plugins/format-epub);
+          anything else that differs stops the run
         required: false
         default: ""
+      dry_run:
+        description: Print what would be uploaded and tagged, change nothing
+        type: boolean
+        default: true
 
 # Only the release job writes.
 permissions:
@@ -68,18 +96,21 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  PLUGIN: ${{ inputs.plugin }}
+  PLUGINS: ${{ inputs.plugins }}
   BASE: ${{ inputs.base }}
+  REF: ${{ inputs.ref }}
   ACCEPT: ${{ inputs.accept }}
+  DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
 
 jobs:
   check:
-    name: Version and source
+    name: Versions and source
     runs-on: ubuntu-latest
     outputs:
       commit: ${{ steps.source.outputs.commit }}
-      version: ${{ steps.source.outputs.version }}
-      kind: ${{ steps.source.outputs.kind }}
+      plugins: ${{ steps.source.outputs.plugins }}
+      code: ${{ steps.source.outputs.code }}
+      store: ${{ steps.source.outputs.store }}
     steps:
       # This workflow's own scripts.
       - uses: actions/checkout@v7
@@ -94,57 +125,91 @@ jobs:
           fetch-depth: 0
           path: source
           persist-credentials: false
-      - name: The source is the base's, the plugin at a newer version
+      - name: The source is the base's or main, the plugins at newer versions
         id: source
         working-directory: source
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           trusted="$GITHUB_WORKSPACE/trusted"
-          workspace="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
-          if [[ "v$workspace" != "$BASE" ]]; then
-            echo "::error::the source is PaperPaw $workspace, not $BASE: make the fix from the base's tag"
-            exit 1
-          fi
-          if sed -e 's/#.*//' tools/plugin-files/plugins.txt | awk 'NF { print $1 }' | grep -qx "$PLUGIN"; then
-            kind=code
-          elif [[ -f tools/plugin-files/data.toml ]] \
-            && python3 -c 'import sys, tomllib; sys.exit(sys.argv[1] not in tomllib.load(open("tools/plugin-files/data.toml", "rb")))' "$PLUGIN"; then
-            kind=data
+          main=()
+          if [[ "$REF" == main ]]; then
+            # What main has of the plugins now; its own fingerprint is no
+            # matter: the base's decides (check_files.sh).
+            main=(--main)
           else
-            echo "::error::$PLUGIN is not in tools/plugin-files/plugins.txt or data.toml"
-            exit 1
+            workspace="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
+            if [[ "v$workspace" != "$BASE" ]]; then
+              echo "::error::the source is PaperPaw $workspace, not $BASE: make the fix from the base's tag, or publish from main"
+              exit 1
+            fi
           fi
-          if [[ "$kind" == data ]]; then
-            # Its version in data.toml, newer than the base's. (A data
-            # plugin has no signature and no code of its own on a device;
-            # the source's script reads it, with no key and a read-only token.)
-            version="$(python3 tools/plugin-files/data.py --newer "$PLUGIN" "$BASE" 2>&1)" \
-              || { echo "::error::$version"; exit 1; }
-          else
-            # Its own version, as its manifest says it, newer than the base's
-            # (any, for a plugin the base does not have); the source made from
-            # the base's tag and differing only in the plugin and its project,
-            # or in what `accept` names. This workflow's script, not the source's.
-            version="$(python3 -I "$trusted/tools/plugin-files/store_update.py" "$PLUGIN" "$BASE" \
-              --source "$PWD" --accept "$ACCEPT")" || exit 1
-          fi
-          tag="$PLUGIN-v$version"
-          if gh release view "$tag" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1 \
-            || gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" > /dev/null 2>&1; then
-            echo "::error::$tag exists already"
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "kind=$kind" >> "$GITHUB_OUTPUT"
-          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          ids=()
+          for id in ${PLUGINS//,/ }; do
+            [[ "$id" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || { echo "::error::$id is no plugin id"; exit 1; }
+            [[ " ${ids[*]} " == *" $id "* ]] || ids+=("$id")
+          done
+          [[ ${#ids[@]} -gt 0 ]] || { echo "::error::no plugin named"; exit 1; }
+          [[ ${#ids[@]} -le 20 ]] || { echo "::error::at most 20 plugins at a time"; exit 1; }
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" > "$RUNNER_TEMP/releases.json"
+          list="[]" code=0 pairs=()
+          for id in "${ids[@]}"; do
+            if sed -e 's/#.*//' tools/plugin-files/plugins.txt | awk 'NF { print $1 }' | grep -qx "$id"; then
+              kind=code
+            elif [[ -f tools/plugin-files/data.toml ]] \
+              && python3 -c 'import sys, tomllib; sys.exit(sys.argv[1] not in tomllib.load(open("tools/plugin-files/data.toml", "rb")))' "$id"; then
+              kind=data
+            else
+              echo "::error::$id is not in tools/plugin-files/plugins.txt or data.toml"
+              exit 1
+            fi
+            if [[ "$kind" == data ]]; then
+              # Its version in data.toml, newer than the base's. (A data
+              # plugin has no signature and no code of its own on a device;
+              # the source's script reads it, with no key and a read-only token.)
+              version="$(python3 tools/plugin-files/data.py --newer "$id" "$BASE" 2>&1)" \
+                || { echo "::error::$version"; exit 1; }
+            else
+              # Its own version, as its manifest says it, newer than the base's
+              # (any, for a plugin the base does not have); this workflow's
+              # script, not the source's.
+              version="$(python3 -I "$trusted/tools/plugin-files/store_update.py" "$id" "$BASE" \
+                --source "$PWD" --accept "$ACCEPT" "${main[@]}")" || exit 1
+              code=1
+            fi
+            tag="$id-v$version"
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" > /dev/null 2>&1; then
+              echo "::error::$tag exists already"
+              exit 1
+            fi
+            pairs+=("$id=$version")
+            list="$(jq -c --arg id "$id" --arg v "$version" --arg k "$kind" '. + [{id: $id, version: $v, kind: $k}]' <<< "$list")"
+          done
+          # Against what is published, in any release: not published already,
+          # not older than a version that is (this workflow's script).
+          python3 -I "$trusted/tools/plugin-files/store_release.py" versions \
+            --releases "$RUNNER_TEMP/releases.json" "${pairs[@]}"
+          # The store release the files are added to: the same for the whole
+          # batch, fixed here so that the catalogue entries say where they are.
+          # Each plugin brings a file for three devices, its folder's ZIP, the
+          # entry's ZIP and its checksums.
+          store="$(python3 -I "$trusted/tools/plugin-files/store_release.py" choose \
+            --releases "$RUNNER_TEMP/releases.json" --year "$(date -u +%Y)" --dist . --incoming $((${#ids[@]} * 6)))"
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo "plugins=$list"
+            echo "code=$code"
+            echo "store=$store"
+          } >> "$GITHUB_OUTPUT"
+          echo "$list"
+          echo "The store release: $store"
 
   plugin:
-    name: Plugin (${{ matrix.device }})
+    name: Plugins (${{ matrix.device }})
     needs: [check]
     # The source's code runs here (its build): no secret, a token that reads.
     # A data plugin has nothing to build for a device.
-    if: needs.check.outputs.kind == 'code'
+    if: needs.check.outputs.code == '1'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -152,13 +217,14 @@ jobs:
         device: [x4, x4-pro, x4-classic]
     env:
       DEVICE: ${{ matrix.device }}
+      LIST: ${{ needs.check.outputs.plugins }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check.outputs.commit }}
           persist-credentials: false
       # The base's toolchain (its actions), its core libraries and its
-      # firmware's fingerprint, so its firmware loads the plugin.
+      # firmware's fingerprint, so its firmware loads the plugins.
       - uses: ./.github/actions/xteink-tools
         with:
           device: ${{ matrix.device }}
@@ -184,10 +250,12 @@ jobs:
         if: matrix.device != 'x4'
         with:
           archive: ${{ env.XTENSA_STD }}
-      - name: Build it
+      - name: Build them
         run: |
           # The source's script; the signing job checks the files again.
-          tools/plugin-files/build.sh "$DEVICE" dist/plugins --fingerprint "$FINGERPRINT" --only "$PLUGIN"
+          for id in $(jq -r '.[] | select(.kind == "code") | .id' <<< "$LIST"); do
+            tools/plugin-files/build.sh "$DEVICE" dist/plugins --fingerprint "$FINGERPRINT" --only "$id"
+          done
       - uses: actions/upload-artifact@v7
         with:
           name: unsigned-${{ matrix.device }}
@@ -199,10 +267,10 @@ jobs:
   sign:
     name: Sign
     needs: [check, plugin]
-    if: needs.check.outputs.kind == 'code'
+    if: needs.check.outputs.code == '1'
     runs-on: ubuntu-latest
     env:
-      VERSION: ${{ needs.check.outputs.version }}
+      LIST: ${{ needs.check.outputs.plugins }}
     steps:
       # Nothing of the source here: this workflow's own checkout builds the
       # signing tool, checks the build's files and signs them (audit O-17:
@@ -232,12 +300,17 @@ jobs:
             dir="$RUNNER_TEMP/abi-$device"
             gh release download "$BASE" -R "$GITHUB_REPOSITORY" -D "$dir" -p "paperpaw-$abi-$base-abi.txt"
             fingerprint="$(awk 'NR == 1 { print $1 }' "$dir/paperpaw-$abi-$base-abi.txt")"
-            tools/plugin-files/check_files.sh "dist/unsigned/unsigned-$device" target/release/paperpaw-sign \
-              "$chip" "$fingerprint" "$PLUGIN-$VERSION-$device.ppn"
+            while read -r id version; do
+              tools/plugin-files/check_files.sh "dist/unsigned/unsigned-$device" target/release/paperpaw-sign \
+                "$chip" "$fingerprint" "$id-$version-$device.ppn"
+            done < <(jq -r '.[] | select(.kind == "code") | "\(.id) \(.version)"' <<< "$LIST")
           done
+      # A dry run signs with keys made for the job (the real one is for a
+      # real run only).
+      - uses: ./.github/actions/dry-run-keys
       - name: Sign them with the first-party plugin key
         env:
-          PAPERPAW_PLUGIN_KEY: ${{ secrets.PAPERPAW_PLUGIN_KEY }}
+          PAPERPAW_PLUGIN_KEY: ${{ env.DRY_RUN != 'true' && secrets.PAPERPAW_PLUGIN_KEY || env.PAPERPAW_PLUGIN_KEY }}
         run: |
           if [[ -z "$PAPERPAW_PLUGIN_KEY" ]]; then
             echo "::error::no PAPERPAW_PLUGIN_KEY: devices install only signed plugins"
@@ -246,7 +319,7 @@ jobs:
           key="$RUNNER_TEMP/plugin.key"
           trap 'rm -f "$key"' EXIT
           (umask 077 && printf '%s\n' "$PAPERPAW_PLUGIN_KEY" > "$key")
-          # The three checked, not whatever else the build uploaded.
+          # The files checked, not whatever else the build uploaded.
           for device in x4 x4-pro x4-classic; do
             tools/plugin-files/sign.sh "dist/unsigned/unsigned-$device" target/release/paperpaw-sign --key "$key"
           done
@@ -254,78 +327,91 @@ jobs:
         run: |
           mkdir -p dist/signed
           for device in x4 x4-pro x4-classic; do
-            cp "dist/unsigned/unsigned-$device/$PLUGIN-$VERSION-$device.ppn" dist/signed/
+            while read -r id version; do
+              cp "dist/unsigned/unsigned-$device/$id-$version-$device.ppn" dist/signed/
+            done < <(jq -r '.[] | select(.kind == "code") | "\(.id) \(.version)"' <<< "$LIST")
           done
+          want=$(( 3 * $(jq '[.[] | select(.kind == "code")] | length' <<< "$LIST") ))
+          have=$(ls dist/signed/*.ppn | wc -l)
+          [[ "$have" -eq "$want" ]] || { echo "::error::expected $want signed files, found $have"; exit 1; }
       - uses: actions/upload-artifact@v7
         with:
           name: signed
           path: dist/signed/*.ppn
 
   catalogue:
-    name: Catalogue entry
+    name: Catalogue entries
     needs: [check, sign]
-    # After the signed files, or with none for a data plugin.
+    # After the signed files, or with none where there are data plugins only.
     if: >-
       always() && needs.check.result == 'success'
-      && (needs.sign.result == 'success' || needs.check.outputs.kind == 'data')
+      && (needs.sign.result == 'success' || needs.check.outputs.code != '1')
     runs-on: ubuntu-latest
     env:
-      VERSION: ${{ needs.check.outputs.version }}
-      KIND: ${{ needs.check.outputs.kind }}
+      LIST: ${{ needs.check.outputs.plugins }}
+      STORE: ${{ needs.check.outputs.store }}
     steps:
-      # The source's scripts run here (its folder and entry): no secret, a
+      # The source's scripts run here (its folders and entries): no secret, a
       # token that reads. The release job takes only their ZIPs and sums.
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check.outputs.commit }}
           persist-credentials: false
       - uses: actions/download-artifact@v8
-        if: needs.check.outputs.kind == 'code'
+        if: needs.check.outputs.code == '1'
         with:
           name: signed
-          path: dist/plugins
-      - name: Its folder and catalogue entry
+          path: dist/signed
+      - name: Their folders and catalogue entries
         run: |
-          tag="$PLUGIN-v$VERSION"
-          mkdir -p dist/plugins dist/out
-          data=()
-          if [[ "$KIND" == data ]]; then
-            python3 tools/plugin-files/data.py "$RUNNER_TEMP/data" --only "$PLUGIN"
-            data=(--data "$RUNNER_TEMP/data")
-          fi
-          python3 tools/plugin-files/catalogue.py dist/plugins "${BASE#v}" \
-            "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag" \
-            --date "$(date -u +%F)" --only "$PLUGIN" --tag "$tag" "${data[@]}"
-          (cd dist/plugins && zip -q -X -r "../out/paperpaw-$tag-catalogue.zip" catalogue)
-          mv dist/plugins/SHA256SUMS "dist/out/paperpaw-$tag-plugins.sha256"
-          # A data plugin's folder, zipped; for a code plugin, none.
-          shopt -s nullglob
-          for zip in dist/plugins/*.zip; do cp "$zip" dist/out/; done
+          mkdir -p dist/out/store
+          base_url="https://github.com/$GITHUB_REPOSITORY/releases/download/$STORE"
+          while read -r id version kind; do
+            tag="$id-v$version"
+            work="dist/work/$id"
+            mkdir -p "$work"
+            data=()
+            if [[ "$kind" == data ]]; then
+              python3 tools/plugin-files/data.py "$RUNNER_TEMP/data" --only "$id"
+              data=(--data "$RUNNER_TEMP/data")
+            else
+              cp dist/signed/"$id-$version"-*.ppn "$work/"
+            fi
+            python3 tools/plugin-files/catalogue.py "$work" "${BASE#v}" "$base_url" \
+              --date "$(date -u +%F)" --only "$id" --tag "$tag" "${data[@]}"
+            (cd "$work" && zip -q -X -r "../../out/paperpaw-$tag-catalogue.zip" catalogue)
+            cp "$work/SHA256SUMS" "dist/out/paperpaw-$tag-plugins.sha256"
+            # The folder's ZIP, which the entry names: a store file too.
+            cp "$work/$id-$version.zip" dist/out/store/
+          done < <(jq -r '.[] | "\(.id) \(.version) \(.kind)"' <<< "$LIST")
+          ls -l dist/out
       - uses: actions/upload-artifact@v7
         with:
           name: catalogue
-          path: |
-            dist/out/*.zip
-            dist/out/*.sha256
+          path: dist/out
 
   release:
-    name: Release
+    name: Store release
     needs: [check, sign, catalogue]
     if: >-
       always() && needs.check.result == 'success' && needs.catalogue.result == 'success'
-      && (needs.sign.result == 'success' || needs.check.outputs.kind == 'data')
+      && (needs.sign.result == 'success' || needs.check.outputs.code != '1')
     runs-on: ubuntu-latest
     # The only job that writes, and it runs none of the source's code: it
-    # takes the signed files and the catalogue's ZIPs and sums, and makes
-    # the release.
+    # takes the signed files and the catalogue's ZIPs and sums, and adds them
+    # to the store release (this workflow's own scripts).
     permissions:
       contents: write
     env:
-      VERSION: ${{ needs.check.outputs.version }}
-      KIND: ${{ needs.check.outputs.kind }}
+      LIST: ${{ needs.check.outputs.plugins }}
+      STORE: ${{ needs.check.outputs.store }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
       - uses: actions/download-artifact@v8
-        if: needs.check.outputs.kind == 'code'
+        if: needs.check.outputs.code == '1'
         with:
           name: signed
           path: dist/signed
@@ -333,28 +419,68 @@ jobs:
         with:
           name: catalogue
           path: dist/out
-      - name: Make the release
+      - name: The files and their addresses
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist/store
+          shopt -s nullglob
+          # The plugins' files and their folders' ZIPs are store files; the
+          # entries' ZIPs and the sums are extras: the importer reads them by
+          # name in the store release.
+          files=(dist/signed/*.ppn dist/out/store/*.zip)
+          [[ ${#files[@]} -eq 0 ]] || cp "${files[@]}" dist/store/
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" > "$RUNNER_TEMP/releases.json"
+          # The store release chosen by the check must still be the one this
+          # batch goes to (another run may have filled it meanwhile).
+          now="$(python3 tools/plugin-files/store_release.py choose --releases "$RUNNER_TEMP/releases.json" \
+            --year "$(date -u +%Y)" --dist dist/store --incoming $(( $(ls dist/store | wc -l) + $(ls dist/out/paperpaw-*-catalogue.zip dist/out/paperpaw-*.sha256 | wc -l) )))"
+          if [[ "$now" != "$STORE" ]]; then
+            echo "::error::the store release was $STORE when the entries were made, it is $now now: run again"
+            exit 1
+          fi
+          python3 tools/plugin-files/store_release.py plan --releases "$RUNNER_TEMP/releases.json" \
+            --tag "$STORE" --dist dist/store --repo "$GITHUB_REPOSITORY" --out "$RUNNER_TEMP/store-plan.json" \
+            --extra dist/out/paperpaw-*-catalogue.zip dist/out/paperpaw-*-plugins.sha256
+          # Every address of the entries has a file, with the checksum of the planned one.
+          python3 tools/plugin-files/release_assets.py catalogue --repo "$GITHUB_REPOSITORY" \
+            --plan "$RUNNER_TEMP/store-plan.json" --releases "$RUNNER_TEMP/releases.json" dist/out/paperpaw-*-catalogue.zip
+      - name: Add them to the store release and tag the commits
         env:
           GH_TOKEN: ${{ github.token }}
           COMMIT: ${{ needs.check.outputs.commit }}
           NOTES: ${{ inputs.notes }}
         run: |
-          tag="$PLUGIN-v$VERSION"
-          shopt -s nullglob
-          signed=(dist/signed/*.ppn)
-          if [[ "$KIND" == code ]]; then
-            for device in x4 x4-pro x4-classic; do
-              [[ -f "dist/signed/$PLUGIN-$VERSION-$device.ppn" ]] || { echo "::error::no signed file for $device"; exit 1; }
-            done
-            [[ ${#signed[@]} -eq 3 ]] || { echo "::error::expected three signed files, found ${#signed[@]}"; exit 1; }
+          if [[ "$DRY_RUN" == true ]]; then
+            {
+              echo "### Dry run: the store release $STORE"
+              echo '```'
+              python3 tools/plugin-files/store_release.py upload --plan "$RUNNER_TEMP/store-plan.json" --dry-run
+              while read -r id version; do
+                echo "gh api repos/$GITHUB_REPOSITORY/git/tags + git/refs: tag $id-v$version at $COMMIT: $id $version: $NOTES"
+              done < <(jq -r '.[] | "\(.id) \(.version)"' <<< "$LIST")
+              echo '```'
+              echo "The plan:"
+              echo '```'
+              python3 -c 'import json, sys; [print(i["name"], i["size"]) for i in json.load(open(sys.argv[1]))["files"]]' \
+                "$RUNNER_TEMP/store-plan.json"
+              echo '```'
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
-          {
-            echo "$PLUGIN $VERSION, this plugin alone (an update, or a new plugin between releases), for PaperPaw ${BASE#v}."
-            echo
-            echo "- $NOTES"
-          } > dist/notes.md
-          # A data plugin has its folder's ZIP alone, no files for devices.
-          files=("${signed[@]}" dist/out/*.zip dist/out/*.sha256)
-          gh release create "$tag" -R "$GITHUB_REPOSITORY" --target "$COMMIT" \
-            --prerelease --latest=false --title "$PLUGIN $VERSION" --notes-file dist/notes.md \
-            "${files[@]}"
+          # The files first: a tag without files is a promise nothing keeps.
+          python3 tools/plugin-files/store_release.py upload --plan "$RUNNER_TEMP/store-plan.json"
+          # The commit's tag for each plugin (versions.py reads them), with
+          # the update's note; no release of its own.
+          while read -r id version; do
+            tag="$id-v$version"
+            object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags" -f tag="$tag" -f message="$id $version: $NOTES" \
+              -f object="$COMMIT" -f type=commit --jq .sha)"
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$tag" -f sha="$object" > /dev/null
+            echo "tagged $tag"
+          done < <(jq -r '.[] | "\(.id) \(.version)"' <<< "$LIST")
+      - uses: actions/upload-artifact@v7
+        if: always() && env.DRY_RUN == 'true'
+        with:
+          name: dry-run-plan
+          path: ${{ runner.temp }}/store-plan.json

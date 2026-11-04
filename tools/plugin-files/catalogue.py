@@ -3,7 +3,7 @@
 (plugins.txt), from the files build.sh made for every reader of a release:
 
     python3 tools/plugin-files/catalogue.py <dist> <release> <base-url> [--date YYYY-MM-DD]
-        [--only <id>] [--tag <tag>] [--data <dir>]
+        [--only <id>] [--tag <tag>] [--data <dir>] [--releases <releases.json>]
 
 <release> is the PaperPaw release whose firmware the files are built for
 (their SDK is its), <tag> the tag they are published at (`v<release>`
@@ -22,6 +22,13 @@ where not given; a plugin's update between releases has its own,
   file named by its address under <base-url> (the release's downloads)
   and its SHA-256;
 - SHA256SUMS of the ZIPs and the plugin files.
+
+Each file is named by the address of the release that holds it: <base-url>
+(the store release this run adds to, `store_release.py`) for a file not
+published before, and with `--releases` (GitHub's list of the repository's
+releases, as `published.py` reads it) the address a file of that name has
+there for one that was: a version's files are published once and keep
+the release they were first published in.
 
 With `--data <dir>` the data plugins of data.toml come too, their folders
 in <dir> as data.py built them (`<dir>/<id>`): each its folder's ZIP,
@@ -50,6 +57,7 @@ import tomllib
 import zipfile
 
 import data
+import published
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
@@ -160,11 +168,23 @@ def folder_zip(path, plugin_ini, files=()):
             z.writestr(info, text)
 
 
-def data_entries(source, dist, release, base, date, only=None):
+def locator(base, published_assets=None):
+    """The address of a file by its name: where it was published before,
+    else under `base` (the release this run adds it to)."""
+    found = published_assets or {}
+
+    def url_of(name):
+        return found[name][1] if name in found else f"{base}/{name}"
+
+    return url_of
+
+
+def data_entries(source, dist, release, base, date, only=None, url_of=None):
     """The data plugins of data.toml from their folders in `source`: their
     ZIPs into `dist` and their entries into `dist/catalogue`; the ZIPs'
     (sha256, name) for SHA256SUMS."""
     sums = []
+    url_of = url_of or locator(base)
     sdk = ".".join(release.split("-")[0].split("+")[0].split(".")[:2])
     for plugin, fields in data.plugins().items():
         if only not in (None, plugin):
@@ -213,7 +233,7 @@ def data_entries(source, dist, release, base, date, only=None):
             f"version = {toml(version)}",
             f"sdk = {toml(sdk)}",
             f"date = {toml(date)}",
-            f"url = {toml(base + '/' + zipped.name)}",
+            f"url = {toml(url_of(zipped.name))}",
             f"sha256 = {toml(digest)}",
         ]
         (dist / "catalogue" / f"{plugin}.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -231,8 +251,11 @@ def main():
     parser.add_argument("--tag")
     # The data plugins' folders (data.py), for their entries too.
     parser.add_argument("--data", type=pathlib.Path)
+    # GitHub's list of the releases: files published before keep their address.
+    parser.add_argument("--releases", type=pathlib.Path)
     args = parser.parse_args()
     dist, release, base = args.dist, args.release, args.base_url.rstrip("/")
+    url_of = locator(base, published.assets(args.releases.read_text(encoding="utf-8")) if args.releases else None)
     tag = args.tag or f"v{release}"
     sdk = ".".join(release.split("-")[0].split("+")[0].split(".")[:2])
     (dist / "catalogue").mkdir(parents=True, exist_ok=True)
@@ -261,7 +284,7 @@ def main():
                 keys.add(key)
                 digest = sha256(path)
                 sums.append((digest, path.name))
-                builds.append((device, abi, f"{base}/{path.name}", digest))
+                builds.append((device, abi, url_of(path.name), digest))
         if not builds:
             fail(f"{plugin}: no file built for any reader")
         plugin_ini = (
@@ -301,7 +324,7 @@ def main():
             f"version = {toml(version)}",
             f"sdk = {toml(sdk)}",
             f"date = {toml(args.date)}",
-            f"url = {toml(base + '/' + folder.name)}",
+            f"url = {toml(url_of(folder.name))}",
             f"sha256 = {toml(sha256(folder))}",
             "",
             "[versions.source]",
@@ -326,7 +349,7 @@ def main():
     for entry in (dist / "catalogue").glob("*.toml"):
         entry.write_text(entry.read_text(encoding="utf-8").replace("AUTHOR_KEY", toml(key or "")), encoding="utf-8")
     if args.data is not None:
-        sums += data_entries(args.data, dist, release, base, args.date, args.only)
+        sums += data_entries(args.data, dist, release, base, args.date, args.only, url_of)
     (dist / "SHA256SUMS").write_text("".join(f"{d}  {n}\n" for d, n in sorted(sums, key=lambda s: s[1])), encoding="utf-8")
     print(f"{len(chosen)} plugins, signed by {key}")
 
