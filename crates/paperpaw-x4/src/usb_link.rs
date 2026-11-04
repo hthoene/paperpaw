@@ -36,6 +36,16 @@ pub fn bus(readings: &[u16], elapsed_ms: u32) -> bool {
             .all(|pair| advancing(pair[0], pair[1], elapsed_ms))
 }
 
+/// Whether the status (the time, the battery) is read now: the clock was set,
+/// the regular time came (`due`), or the device went on or off outer power
+/// (`was` and `now` differ). Only charging counts for the last: what the
+/// pin and the USB frames say by themselves (they may flicker) wait for the
+/// regular reading, or each change would send a status and a line to the
+/// battery log.
+pub fn status_due(clock_changed: bool, due: bool, was: bool, now: bool) -> bool {
+    clock_changed || due || was != now
+}
+
 /// What the firmware keeps of the looks.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Link {
@@ -154,6 +164,16 @@ mod tests {
             link.look(i as u64 * 1000, moving);
             assert!(!link.talking(), "look {i}");
         }
+    }
+
+    #[test]
+    fn a_status_is_read_on_the_clock_the_time_or_a_change_of_charging_only() {
+        assert!(!status_due(false, false, false, false));
+        assert!(!status_due(false, false, true, true));
+        assert!(status_due(true, false, false, false));
+        assert!(status_due(false, true, true, true));
+        assert!(status_due(false, false, false, true));
+        assert!(status_due(false, false, true, false));
     }
 
     #[test]

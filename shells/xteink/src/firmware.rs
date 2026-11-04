@@ -107,7 +107,7 @@ pub struct State {
     /// When the battery was read last.
     status_read: Option<Instant>,
     /// Whether the device was on outer power at that reading.
-    status_on_usb: (bool, crate::usb_power::Readings),
+    status_on_usb: bool,
     /// The latest time the kernel was given: presses that waited in the
     /// queue keep their own time, but never one before it.
     kernel_time: u64,
@@ -489,17 +489,24 @@ impl Firmware {
             .status_read
             .is_none_or(|read| at.since(read) >= STATUS_MS);
         // What the cable does (#209): charging is what the bolt, the kernel's
-        // low-battery rules and the install check take for it; the pin and
-        // the frames by themselves go to the diagnostics page.
+        // low-battery rules and the install check take for it, and only a
+        // change of it makes a status at once. The pin and the frames by
+        // themselves go to the diagnostics page with the regular readings: a
+        // frames reading that flickers must not send a status (and a line
+        // to the battery log) every second.
         let on_usb = self.usb_power.charging();
-        let readings = self.usb_power.readings();
-        let plugged = (on_usb, readings) != self.state.status_on_usb;
-        if !clock::take_changed() && !due && !plugged {
+        if !paperpaw_x4::usb_link::status_due(
+            clock::take_changed(),
+            due,
+            self.state.status_on_usb,
+            on_usb,
+        ) {
             return;
         }
+        let readings = self.usb_power.readings();
         power::mark(power::at::STATUS);
         self.state.status_read = Some(at);
-        self.state.status_on_usb = (on_usb, readings);
+        self.state.status_on_usb = on_usb;
         let millivolts = input::millivolts();
         let mut status = SystemStatus::new(
             clock::wall(at),

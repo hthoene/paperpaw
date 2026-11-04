@@ -126,9 +126,9 @@ mod outer {
             self.pin.as_ref().map(|(pin, level)| pin.level() == *level)
         }
 
-        /// A computer sends USB frames: the frame number moved on like a
-        /// bus's at the last two looks. Looks at most once a second.
-        fn computer(&self) -> bool {
+        /// The looks at the USB frames, made when one is due (once a second at
+        /// most; a look busy-waits [`GAP_MS`] twice).
+        fn looked(&self) -> Link {
             let now = esp_hal::time::Instant::now()
                 .duration_since_epoch()
                 .as_millis();
@@ -137,7 +137,7 @@ mod outer {
                 link.look(now, bus());
                 self.link.set(link);
             }
-            link.talking()
+            link
         }
     }
 
@@ -148,15 +148,17 @@ mod outer {
                 // The X3 has no pin: its gauge, and a full cell on a
                 // cable has no current to show, so a computer too.
                 #[cfg(feature = "x3")]
-                None => GAUGE_CHARGING.load(Ordering::Relaxed) || self.computer(),
+                None => GAUGE_CHARGING.load(Ordering::Relaxed) || self.looked().talking(),
                 #[cfg(not(feature = "x3"))]
                 None => false,
             }
         }
 
         fn cable(&self) -> bool {
+            // One look that finds a bus is enough here: a nap that cut the
+            // link in the first seconds of a computer's session would drop it.
             self.charging()
-                || self.computer()
+                || self.looked().moving()
                 || esp_hal::time::Instant::now()
                     .duration_since_epoch()
                     .as_millis()
@@ -164,11 +166,11 @@ mod outer {
         }
 
         fn readings(&self) -> Readings {
-            // Looked at now (once a second at most), not as it was.
-            let _ = self.computer();
+            // Looked at now: once a second at most, and a look busy-waits
+            // 2 x GAP_MS (4 ms), so the main loop pays that once a second.
             Readings {
                 pin_high: self.pin.as_ref().map(|(pin, _)| pin.is_high()),
-                frames: Some(self.link.get().moving()),
+                frames: Some(self.looked().moving()),
             }
         }
     }
