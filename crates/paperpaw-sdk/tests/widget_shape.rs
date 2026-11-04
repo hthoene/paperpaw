@@ -27,8 +27,6 @@ use support::{Device, Harness, PAPER, drawn_outside, frame};
 const CLOCK: Id = Id::new_static("t.clock");
 const AREA: Rect = Rect::new(40, 40, 200, 120);
 
-fn nothing(_: &mut Canvas<'_>, _: &Env<'_>, _: Rect) {}
-
 fn short(_: &Env<'_>, _: u16) -> u16 {
     60
 }
@@ -40,7 +38,7 @@ fn harness(shape: bool) -> Harness {
     h.widgets.add(WidgetSpec::drawn(
         CLOCK,
         "t.clock",
-        Drawn::new(short, nothing),
+        Drawn::new(short, clock_frame),
     ));
     let group = Id::new_static("t.group");
     let mut specs = vec![
@@ -371,4 +369,135 @@ fn a_widget_drawing_itself_is_free_of_the_settings_for_widgets() {
     let look =
         widgets::WidgetLook::new(AREA, Color::BLACK, Color::BLACK, Color::WHITE, Frame::None);
     assert_eq!(look.within(AREA).ink, Color::BLACK);
+}
+
+#[test]
+fn frameless_paper_follows_chosen_corners_but_automatic_stays_square() {
+    let mut h = harness(true);
+    set(&mut h, "t.clock.paper", PAPER_INVERTED);
+    assert_eq!(pixel(&h, 40, 40), Color::BLACK, "automatic is square");
+    for corners in [CORNERS[2], CORNERS[3]] {
+        set(&mut h, WIDGET_CORNERS.static_str(), corners);
+        assert_eq!(pixel(&h, 40, 40), PAPER, "global corners");
+        set(&mut h, "t.clock.corners", widgets::CORNERS_AUTO);
+        assert_eq!(pixel(&h, 40, 40), Color::BLACK, "own automatic");
+        set(&mut h, "t.clock.corners", corners);
+        assert_eq!(pixel(&h, 40, 40), PAPER, "own corners");
+        assert_eq!(pixel(&h, 140, 100), Color::BLACK, "paper inside");
+        // Reset the own choice so the next global value applies.
+        h = harness(true);
+        set(&mut h, "t.clock.paper", PAPER_INVERTED);
+    }
+}
+
+fn clock_frame(canvas: &mut Canvas<'_>, env: &Env<'_>, area: Rect) {
+    widgets::draw_frame(canvas, env, "t.clock", area);
+}
+
+#[test]
+fn grid_plates_leave_every_pixel_outside_the_widget_shape_untouched() {
+    use paperpaw_sdk::event::Event;
+    use paperpaw_sdk::ui::choice::Picked;
+    use paperpaw_sdk::widgets::grid::{Cells, Geometry, GridView, Item, What};
+    use widgets::Plate;
+    let mut h = harness(true);
+    for frame_kind in [Frame::None, Frame::Card, Frame::Dark] {
+        set(&mut h, "t.clock.frame", frame_kind.value());
+        set(&mut h, "t.clock.paper", PAPER_INVERTED);
+        for corners in [CORNERS[2], CORNERS[3]] {
+            set(&mut h, "t.clock.corners", corners);
+            for shadow in [widgets::SHADOW_NONE, SHADOW_HARD] {
+                set(&mut h, "t.clock.drop-shadow", shadow);
+                for format in [PixelFormat::Gray8, PixelFormat::Mono1] {
+                    let env = h.env();
+                    let geometry = Geometry::of(AREA, 1, 1, 0);
+                    let cells = Cells::new(0, 0, 1, 1);
+                    let area = geometry.rect(cells);
+                    let mut view = GridView::asking(&env, Event::<Picked>::new("t.chosen"));
+                    view.layout(
+                        &env,
+                        geometry,
+                        &[Item::placed(What::Widget("t.clock".into()), cells)],
+                        &[],
+                    );
+                    let mut expected = Framebuffer::new(480, 800, format).unwrap();
+                    expected.canvas().clear(Color::WHITE);
+                    clock_frame(&mut expected.canvas(), &env, area);
+                    for plate in [Plate::Paper, Plate::Colour(Color::gray(180))] {
+                        let mut actual = Framebuffer::new(480, 800, format).unwrap();
+                        actual.canvas().clear(Color::WHITE);
+                        view.draw_on(&mut actual.canvas(), &env, plate);
+                        let expected = expected.canvas();
+                        let actual = actual.canvas();
+                        // The opaque widget covers its plate completely. Any extra
+                        // pixel is a leaking corner or a fill behind the shadow.
+                        for y in 0..200 {
+                            for x in 0..260 {
+                                let p = Point::new(x, y);
+                                assert_eq!(
+                                    actual.pixel(p),
+                                    expected.pixel(p),
+                                    "{frame_kind:?}, {corners}, {shadow}, {format:?}, {plate:?} at {p:?}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn duplicate_grid_plate_uses_base_choices_and_placement_overrides() {
+    use paperpaw_sdk::event::Event;
+    use paperpaw_sdk::ui::choice::Picked;
+    use paperpaw_sdk::widgets::grid::{Cells, Geometry, GridView, Item, What};
+    let mut h = harness(true);
+    set(&mut h, WIDGET_CORNERS.static_str(), CORNERS[0]);
+    set(&mut h, "t.clock.corners", CORNERS[2]);
+    set(&mut h, "t.clock.frame", Frame::Card.value());
+    set(&mut h, "t.clock.paper", PAPER_INVERTED);
+    set(&mut h, "t.clock.drop-shadow", SHADOW_HARD);
+    for overridden in [false, true] {
+        if overridden {
+            set(&mut h, "t.clock@2.corners", CORNERS[3]);
+            set(&mut h, "t.clock@2.frame", Frame::None.value());
+            set(&mut h, "t.clock@2.drop-shadow", widgets::SHADOW_NONE);
+        }
+        let env = h.env();
+        let geometry = Geometry::of(AREA, 1, 1, 0);
+        let cells = Cells::new(0, 0, 1, 1);
+        let area = geometry.rect(cells);
+        let mut view = GridView::asking(&env, Event::<Picked>::new("t.chosen"));
+        view.layout(
+            &env,
+            geometry,
+            &[Item::placed(What::Widget("t.clock@2".into()), cells)],
+            &[],
+        );
+        let mut expected = frame(480, 800);
+        env.settings().with_placement(Some("t.clock@2"), || {
+            clock_frame(&mut expected.canvas(), &env, area);
+        });
+        for plate in [
+            widgets::Plate::Paper,
+            widgets::Plate::Colour(Color::gray(180)),
+        ] {
+            let mut actual = frame(480, 800);
+            view.draw_on(&mut actual.canvas(), &env, plate);
+            let expected = expected.canvas();
+            let actual = actual.canvas();
+            for y in 0..200 {
+                for x in 0..260 {
+                    let p = Point::new(x, y);
+                    assert_eq!(
+                        actual.pixel(p),
+                        expected.pixel(p),
+                        "placement override {overridden}, {plate:?} at {p:?}"
+                    );
+                }
+            }
+        }
+    }
 }

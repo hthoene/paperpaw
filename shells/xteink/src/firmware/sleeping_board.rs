@@ -3,6 +3,7 @@
 use log::info;
 
 use super::Firmware;
+use crate::usb_power::Sense;
 use crate::{input, now, power};
 
 /// The board as [`paperpaw_x4::sleeping::run`] sees it: the firmware for
@@ -19,7 +20,9 @@ impl paperpaw_x4::sleeping::Board for Light<'_> {
     fn look(&mut self) -> paperpaw_x4::sleeping::Look {
         paperpaw_x4::sleeping::Look {
             now_ms: now().0,
-            usb: self.firmware.usb_power.is_high(),
+            // Charging, not a computer talking: a reader on a cable with a full
+            // cell is switched off after its time, as one on a battery.
+            usb: self.firmware.usb_power.charging(),
             percent: input::percent_now(),
         }
     }

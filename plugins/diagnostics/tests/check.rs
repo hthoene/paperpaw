@@ -14,8 +14,8 @@
 
 use paperpaw_core::{Effects, Kernel, KernelBuilder};
 use paperpaw_platform::{
-    ButtonState, DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, MemoryClass, PixelFormat,
-    Point, PointerEvent, PointerPhase, PointerTool, Rotation,
+    Battery, ButtonState, DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, MemoryClass,
+    PixelFormat, Point, PointerEvent, PointerPhase, PointerTool, Rotation, SystemStatus,
 };
 use paperpaw_plugin_diagnostics::steps::REPORT;
 use paperpaw_plugin_diagnostics::{CHECK, Diagnostics, OPEN_CHECK};
@@ -379,4 +379,49 @@ fn the_readers_own_light_comes_back_after_a_check_that_ended_trying_it() {
     }
     assert_eq!(level(&d), (30, 70));
     assert!(d.kernel.storage().size(light).is_err(), "kept no longer");
+}
+
+/// The Pro and the X3 tell the check what each input says by itself (#209),
+/// so that an owner can see on the screen which of them is wrong.
+fn battery_page(status: SystemStatus) -> Vec<String> {
+    let mut d = Device::new(None);
+    let effects = d.kernel.set_status(Instant(0), status);
+    d.settle(effects);
+    d.open_check();
+    d.choose("Pass");
+    d.choose("Start");
+    for name in KEYS {
+        d.button(name, false);
+    }
+    d.tap_targets();
+    assert!(d.shows("Battery"), "{:?}", d.texts());
+    d.texts()
+}
+
+#[test]
+fn the_battery_page_shows_the_charging_pin_and_the_usb_frames_where_the_device_tells() {
+    let status = SystemStatus::new(None, Some(Battery::new(80, false, Some(3900))))
+        .with_value("usb-pin-high", 0)
+        .with_value("usb-frames", 0);
+    let texts = battery_page(status);
+    for text in ["Charging", "Charging pin", "low", "USB frames", "none"] {
+        assert!(texts.iter().any(|t| t == text), "{text}: {texts:?}");
+    }
+    let status = SystemStatus::new(None, Some(Battery::new(80, true, Some(3900))))
+        .with_value("usb-pin-high", 1)
+        .with_value("usb-frames", 1);
+    let texts = battery_page(status);
+    for text in ["high", "coming"] {
+        assert!(texts.iter().any(|t| t == text), "{text}: {texts:?}");
+    }
+}
+
+#[test]
+fn a_device_with_one_input_shows_no_pin_and_no_frames() {
+    let status = SystemStatus::new(None, Some(Battery::new(80, false, Some(3900))));
+    let texts = battery_page(status);
+    assert!(texts.iter().any(|t| t == "Charging"), "{texts:?}");
+    for text in ["Charging pin", "USB frames"] {
+        assert!(!texts.iter().any(|t| t == text), "{text}: {texts:?}");
+    }
 }

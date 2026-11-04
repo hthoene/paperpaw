@@ -24,6 +24,7 @@ use paperpaw_x4::sent::Sent;
 use crate::board::Panel;
 use crate::network::{Network, NetworkIo};
 use crate::ota::Ota;
+use crate::usb_power::Sense;
 use crate::{clock, device, input, now, power, stack};
 
 mod cable;
@@ -275,7 +276,7 @@ impl Firmware {
         let battery = !self.network.radio_on()
             && !installing
             && !light
-            && ((self.usb_power.is_low() && self.kernel.settings().read(&device::LIGHT_SLEEP))
+            && ((!self.usb_power.cable() && self.kernel.settings().read(&device::LIGHT_SLEEP))
                 || self.trying_sleep());
         power::allow(battery);
         self.status();
@@ -487,19 +488,36 @@ impl Firmware {
             .state
             .status_read
             .is_none_or(|read| at.since(read) >= STATUS_MS);
-        let on_usb = self.usb_power.is_high();
-        let plugged = on_usb != self.state.status_on_usb;
-        if !clock::take_changed() && !due && !plugged {
+        // What the cable does (#209): charging is what the bolt, the kernel's
+        // low-battery rules and the install check take for it, and only a
+        // change of it makes a status at once. The pin and the frames by
+        // themselves go to the diagnostics page with the regular readings: a
+        // frames reading that flickers must not send a status (and a line
+        // to the battery log) every second.
+        let on_usb = self.usb_power.charging();
+        if !paperpaw_x4::usb_link::status_due(
+            clock::take_changed(),
+            due,
+            self.state.status_on_usb,
+            on_usb,
+        ) {
             return;
         }
+        let readings = self.usb_power.readings();
         power::mark(power::at::STATUS);
         self.state.status_read = Some(at);
         self.state.status_on_usb = on_usb;
         let millivolts = input::millivolts();
-        let status = SystemStatus::new(
+        let mut status = SystemStatus::new(
             clock::wall(at),
             Some(Battery::new(input::percent(), on_usb, Some(millivolts))),
         );
+        if let Some(high) = readings.pin_high {
+            status = status.with_value("usb-pin-high", i64::from(high));
+        }
+        if let Some(frames) = readings.frames {
+            status = status.with_value("usb-frames", i64::from(frames));
+        }
         let effects = self.kernel.set_status(at, status);
         self.apply(effects);
     }
@@ -774,8 +792,9 @@ impl Firmware {
             light.off();
         }
         info!(
-            "sleeping: hardware shutdown (USB {})",
-            self.usb_power.is_high()
+            "sleeping: hardware shutdown (USB {}, charging {})",
+            self.usb_power.cable(),
+            self.usb_power.charging()
         );
         // The power goes, the radio's with it: the network left first, and
         // before the wait below, which has no end while the button is held
@@ -826,8 +845,9 @@ impl Firmware {
         let choice = self.kernel.settings().read(&device::POWER_OFF_AFTER);
         let off = Off::of(choice);
         info!(
-            "sleeping: light sleep, off {off:?}, USB {}",
-            self.usb_power.is_high()
+            "sleeping: light sleep, off {off:?}, USB {}, charging {}",
+            self.usb_power.cable(),
+            self.usb_power.charging()
         );
         let started = now().0;
         let ended = paperpaw_x4::sleeping::run(off, &mut sleeping_board::Light { firmware: self });

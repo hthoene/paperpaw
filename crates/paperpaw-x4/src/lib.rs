@@ -74,4 +74,5 @@ pub mod uc8179;
 pub mod uc8253;
 pub mod updates;
 pub mod upload;
+pub mod usb_link;
 pub mod waveform;

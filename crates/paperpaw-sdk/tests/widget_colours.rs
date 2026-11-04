@@ -220,6 +220,48 @@ fn grid(env: &Env<'_>) -> (GridView, Rect) {
     (view, geometry.rect(Cells::new(0, 0, 2, 1)))
 }
 
+fn empty(_: &Env<'_>, _: u16) -> u16 {
+    0
+}
+
+/// A widget with nothing to show (height 0, a shelf without books) has no
+/// plate: what lies under the grid shows there; while editing it has one,
+/// to be found and moved. The others keep theirs.
+#[test]
+fn a_widget_showing_nothing_has_no_plate() {
+    let mut h = harness();
+    h.widgets.add(WidgetSpec::drawn(
+        Id::new_static("t.empty"),
+        "t.empty",
+        Drawn::new(empty, nothing),
+    ));
+    let env = h.env();
+    let geometry = Geometry::of(Rect::new(0, 100, 480, 600), 4, 6, 8);
+    let (left, right) = (Cells::new(0, 0, 2, 1), Cells::new(2, 0, 2, 1));
+    let items = [
+        Item::placed(What::Widget("t.clock".into()), left),
+        Item::placed(What::Widget("t.empty".into()), right),
+    ];
+    let mut view = GridView::asking(&env, Event::<Picked>::new("t.chosen"));
+    view.layout(&env, geometry, &items, &[]);
+    let inside = |cells: Cells| {
+        let area = geometry.rect(cells);
+        paperpaw_sdk::Point::new(i32::from(area.x) + 4, i32::from(area.y) + 4)
+    };
+    let (shown, nothing_shown) = (inside(left), inside(right));
+    for plate in [Plate::Paper, Plate::Colour(Color::BLACK)] {
+        let mut drawn = frame(480, 800);
+        view.draw_on(&mut drawn.canvas(), &env, plate);
+        let canvas = drawn.canvas();
+        assert_ne!(canvas.pixel(shown), Some(PAPER), "{plate:?}: its plate");
+        assert_eq!(canvas.pixel(nothing_shown), Some(PAPER), "{plate:?}: none");
+    }
+    view.set_editing(true);
+    let mut drawn = frame(480, 800);
+    view.draw_on(&mut drawn.canvas(), &env, Plate::Colour(Color::BLACK));
+    assert_eq!(drawn.canvas().pixel(nothing_shown), Some(Color::BLACK));
+}
+
 /// What a grid lays under its items: white as before, nothing, or a
 /// colour, whatever the widget's own paper.
 #[test]
