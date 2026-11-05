@@ -552,6 +552,32 @@ version = 0.1.0
         panic!("address {vaddr:#x} is in no PT_LOAD");
     }
 
+    /// The file offset of the value of dynamic entry `tag` in a library.
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn dynamic_value_at(lib: &[u8], tag: u64) -> usize {
+        let u64_at = |at: usize| u64::from_le_bytes(lib[at..at + 8].try_into().unwrap());
+        let phoff = u64_at(32) as usize;
+        let phnum = usize::from(u16::from_le_bytes(lib[56..58].try_into().unwrap()));
+        for i in 0..phnum {
+            let at = phoff + i * 56;
+            if u32::from_le_bytes(lib[at..at + 4].try_into().unwrap()) == 2 {
+                let start = u64_at(at + 8) as usize;
+                let end = start + u64_at(at + 32) as usize;
+                let mut d = start;
+                while d < end && u64_at(d) != 0 {
+                    if u64_at(d) == tag {
+                        return d + 8;
+                    }
+                    d += 16;
+                }
+            }
+        }
+        panic!("no dynamic entry {tag:#x}");
+    }
+
     /// The same library with the destination of its first `Rela` entry moved to
     /// `place`; the system loader writes there while it loads.
     #[cfg(all(
@@ -559,29 +585,23 @@ version = 0.1.0
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
     fn move_first_relocation(lib: &[u8], place: u64) -> Vec<u8> {
-        let u64_at = |at: usize| u64::from_le_bytes(lib[at..at + 8].try_into().unwrap());
-        let phoff = u64_at(32) as usize;
-        let phnum = usize::from(u16::from_le_bytes(lib[56..58].try_into().unwrap()));
-        for i in 0..phnum {
-            let at = phoff + i * 56;
-            if u32::from_le_bytes(lib[at..at + 4].try_into().unwrap()) == 2 {
-                let (mut d, end) = (
-                    u64_at(at + 8) as usize,
-                    (u64_at(at + 8) + u64_at(at + 32)) as usize,
-                );
-                while d < end && u64_at(d) != 0 {
-                    if u64_at(d) == 7 {
-                        // DT_RELA: the first entry's r_offset.
-                        let entry = offset_of_vaddr(lib, u64_at(d + 8));
-                        let mut out = lib.to_vec();
-                        out[entry..entry + 8].copy_from_slice(&place.to_le_bytes());
-                        return out;
-                    }
-                    d += 16;
-                }
-            }
-        }
-        panic!("no DT_RELA");
+        let rela = u64::from_le_bytes(lib[dynamic_value_at(lib, 7)..][..8].try_into().unwrap());
+        let entry = offset_of_vaddr(lib, rela);
+        let mut out = lib.to_vec();
+        out[entry..entry + 8].copy_from_slice(&place.to_le_bytes());
+        out
+    }
+
+    /// The same library claiming `count` base-relative relocations (`DT_RELACOUNT`).
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn claim_relative_relocations(lib: &[u8], count: u64) -> Vec<u8> {
+        let at = dynamic_value_at(lib, 0x6fff_fff9);
+        let mut out = lib.to_vec();
+        out[at..at + 8].copy_from_slice(&count.to_le_bytes());
+        out
     }
 
     /// A library whose relocation points outside the library makes the system
@@ -630,7 +650,7 @@ pub static TABLE: [extern "C" fn() -> u32; 2] = [f, f];
             .status();
         let Ok(built) = built else {
             assert!(
-                std::env::var_os("PAPERPAW_NO_FIXTURE_COMPILER").is_some(),
+                std::env::var("PAPERPAW_NO_FIXTURE_COMPILER").as_deref() == Ok("1"),
                 "no rustc to build the fixture library (set PAPERPAW_NO_FIXTURE_COMPILER=1 to skip)"
             );
             eprintln!("no rustc to build the library; test skipped by request");
@@ -639,10 +659,12 @@ pub static TABLE: [extern "C" fn() -> u32; 2] = [f, f];
         };
         assert!(built.success(), "the fixture library did not compile");
         let good = std::fs::read(&lib).unwrap();
-        let bad = move_first_relocation(&good, 0x7fff_f000_0000);
-        assert_ne!(good, bad, "the fixture has no relocation to move");
-        // The control: the unchanged library loads by hand; the moved one
-        // crashes the process that loads it.
+        let moved = move_first_relocation(&good, 0x7fff_f000_0000);
+        let counted = claim_relative_relocations(&good, 1000);
+        assert_ne!(good, moved, "the fixture has no relocation to move");
+        assert_ne!(good, counted, "the fixture has no relocation count");
+        // The control: the unchanged library loads by hand; each damaged one
+        // takes down the process that loads it.
         let load_by_hand = |bytes: &[u8]| {
             let p = root.join("control.so");
             std::fs::write(&p, bytes).unwrap();
@@ -660,24 +682,30 @@ pub static TABLE: [extern "C" fn() -> u32; 2] = [f, f];
             "the control library does not load"
         );
         assert_eq!(
-            load_by_hand(&bad).signal(),
+            load_by_hand(&moved).signal(),
             Some(11),
             "the damaged library does not fault the system loader"
         );
-        // The loader refuses it and the process lives.
-        std::fs::write(&lib, &bad).unwrap();
+        assert!(
+            !load_by_hand(&counted).success(),
+            "the library with a false relocation count loads"
+        );
+        // The loader refuses each and the process lives.
         let storage = crate::device::library(&root).unwrap();
         let id = paperpaw_core::sdk::Id::new_static("hello");
         let path = format!("plugins/hello/{}", file_name());
-        let code = CodeFile {
-            id: &id,
-            path: &path,
-            sha256: paperpaw_core::sdk::digest::sha256::digest(&bad),
-        };
-        assert_eq!(
-            HostLoader.load(&storage, &code).err(),
-            Some(PluginProblem::Damaged)
-        );
+        for bad in [&moved, &counted] {
+            std::fs::write(&lib, bad).unwrap();
+            let code = CodeFile {
+                id: &id,
+                path: &path,
+                sha256: paperpaw_core::sdk::digest::sha256::digest(bad),
+            };
+            assert_eq!(
+                HostLoader.load(&storage, &code).err(),
+                Some(PluginProblem::Damaged)
+            );
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -728,7 +756,7 @@ static INIT: extern "C" fn() = make_marker;
             // A compiler that cannot be started fails the test too, unless the
             // run says in the open that there is none.
             assert!(
-                std::env::var_os("PAPERPAW_NO_FIXTURE_COMPILER").is_some(),
+                std::env::var("PAPERPAW_NO_FIXTURE_COMPILER").as_deref() == Ok("1"),
                 "no rustc to build the fixture library (set PAPERPAW_NO_FIXTURE_COMPILER=1 to skip)"
             );
             eprintln!("no rustc to build the library; test skipped by request");
@@ -825,7 +853,7 @@ static INIT: extern "C" fn() = make_marker;
                 .status();
             let Ok(built) = built else {
                 assert!(
-                    std::env::var_os("PAPERPAW_NO_FIXTURE_COMPILER").is_some(),
+                    std::env::var("PAPERPAW_NO_FIXTURE_COMPILER").as_deref() == Ok("1"),
                     "no rustc to build the fixture libraries (set PAPERPAW_NO_FIXTURE_COMPILER=1 to skip)"
                 );
                 eprintln!("no rustc to build the libraries; test skipped by request");

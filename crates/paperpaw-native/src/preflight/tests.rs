@@ -33,6 +33,8 @@ struct Spec {
     reloc: Option<(u64, u64)>,
     /// The loadable segment is not writable.
     read_only: bool,
+    /// `DT_RELACOUNT`: this many entries are claimed to be base-relative.
+    relacount: Option<u64>,
 }
 
 fn put16(v: &mut Vec<u8>, x: u16) {
@@ -207,6 +209,9 @@ fn build(spec: &Spec) -> Vec<u8> {
         dynv.push((23, jmprel_at as u64));
         dynv.push((2, 24));
         dynv.push((20, if spec.pltrel_rel { 17 } else { 7 }));
+    }
+    if let Some(n) = spec.relacount {
+        dynv.push((0x6fff_fff9, n));
     }
     dynv.extend(spec.extra_dyn.iter().copied());
     dynv.push((0, 0));
@@ -433,6 +438,58 @@ fn a_relocation_the_system_loader_would_fault_on_is_refused() {
 }
 
 #[test]
+fn the_relative_relocation_count_is_checked_against_the_table() {
+    for (machine, relative, glob_dat) in [(X86, 8u64, 6u64), (ARM, 1027, 1025)] {
+        let with = |info: u64, count: u64| Spec {
+            reloc: Some((0x40, info)),
+            relacount: Some(count),
+            ..plain(machine)
+        };
+        // One entry, claimed to be one relative entry: accepted.
+        assert_eq!(check_elf64_le(&build(&with(relative, 1)), machine), Ok(()));
+        // Zero is no claim.
+        assert_eq!(check_elf64_le(&build(&with(glob_dat, 0)), machine), Ok(()));
+        for (what, spec) in [
+            ("more than the table has", with(relative, 2)),
+            ("far more than the table has", with(relative, 1000)),
+            ("an entry of another kind", with(glob_dat, 1)),
+            (
+                "a relative entry with a symbol",
+                with(relative | 1 << 32, 1),
+            ),
+            (
+                "a count and no table",
+                Spec {
+                    relacount: Some(1),
+                    ..plain(machine)
+                },
+            ),
+        ] {
+            assert_eq!(
+                check_elf64_le(&build(&spec), machine),
+                Err(Refusal::NotSupported),
+                "{what}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_dynamic_tag_that_is_not_known_is_refused() {
+    for tag in [0x6fff_fffa, 0x1234, 0x6fff_fe00, 0x7fff_fff0, 37] {
+        let spec = Spec {
+            extra_dyn: std::vec![(tag, 1)],
+            ..plain(X86)
+        };
+        assert_eq!(
+            check_elf64_le(&build(&spec), X86),
+            Err(Refusal::NotSupported),
+            "tag {tag:#x}"
+        );
+    }
+}
+
+#[test]
 fn relocation_tables_this_check_does_not_read_are_refused() {
     for (tag, val) in [(17i64, 0u64), (36, 0), (35, 8), (9, 16)] {
         let spec = Spec {
@@ -631,7 +688,7 @@ pub extern "C" fn plugin_entry() -> u32 { 7 }
         // too, never a silent pass.
         let Ok(status) = status else {
             assert!(
-                std::env::var_os("PAPERPAW_NO_FIXTURE_COMPILER").is_some(),
+                std::env::var("PAPERPAW_NO_FIXTURE_COMPILER").as_deref() == Ok("1"),
                 "no rustc to build the fixture library (set PAPERPAW_NO_FIXTURE_COMPILER=1 to skip)"
             );
             return None;

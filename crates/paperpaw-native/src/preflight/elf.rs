@@ -49,6 +49,32 @@ const DT_RELAENT: i64 = 9;
 const DT_REL: i64 = 17;
 const DT_RELRSZ: i64 = 35;
 const DT_RELR: i64 = 36;
+const DT_RELACOUNT: i64 = 0x6fff_fff9;
+const DT_RELCOUNT: i64 = 0x6fff_fffa;
+/// The dynamic tags that do no harm by themselves (plus the ones read or
+/// refused above). A tag in neither list is refused: an unknown tag may name
+/// a table the system loader reads and this check does not.
+const PLAIN_TAGS: [i64; 19] = [
+    3,           // DT_PLTGOT
+    10,          // DT_STRSZ
+    14,          // DT_SONAME
+    16,          // DT_SYMBOLIC
+    21,          // DT_DEBUG
+    24,          // DT_BIND_NOW
+    25,          // DT_INIT_ARRAY (its size is checked)
+    26,          // DT_FINI_ARRAY
+    32,          // DT_PREINIT_ARRAY
+    0x6fff_fff0, // DT_VERSYM
+    0x6fff_fffb, // DT_FLAGS_1
+    0x6fff_fffc, // DT_VERDEF
+    0x6fff_fffd, // DT_VERDEFNUM
+    0x6fff_fffe, // DT_VERNEED
+    0x6fff_ffff, // DT_VERNEEDNUM
+    0x7000_0001, // DT_AARCH64_BTI_PLT
+    0x7000_0003, // DT_AARCH64_PAC_PLT
+    0x7000_0005, // DT_AARCH64_VARIANT_PCS
+    DT_FLAGS,
+];
 /// Machines a host plugin may be built for.
 const EM_X86_64: u16 = 62;
 const EM_AARCH64: u16 = 183;
@@ -229,8 +255,8 @@ pub fn check_elf64_le(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
         machine,
         symbols: count,
     };
-    check_relocations(bytes, &tables, d.rela, d.relasz)?;
-    check_relocations(bytes, &tables, d.jmprel, d.pltrelsz)?;
+    check_relocations(bytes, &tables, d.rela, d.relasz, d.relacount)?;
+    check_relocations(bytes, &tables, d.jmprel, d.pltrelsz, 0)?;
     check_symbols(bytes, &loads, &d, count)
 }
 
@@ -289,6 +315,7 @@ struct Dyn {
     gnu_hash: Option<u64>,
     rela: Option<u64>,
     relasz: u64,
+    relacount: u64,
     jmprel: Option<u64>,
     pltrelsz: u64,
     pltrel: Option<u64>,
@@ -324,15 +351,18 @@ impl Dyn {
             DT_RELA => self.rela = Some(val),
             DT_RELASZ => self.relasz = val,
             DT_RELAENT if val != RELA_ENT => return Err(Refusal::NotSupported),
+            DT_RELAENT => {}
             // Tables this check does not read are refused, not skipped.
-            DT_REL | DT_RELR | DT_RELRSZ => return Err(Refusal::NotSupported),
+            DT_REL | DT_RELCOUNT | DT_RELR | DT_RELRSZ => return Err(Refusal::NotSupported),
+            DT_RELACOUNT => self.relacount = val,
             DT_JMPREL => self.jmprel = Some(val),
             DT_PLTRELSZ => self.pltrelsz = val,
             DT_PLTREL => self.pltrel = Some(val),
             DT_INIT_ARRAYSZ => self.init_arraysz = val,
             DT_FINI_ARRAYSZ => self.fini_arraysz = val,
             DT_PREINIT_ARRAYSZ => self.preinit_arraysz = val,
-            _ => {}
+            t if PLAIN_TAGS.contains(&t) => {}
+            _ => return Err(Refusal::NotSupported),
         }
         Ok(())
     }
@@ -398,10 +428,21 @@ fn check_relocations(
     t: &Tables<'_>,
     table: Option<u64>,
     size: u64,
+    relative_prefix: u64,
 ) -> Result<(), Refusal> {
-    let Some(table) = table else { return Ok(()) };
+    let Some(table) = table else {
+        return if relative_prefix == 0 {
+            Ok(())
+        } else {
+            Err(Refusal::NotSupported)
+        };
+    };
     if size == 0 {
-        return Ok(());
+        return if relative_prefix == 0 {
+            Ok(())
+        } else {
+            Err(Refusal::NotSupported)
+        };
     }
     if !size.is_multiple_of(RELA_ENT) {
         return Err(Refusal::NotSupported);
@@ -412,7 +453,13 @@ fn check_relocations(
     } else {
         (R_AARCH64_IRELATIVE, &AARCH64_KINDS)
     };
+    let relative = kinds[3];
     let count = to_usize(size / RELA_ENT)?;
+    // The system loader trusts `DT_RELACOUNT`: it applies that many entries
+    // as base-relative ones without looking at them.
+    if relative_prefix > size / RELA_ENT {
+        return Err(Refusal::NotSupported);
+    }
     for i in 0..count {
         let entry = at + i * 24;
         let place = u64_at(bytes, entry)?;
@@ -423,6 +470,9 @@ fn check_relocations(
             return Err(Refusal::RunsCodeAtLoad("an IFUNC relocation"));
         }
         if !kinds.contains(&kind) || !t.writable(place) {
+            return Err(Refusal::NotSupported);
+        }
+        if (i as u64) < relative_prefix && (kind != relative || sym != 0) {
             return Err(Refusal::NotSupported);
         }
         if sym != 0 && sym >= t.symbols {
