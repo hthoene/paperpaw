@@ -125,11 +125,33 @@ class SchemaTests(unittest.TestCase):
             new['host_entries'][0]['name'] = reserved
             with self.assertRaises(ValueError):
                 ABI.validate(new)
-        for reserved in ('float', 'return', 'size_t', 'uint32_t'):
+        for reserved in ('float', 'return', 'size_t', 'uint32_t', 'match', 'type', 'self'):
             new = copy.deepcopy(self.base)
             new['host_entries'][0]['args'][0]['name'] = reserved
             with self.assertRaises(ValueError):
                 ABI.validate(new)
+
+    def test_rust_template_changes_fail_trusted_baseline(self):
+        trusted = ABI.lock_record(self.base)
+        original = ABI.rust_module
+        for before, after in [('pub len: usize', 'pub len: u32'),
+                              ('pub cap: usize', 'pub cap: u32'),
+                              ('pub size: u32', 'pub size: u64'),
+                              ('-> i32', '-> i64'),
+                              ('extern "C"', 'extern "Rust"')]:
+            with self.subTest(template=before):
+                with patch.object(ABI, 'rust_module', lambda s: original(s).replace(before, after)):
+                    with self.assertRaisesRegex(ValueError, 'emitted Rust contract'):
+                        ABI.check_lock(trusted, self.base)
+
+    def test_c_only_draft_lock_preserves_its_contract_when_adding_rust(self):
+        prior = ABI.lock_record(self.base, released_minor=1)
+        prior['lock_format'] = 1
+        del prior['emitted_rust']
+        ABI.check_lock(prior, self.base)
+        with patch.dict(ABI.TYPES, {'handle': 'uint64_t'}):
+            with self.assertRaisesRegex(ValueError, 'emitted C contract'):
+                ABI.check_lock(prior, self.base)
 
     def test_multiple_additions_to_unreleased_minor(self):
         trusted = ABI.lock_record(copy.deepcopy(self.base), released_minor=0)

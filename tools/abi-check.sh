@@ -10,6 +10,7 @@ elif [[ $# -ne 0 ]]; then
 fi
 python3 tools/abi-gen.py --check
 python3 -m unittest discover -s tools/tests -p test_abi_gen.py
+python3 -m unittest discover -s tools/tests -p test_abi_layout.py
 printf '#include "abi/generated/paperpaw-abi.h"\n' | "${CC:-cc}" -x c -std=c11 -Wall -Werror -fsyntax-only -I. -
 if [[ -n "${ABI_BASELINE:-}" ]]; then
     python3 tools/abi-gen.py --baseline "$ABI_BASELINE" --check

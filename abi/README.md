@@ -32,10 +32,14 @@ python3 -m unittest discover -s tools/tests -p test_abi_gen.py
 python3 tools/abi-gen.py --baseline /path/to/trusted/prior/abi.lock --check
 ```
 
-Normal generation writes abi.json and generated/paperpaw-abi.h, never the lock.
+Normal generation writes abi.json, generated/paperpaw-abi.h and
+generated/paperpaw_abi.rs, never the lock. The raw Rust module can be included
+by path without workspace membership. It uses core only; no root manifest edit
+is needed. Run `bash tools/abi-check.sh` for schema, native C/Rust size/alignment/
+field-offset agreement and host/X4 no_std compilation checks.
 `--write-lock` explicitly writes the lock after validating compatibility with the
 old one. The lock contains the schema, released-minor boundary and exact emitted
-C declarations. Re-rendering the trusted OLD schema with the current generator
+C and Rust declarations. Re-rendering the trusted OLD schema with the current generator
 must reproduce those declarations, catching changed primitive/view/prefix/result
 templates even when a candidate lock was regenerated. Whitespace changes to the
 emitter are conservatively reviewed too. Existing signatures/contracts stay
@@ -46,7 +50,9 @@ CI must compare with a trusted integration/release lock as well as generated
 freshness; editing both definition and local lock is not compatibility evidence.
 The initial draft may require reviewed baseline replacement before freezing.
 
-The C header is a syntax-checkable table skeleton. It does not implement safe
+The C header and Rust module declare the same first-20 host table. Both remain
+raw table skeletons. Never create a full `&PpHost` from a shorter table; checked
+prefix/slot wrappers are a separate pending step. It does not implement safe
 slot access, lifetime wrappers, host dispatch, schema-derived semantic errors,
 callback tables, named value types, wire codecs, resource accounting, artifact
 layout/metadata emission or a runtime. Those remain stream A/M1 work. No loader
@@ -58,8 +64,10 @@ cases not supported yet; they must be added with those grammar features before
 approval. Existing production interface-6 code is untouched.
 
 The initial schema-only lock was replaced explicitly while still an unpublished
-draft. Old lock formats are refused, not silently upgraded. This is not evidence
-of compatibility with the former incomplete lock. Shared nested input/output
+draft. The complete C-only draft lock (format 1) can be explicitly extended to format 2
+with Rust declarations, after its C contract and release floor pass unchanged.
+The older schema-only draft lock is still refused. This is not evidence of
+compatibility with that former incomplete lock. Shared nested input/output
 capacity and runtime quota enforcement remain M1 obligations.
 
 The candidate released-minor boundary cannot be lower than the trusted baseline
