@@ -1,0 +1,31 @@
+{
+  "cases": [
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "accept",
+        "signature": "not_run"
+      },
+      "hex": "linux-x86_64-sysv64-le.hex",
+      "input": "linux-x86_64-sysv64-le.json",
+      "name": "linux-x86_64-sysv64-le"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "accept",
+        "signature": "not_run"
+      },
+      "hex": "esp32c3-riscv32imc-ilp32-soft-le.hex",
+      "input": "esp32c3-riscv32imc-ilp32-soft-le.json",
+      "name": "esp32c3-riscv32imc-ilp32-soft-le"
+    }
+  ],
+  "format": 1,
+  "schema": "../../abi.json",
+  "scope": "declared target metadata only; no executable artifact"
+}

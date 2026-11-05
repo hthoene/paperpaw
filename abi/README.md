@@ -56,7 +56,8 @@ prefix/slot wrappers are a separate pending step. It does not implement safe
 slot access, lifetime wrappers, host dispatch, schema-derived semantic errors,
 callback tables, named value types, wire codecs, resource accounting, complete
 artifact layouts or a runtime. The separate metadata emitter draft is described
-in [metadata.md](metadata.md); no production target profile is enabled yet. Those remain stream A/M1 work. No loader
+in [metadata.md](metadata.md), with entry/locator and initial target layout
+declarations in [entry.md](entry.md). Runtime integration remains unqualified. Those remain stream A/M1 work. No loader
 may infer binary metadata offsets from this checkpoint. Compiler-independent
 calling convention and layout need per-target tests beyond the host syntax check.
 
@@ -88,3 +89,7 @@ Metadata schema/offsets are included in lock format 3. Draft lock formats 1/2
 can be explicitly extended while preserving their emitted C/Rust contracts and
 release floor. `bash tools/abi-check.sh` includes metadata/requirement tests and
 freshness of the metadata-only synthetic fixture manifest.
+
+The generator also writes `crates/paperpaw-native/src/host_glue/paperpaw_abi.rs`
+for standalone Cargo packages. `--check` requires this copy to match the same
+Rust output as `abi/generated/paperpaw_abi.rs`; do not maintain it by hand.

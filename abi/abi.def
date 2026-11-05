@@ -638,21 +638,40 @@
     }
   ],
   "metadata": {
-    "format": 1,
+    "format": 2,
     "byte_order": "little",
     "magic": "PPAM",
     "max_bytes": 2048,
     "max_key_bytes": 128,
     "max_services": 16,
     "max_features": 32,
-    "max_exports": 2,
+    "max_exports": 1,
     "containers": {
       "elf": ".paperpaw.meta",
       "macho": "__DATA_CONST,__pp_meta",
       "pe": ".ppmeta",
       "wasm": "paperpaw.meta"
     },
-    "profiles": [],
+    "profiles": [
+      {
+        "name": "linux-x86_64-sysv64-le",
+        "pointer_bits": 64,
+        "byte_order": "little",
+        "calling_convention": "x86_64-sysv64",
+        "entry_layout": 1,
+        "entry_bytes": 32,
+        "entry_align": 8
+      },
+      {
+        "name": "esp32c3-riscv32imc-ilp32-soft-le",
+        "pointer_bits": 32,
+        "byte_order": "little",
+        "calling_convention": "riscv-ilp32-soft",
+        "entry_layout": 1,
+        "entry_bytes": 20,
+        "entry_align": 4
+      }
+    ],
     "prefix": [
       {
         "name": "magic",
@@ -712,11 +731,6 @@
         "name": "PAPERPAW_ENTRY",
         "kind": 1,
         "size_source": "entry_bytes"
-      },
-      {
-        "name": "PAPERPAW_HOST",
-        "kind": 2,
-        "size_source": "pointer_bytes"
       }
     ],
     "services": [],
@@ -785,5 +799,96 @@
         }
       ]
     }
+  },
+  "entry_contract": {
+    "since": 1,
+    "locator": {
+      "symbol": "PAPERPAW_METADATA",
+      "kind": "readonly_bytes",
+      "length": "total_bytes",
+      "binding": "global",
+      "visibility": "default"
+    },
+    "entry_symbol": "PAPERPAW_ENTRY",
+    "tables": [
+      {
+        "name": "PpPlugin",
+        "since": 1,
+        "fields": [
+          {
+            "name": "size",
+            "type": "u32",
+            "since": 1
+          },
+          {
+            "name": "state",
+            "type": "pointer",
+            "since": 1
+          },
+          {
+            "name": "drop",
+            "since": 1,
+            "callback": {
+              "args": [
+                {
+                  "name": "state",
+                  "type": "pointer"
+                }
+              ],
+              "result": "void",
+              "nullable": true
+            }
+          }
+        ]
+      },
+      {
+        "name": "PpEntry",
+        "since": 1,
+        "fields": [
+          {
+            "name": "size",
+            "type": "u32",
+            "since": 1
+          },
+          {
+            "name": "abi_major",
+            "type": "u16",
+            "since": 1
+          },
+          {
+            "name": "needs_minor",
+            "type": "u16",
+            "since": 1
+          },
+          {
+            "name": "metadata",
+            "type": "bytes",
+            "since": 1
+          },
+          {
+            "name": "make",
+            "since": 1,
+            "callback": {
+              "args": [
+                {
+                  "name": "host",
+                  "type": "host_ptr"
+                },
+                {
+                  "name": "host_ctx",
+                  "type": "pointer"
+                },
+                {
+                  "name": "out",
+                  "type": "plugin_out"
+                }
+              ],
+              "result": "i32",
+              "nullable": true
+            }
+          }
+        ]
+      }
+    ]
   }
 }
