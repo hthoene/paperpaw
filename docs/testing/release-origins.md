@@ -18,8 +18,12 @@ python3 tools/qualify-release-origins.py \
 Omit `--download` for an offline rerun; use a new output filename. Existing
 cache pairs are never silently refreshed when their checksum fails. Missing
 assets, mismatched filenames/hashes, failed commands or zero tested rows fail.
-The report records the source commit, exact asset hashes and complete Rust
-host-test output. Release signatures are verified against today's firmware
+Run with a clean source checkout and keep the cache/report outside it. Each
+run keeps a unique manifest and a completed-test receipt binding the exact
+manifest, checked image hashes and optional candidate hashes. Exit zero without
+that receipt cannot pass. The tool captures source identity before execution,
+rejects dirty or changed sources and records the verifier binary hash, exact
+asset hashes and complete Rust host-test output. Release signatures are verified against today's firmware
 trusted-key list, not merely the key bundled in the update itself.
 
 The host checks validate image chip/project/version, ESP checksum/hash, exact

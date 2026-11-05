@@ -81,11 +81,58 @@ fn transitions(original: &[u8]) {
     assert_eq!(OtaData::read(&mut data).unwrap().booted(), 0);
 }
 
+fn hash(bytes: &[u8]) -> String {
+    paperpaw_digest::sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>()
+}
+
+fn candidate_receipt(
+    device: &str,
+    chip: u16,
+    project: &str,
+    board: &'static str,
+    slots: Slots,
+) -> String {
+    let mut candidate_receipt = String::new();
+    let variable = format!(
+        "PAPERPAW_CANDIDATE_{}",
+        device.to_uppercase().replace('-', "_")
+    );
+    if let Some(path) = std::env::var_os(variable) {
+        let candidate = std::fs::read(path).unwrap();
+        candidate_receipt = format!("candidate\t{device}\t{}\n", hash(&candidate));
+        let candidate_info = AppInfo::read(&candidate).unwrap();
+        assert_eq!(
+            (candidate_info.chip, candidate_info.project.as_str()),
+            (chip, project)
+        );
+        let mut check = ForeignCheck::new(chip, board, candidate.len() as u64);
+        check.absorb(&candidate);
+        check.finish().unwrap();
+        let room = slots
+            .apps
+            .iter()
+            .map(|(_, size)| *size)
+            .min()
+            .unwrap()
+            .min(0x64_0000);
+        assert!(
+            candidate.len() + 256 * 1024 <= room as usize,
+            "candidate slot margin"
+        );
+    }
+    candidate_receipt
+}
+
 #[test]
 #[ignore = "needs checksum-verified release files; tools/qualify-release-origins.py"]
 fn released_origins_match_current_parsers_and_ota_transitions() {
     let manifest = std::env::var("PAPERPAW_RELEASE_ORIGINS").expect("release manifest required");
     let manifest = std::fs::read_to_string(manifest).unwrap();
+    let receipt = std::env::var("PAPERPAW_RELEASE_RECEIPT").expect("run-owned receipt required");
+    let mut checked = format!("manifest-sha256\t{}\n", hash(manifest.as_bytes()));
     let mut count = 0;
     for line in manifest.lines() {
         let fields: Vec<_> = line.split('\t').collect();
@@ -101,6 +148,12 @@ fn released_origins_match_current_parsers_and_ota_transitions() {
         let full = std::fs::read(full).unwrap();
         let install = std::fs::read(install).unwrap();
         let update = std::fs::read(update).unwrap();
+        let hashes = format!(
+            "checked\t{tag}\t{device}\t{}\t{}\t{}\n",
+            hash(&full),
+            hash(&install),
+            hash(&update)
+        );
         let info = AppInfo::read(&install).unwrap();
         assert_eq!(
             (info.chip, info.project.as_str(), info.version.as_str()),
@@ -139,39 +192,17 @@ fn released_origins_match_current_parsers_and_ota_transitions() {
         for (_, room) in slots.apps {
             assert!(install.len() <= room as usize);
         }
-        let variable = format!(
-            "PAPERPAW_CANDIDATE_{}",
-            device.to_uppercase().replace('-', "_")
-        );
-        if let Some(path) = std::env::var_os(variable) {
-            let candidate = std::fs::read(path).unwrap();
-            let candidate_info = AppInfo::read(&candidate).unwrap();
-            assert_eq!(
-                (candidate_info.chip, candidate_info.project.as_str()),
-                (chip, project)
-            );
-            let mut check = ForeignCheck::new(chip, board, candidate.len() as u64);
-            check.absorb(&candidate);
-            check.finish().unwrap();
-            let room = slots
-                .apps
-                .iter()
-                .map(|(_, size)| *size)
-                .min()
-                .unwrap()
-                .min(0x64_0000);
-            assert!(
-                candidate.len() + 256 * 1024 <= room as usize,
-                "candidate slot margin"
-            );
-        }
+        let candidate_receipt = candidate_receipt(device, chip, project, board, slots);
         let at = slots.data as usize;
         transitions(&full[at..at + 0x2000]);
         println!(
             "{tag}/{device}: {info:?}; {slots:?}; app_bytes={}",
             install.len()
         );
+        checked.push_str(&hashes);
+        checked.push_str(&candidate_receipt);
         count += 1;
     }
     assert!(count > 0, "no release origins checked");
+    std::fs::write(receipt, checked).unwrap();
 }

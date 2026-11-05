@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
 TAGS = ("v0.6.0-beta.1", "v0.6.0-beta.2")
@@ -33,10 +34,33 @@ def verified(path):
     return actual
 
 
+def source_identity():
+    commit = run("git", "rev-parse", "HEAD")
+    if run("git", "status", "--porcelain", "--untracked-files=normal"):
+        raise ValueError("source checkout must be clean before and after qualification")
+    return commit
+
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def require_receipt(path, expected):
+    if not path.is_file() or path.read_text() != expected:
+        raise ValueError("missing or mismatched executed-test receipt; exit zero alone is not evidence")
+
+
 def audit(args):
+    source = source_identity()
+    helper_hash = digest(args.sign_tool)
+    args.cache.mkdir(parents=True, exist_ok=True)
+    run_directory = Path(tempfile.mkdtemp(prefix="audit-", dir=args.cache))
     rows = []
     manifest = []
-    for tag in args.tag or TAGS:
+    tags = args.tag or TAGS
+    if len(tags) != len(set(tags)):
+        raise ValueError("duplicate origin tag")
+    for tag in tags:
         if not re.fullmatch(r"v0\.6\.0-beta\.[1-3]", tag):
             raise ValueError("origins must be v0.6.0-beta.1, .2 or .3")
         directory = args.cache / tag
@@ -58,9 +82,11 @@ def audit(args):
                          "check_image": checked, "signature": signature,
                          "actual_old_installer": "NOT_RUN", "device_result": "NOT_RUN"})
             manifest.append("\t".join((tag, device, *(str(p) for p in paths))))
-    manifest_path = args.cache / "origins.tsv"
+    manifest_path = run_directory / "origins.tsv"
     manifest_path.write_text("\n".join(manifest) + "\n")
-    env = dict(os.environ, PAPERPAW_RELEASE_ORIGINS=str(manifest_path))
+    receipt_path = run_directory / "checked.tsv"
+    env = dict(os.environ, PAPERPAW_RELEASE_ORIGINS=str(manifest_path),
+               PAPERPAW_RELEASE_RECEIPT=str(receipt_path))
     for device in DEVICES:
         env.pop("PAPERPAW_CANDIDATE_" + device.upper().replace("-", "_"), None)
     candidates = {}
@@ -71,11 +97,25 @@ def audit(args):
         path = Path(filename).resolve()
         candidates[device] = {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
         env["PAPERPAW_CANDIDATE_" + device.upper().replace("-", "_")] = str(path)
+    manifest_hash = digest(manifest_path)
+    expected = [f"manifest-sha256\t{manifest_hash}"]
+    for row in rows:
+        expected.append("\t".join(("checked", row["tag"], row["device"], *row["sha256"].values())))
+        if row["device"] in candidates:
+            expected.append(f"candidate\t{row['device']}\t{candidates[row['device']]['sha256']}")
+    expected = "\n".join(expected) + "\n"
     command = ["cargo", "test", "--locked", "-p", "paperpaw-x4", "--test",
-               "release_origins", "--", "--ignored", "--nocapture"]
+               "release_origins", "--", "--ignored", "--exact",
+               "released_origins_match_current_parsers_and_ota_transitions", "--nocapture"]
     result = subprocess.run(command, cwd=ROOT, env=env, text=True,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    report = {"source": run("git", "rev-parse", "HEAD"), "rows": rows,
+    if source_identity() != source or digest(args.sign_tool) != helper_hash:
+        raise ValueError("source or verifier changed during qualification")
+    if result.returncode == 0:
+        require_receipt(receipt_path, expected)
+    report = {"source": source, "sign_tool_sha256": helper_hash,
+              "manifest": str(manifest_path), "manifest_sha256": manifest_hash,
+              "receipt": receipt_path.read_text() if receipt_path.is_file() else None, "rows": rows,
               "host_test_command": command, "host_test_log": result.stdout,
               "host_result": "PASS" if result.returncode == 0 else "FAIL",
               "candidates": candidates,
