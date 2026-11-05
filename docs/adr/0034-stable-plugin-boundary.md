@@ -562,7 +562,7 @@ what, where, commit and number.
   | Small drawing call (rect, line, round shape) | +0.06 us per call (0.5 %) | within 2 % |
   | Text call (measure, draw) | +4 to +5 us per call (1.5 %) | within 3 % and at most +5 us |
   | Event in, command out (`deliver`) | +1.7 us per call (+36 %) | at most +1 us per call |
-  | A widget of about ten calls (the Battery widget) | +202 us (+11 %) | within 3 % and at most +60 us |
+  | A whole widget (the Battery widget: 3 text calls, 4 round shapes, bolt rows) | +202 us (+11 %) | within 3 % and at most +60 us |
   | Whole screen of widgets | not measured | at most +1 ms against the ~500 ms e-ink refresh |
 
   The percentages follow the call cost; the absolute budgets are the gate because a
