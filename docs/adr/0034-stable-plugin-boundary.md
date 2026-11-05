@@ -351,6 +351,49 @@ comparisons in the inventory are estimates, not measured production evidence:
   the new one only if the results agree). This replaces ADR 0026's three cases and
   the `bump` lines: after 1.0 there is no `OLDEST`.
 
+#### Acceptance before any plugin code can run (Senior blocker B6)
+
+On a host target the plugin is a shared library, and `dlopen`, `LoadLibrary` and
+the Android and macOS equivalents run initialisers while loading, before the loader
+can read the entry. A check after the load is too late. The contract:
+
+1. **Metadata the preflight can read without loading.** Identity, target,
+   `needs_minor`, the entry descriptor and the signature digest live in a named
+   section (`.ppn_meta` in ELF and PE, `__DATA,__ppn_meta` in Mach-O), found by
+   parsing the object's headers from the bytes. The `.ppn` of the X4 carries the
+   same record in its header. A bytes-only function in `paperpaw-native`
+   (`preflight(bytes, target) -> Result<Accepted, Refusal>`) does all of it; the
+   shells call it and nothing else decides.
+2. **Refuse every way to run code at load time.** ELF: `DT_INIT`, `DT_PREINIT_ARRAY`,
+   `DT_INIT_ARRAY` (non-empty), `DT_FINI*`, `.ctors`/`.dtors`, IFUNC symbols
+   (`STT_GNU_IFUNC`), TLS with a dynamic initialiser, any `DT_NEEDED` outside the
+   allowlist (the C library and nothing else, for host builds), text relocations.
+   Mach-O: `LC_ROUTINES(_64)`, `__mod_init_func`, `__init_offsets`, Objective-C
+   `+load`. PE: an entry point other than a no-op stub, a TLS callback directory,
+   delay-load imports. WebAssembly: a `start` section and imports outside the host
+   table. X4: the linker script discards `.init*`/`.ctors`, and the packer and the
+   loader both refuse a `.ppn` that has such a section or a relocation kind outside
+   the short list in the format.
+3. **Only what was checked is loaded.** The loader copies the verified bytes to a
+   private file (owner-only folder, created new, written once), reads them back,
+   runs the preflight on the read-back bytes and loads that file, kept open without
+   write access while it loads (an unlinked `memfd` with `android_dlopen_ext` on
+   Android and `/proc/self/fd` on Linux; deny-write sharing on Windows). The scope
+   is honest: it protects against the card or a build changing the file between
+   hash, check and load, not against a hostile process of the same user; there is no
+   sandbox (ADR 0024).
+4. **Order stays fixed:** preflight accepts, then the load, then the entry is
+   compared with the preflight's record once more, then `make`. A mismatch is
+   *Damaged* and the library is unloaded.
+
+**Mandatory negative fixtures (M1, in `abi/fixtures/`, run on Linux in CI and on the
+macOS and Windows runners):** one host library per mechanism above whose initialiser
+writes a marker; the test asserts *refused* and that the marker was never written. The
+same libraries with the initialiser removed are accepted. A swap fixture replaces the
+file between the check and the load through a test seam and asserts *Changed*. The
+fixtures are built by a test helper, not by the contributor's compiler version, so the
+result does not depend on one toolchain.
+
 ### 7. The author's SDK is generated over the table, and one path only
 
 `paperpaw-sdk` keeps its public Rust API where it can. Under it `paperpaw-abi`
