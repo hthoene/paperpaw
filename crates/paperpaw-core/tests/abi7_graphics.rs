@@ -139,10 +139,9 @@ fn zero_width_lines_and_zero_extent_strokes_keep_existing_semantics() {
 
 #[test]
 fn full_integer_ranges_are_clipped_without_narrowing() {
-    let mut frame = frame(PixelFormat::Gray8);
-    let mut canvas = frame.canvas();
+    let mut filled = frame(PixelFormat::Gray8);
     graphics::fill_rect(
-        &mut canvas,
+        &mut filled.canvas(),
         i64::from(i32::MIN),
         i64::from(i32::MIN),
         u64::from(u32::MAX),
@@ -150,8 +149,11 @@ fn full_integer_ranges_are_clipped_without_narrowing() {
         Color::BLACK,
     )
     .unwrap();
+    assert!(filled.view().data.iter().all(|byte| *byte == 0));
+
+    let mut line = frame(PixelFormat::Gray8);
     graphics::draw_line(
-        &mut canvas,
+        &mut line.canvas(),
         i64::from(i32::MIN),
         0,
         i64::from(i32::MAX),
@@ -160,8 +162,12 @@ fn full_integer_ranges_are_clipped_without_narrowing() {
         Color::BLACK,
     )
     .unwrap();
+    assert!(line.view().data[..40].iter().all(|byte| *byte == 0));
+    assert!(line.view().data[40..].iter().all(|byte| *byte == 255));
+
+    let (mut rounded, mut direct) = (frame(PixelFormat::Gray8), frame(PixelFormat::Gray8));
     graphics::fill_round(
-        &mut canvas,
+        &mut rounded.canvas(),
         0,
         0,
         u64::from(u32::MAX),
@@ -170,7 +176,11 @@ fn full_integer_ranges_are_clipped_without_narrowing() {
         Color::BLACK,
     )
     .unwrap();
-    assert!(frame.view().data.iter().all(|byte| *byte == 0));
+    direct
+        .canvas()
+        .fill_round_rect(0, 0, u32::MAX, u32::MAX, 1, Color::BLACK);
+    assert_eq!(rounded.view().data, direct.view().data);
+    assert!(rounded.view().data.iter().any(|byte| *byte != 255));
 }
 
 #[test]
