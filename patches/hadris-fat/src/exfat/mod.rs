@@ -48,6 +48,8 @@ pub mod embedded;
 mod options;
 /// Modified for PaperPaw: metadata recovery record codec.
 pub mod intent;
+/// Modified for PaperPaw: synchronous intent publication and replay protocol.
+pub mod intent_tx;
 pub use hadris_fat_raw::exfat::{Detail, Geometry};
 pub use hadris_fs::Guid;
 

@@ -87,6 +87,8 @@ pub struct Record<'a> {
     pub sequence: u64,
     /// Recorded metadata operation.
     pub operation: Operation,
+    /// Whether metadata was flushed before this header was published.
+    pub applied: bool,
 }
 
 impl Record<'_> {
@@ -158,6 +160,7 @@ pub fn encode(
     put32(out, 8, VERSION);
     out[12] = operation as u8;
     out[13] = changes.len() as u8;
+    out[14] = 1;
     put64(out, 16, sequence);
     put32(out, 24, identity.serial);
     for (at, value) in [
@@ -205,7 +208,8 @@ pub fn decode(bytes: &[u8], expected: Identity) -> Result<Option<Record<'_>>, Re
     if count == 0
         || count > MAX_CHANGES
         || sequence == 0
-        || bytes[14..16].iter().any(|b| *b != 0)
+        || !matches!(bytes[14], 1 | 2)
+        || bytes[15] != 0
         || bytes[28..32].iter().any(|b| *b != 0)
         || bytes[88..HEADER_BYTES].iter().any(|b| *b != 0)
         || bytes[HEADER_BYTES + count * ENTRY_BYTES..]
@@ -248,6 +252,7 @@ pub fn decode(bytes: &[u8], expected: Identity) -> Result<Option<Record<'_>>, Re
         count,
         sequence,
         operation,
+        applied: bytes[14] == 2,
     }))
 }
 
@@ -318,4 +323,15 @@ fn crc_byte(mut crc: u32, byte: u8) -> u32 {
         crc = (crc >> 1) ^ (0xedb8_8320 & (0u32.wrapping_sub(crc & 1)));
     }
     crc
+}
+
+/// Marks a validated record applied. Call only after the target flush.
+pub fn applied_header(bytes: &mut [u8], identity: Identity) -> Result<(), RecordError> {
+    if decode(bytes, identity)?.is_none() {
+        return Err(RecordError::Malformed);
+    }
+    bytes[14] = 2;
+    let sum = header_crc(&bytes[..HEADER_BYTES]);
+    put32(bytes, HEADER_SUM, sum);
+    Ok(())
 }
