@@ -1991,6 +1991,12 @@ After building, `readelf -dW libmy_plugin.so` must show no `INIT`, `FINI`,
 `INIT_ARRAY` or `FINI_ARRAY` entries. This flag applies only to the plugin's
 shared library, not the emulator or its dependencies.
 
+A host plugin must be `no_std` and import nothing from the C library. It reaches
+the host only through the host table. Interface 7's preflight refuses a shared
+library that names a C library symbol, because that brings a `NEEDED` entry and
+symbol-version tables with it; `readelf -dW` must show no `NEEDED`, `VERSYM`
+or `VERNEED` entries.
+
 ```sh
 paperpaw-emu --library my-library --trust-code
 ```
