@@ -123,6 +123,9 @@ pub unsafe fn read_plugin_size(table: *const u8, accessible: usize) -> Result<us
 /// Copy the opaque state pointer without reading or validating its pointee.
 ///
 /// # Safety
+/// All [`read_plugin_size`] preconditions apply: a non-null aligned table must
+/// designate `accessible` readable bytes in one live allocation, with an
+/// initialized size word and no concurrent mutation throughout this call.
 /// The checked prefix must contain an initialized valid raw state pointer.
 /// Storage stays live and unchanged for this call; pointee lifetime is external.
 pub unsafe fn read_plugin_state(
@@ -139,6 +142,9 @@ pub unsafe fn read_plugin_state(
 /// Copy the mandatory destruction callback; null is malformed, not optional.
 ///
 /// # Safety
+/// All [`read_plugin_size`] preconditions apply: a non-null aligned table must
+/// designate `accessible` readable bytes in one live allocation, with an
+/// initialized size word and no concurrent mutation throughout this call.
 /// The checked prefix must contain an initialized valid nullable function pointer.
 /// The caller keeps code and state alive and owns exactly-once destruction.
 pub unsafe fn read_plugin_drop(
