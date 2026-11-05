@@ -12,6 +12,10 @@
 #   -v      show each step's output (otherwise it is kept in
 #           target/ci-local/<step>.log, and the end of a failed step's is shown)
 #
+# Full and --only abi require ABI_BASELINE pointing to an independently trusted
+# abi.lock (for example git show origin/abi7/integration:abi/abi.lock > /tmp/base.lock
+# before local edits). No baseline is inferred from the candidate checkout.
+#
 # Each step is a real command with its real exit code: a failing step is
 # listed in the summary and the script exits 1, whatever the output looked
 # like. RUSTFLAGS is `-D warnings` as in CI. A step whose tool is not
@@ -56,7 +60,7 @@ export CARGO_TERM_COLOR=never
 export CARGO_BUILD_JOBS="$jobs"
 export RUSTFLAGS="-D warnings"
 
-all_groups=(fmt lint test doc msrv screens sdk embedded native architecture emulator deny firmware android)
+all_groups=(fmt abi lint test doc msrv screens sdk embedded native architecture emulator deny firmware android)
 quick_groups=(fmt lint test)
 opt_groups=(firmware-build fuzz release-versions)
 
@@ -195,6 +199,12 @@ g_sdk() {
             skip "sdk: table-compat" "set TABLE_BASELINE=<tag or commit of the last interface raise>"
         fi
     fi
+}
+
+# Keep the baseline supplied independently by the caller. Missing input fails
+# through abi-check --ci; a candidate checkout is never its own reference.
+g_abi() {
+    run "abi: generated declarations and trusted baseline" "bash tools/abi-check.sh --ci"
 }
 
 g_embedded() {

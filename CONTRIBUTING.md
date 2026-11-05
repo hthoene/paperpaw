@@ -47,6 +47,13 @@ before 1.0.
    build, CodeQL. Run it before pushing a pull request: CI minutes are
    limited, and a draft pull request starts no CI jobs.
 
+   The full run includes the inactive stable ABI's `abi` group. Set
+   `ABI_BASELINE` to a lock file extracted from the independently reviewed PR
+   base commit before making local changes (`git show COMMIT:abi/abi.lock`).
+   The candidate's own lock is not a baseline. Missing baseline input fails
+   this group. GitHub CI extracts the lock from the PR base SHA, or the previous
+   commit for a push; a missing base lock fails rather than skipping the gate.
+
 3. Try your change in the emulator:
    `cargo run -p paperpaw-emulator -- --profile xteink-x4`.
    A change to what a screen shows is checked by the snapshot tests of
