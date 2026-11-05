@@ -82,6 +82,8 @@ waveform-lab = []
 # The frame test built in (`samples/frame-test`, ADR 0030), for measuring
 # frames a second, blits and the heap on the device: test builds only.
 frame-test = ["dep:paperpaw-sample-frame-test"]
+# #228 prototype (never merged): the flat plugin boundary and its bench.
+flat-proto = ["dep:paperpaw-flat-proto"]
 # Bluetooth Low Energy, included by x4-pro (`src/bluetooth.rs`, ADR 0027):
 # trouble-host on esp-radio's controller, beside Wi-Fi. The radio stays
 # off until requested; remotes remain manual by default while connected
@@ -103,6 +105,7 @@ paperpaw-app = { path = "../../crates/paperpaw-app", default-features = false, f
 # The sample that runs in real time (ADR 0030), built in for measuring:
 # feature `frame-test`, never in released firmware.
 paperpaw-sample-frame-test = { path = "../../samples/frame-test", optional = true }
+paperpaw-flat-proto = { path = "../../crates/paperpaw-flat-proto", optional = true }
 # Without `panes`: no Xteink screen is ever wide enough for two.
 paperpaw-core = { path = "../../crates/paperpaw-core", default-features = false }
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk", features = ["kernel"] }

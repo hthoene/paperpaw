@@ -29,6 +29,8 @@ compile_error!("Bluetooth is built for the X4 Pro alone (ADR 0027)");
 
 #[cfg(feature = "remote")]
 mod bench;
+#[cfg(feature = "flat-proto")]
+mod flat_proto;
 #[cfg(feature = "bluetooth")]
 mod bluetooth;
 #[cfg(feature = "x4")]
@@ -432,6 +434,8 @@ fn prepare() -> Ready {
     // What hot code in internal RAM gains on this chip (test builds).
     #[cfg(feature = "remote")]
     bench::run();
+    #[cfg(feature = "flat-proto")]
+    flat_proto::run();
     power::note_start();
     power::mark(power::at::START);
     let (place, naps, reason) = power::last_run();

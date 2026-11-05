@@ -1705,6 +1705,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-flat-proto"
+version = "0.6.0-beta.2"
+dependencies = [
+ "paperpaw-graphics",
+ "paperpaw-platform",
+ "paperpaw-sdk",
+ "paperpaw-text",
+]
+
+[[package]]
 name = "paperpaw-fontgen"
 version = "0.6.0-beta.2"
 dependencies = [
