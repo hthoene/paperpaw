@@ -46,6 +46,8 @@
 #[cfg(any(feature = "sync", feature = "async"))]
 pub mod embedded;
 mod options;
+/// Modified for PaperPaw: metadata recovery record codec.
+pub mod intent;
 pub use hadris_fat_raw::exfat::{Detail, Geometry};
 pub use hadris_fs::Guid;
 
