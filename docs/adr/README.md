@@ -39,6 +39,7 @@ is a new record that links back.
 | [0031](0031-developer-link.md) | A developer link over USB for plugins | Accepted; reserved, carried out later |
 | [0032](0032-writing-between-the-lines.md) | Writing between a book's lines | Accepted; annotations reserved, carried out later |
 | [0033](0033-catalogs-read-as-needed.md) | Catalogs on the card read as needed | Accepted (owner decision 40); amends interface 5 |
+| [0034](0034-stable-plugin-boundary.md) | The stable plugin boundary: one flat C table (interface 7) | Proposed (owner decision 122); supersedes the Rust-shaped crossing of [0024](0024-native-code-plugins.md) and the gate of [0026](0026-plugin-interface-version.md) |
 
 ## Template
 
