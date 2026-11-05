@@ -161,8 +161,20 @@ fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, P
             .open(&copy)
             .map_err(|_| PluginProblem::Damaged)?;
         std::io::Write::write_all(&mut file, &bytes).map_err(|_| PluginProblem::Damaged)?;
+        // Written once: read-only from here on.
+        let mut permissions = file
+            .metadata()
+            .map_err(|_| PluginProblem::Damaged)?
+            .permissions();
+        permissions.set_readonly(true);
+        file.set_permissions(permissions)
+            .map_err(|_| PluginProblem::Damaged)?;
     }
-    let copied = std::fs::read(&copy).map_err(|_| PluginProblem::Damaged)?;
+    // Opened once: what is read, checked and loaded is this one file, not
+    // whatever the name leads to at the moment of loading (ADR 0034 section 6).
+    let mut copy_file = std::fs::File::open(&copy).map_err(|_| PluginProblem::Damaged)?;
+    let mut copied = Vec::new();
+    std::io::Read::read_to_end(&mut copy_file, &mut copied).map_err(|_| PluginProblem::Damaged)?;
     if paperpaw_core::sdk::digest::sha256::digest(&copied) != code.sha256 {
         return Err(PluginProblem::Changed);
     }
@@ -182,7 +194,9 @@ fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, P
     // SAFETY: a file the reader installed on the card (`trust`), its
     // SHA-256 the one installed; a code plugin runs as part of
     // PaperPaw, without a sandbox (ADR 0024).
-    let library = unsafe { libloading::Library::new(&copy) }.map_err(|_| PluginProblem::Damaged)?;
+    let library = unsafe { libloading::Library::new(load_path(&copy, &copy_file)) }
+        .map_err(|_| PluginProblem::Damaged)?;
+    drop(copy_file);
     // SAFETY: the statics `plugin!` exports, of these types.
     let (slot, entry) = unsafe {
         let slot = library
@@ -222,6 +236,21 @@ fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, P
     // is in use.
     std::mem::forget(library);
     Ok(plugin)
+}
+
+/// What the system loader is given to load the checked file: on Linux the
+/// open file itself (`/proc/self/fd/N`), so a name that now leads elsewhere
+/// changes nothing; elsewhere its path.
+#[cfg(target_os = "linux")]
+fn load_path(_path: &std::path::Path, file: &std::fs::File) -> std::path::PathBuf {
+    use std::os::fd::AsRawFd;
+    std::path::PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()))
+}
+
+/// See the Linux version: the path, until the other platforms hold the file.
+#[cfg(not(target_os = "linux"))]
+fn load_path(path: &std::path::Path, _file: &std::fs::File) -> std::path::PathBuf {
+    path.to_path_buf()
 }
 
 /// The preflight of ADR 0034 section 6 for this computer's libraries:
@@ -480,6 +509,13 @@ static INIT: extern "C" fn() = make_marker;
         // SAFETY: a library built here, whose only code is the marker.
         drop(unsafe { libloading::Library::new(&lib) }.unwrap());
         assert!(marker.exists(), "the fixture does not run an initialiser");
+        std::fs::remove_file(&marker).unwrap();
+        // The same through the open file (`/proc/self/fd/N`), as the loader
+        // loads what it checked: the system loader accepts that path.
+        let file = std::fs::File::open(&lib).unwrap();
+        // SAFETY: as above.
+        drop(unsafe { libloading::Library::new(load_path(&lib, &file)) }.unwrap());
+        assert!(marker.exists(), "the open file was not loaded");
         std::fs::remove_file(&marker).unwrap();
         // The loader refuses it and never loads it.
         let bytes = std::fs::read(&lib).unwrap();

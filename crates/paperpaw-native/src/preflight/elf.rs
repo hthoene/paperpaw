@@ -20,6 +20,7 @@ const DT_SYMTAB: i64 = 6;
 const DT_RELA: i64 = 7;
 const DT_RELASZ: i64 = 8;
 const DT_SYMENT: i64 = 11;
+const DT_PLTREL: i64 = 20;
 const DT_INIT: i64 = 12;
 const DT_FINI: i64 = 13;
 const DT_RPATH: i64 = 15;
@@ -80,6 +81,7 @@ struct Load {
     vaddr: u64,
     offset: u64,
     filesz: u64,
+    memsz: u64,
 }
 
 /// The file offset of virtual address `vaddr`, if a loadable segment
@@ -97,6 +99,20 @@ fn offset_of(loads: &[Option<Load>], vaddr: u64, len: u64) -> Result<usize, Refu
 
 /// At most this many loadable segments are read; more is refused.
 const MAX_LOADS: usize = 16;
+
+/// Refuses loadable segments whose address ranges overlap.
+fn check_no_overlap(loads: &[Option<Load>]) -> Result<(), Refusal> {
+    for (i, a) in loads.iter().flatten().enumerate() {
+        let a_end = a.vaddr.checked_add(a.memsz).ok_or(Refusal::Truncated)?;
+        for b in loads.iter().flatten().skip(i + 1) {
+            let b_end = b.vaddr.checked_add(b.memsz).ok_or(Refusal::Truncated)?;
+            if a.vaddr < b_end && b.vaddr < a_end && a.memsz != 0 && b.memsz != 0 {
+                return Err(Refusal::NotSupported);
+            }
+        }
+    }
+    Ok(())
+}
 
 /// Checks `bytes`, a little-endian 64-bit ELF shared object built for
 /// `machine` (`EM_X86_64` 62 or `EM_AARCH64` 183), for every way to run
@@ -130,20 +146,25 @@ pub fn check_elf64_le(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
     let phnum = usize::from(u16_at(bytes, 56)?);
     let mut loads = [None; MAX_LOADS];
     let mut n_loads = 0;
-    let mut dynamic: Option<(usize, usize)> = None;
+    let mut dynamic: Option<(u64, u64, u64)> = None;
     for i in 0..phnum {
         let at = phoff.checked_add(i * PHENT).ok_or(Refusal::Truncated)?;
         let kind = u32_at(bytes, at)?;
         let offset = u64_at(bytes, at + 8)?;
         let vaddr = u64_at(bytes, at + 16)?;
         let filesz = u64_at(bytes, at + 32)?;
+        let memsz = u64_at(bytes, at + 40)?;
         match kind {
             PT_LOAD => {
+                if memsz < filesz {
+                    return Err(Refusal::NotSupported);
+                }
                 let slot = loads.get_mut(n_loads).ok_or(Refusal::NotSupported)?;
                 *slot = Some(Load {
                     vaddr,
                     offset,
                     filesz,
+                    memsz,
                 });
                 n_loads += 1;
                 let end = offset.checked_add(filesz).ok_or(Refusal::Truncated)?;
@@ -155,13 +176,23 @@ pub fn check_elf64_le(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
                 if dynamic.is_some() {
                     return Err(Refusal::NotSupported);
                 }
-                dynamic = Some((to_usize(offset)?, to_usize(filesz)?));
+                dynamic = Some((offset, vaddr, filesz));
             }
             PT_TLS => return Err(Refusal::RunsCodeAtLoad("thread-local storage")),
             _ => {}
         }
     }
-    let (dyn_at, dyn_len) = dynamic.ok_or(Refusal::NotSupported)?;
+    // Two segments that share addresses would let the file say one thing
+    // here and the system loader map another.
+    check_no_overlap(&loads[..n_loads])?;
+    // The dynamic section is found as the system loader finds it, through the
+    // address mapping; the program header's own file offset must agree.
+    let (dyn_offset, dyn_vaddr, dyn_filesz) = dynamic.ok_or(Refusal::NotSupported)?;
+    let dyn_at = offset_of(&loads, dyn_vaddr, dyn_filesz)?;
+    if dyn_at != to_usize(dyn_offset)? {
+        return Err(Refusal::NotSupported);
+    }
+    let dyn_len = to_usize(dyn_filesz)?;
     let dyn_end = dyn_at.checked_add(dyn_len).ok_or(Refusal::Truncated)?;
     if dyn_end > bytes.len() {
         return Err(Refusal::Truncated);
@@ -188,6 +219,10 @@ pub fn check_elf64_le(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
         check_needed(bytes, &loads, dyn_at, dyn_end, &d)?;
     }
     check_relocations(bytes, &loads, machine, d.rela, d.relasz)?;
+    // The jump-slot table is read as `Rela` entries only where it says so.
+    if d.jmprel.is_some() && d.pltrelsz != 0 && d.pltrel != Some(DT_RELA as u64) {
+        return Err(Refusal::NotSupported);
+    }
     check_relocations(bytes, &loads, machine, d.jmprel, d.pltrelsz)?;
     check_symbols(bytes, &loads, &d)
 }
@@ -204,6 +239,7 @@ struct Dyn {
     relasz: u64,
     jmprel: Option<u64>,
     pltrelsz: u64,
+    pltrel: Option<u64>,
     init_arraysz: u64,
     fini_arraysz: u64,
     preinit_arraysz: u64,
@@ -237,6 +273,7 @@ impl Dyn {
             DT_RELASZ => self.relasz = val,
             DT_JMPREL => self.jmprel = Some(val),
             DT_PLTRELSZ => self.pltrelsz = val,
+            DT_PLTREL => self.pltrel = Some(val),
             DT_INIT_ARRAYSZ => self.init_arraysz = val,
             DT_FINI_ARRAYSZ => self.fini_arraysz = val,
             DT_PREINIT_ARRAYSZ => self.preinit_arraysz = val,

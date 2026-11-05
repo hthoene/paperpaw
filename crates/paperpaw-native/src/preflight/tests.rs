@@ -21,6 +21,12 @@ struct Spec {
     irelative: bool,
     irelative_in_jmprel: bool,
     gnu_hash: bool,
+    /// A second loadable segment over the first one's addresses.
+    overlapping_load: bool,
+    /// The dynamic segment's file offset is not where its address maps.
+    skewed_dynamic: bool,
+    /// The jump-slot table claims `Rel` entries (DT_PLTREL = 17).
+    pltrel_rel: bool,
 }
 
 fn put16(v: &mut Vec<u8>, x: u16) {
@@ -54,11 +60,16 @@ fn header(f: &mut Vec<u8>, machine: u16, nph: usize) {
 
 /// One program header whose memory address is its file offset.
 fn phdr(f: &mut Vec<u8>, kind: u32, off: u64, size: u64) {
+    phdr_at(f, kind, off, off, size);
+}
+
+/// One program header at file offset `off`, memory address `vaddr`.
+fn phdr_at(f: &mut Vec<u8>, kind: u32, off: u64, vaddr: u64, size: u64) {
     put32(f, kind);
     put32(f, 5);
     put64(f, off);
-    put64(f, off);
-    put64(f, off);
+    put64(f, vaddr);
+    put64(f, vaddr);
     put64(f, size);
     put64(f, size);
     put64(f, 8);
@@ -66,7 +77,7 @@ fn phdr(f: &mut Vec<u8>, kind: u32, off: u64, size: u64) {
 
 /// A shared object whose single `PT_LOAD` maps the file at its own offsets.
 fn build(spec: &Spec) -> Vec<u8> {
-    let nph: usize = 2 + usize::from(spec.tls);
+    let nph: usize = 2 + usize::from(spec.tls) + usize::from(spec.overlapping_load);
     let after_ph = 64 + nph * 56;
     // string table: "\0" + needed names + "sym\0"
     let mut strtab = std::vec![0u8];
@@ -108,6 +119,7 @@ fn build(spec: &Spec) -> Vec<u8> {
     if spec.irelative_in_jmprel {
         dynv.push((23, jmprel_at as u64));
         dynv.push((2, 24));
+        dynv.push((20, if spec.pltrel_rel { 17 } else { 7 }));
     }
     dynv.extend(spec.extra_dyn.iter().copied());
     dynv.push((0, 0));
@@ -116,7 +128,20 @@ fn build(spec: &Spec) -> Vec<u8> {
     let mut f = Vec::new();
     header(&mut f, spec.machine, nph);
     phdr(&mut f, 1, 0, total as u64); // PT_LOAD over the whole file
-    phdr(&mut f, 2, dyn_at as u64, (dynv.len() * 16) as u64);
+    if spec.skewed_dynamic {
+        phdr_at(
+            &mut f,
+            2,
+            dyn_at as u64,
+            dyn_at as u64 - 16,
+            (dynv.len() * 16) as u64,
+        );
+    } else {
+        phdr(&mut f, 2, dyn_at as u64, (dynv.len() * 16) as u64);
+    }
+    if spec.overlapping_load {
+        phdr(&mut f, 1, 0, 64);
+    }
     if spec.tls {
         phdr(&mut f, 7, 0, 8);
     }
@@ -263,6 +288,41 @@ fn every_way_to_run_code_at_load_is_refused() {
                 ..plain(machine)
             },
             "an IFUNC relocation",
+        );
+    }
+}
+
+#[test]
+fn files_the_checker_and_the_system_loader_could_read_differently_are_refused() {
+    let machine = X86;
+    for (what, spec) in [
+        (
+            "overlapping segments",
+            Spec {
+                overlapping_load: true,
+                ..plain(machine)
+            },
+        ),
+        (
+            "a dynamic segment away from its address",
+            Spec {
+                skewed_dynamic: true,
+                ..plain(machine)
+            },
+        ),
+        (
+            "jump slots that are not Rela",
+            Spec {
+                irelative_in_jmprel: true,
+                pltrel_rel: true,
+                ..plain(machine)
+            },
+        ),
+    ] {
+        assert_eq!(
+            check_elf64_le(&build(&spec), machine),
+            Err(Refusal::NotSupported),
+            "{what}"
         );
     }
 }
