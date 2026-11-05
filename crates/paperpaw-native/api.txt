@@ -54,6 +54,12 @@ pub paperpaw_native::host_glue::PpBuffer::ptr: *mut u8
 #[repr(C)] pub struct paperpaw_native::host_glue::PpBytes
 pub paperpaw_native::host_glue::PpBytes::len: usize
 pub paperpaw_native::host_glue::PpBytes::ptr: *const u8
+#[repr(C)] pub struct paperpaw_native::host_glue::PpEntry
+pub paperpaw_native::host_glue::PpEntry::abi_major: u16
+pub paperpaw_native::host_glue::PpEntry::make: core::option::Option<fn(*const paperpaw_native::host_glue::PpHost, *mut core::ffi::c_void, *mut *const paperpaw_native::host_glue::PpPlugin) -> i32>
+pub paperpaw_native::host_glue::PpEntry::metadata: paperpaw_native::host_glue::PpBytes
+pub paperpaw_native::host_glue::PpEntry::needs_minor: u16
+pub paperpaw_native::host_glue::PpEntry::size: u32
 #[repr(C)] pub struct paperpaw_native::host_glue::PpHost
 pub paperpaw_native::host_glue::PpHost::blob_read: fn(*mut core::ffi::c_void, u32, u64, paperpaw_native::host_glue::PpBuffer) -> i32
 pub paperpaw_native::host_glue::PpHost::blob_release: fn(*mut core::ffi::c_void, u32) -> i32
@@ -78,10 +84,15 @@ pub paperpaw_native::host_glue::PpHost::settings_read: fn(*mut core::ffi::c_void
 pub paperpaw_native::host_glue::PpHost::size: u32
 pub paperpaw_native::host_glue::PpHost::text_draw: fn(*mut core::ffi::c_void, u32, f32, f32, i32, u32, paperpaw_native::host_glue::PpBytes, *mut f32) -> i32
 pub paperpaw_native::host_glue::PpHost::text_measure: fn(*mut core::ffi::c_void, u32, f32, paperpaw_native::host_glue::PpBytes, *mut f32) -> i32
+#[repr(C)] pub struct paperpaw_native::host_glue::PpPlugin
+pub paperpaw_native::host_glue::PpPlugin::drop: core::option::Option<fn(*mut core::ffi::c_void)>
+pub paperpaw_native::host_glue::PpPlugin::size: u32
+pub paperpaw_native::host_glue::PpPlugin::state: *mut core::ffi::c_void
 #[non_exhaustive] pub struct paperpaw_native::host_glue::ShellCtx<'a>
 pub paperpaw_native::host_glue::ShellCtx::services: &'a dyn paperpaw_native::host_glue::Services
 impl<'a> paperpaw_native::host_glue::ShellCtx<'a>
 pub const fn paperpaw_native::host_glue::ShellCtx<'a>::new(&'a dyn paperpaw_native::host_glue::Services) -> Self
+pub const paperpaw_native::host_glue::ENTRY_SYMBOL: &str
 pub const paperpaw_native::host_glue::ERR_BUSY: i32
 pub const paperpaw_native::host_glue::ERR_CANCELLED: i32
 pub const paperpaw_native::host_glue::ERR_INVALID: i32
@@ -93,6 +104,7 @@ pub const paperpaw_native::host_glue::ERR_UNSUPPORTED: i32
 pub const paperpaw_native::host_glue::ERR_UTF8: i32
 pub const paperpaw_native::host_glue::MAJOR: u16
 pub const paperpaw_native::host_glue::MAX_ALIGN: usize
+pub const paperpaw_native::host_glue::METADATA_SYMBOL: &str
 pub const paperpaw_native::host_glue::MINOR: u16
 pub const paperpaw_native::host_glue::OK: i32
 pub trait paperpaw_native::host_glue::Services
@@ -164,7 +176,11 @@ pub paperpaw_native::preflight::Refusal::Strings
 pub paperpaw_native::preflight::Refusal::Symbols
 pub paperpaw_native::preflight::Refusal::Truncated
 pub paperpaw_native::preflight::Refusal::UnsupportedPlatform
+pub struct paperpaw_native::preflight::DataExport<'a>
+pub paperpaw_native::preflight::DataExport::address: u64
+pub paperpaw_native::preflight::DataExport::bytes: &'a [u8]
 pub fn paperpaw_native::preflight::check_elf64_le(&[u8], u16) -> core::result::Result<(), paperpaw_native::preflight::Refusal>
+pub fn paperpaw_native::preflight::data_export<'a>(&'a [u8], u16, &str, bool) -> core::result::Result<paperpaw_native::preflight::DataExport<'a>, paperpaw_native::preflight::Refusal>
 pub mod paperpaw_native::signature
 pub struct paperpaw_native::signature::BadSignature
 impl core::error::Error for paperpaw_native::signature::BadSignature
