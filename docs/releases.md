@@ -7,8 +7,12 @@ not mean its SDK and plugin crates are available to plugin authors.
 
 ## Before the tag
 
-1. Set the workspace version, the Android version code and the CHANGELOG
-   section. Every plugin has its own version: change its manifest, the
+1. Set the workspace version and the Android version code. Run
+   `python3 tools/changelog.py collect --version <version>` on the release
+   preparation branch and review the dated `CHANGELOG.md` section and
+   consumed fragments together, as [RELEASING.md](../RELEASING.md) describes.
+   `python3 tools/changelog.py check --release` must pass before tagging.
+   Every plugin has its own version: change its manifest, the
    workspace requirement and the lockfiles when its package sources
    changed. This applies to built-in plugins as well as store plugins.
    A source refactor or changed package resource needs a new crate

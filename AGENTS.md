@@ -6,7 +6,7 @@ There are two kinds of work here; tell which one a task is.
   its own plugins in `plugins/`. Follow [CONTRIBUTING.md](CONTRIBUTING.md):
   its architecture rules and the checks to run. Put a change at the
   layer where it belongs; when a plugin cannot do something well, extend
-  the SDK (with its API file and CHANGELOG brought up to date) rather
+  the SDK (with its API file and a changelog fragment) rather
   than working around it in the plugin. For SDK changes, follow
   [docs/sdk-design.md](docs/sdk-design.md).
 - **A plugin for PaperPaw as it is**, written outside the project without
@@ -22,6 +22,12 @@ are limited. See CONTRIBUTING.md.
 
 [docs/plugins.md](docs/plugins.md) explains how plugins are written, for
 both.
+
+For every user-visible change, add a uniquely named fragment in
+`changelog.d/` as [its README](changelog.d/README.md) describes. Do not edit
+`CHANGELOG.md` in ordinary PRs; release preparation collects the fragments.
+For a change without a visible effect, use a `No-changelog: <reason>`
+trailer on the head commit. Documentation-only PRs are exempt.
 
 Where a task falls into parts that do not depend on each other (a new
 module, a plugin, documentation, tests beside an API that is settled),

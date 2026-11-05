@@ -45,7 +45,8 @@ before 1.0.
    Not run there: the Xtensa firmware (X4 Pro, X4 Classic), the Windows and
    macOS emulators, the update path, the Android APK, the reproducible
    build, CodeQL. Run it before pushing a pull request: CI minutes are
-   limited, and a draft pull request starts no CI jobs.
+   limited, and a draft pull request skips full CI; the lightweight
+   changelog check still runs.
 
 3. Try your change in the emulator:
    `cargo run -p paperpaw-emulator -- --profile xteink-x4`.
@@ -254,6 +255,15 @@ where the specifications come from and mark values you could not verify.
 
 ## Commits and pull requests
 
+- Add a [changelog fragment](changelog.d/README.md) for each change readers
+  or plugin authors can see, rather than editing `CHANGELOG.md`. Run
+  `python3 tools/changelog.py check`; after committing, pass
+  `--base origin/main` to check the PR diff. If no entry is needed, put
+  `No-changelog: <reason>` in the head commit's trailer block.
+  Documentation-only PRs are exempt. A lightweight PR workflow checks
+  this even for drafts and fragment-only changes; full CI still skips
+  documentation and fragment-only PRs. Only release preparation collects
+  entries, as [RELEASING.md](RELEASING.md) describes.
 - Use [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:` …), with an
   optional scope such as `feat(sdk): …`.
