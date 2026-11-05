@@ -12,7 +12,7 @@ use common::*;
 use paperpaw_i18n::{Arg, Catalog, MAX_READ};
 use paperpaw_sdk::builtin::fonts;
 
-const SOURCE: &str = include_str!("../../../tools/plugin-files/languages/pt-br.ini");
+const SOURCE: &str = include_str!("../../../tools/plugin-files/languages/pt-BR.ini");
 const LANGUAGE: &str = "pt-BR";
 const PLUGIN: &str = "language-pt-br";
 
@@ -37,7 +37,7 @@ fn card() -> Shared {
         &format!("[core]\nlanguage = {LANGUAGE}\n[help]\nshow = false\n"),
         &[
             (&format!("plugins/{PLUGIN}/plugin.ini"), manifest.as_bytes()),
-            (&format!("plugins/{PLUGIN}/i18n/pt-br.ppcat"), &compiled),
+            (&format!("plugins/{PLUGIN}/i18n/pt-BR.ppcat"), &compiled),
         ],
     )
 }
