@@ -3,6 +3,7 @@ mod calls;
 mod context;
 mod graphics;
 mod handles;
+mod lifecycle;
 mod queries;
 #[allow(
     clippy::all,
