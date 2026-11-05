@@ -24,13 +24,14 @@
 
 extern crate alloc;
 
+#[cfg(all(feature = "textprobe", not(feature = "x4")))]
+compile_error!("textprobe is restricted to the X4 ESP32-C3 test build");
+
 #[cfg(all(feature = "bluetooth", not(feature = "x4-pro")))]
 compile_error!("Bluetooth is built for the X4 Pro alone (ADR 0027)");
 
 #[cfg(feature = "remote")]
 mod bench;
-#[cfg(feature = "textprobe")]
-mod textprobe;
 #[cfg(feature = "bluetooth")]
 mod bluetooth;
 #[cfg(feature = "x4")]
@@ -80,6 +81,8 @@ mod serve;
 mod sockets;
 mod stack;
 mod startup;
+#[cfg(feature = "textprobe")]
+mod textprobe;
 mod tls;
 mod tls_slots;
 #[cfg(feature = "remote")]

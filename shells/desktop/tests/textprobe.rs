@@ -121,3 +121,6 @@ fn real_stored_control_has_covered_glyphs_and_visible_output() {
     assert!(advance > 0.0);
     assert!(frame.view().data.iter().any(|&byte| byte != 0));
 }
+
+#[path = "../../xteink/src/textprobe/stack_scope.rs"]
+mod stack_scope;

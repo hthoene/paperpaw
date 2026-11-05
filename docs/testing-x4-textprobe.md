@@ -108,9 +108,35 @@ qualification. The input is never reduced or split to obtain a passing result.
 
 ## Open qualification gates
 
-The initial harness reports stack watermark **since boot**. It does not establish
-a <=512-byte added boundary stack delta. Separate scoped-stack instrumentation
-is under development and requires review before that capability can be claimed.
+The test now allocates a separate 24 KiB painted stack with two 64-byte software
+guards: 24704 requested heap bytes, 16-byte alignment. The stack is allocated
+before font setup and its actual heap charge is reported separately. It remains
+in absolute heap baseline; do not silently subtract it from whole-runtime gates.
+The RISC-V C-ABI trampoline preserves the old SP/RA and returns before normal
+scheduling resumes. Every fixed draw runs with interrupts masked because
+esp-rtos validates the registered task stack when scheduling. No SD, blocking,
+yield, enabled IRQs, unwinding or arbitrary callback/plugin is permitted.
+
+Admission now makes a **real fallible 96 KiB, four-byte-aligned allocation**, then
+releases it before measurement within the same critical section as the callback.
+It is not held during drawing, so it does not add a duplicate 96 KiB to the
+measured baseline. Used bytes must return exactly to the pre-reservation value.
+The allocation/free can affect fragmentation; allocator coalescing and the
+fixed-asset traffic argument need independent review. The requested/charged
+reserve and released flag are reported. This is stronger than a size query but
+still depends on target layout attestation. Reserve/probe traffic is excluded
+from scoped and independent lifetime test peaks as diagnostic activity.
+
+STACK records contain dedicated total/unused/used, guard validity, admission
+charge and IRQ-masked body duration. WARMUP records report each warmup's duration
+and stack use. The elapsed draw clock runs inside the dedicated callback; IRQ
+body duration also includes admission, paint and scope bookkeeping. Software
+guards are diagnostics, not overflow protection. Paint reports touched depth,
+not exact minimum SP or unwritten reserved frames; paired <=512B claims need
+review of this limitation and matching control. Since-boot stack remains in
+BEFORE/AFTER separately. A >=10 KiB painted unused margin is required after
+every warmup/sample. No hardware timing/depth has been measured yet.
+
 The esp-alloc hook does not expose request alignment; it is unsupported. The
 font describing flag is exercised, but semantic sink hashes are unsupported.
 LIMITS carries explicit unsupported markers. Do not replace those with zero.
