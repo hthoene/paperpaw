@@ -654,6 +654,7 @@ fn check_symbols(
 
 /// A defined global data export, found through the dynamic tables.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct DataExport<'a> {
     /// Unrelocated bytes from the checked file.
     pub bytes: &'a [u8],

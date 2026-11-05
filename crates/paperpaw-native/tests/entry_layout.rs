@@ -5,8 +5,9 @@
     dead_code,
     reason = "probe includes the complete packaged ABI declarations"
 )]
-#[path = "../src/host_glue/paperpaw_abi.rs"]
-mod raw;
+mod raw {
+    include!("../src/host_glue/paperpaw_abi.rs");
+}
 
 use core::ffi::c_void;
 use core::mem::{align_of, offset_of, size_of};

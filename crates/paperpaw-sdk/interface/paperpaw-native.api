@@ -176,7 +176,7 @@ pub paperpaw_native::preflight::Refusal::Strings
 pub paperpaw_native::preflight::Refusal::Symbols
 pub paperpaw_native::preflight::Refusal::Truncated
 pub paperpaw_native::preflight::Refusal::UnsupportedPlatform
-pub struct paperpaw_native::preflight::DataExport<'a>
+#[non_exhaustive] pub struct paperpaw_native::preflight::DataExport<'a>
 pub paperpaw_native::preflight::DataExport::address: u64
 pub paperpaw_native::preflight::DataExport::bytes: &'a [u8]
 pub fn paperpaw_native::preflight::check_elf64_le(&[u8], u16) -> core::result::Result<(), paperpaw_native::preflight::Refusal>
