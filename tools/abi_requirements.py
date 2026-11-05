@@ -40,7 +40,7 @@ def required_minor(schema, used, floor):
     """Return the maximum floor and referenced declaration ``since`` values.
 
     ``used`` must be a list of exact objects: ``{kind: 'host', name: ...}``,
-    ``{kind: 'record', name: ...}``, or
+    ``{kind: 'record', name: ...}``, ``{kind: 'callback', name: ...}``, or
     ``{kind: 'field', record: ..., name: ...}``. Names match the schema
     exactly. A field also requires its enclosing record's minor. A record
     requirement alone does not require every field added later.
@@ -63,6 +63,7 @@ def required_minor(schema, used, floor):
     fields = {name: _index(record.get('fields'), f'field in {name}', minor)
               for name, record in records.items()}
     shapes = {'host': {'kind', 'name'}, 'record': {'kind', 'name'},
+              'callback': {'kind', 'name'},
               'field': {'kind', 'record', 'name'}}
     seen = set()
     required = floor
@@ -74,7 +75,20 @@ def required_minor(schema, used, floor):
             raise ValueError(f'unknown requirement kind: {kind!r}')
         if set(item) != shapes[kind]:
             raise ValueError(f'{kind} requirement needs exactly {sorted(shapes[kind])}')
-        if kind == 'field':
+        if kind == 'callback':
+            contract = schema.get('entry_contract')
+            if type(contract) is not dict:
+                raise ValueError('callback needs entry contract')
+            tables = _index(contract.get('tables'), 'entry table', minor)
+            table = _lookup(tables, 'PpPlugin', 'entry table')
+            callbacks = _index(table.get('fields'), 'plugin callback', minor)
+            declaration = _lookup(callbacks, item['name'], 'plugin callback')
+            if 'callback' not in declaration:
+                raise ValueError('requirement does not name a callback')
+            required = max(required, table['since'],
+                           _integer(contract.get('since'), 'entry since', minor, 1))
+            identity = (kind, item['name'])
+        elif kind == 'field':
             record = _lookup(records, item['record'], 'record')
             declaration = _lookup(fields[item['record']], item['name'], 'field')
             required = max(required, record['since'])

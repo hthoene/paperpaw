@@ -79,6 +79,8 @@ remote = [
 # X4's panel is driven, with other waveforms than the stock ones. The X4
 # only; developer builds.
 waveform-lab = []
+# Scoped slot14 qualification only; not included in any release/default build.
+textprobe = ["remote", "dep:paperpaw-text"]
 # The frame test built in (`samples/frame-test`, ADR 0030), for measuring
 # frames a second, blits and the heap on the device: test builds only.
 frame-test = ["dep:paperpaw-sample-frame-test"]
@@ -99,6 +101,7 @@ bluetooth = [
 ]
 
 [dependencies]
+paperpaw-text = { path = "../../crates/paperpaw-text", optional = true }
 paperpaw-app = { path = "../../crates/paperpaw-app", default-features = false, features = ["packs"] }
 # The sample that runs in real time (ADR 0030), built in for measuring:
 # feature `frame-test`, never in released firmware.
