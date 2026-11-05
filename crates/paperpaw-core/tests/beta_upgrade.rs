@@ -130,7 +130,7 @@ fn header(interface: u16) -> Header {
         api: 32,
         relocs: 0,
         align: 16,
-        compiler: 0,
+        compiler: paperpaw_native::compiler::id("1.99.0"),
         hot_at: 0,
         hot_len: 0,
         patches: 0,
@@ -149,7 +149,7 @@ fn interface_five_is_refused_without_discarding_it_and_interface_six_stays_eligi
     for interface in [5, 6] {
         let header = header(interface);
         let bytes = header.to_bytes();
-        assert!(Header::read(&bytes).is_ok());
+        assert_eq!(Header::read(&bytes), Ok(header));
         let storage = storage().with(PLUGIN_FILE, bytes.to_vec());
         assert_eq!(code_to_load(&storage, &native), interface == 6);
         assert_eq!(
