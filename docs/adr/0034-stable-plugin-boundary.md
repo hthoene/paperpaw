@@ -662,23 +662,38 @@ what, where, commit and number.
   orders, interleaved; the prototype's measured values are the baseline, device
   timing of #228, queue677):
 
-  | Call class | Prototype (extra over the direct path) | Gate |
+  | Call class | Prototype, extra over the direct path (v3/v4 runs) | Gate |
   |---|---|---|
-  | Small drawing call (rect, line; round shapes not yet measured) | +0.06 us per call (rect 0.5 %, line 0.0 %) | within 2 % |
-  | Text call (measure, draw) | measure +4.1 us, draw +5.35 us per call (1.5 %, 1.4 %) | within 3 % and at most +5 us |
-  | Event in, command out (`deliver`) | +1.7 us per call (+36 %) | at most +1 us per call |
-  | A whole widget (the Battery widget: 3 text calls, 4 round shapes, bolt rows) | +202 us (+11 %) | within 3 % and at most +60 us |
+  | Small drawing call (rect, line, round shapes) | rect +0.05 us (0.5 %), line +0.05 us, fill_round and stroke_round within +-0.05 us (0.0 %) | within 2 % |
+  | Text call (measure, draw), fixed-point arguments | measure +4.1 us, draw +5.3 to +5.6 us (1.5 %, 1.4 %); big text +4.1 to +6 us (+6 to +8 %) | within 3 % and at most +5 us |
+  | Text call, C `float` arguments (the ADR's design) | measure +1.55 us (+0.6 %), draw +1.1 to +1.7 us (+0.3 to +0.4 %) | within 3 % and at most +5 us |
+  | Event in, command out (`deliver`) | +1.68 us (+36 %); without zeroing the buffer +1.08 us | at most +1 us per call |
+  | A whole widget (the Battery widget: 74 calls, of them 2 text and 1 measure) | fixed-point text +61 us (+3.4 %); C-float text -16 to -40 us (-0.9 to -2.2 %); shapes alone +4 us (+0.3 %) | within 3 % and at most +60 us |
   | Whole screen of widgets | not measured | at most +1 ms against the ~500 ms e-ink refresh |
 
   Where a row gives both a percentage and an absolute limit, **both** must hold; every
   miss means M1 does not pass. The absolute limit matters most for small calls, where a
   percentage of a tiny base hides the cost, and the percentage for large calls. Only a
   miss by more than half again is an escalation that stops M1 and goes to the owner
-  (see below). The prototype's `text_draw` (+5.35 us) already misses its absolute
-  limit by a little; the round shapes are measured only in the v3 run. Causes known so far: the prototype's `deliver` copies the
-  reply twice and zeroes a 96 byte buffer (the design decodes in place from a
-  call-scoped view and uses a caller-provided output); the text and widget overhead
-  is being broken down by call class and is the first thing the M1 slice re-measures.
+  (see below).
+
+  What the four device runs (X4, three boots each, both orders and interleaved) show:
+  the order of the two paths does not change a call-level difference (within 0.3 us);
+  the table crossing itself costs about 0.05 us per call; the whole text overhead of
+  the fixed-point prototype comes from converting to and from fixed point (soft float
+  on the C3) and is gone with C `float` arguments; the widget's shapes add +4 us in
+  total. The `deliver` prototype spends 0.60 us zeroing a 96 byte buffer and 0.85 us
+  checking UTF-8 before it copies into a `String`; without the zeroing it is still
+  +1.08 us, so the +1 us gate for `deliver` is **not yet shown to be reachable**: the
+  design (decode in place, caller-provided output, no copy for text that is not kept)
+  must show it in M1, or the gate is reset by the owner on that evidence. For
+  scale: one extra microsecond per event is below 0.001 % of an e-ink refresh.
+  Caveat for the widget row: the same Rust widget measured 1,701 us in the v3 image and
+  1,807 us in the v4 image, so code placement alone moves a widget by about 100 us;
+  a widget gate is therefore decided on at least two images, not one. Big-text
+  figures depend on the glyph cache state (the interleaved run differs from the
+  sequential ones by up to 7 us) and are indicative only. The M1 slice re-measures
+  all rows on the real loader.
 - **Memory.** Heap peak at home, in the reader on a 100-page chapter, and during a
   plugin update within +4 KiB of main; retained heap for handles and the token
   tables under 2 KiB for 43 plugins; stack depth of the deepest call within +512
