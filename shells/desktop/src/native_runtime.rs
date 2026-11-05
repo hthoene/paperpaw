@@ -125,6 +125,44 @@ pub unsafe fn load(
     digest: &[u8; 32],
     host: &'static DesktopHost,
 ) -> Result<LoadedPlugin, RuntimeError> {
+    // SAFETY: the same authorization and immutable-file contract applies.
+    let CheckedLibrary { library, make } = unsafe { checked_library(path, digest, host.table()) }?;
+    let mut out = ptr::null();
+    // SAFETY: table and context outlive the plugin; output storage is writable.
+    let status = unsafe { make(host.table(), host.ctx(), &mut out) };
+    if status != OK {
+        return Err(RuntimeError::Factory(status));
+    }
+    if out.is_null() || !(out as usize).is_multiple_of(align_of::<PpPlugin>()) {
+        return Err(RuntimeError::Plugin);
+    }
+    // SAFETY: successful factory supplies a live, readable size prefix.
+    if unsafe { out.cast::<u32>().read() } < size_of::<PpPlugin>() as u32 {
+        return Err(RuntimeError::Plugin);
+    }
+    // SAFETY: a current table is accessible as its size declares.
+    let plugin = unsafe { &*out };
+    Ok(LoadedPlugin {
+        state: plugin.state,
+        destroy: plugin.drop.ok_or(RuntimeError::Plugin)?,
+        _library: library,
+        _host: host,
+    })
+}
+
+type Make = unsafe extern "C" fn(*const PpHost, *mut c_void, *mut *const PpPlugin) -> i32;
+
+struct CheckedLibrary {
+    library: HeldLibrary,
+    make: Make,
+}
+
+// SAFETY requirements match load: authorized code and immutable checked inode.
+unsafe fn checked_library(
+    path: &Path,
+    digest: &[u8; 32],
+    host: &PpHost,
+) -> Result<CheckedLibrary, RuntimeError> {
     let mut file = std::fs::File::open(path).map_err(|_| RuntimeError::File)?;
     let mut bytes = Vec::new();
     // Bound allocations even for a malformed or replaced input file.
@@ -138,7 +176,7 @@ pub unsafe fn load(
     }
     let locator =
         data_export(&bytes, 62, METADATA_SYMBOL, true).map_err(|_| RuntimeError::Export)?;
-    let minor = metadata(locator.bytes, host.table())?;
+    let minor = metadata(locator.bytes, host)?;
     let entry = data_export(&bytes, 62, ENTRY_SYMBOL, false).map_err(|_| RuntimeError::Export)?;
     if entry.bytes.len() != wire::PROFILE_ENTRY_BYTES
         || entry.address % wire::PROFILE_ENTRY_ALIGN as u64 != 0
@@ -173,7 +211,7 @@ pub unsafe fn load(
     // SAFETY: the export holds a current PpEntry, checked above.
     let entry = unsafe { &*loaded_entry };
     if entry.size as usize != size_of::<PpEntry>()
-        || entry.abi_major != host.table().major
+        || entry.abi_major != host.major
         || entry.needs_minor != minor
         || entry.metadata.ptr != loaded_meta
         || entry.metadata.len != view.len()
@@ -181,28 +219,15 @@ pub unsafe fn load(
         return Err(RuntimeError::Entry);
     }
     let make = entry.make.ok_or(RuntimeError::Entry)?;
-    let mut out = ptr::null();
-    // SAFETY: table and context outlive the plugin; output storage is writable.
-    let status = unsafe { make(host.table(), host.ctx(), &mut out) };
-    if status != OK {
-        return Err(RuntimeError::Factory(status));
-    }
-    if out.is_null() || !(out as usize).is_multiple_of(align_of::<PpPlugin>()) {
-        return Err(RuntimeError::Plugin);
-    }
-    // SAFETY: successful factory supplies a live, readable size prefix.
-    if unsafe { out.cast::<u32>().read() } < size_of::<PpPlugin>() as u32 {
-        return Err(RuntimeError::Plugin);
-    }
-    // SAFETY: a current table is accessible as its size declares.
-    let plugin = unsafe { &*out };
-    Ok(LoadedPlugin {
-        state: plugin.state,
-        destroy: plugin.drop.ok_or(RuntimeError::Plugin)?,
-        _library: library,
-        _host: host,
-    })
+    Ok(CheckedLibrary { library, make })
 }
+
+// Separate from both CodeLoader and the process-owned inactive load path.
+#[allow(
+    dead_code,
+    reason = "owner integration is inactive pending runtime review"
+)]
+mod owned;
 
 #[cfg(test)]
 mod tests;
