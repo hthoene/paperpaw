@@ -41,9 +41,11 @@ fn context_address_stays_pinned_through_activation_dispatch_and_destruction() {
 #[test]
 fn admission_requires_activation_and_stops_at_revocation() {
     let owner = Box::pin(Owner::new((), ()));
+    assert!(owner.is_constructing());
     assert!(matches!(owner.as_ref().lease(), Err(Error::State)));
     assert_eq!(owner.as_ref().finish(), Err(Error::State));
     owner.as_ref().activate(ignore_context).unwrap();
+    assert!(!owner.is_constructing());
     assert_eq!(owner.as_ref().activate(ignore_context), Err(Error::State));
     let lease = owner.as_ref().lease().unwrap();
     let called = Cell::new(false);
@@ -200,7 +202,7 @@ fn unactivated_owner_only_drops_its_host_dependencies() {
     let state = Rc::new(Observations::default());
     let owner = tracked_owner(&state);
     owner.as_ref().revoke();
-    assert_eq!(owner.as_ref().finish(), Err(Error::State));
+    assert_eq!(owner.as_ref().finish(), Ok(()));
     drop(owner);
     assert_eq!(state.destroyed.get(), 0);
     assert_eq!(&*state.events.borrow(), &["context", "module"]);

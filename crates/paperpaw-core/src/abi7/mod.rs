@@ -1,9 +1,9 @@
 //! Interface-7 host adapter components, not activated in dispatch yet.
-mod calls;
+pub(crate) mod calls;
 mod context;
 mod graphics;
 mod handles;
-mod lifecycle;
+pub(crate) mod lifecycle;
 mod queries;
 #[allow(
     clippy::all,

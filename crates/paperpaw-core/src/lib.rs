@@ -58,6 +58,7 @@ mod input;
 mod io;
 mod keymap;
 mod meter;
+pub mod native_host;
 mod network;
 mod panes;
 mod plugins;

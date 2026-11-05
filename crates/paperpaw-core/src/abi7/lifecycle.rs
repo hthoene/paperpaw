@@ -57,6 +57,10 @@ impl<C, M> Owner<C, M> {
         }
     }
 
+    pub(crate) fn is_constructing(&self) -> bool {
+        self.state.get() == State::Constructing
+    }
+
     pub(crate) fn context(self: Pin<&Self>) -> Pin<&C> {
         // SAFETY: context is structurally pinned. No method moves it, and Drop
         // leaves it in place. The module outlives its destructor.
@@ -90,7 +94,7 @@ impl<C, M> Owner<C, M> {
 
     /// Refuse new admission before removing registrations and cancelling work.
     pub(crate) fn revoke(self: Pin<&Self>) {
-        if self.state.get() == State::Live {
+        if self.state.get() != State::Dead {
             self.state.set(State::Revoked);
         }
     }

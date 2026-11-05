@@ -32,3 +32,35 @@ This increment is inactive. It does not install a host table, allocate a live
 CoreCtx, supply module guards, parse registrations, define generated callback
 records, or dispatch foreign code. Those integrations and their allocator pairing
 and runtime memory tests are still required before the first callback proof.
+
+## Shell wrapper and construction transaction
+
+`paperpaw_core::native_host` exposes the host-only wrapper without exposing the
+private lifecycle implementation. `HostOwner<C, M>` must be pinned before make;
+its context view has a stable address. Firmware supplies the owned allocation,
+context dependencies and opaque module guard. This is not a combined CoreCtx or
+host table implementation.
+
+Begin a `Construction<T>` before invoking make. Stage validated host records
+there, with a maximum of eight records and externally enforced retained-byte
+limits. Capacity failure poisons the transaction so commit rolls back all records. Records are not inspectable or dispatchable while staged. A full batch
+returns the refused record to its caller. The loader must treat decoding or
+staging refusal as a failed construction transaction, not commit a partial set.
+
+After make returns, validate its output and store the successful plugin state in
+C. Only then commit with the destructor thunk. Commit activates the owner and
+returns a `RegistrationBatch<T>` with its own lease. No foreign code runs between
+activation and lease reservation. Dropping the batch destroys its records before
+releasing the lease. Additional queued work obtains its own callback lease.
+
+If make or validation fails, abort the transaction before destroying any partial
+foreign output. Staged record cleanup runs while the context and module remain
+alive. The loader must handle partial-output ownership according to the entry
+contract; the transaction does not call an unvalidated plugin destructor.
+Revocation during make blocks later commit, and finish refuses while construction
+is active. No early activation is permitted to obtain registration leases.
+
+These are generic host records, not a substitute for generated callback tables,
+wire validation or registration codecs. Publication into global registries,
+fallible owner allocation, module guard implementation, scoped FrameSlot setup,
+foreign dispatch and aggregate resource accounting still require integration.
