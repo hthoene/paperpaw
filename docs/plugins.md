@@ -1974,6 +1974,23 @@ with `--trust-code`, which installs every such file in the library first
 the library says is installed: a library copied from elsewhere runs no
 code of its own.
 
+On Linux, the plugin's own `build.rs` must disable the C startup files for
+its shared library. Those files add initializers that interface 7's host
+plugin preflight refuses. A dependency's build script cannot set this flag
+for the plugin:
+
+```rust
+fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        println!("cargo:rustc-link-arg-cdylib=-nostartfiles");
+    }
+}
+```
+
+After building, `readelf -dW libmy_plugin.so` must show no `INIT`, `FINI`,
+`INIT_ARRAY` or `FINI_ARRAY` entries. This flag applies only to the plugin's
+shared library, not the emulator or its dependencies.
+
 ```sh
 paperpaw-emu --library my-library --trust-code
 ```
