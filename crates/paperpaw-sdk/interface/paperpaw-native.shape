@@ -13,6 +13,7 @@ const paperpaw_native::header::LINK_BASE: u32 = 1_006_632_960u32
 const paperpaw_native::header::MAGIC: [u8; 4] = *b"PPNP"
 const paperpaw_native::header::MAX_IMAGE_LEN: u32 = 4_194_304u32
 const paperpaw_native::host_glue::MAX_ALIGN: usize = 4_096usize
+const paperpaw_native::host_glue::buffers::TEXT_MAX: usize = 4_096usize
 const paperpaw_native::host_glue::generated::ERR_BUSY: i32 = -9i32
 const paperpaw_native::host_glue::generated::ERR_CANCELLED: i32 = -7i32
 const paperpaw_native::host_glue::generated::ERR_INVALID: i32 = -2i32
