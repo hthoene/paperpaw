@@ -154,9 +154,16 @@ const MARK: usize = 8;
 const LONGEST: usize = 255;
 
 /// How deep [`Storage::remove_dir_all`] goes into folders: deeper ones
-/// are a damaged card's (a folder that names one above it), and each
-/// level takes stack.
+/// are refused. The iterative walk keeps at most this many cursors.
 const TREE_DEPTH: usize = 32;
+
+/// One directory in a bounded, iterative removal walk. Names are not kept.
+struct RemoveFrame {
+    first: Option<u64>,
+    cursor: DirCursor,
+    visited: usize,
+    parent_len: usize,
+}
 
 /// A volume longer than the card by at most this share of it (1/32,
 /// some 3 %) is mounted (see [`ExFatStorage::mount`]); one longer still
@@ -1137,57 +1144,93 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
         moved.and(cleared)
     }
 
-    /// [`Storage::remove_dir_all`], its blocks not yet written back.
+    /// Removes one entry at a time, with one path and a bounded stack of
+    /// cursors. Deleting an entry does not move the directory's other slots.
     fn remove_tree(&self, path: &str) -> Result2<()> {
-        self.remove_tree_below(path, &mut Vec::new())
+        let mut current = String::new();
+        current
+            .try_reserve_exact(path.len())
+            .map_err(|_| StorageError::TooLarge)?;
+        current.push_str(path);
+        let mut frames = Vec::new();
+        frames
+            .try_reserve_exact(TREE_DEPTH)
+            .map_err(|_| StorageError::TooLarge)?;
+        if !self.remove_enter(&current, 0, &mut frames)? {
+            return Ok(());
+        }
+        while !frames.is_empty() {
+            let dir = self.dir(&current, false)?;
+            let frame = frames.last_mut().ok_or(StorageError::Io)?;
+            if frame.visited >= crate::ENTRIES_MAX {
+                return Err(StorageError::Io);
+            }
+            let entry = self
+                .fs
+                .borrow_mut()
+                .readdir(dir, frame.cursor)
+                .map_err(error)?;
+            if let Some(entry) = entry {
+                frame.visited += 1;
+                frame.cursor = entry.next_cursor();
+                let name = core::str::from_utf8(entry.name().as_bytes())
+                    .map_err(|_| StorageError::InvalidPath)?;
+                if entry.file_type() == FileType::Dir {
+                    let parent_len = current.len();
+                    current
+                        .try_reserve_exact(1 + name.len())
+                        .map_err(|_| StorageError::TooLarge)?;
+                    current.push('/');
+                    current.push_str(name);
+                    if !self.remove_enter(&current, parent_len, &mut frames)? {
+                        current.truncate(parent_len);
+                    }
+                } else {
+                    match self.fs.borrow_mut().unlink(dir, Name::new(name)) {
+                        Err(e) if e.kind() != ErrorKind::NotFound => return Err(error(e)),
+                        _ => {}
+                    }
+                }
+            } else {
+                self.drop_folders(&current);
+                let up = self.dir(parent(&current), false)?;
+                match self.fs.borrow_mut().rmdir(up, Name::new(name(&current))) {
+                    Err(e) if e.kind() != ErrorKind::NotFound => return Err(error(e)),
+                    _ => {}
+                }
+                let frame = frames.pop().ok_or(StorageError::Io)?;
+                current.truncate(frame.parent_len);
+            }
+        }
+        Ok(())
     }
 
-    /// [`Self::remove_tree`] of `path`, below the folders whose first
-    /// clusters are `above`. A damaged card's folder may name a folder
-    /// above it as its own subfolder: such a folder is not followed (the
-    /// removal fails, nothing more of it goes), nor one deeper than
-    /// [`TREE_DEPTH`], so that the stack stays bounded.
-    fn remove_tree_below(&self, path: &str, above: &mut Vec<u64>) -> Result2<()> {
+    /// Refuses loops and excessive depth before entering a child. The
+    /// preallocated frame buffer cannot grow beyond TREE_DEPTH.
+    fn remove_enter(
+        &self,
+        path: &str,
+        parent_len: usize,
+        frames: &mut Vec<RemoveFrame>,
+    ) -> Result2<bool> {
         let dir = match self.dir(path, false) {
             Ok(dir) => dir,
-            Err(StorageError::NotFound) => return Ok(()),
+            Err(StorageError::NotFound) => return Ok(false),
             Err(e) => return Err(e),
         };
         let first = self.first_cluster(dir)?;
-        if above.len() >= TREE_DEPTH || first.is_some_and(|c| above.contains(&c)) {
+        if frames.len() >= TREE_DEPTH
+            || first.is_some_and(|c| frames.iter().any(|frame| frame.first == Some(c)))
+        {
             return Err(StorageError::Io);
         }
-        let mut entries: Vec<(String, bool)> = Vec::new();
-        self.each(dir, &mut |name, is_dir, _| {
-            entries.push((name.to_string(), is_dir))
-        })?;
-        above.push(first.unwrap_or(0));
-        for (entry, is_dir) in entries {
-            let below = format!("{path}/{entry}");
-            if is_dir {
-                let removed = self.remove_tree_below(&below, above);
-                if removed.is_err() {
-                    above.pop();
-                    return removed;
-                }
-            } else {
-                let dir = self.dir(path, false)?;
-                match self.fs.borrow_mut().unlink(dir, Name::new(&entry)) {
-                    Err(e) if e.kind() != ErrorKind::NotFound => {
-                        above.pop();
-                        return Err(error(e));
-                    }
-                    _ => {}
-                }
-            }
-        }
-        above.pop();
-        self.drop_folders(path);
-        let up = self.dir(parent(path), false)?;
-        match self.fs.borrow_mut().rmdir(up, Name::new(name(path))) {
-            Err(e) if e.kind() != ErrorKind::NotFound => Err(error(e)),
-            _ => Ok(()),
-        }
+        frames.push(RemoveFrame {
+            first,
+            cursor: DirCursor::from_raw(0),
+            visited: 0,
+            parent_len,
+        });
+        Ok(true)
     }
 }
 

@@ -76,6 +76,8 @@ change the plugin SDK.
 
 ### Fixed
 
+- exFAT directory removal walks entries with bounded cursors instead of retaining every filename in memory.
+
 - **Experimental exFAT recovery** (#5): a failed parent-directory lookup keeps a pending move
   journal for retry, instead of leaving two names sharing the moved folder's data.
   Directory metadata errors retain their original error instead of appearing as a missing path.
