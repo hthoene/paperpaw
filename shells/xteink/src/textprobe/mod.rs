@@ -109,9 +109,7 @@ fn run(config: Config<'_>) -> Result<(), &'static str> {
     );
     if config.cache == "warm" {
         for index in 0..2 {
-            let warmup = execute(
-                &mut stack, &config, &font, &mut frame, &text, "direct", false,
-            )?;
+            let warmup = execute(&mut stack, &font, &mut frame, &text, "direct", false)?;
             println!(
                 "PP:TEXTPROBE_WARMUP index={index} irq_body_us={} stack_used={} guard_valid={}",
                 warmup.irq_body_us,
@@ -159,13 +157,8 @@ struct Execution {
     reservation_charged: usize,
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "explicit fixed workload and scope control"
-)]
 fn execute(
     stack: &mut stack_scope::Stack,
-    config: &Config<'_>,
     font: &paperpaw_sdk::FontHandle<'_>,
     frame: &mut paperpaw_graphics::Framebuffer,
     text: &str,
@@ -222,7 +215,7 @@ fn measured(
     let before = Snapshot::take();
     println!("PP:TEXTPROBE_SAMPLE repeat={repeat}");
     before.print("BEFORE");
-    let execution = execute(stack, config, font, frame, text, config.path, true)?;
+    let execution = execute(stack, font, frame, text, config.path, true)?;
     let sample = execution.heap.ok_or("scope-missing")?;
     let result = execution.draw;
     let elapsed = execution.elapsed_us;
