@@ -629,15 +629,18 @@ what, where, commit and number.
 
   | Call class | Prototype (extra over the direct path) | Gate |
   |---|---|---|
-  | Small drawing call (rect, line, round shape) | +0.06 us per call (0.5 %) | within 2 % |
-  | Text call (measure, draw) | +4 to +5 us per call (1.5 %) | within 3 % and at most +5 us |
+  | Small drawing call (rect, line; round shapes not yet measured) | +0.06 us per call (rect 0.5 %, line 0.0 %) | within 2 % |
+  | Text call (measure, draw) | measure +4.1 us, draw +5.35 us per call (1.5 %, 1.4 %) | within 3 % and at most +5 us |
   | Event in, command out (`deliver`) | +1.7 us per call (+36 %) | at most +1 us per call |
   | A whole widget (the Battery widget: 3 text calls, 4 round shapes, bolt rows) | +202 us (+11 %) | within 3 % and at most +60 us |
   | Whole screen of widgets | not measured | at most +1 ms against the ~500 ms e-ink refresh |
 
-  The percentages follow the call cost; the absolute budgets are the gate because a
-  small call has a tiny base. A class that exceeds its gate by more than half again
-  stops M1 (see below). Causes known so far: the prototype's `deliver` copies the
+  Where a row gives both a percentage and an absolute limit, **both** must hold; every
+  miss means M1 does not pass. The absolute limit matters most for small calls, where a
+  percentage of a tiny base hides the cost, and the percentage for large calls. Only a
+  miss by more than half again is an escalation that stops M1 and goes to the owner
+  (see below). The prototype's `text_draw` (+5.35 us) already misses its absolute
+  limit by a little; the round shapes are measured only in the v3 run. Causes known so far: the prototype's `deliver` copies the
   reply twice and zeroes a 96 byte buffer (the design decodes in place from a
   call-scoped view and uses a caller-provided output); the text and widget overhead
   is being broken down by call class and is the first thing the M1 slice re-measures.
