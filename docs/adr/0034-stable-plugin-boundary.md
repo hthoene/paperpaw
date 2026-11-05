@@ -412,6 +412,31 @@ can read the entry. A check after the load is too late. The contract:
 4. **Order stays fixed:** preflight accepts, then the load, then the entry is
    compared with the preflight's record once more, then `make`. A mismatch is
    *Damaged* and the library is unloaded.
+5. **The metadata is generated, one source, fixed bytes.** The section identifier per
+   container, a magic, a version, a length, the byte order, the reserved bits and the
+   bounded field offsets come from `abi.json` / `abi.lock`; nothing is hand-coded in
+   a shell, the packer, the site or the JS. It is a fixed byte encoding, not the
+   in-memory `PpEntry`. The preflight rejects a duplicate, an overlapping or a
+   truncated metadata section; it never takes the first match.
+6. **Everything the loader later compares is in it:** the required minor, the required
+   services and semantic features, the entry and export identifiers and their sizes.
+   After the load the loader compares the real entry with all of these fields, not
+   only with the identity.
+7. **Digest and signature coverage is explicit.** The metadata does not hold a digest
+   of the file that contains it; the digest and the signature form an envelope
+   outside the self-covered metadata, with the excluded ranges stated in the format.
+8. **Layout changes are governed by the container format and the ABI major and minor,
+   never inferred from a compiler.** The PE entry-point rule is checked against the
+   real loader's structures (entry point zero or the linker's documented stub, to be
+   confirmed on a Windows runner), not assumed.
+
+**Ownership of the fixtures.** Kernel Engineer owns the schema-generated metadata
+bytes, the corruption mutations and the shared manifest with the expected verdicts
+(`abi/fixtures/`). Firmware owns the platform fixture sources (C or assembly
+libraries with initialisers), the compiler and linker builder and the loader
+execution tests (`abi/fixtures/loader` or `tools/abi-fixtures`); the builder consumes
+the generated descriptors and holds no offsets. Core supplies the metadata emitter
+interface before the helper is written.
 
 **Mandatory negative fixtures (M1, in `abi/fixtures/`, run on Linux in CI and on the
 macOS and Windows runners):** one host library per mechanism above whose initialiser
