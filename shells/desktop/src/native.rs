@@ -161,10 +161,31 @@ fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, P
             .open(&copy)
             .map_err(|_| PluginProblem::Damaged)?;
         std::io::Write::write_all(&mut file, &bytes).map_err(|_| PluginProblem::Damaged)?;
+        // Written once: read-only from here on.
+        let mut permissions = file
+            .metadata()
+            .map_err(|_| PluginProblem::Damaged)?
+            .permissions();
+        permissions.set_readonly(true);
+        file.set_permissions(permissions)
+            .map_err(|_| PluginProblem::Damaged)?;
     }
-    let copied = std::fs::read(&copy).map_err(|_| PluginProblem::Damaged)?;
+    // Opened once: what is read, checked and loaded is this one file, not
+    // whatever the name leads to at the moment of loading (ADR 0034 section 6).
+    let mut copy_file = std::fs::File::open(&copy).map_err(|_| PluginProblem::Damaged)?;
+    let mut copied = Vec::new();
+    std::io::Read::read_to_end(&mut copy_file, &mut copied).map_err(|_| PluginProblem::Damaged)?;
     if paperpaw_core::sdk::digest::sha256::digest(&copied) != code.sha256 {
         return Err(PluginProblem::Changed);
+    }
+    // Before anything of it can run: a library's initialisers run while
+    // the system loads it, so what it holds is read from its bytes first.
+    if let Err(why) = preflight(&copied) {
+        eprintln!(
+            "code plugin {}: refused before loading ({why:?})",
+            code.id.as_str()
+        );
+        return Err(PluginProblem::Damaged);
     }
     if let Err(why) = built_here(&copied) {
         eprintln!("code plugin {}: {why}", code.id.as_str());
@@ -173,7 +194,9 @@ fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, P
     // SAFETY: a file the reader installed on the card (`trust`), its
     // SHA-256 the one installed; a code plugin runs as part of
     // PaperPaw, without a sandbox (ADR 0024).
-    let library = unsafe { libloading::Library::new(&copy) }.map_err(|_| PluginProblem::Damaged)?;
+    let held =
+        unsafe { HeldLibrary::open(&copy, copy_file) }.map_err(|_| PluginProblem::Damaged)?;
+    let library = &held.library;
     // SAFETY: the statics `plugin!` exports, of these types.
     let (slot, entry) = unsafe {
         let slot = library
@@ -210,9 +233,91 @@ fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, P
         return Err(PluginProblem::Mismatch);
     }
     // Its code stays loaded as long as the emulator runs: what it made
-    // is in use.
-    std::mem::forget(library);
+    // is in use. Its file stays open as long: see [`HeldLibrary`].
+    held.leak();
     Ok(plugin)
+}
+
+/// A loaded library and the open file it was loaded from. The system loader
+/// finds a library it already has by the name it was given, and the name
+/// `/proc/self/fd/N` is the same for every file that gets the number N: so
+/// the file stays open as long as the library is loaded, and a number in use
+/// by a loaded library is never given to another.
+struct HeldLibrary {
+    /// First, so it is unloaded before its file is closed.
+    library: libloading::Library,
+    file: std::fs::File,
+}
+
+impl HeldLibrary {
+    /// Loads the library from `file`, the one that was read and checked.
+    ///
+    /// # Safety
+    ///
+    /// Loading a library runs its initialisers: the file passed the
+    /// pre-load check and is one the reader installed (ADR 0024).
+    unsafe fn open(path: &std::path::Path, file: std::fs::File) -> Result<Self, libloading::Error> {
+        // SAFETY: as documented.
+        let library = unsafe { libloading::Library::new(load_path(path, &file)) }?;
+        Ok(Self { library, file })
+    }
+
+    /// Keeps both for the life of the process.
+    fn leak(self) {
+        let Self { library, file } = self;
+        std::mem::forget(library);
+        std::mem::forget(file);
+    }
+}
+
+/// What the system loader is given to load the checked file: on Linux the
+/// open file itself (`/proc/self/fd/N`), so a name that now leads elsewhere
+/// changes nothing; elsewhere its path.
+#[cfg(target_os = "linux")]
+fn load_path(_path: &std::path::Path, file: &std::fs::File) -> std::path::PathBuf {
+    use std::os::fd::AsRawFd;
+    std::path::PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()))
+}
+
+/// See the Linux version: the path, until the other platforms hold the file.
+#[cfg(not(target_os = "linux"))]
+fn load_path(path: &std::path::Path, _file: &std::fs::File) -> std::path::PathBuf {
+    path.to_path_buf()
+}
+
+/// The preflight of ADR 0034 section 6 for this computer's libraries:
+/// refuses every way to run code while the library loads.
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+fn preflight(bytes: &[u8]) -> Result<(), paperpaw_native::preflight::Refusal> {
+    let machine = if cfg!(target_arch = "x86_64") {
+        62
+    } else {
+        183
+    };
+    paperpaw_native::preflight::check_elf64_le(bytes, machine)
+}
+
+/// Mach-O and PE libraries are not yet checked before loading (their
+/// preflight comes with the generated metadata, ADR 0034 M1), so they are
+/// refused. Whoever starts the emulator may say, in the open, that unchecked
+/// libraries are loaded anyway: `PAPERPAW_UNCHECKED_CODE_PLUGINS=1`, which
+/// is said on standard error for every library it lets through. It never
+/// applies where a check exists.
+#[cfg(not(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+)))]
+fn preflight(_bytes: &[u8]) -> Result<(), paperpaw_native::preflight::Refusal> {
+    if std::env::var_os("PAPERPAW_UNCHECKED_CODE_PLUGINS").is_some_and(|v| v == "1") {
+        eprintln!(
+            "code plugin loaded without the pre-load check (PAPERPAW_UNCHECKED_CODE_PLUGINS=1)"
+        );
+        return Ok(());
+    }
+    Err(paperpaw_native::preflight::Refusal::UnsupportedPlatform)
 }
 
 /// Whether the library `bytes` was built by the compiler that built the
@@ -293,6 +398,13 @@ pub fn trust(root: &std::path::Path) -> std::io::Result<Vec<String>> {
 mod tests {
     use super::*;
 
+    /// What a file that is not a library comes to: refused before it is
+    /// loaded (where no check exists yet, a library is refused too, unless the
+    /// opt-in `PAPERPAW_UNCHECKED_CODE_PLUGINS` is set, which the tests do not).
+    fn not_a_library() -> PluginProblem {
+        PluginProblem::Damaged
+    }
+
     /// A library is loaded only where it names the emulator's compiler,
     /// by its release or by the commit of its `std`, and none other.
     #[test]
@@ -348,8 +460,8 @@ version = 0.1.0
         );
         assert_eq!(
             problem(true),
-            Some(PluginProblem::OtherBuild),
-            "loaded, and found no library of this compiler"
+            Some(not_a_library()),
+            "not a library: refused before it was loaded"
         );
         crate::device::set_code_plugins(false);
         let _ = std::fs::remove_dir_all(&root);
@@ -371,7 +483,7 @@ version = 0.1.0
             paperpaw_core::sdk::native::installed_code(&storage, "hello"),
             Some(paperpaw_core::sdk::digest::sha256::digest(b"not a library"))
         );
-        // Installed but no library of this compiler: said, not fatal.
+        // Installed but not a library the preflight reads: said, not fatal.
         let id = paperpaw_core::sdk::Id::new_static("hello");
         let path = format!("plugins/hello/{}", file_name());
         let code = CodeFile {
@@ -381,7 +493,7 @@ version = 0.1.0
         };
         assert_eq!(
             HostLoader.load(&storage, &code).err(),
-            Some(PluginProblem::OtherBuild)
+            Some(not_a_library())
         );
         let changed = CodeFile {
             sha256: [0; 32],
@@ -391,6 +503,388 @@ version = 0.1.0
             HostLoader.load(&storage, &changed).err(),
             Some(PluginProblem::Changed)
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn move_dynamic_offset_to_zeros(lib: &[u8]) -> Vec<u8> {
+        // The recipe: append as many zero bytes as the dynamic segment has and
+        // change only PT_DYNAMIC's file offset to them. The zeros read as an empty
+        // dynamic section; the system loader still reads the real one at p_vaddr.
+        let phoff = u64::from_le_bytes(lib[32..40].try_into().unwrap()) as usize;
+        let phnum = usize::from(u16::from_le_bytes(lib[56..58].try_into().unwrap()));
+        let mut out = lib.to_vec();
+        for i in 0..phnum {
+            let at = phoff + i * 56;
+            if u32::from_le_bytes(lib[at..at + 4].try_into().unwrap()) == 2 {
+                let filesz = u64::from_le_bytes(lib[at + 32..at + 40].try_into().unwrap()) as usize;
+                let zeros_at = lib.len() as u64;
+                out.resize(lib.len() + filesz, 0);
+                out[at + 8..at + 16].copy_from_slice(&zeros_at.to_le_bytes());
+                return out;
+            }
+        }
+        panic!("no PT_DYNAMIC");
+    }
+
+    /// The file offset of virtual address `vaddr` in a library, by its `PT_LOAD`s.
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn offset_of_vaddr(lib: &[u8], vaddr: u64) -> usize {
+        let u64_at = |at: usize| u64::from_le_bytes(lib[at..at + 8].try_into().unwrap());
+        let phoff = u64_at(32) as usize;
+        let phnum = usize::from(u16::from_le_bytes(lib[56..58].try_into().unwrap()));
+        for i in 0..phnum {
+            let at = phoff + i * 56;
+            let (off, va, sz) = (u64_at(at + 8), u64_at(at + 16), u64_at(at + 32));
+            if u32::from_le_bytes(lib[at..at + 4].try_into().unwrap()) == 1
+                && vaddr >= va
+                && vaddr < va + sz
+            {
+                return (off + (vaddr - va)) as usize;
+            }
+        }
+        panic!("address {vaddr:#x} is in no PT_LOAD");
+    }
+
+    /// The file offset of the value of dynamic entry `tag` in a library.
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn dynamic_value_at(lib: &[u8], tag: u64) -> usize {
+        let u64_at = |at: usize| u64::from_le_bytes(lib[at..at + 8].try_into().unwrap());
+        let phoff = u64_at(32) as usize;
+        let phnum = usize::from(u16::from_le_bytes(lib[56..58].try_into().unwrap()));
+        for i in 0..phnum {
+            let at = phoff + i * 56;
+            if u32::from_le_bytes(lib[at..at + 4].try_into().unwrap()) == 2 {
+                let start = u64_at(at + 8) as usize;
+                let end = start + u64_at(at + 32) as usize;
+                let mut d = start;
+                while d < end && u64_at(d) != 0 {
+                    if u64_at(d) == tag {
+                        return d + 8;
+                    }
+                    d += 16;
+                }
+            }
+        }
+        panic!("no dynamic entry {tag:#x}");
+    }
+
+    /// The same library with the destination of its first `Rela` entry moved to
+    /// `place`; the system loader writes there while it loads.
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn move_first_relocation(lib: &[u8], place: u64) -> Vec<u8> {
+        let rela = u64::from_le_bytes(lib[dynamic_value_at(lib, 7)..][..8].try_into().unwrap());
+        let entry = offset_of_vaddr(lib, rela);
+        let mut out = lib.to_vec();
+        out[entry..entry + 8].copy_from_slice(&place.to_le_bytes());
+        out
+    }
+
+    /// The same library claiming `count` base-relative relocations (`DT_RELACOUNT`).
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn claim_relative_relocations(lib: &[u8], count: u64) -> Vec<u8> {
+        let at = dynamic_value_at(lib, 0x6fff_fff9);
+        let mut out = lib.to_vec();
+        out[at..at + 8].copy_from_slice(&count.to_le_bytes());
+        out
+    }
+
+    /// A library whose relocation points outside the library makes the system
+    /// loader fault (SIGSEGV) while it loads. It is refused before it is loaded.
+    /// The control loads it by hand in a child process and sees the crash.
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn a_library_whose_relocation_points_outside_is_refused_before_it_is_loaded() {
+        use std::os::unix::process::ExitStatusExt;
+        // The child of the control: load the file named in the environment.
+        if let Some(path) = std::env::var_os("PAPERPAW_E6_CONTROL") {
+            // SAFETY: the test loads a damaged library on purpose; it faults.
+            drop(unsafe { libloading::Library::new(path) });
+            return;
+        }
+        let root = std::env::temp_dir().join(format!("paperpaw-e6-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let hello = root.join("plugins/hello");
+        std::fs::create_dir_all(&hello).unwrap();
+        let source = r#"#![no_std]
+#[panic_handler]
+fn panic(_: &core::panic::PanicInfo) -> ! { loop {} }
+extern "C" fn f() -> u32 { 7 }
+#[unsafe(no_mangle)]
+pub static TABLE: [extern "C" fn() -> u32; 2] = [f, f];
+"#;
+        let src = root.join("reloc.rs");
+        let lib = hello.join(file_name());
+        std::fs::write(&src, source).unwrap();
+        let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
+        let built = std::process::Command::new(rustc)
+            .args([
+                "--edition",
+                "2024",
+                "--crate-type",
+                "cdylib",
+                "-C",
+                "panic=abort",
+            ])
+            .args(["-C", "link-arg=-nostartfiles", "-O", "-o"])
+            .arg(&lib)
+            .arg(&src)
+            .status();
+        let Ok(built) = built else {
+            assert!(
+                std::env::var("PAPERPAW_NO_FIXTURE_COMPILER").as_deref() == Ok("1"),
+                "no rustc to build the fixture library (set PAPERPAW_NO_FIXTURE_COMPILER=1 to skip)"
+            );
+            eprintln!("no rustc to build the library; test skipped by request");
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        };
+        assert!(built.success(), "the fixture library did not compile");
+        let good = std::fs::read(&lib).unwrap();
+        let moved = move_first_relocation(&good, 0x7fff_f000_0000);
+        let counted = claim_relative_relocations(&good, 1000);
+        assert_ne!(good, moved, "the fixture has no relocation to move");
+        assert_ne!(good, counted, "the fixture has no relocation count");
+        // The control: the unchanged library loads by hand; each damaged one
+        // takes down the process that loads it.
+        let load_by_hand = |bytes: &[u8]| {
+            let p = root.join("control.so");
+            std::fs::write(&p, bytes).unwrap();
+            std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "native::tests::a_library_whose_relocation_points_outside_is_refused_before_it_is_loaded",
+                ])
+                .env("PAPERPAW_E6_CONTROL", &p)
+                .status()
+                .unwrap()
+        };
+        assert!(
+            load_by_hand(&good).success(),
+            "the control library does not load"
+        );
+        assert_eq!(
+            load_by_hand(&moved).signal(),
+            Some(11),
+            "the damaged library does not fault the system loader"
+        );
+        assert!(
+            !load_by_hand(&counted).success(),
+            "the library with a false relocation count loads"
+        );
+        // The loader refuses each and the process lives.
+        let storage = crate::device::library(&root).unwrap();
+        let id = paperpaw_core::sdk::Id::new_static("hello");
+        let path = format!("plugins/hello/{}", file_name());
+        for bad in [&moved, &counted] {
+            std::fs::write(&lib, bad).unwrap();
+            let code = CodeFile {
+                id: &id,
+                path: &path,
+                sha256: paperpaw_core::sdk::digest::sha256::digest(bad),
+            };
+            assert_eq!(
+                HostLoader.load(&storage, &code).err(),
+                Some(PluginProblem::Damaged)
+            );
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// ADR 0034 section 6: a library whose initialiser runs when it is loaded
+    /// is refused before it is loaded. The control loads the same library
+    /// by hand and sees the initialiser run, so the test can fail.
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn a_library_with_an_initialiser_is_refused_before_it_is_loaded() {
+        let root = std::env::temp_dir().join(format!("paperpaw-init-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let hello = root.join("plugins/hello");
+        std::fs::create_dir_all(&hello).unwrap();
+        let marker = root.join("initialiser-ran");
+        let source = format!(
+            r#"#![no_std]
+#[panic_handler]
+fn panic(_: &core::panic::PanicInfo) -> ! {{ loop {{}} }}
+// No C library call: the marker is made by a system call, so the library
+// has no imports and so no symbol-version tables.
+extern "C" fn make_marker() {{
+    let path = b"{}\0".as_ptr();
+    #[cfg(target_arch = "x86_64")]
+    unsafe {{ core::arch::asm!("syscall", inlateout("rax") 257isize => _, in("rdi") -100isize, in("rsi") path, in("rdx") 0o101isize, in("r10") 0o600isize, lateout("rcx") _, lateout("r11") _, options(nostack)); }}
+    #[cfg(target_arch = "aarch64")]
+    unsafe {{ core::arch::asm!("svc 0", in("x8") 56isize, inlateout("x0") -100isize => _, in("x1") path, in("x2") 0o101isize, in("x3") 0o600isize, options(nostack)); }}
+}}
+#[used]
+#[unsafe(link_section = ".init_array")]
+static INIT: extern "C" fn() = make_marker;
+"#,
+            marker.display()
+        );
+        let src = root.join("init.rs");
+        let lib = hello.join(file_name());
+        std::fs::write(&src, source).unwrap();
+        let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
+        let built = std::process::Command::new(rustc)
+            .args([
+                "--edition",
+                "2024",
+                "--crate-type",
+                "cdylib",
+                "-C",
+                "panic=abort",
+            ])
+            .args(["-C", "link-arg=-nostartfiles", "-O", "-o"])
+            .arg(&lib)
+            .arg(&src)
+            .status();
+        let Ok(built) = built else {
+            // A compiler that cannot be started fails the test too, unless the
+            // run says in the open that there is none.
+            assert!(
+                std::env::var("PAPERPAW_NO_FIXTURE_COMPILER").as_deref() == Ok("1"),
+                "no rustc to build the fixture library (set PAPERPAW_NO_FIXTURE_COMPILER=1 to skip)"
+            );
+            eprintln!("no rustc to build the library; test skipped by request");
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        };
+        // A compiler that runs and fails is a failure, not a skipped test.
+        assert!(built.success(), "the fixture library did not compile");
+        // The control: loading it by hand runs the initialiser.
+        // SAFETY: a library built here, whose only code is the marker.
+        drop(unsafe { libloading::Library::new(&lib) }.unwrap());
+        assert!(marker.exists(), "the fixture does not run an initialiser");
+        std::fs::remove_file(&marker).unwrap();
+        // The same through the open file (`/proc/self/fd/N`), as the loader
+        // loads what it checked: the system loader accepts that path.
+        let file = std::fs::File::open(&lib).unwrap();
+        // SAFETY: as above.
+        drop(unsafe { libloading::Library::new(load_path(&lib, &file)) }.unwrap());
+        assert!(marker.exists(), "the open file was not loaded");
+        std::fs::remove_file(&marker).unwrap();
+        // The Senior Reviewer's recipe: only PT_DYNAMIC's file offset moved onto
+        // appended zeros. Loaded by hand, the system loader still runs the
+        // initialiser (the file is dangerous); the loader refuses it.
+        let moved = move_dynamic_offset_to_zeros(&std::fs::read(&lib).unwrap());
+        let moved_lib = root.join("moved.so");
+        std::fs::write(&moved_lib, &moved).unwrap();
+        // SAFETY: as above.
+        drop(unsafe { libloading::Library::new(&moved_lib) }.unwrap());
+        assert!(
+            marker.exists(),
+            "the moved-offset file does not run the initialiser"
+        );
+        std::fs::remove_file(&marker).unwrap();
+        std::fs::write(&lib, &moved).unwrap();
+        // The loader refuses it and never loads it.
+        let bytes = std::fs::read(&lib).unwrap();
+        let storage = crate::device::library(&root).unwrap();
+        let id = paperpaw_core::sdk::Id::new_static("hello");
+        let path = format!("plugins/hello/{}", file_name());
+        let code = CodeFile {
+            id: &id,
+            path: &path,
+            sha256: paperpaw_core::sdk::digest::sha256::digest(&bytes),
+        };
+        assert_eq!(
+            HostLoader.load(&storage, &code).err(),
+            Some(PluginProblem::Damaged)
+        );
+        assert!(
+            !marker.exists(),
+            "the initialiser ran while the loader refused it"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Two different libraries loaded one after the other, both alive: each is
+    /// itself. The system loader returns a library it already holds when it is
+    /// given the same name again, and `/proc/self/fd/N` is the same name for any
+    /// file that gets the number N, so the loader must keep the first file
+    /// open for as long as its library lives (the Senior Reviewer's finding).
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn two_libraries_loaded_one_after_the_other_are_two_libraries() {
+        let root = std::env::temp_dir().join(format!("paperpaw-two-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
+        let mut held = Vec::new();
+        for value in [11u32, 22] {
+            let src = root.join(format!("v{value}.rs"));
+            let lib = root.join(format!("libv{value}.so"));
+            std::fs::write(
+                &src,
+                format!(
+                    "#![no_std]\n#[panic_handler]\nfn panic(_: &core::panic::PanicInfo) -> ! {{ loop {{}} }}\n#[unsafe(no_mangle)]\npub extern \"C\" fn value() -> u32 {{ {value} }}\n"
+                ),
+            )
+            .unwrap();
+            let built = std::process::Command::new(&rustc)
+                .args([
+                    "--edition",
+                    "2024",
+                    "--crate-type",
+                    "cdylib",
+                    "-C",
+                    "panic=abort",
+                ])
+                .args(["-C", "link-arg=-nostartfiles", "-O", "-o"])
+                .arg(&lib)
+                .arg(&src)
+                .status();
+            let Ok(built) = built else {
+                assert!(
+                    std::env::var("PAPERPAW_NO_FIXTURE_COMPILER").as_deref() == Ok("1"),
+                    "no rustc to build the fixture libraries (set PAPERPAW_NO_FIXTURE_COMPILER=1 to skip)"
+                );
+                eprintln!("no rustc to build the libraries; test skipped by request");
+                let _ = std::fs::remove_dir_all(&root);
+                return;
+            };
+            assert!(built.success(), "the fixture library did not compile");
+            let file = std::fs::File::open(&lib).unwrap();
+            // SAFETY: a library built here with no initialiser.
+            held.push(unsafe { HeldLibrary::open(&lib, file) }.unwrap());
+        }
+        let values: Vec<u32> = held
+            .iter()
+            .map(|h| {
+                // SAFETY: `value` is a plain function of the library built above.
+                unsafe {
+                    (h.library
+                        .get::<unsafe extern "C" fn() -> u32>(b"value\0")
+                        .unwrap())()
+                }
+            })
+            .collect();
+        assert_eq!(values, [11, 22], "the second library is the first again");
+        drop(held);
         let _ = std::fs::remove_dir_all(&root);
     }
 }

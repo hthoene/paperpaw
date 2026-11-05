@@ -1,0 +1,1002 @@
+//! The ELF preflight on small files built here, byte by byte: one that is
+//! accepted, and the same with each way to run code at load added.
+
+extern crate std;
+
+use alloc::vec::Vec;
+
+use super::{Refusal, check_elf64_le};
+
+const X86: u16 = 62;
+const ARM: u16 = 183;
+
+/// What goes into a built file, beyond the plain shared object.
+#[derive(Default, Clone)]
+struct Spec {
+    machine: u16,
+    needed: Vec<&'static str>,
+    extra_dyn: Vec<(i64, u64)>,
+    /// Entries added even if the tag is already there (a repeated tag).
+    dup_dyn: Vec<(i64, u64)>,
+    tls: bool,
+    ifunc_symbol: bool,
+    irelative: bool,
+    irelative_in_jmprel: bool,
+    gnu_hash: bool,
+    /// With the GNU table, also a SysV one stating this many symbols.
+    sysv_too: Option<u32>,
+    /// A second loadable segment over the first one's addresses.
+    overlapping_load: bool,
+    /// The dynamic segment's file offset is not where its address maps.
+    skewed_dynamic: bool,
+    /// The jump-slot table claims `Rel` entries (DT_PLTREL = 17).
+    pltrel_rel: bool,
+    /// One `Rela` entry (place, info) in the relocation table.
+    reloc: Option<(u64, u64)>,
+    /// The file's first part (before the dynamic section) is a read-only segment.
+    read_only: bool,
+    /// The dynamic section lies in a read-only segment.
+    ro_dynamic: bool,
+    /// The GNU table states this many buckets / bloom words (the table is as short as ever).
+    gnu_buckets: Option<u32>,
+    gnu_bloom: Option<u32>,
+    /// Jump slots, and no `DT_PLTGOT`.
+    no_pltgot: bool,
+    /// No `PT_GNU_STACK` header.
+    no_stack: bool,
+    /// `PT_GNU_STACK` asks for an executable stack.
+    exec_stack: bool,
+    /// `DT_RELACOUNT`: this many entries are claimed to be base-relative.
+    relacount: Option<u64>,
+}
+
+fn put16(v: &mut Vec<u8>, x: u16) {
+    v.extend_from_slice(&x.to_le_bytes());
+}
+fn put32(v: &mut Vec<u8>, x: u32) {
+    v.extend_from_slice(&x.to_le_bytes());
+}
+fn put64(v: &mut Vec<u8>, x: u64) {
+    v.extend_from_slice(&x.to_le_bytes());
+}
+
+/// The ELF header of a little-endian 64-bit shared object with `nph` program headers.
+fn header(f: &mut Vec<u8>, machine: u16, nph: usize) {
+    f.extend_from_slice(b"\x7fELF\x02\x01\x01\0");
+    f.extend_from_slice(&[0; 8]);
+    put16(f, 3); // ET_DYN
+    put16(f, machine);
+    put32(f, 1);
+    put64(f, 0); // entry
+    put64(f, 64); // phoff
+    put64(f, 0); // shoff
+    put32(f, 0);
+    put16(f, 64);
+    put16(f, 56);
+    put16(f, nph as u16);
+    put16(f, 64);
+    put16(f, 0);
+    put16(f, 0);
+}
+
+/// One program header whose memory address is its file offset.
+fn phdr(f: &mut Vec<u8>, kind: u32, off: u64, size: u64) {
+    phdr_at(f, kind, off, off, size);
+}
+
+/// A loadable segment of `size` bytes at `at` (address = file offset).
+fn load_range(f: &mut Vec<u8>, at: u64, size: u64, flags: u32) {
+    put32(f, 1);
+    put32(f, flags);
+    put64(f, at);
+    put64(f, at);
+    put64(f, at);
+    put64(f, size);
+    put64(f, size);
+    put64(f, 8);
+}
+
+/// One program header at file offset `off`, memory address `vaddr`.
+fn phdr_at(f: &mut Vec<u8>, kind: u32, off: u64, vaddr: u64, size: u64) {
+    put32(f, kind);
+    put32(f, 5);
+    put64(f, off);
+    put64(f, vaddr);
+    put64(f, vaddr);
+    put64(f, size);
+    put64(f, size);
+    put64(f, 8);
+}
+
+/// The dynamic symbols: null, one function, one more (an IFUNC when asked).
+fn symbols(f: &mut Vec<u8>, spec: &Spec, sym_name: u32) {
+    f.extend_from_slice(&[0; 24]);
+    for kind in [2u8, if spec.ifunc_symbol { 10 } else { 2 }] {
+        put32(f, sym_name);
+        f.push((1 << 4) | kind);
+        f.push(0);
+        put16(f, 1);
+        put64(f, 0x100);
+        put64(f, 4);
+    }
+}
+
+/// The hash table(s) of the dynamic symbols: SysV, or GNU (with an optional SysV one after it).
+fn hash_tables(f: &mut Vec<u8>, spec: &Spec, nsym: usize) {
+    let sysv = |f: &mut Vec<u8>, nchain: u32| {
+        put32(f, 1);
+        put32(f, nchain);
+        put32(f, 0);
+        for _ in 0..nsym {
+            put32(f, 0);
+        }
+    };
+    if spec.gnu_hash {
+        put32(f, spec.gnu_buckets.unwrap_or(1)); // nbuckets
+        put32(f, 1); // symoffset: symbol 0 is not hashed
+        put32(f, spec.gnu_bloom.unwrap_or(1)); // bloom size
+        put32(f, 6); // bloom shift
+        put64(f, !0); // bloom
+        put32(f, 1); // bucket 0 starts at symbol 1
+        put32(f, 0); // chain of symbol 1 (not last)
+        put32(f, 1); // chain of symbol 2 (last)
+        if let Some(nchain) = spec.sysv_too {
+            sysv(f, nchain);
+        }
+    } else {
+        sysv(f, nsym as u32);
+    }
+}
+
+/// The caller's own dynamic entries: one replaces the built entry of its tag, or is
+/// added; `dup_dyn` ones are always added (a tag twice).
+fn add_extras(dynv: &mut Vec<(i64, u64)>, spec: &Spec) {
+    for &(tag, val) in &spec.extra_dyn {
+        match dynv.iter_mut().find(|e| e.0 == tag && tag != 1) {
+            Some(e) => e.1 = val,
+            None => dynv.push((tag, val)),
+        }
+    }
+    dynv.extend(spec.dup_dyn.iter().copied());
+}
+
+/// The loadable segment(s) and the stack header.
+fn segments(f: &mut Vec<u8>, spec: &Spec, dyn_at: usize, total: usize) {
+    if spec.read_only {
+        // A read-only part up to the dynamic section, a writable one from it.
+        load_range(f, 0, dyn_at as u64, 5);
+        load_range(f, dyn_at as u64, (total - dyn_at) as u64, 6);
+    } else {
+        load_range(f, 0, total as u64, if spec.ro_dynamic { 5 } else { 7 });
+    }
+    if !spec.no_stack {
+        put32(f, 0x6474_e551); // PT_GNU_STACK
+        put32(f, if spec.exec_stack { 7 } else { 6 });
+        for _ in 0..6 {
+            put64(f, 0);
+        }
+    }
+}
+
+/// The `Rela` entries of the relocation and jump-slot tables.
+fn relocations(f: &mut Vec<u8>, spec: &Spec) {
+    let irel = if spec.machine == X86 { 37u64 } else { 1032 };
+    if spec.irelative {
+        put64(f, 0x200);
+        put64(f, irel);
+        put64(f, 0);
+    }
+    if let Some((place, info)) = spec.reloc {
+        put64(f, place);
+        put64(f, info);
+        put64(f, 0);
+    }
+    if spec.irelative_in_jmprel {
+        put64(f, 0x200);
+        put64(f, irel);
+        put64(f, 0);
+    }
+}
+
+/// A shared object whose single `PT_LOAD` maps the file at its own offsets.
+fn build(spec: &Spec) -> Vec<u8> {
+    let nph: usize = 3 - usize::from(spec.no_stack)
+        + usize::from(spec.tls)
+        + usize::from(spec.overlapping_load)
+        + usize::from(spec.read_only);
+    let after_ph = 64 + nph * 56;
+    // string table: "\0" + needed names + "sym\0"
+    let mut strtab = std::vec![0u8];
+    let mut name_at = Vec::new();
+    for n in &spec.needed {
+        name_at.push(strtab.len() as u64);
+        strtab.extend_from_slice(n.as_bytes());
+        strtab.push(0);
+    }
+    let sym_name = strtab.len() as u32;
+    strtab.extend_from_slice(b"sym\0");
+    let strtab_at = after_ph;
+    let symtab_at = (strtab_at + strtab.len() + 7) & !7;
+    let nsym = 3usize;
+    let hash_at = symtab_at + nsym * 24;
+    let gnu_len = 16 + 8 + 4 + 4 * 2;
+    let sysv_len = 8 + 4 + 4 * nsym;
+    let hash_len = if spec.gnu_hash {
+        gnu_len + if spec.sysv_too.is_some() { sysv_len } else { 0 }
+    } else {
+        sysv_len
+    };
+    let rela_at = (hash_at + hash_len + 7) & !7;
+    let rela_len = if spec.irelative || spec.reloc.is_some() {
+        24
+    } else {
+        0
+    };
+    let jmprel_at = rela_at + rela_len;
+    let jmprel_len = if spec.irelative_in_jmprel { 24 } else { 0 };
+    let dyn_at = (jmprel_at + jmprel_len + 7) & !7;
+
+    let mut dynv: Vec<(i64, u64)> = Vec::new();
+    for at in &name_at {
+        dynv.push((1, *at));
+    }
+    dynv.push((5, strtab_at as u64));
+    dynv.push((10, strtab.len() as u64));
+    dynv.push((6, symtab_at as u64));
+    dynv.push((11, 24));
+    dynv.push((if spec.gnu_hash { 0x6fff_fef5 } else { 4 }, hash_at as u64));
+    if spec.sysv_too.is_some() {
+        dynv.push((4, (hash_at + gnu_len) as u64));
+    }
+    if spec.irelative || spec.reloc.is_some() {
+        dynv.push((7, rela_at as u64));
+        dynv.push((8, 24));
+    }
+    if spec.irelative_in_jmprel {
+        dynv.push((23, jmprel_at as u64));
+        dynv.push((2, 24));
+        dynv.push((20, if spec.pltrel_rel { 17 } else { 7 }));
+    }
+    if let Some(n) = spec.relacount {
+        dynv.push((0x6fff_fff9, n));
+    }
+    if spec.irelative_in_jmprel && !spec.no_pltgot {
+        dynv.push((3, 0x40)); // DT_PLTGOT, in the writable segment
+    }
+    add_extras(&mut dynv, spec);
+    dynv.push((0, 0));
+    let total = dyn_at + dynv.len() * 16;
+
+    let mut f = Vec::new();
+    header(&mut f, spec.machine, nph);
+    segments(&mut f, spec, dyn_at, total);
+    if spec.skewed_dynamic {
+        phdr_at(
+            &mut f,
+            2,
+            dyn_at as u64,
+            dyn_at as u64 - 16,
+            (dynv.len() * 16) as u64,
+        );
+    } else {
+        phdr(&mut f, 2, dyn_at as u64, (dynv.len() * 16) as u64);
+    }
+    if spec.overlapping_load {
+        phdr(&mut f, 1, 0, 64);
+    }
+    if spec.tls {
+        phdr(&mut f, 7, 0, 8);
+    }
+    assert_eq!(f.len(), after_ph);
+    f.extend_from_slice(&strtab);
+    f.resize(symtab_at, 0);
+    symbols(&mut f, spec, sym_name);
+    assert_eq!(f.len(), hash_at);
+    hash_tables(&mut f, spec, nsym);
+    f.resize(rela_at, 0);
+    relocations(&mut f, spec);
+    f.resize(dyn_at, 0);
+    for (tag, val) in dynv {
+        put64(&mut f, tag as u64);
+        put64(&mut f, val);
+    }
+    assert_eq!(f.len(), total);
+    f
+}
+
+fn plain(machine: u16) -> Spec {
+    Spec {
+        machine,
+        ..Spec::default()
+    }
+}
+
+fn refused(spec: &Spec, what: &'static str) {
+    let machine = spec.machine;
+    assert_eq!(
+        check_elf64_le(&build(spec), machine),
+        Err(Refusal::RunsCodeAtLoad(what))
+    );
+}
+
+#[test]
+fn a_plain_shared_object_is_accepted() {
+    for machine in [X86, ARM] {
+        for gnu_hash in [false, true] {
+            let spec = Spec {
+                gnu_hash,
+                needed: std::vec!["libc.so.6", "libm.so.6"],
+                ..plain(machine)
+            };
+            assert_eq!(
+                check_elf64_le(&build(&spec), machine),
+                Ok(()),
+                "{machine} gnu_hash={gnu_hash}"
+            );
+        }
+    }
+}
+
+#[test]
+fn zero_sized_arrays_run_nothing_and_are_accepted() {
+    let spec = Spec {
+        extra_dyn: std::vec![(27, 0), (28, 0), (33, 0)],
+        ..plain(X86)
+    };
+    assert_eq!(check_elf64_le(&build(&spec), X86), Ok(()));
+}
+
+#[test]
+fn every_way_to_run_code_at_load_is_refused() {
+    let with = |tag: i64, val: u64| Spec {
+        extra_dyn: std::vec![(tag, val)],
+        ..plain(X86)
+    };
+    refused(&with(12, 0x100), "DT_INIT");
+    refused(&with(13, 0x100), "DT_FINI");
+    refused(&with(27, 8), "DT_INIT_ARRAY");
+    refused(&with(28, 8), "DT_FINI_ARRAY");
+    refused(&with(33, 8), "DT_PREINIT_ARRAY");
+    refused(&with(22, 0), "text relocations");
+    refused(&with(30, 0x4), "text relocations");
+    refused(&with(30, 0x10), "static thread-local storage");
+    refused(&with(15, 0), "a library search path");
+    refused(&with(29, 0), "a library search path");
+    refused(&with(0x7fff_fffd, 0), "an auxiliary or filter library");
+    refused(&with(0x7fff_ffff, 0), "an auxiliary or filter library");
+    refused(
+        &Spec {
+            tls: true,
+            ..plain(X86)
+        },
+        "thread-local storage",
+    );
+    for machine in [X86, ARM] {
+        for gnu_hash in [false, true] {
+            refused(
+                &Spec {
+                    ifunc_symbol: true,
+                    gnu_hash,
+                    ..plain(machine)
+                },
+                "an IFUNC symbol",
+            );
+        }
+        refused(
+            &Spec {
+                irelative: true,
+                ..plain(machine)
+            },
+            "an IFUNC relocation",
+        );
+        refused(
+            &Spec {
+                irelative_in_jmprel: true,
+                ..plain(machine)
+            },
+            "an IFUNC relocation",
+        );
+    }
+}
+
+#[test]
+fn files_the_checker_and_the_system_loader_could_read_differently_are_refused() {
+    let machine = X86;
+    for (what, spec, why) in [
+        (
+            "overlapping segments",
+            Spec {
+                overlapping_load: true,
+                ..plain(machine)
+            },
+            Refusal::Segments,
+        ),
+        (
+            "a dynamic segment away from its address",
+            Spec {
+                skewed_dynamic: true,
+                ..plain(machine)
+            },
+            Refusal::DynamicSection,
+        ),
+        (
+            "jump slots that are not Rela",
+            Spec {
+                irelative_in_jmprel: true,
+                pltrel_rel: true,
+                ..plain(machine)
+            },
+            Refusal::Relocation,
+        ),
+        (
+            "no stack header",
+            Spec {
+                no_stack: true,
+                ..plain(machine)
+            },
+            Refusal::Segments,
+        ),
+        (
+            "an executable stack",
+            Spec {
+                exec_stack: true,
+                ..plain(machine)
+            },
+            Refusal::Segments,
+        ),
+        (
+            "a dynamic section in a read-only segment",
+            Spec {
+                ro_dynamic: true,
+                ..plain(machine)
+            },
+            Refusal::DynamicSection,
+        ),
+        (
+            "a tag twice",
+            Spec {
+                dup_dyn: std::vec![(16, 0), (16, 0)],
+                ..plain(machine)
+            },
+            Refusal::DynamicTag,
+        ),
+        (
+            "jump slots and no PLTGOT",
+            Spec {
+                irelative_in_jmprel: true,
+                no_pltgot: true,
+                ..plain(machine)
+            },
+            Refusal::Relocation,
+        ),
+    ] {
+        assert_eq!(check_elf64_le(&build(&spec), machine), Err(why), "{what}");
+    }
+}
+
+#[test]
+fn a_relocation_the_system_loader_would_fault_on_is_refused() {
+    // The kinds: base-relative, absolute and global-data.
+    let kinds: [(u16, [u64; 3]); 2] = [(X86, [8, 1, 6]), (ARM, [1027, 257, 1025])];
+    for (machine, kinds) in kinds {
+        let with = |place: u64, info: u64, read_only: bool| Spec {
+            reloc: Some((place, info)),
+            read_only,
+            ..plain(machine)
+        };
+        for kind in kinds {
+            // In the segment, writable, a known symbol (or none): accepted.
+            assert_eq!(
+                check_elf64_le(&build(&with(0x40, kind | 1 << 32, false)), machine),
+                Ok(()),
+                "kind {kind}"
+            );
+            assert_eq!(
+                check_elf64_le(&build(&with(0x40, kind, false)), machine),
+                Ok(()),
+                "kind {kind}, no symbol"
+            );
+            // The place is outside every segment, or the last byte is.
+            for place in [0x10_0000, u64::MAX - 3, u64::MAX] {
+                assert_eq!(
+                    check_elf64_le(&build(&with(place, kind, false)), machine),
+                    Err(Refusal::Relocation),
+                    "kind {kind} at {place:#x}"
+                );
+            }
+            // The place is in a segment that is not writable.
+            assert_eq!(
+                check_elf64_le(&build(&with(0x40, kind, true)), machine),
+                Err(Refusal::Relocation),
+                "read-only place, kind {kind}"
+            );
+            // A symbol past the symbol table (3 symbols).
+            for sym in [3u64, 1 << 20] {
+                assert_eq!(
+                    check_elf64_le(&build(&with(0x40, kind | sym << 32, false)), machine),
+                    Err(Refusal::Relocation),
+                    "kind {kind}, symbol {sym}"
+                );
+            }
+        }
+        // A kind that is none of the allowed ones (a copy relocation).
+        assert_eq!(
+            check_elf64_le(&build(&with(0x40, 5, false)), machine),
+            Err(Refusal::Relocation)
+        );
+    }
+}
+
+#[test]
+fn the_relative_relocation_count_is_checked_against_the_table() {
+    for (machine, relative, glob_dat) in [(X86, 8u64, 6u64), (ARM, 1027, 1025)] {
+        let with = |info: u64, count: u64| Spec {
+            reloc: Some((0x40, info)),
+            relacount: Some(count),
+            ..plain(machine)
+        };
+        // One entry, claimed to be one relative entry: accepted.
+        assert_eq!(check_elf64_le(&build(&with(relative, 1)), machine), Ok(()));
+        // Zero is no claim.
+        assert_eq!(check_elf64_le(&build(&with(glob_dat, 0)), machine), Ok(()));
+        for (what, spec) in [
+            ("more than the table has", with(relative, 2)),
+            ("far more than the table has", with(relative, 1000)),
+            ("an entry of another kind", with(glob_dat, 1)),
+            (
+                "a relative entry with a symbol",
+                with(relative | 1 << 32, 1),
+            ),
+            (
+                "a count and no table",
+                Spec {
+                    relacount: Some(1),
+                    ..plain(machine)
+                },
+            ),
+        ] {
+            assert_eq!(
+                check_elf64_le(&build(&spec), machine),
+                Err(Refusal::Relocation),
+                "{what}"
+            );
+        }
+    }
+}
+
+/// Tags a file may carry, with a value that is harmless for each (the
+/// structural ones the built file already has are left out of the walk below).
+const ACCEPTED: [(i64, u64); 13] = [
+    (16, 0),
+    (24, 0),
+    (25, 0),
+    (26, 0),
+    (27, 0),
+    (28, 0),
+    (30, 0),
+    (32, 0),
+    (33, 0),
+    (0x6fff_fffb, 0),
+    (0x7000_0001, 0),
+    (0x7000_0003, 0),
+    (0x7000_0005, 0),
+];
+/// Tags the built file has itself, or that carry an address checked on its
+/// own (the GOT test below), so a made-up value is no fair probe.
+const BUILT: [i64; 15] = [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    20,
+    23,
+    0x6fff_fef5,
+    0x6fff_fff9,
+];
+
+#[test]
+fn every_dynamic_tag_not_on_the_list_is_refused() {
+    for (tag, val) in ACCEPTED {
+        let spec = Spec {
+            extra_dyn: std::vec![(tag, val)],
+            ..plain(X86)
+        };
+        assert_eq!(check_elf64_le(&build(&spec), X86), Ok(()), "tag {tag:#x}");
+    }
+    // Every small tag, the GNU range, the processor range, and the edges up to
+    // the largest and (as a signed number) the negative ones.
+    let samples = (0..=0x100)
+        .chain(0x6fff_fd00..=0x7000_0010)
+        .chain(0x7fff_ff00..=0x7fff_ffff)
+        .chain([
+            i64::MAX,
+            i64::MAX - 1,
+            i64::MIN,
+            -1,
+            -2,
+            0x8000_0000,
+            0x1_0000_0000,
+        ]);
+    let mut walked = 0;
+    for tag in samples {
+        let known = ACCEPTED.iter().any(|&(t, _)| t == tag) || BUILT.contains(&tag);
+        if known || tag == 0 {
+            continue;
+        }
+        for val in [0u64, 1, 0x40, u64::MAX] {
+            let spec = Spec {
+                extra_dyn: std::vec![(tag, val)],
+                ..plain(X86)
+            };
+            assert!(
+                check_elf64_le(&build(&spec), X86).is_err(),
+                "tag {tag:#x} value {val:#x} is accepted"
+            );
+        }
+        walked += 1;
+    }
+    assert!(walked > 1000, "{walked}");
+}
+
+#[test]
+fn symbol_version_tables_are_refused() {
+    for tag in [
+        0x6fff_fff0,
+        0x6fff_fffc,
+        0x6fff_fffd,
+        0x6fff_fffe,
+        0x6fff_ffff,
+    ] {
+        for val in [0u64, 3] {
+            let spec = Spec {
+                extra_dyn: std::vec![(tag, val)],
+                ..plain(X86)
+            };
+            assert_eq!(
+                check_elf64_le(&build(&spec), X86),
+                Err(Refusal::DynamicTag),
+                "tag {tag:#x}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_string_table_is_bounded_and_every_name_is_inside_it() {
+    // The size says a table shorter than the names in it.
+    for size in [0u64, 1, 2] {
+        let spec = Spec {
+            extra_dyn: std::vec![(10, size)],
+            needed: std::vec!["libc.so.6"],
+            ..plain(X86)
+        };
+        assert_eq!(
+            check_elf64_le(&build(&spec), X86),
+            Err(Refusal::Strings),
+            "size {size}"
+        );
+    }
+    // A size that runs past the file.
+    let spec = Spec {
+        extra_dyn: std::vec![(10, 1 << 40)],
+        ..plain(X86)
+    };
+    assert!(check_elf64_le(&build(&spec), X86).is_err());
+}
+
+#[test]
+fn the_jump_slot_got_must_be_writable() {
+    let ok = Spec {
+        extra_dyn: std::vec![(3, 0x40)],
+        ..plain(X86)
+    };
+    assert_eq!(check_elf64_le(&build(&ok), X86), Ok(()));
+    for (got, read_only) in [(0x10_0000u64, false), (u64::MAX, false), (0x40, true)] {
+        let spec = Spec {
+            extra_dyn: std::vec![(3, got)],
+            read_only,
+            ..plain(X86)
+        };
+        assert_eq!(
+            check_elf64_le(&build(&spec), X86),
+            Err(Refusal::Relocation),
+            "got {got:#x} read_only {read_only}"
+        );
+    }
+}
+
+#[test]
+fn relocation_tables_this_check_does_not_read_are_refused() {
+    for (tag, val) in [(17i64, 0u64), (36, 0), (35, 8), (9, 16)] {
+        let spec = Spec {
+            extra_dyn: std::vec![(tag, val)],
+            ..plain(X86)
+        };
+        assert_eq!(
+            check_elf64_le(&build(&spec), X86),
+            Err(Refusal::DynamicTag),
+            "tag {tag}"
+        );
+    }
+    // A table whose size is not a whole number of entries.
+    let spec = Spec {
+        reloc: Some((0x40, 8)),
+        extra_dyn: std::vec![(8, 25)],
+        ..plain(X86)
+    };
+    assert_eq!(check_elf64_le(&build(&spec), X86), Err(Refusal::Relocation));
+}
+
+#[test]
+fn two_hash_tables_that_disagree_are_refused_and_the_ifunc_cannot_hide() {
+    for machine in [X86, ARM] {
+        // Both tables state the three symbols: read, and the IFUNC is found.
+        let honest = Spec {
+            ifunc_symbol: true,
+            gnu_hash: true,
+            sysv_too: Some(3),
+            ..plain(machine)
+        };
+        assert_eq!(
+            check_elf64_le(&build(&honest), machine),
+            Err(Refusal::RunsCodeAtLoad("an IFUNC symbol"))
+        );
+        // The SysV table says one symbol, the GNU table three: the symbols the
+        // system loader reads through the GNU table must not escape the check.
+        let lying = Spec {
+            ifunc_symbol: true,
+            gnu_hash: true,
+            sysv_too: Some(1),
+            ..plain(machine)
+        };
+        assert_eq!(
+            check_elf64_le(&build(&lying), machine),
+            Err(Refusal::Symbols)
+        );
+        // Agreement on a clean file is accepted.
+        let clean = Spec {
+            gnu_hash: true,
+            sysv_too: Some(3),
+            ..plain(machine)
+        };
+        assert_eq!(check_elf64_le(&build(&clean), machine), Ok(()));
+    }
+}
+
+#[test]
+fn hash_tables_that_run_past_their_segment_are_refused() {
+    for machine in [X86, ARM] {
+        for (what, spec) in [
+            (
+                "GNU buckets",
+                Spec {
+                    gnu_hash: true,
+                    gnu_buckets: Some(1 << 30),
+                    ..plain(machine)
+                },
+            ),
+            (
+                "GNU bloom words",
+                Spec {
+                    gnu_hash: true,
+                    gnu_bloom: Some(1 << 30),
+                    ..plain(machine)
+                },
+            ),
+            (
+                "SysV chains beside a GNU table",
+                Spec {
+                    gnu_hash: true,
+                    sysv_too: Some(1 << 30),
+                    ..plain(machine)
+                },
+            ),
+        ] {
+            assert_eq!(
+                check_elf64_le(&build(&spec), machine),
+                Err(Refusal::Truncated),
+                "{what}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_library_other_than_the_c_library_is_refused() {
+    let spec = Spec {
+        needed: std::vec!["libc.so.6", "libevil.so"],
+        ..plain(X86)
+    };
+    refused(&spec, "a library other than the C library");
+}
+
+#[test]
+fn a_file_that_is_not_the_asked_machine_or_not_an_elf_is_refused() {
+    assert_eq!(
+        check_elf64_le(&build(&plain(ARM)), X86),
+        Err(Refusal::OtherMachine)
+    );
+    assert_eq!(
+        check_elf64_le(&build(&plain(X86)), 3),
+        Err(Refusal::NotSupported)
+    );
+    assert_eq!(check_elf64_le(b"MZ", X86), Err(Refusal::NotSupported));
+    assert_eq!(check_elf64_le(&[], X86), Err(Refusal::NotSupported));
+    let mut big_endian = build(&plain(X86));
+    big_endian[5] = 2;
+    assert_eq!(check_elf64_le(&big_endian, X86), Err(Refusal::NotSupported));
+    let mut class32 = build(&plain(X86));
+    class32[4] = 1;
+    assert_eq!(check_elf64_le(&class32, X86), Err(Refusal::NotSupported));
+}
+
+#[test]
+fn every_truncation_and_header_edit_is_refused_or_survives_without_a_crash() {
+    let good = build(&Spec {
+        needed: std::vec!["libc.so.6"],
+        ..plain(X86)
+    });
+    // Cut anywhere: never a panic, and never accepted but for the full file.
+    for len in 0..good.len() {
+        assert_ne!(check_elf64_le(&good[..len], X86), Ok(()), "cut at {len}");
+    }
+    // One byte changed anywhere: never a panic.
+    for at in 0..good.len() {
+        for value in [0u8, 0xff, 0x80, 1] {
+            let mut bad = good.clone();
+            bad[at] = value;
+            let _ = check_elf64_le(&bad, X86);
+        }
+    }
+}
+
+/// Real libraries built by the toolchain on this machine (Linux hosts).
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod real {
+    extern crate std;
+
+    use std::path::Path;
+    use std::process::Command;
+    use std::string::String;
+    use std::{format, fs};
+
+    use super::{ARM, X86};
+    use crate::preflight::{Refusal, check_elf64_le};
+
+    const MACHINE: u16 = if cfg!(target_arch = "x86_64") {
+        X86
+    } else {
+        ARM
+    };
+
+    const PLAIN: &str = r#"#![no_std]
+#[panic_handler]
+fn panic(_: &core::panic::PanicInfo) -> ! { loop {} }
+#[unsafe(no_mangle)]
+pub extern "C" fn plugin_entry() -> u32 { 7 }
+"#;
+
+    // An initialiser that creates a marker file the moment the library is loaded.
+    const WITH_INIT: &str = r#"#![no_std]
+#[panic_handler]
+fn panic(_: &core::panic::PanicInfo) -> ! { loop {} }
+fn make_marker() {
+    let path = b"marker-must-not-exist\0".as_ptr();
+    #[cfg(target_arch = "x86_64")]
+    unsafe { core::arch::asm!("syscall", inlateout("rax") 257isize => _, in("rdi") -100isize, in("rsi") path, in("rdx") 0o101isize, in("r10") 0o600isize, lateout("rcx") _, lateout("r11") _, options(nostack)); }
+    #[cfg(target_arch = "aarch64")]
+    unsafe { core::arch::asm!("svc 0", in("x8") 56isize, inlateout("x0") -100isize => _, in("x1") path, in("x2") 0o101isize, in("x3") 0o600isize, options(nostack)); }
+}
+extern "C" fn init_entry() { make_marker(); }
+#[used]
+#[unsafe(link_section = ".init_array")]
+static INIT: extern "C" fn() = init_entry;
+#[unsafe(no_mangle)]
+pub extern "C" fn plugin_entry() -> u32 { 7 }
+"#;
+
+    fn move_dynamic_offset_to_zeros(lib: &[u8]) -> std::vec::Vec<u8> {
+        // The recipe: append as many zero bytes as the dynamic segment has and
+        // change only PT_DYNAMIC's file offset to them. The zeros read as an empty
+        // dynamic section; the system loader still reads the real one at p_vaddr.
+        let phoff = u64::from_le_bytes(lib[32..40].try_into().unwrap()) as usize;
+        let phnum = usize::from(u16::from_le_bytes(lib[56..58].try_into().unwrap()));
+        let mut out = lib.to_vec();
+        for i in 0..phnum {
+            let at = phoff + i * 56;
+            if u32::from_le_bytes(lib[at..at + 4].try_into().unwrap()) == 2 {
+                let filesz = u64::from_le_bytes(lib[at + 32..at + 40].try_into().unwrap()) as usize;
+                let zeros_at = lib.len() as u64;
+                out.resize(lib.len() + filesz, 0);
+                out[at + 8..at + 16].copy_from_slice(&zeros_at.to_le_bytes());
+                return out;
+            }
+        }
+        panic!("no PT_DYNAMIC");
+    }
+
+    fn build(dir: &Path, name: &str, source: &str) -> Option<std::vec::Vec<u8>> {
+        let src = dir.join(format!("{name}.rs"));
+        let out = dir.join(format!("lib{name}.so"));
+        fs::write(&src, source).unwrap();
+        let rustc = std::env::var("RUSTC").unwrap_or_else(|_| String::from("rustc"));
+        let status = Command::new(rustc)
+            .args([
+                "--edition",
+                "2024",
+                "--crate-type",
+                "cdylib",
+                "-C",
+                "panic=abort",
+                "-C",
+                "link-arg=-nostartfiles",
+                "-O",
+                "-o",
+            ])
+            .arg(&out)
+            .arg(&src)
+            .current_dir(dir)
+            .status();
+        // A compiler that cannot be started fails the test, unless the run says
+        // in the open that there is none; one that runs and fails is a failure
+        // too, never a silent pass.
+        let Ok(status) = status else {
+            assert!(
+                std::env::var("PAPERPAW_NO_FIXTURE_COMPILER").as_deref() == Ok("1"),
+                "no rustc to build the fixture library (set PAPERPAW_NO_FIXTURE_COMPILER=1 to skip)"
+            );
+            return None;
+        };
+        assert!(
+            status.success(),
+            "the fixture library {name} did not compile"
+        );
+        Some(fs::read(out).unwrap())
+    }
+
+    #[test]
+    fn a_real_library_is_accepted_and_one_with_an_initialiser_is_refused_without_loading() {
+        let dir = std::env::temp_dir().join(std::format!("pp-preflight-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let (Some(plain), Some(init)) =
+            (build(&dir, "plain", PLAIN), build(&dir, "init", WITH_INIT))
+        else {
+            // No usable compiler in this environment: the synthetic tests stand.
+            std::eprintln!("preflight: no rustc to build real libraries; skipped");
+            return;
+        };
+        assert_eq!(
+            check_elf64_le(&plain, MACHINE),
+            Ok(()),
+            "a plain no_std cdylib"
+        );
+        assert!(
+            matches!(
+                check_elf64_le(&init, MACHINE),
+                Err(Refusal::RunsCodeAtLoad(_))
+            ),
+            "a library with an .init_array entry: {:?}",
+            check_elf64_le(&init, MACHINE)
+        );
+        // The senior's recipe: the same library with only PT_DYNAMIC's file
+        // offset moved onto appended zeros. It is refused, not read as clean.
+        let moved = move_dynamic_offset_to_zeros(&init);
+        assert_eq!(
+            check_elf64_le(&moved, MACHINE),
+            Err(Refusal::DynamicSection)
+        );
+        // Nothing was loaded, so nothing ran.
+        assert!(!dir.join("marker-must-not-exist").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

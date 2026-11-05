@@ -78,6 +78,7 @@ mod extent;
 mod header;
 pub mod index;
 mod interface;
+pub mod preflight;
 mod reloc;
 pub mod signature;
 
