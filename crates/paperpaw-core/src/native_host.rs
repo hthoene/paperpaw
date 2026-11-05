@@ -8,6 +8,9 @@
 use crate::abi7::{calls, lifecycle};
 use core::{cell::Cell, fmt, pin::Pin};
 
+#[path = "native_host/registration_scope.rs"]
+pub mod registration_scope;
+
 const REGISTRATIONS: usize = 8;
 
 /// Host admission or construction failure.

@@ -13,6 +13,8 @@ change the plugin SDK.
   The new host table is not yet activated.
 - Host-only pinned plugin owners and transactional registration staging, with
   explicit cleanup ownership on commit failure (#228). Runtime wiring remains inactive.
+- Scoped submission of validated host records during plugin construction (#228),
+  clearing access on return or unwind; foreign registration decoding remains unwired.
 - Generated optional event/draw callback tails, bounded table readers and callback
   minor requirements for the interface-7 prototype (#228). No live dispatch yet.
 
