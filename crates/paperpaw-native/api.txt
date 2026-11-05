@@ -91,6 +91,7 @@ pub paperpaw_native::preflight::Refusal::NotSupported
 pub paperpaw_native::preflight::Refusal::OtherMachine
 pub paperpaw_native::preflight::Refusal::RunsCodeAtLoad(&'static str)
 pub paperpaw_native::preflight::Refusal::Truncated
+pub paperpaw_native::preflight::Refusal::UnsupportedPlatform
 pub fn paperpaw_native::preflight::check_elf64_le(&[u8], u16) -> core::result::Result<(), paperpaw_native::preflight::Refusal>
 pub mod paperpaw_native::signature
 pub struct paperpaw_native::signature::BadSignature

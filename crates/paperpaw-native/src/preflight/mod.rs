@@ -22,6 +22,9 @@ pub enum Refusal {
     Truncated,
     /// Built for another machine than the one asked for.
     OtherMachine,
+    /// No check exists yet for this platform's libraries: refused, not
+    /// accepted (a shell may let a user opt in, in the open).
+    UnsupportedPlatform,
     /// The file has a way to run code, or to load more code, while it
     /// loads. The text names the mechanism.
     RunsCodeAtLoad(&'static str),

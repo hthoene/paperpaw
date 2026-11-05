@@ -268,14 +268,24 @@ fn preflight(bytes: &[u8]) -> Result<(), paperpaw_native::preflight::Refusal> {
     paperpaw_native::preflight::check_elf64_le(bytes, machine)
 }
 
-/// Mach-O and PE libraries are not yet checked before loading: their
-/// preflight comes with the generated metadata (ADR 0034, M1).
+/// Mach-O and PE libraries are not yet checked before loading (their
+/// preflight comes with the generated metadata, ADR 0034 M1), so they are
+/// refused. Whoever starts the emulator may say, in the open, that unchecked
+/// libraries are loaded anyway: `PAPERPAW_UNCHECKED_CODE_PLUGINS=1`, which
+/// is said on standard error for every library it lets through. It never
+/// applies where a check exists.
 #[cfg(not(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 )))]
 fn preflight(_bytes: &[u8]) -> Result<(), paperpaw_native::preflight::Refusal> {
-    Ok(())
+    if std::env::var_os("PAPERPAW_UNCHECKED_CODE_PLUGINS").is_some_and(|v| v == "1") {
+        eprintln!(
+            "code plugin loaded without the pre-load check (PAPERPAW_UNCHECKED_CODE_PLUGINS=1)"
+        );
+        return Ok(());
+    }
+    Err(paperpaw_native::preflight::Refusal::UnsupportedPlatform)
 }
 
 /// Whether the library `bytes` was built by the compiler that built the
@@ -356,18 +366,11 @@ pub fn trust(root: &std::path::Path) -> std::io::Result<Vec<String>> {
 mod tests {
     use super::*;
 
-    /// What a file that is not a library comes to: on the platforms with a
-    /// preflight it is refused before loading; elsewhere (until the Mach-O and
-    /// PE checks land, ADR 0034 M1) the loader goes on to the compiler check.
+    /// What a file that is not a library comes to: refused before it is
+    /// loaded (where no check exists yet, a library is refused too, unless the
+    /// opt-in `PAPERPAW_UNCHECKED_CODE_PLUGINS` is set, which the tests do not).
     fn not_a_library() -> PluginProblem {
-        if cfg!(all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        )) {
-            PluginProblem::Damaged
-        } else {
-            PluginProblem::OtherBuild
-        }
+        PluginProblem::Damaged
     }
 
     /// A library is loaded only where it names the emulator's compiler,
@@ -471,6 +474,30 @@ version = 0.1.0
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn move_dynamic_offset_to_zeros(lib: &[u8]) -> Vec<u8> {
+        // The recipe: append as many zero bytes as the dynamic segment has and
+        // change only PT_DYNAMIC's file offset to them. The zeros read as an empty
+        // dynamic section; the system loader still reads the real one at p_vaddr.
+        let phoff = u64::from_le_bytes(lib[32..40].try_into().unwrap()) as usize;
+        let phnum = usize::from(u16::from_le_bytes(lib[56..58].try_into().unwrap()));
+        let mut out = lib.to_vec();
+        for i in 0..phnum {
+            let at = phoff + i * 56;
+            if u32::from_le_bytes(lib[at..at + 4].try_into().unwrap()) == 2 {
+                let filesz = u64::from_le_bytes(lib[at + 32..at + 40].try_into().unwrap()) as usize;
+                let zeros_at = lib.len() as u64;
+                out.resize(lib.len() + filesz, 0);
+                out[at + 8..at + 16].copy_from_slice(&zeros_at.to_le_bytes());
+                return out;
+            }
+        }
+        panic!("no PT_DYNAMIC");
+    }
+
     /// ADR 0034 section 6: a library whose initialiser runs when it is loaded
     /// is refused before it is loaded. The control loads the same library
     /// by hand and sees the initialiser run, so the test can fail.
@@ -533,6 +560,20 @@ static INIT: extern "C" fn() = make_marker;
         drop(unsafe { libloading::Library::new(load_path(&lib, &file)) }.unwrap());
         assert!(marker.exists(), "the open file was not loaded");
         std::fs::remove_file(&marker).unwrap();
+        // The Senior Reviewer's recipe: only PT_DYNAMIC's file offset moved onto
+        // appended zeros. Loaded by hand, the system loader still runs the
+        // initialiser (the file is dangerous); the loader refuses it.
+        let moved = move_dynamic_offset_to_zeros(&std::fs::read(&lib).unwrap());
+        let moved_lib = root.join("moved.so");
+        std::fs::write(&moved_lib, &moved).unwrap();
+        // SAFETY: as above.
+        drop(unsafe { libloading::Library::new(&moved_lib) }.unwrap());
+        assert!(
+            marker.exists(),
+            "the moved-offset file does not run the initialiser"
+        );
+        std::fs::remove_file(&marker).unwrap();
+        std::fs::write(&lib, &moved).unwrap();
         // The loader refuses it and never loads it.
         let bytes = std::fs::read(&lib).unwrap();
         let storage = crate::device::library(&root).unwrap();

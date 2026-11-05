@@ -476,6 +476,26 @@ static INIT: extern "C" fn() = make_marker;
 pub extern "C" fn plugin_entry() -> u32 { 7 }
 "#;
 
+    fn move_dynamic_offset_to_zeros(lib: &[u8]) -> std::vec::Vec<u8> {
+        // The recipe: append as many zero bytes as the dynamic segment has and
+        // change only PT_DYNAMIC's file offset to them. The zeros read as an empty
+        // dynamic section; the system loader still reads the real one at p_vaddr.
+        let phoff = u64::from_le_bytes(lib[32..40].try_into().unwrap()) as usize;
+        let phnum = usize::from(u16::from_le_bytes(lib[56..58].try_into().unwrap()));
+        let mut out = lib.to_vec();
+        for i in 0..phnum {
+            let at = phoff + i * 56;
+            if u32::from_le_bytes(lib[at..at + 4].try_into().unwrap()) == 2 {
+                let filesz = u64::from_le_bytes(lib[at + 32..at + 40].try_into().unwrap()) as usize;
+                let zeros_at = lib.len() as u64;
+                out.resize(lib.len() + filesz, 0);
+                out[at + 8..at + 16].copy_from_slice(&zeros_at.to_le_bytes());
+                return out;
+            }
+        }
+        panic!("no PT_DYNAMIC");
+    }
+
     fn build(dir: &Path, name: &str, source: &str) -> Option<std::vec::Vec<u8>> {
         let src = dir.join(format!("{name}.rs"));
         let out = dir.join(format!("lib{name}.so"));
@@ -532,6 +552,10 @@ pub extern "C" fn plugin_entry() -> u32 { 7 }
             "a library with an .init_array entry: {:?}",
             check_elf64_le(&init, MACHINE)
         );
+        // The senior's recipe: the same library with only PT_DYNAMIC's file
+        // offset moved onto appended zeros. It is refused, not read as clean.
+        let moved = move_dynamic_offset_to_zeros(&init);
+        assert_eq!(check_elf64_le(&moved, MACHINE), Err(Refusal::NotSupported));
         // Nothing was loaded, so nothing ran.
         assert!(!dir.join("marker-must-not-exist").exists());
         let _ = fs::remove_dir_all(&dir);
