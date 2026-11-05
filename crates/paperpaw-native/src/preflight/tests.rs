@@ -21,6 +21,8 @@ struct Spec {
     irelative: bool,
     irelative_in_jmprel: bool,
     gnu_hash: bool,
+    /// With the GNU table, also a SysV one stating this many symbols.
+    sysv_too: Option<u32>,
     /// A second loadable segment over the first one's addresses.
     overlapping_load: bool,
     /// The dynamic segment's file offset is not where its address maps.
@@ -75,6 +77,46 @@ fn phdr_at(f: &mut Vec<u8>, kind: u32, off: u64, vaddr: u64, size: u64) {
     put64(f, 8);
 }
 
+/// The dynamic symbols: null, one function, one more (an IFUNC when asked).
+fn symbols(f: &mut Vec<u8>, spec: &Spec, sym_name: u32) {
+    f.extend_from_slice(&[0; 24]);
+    for kind in [2u8, if spec.ifunc_symbol { 10 } else { 2 }] {
+        put32(f, sym_name);
+        f.push((1 << 4) | kind);
+        f.push(0);
+        put16(f, 1);
+        put64(f, 0x100);
+        put64(f, 4);
+    }
+}
+
+/// The hash table(s) of the dynamic symbols: SysV, or GNU (with an optional SysV one after it).
+fn hash_tables(f: &mut Vec<u8>, spec: &Spec, nsym: usize) {
+    let sysv = |f: &mut Vec<u8>, nchain: u32| {
+        put32(f, 1);
+        put32(f, nchain);
+        put32(f, 0);
+        for _ in 0..nsym {
+            put32(f, 0);
+        }
+    };
+    if spec.gnu_hash {
+        put32(f, 1); // nbuckets
+        put32(f, 1); // symoffset: symbol 0 is not hashed
+        put32(f, 1); // bloom size
+        put32(f, 6); // bloom shift
+        put64(f, !0); // bloom
+        put32(f, 1); // bucket 0 starts at symbol 1
+        put32(f, 0); // chain of symbol 1 (not last)
+        put32(f, 1); // chain of symbol 2 (last)
+        if let Some(nchain) = spec.sysv_too {
+            sysv(f, nchain);
+        }
+    } else {
+        sysv(f, nsym as u32);
+    }
+}
+
 /// A shared object whose single `PT_LOAD` maps the file at its own offsets.
 fn build(spec: &Spec) -> Vec<u8> {
     let nph: usize = 2 + usize::from(spec.tls) + usize::from(spec.overlapping_load);
@@ -93,10 +135,12 @@ fn build(spec: &Spec) -> Vec<u8> {
     let symtab_at = (strtab_at + strtab.len() + 7) & !7;
     let nsym = 3usize;
     let hash_at = symtab_at + nsym * 24;
+    let gnu_len = 16 + 8 + 4 + 4 * 2;
+    let sysv_len = 8 + 4 + 4 * nsym;
     let hash_len = if spec.gnu_hash {
-        16 + 8 + 4 + 4 * 2
+        gnu_len + if spec.sysv_too.is_some() { sysv_len } else { 0 }
     } else {
-        8 + 4 + 4 * nsym
+        sysv_len
     };
     let rela_at = (hash_at + hash_len + 7) & !7;
     let rela_len = if spec.irelative { 24 } else { 0 };
@@ -112,6 +156,9 @@ fn build(spec: &Spec) -> Vec<u8> {
     dynv.push((6, symtab_at as u64));
     dynv.push((11, 24));
     dynv.push((if spec.gnu_hash { 0x6fff_fef5 } else { 4 }, hash_at as u64));
+    if spec.sysv_too.is_some() {
+        dynv.push((4, (hash_at + gnu_len) as u64));
+    }
     if spec.irelative {
         dynv.push((7, rela_at as u64));
         dynv.push((8, 24));
@@ -148,34 +195,9 @@ fn build(spec: &Spec) -> Vec<u8> {
     assert_eq!(f.len(), after_ph);
     f.extend_from_slice(&strtab);
     f.resize(symtab_at, 0);
-    // symbols: null, one function, one more (an IFUNC when asked)
-    f.extend_from_slice(&[0; 24]);
-    for kind in [2u8, if spec.ifunc_symbol { 10 } else { 2 }] {
-        put32(&mut f, sym_name);
-        f.push((1 << 4) | kind);
-        f.push(0);
-        put16(&mut f, 1);
-        put64(&mut f, 0x100);
-        put64(&mut f, 4);
-    }
+    symbols(&mut f, spec, sym_name);
     assert_eq!(f.len(), hash_at);
-    if spec.gnu_hash {
-        put32(&mut f, 1); // nbuckets
-        put32(&mut f, 1); // symoffset: symbol 0 is not hashed
-        put32(&mut f, 1); // bloom size
-        put32(&mut f, 6); // bloom shift
-        put64(&mut f, !0); // bloom
-        put32(&mut f, 1); // bucket 0 starts at symbol 1
-        put32(&mut f, 0); // chain of symbol 1 (not last)
-        put32(&mut f, 1); // chain of symbol 2 (last)
-    } else {
-        put32(&mut f, 1);
-        put32(&mut f, nsym as u32);
-        put32(&mut f, 0);
-        for _ in 0..nsym {
-            put32(&mut f, 0);
-        }
-    }
+    hash_tables(&mut f, spec, nsym);
     f.resize(rela_at, 0);
     let irel = if spec.machine == X86 { 37u64 } else { 1032 };
     if spec.irelative {
@@ -328,6 +350,42 @@ fn files_the_checker_and_the_system_loader_could_read_differently_are_refused() 
 }
 
 #[test]
+fn two_hash_tables_that_disagree_are_refused_and_the_ifunc_cannot_hide() {
+    for machine in [X86, ARM] {
+        // Both tables state the three symbols: read, and the IFUNC is found.
+        let honest = Spec {
+            ifunc_symbol: true,
+            gnu_hash: true,
+            sysv_too: Some(3),
+            ..plain(machine)
+        };
+        assert_eq!(
+            check_elf64_le(&build(&honest), machine),
+            Err(Refusal::RunsCodeAtLoad("an IFUNC symbol"))
+        );
+        // The SysV table says one symbol, the GNU table three: the symbols the
+        // system loader reads through the GNU table must not escape the check.
+        let lying = Spec {
+            ifunc_symbol: true,
+            gnu_hash: true,
+            sysv_too: Some(1),
+            ..plain(machine)
+        };
+        assert_eq!(
+            check_elf64_le(&build(&lying), machine),
+            Err(Refusal::NotSupported)
+        );
+        // Agreement on a clean file is accepted.
+        let clean = Spec {
+            gnu_hash: true,
+            sysv_too: Some(3),
+            ..plain(machine)
+        };
+        assert_eq!(check_elf64_le(&build(&clean), machine), Ok(()));
+    }
+}
+
+#[test]
 fn a_library_other_than_the_c_library_is_refused() {
     let spec = Spec {
         needed: std::vec!["libc.so.6", "libevil.so"],
@@ -421,7 +479,7 @@ pub extern "C" fn plugin_entry() -> u32 { 7 }
     fn build(dir: &Path, name: &str, source: &str) -> Option<std::vec::Vec<u8>> {
         let src = dir.join(format!("{name}.rs"));
         let out = dir.join(format!("lib{name}.so"));
-        fs::write(&src, source).ok()?;
+        fs::write(&src, source).unwrap();
         let rustc = std::env::var("RUSTC").unwrap_or_else(|_| String::from("rustc"));
         let status = Command::new(rustc)
             .args([
@@ -439,12 +497,15 @@ pub extern "C" fn plugin_entry() -> u32 { 7 }
             .arg(&out)
             .arg(&src)
             .current_dir(dir)
-            .status()
-            .ok()?;
-        if !status.success() {
-            return None;
-        }
-        fs::read(out).ok()
+            .status();
+        // No compiler to run: the byte-built tests stand. A compiler that runs
+        // and fails is a failure of the test, never a silent pass.
+        let status = status.ok()?;
+        assert!(
+            status.success(),
+            "the fixture library {name} did not compile"
+        );
+        Some(fs::read(out).unwrap())
     }
 
     #[test]

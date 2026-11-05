@@ -356,6 +356,20 @@ pub fn trust(root: &std::path::Path) -> std::io::Result<Vec<String>> {
 mod tests {
     use super::*;
 
+    /// What a file that is not a library comes to: on the platforms with a
+    /// preflight it is refused before loading; elsewhere (until the Mach-O and
+    /// PE checks land, ADR 0034 M1) the loader goes on to the compiler check.
+    fn not_a_library() -> PluginProblem {
+        if cfg!(all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )) {
+            PluginProblem::Damaged
+        } else {
+            PluginProblem::OtherBuild
+        }
+    }
+
     /// A library is loaded only where it names the emulator's compiler,
     /// by its release or by the commit of its `std`, and none other.
     #[test]
@@ -411,8 +425,8 @@ version = 0.1.0
         );
         assert_eq!(
             problem(true),
-            Some(PluginProblem::Damaged),
-            "not a library: refused by the preflight, before it was loaded"
+            Some(not_a_library()),
+            "not a library: refused before it was loaded"
         );
         crate::device::set_code_plugins(false);
         let _ = std::fs::remove_dir_all(&root);
@@ -444,7 +458,7 @@ version = 0.1.0
         };
         assert_eq!(
             HostLoader.load(&storage, &code).err(),
-            Some(PluginProblem::Damaged)
+            Some(not_a_library())
         );
         let changed = CodeFile {
             sha256: [0; 32],
@@ -500,11 +514,13 @@ static INIT: extern "C" fn() = make_marker;
             .arg(&lib)
             .arg(&src)
             .status();
-        if !matches!(built, Ok(s) if s.success()) {
+        let Ok(built) = built else {
             eprintln!("no rustc to build the library; test skipped");
             let _ = std::fs::remove_dir_all(&root);
             return;
-        }
+        };
+        // A compiler that runs and fails is a failure, not a skipped test.
+        assert!(built.success(), "the fixture library did not compile");
         // The control: loading it by hand runs the initialiser.
         // SAFETY: a library built here, whose only code is the marker.
         drop(unsafe { libloading::Library::new(&lib) }.unwrap());

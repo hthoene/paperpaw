@@ -361,23 +361,40 @@ fn check_relocations(
     Ok(())
 }
 
-/// How many symbols the dynamic symbol table has, from the hash tables
-/// the loader itself uses; refused when neither is there.
-fn symbol_count(bytes: &[u8], loads: &[Option<Load>], d: &Dyn) -> Result<usize, Refusal> {
-    if let Some(hash) = d.hash {
-        let at = offset_of(loads, hash, 8)?;
-        return to_usize(u64::from(u32_at(bytes, at + 4)?));
-    }
-    let gnu = d.gnu_hash.ok_or(Refusal::NotSupported)?;
+/// The symbol count the SysV hash table (`DT_HASH`) states.
+fn sysv_count(bytes: &[u8], loads: &[Option<Load>], hash: u64) -> Result<usize, Refusal> {
+    let at = offset_of(loads, hash, 8)?;
+    to_usize(u64::from(u32_at(
+        bytes,
+        at.checked_add(4).ok_or(Refusal::Truncated)?,
+    )?))
+}
+
+/// The symbol count the GNU hash table (`DT_GNU_HASH`) implies: the end of
+/// the chain of its highest bucket.
+fn gnu_count(bytes: &[u8], loads: &[Option<Load>], gnu: u64) -> Result<usize, Refusal> {
     let at = offset_of(loads, gnu, 16)?;
-    let nbuckets = to_usize(u64::from(u32_at(bytes, at)?))?;
-    let symoffset = to_usize(u64::from(u32_at(bytes, at + 4)?))?;
-    let bloom = to_usize(u64::from(u32_at(bytes, at + 8)?))?;
-    let buckets = at + 16 + bloom.checked_mul(8).ok_or(Refusal::Truncated)?;
-    let chains = buckets + nbuckets.checked_mul(4).ok_or(Refusal::Truncated)?;
+    let word = |i: usize| -> Result<usize, Refusal> {
+        to_usize(u64::from(u32_at(
+            bytes,
+            at.checked_add(i).ok_or(Refusal::Truncated)?,
+        )?))
+    };
+    let nbuckets = word(0)?;
+    let symoffset = word(4)?;
+    let bloom = word(8)?;
+    let buckets = at
+        .checked_add(16)
+        .and_then(|x| x.checked_add(bloom.checked_mul(8)?))
+        .ok_or(Refusal::Truncated)?;
+    let chains = nbuckets
+        .checked_mul(4)
+        .and_then(|x| buckets.checked_add(x))
+        .ok_or(Refusal::Truncated)?;
     let mut last = 0usize;
     for i in 0..nbuckets {
-        last = last.max(to_usize(u64::from(u32_at(bytes, buckets + i * 4)?))?);
+        let at = buckets.checked_add(i * 4).ok_or(Refusal::Truncated)?;
+        last = last.max(to_usize(u64::from(u32_at(bytes, at)?))?);
     }
     if last < symoffset {
         return Ok(symoffset);
@@ -385,7 +402,11 @@ fn symbol_count(bytes: &[u8], loads: &[Option<Load>], d: &Dyn) -> Result<usize, 
     // Walk the chain of the highest bucket to its end.
     let mut sym = last;
     loop {
-        let h = u32_at(bytes, chains + (sym - symoffset) * 4)?;
+        let at = (sym - symoffset)
+            .checked_mul(4)
+            .and_then(|x| chains.checked_add(x))
+            .ok_or(Refusal::Truncated)?;
+        let h = u32_at(bytes, at)?;
         sym += 1;
         if h & 1 == 1 {
             return Ok(sym);
@@ -393,6 +414,20 @@ fn symbol_count(bytes: &[u8], loads: &[Option<Load>], d: &Dyn) -> Result<usize, 
         if sym - symoffset > bytes.len() / 4 {
             return Err(Refusal::Truncated);
         }
+    }
+}
+
+/// How many symbols the dynamic symbol table has, from the hash tables. The
+/// system loader prefers `DT_GNU_HASH` and falls back to `DT_HASH`; a file
+/// that has both must state the same count in both, or it is refused (a
+/// count that differs would let a symbol hide where this check does not look).
+fn symbol_count(bytes: &[u8], loads: &[Option<Load>], d: &Dyn) -> Result<usize, Refusal> {
+    let sysv = d.hash.map(|h| sysv_count(bytes, loads, h)).transpose()?;
+    let gnu = d.gnu_hash.map(|g| gnu_count(bytes, loads, g)).transpose()?;
+    match (sysv, gnu) {
+        (Some(a), Some(b)) if a != b => Err(Refusal::NotSupported),
+        (Some(n), _) | (_, Some(n)) => Ok(n),
+        (None, None) => Err(Refusal::NotSupported),
     }
 }
 
