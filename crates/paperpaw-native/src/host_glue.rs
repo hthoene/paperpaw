@@ -23,7 +23,10 @@ mod generated {
 
 pub use generated::{PpBuffer, PpBytes, PpHost};
 
-pub use generated::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED, MAJOR, MINOR, OK};
+pub use generated::{
+    ERR_BUSY, ERR_CANCELLED, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE,
+    ERR_UNSUPPORTED, ERR_UTF8, MAJOR, MINOR, OK,
+};
 
 /// The largest alignment an allocation may ask for.
 pub const MAX_ALIGN: usize = 4096;
