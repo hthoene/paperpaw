@@ -1,0 +1,49 @@
+diff --git a/crates/paperpaw-core/tests/native_plugin.rs b/crates/paperpaw-core/tests/native_plugin.rs
+index 9f5b15eb8..9a3c7485b 100644
+--- a/crates/paperpaw-core/tests/native_plugin.rs
++++ b/crates/paperpaw-core/tests/native_plugin.rs
+@@ -98,6 +98,7 @@ static API: Api = Api {
+     family_revs: paperpaw_table::REVISIONS,
+     family_min: paperpaw_table::OLDEST,
+     build: BUILD.as_ptr(),
++    compat_spare: 0,
+     build_len: BUILD.len() as u32,
+ };
+ 
+diff --git a/crates/paperpaw-native/src/interface.rs b/crates/paperpaw-native/src/interface.rs
+index 31402ef65..7576a080e 100644
+--- a/crates/paperpaw-native/src/interface.rs
++++ b/crates/paperpaw-native/src/interface.rs
+@@ -111,6 +111,8 @@ pub struct Api {
+     /// The firmware's version and the hash of its tables, UTF-8,
+     /// `build_len` bytes: for logs and crash reports.
+     pub build: *const u8,
++    /// Inserted by tools/compat/refuse-layout.patch (#228).
++    pub compat_spare: u32,
+     /// The bytes of `build`.
+     pub build_len: u32,
+     // Fields are only appended after `build_len`, the last of interface 5:
+diff --git a/shells/desktop/src/native.rs b/shells/desktop/src/native.rs
+index 7ee133220..7819cf3e4 100644
+--- a/shells/desktop/src/native.rs
++++ b/shells/desktop/src/native.rs
+@@ -109,6 +109,7 @@ static API: Api = Api {
+     family_revs: [0; 8],
+     family_min: [0; 8],
+     build: BUILD.as_ptr(),
++    compat_spare: 0,
+     build_len: BUILD.len() as u32,
+ };
+ 
+diff --git a/shells/xteink/src/native/api.rs b/shells/xteink/src/native/api.rs
+index 3c515c28c..6477db0eb 100644
+--- a/shells/xteink/src/native/api.rs
++++ b/shells/xteink/src/native/api.rs
+@@ -18,6 +18,7 @@ pub static API: Api = Api {
+     family_revs: SHARED_REVISIONS,
+     family_min: SHARED_OLDEST,
+     build: BUILD.0.as_ptr(),
++    compat_spare: 0,
+     build_len: BUILD.1 as u32,
+ };
+ 
