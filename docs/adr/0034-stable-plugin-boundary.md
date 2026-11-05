@@ -113,7 +113,7 @@ adapters for redesigned shapes (section 3), the SDK facade over the stubs
   never squeezed into a status. Negative statuses come from the
   open set in `abi.def` (`ERR_UNSUPPORTED -1`, `ERR_INVALID -2`, `ERR_NO_SPACE -3`,
   `ERR_NO_MEMORY -4`, `ERR_UTF8 -5`, `ERR_STATE -6`, `ERR_CANCELLED -7`,
-  `ERR_IO -8`; a negative value this build does not know is the general failure).
+  `ERR_IO -8`, `ERR_BUSY -9`; a negative value this build does not know is the general failure).
 - **Strings** in: `(ptr, len)`, UTF-8, borrowed for the call. Out: a caller-provided
   buffer `(out, cap)` and the **snprintf rule**: the call returns the length the
   full result needs, writes at most `cap` bytes, and the caller calls again with a
@@ -143,6 +143,16 @@ adapters for redesigned shapes (section 3), the SDK facade over the stubs
   Generated adapters must not hold an exclusive host-state reference across a
   nested call that can reacquire it. Anything slow is a command (section 5),
   not a blocking call.
+- **Mutable dispatch exclusion:** mark an instance's mutable state active before
+  invoking its callback. An attempt to enter that same live state again returns
+  `ERR_BUSY` before constructing a mutable reference or invoking plugin code.
+  Different token numbers do not make shared mutable state independent. A
+  synchronous visitor may run only with a separately owned callback state whose
+  borrow does not overlap the active state. Otherwise it is refused or deferred
+  by the operation's declared policy. The generated facade and host dispatcher
+  enforce the same rule; queued callbacks run after the current dispatch and its
+  output-consumption phase end. Dispatch-depth exhaustion also returns Busy
+  before entry. The numeric depth limit belongs to the resource profile.
 - **Heap:** the plugin's global allocator calls the host's `alloc`, `dealloc` and
   `realloc` (one heap on a 256 KiB chip, as now). The contract is still that
   *nothing allocated by one side is freed by the other*; the shared heap is an
@@ -309,6 +319,23 @@ comparisons in the inventory are estimates, not measured production evidence:
   Buffer limits are per operation and generated from the schema. The 4 KiB
   batch is an M1 bound, not a silent truncation of existing larger commands;
   larger records require a bounded chunk/stream protocol before porting.
+- **Output completion:** returned output is either an empty result with no lease,
+  or a buffer lease issued by the producer for this invocation. Its release
+  operation comes from the already validated producer table, never from bytes
+  inside the output. The host records ownership of the lease before parsing and
+  holds it until it has stopped using every borrowed view. During consumption,
+  the producer cannot receive another callback, be dropped or unloaded, or reuse
+  or reallocate the buffer. Reentry requires an explicitly independent lease
+  with separately owned storage and callback state; it is not the default path.
+  Each acquired lease is acknowledged and released exactly once on success,
+  malformed input, unsupported records, quota/allocation failure, cancellation
+  and host-side error. Release is non-failing, cannot unwind, and cannot dispatch
+  another callback. A cleanup guard covers early returns. No acknowledgment is
+  owed when the producer returned no lease. After release, any retained payload
+  must already have independent ownership; no view into the released buffer
+  remains. Queue commit occurs only after validation and successful ownership
+  capture. Tests count acquisition/release across every recoverable exit and
+  ensure Busy refusal does not call or release an unentered producer.
 - **Namespaces are stamped, not claimed.** The network ownership that today
   derives from ids in the payload (`work.rs:885`) becomes the caller the firmware
   stamps on every record. The sender erases its secret-bearing scratch after
