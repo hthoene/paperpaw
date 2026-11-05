@@ -7,6 +7,9 @@
 paperpaw_sdk::library::service::LibraryService  # a service type: its one field is all it is; another takes a new key
 paperpaw_sdk::Handled  # an event is handled or not, and a plugin matches both
 paperpaw_table::Table  # one address: its layout is the word the loader fills (repr(transparent))
+paperpaw_native::host_glue::PpBytes  # a C pair (pointer, length): its layout is the ABI (generated from abi/abi.def)
+paperpaw_native::host_glue::PpBuffer  # a C pair (pointer, capacity): its layout is the ABI (generated from abi/abi.def)
+paperpaw_native::host_glue::PpHost  # the host table, repr(C): it grows by sized appends of generated slots, never by Rust fields
 
 # Not decided yet: each leaves as it gets #[non_exhaustive] and a
 # constructor, or moves up with its reason (SDK review A1)

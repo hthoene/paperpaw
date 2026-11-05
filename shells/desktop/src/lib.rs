@@ -15,6 +15,8 @@ pub mod cable;
 pub mod device;
 pub mod headless;
 pub mod host;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod host_services;
 pub mod http;
 pub mod light;
 #[cfg(not(target_arch = "wasm32"))]
