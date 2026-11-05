@@ -160,6 +160,10 @@ fn check_no_overlap(loads: &[Option<Load>]) -> Result<(), Refusal> {
 /// [`Refusal`] names the first problem; an unknown structure is refused,
 /// never skipped.
 pub fn check_elf64_le(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
+    checked(bytes, machine).map(|_| ())
+}
+
+fn checked(bytes: &[u8], machine: u16) -> Result<([Option<Load>; MAX_LOADS], Dyn), Refusal> {
     if bytes.get(..4) != Some(b"\x7fELF") || bytes.get(4) != Some(&2) || bytes.get(5) != Some(&1) {
         return Err(Refusal::NotSupported);
     }
@@ -250,7 +254,8 @@ pub fn check_elf64_le(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
     if d.needed_count > 0 || d.strtab.is_some() {
         check_needed(bytes, &loads, dyn_at, dyn_end, &d)?;
     }
-    check_tables(bytes, &loads[..n_loads], machine, &d)
+    check_tables(bytes, &loads[..n_loads], machine, &d)?;
+    Ok((loads, d))
 }
 
 /// Checks the relocation, jump-slot and symbol tables the dynamic section names.
@@ -645,4 +650,76 @@ fn check_symbols(
         }
     }
     Ok(())
+}
+
+/// A defined global data export, found through the dynamic tables.
+#[derive(Debug)]
+pub struct DataExport<'a> {
+    /// Unrelocated bytes from the checked file.
+    pub bytes: &'a [u8],
+    /// Virtual address before the system loader adds its base.
+    pub address: u64,
+}
+
+/// Finds one exact global, default-visible object export after full preflight.
+/// Read-only exports must lie in a non-writable, non-executable segment.
+/// Section headers are never used. Missing and duplicate exports are refused.
+pub fn data_export<'a>(
+    bytes: &'a [u8],
+    machine: u16,
+    name: &str,
+    readonly: bool,
+) -> Result<DataExport<'a>, Refusal> {
+    let (loads, d) = checked(bytes, machine)?;
+    let count = symbol_count(bytes, &loads, &d)?;
+    let sym = offset_of(
+        &loads,
+        d.symtab.ok_or(Refusal::Symbols)?,
+        (count.checked_mul(SYM_ENT).ok_or(Refusal::Truncated)?) as u64,
+    )?;
+    let strings = offset_of(&loads, d.strtab.ok_or(Refusal::Strings)?, d.strsz)?;
+    let strings = bytes
+        .get(strings..strings + to_usize(d.strsz)?)
+        .ok_or(Refusal::Strings)?;
+    let mut found = None;
+    for i in 0..count {
+        let at = sym + i * SYM_ENT;
+        let start = to_usize(u64::from(u32_at(bytes, at)?))?;
+        let tail = strings.get(start..).ok_or(Refusal::Strings)?;
+        let end = tail.iter().position(|&b| b == 0).ok_or(Refusal::Strings)?;
+        if &tail[..end] != name.as_bytes() {
+            continue;
+        }
+        // STB_GLOBAL, STT_OBJECT, STV_DEFAULT, a defined ordinary section.
+        if bytes[at + 4] != 0x11
+            || bytes[at + 5] != 0
+            || !(1..0xff00).contains(&u16_at(bytes, at + 6)?)
+            || found.is_some()
+        {
+            return Err(Refusal::Symbols);
+        }
+        let address = u64_at(bytes, at + 8)?;
+        let len = u64_at(bytes, at + 16)?;
+        let offset = offset_of(&loads, address, len)?;
+        let segment = loads
+            .iter()
+            .flatten()
+            .find(|l| {
+                address >= l.vaddr
+                    && address
+                        .checked_add(len)
+                        .is_some_and(|end| end <= l.vaddr + l.filesz)
+            })
+            .ok_or(Refusal::Segments)?;
+        if len == 0 || segment.flags & PF_X != 0 || (readonly && segment.flags & PF_W != 0) {
+            return Err(Refusal::Segments);
+        }
+        found = Some(DataExport {
+            bytes: bytes
+                .get(offset..offset + to_usize(len)?)
+                .ok_or(Refusal::Truncated)?,
+            address,
+        });
+    }
+    found.ok_or(Refusal::Symbols)
 }

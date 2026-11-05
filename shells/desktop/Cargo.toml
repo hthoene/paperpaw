@@ -54,6 +54,7 @@ paperpaw-zip = { workspace = true, features = ["testing"] }
 paperpaw-i18n.workspace = true
 
 [build-dependencies]
+serde_json = "1"
 # The compiler that builds the emulator, as plugin files name theirs.
 paperpaw-native.workspace = true
 
