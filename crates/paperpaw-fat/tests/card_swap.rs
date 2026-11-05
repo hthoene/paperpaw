@@ -130,9 +130,7 @@ impl Restart for Sim {
 fn mount(blocks: Watched<Sim>) -> Result<Box<dyn Storage>, VolumeError> {
     let disk = SharedDisk::new(BlockDisk::volume(blocks)?);
     let fs = FileSystem::new(disk.clone(), FsOptions::new()).map_err(|_| VolumeError::NoFat)?;
-    Ok(Box::new(
-        FatStorage::new(Box::leak(Box::new(fs))).with_disk(disk),
-    ))
+    Ok(Box::new(FatStorage::owned(fs).with_disk(disk)))
 }
 
 /// A FAT card of 4 MB with `files` on it, as a computer left it.
@@ -264,6 +262,27 @@ fn a_second_swap_in_one_run_is_given_up_and_reaches_no_card() {
     assert_eq!(storage.size("two.txt"), Err(StorageError::CARD_GONE));
     assert_eq!(storage.list("", &mut |_| {}), Err(StorageError::CARD_GONE));
     assert_eq!(*third.borrow(), before);
+}
+
+#[test]
+fn dropping_dirty_old_handles_releases_the_slot_without_writing_to_its_new_card() {
+    let old = card_with(&[("books/a.txt", b"old")]);
+    let sim = Sim::with(&old);
+    let (mut swap, storage) = mounted(&sim);
+    storage.append("books/a.txt", b"dirty").unwrap();
+    sim.take_out();
+    until_lost(&storage, &swap);
+    let new = card_with(&[("books/a.txt", b"new")]);
+    sim.put_in(&new);
+    assert_eq!(swap.check(0), Swapped::Remounted);
+    assert_eq!(read(&storage, "books/a.txt"), b"new");
+    let written = sim.writes();
+    sim.take_out();
+    until_lost(&storage, &swap);
+    drop(storage);
+    drop(swap);
+    assert_eq!(sim.writes(), written);
+    assert_eq!(Rc::strong_count(&sim.0), 1, "old mounts retained the slot");
 }
 
 #[test]
