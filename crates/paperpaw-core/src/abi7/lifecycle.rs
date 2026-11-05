@@ -25,6 +25,8 @@ enum State {
     Dead,
 }
 
+type Destroy<C> = fn(Pin<&C>);
+
 pub(crate) struct Owner<C, M> {
     // Field order keeps the module alive while the context itself is dropped.
     context: C,
@@ -32,7 +34,7 @@ pub(crate) struct Owner<C, M> {
     state: Cell<State>,
     leases: Cell<u8>,
     instance: Instance,
-    destroy: Cell<Option<fn(Pin<&C>)>>,
+    destroy: Cell<Option<Destroy<C>>>,
     _pin: PhantomPinned,
 }
 
@@ -64,7 +66,7 @@ impl<C, M> Owner<C, M> {
     /// Arm exactly-once destruction after successful `make`. The loader owns
     /// cleanup of a failed make result; an unactivated owner never calls it.
     /// The destructor must not unwind or enter ordinary plugin callbacks.
-    pub(crate) fn activate(self: Pin<&Self>, destroy: fn(Pin<&C>)) -> Result<(), Error> {
+    pub(crate) fn activate(self: Pin<&Self>, destroy: Destroy<C>) -> Result<(), Error> {
         if self.state.get() != State::Constructing {
             return Err(Error::State);
         }
