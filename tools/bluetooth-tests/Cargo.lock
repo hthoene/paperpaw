@@ -537,6 +537,7 @@ dependencies = [
  "paperpaw-graphics",
  "paperpaw-hid",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-sdk",
 ]
