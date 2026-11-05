@@ -42,10 +42,10 @@ pub fn paperpaw_native::compiler::release(&str) -> core::option::Option<&str>
 pub mod paperpaw_native::host_glue
 pub mod paperpaw_native::host_glue::buffers
 pub const paperpaw_native::host_glue::buffers::TEXT_MAX: usize
-pub unsafe fn paperpaw_native::host_glue::buffers::buffer_out<'a>(paperpaw_native::host_glue::PpBuffer, usize) -> core::result::Result<&'a mut [u8], i32>
+pub unsafe fn paperpaw_native::host_glue::buffers::buffer_out<'a>(paperpaw_native::host_glue::PpBuffer, usize) -> core::result::Result<&'a mut [core::mem::maybe_uninit::MaybeUninit<u8>], i32>
 pub unsafe fn paperpaw_native::host_glue::buffers::bytes_in<'a>(paperpaw_native::host_glue::PpBytes, usize) -> core::result::Result<&'a [u8], i32>
-pub fn paperpaw_native::host_glue::buffers::copy_count(&[u8], &mut [u8]) -> i32
-pub fn paperpaw_native::host_glue::buffers::copy_required(&[u8], &mut [u8], usize) -> i32
+pub fn paperpaw_native::host_glue::buffers::copy_count(&[u8], &mut [core::mem::maybe_uninit::MaybeUninit<u8>]) -> i32
+pub fn paperpaw_native::host_glue::buffers::copy_required(&[u8], &mut [core::mem::maybe_uninit::MaybeUninit<u8>], usize) -> i32
 pub unsafe fn paperpaw_native::host_glue::buffers::query_text<R: core::convert::AsRef<str>>(paperpaw_native::host_glue::PpBytes, paperpaw_native::host_glue::PpBuffer, usize, impl core::ops::function::FnOnce(&str) -> core::result::Result<R, i32>) -> i32
 pub unsafe fn paperpaw_native::host_glue::buffers::text_in<'a>(paperpaw_native::host_glue::PpBytes, usize) -> core::result::Result<&'a str, i32>
 #[repr(C)] pub struct paperpaw_native::host_glue::PpBuffer

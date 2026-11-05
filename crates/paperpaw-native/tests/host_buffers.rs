@@ -2,6 +2,8 @@
 //! handling, the operation limit, UTF-8 before effects, the snprintf rule of a
 //! query and the copied count of a blob read.
 
+use std::mem::MaybeUninit;
+
 use paperpaw_native::host_glue::buffers::{
     TEXT_MAX, buffer_out, bytes_in, copy_count, copy_required, query_text, text_in,
 };
@@ -19,6 +21,12 @@ fn buffer(data: &mut [u8]) -> PpBuffer {
         ptr: data.as_mut_ptr(),
         cap: data.len(),
     }
+}
+
+/// Initialised bytes as the helpers' output type (to look at them afterwards).
+fn uninit(data: &mut [u8]) -> &mut [MaybeUninit<u8>] {
+    // SAFETY: `MaybeUninit<u8>` has the layout of `u8`; initialised bytes are valid.
+    unsafe { &mut *(std::ptr::from_mut(data) as *mut [MaybeUninit<u8>]) }
 }
 
 const NULL_IN: PpBytes = PpBytes {
@@ -90,25 +98,28 @@ fn a_query_returns_the_needed_length_and_writes_at_most_the_capacity() {
     let src = b"hello world";
     // No room at all: nothing written, the length is the need.
     let mut none = [];
-    assert_eq!(copy_required(src, &mut none, TEXT_MAX), 11);
+    assert_eq!(copy_required(src, uninit(&mut none), TEXT_MAX), 11);
     // Too small: filled, the need still reported so the caller can repeat.
     let mut small = [0u8; 5];
-    assert_eq!(copy_required(src, &mut small, TEXT_MAX), 11);
+    assert_eq!(copy_required(src, uninit(&mut small), TEXT_MAX), 11);
     assert_eq!(&small, b"hello");
     // Exact fit and larger: whole value, the rest untouched.
     let mut exact = [0u8; 11];
-    assert_eq!(copy_required(src, &mut exact, TEXT_MAX), 11);
+    assert_eq!(copy_required(src, uninit(&mut exact), TEXT_MAX), 11);
     assert_eq!(&exact, src);
     let mut big = [0xaau8; 16];
-    assert_eq!(copy_required(src, &mut big, TEXT_MAX), 11);
+    assert_eq!(copy_required(src, uninit(&mut big), TEXT_MAX), 11);
     assert_eq!(&big[..11], src);
     assert_eq!(&big[11..], &[0xaa; 5]);
     // An empty value needs zero.
-    assert_eq!(copy_required(b"", &mut big, TEXT_MAX), 0);
+    assert_eq!(copy_required(b"", uninit(&mut big), TEXT_MAX), 0);
     // A value over the operation's limit cannot be delivered: nothing written.
     let long = vec![b'x'; TEXT_MAX + 1];
     let mut sink = [0xaau8; 4];
-    assert_eq!(copy_required(&long, &mut sink, TEXT_MAX), ERR_NO_SPACE);
+    assert_eq!(
+        copy_required(&long, uninit(&mut sink), TEXT_MAX),
+        ERR_NO_SPACE
+    );
     assert_eq!(sink, [0xaa; 4]);
 }
 
@@ -116,12 +127,12 @@ fn a_query_returns_the_needed_length_and_writes_at_most_the_capacity() {
 fn a_blob_read_returns_the_count_copied() {
     let src = b"0123456789";
     let mut out = [0u8; 4];
-    assert_eq!(copy_count(src, &mut out), 4);
+    assert_eq!(copy_count(src, uninit(&mut out)), 4);
     assert_eq!(&out, b"0123");
     let mut wide = [0xaau8; 16];
-    assert_eq!(copy_count(src, &mut wide), 10);
+    assert_eq!(copy_count(src, uninit(&mut wide)), 10);
     assert_eq!(&wide[10..], &[0xaa; 6]);
-    assert_eq!(copy_count(b"", &mut wide), 0);
+    assert_eq!(copy_count(b"", uninit(&mut wide)), 0);
     assert_eq!(copy_count(src, &mut []), 0);
 }
 
@@ -187,4 +198,51 @@ fn a_backend_status_passes_through_and_a_positive_one_is_a_bug() {
         let bug = query_text(bytes(b"k"), buffer(&mut out), 128, |_| Err::<&str, i32>(7));
         assert_eq!(bug, ERR_INVALID);
     }
+}
+
+#[test]
+fn output_storage_need_not_be_initialised() {
+    // Storage that was never written (as `malloc` or a `MaybeUninit` buffer
+    // gives it): the helpers write the copied bytes and read none.
+    let mut raw = [MaybeUninit::<u8>::uninit(); 16];
+    let pair = PpBuffer {
+        ptr: raw.as_mut_ptr().cast(),
+        cap: raw.len(),
+    };
+    // SAFETY: `pair` describes the live array, which nothing else touches.
+    let out = unsafe { buffer_out(pair, TEXT_MAX) }.unwrap();
+    assert_eq!(out.len(), 16);
+    assert_eq!(copy_required(b"uninit", out, TEXT_MAX), 6);
+    // SAFETY: the first six bytes were just written.
+    let written: Vec<u8> = raw[..6]
+        .iter()
+        .map(|b| unsafe { b.assume_init() })
+        .collect();
+    assert_eq!(written, b"uninit");
+    // Through a whole query, with a key and a backend.
+    let mut raw = [MaybeUninit::<u8>::uninit(); 8];
+    let pair = PpBuffer {
+        ptr: raw.as_mut_ptr().cast(),
+        cap: raw.len(),
+    };
+    // SAFETY: as above.
+    let need = unsafe { query_text(bytes(b"k"), pair, 128, |_| Ok::<_, i32>("value")) };
+    assert_eq!(need, 5);
+    // SAFETY: the first five bytes were written.
+    let written: Vec<u8> = raw[..5]
+        .iter()
+        .map(|b| unsafe { b.assume_init() })
+        .collect();
+    assert_eq!(written, b"value");
+    // A refused call writes nothing (here: the key is not UTF-8).
+    let mut raw = [MaybeUninit::<u8>::new(0x5a); 4];
+    let pair = PpBuffer {
+        ptr: raw.as_mut_ptr().cast(),
+        cap: raw.len(),
+    };
+    // SAFETY: as above.
+    let status = unsafe { query_text(bytes(&[0xff]), pair, 128, |_| Ok::<_, i32>("x")) };
+    assert_eq!(status, ERR_UTF8);
+    // SAFETY: the bytes were initialised to 0x5a above.
+    assert!(raw.iter().all(|b| unsafe { b.assume_init() } == 0x5a));
 }

@@ -103,7 +103,9 @@ fn valid_layout(size: usize, align: usize) -> bool {
 ///
 /// # Safety
 ///
-/// `ctx` is null or a live [`ShellCtx`]; `out` is null or writable.
+/// `ctx` is null or a live [`ShellCtx`]; `out` is null or writable, aligned for
+/// a pointer, and not aliased by the table, the context or the services (the
+/// call writes it once; this is a contract, not a check).
 pub unsafe extern "C" fn heap_alloc(
     ctx: *mut c_void,
     size: usize,
@@ -162,7 +164,8 @@ pub unsafe extern "C" fn heap_dealloc(
 /// # Safety
 ///
 /// As [`heap_dealloc`] for `block`, `old_size` and `align`; `out` is null or
-/// writable.
+/// writable, aligned for a pointer, and not aliased by the table, the context or
+/// the services (a contract, not a check).
 pub unsafe extern "C" fn heap_realloc(
     ctx: *mut c_void,
     block: *mut c_void,
@@ -200,7 +203,9 @@ pub unsafe extern "C" fn heap_realloc(
 ///
 /// # Safety
 ///
-/// `ctx` is null or a live [`ShellCtx`]; `out` is null or writable.
+/// `ctx` is null or a live [`ShellCtx`]; `out` is null or writable, aligned for a
+/// `u64`, and not aliased by the table, the context or the services (a contract,
+/// not a check).
 pub unsafe extern "C" fn clock_micros(ctx: *mut c_void, out: *mut u64) -> i32 {
     if out.is_null() {
         return ERR_INVALID;

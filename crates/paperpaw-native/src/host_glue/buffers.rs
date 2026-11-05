@@ -3,7 +3,10 @@
 //!
 //! The raw `(pointer, length)` pairs of the table are turned into safe slices
 //! in one place, `bytes_in`, `text_in` and `buffer_out`; a backend then works on
-//! `&str` and `&[u8]`/`&mut [u8]` only. Nothing here allocates.
+//! `&str` and `&[u8]` (in) and `&mut [MaybeUninit<u8>]` (out) only. Output
+//! storage is **not** assumed initialised: a caller may pass `malloc`ed or
+//! `MaybeUninit` memory, so no `&mut [u8]` is ever made over it, and the
+//! helpers only write to it. Nothing here allocates.
 //!
 //! Two result rules, kept apart:
 //!
@@ -16,6 +19,8 @@
 //!
 //! Checks come before any effect: a bad pointer, a length over the operation's
 //! limit, or text that is not UTF-8 is refused before the backend is called.
+
+use core::mem::MaybeUninit;
 
 use super::{ERR_INVALID, ERR_NO_SPACE, ERR_UTF8, PpBuffer, PpBytes};
 
@@ -56,24 +61,40 @@ pub unsafe fn text_in<'a>(pair: PpBytes, max: usize) -> Result<&'a str, i32> {
     core::str::from_utf8(bytes).map_err(|_| ERR_UTF8)
 }
 
-/// Reads `pair` as a writable slice of at most `max` bytes.
+/// Reads `pair` as writable, possibly uninitialised storage of at most `max`
+/// bytes.
 ///
-/// Null with capacity zero is the empty slice. Null with a capacity, a
-/// capacity over `max` or over `isize::MAX` is `ERR_INVALID`.
+/// The slice is of [`MaybeUninit<u8>`]: the storage need not be initialised
+/// and the helpers never read it. Null with capacity zero is the empty slice.
+/// Null with a capacity, a capacity over `max` or over `isize::MAX` is
+/// `ERR_INVALID`. Nothing is written here; a refused pair leaves the storage
+/// untouched.
 ///
 /// # Safety
 ///
-/// A non-null `pair.ptr` is valid for writes of `pair.cap` bytes for `'a`, and
-/// nothing else reads or writes them while the slice lives.
-pub unsafe fn buffer_out<'a>(pair: PpBuffer, max: usize) -> Result<&'a mut [u8], i32> {
+/// A non-null `pair.ptr` is valid for writes of `pair.cap` bytes for `'a`
+/// (initialised or not; a `u8` has no alignment requirement), is not aliased by
+/// any other reference or by the table, the context or the services, and
+/// nothing else reads or writes the bytes while the slice lives. It does not
+/// overlap the key or any other input of the same call.
+pub unsafe fn buffer_out<'a>(pair: PpBuffer, max: usize) -> Result<&'a mut [MaybeUninit<u8>], i32> {
     if pair.cap == 0 {
         return Ok(&mut []);
     }
     if pair.ptr.is_null() || pair.cap > max || pair.cap > isize::MAX as usize {
         return Err(ERR_INVALID);
     }
-    // SAFETY: non-null, bounded, and valid for `cap` writes per the contract.
-    Ok(unsafe { core::slice::from_raw_parts_mut(pair.ptr, pair.cap) })
+    // SAFETY: non-null, bounded, valid for `cap` writes per the contract;
+    // `MaybeUninit<u8>` has the size and alignment of `u8` and any bytes.
+    Ok(unsafe { core::slice::from_raw_parts_mut(pair.ptr.cast::<MaybeUninit<u8>>(), pair.cap) })
+}
+
+/// Writes `src` into the front of `out` (only the first `src.len()` bytes are
+/// touched).
+fn write_front(out: &mut [MaybeUninit<u8>], src: &[u8]) {
+    for (slot, byte) in out.iter_mut().zip(src) {
+        slot.write(*byte);
+    }
 }
 
 /// The snprintf rule: copies as much of `src` as fits in `out` and returns the
@@ -82,21 +103,21 @@ pub unsafe fn buffer_out<'a>(pair: PpBuffer, max: usize) -> Result<&'a mut [u8],
 /// A `src` longer than `limit` cannot be delivered by this operation at all
 /// and is `ERR_NO_SPACE` (nothing is written). The returned length is at most
 /// `limit`, which is at most `i32::MAX`, so it is a valid nonnegative result.
-pub fn copy_required(src: &[u8], out: &mut [u8], limit: usize) -> i32 {
+pub fn copy_required(src: &[u8], out: &mut [MaybeUninit<u8>], limit: usize) -> i32 {
     let limit = limit.min(i32::MAX as usize);
     if src.len() > limit {
         return ERR_NO_SPACE;
     }
     let n = src.len().min(out.len());
-    out[..n].copy_from_slice(&src[..n]);
+    write_front(out, &src[..n]);
     src.len() as i32
 }
 
 /// A blob read: copies as much of `src` as fits in `out` and returns the
 /// number of bytes copied (zero for an empty `out` or an empty `src`).
-pub fn copy_count(src: &[u8], out: &mut [u8]) -> i32 {
+pub fn copy_count(src: &[u8], out: &mut [MaybeUninit<u8>]) -> i32 {
     let n = src.len().min(out.len()).min(i32::MAX as usize);
-    out[..n].copy_from_slice(&src[..n]);
+    write_front(out, &src[..n]);
     n as i32
 }
 
