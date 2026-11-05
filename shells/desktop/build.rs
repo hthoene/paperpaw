@@ -22,7 +22,8 @@ fn clean() -> bool {
         .is_ok_and(|o| o.status.success() && o.stdout.iter().all(u8::is_ascii_whitespace))
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    metadata_constants()?;
     println!("cargo::rerun-if-env-changed=PAPERPAW_COMMIT");
     println!("cargo::rerun-if-env-changed=PAPERPAW_RELEASE");
     let tag = format!(
@@ -90,4 +91,84 @@ fn main() {
         .find_map(|l| l.strip_prefix("commit-hash: "))
         .unwrap_or_default();
     println!("cargo::rustc-env=PAPERPAW_RUSTC_COMMIT={}", commit.trim());
+    Ok(())
+}
+
+// Offsets and profile values come only from the generated descriptor.
+fn metadata_constants() -> Result<(), Box<dyn std::error::Error>> {
+    let path = "../../abi/generated/metadata-layout.json";
+    println!("cargo::rerun-if-changed={path}");
+    let descriptor: serde_json::Value = serde_json::from_slice(&std::fs::read(path)?)?;
+    let mut source = String::new();
+    for field in descriptor["prefix"]["fields"]
+        .as_array()
+        .ok_or("descriptor field must be an array")?
+    {
+        source += &format!(
+            "pub const {}: usize = {};\n",
+            field["name"]
+                .as_str()
+                .ok_or("descriptor field must be text")?
+                .to_uppercase(),
+            field["offset"]
+        );
+    }
+    source += &format!(
+        "pub const PREFIX_SIZE: usize = {};\n",
+        descriptor["prefix"]["size"]
+    );
+    source += &format!(
+        "pub const FORMAT: u16 = {};\n",
+        descriptor["descriptor"]["format"]
+    );
+    source += &format!(
+        "pub const MAX_BYTES: usize = {};\n",
+        descriptor["descriptor"]["max_bytes"]
+    );
+    source += &format!(
+        "pub const MAGIC_BYTES: &[u8] = b{:?};\n",
+        descriptor["descriptor"]["magic"]
+            .as_str()
+            .ok_or("descriptor field must be text")?
+    );
+    let profile = descriptor["descriptor"]["profiles"]
+        .as_array()
+        .ok_or("descriptor field must be an array")?
+        .iter()
+        .find(|p| p["name"] == "linux-x86_64-sysv64-le")
+        .ok_or("descriptor must contain the reviewed Linux x86-64 profile")?;
+    source += &format!(
+        "pub const PROFILE: &[u8] = b{:?};\n",
+        profile["name"]
+            .as_str()
+            .ok_or("descriptor field must be text")?
+    );
+    for key in ["entry_layout", "entry_bytes", "entry_align"] {
+        source += &format!(
+            "pub const PROFILE_{}: usize = {};\n",
+            key.to_uppercase(),
+            profile[key]
+        );
+    }
+    for field in descriptor["records"]["export"]["fields"]
+        .as_array()
+        .ok_or("descriptor field must be an array")?
+    {
+        source += &format!(
+            "pub const EXPORT_{}: usize = {};\n",
+            field["name"]
+                .as_str()
+                .ok_or("descriptor field must be text")?
+                .to_uppercase(),
+            field["offset"]
+        );
+    }
+    source += &format!(
+        "pub const EXPORT_SIZE: usize = {};\n",
+        descriptor["records"]["export"]["size"]
+    );
+    let out =
+        std::path::PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo must supply OUT_DIR")?);
+    std::fs::write(out.join("metadata.rs"), source)?;
+    Ok(())
 }

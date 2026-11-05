@@ -58,3 +58,5 @@ paperpaw_update::PluginCrate
 paperpaw_update::Trailer
 paperpaw_xml::Token
 paperpaw_zip::Entry
+paperpaw_native::host_glue::PpEntry  # generated repr(C) entry prefix: plugins initialize its exact sized factory contract
+paperpaw_native::host_glue::PpPlugin  # generated repr(C) lifecycle prefix: plugins initialize its exact sized state/drop contract

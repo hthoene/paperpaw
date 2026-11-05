@@ -10,7 +10,7 @@ mod elf;
 #[cfg(test)]
 mod tests;
 
-pub use elf::check_elf64_le;
+pub use elf::{DataExport, check_elf64_le, data_export};
 
 /// Why a file is refused before it is loaded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
