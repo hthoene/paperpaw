@@ -110,6 +110,9 @@ def compatible_metadata(old, new, minimum_since):
     if before is None:
         if after is not None:
             require(new['minor'] >= minimum_since, 'backdated metadata format')
+            for kind in ('services', 'features'):
+                for item in after[kind]:
+                    require(item['since'] >= minimum_since, 'backdated metadata requirement')
         return
     require(after is not None, 'removed metadata contract')
     catalogs = {'profiles', 'services', 'features'}

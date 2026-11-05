@@ -10,6 +10,7 @@ SPEC = importlib.util.spec_from_file_location('metadata_generator', ROOT / 'tool
 GEN = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(GEN)
 from abi_layout import SCALARS
+from abi_metadata import decode, encode
 
 
 class MetadataSchemaTests(unittest.TestCase):
@@ -70,6 +71,35 @@ class MetadataSchemaTests(unittest.TestCase):
         item['revision'] = 2
         with self.assertRaises(ValueError):
             GEN.check_lock(GEN.lock_record(prior), candidate)
+
+    def test_first_metadata_catalogs_obey_released_pre_metadata_floor(self):
+        prior = copy.deepcopy(self.schema)
+        del prior['metadata']
+        prior['minor'] = 1
+        trusted = GEN.lock_record(prior, released_minor=1)
+        examples = {
+            'features': dict(key='test.feature', revision=1, since=1),
+            'services': dict(key='test.service', major=1, semantic_revision=1,
+                             min_table_bytes=8, since=1),
+        }
+        for kind, item in examples.items():
+            with self.subTest(kind=kind):
+                candidate = copy.deepcopy(self.schema)
+                candidate['minor'] = 2
+                candidate['metadata'][kind] = [copy.deepcopy(item)]
+                with self.assertRaisesRegex(ValueError, 'backdated metadata requirement'):
+                    GEN.check_lock(trusted, candidate)
+                candidate['metadata'][kind][0]['since'] = 2
+                GEN.check_lock(trusted, candidate)
+                # Encoding must carry the new requirement even when the only
+                # host entry selected dates from the released minor 1.
+                fixture = GEN.load(ROOT / 'abi/fixtures/metadata/schema.json')
+                candidate['metadata']['profiles'] = fixture['metadata']['profiles']
+                GEN.check_lock(trusted, candidate)
+                build = dict(target='test-only-le64', used=[dict(kind='host', name='heap.alloc')],
+                             floor=0, services=[], features=[])
+                build[kind] = [item['key']]
+                self.assertEqual(decode(candidate, encode(candidate, build))['needs_minor'], 2)
 
 
 if __name__ == '__main__':
