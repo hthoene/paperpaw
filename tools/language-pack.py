@@ -181,8 +181,14 @@ def build(lang, base):
     sys.path.insert(0, str(ROOT / "tools" / "plugin-files"))
     import data
 
-    source = LANGUAGES / f"{lang}.ini"
-    id = f"language-{lang}"
+    # Release builds start from lowercase plugin ids; source files keep
+    # conventional language tags such as pt-BR.
+    sources = [p for p in LANGUAGES.glob("*.ini") if p.stem.lower() == lang.lower()]
+    if len(sources) != 1:
+        raise ValueError(f"{lang}: expected exactly one matching language catalog")
+    source = sources[0]
+    lang = source.stem
+    id = f"language-{lang.lower()}"
     out = Path(base) / id
     (out / "i18n").mkdir(parents=True, exist_ok=True)
     listed = data.plugins().get(id)
