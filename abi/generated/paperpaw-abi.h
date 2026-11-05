@@ -43,4 +43,34 @@ typedef struct {
 #define PP_ERR_CANCELLED (-7)
 #define PP_ERR_IO (-8)
 #define PP_ERR_BUSY (-9)
+/* Raw plugin tables. Check accessible bytes before reading fields. */
+typedef struct PpPlugin PpPlugin;
+typedef struct PpEntry PpEntry;
+/* Generated metadata_symbol export name. */
+#define PP_METADATA_SYMBOL "PAPERPAW_METADATA"
+/* Generated entry_symbol export name. */
+#define PP_ENTRY_SYMBOL "PAPERPAW_ENTRY"
+/* PpPlugin: raw table since minor 1. */
+struct PpPlugin {
+    /* size: since minor 1. */
+    uint32_t size;
+    /* state: since minor 1. */
+    void * state;
+    /* drop: since minor 1. */
+    void (*drop)(void * state);
+};
+/* PpEntry: raw table since minor 1. */
+struct PpEntry {
+    /* size: since minor 1. */
+    uint32_t size;
+    /* abi_major: since minor 1. */
+    uint16_t abi_major;
+    /* needs_minor: since minor 1. */
+    uint16_t needs_minor;
+    /* metadata: since minor 1. */
+    PpBytes metadata;
+    /* make: since minor 1. */
+    int32_t (*make)(const PpHost * host, void * host_ctx, const PpPlugin ** out);
+};
+
 #endif
