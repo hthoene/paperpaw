@@ -57,6 +57,27 @@ pub struct FlatTable {
         text: *const u8,
         len: usize,
     ) -> i32,
+    /// (appended) Width as a C float into `out`; status, or a negative error.
+    pub text_measure_f: unsafe extern "C" fn(
+        ctx: *mut c_void,
+        font: u32,
+        size: f32,
+        text: *const u8,
+        len: usize,
+        out: *mut f32,
+    ) -> i32,
+    /// (appended) Advance as a C float into `out`; status, or a negative error.
+    pub text_draw_f: unsafe extern "C" fn(
+        ctx: *mut c_void,
+        font: u32,
+        size: f32,
+        argb: u32,
+        x: f32,
+        baseline: i32,
+        text: *const u8,
+        len: usize,
+        out: *mut f32,
+    ) -> i32,
 }
 
 /// What a plugin gives the firmware to deliver events with.
@@ -222,6 +243,64 @@ unsafe extern "C" fn host_text_draw(
     (advance * 256.0) as i32
 }
 
+const ERR_ARG: i32 = -4;
+
+unsafe extern "C" fn host_text_measure_f(
+    ctx: *mut c_void,
+    font: u32,
+    size: f32,
+    text: *const u8,
+    len: usize,
+    out: *mut f32,
+) -> i32 {
+    if font != 0 {
+        return ERR_FONT;
+    }
+    if !(size.is_finite() && size > 0.0 && size < 4096.0) {
+        return ERR_ARG;
+    }
+    // SAFETY: as above.
+    let host = unsafe { host(ctx) };
+    // SAFETY: the plugin's pointer and length.
+    let Some(text) = (unsafe { text_of(text, len) }) else {
+        return ERR_UTF8;
+    };
+    let width = paperpaw_text::measure(host.font, size, text);
+    // SAFETY: `out` is the plugin's one float.
+    unsafe { out.write(width) };
+    0
+}
+
+unsafe extern "C" fn host_text_draw_f(
+    ctx: *mut c_void,
+    font: u32,
+    size: f32,
+    c: u32,
+    x: f32,
+    baseline: i32,
+    text: *const u8,
+    len: usize,
+    out: *mut f32,
+) -> i32 {
+    if font != 0 {
+        return ERR_FONT;
+    }
+    if !(size.is_finite() && size > 0.0 && size < 4096.0 && x.is_finite()) {
+        return ERR_ARG;
+    }
+    // SAFETY: as above.
+    let host = unsafe { host(ctx) };
+    // SAFETY: the plugin's pointer and length.
+    let Some(text) = (unsafe { text_of(text, len) }) else {
+        return ERR_UTF8;
+    };
+    let style = TextStyle::new(host.font, 0, size, color(c));
+    let advance = paperpaw_text::draw_text(host.canvas, host.cache, &style, x, baseline, text);
+    // SAFETY: `out` is the plugin's one float.
+    unsafe { out.write(advance) };
+    0
+}
+
 /// The firmware's table.
 pub static FLAT: FlatTable = FlatTable {
     size: core::mem::size_of::<FlatTable>() as u32,
@@ -231,6 +310,8 @@ pub static FLAT: FlatTable = FlatTable {
     stroke_round: host_stroke_round,
     text_measure: host_text_measure,
     text_draw: host_text_draw,
+    text_measure_f: host_text_measure_f,
+    text_draw_f: host_text_draw_f,
 };
 
 /// What a ported plugin draws with: the table and the host's context.
@@ -402,5 +483,49 @@ pub fn deliver_uninit(plugin: &PluginTable, kind: u32, payload: &str, out: &mut 
         if let Ok(text) = core::str::from_utf8(bytes) {
             out.push(Command::Notify(String::from(text)));
         }
+    }
+}
+
+/// The same plugin-side wrapper with text through the appended C-float entries.
+pub struct FlatGfxF<'a>(pub FlatGfx<'a>);
+
+impl Gfx for FlatGfxF<'_> {
+    fn fill_rect(&mut self, x: i32, y: i32, w: u32, h: u32, c: Color) {
+        self.0.fill_rect(x, y, w, h, c);
+    }
+    fn draw_line(&mut self, from: Point, to: Point, width: u32, c: Color) {
+        self.0.draw_line(from, to, width, c);
+    }
+    fn fill_round(&mut self, area: Rect, radius: u32, c: Color) {
+        self.0.fill_round(area, radius, c);
+    }
+    fn stroke_round(&mut self, area: Rect, thickness: u32, radius: u32, c: Color) {
+        self.0.stroke_round(area, thickness, radius, c);
+    }
+    fn measure(&mut self, size: f32, text: &str) -> f32 {
+        let mut out = 0.0f32;
+        // SAFETY: as above; `out` lives for the call.
+        let status = unsafe {
+            (self.0.table.text_measure_f)(self.0.ctx, 0, size, text.as_ptr(), text.len(), &raw mut out)
+        };
+        if status < 0 { 0.0 } else { out }
+    }
+    fn text(&mut self, size: f32, x: f32, baseline: i32, text: &str, c: Color) -> f32 {
+        let mut out = 0.0f32;
+        // SAFETY: as above.
+        let status = unsafe {
+            (self.0.table.text_draw_f)(
+                self.0.ctx,
+                0,
+                size,
+                argb(c),
+                x,
+                baseline,
+                text.as_ptr(),
+                text.len(),
+                &raw mut out,
+            )
+        };
+        if status < 0 { 0.0 } else { out }
     }
 }

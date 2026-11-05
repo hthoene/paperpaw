@@ -209,3 +209,16 @@ fn bench_print_the_table() {
         );
     }
 }
+
+#[test]
+fn print_the_battery_widget_call_counts() {
+    let mut tally = paperpaw_flat_proto::widget::Tally(Default::default());
+    paperpaw_flat_proto::widget::battery(
+        &mut tally,
+        &look(),
+        paperpaw_platform::Rect::new(8, 8, 120, 60),
+        87,
+        true,
+    );
+    println!("battery widget calls: {:?}", tally.0);
+}

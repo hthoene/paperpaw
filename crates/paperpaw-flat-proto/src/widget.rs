@@ -126,3 +126,64 @@ fn fill_triangle<G: Gfx>(g: &mut G, a: Point, b: Point, c: Point, color: Color) 
         }
     }
 }
+
+/// Forwards the shapes and does no text: the widget minus its text calls.
+pub struct NoText<'a, G: Gfx>(pub &'a mut G);
+
+impl<G: Gfx> Gfx for NoText<'_, G> {
+    fn fill_rect(&mut self, x: i32, y: i32, w: u32, h: u32, color: Color) {
+        self.0.fill_rect(x, y, w, h, color);
+    }
+    fn draw_line(&mut self, from: Point, to: Point, width: u32, color: Color) {
+        self.0.draw_line(from, to, width, color);
+    }
+    fn fill_round(&mut self, area: Rect, radius: u32, color: Color) {
+        self.0.fill_round(area, radius, color);
+    }
+    fn stroke_round(&mut self, area: Rect, thickness: u32, radius: u32, color: Color) {
+        self.0.stroke_round(area, thickness, radius, color);
+    }
+    fn measure(&mut self, _size: f32, _text: &str) -> f32 {
+        0.0
+    }
+    fn text(&mut self, _size: f32, _x: f32, _baseline: i32, _text: &str, _color: Color) -> f32 {
+        0.0
+    }
+}
+
+/// Counts the calls a widget makes, by kind.
+#[derive(Default, Debug, Clone, Copy)]
+pub struct Counts {
+    pub fill_rect: u32,
+    pub draw_line: u32,
+    pub fill_round: u32,
+    pub stroke_round: u32,
+    pub measure: u32,
+    pub text: u32,
+}
+
+/// Counts and forwards nothing: only for the call counts of a widget.
+pub struct Tally(pub Counts);
+
+impl Gfx for Tally {
+    fn fill_rect(&mut self, _: i32, _: i32, _: u32, _: u32, _: Color) {
+        self.0.fill_rect += 1;
+    }
+    fn draw_line(&mut self, _: Point, _: Point, _: u32, _: Color) {
+        self.0.draw_line += 1;
+    }
+    fn fill_round(&mut self, _: Rect, _: u32, _: Color) {
+        self.0.fill_round += 1;
+    }
+    fn stroke_round(&mut self, _: Rect, _: u32, _: u32, _: Color) {
+        self.0.stroke_round += 1;
+    }
+    fn measure(&mut self, _: f32, _: &str) -> f32 {
+        self.0.measure += 1;
+        10.0
+    }
+    fn text(&mut self, _: f32, _: f32, _: i32, _: &str, _: Color) -> f32 {
+        self.0.text += 1;
+        10.0
+    }
+}

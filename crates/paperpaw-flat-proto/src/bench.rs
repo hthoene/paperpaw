@@ -9,7 +9,7 @@ use paperpaw_graphics::Canvas;
 use paperpaw_platform::{Color, Point, Rect};
 use paperpaw_text::{Font, GlyphCache};
 
-use crate::flat::{self, FLAT, FlatGfx, FlatPlugin, HostCtx};
+use crate::flat::{self, FLAT, FlatGfx, FlatGfxF, FlatPlugin, HostCtx};
 use crate::rusty::{self, RUSTY, RustyGfx};
 use crate::widget::{self, Look};
 
@@ -215,6 +215,34 @@ pub fn run(
         fout.clear();
     });
 
+    // Text through the appended C-float entries (no fixed-point conversion)
+    let n = 300 * scale;
+    // SAFETY: as above; the text is valid.
+    let (rusty_us, flat_us) = pair(probe, n, order, &mut |flat| unsafe {
+        if flat {
+            let mut out = 0.0f32;
+            black_box((flat_table.text_measure_f)(ptr, 0, black_box(14.0), TEXT.as_ptr(), TEXT.len(), &raw mut out));
+            black_box(out);
+        } else {
+            black_box((table.measure)((*ptr.cast::<HostCtx>()).font, black_box(14.0), TEXT));
+        }
+    });
+    lines.push(Line { name: "text_measure_f32", iterations: eff(n, order), rusty_us, flat_us, rusty_heap: 0, flat_heap: 0 });
+    let n = 60 * scale;
+    // SAFETY: as above.
+    let (rusty_us, flat_us) = pair(probe, n, order, &mut |flat| unsafe {
+        if flat {
+            let mut out = 0.0f32;
+            black_box((flat_table.text_draw_f)(ptr, 0, black_box(14.0), 0xFF00_0000, 10.0, 40, TEXT.as_ptr(), TEXT.len(), &raw mut out));
+            black_box(out);
+        } else {
+            let c = &mut *ptr.cast::<HostCtx>();
+            let style = paperpaw_text::TextStyle::new(c.font, 0, black_box(14.0), INK);
+            black_box((table.draw_text)(&mut *c.canvas, &mut *c.cache, &style, 10.0, 40, TEXT));
+        }
+    });
+    lines.push(Line { name: "text_draw_f32", iterations: eff(n, order), rusty_us, flat_us, rusty_heap: 0, flat_heap: 0 });
+
     // What the widget uses besides the small calls: round shapes and big text
     let shell = Rect::new(8, 8, 113, 60);
     let n = 200 * scale;
@@ -249,6 +277,20 @@ pub fn run(
     });
     lines.push(Line { name: "text_draw_big", iterations: eff(n, order), rusty_us, flat_us, rusty_heap: 0, flat_heap: 0 });
 
+    // The same widget without its text calls (the shapes alone)
+    let (rusty_us, flat_us) = pair(probe, n, order, &mut |flat| {
+        if flat {
+            let mut g = FlatGfx { table: flat_table, ctx: ptr };
+            widget::battery(&mut widget::NoText(&mut g), &look, body, black_box(87), true);
+        } else {
+            // SAFETY: as above.
+            let c = unsafe { &mut *ptr.cast::<HostCtx>() };
+            let mut g = RustyGfx { table, canvas: &mut *c.canvas, font: c.font, cache: &mut *c.cache };
+            widget::battery(&mut widget::NoText(&mut g), &look, body, black_box(87), true);
+        }
+    });
+    lines.push(Line { name: "battery_no_text", iterations: eff(n, order), rusty_us, flat_us, rusty_heap: 0, flat_heap: 0 });
+
     // The battery widget as a whole (about 150 calls through the table)
     let n = 20 * scale;
     // SAFETY: as above.
@@ -264,5 +306,18 @@ pub fn run(
         }
     });
     lines.push(Line { name: "battery_widget", iterations: eff(n, order), rusty_us, flat_us, rusty_heap: 0, flat_heap: 0 });
+    // The widget through the C-float text entries
+    let (rusty_us, flat_us) = pair(probe, n, order, &mut |flat| {
+        if flat {
+            let mut g = FlatGfxF(FlatGfx { table: flat_table, ctx: ptr });
+            widget::battery(&mut g, &look, body, black_box(87), true);
+        } else {
+            // SAFETY: as above.
+            let c = unsafe { &mut *ptr.cast::<HostCtx>() };
+            let mut g = RustyGfx { table, canvas: &mut *c.canvas, font: c.font, cache: &mut *c.cache };
+            widget::battery(&mut g, &look, body, black_box(87), true);
+        }
+    });
+    lines.push(Line { name: "battery_widget_f32", iterations: eff(n, order), rusty_us, flat_us, rusty_heap: 0, flat_heap: 0 });
     lines
 }
