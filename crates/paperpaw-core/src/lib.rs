@@ -37,6 +37,8 @@
 
 extern crate alloc;
 
+#[allow(dead_code, reason = "M1 adapters compile before host table activation")]
+mod abi7;
 mod awake;
 mod bluetooth;
 mod builder;
@@ -56,6 +58,7 @@ mod input;
 mod io;
 mod keymap;
 mod meter;
+pub mod native_host;
 mod network;
 mod panes;
 mod plugins;

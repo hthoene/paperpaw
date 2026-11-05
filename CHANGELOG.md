@@ -6,6 +6,14 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Added
+
+- Interface-7 groundwork: generated typed settings values and scoped settings/translation
+  copy-out adapters, with bounded handle and callback admission checks (#228).
+  The new host table is not yet activated.
+- Host-only pinned plugin owners and transactional registration staging, with
+  explicit cleanup ownership on commit failure (#228). Runtime wiring remains inactive.
+
 ## [0.6.0-beta.3] - 2026-11-05
 
 ### Added
