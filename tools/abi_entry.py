@@ -38,6 +38,7 @@ unsized use virtual where yield union macro_rules raw safe yeet'''.split())
 _GENERATED = {'PpPlugin', 'PpEntry', 'PpHost', 'PpBytes', 'PpBuffer',
               'METADATA_SYMBOL', 'ENTRY_SYMBOL', 'HOST_SYMBOL',
               'PP_METADATA_SYMBOL', 'PP_ENTRY_SYMBOL', 'PP_HOST_SYMBOL',
+              'PP_OK', 'PP_ABI_MAJOR', 'PP_ABI_MINOR',
               'uint16_t', 'uint32_t', 'int32_t', 'size_t', 'core'}
 
 
@@ -59,7 +60,7 @@ def _integer(value, low, high):
 def _identifier(value):
     _require(type(value) is str and re.fullmatch(r'[A-Za-z_][A-Za-z_0-9]*', value),
              'invalid entry contract identifier')
-    _require(value not in _RESERVED | _GENERATED and not value.startswith('_'),
+    _require(value not in _RESERVED | _GENERATED and not value.startswith(('_', 'PP_ERR_')),
              'reserved entry contract identifier')
 
 

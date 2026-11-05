@@ -89,3 +89,7 @@ Metadata schema/offsets are included in lock format 3. Draft lock formats 1/2
 can be explicitly extended while preserving their emitted C/Rust contracts and
 release floor. `bash tools/abi-check.sh` includes metadata/requirement tests and
 freshness of the metadata-only synthetic fixture manifest.
+
+The generator also writes `crates/paperpaw-native/src/host_glue/paperpaw_abi.rs`
+for standalone Cargo packages. `--check` requires this copy to match the same
+Rust output as `abi/generated/paperpaw_abi.rs`; do not maintain it by hand.

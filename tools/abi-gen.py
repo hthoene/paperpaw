@@ -338,7 +338,8 @@ def run(argv=None):
         raise ValueError('missing lock; explicit --write-lock required')
     outputs = {folder / 'abi.json': canonical(schema),
                folder / 'generated' / 'paperpaw-abi.h': header(schema),
-               folder / 'generated' / 'paperpaw_abi.rs': rust_module(schema)}
+               folder / 'generated' / 'paperpaw_abi.rs': rust_module(schema),
+               args.root / 'crates/paperpaw-native/src/host_glue/paperpaw_abi.rs': rust_module(schema)}
     if 'metadata' in schema:
         outputs[folder / 'generated' / 'metadata-layout.json'] = canonical(resolved_metadata(schema))
     if args.check:

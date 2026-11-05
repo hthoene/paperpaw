@@ -20,7 +20,7 @@ class LayoutTests(unittest.TestCase):
                       e['name'].replace('.', '_') for e in schema['host_entries']]}
         c = ['#include <stdio.h>', '#include "abi/generated/paperpaw-abi.h"',
              'int main(void) {']
-        rust = ['#[allow(dead_code)]', f'#[path = "{ROOT}/abi/generated/paperpaw_abi.rs"] mod raw;',
+        rust = ['#[allow(dead_code, reason = "layout probe uses only selected generated items")]', f'#[path = "{ROOT}/abi/generated/paperpaw_abi.rs"] mod raw;',
                 'use raw::*;', 'fn main() {']
         for kind, names in fields.items():
             c.append(f'printf("%zu %zu\\n", sizeof({kind}), _Alignof({kind}));')

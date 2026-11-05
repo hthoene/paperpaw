@@ -93,6 +93,15 @@ class EntrySchemaTests(unittest.TestCase):
         del prior['entry_contract']
         compatible_entry(prior, candidate, 2)
 
+    def test_generated_macros_cannot_be_appended_field_names(self):
+        names = ['PP_OK', 'PP_ABI_MAJOR', 'PP_ABI_MINOR'] + [
+            'PP_' + item['name'] for item in self.schema['statuses']
+            if item['name'].startswith('ERR_')]
+        for name in names:
+            with self.subTest(name=name):
+                with self.assertRaises(ValueError):
+                    validate_entry(self.appended(name=name, type='u32', since=1))
+
     def test_names_symbols_and_closed_tables(self):
         base = ['entry_contract']
         paths = [base + ['entry_symbol'], base + ['locator', 'symbol'],

@@ -21,6 +21,21 @@ class SchemaTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ABI.compatible(self.base, candidate)
 
+    def test_packaged_copy_is_generated_and_checked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'abi').mkdir()
+            (root / 'abi/abi.def').write_text(ABI.canonical(self.base))
+            ABI.run(['--root', str(root), '--write-lock'])
+            packaged = root / 'crates/paperpaw-native/src/host_glue/paperpaw_abi.rs'
+            self.assertEqual(packaged.read_bytes(),
+                             (root / 'abi/generated/paperpaw_abi.rs').read_bytes())
+            packaged.write_text('// stale packaged copy')
+            with self.assertRaisesRegex(ValueError, 'stale generated file'):
+                ABI.run(['--root', str(root), '--check'])
+            ABI.run(['--root', str(root)])
+            ABI.run(['--root', str(root), '--check'])
+
     def test_identity_and_canonical_object_order(self):
         ABI.compatible(self.base, copy.deepcopy(self.base))
         reordered = dict(reversed(list(self.base.items())))

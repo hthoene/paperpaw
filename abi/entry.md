@@ -65,3 +65,14 @@ The native fixture host table has unused null slots and is never exposed as a
 Rust reference or used to call those slots. It is deliberately a test fixture,
 not evidence that such a table is valid for production. Production host tables
 must implement unsupported slots as returning ERR_UNSUPPORTED, not null.
+
+## Text drawing effects (slot 14)
+
+The agreed M1 backend uses one existing `FontHandle.draw` call, with a 4,096-byte
+input cap. Input validation precedes drawing effects. The actual returned advance
+must be finite and nonnegative before success is returned, preserving the existing
+mode-dependent result in raster and describing modes. There is no additional
+`x + advance` rejection. Output validation can fail after drawing effects; this
+operation promises neither atomic rendering nor rollback. It does not add a
+prepared shaping stage or promise recoverable allocator failures. Maximum-input
+shaping memory remains a qualification gate.
