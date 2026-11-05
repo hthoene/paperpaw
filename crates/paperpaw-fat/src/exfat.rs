@@ -510,6 +510,24 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
 
     /// Whether `a` and `b` in `dir` hold the same clusters.
     fn share(&self, dir: NodeId, a: &str, b: &str) -> Result2<bool> {
+        self.with_pair(dir, a, b, |x, y| {
+            match (self.first_cluster(x), self.first_cluster(y)) {
+                (Ok(Some(p)), Ok(Some(q))) => Ok(p == q),
+                (Ok(_), Ok(_)) => Ok(false),
+                (Err(e), _) | (_, Err(e)) => Err(e),
+            }
+        })
+    }
+
+    /// Pins both names for a metadata comparison, releasing every pin
+    /// on missing names, lookup errors and comparison errors alike.
+    fn with_pair(
+        &self,
+        dir: NodeId,
+        a: &str,
+        b: &str,
+        compare: impl FnOnce(NodeId, NodeId) -> Result2<bool>,
+    ) -> Result2<bool> {
         let Some(x) = self.find(dir, a)? else {
             return Ok(false);
         };
@@ -520,14 +538,10 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
                 return other.map(|_| false);
             }
         };
-        let shared = match (self.first_cluster(x), self.first_cluster(y)) {
-            (Ok(Some(p)), Ok(Some(q))) => Ok(p == q),
-            (Ok(_), Ok(_)) => Ok(false),
-            (Err(e), _) | (_, Err(e)) => Err(e),
-        };
+        let result = compare(x, y);
         self.forget(x);
         self.forget(y);
-        shared
+        result
     }
 
     /// What `node`, a file, is now: a digest of its first cluster, size
@@ -1414,3 +1428,7 @@ impl<B: Blocks + 'static> Storage for ExFatStorage<B> {
         self.written(removed)
     }
 }
+
+#[cfg(test)]
+#[path = "exfat/pins.rs"]
+mod pin_tests;
