@@ -29,6 +29,10 @@ struct Spec {
     skewed_dynamic: bool,
     /// The jump-slot table claims `Rel` entries (DT_PLTREL = 17).
     pltrel_rel: bool,
+    /// One `Rela` entry (place, info) in the relocation table.
+    reloc: Option<(u64, u64)>,
+    /// The loadable segment is not writable.
+    read_only: bool,
 }
 
 fn put16(v: &mut Vec<u8>, x: u16) {
@@ -63,6 +67,18 @@ fn header(f: &mut Vec<u8>, machine: u16, nph: usize) {
 /// One program header whose memory address is its file offset.
 fn phdr(f: &mut Vec<u8>, kind: u32, off: u64, size: u64) {
     phdr_at(f, kind, off, off, size);
+}
+
+/// A loadable segment over the whole file, writable unless `read_only`.
+fn load(f: &mut Vec<u8>, size: u64, read_only: bool) {
+    put32(f, 1);
+    put32(f, if read_only { 5 } else { 7 });
+    put64(f, 0);
+    put64(f, 0);
+    put64(f, 0);
+    put64(f, size);
+    put64(f, size);
+    put64(f, 8);
 }
 
 /// One program header at file offset `off`, memory address `vaddr`.
@@ -117,6 +133,26 @@ fn hash_tables(f: &mut Vec<u8>, spec: &Spec, nsym: usize) {
     }
 }
 
+/// The `Rela` entries of the relocation and jump-slot tables.
+fn relocations(f: &mut Vec<u8>, spec: &Spec) {
+    let irel = if spec.machine == X86 { 37u64 } else { 1032 };
+    if spec.irelative {
+        put64(f, 0x200);
+        put64(f, irel);
+        put64(f, 0);
+    }
+    if let Some((place, info)) = spec.reloc {
+        put64(f, place);
+        put64(f, info);
+        put64(f, 0);
+    }
+    if spec.irelative_in_jmprel {
+        put64(f, 0x200);
+        put64(f, irel);
+        put64(f, 0);
+    }
+}
+
 /// A shared object whose single `PT_LOAD` maps the file at its own offsets.
 fn build(spec: &Spec) -> Vec<u8> {
     let nph: usize = 2 + usize::from(spec.tls) + usize::from(spec.overlapping_load);
@@ -143,7 +179,11 @@ fn build(spec: &Spec) -> Vec<u8> {
         sysv_len
     };
     let rela_at = (hash_at + hash_len + 7) & !7;
-    let rela_len = if spec.irelative { 24 } else { 0 };
+    let rela_len = if spec.irelative || spec.reloc.is_some() {
+        24
+    } else {
+        0
+    };
     let jmprel_at = rela_at + rela_len;
     let jmprel_len = if spec.irelative_in_jmprel { 24 } else { 0 };
     let dyn_at = (jmprel_at + jmprel_len + 7) & !7;
@@ -159,7 +199,7 @@ fn build(spec: &Spec) -> Vec<u8> {
     if spec.sysv_too.is_some() {
         dynv.push((4, (hash_at + gnu_len) as u64));
     }
-    if spec.irelative {
+    if spec.irelative || spec.reloc.is_some() {
         dynv.push((7, rela_at as u64));
         dynv.push((8, 24));
     }
@@ -174,7 +214,7 @@ fn build(spec: &Spec) -> Vec<u8> {
 
     let mut f = Vec::new();
     header(&mut f, spec.machine, nph);
-    phdr(&mut f, 1, 0, total as u64); // PT_LOAD over the whole file
+    load(&mut f, total as u64, spec.read_only); // PT_LOAD over the whole file
     if spec.skewed_dynamic {
         phdr_at(
             &mut f,
@@ -199,17 +239,7 @@ fn build(spec: &Spec) -> Vec<u8> {
     assert_eq!(f.len(), hash_at);
     hash_tables(&mut f, spec, nsym);
     f.resize(rela_at, 0);
-    let irel = if spec.machine == X86 { 37u64 } else { 1032 };
-    if spec.irelative {
-        put64(&mut f, 0x200);
-        put64(&mut f, irel);
-        put64(&mut f, 0);
-    }
-    if spec.irelative_in_jmprel {
-        put64(&mut f, 0x200);
-        put64(&mut f, irel);
-        put64(&mut f, 0);
-    }
+    relocations(&mut f, spec);
     f.resize(dyn_at, 0);
     for (tag, val) in dynv {
         put64(&mut f, tag as u64);
@@ -347,6 +377,84 @@ fn files_the_checker_and_the_system_loader_could_read_differently_are_refused() 
             "{what}"
         );
     }
+}
+
+#[test]
+fn a_relocation_the_system_loader_would_fault_on_is_refused() {
+    // The kinds: base-relative, absolute and global-data.
+    let kinds: [(u16, [u64; 3]); 2] = [(X86, [8, 1, 6]), (ARM, [1027, 257, 1025])];
+    for (machine, kinds) in kinds {
+        let with = |place: u64, info: u64, read_only: bool| Spec {
+            reloc: Some((place, info)),
+            read_only,
+            ..plain(machine)
+        };
+        for kind in kinds {
+            // In the segment, writable, a known symbol (or none): accepted.
+            assert_eq!(
+                check_elf64_le(&build(&with(0x40, kind | 1 << 32, false)), machine),
+                Ok(()),
+                "kind {kind}"
+            );
+            assert_eq!(
+                check_elf64_le(&build(&with(0x40, kind, false)), machine),
+                Ok(()),
+                "kind {kind}, no symbol"
+            );
+            // The place is outside every segment, or the last byte is.
+            for place in [0x10_0000, u64::MAX - 3, u64::MAX] {
+                assert_eq!(
+                    check_elf64_le(&build(&with(place, kind, false)), machine),
+                    Err(Refusal::NotSupported),
+                    "kind {kind} at {place:#x}"
+                );
+            }
+            // The place is in a segment that is not writable.
+            assert_eq!(
+                check_elf64_le(&build(&with(0x40, kind, true)), machine),
+                Err(Refusal::NotSupported),
+                "read-only place, kind {kind}"
+            );
+            // A symbol past the symbol table (3 symbols).
+            for sym in [3u64, 1 << 20] {
+                assert_eq!(
+                    check_elf64_le(&build(&with(0x40, kind | sym << 32, false)), machine),
+                    Err(Refusal::NotSupported),
+                    "kind {kind}, symbol {sym}"
+                );
+            }
+        }
+        // A kind that is none of the allowed ones (a copy relocation).
+        assert_eq!(
+            check_elf64_le(&build(&with(0x40, 5, false)), machine),
+            Err(Refusal::NotSupported)
+        );
+    }
+}
+
+#[test]
+fn relocation_tables_this_check_does_not_read_are_refused() {
+    for (tag, val) in [(17i64, 0u64), (36, 0), (35, 8), (9, 16)] {
+        let spec = Spec {
+            extra_dyn: std::vec![(tag, val)],
+            ..plain(X86)
+        };
+        assert_eq!(
+            check_elf64_le(&build(&spec), X86),
+            Err(Refusal::NotSupported),
+            "tag {tag}"
+        );
+    }
+    // A table whose size is not a whole number of entries.
+    let spec = Spec {
+        reloc: Some((0x40, 8)),
+        extra_dyn: std::vec![(8, 25)],
+        ..plain(X86)
+    };
+    assert_eq!(
+        check_elf64_le(&build(&spec), X86),
+        Err(Refusal::NotSupported)
+    );
 }
 
 #[test]
@@ -518,9 +626,16 @@ pub extern "C" fn plugin_entry() -> u32 { 7 }
             .arg(&src)
             .current_dir(dir)
             .status();
-        // No compiler to run: the byte-built tests stand. A compiler that runs
-        // and fails is a failure of the test, never a silent pass.
-        let status = status.ok()?;
+        // A compiler that cannot be started fails the test, unless the run says
+        // in the open that there is none; one that runs and fails is a failure
+        // too, never a silent pass.
+        let Ok(status) = status else {
+            assert!(
+                std::env::var_os("PAPERPAW_NO_FIXTURE_COMPILER").is_some(),
+                "no rustc to build the fixture library (set PAPERPAW_NO_FIXTURE_COMPILER=1 to skip)"
+            );
+            return None;
+        };
         assert!(
             status.success(),
             "the fixture library {name} did not compile"

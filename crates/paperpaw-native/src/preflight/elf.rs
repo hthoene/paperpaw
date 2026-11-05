@@ -39,6 +39,16 @@ const DF_STATIC_TLS: u64 = 0x10;
 /// The relocation kinds that call a resolver while loading.
 const R_X86_64_IRELATIVE: u32 = 37;
 const R_AARCH64_IRELATIVE: u32 = 1032;
+/// The relocation kinds a plugin may have: absolute 64-bit, global data,
+/// jump slot and base-relative. Any other kind is refused, not guessed at.
+const X86_64_KINDS: [u32; 4] = [1, 6, 7, 8];
+const AARCH64_KINDS: [u32; 4] = [257, 1025, 1026, 1027];
+const RELA_ENT: u64 = 24;
+const PF_W: u32 = 2;
+const DT_RELAENT: i64 = 9;
+const DT_REL: i64 = 17;
+const DT_RELRSZ: i64 = 35;
+const DT_RELR: i64 = 36;
 /// Machines a host plugin may be built for.
 const EM_X86_64: u16 = 62;
 const EM_AARCH64: u16 = 183;
@@ -78,6 +88,7 @@ fn to_usize(v: u64) -> Result<usize, Refusal> {
 /// One loadable segment: where it lies in memory and in the file.
 #[derive(Clone, Copy)]
 struct Load {
+    flags: u32,
     vaddr: u64,
     offset: u64,
     filesz: u64,
@@ -150,6 +161,7 @@ pub fn check_elf64_le(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
     for i in 0..phnum {
         let at = phoff.checked_add(i * PHENT).ok_or(Refusal::Truncated)?;
         let kind = u32_at(bytes, at)?;
+        let flags = u32_at(bytes, at + 4)?;
         let offset = u64_at(bytes, at + 8)?;
         let vaddr = u64_at(bytes, at + 16)?;
         let filesz = u64_at(bytes, at + 32)?;
@@ -161,6 +173,7 @@ pub fn check_elf64_le(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
                 }
                 let slot = loads.get_mut(n_loads).ok_or(Refusal::NotSupported)?;
                 *slot = Some(Load {
+                    flags,
                     vaddr,
                     offset,
                     filesz,
@@ -197,6 +210,55 @@ pub fn check_elf64_le(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
     if dyn_end > bytes.len() {
         return Err(Refusal::Truncated);
     }
+    let d = read_dynamic(bytes, dyn_at, dyn_end)?;
+    // Needed libraries: the names lie in the string table.
+    if d.needed_count > 0 || d.strtab.is_some() {
+        check_needed(bytes, &loads, dyn_at, dyn_end, &d)?;
+    }
+    // The jump-slot table is read as `Rela` entries only where it says so.
+    if d.jmprel.is_some() && d.pltrelsz != 0 && d.pltrel != Some(DT_RELA as u64) {
+        return Err(Refusal::NotSupported);
+    }
+    let count = if d.symtab.is_some() {
+        symbol_count(bytes, &loads, &d)?
+    } else {
+        0
+    };
+    let tables = Tables {
+        loads: &loads[..n_loads],
+        machine,
+        symbols: count,
+    };
+    check_relocations(bytes, &tables, d.rela, d.relasz)?;
+    check_relocations(bytes, &tables, d.jmprel, d.pltrelsz)?;
+    check_symbols(bytes, &loads, &d, count)
+}
+
+/// What a relocation is checked against.
+struct Tables<'a> {
+    loads: &'a [Option<Load>],
+    machine: u16,
+    symbols: usize,
+}
+
+impl Tables<'_> {
+    /// Whether the 8 bytes at `vaddr` lie in a segment that is mapped
+    /// writable (the system loader writes there; elsewhere it faults).
+    fn writable(&self, vaddr: u64) -> bool {
+        let Some(end) = vaddr.checked_add(8) else {
+            return false;
+        };
+        self.loads.iter().flatten().any(|l| {
+            l.flags & PF_W != 0
+                && vaddr >= l.vaddr
+                && l.vaddr.checked_add(l.memsz).is_some_and(|e| end <= e)
+        })
+    }
+}
+
+/// Reads the dynamic section between `dyn_at` and `dyn_end`: every entry is
+/// taken or refused, and the section must end with `DT_NULL`.
+fn read_dynamic(bytes: &[u8], dyn_at: usize, dyn_end: usize) -> Result<Dyn, Refusal> {
     let mut d = Dyn::default();
     let mut ended = false;
     let mut at = dyn_at;
@@ -214,17 +276,7 @@ pub fn check_elf64_le(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
         return Err(Refusal::Truncated);
     }
     d.check_arrays()?;
-    // Needed libraries: the names lie in the string table.
-    if d.needed_count > 0 || d.strtab.is_some() {
-        check_needed(bytes, &loads, dyn_at, dyn_end, &d)?;
-    }
-    check_relocations(bytes, &loads, machine, d.rela, d.relasz)?;
-    // The jump-slot table is read as `Rela` entries only where it says so.
-    if d.jmprel.is_some() && d.pltrelsz != 0 && d.pltrel != Some(DT_RELA as u64) {
-        return Err(Refusal::NotSupported);
-    }
-    check_relocations(bytes, &loads, machine, d.jmprel, d.pltrelsz)?;
-    check_symbols(bytes, &loads, &d)
+    Ok(d)
 }
 
 /// What the dynamic section says that matters.
@@ -271,6 +323,9 @@ impl Dyn {
             DT_GNU_HASH => self.gnu_hash = Some(val),
             DT_RELA => self.rela = Some(val),
             DT_RELASZ => self.relasz = val,
+            DT_RELAENT if val != RELA_ENT => return Err(Refusal::NotSupported),
+            // Tables this check does not read are refused, not skipped.
+            DT_REL | DT_RELR | DT_RELRSZ => return Err(Refusal::NotSupported),
             DT_JMPREL => self.jmprel = Some(val),
             DT_PLTRELSZ => self.pltrelsz = val,
             DT_PLTREL => self.pltrel = Some(val),
@@ -334,10 +389,13 @@ fn check_needed(
     Ok(())
 }
 
+/// Reads the `Rela` table at `table`: refuses a call to a resolver, a kind
+/// not allowed, a destination the system loader could not write, and a
+/// symbol that is not in the symbol table. The system loader does none of
+/// these checks: it faults.
 fn check_relocations(
     bytes: &[u8],
-    loads: &[Option<Load>],
-    machine: u16,
+    t: &Tables<'_>,
     table: Option<u64>,
     size: u64,
 ) -> Result<(), Refusal> {
@@ -345,17 +403,30 @@ fn check_relocations(
     if size == 0 {
         return Ok(());
     }
-    let at = offset_of(loads, table, size)?;
-    let irelative = if machine == EM_X86_64 {
-        R_X86_64_IRELATIVE
+    if !size.is_multiple_of(RELA_ENT) {
+        return Err(Refusal::NotSupported);
+    }
+    let at = offset_of(t.loads, table, size)?;
+    let (irelative, kinds) = if t.machine == EM_X86_64 {
+        (R_X86_64_IRELATIVE, &X86_64_KINDS)
     } else {
-        R_AARCH64_IRELATIVE
+        (R_AARCH64_IRELATIVE, &AARCH64_KINDS)
     };
-    let count = to_usize(size)? / 24;
+    let count = to_usize(size / RELA_ENT)?;
     for i in 0..count {
-        let info = u64_at(bytes, at + i * 24 + 8)?;
-        if (info & 0xffff_ffff) as u32 == irelative {
+        let entry = at + i * 24;
+        let place = u64_at(bytes, entry)?;
+        let info = u64_at(bytes, entry + 8)?;
+        let kind = (info & 0xffff_ffff) as u32;
+        let sym = to_usize(info >> 32)?;
+        if kind == irelative {
             return Err(Refusal::RunsCodeAtLoad("an IFUNC relocation"));
+        }
+        if !kinds.contains(&kind) || !t.writable(place) {
+            return Err(Refusal::NotSupported);
+        }
+        if sym != 0 && sym >= t.symbols {
+            return Err(Refusal::NotSupported);
         }
     }
     Ok(())
@@ -431,14 +502,18 @@ fn symbol_count(bytes: &[u8], loads: &[Option<Load>], d: &Dyn) -> Result<usize, 
     }
 }
 
-fn check_symbols(bytes: &[u8], loads: &[Option<Load>], d: &Dyn) -> Result<(), Refusal> {
+fn check_symbols(
+    bytes: &[u8],
+    loads: &[Option<Load>],
+    d: &Dyn,
+    count: usize,
+) -> Result<(), Refusal> {
     let Some(symtab) = d.symtab else {
         return Ok(());
     };
     if d.syment.is_some_and(|e| e != SYM_ENT as u64) {
         return Err(Refusal::NotSupported);
     }
-    let count = symbol_count(bytes, loads, d)?;
     let total = u64::try_from(count.checked_mul(SYM_ENT).ok_or(Refusal::Truncated)?)
         .map_err(|_| Refusal::Truncated)?;
     let at = offset_of(loads, symtab, total)?;

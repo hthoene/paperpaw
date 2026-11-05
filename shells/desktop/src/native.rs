@@ -530,6 +530,157 @@ version = 0.1.0
         panic!("no PT_DYNAMIC");
     }
 
+    /// The file offset of virtual address `vaddr` in a library, by its `PT_LOAD`s.
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn offset_of_vaddr(lib: &[u8], vaddr: u64) -> usize {
+        let u64_at = |at: usize| u64::from_le_bytes(lib[at..at + 8].try_into().unwrap());
+        let phoff = u64_at(32) as usize;
+        let phnum = usize::from(u16::from_le_bytes(lib[56..58].try_into().unwrap()));
+        for i in 0..phnum {
+            let at = phoff + i * 56;
+            let (off, va, sz) = (u64_at(at + 8), u64_at(at + 16), u64_at(at + 32));
+            if u32::from_le_bytes(lib[at..at + 4].try_into().unwrap()) == 1
+                && vaddr >= va
+                && vaddr < va + sz
+            {
+                return (off + (vaddr - va)) as usize;
+            }
+        }
+        panic!("address {vaddr:#x} is in no PT_LOAD");
+    }
+
+    /// The same library with the destination of its first `Rela` entry moved to
+    /// `place`; the system loader writes there while it loads.
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn move_first_relocation(lib: &[u8], place: u64) -> Vec<u8> {
+        let u64_at = |at: usize| u64::from_le_bytes(lib[at..at + 8].try_into().unwrap());
+        let phoff = u64_at(32) as usize;
+        let phnum = usize::from(u16::from_le_bytes(lib[56..58].try_into().unwrap()));
+        for i in 0..phnum {
+            let at = phoff + i * 56;
+            if u32::from_le_bytes(lib[at..at + 4].try_into().unwrap()) == 2 {
+                let (mut d, end) = (
+                    u64_at(at + 8) as usize,
+                    (u64_at(at + 8) + u64_at(at + 32)) as usize,
+                );
+                while d < end && u64_at(d) != 0 {
+                    if u64_at(d) == 7 {
+                        // DT_RELA: the first entry's r_offset.
+                        let entry = offset_of_vaddr(lib, u64_at(d + 8));
+                        let mut out = lib.to_vec();
+                        out[entry..entry + 8].copy_from_slice(&place.to_le_bytes());
+                        return out;
+                    }
+                    d += 16;
+                }
+            }
+        }
+        panic!("no DT_RELA");
+    }
+
+    /// A library whose relocation points outside the library makes the system
+    /// loader fault (SIGSEGV) while it loads. It is refused before it is loaded.
+    /// The control loads it by hand in a child process and sees the crash.
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn a_library_whose_relocation_points_outside_is_refused_before_it_is_loaded() {
+        use std::os::unix::process::ExitStatusExt;
+        // The child of the control: load the file named in the environment.
+        if let Some(path) = std::env::var_os("PAPERPAW_E6_CONTROL") {
+            // SAFETY: the test loads a damaged library on purpose; it faults.
+            drop(unsafe { libloading::Library::new(path) });
+            return;
+        }
+        let root = std::env::temp_dir().join(format!("paperpaw-e6-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let hello = root.join("plugins/hello");
+        std::fs::create_dir_all(&hello).unwrap();
+        let source = r#"#![no_std]
+#[panic_handler]
+fn panic(_: &core::panic::PanicInfo) -> ! { loop {} }
+extern "C" fn f() -> u32 { 7 }
+#[unsafe(no_mangle)]
+pub static TABLE: [extern "C" fn() -> u32; 2] = [f, f];
+"#;
+        let src = root.join("reloc.rs");
+        let lib = hello.join(file_name());
+        std::fs::write(&src, source).unwrap();
+        let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
+        let built = std::process::Command::new(rustc)
+            .args([
+                "--edition",
+                "2024",
+                "--crate-type",
+                "cdylib",
+                "-C",
+                "panic=abort",
+            ])
+            .args(["-C", "link-arg=-nostartfiles", "-O", "-o"])
+            .arg(&lib)
+            .arg(&src)
+            .status();
+        let Ok(built) = built else {
+            assert!(
+                std::env::var_os("PAPERPAW_NO_FIXTURE_COMPILER").is_some(),
+                "no rustc to build the fixture library (set PAPERPAW_NO_FIXTURE_COMPILER=1 to skip)"
+            );
+            eprintln!("no rustc to build the library; test skipped by request");
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        };
+        assert!(built.success(), "the fixture library did not compile");
+        let good = std::fs::read(&lib).unwrap();
+        let bad = move_first_relocation(&good, 0x7fff_f000_0000);
+        assert_ne!(good, bad, "the fixture has no relocation to move");
+        // The control: the unchanged library loads by hand; the moved one
+        // crashes the process that loads it.
+        let load_by_hand = |bytes: &[u8]| {
+            let p = root.join("control.so");
+            std::fs::write(&p, bytes).unwrap();
+            std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "native::tests::a_library_whose_relocation_points_outside_is_refused_before_it_is_loaded",
+                ])
+                .env("PAPERPAW_E6_CONTROL", &p)
+                .status()
+                .unwrap()
+        };
+        assert!(
+            load_by_hand(&good).success(),
+            "the control library does not load"
+        );
+        assert_eq!(
+            load_by_hand(&bad).signal(),
+            Some(11),
+            "the damaged library does not fault the system loader"
+        );
+        // The loader refuses it and the process lives.
+        std::fs::write(&lib, &bad).unwrap();
+        let storage = crate::device::library(&root).unwrap();
+        let id = paperpaw_core::sdk::Id::new_static("hello");
+        let path = format!("plugins/hello/{}", file_name());
+        let code = CodeFile {
+            id: &id,
+            path: &path,
+            sha256: paperpaw_core::sdk::digest::sha256::digest(&bad),
+        };
+        assert_eq!(
+            HostLoader.load(&storage, &code).err(),
+            Some(PluginProblem::Damaged)
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// ADR 0034 section 6: a library whose initialiser runs when it is loaded
     /// is refused before it is loaded. The control loads the same library
     /// by hand and sees the initialiser run, so the test can fail.
@@ -574,7 +725,13 @@ static INIT: extern "C" fn() = make_marker;
             .arg(&src)
             .status();
         let Ok(built) = built else {
-            eprintln!("no rustc to build the library; test skipped");
+            // A compiler that cannot be started fails the test too, unless the
+            // run says in the open that there is none.
+            assert!(
+                std::env::var_os("PAPERPAW_NO_FIXTURE_COMPILER").is_some(),
+                "no rustc to build the fixture library (set PAPERPAW_NO_FIXTURE_COMPILER=1 to skip)"
+            );
+            eprintln!("no rustc to build the library; test skipped by request");
             let _ = std::fs::remove_dir_all(&root);
             return;
         };
@@ -667,7 +824,11 @@ static INIT: extern "C" fn() = make_marker;
                 .arg(&src)
                 .status();
             let Ok(built) = built else {
-                eprintln!("no rustc to build the libraries; test skipped");
+                assert!(
+                    std::env::var_os("PAPERPAW_NO_FIXTURE_COMPILER").is_some(),
+                    "no rustc to build the fixture libraries (set PAPERPAW_NO_FIXTURE_COMPILER=1 to skip)"
+                );
+                eprintln!("no rustc to build the libraries; test skipped by request");
                 let _ = std::fs::remove_dir_all(&root);
                 return;
             };
