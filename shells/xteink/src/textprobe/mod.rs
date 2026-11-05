@@ -69,6 +69,13 @@ fn fragmentation(enabled: bool) -> Result<[Option<Vec<u8>>; 16], &'static str> {
 }
 
 fn run(config: Config<'_>) -> Result<(), &'static str> {
+    if !config.mode_qualified() {
+        println!(
+            "PP:TEXTPROBE_UNSUPPORTED case={} mode={} reason=stored-churn-admission-unqualified",
+            config.case, config.mode
+        );
+        return Err("mode-unqualified");
+    }
     if !matches!(
         esp_hal::interrupt::RunLevel::current(),
         esp_hal::interrupt::RunLevel::ThreadMode
@@ -81,6 +88,7 @@ fn run(config: Config<'_>) -> Result<(), &'static str> {
     let text = workload::fixture(config.case)?;
     let fonts = workload::fonts(config.case)?;
     fonts.set_describing(config.mode == "describing");
+    let font = workload::handle(&fonts, config.mode)?;
     let mut frame = workload::frame(config.mode)?;
     let fixture = hex::encode(&sha256::digest(text.as_bytes()));
     println!(
@@ -102,7 +110,7 @@ fn run(config: Config<'_>) -> Result<(), &'static str> {
     if config.cache == "warm" {
         for index in 0..2 {
             let warmup = execute(
-                &mut stack, &config, &fonts, &mut frame, &text, "direct", false,
+                &mut stack, &config, &font, &mut frame, &text, "direct", false,
             )?;
             println!(
                 "PP:TEXTPROBE_WARMUP index={index} irq_body_us={} stack_used={} guard_valid={}",
@@ -118,7 +126,7 @@ fn run(config: Config<'_>) -> Result<(), &'static str> {
     }
     let _fragmentation = fragmentation(config.heap == "fragmented")?;
     for repeat in 0..config.repeats {
-        measured(&mut stack, &config, &fonts, &mut frame, &text, repeat)?;
+        measured(&mut stack, &config, &font, &mut frame, &text, repeat)?;
     }
     Ok(())
 }
@@ -158,7 +166,7 @@ struct Execution {
 fn execute(
     stack: &mut stack_scope::Stack,
     config: &Config<'_>,
-    fonts: &paperpaw_sdk::Fonts,
+    font: &paperpaw_sdk::FontHandle<'_>,
     frame: &mut paperpaw_graphics::Framebuffer,
     text: &str,
     path: &str,
@@ -181,7 +189,7 @@ fn execute(
                 let draw = if path == "control" {
                     Ok(0.0)
                 } else {
-                    workload::draw(fonts, frame, text, config.mode, path == "adapter")
+                    workload::draw_handle(font, frame, text, path == "adapter")
                 };
                 (draw, (esp_hal::time::Instant::now() - started).as_micros())
             })
@@ -206,7 +214,7 @@ fn execute(
 fn measured(
     stack: &mut stack_scope::Stack,
     config: &Config<'_>,
-    fonts: &paperpaw_sdk::Fonts,
+    font: &paperpaw_sdk::FontHandle<'_>,
     frame: &mut paperpaw_graphics::Framebuffer,
     text: &str,
     repeat: u8,
@@ -214,7 +222,7 @@ fn measured(
     let before = Snapshot::take();
     println!("PP:TEXTPROBE_SAMPLE repeat={repeat}");
     before.print("BEFORE");
-    let execution = execute(stack, config, fonts, frame, text, config.path, true)?;
+    let execution = execute(stack, config, font, frame, text, config.path, true)?;
     let sample = execution.heap.ok_or("scope-missing")?;
     let result = execution.draw;
     let elapsed = execution.elapsed_us;

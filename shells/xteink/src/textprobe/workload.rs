@@ -98,23 +98,30 @@ pub fn frame(mode: &str) -> Result<Framebuffer, &'static str> {
     }
 }
 
-/// One direct draw or the unchanged slot14 safe backend. This bypasses raw
-/// pointer/handle/context admission and does not qualify the production ABI.
-pub fn draw(
-    fonts: &Fonts,
-    frame: &mut Framebuffer,
-    text: &str,
+/// Resolve handles and any setup allocation before the measured call.
+pub fn handle<'a>(
+    fonts: &'a Fonts,
     mode: &str,
-    adapter: bool,
-) -> Result<f32, &'static str> {
+) -> Result<paperpaw_sdk::FontHandle<'a>, &'static str> {
     let mut font = fonts.get("probe.font").ok_or("font-handle")?.ligatures();
     if mode == "rtl-ink" {
         font = font.inked(TextInk::DEFAULT.with_flags(TextInk::RIGHT_TO_LEFT));
     }
+    Ok(font)
+}
+
+/// One direct draw or the unchanged slot14 safe backend. This bypasses raw
+/// pointer/handle/context admission and does not qualify the production ABI.
+pub fn draw_handle(
+    font: &paperpaw_sdk::FontHandle<'_>,
+    frame: &mut Framebuffer,
+    text: &str,
+    adapter: bool,
+) -> Result<f32, &'static str> {
     if adapter {
         graphics::text_draw(
             &mut frame.canvas(),
-            &font,
+            font,
             12.0,
             0.125,
             16,
@@ -130,4 +137,15 @@ pub fn draw(
             Err("advance")
         }
     }
+}
+
+#[cfg(test)]
+pub fn draw(
+    fonts: &Fonts,
+    frame: &mut Framebuffer,
+    text: &str,
+    mode: &str,
+    adapter: bool,
+) -> Result<f32, &'static str> {
+    draw_handle(&handle(fonts, mode)?, frame, text, adapter)
 }

@@ -192,3 +192,16 @@ source commit. Diagnostic builds are not the candidate firmware image. Do not
 claim numeric admission is verified until this evidence and the allocator
 configuration are independently reviewed. Admission must remain atomic with
 respect to allocation by interrupts/tasks before every warmup and measured draw.
+
+
+Both `bitmap-A` and historical `bitmap-ascii` device controls are restricted to raster and rtl-ink in
+this candidate. Blind/describing repeatedly allocate temporary strike lists;
+updated host evidence715/716 measures about1.3MB traffic with a small concurrent
+peak. That workload requires a separate reuse/coalescing admission argument and
+is not covered by the finite total-traffic proof above. The device command emits
+UNSUPPORTED and ERROR without drawing for these combinations. Host parity tests
+still cover them; this restriction changes only device-test admission, not the
+backend, production rendering, input size or Option A semantics.
+
+Font handle resolution is now outside every measured callback, matching the
+host baseline. Its setup allocation remains in absolute entry heap usage.

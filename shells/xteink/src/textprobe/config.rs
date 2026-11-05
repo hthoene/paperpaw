@@ -41,6 +41,13 @@ impl<'a> Config<'a> {
         .then_some(value)
     }
 
+    /// Covered stored glyphs in blind/describing mode have repeated temporary
+    /// allocations outside the reviewed finite-traffic admission argument.
+    pub fn mode_qualified(&self) -> bool {
+        !matches!(self.case, "bitmap-A" | "bitmap-ascii")
+            || matches!(self.mode, "raster" | "rtl-ink")
+    }
+
     pub fn font(&self) -> &'static str {
         match self.case {
             "rlm-alternating" => "split-ascii-stored",
