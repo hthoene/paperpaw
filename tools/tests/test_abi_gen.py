@@ -87,6 +87,31 @@ class SchemaTests(unittest.TestCase):
         new['host_entries'][0]['owership'] = 'call'
         self.reject(new)
 
+    def test_status_values_names_and_existing_meanings_are_frozen(self):
+        for key, value in [('value', -99), ('name', 'ERR_OTHER'), ('since', 2)]:
+            new = copy.deepcopy(self.base)
+            new['minor'] = 2
+            new['statuses'][1][key] = value
+            self.reject(new)
+        new = copy.deepcopy(self.base)
+        new['statuses'].pop()
+        self.reject(new)
+        for item in [dict(name='ERR_BAD', value=True, since=1),
+                     dict(name='ERR_BAD', value=0, since=1),
+                     dict(name='ERR_BAD', value=-1, since=1),
+                     dict(name='ERR_BAD', value=-10, since=True),
+                     dict(name='bad', value=-10, since=1)]:
+            new = copy.deepcopy(self.base)
+            new['statuses'].append(item)
+            with self.assertRaises(ValueError):
+                ABI.validate(new)
+        new = copy.deepcopy(self.base)
+        new['statuses'].append(dict(name='ERR_NEXT', value=-10, since=1))
+        self.reject(new)
+        new['minor'] = 2
+        new['statuses'][-1]['since'] = 2
+        ABI.compatible(self.base, new)
+
     def test_mutation_must_not_use_length_retry(self):
         new = copy.deepcopy(self.base)
         new['host_entries'][15]['result'] = 'length'

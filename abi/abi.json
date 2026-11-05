@@ -584,5 +584,57 @@
   ],
   "major": 7,
   "minor": 1,
-  "records": []
+  "records": [],
+  "statuses": [
+    {
+      "name": "OK",
+      "since": 1,
+      "value": 0
+    },
+    {
+      "name": "ERR_UNSUPPORTED",
+      "since": 1,
+      "value": -1
+    },
+    {
+      "name": "ERR_INVALID",
+      "since": 1,
+      "value": -2
+    },
+    {
+      "name": "ERR_NO_SPACE",
+      "since": 1,
+      "value": -3
+    },
+    {
+      "name": "ERR_NO_MEMORY",
+      "since": 1,
+      "value": -4
+    },
+    {
+      "name": "ERR_UTF8",
+      "since": 1,
+      "value": -5
+    },
+    {
+      "name": "ERR_STATE",
+      "since": 1,
+      "value": -6
+    },
+    {
+      "name": "ERR_CANCELLED",
+      "since": 1,
+      "value": -7
+    },
+    {
+      "name": "ERR_IO",
+      "since": 1,
+      "value": -8
+    },
+    {
+      "name": "ERR_BUSY",
+      "since": 1,
+      "value": -9
+    }
+  ]
 }

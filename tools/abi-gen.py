@@ -78,11 +78,14 @@ def declarations(items, minor):
 
 
 def validate(schema):
-    keys(schema, 'format major minor host_entries records')
+    keys(schema, 'format major minor host_entries records' +
+         (' statuses' if 'statuses' in schema else ''))
     require(type(schema['format']) is int and schema['format'] == 1,
             'unsupported schema format')
     integer(schema['major'], 65535, 1)
     integer(schema['minor'], 65535, 1)
+    if 'statuses' in schema:
+        validate_statuses(schema['statuses'], schema['minor'])
     for kind in ('host_entries', 'records'):
         declarations(schema[kind], schema['minor'])
     c_names = set()
@@ -113,6 +116,23 @@ def validate(schema):
     for record in schema['records']:
         validate_record(record, schema['minor'])
     return schema
+
+
+def validate_statuses(statuses, minor):
+    require(type(statuses) is list and statuses, 'statuses must be a nonempty list')
+    names, values = set(), set()
+    for item in statuses:
+        keys(item, 'name value since')
+        label = item['name']
+        require(type(label) is str and re.fullmatch(r'OK|ERR_[A-Z][A-Z_0-9]*', label),
+                'invalid status name')
+        integer(item['value'], 0, -(2**31) + 1)
+        integer(item['since'], minor, 1)
+        require((label == 'OK') == (item['value'] == 0), 'only OK is zero')
+        require(label not in names and item['value'] not in values, 'duplicate status')
+        names.add(label)
+        values.add(item['value'])
+    require('OK' in names, 'missing OK status')
 
 
 def validate_record(record, minor):
@@ -160,6 +180,10 @@ def compatible(old, new, released_minor=None):
             'format/major change needs separate reviewed baseline')
     require(old['minor'] <= new['minor'] <= old['minor'] + 1,
             'minor must stay or advance by one')
+    prior_statuses, current_statuses = old.get('statuses', []), new.get('statuses', [])
+    require(current_statuses[:len(prior_statuses)] == prior_statuses, 'changed/removed status')
+    for item in current_statuses[len(prior_statuses):]:
+        require(item['since'] >= minimum_since, 'backdated status')
     for kind in ('host_entries', 'records'):
         prior, current = old[kind], new[kind]
         require(len(current) >= len(prior), 'removed declaration')
@@ -192,7 +216,12 @@ def header(schema):
     for entry in schema['host_entries']:
         args = ', '.join(TYPES[a['type']] + ' ' + a['name'] for a in entry['args']) or 'void'
         lines.append(f"    int32_t (*{entry['name'].replace('.', '_')})({args});")
-    lines += ['} PpHost;', '#endif', '']
+    lines += ['} PpHost;']
+    if 'statuses' in schema:
+        lines += [f"#define PP_ABI_MAJOR {schema['major']}",
+                  f"#define PP_ABI_MINOR {schema['minor']}"]
+        lines += [f"#define PP_{x['name']} ({x['value']})" for x in schema['statuses']]
+    lines += ['#endif', '']
     return '\n'.join(lines)
 
 
@@ -225,7 +254,14 @@ def rust_module(schema):
         args = ', '.join(a['name'] + ': ' + scalar[TYPES[a['type']]] for a in entry['args'])
         lines += [f"    /// {entry['name']}: {entry['effect']}, {entry['result']}, since {entry['since']}.",
                   f"    pub {entry['name'].replace('.', '_')}: unsafe extern \"C\" fn({args}) -> i32,"]
-    lines += ['}', '']
+    lines += ['}']
+    if 'statuses' in schema:
+        lines += ['/// Generated ABI major.', f"pub const MAJOR: u16 = {schema['major']};",
+                  '/// Generated ABI minor.', f"pub const MINOR: u16 = {schema['minor']};"]
+        for item in schema['statuses']:
+            lines += [f"/// {item['name']}: status value since minor {item['since']}.",
+                      f"pub const {item['name']}: i32 = {item['value']};"]
+    lines += ['']
     return '\n'.join(lines)
 
 

@@ -31,4 +31,16 @@ typedef struct {
     int32_t (*blob_read)(void * ctx, uint32_t blob, uint64_t offset, PpBuffer out);
     int32_t (*blob_release)(void * ctx, uint32_t blob);
 } PpHost;
+#define PP_ABI_MAJOR 7
+#define PP_ABI_MINOR 1
+#define PP_OK (0)
+#define PP_ERR_UNSUPPORTED (-1)
+#define PP_ERR_INVALID (-2)
+#define PP_ERR_NO_SPACE (-3)
+#define PP_ERR_NO_MEMORY (-4)
+#define PP_ERR_UTF8 (-5)
+#define PP_ERR_STATE (-6)
+#define PP_ERR_CANCELLED (-7)
+#define PP_ERR_IO (-8)
+#define PP_ERR_BUSY (-9)
 #endif

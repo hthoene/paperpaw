@@ -29,6 +29,10 @@ class LayoutTests(unittest.TestCase):
             for name in names:
                 c.append(f'printf("%zu\\n", offsetof({kind}, {name}));')
                 rust.append(f'println!("{{}}", core::mem::offset_of!({kind}, {name}));')
+        for c_name, rust_name in [('PP_ABI_MAJOR', 'MAJOR'), ('PP_ABI_MINOR', 'MINOR')] + [
+                ('PP_' + s['name'], s['name']) for s in schema['statuses']]:
+            c.append(f'printf("%d\\n", {c_name});')
+            rust.append(f'println!("{{}}", {rust_name});')
         c.append('return 0; }')
         rust.append('}')
         with tempfile.TemporaryDirectory() as directory:

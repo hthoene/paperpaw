@@ -73,3 +73,12 @@ capacity and runtime quota enforcement remain M1 obligations.
 The candidate released-minor boundary cannot be lower than the trusted baseline
 in any mode. Initial lock creation with a baseline inherits that floor, preserving
 it when the candidate becomes the next integration baseline.
+
+The `statuses` declarations give each status a name, signed i32 value and `since`
+minor. `OK` is zero; named errors are negative; unknown negative results remain
+failures. Existing values, names and meanings cannot change. This draft extension
+also emits `MAJOR`/`MINOR` in Rust (`PP_ABI_MAJOR`/`PP_ABI_MINOR` in C), derived
+from the schema, not duplicated in shell glue. Status constants are `OK` and
+`ERR_*` in Rust and `PP_OK`/`PP_ERR_*` in C. A prior draft without statuses retains
+its exact declarations when checking that prior lock; current outputs gain the
+new constants explicitly. Host field layouts and function signatures do not change.

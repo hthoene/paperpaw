@@ -584,5 +584,57 @@
       "max_bytes": 0
     }
   ],
-  "records": []
+  "records": [],
+  "statuses": [
+    {
+      "name": "OK",
+      "value": 0,
+      "since": 1
+    },
+    {
+      "name": "ERR_UNSUPPORTED",
+      "value": -1,
+      "since": 1
+    },
+    {
+      "name": "ERR_INVALID",
+      "value": -2,
+      "since": 1
+    },
+    {
+      "name": "ERR_NO_SPACE",
+      "value": -3,
+      "since": 1
+    },
+    {
+      "name": "ERR_NO_MEMORY",
+      "value": -4,
+      "since": 1
+    },
+    {
+      "name": "ERR_UTF8",
+      "value": -5,
+      "since": 1
+    },
+    {
+      "name": "ERR_STATE",
+      "value": -6,
+      "since": 1
+    },
+    {
+      "name": "ERR_CANCELLED",
+      "value": -7,
+      "since": 1
+    },
+    {
+      "name": "ERR_IO",
+      "value": -8,
+      "since": 1
+    },
+    {
+      "name": "ERR_BUSY",
+      "value": -9,
+      "since": 1
+    }
+  ]
 }

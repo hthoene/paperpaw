@@ -68,3 +68,27 @@ pub struct PpHost {
     /// blob.release: mutate, status, since 1.
     pub blob_release: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, blob: u32) -> i32,
 }
+/// Generated ABI major.
+pub const MAJOR: u16 = 7;
+/// Generated ABI minor.
+pub const MINOR: u16 = 1;
+/// OK: status value since minor 1.
+pub const OK: i32 = 0;
+/// ERR_UNSUPPORTED: status value since minor 1.
+pub const ERR_UNSUPPORTED: i32 = -1;
+/// ERR_INVALID: status value since minor 1.
+pub const ERR_INVALID: i32 = -2;
+/// ERR_NO_SPACE: status value since minor 1.
+pub const ERR_NO_SPACE: i32 = -3;
+/// ERR_NO_MEMORY: status value since minor 1.
+pub const ERR_NO_MEMORY: i32 = -4;
+/// ERR_UTF8: status value since minor 1.
+pub const ERR_UTF8: i32 = -5;
+/// ERR_STATE: status value since minor 1.
+pub const ERR_STATE: i32 = -6;
+/// ERR_CANCELLED: status value since minor 1.
+pub const ERR_CANCELLED: i32 = -7;
+/// ERR_IO: status value since minor 1.
+pub const ERR_IO: i32 = -8;
+/// ERR_BUSY: status value since minor 1.
+pub const ERR_BUSY: i32 = -9;
