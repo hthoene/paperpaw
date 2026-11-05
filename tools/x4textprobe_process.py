@@ -78,10 +78,12 @@ def supervise(child, seconds, log, consume=None, clock=time.monotonic, boot=Fals
             if remaining <= 0:
                 raise Stopped(f"deadline exceeded ({seconds}s)")
             chunk = child.read(min(0.02, remaining))
+            # Retain bytes already received even when the read crosses the
+            # deadline. Late records must never reach the acceptance parser.
+            output.extend(chunk)
             if clock() >= deadline:
                 raise Stopped(f"deadline exceeded ({seconds}s)")
             if chunk:
-                output.extend(chunk)
                 pending += chunk
                 # Bound malformed/no-newline output as well as execution time.
                 if len(pending) > 65536 or len(output) > 4 * 1024 * 1024:

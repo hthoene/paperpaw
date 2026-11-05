@@ -128,8 +128,9 @@ class Probe:
         tokens = line.split()
         _require(tokens and tokens[0].isascii(), "invalid protocol record")
         name = tokens[0]
-        kind = "TRANSPORT_END" if name == "PP:END" else name.removeprefix("PP:TEXTPROBE_")
-        _require(kind == _ORDER[self._index], f"unexpected record: {name}")
+        kind = _ORDER[self._index]
+        expected_name = "PP:END" if kind == "TRANSPORT_END" else "PP:TEXTPROBE_" + kind
+        _require(name == expected_name, f"unexpected record: {name}")
         record = _fields(kind, tokens[1:])
         self._validate(kind, record)
         self._records[kind.lower()] = record

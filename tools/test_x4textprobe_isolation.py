@@ -158,7 +158,7 @@ class SerialIsolationTests(unittest.TestCase):
                 raise OSError("synthetic control setter failure")
         worker.guard_serial(Port)
         port = Port()
-        with self.assertRaises(OSError):
+        with self.assertRaises(RuntimeError):
             port.open()
         self.assertEqual(port.open_states, [])
         self.assertFalse(port.is_open)

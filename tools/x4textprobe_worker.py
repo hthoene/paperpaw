@@ -44,23 +44,38 @@ def guard_serial(serial_class, preserve_input=False):
         port._probe_ever_opened = True
         return original_open(port, *args, **kwargs)
 
-    def checked(operation):
+    def checked(operation, control=False):
         def io(port, *args, **kwargs):
             if getattr(port, "_probe_failed", False):
                 raise RuntimeError("I/O after transport failure forbidden")
             try:
                 return operation(port, *args, **kwargs)
-            except BaseException:
+            except BaseException as error:
                 port._probe_failed = True
+                if control and isinstance(error, OSError):
+                    # ResetStrategy swallows EINVAL/ENOTTY and retries other
+                    # OSErrors. Escape those handlers on the very first error.
+                    raise RuntimeError("control-line failure; recovery forbidden") from error
                 raise
         return io
 
     serial_class.open = open_once
     serial_class.read, serial_class.write = checked(original_read), checked(original_write)
+    for name in ("setDTR", "setRTS", "_update_dtr_state", "_update_rts_state"):
+        if hasattr(serial_class, name):
+            setattr(serial_class, name, checked(getattr(serial_class, name), control=True))
+    for name in ("dtr", "rts"):
+        descriptor = getattr(serial_class, name, None)
+        if isinstance(descriptor, property) and descriptor.fset is not None:
+            setattr(serial_class, name, property(descriptor.fget,
+                    checked(descriptor.fset, control=True), descriptor.fdel, descriptor.__doc__))
+    for name in ("reset_input_buffer", "reset_output_buffer", "flushInput", "flushOutput", "flush"):
+        if hasattr(serial_class, name):
+            setattr(serial_class, name, checked(getattr(serial_class, name)))
     if preserve_input and hasattr(serial_class, "reset_input_buffer"):
         # RFC2217.open normally purges pending device logs. Application evidence
         # must survive first open; SDK ROM sessions retain their protocol flush.
-        serial_class.reset_input_buffer = lambda port: None
+        serial_class.reset_input_buffer = checked(lambda port: None)
 
 
 def retry_policy(loader):

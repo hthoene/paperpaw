@@ -143,6 +143,18 @@ class ProcessTests(unittest.TestCase):
             supervise(child, 30, io.BytesIO(), clock=clock, deadline=clock.now - 1)
         self.assertTrue(child.killed)
 
+    def test_deadline_retains_last_bytes_without_accepting_late_records(self):
+        for delay in (30, 31):
+            for payload in (b"PP:PANIC partial", b"PP:END\n", b"rst:0x15\n"):
+                clock, log, accepted = Clock(), io.BytesIO(), []
+                child = FakeChild(clock, [payload], delay=delay)
+                with self.subTest(delay=delay, payload=payload), self.assertRaises(Stopped):
+                    supervise(child, 30, log, consume=accepted.append, clock=clock)
+                self.assertEqual(log.getvalue(), payload)
+                self.assertEqual(accepted, [])
+                self.assertEqual(child.reads, 1)
+                self.assertTrue(child.killed and child.closed)
+
     def test_first_partial_report_stops_before_next_read(self):
         for text in (b"Lost connection", b"retrying", b"reconnecting", b"PP:ERR refused",
                      b"PP:TEXTPROBE_ERROR reason=headroom", b"rst:0x15 unexpected"):

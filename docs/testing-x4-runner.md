@@ -15,7 +15,7 @@ The standard-library suite is self-contained. Additional tests exercise the
 exact esptool 5.6.0 methods, Linux constructor and isolated configuration when
 that optional package is installed; otherwise those methods/subcases report
 explicit skips. In the device-testing environment run the same suite
-with `/home/agent/esptool-venv/bin/python` to include both exact-SDK regressions.
+with `/home/agent/esptool-venv/bin/python` to include the exact-SDK regressions.
 All fixtures and measurements in tests are invented. Tests never open a serial
 port, reset a device or call esptool's hardware entry point. One subprocess test
 starts an ordinary Python child to prove that partial loss output kills it.
@@ -53,6 +53,8 @@ Native settings/Wi-Fi/boot queries use their existing wire acknowledgements;
 textprobe requires both `PP:TEXTPROBE_END` and `PP:END`. The worker streams **all
 raw bytes immediately**, including partial lines and bytes following a marker.
 No fatal suffix is discarded by an early successful return.
+Only the exact wire name `PP:END` completes transport validation;
+`PP:TEXTPROBE_TRANSPORT_END` is invalid and permanently fails the invocation.
 
 ## Deadlines and first-error enforcement
 
@@ -66,6 +68,8 @@ the runner is permanently stopped. Only the runner's child group is killed.
 Raw output is bounded in host memory and written after the child is closed, so a
 blocked disk write cannot stall a running hardware worker's deadline. A log
 failure stops the procedure before another child starts. Process termination
+retains the last received chunk even if its read crossed the deadline; those
+late bytes are evidence only and cannot complete validation. Termination
 cannot preempt a masked device callback or undo a partial flash. Host scheduling
 and kernel termination are not real-time guarantees.
 
@@ -75,6 +79,9 @@ the exact selected file/content. CWD/home/custom reset configuration cannot
 silently replace it; a missing/tampered pin is rejected before hardware opens.
 The first-open guard sets DTR/RTS inactive while closed, including Linux SDK
 constructors. A second open is refused even through a different port instance.
+Control-line methods and property setters latch failures before SDK handlers
+can swallow EINVAL/ENOTTY or retry another OSError. Control OSErrors become
+terminal RuntimeErrors, blocking later reads, writes, controls and buffer flushes.
 Application sessions suppress RFC2217's initial input purge to preserve pending
 startup/error evidence; ROM sessions retain their required protocol flushing.
 

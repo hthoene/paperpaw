@@ -54,6 +54,19 @@ def changed(index, old, new, **kwargs):
 
 
 class ProbeTests(unittest.TestCase):
+    def test_transport_end_requires_exact_wire_name_and_failure_is_permanent(self):
+        for alias in ("PP:TEXTPROBE_TRANSPORT_END", "PP:TRANSPORT_END", "PP:END extra"):
+            probe = Probe("direct")
+            for line in synthetic()[:-1]:
+                probe.feed(line)
+            with self.subTest(alias=alias), self.assertRaises(ValueError):
+                probe.feed(alias)
+            self.assertIsNone(probe.result)
+            with self.assertRaises(ValueError):
+                probe.feed("PP:END")
+            with self.assertRaises(ValueError):
+                probe.finish()
+
     def test_complete_synthetic_protocol_for_all_paths(self):
         for path in ("control", "direct", "adapter"):
             with self.subTest(path=path):

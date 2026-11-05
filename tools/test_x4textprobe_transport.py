@@ -1,5 +1,6 @@
 """Offline worker/SDK regressions. Fake ports only, no constructors open serial."""
 import contextlib
+import errno
 import importlib.util
 import io
 from pathlib import Path
@@ -165,6 +166,66 @@ except ImportError:
 
 @unittest.skipUnless(SDK_AVAILABLE, "optional exact esptool5.6.0 unavailable")
 class ExactSdkTests(unittest.TestCase):
+    def test_actual_reset_errors_escape_before_read_flush_sync_or_retry(self):
+        from esptool.reset import ClassicReset, HardReset, USBJTAGSerialReset
+        from test_x4textprobe_isolation import FakePort
+        for error_number in (errno.EINVAL, errno.ENOTTY, errno.EIO):
+            for reset_type in (ClassicReset, HardReset, USBJTAGSerialReset):
+                for failed_control in ("setDTR", "setRTS", "dtr", "rts"):
+                    calls = []
+                    class Port(FakePort):
+                        def isOpen(self):
+                            return self.is_open
+                        def setDTR(self, value):
+                            if failed_control == "setDTR":
+                                self.fail_control()
+                            self.dtr = value
+                        def setRTS(self, value):
+                            if failed_control == "setRTS":
+                                self.fail_control()
+                            self.rts = value
+                        def fail_control(self):
+                            calls.append("control-error")
+                            raise OSError(error_number, "synthetic reset failure")
+                        @FakePort.dtr.setter
+                        def dtr(self, value):
+                            if self.is_open and failed_control == "dtr":
+                                self.fail_control()
+                            self._dtr = value
+                        @FakePort.rts.setter
+                        def rts(self, value):
+                            if self.is_open and failed_control == "rts":
+                                self.fail_control()
+                            self._rts = value
+                        def read(self, *_):
+                            calls.append("read")
+                        def write(self, *_):
+                            calls.append("write")
+                        def flushOutput(self):
+                            calls.append("flush")
+                        reset_input_buffer = flushOutput
+                        def inWaiting(self):
+                            calls.append("waiting")
+                            return 0
+                    worker.guard_serial(Port)
+                    port = Port()
+                    port.open()
+                    fake = SimpleNamespace(_port=port, USES_RFC2217=True,
+                        flush_input=lambda: calls.append("flush-input"),
+                        sync=lambda: calls.append("sync"))
+                    with self.subTest(errno=error_number, reset=reset_type, control=failed_control), \
+                         mock.patch("esp_pylib.serial_reset.time.sleep"), self.assertRaises(RuntimeError):
+                        sdk.ESPLoader._connect_attempt(fake, reset_type(port))
+                    self.assertEqual(calls, ["control-error"])
+                    self.assertTrue(port._probe_failed)
+                    for operation in (lambda: port.read(1), lambda: port.write(b"x"),
+                                      port.flushOutput, port.reset_input_buffer,
+                                      lambda: port.setDTR(False), lambda: port.setRTS(False), port.open):
+                        with self.assertRaises(RuntimeError):
+                            operation()
+                    self.assertEqual(calls, ["control-error"])
+                    port.close()
+
     def guards(self, sync=None, chip=None):
         stack = contextlib.ExitStack()
         names = ("command", "check_command", "sync", "get_chip_id", "get_security_info", "read_reg", "connect")
