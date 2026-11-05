@@ -6,6 +6,12 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+### Added
+
+- Interface-7 groundwork: generated typed settings values and scoped settings/translation
+  copy-out adapters, with bounded handle and callback admission checks (#228).
+  The new host table is not yet activated.
+
 ## [0.6.0-beta.3] - 2026-11-05
 
 ### Added

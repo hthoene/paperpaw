@@ -26,6 +26,7 @@ color = ["paperpaw-graphics/color"]
 outline = ["paperpaw-sdk/outline"]
 
 [dependencies]
+paperpaw-native.workspace = true
 paperpaw-platform.workspace = true
 paperpaw-config.workspace = true
 paperpaw-graphics.workspace = true
@@ -35,8 +36,6 @@ paperpaw-hid.workspace = true
 
 [dev-dependencies]
 paperpaw-text.workspace = true
-# Signs a key rotation (the code plugins' tests).
-paperpaw-native.workspace = true
 paperpaw-table.workspace = true
 # Loads a native plugin built apart (tests/native_plugin.rs).
 libloading = "0.9"

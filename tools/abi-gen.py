@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validate the draft ABI schema and generate deterministic M1 declarations.
 
-This skeleton does not generate wire codecs, safe wrappers or artifact layouts.
+This draft generates raw declarations and the bounded settings wire codec.
 A checked-in lock is independent of normal generation; updating it is explicit.
 """
 import argparse
@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from abi_metadata_schema import compatible_metadata, resolved_metadata, validate_metadata
 from abi_entry import validate_entry, compatible_entry, c_entry, rust_entry
+from abi_settings import validate_settings, compatible_settings, rust_settings
 TYPES = {'context': 'void *', 'pointer': 'void *', 'bytes': 'PpBytes',
          'buffer': 'PpBuffer', 'handle': 'uint32_t', 'usize': 'size_t',
          'u16': 'uint16_t', 'u32': 'uint32_t', 'u64': 'uint64_t',
@@ -84,11 +85,13 @@ def validate(schema):
     keys(schema, 'format major minor host_entries records' +
          (' statuses' if 'statuses' in schema else '') +
          (' metadata' if 'metadata' in schema else '') +
-         (' entry_contract' if 'entry_contract' in schema else ''))
+         (' entry_contract' if 'entry_contract' in schema else '') +
+         (' settings_value' if 'settings_value' in schema else ''))
     require(type(schema['format']) is int and schema['format'] == 1,
             'unsupported schema format')
     integer(schema['major'], 65535, 1)
     integer(schema['minor'], 65535, 1)
+    validate_settings(schema)
     if 'entry_contract' in schema:
         validate_entry(schema)
     if 'metadata' in schema:
@@ -187,6 +190,7 @@ def compatible(old, new, released_minor=None):
     minimum_since = max(old['minor'], released_minor + 1)
     compatible_metadata(old, new, minimum_since)
     compatible_entry(old, new, minimum_since)
+    compatible_settings(old, new, minimum_since)
     require(old['format'] == new['format'] and old['major'] == new['major'],
             'format/major change needs separate reviewed baseline')
     require(old['minor'] <= new['minor'] <= old['minor'] + 1,
@@ -276,6 +280,8 @@ def rust_module(schema):
                       f"pub const {item['name']}: i32 = {item['value']};"]
     if 'entry_contract' in schema:
         lines += [rust_entry(schema).rstrip('\n')]
+    if 'settings_value' in schema:
+        lines += [rust_settings(schema).rstrip('\n')]
     lines += ['']
     return '\n'.join(lines)
 
@@ -342,6 +348,10 @@ def run(argv=None):
                args.root / 'crates/paperpaw-native/src/host_glue/paperpaw_abi.rs': rust_module(schema)}
     if 'metadata' in schema:
         outputs[folder / 'generated' / 'metadata-layout.json'] = canonical(resolved_metadata(schema))
+    if 'settings_value' in schema:
+        codec = rust_settings(schema)
+        outputs[folder / 'generated' / 'settings_value.rs'] = codec
+        outputs[args.root / 'crates/paperpaw-core/src/abi7/settings_wire.rs'] = codec
     if args.check:
         require(load(lock) == lock_record(schema, released_minor), 'lock stale; explicitly review/update it')
         for path, wanted in outputs.items():
