@@ -549,11 +549,28 @@ path.
 Budgets are the prototype's numbers; each is a measured value posted on #228 with
 what, where, commit and number.
 
-- **M1 (the slice), go or no-go.** On the X4 through the real loader: simple drawing
-  calls within 2 % of the direct path; the Battery widget within 3 % (the prototype's
-  +11 % with fixed-point text must be gone); `deliver` and a command round trip
-  under 2 microseconds more than now; wire peak heap per batch under 1 KiB; flash for
-  the 157 + records under 60 KB; no allocation per drawing call.
+- **M1 (the slice), go or no-go.** On the X4 through the real loader, same commit and
+  same build options for both paths: no allocation per drawing call; wire peak heap
+  per batch under 1 KiB; flash for the 157 + records under 60 KB; and the time budget
+  below.
+- **Time budget per call class** (median of at least three boots on the X4, both call
+  orders, interleaved; the prototype's measured values are the baseline, device
+  timing of #228, queue677):
+
+  | Call class | Prototype (extra over the direct path) | Gate |
+  |---|---|---|
+  | Small drawing call (rect, line, round shape) | +0.06 us per call (0.5 %) | within 2 % |
+  | Text call (measure, draw) | +4 to +5 us per call (1.5 %) | within 3 % and at most +5 us |
+  | Event in, command out (`deliver`) | +1.7 us per call (+36 %) | at most +1 us per call |
+  | A widget of about ten calls (the Battery widget) | +202 us (+11 %) | within 3 % and at most +60 us |
+  | Whole screen of widgets | not measured | at most +1 ms against the ~500 ms e-ink refresh |
+
+  The percentages follow the call cost; the absolute budgets are the gate because a
+  small call has a tiny base. A class that exceeds its gate by more than half again
+  stops M1 (see below). Causes known so far: the prototype's `deliver` copies the
+  reply twice and zeroes a 96 byte buffer (the design decodes in place from a
+  call-scoped view and uses a caller-provided output); the text and widget overhead
+  is being broken down by call class and is the first thing the M1 slice re-measures.
 - **Memory.** Heap peak at home, in the reader on a 100-page chapter, and during a
   plugin update within +4 KiB of main; retained heap for handles and the token
   tables under 2 KiB for 43 plugins; stack depth of the deepest call within +512
