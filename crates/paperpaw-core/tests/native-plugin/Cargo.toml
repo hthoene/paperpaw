@@ -19,6 +19,11 @@ paperpaw-text = { path = "../../../paperpaw-text" }
 paperpaw-graphics = { path = "../../../paperpaw-graphics" }
 paperpaw-platform = { path = "../../../paperpaw-platform" }
 
+[features]
+# The emulator's build has outline fonts, which are in the fingerprint of
+# the plugins it loads (`tools/compat-e2e.sh` builds one with it).
+outline = ["paperpaw-sdk/outline"]
+
 # Built otherwise than the test that loads it: its types' TypeIds differ.
 [profile.dev]
 panic = "abort"

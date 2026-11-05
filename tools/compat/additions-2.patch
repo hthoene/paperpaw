@@ -1,0 +1,62 @@
+diff --git a/crates/paperpaw-core/tests/native_plugin.rs b/crates/paperpaw-core/tests/native_plugin.rs
+index d1f55887e..cd61485a6 100644
+--- a/crates/paperpaw-core/tests/native_plugin.rs
++++ b/crates/paperpaw-core/tests/native_plugin.rs
+@@ -100,6 +100,7 @@ static API: Api = Api {
+     build: BUILD.as_ptr(),
+     build_len: BUILD.len() as u32,
+     compat_probe_1: 1,
++    compat_probe_2: 2,
+ };
+ 
+ /// What the logs call this build.
+diff --git a/crates/paperpaw-native/src/interface.rs b/crates/paperpaw-native/src/interface.rs
+index c77df979d..200e53f53 100644
+--- a/crates/paperpaw-native/src/interface.rs
++++ b/crates/paperpaw-native/src/interface.rs
+@@ -116,6 +116,8 @@ pub struct Api {
+     /// Appended by tools/compat/additions-1.patch, to show that plugins
+     /// built before keep running (#228).
+     pub compat_probe_1: u32,
++    /// Appended by tools/compat/additions-2.patch, after the first (#228).
++    pub compat_probe_2: u32,
+     // Fields are only appended after `build_len`, the last of interface 5:
+     // such a field is free (the interface test), and a plugin that uses
+     // one says so (`needs_api`), so it is refused where `size` lacks it.
+diff --git a/crates/paperpaw-sdk/src/lib.rs b/crates/paperpaw-sdk/src/lib.rs
+index 9a375ce7e..afe57f20b 100644
+--- a/crates/paperpaw-sdk/src/lib.rs
++++ b/crates/paperpaw-sdk/src/lib.rs
+@@ -438,3 +438,8 @@ pub use paperpaw_text::{Font, FontError, LineMetrics, PackLimits};
+ pub fn compat_added_1() -> u32 {
+     1
+ }
++
++/// An item added by tools/compat/additions-2.patch (#228).
++pub fn compat_added_2() -> u32 {
++    2
++}
+diff --git a/shells/desktop/src/native.rs b/shells/desktop/src/native.rs
+index baeef763e..c7248f1c3 100644
+--- a/shells/desktop/src/native.rs
++++ b/shells/desktop/src/native.rs
+@@ -111,6 +111,7 @@ static API: Api = Api {
+     build: BUILD.as_ptr(),
+     build_len: BUILD.len() as u32,
+     compat_probe_1: 1,
++    compat_probe_2: 2,
+ };
+ 
+ /// What the logs call this build.
+diff --git a/shells/xteink/src/native/api.rs b/shells/xteink/src/native/api.rs
+index 55750b6b0..22eeaef8e 100644
+--- a/shells/xteink/src/native/api.rs
++++ b/shells/xteink/src/native/api.rs
+@@ -20,6 +20,7 @@ pub static API: Api = Api {
+     build: BUILD.0.as_ptr(),
+     build_len: BUILD.1 as u32,
+     compat_probe_1: 1,
++    compat_probe_2: 2,
+ };
+ 
+ /// The revisions of the families of shared functions this firmware has,

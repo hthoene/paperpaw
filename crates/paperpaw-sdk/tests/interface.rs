@@ -38,6 +38,11 @@ use std::path::{Path, PathBuf};
 
 use paperpaw_sdk::native::{FINGERPRINT, Fingerprint, INTERFACE, TOOLCHAIN};
 
+/// The gate, run against the real baselines changed in every way a plugin
+/// could notice, and against every way of only adding (#228).
+#[path = "interface/corpus.rs"]
+mod corpus;
+
 fn here(path: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(path)
 }
@@ -372,13 +377,21 @@ fn table_index_derived(crate_: &str, path: &str) -> bool {
 }
 
 /// Whether `after` is `before`, the table's shape, with fields appended
-/// after the last of interface 5.
+/// after the last of interface 5. `before` may have fields after it
+/// already (the baseline is written anew with each addition): whatever it
+/// has stays as it is, and the new fields come at the end.
 fn api_appended(path: &str, before: &str, after: &str) -> bool {
     let Some(open) = before.strip_suffix(" }") else {
         return false;
     };
+    // `build_len` is the last field of interface 5, whole: it ends the
+    // shape or goes on with a field of its own.
+    let has_interface_5 = open.find(API_LAST).is_some_and(|at| {
+        let rest = &open[at + API_LAST.len()..];
+        rest.is_empty() || rest.starts_with(", ")
+    });
     path == API_SHAPE
-        && open.ends_with(API_LAST)
+        && has_interface_5
         && after.ends_with(" }")
         && after
             .strip_prefix(open)
@@ -674,13 +687,26 @@ fn changes(crate_: &str, kept: (&str, &str), now: (&str, &str)) -> Changes {
             "{crate_}: Screen grew without SCREEN_REVISION one higher (ADR 0026)"
         ));
     }
-    let kept_api: BTreeSet<&str> = kept.0.lines().collect();
-    let now_api: BTreeSet<&str> = now.0.lines().collect();
-    for line in kept_api.difference(&now_api) {
-        out.breaking
-            .push(format!("{crate_}: gone or changed: {line}"));
+    // A line may stand more than once (the same method listed under two
+    // impls): count them, so that one of two going is seen.
+    let counted = |text: &'_ str| {
+        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        for line in text.lines() {
+            *counts.entry(line.to_string()).or_default() += 1;
+        }
+        counts
+    };
+    let (kept_api, now_api) = (counted(kept.0), counted(now.0));
+    for (line, count) in &kept_api {
+        if now_api.get(line).copied().unwrap_or(0) < *count {
+            out.breaking
+                .push(format!("{crate_}: gone or changed: {line}"));
+        }
     }
-    for line in now_api.difference(&kept_api) {
+    for (line, count) in &now_api {
+        if kept_api.get(line).copied().unwrap_or(0) >= *count {
+            continue;
+        }
         if is_free(line, &kept_types) || api_field_appended(line, &kept_types) {
             out.new.push(format!("{crate_}: {line}"));
         } else {

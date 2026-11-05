@@ -393,4 +393,42 @@ version = 0.1.0
         );
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    /// A plugin library built apart, against another build of the plugin
+    /// interface (`PAPERPAW_TEST_PLUGIN`, the way `tools/compat-e2e.sh`
+    /// builds it), loaded by the real loader of this emulator. Either it
+    /// runs (`PAPERPAW_EXPECT=runs`: what only added to the interface
+    /// since it was built) or it is refused as another build before any
+    /// of its code runs (`PAPERPAW_EXPECT=refused`: what changed a layout
+    /// or raised the interface).
+    #[test]
+    #[ignore = "needs a plugin library built apart: tools/compat-e2e.sh"]
+    fn a_plugin_built_before_runs_or_is_refused_cleanly() {
+        let var = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("{name} is not set"));
+        let library = std::path::PathBuf::from(var("PAPERPAW_TEST_PLUGIN"));
+        let expect = var("PAPERPAW_EXPECT");
+        let bytes = std::fs::read(&library).expect("the plugin library");
+        let root = crate::private::dir("paperpaw-compat-test").unwrap();
+        let hello = root.join("plugins/hello");
+        std::fs::create_dir_all(&hello).unwrap();
+        std::fs::write(hello.join(file_name()), &bytes).unwrap();
+        assert_eq!(trust(&root).unwrap(), ["hello"]);
+        let storage = crate::device::library(&root).unwrap();
+        let id = paperpaw_core::sdk::Id::new_static("hello");
+        let path = format!("plugins/hello/{}", file_name());
+        let code = CodeFile {
+            id: &id,
+            path: &path,
+            sha256: paperpaw_core::sdk::digest::sha256::digest(&bytes),
+        };
+        let loaded = HostLoader.load(&storage, &code);
+        let _ = std::fs::remove_dir_all(&root);
+        match (expect.as_str(), loaded) {
+            ("runs", Ok(plugin)) => assert_eq!(plugin.manifest().id.as_str(), "hello"),
+            ("refused", Err(problem)) => assert_eq!(problem, PluginProblem::OtherBuild),
+            ("runs", Err(problem)) => panic!("a plugin built before is refused: {problem:?}"),
+            ("refused", Ok(_)) => panic!("a plugin of another build was loaded"),
+            (other, _) => panic!("PAPERPAW_EXPECT is runs or refused, not {other:?}"),
+        }
+    }
 }

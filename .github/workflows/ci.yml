@@ -447,6 +447,41 @@ jobs:
           fi
           tools/table-compat.sh "$baseline"
 
+  compat-e2e:
+    name: Old plugins, changed trees (additions run, changes are refused)
+    # The test plugin of the last interface raise
+    # (`crates/paperpaw-table/table-baseline.txt`) loaded, with the
+    # emulator's loader and a kernel, into copies of this tree changed on
+    # purpose (tools/compat/*.patch): fields and items appended (it runs,
+    # and the interface test calls them new, one after the other), a
+    # layout changed or the interface raised (refused as another build).
+    # tools/compat-e2e.sh; ADR 0026.
+    runs-on: ubuntu-latest
+    env:
+      NIGHTLY: nightly-2026-10-17
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup toolchain install "$NIGHTLY" --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            crates/paperpaw-core/tests/native-plugin
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-public-api@0.52.0
+      - name: Run it
+        run: |
+          baseline="$(sed -e 's/#.*//' crates/paperpaw-table/table-baseline.txt | awk 'NF { print $1; exit }')"
+          if [[ -z "$baseline" || "$baseline" == none ]]; then
+            echo "no interface raise with tables yet: nothing to compare"
+            exit 0
+          fi
+          COMPAT_GATE=1 tools/compat-e2e.sh "$baseline"
+
   architecture:
     name: Architecture rules
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
