@@ -3,9 +3,8 @@
 //! whose other entries answer `ERR_UNSUPPORTED` until their adapters over
 //! the kernel and graphics crates are wired (Kernel Engineer's core side).
 //!
-//! The table's types are generated (`abi/generated/paperpaw_abi.rs`); the
-//! status values here mirror the ADR's list and are replaced by the
-//! generated constants when `abi.def` declares them.
+//! The table's types, the version and the status values are generated
+//! (`abi/generated/paperpaw_abi.rs`); nothing is copied by hand.
 
 use core::ffi::c_void;
 use core::ptr;
@@ -24,19 +23,7 @@ mod generated {
 
 pub use generated::{PpBuffer, PpBytes, PpHost};
 
-/// Success.
-pub const OK: i32 = 0;
-/// The entry is not provided by this build (never a null slot).
-pub const ERR_UNSUPPORTED: i32 = -1;
-/// An argument is invalid.
-pub const ERR_INVALID: i32 = -2;
-/// The allocator has no memory for the request.
-pub const ERR_NO_MEMORY: i32 = -4;
-
-/// The ABI major and highest minor this table implements.
-pub const MAJOR: u16 = 7;
-/// See [`MAJOR`].
-pub const MINOR: u16 = 1;
+pub use generated::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED, MAJOR, MINOR, OK};
 
 /// The largest alignment an allocation may ask for.
 pub const MAX_ALIGN: usize = 4096;
