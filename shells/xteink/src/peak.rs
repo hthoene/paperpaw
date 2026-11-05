@@ -13,6 +13,7 @@ use esp_alloc::{EspHeap, MemoryCapability};
 
 static PEAK: Mutex<Cell<usize>> = Mutex::new(Cell::new(0));
 #[cfg(feature = "textprobe")]
+#[path = "peak/scoped.rs"]
 mod scoped;
 #[cfg(feature = "textprobe")]
 pub use scoped::ScopeSample;
