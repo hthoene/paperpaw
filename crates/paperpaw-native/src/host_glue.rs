@@ -90,8 +90,12 @@ unsafe fn shell<'a>(ctx: *mut c_void) -> Option<&'a ShellCtx<'a>> {
     unsafe { ctx.cast::<ShellCtx<'a>>().as_ref() }
 }
 
+/// Whether `size` and `align` make a layout the allocator may be asked for:
+/// not empty, the alignment a power of two within [`MAX_ALIGN`], and the size
+/// rounded up to the alignment still at most `isize::MAX` (as
+/// `Layout::from_size_align` demands: the allocator's own precondition).
 fn valid_layout(size: usize, align: usize) -> bool {
-    size != 0 && size <= isize::MAX as usize && align.is_power_of_two() && align <= MAX_ALIGN
+    size != 0 && align <= MAX_ALIGN && core::alloc::Layout::from_size_align(size, align).is_ok()
 }
 
 /// `heap.alloc`: `size` bytes aligned to `align`, the pointer into `out`
@@ -382,10 +386,13 @@ mod tests {
     struct Machine {
         fail: Cell<bool>,
         clock: Cell<u64>,
+        /// Calls that reached the shell's allocator.
+        calls: Cell<u32>,
     }
 
     impl Services for Machine {
         fn alloc(&self, size: usize, align: usize) -> *mut u8 {
+            self.calls.set(self.calls.get() + 1);
             if self.fail.get() {
                 return ptr::null_mut();
             }
@@ -397,6 +404,7 @@ mod tests {
             unsafe { dealloc(p, Layout::from_size_align(size, align).unwrap()) }
         }
         unsafe fn realloc(&self, p: *mut u8, old: usize, align: usize, new: usize) -> *mut u8 {
+            self.calls.set(self.calls.get() + 1);
             if self.fail.get() {
                 return ptr::null_mut();
             }
@@ -413,6 +421,7 @@ mod tests {
         Machine {
             fail: Cell::new(false),
             clock: Cell::new(100),
+            calls: Cell::new(0),
         }
     }
 
@@ -444,6 +453,49 @@ mod tests {
         // SAFETY: `p` is a live context.
         let status = unsafe { (host.handle_release)(p, 1) };
         assert_eq!(status, ERR_UNSUPPORTED);
+    }
+
+    /// A size that fits `isize::MAX` but not once rounded up to the alignment is not a
+    /// layout: refused before the shell's allocator is reached, as are the edges
+    /// around it (QA review of PR #135).
+    #[test]
+    fn a_size_that_does_not_fit_its_alignment_is_refused_before_the_allocator() {
+        let m = machine();
+        let mut c = ShellCtx::new(&m);
+        let p: *mut c_void = (&raw mut c).cast();
+        let mut out: *mut c_void = ptr::null_mut();
+        let max = isize::MAX as usize;
+        for (size, align) in [
+            (max, 4096),
+            (max - 4094, 4096),
+            (max + 1, 1),
+            (usize::MAX, 8),
+            (0, 8),
+            (8, 0),
+            (8, 3),
+            (8, 8192),
+        ] {
+            // SAFETY: `p` is a live context and `out` is writable.
+            let status = unsafe { heap_alloc(p, size, align, &mut out) };
+            assert_eq!(status, ERR_INVALID, "alloc {size:#x} align {align}");
+            assert!(out.is_null());
+        }
+        assert!(valid_layout(max - 4095, 4096), "the largest that fits");
+        // A good old block, a bad new size: the shell's realloc is never called.
+        // SAFETY: as above.
+        assert_eq!(unsafe { heap_alloc(p, 32, 4096, &mut out) }, OK);
+        let block = out;
+        let before = m.calls.get();
+        for new_size in [max, max - 4094, usize::MAX, 0] {
+            let mut moved: *mut c_void = ptr::null_mut();
+            // SAFETY: `block` is this heap's 32-byte block of alignment 4096.
+            let status = unsafe { heap_realloc(p, block, 32, 4096, new_size, &mut moved) };
+            assert_eq!(status, ERR_INVALID, "realloc to {new_size:#x}");
+            assert!(moved.is_null());
+        }
+        assert_eq!(m.calls.get(), before, "the shell's allocator was reached");
+        // SAFETY: the block is still this heap's, freed once.
+        assert_eq!(unsafe { heap_dealloc(p, block, 32, 4096) }, OK);
     }
 
     #[test]

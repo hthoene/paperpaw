@@ -43,9 +43,16 @@ impl Services for DesktopServices {
         align: usize,
         new_size: usize,
     ) -> *mut u8 {
-        match Layout::from_size_align(old_size, align) {
-            // SAFETY: as `dealloc`; `new_size` is not zero (checked by the caller).
-            Ok(layout) if new_size != 0 => unsafe { std::alloc::realloc(ptr, layout, new_size) },
+        // `realloc` is undefined when `new_size` rounded up to the alignment passes
+        // `isize::MAX`, so the new layout is checked here too, not only by the caller.
+        match (
+            Layout::from_size_align(old_size, align),
+            Layout::from_size_align(new_size, align),
+        ) {
+            // SAFETY: as `dealloc`; both layouts are valid and `new_size` is not zero.
+            (Ok(layout), Ok(_)) if new_size != 0 => unsafe {
+                std::alloc::realloc(ptr, layout, new_size)
+            },
             _ => std::ptr::null_mut(),
         }
     }
