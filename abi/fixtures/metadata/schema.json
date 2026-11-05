@@ -1,0 +1,799 @@
+{
+  "format": 1,
+  "host_entries": [
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "size",
+          "type": "usize"
+        },
+        {
+          "name": "align",
+          "type": "usize"
+        },
+        {
+          "name": "out",
+          "type": "out_ptr"
+        }
+      ],
+      "effect": "mutate",
+      "id": 0,
+      "max_bytes": 0,
+      "name": "heap.alloc",
+      "ownership": "owner",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "ptr",
+          "type": "pointer"
+        },
+        {
+          "name": "size",
+          "type": "usize"
+        },
+        {
+          "name": "align",
+          "type": "usize"
+        }
+      ],
+      "effect": "mutate",
+      "id": 1,
+      "max_bytes": 0,
+      "name": "heap.dealloc",
+      "ownership": "release",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "ptr",
+          "type": "pointer"
+        },
+        {
+          "name": "old_size",
+          "type": "usize"
+        },
+        {
+          "name": "align",
+          "type": "usize"
+        },
+        {
+          "name": "new_size",
+          "type": "usize"
+        },
+        {
+          "name": "out",
+          "type": "out_ptr"
+        }
+      ],
+      "effect": "mutate",
+      "id": 2,
+      "max_bytes": 0,
+      "name": "heap.realloc",
+      "ownership": "owner",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "out",
+          "type": "out_u64"
+        }
+      ],
+      "effect": "query",
+      "id": 3,
+      "max_bytes": 0,
+      "name": "clock.micros",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "out",
+          "type": "buffer"
+        }
+      ],
+      "effect": "query",
+      "id": 4,
+      "max_bytes": 128,
+      "name": "env.snapshot",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "key",
+          "type": "bytes"
+        },
+        {
+          "name": "out",
+          "type": "buffer"
+        }
+      ],
+      "effect": "query",
+      "id": 5,
+      "max_bytes": 4096,
+      "name": "settings.read",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "length",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "key",
+          "type": "bytes"
+        },
+        {
+          "name": "out",
+          "type": "buffer"
+        }
+      ],
+      "effect": "query",
+      "id": 6,
+      "max_bytes": 4096,
+      "name": "i18n.copy",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "length",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "key",
+          "type": "bytes"
+        },
+        {
+          "name": "out",
+          "type": "out_handle"
+        }
+      ],
+      "effect": "mutate",
+      "id": 7,
+      "max_bytes": 128,
+      "name": "font.acquire",
+      "ownership": "owner",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "handle",
+          "type": "handle"
+        }
+      ],
+      "effect": "mutate",
+      "id": 8,
+      "max_bytes": 0,
+      "name": "handle.release",
+      "ownership": "release",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "x",
+          "type": "i32"
+        },
+        {
+          "name": "y",
+          "type": "i32"
+        },
+        {
+          "name": "width",
+          "type": "u32"
+        },
+        {
+          "name": "height",
+          "type": "u32"
+        },
+        {
+          "name": "color",
+          "type": "u32"
+        }
+      ],
+      "effect": "mutate",
+      "id": 9,
+      "max_bytes": 0,
+      "name": "canvas.fill_rect",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "x0",
+          "type": "i32"
+        },
+        {
+          "name": "y0",
+          "type": "i32"
+        },
+        {
+          "name": "x1",
+          "type": "i32"
+        },
+        {
+          "name": "y1",
+          "type": "i32"
+        },
+        {
+          "name": "width",
+          "type": "u32"
+        },
+        {
+          "name": "color",
+          "type": "u32"
+        }
+      ],
+      "effect": "mutate",
+      "id": 10,
+      "max_bytes": 0,
+      "name": "canvas.draw_line",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "x",
+          "type": "i32"
+        },
+        {
+          "name": "y",
+          "type": "i32"
+        },
+        {
+          "name": "width",
+          "type": "u32"
+        },
+        {
+          "name": "height",
+          "type": "u32"
+        },
+        {
+          "name": "radius",
+          "type": "u32"
+        },
+        {
+          "name": "color",
+          "type": "u32"
+        }
+      ],
+      "effect": "mutate",
+      "id": 11,
+      "max_bytes": 0,
+      "name": "canvas.fill_round",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "x",
+          "type": "i32"
+        },
+        {
+          "name": "y",
+          "type": "i32"
+        },
+        {
+          "name": "width",
+          "type": "u32"
+        },
+        {
+          "name": "height",
+          "type": "u32"
+        },
+        {
+          "name": "radius",
+          "type": "u32"
+        },
+        {
+          "name": "thickness",
+          "type": "u32"
+        },
+        {
+          "name": "color",
+          "type": "u32"
+        }
+      ],
+      "effect": "mutate",
+      "id": 12,
+      "max_bytes": 0,
+      "name": "canvas.stroke_round",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "font",
+          "type": "handle"
+        },
+        {
+          "name": "size",
+          "type": "f32"
+        },
+        {
+          "name": "text",
+          "type": "bytes"
+        },
+        {
+          "name": "out",
+          "type": "out_f32"
+        }
+      ],
+      "effect": "query",
+      "id": 13,
+      "max_bytes": 4096,
+      "name": "text.measure",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "font",
+          "type": "handle"
+        },
+        {
+          "name": "size",
+          "type": "f32"
+        },
+        {
+          "name": "x",
+          "type": "f32"
+        },
+        {
+          "name": "baseline",
+          "type": "i32"
+        },
+        {
+          "name": "color",
+          "type": "u32"
+        },
+        {
+          "name": "text",
+          "type": "bytes"
+        },
+        {
+          "name": "out",
+          "type": "out_f32"
+        }
+      ],
+      "effect": "mutate",
+      "id": 14,
+      "max_bytes": 4096,
+      "name": "text.draw",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "batch",
+          "type": "bytes"
+        }
+      ],
+      "effect": "mutate",
+      "id": 15,
+      "max_bytes": 4096,
+      "name": "commands.submit",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "batch",
+          "type": "bytes"
+        }
+      ],
+      "effect": "mutate",
+      "id": 16,
+      "max_bytes": 4096,
+      "name": "registrations.submit",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "key",
+          "type": "bytes"
+        },
+        {
+          "name": "major",
+          "type": "u16"
+        },
+        {
+          "name": "minor",
+          "type": "u16"
+        },
+        {
+          "name": "out",
+          "type": "out_handle"
+        }
+      ],
+      "effect": "mutate",
+      "id": 17,
+      "max_bytes": 128,
+      "name": "services.query",
+      "ownership": "owner",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "blob",
+          "type": "handle"
+        },
+        {
+          "name": "offset",
+          "type": "u64"
+        },
+        {
+          "name": "out",
+          "type": "buffer"
+        }
+      ],
+      "effect": "query",
+      "id": 18,
+      "max_bytes": 4096,
+      "name": "blob.read",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "count",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "blob",
+          "type": "handle"
+        }
+      ],
+      "effect": "mutate",
+      "id": 19,
+      "max_bytes": 0,
+      "name": "blob.release",
+      "ownership": "release",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    }
+  ],
+  "major": 7,
+  "metadata": {
+    "byte_order": "little",
+    "containers": {
+      "elf": ".paperpaw.meta",
+      "macho": "__DATA_CONST,__pp_meta",
+      "pe": ".ppmeta",
+      "wasm": "paperpaw.meta"
+    },
+    "exports": [
+      {
+        "kind": 1,
+        "name": "PAPERPAW_ENTRY",
+        "size_source": "entry_bytes"
+      },
+      {
+        "kind": 2,
+        "name": "PAPERPAW_HOST",
+        "size_source": "pointer_bytes"
+      }
+    ],
+    "features": [],
+    "format": 1,
+    "magic": "PPAM",
+    "max_bytes": 2048,
+    "max_exports": 2,
+    "max_features": 32,
+    "max_key_bytes": 128,
+    "max_services": 16,
+    "prefix": [
+      {
+        "name": "magic",
+        "type": "bytes4"
+      },
+      {
+        "name": "layout",
+        "type": "u16"
+      },
+      {
+        "name": "prefix_bytes",
+        "type": "u16"
+      },
+      {
+        "name": "total_bytes",
+        "type": "u32"
+      },
+      {
+        "name": "abi_major",
+        "type": "u16"
+      },
+      {
+        "name": "needs_minor",
+        "type": "u16"
+      },
+      {
+        "name": "entry_layout",
+        "type": "u16"
+      },
+      {
+        "name": "entry_bytes",
+        "type": "u16"
+      },
+      {
+        "name": "flags",
+        "type": "u32"
+      },
+      {
+        "name": "target_bytes",
+        "type": "u16"
+      },
+      {
+        "name": "services",
+        "type": "u16"
+      },
+      {
+        "name": "features",
+        "type": "u16"
+      },
+      {
+        "name": "exports",
+        "type": "u16"
+      }
+    ],
+    "profiles": [
+      {
+        "byte_order": "little",
+        "calling_convention": "synthetic-not-loadable",
+        "entry_align": 8,
+        "entry_bytes": 64,
+        "entry_layout": 65535,
+        "name": "test-only-le64",
+        "pointer_bits": 64
+      }
+    ],
+    "records": {
+      "export": [
+        {
+          "name": "record_bytes",
+          "type": "u16"
+        },
+        {
+          "name": "kind",
+          "type": "u8"
+        },
+        {
+          "name": "reserved",
+          "type": "u8"
+        },
+        {
+          "name": "expected_bytes",
+          "type": "u32"
+        },
+        {
+          "name": "name_bytes",
+          "type": "u16"
+        }
+      ],
+      "feature": [
+        {
+          "name": "record_bytes",
+          "type": "u16"
+        },
+        {
+          "name": "key_bytes",
+          "type": "u16"
+        },
+        {
+          "name": "revision",
+          "type": "u16"
+        },
+        {
+          "name": "reserved",
+          "type": "u16"
+        }
+      ],
+      "service": [
+        {
+          "name": "record_bytes",
+          "type": "u16"
+        },
+        {
+          "name": "key_bytes",
+          "type": "u16"
+        },
+        {
+          "name": "major",
+          "type": "u16"
+        },
+        {
+          "name": "semantic_revision",
+          "type": "u16"
+        },
+        {
+          "name": "min_table_bytes",
+          "type": "u32"
+        }
+      ]
+    },
+    "services": []
+  },
+  "minor": 1,
+  "records": [],
+  "statuses": [
+    {
+      "name": "OK",
+      "since": 1,
+      "value": 0
+    },
+    {
+      "name": "ERR_UNSUPPORTED",
+      "since": 1,
+      "value": -1
+    },
+    {
+      "name": "ERR_INVALID",
+      "since": 1,
+      "value": -2
+    },
+    {
+      "name": "ERR_NO_SPACE",
+      "since": 1,
+      "value": -3
+    },
+    {
+      "name": "ERR_NO_MEMORY",
+      "since": 1,
+      "value": -4
+    },
+    {
+      "name": "ERR_UTF8",
+      "since": 1,
+      "value": -5
+    },
+    {
+      "name": "ERR_STATE",
+      "since": 1,
+      "value": -6
+    },
+    {
+      "name": "ERR_CANCELLED",
+      "since": 1,
+      "value": -7
+    },
+    {
+      "name": "ERR_IO",
+      "since": 1,
+      "value": -8
+    },
+    {
+      "name": "ERR_BUSY",
+      "since": 1,
+      "value": -9
+    }
+  ]
+}

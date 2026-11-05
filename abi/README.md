@@ -54,8 +54,9 @@ The C header and Rust module declare the same first-20 host table. Both remain
 raw table skeletons. Never create a full `&PpHost` from a shorter table; checked
 prefix/slot wrappers are a separate pending step. It does not implement safe
 slot access, lifetime wrappers, host dispatch, schema-derived semantic errors,
-callback tables, named value types, wire codecs, resource accounting, artifact
-layout/metadata emission or a runtime. Those remain stream A/M1 work. No loader
+callback tables, named value types, wire codecs, resource accounting, complete
+artifact layouts or a runtime. The separate metadata emitter draft is described
+in [metadata.md](metadata.md); no production target profile is enabled yet. Those remain stream A/M1 work. No loader
 may infer binary metadata offsets from this checkpoint. Compiler-independent
 calling convention and layout need per-target tests beyond the host syntax check.
 
@@ -82,3 +83,8 @@ from the schema, not duplicated in shell glue. Status constants are `OK` and
 `ERR_*` in Rust and `PP_OK`/`PP_ERR_*` in C. A prior draft without statuses retains
 its exact declarations when checking that prior lock; current outputs gain the
 new constants explicitly. Host field layouts and function signatures do not change.
+
+Metadata schema/offsets are included in lock format 3. Draft lock formats 1/2
+can be explicitly extended while preserving their emitted C/Rust contracts and
+release floor. `bash tools/abi-check.sh` includes metadata/requirement tests and
+freshness of the metadata-only synthetic fixture manifest.

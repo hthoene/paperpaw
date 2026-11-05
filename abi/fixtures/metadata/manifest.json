@@ -1,0 +1,97 @@
+{
+  "build": "build.json",
+  "cases": [
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "accept",
+        "signature": "not_run"
+      },
+      "hex": "valid-empty-requirements.hex",
+      "name": "valid-empty-requirements"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "reject",
+        "signature": "not_run"
+      },
+      "hex": "truncated-prefix.hex",
+      "name": "truncated-prefix"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "reject",
+        "signature": "not_run"
+      },
+      "hex": "truncated-tail.hex",
+      "name": "truncated-tail"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "reject",
+        "signature": "not_run"
+      },
+      "hex": "trailing-byte.hex",
+      "name": "trailing-byte"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "reject",
+        "signature": "not_run"
+      },
+      "hex": "invalid-magic.hex",
+      "name": "invalid-magic"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "reject",
+        "signature": "not_run"
+      },
+      "hex": "invalid-flags.hex",
+      "name": "invalid-flags"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "reject",
+        "signature": "not_run"
+      },
+      "hex": "invalid-exports.hex",
+      "name": "invalid-exports"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "reject",
+        "signature": "not_run"
+      },
+      "hex": "invalid-total-bytes.hex",
+      "name": "invalid-total-bytes"
+    }
+  ],
+  "format": 1,
+  "schema": "schema.json",
+  "scope": "metadata bytes only; synthetic target is never executable",
+  "test_only": true
+}
