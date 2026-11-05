@@ -194,9 +194,9 @@ fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, P
     // SAFETY: a file the reader installed on the card (`trust`), its
     // SHA-256 the one installed; a code plugin runs as part of
     // PaperPaw, without a sandbox (ADR 0024).
-    let library = unsafe { libloading::Library::new(load_path(&copy, &copy_file)) }
-        .map_err(|_| PluginProblem::Damaged)?;
-    drop(copy_file);
+    let held =
+        unsafe { HeldLibrary::open(&copy, copy_file) }.map_err(|_| PluginProblem::Damaged)?;
+    let library = &held.library;
     // SAFETY: the statics `plugin!` exports, of these types.
     let (slot, entry) = unsafe {
         let slot = library
@@ -233,9 +233,41 @@ fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, P
         return Err(PluginProblem::Mismatch);
     }
     // Its code stays loaded as long as the emulator runs: what it made
-    // is in use.
-    std::mem::forget(library);
+    // is in use. Its file stays open as long: see [`HeldLibrary`].
+    held.leak();
     Ok(plugin)
+}
+
+/// A loaded library and the open file it was loaded from. The system loader
+/// finds a library it already has by the name it was given, and the name
+/// `/proc/self/fd/N` is the same for every file that gets the number N: so
+/// the file stays open as long as the library is loaded, and a number in use
+/// by a loaded library is never given to another.
+struct HeldLibrary {
+    /// First, so it is unloaded before its file is closed.
+    library: libloading::Library,
+    file: std::fs::File,
+}
+
+impl HeldLibrary {
+    /// Loads the library from `file`, the one that was read and checked.
+    ///
+    /// # Safety
+    ///
+    /// Loading a library runs its initialisers: the file passed the
+    /// pre-load check and is one the reader installed (ADR 0024).
+    unsafe fn open(path: &std::path::Path, file: std::fs::File) -> Result<Self, libloading::Error> {
+        // SAFETY: as documented.
+        let library = unsafe { libloading::Library::new(load_path(path, &file)) }?;
+        Ok(Self { library, file })
+    }
+
+    /// Keeps both for the life of the process.
+    fn leak(self) {
+        let Self { library, file } = self;
+        std::mem::forget(library);
+        std::mem::forget(file);
+    }
 }
 
 /// What the system loader is given to load the checked file: on Linux the
@@ -592,6 +624,71 @@ static INIT: extern "C" fn() = make_marker;
             !marker.exists(),
             "the initialiser ran while the loader refused it"
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Two different libraries loaded one after the other, both alive: each is
+    /// itself. The system loader returns a library it already holds when it is
+    /// given the same name again, and `/proc/self/fd/N` is the same name for any
+    /// file that gets the number N, so the loader must keep the first file
+    /// open for as long as its library lives (the Senior Reviewer's finding).
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn two_libraries_loaded_one_after_the_other_are_two_libraries() {
+        let root = std::env::temp_dir().join(format!("paperpaw-two-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
+        let mut held = Vec::new();
+        for value in [11u32, 22] {
+            let src = root.join(format!("v{value}.rs"));
+            let lib = root.join(format!("libv{value}.so"));
+            std::fs::write(
+                &src,
+                format!(
+                    "#![no_std]\n#[panic_handler]\nfn panic(_: &core::panic::PanicInfo) -> ! {{ loop {{}} }}\n#[unsafe(no_mangle)]\npub extern \"C\" fn value() -> u32 {{ {value} }}\n"
+                ),
+            )
+            .unwrap();
+            let built = std::process::Command::new(&rustc)
+                .args([
+                    "--edition",
+                    "2024",
+                    "--crate-type",
+                    "cdylib",
+                    "-C",
+                    "panic=abort",
+                ])
+                .args(["-C", "link-arg=-nostartfiles", "-O", "-o"])
+                .arg(&lib)
+                .arg(&src)
+                .status();
+            let Ok(built) = built else {
+                eprintln!("no rustc to build the libraries; test skipped");
+                let _ = std::fs::remove_dir_all(&root);
+                return;
+            };
+            assert!(built.success(), "the fixture library did not compile");
+            let file = std::fs::File::open(&lib).unwrap();
+            // SAFETY: a library built here with no initialiser.
+            held.push(unsafe { HeldLibrary::open(&lib, file) }.unwrap());
+        }
+        let values: Vec<u32> = held
+            .iter()
+            .map(|h| {
+                // SAFETY: `value` is a plain function of the library built above.
+                unsafe {
+                    (h.library
+                        .get::<unsafe extern "C" fn() -> u32>(b"value\0")
+                        .unwrap())()
+                }
+            })
+            .collect();
+        assert_eq!(values, [11, 22], "the second library is the first again");
+        drop(held);
         let _ = std::fs::remove_dir_all(&root);
     }
 }
