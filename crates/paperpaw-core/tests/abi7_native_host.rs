@@ -304,11 +304,54 @@ fn distinct_owners_share_depth_limit_and_recover_after_refusal() {
     drop(batches);
 }
 
+#[test]
+fn rejected_commit_releases_records_before_explicit_foreign_cleanup_and_unload() {
+    for overflow in [false, true] {
+        let state = Rc::new(Observations::default());
+        let owner = tracked_owner(&state);
+        let mut construction = owner.as_ref().begin().unwrap();
+        for _ in 0..8 {
+            assert!(construction.stage(Record::new(&state, "staged")).is_ok());
+        }
+        let expected = if overflow {
+            let refused = construction.stage(Record::new(&state, "refused"));
+            let Err((error, record)) = refused else {
+                panic!("capacity must refuse")
+            };
+            assert_eq!(error, Error::Capacity);
+            drop(record);
+            Error::Capacity
+        } else {
+            owner.as_ref().revoke();
+            Error::State
+        };
+        assert!(matches!(construction.commit(destroy), Err(error) if error == expected));
+        assert_eq!(state.records_dropped.get(), if overflow { 9 } else { 8 });
+        assert_eq!(state.destroyed.get(), 0);
+        assert_eq!(state.module_dropped.get(), 0);
+        assert!(state.context_live.get() && state.module_live.get());
+        // The loader explicitly cleans its failed make output after rollback.
+        assert_eq!(state.foreign_cleanup.replace(1), 0);
+        state.events.borrow_mut().push("foreign cleanup");
+        drop(owner);
+        assert_eq!(state.foreign_cleanup.get(), 1);
+        assert_eq!(state.module_dropped.get(), 1);
+        let events = state.events.borrow();
+        assert_eq!(
+            &events[events.len() - 3..],
+            &["foreign cleanup", "context", "module"]
+        );
+    }
+}
+
 #[derive(Default)]
 struct Observations {
     context_live: Cell<bool>,
     module_live: Cell<bool>,
     destroyed: Cell<usize>,
+    records_dropped: Cell<usize>,
+    foreign_cleanup: Cell<usize>,
+    module_dropped: Cell<usize>,
     address: Cell<*const Context>,
     events: RefCell<Vec<&'static str>>,
 }
@@ -364,6 +407,10 @@ impl Drop for Record {
         assert!(self.state.context_live.get());
         assert!(self.state.module_live.get());
         assert_eq!(self.state.destroyed.get(), 0);
+        assert_eq!(self.state.foreign_cleanup.get(), 0);
+        self.state
+            .records_dropped
+            .set(self.state.records_dropped.get() + 1);
         self.state.events.borrow_mut().push(self.event);
     }
 }
@@ -380,6 +427,7 @@ impl Drop for Module {
     fn drop(&mut self) {
         assert!(!self.0.context_live.get());
         assert!(self.0.module_live.replace(false));
+        assert_eq!(self.0.module_dropped.replace(1), 0);
         self.0.events.borrow_mut().push("module");
     }
 }
