@@ -636,5 +636,154 @@
       "value": -9,
       "since": 1
     }
-  ]
+  ],
+  "metadata": {
+    "format": 1,
+    "byte_order": "little",
+    "magic": "PPAM",
+    "max_bytes": 2048,
+    "max_key_bytes": 128,
+    "max_services": 16,
+    "max_features": 32,
+    "max_exports": 2,
+    "containers": {
+      "elf": ".paperpaw.meta",
+      "macho": "__DATA_CONST,__pp_meta",
+      "pe": ".ppmeta",
+      "wasm": "paperpaw.meta"
+    },
+    "profiles": [],
+    "prefix": [
+      {
+        "name": "magic",
+        "type": "bytes4"
+      },
+      {
+        "name": "layout",
+        "type": "u16"
+      },
+      {
+        "name": "prefix_bytes",
+        "type": "u16"
+      },
+      {
+        "name": "total_bytes",
+        "type": "u32"
+      },
+      {
+        "name": "abi_major",
+        "type": "u16"
+      },
+      {
+        "name": "needs_minor",
+        "type": "u16"
+      },
+      {
+        "name": "entry_layout",
+        "type": "u16"
+      },
+      {
+        "name": "entry_bytes",
+        "type": "u16"
+      },
+      {
+        "name": "flags",
+        "type": "u32"
+      },
+      {
+        "name": "target_bytes",
+        "type": "u16"
+      },
+      {
+        "name": "services",
+        "type": "u16"
+      },
+      {
+        "name": "features",
+        "type": "u16"
+      },
+      {
+        "name": "exports",
+        "type": "u16"
+      }
+    ],
+    "exports": [
+      {
+        "name": "PAPERPAW_ENTRY",
+        "kind": 1,
+        "size_source": "entry_bytes"
+      },
+      {
+        "name": "PAPERPAW_HOST",
+        "kind": 2,
+        "size_source": "pointer_bytes"
+      }
+    ],
+    "services": [],
+    "features": [],
+    "records": {
+      "export": [
+        {
+          "name": "record_bytes",
+          "type": "u16"
+        },
+        {
+          "name": "kind",
+          "type": "u8"
+        },
+        {
+          "name": "reserved",
+          "type": "u8"
+        },
+        {
+          "name": "expected_bytes",
+          "type": "u32"
+        },
+        {
+          "name": "name_bytes",
+          "type": "u16"
+        }
+      ],
+      "service": [
+        {
+          "name": "record_bytes",
+          "type": "u16"
+        },
+        {
+          "name": "key_bytes",
+          "type": "u16"
+        },
+        {
+          "name": "major",
+          "type": "u16"
+        },
+        {
+          "name": "semantic_revision",
+          "type": "u16"
+        },
+        {
+          "name": "min_table_bytes",
+          "type": "u32"
+        }
+      ],
+      "feature": [
+        {
+          "name": "record_bytes",
+          "type": "u16"
+        },
+        {
+          "name": "key_bytes",
+          "type": "u16"
+        },
+        {
+          "name": "revision",
+          "type": "u16"
+        },
+        {
+          "name": "reserved",
+          "type": "u16"
+        }
+      ]
+    }
+  }
 }

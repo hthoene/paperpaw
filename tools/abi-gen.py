@@ -11,6 +11,8 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'tools'))
+from abi_metadata_schema import compatible_metadata, resolved_metadata, validate_metadata
 TYPES = {'context': 'void *', 'pointer': 'void *', 'bytes': 'PpBytes',
          'buffer': 'PpBuffer', 'handle': 'uint32_t', 'usize': 'size_t',
          'u16': 'uint16_t', 'u32': 'uint32_t', 'u64': 'uint64_t',
@@ -79,11 +81,14 @@ def declarations(items, minor):
 
 def validate(schema):
     keys(schema, 'format major minor host_entries records' +
-         (' statuses' if 'statuses' in schema else ''))
+         (' statuses' if 'statuses' in schema else '') +
+         (' metadata' if 'metadata' in schema else ''))
     require(type(schema['format']) is int and schema['format'] == 1,
             'unsupported schema format')
     integer(schema['major'], 65535, 1)
     integer(schema['minor'], 65535, 1)
+    if 'metadata' in schema:
+        validate_metadata(schema)
     if 'statuses' in schema:
         validate_statuses(schema['statuses'], schema['minor'])
     for kind in ('host_entries', 'records'):
@@ -176,6 +181,7 @@ def compatible(old, new, released_minor=None):
         released_minor = old['minor']
     integer(released_minor, old['minor'])
     minimum_since = max(old['minor'], released_minor + 1)
+    compatible_metadata(old, new, minimum_since)
     require(old['format'] == new['format'] and old['major'] == new['major'],
             'format/major change needs separate reviewed baseline')
     require(old['minor'] <= new['minor'] <= old['minor'] + 1,
@@ -267,17 +273,19 @@ def rust_module(schema):
 
 def lock_record(schema, released_minor=0):
     """Keep exact emitted declarations as well as logical schema semantics."""
-    return {'lock_format': 2, 'released_minor': released_minor,
+    return {'lock_format': 3, 'released_minor': released_minor,
             'schema': schema, 'emitted_c': header(schema),
-            'emitted_rust': rust_module(schema)}
+            'emitted_rust': rust_module(schema),
+            'emitted_metadata': resolved_metadata(schema)}
 
 
 def check_lock(prior, schema):
     require(type(prior) is dict, 'lock must be an object')
     version = prior.get('lock_format')
-    require(type(version) is int and version in (1, 2), 'unsupported lock format')
+    require(type(version) is int and version in (1, 2, 3), 'unsupported lock format')
     keys(prior, 'lock_format released_minor schema emitted_c' +
-         (' emitted_rust' if version == 2 else ''))
+         (' emitted_rust' if version >= 2 else '') +
+         (' emitted_metadata' if version >= 3 else ''))
     validate(prior['schema'])
     integer(prior['released_minor'], prior['schema']['minor'])
     # Re-render the OLD schema using THIS generator. This detects changes in
@@ -285,9 +293,12 @@ def check_lock(prior, schema):
     # even when both candidate schema and candidate lock were regenerated.
     require(prior['emitted_c'] == header(prior['schema']),
             'emitted C contract changed from prior lock')
-    if version == 2:
+    if version >= 2:
         require(prior['emitted_rust'] == rust_module(prior['schema']),
                 'emitted Rust contract changed from prior lock')
+    if version >= 3:
+        require(prior['emitted_metadata'] == resolved_metadata(prior['schema']),
+                'emitted metadata layout changed from prior lock')
     compatible(prior['schema'], schema, prior['released_minor'])
 
 
@@ -319,6 +330,8 @@ def run(argv=None):
     outputs = {folder / 'abi.json': canonical(schema),
                folder / 'generated' / 'paperpaw-abi.h': header(schema),
                folder / 'generated' / 'paperpaw_abi.rs': rust_module(schema)}
+    if 'metadata' in schema:
+        outputs[folder / 'generated' / 'metadata-layout.json'] = canonical(resolved_metadata(schema))
     if args.check:
         require(load(lock) == lock_record(schema, released_minor), 'lock stale; explicitly review/update it')
         for path, wanted in outputs.items():

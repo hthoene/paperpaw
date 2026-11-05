@@ -173,6 +173,7 @@ class SchemaTests(unittest.TestCase):
         prior = ABI.lock_record(self.base, released_minor=1)
         prior['lock_format'] = 1
         del prior['emitted_rust']
+        del prior['emitted_metadata']
         ABI.check_lock(prior, self.base)
         with patch.dict(ABI.TYPES, {'handle': 'uint64_t'}):
             with self.assertRaisesRegex(ValueError, 'emitted C contract'):
