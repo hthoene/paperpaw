@@ -21,9 +21,11 @@ switched by the gate change.
 
 The original interface-6 comparator still checks every other API/shape item,
 its layout fingerprint, toolchain pins and linker. Historical interface-7 lines
-that were accidentally included there are filtered for comparison only. When
-the legacy contract is unchanged, blessing preserves its original file bytes,
-including those historical lines; it cannot alter interface-7 snapshots.
+that were accidentally included there are filtered for comparison only.
+Blessing unconditionally preserves the original legacy API/shape file bytes,
+including historical lines, even for normally additive changes. This temporary
+partition cannot advance that frozen reference before the coordinated raise;
+it also cannot alter interface-7 snapshots.
 Regression tests keep changed `Api`/`Entry` layouts
 breaking even when the interface-7 snapshot matches.
 
