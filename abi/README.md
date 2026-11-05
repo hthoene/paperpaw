@@ -56,7 +56,8 @@ prefix/slot wrappers are a separate pending step. It does not implement safe
 slot access, lifetime wrappers, host dispatch, schema-derived semantic errors,
 callback tables, named value types, wire codecs, resource accounting, complete
 artifact layouts or a runtime. The separate metadata emitter draft is described
-in [metadata.md](metadata.md); no production target profile is enabled yet. Those remain stream A/M1 work. No loader
+in [metadata.md](metadata.md), with entry/locator and initial target layout
+declarations in [entry.md](entry.md). Runtime integration remains unqualified. Those remain stream A/M1 work. No loader
 may infer binary metadata offsets from this checkpoint. Compiler-independent
 calling convention and layout need per-target tests beyond the host syntax check.
 

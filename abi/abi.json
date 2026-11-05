@@ -1,4 +1,96 @@
 {
+  "entry_contract": {
+    "entry_symbol": "PAPERPAW_ENTRY",
+    "host_symbol": "PAPERPAW_HOST",
+    "locator": {
+      "binding": "global",
+      "kind": "readonly_bytes",
+      "length": "total_bytes",
+      "symbol": "PAPERPAW_METADATA",
+      "visibility": "default"
+    },
+    "since": 1,
+    "tables": [
+      {
+        "fields": [
+          {
+            "name": "size",
+            "since": 1,
+            "type": "u32"
+          },
+          {
+            "name": "state",
+            "since": 1,
+            "type": "pointer"
+          },
+          {
+            "callback": {
+              "args": [
+                {
+                  "name": "state",
+                  "type": "pointer"
+                }
+              ],
+              "nullable": true,
+              "result": "void"
+            },
+            "name": "drop",
+            "since": 1
+          }
+        ],
+        "name": "PpPlugin",
+        "since": 1
+      },
+      {
+        "fields": [
+          {
+            "name": "size",
+            "since": 1,
+            "type": "u32"
+          },
+          {
+            "name": "abi_major",
+            "since": 1,
+            "type": "u16"
+          },
+          {
+            "name": "needs_minor",
+            "since": 1,
+            "type": "u16"
+          },
+          {
+            "name": "metadata",
+            "since": 1,
+            "type": "bytes"
+          },
+          {
+            "callback": {
+              "args": [
+                {
+                  "name": "host",
+                  "type": "host_ptr"
+                },
+                {
+                  "name": "host_ctx",
+                  "type": "pointer"
+                },
+                {
+                  "name": "out",
+                  "type": "plugin_out"
+                }
+              ],
+              "nullable": true,
+              "result": "i32"
+            },
+            "name": "make",
+            "since": 1
+          }
+        ],
+        "name": "PpEntry",
+        "since": 1
+      }
+    ]
+  },
   "format": 1,
   "host_entries": [
     {
@@ -665,7 +757,26 @@
         "type": "u16"
       }
     ],
-    "profiles": [],
+    "profiles": [
+      {
+        "byte_order": "little",
+        "calling_convention": "x86_64-sysv64",
+        "entry_align": 8,
+        "entry_bytes": 32,
+        "entry_layout": 1,
+        "name": "linux-x86_64-sysv64-le",
+        "pointer_bits": 64
+      },
+      {
+        "byte_order": "little",
+        "calling_convention": "riscv-ilp32-soft",
+        "entry_align": 4,
+        "entry_bytes": 20,
+        "entry_layout": 1,
+        "name": "esp32c3-riscv32imc-ilp32-soft-le",
+        "pointer_bits": 32
+      }
+    ],
     "records": {
       "export": [
         {

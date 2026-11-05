@@ -81,7 +81,26 @@
         "type": "u16"
       }
     ],
-    "profiles": [],
+    "profiles": [
+      {
+        "byte_order": "little",
+        "calling_convention": "x86_64-sysv64",
+        "entry_align": 8,
+        "entry_bytes": 32,
+        "entry_layout": 1,
+        "name": "linux-x86_64-sysv64-le",
+        "pointer_bits": 64
+      },
+      {
+        "byte_order": "little",
+        "calling_convention": "riscv-ilp32-soft",
+        "entry_align": 4,
+        "entry_bytes": 20,
+        "entry_layout": 1,
+        "name": "esp32c3-riscv32imc-ilp32-soft-le",
+        "pointer_bits": 32
+      }
+    ],
     "records": {
       "export": [
         {
@@ -147,6 +166,13 @@
       ]
     },
     "services": []
+  },
+  "locator": {
+    "binding": "global",
+    "kind": "readonly_bytes",
+    "length": "total_bytes",
+    "symbol": "PAPERPAW_METADATA",
+    "visibility": "default"
   },
   "prefix": {
     "fields": [

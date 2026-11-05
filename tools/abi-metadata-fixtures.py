@@ -50,6 +50,23 @@ def outputs():
             metadata='accept' if expected else 'reject', compatibility='not_run',
             container='not_run', signature='not_run', execution='not_run')))
     result[folder / 'manifest.json'] = GEN.canonical(manifest)
+    actual_schema = GEN.validate(GEN.load(ROOT / 'abi/abi.def'))
+    if 'entry_contract' in actual_schema:
+        entry_folder = ROOT / 'abi/fixtures/entry'
+        entry_manifest = dict(format=1, schema='../../abi.json',
+                              scope='declared target metadata only; no executable artifact', cases=[])
+        for profile in actual_schema['metadata']['profiles']:
+            name = profile['name']
+            request = dict(target=name, used=[], floor=actual_schema['minor'],
+                           services=[], features=[])
+            encoded = encode(actual_schema, request)
+            decode(actual_schema, encoded)
+            result[entry_folder / (name + '.hex')] = encoded.hex() + '\n'
+            result[entry_folder / (name + '.json')] = GEN.canonical(request)
+            entry_manifest['cases'].append(dict(name=name, hex=name + '.hex', input=name + '.json',
+                expected=dict(metadata='accept', compatibility='not_run', container='not_run',
+                              signature='not_run', execution='not_run')))
+        result[entry_folder / 'manifest.json'] = GEN.canonical(entry_manifest)
     return result
 
 

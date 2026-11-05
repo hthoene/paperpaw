@@ -16,6 +16,8 @@ from abi_metadata import decode, encode
 class MetadataSchemaTests(unittest.TestCase):
     def setUp(self):
         self.schema = GEN.load(ROOT / 'abi/abi.def')
+        # These probes model metadata introduction before entry declarations existed.
+        self.schema.pop('entry_contract', None)
 
     def test_offsets_are_resolved_and_in_trusted_lock(self):
         resolved = GEN.resolved_metadata(self.schema)

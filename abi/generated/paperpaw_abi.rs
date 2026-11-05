@@ -92,3 +92,35 @@ pub const ERR_CANCELLED: i32 = -7;
 pub const ERR_IO: i32 = -8;
 /// ERR_BUSY: status value since minor 1.
 pub const ERR_BUSY: i32 = -9;
+/// Generated metadata_symbol export name.
+pub const METADATA_SYMBOL: &str = "PAPERPAW_METADATA";
+/// Generated entry_symbol export name.
+pub const ENTRY_SYMBOL: &str = "PAPERPAW_ENTRY";
+/// Generated host_symbol export name.
+pub const HOST_SYMBOL: &str = "PAPERPAW_HOST";
+/// Raw PpPlugin table since minor 1.
+/// Check accessible bytes before reading fields.
+#[repr(C)]
+pub struct PpPlugin {
+    /// size: since minor 1.
+    pub size: u32,
+    /// state: since minor 1.
+    pub state: *mut core::ffi::c_void,
+    /// drop: since minor 1.
+    pub drop: Option<unsafe extern "C" fn(state: *mut core::ffi::c_void) -> ()>,
+}
+/// Raw PpEntry table since minor 1.
+/// Check accessible bytes before reading fields.
+#[repr(C)]
+pub struct PpEntry {
+    /// size: since minor 1.
+    pub size: u32,
+    /// abi_major: since minor 1.
+    pub abi_major: u16,
+    /// needs_minor: since minor 1.
+    pub needs_minor: u16,
+    /// metadata: since minor 1.
+    pub metadata: PpBytes,
+    /// make: since minor 1.
+    pub make: Option<unsafe extern "C" fn(host: *const PpHost, host_ctx: *mut core::ffi::c_void, out: *mut *const PpPlugin) -> i32>,
+}

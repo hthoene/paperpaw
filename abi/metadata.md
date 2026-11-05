@@ -31,15 +31,12 @@ bytes. A higher required minor is structurally valid; the loader must separately
 refuse an unsupported requirement before invoking plugin code. These are host-tool
 bounds, not measured X4 parser allocations or a runtime memory qualification.
 
-The profile registry is intentionally empty in this checkpoint. Tests may use
-explicitly synthetic profiles, but production metadata emission refuses every
-unregistered target. Firmware must confirm full target profiles and entry sizes.
-The loaded entry must expose the same complete requirements (proposed: a sized
-static metadata byte view) for comparison before `make`. The illustrative ADR
-entry does not yet specify that view. No target ID, entry size or layout is inferred
-from a compiler. Private service/extension declarations need their own generated
-contract path before the follow-on custom-service slice; the current catalog is
-not a final restriction on third-party services.
+The initial profile rows and entry metadata view are specified in
+[entry.md](entry.md). Unknown/unregistered profiles still fail. The entry's static
+metadata view is compared byte for byte before `make`; no compiler identity or
+truncated target token substitutes for that comparison. Private service/extension
+declarations need their own generated contract path before the follow-on custom
+service slice; the current catalog is not a final restriction on third-party services.
 
 The intended CLI is:
 
@@ -58,6 +55,6 @@ explicitly synthetic and never executable; only the metadata verdict is tested.
 Container, compatibility, signature and execution stages are `not_run`. Regenerate
 with `python3 tools/abi-metadata-fixtures.py`; CI uses `--check`.
 
-Remaining qualification: verified profiles/entry-view agreement, real-platform fixtures, generated Rust bounded reader, container placement and duplicate/mapping
+Remaining qualification: real-platform loader fixtures, generated Rust bounded reader, container placement and duplicate/mapping
 checks, loaded-entry comparison, signature coverage, cross-compiler fixtures and
 per-target runtime tests. Environment snapshot layout remains separate.

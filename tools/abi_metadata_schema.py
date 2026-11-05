@@ -101,8 +101,11 @@ def resolved_metadata(schema):
         return None
     validate_metadata(schema)
     m = schema['metadata']
-    return dict(descriptor=m, prefix=field_layout(m['prefix']),
-                records={k: field_layout(v) for k, v in m['records'].items()})
+    result = dict(descriptor=m, prefix=field_layout(m['prefix']),
+                  records={k: field_layout(v) for k, v in m['records'].items()})
+    if 'entry_contract' in schema:
+        result['locator'] = schema['entry_contract']['locator']
+    return result
 
 
 def compatible_metadata(old, new, minimum_since):
