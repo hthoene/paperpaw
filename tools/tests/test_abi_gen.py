@@ -1,0 +1,157 @@
+"""Independent mutations of the M1 schema and its prior compatibility lock."""
+import copy
+import importlib.util
+import json
+from pathlib import Path
+import tempfile
+import unittest
+
+PATH = Path(__file__).resolve().parents[1] / 'abi-gen.py'
+SPEC = importlib.util.spec_from_file_location('abi_gen', PATH)
+ABI = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(ABI)
+
+
+class SchemaTests(unittest.TestCase):
+    def setUp(self):
+        self.base = ABI.load(PATH.parents[1] / 'abi' / 'abi.def')
+
+    def reject(self, candidate):
+        with self.assertRaises(ValueError):
+            ABI.compatible(self.base, candidate)
+
+    def test_identity_and_canonical_object_order(self):
+        ABI.compatible(self.base, copy.deepcopy(self.base))
+        reordered = dict(reversed(list(self.base.items())))
+        self.assertEqual(ABI.canonical(self.base), ABI.canonical(reordered))
+        self.assertEqual(len(self.base['host_entries']), 20)
+
+    def test_each_existing_contract_is_frozen(self):
+        changes = {'id': 400, 'name': 'renamed', 'since': 2,
+                   'result': 'length', 'effect': 'consume',
+                   'ownership': 'release', 'reentry': 'visitor', 'max_bytes': 123}
+        for key, value in changes.items():
+            with self.subTest(key=key):
+                new = copy.deepcopy(self.base)
+                new['minor'] = 2
+                new['host_entries'][0][key] = value
+                self.reject(new)
+
+    def test_slot_order_and_removal(self):
+        new = copy.deepcopy(self.base)
+        new['host_entries'][0:2] = reversed(new['host_entries'][0:2])
+        self.reject(new)
+        new = copy.deepcopy(self.base)
+        new['host_entries'].pop()
+        self.reject(new)
+
+    def test_new_entry_requires_new_minor_and_fresh_identity(self):
+        new = copy.deepcopy(self.base)
+        item = copy.deepcopy(new['host_entries'][3])
+        item.update(id=20, name='clock.new_query', since=2)
+        new['host_entries'].append(item)
+        self.reject(new)
+        new['minor'] = 2
+        ABI.compatible(self.base, new)
+        item['id'] = 3
+        self.reject(new)
+
+    def test_argument_order_type_and_name_are_frozen(self):
+        for mutation in ('type', 'name', 'order'):
+            new = copy.deepcopy(self.base)
+            args = new['host_entries'][0]['args']
+            if mutation == 'order':
+                args.reverse()
+            else:
+                args[0][mutation] = 'u32' if mutation == 'type' else 'other'
+            self.reject(new)
+
+    def test_versions_and_integer_types(self):
+        for key in ('format', 'major', 'minor'):
+            for value in (True, 1.0, -1, '1', None, 65536):
+                with self.subTest(key=key, value=value):
+                    new = copy.deepcopy(self.base)
+                    new[key] = value
+                    self.reject(new)
+        for major, minor in ((8, 1), (7, 0), (7, 3)):
+            new = dict(self.base, major=major, minor=minor)
+            self.reject(new)
+
+    def test_caps_and_unknown_keys(self):
+        for value in (True, -1, 1.5, '512', 65537):
+            new = copy.deepcopy(self.base)
+            new['host_entries'][5]['max_bytes'] = value
+            self.reject(new)
+        new = copy.deepcopy(self.base)
+        new['host_entries'][0]['owership'] = 'call'
+        self.reject(new)
+
+    def test_mutation_must_not_use_length_retry(self):
+        new = copy.deepcopy(self.base)
+        new['host_entries'][15]['result'] = 'length'
+        self.reject(new)
+
+    def test_duplicate_json_keys_and_nonfinite_values(self):
+        for contents in ('{"id":1,"id":2}', '{"id":1,"\\u0069d":2}',
+                         '{"nested":{"a":1,"a":2}}', '{"n":NaN}',
+                         '{"n":Infinity}', '{"n":-Infinity}'):
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / 'bad.json'
+                path.write_text(contents)
+                with self.assertRaises(ValueError):
+                    ABI.load(path)
+
+    def record(self):
+        return {'id': 1, 'name': 'test.record', 'since': 1, 'fields': [
+            {'name': 'value', 'type': 'u32', 'since': 1, 'optional': False,
+             'ordinal': None, 'default': None, 'max_bytes': 0}]}
+
+    def test_record_growth_is_per_record_not_global_prefix(self):
+        self.base['records'] = [self.record(), dict(self.record(), id=2, name='test.second')]
+        new = copy.deepcopy(self.base)
+        new['minor'] = 2
+        field = {'name': 'extra', 'type': 'u32', 'since': 2, 'optional': True,
+                 'ordinal': 0, 'default': 0, 'max_bytes': 0}
+        new['records'][0]['fields'].append(field)
+        ABI.compatible(self.base, new)
+        field['optional'] = False
+        field['ordinal'] = field['default'] = None
+        self.reject(new)
+
+    def test_required_fields_and_defaults_cannot_change(self):
+        self.base['records'] = [self.record()]
+        new = copy.deepcopy(self.base)
+        new['records'][0]['fields'].clear()
+        self.reject(new)
+        for default in (True, -1, 2**32, None, '0'):
+            new = copy.deepcopy(self.base)
+            new['minor'] = 2
+            new['records'][0]['fields'].append({
+                'name': 'opt', 'type': 'u32', 'since': 2, 'optional': True,
+                'ordinal': 0, 'default': default, 'max_bytes': 0})
+            self.reject(new)
+
+    def test_generation_check_and_invalid_input_preserve_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'abi').mkdir()
+            definition = root / 'abi/abi.def'
+            definition.write_text(json.dumps(self.base))
+            ABI.run(['--root', str(root), '--write-lock'])
+            ABI.run(['--root', str(root), '--check'])
+            generated = root / 'abi/abi.json'
+            before = generated.read_bytes()
+            broken = copy.deepcopy(self.base)
+            broken['host_entries'][0]['args'][0]['type'] = 'Vec'
+            definition.write_text(json.dumps(broken))
+            with self.assertRaises(ValueError):
+                ABI.run(['--root', str(root)])
+            self.assertEqual(generated.read_bytes(), before)
+            definition.write_text(json.dumps(self.base))
+            generated.write_text('stale')
+            with self.assertRaises(ValueError):
+                ABI.run(['--root', str(root), '--check'])
+
+
+if __name__ == '__main__':
+    unittest.main()
