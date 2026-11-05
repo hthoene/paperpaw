@@ -148,6 +148,36 @@ fn hash_tables(f: &mut Vec<u8>, spec: &Spec, nsym: usize) {
     }
 }
 
+/// The caller's own dynamic entries: one replaces the built entry of its tag, or is
+/// added; `dup_dyn` ones are always added (a tag twice).
+fn add_extras(dynv: &mut Vec<(i64, u64)>, spec: &Spec) {
+    for &(tag, val) in &spec.extra_dyn {
+        match dynv.iter_mut().find(|e| e.0 == tag && tag != 1) {
+            Some(e) => e.1 = val,
+            None => dynv.push((tag, val)),
+        }
+    }
+    dynv.extend(spec.dup_dyn.iter().copied());
+}
+
+/// The loadable segment(s) and the stack header.
+fn segments(f: &mut Vec<u8>, spec: &Spec, dyn_at: usize, total: usize) {
+    if spec.read_only {
+        // A read-only part up to the dynamic section, a writable one from it.
+        load_range(f, 0, dyn_at as u64, 5);
+        load_range(f, dyn_at as u64, (total - dyn_at) as u64, 6);
+    } else {
+        load_range(f, 0, total as u64, if spec.ro_dynamic { 5 } else { 7 });
+    }
+    if !spec.no_stack {
+        put32(f, 0x6474_e551); // PT_GNU_STACK
+        put32(f, if spec.exec_stack { 7 } else { 6 });
+        for _ in 0..6 {
+            put64(f, 0);
+        }
+    }
+}
+
 /// The `Rela` entries of the relocation and jump-slot tables.
 fn relocations(f: &mut Vec<u8>, spec: &Spec) {
     let irel = if spec.machine == X86 { 37u64 } else { 1032 };
@@ -233,33 +263,13 @@ fn build(spec: &Spec) -> Vec<u8> {
     if spec.irelative_in_jmprel && !spec.no_pltgot {
         dynv.push((3, 0x40)); // DT_PLTGOT, in the writable segment
     }
-    for &(tag, val) in &spec.extra_dyn {
-        // An entry replaces the built one of its tag, or is added.
-        match dynv.iter_mut().find(|e| e.0 == tag && tag != 1) {
-            Some(e) => e.1 = val,
-            None => dynv.push((tag, val)),
-        }
-    }
-    dynv.extend(spec.dup_dyn.iter().copied());
+    add_extras(&mut dynv, spec);
     dynv.push((0, 0));
     let total = dyn_at + dynv.len() * 16;
 
     let mut f = Vec::new();
     header(&mut f, spec.machine, nph);
-    if spec.read_only {
-        // A read-only part up to the dynamic section, a writable one from it.
-        load_range(&mut f, 0, dyn_at as u64, 5);
-        load_range(&mut f, dyn_at as u64, (total - dyn_at) as u64, 6);
-    } else {
-        load_range(&mut f, 0, total as u64, if spec.ro_dynamic { 5 } else { 7 });
-    }
-    if !spec.no_stack {
-        put32(&mut f, 0x6474_e551); // PT_GNU_STACK
-        put32(&mut f, if spec.exec_stack { 7 } else { 6 });
-        for _ in 0..6 {
-            put64(&mut f, 0);
-        }
-    }
+    segments(&mut f, spec, dyn_at, total);
     if spec.skewed_dynamic {
         phdr_at(
             &mut f,
