@@ -727,8 +727,15 @@ pub static TABLE: [extern "C" fn() -> u32; 2] = [f, f];
             r#"#![no_std]
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {{ loop {{}} }}
-unsafe extern "C" {{ fn creat(path: *const u8, mode: u32) -> i32; }}
-extern "C" fn make_marker() {{ unsafe {{ creat(b"{}\0".as_ptr(), 0o600); }} }}
+// No C library call: the marker is made by a system call, so the library
+// has no imports and so no symbol-version tables.
+extern "C" fn make_marker() {{
+    let path = b"{}\0".as_ptr();
+    #[cfg(target_arch = "x86_64")]
+    unsafe {{ core::arch::asm!("syscall", inlateout("rax") 257isize => _, in("rdi") -100isize, in("rsi") path, in("rdx") 0o101isize, in("r10") 0o600isize, lateout("rcx") _, lateout("r11") _, options(nostack)); }}
+    #[cfg(target_arch = "aarch64")]
+    unsafe {{ core::arch::asm!("svc 0", in("x8") 56isize, inlateout("x0") -100isize => _, in("x1") path, in("x2") 0o101isize, in("x3") 0o600isize, options(nostack)); }}
+}}
 #[used]
 #[unsafe(link_section = ".init_array")]
 static INIT: extern "C" fn() = make_marker;

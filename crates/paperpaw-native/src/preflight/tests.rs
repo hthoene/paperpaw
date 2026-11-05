@@ -195,6 +195,7 @@ fn build(spec: &Spec) -> Vec<u8> {
         dynv.push((1, *at));
     }
     dynv.push((5, strtab_at as u64));
+    dynv.push((10, strtab.len() as u64));
     dynv.push((6, symtab_at as u64));
     dynv.push((11, 24));
     dynv.push((if spec.gnu_hash { 0x6fff_fef5 } else { 4 }, hash_at as u64));
@@ -474,17 +475,150 @@ fn the_relative_relocation_count_is_checked_against_the_table() {
     }
 }
 
+/// Tags a file may carry, with a value that is harmless for each (the
+/// structural ones the built file already has are left out of the walk below).
+const ACCEPTED: [(i64, u64); 13] = [
+    (16, 0),
+    (24, 0),
+    (25, 0),
+    (26, 0),
+    (27, 0),
+    (28, 0),
+    (30, 0),
+    (32, 0),
+    (33, 0),
+    (0x6fff_fffb, 0),
+    (0x7000_0001, 0),
+    (0x7000_0003, 0),
+    (0x7000_0005, 0),
+];
+/// Tags the built file has itself, or that carry an address checked on its
+/// own (the GOT test below), so a made-up value is no fair probe.
+const BUILT: [i64; 15] = [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    20,
+    23,
+    0x6fff_fef5,
+    0x6fff_fff9,
+];
+
 #[test]
-fn a_dynamic_tag_that_is_not_known_is_refused() {
-    for tag in [0x6fff_fffa, 0x1234, 0x6fff_fe00, 0x7fff_fff0, 37] {
+fn every_dynamic_tag_not_on_the_list_is_refused() {
+    for (tag, val) in ACCEPTED {
         let spec = Spec {
-            extra_dyn: std::vec![(tag, 1)],
+            extra_dyn: std::vec![(tag, val)],
+            ..plain(X86)
+        };
+        assert_eq!(check_elf64_le(&build(&spec), X86), Ok(()), "tag {tag:#x}");
+    }
+    // Every small tag, the GNU range, the processor range, and the edges up to
+    // the largest and (as a signed number) the negative ones.
+    let samples = (0..=0x100)
+        .chain(0x6fff_fd00..=0x7000_0010)
+        .chain(0x7fff_ff00..=0x7fff_ffff)
+        .chain([
+            i64::MAX,
+            i64::MAX - 1,
+            i64::MIN,
+            -1,
+            -2,
+            0x8000_0000,
+            0x1_0000_0000,
+        ]);
+    let mut walked = 0;
+    for tag in samples {
+        let known = ACCEPTED.iter().any(|&(t, _)| t == tag) || BUILT.contains(&tag);
+        if known || tag == 0 {
+            continue;
+        }
+        for val in [0u64, 1, 0x40, u64::MAX] {
+            let spec = Spec {
+                extra_dyn: std::vec![(tag, val)],
+                ..plain(X86)
+            };
+            assert!(
+                check_elf64_le(&build(&spec), X86).is_err(),
+                "tag {tag:#x} value {val:#x} is accepted"
+            );
+        }
+        walked += 1;
+    }
+    assert!(walked > 1000, "{walked}");
+}
+
+#[test]
+fn symbol_version_tables_are_refused() {
+    for tag in [
+        0x6fff_fff0,
+        0x6fff_fffc,
+        0x6fff_fffd,
+        0x6fff_fffe,
+        0x6fff_ffff,
+    ] {
+        for val in [0u64, 3] {
+            let spec = Spec {
+                extra_dyn: std::vec![(tag, val)],
+                ..plain(X86)
+            };
+            assert_eq!(
+                check_elf64_le(&build(&spec), X86),
+                Err(Refusal::NotSupported),
+                "tag {tag:#x}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_string_table_is_bounded_and_every_name_is_inside_it() {
+    // The size says a table shorter than the names in it.
+    for size in [0u64, 1, 2] {
+        let spec = Spec {
+            extra_dyn: std::vec![(10, size)],
+            needed: std::vec!["libc.so.6"],
             ..plain(X86)
         };
         assert_eq!(
             check_elf64_le(&build(&spec), X86),
             Err(Refusal::NotSupported),
-            "tag {tag:#x}"
+            "size {size}"
+        );
+    }
+    // A size that runs past the file.
+    let spec = Spec {
+        extra_dyn: std::vec![(10, 1 << 40)],
+        ..plain(X86)
+    };
+    assert!(check_elf64_le(&build(&spec), X86).is_err());
+}
+
+#[test]
+fn the_jump_slot_got_must_be_writable() {
+    let ok = Spec {
+        extra_dyn: std::vec![(3, 0x40)],
+        ..plain(X86)
+    };
+    assert_eq!(check_elf64_le(&build(&ok), X86), Ok(()));
+    for (got, read_only) in [(0x10_0000u64, false), (u64::MAX, false), (0x40, true)] {
+        let spec = Spec {
+            extra_dyn: std::vec![(3, got)],
+            read_only,
+            ..plain(X86)
+        };
+        assert_eq!(
+            check_elf64_le(&build(&spec), X86),
+            Err(Refusal::NotSupported),
+            "got {got:#x} read_only {read_only}"
         );
     }
 }
@@ -632,11 +766,17 @@ pub extern "C" fn plugin_entry() -> u32 { 7 }
     const WITH_INIT: &str = r#"#![no_std]
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! { loop {} }
-unsafe extern "C" { fn creat(path: *const u8, mode: u32) -> i32; }
-extern "C" fn make_marker() { unsafe { creat(b"marker-must-not-exist\0".as_ptr(), 0o600); } }
+fn make_marker() {
+    let path = b"marker-must-not-exist\0".as_ptr();
+    #[cfg(target_arch = "x86_64")]
+    unsafe { core::arch::asm!("syscall", inlateout("rax") 257isize => _, in("rdi") -100isize, in("rsi") path, in("rdx") 0o101isize, in("r10") 0o600isize, lateout("rcx") _, lateout("r11") _, options(nostack)); }
+    #[cfg(target_arch = "aarch64")]
+    unsafe { core::arch::asm!("svc 0", in("x8") 56isize, inlateout("x0") -100isize => _, in("x1") path, in("x2") 0o101isize, in("x3") 0o600isize, options(nostack)); }
+}
+extern "C" fn init_entry() { make_marker(); }
 #[used]
 #[unsafe(link_section = ".init_array")]
-static INIT: extern "C" fn() = make_marker;
+static INIT: extern "C" fn() = init_entry;
 #[unsafe(no_mangle)]
 pub extern "C" fn plugin_entry() -> u32 { 7 }
 "#;

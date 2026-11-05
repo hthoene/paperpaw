@@ -30,6 +30,8 @@ const DT_INIT_ARRAYSZ: i64 = 27;
 const DT_FINI_ARRAYSZ: i64 = 28;
 const DT_RUNPATH: i64 = 29;
 const DT_FLAGS: i64 = 30;
+const DT_STRSZ: i64 = 10;
+const DT_PLTGOT: i64 = 3;
 const DT_PREINIT_ARRAYSZ: i64 = 33;
 const DT_GNU_HASH: i64 = 0x6fff_fef5;
 const DT_AUXILIARY: i64 = 0x7fff_fffd;
@@ -51,29 +53,20 @@ const DT_RELRSZ: i64 = 35;
 const DT_RELR: i64 = 36;
 const DT_RELACOUNT: i64 = 0x6fff_fff9;
 const DT_RELCOUNT: i64 = 0x6fff_fffa;
-/// The dynamic tags that do no harm by themselves (plus the ones read or
-/// refused above). A tag in neither list is refused: an unknown tag may name
-/// a table the system loader reads and this check does not.
-const PLAIN_TAGS: [i64; 19] = [
-    3,           // DT_PLTGOT
-    10,          // DT_STRSZ
-    14,          // DT_SONAME
+/// Tags that are plain flags: they hold no address and name no table.
+/// Every dynamic tag not read by [`Dyn::take`] and not listed here is
+/// refused (default deny), including the symbol-version tags: a plugin
+/// reaches the host through its table, not through versioned C symbols.
+const FLAG_TAGS: [i64; 9] = [
     16,          // DT_SYMBOLIC
-    21,          // DT_DEBUG
     24,          // DT_BIND_NOW
-    25,          // DT_INIT_ARRAY (its size is checked)
+    25,          // DT_INIT_ARRAY (its size, DT_INIT_ARRAYSZ, is checked)
     26,          // DT_FINI_ARRAY
     32,          // DT_PREINIT_ARRAY
-    0x6fff_fff0, // DT_VERSYM
     0x6fff_fffb, // DT_FLAGS_1
-    0x6fff_fffc, // DT_VERDEF
-    0x6fff_fffd, // DT_VERDEFNUM
-    0x6fff_fffe, // DT_VERNEED
-    0x6fff_ffff, // DT_VERNEEDNUM
     0x7000_0001, // DT_AARCH64_BTI_PLT
     0x7000_0003, // DT_AARCH64_PAC_PLT
     0x7000_0005, // DT_AARCH64_VARIANT_PCS
-    DT_FLAGS,
 ];
 /// Machines a host plugin may be built for.
 const EM_X86_64: u16 = 62;
@@ -255,6 +248,12 @@ pub fn check_elf64_le(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
         machine,
         symbols: count,
     };
+    // The jump-slot table's first three words are written by the loader.
+    if let Some(got) = d.pltgot
+        && !(tables.writable(got) && tables.writable(got.saturating_add(16)))
+    {
+        return Err(Refusal::NotSupported);
+    }
     check_relocations(bytes, &tables, d.rela, d.relasz, d.relacount)?;
     check_relocations(bytes, &tables, d.jmprel, d.pltrelsz, 0)?;
     check_symbols(bytes, &loads, &d, count)
@@ -309,6 +308,8 @@ fn read_dynamic(bytes: &[u8], dyn_at: usize, dyn_end: usize) -> Result<Dyn, Refu
 #[derive(Default)]
 struct Dyn {
     strtab: Option<u64>,
+    strsz: u64,
+    pltgot: Option<u64>,
     symtab: Option<u64>,
     syment: Option<u64>,
     hash: Option<u64>,
@@ -351,7 +352,9 @@ impl Dyn {
             DT_RELA => self.rela = Some(val),
             DT_RELASZ => self.relasz = val,
             DT_RELAENT if val != RELA_ENT => return Err(Refusal::NotSupported),
-            DT_RELAENT => {}
+            DT_RELAENT | DT_FLAGS => {}
+            DT_STRSZ => self.strsz = val,
+            DT_PLTGOT => self.pltgot = Some(val),
             // Tables this check does not read are refused, not skipped.
             DT_REL | DT_RELCOUNT | DT_RELR | DT_RELRSZ => return Err(Refusal::NotSupported),
             DT_RELACOUNT => self.relacount = val,
@@ -361,7 +364,7 @@ impl Dyn {
             DT_INIT_ARRAYSZ => self.init_arraysz = val,
             DT_FINI_ARRAYSZ => self.fini_arraysz = val,
             DT_PREINIT_ARRAYSZ => self.preinit_arraysz = val,
-            t if PLAIN_TAGS.contains(&t) => {}
+            t if FLAG_TAGS.contains(&t) => {}
             _ => return Err(Refusal::NotSupported),
         }
         Ok(())
@@ -391,7 +394,14 @@ fn check_needed(
     d: &Dyn,
 ) -> Result<(), Refusal> {
     let strtab = d.strtab.ok_or(Refusal::Truncated)?;
-    let base = offset_of(loads, strtab, 1)?;
+    // The string table lies in the file, is not empty and ends with a NUL, so
+    // no name the system loader reads runs past it.
+    let size = to_usize(d.strsz)?;
+    let base = offset_of(loads, strtab, d.strsz)?;
+    let last = base.checked_add(size).ok_or(Refusal::Truncated)?;
+    if size == 0 || bytes.get(last - 1) != Some(&0) {
+        return Err(Refusal::NotSupported);
+    }
     let mut at = dyn_at;
     while at + DYN_ENT <= dyn_end {
         let tag = u64_at(bytes, at)? as i64;
@@ -403,8 +413,11 @@ fn check_needed(
         if tag != DT_NEEDED {
             continue;
         }
+        if to_usize(val)? >= size {
+            return Err(Refusal::NotSupported);
+        }
         let start = base.checked_add(to_usize(val)?).ok_or(Refusal::Truncated)?;
-        let rest = bytes.get(start..).ok_or(Refusal::Truncated)?;
+        let rest = bytes.get(start..last).ok_or(Refusal::Truncated)?;
         let end = rest
             .iter()
             .position(|&c| c == 0)
@@ -567,7 +580,14 @@ fn check_symbols(
     let total = u64::try_from(count.checked_mul(SYM_ENT).ok_or(Refusal::Truncated)?)
         .map_err(|_| Refusal::Truncated)?;
     let at = offset_of(loads, symtab, total)?;
+    // Names are read from the string table, which was checked above.
+    if d.strtab.is_none() {
+        return Err(Refusal::NotSupported);
+    }
     for i in 0..count {
+        if to_usize(u64::from(u32_at(bytes, at + i * SYM_ENT)?))? >= to_usize(d.strsz)? {
+            return Err(Refusal::NotSupported);
+        }
         let info = *bytes.get(at + i * SYM_ENT + 4).ok_or(Refusal::Truncated)?;
         if info & 0xf == STT_GNU_IFUNC {
             return Err(Refusal::RunsCodeAtLoad("an IFUNC symbol"));
