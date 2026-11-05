@@ -195,3 +195,100 @@ fn torn_publication_does_not_repair_or_reallocate_from_an_uncertain_manifest() {
     assert!(tested >= 513);
     eprintln!("bootstrap prefix-torn publication cases: {tested}");
 }
+
+#[derive(Default)]
+struct ReadFault {
+    reads: usize,
+    fail: Option<usize>,
+    hit: bool,
+    writes: usize,
+    writes_at_failure: usize,
+}
+
+struct FallibleReads {
+    bytes: Bytes,
+    fault: Rc<RefCell<ReadFault>>,
+}
+
+impl Blocks for FallibleReads {
+    fn read_block(
+        &mut self,
+        index: u32,
+        block: &mut [u8; 512],
+    ) -> Result<(), paperpaw_fat::DiskError> {
+        let mut state = self.fault.borrow_mut();
+        let read = state.reads;
+        state.reads += 1;
+        if state.fail == Some(read) {
+            state.hit = true;
+            state.writes_at_failure = state.writes;
+            return Err(paperpaw_fat::DiskError);
+        }
+        drop(state);
+        self.bytes.read_block(index, block)
+    }
+
+    fn write_block(
+        &mut self,
+        index: u32,
+        block: &[u8; 512],
+    ) -> Result<(), paperpaw_fat::DiskError> {
+        self.fault.borrow_mut().writes += 1;
+        self.bytes.write_block(index, block)
+    }
+
+    fn blocks(&mut self) -> Result<u32, paperpaw_fat::DiskError> {
+        self.bytes.blocks()
+    }
+}
+
+#[test]
+fn lookup_and_manifest_read_failures_never_authorize_creation() {
+    let mut checked = 0;
+    for existing in 0..3 {
+        let bytes = exfat_card();
+        let card = exfat(&bytes);
+        card.write("kept.txt", b"safe content").unwrap();
+        if existing == 1 {
+            card.write(INTENT_FILE, b"foreign file").unwrap();
+        }
+        card.sync().unwrap();
+        drop(card);
+        if existing == 2 {
+            let mut fs = driver(bytes.clone());
+            fs.bootstrap_intent(123).unwrap();
+            fs.sync().unwrap();
+        }
+        let initial = bytes.0.borrow().clone();
+        for fail in 0..1000 {
+            let copy = Bytes(Rc::new(RefCell::new(initial.clone())));
+            let fault = Rc::new(RefCell::new(ReadFault::default()));
+            let mut fs = driver(FallibleReads {
+                bytes: copy.clone(),
+                fault: fault.clone(),
+            });
+            *fault.borrow_mut() = ReadFault {
+                fail: Some(fail),
+                ..ReadFault::default()
+            };
+            let result = fs.bootstrap_intent(456);
+            drop(fs);
+            let state = fault.borrow();
+            if !state.hit {
+                assert_eq!(result.is_ok(), existing != 1);
+                break;
+            }
+            assert!(result.is_err(), "read failure {fail}, existing {existing}");
+            if state.writes_at_failure == 0 || existing != 0 {
+                assert_eq!(state.writes, 0, "read failure led to a write");
+                assert_eq!(*copy.0.borrow(), initial);
+            }
+            drop(state);
+            assert_eq!(read(&exfat(&copy), "kept.txt"), b"safe content");
+            checked += 1;
+            assert!(fail < 999, "fault sweep must reach the completed operation");
+        }
+    }
+    assert!(checked > 0);
+    eprintln!("bootstrap one-shot read failures checked: {checked}");
+}

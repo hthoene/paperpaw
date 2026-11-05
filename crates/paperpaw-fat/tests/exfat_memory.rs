@@ -60,6 +60,7 @@ fn removal_and_recovery_keep_extra_heap_below_32_kib() {
     );
     drop(card);
     recover_many_temporary_names();
+    bootstrap_heap();
 }
 
 /// One test runs both measurements, so parallel test threads cannot
@@ -97,4 +98,28 @@ fn recover_many_temporary_names() {
         extra < 32 * 1024,
         "recovery exceeded its 32 KiB host budget: {extra} B"
     );
+}
+
+fn bootstrap_heap() {
+    use hadris_fs::MountOptions;
+    use paperpaw_fat::{BlockDisk, ExDisk, SharedDisk};
+    let bytes = small();
+    let (disk, _) = BlockDisk::find(bytes).unwrap();
+    let mut fs = hadris_fat::exfat::sync::ExFatFs::mount(
+        ExDisk::new(SharedDisk::new(disk)),
+        MountOptions::new(),
+    )
+    .unwrap();
+    for phase in ["create", "verify"] {
+        let base = LIVE.load(std::sync::atomic::Ordering::Relaxed);
+        PEAK.store(base, std::sync::atomic::Ordering::Relaxed);
+        fs.bootstrap_intent(123).unwrap();
+        let extra = PEAK
+            .load(std::sync::atomic::Ordering::Relaxed)
+            .saturating_sub(base);
+        let retained = LIVE.load(std::sync::atomic::Ordering::Relaxed);
+        eprintln!("bootstrap {phase}: extra host allocation peak={extra} B");
+        assert!(extra < 8 * 1024, "bootstrap exceeded 8 KiB: {extra} B");
+        assert_eq!(retained, base, "bootstrap retains no workspace");
+    }
 }
