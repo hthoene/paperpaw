@@ -87,7 +87,7 @@ pub fn desktop_host() -> &'static DesktopHost {
         let services: &'static DesktopServices = Box::leak(Box::new(DesktopServices {
             start: Instant::now(),
         }));
-        let ctx: &'static mut ShellCtx<'static> = Box::leak(Box::new(ShellCtx { services }));
+        let ctx: &'static mut ShellCtx<'static> = Box::leak(Box::new(ShellCtx::new(services)));
         DesktopHost {
             table: host_table(),
             ctx: std::ptr::from_mut(ctx) as usize,
