@@ -143,7 +143,11 @@ fn mutations(line: &str) -> Vec<(&'static str, Option<String>)> {
 /// gains an item at its end, the table's derived constants follow
 /// `shared.list`.
 fn named_exception(crate_: &str, line: &str, what: &str) -> bool {
-    let kind_and_path = format!("{} {}", line.split(' ').next().unwrap_or_default(), path(line));
+    let kind_and_path = format!(
+        "{} {}",
+        line.split(' ').next().unwrap_or_default(),
+        path(line)
+    );
     match what {
         "member appended" => {
             kind_and_path == API_SHAPE
@@ -206,12 +210,16 @@ fn nothing_but_an_addition_passes_the_gate() {
         "paperpaw-text paperpaw_text::cache::Cache (member appended)",
         "paperpaw-text paperpaw_text::stored::Pack (member appended)",
     ] {
-        assert!(excepted.iter().any(|e| e == needed), "{needed}: {excepted:?}");
+        assert!(
+            excepted.iter().any(|e| e == needed),
+            "{needed}: {excepted:?}"
+        );
     }
     // `table_index_derived` constants are the only others.
     for e in &excepted {
         assert!(
-            e.contains("(member appended)") || e.starts_with("paperpaw-table paperpaw_table::index"),
+            e.contains("(member appended)")
+                || e.starts_with("paperpaw-table paperpaw_table::index"),
             "{e}"
         );
     }
@@ -283,6 +291,81 @@ fn replace_line(text: &str, start: &str, with: &str) -> String {
     out
 }
 
+/// A step: what it is, the lines it adds to the shape, those it adds to the API.
+type Step = (String, Vec<String>, Vec<String>);
+
+/// The blessed additions made to one baseline, one after the other.
+fn addition_steps(b: &Baseline, holder: Option<&String>) -> Vec<Step> {
+    let mut steps: Vec<(String, Vec<String>, Vec<String>)> = Vec::new();
+    for n in 1..=3 {
+        let z = format!("zz{n}");
+        steps.push((
+            format!("a new type, step {n}"),
+            vec![format!("struct {z}::Fresh {{ a: u8, b: u16 }}")],
+            vec![
+                format!("pub struct {z}::Fresh"),
+                format!("pub {z}::Fresh::a: u8"),
+                format!("pub {z}::Fresh::b: u16"),
+                format!("pub fn {z}::Fresh::new() -> {z}::Fresh"),
+                format!("impl core::fmt::Debug for {z}::Fresh"),
+            ],
+        ));
+        steps.push((
+            format!("free items, step {n}"),
+            vec![],
+            vec![
+                format!("pub fn {z}::free() -> u8"),
+                format!("pub const {z}::LIMIT: u8"),
+                format!("pub mod {z}::inner"),
+                format!("pub use {z}::Fresh"),
+            ],
+        ));
+        if let Some(holder) = holder {
+            steps.push((
+                format!("a method of a type that was there, step {n}"),
+                vec![],
+                vec![format!("pub fn {holder}::added_{n}(&self) -> u8")],
+            ));
+        }
+    }
+    // The firmware's table: three fields one after the other.
+    if b.name == "paperpaw-native" {
+        for (n, ty) in [
+            (1, "u32"),
+            (2, "*const u8"),
+            (3, "unsafe extern \"C\" fn(usize) -> u8"),
+        ] {
+            steps.push((
+                format!("a field of the table, step {n}"),
+                vec![format!("@{API_SHAPE}|probe_{n}: {ty}")],
+                vec![format!("pub paperpaw_native::Api::probe_{n}: {ty}")],
+            ));
+        }
+    }
+    // Items at the end of the growing traits.
+    let growing: &[(&str, bool)] = match b.name.as_str() {
+        "paperpaw-text" => &[
+            ("trait paperpaw_text::stored::Pack", false),
+            ("trait paperpaw_text::cache::Cache", false),
+        ],
+        "paperpaw-sdk" => &[(SCREEN_TRAIT, true)],
+        _ => &[],
+    };
+    for &(trait_, revision) in growing {
+        for n in 1..=3 {
+            steps.push((
+                format!("an item at the end of {trait_}, step {n}"),
+                vec![format!(
+                    "@{trait_}|function appended_{n}(&Self) -> u8{}",
+                    if revision { "@revision" } else { "" }
+                )],
+                vec![],
+            ));
+        }
+    }
+    steps
+}
+
 /// One blessed addition after another: new types, functions, constants,
 /// methods of types that were there, the table's fields, items of growing
 /// traits (and the `Screen` revision), each compared with the baseline
@@ -295,69 +378,7 @@ fn additions_pass_one_after_the_other() {
             .lines()
             .find(|l| l.starts_with("struct ") || l.starts_with("enum "))
             .map(|l| path(l).to_string());
-        let mut steps: Vec<(String, Vec<String>, Vec<String>)> = Vec::new();
-        for n in 1..=3 {
-            let z = format!("zz{n}");
-            steps.push((
-                format!("a new type, step {n}"),
-                vec![format!("struct {z}::Fresh {{ a: u8, b: u16 }}")],
-                vec![
-                    format!("pub struct {z}::Fresh"),
-                    format!("pub {z}::Fresh::a: u8"),
-                    format!("pub {z}::Fresh::b: u16"),
-                    format!("pub fn {z}::Fresh::new() -> {z}::Fresh"),
-                    format!("impl core::fmt::Debug for {z}::Fresh"),
-                ],
-            ));
-            steps.push((
-                format!("free items, step {n}"),
-                vec![],
-                vec![
-                    format!("pub fn {z}::free() -> u8"),
-                    format!("pub const {z}::LIMIT: u8"),
-                    format!("pub mod {z}::inner"),
-                    format!("pub use {z}::Fresh"),
-                ],
-            ));
-            if let Some(holder) = &holder {
-                steps.push((
-                    format!("a method of a type that was there, step {n}"),
-                    vec![],
-                    vec![format!("pub fn {holder}::added_{n}(&self) -> u8")],
-                ));
-            }
-        }
-        // The firmware's table: three fields one after the other.
-        if b.name == "paperpaw-native" {
-            for (n, ty) in [(1, "u32"), (2, "*const u8"), (3, "unsafe extern \"C\" fn(usize) -> u8")] {
-                steps.push((
-                    format!("a field of the table, step {n}"),
-                    vec![format!("@{API_SHAPE}|probe_{n}: {ty}")],
-                    vec![format!("pub paperpaw_native::Api::probe_{n}: {ty}")],
-                ));
-            }
-        }
-        // Items at the end of the growing traits.
-        let growing: &[(&str, bool)] = match b.name.as_str() {
-            "paperpaw-text" => &[
-                ("trait paperpaw_text::stored::Pack", false),
-                ("trait paperpaw_text::cache::Cache", false),
-            ],
-            "paperpaw-sdk" => &[(SCREEN_TRAIT, true)],
-            _ => &[],
-        };
-        for &(trait_, revision) in growing {
-            for n in 1..=3 {
-                steps.push((
-                    format!("an item at the end of {trait_}, step {n}"),
-                    vec![format!(
-                        "@{trait_}|function appended_{n}(&Self) -> u8{}",
-                        if revision { "@revision" } else { "" }
-                    )],
-                    vec![],
-                ));
-            }
-        }
+        let steps = addition_steps(&b, holder.as_ref());
         for (what, shape_more, api_more) in steps {
             let mut now_shape = shape.clone();
             let mut plain = Vec::new();
@@ -430,7 +451,11 @@ fn the_firmware_s_table_grows_again_after_it_grew() {
         (table(""), thrice.clone()),
     ] {
         let found = changed(&before, &after);
-        assert!(found.breaking.is_empty(), "{before} to {after}: {:?}", found.breaking);
+        assert!(
+            found.breaking.is_empty(),
+            "{before} to {after}: {:?}",
+            found.breaking
+        );
         assert_eq!(found.new.len(), 1, "{before} to {after}");
     }
     // What was appended stays where it is, with its type; a field that
@@ -441,7 +466,10 @@ fn the_firmware_s_table_grows_again_after_it_grew() {
         (twice.clone(), table(", again: u16, more: u8")),
         (twice.clone(), table(", more: u16, again: u16")),
         (twice.clone(), table(", more: u8, mid: u8, again: u16")),
-        (once.clone(), format!("{path} {{ size: u32, early: u8, build_len: u32, more: u8 }}")),
+        (
+            once.clone(),
+            format!("{path} {{ size: u32, early: u8, build_len: u32, more: u8 }}"),
+        ),
     ] {
         assert!(
             !changed(&before, &after).breaking.is_empty(),
@@ -451,7 +479,12 @@ fn the_firmware_s_table_grows_again_after_it_grew() {
     // The same through the api lines: a field of the table that is new
     // beside the ones already appended.
     let kept = types(&twice);
-    assert!(api_field_appended("pub paperpaw_native::Api::last: [u8; 3]", &kept));
-    assert!(!api_field_appended("pub paperpaw_native::Api::again: u16", &kept));
+    assert!(api_field_appended(
+        "pub paperpaw_native::Api::last: [u8; 3]",
+        &kept
+    ));
+    assert!(!api_field_appended(
+        "pub paperpaw_native::Api::again: u16",
+        &kept
+    ));
 }
-
