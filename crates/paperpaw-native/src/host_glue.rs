@@ -24,7 +24,7 @@ mod generated {
     include!("host_glue/paperpaw_abi.rs");
 }
 
-pub use generated::{PpBuffer, PpBytes, PpHost};
+pub use generated::{ENTRY_SYMBOL, METADATA_SYMBOL, PpBuffer, PpBytes, PpEntry, PpHost, PpPlugin};
 
 pub use generated::{
     ERR_BUSY, ERR_CANCELLED, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE,
