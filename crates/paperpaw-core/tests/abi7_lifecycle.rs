@@ -20,7 +20,7 @@ fn ignore_context(_: Pin<&()>) {}
 fn context_address_stays_pinned_through_activation_dispatch_and_destruction() {
     let state = Rc::new(Observations::default());
     let owner = tracked_owner(&state);
-    let address = owner.as_ref().context().get_ref() as *const Context;
+    let address = std::ptr::from_ref(owner.as_ref().context().get_ref());
     state.address.set(address);
     owner.as_ref().activate(destroy).unwrap();
     // Moving the owning pointer must not move the pinned context.
@@ -28,7 +28,7 @@ fn context_address_stays_pinned_through_activation_dispatch_and_destruction() {
     let lease = moved_owner.as_ref().lease().unwrap();
     lease
         .dispatch(&Depth::new(), |context| {
-            assert_eq!(context.get_ref() as *const Context, address);
+            assert_eq!(std::ptr::from_ref(context.get_ref()), address);
         })
         .unwrap();
     drop(lease);
@@ -142,7 +142,7 @@ fn revocation_during_dispatch_defers_destruction_until_every_lease_is_released()
     let owner = tracked_owner(&state);
     state
         .address
-        .set(owner.as_ref().context().get_ref() as *const Context);
+        .set(std::ptr::from_ref(owner.as_ref().context().get_ref()));
     owner.as_ref().activate(destroy).unwrap();
     let running = owner.as_ref().lease().unwrap();
     let queued = owner.as_ref().lease().unwrap();
@@ -169,7 +169,7 @@ fn finish_and_owner_drop_destroy_exactly_once_before_dependencies_drop() {
     let owner = tracked_owner(&state);
     state
         .address
-        .set(owner.as_ref().context().get_ref() as *const Context);
+        .set(std::ptr::from_ref(owner.as_ref().context().get_ref()));
     owner.as_ref().activate(destroy).unwrap();
     owner.as_ref().revoke();
     owner.as_ref().finish().unwrap();
@@ -188,7 +188,7 @@ fn owner_drop_also_destroys_an_activated_instance_exactly_once() {
     let owner = tracked_owner(&state);
     state
         .address
-        .set(owner.as_ref().context().get_ref() as *const Context);
+        .set(std::ptr::from_ref(owner.as_ref().context().get_ref()));
     owner.as_ref().activate(destroy).unwrap();
     drop(owner);
     assert_eq!(state.destroyed.get(), 1);
@@ -266,7 +266,7 @@ fn destroy(context: Pin<&Context>) {
     let state = &context.state;
     assert!(state.context_live.get());
     assert!(state.module_live.get());
-    assert_eq!(context.get_ref() as *const Context, state.address.get());
+    assert_eq!(std::ptr::from_ref(context.get_ref()), state.address.get());
     assert_eq!(state.destroyed.replace(state.destroyed.get() + 1), 0);
     state.events.borrow_mut().push("destroy");
 }
