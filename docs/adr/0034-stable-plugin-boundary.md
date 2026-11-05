@@ -400,9 +400,12 @@ can read the entry. A check after the load is too late. The contract:
    alternative in M1; if one is ever wanted it is a later, separately reviewed change
    that names the exact tool-produced bytes. The mechanisms: ELF: `DT_INIT`, `DT_PREINIT_ARRAY`,
    `DT_INIT_ARRAY` (non-empty), `DT_FINI*`, `.ctors`/`.dtors`, IFUNC symbols
-   (`STT_GNU_IFUNC`), TLS with a dynamic initialiser, any `DT_NEEDED` outside the
+   (`STT_GNU_IFUNC`) and `IRELATIVE` relocations, any thread-local segment, any `DT_NEEDED` outside the
    allowlist (the C library and nothing else, for host builds), text relocations.
-   Mach-O: `LC_ROUTINES(_64)`, `__mod_init_func`, `__init_offsets`, Objective-C
+   Host plugins are linked with `-nostartfiles` (an ordinary
+   linker adds `DT_INIT`/`DT_FINI` stubs from the C start files, which the
+   preflight cannot tell from real initialisers; measured on a no_std `cdylib`
+   built with rustc 1.99, which has neither tag with that flag). Mach-O: `LC_ROUTINES(_64)`, `__mod_init_func`, `__init_offsets`, Objective-C
    `+load`. PE: any entry point (M1), a TLS callback directory,
    delay-load imports. WebAssembly: a `start` section and imports outside the host
    table. X4: the linker script discards `.init*`/`.ctors`, and the packer and the
