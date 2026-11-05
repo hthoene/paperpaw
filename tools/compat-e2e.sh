@@ -71,9 +71,14 @@ tar -C "$plugin" --exclude=./target -cf - . | tar -C "$work/baseline/$plugin" -x
 (cd "$work/baseline" && CARGO_TARGET_DIR="$work/target-b" \
     RUSTFLAGS="--cfg paperpaw_plugin --cfg paperpaw_table_host" \
     cargo build --release --manifest-path "$manifest" -q)
+# The emulator's own build has the `outline` feature, which is in the
+# fingerprint: the plugin its loader is given has it too.
+(cd "$work/baseline" && env -u RUSTFLAGS CARGO_TARGET_DIR="$work/target-e" \
+    cargo build --release --manifest-path "$manifest" --features outline -q)
 lib_a="$work/target-a/$lib"
+lib_e="$work/target-e/$lib"
 lib_b="$work/target-b/$lib"
-[[ -f "$lib_a" && -f "$lib_b" ]] || { echo "the baseline's plugin was not built" >&2; exit 1; }
+[[ -f "$lib_a" && -f "$lib_b" && -f "$lib_e" ]] || { echo "the baseline's plugin was not built" >&2; exit 1; }
 # The emulator loads only libraries of its own compiler (ADR 0026): if the
 # baseline's differs, the plugins are refused for that, and nothing here
 # would test the interface.
@@ -106,7 +111,7 @@ regenerate() { in_tree "$1" python3 tools/interface.py > /dev/null; }
 # The emulator's loader and a kernel with the plugin built before.
 loads() { # tree, expect (runs|refused)
     step "$1: the emulator's loader, expecting: $2"
-    in_tree "$1" env PAPERPAW_TEST_PLUGIN="$lib_a" PAPERPAW_EXPECT="$2" \
+    in_tree "$1" env PAPERPAW_TEST_PLUGIN="$lib_e" PAPERPAW_EXPECT="$2" \
         cargo test -q -p paperpaw-emulator --no-default-features --lib -- --ignored \
         a_plugin_built_before_runs_or_is_refused_cleanly
     if [[ "$2" == runs ]]; then

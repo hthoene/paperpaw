@@ -1961,6 +1961,40 @@ show which plugins wait for a build. Interface 4 came with 0.5.0-beta.8
 sockets, screens that fit another size; interface 5 was never released): a plugin
 built for an earlier interface is to be built again for it.
 
+### What a release may add without a rebuild
+
+The promise: a plugin file built for plugin interface N runs, unchanged,
+on every PaperPaw of interface N, however many releases came after it. A
+release may therefore only **add** (a plugin built before cannot rely on
+what was not there), and CI fails on anything else
+([ADR 0026](adr/0026-plugin-interface-version.md), amendment of #228).
+
+| Counts as an addition (the interface stays) | Raises the interface |
+|---|---|
+| a new type, module, re-export, `static` or macro | a public item, field, variant or constant gone, renamed, moved, retyped or with another value |
+| a new free function or constant; a new method, associated function or constant of a type that was there | a field or a variant added to, or moved in, a type that was there (also a private field, and `#[non_exhaustive]` does not change it) |
+| a new `impl` of a trait | an item of a trait added, moved or retyped, except at the end of the growing traits below |
+| a field appended to the firmware's table (`Api`) after `build_len`; a plugin that uses it says so (`needs_api`) and a firmware without it refuses the plugin | a field of the table before its end, or a table field retyped; any size or alignment of a type that crosses |
+| an item appended to a growing trait (`Screen`, the handles behind `StoredPack` and `GlyphCache`) with a higher `revision()`; `Screen` items are called through `call_since` | the shared functions' order or signatures (`shared.list`, `table.sig`); the linker script; a pinned crate of others; the compiler |
+| a shared function appended to `shared.list` at its family's next revision; a name appended to a pinned list (`lang.list`, `i18n.list`) | a body change of a shared function that old plugins see: a `bump` of its family (older plugins of that family are refused with *Built for another plugin interface*), see the ADR |
+
+Several additions in a row are fine: each one is written to the baselines
+(`PAPERPAW_BLESS=1 cargo test -p paperpaw-sdk --test interface`) and the
+next is compared with that. The compiler is part of the interface: the
+release pins it (a plugin names its own, and a device loads only files of
+the one that built it), so a new compiler is a raise by itself.
+
+How CI keeps the promise: `cargo test -p paperpaw-sdk --test interface`
+compares every crate that crosses with `crates/paperpaw-sdk/interface/` and
+runs a corpus that changes every type and constant of those baselines in
+every way a plugin could notice (it must fail) and adds to them in every
+way allowed (it must not); `tools/table-compat.sh` runs a plugin built at
+the last raise against this tree's shared functions; and
+`tools/compat-e2e.sh` loads that plugin into copies of the tree with
+fields and items appended (it runs), and with a layout changed or the
+interface raised (it is refused, as *another build*, before any of its code
+runs).
+
 ### The file in the emulator
 
 The desktop emulator loads a plugin's code built for the computer it runs

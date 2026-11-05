@@ -277,3 +277,37 @@ loaded and called the wrong functions. So:
 - Items appended to a growing trait and anything new stay free: they
   change neither the shapes kept nor the fingerprint.
 
+## Amendment: old plugins keep running after additions, enforced (2026-11, #228)
+
+The decision above has one consequence worth saying on its own, and now
+tests: **a plugin built for interface N runs on every PaperPaw of interface
+N.** What may change inside an interface is what a plugin built before
+cannot rely on (the list under "CI fails where what plugins see changes
+without a raise"; `docs/plugins.md`, "What a release may add without a
+rebuild", has it as a table for authors). Everything else raises the
+interface; the compiler stays part of it, pinned by the release.
+
+- **Additions are checked one after another.** Writing the baselines anew
+  after an addition makes the next addition be compared with a baseline that
+  already has the first. The firmware's table (`Api`) therefore may have
+  fields after `build_len` in the baseline too, and a second appended field
+  is as free as the first. (Before this amendment the gate compared with a
+  table that had to end at `build_len`, so the second field was seen as a
+  change.)
+- **Lines may stand twice.** `api.txt` is compared as a multiset: one of two
+  identical lines going (a method listed under two impls) is a change.
+- **The gate has a corpus.** `crates/paperpaw-sdk/tests/interface/corpus.rs`
+  changes every type and constant of every baseline in the ways above (a
+  line gone, a member added first or last, dropped, swapped or retyped, a
+  value changed) and fails if anything passes that is not one of the three
+  named exceptions (the table's end, a growing trait's end, the constants
+  `tools/shared-table.py` derives); it adds to every crate in sequence and
+  fails if an addition is refused.
+- **An old plugin is run, not only compared.** `tools/compat-e2e.sh`
+  builds the test plugin at the last raise
+  (`crates/paperpaw-table/table-baseline.txt`) and loads it, with the
+  emulator's own loader and in a kernel, into copies of the tree with two
+  fields appended to the table and two SDK items added (it runs) and with
+  a field inserted into the middle of the table, or the interface number
+  raised (it is refused as another build before any of its code runs).
+  The copies are `tools/compat/*.patch`.
