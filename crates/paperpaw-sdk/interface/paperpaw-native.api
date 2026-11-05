@@ -102,7 +102,7 @@ pub unsafe c fn paperpaw_native::host_glue::clock_micros(*mut core::ffi::c_void,
 pub unsafe c fn paperpaw_native::host_glue::heap_alloc(*mut core::ffi::c_void, usize, usize, *mut *mut core::ffi::c_void) -> i32
 pub unsafe c fn paperpaw_native::host_glue::heap_dealloc(*mut core::ffi::c_void, *mut core::ffi::c_void, usize, usize) -> i32
 pub unsafe c fn paperpaw_native::host_glue::heap_realloc(*mut core::ffi::c_void, *mut core::ffi::c_void, usize, usize, usize, *mut *mut core::ffi::c_void) -> i32
-pub fn paperpaw_native::host_glue::host_table() -> paperpaw_native::host_glue::PpHost
+pub const fn paperpaw_native::host_glue::host_table() -> paperpaw_native::host_glue::PpHost
 pub mod paperpaw_native::index
 #[non_exhaustive] pub struct paperpaw_native::index::Arena
 pub paperpaw_native::index::Arena::len: u32

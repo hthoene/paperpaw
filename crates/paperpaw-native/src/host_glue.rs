@@ -299,7 +299,7 @@ unsafe extern "C" fn unsupported_blob_read(_: *mut c_void, _: u32, _: u64, _: Pp
 /// The host table of this build: the shell's entries wired, every other
 /// slot answering `ERR_UNSUPPORTED`.
 #[must_use]
-pub fn host_table() -> PpHost {
+pub const fn host_table() -> PpHost {
     PpHost {
         size: core::mem::size_of::<PpHost>() as u32,
         major: MAJOR,
@@ -324,6 +324,21 @@ pub fn host_table() -> PpHost {
         services_query: unsupported_services_query,
         blob_read: unsupported_blob_read,
         blob_release: unsupported_handle,
+    }
+}
+
+#[cfg(test)]
+mod const_table {
+    use super::*;
+
+    /// The table needs no start-up code: a firmware keeps it in a `static`
+    /// (flash on the X4, no RAM, no start-up cost).
+    static TABLE: PpHost = host_table();
+
+    #[test]
+    fn the_table_can_be_a_static() {
+        assert_eq!(TABLE.size as usize, core::mem::size_of::<PpHost>());
+        assert_eq!((TABLE.major, TABLE.minor), (MAJOR, MINOR));
     }
 }
 
