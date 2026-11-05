@@ -15,6 +15,8 @@ use raw::{PpBytes, PpEntry, PpHost, PpPlugin};
 
 type Make = unsafe extern "C" fn(*const PpHost, *mut c_void, *mut *const PpPlugin) -> i32;
 type Drop = unsafe extern "C" fn(*mut c_void);
+type Event = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
+type Draw = unsafe extern "C" fn(*mut c_void, u32) -> i32;
 
 #[test]
 fn entry_and_plugin_fields_remain_exhaustive_and_typed() {
@@ -40,9 +42,18 @@ fn entry_and_plugin_fields_remain_exhaustive_and_typed() {
         size: size_of::<PpPlugin>() as u32,
         state: core::ptr::null_mut(),
         drop: None,
+        dispatch_event: None,
+        draw: None,
     };
-    let PpPlugin { size, state, drop } = plugin;
+    let PpPlugin {
+        size,
+        state,
+        drop,
+        dispatch_event,
+        draw,
+    } = plugin;
     let _: (u32, *mut c_void, Option<Drop>) = (size, state, drop);
+    let _: (Option<Event>, Option<Draw>) = (dispatch_event, draw);
 }
 
 #[test]
@@ -57,10 +68,13 @@ fn entry_and_lifecycle_layouts_keep_the_reviewed_offsets() {
     assert_eq!(offset_of!(PpEntry, metadata), 8);
     assert_eq!(offset_of!(PpEntry, make), 8 + 2 * pointer);
     assert_eq!(align_of::<PpPlugin>(), pointer);
-    assert_eq!(size_of::<PpPlugin>(), 3 * pointer);
+    assert_eq!(size_of::<PpPlugin>(), 5 * pointer);
+    assert_eq!(raw::PLUGIN_PREFIX_BYTES, 3 * pointer);
     assert_eq!(offset_of!(PpPlugin, size), 0);
     assert_eq!(offset_of!(PpPlugin, state), pointer);
     assert_eq!(offset_of!(PpPlugin, drop), 2 * pointer);
+    assert_eq!(offset_of!(PpPlugin, dispatch_event), 3 * pointer);
+    assert_eq!(offset_of!(PpPlugin, draw), 4 * pointer);
     assert_eq!(size_of::<Option<Make>>(), pointer);
     assert_eq!(size_of::<Option<Drop>>(), pointer);
 }

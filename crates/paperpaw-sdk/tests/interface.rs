@@ -38,6 +38,9 @@ use std::path::{Path, PathBuf};
 
 use paperpaw_sdk::native::{FINGERPRINT, Fingerprint, INTERFACE, TOOLCHAIN};
 
+#[path = "interface/abi7_partition.rs"]
+mod abi7_partition;
+
 fn here(path: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(path)
 }
@@ -1071,6 +1074,8 @@ fn what_plugins_see_changes_only_with_the_interface() {
             read(&format!("{folder}/shape.txt")).expect("shape.txt: python3 tools/interface.py");
         let kept_api = read(&format!("interface/{crate_}.api")).unwrap_or_default();
         let kept_shape = read(&format!("interface/{crate_}.shape")).unwrap_or_default();
+        let (kept_api, api) = abi7_partition::legacy(&crate_, "api", &kept_api, &api);
+        let (kept_shape, shape) = abi7_partition::legacy(&crate_, "shape", &kept_shape, &shape);
         let found = changes(&crate_, (&kept_api, &kept_shape), (&api, &shape));
         all.breaking.extend(found.breaking);
         all.new.extend(found.new);
@@ -1417,6 +1422,26 @@ fn the_firmware_s_table_grows_only_at_its_end() {
         "pub paperpaw_native::Other::more: u8",
         &kept_types
     ));
+}
+
+#[test]
+fn abi7_snapshots_leave_legacy_entry_and_api_changes_guarded() {
+    let abi7 = "struct paperpaw_native::host_glue::generated::PpHost { size: u32 }\n";
+    for name in ["Entry", "Api"] {
+        let kept = format!("struct paperpaw_native::interface::{name} {{ size: u32 }}\n");
+        let changed = kept.replace("u32", "u64");
+        let (before, after) = abi7_partition::checked_legacy(
+            &format!("{kept}{abi7}"),
+            &format!("{changed}{abi7}"),
+            Some(abi7),
+        )
+        .unwrap();
+        assert!(
+            !changes("paperpaw-native", ("", &before), ("", &after))
+                .breaking
+                .is_empty()
+        );
+    }
 }
 
 /// The traits behind the handles grow at their end, after their revision;
