@@ -85,7 +85,11 @@ def rust_callbacks(schema):
     callbacks = _callbacks(schema)
     if not callbacks:
         return ''
-    prefix = f'''// Check the size word before reading any optional callback field.
+    prefix = f'''/// Minimum plugin table allocation ending at the mandatory drop field.
+pub const PLUGIN_PREFIX_BYTES: usize = core::mem::offset_of!(PpPlugin, drop)
+    + core::mem::size_of::<{_DROP}>();
+
+// Check the size word before reading any plugin field.
 unsafe fn plugin_callback_size(table: *const u8, accessible: usize) -> Result<usize, i32> {{
     let size_offset = core::mem::offset_of!(PpPlugin, size);
     let size_end = size_offset + core::mem::size_of::<u32>();
@@ -99,12 +103,56 @@ unsafe fn plugin_callback_size(table: *const u8, accessible: usize) -> Result<us
     }}
     // SAFETY: The checked span covers the aligned size word in caller-owned storage.
     let declared = unsafe {{ table.add(size_offset).cast::<u32>().read() }} as usize;
-    let prefix_end = core::mem::offset_of!(PpPlugin, drop)
-        + core::mem::size_of::<{_DROP}>();
-    if declared < prefix_end || declared > accessible {{
+    if declared < PLUGIN_PREFIX_BYTES || declared > accessible {{
         return Err(ERR_INVALID);
     }}
     Ok(declared)
 }}
+'''
+    prefix += r'''/// Read the declared plugin size after validating the accessible prefix.
+///
+/// # Safety
+/// A non-null aligned table must designate accessible readable bytes in one
+/// allocation, with initialized size and no concurrent mutation. Only the size
+/// word is read after numeric span checks pass.
+pub unsafe fn read_plugin_size(table: *const u8, accessible: usize) -> Result<usize, i32> {
+    // SAFETY: The caller supplies stable readable storage for the checked span.
+    unsafe { plugin_callback_size(table, accessible) }
+}
+
+/// Copy the opaque state pointer without reading or validating its pointee.
+///
+/// # Safety
+/// The checked prefix must contain an initialized valid raw state pointer.
+/// Storage stays live and unchanged for this call; pointee lifetime is external.
+pub unsafe fn read_plugin_state(
+    table: *const u8,
+    accessible: usize,
+) -> Result<*mut core::ffi::c_void, i32> {
+    // SAFETY: The caller supplies a stable initialized prefix.
+    unsafe { plugin_callback_size(table, accessible)?; }
+    let offset = core::mem::offset_of!(PpPlugin, state);
+    // SAFETY: The validated prefix covers the aligned raw state pointer.
+    Ok(unsafe { table.add(offset).cast::<*mut core::ffi::c_void>().read() })
+}
+
+/// Copy the mandatory destruction callback; null is malformed, not optional.
+///
+/// # Safety
+/// The checked prefix must contain an initialized valid nullable function pointer.
+/// The caller keeps code and state alive and owns exactly-once destruction.
+pub unsafe fn read_plugin_drop(
+    table: *const u8,
+    accessible: usize,
+) -> Result<unsafe extern "C" fn(*mut core::ffi::c_void), i32> {
+    // SAFETY: The caller supplies a stable initialized prefix.
+    unsafe { plugin_callback_size(table, accessible)?; }
+    let offset = core::mem::offset_of!(PpPlugin, drop);
+    // SAFETY: The validated prefix covers the aligned destruction callback.
+    let drop = unsafe {
+        table.add(offset).cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void)>>().read()
+    };
+    drop.ok_or(ERR_INVALID)
+}
 '''
     return prefix + '\n' + '\n'.join(_reader(name) for name in callbacks)

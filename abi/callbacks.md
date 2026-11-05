@@ -16,7 +16,10 @@ function. These declarations do not activate runtime dispatch.
 The host validates the accessible allocation span separately from the table's
 size word. It must not form a reference to a full current PpPlugin over a shorter
 allocation. Generated readers check the span, alignment, size and requested
-field before copying its function pointer. A missing field or null callback is
+field before copying its function pointer. `PLUGIN_PREFIX_BYTES` and the
+`read_plugin_size`, `read_plugin_state`, and `read_plugin_drop` helpers let the
+loader read the original prefix without forming a full-table reference. A null
+mandatory drop callback is invalid; optional event/draw callbacks may be null. A missing field or null callback is
 unsupported. Malformed bounds are invalid. A reader neither invokes a function
 nor validates executable addresses: valid pointer representations and executable
 module lifetime remain caller obligations under the trusted native-plugin model.

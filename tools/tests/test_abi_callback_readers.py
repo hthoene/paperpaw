@@ -36,6 +36,10 @@ unsafe extern "C" fn draw(_: *mut c_void, token: u32) -> i32 {
     token as i32
 }
 
+unsafe extern "C" fn prefix_dispatch(_: *mut c_void, token: u32, _: PpBytes) -> i32 {
+    token as i32
+}
+
 fn table() -> PpPlugin {
     PpPlugin {
         size: size_of::<PpPlugin>() as u32,
@@ -134,7 +138,7 @@ fn real_dispatch_prefix_can_retrieve_only_dispatch() {
             state: core::ptr::null_mut(),
             drop: None,
         },
-        dispatch_event: Some(dispatch),
+        dispatch_event: Some(prefix_dispatch),
     };
     assert_eq!(offset_of!(ThroughDispatch, dispatch_event), offset_of!(PpPlugin, dispatch_event));
     assert_eq!(size_of::<ThroughDispatch>(), offset_of!(PpPlugin, draw));
@@ -142,7 +146,9 @@ fn real_dispatch_prefix_can_retrieve_only_dispatch() {
     // SAFETY: Only fields present in this real short allocation may be read.
     unsafe {
         let found = read_plugin_dispatch_event(pointer, size_of::<ThroughDispatch>()).unwrap();
-        assert_eq!(found as usize, dispatch as *const () as usize);
+        // Function addresses need not be identical across codegen instances.
+        let input = PpBytes { ptr: core::ptr::null(), len: 0 };
+        assert_eq!(found(core::ptr::null_mut(), 19, input), 19);
         assert_eq!(read_plugin_draw(pointer, size_of::<ThroughDispatch>()).unwrap_err(),
                    ERR_UNSUPPORTED);
     }
@@ -197,8 +203,6 @@ fn retrieval_does_not_call_callbacks_and_returns_callable_unsafe_pointers() {
         let dispatch_pointer: Dispatch =
             read_plugin_dispatch_event(bytes(&full), size_of::<PpPlugin>()).unwrap();
         let draw_pointer: Draw = read_plugin_draw(bytes(&full), size_of::<PpPlugin>()).unwrap();
-        assert_eq!(dispatch_pointer as usize, dispatch as *const () as usize);
-        assert_eq!(draw_pointer as usize, draw as *const () as usize);
         assert_eq!(CALLS.load(Ordering::SeqCst), 0);
         let input = PpBytes { ptr: core::ptr::null(), len: 0 };
         assert_eq!(dispatch_pointer(full.state, 17, input), 17);
@@ -206,6 +210,40 @@ fn retrieval_does_not_call_callbacks_and_returns_callable_unsafe_pointers() {
     }
     assert_eq!(CALLS.load(Ordering::SeqCst), 2);
 }
+unsafe extern "C" fn prefix_drop(state: *mut c_void) {
+    // SAFETY: This test passes a pointer to its live AtomicUsize.
+    unsafe { &*state.cast::<AtomicUsize>() }.fetch_add(1, Ordering::SeqCst);
+}
+
+#[test]
+fn prefix_accessors_support_real_short_tables_without_invoking_drop() {
+    let drops = AtomicUsize::new(0);
+    let state = core::ptr::from_ref(&drops).cast_mut().cast();
+    let mut prefix = Prefix { size: size_of::<Prefix>() as u32, state, drop: Some(prefix_drop) };
+    assert_eq!(PLUGIN_PREFIX_BYTES, size_of::<Prefix>());
+    let pointer = core::ptr::from_ref(&prefix).cast();
+    // SAFETY: The exact prefix allocation and callback/state remain live.
+    unsafe {
+        assert_eq!(read_plugin_size(pointer, size_of::<Prefix>()), Ok(size_of::<Prefix>()));
+        assert_eq!(read_plugin_state(pointer, size_of::<Prefix>()), Ok(state));
+        let drop = read_plugin_drop(pointer, size_of::<Prefix>()).unwrap();
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+        drop(state);
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+        for length in 0..size_of::<Prefix>() {
+            assert_eq!(read_plugin_size(pointer, length), Err(ERR_INVALID));
+            assert_eq!(read_plugin_state(pointer, length), Err(ERR_INVALID));
+            assert_eq!(read_plugin_drop(pointer, length).unwrap_err(), ERR_INVALID);
+        }
+    }
+    prefix.drop = None;
+    // SAFETY: A null optional representation is valid, but mandatory drop rejects it.
+    unsafe {
+        assert_eq!(read_plugin_drop(core::ptr::from_ref(&prefix).cast(), size_of::<Prefix>())
+                   .unwrap_err(), ERR_INVALID);
+    }
+}
+
 '''
 
 
