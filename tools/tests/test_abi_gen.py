@@ -145,6 +145,41 @@ class SchemaTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ABI.check_lock(released, candidate)
 
+    def test_trusted_release_floor_survives_two_steps_in_all_modes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'abi').mkdir()
+            definition = root / 'abi/abi.def'
+            definition.write_text(ABI.canonical(self.base))
+            ABI.run(['--root', str(root), '--write-lock'])
+            trusted = root / 'trusted.lock'
+            trusted.write_text(ABI.canonical(ABI.lock_record(self.base, 1)))
+            lock = root / 'abi/abi.lock'
+            before = lock.read_bytes()
+            for mode in ([], ['--check'], ['--write-lock']):
+                with self.subTest(mode=mode):
+                    with self.assertRaisesRegex(ValueError, 'release boundary'):
+                        ABI.run(['--root', str(root), '--baseline', str(trusted)] + mode)
+                    self.assertEqual(lock.read_bytes(), before)
+            # First legitimate transition: create a new candidate lock while
+            # inheriting the released boundary from the trusted baseline.
+            lock.unlink()
+            ABI.run(['--root', str(root), '--baseline', str(trusted), '--write-lock'])
+            self.assertEqual(ABI.load(lock)['released_minor'], 1)
+            ABI.run(['--root', str(root), '--baseline', str(trusted), '--check'])
+            # That candidate becomes the next integration baseline. A second
+            # change must not sneak a since=1 entry into released minor 1.
+            trusted.write_bytes(lock.read_bytes())
+            new = copy.deepcopy(self.base)
+            extra = dict(new['host_entries'][3], id=20, name='clock.late')
+            new['host_entries'].append(extra)
+            definition.write_text(ABI.canonical(new))
+            for mode in ([], ['--check'], ['--write-lock']):
+                with self.subTest(second_mode=mode):
+                    with self.assertRaisesRegex(ValueError, 'backdated'):
+                        ABI.run(['--root', str(root), '--baseline', str(trusted)] + mode)
+            self.assertEqual(ABI.load(lock)['released_minor'], 1)
+
     def record(self):
         return {'id': 1, 'name': 'test.record', 'since': 1, 'fields': [
             {'name': 'value', 'type': 'u32', 'since': 1, 'optional': False,

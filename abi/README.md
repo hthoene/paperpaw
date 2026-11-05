@@ -61,3 +61,7 @@ The initial schema-only lock was replaced explicitly while still an unpublished
 draft. Old lock formats are refused, not silently upgraded. This is not evidence
 of compatibility with the former incomplete lock. Shared nested input/output
 capacity and runtime quota enforcement remain M1 obligations.
+
+The candidate released-minor boundary cannot be lower than the trusted baseline
+in any mode. Initial lock creation with a baseline inherits that floor, preserving
+it when the candidate becomes the next integration baseline.

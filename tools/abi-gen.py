@@ -226,13 +226,18 @@ def run(argv=None):
     folder = args.root / 'abi'
     schema = validate(load(folder / 'abi.def'))
     lock = folder / 'abi.lock'
+    release_floor = 0
     if args.baseline:
-        check_lock(load(args.baseline), schema)
-    released_minor = 0
+        baseline = load(args.baseline)
+        check_lock(baseline, schema)
+        release_floor = baseline['released_minor']
+    released_minor = release_floor
     if lock.exists():
         prior = load(lock)
         check_lock(prior, schema)
         released_minor = prior['released_minor']
+        require(released_minor >= release_floor,
+                'candidate release boundary is below trusted baseline')
     elif not args.write_lock:
         raise ValueError('missing lock; explicit --write-lock required')
     outputs = {folder / 'abi.json': canonical(schema),
