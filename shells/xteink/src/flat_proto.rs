@@ -8,7 +8,7 @@ use log::info;
 use paperpaw_flat_proto::bench::{self, Probe};
 use paperpaw_graphics::Framebuffer;
 use paperpaw_platform::PixelFormat;
-use paperpaw_text::{Font, GlyphCache};
+use paperpaw_flat_proto::{Font, GlyphCache};
 
 static PACK: &[u8] = include_bytes!("../../../crates/paperpaw-text/testdata/pack.ppfp.v1");
 

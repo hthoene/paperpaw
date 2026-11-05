@@ -26,3 +26,5 @@ pub mod bench;
 pub mod flat;
 pub mod rusty;
 pub mod widget;
+
+pub use paperpaw_text::{Font, GlyphCache};
