@@ -1,588 +1,593 @@
 {
-  "format": 1,
-  "host_entries": [
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "size",
-          "type": "usize"
-        },
-        {
-          "name": "align",
-          "type": "usize"
-        },
-        {
-          "name": "out",
-          "type": "out_ptr"
-        }
-      ],
-      "effect": "mutate",
-      "id": 0,
-      "max_bytes": 0,
-      "name": "heap.alloc",
-      "ownership": "owner",
-      "reentry": "deny",
-      "result": "status",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "ptr",
-          "type": "pointer"
-        },
-        {
-          "name": "size",
-          "type": "usize"
-        },
-        {
-          "name": "align",
-          "type": "usize"
-        }
-      ],
-      "effect": "mutate",
-      "id": 1,
-      "max_bytes": 0,
-      "name": "heap.dealloc",
-      "ownership": "release",
-      "reentry": "deny",
-      "result": "status",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "ptr",
-          "type": "pointer"
-        },
-        {
-          "name": "old_size",
-          "type": "usize"
-        },
-        {
-          "name": "align",
-          "type": "usize"
-        },
-        {
-          "name": "new_size",
-          "type": "usize"
-        },
-        {
-          "name": "out",
-          "type": "out_ptr"
-        }
-      ],
-      "effect": "mutate",
-      "id": 2,
-      "max_bytes": 0,
-      "name": "heap.realloc",
-      "ownership": "owner",
-      "reentry": "deny",
-      "result": "status",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "out",
-          "type": "out_u64"
-        }
-      ],
-      "effect": "query",
-      "id": 3,
-      "max_bytes": 0,
-      "name": "clock.micros",
-      "ownership": "call",
-      "reentry": "deny",
-      "result": "status",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "out",
-          "type": "buffer"
-        }
-      ],
-      "effect": "query",
-      "id": 4,
-      "max_bytes": 128,
-      "name": "env.snapshot",
-      "ownership": "call",
-      "reentry": "deny",
-      "result": "status",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "key",
-          "type": "bytes"
-        },
-        {
-          "name": "out",
-          "type": "buffer"
-        }
-      ],
-      "effect": "query",
-      "id": 5,
-      "max_bytes": 4096,
-      "name": "settings.read",
-      "ownership": "call",
-      "reentry": "deny",
-      "result": "length",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "key",
-          "type": "bytes"
-        },
-        {
-          "name": "out",
-          "type": "buffer"
-        }
-      ],
-      "effect": "query",
-      "id": 6,
-      "max_bytes": 4096,
-      "name": "i18n.copy",
-      "ownership": "call",
-      "reentry": "deny",
-      "result": "length",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "key",
-          "type": "bytes"
-        },
-        {
-          "name": "out",
-          "type": "out_handle"
-        }
-      ],
-      "effect": "mutate",
-      "id": 7,
-      "max_bytes": 128,
-      "name": "font.acquire",
-      "ownership": "owner",
-      "reentry": "deny",
-      "result": "status",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "handle",
-          "type": "handle"
-        }
-      ],
-      "effect": "mutate",
-      "id": 8,
-      "max_bytes": 0,
-      "name": "handle.release",
-      "ownership": "release",
-      "reentry": "deny",
-      "result": "status",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "x",
-          "type": "i32"
-        },
-        {
-          "name": "y",
-          "type": "i32"
-        },
-        {
-          "name": "width",
-          "type": "u32"
-        },
-        {
-          "name": "height",
-          "type": "u32"
-        },
-        {
-          "name": "color",
-          "type": "u32"
-        }
-      ],
-      "effect": "mutate",
-      "id": 9,
-      "max_bytes": 0,
-      "name": "canvas.fill_rect",
-      "ownership": "call",
-      "reentry": "deny",
-      "result": "status",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "x0",
-          "type": "i32"
-        },
-        {
-          "name": "y0",
-          "type": "i32"
-        },
-        {
-          "name": "x1",
-          "type": "i32"
-        },
-        {
-          "name": "y1",
-          "type": "i32"
-        },
-        {
-          "name": "width",
-          "type": "u32"
-        },
-        {
-          "name": "color",
-          "type": "u32"
-        }
-      ],
-      "effect": "mutate",
-      "id": 10,
-      "max_bytes": 0,
-      "name": "canvas.draw_line",
-      "ownership": "call",
-      "reentry": "deny",
-      "result": "status",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "x",
-          "type": "i32"
-        },
-        {
-          "name": "y",
-          "type": "i32"
-        },
-        {
-          "name": "width",
-          "type": "u32"
-        },
-        {
-          "name": "height",
-          "type": "u32"
-        },
-        {
-          "name": "radius",
-          "type": "u32"
-        },
-        {
-          "name": "color",
-          "type": "u32"
-        }
-      ],
-      "effect": "mutate",
-      "id": 11,
-      "max_bytes": 0,
-      "name": "canvas.fill_round",
-      "ownership": "call",
-      "reentry": "deny",
-      "result": "status",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "x",
-          "type": "i32"
-        },
-        {
-          "name": "y",
-          "type": "i32"
-        },
-        {
-          "name": "width",
-          "type": "u32"
-        },
-        {
-          "name": "height",
-          "type": "u32"
-        },
-        {
-          "name": "radius",
-          "type": "u32"
-        },
-        {
-          "name": "thickness",
-          "type": "u32"
-        },
-        {
-          "name": "color",
-          "type": "u32"
-        }
-      ],
-      "effect": "mutate",
-      "id": 12,
-      "max_bytes": 0,
-      "name": "canvas.stroke_round",
-      "ownership": "call",
-      "reentry": "deny",
-      "result": "status",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "font",
-          "type": "handle"
-        },
-        {
-          "name": "size",
-          "type": "f32"
-        },
-        {
-          "name": "text",
-          "type": "bytes"
-        },
-        {
-          "name": "out",
-          "type": "out_f32"
-        }
-      ],
-      "effect": "query",
-      "id": 13,
-      "max_bytes": 4096,
-      "name": "text.measure",
-      "ownership": "call",
-      "reentry": "deny",
-      "result": "status",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "font",
-          "type": "handle"
-        },
-        {
-          "name": "size",
-          "type": "f32"
-        },
-        {
-          "name": "x",
-          "type": "f32"
-        },
-        {
-          "name": "baseline",
-          "type": "i32"
-        },
-        {
-          "name": "color",
-          "type": "u32"
-        },
-        {
-          "name": "text",
-          "type": "bytes"
-        },
-        {
-          "name": "out",
-          "type": "out_f32"
-        }
-      ],
-      "effect": "mutate",
-      "id": 14,
-      "max_bytes": 4096,
-      "name": "text.draw",
-      "ownership": "call",
-      "reentry": "deny",
-      "result": "status",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "batch",
-          "type": "bytes"
-        }
-      ],
-      "effect": "mutate",
-      "id": 15,
-      "max_bytes": 4096,
-      "name": "commands.submit",
-      "ownership": "call",
-      "reentry": "deny",
-      "result": "status",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "batch",
-          "type": "bytes"
-        }
-      ],
-      "effect": "mutate",
-      "id": 16,
-      "max_bytes": 4096,
-      "name": "registrations.submit",
-      "ownership": "call",
-      "reentry": "deny",
-      "result": "status",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "key",
-          "type": "bytes"
-        },
-        {
-          "name": "major",
-          "type": "u16"
-        },
-        {
-          "name": "minor",
-          "type": "u16"
-        },
-        {
-          "name": "out",
-          "type": "out_handle"
-        }
-      ],
-      "effect": "mutate",
-      "id": 17,
-      "max_bytes": 128,
-      "name": "services.query",
-      "ownership": "owner",
-      "reentry": "deny",
-      "result": "status",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "blob",
-          "type": "handle"
-        },
-        {
-          "name": "offset",
-          "type": "u64"
-        },
-        {
-          "name": "out",
-          "type": "buffer"
-        }
-      ],
-      "effect": "query",
-      "id": 18,
-      "max_bytes": 4096,
-      "name": "blob.read",
-      "ownership": "call",
-      "reentry": "deny",
-      "result": "length",
-      "since": 1
-    },
-    {
-      "args": [
-        {
-          "name": "ctx",
-          "type": "context"
-        },
-        {
-          "name": "blob",
-          "type": "handle"
-        }
-      ],
-      "effect": "mutate",
-      "id": 19,
-      "max_bytes": 0,
-      "name": "blob.release",
-      "ownership": "release",
-      "reentry": "deny",
-      "result": "status",
-      "since": 1
-    }
-  ],
-  "major": 7,
-  "minor": 1,
-  "records": []
+  "emitted_c": "// Generated by tools/abi-gen.py; do not edit.\n// Draft M1 declarations only; not a frozen ABI.\n#ifndef PAPERPAW_ABI_H\n#define PAPERPAW_ABI_H\n#include <stddef.h>\n#include <stdint.h>\ntypedef struct { const uint8_t *ptr; size_t len; } PpBytes;\ntypedef struct { uint8_t *ptr; size_t cap; } PpBuffer;\ntypedef struct {\n    uint32_t size;\n    uint16_t major;\n    uint16_t minor;\n    int32_t (*heap_alloc)(void * ctx, size_t size, size_t align, void ** out);\n    int32_t (*heap_dealloc)(void * ctx, void * ptr, size_t size, size_t align);\n    int32_t (*heap_realloc)(void * ctx, void * ptr, size_t old_size, size_t align, size_t new_size, void ** out);\n    int32_t (*clock_micros)(void * ctx, uint64_t * out);\n    int32_t (*env_snapshot)(void * ctx, PpBuffer out);\n    int32_t (*settings_read)(void * ctx, PpBytes key, PpBuffer out);\n    int32_t (*i18n_copy)(void * ctx, PpBytes key, PpBuffer out);\n    int32_t (*font_acquire)(void * ctx, PpBytes key, uint32_t * out);\n    int32_t (*handle_release)(void * ctx, uint32_t handle);\n    int32_t (*canvas_fill_rect)(void * ctx, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t color);\n    int32_t (*canvas_draw_line)(void * ctx, int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint32_t width, uint32_t color);\n    int32_t (*canvas_fill_round)(void * ctx, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t radius, uint32_t color);\n    int32_t (*canvas_stroke_round)(void * ctx, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t radius, uint32_t thickness, uint32_t color);\n    int32_t (*text_measure)(void * ctx, uint32_t font, float size, PpBytes text, float * out);\n    int32_t (*text_draw)(void * ctx, uint32_t font, float size, float x, int32_t baseline, uint32_t color, PpBytes text, float * out);\n    int32_t (*commands_submit)(void * ctx, PpBytes batch);\n    int32_t (*registrations_submit)(void * ctx, PpBytes batch);\n    int32_t (*services_query)(void * ctx, PpBytes key, uint16_t major, uint16_t minor, uint32_t * out);\n    int32_t (*blob_read)(void * ctx, uint32_t blob, uint64_t offset, PpBuffer out);\n    int32_t (*blob_release)(void * ctx, uint32_t blob);\n} PpHost;\n#endif\n",
+  "lock_format": 1,
+  "released_minor": 0,
+  "schema": {
+    "format": 1,
+    "host_entries": [
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "size",
+            "type": "usize"
+          },
+          {
+            "name": "align",
+            "type": "usize"
+          },
+          {
+            "name": "out",
+            "type": "out_ptr"
+          }
+        ],
+        "effect": "mutate",
+        "id": 0,
+        "max_bytes": 0,
+        "name": "heap.alloc",
+        "ownership": "owner",
+        "reentry": "deny",
+        "result": "status",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "ptr",
+            "type": "pointer"
+          },
+          {
+            "name": "size",
+            "type": "usize"
+          },
+          {
+            "name": "align",
+            "type": "usize"
+          }
+        ],
+        "effect": "mutate",
+        "id": 1,
+        "max_bytes": 0,
+        "name": "heap.dealloc",
+        "ownership": "release",
+        "reentry": "deny",
+        "result": "status",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "ptr",
+            "type": "pointer"
+          },
+          {
+            "name": "old_size",
+            "type": "usize"
+          },
+          {
+            "name": "align",
+            "type": "usize"
+          },
+          {
+            "name": "new_size",
+            "type": "usize"
+          },
+          {
+            "name": "out",
+            "type": "out_ptr"
+          }
+        ],
+        "effect": "mutate",
+        "id": 2,
+        "max_bytes": 0,
+        "name": "heap.realloc",
+        "ownership": "owner",
+        "reentry": "deny",
+        "result": "status",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "out",
+            "type": "out_u64"
+          }
+        ],
+        "effect": "query",
+        "id": 3,
+        "max_bytes": 0,
+        "name": "clock.micros",
+        "ownership": "call",
+        "reentry": "deny",
+        "result": "status",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "out",
+            "type": "buffer"
+          }
+        ],
+        "effect": "query",
+        "id": 4,
+        "max_bytes": 128,
+        "name": "env.snapshot",
+        "ownership": "call",
+        "reentry": "deny",
+        "result": "status",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "key",
+            "type": "bytes"
+          },
+          {
+            "name": "out",
+            "type": "buffer"
+          }
+        ],
+        "effect": "query",
+        "id": 5,
+        "max_bytes": 4096,
+        "name": "settings.read",
+        "ownership": "call",
+        "reentry": "deny",
+        "result": "length",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "key",
+            "type": "bytes"
+          },
+          {
+            "name": "out",
+            "type": "buffer"
+          }
+        ],
+        "effect": "query",
+        "id": 6,
+        "max_bytes": 4096,
+        "name": "i18n.copy",
+        "ownership": "call",
+        "reentry": "deny",
+        "result": "length",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "key",
+            "type": "bytes"
+          },
+          {
+            "name": "out",
+            "type": "out_handle"
+          }
+        ],
+        "effect": "mutate",
+        "id": 7,
+        "max_bytes": 128,
+        "name": "font.acquire",
+        "ownership": "owner",
+        "reentry": "deny",
+        "result": "status",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "handle",
+            "type": "handle"
+          }
+        ],
+        "effect": "mutate",
+        "id": 8,
+        "max_bytes": 0,
+        "name": "handle.release",
+        "ownership": "release",
+        "reentry": "deny",
+        "result": "status",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "x",
+            "type": "i32"
+          },
+          {
+            "name": "y",
+            "type": "i32"
+          },
+          {
+            "name": "width",
+            "type": "u32"
+          },
+          {
+            "name": "height",
+            "type": "u32"
+          },
+          {
+            "name": "color",
+            "type": "u32"
+          }
+        ],
+        "effect": "mutate",
+        "id": 9,
+        "max_bytes": 0,
+        "name": "canvas.fill_rect",
+        "ownership": "call",
+        "reentry": "deny",
+        "result": "status",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "x0",
+            "type": "i32"
+          },
+          {
+            "name": "y0",
+            "type": "i32"
+          },
+          {
+            "name": "x1",
+            "type": "i32"
+          },
+          {
+            "name": "y1",
+            "type": "i32"
+          },
+          {
+            "name": "width",
+            "type": "u32"
+          },
+          {
+            "name": "color",
+            "type": "u32"
+          }
+        ],
+        "effect": "mutate",
+        "id": 10,
+        "max_bytes": 0,
+        "name": "canvas.draw_line",
+        "ownership": "call",
+        "reentry": "deny",
+        "result": "status",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "x",
+            "type": "i32"
+          },
+          {
+            "name": "y",
+            "type": "i32"
+          },
+          {
+            "name": "width",
+            "type": "u32"
+          },
+          {
+            "name": "height",
+            "type": "u32"
+          },
+          {
+            "name": "radius",
+            "type": "u32"
+          },
+          {
+            "name": "color",
+            "type": "u32"
+          }
+        ],
+        "effect": "mutate",
+        "id": 11,
+        "max_bytes": 0,
+        "name": "canvas.fill_round",
+        "ownership": "call",
+        "reentry": "deny",
+        "result": "status",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "x",
+            "type": "i32"
+          },
+          {
+            "name": "y",
+            "type": "i32"
+          },
+          {
+            "name": "width",
+            "type": "u32"
+          },
+          {
+            "name": "height",
+            "type": "u32"
+          },
+          {
+            "name": "radius",
+            "type": "u32"
+          },
+          {
+            "name": "thickness",
+            "type": "u32"
+          },
+          {
+            "name": "color",
+            "type": "u32"
+          }
+        ],
+        "effect": "mutate",
+        "id": 12,
+        "max_bytes": 0,
+        "name": "canvas.stroke_round",
+        "ownership": "call",
+        "reentry": "deny",
+        "result": "status",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "font",
+            "type": "handle"
+          },
+          {
+            "name": "size",
+            "type": "f32"
+          },
+          {
+            "name": "text",
+            "type": "bytes"
+          },
+          {
+            "name": "out",
+            "type": "out_f32"
+          }
+        ],
+        "effect": "query",
+        "id": 13,
+        "max_bytes": 4096,
+        "name": "text.measure",
+        "ownership": "call",
+        "reentry": "deny",
+        "result": "status",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "font",
+            "type": "handle"
+          },
+          {
+            "name": "size",
+            "type": "f32"
+          },
+          {
+            "name": "x",
+            "type": "f32"
+          },
+          {
+            "name": "baseline",
+            "type": "i32"
+          },
+          {
+            "name": "color",
+            "type": "u32"
+          },
+          {
+            "name": "text",
+            "type": "bytes"
+          },
+          {
+            "name": "out",
+            "type": "out_f32"
+          }
+        ],
+        "effect": "mutate",
+        "id": 14,
+        "max_bytes": 4096,
+        "name": "text.draw",
+        "ownership": "call",
+        "reentry": "deny",
+        "result": "status",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "batch",
+            "type": "bytes"
+          }
+        ],
+        "effect": "mutate",
+        "id": 15,
+        "max_bytes": 4096,
+        "name": "commands.submit",
+        "ownership": "call",
+        "reentry": "deny",
+        "result": "status",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "batch",
+            "type": "bytes"
+          }
+        ],
+        "effect": "mutate",
+        "id": 16,
+        "max_bytes": 4096,
+        "name": "registrations.submit",
+        "ownership": "call",
+        "reentry": "deny",
+        "result": "status",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "key",
+            "type": "bytes"
+          },
+          {
+            "name": "major",
+            "type": "u16"
+          },
+          {
+            "name": "minor",
+            "type": "u16"
+          },
+          {
+            "name": "out",
+            "type": "out_handle"
+          }
+        ],
+        "effect": "mutate",
+        "id": 17,
+        "max_bytes": 128,
+        "name": "services.query",
+        "ownership": "owner",
+        "reentry": "deny",
+        "result": "status",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "blob",
+            "type": "handle"
+          },
+          {
+            "name": "offset",
+            "type": "u64"
+          },
+          {
+            "name": "out",
+            "type": "buffer"
+          }
+        ],
+        "effect": "query",
+        "id": 18,
+        "max_bytes": 4096,
+        "name": "blob.read",
+        "ownership": "call",
+        "reentry": "deny",
+        "result": "count",
+        "since": 1
+      },
+      {
+        "args": [
+          {
+            "name": "ctx",
+            "type": "context"
+          },
+          {
+            "name": "blob",
+            "type": "handle"
+          }
+        ],
+        "effect": "mutate",
+        "id": 19,
+        "max_bytes": 0,
+        "name": "blob.release",
+        "ownership": "release",
+        "reentry": "deny",
+        "result": "status",
+        "since": 1
+      }
+    ],
+    "major": 7,
+    "minor": 1,
+    "records": []
+  }
 }

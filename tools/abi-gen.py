@@ -18,6 +18,9 @@ TYPES = {'context': 'void *', 'pointer': 'void *', 'bytes': 'PpBytes',
          'out_ptr': 'void **', 'out_u64': 'uint64_t *',
          'out_handle': 'uint32_t *', 'out_f32': 'float *'}
 WIRE = {'u32', 'u64', 'i32', 'str', 'bytes'}
+C_RESERVED = set('auto break case char const continue default do double else enum extern float for goto if inline int long register restrict return short signed sizeof static struct switch typedef union unsigned void volatile while alignas alignof bool constexpr false nullptr static_assert thread_local true typeof typeof_unqual'.split())
+HOST_PREFIX = {'size', 'major', 'minor'}
+C_RESERVED.update(re.findall(r'[A-Za-z_][A-Za-z_0-9]*', ' '.join(TYPES.values())))
 
 
 def require(ok, message):
@@ -85,9 +88,10 @@ def validate(schema):
     for entry in schema['host_entries']:
         keys(entry, 'id name since args result effect ownership reentry max_bytes')
         cname = entry['name'].replace('.', '_')
+        require(cname not in C_RESERVED | HOST_PREFIX, 'reserved C host member')
         require(cname not in c_names, 'colliding generated C names')
         c_names.add(cname)
-        require(entry['result'] in ('status', 'length'), 'invalid result')
+        require(entry['result'] in ('status', 'length', 'count'), 'invalid result')
         require(entry['effect'] in ('query', 'consume', 'mutate'), 'invalid effect')
         require(entry['ownership'] in ('call', 'owner', 'release'), 'invalid ownership')
         require(entry['reentry'] == 'deny', 'only non-reentrant M1 entries supported')
@@ -99,6 +103,7 @@ def validate(schema):
         for arg in entry['args']:
             keys(arg, 'name type')
             name(arg['name'])
+            require(arg['name'] not in C_RESERVED, 'reserved C argument')
             require(arg['name'] not in names, 'duplicate argument name')
             names.add(arg['name'])
             require(arg['type'] in TYPES, 'unknown argument type')
@@ -143,9 +148,13 @@ def validate_record(record, minor):
                     'M1 strings/blobs only support an empty default')
 
 
-def compatible(old, new):
+def compatible(old, new, released_minor=None):
     validate(old)
     validate(new)
+    if released_minor is None:
+        released_minor = old['minor']
+    integer(released_minor, old['minor'])
+    minimum_since = max(old['minor'], released_minor + 1)
     require(old['format'] == new['format'] and old['major'] == new['major'],
             'format/major change needs separate reviewed baseline')
     require(old['minor'] <= new['minor'] <= old['minor'] + 1,
@@ -165,9 +174,9 @@ def compatible(old, new):
                 require(after['fields'][:len(fields)] == fields, 'changed record field')
                 for field in after['fields'][len(fields):]:
                     require(field['optional'], 'appended required field')
-                    require(field['since'] > old['minor'], 'backdated appended field')
+                    require(field['since'] >= minimum_since, 'backdated appended field')
         for item in current[len(prior):]:
-            require(item['since'] > old['minor'], 'backdated appended declaration')
+            require(item['since'] >= minimum_since, 'backdated appended declaration')
 
 
 def header(schema):
@@ -186,6 +195,26 @@ def header(schema):
     return '\n'.join(lines)
 
 
+def lock_record(schema, released_minor=0):
+    """Keep exact emitted declarations as well as logical schema semantics."""
+    return {'lock_format': 1, 'released_minor': released_minor,
+            'schema': schema, 'emitted_c': header(schema)}
+
+
+def check_lock(prior, schema):
+    keys(prior, 'lock_format released_minor schema emitted_c')
+    require(type(prior['lock_format']) is int and prior['lock_format'] == 1,
+            'unsupported lock format')
+    validate(prior['schema'])
+    integer(prior['released_minor'], prior['schema']['minor'])
+    # Re-render the OLD schema using THIS generator. This detects changes in
+    # type mappings, prefix/view structs, result types and any header template,
+    # even when both candidate schema and candidate lock were regenerated.
+    require(prior['emitted_c'] == header(prior['schema']),
+            'emitted C contract changed from prior lock')
+    compatible(prior['schema'], schema, prior['released_minor'])
+
+
 def run(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=ROOT)
@@ -198,15 +227,18 @@ def run(argv=None):
     schema = validate(load(folder / 'abi.def'))
     lock = folder / 'abi.lock'
     if args.baseline:
-        compatible(load(args.baseline), schema)
+        check_lock(load(args.baseline), schema)
+    released_minor = 0
     if lock.exists():
-        compatible(load(lock), schema)
+        prior = load(lock)
+        check_lock(prior, schema)
+        released_minor = prior['released_minor']
     elif not args.write_lock:
         raise ValueError('missing lock; explicit --write-lock required')
     outputs = {folder / 'abi.json': canonical(schema),
                folder / 'generated' / 'paperpaw-abi.h': header(schema)}
     if args.check:
-        require(load(lock) == schema, 'lock stale; explicitly review/update it')
+        require(load(lock) == lock_record(schema, released_minor), 'lock stale; explicitly review/update it')
         for path, wanted in outputs.items():
             require(path.exists() and path.read_text() == wanted, f'stale generated file: {path}')
     else:
@@ -214,7 +246,7 @@ def run(argv=None):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
         if args.write_lock:
-            lock.write_text(canonical(schema))
+            lock.write_text(canonical(lock_record(schema, released_minor)))
     return 0
 
 

@@ -558,7 +558,7 @@
       "name": "blob.read",
       "ownership": "call",
       "reentry": "deny",
-      "result": "length",
+      "result": "count",
       "since": 1
     },
     {

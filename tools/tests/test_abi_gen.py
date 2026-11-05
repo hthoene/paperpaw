@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 PATH = Path(__file__).resolve().parents[1] / 'abi-gen.py'
 SPEC = importlib.util.spec_from_file_location('abi_gen', PATH)
@@ -100,6 +101,49 @@ class SchemaTests(unittest.TestCase):
                 path.write_text(contents)
                 with self.assertRaises(ValueError):
                     ABI.load(path)
+
+    def test_emitted_type_and_template_mutations_fail_trusted_baseline(self):
+        trusted = ABI.lock_record(copy.deepcopy(self.base))
+        with patch.dict(ABI.TYPES, {'handle': 'uint64_t'}):
+            candidate = ABI.lock_record(copy.deepcopy(self.base))
+            ABI.check_lock(candidate, self.base)
+            with self.assertRaisesRegex(ValueError, 'emitted C contract'):
+                ABI.check_lock(trusted, self.base)
+        original = ABI.header
+        for before, after in [('size_t len', 'uint32_t len'),
+                              ('size_t cap', 'uint32_t cap'),
+                              ('uint32_t size', 'uint64_t size'),
+                              ('int32_t (*', 'int64_t (*')]:
+            with self.subTest(template=before):
+                with patch.object(ABI, 'header', lambda s: original(s).replace(before, after)):
+                    with self.assertRaisesRegex(ValueError, 'emitted C contract'):
+                        ABI.check_lock(trusted, self.base)
+
+    def test_reserved_host_and_parameter_names(self):
+        for reserved in ('size', 'major', 'minor', 'float', 'return', 'uint32_t'):
+            new = copy.deepcopy(self.base)
+            new['host_entries'][0]['name'] = reserved
+            with self.assertRaises(ValueError):
+                ABI.validate(new)
+        for reserved in ('float', 'return', 'size_t', 'uint32_t'):
+            new = copy.deepcopy(self.base)
+            new['host_entries'][0]['args'][0]['name'] = reserved
+            with self.assertRaises(ValueError):
+                ABI.validate(new)
+
+    def test_multiple_additions_to_unreleased_minor(self):
+        trusted = ABI.lock_record(copy.deepcopy(self.base), released_minor=0)
+        candidate = copy.deepcopy(self.base)
+        extra = copy.deepcopy(candidate['host_entries'][3])
+        extra.update(id=20, name='clock.first', since=1)
+        candidate['host_entries'].append(extra)
+        ABI.check_lock(trusted, candidate)
+        checkpoint = ABI.lock_record(copy.deepcopy(candidate), released_minor=0)
+        candidate['host_entries'].append(dict(extra, id=21, name='clock.second'))
+        ABI.check_lock(checkpoint, candidate)
+        released = ABI.lock_record(copy.deepcopy(self.base), released_minor=1)
+        with self.assertRaises(ValueError):
+            ABI.check_lock(released, candidate)
 
     def record(self):
         return {'id': 1, 'name': 'test.record', 'since': 1, 'fields': [

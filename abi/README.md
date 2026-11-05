@@ -9,7 +9,10 @@ The root has `format`, `major`, `minor`, `host_entries` and `records`. Entries
 have `id`, `name`, `since`, ordered `args`, `result`, `effect`, `ownership`,
 `reentry` and `max_bytes`. Names are lower-case dotted identifiers. Arguments
 have `name` and `type`; the closed primitive vocabulary is in `abi-gen.py`.
-Results are `status` or `length`; only repeatable queries may use `length`.
+Results are `status`, `length` or `count`; only repeatable queries use `length`.
+`count` is bytes actually copied, never greater than output capacity; zero means
+EOF for a positive-capacity blob read (a zero-capacity request copies nothing).
+`blob.read` is positional and returns `count`; it is not a snprintf sizing query.
 Effects are `query`, `consume`, `mutate`; ownership is `call`, `owner`, `release`.
 This first checkpoint accepts only `deny` reentry. Buffer entries need a positive
 cap. Entry caps are schema maxima, not promises of allocation or admission.
@@ -31,8 +34,14 @@ python3 tools/abi-gen.py --baseline /path/to/trusted/prior/abi.lock --check
 
 Normal generation writes abi.json and generated/paperpaw-abi.h, never the lock.
 `--write-lock` explicitly writes the lock after validating compatibility with the
-old one. Existing signatures/contracts are immutable; minor advances by at most
-one, additions use the new minor, and each record field list is checked separately.
+old one. The lock contains the schema, released-minor boundary and exact emitted
+C declarations. Re-rendering the trusted OLD schema with the current generator
+must reproduce those declarations, catching changed primitive/view/prefix/result
+templates even when a candidate lock was regenerated. Whitespace changes to the
+emitter are conservatively reviewed too. Existing signatures/contracts stay
+immutable. Multiple additions may use the same unreleased minor; additions to a
+released minor fail. Each record field list is checked separately.
+Use `bash tools/abi-check.sh --ci` with mandatory `ABI_BASELINE` in CI.
 CI must compare with a trusted integration/release lock as well as generated
 freshness; editing both definition and local lock is not compatibility evidence.
 The initial draft may require reviewed baseline replacement before freezing.
@@ -47,3 +56,8 @@ calling convention and layout need per-target tests beyond the host syntax check
 The independently reviewed mutation matrix includes callback and nested-record
 cases not supported yet; they must be added with those grammar features before
 approval. Existing production interface-6 code is untouched.
+
+The initial schema-only lock was replaced explicitly while still an unpublished
+draft. Old lock formats are refused, not silently upgraded. This is not evidence
+of compatibility with the former incomplete lock. Shared nested input/output
+capacity and runtime quota enforcement remain M1 obligations.

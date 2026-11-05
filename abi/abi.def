@@ -557,7 +557,7 @@
           "type": "buffer"
         }
       ],
-      "result": "length",
+      "result": "count",
       "effect": "query",
       "ownership": "call",
       "reentry": "deny",
