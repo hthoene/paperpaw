@@ -8,6 +8,16 @@ change the plugin SDK.
 
 ### Added
 
+- **Old plugins keep running after additions, and CI proves it** (#228). A plugin built for a plugin interface runs on every
+  PaperPaw of that interface; only additions are allowed inside one, and the interface test now fails on any other
+  change and passes on additions one after the other. Fixed: after one field was appended to the firmware's table
+  and the baselines written anew, the next appended field was seen as a change; one of two identical `api.txt` lines
+  going was not seen. New: a corpus of changes to every type and constant of the baselines
+  (`crates/paperpaw-sdk/tests/interface/corpus.rs`) and `tools/compat-e2e.sh`, which builds the test plugin of the last
+  raise and loads it with the emulator's loader and a kernel into copies of the tree with fields and items appended
+  (it runs) and with a layout changed or the interface raised (refused as another build). Rules for authors in
+  `docs/plugins.md` ("What a release may add without a rebuild") and ADR 0026.
+
 - **The Wi-Fi page: the networks have a page of their own** (#161). The Wi-Fi page is short whatever is in the air:
   the switch with where it is, a row *Networks ›* (the network the device is in and how many are in reach; it opens
   the list), the setup with a phone and the three settings. While no network is kept, *Set up with a phone* comes

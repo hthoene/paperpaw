@@ -193,6 +193,13 @@ g_sdk() {
             skip "sdk: table-compat" "set TABLE_BASELINE=<tag or commit of the last interface raise>"
         fi
     fi
+    if [[ -f tools/compat-e2e.sh ]]; then
+        if [[ -n "${TABLE_BASELINE:-}" ]]; then
+            run "sdk: compat-e2e against $TABLE_BASELINE" "tools/compat-e2e.sh '$TABLE_BASELINE'"
+        else
+            skip "sdk: compat-e2e" "set TABLE_BASELINE=<tag or commit of the last interface raise>"
+        fi
+    fi
 }
 
 g_embedded() {
