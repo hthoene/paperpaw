@@ -697,3 +697,56 @@ commands and object callbacks must be in the same coverage inventory. Resource
 caps and dictionary savings are measured on real workloads before becoming
 release guarantees. A bigger bitmap, changed C struct stride or truncated batch
 must never be called a compatible addition.
+
+### Remaining contract gates before schema freeze
+
+Senior review at `66031289d` identified seven blocking areas. The proposals above
+address them in part; no representation is frozen until the following details
+are included in the schema and its tests:
+
+- **Nested evolution:** each independently growing nested record has its own
+  byte length and versioned field description. Arrays of such records carry
+  per-element lengths, not an assumed current stride. Optional bits keep fixed
+  ordinals. Unknown dictionary indices are errors, not empty strings. A required
+  new field or interpretation is a new record version with an explicit required
+  minor, not an optional field with a misleading default.
+- **Service dependencies:** required service keys, majors, minimum table sizes
+  and semantic revisions join host/wire requirements in generated metadata.
+  Optional services have explicit unsupported behavior. A plugin cannot bypass
+  a required service check by declaring an older host-table minor. Load-time
+  checks cover statically known dependencies; dynamically registered services
+  are checked before a consumer receives or invokes their table.
+- **Handle and token teardown:** specify bit allocation, owner identity, type,
+  generation, capacity and retirement behavior. Generation wrap cannot make an
+  old handle valid again; retire an exhausted slot. Define cancellation and
+  exactly-once release on every error path. Unload first prevents new dispatch,
+  drains or cancels pending work under its documented completion policy, then
+  releases objects and registrations before unmapping code. Services and static
+  blobs retain the same module lifetime protection as callbacks.
+- **Pointer trust boundary:** code plugins execute in the same address space,
+  without a sandbox. Length/overflow/alignment checks and callback lifetime
+  wrappers do not prove an arbitrary pointer is mapped, uniquely borrowed or
+  valid. Raw ABI callers must provide valid memory and obey aliasing/lifetime
+  contracts. Artifact parsers and wire decoders still validate untrusted bytes;
+  documentation must not claim that those checks isolate malicious native code.
+- **Aggregate resources:** publish one resource profile before M1 is accepted.
+  It must account for simultaneous plugin and host buffers, queued commands,
+  translation scopes, handles, captured callbacks, module/blob leases, nested
+  callbacks and transient decode/rollback allocations. Specify per-call,
+  per-plugin and device-wide limits, error behavior and reentrancy depth.
+  Measure total live/peak heap and stack, not only codec workspace. The existing
+  4 KiB M1 batch cap and 1 KiB decode-workspace target do not establish these
+  aggregate bounds. Exact quotas are still open, so B7 remains a design gate.
+- **Oversized outbound data:** define a bounded producer/reader lease or chunk
+  stream before porting commands that exceed the inline limit. The receiver
+  pulls bounded chunks, propagates backpressure/cancellation/card loss, and
+  releases the producer exactly once. Unload cannot invalidate an active source.
+  No silent truncation, cross-side allocation adoption or repeated effectful
+  call is an acceptable fallback. Existing large command capabilities must be
+  covered by fixtures before the old backend is deleted.
+
+Add malformed nested records, dictionary overflow, generation exhaustion,
+reentrant cancellation, missing services, quota exhaustion and chunk failure
+cases to the shared corpus or runtime tests as appropriate. A small raw ABI
+fixture is useful for exercising these gates, but does not replace review of
+the full grammar and resource profile.
