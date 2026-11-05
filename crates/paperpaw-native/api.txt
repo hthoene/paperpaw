@@ -86,7 +86,7 @@ pub const paperpaw_native::index::MAGIC: [u8; 4]
 pub const paperpaw_native::index::MAX_PLACED: usize
 pub const paperpaw_native::index::SECTOR: u32
 pub mod paperpaw_native::preflight
-pub enum paperpaw_native::preflight::Refusal
+#[non_exhaustive] pub enum paperpaw_native::preflight::Refusal
 pub paperpaw_native::preflight::Refusal::DynamicSection
 pub paperpaw_native::preflight::Refusal::DynamicTag
 pub paperpaw_native::preflight::Refusal::NotSupported

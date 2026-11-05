@@ -14,6 +14,7 @@ pub use elf::check_elf64_le;
 
 /// Why a file is refused before it is loaded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Refusal {
     /// Not an ELF file, or one this check does not read (32-bit, big
     /// endian, not a shared object): refused, never guessed at.
