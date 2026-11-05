@@ -13,6 +13,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from abi_metadata_schema import compatible_metadata, resolved_metadata, validate_metadata
+from abi_entry import validate_entry, compatible_entry, c_entry, rust_entry
 TYPES = {'context': 'void *', 'pointer': 'void *', 'bytes': 'PpBytes',
          'buffer': 'PpBuffer', 'handle': 'uint32_t', 'usize': 'size_t',
          'u16': 'uint16_t', 'u32': 'uint32_t', 'u64': 'uint64_t',
@@ -82,11 +83,14 @@ def declarations(items, minor):
 def validate(schema):
     keys(schema, 'format major minor host_entries records' +
          (' statuses' if 'statuses' in schema else '') +
-         (' metadata' if 'metadata' in schema else ''))
+         (' metadata' if 'metadata' in schema else '') +
+         (' entry_contract' if 'entry_contract' in schema else ''))
     require(type(schema['format']) is int and schema['format'] == 1,
             'unsupported schema format')
     integer(schema['major'], 65535, 1)
     integer(schema['minor'], 65535, 1)
+    if 'entry_contract' in schema:
+        validate_entry(schema)
     if 'metadata' in schema:
         validate_metadata(schema)
     if 'statuses' in schema:
@@ -182,6 +186,7 @@ def compatible(old, new, released_minor=None):
     integer(released_minor, old['minor'])
     minimum_since = max(old['minor'], released_minor + 1)
     compatible_metadata(old, new, minimum_since)
+    compatible_entry(old, new, minimum_since)
     require(old['format'] == new['format'] and old['major'] == new['major'],
             'format/major change needs separate reviewed baseline')
     require(old['minor'] <= new['minor'] <= old['minor'] + 1,
@@ -227,6 +232,8 @@ def header(schema):
         lines += [f"#define PP_ABI_MAJOR {schema['major']}",
                   f"#define PP_ABI_MINOR {schema['minor']}"]
         lines += [f"#define PP_{x['name']} ({x['value']})" for x in schema['statuses']]
+    if 'entry_contract' in schema:
+        lines += [c_entry(schema)]
     lines += ['#endif', '']
     return '\n'.join(lines)
 
@@ -267,6 +274,8 @@ def rust_module(schema):
         for item in schema['statuses']:
             lines += [f"/// {item['name']}: status value since minor {item['since']}.",
                       f"pub const {item['name']}: i32 = {item['value']};"]
+    if 'entry_contract' in schema:
+        lines += [rust_entry(schema).rstrip('\n')]
     lines += ['']
     return '\n'.join(lines)
 
@@ -329,7 +338,8 @@ def run(argv=None):
         raise ValueError('missing lock; explicit --write-lock required')
     outputs = {folder / 'abi.json': canonical(schema),
                folder / 'generated' / 'paperpaw-abi.h': header(schema),
-               folder / 'generated' / 'paperpaw_abi.rs': rust_module(schema)}
+               folder / 'generated' / 'paperpaw_abi.rs': rust_module(schema),
+               args.root / 'crates/paperpaw-native/src/host_glue/paperpaw_abi.rs': rust_module(schema)}
     if 'metadata' in schema:
         outputs[folder / 'generated' / 'metadata-layout.json'] = canonical(resolved_metadata(schema))
     if args.check:

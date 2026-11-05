@@ -1,0 +1,7 @@
+{
+  "features": [],
+  "floor": 1,
+  "services": [],
+  "target": "esp32c3-riscv32imc-ilp32-soft-le",
+  "used": []
+}

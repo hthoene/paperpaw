@@ -1,4 +1,95 @@
 {
+  "entry_contract": {
+    "entry_symbol": "PAPERPAW_ENTRY",
+    "locator": {
+      "binding": "global",
+      "kind": "readonly_bytes",
+      "length": "total_bytes",
+      "symbol": "PAPERPAW_METADATA",
+      "visibility": "default"
+    },
+    "since": 1,
+    "tables": [
+      {
+        "fields": [
+          {
+            "name": "size",
+            "since": 1,
+            "type": "u32"
+          },
+          {
+            "name": "state",
+            "since": 1,
+            "type": "pointer"
+          },
+          {
+            "callback": {
+              "args": [
+                {
+                  "name": "state",
+                  "type": "pointer"
+                }
+              ],
+              "nullable": true,
+              "result": "void"
+            },
+            "name": "drop",
+            "since": 1
+          }
+        ],
+        "name": "PpPlugin",
+        "since": 1
+      },
+      {
+        "fields": [
+          {
+            "name": "size",
+            "since": 1,
+            "type": "u32"
+          },
+          {
+            "name": "abi_major",
+            "since": 1,
+            "type": "u16"
+          },
+          {
+            "name": "needs_minor",
+            "since": 1,
+            "type": "u16"
+          },
+          {
+            "name": "metadata",
+            "since": 1,
+            "type": "bytes"
+          },
+          {
+            "callback": {
+              "args": [
+                {
+                  "name": "host",
+                  "type": "host_ptr"
+                },
+                {
+                  "name": "host_ctx",
+                  "type": "pointer"
+                },
+                {
+                  "name": "out",
+                  "type": "plugin_out"
+                }
+              ],
+              "nullable": true,
+              "result": "i32"
+            },
+            "name": "make",
+            "since": 1
+          }
+        ],
+        "name": "PpEntry",
+        "since": 1
+      }
+    ]
+  },
   "format": 1,
   "host_entries": [
     {
@@ -596,18 +687,13 @@
         "kind": 1,
         "name": "PAPERPAW_ENTRY",
         "size_source": "entry_bytes"
-      },
-      {
-        "kind": 2,
-        "name": "PAPERPAW_HOST",
-        "size_source": "pointer_bytes"
       }
     ],
     "features": [],
-    "format": 1,
+    "format": 2,
     "magic": "PPAM",
     "max_bytes": 2048,
-    "max_exports": 2,
+    "max_exports": 1,
     "max_features": 32,
     "max_key_bytes": 128,
     "max_services": 16,
