@@ -182,7 +182,7 @@ def build(lang, base):
     import data
 
     source = LANGUAGES / f"{lang}.ini"
-    id = f"language-{lang}"
+    id = f"language-{lang.lower()}"
     out = Path(base) / id
     (out / "i18n").mkdir(parents=True, exist_ok=True)
     listed = data.plugins().get(id)
@@ -206,7 +206,10 @@ def main(args):
 
             for id, fields in data.plugins().items():
                 if fields["build"] == "tools/language-pack.py":
-                    build(id.removeprefix("language-"), out)
+                    # The source tag may contain uppercase regional subtags.
+                    source = next(path for path in fields["inputs"]
+                                  if path.startswith("tools/plugin-files/languages/"))
+                    build(Path(source).stem, out)
         case ["split", out, *n]:
             split(out, int(n[0]) if n else 8)
         case ["check", lang, *files]:

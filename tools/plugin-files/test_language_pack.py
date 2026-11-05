@@ -68,3 +68,32 @@ class LanguagePacks(unittest.TestCase):
         with patch.object(data, "plugins", return_value={}):
             with self.assertRaisesRegex(SystemExit, "language-xx: add its entry"):
                 language_pack.build("xx", self.root / "out")
+
+    def test_regional_language_keeps_its_tag_but_uses_a_lowercase_plugin_id(self):
+        source = self.root / "pt-BR.ini"
+        source.write_text(
+            "[meta]\nlanguage = pt-BR\nname = Português (Brasil)\n"
+            "plural = zero-one-many-other\n\n[messages]\n", encoding="utf-8",
+        )
+        fields = {
+            "version": "1.0.0", "formats": 4,
+            "build": "tools/language-pack.py",
+            "inputs": ["tools/plugin-files/languages/pt-BR.ini"],
+            "name": "Brazilian Portuguese UI", "description": "Brazilian menus.",
+            "de": {"name": "Brasilianisches Portugiesisch", "description": "Menüs."},
+        }
+        with patch.object(data, "plugins", return_value={"language-pt-br": fields}):
+            with patch.object(language_pack.subprocess, "run") as compiler:
+                language_pack.build("pt-BR", self.root / "out")
+        output = self.root / "out/language-pt-br"
+        self.assertIn("id = language-pt-br\n", (output / "plugin.ini").read_text())
+        self.assertEqual(compiler.call_args.args[0][-2:], [
+            str(source), str(output / "i18n/pt-BR.ppcat"),
+        ])
+        # The release driver uses the source tag declared in the inputs.
+        with patch.object(data, "plugins", return_value={"language-pt-br": fields}):
+            with patch.object(language_pack.subprocess, "run") as compiler:
+                language_pack.main([str(self.root / "release")])
+        self.assertEqual(compiler.call_args.args[0][-2:], [
+            str(source), str(self.root / "release/language-pt-br/i18n/pt-BR.ppcat"),
+        ])
