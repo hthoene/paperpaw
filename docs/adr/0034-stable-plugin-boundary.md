@@ -433,9 +433,9 @@ can read the entry. A check after the load is too late. The contract:
    of the file that contains it; the digest and the signature form an envelope
    outside the self-covered metadata, with the excluded ranges stated in the format.
 8. **Layout changes are governed by the container format and the ABI major and minor,
-   never inferred from a compiler.** The PE entry-point rule is checked against the
-   real loader's structures (entry point zero or the linker's documented stub, to be
-   confirmed on a Windows runner), not assumed.
+   never inferred from a compiler.** The PE rule (entry point zero, item 2) is
+   checked against the real loader's structures and confirmed on a Windows runner,
+   not assumed; a linker stub is not accepted in M1.
 
 **Ownership of the fixtures.** Kernel Engineer owns the schema-generated metadata
 bytes, the corruption mutations and the shared manifest with the expected verdicts
