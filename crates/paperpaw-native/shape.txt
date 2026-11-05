@@ -30,6 +30,7 @@ const paperpaw_native::signature::SIGNATURE_MAGIC: [u8; 4] = *b"PPNS"
 enum paperpaw_native::bundle::BundleProblem { NotABundle, NewerFormat, OtherImage, Length, Damaged, Layout, Name, TooLarge }
 enum paperpaw_native::header::Chip { Esp32C3, Esp32S3, Other(0: u16) }
 enum paperpaw_native::header::Problem { NotAPlugin, NewerFormat, OlderFormat, UnknownChip, Malformed, Length, Damaged, Relocation, Signature, Other(0: u16) }
+enum paperpaw_native::preflight::Refusal { NotSupported, Truncated, OtherMachine, RunsCodeAtLoad(0: &'static str) }
 enum paperpaw_native::reloc::PatchKind { Hi20 = 1, Lo12I = 2, Lo12S = 3 }
 struct paperpaw_native::bundle::Bundle { len: u32, plugins: alloc::vec::Vec<paperpaw_native::bundle::BundlePlugin> }
 struct paperpaw_native::bundle::BundleFile { path: alloc::string::String, at: u32, size: u32, sha256: [u8; 32] }

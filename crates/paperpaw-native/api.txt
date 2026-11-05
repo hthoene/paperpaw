@@ -85,6 +85,13 @@ pub const paperpaw_native::index::HOT_MAX: u32
 pub const paperpaw_native::index::MAGIC: [u8; 4]
 pub const paperpaw_native::index::MAX_PLACED: usize
 pub const paperpaw_native::index::SECTOR: u32
+pub mod paperpaw_native::preflight
+pub enum paperpaw_native::preflight::Refusal
+pub paperpaw_native::preflight::Refusal::NotSupported
+pub paperpaw_native::preflight::Refusal::OtherMachine
+pub paperpaw_native::preflight::Refusal::RunsCodeAtLoad(&'static str)
+pub paperpaw_native::preflight::Refusal::Truncated
+pub fn paperpaw_native::preflight::check_elf64_le(&[u8], u16) -> core::result::Result<(), paperpaw_native::preflight::Refusal>
 pub mod paperpaw_native::signature
 pub struct paperpaw_native::signature::BadSignature
 impl core::error::Error for paperpaw_native::signature::BadSignature
