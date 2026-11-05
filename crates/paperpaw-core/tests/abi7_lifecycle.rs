@@ -227,13 +227,15 @@ fn callback_error_and_unwind_release_instance_and_depth_admission() {
 
 fn assert_full_admission(lease: &lifecycle::Lease<'_, (), ()>, depth: &Depth) {
     let other = Instance::new();
-    lease
-        .dispatch(depth, |_| {
-            let _second = other.enter(depth).unwrap();
+    assert_eq!(
+        lease.dispatch(depth, |_| {
+            let second = other.enter(depth);
+            assert!(second.is_ok());
             let third = Instance::new();
             assert!(matches!(third.enter(depth), Err(calls::Error::Depth)));
-        })
-        .unwrap();
+        }),
+        Ok(())
+    );
 }
 
 #[derive(Default)]
