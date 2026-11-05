@@ -154,7 +154,7 @@ pub mod sync {
     mod fs;
     pub use exio::check;
     #[cfg(feature = "alloc")]
-    pub use fs::ExFatFs;
+    pub use fs::{ExFatFs, JournalLocation, INTENT_FILE, INTENT_FILE_BYTES, INTENT_SLOTS_AT};
     #[cfg(feature = "write")]
     #[path = "mkfs.rs"]
     mod mkfs;
@@ -198,7 +198,7 @@ pub mod async_ {
     mod fs;
     pub use exio::check;
     #[cfg(feature = "alloc")]
-    pub use fs::ExFatFs;
+    pub use fs::{ExFatFs, JournalLocation, INTENT_FILE, INTENT_FILE_BYTES, INTENT_SLOTS_AT};
     #[cfg(feature = "write")]
     #[path = "mkfs.rs"]
     mod mkfs;

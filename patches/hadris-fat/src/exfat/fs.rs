@@ -1,3 +1,7 @@
+#[path = "intent_bootstrap.rs"]
+mod intent_bootstrap;
+pub use intent_bootstrap::{JournalLocation, INTENT_FILE, INTENT_FILE_BYTES, INTENT_SLOTS_AT};
+
 use core::fmt;
 
 use hadris_fs::Extent as FileExtent;

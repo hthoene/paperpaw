@@ -1,0 +1,197 @@
+//! Bootstrap prototype under atomic device-block cuts. Torn sectors remain a gate.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "bootstrap regression assertions"
+)]
+mod common;
+use common::{Bytes, Recorded, exfat, exfat_card, read};
+use hadris_fat::exfat::sync::{ExFatFs, INTENT_FILE};
+use hadris_fs::MountOptions;
+use paperpaw_fat::{BlockDisk, Blocks, ExDisk, SharedDisk};
+use paperpaw_platform::Storage;
+use std::{cell::RefCell, rc::Rc};
+
+fn driver<B: Blocks>(bytes: B) -> ExFatFs<ExDisk<B>> {
+    let (disk, _) = BlockDisk::find(bytes).unwrap();
+    ExFatFs::mount(ExDisk::new(SharedDisk::new(disk)), MountOptions::new()).unwrap()
+}
+
+#[test]
+fn bootstrap_publication_and_remount_preserve_existing_files_at_every_block_cut() {
+    let mut cuts = 0;
+    let mut refused = 0;
+    for shift in 0..16 {
+        let bytes = exfat_card();
+        let card = exfat(&bytes);
+        card.write("kept.txt", b"safe content").unwrap();
+        for n in 0..shift {
+            card.write(&format!("pad{n}"), b"").unwrap();
+        }
+        card.sync().unwrap();
+        drop(card);
+        let mut image = bytes.0.borrow().clone();
+        let recorded = Recorded {
+            data: Rc::new(RefCell::new(image.clone())),
+            writes: Rc::new(RefCell::new(Vec::new())),
+        };
+        let mut fs = driver(recorded.clone());
+        let created = fs.bootstrap_intent(123).unwrap();
+        let same = fs.bootstrap_intent(456).unwrap();
+        assert_eq!(created, same);
+        fs.sync().unwrap();
+        drop(fs);
+        for write in std::iter::once(None).chain(recorded.writes.borrow().iter().map(Some)) {
+            if let Some((index, block)) = write {
+                let at = *index as usize * 512;
+                image[at..at + 512].copy_from_slice(block);
+            }
+            let cut = Bytes(Rc::new(RefCell::new(image.clone())));
+            let card = exfat(&cut);
+            assert_eq!(
+                read(&card, "kept.txt"),
+                b"safe content",
+                "shift {shift}, cut {cuts}"
+            );
+            for n in 0..shift {
+                assert_eq!(card.size(&format!("pad{n}")), Ok(0));
+            }
+            drop(card);
+            // Initialization either was not published, or has a complete
+            // manifest and allocation; retry must not overwrite user data.
+            let before_retry = cut.0.borrow().clone();
+            let inherited_dirty = before_retry[106] & 2 != 0;
+            let mut fs = driver(cut.clone());
+            match fs.bootstrap_intent(789) {
+                Ok(_) => {
+                    fs.sync().unwrap();
+                    drop(fs);
+                    assert_eq!(read(&exfat(&cut), "kept.txt"), b"safe content");
+                    let mut checker = ExDisk::new(SharedDisk::new(BlockDisk::find(cut).unwrap().0));
+                    let mut findings = Vec::new();
+                    hadris_fat::exfat::sync::check(&mut checker, &mut [0; 8192], |f| {
+                        // The driver deliberately preserves a dirty flag
+                        // inherited at mount; sync only clears its own flag.
+                        let expected_dirty = inherited_dirty
+                            && f.detail().code_in("hadris-fat::exfat") == Some(15)
+                            && f.severity() == hadris_fs::Severity::Notice
+                            && f.location() == Some(hadris_fs::Location::Byte(106));
+                        if !expected_dirty {
+                            findings.push(format!("{f:?}"));
+                        }
+                    })
+                    .unwrap();
+                    assert!(findings.is_empty(), "{findings:?}");
+                }
+                Err(error) => {
+                    assert!(inherited_dirty, "{error:?}");
+                    assert_eq!(
+                        error.message(),
+                        "journal initialization uncertain; volume check required before retry"
+                    );
+                    drop(fs);
+                    // No second extent, even after repeated fresh mounts.
+                    for _ in 0..4 {
+                        assert!(driver(cut.clone()).bootstrap_intent(789).is_err());
+                        assert_eq!(*cut.0.borrow(), before_retry);
+                    }
+                    refused += 1;
+                }
+            }
+            cuts += 1;
+        }
+    }
+    eprintln!("bootstrap atomic-block cuts checked: {cuts}");
+    assert!(cuts > 100);
+    assert!(refused > 0);
+    eprintln!("uncertain bootstrap cuts refused without retry allocation: {refused}");
+}
+
+#[test]
+fn an_unknown_existing_file_is_never_reinitialized() {
+    let bytes = exfat_card();
+    let card = exfat(&bytes);
+    card.write(INTENT_FILE, b"not our journal").unwrap();
+    card.sync().unwrap();
+    drop(card);
+    let before = bytes.0.borrow().clone();
+    let mut fs = driver(bytes.clone());
+    assert!(fs.bootstrap_intent(123).is_err());
+    drop(fs);
+    assert_eq!(*bytes.0.borrow(), before);
+}
+
+#[test]
+fn a_damaged_reserved_name_is_not_replaced_by_a_second_journal() {
+    let bytes = exfat_card();
+    let mut fs = driver(bytes.clone());
+    fs.bootstrap_intent(123).unwrap();
+    fs.sync().unwrap();
+    drop(fs);
+    let name: Vec<u8> = INTENT_FILE
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    {
+        let mut data = bytes.0.borrow_mut();
+        let text = data
+            .windows(name.len())
+            .position(|bytes| bytes == name)
+            .unwrap();
+        let primary = text - 66;
+        assert_eq!(data[primary], 0x85);
+        data[primary + 2] ^= 1;
+    }
+    let before = bytes.0.borrow().clone();
+    let mut fs = driver(bytes.clone());
+    assert!(fs.bootstrap_intent(456).is_err());
+    drop(fs);
+    assert_eq!(*bytes.0.borrow(), before);
+}
+
+#[test]
+fn torn_publication_does_not_repair_or_reallocate_from_an_uncertain_manifest() {
+    let bytes = exfat_card();
+    let card = exfat(&bytes);
+    card.write("kept.txt", b"safe content").unwrap();
+    card.sync().unwrap();
+    drop(card);
+    let mut image = bytes.0.borrow().clone();
+    let recorded = Recorded {
+        data: Rc::new(RefCell::new(image.clone())),
+        writes: Rc::new(RefCell::new(Vec::new())),
+    };
+    let location = driver(recorded.clone()).bootstrap_intent(123).unwrap();
+    let publication_block = location.entry / 512;
+    let mut tested = 0;
+    for (index, block) in recorded.writes.borrow().iter() {
+        let at = *index as usize * 512;
+        if u64::from(*index) == publication_block {
+            // Old/new prefix tears can affect any byte of publication.
+            // Bytes outside the intended change must remain unchanged.
+            for prefix in 0..=512 {
+                let mut torn = image.clone();
+                torn[at..at + prefix].copy_from_slice(&block[..prefix]);
+                let cut = Bytes(Rc::new(RefCell::new(torn.clone())));
+                let mut fs = driver(cut.clone());
+                if fs.bootstrap_intent(456).is_err() {
+                    drop(fs);
+                    assert_eq!(*cut.0.borrow(), torn);
+                    for _ in 0..3 {
+                        assert!(driver(cut.clone()).bootstrap_intent(456).is_err());
+                        assert_eq!(*cut.0.borrow(), torn);
+                    }
+                }
+                assert_eq!(
+                    read(&exfat(&cut), "kept.txt"),
+                    b"safe content",
+                    "prefix {prefix}"
+                );
+                tested += 1;
+            }
+        }
+        image[at..at + 512].copy_from_slice(block);
+    }
+    assert!(tested >= 513);
+    eprintln!("bootstrap prefix-torn publication cases: {tested}");
+}
