@@ -686,7 +686,15 @@ what, where, commit and number.
 - **Correctness.** Identical pixels and commands against the old path on every
   snapshot test, then the old path deleted; old-beta plugin refused cleanly; a
   fixture plugin built at an earlier minor runs; two compilers; golden vectors
-  decode on both sides; malformed records and tables fuzzed.
+  decode on both sides; malformed records and tables fuzzed. The semantic output of
+  `Canvas` (roles, labels, focus, clip) is compared as well as pixels and commands,
+  and the caller and screen context in it is stamped by the host, never supplied by
+  the plugin. After the Battery-widget slice and before any bulk port, three more
+  samples must pass: a widget hosted by another plugin (nested), a handler that
+  captures state, and a plugin-defined service with an extension event. Typed
+  settings text reads go through the scoped text design. The static call counts of
+  the inventories (20,198 and 1,750 sites, 210 ambiguous) are not runtime frequencies
+  and not an effort multiplier.
 - **Device.** Device Tester runs the slice and the final image on the test X4 (port
   4000), and the Pro only with the owner's OK.
 
