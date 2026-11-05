@@ -258,3 +258,192 @@ fn invalid_text_arguments_fail_before_drawing() {
     );
     assert_eq!(frame.view().data, before);
 }
+
+// Adapted from QA attachment 691. Counts requested traffic, not peak live heap.
+mod allocation_count {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub struct Counts {
+        pub calls: usize,
+        pub bytes: usize,
+    }
+
+    thread_local! {
+        // Const TLS initialization and Cell access do not allocate or lock.
+        static TRACK: Cell<Option<Counts>> = const { Cell::new(None) };
+    }
+
+    fn record(bytes: usize) {
+        TRACK
+            .try_with(|state| {
+                if let Some(mut count) = state.get() {
+                    count.calls = count.calls.saturating_add(1);
+                    count.bytes = count.bytes.saturating_add(bytes);
+                    state.set(Some(count));
+                }
+            })
+            .unwrap_or(());
+    }
+
+    struct Counter;
+    #[global_allocator]
+    static ALLOCATOR: Counter = Counter;
+
+    // SAFETY: every operation forwards the original allocation contract to
+    // System. Tracking touches only allocation-free thread-local Cell state.
+    unsafe impl GlobalAlloc for Counter {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            record(layout.size());
+            // SAFETY: forwarding the caller's valid allocation layout.
+            unsafe { System.alloc(layout) }
+        }
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            record(layout.size());
+            // SAFETY: forwarding the caller's valid allocation layout.
+            unsafe { System.alloc_zeroed(layout) }
+        }
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            // SAFETY: forwarding the original pointer/layout to its allocator.
+            unsafe { System.dealloc(ptr, layout) }
+        }
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            record(new_size);
+            // SAFETY: forwarding the caller's original allocation contract.
+            unsafe { System.realloc(ptr, layout, new_size) }
+        }
+    }
+
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            TRACK.try_with(|state| state.set(None)).unwrap_or(());
+        }
+    }
+
+    pub fn count<R>(draw: impl FnOnce() -> R) -> (R, Counts) {
+        assert!(
+            TRACK.with(|state| state.get().is_none()),
+            "nested allocation counter"
+        );
+        TRACK.with(|state| state.set(Some(Counts::default())));
+        let reset = Reset;
+        let result = draw();
+        let count = TRACK.with(|state| state.take().unwrap_or_default());
+        drop(reset);
+        (result, count)
+    }
+}
+
+#[test]
+fn borrowed_text_does_not_add_a_second_allocating_shaping_pass() {
+    let fonts = fonts();
+    let font = fonts.get("test.font").unwrap();
+    // Hebrew is two UTF-8 bytes per character, so 2048 reaches the 4096-byte cap.
+    for characters in [64, 65, 129, 2048] {
+        let text = "א".repeat(characters);
+        let (mut direct, mut adapted) = (frame(PixelFormat::Gray8), frame(PixelFormat::Gray8));
+        assert!(text.len() <= 4096);
+        for _ in 0..2 {
+            font.draw(&mut direct.canvas(), 12.0, 0.0, 16, &text, Color::BLACK);
+            graphics::text_draw(
+                &mut adapted.canvas(),
+                &font,
+                12.0,
+                0.0,
+                16,
+                &text,
+                Color::BLACK,
+            )
+            .unwrap();
+        }
+        let (direct_width, direct_count) = allocation_count::count(|| {
+            font.draw(&mut direct.canvas(), 12.0, 0.0, 16, &text, Color::BLACK)
+        });
+        let (adapted_result, adapted_count) = allocation_count::count(|| {
+            graphics::text_draw(
+                &mut adapted.canvas(),
+                &font,
+                12.0,
+                0.0,
+                16,
+                &text,
+                Color::BLACK,
+            )
+        });
+        let adapted_width = adapted_result.unwrap();
+        assert_eq!(adapted_width, direct_width, "characters={characters}");
+        assert_eq!(
+            adapted.view().data,
+            direct.view().data,
+            "characters={characters}"
+        );
+        assert!(
+            adapted_count.calls <= direct_count.calls,
+            "characters={characters}: {adapted_count:?} versus {direct_count:?}"
+        );
+        assert!(
+            adapted_count.bytes <= direct_count.bytes,
+            "characters={characters}: {adapted_count:?} versus {direct_count:?}"
+        );
+    }
+}
+
+#[test]
+fn text_draw_preserves_fractional_positions_and_mode_dependent_returns() {
+    let fonts = fonts();
+    let font = fonts.get("test.font").unwrap();
+    for (blind, describing) in [(false, false), (false, true), (true, false), (true, true)] {
+        fonts.set_describing(describing);
+        for text in ["abc", "אב a", "a\u{0301}"] {
+            for x in [-1.75, 0.125, 1_048_576.125] {
+                let (mut direct, mut adapted) = if blind {
+                    (Framebuffer::blind(40, 32), Framebuffer::blind(40, 32))
+                } else {
+                    (frame(PixelFormat::Gray8), frame(PixelFormat::Gray8))
+                };
+                let (mut expected, mut actual) = (Vec::new(), Vec::new());
+                let width = {
+                    let mut canvas = direct.canvas().describing(&mut expected).offset(5, 4);
+                    described(&mut canvas);
+                    font.draw(&mut canvas, 12.0, x, 16, text, Color::BLACK)
+                };
+                let result = {
+                    let mut canvas = adapted.canvas().describing(&mut actual).offset(5, 4);
+                    described(&mut canvas);
+                    graphics::text_draw(&mut canvas, &font, 12.0, x, 16, text, Color::BLACK)
+                };
+                assert_eq!(
+                    result,
+                    Ok(width),
+                    "blind={blind} describing={describing} x={x}"
+                );
+                assert_eq!(direct.view().data, adapted.view().data);
+                assert_eq!(actual, expected);
+            }
+        }
+    }
+}
+
+#[test]
+fn over_budget_text_fails_before_pixels_or_semantics() {
+    let fonts = fonts();
+    let font = fonts.get("test.font").unwrap();
+    let text = "א".repeat(2049);
+    assert_eq!(
+        graphics::text_measure(&font, 12.0, &text),
+        Err(InvalidInput)
+    );
+    let mut frame = frame(PixelFormat::Gray8);
+    let before = frame.view().data.to_vec();
+    let mut records = Vec::new();
+    let mut canvas = frame.canvas().describing(&mut records);
+    described(&mut canvas);
+    assert_eq!(
+        graphics::text_draw(&mut canvas, &font, 12.0, 0.0, 16, &text, Color::BLACK),
+        Err(InvalidInput)
+    );
+    assert_eq!(frame.view().data, before);
+    assert_eq!(records.len(), 1);
+}

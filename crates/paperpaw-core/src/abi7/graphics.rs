@@ -11,6 +11,8 @@ use paperpaw_sdk::FontHandle;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InvalidInput;
 
+const MAX_TEXT_BYTES: usize = 4096;
+
 fn coordinate(value: i64) -> Result<i32, InvalidInput> {
     i32::try_from(value).map_err(|_| InvalidInput)
 }
@@ -115,10 +117,15 @@ fn nonnegative(value: f32) -> Result<f32, InvalidInput> {
 /// Measures borrowed UTF-8 using the resolved font's fallback and ink rules.
 pub fn text_measure(font: &FontHandle<'_>, size: f32, text: &str) -> Result<f32, InvalidInput> {
     nonnegative(size)?;
+    if text.len() > MAX_TEXT_BYTES {
+        return Err(InvalidInput);
+    }
     nonnegative(font.measure(size, text))
 }
 
-/// Draws borrowed text without replacing the canvas or adding semantic records.
+/// Draws at most 4096 UTF-8 bytes without replacing the canvas or semantic sink.
+/// Input errors fail before drawing. A bad returned advance is reported after
+/// drawing, so this operation does not promise atomic effects on output errors.
 #[allow(
     clippy::too_many_arguments,
     reason = "matches the font drawing operation's scalar inputs"
@@ -137,7 +144,10 @@ pub fn text_draw(
         return Err(InvalidInput);
     }
     let baseline = coordinate(baseline)?;
-    // Reject invalid advances before the font can modify any pixels.
-    text_measure(font, size, text)?;
-    Ok(font.draw(canvas, size, x, baseline, text, color))
+    nonnegative(size)?;
+    if text.len() > MAX_TEXT_BYTES {
+        return Err(InvalidInput);
+    }
+    // Keep FontHandle's mode-dependent return and use only one shaping pass.
+    nonnegative(font.draw(canvas, size, x, baseline, text, color))
 }
