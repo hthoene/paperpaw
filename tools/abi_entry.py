@@ -89,14 +89,14 @@ def validate_entry(schema):
     minor = schema.get('minor')
     _integer(minor, 1, 65535)
     contract = schema['entry_contract']
-    _keys(contract, 'since locator entry_symbol host_symbol tables')
+    _keys(contract, 'since locator entry_symbol tables')
     _integer(contract['since'], 1, minor)
     locator = contract['locator']
     _keys(locator, 'symbol kind length binding visibility')
     _require(locator['kind'] == 'readonly_bytes' and locator['length'] == 'total_bytes' and
              locator['binding'] == 'global' and locator['visibility'] == 'default',
              'unsupported entry metadata locator')
-    symbols = [locator['symbol'], contract['entry_symbol'], contract['host_symbol']]
+    symbols = [locator['symbol'], contract['entry_symbol']]
     for symbol in symbols:
         _identifier(symbol)
     _require(len(set(symbols)) == len(symbols), 'duplicate entry contract symbol')
@@ -138,12 +138,11 @@ def validate_entry(schema):
         _require(type(metadata) is dict and type(metadata.get('exports')) is list,
                  'entry contract needs metadata export declarations')
         exports = metadata['exports']
-        _require(len(exports) == 2 and all(type(item) is dict for item in exports),
-                 'entry contract needs two metadata exports')
+        _require(len(exports) == 1 and all(type(item) is dict for item in exports),
+                 'entry contract needs one metadata export')
         _require([(item.get('name'), item.get('kind'), item.get('size_source'))
                   for item in exports] ==
-                 [(contract['entry_symbol'], 1, 'entry_bytes'),
-                  (contract['host_symbol'], 2, 'pointer_bytes')],
+                 [(contract['entry_symbol'], 1, 'entry_bytes')],
                  'entry symbols disagree with metadata exports')
 
 
@@ -179,7 +178,7 @@ def compatible_entry(old, new, minimum_since):
 
 def _symbols(contract):
     return [('METADATA_SYMBOL', contract['locator']['symbol']),
-            ('ENTRY_SYMBOL', contract['entry_symbol']), ('HOST_SYMBOL', contract['host_symbol'])]
+            ('ENTRY_SYMBOL', contract['entry_symbol'])]
 
 
 def c_entry(schema):

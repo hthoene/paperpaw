@@ -24,7 +24,7 @@ as well. Empty `used` requires the current SDK minor as a conservative floor.
 This does not discover actual code usage: generated stubs and build provenance
 must supply an honest complete dependency set before runtime qualification.
 
-Metadata is limited to 2,048 bytes, keys to 128 bytes, exports to two, services to
+Metadata is limited to 2,048 bytes, keys to 128 bytes, exports to one, services to
 16 and features to 32. The codec rejects unknown identifiers, invalid lengths,
 reserved fields, duplicates, invalid UTF-8, noncanonical requirements and trailing
 bytes. A higher required minor is structurally valid; the loader must separately
@@ -58,3 +58,9 @@ with `python3 tools/abi-metadata-fixtures.py`; CI uses `--check`.
 Remaining qualification: real-platform loader fixtures, generated Rust bounded reader, container placement and duplicate/mapping
 checks, loaded-entry comparison, signature coverage, cross-compiler fixtures and
 per-target runtime tests. Environment snapshot layout remains separate.
+
+Metadata format 2 removes the redundant host-slot export from the inactive
+format-1 draft. The trusted-lock transition is permitted only before any
+format-1 target profile was published, retains the entry export and all other
+encoding fields, and obeys the released minor floor. Current artifacts use only
+format 2; the earlier schema is understood for trusted-lock verification.

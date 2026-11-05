@@ -50,8 +50,6 @@ typedef struct PpEntry PpEntry;
 #define PP_METADATA_SYMBOL "PAPERPAW_METADATA"
 /* Generated entry_symbol export name. */
 #define PP_ENTRY_SYMBOL "PAPERPAW_ENTRY"
-/* Generated host_symbol export name. */
-#define PP_HOST_SYMBOL "PAPERPAW_HOST"
 /* PpPlugin: raw table since minor 1. */
 struct PpPlugin {
     /* size: since minor 1. */

@@ -96,8 +96,6 @@ pub const ERR_BUSY: i32 = -9;
 pub const METADATA_SYMBOL: &str = "PAPERPAW_METADATA";
 /// Generated entry_symbol export name.
 pub const ENTRY_SYMBOL: &str = "PAPERPAW_ENTRY";
-/// Generated host_symbol export name.
-pub const HOST_SYMBOL: &str = "PAPERPAW_HOST";
 /// Raw PpPlugin table since minor 1.
 /// Check accessible bytes before reading fields.
 #[repr(C)]

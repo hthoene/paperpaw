@@ -79,8 +79,7 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual(decoded['target'], 'synthetic32')
         self.assertEqual(decoded['entry'], dict(layout=123, bytes=48, align=4))
         self.assertEqual(decoded['profile'], self.metadata['profiles'][0])
-        self.assertEqual(decoded['exports'], [dict(name='PAPERPAW_ENTRY', kind=1, expected_bytes=48),
-                                            dict(name='PAPERPAW_HOST', kind=2, expected_bytes=4)])
+        self.assertEqual(decoded['exports'], [dict(name='PAPERPAW_ENTRY', kind=1, expected_bytes=48)])
         self.assertEqual([item['key'] for item in decoded['services']], ['test.alpha', 'test.bravo'])
         self.assertEqual([item['key'] for item in decoded['features']], ['test.delta', 'test.echo'])
         reordered = dict(self.build, services=list(reversed(self.build['services'])),
@@ -88,10 +87,10 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual(ABI.encode(self.schema, reordered), self.data)
         json.dumps(decoded)
 
-    def test_profile_drives_entry_and_both_export_sizes(self):
+    def test_profile_drives_entry_export_size(self):
         decoded = ABI.decode(self.schema, ABI.encode(self.schema, dict(self.build, target='synthetic64')))
         self.assertEqual(decoded['entry'], dict(layout=456, bytes=80, align=8))
-        self.assertEqual([e['expected_bytes'] for e in decoded['exports']], [80, 8])
+        self.assertEqual([e['expected_bytes'] for e in decoded['exports']], [80])
 
     def test_every_truncation_boundary_and_forged_length_fails(self):
         for end in range(len(self.data)):
@@ -101,7 +100,7 @@ class MetadataTests(unittest.TestCase):
                     self.reject(self.prefix(self.data[:end], total_bytes=end))
 
     def test_prefix_magic_layout_major_lengths_reserved_flags_and_counts(self):
-        mutations = dict(magic=b'XXXX', layout=2, prefix_bytes=31, total_bytes=len(self.data) + 1,
+        mutations = dict(magic=b'XXXX', layout=99, prefix_bytes=31, total_bytes=len(self.data) + 1,
                          abi_major=self.schema['major'] + 1, entry_layout=999,
                          entry_bytes=49, flags=1, needs_minor=0, target_bytes=0)
         for field, value in mutations.items():
@@ -125,7 +124,9 @@ class MetadataTests(unittest.TestCase):
             self.assertGreater(layout['size'], 0)
 
     def test_export_name_kind_and_expected_size_are_exact(self):
-        for location in self.locations()[:2]:
+        for location in self.locations():
+            if location[0] != 'export':
+                continue
             for field in ('kind', 'expected_bytes'):
                 self.reject(self.record_change(location, field, 255))
             _, position, layout = location
@@ -134,7 +135,9 @@ class MetadataTests(unittest.TestCase):
             self.reject(bytes(data))
 
     def test_catalog_requirements_cannot_be_overridden(self):
-        for location in self.locations()[2:]:
+        for location in self.locations():
+            if location[0] == 'export':
+                continue
             kind = location[0]
             fields = ('major', 'semantic_revision', 'min_table_bytes') if kind == 'service' else ('revision',)
             for field in fields:

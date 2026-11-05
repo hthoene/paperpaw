@@ -60,6 +60,27 @@ class MetadataSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'backdated metadata'):
             GEN.check_lock(GEN.lock_record(prior, 1), self.schema)
 
+    def test_host_slot_removal_is_only_an_unpublished_format_transition(self):
+        prior = copy.deepcopy(self.schema)
+        prior['metadata']['format'] = 1
+        prior['metadata']['max_exports'] = 2
+        prior['metadata']['profiles'] = []
+        prior['metadata']['exports'].append(dict(
+            name='PAPERPAW_HOST', kind=2, size_source='pointer_bytes'))
+        GEN.validate(prior)
+        GEN.check_lock(GEN.lock_record(prior, 0), self.schema)
+        with self.assertRaisesRegex(ValueError, 'backdated metadata format transition'):
+            GEN.check_lock(GEN.lock_record(prior, 1), self.schema)
+        candidate = copy.deepcopy(self.schema)
+        candidate['minor'] = 2
+        GEN.check_lock(GEN.lock_record(prior, 1), candidate)
+        candidate['metadata']['max_bytes'] = 1024
+        with self.assertRaisesRegex(ValueError, 'changed metadata encoding'):
+            GEN.check_lock(GEN.lock_record(prior, 1), candidate)
+        prior['metadata']['profiles'] = self.schema['metadata']['profiles']
+        with self.assertRaisesRegex(ValueError, 'transition after target publication'):
+            GEN.check_lock(GEN.lock_record(prior, 0), self.schema)
+
     def test_requirement_catalog_additions_obey_minor_floor(self):
         candidate = copy.deepcopy(self.schema)
         item = dict(key='test.feature', revision=1, since=1)

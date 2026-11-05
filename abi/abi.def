@@ -638,14 +638,14 @@
     }
   ],
   "metadata": {
-    "format": 1,
+    "format": 2,
     "byte_order": "little",
     "magic": "PPAM",
     "max_bytes": 2048,
     "max_key_bytes": 128,
     "max_services": 16,
     "max_features": 32,
-    "max_exports": 2,
+    "max_exports": 1,
     "containers": {
       "elf": ".paperpaw.meta",
       "macho": "__DATA_CONST,__pp_meta",
@@ -731,11 +731,6 @@
         "name": "PAPERPAW_ENTRY",
         "kind": 1,
         "size_source": "entry_bytes"
-      },
-      {
-        "name": "PAPERPAW_HOST",
-        "kind": 2,
-        "size_source": "pointer_bytes"
       }
     ],
     "services": [],
@@ -815,7 +810,6 @@
       "visibility": "default"
     },
     "entry_symbol": "PAPERPAW_ENTRY",
-    "host_symbol": "PAPERPAW_HOST",
     "tables": [
       {
         "name": "PpPlugin",

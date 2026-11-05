@@ -27,10 +27,10 @@ The factory signature is:
 status make(const PpHost *host, void *host_ctx, const PpPlugin **out);
 ```
 
-The loader installs the same table pointer in the declared `PAPERPAW_HOST` slot
-and supplies it explicitly to `make`. This slot is host-populated during loading
-and thereafter treated as immutable, not plugin-owned mutable state. The host
-table and opaque owner context remain valid through instance destruction and
+The loader supplies the host table and context only as arguments to `make`, on
+every platform. There is no global host-pointer slot or writable plugin static.
+The plugin retains these arguments in its owned instance state. The host table
+and opaque owner context remain valid through instance destruction and
 all associated leases. Only host code casts `host_ctx`; only plugin code casts
 plugin state. The plugin never copies a Rust host object through this boundary.
 The core's host context must integrate shell and core services explicitly; casting

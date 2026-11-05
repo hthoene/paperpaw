@@ -95,7 +95,7 @@ class EntrySchemaTests(unittest.TestCase):
 
     def test_names_symbols_and_closed_tables(self):
         base = ['entry_contract']
-        paths = [base + ['entry_symbol'], base + ['host_symbol'], base + ['locator', 'symbol'],
+        paths = [base + ['entry_symbol'], base + ['locator', 'symbol'],
                  base + ['tables', 0, 'fields', 0, 'name'],
                  base + ['tables', 0, 'fields', 2, 'callback', 'args', 0, 'name']]
         for path in paths:
@@ -109,7 +109,7 @@ class EntrySchemaTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_entry(self.mutate(base + ['tables'],
                                       list(reversed(self.schema['entry_contract']['tables']))))
-        for name in ['PAPERPAW_ENTRY', 'PAPERPAW_HOST']:
+        for name in ['PAPERPAW_ENTRY']:
             with self.assertRaisesRegex(ValueError, 'duplicate'):
                 validate_entry(self.mutate(base + ['locator', 'symbol'], name))
 
@@ -133,14 +133,13 @@ class EntrySchemaTests(unittest.TestCase):
     def test_locator_and_metadata_export_semantics(self):
         for path, value in [(['entry_contract', 'locator', 'kind'], 'pointer'),
                             (['entry_contract', 'locator', 'length'], 'size'),
-                            (['entry_contract', 'entry_symbol'], 'OTHER_ENTRY'),
-                            (['entry_contract', 'host_symbol'], 'OTHER_HOST')]:
+                            (['entry_contract', 'entry_symbol'], 'OTHER_ENTRY')]:
             with self.subTest(path=path):
                 with self.assertRaises(ValueError):
                     validate_entry(self.mutate(path, value))
-        for key, value in [('kind', 9), ('size_source', 'entry_bytes')]:
+        for key, value in [('kind', 9), ('size_source', 'pointer_bytes')]:
             with self.assertRaisesRegex(ValueError, 'metadata exports'):
-                validate_entry(self.mutate(['metadata', 'exports', 1, key], value))
+                validate_entry(self.mutate(['metadata', 'exports', 0, key], value))
         candidate = self.mutate(['entry_contract', 'locator', 'symbol'], 'OTHER_METADATA')
         validate_entry(candidate)
         with self.assertRaisesRegex(ValueError, 'locator or export'):
@@ -179,7 +178,8 @@ class EntrySchemaTests(unittest.TestCase):
         self.assertIn('pub const METADATA_SYMBOL: &str = "PAPERPAW_METADATA";', rust)
         self.assertIn('#define PP_METADATA_SYMBOL "PAPERPAW_METADATA"', c)
         self.assertIn('pub const ENTRY_SYMBOL: &str = "PAPERPAW_ENTRY";', rust)
-        self.assertIn('pub const HOST_SYMBOL: &str = "PAPERPAW_HOST";', rust)
+        self.assertNotIn('HOST_SYMBOL', rust)
+        self.assertNotIn('PAPERPAW_HOST', c)
         self.assertNotIn('#![', rust)
         lines = rust.splitlines()
         for index, line in enumerate(lines):

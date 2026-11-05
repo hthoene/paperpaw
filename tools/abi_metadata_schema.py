@@ -27,13 +27,14 @@ def validate_metadata(schema):
     m = schema['metadata']
     keys(m, 'format byte_order magic max_bytes max_key_bytes max_services max_features '
          'max_exports containers profiles prefix exports services features records')
-    integer(m['format'], 1, 1)
+    integer(m['format'], 1, 2)
     require(m['byte_order'] == 'little' and m['magic'] == 'PPAM', 'unsupported metadata encoding')
     integer(m['max_bytes'], 32, 2048)
     integer(m['max_key_bytes'], 1, 128)
     integer(m['max_services'], 0, 16)
     integer(m['max_features'], 0, 32)
-    integer(m['max_exports'], 2, 2)
+    export_count = 2 if m['format'] == 1 else 1
+    integer(m['max_exports'], export_count, export_count)
     keys(m['containers'], 'elf macho pe wasm')
     for value in m['containers'].values():
         text(value)
@@ -54,13 +55,13 @@ def validate_metadata(schema):
         record = field_layout(m['records'][kind])
         require([x['name'] for x in record['fields']] == names.split(), 'metadata record fields')
         require([x['type'] for x in record['fields']] == types[kind].split(), 'metadata record types')
-    require(type(m['exports']) is list and len(m['exports']) == 2, 'metadata export count')
+    require(type(m['exports']) is list and len(m['exports']) == export_count, 'metadata export count')
     for item, kind, source in zip(m['exports'], (1, 2), ('entry_bytes', 'pointer_bytes')):
         keys(item, 'name kind size_source')
         text(item['name'])
         integer(item['kind'], kind, kind)
         require(item['size_source'] == source, 'metadata export size source')
-    require(m['exports'][0]['name'] != m['exports'][1]['name'], 'duplicate export')
+    require(len({x['name'] for x in m['exports']}) == export_count, 'duplicate export')
     seen = set()
     require(type(m['profiles']) is list, 'profiles must be an array')
     for profile in m['profiles']:
@@ -119,8 +120,16 @@ def compatible_metadata(old, new, minimum_since):
         return
     require(after is not None, 'removed metadata contract')
     catalogs = {'profiles', 'services', 'features'}
-    require({k: v for k, v in before.items() if k not in catalogs} ==
-            {k: v for k, v in after.items() if k not in catalogs}, 'changed metadata encoding')
+    compared = catalogs
+    if before['format'] == 1 and after['format'] == 2:
+        # Format 1 never had a production profile. Format 2 removes its
+        # redundant global host-slot requirement; make carries the table.
+        require(not before['profiles'], 'metadata format transition after target publication')
+        require(new['minor'] >= minimum_since, 'backdated metadata format transition')
+        require(after['exports'] == before['exports'][:1], 'changed entry export in format transition')
+        compared = catalogs | {'format', 'exports', 'max_exports'}
+    require({k: v for k, v in before.items() if k not in compared} ==
+            {k: v for k, v in after.items() if k not in compared}, 'changed metadata encoding')
     for key in catalogs:
         prior, current = before[key], after[key]
         require(current[:len(prior)] == prior, 'changed/removed metadata declaration')
