@@ -72,7 +72,7 @@ The description has three kinds of declaration:
 ```
 since 1                                     # the minor version the lines below belong to
 fn canvas.fill_rect(cv: Canvas, x: i32, y: i32, w: u32, h: u32, color: u32)
-fn text.measure(font: Font, size: f32, text: str) -> f32
+fn text.measure(font: Font, size: f32, text: str, out: out<f32>) -> status
 fn i18n.get(env: Env, key: str, out: buf) -> len      # snprintf rule, see 3
 callback screen.on_key(screen, key: u32, flags: u32) -> u32
 record Command.Notify { text: str, ttl_ms: u32? }     # wire record, `?` optional
@@ -89,37 +89,52 @@ adapters for redesigned shapes (section 3), the SDK facade over the stubs
 - `extern "C"`, `#[repr(C)]`, the C ABI of the target. Allowed: `u8` to `u64` and
   `i8` to `i64`, `f32` as C `float` (the ESP32-C3's ilp32 soft-float ABI passes
   it in integer registers: no conversion, no cost; `f64` is not allowed), `bool` as
-  `u8`, pointers, `usize` for lengths only (inside structs always `u32`, so a
-  64-bit host and a 32-bit chip agree on every struct), small `#[repr(C)]` value
-  structs (`Rect`, `Point`, `LineMetrics`, `Color` as `0x00RRGGBB`), enums as
+  `u8`, pointers, `usize` for call-buffer lengths only (wire lengths are bounded `u32`;
+  C struct layouts are target-specific, including pointer width and alignment),
+  small `#[repr(C)]` value structs (`Rect`, `Point`, `LineMetrics`, `Color` as `0x00RRGGBB`), enums as
   fixed-width integers with **open sets** (an unknown value is handled, never
   undefined).
 - **No Rust type crosses**: no `String`, `Vec`, `Option`, `Result`, `Cow`, slice
   reference, trait object, closure, `TypeId`, or enum with data. A function never
   unwinds across (`panic = "abort"` in plugins; the firmware's `extern "C"` calls
   abort on a panic, as Rust does for `extern "C"` since 1.81).
-- **Results:** `i32`. `>= 0` is the value or a length, `< 0` an error from the
+- **Results:** fallible operations return an `i32` status (`0` succeeds)
+  and write values through explicit out parameters. Buffer-copy queries may
+  return a nonnegative required byte length, bounded by `i32::MAX`. The schema
+  distinguishes these two result kinds. A float, pointer or 64-bit value is
+  never squeezed into a status. Negative statuses come from the
   open set in `abi.def` (`ERR_UNSUPPORTED -1`, `ERR_INVALID -2`, `ERR_NO_SPACE -3`,
   `ERR_NO_MEMORY -4`, `ERR_UTF8 -5`, `ERR_STATE -6`, `ERR_CANCELLED -7`,
   `ERR_IO -8`; a negative value this build does not know is the general failure).
 - **Strings** in: `(ptr, len)`, UTF-8, borrowed for the call. Out: a caller-provided
   buffer `(out, cap)` and the **snprintf rule**: the call returns the length the
   full result needs, writes at most `cap` bytes, and the caller calls again with a
-  larger buffer if `need > cap`. A result never longer than its input
+  larger buffer if `need > cap`. Only read-only, repeatable queries use this
+  rule; mutations and consuming reads never repeat for buffer sizing. UTF-8
+  fragments are bytes until a complete result has been obtained. Null plus zero
+  length denotes an empty buffer without constructing a Rust slice from null.
+  A result never longer than its input
   (`unescape`, `decode`, `attrs_get`) needs one call. Nothing owned crosses, so
   nothing is freed by the other side.
 - **Objects the firmware owns** are **handles**. A handle valid only during one
   callback (`Env`, `Canvas`, `Cx`: the `ctx` the firmware passes to every callback)
   is a pointer; using it after the callback returns is a plugin bug, checked in
-  debug builds by a generation word at its start. A handle that outlives a call
+  the generated facade by its callback lifetime. A stale raw pointer cannot
+  safely be checked by dereferencing a generation word in expired storage.
+  Runtime validation, where required, uses a live host-side token registry.
+  A handle that outlives a call
   (`Font`, `Catalog`, `Settings` snapshots, a stored font pack) is a `u32` (slot
   and generation), explicitly released; an unloaded or stale one fails with
   `ERR_STATE`, it does not dangle.
 - **Threads and reentrancy:** one thread. Host functions are called only from
   inside a plugin callback (or its registration), on the kernel's thread. A host
-  function may call back into the same plugin (a visitor, a timer already queued);
+  function may call back into the same plugin for a declared synchronous visitor;
   it never calls a plugin callback while holding a borrow the plugin could
-  invalidate. Anything slow is a command (section 5), not a blocking call.
+  invalidate. Only explicitly declared synchronous visitors may reenter; queued
+  timers and other asynchronous callbacks run after the current callback returns.
+  Generated adapters must not hold an exclusive host-state reference across a
+  nested call that can reacquire it. Anything slow is a command (section 5),
+  not a blocking call.
 - **Heap:** the plugin's global allocator calls the host's `alloc`, `dealloc` and
   `realloc` (one heap on a 256 KiB chip, as now). The contract is still that
   *nothing allocated by one side is freed by the other*; the shared heap is an
@@ -133,7 +148,10 @@ carries the minor it came with.** An entry the device cannot do (Bluetooth on an
 X4 without the radio) is a stub returning `ERR_UNSUPPORTED`, never `NULL`. The
 eight "families", their revisions, `OLDEST`, the planned chain and the nine
 words of the linker script are deleted: one table, one pointer
-(`PAPERPAW_HOST`, filled by the loader).
+(`PAPERPAW_HOST`, filled by the loader). Access uses the known prefix and
+checks `size` before loading each slot; it must never construct a reference to
+the full newest table over shorter storage. Growable records are passed by
+pointer plus accessible size, not by value or as arrays with changing strides.
 
 How the 157 shared functions and the rest of what crosses map (details per entry
 in the notes: `paperpaw/design/flat-boundary-228/table-inventory.md`):
@@ -170,8 +188,12 @@ The redesigns, decided now because breaking is free:
   point variant held back as appended entries if the gate says so. Lines come
   back through a caller buffer of `(start, end, flags)` records.
 - **Strings from catalogs** (#208): `env.tr(key, out)` writes into the caller's
-  buffer; the SDK facade keeps a small plugin-side arena for `&str` returns inside
-  one callback. The kernel's translation cache never has to stay pinned for a
+  buffer. The SDK exposes caller-buffer lookup and an explicit fallible
+  `TextScope` with a bounded arena for multiple live strings. A full scope
+  returns a resource error; it never evicts referenced text or silently falls
+  back to English. Reset requires all scope borrows to end. Nested callbacks
+  have separate scopes. Transparent unlimited `tr() -> &str` is not promised.
+  The kernel's translation cache never has to stay pinned for a
   plugin's reference; the eviction problem of #208 disappears with the borrow.
 - **`Storage`** stays a trait on the plugin side (669 uses) and is implemented by
   a proxy over host entries (open, read, write, list with a visitor callback,
@@ -210,8 +232,9 @@ with `size: u32`, `state: *mut c_void` and `drop` first. **Growth is the size
 word:** the firmware calls a callback only if the table's `size` reaches it and its
 pointer is not `NULL`; absence means the default the description gives. This
 replaces `revision()`, `call_since` and the `GROWING` allowlist for every object
-kind at once (nested wrapper screens included: a wrapper simply forwards its
-inner table's size).
+kind at once. A nested wrapper advertises only callbacks its own implementation
+can forward, including defaults; it never substitutes an inner size for its own
+allocation.
 
 **Closures never cross.** A registration that today carries a closure
 (`Registrar::on`, actions, timers, filters, hooks: 30 of 73 `Contribution` kinds)
@@ -232,40 +255,59 @@ All 66 `Command` variants are plain data (checked: none carries a closure, a tra
 object, a reference or a float). They, the registration records (the 42
 declarative `Contribution` kinds and the tokens of the 30 closure-carrying ones),
 and every event and reply the firmware sends cross as **records** in a byte
-buffer. Decision, from the comparison in the inventory (positional records are 5 to
-12 % smaller and 8 to 14 % cheaper to decode than TLV; allocation, not parsing,
-dominates either way):
+buffer. Positional records are the initial candidate. Size and decode-time
+comparisons in the inventory are estimates, not measured production evidence:
 
 - A **batch** is `count: varint` and `count` records, one buffer per callback
   return, owned by the plugin and borrowed by the firmware for that call (the
-  firmware decodes straight into its own `Command` values, never into a copy).
+  firmware consumes it before the plugin can reuse it). A validation pass
+  checks the entire batch before any command is queued. Decode appends to a
+  private queue segment; on error or allocation failure that segment is dropped.
+  Only a complete segment is committed, in order, after the callback. This is
+  atomic enqueue, not a promise that later command execution is transactional.
 - A **record** is `tag: varint`, `len: varint`, then the body: a **presence
-  bitmap** (1 or 2 bytes, one bit per optional field), then the fields positionally
+  bitmap** prefixed by its byte length, then the fields positionally
   in declared order. Strings are `len: varint` and UTF-8 bytes; ids are strings;
   integers are fixed width or varint as the description says; no floats in a
   record.
-- **Forward compatibility is the rule, and it is checked:** an unknown `tag` is
-  skipped by its `len`; trailing fields a decoder does not know are skipped by the
+- **Forward compatibility is checked:** an unknown optional `tag` can be skipped
+  by its `len`; commands and registrations require support. Trailing fields a
+  decoder does not know are skipped by the
   record's `len`; trailing fields the encoder did not write are the defaults of the
   description. Fields are only appended, tags are never reused or changed, a
-  retired record stays in the description forever.
+  retired record stays in the description forever. The bitmap byte-length
+  prefix is present from revision one, so adding the ninth optional field
+  cannot shift old fields unnoticed. An absent required field is malformed;
+  only appended optional fields with declared defaults may be omitted.
+  Unknown optional event/metadata records can be skipped; unknown commands or
+  registrations return `ERR_UNSUPPORTED`, never silent success.
 - A **well-known string dictionary** (parameter keys, the framework's ids: about 255,
-  append-only, in the description) is encoded as one byte; it cuts a six-pair
-  `PAGE_TURNED` event from 176 to 139 bytes and six of fourteen allocations on the
-  firmware side.
+  append-only, in the description) uses an explicit literal/dictionary tag and
+  a bounded varint index. Dictionary size and allocation savings must be
+  remeasured against this encoding before enabling it; the inventory
+  estimates do not establish a measured saving for this grammar.
 - **Limits:** a batch of at most 4 KiB on the X4, a string field at most 64 KiB;
   `ERR_NO_SPACE` otherwise. Redraw, refresh and wake-up requests are batch header
   flags, not commands. Inbound blobs (an HTTP body) go beside the record as a
-  borrowed `(ptr, len)`, not inside it.
+  borrowed `(ptr, len)`, not inside it. Retained blobs use owner handles with
+  explicit read/release operations, not cross-side `Vec::from_raw_parts`.
+  The callback must declare how long returned buffers remain valid; default
+  plugin output stays valid until the host consumes it before the next call.
+  Buffer limits are per operation and generated from the schema. The 4 KiB
+  batch is an M1 bound, not a silent truncation of existing larger commands;
+  larger records require a bounded chunk/stream protocol before porting.
 - **Namespaces are stamped, not claimed.** The network ownership that today
   derives from ids in the payload (`work.rs:885`) becomes the caller the firmware
-  stamps on every record; secrets in a record are zeroised after decode.
+  stamps on every record. The sender erases its secret-bearing scratch after
+  consumption; the receiver erases temporary copies and retains only the owned
+  data needed for execution. Neither side mutates a borrowed read-only buffer.
 
 ### 6. Compatibility contract for 1.x and the loader
 
 - **Identity:** `major` (this ADR starts it at 7, continuing the interface
-  number) and the **target** (`riscv32`, `xtensa-s3`, `aarch64-android`, `x86_64`,
-  ...), in the entry's first eight bytes and in the `.ppn` header. The layout digest,
+  number) and the **target** (`riscv32imc-ilp32-soft`, `xtensa-s3-windowed`, and explicit
+  OS/calling-convention variants for host targets), in the entry's first eight
+  bytes and in the `.ppn` header. The layout digest,
   the feature bits (`outline`, colour) and the **compiler hash are gone**: no Rust
   layout crosses, so none can differ, and a plugin may be built by any compiler that
   can build `core` for the target and honours the C ABI.
@@ -285,7 +327,10 @@ dominates either way):
   of its code runs. Beta plugins (interface 6) are refused this way and rebuilt
   once; there is no adapter.
 - **A newer plugin on an older firmware** is refused by `needs_minor`, which the
-  generated stubs compute (the highest `since` of any entry the plugin links).
+  generated metadata computes from every used host entry, required callback,
+  record, field, dictionary symbol and semantic feature. The generator and
+  packer must prove this survives dead stripping/LTO; conservative SDK-minor
+  requirements are acceptable for M1, understated requirements are not.
   The old `Api::SIZE` / `needs_api` pair is the same idea in its first form.
 - **Behaviour of an entry never changes** within a major in a way an old plugin
   could notice. A fix that changes a result the plugin keeps (a geometry, a page
@@ -390,8 +435,10 @@ Answers to the inputs of the Web Engineer's audit (ticket #228):
   valid. The release still builds first-party plugins with the release compiler.
 - **Capability units:** `Uses` (network, Bluetooth, developer) stay in the manifest
   as a record field; no table families.
-- **Signer:** Ed25519 identities and keys are unchanged. The signed domain string
-  changes with the format (`PPN5`); `paperpaw-sign pack` reads `abi.json`.
+- **Signer:** Ed25519 identities and keys are unchanged. Retain the existing
+  signature domain and trailer unless the format review identifies a concrete
+  need to change them; the signed header already binds the file format.
+  `paperpaw-sign pack` reads `abi.json` and emits stable JSON metadata.
 - **Fixtures:** `abi/vectors/` (wire records) and a fixture plugin source built by
   the CI matrix; the Workshop's host and device `plugin!` wrappers are generated from
   the same description as the SDK facade.
@@ -484,15 +531,104 @@ merges; its hardening (#672) is the base of the new gate and stays useful.
   the generator becomes critical code (small, deterministic, tested, reviewed
   first).
 
-## Open points for the design review
+## Core design proposals for review
 
-1. Grammar details of `abi.def` (types of handles, optional fields, callbacks that
-   take callbacks) are settled by the first 20 entries in stream A.
-2. Whether `Block` text filters run without a round trip per block (a batched
-   `filter_blocks` entry), and whether storage `list` visitors may call storage.
-3. `tr()` strings: arena in the plugin (recommended) or pinned for one callback.
-4. Whether `major` continues the interface number (7) or restarts at 1 with the
-   ADR 0024 reading ("plugin API 1.x"); the number in the entry is what matters, the
-   spelling is a documentation choice.
-5. The static-blob plus token path for `Fixed*` registrations needs a prototype and
-   an X4 heap measurement before it is committed.
+These resolve the initial open points as proposals, subject to senior review and
+M1 measurements. They do not authorize freezing the ABI before those checks.
+
+### Schema and first 20 entries
+
+Use a deliberately small grammar: explicit declaration IDs, `since`, scalar and
+fixed C value types, callback-scoped views, owner-tagged handles, `in`/`out` buffer
+directions, status versus required-length results, and versioned wire records.
+Each operation declares effect (`query`, `consume`, `mutate`), reentrancy policy,
+input caps, ownership and error behavior. Defaults, optional-field ordinals and
+callback absence behavior are part of the lock. No arbitrary Rust type names,
+implicit ID allocation or nested anonymous callback signatures are permitted.
+Synchronous visitors have named signatures; persistent callbacks use tokens.
+The schema generates a C header as well as Rust bindings and JSON metadata.
+
+The first host entries below exercise the grammar and the vertical slice. Order
+is provisional until stream A review; these are not final public numeric IDs.
+Every entry receives the appropriate live call or owner context. The allocator
+has its own context and must work while constructing and destroying a plugin.
+
+| Order | Entry | Contract exercised |
+|---|---|---|
+| 0 | `heap.alloc` | checked size/alignment; status and pointer out |
+| 1 | `heap.dealloc` | original allocation contract; same owner |
+| 2 | `heap.realloc` | failure leaves old allocation intact |
+| 3 | `clock.micros` | query; `u64` out |
+| 4 | `env.snapshot` | size-bounded scalar device/battery snapshot |
+| 5 | `settings.read` | repeatable tagged-value copy query |
+| 6 | `i18n.copy` | required-length UTF-8 result; scoped facade |
+| 7 | `font.acquire` | persistent owner-tagged handle out |
+| 8 | `handle.release` | type/generation/owner checked; explicit teardown |
+| 9 | `canvas.fill_rect` | signed position, size and color |
+| 10 | `canvas.draw_line` | fixed points, width and color |
+| 11 | `canvas.fill_round` | fixed rect and radius |
+| 12 | `canvas.stroke_round` | fixed rect, radius and thickness |
+| 13 | `text.measure` | finite `f32` arguments and out result |
+| 14 | `text.draw` | borrowed UTF-8 and drawing context |
+| 15 | `commands.submit` | validate then atomic enqueue; no sizing retry |
+| 16 | `registrations.submit` | validate declarative records and callback tokens |
+| 17 | `services.query` | key/major/minor; sized table lease |
+| 18 | `blob.read` | bounded positional read of an owned lease |
+| 19 | `blob.release` | explicit owner release, no allocator transfer |
+
+M1 also defines plugin/screen/widget tables: construct, drop, draw and key/event
+dispatch, plus a bounded screen snapshot. It includes registration records for
+one screen, one setting and one widget; commands to notify and change that
+setting; and one event with a borrowed binary attachment. This tests both
+command order and blob lifetime without porting the whole HTTP service first.
+
+### Filters, text scopes and fixed registrations
+
+- Start `filter_blocks` with bounded spans and a visitor/sink, preserving exact
+  order and filter state across chunks. The host releases mutable borrows before
+  invoking plugin callbacks. A storage-list visitor may perform documented
+  read-only operations through separate handles; mutation of the enumerated
+  namespace is rejected with a busy/state result. Snapshot enumeration or
+  mutation support needs a separate explicit contract.
+- `TextScope` is the bounded, fallible plugin-owned arena described in section 3.
+  It must not move allocated strings while references exist. Caller-buffer lookup
+  remains the allocation-free primitive. Scope exhaustion is explicit and tested;
+  a transparent unbounded compatibility arena is rejected.
+- `Fixed*` registrations use generated immutable wire blobs plus static token
+  dispatch. The host validates before accepting them. Retaining plugin rodata or
+  a function table holds a module lease; unload requires all registrations,
+  in-flight callbacks, returned object tables and pending operations to release
+  their leases. No closure allocation is needed for non-capturing handlers.
+  Capturing closures remain plugin-owned and use the same token protocol.
+- Keep major **7**, as requested for the single interface batch. Target identity
+  includes calling convention, pointer width, endianness and required ISA/OS ABI;
+  an architecture label alone is insufficient. The target names above are
+  illustrative; Firmware must verify and freeze the exact target profiles
+  against each configured toolchain before format-5 IDs are allocated.
+  Wire bytes remain little-endian
+  and independent of C struct padding. Generate per-target layout assertions.
+
+### M1 implementation and ownership split
+
+Use `abi7/integration` for assembled work. Kernel owns `abi/*`, `paperpaw-abi`,
+`tools/abi-gen.py`, core adapters and SDK core contracts. Firmware owns
+`paperpaw-native`, shells, linker script, signer, compatibility tools and ADR
+editing. Plugin Engineer owns facade implementation and ports; agree SDK module
+ownership before edits, since the facade is shared design, not two backends
+maintained by different owners. Web consumes the agreed generated contract.
+
+Sequence: generated declarations/lock and golden vectors; minimal in-process
+host and facade; the screen/setting/event/command slice and Battery widget;
+then a separately built plugin through the real emulator and X4 loader. Test
+short tables, unknown/invalid fields, failed allocations, retained callbacks,
+stale/released handles, two simultaneously live translated strings and nested
+callbacks. Compare pixels and commands with the prototype/direct reference.
+Record measured memory/time against the existing M1 budgets; the prototype is
+performance evidence, not production-safe pointer/ownership glue to copy whole.
+
+Before scaling ports, review the grammar, ownership and loader together. The
+157 shared calls are only part of the API: allocation, registration, services,
+commands and object callbacks must be in the same coverage inventory. Resource
+caps and dictionary savings are measured on real workloads before becoming
+release guarantees. A bigger bitmap, changed C struct stride or truncated batch
+must never be called a compatible addition.
