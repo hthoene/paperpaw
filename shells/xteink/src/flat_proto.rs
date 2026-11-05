@@ -5,7 +5,7 @@
 use alloc::vec::Vec;
 
 use log::info;
-use paperpaw_flat_proto::bench::{self, Probe};
+use paperpaw_flat_proto::bench::{self, Order, Probe};
 use paperpaw_graphics::Framebuffer;
 use paperpaw_platform::PixelFormat;
 use paperpaw_flat_proto::{Font, GlyphCache};
@@ -32,11 +32,13 @@ pub fn run() {
         micros: crate::micros,
         heap_used,
     };
-    let lines: Vec<bench::Line> = bench::run(&probe, &font, &mut cache, &mut canvas, 1);
-    for l in &lines {
-        info!(
-            "flat-proto: {} n={} rusty_us={} flat_us={} rusty_heap={} flat_heap={}",
-            l.name, l.iterations, l.rusty_us, l.flat_us, l.rusty_heap, l.flat_heap
-        );
+    for (tag, order) in [("rusty-first", Order::RustyFirst), ("flat-first", Order::FlatFirst), ("interleaved", Order::Interleaved)] {
+        let lines: Vec<bench::Line> = bench::run(&probe, &font, &mut cache, &mut canvas, 1, order);
+        for l in &lines {
+            info!(
+                "flat-proto: {} n={} rusty_us={} flat_us={} rusty_heap={} flat_heap={} order={}",
+                l.name, l.iterations, l.rusty_us, l.flat_us, l.rusty_heap, l.flat_heap, tag
+            );
+        }
     }
 }

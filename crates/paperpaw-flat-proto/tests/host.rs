@@ -194,7 +194,7 @@ fn bench_print_the_table() {
         },
         heap_used: || LIVE.load(Ordering::Relaxed),
     };
-    let lines = bench::run(&probe, &font, &mut cache, &mut canvas, 100);
+    let lines = bench::run(&probe, &font, &mut cache, &mut canvas, 100, bench::Order::RustyFirst);
     println!("host x86-64, release only counts (took {:?}):", start.elapsed());
     for l in lines {
         println!(

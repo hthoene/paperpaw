@@ -385,3 +385,22 @@ pub fn deliver(plugin: &PluginTable, kind: u32, payload: &str, out: &mut Vec<Com
         }
     }
 }
+
+/// The plugin call alone into `out` (`cap` bytes, not zeroed by the caller).
+pub fn deliver_raw(plugin: &PluginTable, kind: u32, payload: &str, out: *mut u8, cap: usize) -> i32 {
+    // SAFETY: the table's state; `out` has `cap` bytes.
+    unsafe { (plugin.deliver)(plugin.state, kind, payload.as_ptr(), payload.len(), out, cap) }
+}
+
+/// Like [`deliver`], but the 96 byte buffer is not zeroed first.
+pub fn deliver_uninit(plugin: &PluginTable, kind: u32, payload: &str, out: &mut Vec<Command>) {
+    let mut buffer = core::mem::MaybeUninit::<[u8; 96]>::uninit();
+    let written = deliver_raw(plugin, kind, payload, buffer.as_mut_ptr().cast(), 96);
+    if written > 0 {
+        // SAFETY: the plugin wrote `written` bytes, at most 96.
+        let bytes = unsafe { core::slice::from_raw_parts(buffer.as_ptr().cast::<u8>(), written as usize) };
+        if let Ok(text) = core::str::from_utf8(bytes) {
+            out.push(Command::Notify(String::from(text)));
+        }
+    }
+}
