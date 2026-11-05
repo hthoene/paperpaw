@@ -48,6 +48,8 @@ libloading = "0.9"
 paperpaw-native.workspace = true
 
 [dev-dependencies]
+paperpaw-sdk.workspace = true
+paperpaw-text.workspace = true
 # The memory tests build a book with ZipBuilder.
 paperpaw-zip = { workspace = true, features = ["testing"] }
 # And a language of an Arabic interface's size, compiled (ADR 0033).
