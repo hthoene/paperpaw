@@ -87,8 +87,11 @@ adapters for redesigned shapes (section 3), the SDK facade over the stubs
 ### 2. The wire of calls: plain C only
 
 - `extern "C"`, `#[repr(C)]`, the C ABI of the target. Allowed: `u8` to `u64` and
-  `i8` to `i64`, `f32` as C `float` (the ESP32-C3's ilp32 soft-float ABI passes
-  it in integer registers: no conversion, no cost; `f64` is not allowed), `bool` as
+  `i8` to `i64`, `f32` as C `float` and explicitly declared `f64` as C `double`.
+  These are direct C arguments, not fixed-point conversions. The target profile
+  fixes the float calling convention; the host converts only when the operation
+  needs it. Text/drawing uses `f32`; adding `f64` to the grammar does not widen
+  those calls. Finite/range rules belong to each operation. Also allowed: `bool` as
   `u8`, pointers, `usize` for call-buffer lengths only (wire lengths are bounded `u32`;
   C struct layouts are target-specific, including pointer width and alignment),
   small `#[repr(C)]` value structs (`Rect`, `Point`, `LineMetrics`, `Color` as `0x00RRGGBB`), enums as
@@ -98,6 +101,11 @@ adapters for redesigned shapes (section 3), the SDK facade over the stubs
   reference, trait object, closure, `TypeId`, or enum with data. A function never
   unwinds across (`panic = "abort"` in plugins; the firmware's `extern "C"` calls
   abort on a panic, as Rust does for `extern "C"` since 1.81).
+- **Opaque owner data** is permitted: a plugin may pass its state pointer as
+  `void *`, and the host may pass its own context the same way. The other side
+  only stores or returns the opaque value under the declared lifetime contract.
+  Only the originating side casts it back and accesses or destroys the object.
+  This is not permission to interpret another side's Rust object layout.
 - **Results:** fallible operations return an `i32` status (`0` succeeds)
   and write values through explicit out parameters. Buffer-copy queries may
   return a nonnegative required byte length, bounded by `i32::MAX`. The schema
@@ -265,6 +273,11 @@ comparisons in the inventory are estimates, not measured production evidence:
   private queue segment; on error or allocation failure that segment is dropped.
   Only a complete segment is committed, in order, after the callback. This is
   atomic enqueue, not a promise that later command execution is transactional.
+  Validation reads borrowed bytes in place, including UTF-8 for known text
+  fields; it allocates no intermediate `String` or `Vec`. Creating a Rust `str`
+  requires validation first. Text cannot defer validation until execution after
+  earlier effects have occurred. Unknown optional records are skipped by length
+  without interpreting their payload as text.
 - A **record** is `tag: varint`, `len: varint`, then the body: a **presence
   bitmap** prefixed by its byte length, then the fields positionally
   in declared order. Strings are `len: varint` and UTF-8 bytes; ids are strings;
