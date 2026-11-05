@@ -139,6 +139,22 @@ description = "PaperPaw's menus and settings in Spanish."
 de.name = "Spanisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Spanisch."
 
+[language-fr]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/fr.ini", "tools/language-pack.py", "tools/sign"]
+name = "French (user interface)"
+description = "PaperPaw's menus and settings in French."
+de.name = "Französisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Französisch."
+how = "Install this pack from the Plugin store, enable it in Manage plugins, then choose Français under Settings, Language. To install it by hand, copy the built language-fr folder into plugins/ on the memory card and restart PaperPaw.\n\nThe compiled translations stay on the memory card and are read as needed, so the whole catalog does not occupy the device's small working memory. No extra letters pack is needed. This translates the interface, not the text of books."
+de.how = "Installiere dieses Paket aus dem Plugin-Store, aktiviere es unter Plugins verwalten und wähle dann Français unter Einstellungen, Sprache. Zur manuellen Installation kopierst du den gebauten Ordner language-fr nach plugins/ auf der Speicherkarte und startest PaperPaw neu.\n\nDie kompilierten Übersetzungen bleiben auf der Speicherkarte und werden bei Bedarf gelesen. Der gesamte Katalog belegt also nicht den kleinen Arbeitsspeicher des Geräts. Ein zusätzliches Schriftpaket ist nicht nötig. Das Paket übersetzt die Oberfläche, nicht die Buchtexte."
+
 # The Korean packs (#61; owner decision: in the store from the beta).
 # script-korean (#61): the 2,350 Hangul syllables of KS X 1001 with CJK
 # punctuation, compatibility jamo and full-width forms (2,602 characters),
