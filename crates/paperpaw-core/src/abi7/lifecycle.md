@@ -88,10 +88,16 @@ foreign call. Nested installation is refused. The scope clears on return and
 unwind, before the transaction borrow ends. Submission outside that scope returns
 the refused record unchanged.
 
+`RegistrationScope::reject` records a refusal without borrowing the staging
+transaction. Later submissions are refused. On every scope exit, including
+unwind, reset clears access before the target propagates its refusal through
+`Construction::reject`. Commit then returns Invalid, preserving any earlier
+capacity failure instead. Ignoring the original host status cannot publish the
+partial registration set. Only aborting and starting a new transaction clears
+the latch; validated foreign output remains loader-owned on commit rejection.
+
 This bridge does not decode bytes, validate callback pointers, or publish a
 registration. The future slot-16 adapter must validate the complete generated
-batch and account for retained storage before staging. Decoder failure must
-prevent construction commit even if the plugin ignores the error; the generic
-scope alone does not provide that wire-error latch. Do not wire it as a raw
-registration service until that obligation and actual foreign invocation have
-their own tests and review.
+batch and account for retained storage before staging, and call `reject` on
+every decoding, validation or resource refusal. That adapter and actual foreign
+invocation still require tests and review before raw registration is wired.

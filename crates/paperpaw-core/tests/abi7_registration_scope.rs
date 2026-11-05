@@ -189,3 +189,181 @@ impl Drop for Record {
         self.0.set(self.0.get() + 1);
     }
 }
+
+fn destroy_untransferred_output<T: 'static>(_: Pin<&RegistrationScope<T>>) {
+    panic!("rejected commit must leave output destruction to the loader");
+}
+
+#[test]
+fn ignored_rejection_blocks_successful_make_and_drops_all_staged_records() {
+    let staged_drops = Rc::new(Cell::new(0));
+    let output_drops = Rc::new(Cell::new(0));
+    let owner = pin!(HostOwner::new(RegistrationScope::<Record>::new(), ()));
+    let slot = owner.as_ref().context();
+    let mut construction = owner.as_ref().begin().unwrap();
+    let output = slot
+        .scope(&mut construction, || {
+            for _ in 0..2 {
+                assert!(slot.submit(Record(staged_drops.clone())).is_ok());
+            }
+            assert_eq!(slot.reject(), Ok(()));
+            Ok::<_, ()>(Record(output_drops.clone()))
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(staged_drops.get(), 0);
+    assert!(matches!(
+        construction.commit(destroy_untransferred_output),
+        Err(Error::Invalid)
+    ));
+    assert_eq!(staged_drops.get(), 2);
+    assert!(matches!(owner.as_ref().lease(), Err(Error::State)));
+    owner.as_ref().revoke();
+    owner.as_ref().finish().unwrap();
+    assert_eq!(output_drops.get(), 0);
+    drop(output);
+    assert_eq!(output_drops.get(), 1);
+}
+
+#[test]
+fn rejection_returns_further_records_unchanged_and_survives_scope_exit() {
+    let owner = pin!(HostOwner::new(RegistrationScope::<Box<String>>::new(), ()));
+    let slot = owner.as_ref().context();
+    let mut construction = owner.as_ref().begin().unwrap();
+    let record = Box::new(String::from("decoder-owned"));
+    let address = ptr::from_ref(record.as_ref());
+    let returned = slot
+        .scope(&mut construction, || {
+            assert_eq!(slot.reject(), Ok(()));
+            let (error, returned) = slot.submit(record).unwrap_err();
+            assert_eq!(error, Error::Invalid);
+            assert_eq!(ptr::from_ref(returned.as_ref()), address);
+            assert_eq!(*returned, "decoder-owned");
+            returned
+        })
+        .unwrap();
+    slot.scope(&mut construction, || {
+        let (error, returned) = slot.submit(returned).unwrap_err();
+        assert_eq!(error, Error::Invalid);
+        assert_eq!(ptr::from_ref(returned.as_ref()), address);
+        assert_eq!(*returned, "decoder-owned");
+    })
+    .unwrap();
+    assert!(matches!(
+        construction.commit(ignore_context),
+        Err(Error::Invalid)
+    ));
+}
+
+#[test]
+fn rejection_outside_scope_returns_state_without_poisoning_construction() {
+    let owner = pin!(HostOwner::new(RegistrationScope::<u32>::new(), ()));
+    let slot = owner.as_ref().context();
+    assert_eq!(slot.reject(), Err(Error::State));
+    let mut construction = owner.as_ref().begin().unwrap();
+    assert_eq!(slot.reject(), Err(Error::State));
+    slot.scope(&mut construction, || slot.submit(7))
+        .unwrap()
+        .unwrap();
+    assert_eq!(slot.reject(), Err(Error::State));
+    let batch = construction.commit(ignore_context).unwrap();
+    assert_eq!(batch.len(), 1);
+    assert_eq!(
+        batch.dispatch(0, &DispatchDepth::new(), |_, record| *record),
+        Ok(7)
+    );
+}
+
+#[test]
+fn rejection_survives_caught_unwind_after_scope_reset() {
+    let dropped = Rc::new(Cell::new(0));
+    let owner = pin!(HostOwner::new(RegistrationScope::<Record>::new(), ()));
+    let slot = owner.as_ref().context();
+    let mut construction = owner.as_ref().begin().unwrap();
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            slot.scope(&mut construction, || {
+                assert!(slot.submit(Record(dropped.clone())).is_ok());
+                assert_eq!(slot.reject(), Ok(()));
+                panic!("make unwound after decoder rejection");
+            })
+            .unwrap();
+        }))
+        .is_err()
+    );
+    assert_eq!(slot.reject(), Err(Error::State));
+    assert_eq!(dropped.get(), 0);
+    assert!(matches!(
+        construction.commit(ignore_context),
+        Err(Error::Invalid)
+    ));
+    assert_eq!(dropped.get(), 1);
+}
+
+#[test]
+fn aborting_rejected_transaction_leaves_a_clean_retry() {
+    let dropped = Rc::new(Cell::new(0));
+    let owner = pin!(HostOwner::new(RegistrationScope::<Record>::new(), ()));
+    let slot = owner.as_ref().context();
+    let mut construction = owner.as_ref().begin().unwrap();
+    slot.scope(&mut construction, || {
+        assert!(slot.submit(Record(dropped.clone())).is_ok());
+        assert_eq!(slot.reject(), Ok(()));
+    })
+    .unwrap();
+    construction.abort();
+    assert_eq!(dropped.get(), 1);
+    let mut retry = owner.as_ref().begin().unwrap();
+    slot.scope(&mut retry, || {
+        assert!(slot.submit(Record(dropped.clone())).is_ok());
+    })
+    .unwrap();
+    let batch = retry.commit(ignore_context).unwrap();
+    assert_eq!(batch.len(), 1);
+    assert_eq!(dropped.get(), 1);
+    drop(batch);
+    assert_eq!(dropped.get(), 2);
+}
+
+#[test]
+fn repeated_rejection_is_idempotent() {
+    let owner = pin!(HostOwner::new(RegistrationScope::<u32>::new(), ()));
+    let slot = owner.as_ref().context();
+    let mut construction = owner.as_ref().begin().unwrap();
+    slot.scope(&mut construction, || {
+        for _ in 0..3 {
+            assert_eq!(slot.reject(), Ok(()));
+        }
+        assert_eq!(slot.submit(4), Err((Error::Invalid, 4)));
+    })
+    .unwrap();
+    assert!(matches!(
+        construction.commit(ignore_context),
+        Err(Error::Invalid)
+    ));
+    assert_eq!(slot.reject(), Err(Error::State));
+}
+
+#[test]
+fn capacity_failure_precedes_later_decoder_rejection() {
+    let dropped = Rc::new(Cell::new(0));
+    let owner = pin!(HostOwner::new(RegistrationScope::<Record>::new(), ()));
+    let slot = owner.as_ref().context();
+    let mut construction = owner.as_ref().begin().unwrap();
+    slot.scope(&mut construction, || {
+        for _ in 0..8 {
+            assert!(slot.submit(Record(dropped.clone())).is_ok());
+        }
+        let (error, refused) = slot.submit(Record(dropped.clone())).unwrap_err();
+        assert_eq!(error, Error::Capacity);
+        assert_eq!(slot.reject(), Ok(()));
+        drop(refused);
+    })
+    .unwrap();
+    assert_eq!(dropped.get(), 1);
+    assert!(matches!(
+        construction.commit(ignore_context),
+        Err(Error::Capacity)
+    ));
+    assert_eq!(dropped.get(), 9);
+}

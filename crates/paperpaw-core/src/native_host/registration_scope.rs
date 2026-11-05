@@ -15,14 +15,48 @@ use core::{
 
 trait Target<T> {
     fn submit(&self, record: T) -> Result<(), (Error, T)>;
+    fn reject(&self);
 }
 
-impl<C, M, T> Target<T> for RefCell<&mut Construction<'_, C, M, T>> {
-    fn submit(&self, record: T) -> Result<(), (Error, T)> {
-        match self.try_borrow_mut() {
-            Ok(mut construction) => construction.stage(record),
-            Err(_) => Err((Error::Busy, record)),
+struct Staging<'scope, 'owner, C, M, T> {
+    construction: RefCell<&'scope mut Construction<'owner, C, M, T>>,
+    rejected: Cell<bool>,
+}
+
+impl<'scope, 'owner, C, M, T> Staging<'scope, 'owner, C, M, T> {
+    fn new(construction: &'scope mut Construction<'owner, C, M, T>) -> Self {
+        Self {
+            construction: RefCell::new(construction),
+            rejected: Cell::new(false),
         }
+    }
+}
+
+impl<C, M, T> Drop for Staging<'_, '_, C, M, T> {
+    fn drop(&mut self) {
+        // Reset is dropped first. All short-lived submission borrows have ended,
+        // so propagate refusal without borrowing the RefCell or invoking code.
+        if self.rejected.get() {
+            self.construction.get_mut().reject();
+        }
+    }
+}
+
+impl<C, M, T> Target<T> for Staging<'_, '_, C, M, T> {
+    fn submit(&self, record: T) -> Result<(), (Error, T)> {
+        if self.rejected.get() {
+            return Err((Error::Invalid, record));
+        }
+        if let Ok(mut construction) = self.construction.try_borrow_mut() {
+            construction.stage(record)
+        } else {
+            self.reject();
+            Err((Error::Busy, record))
+        }
+    }
+
+    fn reject(&self) {
+        self.rejected.set(true);
     }
 }
 
@@ -68,7 +102,7 @@ impl<T: 'static> RegistrationScope<T> {
         if self.current.get().is_some() {
             return Err(Error::Busy);
         }
-        let target = RefCell::new(construction);
+        let target = Staging::new(construction);
         let borrowed = NonNull::from(&target as &dyn Target<T>);
         // SAFETY: target and its exclusive construction borrow outlive make.
         // Reset clears the erased pointer before either borrow ends, including
@@ -82,6 +116,20 @@ impl<T: 'static> RegistrationScope<T> {
         self.current.set(Some(erased));
         let _reset = Reset(self.get_ref());
         Ok(make())
+    }
+
+    /// Latch a decoder or validation refusal in the active construction.
+    /// This cannot be suppressed by ignoring the host call's error status.
+    /// The latch propagates after scope reset on both return and unwind.
+    ///
+    /// # Errors
+    /// Returns State when no construction scope is installed.
+    pub fn reject(&self) -> Result<(), Error> {
+        let pointer = self.current.get().ok_or(Error::State)?;
+        // SAFETY: the same scoped target lifetime as submit. Rejection uses
+        // only its independent Cell, including during a submission borrow.
+        unsafe { pointer.as_ref() }.reject();
+        Ok(())
     }
 
     /// Stage one validated host-owned record through the active scope.
@@ -117,7 +165,7 @@ impl<T: 'static> fmt::Debug for RegistrationScope<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Error, RefCell, RegistrationScope, Target};
+    use super::{Error, RegistrationScope, Staging, Target};
     use crate::native_host::HostOwner;
 
     #[test]
@@ -125,18 +173,21 @@ mod tests {
         let owner = core::pin::pin!(HostOwner::new((), ()));
         let mut construction = owner.as_ref().begin::<u32>().unwrap();
         {
-            let target = RefCell::new(&mut construction);
-            let held = target.borrow_mut();
+            let target = Staging::new(&mut construction);
+            let held = target.construction.borrow_mut();
             assert_eq!(target.submit(17), Err((Error::Busy, 17)));
+            target.reject();
             drop(held);
-            assert_eq!(target.submit(18), Ok(()));
+            assert_eq!(target.submit(18), Err((Error::Invalid, 18)));
         }
+        assert!(matches!(construction.commit(|_| ()), Err(Error::Invalid)));
+        let mut construction = owner.as_ref().begin::<u32>().unwrap();
         let slot = core::pin::pin!(RegistrationScope::new());
         slot.as_ref()
             .scope(&mut construction, || slot.submit(19))
             .unwrap()
             .unwrap();
         assert_eq!(slot.submit(20), Err((Error::State, 20)));
-        assert_eq!(construction.commit(|_| ()).unwrap().len(), 2);
+        assert_eq!(construction.commit(|_| ()).unwrap().len(), 1);
     }
 }
