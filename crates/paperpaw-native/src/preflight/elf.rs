@@ -47,6 +47,10 @@ const X86_64_KINDS: [u32; 4] = [1, 6, 7, 8];
 const AARCH64_KINDS: [u32; 4] = [257, 1025, 1026, 1027];
 const RELA_ENT: u64 = 24;
 const PF_W: u32 = 2;
+const PF_X: u32 = 1;
+const PT_GNU_STACK: u32 = 0x6474_e551;
+/// More distinct dynamic tags than this are refused (the list is shorter).
+const MAX_TAGS: usize = 48;
 const DT_RELAENT: i64 = 9;
 const DT_REL: i64 = 17;
 const DT_RELRSZ: i64 = 35;
@@ -137,7 +141,7 @@ fn check_no_overlap(loads: &[Option<Load>]) -> Result<(), Refusal> {
         for b in loads.iter().flatten().skip(i + 1) {
             let b_end = b.vaddr.checked_add(b.memsz).ok_or(Refusal::Truncated)?;
             if a.vaddr < b_end && b.vaddr < a_end && a.memsz != 0 && b.memsz != 0 {
-                return Err(Refusal::NotSupported);
+                return Err(Refusal::Segments);
             }
         }
     }
@@ -177,6 +181,7 @@ pub fn check_elf64_le(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
     let mut loads = [None; MAX_LOADS];
     let mut n_loads = 0;
     let mut dynamic: Option<(u64, u64, u64)> = None;
+    let mut stack = false;
     for i in 0..phnum {
         let at = phoff.checked_add(i * PHENT).ok_or(Refusal::Truncated)?;
         let kind = u32_at(bytes, at)?;
@@ -188,9 +193,9 @@ pub fn check_elf64_le(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
         match kind {
             PT_LOAD => {
                 if memsz < filesz {
-                    return Err(Refusal::NotSupported);
+                    return Err(Refusal::Segments);
                 }
-                let slot = loads.get_mut(n_loads).ok_or(Refusal::NotSupported)?;
+                let slot = loads.get_mut(n_loads).ok_or(Refusal::Segments)?;
                 *slot = Some(Load {
                     flags,
                     vaddr,
@@ -206,23 +211,34 @@ pub fn check_elf64_le(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
             }
             PT_DYNAMIC => {
                 if dynamic.is_some() {
-                    return Err(Refusal::NotSupported);
+                    return Err(Refusal::DynamicSection);
                 }
                 dynamic = Some((offset, vaddr, filesz));
             }
             PT_TLS => return Err(Refusal::RunsCodeAtLoad("thread-local storage")),
+            // An executable stack makes the system loader change the stack's
+            // protection; a file that says nothing gets the platform's default.
+            PT_GNU_STACK if flags & PF_X != 0 => return Err(Refusal::Segments),
+            PT_GNU_STACK => stack = true,
             _ => {}
         }
     }
     // Two segments that share addresses would let the file say one thing
     // here and the system loader map another.
+    if !stack {
+        return Err(Refusal::Segments);
+    }
     check_no_overlap(&loads[..n_loads])?;
     // The dynamic section is found as the system loader finds it, through the
     // address mapping; the program header's own file offset must agree.
-    let (dyn_offset, dyn_vaddr, dyn_filesz) = dynamic.ok_or(Refusal::NotSupported)?;
+    let (dyn_offset, dyn_vaddr, dyn_filesz) = dynamic.ok_or(Refusal::DynamicSection)?;
     let dyn_at = offset_of(&loads, dyn_vaddr, dyn_filesz)?;
     if dyn_at != to_usize(dyn_offset)? {
-        return Err(Refusal::NotSupported);
+        return Err(Refusal::DynamicSection);
+    }
+    // The system loader adds the load address to the section's entries in place.
+    if !writable_in(&loads, dyn_vaddr, dyn_filesz) {
+        return Err(Refusal::DynamicSection);
     }
     let dyn_len = to_usize(dyn_filesz)?;
     let dyn_end = dyn_at.checked_add(dyn_len).ok_or(Refusal::Truncated)?;
@@ -234,29 +250,56 @@ pub fn check_elf64_le(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
     if d.needed_count > 0 || d.strtab.is_some() {
         check_needed(bytes, &loads, dyn_at, dyn_end, &d)?;
     }
+    check_tables(bytes, &loads[..n_loads], machine, &d)
+}
+
+/// Checks the relocation, jump-slot and symbol tables the dynamic section names.
+fn check_tables(
+    bytes: &[u8],
+    loads: &[Option<Load>],
+    machine: u16,
+    d: &Dyn,
+) -> Result<(), Refusal> {
     // The jump-slot table is read as `Rela` entries only where it says so.
     if d.jmprel.is_some() && d.pltrelsz != 0 && d.pltrel != Some(DT_RELA as u64) {
-        return Err(Refusal::NotSupported);
+        return Err(Refusal::Relocation);
     }
     let count = if d.symtab.is_some() {
-        symbol_count(bytes, &loads, &d)?
+        symbol_count(bytes, loads, d)?
     } else {
         0
     };
     let tables = Tables {
-        loads: &loads[..n_loads],
+        loads,
         machine,
         symbols: count,
     };
-    // The jump-slot table's first three words are written by the loader.
+    // The jump-slot table's first three words are written by the loader, so a
+    // file with jump slots names where they are.
+    if d.jmprel.is_some() && d.pltrelsz != 0 && d.pltgot.is_none() {
+        return Err(Refusal::Relocation);
+    }
     if let Some(got) = d.pltgot
         && !(tables.writable(got) && tables.writable(got.saturating_add(16)))
     {
-        return Err(Refusal::NotSupported);
+        return Err(Refusal::Relocation);
     }
     check_relocations(bytes, &tables, d.rela, d.relasz, d.relacount)?;
     check_relocations(bytes, &tables, d.jmprel, d.pltrelsz, 0)?;
-    check_symbols(bytes, &loads, &d, count)
+    check_symbols(bytes, loads, d, count)
+}
+
+/// Whether the `len` bytes at `vaddr` lie in one segment that is mapped
+/// writable (the system loader writes there; elsewhere it faults).
+fn writable_in(loads: &[Option<Load>], vaddr: u64, len: u64) -> bool {
+    let Some(end) = vaddr.checked_add(len) else {
+        return false;
+    };
+    loads.iter().flatten().any(|l| {
+        l.flags & PF_W != 0
+            && vaddr >= l.vaddr
+            && l.vaddr.checked_add(l.memsz).is_some_and(|e| end <= e)
+    })
 }
 
 /// What a relocation is checked against.
@@ -270,14 +313,7 @@ impl Tables<'_> {
     /// Whether the 8 bytes at `vaddr` lie in a segment that is mapped
     /// writable (the system loader writes there; elsewhere it faults).
     fn writable(&self, vaddr: u64) -> bool {
-        let Some(end) = vaddr.checked_add(8) else {
-            return false;
-        };
-        self.loads.iter().flatten().any(|l| {
-            l.flags & PF_W != 0
-                && vaddr >= l.vaddr
-                && l.vaddr.checked_add(l.memsz).is_some_and(|e| end <= e)
-        })
+        writable_in(self.loads, vaddr, 8)
     }
 }
 
@@ -285,6 +321,7 @@ impl Tables<'_> {
 /// taken or refused, and the section must end with `DT_NULL`.
 fn read_dynamic(bytes: &[u8], dyn_at: usize, dyn_end: usize) -> Result<Dyn, Refusal> {
     let mut d = Dyn::default();
+    let (mut seen, mut n_seen) = ([0i64; MAX_TAGS], 0);
     let mut ended = false;
     let mut at = dyn_at;
     while at + DYN_ENT <= dyn_end {
@@ -294,6 +331,14 @@ fn read_dynamic(bytes: &[u8], dyn_at: usize, dyn_end: usize) -> Result<Dyn, Refu
         if tag == DT_NULL {
             ended = true;
             break;
+        }
+        // A tag twice would be read one way here and another by the loader.
+        if tag != DT_NEEDED {
+            if seen[..n_seen].contains(&tag) {
+                return Err(Refusal::DynamicTag);
+            }
+            *seen.get_mut(n_seen).ok_or(Refusal::DynamicTag)? = tag;
+            n_seen += 1;
         }
         d.take(tag, val)?;
     }
@@ -351,12 +396,12 @@ impl Dyn {
             DT_GNU_HASH => self.gnu_hash = Some(val),
             DT_RELA => self.rela = Some(val),
             DT_RELASZ => self.relasz = val,
-            DT_RELAENT if val != RELA_ENT => return Err(Refusal::NotSupported),
+            DT_RELAENT if val != RELA_ENT => return Err(Refusal::DynamicTag),
             DT_RELAENT | DT_FLAGS => {}
             DT_STRSZ => self.strsz = val,
             DT_PLTGOT => self.pltgot = Some(val),
             // Tables this check does not read are refused, not skipped.
-            DT_REL | DT_RELCOUNT | DT_RELR | DT_RELRSZ => return Err(Refusal::NotSupported),
+            DT_REL | DT_RELCOUNT | DT_RELR | DT_RELRSZ => return Err(Refusal::DynamicTag),
             DT_RELACOUNT => self.relacount = val,
             DT_JMPREL => self.jmprel = Some(val),
             DT_PLTRELSZ => self.pltrelsz = val,
@@ -365,7 +410,7 @@ impl Dyn {
             DT_FINI_ARRAYSZ => self.fini_arraysz = val,
             DT_PREINIT_ARRAYSZ => self.preinit_arraysz = val,
             t if FLAG_TAGS.contains(&t) => {}
-            _ => return Err(Refusal::NotSupported),
+            _ => return Err(Refusal::DynamicTag),
         }
         Ok(())
     }
@@ -400,7 +445,7 @@ fn check_needed(
     let base = offset_of(loads, strtab, d.strsz)?;
     let last = base.checked_add(size).ok_or(Refusal::Truncated)?;
     if size == 0 || bytes.get(last - 1) != Some(&0) {
-        return Err(Refusal::NotSupported);
+        return Err(Refusal::Strings);
     }
     let mut at = dyn_at;
     while at + DYN_ENT <= dyn_end {
@@ -414,7 +459,7 @@ fn check_needed(
             continue;
         }
         if to_usize(val)? >= size {
-            return Err(Refusal::NotSupported);
+            return Err(Refusal::Strings);
         }
         let start = base.checked_add(to_usize(val)?).ok_or(Refusal::Truncated)?;
         let rest = bytes.get(start..last).ok_or(Refusal::Truncated)?;
@@ -447,18 +492,18 @@ fn check_relocations(
         return if relative_prefix == 0 {
             Ok(())
         } else {
-            Err(Refusal::NotSupported)
+            Err(Refusal::Relocation)
         };
     };
     if size == 0 {
         return if relative_prefix == 0 {
             Ok(())
         } else {
-            Err(Refusal::NotSupported)
+            Err(Refusal::Relocation)
         };
     }
     if !size.is_multiple_of(RELA_ENT) {
-        return Err(Refusal::NotSupported);
+        return Err(Refusal::Relocation);
     }
     let at = offset_of(t.loads, table, size)?;
     let (irelative, kinds) = if t.machine == EM_X86_64 {
@@ -471,7 +516,7 @@ fn check_relocations(
     // The system loader trusts `DT_RELACOUNT`: it applies that many entries
     // as base-relative ones without looking at them.
     if relative_prefix > size / RELA_ENT {
-        return Err(Refusal::NotSupported);
+        return Err(Refusal::Relocation);
     }
     for i in 0..count {
         let entry = at + i * 24;
@@ -483,69 +528,75 @@ fn check_relocations(
             return Err(Refusal::RunsCodeAtLoad("an IFUNC relocation"));
         }
         if !kinds.contains(&kind) || !t.writable(place) {
-            return Err(Refusal::NotSupported);
+            return Err(Refusal::Relocation);
         }
         if (i as u64) < relative_prefix && (kind != relative || sym != 0) {
-            return Err(Refusal::NotSupported);
+            return Err(Refusal::Relocation);
         }
         if sym != 0 && sym >= t.symbols {
-            return Err(Refusal::NotSupported);
+            return Err(Refusal::Relocation);
         }
     }
     Ok(())
 }
 
-/// The symbol count the SysV hash table (`DT_HASH`) states.
+/// One little-endian word at virtual address `vaddr`, found through the
+/// segment map like every other table (never as a raw file offset).
+fn word_at(bytes: &[u8], loads: &[Option<Load>], vaddr: u64) -> Result<u32, Refusal> {
+    u32_at(bytes, offset_of(loads, vaddr, 4)?)
+}
+
+/// The symbol count the SysV hash table (`DT_HASH`) states. The whole table
+/// (header, buckets and chains) must lie in a loadable segment.
 fn sysv_count(bytes: &[u8], loads: &[Option<Load>], hash: u64) -> Result<usize, Refusal> {
-    let at = offset_of(loads, hash, 8)?;
-    to_usize(u64::from(u32_at(
+    let buckets = u64::from(word_at(bytes, loads, hash)?);
+    let chains = u64::from(word_at(
         bytes,
-        at.checked_add(4).ok_or(Refusal::Truncated)?,
-    )?))
+        loads,
+        hash.checked_add(4).ok_or(Refusal::Truncated)?,
+    )?);
+    let size = buckets
+        .checked_add(chains)
+        .and_then(|n| n.checked_mul(4))
+        .and_then(|n| n.checked_add(8))
+        .ok_or(Refusal::Truncated)?;
+    offset_of(loads, hash, size)?;
+    to_usize(chains)
 }
 
 /// The symbol count the GNU hash table (`DT_GNU_HASH`) implies: the end of
-/// the chain of its highest bucket.
+/// the chain of its highest bucket. The header, the bloom words and the
+/// buckets must lie in a loadable segment, and so must each chain word read.
 fn gnu_count(bytes: &[u8], loads: &[Option<Load>], gnu: u64) -> Result<usize, Refusal> {
-    let at = offset_of(loads, gnu, 16)?;
-    let word = |i: usize| -> Result<usize, Refusal> {
-        to_usize(u64::from(u32_at(
-            bytes,
-            at.checked_add(i).ok_or(Refusal::Truncated)?,
-        )?))
-    };
-    let nbuckets = word(0)?;
-    let symoffset = word(4)?;
-    let bloom = word(8)?;
-    let buckets = at
-        .checked_add(16)
-        .and_then(|x| x.checked_add(bloom.checked_mul(8)?))
+    let word = |i: u64| word_at(bytes, loads, gnu.checked_add(i).ok_or(Refusal::Truncated)?);
+    let nbuckets = u64::from(word(0)?);
+    let symoffset = u64::from(word(4)?);
+    let bloom = u64::from(word(8)?);
+    let buckets = bloom
+        .checked_mul(8)
+        .and_then(|x| x.checked_add(16))
         .ok_or(Refusal::Truncated)?;
     let chains = nbuckets
         .checked_mul(4)
-        .and_then(|x| buckets.checked_add(x))
+        .and_then(|x| x.checked_add(buckets))
         .ok_or(Refusal::Truncated)?;
-    let mut last = 0usize;
+    offset_of(loads, gnu, chains)?;
+    let mut last = 0u64;
     for i in 0..nbuckets {
-        let at = buckets.checked_add(i * 4).ok_or(Refusal::Truncated)?;
-        last = last.max(to_usize(u64::from(u32_at(bytes, at)?))?);
+        last = last.max(u64::from(word(buckets + i * 4)?));
     }
     if last < symoffset {
-        return Ok(symoffset);
+        return to_usize(symoffset);
     }
     // Walk the chain of the highest bucket to its end.
     let mut sym = last;
     loop {
-        let at = (sym - symoffset)
-            .checked_mul(4)
-            .and_then(|x| chains.checked_add(x))
-            .ok_or(Refusal::Truncated)?;
-        let h = u32_at(bytes, at)?;
+        let h = word(chains + (sym - symoffset) * 4)?;
         sym += 1;
         if h & 1 == 1 {
-            return Ok(sym);
+            return to_usize(sym);
         }
-        if sym - symoffset > bytes.len() / 4 {
+        if sym - symoffset > (bytes.len() / 4) as u64 {
             return Err(Refusal::Truncated);
         }
     }
@@ -559,9 +610,9 @@ fn symbol_count(bytes: &[u8], loads: &[Option<Load>], d: &Dyn) -> Result<usize, 
     let sysv = d.hash.map(|h| sysv_count(bytes, loads, h)).transpose()?;
     let gnu = d.gnu_hash.map(|g| gnu_count(bytes, loads, g)).transpose()?;
     match (sysv, gnu) {
-        (Some(a), Some(b)) if a != b => Err(Refusal::NotSupported),
+        (Some(a), Some(b)) if a != b => Err(Refusal::Symbols),
         (Some(n), _) | (_, Some(n)) => Ok(n),
-        (None, None) => Err(Refusal::NotSupported),
+        (None, None) => Err(Refusal::Symbols),
     }
 }
 
@@ -575,18 +626,18 @@ fn check_symbols(
         return Ok(());
     };
     if d.syment.is_some_and(|e| e != SYM_ENT as u64) {
-        return Err(Refusal::NotSupported);
+        return Err(Refusal::Symbols);
     }
     let total = u64::try_from(count.checked_mul(SYM_ENT).ok_or(Refusal::Truncated)?)
         .map_err(|_| Refusal::Truncated)?;
     let at = offset_of(loads, symtab, total)?;
     // Names are read from the string table, which was checked above.
     if d.strtab.is_none() {
-        return Err(Refusal::NotSupported);
+        return Err(Refusal::Strings);
     }
     for i in 0..count {
         if to_usize(u64::from(u32_at(bytes, at + i * SYM_ENT)?))? >= to_usize(d.strsz)? {
-            return Err(Refusal::NotSupported);
+            return Err(Refusal::Strings);
         }
         let info = *bytes.get(at + i * SYM_ENT + 4).ok_or(Refusal::Truncated)?;
         if info & 0xf == STT_GNU_IFUNC {

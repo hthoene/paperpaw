@@ -367,6 +367,8 @@ jobs:
         run: |
           cargo build --release --manifest-path crates/paperpaw-core/tests/native-plugin/Cargo.toml
           cargo test -p paperpaw-core --test native_plugin -- --ignored
+          # The preflight accepts the real -nostartfiles plugin (guards the default-deny rules)
+          cargo test -p paperpaw-native --test real_plugin -- --ignored
       - name: The SDK keeps no mutable statics
         # A plugin file has no writable data, and a plugin has its own
         # copy of the SDK code it uses. Without LTO, each crate's objects

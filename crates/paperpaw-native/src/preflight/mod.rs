@@ -25,6 +25,23 @@ pub enum Refusal {
     /// No check exists yet for this platform's libraries: refused, not
     /// accepted (a shell may let a user opt in, in the open).
     UnsupportedPlatform,
+    /// Loadable segments that overlap, are too many, or are laid out so that
+    /// the file and the system loader could read it differently; a missing or
+    /// executable-stack request.
+    Segments,
+    /// The dynamic section is missing, appears twice, is not where its address
+    /// maps, or lies in a segment the system loader cannot write.
+    DynamicSection,
+    /// A dynamic tag that is unknown, repeated, or names a table this check
+    /// does not read.
+    DynamicTag,
+    /// A relocation table the system loader would fault on, or that cannot be
+    /// read as the check reads it.
+    Relocation,
+    /// The symbol tables or their hash tables disagree or are inconsistent.
+    Symbols,
+    /// The string table is empty, unterminated, or a name lies outside it.
+    Strings,
     /// The file has a way to run code, or to load more code, while it
     /// loads. The text names the mechanism.
     RunsCodeAtLoad(&'static str),

@@ -214,7 +214,7 @@ g_embedded() {
 }
 
 g_native() {
-    run "native: plugin from another workspace" "cargo build --release --manifest-path crates/paperpaw-core/tests/native-plugin/Cargo.toml --target-dir crates/paperpaw-core/tests/native-plugin/target && cargo test -p paperpaw-core --test native_plugin -- --ignored"
+    run "native: plugin from another workspace" "cargo build --release --manifest-path crates/paperpaw-core/tests/native-plugin/Cargo.toml --target-dir crates/paperpaw-core/tests/native-plugin/target && cargo test -p paperpaw-core --test native_plugin -- --ignored && cargo test -p paperpaw-native --test real_plugin -- --ignored"
     run "native: the SDK keeps no mutable statics" '
         CARGO_PROFILE_RELEASE_LTO=false cargo build --release --target riscv32imc-unknown-none-elf -p paperpaw-sdk --target-dir target/statics
         CARGO_PROFILE_RELEASE_LTO=false cargo run --release -p paperpaw-sign -- statics target/statics/riscv32imc-unknown-none-elf/release/deps/*.rlib'

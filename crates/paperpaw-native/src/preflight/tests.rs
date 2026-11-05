@@ -16,6 +16,8 @@ struct Spec {
     machine: u16,
     needed: Vec<&'static str>,
     extra_dyn: Vec<(i64, u64)>,
+    /// Entries added even if the tag is already there (a repeated tag).
+    dup_dyn: Vec<(i64, u64)>,
     tls: bool,
     ifunc_symbol: bool,
     irelative: bool,
@@ -31,8 +33,19 @@ struct Spec {
     pltrel_rel: bool,
     /// One `Rela` entry (place, info) in the relocation table.
     reloc: Option<(u64, u64)>,
-    /// The loadable segment is not writable.
+    /// The file's first part (before the dynamic section) is a read-only segment.
     read_only: bool,
+    /// The dynamic section lies in a read-only segment.
+    ro_dynamic: bool,
+    /// The GNU table states this many buckets / bloom words (the table is as short as ever).
+    gnu_buckets: Option<u32>,
+    gnu_bloom: Option<u32>,
+    /// Jump slots, and no `DT_PLTGOT`.
+    no_pltgot: bool,
+    /// No `PT_GNU_STACK` header.
+    no_stack: bool,
+    /// `PT_GNU_STACK` asks for an executable stack.
+    exec_stack: bool,
     /// `DT_RELACOUNT`: this many entries are claimed to be base-relative.
     relacount: Option<u64>,
 }
@@ -71,13 +84,13 @@ fn phdr(f: &mut Vec<u8>, kind: u32, off: u64, size: u64) {
     phdr_at(f, kind, off, off, size);
 }
 
-/// A loadable segment over the whole file, writable unless `read_only`.
-fn load(f: &mut Vec<u8>, size: u64, read_only: bool) {
+/// A loadable segment of `size` bytes at `at` (address = file offset).
+fn load_range(f: &mut Vec<u8>, at: u64, size: u64, flags: u32) {
     put32(f, 1);
-    put32(f, if read_only { 5 } else { 7 });
-    put64(f, 0);
-    put64(f, 0);
-    put64(f, 0);
+    put32(f, flags);
+    put64(f, at);
+    put64(f, at);
+    put64(f, at);
     put64(f, size);
     put64(f, size);
     put64(f, 8);
@@ -119,9 +132,9 @@ fn hash_tables(f: &mut Vec<u8>, spec: &Spec, nsym: usize) {
         }
     };
     if spec.gnu_hash {
-        put32(f, 1); // nbuckets
+        put32(f, spec.gnu_buckets.unwrap_or(1)); // nbuckets
         put32(f, 1); // symoffset: symbol 0 is not hashed
-        put32(f, 1); // bloom size
+        put32(f, spec.gnu_bloom.unwrap_or(1)); // bloom size
         put32(f, 6); // bloom shift
         put64(f, !0); // bloom
         put32(f, 1); // bucket 0 starts at symbol 1
@@ -157,7 +170,10 @@ fn relocations(f: &mut Vec<u8>, spec: &Spec) {
 
 /// A shared object whose single `PT_LOAD` maps the file at its own offsets.
 fn build(spec: &Spec) -> Vec<u8> {
-    let nph: usize = 2 + usize::from(spec.tls) + usize::from(spec.overlapping_load);
+    let nph: usize = 3 - usize::from(spec.no_stack)
+        + usize::from(spec.tls)
+        + usize::from(spec.overlapping_load)
+        + usize::from(spec.read_only);
     let after_ph = 64 + nph * 56;
     // string table: "\0" + needed names + "sym\0"
     let mut strtab = std::vec![0u8];
@@ -214,13 +230,36 @@ fn build(spec: &Spec) -> Vec<u8> {
     if let Some(n) = spec.relacount {
         dynv.push((0x6fff_fff9, n));
     }
-    dynv.extend(spec.extra_dyn.iter().copied());
+    if spec.irelative_in_jmprel && !spec.no_pltgot {
+        dynv.push((3, 0x40)); // DT_PLTGOT, in the writable segment
+    }
+    for &(tag, val) in &spec.extra_dyn {
+        // An entry replaces the built one of its tag, or is added.
+        match dynv.iter_mut().find(|e| e.0 == tag && tag != 1) {
+            Some(e) => e.1 = val,
+            None => dynv.push((tag, val)),
+        }
+    }
+    dynv.extend(spec.dup_dyn.iter().copied());
     dynv.push((0, 0));
     let total = dyn_at + dynv.len() * 16;
 
     let mut f = Vec::new();
     header(&mut f, spec.machine, nph);
-    load(&mut f, total as u64, spec.read_only); // PT_LOAD over the whole file
+    if spec.read_only {
+        // A read-only part up to the dynamic section, a writable one from it.
+        load_range(&mut f, 0, dyn_at as u64, 5);
+        load_range(&mut f, dyn_at as u64, (total - dyn_at) as u64, 6);
+    } else {
+        load_range(&mut f, 0, total as u64, if spec.ro_dynamic { 5 } else { 7 });
+    }
+    if !spec.no_stack {
+        put32(&mut f, 0x6474_e551); // PT_GNU_STACK
+        put32(&mut f, if spec.exec_stack { 7 } else { 6 });
+        for _ in 0..6 {
+            put64(&mut f, 0);
+        }
+    }
     if spec.skewed_dynamic {
         phdr_at(
             &mut f,
@@ -353,13 +392,14 @@ fn every_way_to_run_code_at_load_is_refused() {
 #[test]
 fn files_the_checker_and_the_system_loader_could_read_differently_are_refused() {
     let machine = X86;
-    for (what, spec) in [
+    for (what, spec, why) in [
         (
             "overlapping segments",
             Spec {
                 overlapping_load: true,
                 ..plain(machine)
             },
+            Refusal::Segments,
         ),
         (
             "a dynamic segment away from its address",
@@ -367,6 +407,7 @@ fn files_the_checker_and_the_system_loader_could_read_differently_are_refused() 
                 skewed_dynamic: true,
                 ..plain(machine)
             },
+            Refusal::DynamicSection,
         ),
         (
             "jump slots that are not Rela",
@@ -375,13 +416,51 @@ fn files_the_checker_and_the_system_loader_could_read_differently_are_refused() 
                 pltrel_rel: true,
                 ..plain(machine)
             },
+            Refusal::Relocation,
+        ),
+        (
+            "no stack header",
+            Spec {
+                no_stack: true,
+                ..plain(machine)
+            },
+            Refusal::Segments,
+        ),
+        (
+            "an executable stack",
+            Spec {
+                exec_stack: true,
+                ..plain(machine)
+            },
+            Refusal::Segments,
+        ),
+        (
+            "a dynamic section in a read-only segment",
+            Spec {
+                ro_dynamic: true,
+                ..plain(machine)
+            },
+            Refusal::DynamicSection,
+        ),
+        (
+            "a tag twice",
+            Spec {
+                dup_dyn: std::vec![(16, 0), (16, 0)],
+                ..plain(machine)
+            },
+            Refusal::DynamicTag,
+        ),
+        (
+            "jump slots and no PLTGOT",
+            Spec {
+                irelative_in_jmprel: true,
+                no_pltgot: true,
+                ..plain(machine)
+            },
+            Refusal::Relocation,
         ),
     ] {
-        assert_eq!(
-            check_elf64_le(&build(&spec), machine),
-            Err(Refusal::NotSupported),
-            "{what}"
-        );
+        assert_eq!(check_elf64_le(&build(&spec), machine), Err(why), "{what}");
     }
 }
 
@@ -411,21 +490,21 @@ fn a_relocation_the_system_loader_would_fault_on_is_refused() {
             for place in [0x10_0000, u64::MAX - 3, u64::MAX] {
                 assert_eq!(
                     check_elf64_le(&build(&with(place, kind, false)), machine),
-                    Err(Refusal::NotSupported),
+                    Err(Refusal::Relocation),
                     "kind {kind} at {place:#x}"
                 );
             }
             // The place is in a segment that is not writable.
             assert_eq!(
                 check_elf64_le(&build(&with(0x40, kind, true)), machine),
-                Err(Refusal::NotSupported),
+                Err(Refusal::Relocation),
                 "read-only place, kind {kind}"
             );
             // A symbol past the symbol table (3 symbols).
             for sym in [3u64, 1 << 20] {
                 assert_eq!(
                     check_elf64_le(&build(&with(0x40, kind | sym << 32, false)), machine),
-                    Err(Refusal::NotSupported),
+                    Err(Refusal::Relocation),
                     "kind {kind}, symbol {sym}"
                 );
             }
@@ -433,7 +512,7 @@ fn a_relocation_the_system_loader_would_fault_on_is_refused() {
         // A kind that is none of the allowed ones (a copy relocation).
         assert_eq!(
             check_elf64_le(&build(&with(0x40, 5, false)), machine),
-            Err(Refusal::NotSupported)
+            Err(Refusal::Relocation)
         );
     }
 }
@@ -468,7 +547,7 @@ fn the_relative_relocation_count_is_checked_against_the_table() {
         ] {
             assert_eq!(
                 check_elf64_le(&build(&spec), machine),
-                Err(Refusal::NotSupported),
+                Err(Refusal::Relocation),
                 "{what}"
             );
         }
@@ -572,7 +651,7 @@ fn symbol_version_tables_are_refused() {
             };
             assert_eq!(
                 check_elf64_le(&build(&spec), X86),
-                Err(Refusal::NotSupported),
+                Err(Refusal::DynamicTag),
                 "tag {tag:#x}"
             );
         }
@@ -590,7 +669,7 @@ fn the_string_table_is_bounded_and_every_name_is_inside_it() {
         };
         assert_eq!(
             check_elf64_le(&build(&spec), X86),
-            Err(Refusal::NotSupported),
+            Err(Refusal::Strings),
             "size {size}"
         );
     }
@@ -617,7 +696,7 @@ fn the_jump_slot_got_must_be_writable() {
         };
         assert_eq!(
             check_elf64_le(&build(&spec), X86),
-            Err(Refusal::NotSupported),
+            Err(Refusal::Relocation),
             "got {got:#x} read_only {read_only}"
         );
     }
@@ -632,7 +711,7 @@ fn relocation_tables_this_check_does_not_read_are_refused() {
         };
         assert_eq!(
             check_elf64_le(&build(&spec), X86),
-            Err(Refusal::NotSupported),
+            Err(Refusal::DynamicTag),
             "tag {tag}"
         );
     }
@@ -642,10 +721,7 @@ fn relocation_tables_this_check_does_not_read_are_refused() {
         extra_dyn: std::vec![(8, 25)],
         ..plain(X86)
     };
-    assert_eq!(
-        check_elf64_le(&build(&spec), X86),
-        Err(Refusal::NotSupported)
-    );
+    assert_eq!(check_elf64_le(&build(&spec), X86), Err(Refusal::Relocation));
 }
 
 #[test]
@@ -672,7 +748,7 @@ fn two_hash_tables_that_disagree_are_refused_and_the_ifunc_cannot_hide() {
         };
         assert_eq!(
             check_elf64_le(&build(&lying), machine),
-            Err(Refusal::NotSupported)
+            Err(Refusal::Symbols)
         );
         // Agreement on a clean file is accepted.
         let clean = Spec {
@@ -681,6 +757,44 @@ fn two_hash_tables_that_disagree_are_refused_and_the_ifunc_cannot_hide() {
             ..plain(machine)
         };
         assert_eq!(check_elf64_le(&build(&clean), machine), Ok(()));
+    }
+}
+
+#[test]
+fn hash_tables_that_run_past_their_segment_are_refused() {
+    for machine in [X86, ARM] {
+        for (what, spec) in [
+            (
+                "GNU buckets",
+                Spec {
+                    gnu_hash: true,
+                    gnu_buckets: Some(1 << 30),
+                    ..plain(machine)
+                },
+            ),
+            (
+                "GNU bloom words",
+                Spec {
+                    gnu_hash: true,
+                    gnu_bloom: Some(1 << 30),
+                    ..plain(machine)
+                },
+            ),
+            (
+                "SysV chains beside a GNU table",
+                Spec {
+                    gnu_hash: true,
+                    sysv_too: Some(1 << 30),
+                    ..plain(machine)
+                },
+            ),
+        ] {
+            assert_eq!(
+                check_elf64_le(&build(&spec), machine),
+                Err(Refusal::Truncated),
+                "{what}"
+            );
+        }
     }
 }
 
@@ -867,7 +981,10 @@ pub extern "C" fn plugin_entry() -> u32 { 7 }
         // The senior's recipe: the same library with only PT_DYNAMIC's file
         // offset moved onto appended zeros. It is refused, not read as clean.
         let moved = move_dynamic_offset_to_zeros(&init);
-        assert_eq!(check_elf64_le(&moved, MACHINE), Err(Refusal::NotSupported));
+        assert_eq!(
+            check_elf64_le(&moved, MACHINE),
+            Err(Refusal::DynamicSection)
+        );
         // Nothing was loaded, so nothing ran.
         assert!(!dir.join("marker-must-not-exist").exists());
         let _ = fs::remove_dir_all(&dir);
