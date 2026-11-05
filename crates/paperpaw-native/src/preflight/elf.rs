@@ -1,0 +1,380 @@
+//! The ELF part of the preflight: little-endian 64-bit shared objects.
+
+use super::Refusal;
+
+const ET_DYN: u16 = 3;
+const PT_LOAD: u32 = 1;
+const PT_DYNAMIC: u32 = 2;
+const PT_TLS: u32 = 7;
+const PHENT: usize = 56;
+const DYN_ENT: usize = 16;
+const SYM_ENT: usize = 24;
+const STT_GNU_IFUNC: u8 = 10;
+
+const DT_NULL: i64 = 0;
+const DT_NEEDED: i64 = 1;
+const DT_PLTRELSZ: i64 = 2;
+const DT_HASH: i64 = 4;
+const DT_STRTAB: i64 = 5;
+const DT_SYMTAB: i64 = 6;
+const DT_RELA: i64 = 7;
+const DT_RELASZ: i64 = 8;
+const DT_SYMENT: i64 = 11;
+const DT_INIT: i64 = 12;
+const DT_FINI: i64 = 13;
+const DT_RPATH: i64 = 15;
+const DT_TEXTREL: i64 = 22;
+const DT_JMPREL: i64 = 23;
+const DT_INIT_ARRAYSZ: i64 = 27;
+const DT_FINI_ARRAYSZ: i64 = 28;
+const DT_RUNPATH: i64 = 29;
+const DT_FLAGS: i64 = 30;
+const DT_PREINIT_ARRAYSZ: i64 = 33;
+const DT_GNU_HASH: i64 = 0x6fff_fef5;
+const DT_AUXILIARY: i64 = 0x7fff_fffd;
+const DT_FILTER: i64 = 0x7fff_ffff;
+const DF_TEXTREL: u64 = 0x4;
+const DF_STATIC_TLS: u64 = 0x10;
+/// The relocation kinds that call a resolver while loading.
+const R_X86_64_IRELATIVE: u32 = 37;
+const R_AARCH64_IRELATIVE: u32 = 1032;
+/// Machines a host plugin may be built for.
+const EM_X86_64: u16 = 62;
+const EM_AARCH64: u16 = 183;
+
+/// The libraries a host plugin may name: the C library and nothing else.
+const ALLOWED_NEEDED: [&[u8]; 6] = [
+    b"libc.so.6",
+    b"libm.so.6",
+    b"libdl.so.2",
+    b"libc.so",
+    b"libm.so",
+    b"libdl.so",
+];
+
+fn u16_at(b: &[u8], at: usize) -> Result<u16, Refusal> {
+    let s = b.get(at..at.checked_add(2).ok_or(Refusal::Truncated)?);
+    s.map(|s| u16::from_le_bytes([s[0], s[1]]))
+        .ok_or(Refusal::Truncated)
+}
+
+fn u32_at(b: &[u8], at: usize) -> Result<u32, Refusal> {
+    let s = b.get(at..at.checked_add(4).ok_or(Refusal::Truncated)?);
+    s.map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+        .ok_or(Refusal::Truncated)
+}
+
+fn u64_at(b: &[u8], at: usize) -> Result<u64, Refusal> {
+    let s = b.get(at..at.checked_add(8).ok_or(Refusal::Truncated)?);
+    s.map(|s| u64::from_le_bytes([s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]]))
+        .ok_or(Refusal::Truncated)
+}
+
+fn to_usize(v: u64) -> Result<usize, Refusal> {
+    usize::try_from(v).map_err(|_| Refusal::Truncated)
+}
+
+/// One loadable segment: where it lies in memory and in the file.
+#[derive(Clone, Copy)]
+struct Load {
+    vaddr: u64,
+    offset: u64,
+    filesz: u64,
+}
+
+/// The file offset of virtual address `vaddr`, if a loadable segment
+/// holds it (and the `len` bytes from there).
+fn offset_of(loads: &[Option<Load>], vaddr: u64, len: u64) -> Result<usize, Refusal> {
+    for l in loads.iter().flatten() {
+        let end = l.vaddr.checked_add(l.filesz).ok_or(Refusal::Truncated)?;
+        let want = vaddr.checked_add(len).ok_or(Refusal::Truncated)?;
+        if vaddr >= l.vaddr && want <= end {
+            return to_usize(l.offset + (vaddr - l.vaddr));
+        }
+    }
+    Err(Refusal::Truncated)
+}
+
+/// At most this many loadable segments are read; more is refused.
+const MAX_LOADS: usize = 16;
+
+/// Checks `bytes`, a little-endian 64-bit ELF shared object built for
+/// `machine` (`EM_X86_64` 62 or `EM_AARCH64` 183), for every way to run
+/// code or pull in more code while it loads: `DT_INIT`, `DT_INIT_ARRAY`,
+/// `DT_PREINIT_ARRAY`, `DT_FINI*`, thread-local storage, `IFUNC` symbols
+/// and relocations, text relocations, a search path, auxiliary and filter
+/// libraries, and any needed library outside the C library.
+///
+/// # Errors
+///
+/// [`Refusal`] names the first problem; an unknown structure is refused,
+/// never skipped.
+pub fn check_elf64_le(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
+    if bytes.get(..4) != Some(b"\x7fELF") || bytes.get(4) != Some(&2) || bytes.get(5) != Some(&1) {
+        return Err(Refusal::NotSupported);
+    }
+    if u16_at(bytes, 16)? != ET_DYN {
+        return Err(Refusal::NotSupported);
+    }
+    let found = u16_at(bytes, 18)?;
+    if machine != EM_X86_64 && machine != EM_AARCH64 {
+        return Err(Refusal::NotSupported);
+    }
+    if found != machine {
+        return Err(Refusal::OtherMachine);
+    }
+    let phoff = to_usize(u64_at(bytes, 32)?)?;
+    if usize::from(u16_at(bytes, 54)?) != PHENT {
+        return Err(Refusal::NotSupported);
+    }
+    let phnum = usize::from(u16_at(bytes, 56)?);
+    let mut loads = [None; MAX_LOADS];
+    let mut n_loads = 0;
+    let mut dynamic: Option<(usize, usize)> = None;
+    for i in 0..phnum {
+        let at = phoff.checked_add(i * PHENT).ok_or(Refusal::Truncated)?;
+        let kind = u32_at(bytes, at)?;
+        let offset = u64_at(bytes, at + 8)?;
+        let vaddr = u64_at(bytes, at + 16)?;
+        let filesz = u64_at(bytes, at + 32)?;
+        match kind {
+            PT_LOAD => {
+                let slot = loads.get_mut(n_loads).ok_or(Refusal::NotSupported)?;
+                *slot = Some(Load {
+                    vaddr,
+                    offset,
+                    filesz,
+                });
+                n_loads += 1;
+                let end = offset.checked_add(filesz).ok_or(Refusal::Truncated)?;
+                if to_usize(end)? > bytes.len() {
+                    return Err(Refusal::Truncated);
+                }
+            }
+            PT_DYNAMIC => {
+                if dynamic.is_some() {
+                    return Err(Refusal::NotSupported);
+                }
+                dynamic = Some((to_usize(offset)?, to_usize(filesz)?));
+            }
+            PT_TLS => return Err(Refusal::RunsCodeAtLoad("thread-local storage")),
+            _ => {}
+        }
+    }
+    let (dyn_at, dyn_len) = dynamic.ok_or(Refusal::NotSupported)?;
+    let dyn_end = dyn_at.checked_add(dyn_len).ok_or(Refusal::Truncated)?;
+    if dyn_end > bytes.len() {
+        return Err(Refusal::Truncated);
+    }
+    let mut d = Dyn::default();
+    let mut ended = false;
+    let mut at = dyn_at;
+    while at + DYN_ENT <= dyn_end {
+        let tag = u64_at(bytes, at)? as i64;
+        let val = u64_at(bytes, at + 8)?;
+        at += DYN_ENT;
+        if tag == DT_NULL {
+            ended = true;
+            break;
+        }
+        d.take(tag, val)?;
+    }
+    if !ended {
+        return Err(Refusal::Truncated);
+    }
+    d.check_arrays()?;
+    // Needed libraries: the names lie in the string table.
+    if d.needed_count > 0 || d.strtab.is_some() {
+        check_needed(bytes, &loads, dyn_at, dyn_end, &d)?;
+    }
+    check_relocations(bytes, &loads, machine, d.rela, d.relasz)?;
+    check_relocations(bytes, &loads, machine, d.jmprel, d.pltrelsz)?;
+    check_symbols(bytes, &loads, &d)
+}
+
+/// What the dynamic section says that matters.
+#[derive(Default)]
+struct Dyn {
+    strtab: Option<u64>,
+    symtab: Option<u64>,
+    syment: Option<u64>,
+    hash: Option<u64>,
+    gnu_hash: Option<u64>,
+    rela: Option<u64>,
+    relasz: u64,
+    jmprel: Option<u64>,
+    pltrelsz: u64,
+    init_arraysz: u64,
+    fini_arraysz: u64,
+    preinit_arraysz: u64,
+    needed_count: usize,
+}
+
+impl Dyn {
+    /// Records one entry, or refuses it.
+    fn take(&mut self, tag: i64, val: u64) -> Result<(), Refusal> {
+        match tag {
+            DT_INIT => return Err(Refusal::RunsCodeAtLoad("DT_INIT")),
+            DT_FINI => return Err(Refusal::RunsCodeAtLoad("DT_FINI")),
+            DT_TEXTREL => return Err(Refusal::RunsCodeAtLoad("text relocations")),
+            DT_RPATH | DT_RUNPATH => return Err(Refusal::RunsCodeAtLoad("a library search path")),
+            DT_AUXILIARY | DT_FILTER => {
+                return Err(Refusal::RunsCodeAtLoad("an auxiliary or filter library"));
+            }
+            DT_FLAGS if val & DF_TEXTREL != 0 => {
+                return Err(Refusal::RunsCodeAtLoad("text relocations"));
+            }
+            DT_FLAGS if val & DF_STATIC_TLS != 0 => {
+                return Err(Refusal::RunsCodeAtLoad("static thread-local storage"));
+            }
+            DT_NEEDED => self.needed_count += 1,
+            DT_STRTAB => self.strtab = Some(val),
+            DT_SYMTAB => self.symtab = Some(val),
+            DT_SYMENT => self.syment = Some(val),
+            DT_HASH => self.hash = Some(val),
+            DT_GNU_HASH => self.gnu_hash = Some(val),
+            DT_RELA => self.rela = Some(val),
+            DT_RELASZ => self.relasz = val,
+            DT_JMPREL => self.jmprel = Some(val),
+            DT_PLTRELSZ => self.pltrelsz = val,
+            DT_INIT_ARRAYSZ => self.init_arraysz = val,
+            DT_FINI_ARRAYSZ => self.fini_arraysz = val,
+            DT_PREINIT_ARRAYSZ => self.preinit_arraysz = val,
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// An initialiser, finaliser or pre-initialiser array that has a
+    /// size is refused: its entries run while the library loads or unloads.
+    fn check_arrays(&self) -> Result<(), Refusal> {
+        for (size, what) in [
+            (self.init_arraysz, "DT_INIT_ARRAY"),
+            (self.fini_arraysz, "DT_FINI_ARRAY"),
+            (self.preinit_arraysz, "DT_PREINIT_ARRAY"),
+        ] {
+            if size != 0 {
+                return Err(Refusal::RunsCodeAtLoad(what));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn check_needed(
+    bytes: &[u8],
+    loads: &[Option<Load>],
+    dyn_at: usize,
+    dyn_end: usize,
+    d: &Dyn,
+) -> Result<(), Refusal> {
+    let strtab = d.strtab.ok_or(Refusal::Truncated)?;
+    let base = offset_of(loads, strtab, 1)?;
+    let mut at = dyn_at;
+    while at + DYN_ENT <= dyn_end {
+        let tag = u64_at(bytes, at)? as i64;
+        let val = u64_at(bytes, at + 8)?;
+        at += DYN_ENT;
+        if tag == DT_NULL {
+            break;
+        }
+        if tag != DT_NEEDED {
+            continue;
+        }
+        let start = base.checked_add(to_usize(val)?).ok_or(Refusal::Truncated)?;
+        let rest = bytes.get(start..).ok_or(Refusal::Truncated)?;
+        let end = rest
+            .iter()
+            .position(|&c| c == 0)
+            .ok_or(Refusal::Truncated)?;
+        let name = &rest[..end];
+        if !ALLOWED_NEEDED.contains(&name) {
+            return Err(Refusal::RunsCodeAtLoad(
+                "a library other than the C library",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn check_relocations(
+    bytes: &[u8],
+    loads: &[Option<Load>],
+    machine: u16,
+    table: Option<u64>,
+    size: u64,
+) -> Result<(), Refusal> {
+    let Some(table) = table else { return Ok(()) };
+    if size == 0 {
+        return Ok(());
+    }
+    let at = offset_of(loads, table, size)?;
+    let irelative = if machine == EM_X86_64 {
+        R_X86_64_IRELATIVE
+    } else {
+        R_AARCH64_IRELATIVE
+    };
+    let count = to_usize(size)? / 24;
+    for i in 0..count {
+        let info = u64_at(bytes, at + i * 24 + 8)?;
+        if (info & 0xffff_ffff) as u32 == irelative {
+            return Err(Refusal::RunsCodeAtLoad("an IFUNC relocation"));
+        }
+    }
+    Ok(())
+}
+
+/// How many symbols the dynamic symbol table has, from the hash tables
+/// the loader itself uses; refused when neither is there.
+fn symbol_count(bytes: &[u8], loads: &[Option<Load>], d: &Dyn) -> Result<usize, Refusal> {
+    if let Some(hash) = d.hash {
+        let at = offset_of(loads, hash, 8)?;
+        return to_usize(u64::from(u32_at(bytes, at + 4)?));
+    }
+    let gnu = d.gnu_hash.ok_or(Refusal::NotSupported)?;
+    let at = offset_of(loads, gnu, 16)?;
+    let nbuckets = to_usize(u64::from(u32_at(bytes, at)?))?;
+    let symoffset = to_usize(u64::from(u32_at(bytes, at + 4)?))?;
+    let bloom = to_usize(u64::from(u32_at(bytes, at + 8)?))?;
+    let buckets = at + 16 + bloom.checked_mul(8).ok_or(Refusal::Truncated)?;
+    let chains = buckets + nbuckets.checked_mul(4).ok_or(Refusal::Truncated)?;
+    let mut last = 0usize;
+    for i in 0..nbuckets {
+        last = last.max(to_usize(u64::from(u32_at(bytes, buckets + i * 4)?))?);
+    }
+    if last < symoffset {
+        return Ok(symoffset);
+    }
+    // Walk the chain of the highest bucket to its end.
+    let mut sym = last;
+    loop {
+        let h = u32_at(bytes, chains + (sym - symoffset) * 4)?;
+        sym += 1;
+        if h & 1 == 1 {
+            return Ok(sym);
+        }
+        if sym - symoffset > bytes.len() / 4 {
+            return Err(Refusal::Truncated);
+        }
+    }
+}
+
+fn check_symbols(bytes: &[u8], loads: &[Option<Load>], d: &Dyn) -> Result<(), Refusal> {
+    let Some(symtab) = d.symtab else {
+        return Ok(());
+    };
+    if d.syment.is_some_and(|e| e != SYM_ENT as u64) {
+        return Err(Refusal::NotSupported);
+    }
+    let count = symbol_count(bytes, loads, d)?;
+    let total = u64::try_from(count.checked_mul(SYM_ENT).ok_or(Refusal::Truncated)?)
+        .map_err(|_| Refusal::Truncated)?;
+    let at = offset_of(loads, symtab, total)?;
+    for i in 0..count {
+        let info = *bytes.get(at + i * SYM_ENT + 4).ok_or(Refusal::Truncated)?;
+        if info & 0xf == STT_GNU_IFUNC {
+            return Err(Refusal::RunsCodeAtLoad("an IFUNC symbol"));
+        }
+    }
+    Ok(())
+}
