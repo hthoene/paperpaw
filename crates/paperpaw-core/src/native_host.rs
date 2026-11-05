@@ -6,7 +6,7 @@
 //! No type here is a wire record or a foreign callback signature.
 
 use crate::abi7::{calls, lifecycle};
-use core::{cell::Cell, pin::Pin};
+use core::{cell::Cell, fmt, pin::Pin};
 
 const REGISTRATIONS: usize = 8;
 
@@ -264,5 +264,42 @@ impl<C, M> CallbackLease<'_, C, M> {
         callback: impl FnOnce(Pin<&C>) -> R,
     ) -> Result<R, Error> {
         self.0.dispatch(&depth.0, callback).map_err(Into::into)
+    }
+}
+
+impl fmt::Debug for DispatchDepth {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DispatchDepth").finish_non_exhaustive()
+    }
+}
+
+impl<C, M> fmt::Debug for HostOwner<C, M> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HostOwner")
+            .field("preparing", &self.preparing.get())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<C, M, T> fmt::Debug for Construction<'_, C, M, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Construction")
+            .field("len", &self.len)
+            .field("failure", &self.failure)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<C, M, T> fmt::Debug for RegistrationBatch<'_, C, M, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RegistrationBatch")
+            .field("len", &self.len)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<C, M> fmt::Debug for CallbackLease<'_, C, M> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CallbackLease").finish_non_exhaustive()
     }
 }
