@@ -670,7 +670,7 @@ what, where, commit and number.
   | Small drawing call (rect, line, round shapes) | rect +0.05 us (0.5 %), line +0.05 us, fill_round and stroke_round within +-0.05 us (0.0 %) | within 2 % |
   | Text call (measure, draw), fixed-point arguments | measure +4.1 us, draw +5.3 to +5.6 us (1.5 %, 1.4 %); big text +4.1 to +6 us (+6 to +8 %) | within 3 % and at most +5 us |
   | Text call, C `float` arguments (the ADR's design) | measure +1.55 us (+0.6 %), draw +1.1 to +1.7 us (+0.3 to +0.4 %) | within 3 % and at most +5 us |
-  | Event in, command out (`deliver`) | +1.68 us (+36 %); without zeroing the buffer +1.08 us | at most +1 us per call |
+  | Event in, command out (`deliver`) | +1.68 us (+36 %); without zeroing the buffer +1.08 us; **prepared buffer (plugin writes into the host queue's free tail): 1.90 us against 4.70 us, -2.80 us** (v5) | at most +1 us per call |
   | A whole widget (the Battery widget: 74 calls, of them 2 text and 1 measure) | fixed-point text +61 us (+3.4 %); C-float text -16 to -40 us (-0.9 to -2.2 %); shapes alone +4 us (+0.3 %) | within 3 % and at most +60 us |
   | Whole screen of widgets | not measured | at most +1 ms against the ~500 ms e-ink refresh |
 
@@ -691,6 +691,25 @@ what, where, commit and number.
   design (decode in place, caller-provided output, no copy for text that is not kept)
   must show it in M1, or the gate is reset by the owner on that evidence. For
   scale: one extra microsecond per event is below 0.001 % of an e-ink refresh.
+  The v5 run settles the `deliver` row: with the plugin writing its reply into the
+  free tail of the host's command queue, checked in place and committed by moving the
+  length, one event costs 1.90 us, 2.80 us less than the Rust path (0.61 us plugin
+  call, 0.85 us UTF-8 check, 0.44 us queue bookkeeping). This is the enqueue only: the
+  Rust path's 4.70 us includes allocating and freeing the `String`, which in the flat
+  path is avoided only where the consumer reads the record as a borrowed `&str`; a
+  consumer that needs an owned `String` pays that allocation later.
+  **Code placement can swamp a percentage gate.** In the v5 image, which only added
+  the queued `deliver`, the flat text drawing (both the fixed-point and the C-float
+  entry) became 30 us slower per call (+8 %) and the C-float widget +116 to +123 us,
+  while the Rust path, `text_measure`, `deliver`, all shapes and the other flat
+  calls did not move at all (within 0.1 us). The text code was not changed, so this
+  is a different placement or inlining of the firmware's code in flash, which the
+  C3 runs through a small instruction cache; it is not the boundary. Therefore a
+  percentage gate on text drawing and on widgets is decided on the median of at
+  least three differently laid out images (the build adds padding variants), or on
+  the adapter code alone (`text_measure` is stable to 0.05 us across images), never
+  on one image. The gates for small calls, round shapes and `deliver` were stable
+  across all five images.
   Caveat for the widget row: the same Rust widget measured 1,701 us in the v3 image and
   1,807 us in the v4 image, so code placement alone moves a widget by about 100 us;
   a widget gate is therefore decided on at least two images, not one. Big-text
