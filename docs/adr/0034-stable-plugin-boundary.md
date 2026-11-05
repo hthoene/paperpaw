@@ -398,7 +398,7 @@ the last released minor and run on HEAD (must run); the same source built with t
 compilers (the repository has 1.88 and 1.99.0) loads in the same host (must run);
 a table with an entry moved or a record field reordered (must be refused by the
 loader or fail the gate). Golden wire vectors for every record live in
-`abi/vectors/` and are decoded by both sides.
+`abi/fixtures/wire/` and are decoded by both sides.
 
 ### 9. Interface 7 content: decided now, in the same batch
 
@@ -438,11 +438,14 @@ Answers to the inputs of the Web Engineer's audit (ticket #228):
 - **Symbols:** `PAPERPAW_ENTRY` (section `.rodata.paperpaw_entry`) and `PAPERPAW_HOST`
   (one word the loader fills). `PAPERPAW_TABLE_0..7` and `PAPERPAW_API` are gone;
   `paperpaw-plugin.x` shrinks accordingly.
-- **ABI identity:** `abi = "<major>/<target>"` (for example `7/riscv32`) replaces the
+- **ABI identity:** `abi = "<major>/<target>"` (for example
+  `7/riscv32imc-ilp32-soft`, pending target-profile verification) replaces the
   64-bit fingerprint in the update answer and the catalogue. One build per
   `(major, target)` serves every minor at or above its `needs_minor`; the store may
   show `needs_minor` to say "needs a newer PaperPaw" instead of hiding the build.
-- **Compiler role:** none in the file and none in the check. The Workshop's
+- **Compiler role:** no runtime compatibility requirement. Compiler, SDK source
+  revision, features and build recipe remain informational provenance in the
+  catalogue/build manifest, separate from ABI identity. The Workshop's
   "exact-release SDK and toolchain pins" become the SDK's `rust-version` and a
   recommended compiler per target for authors; a build with another compiler is
   valid. The release still builds first-party plugins with the release compiler.
@@ -452,9 +455,58 @@ Answers to the inputs of the Web Engineer's audit (ticket #228):
   signature domain and trailer unless the format review identifies a concrete
   need to change them; the signed header already binds the file format.
   `paperpaw-sign pack` reads `abi.json` and emits stable JSON metadata.
-- **Fixtures:** `abi/vectors/` (wire records) and a fixture plugin source built by
-  the CI matrix; the Workshop's host and device `plugin!` wrappers are generated from
-  the same description as the SDK facade.
+- **Fixtures:** one authoritative `abi/fixtures/` directory, with wire vectors,
+  artifact files and source for independently built plugins. The Workshop's host
+  and device `plugin!` wrappers use the same generated contract as the SDK facade.
+
+#### Artifact layout and export contract
+
+The schema declares both the format-5 byte header and the target-specific C entry
+layout. The file header is explicitly little-endian and byte-encoded, never a
+memory dump of a C struct. Its descriptor specifies field widths and offsets,
+header length, required-zero reserved fields, legal flags, image/entry/host-slot
+offsets, code/data extents, alignment, relocation/patch ranges and digest coverage.
+The signature trailer and domain are specified separately. The entry descriptor
+defines the identity, size, requirements and `make` fields from section 4, with
+per-target alignment and function-pointer widths. Header and entry ABI/target/
+minor requirements must agree. No plugin code runs until those checks and the
+artifact's existing integrity, signature and placement policy have passed.
+
+`abi.json` exposes these descriptors; the generator emits Rust constants and
+byte readers plus equivalent consumer data for JavaScript. Site and Workshop
+must consume the generated contract, not retype offsets. Concrete byte offsets
+are frozen only with the first generated layout and fixture review. Host cdylib
+exports `PAPERPAW_ENTRY` with the same sized entry semantics as device plugins.
+`PAPERPAW_HOST` is a pointer-sized binding slot initialized before `make`, using
+the generated platform-specific linkage declaration. These symbols, their types,
+visibility, initialization order and device section names are schema data.
+The linker, packer and host loader verify their sizes rather than assuming the
+old entry length or API word count.
+
+#### Packer metadata and consumer conformance
+
+The packer provides a versioned JSON output mode. Its schema includes format,
+ABI major, required minor, target profile, artifact length/digest, entry and
+layout descriptor version, and signature presence/key identity where applicable.
+A separate provenance object records compiler, SDK revision and build recipe.
+Consumers never parse human-readable console lines to obtain these facts, and
+never use provenance or the author's key fingerprint as ABI compatibility.
+The exact JSON schema and sample outputs are checked into `abi/fixtures/`.
+
+`abi/fixtures/manifest.json` lists each case's digest, target, requirements and
+expected result at parsing, structural validation, integrity/signature and
+compatibility stages. Positive cases include an earlier-minor artifact retained
+unchanged and artifacts from two supported compilers. Negative cases include
+truncation, overflowing/overlapping ranges, wrong target, header/entry mismatch,
+too-new requirements, invalid reserved fields, bad relocation destinations and
+invalid digests/signatures. Separate wire cases cover malformed lengths, UTF-8,
+unknown required records and optional-field growth across a bitmap-byte boundary.
+
+Packer, loader, site, browser JavaScript and Workshop run this same corpus. A
+consumer without a signature-verification stage reports that stage as not run,
+not passed; aggregate tests cover every stage. Tests need no production signing
+key. Already published artifact bytes and URLs remain immutable; removing old
+beta loading paths does not authorize overwriting historical downloads.
 
 ## Work breakdown
 
