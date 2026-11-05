@@ -201,6 +201,12 @@ class WorkerTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             port.open()
         self.assertEqual(port.opens, 1)
+        second = Port()
+        with self.assertRaises(RuntimeError):
+            second.open()
+        self.assertEqual(second.opens, 0)
+        self.assertIs(port.dtr, False)
+        self.assertIs(port.rts, False)
         with self.assertRaises(OSError):
             port.read()
         with self.assertRaises(RuntimeError):

@@ -4,11 +4,13 @@ Only the supervising runner calls main after explicit execution authorization.
 All tool/serial work runs in a killable child under the parent's wall deadline.
 """
 import argparse
+import contextlib
 import importlib.util
 import os
 from pathlib import Path
 import sys
 import time
+import tempfile
 
 PORT = "rfc2217://esp-host:4000?ign_set_control"
 MAC = "f8:5b:1b:5d:a2:ac"
@@ -22,14 +24,23 @@ COMMANDS = (
 )
 
 
-def guard_serial(serial_class):
+def guard_serial(serial_class, preserve_input=False):
     """Refuse a second open and any I/O after an observed transport exception."""
     original_open = serial_class.open
     original_read, original_write = serial_class.read, serial_class.write
+    opened = False
 
     def open_once(port, *args, **kwargs):
-        if getattr(port, "_probe_ever_opened", False):
-            raise RuntimeError("reopen forbidden")
+        nonlocal opened
+        if opened or getattr(port, "is_open", False):
+            raise RuntimeError("second open/reopen forbidden")
+        opened = True  # A failed first-open attempt is terminal too.
+        # RFC2217 transmits initial states; ign_set_control only ignores ACKs.
+        # Set both while CLOSED, before even the SDK's Linux constructor opens.
+        port.dtr = False
+        port.rts = False
+        if port.dtr is not False or port.rts is not False:
+            raise RuntimeError("inactive control lines not established")
         port._probe_ever_opened = True
         return original_open(port, *args, **kwargs)
 
@@ -46,6 +57,10 @@ def guard_serial(serial_class):
 
     serial_class.open = open_once
     serial_class.read, serial_class.write = checked(original_read), checked(original_write)
+    if preserve_input and hasattr(serial_class, "reset_input_buffer"):
+        # RFC2217.open normally purges pending device logs. Application evidence
+        # must survive first open; SDK ROM sessions retain their protocol flush.
+        serial_class.reset_input_buffer = lambda port: None
 
 
 def retry_policy(loader):
@@ -98,6 +113,46 @@ def guard_protocol(loader):
     loader.ESPLoader.connect = connect_once
 
 
+SDK_CONFIG = ("[esptool]\nconnect_attempts = 1\n"
+              "open_port_attempts = 1\nwrite_block_attempts = 1\n")
+
+
+@contextlib.contextmanager
+def sdk_environment():
+    """Pin configuration BEFORE import; never consult ambient reset sequences."""
+    if any(name == "esptool" or name.startswith("esptool.") for name in sys.modules):
+        raise RuntimeError("esptool was imported before configuration isolation")
+    saved = {key: value for key, value in os.environ.items() if key.startswith("ESPTOOL_")}
+    with tempfile.TemporaryDirectory(prefix="textprobe-sdk-") as directory:
+        path = Path(directory) / "esptool.cfg"
+        path.write_text(SDK_CONFIG, encoding="ascii")
+        path.chmod(0o400)
+        for key in saved:
+            del os.environ[key]
+        os.environ.update(ESPTOOL_CFGFILE=str(path), ESPTOOL_OPEN_PORT_ATTEMPTS="1",
+                          ESPTOOL_CONNECT_ATTEMPTS="1")
+        try:
+            yield path
+        finally:
+            for key in list(os.environ):
+                if key.startswith("ESPTOOL_"):
+                    del os.environ[key]
+            os.environ.update(saved)
+
+
+def check_sdk_config(path, config, loader):
+    """The SDK is permissive on a bad override: require exact path/content."""
+    parser, selected = config.load_config_file()
+    expected = dict(connect_attempts="1", open_port_attempts="1", write_block_attempts="1")
+    environment = {key: value for key, value in os.environ.items() if key.startswith("ESPTOOL_")}
+    pinned = dict(ESPTOOL_CFGFILE=str(path), ESPTOOL_OPEN_PORT_ATTEMPTS="1",
+                  ESPTOOL_CONNECT_ATTEMPTS="1")
+    if (environment != pinned or path.read_text(encoding="ascii") != SDK_CONFIG or selected is None
+            or Path(selected).resolve() != path.resolve()
+            or dict(parser["esptool"]) != expected or dict(loader.cfg) != expected):
+        raise RuntimeError("SDK config override missing, changed or ambient")
+
+
 def tool_args(action, directory):
     prefix = ["--chip", "auto" if action == "identity" else "esp32c3",
               "--port", PORT, "--connect-attempts", "1", "--before",
@@ -113,12 +168,14 @@ def tool_args(action, directory):
     return prefix + operations[action]
 
 
-def tool(action, directory):
+def tool(action, directory, config_path):
     import esptool
     import esptool.loader as loader
+    import esptool.config as config
     import serial.rfc2217
     if esptool.__version__ != "5.6.0":
         raise RuntimeError("unreviewed esptool version")
+    check_sdk_config(config_path, config, loader)
     retry_policy(loader)
     guard_protocol(loader)
     guard_serial(serial.rfc2217.Serial)
@@ -142,19 +199,28 @@ def wire_command(command):
     return command, "PP:END"
 
 
-def remote(args):
+def remote(args, config_path=None):
+    if args.action == "command":
+        command, terminal = wire_command(args.command)
+    if args.action == "boot":
+        # Even boot imports must see the pinned config before any port opens.
+        import esptool
+        import esptool.config as config
+        import esptool.loader as loader
+        if esptool.__version__ != "5.6.0" or config_path is None:
+            raise RuntimeError("unreviewed boot SDK/configuration")
+        check_sdk_config(config_path, config, loader)
+        from esptool.reset import HardReset
     import serial.rfc2217
-    guard_serial(serial.rfc2217.Serial)
+    guard_serial(serial.rfc2217.Serial, preserve_input=True)
     spec = importlib.util.spec_from_file_location("remote", args.remote)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     port = module.open_port(PORT)
     try:
         if args.action == "boot":
-            from esptool.reset import HardReset
             HardReset(port, uses_usb=True).reset()
         else:
-            command, terminal = wire_command(args.command)
             port.write(command.encode("ascii") + b"\n")
         # Parent enforces the absolute deadline, including open/close. No retries.
         data = b""
@@ -202,10 +268,11 @@ def main():
     args = parser.parse_args()
     if not args.approval_ref.strip():
         parser.error("execution approval reference required")
-    if args.action in ("boot", "command"):
-        remote(args)
-    else:
-        tool(args.action, args.directory)
+    with sdk_environment() as config_path:
+        if args.action in ("boot", "command"):
+            remote(args, config_path)
+        else:
+            tool(args.action, args.directory, config_path)
 
 
 if __name__ == "__main__":

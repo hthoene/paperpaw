@@ -11,9 +11,10 @@ python3 -I tools/x4textprobe_runner.py
 python3 -m unittest discover -s tools -p 'test_x4textprobe*.py'
 ```
 
-The standard-library suite is self-contained. Two additional tests exercise the
-exact esptool 5.6.0 methods when that optional package is installed; otherwise
-those tests report skips. In the device-testing environment run the same suite
+The standard-library suite is self-contained. Additional tests exercise the
+exact esptool 5.6.0 methods, Linux constructor and isolated configuration when
+that optional package is installed; otherwise those methods/subcases report
+explicit skips. In the device-testing environment run the same suite
 with `/home/agent/esptool-venv/bin/python` to include both exact-SDK regressions.
 All fixtures and measurements in tests are invented. Tests never open a serial
 port, reset a device or call esptool's hardware entry point. One subprocess test
@@ -67,6 +68,15 @@ blocked disk write cannot stall a running hardware worker's deadline. A log
 failure stops the procedure before another child starts. Process termination
 cannot preempt a masked device callback or undo a partial flash. Host scheduling
 and kernel termination are not real-time guarantees.
+
+Before importing the SDK, each child pins a private esptool configuration with
+only the reviewed retry settings, clears ambient ESPTOOL_* overrides and verifies
+the exact selected file/content. CWD/home/custom reset configuration cannot
+silently replace it; a missing/tampered pin is rejected before hardware opens.
+The first-open guard sets DTR/RTS inactive while closed, including Linux SDK
+constructors. A second open is refused even through a different port instance.
+Application sessions suppress RFC2217's initial input purge to preserve pending
+startup/error evidence; ROM sessions retain their required protocol flushing.
 
 The child pins esptool 5.6.0. It asserts block/full-image/open/connect attempts 1,
 including CLI environment overrides, and uses no fast-reflash, force or recovery
