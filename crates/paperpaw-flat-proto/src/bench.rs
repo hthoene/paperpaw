@@ -214,6 +214,18 @@ pub fn run(
         flat::deliver_uninit(black_box(&plugin_table), black_box(1), "Dune", &mut fout);
         fout.clear();
     });
+    // the prepared-buffer path: plugin writes into the host queue's free tail
+    let mut queue: Vec<u8> = Vec::with_capacity(512);
+    let heap_before = (probe.heap_used)();
+    flat::deliver_queued(&plugin_table, 1, "Dune", &mut queue);
+    let queued_heap = (probe.heap_used)() as i64 - heap_before as i64;
+    queue.clear();
+    variant("deliver_queued", &mut || {
+        black_box(flat::deliver_queued(black_box(&plugin_table), black_box(1), "Dune", &mut queue));
+        queue.clear();
+    });
+    let _ = queued_heap;
+
 
     // Text through the appended C-float entries (no fixed-point conversion)
     let n = 300 * scale;

@@ -529,3 +529,35 @@ impl Gfx for FlatGfxF<'_> {
         if status < 0 { 0.0 } else { out }
     }
 }
+
+/// The prepared-buffer path: the host's command queue is a byte buffer with
+/// room reserved; the plugin writes its reply straight into the free tail
+/// (nothing zeroed, no copy), the host checks the bytes where they are and
+/// commits them by moving the length (a record: u8 length, then the text).
+/// Returns whether a record was queued. The consumer later reads the record
+/// as a borrowed `&str`; that read is not in this cost.
+pub fn deliver_queued(plugin: &PluginTable, kind: u32, payload: &str, queue: &mut Vec<u8>) -> bool {
+    const MAX: usize = 96;
+    if queue.capacity() - queue.len() < MAX + 1 {
+        queue.reserve(MAX + 1);
+    }
+    let at = queue.len();
+    // SAFETY: the spare capacity is at least MAX + 1 bytes and stays valid
+    // until `set_len`; nothing else touches the queue during the call.
+    let spare = unsafe { queue.as_mut_ptr().add(at + 1) };
+    let written = deliver_raw(plugin, kind, payload, spare, MAX);
+    if written <= 0 {
+        return false;
+    }
+    // SAFETY: the plugin wrote `written` bytes (at most MAX) at `spare`.
+    let bytes = unsafe { core::slice::from_raw_parts(spare, written as usize) };
+    if core::str::from_utf8(bytes).is_err() {
+        return false;
+    }
+    // SAFETY: the length byte and the checked text are initialised.
+    unsafe {
+        queue.as_mut_ptr().add(at).write(written as u8);
+        queue.set_len(at + 1 + written as usize);
+    }
+    true
+}

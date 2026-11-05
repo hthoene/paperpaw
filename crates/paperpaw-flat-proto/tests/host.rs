@@ -222,3 +222,23 @@ fn print_the_battery_widget_call_counts() {
     );
     println!("battery widget calls: {:?}", tally.0);
 }
+
+#[test]
+fn the_prepared_buffer_path_queues_the_same_text() {
+    let mut plugin = FlatPlugin::new();
+    let table = plugin.table();
+    let mut queue: Vec<u8> = Vec::with_capacity(8); // grows when short
+    assert!(flat::deliver_queued(&table, 1, "Dune", &mut queue));
+    assert!(flat::deliver_queued(&table, 1, "Emma", &mut queue));
+    assert!(!flat::deliver_queued(&table, 2, "ignored", &mut queue), "another kind queues nothing");
+    let first = usize::from(queue[0]);
+    assert_eq!(&queue[1..=first], b"Opened: Dune");
+    let second = usize::from(queue[first + 1]);
+    assert_eq!(&queue[first + 2..first + 2 + second], b"Opened: Emma");
+    assert_eq!(queue.len(), first + second + 2);
+    // too long a reply is refused, nothing queued
+    let before = queue.len();
+    let long = "x".repeat(100);
+    assert!(!flat::deliver_queued(&table, 1, &long, &mut queue));
+    assert_eq!(queue.len(), before);
+}
