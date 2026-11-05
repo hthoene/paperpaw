@@ -397,7 +397,7 @@ fn text_draw_preserves_fractional_positions_and_mode_dependent_returns() {
     for (blind, describing) in [(false, false), (false, true), (true, false), (true, true)] {
         fonts.set_describing(describing);
         for text in ["abc", "אב a", "a\u{0301}"] {
-            for x in [-1.75, 0.125, 1_048_576.125] {
+            for x in [-1.75, 0.125, 1_048_576.0 + 0.125] {
                 let (mut direct, mut adapted) = if blind {
                     (Framebuffer::blind(40, 32), Framebuffer::blind(40, 32))
                 } else {
