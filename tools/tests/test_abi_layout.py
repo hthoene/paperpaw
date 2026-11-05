@@ -18,6 +18,8 @@ class LayoutTests(unittest.TestCase):
         fields = {'PpBytes': ['ptr', 'len'], 'PpBuffer': ['ptr', 'cap'],
                   'PpHost': ['size', 'major', 'minor'] + [
                       e['name'].replace('.', '_') for e in schema['host_entries']]}
+        fields.update({table['name']: [field['name'] for field in table['fields']]
+                       for table in schema['entry_contract']['tables']})
         c = ['#include <stdio.h>', '#include "abi/generated/paperpaw-abi.h"',
              'int main(void) {']
         rust = ['#[allow(dead_code, reason = "layout probe uses only selected generated items")]', f'#[path = "{ROOT}/abi/generated/paperpaw_abi.rs"] mod raw;',

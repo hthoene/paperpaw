@@ -45,3 +45,7 @@ pub(crate) fn one_device_at_a_time() -> std::sync::MutexGuard<'static, ()> {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
+
+/// Inactive interface-7 lifecycle qualification; not used by CodeLoader.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub mod native_runtime;

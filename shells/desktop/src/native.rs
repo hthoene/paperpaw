@@ -243,9 +243,9 @@ fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, P
 /// `/proc/self/fd/N` is the same for every file that gets the number N: so
 /// the file stays open as long as the library is loaded, and a number in use
 /// by a loaded library is never given to another.
-struct HeldLibrary {
+pub(super) struct HeldLibrary {
     /// First, so it is unloaded before its file is closed.
-    library: libloading::Library,
+    pub(super) library: libloading::Library,
     file: std::fs::File,
 }
 
@@ -256,7 +256,10 @@ impl HeldLibrary {
     ///
     /// Loading a library runs its initialisers: the file passed the
     /// pre-load check and is one the reader installed (ADR 0024).
-    unsafe fn open(path: &std::path::Path, file: std::fs::File) -> Result<Self, libloading::Error> {
+    pub(super) unsafe fn open(
+        path: &std::path::Path,
+        file: std::fs::File,
+    ) -> Result<Self, libloading::Error> {
         // SAFETY: as documented.
         let library = unsafe { libloading::Library::new(load_path(path, &file)) }?;
         Ok(Self { library, file })
