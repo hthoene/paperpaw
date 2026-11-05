@@ -3,9 +3,13 @@
 This test harness compares one direct `FontHandle::draw` with one call to the
 reviewed slot-14 safe backend. It does not load a plugin or enable the production
 flat interface. The backend source is `crates/paperpaw-core/src/abi7/graphics.rs`.
-The input/font construction follows #228 attachments 699/700. Device procedure
-and fixture identities are attachments 704–706. A reviewed image and a separate
-Manager execution assignment are required before a device run.
+Current host coverage and the corrected reproducer are #228 attachments 715/716.
+The original 699/700 baseline CSVs and 704–706 fixture/procedure contract remain
+lineage; their original input and font hashes are unchanged. External manifest
+717 reconciles that lineage and adds the separate uppercase-A control. The
+harness is a supplemental source/workload identity: do not pool its results
+with the original CSVs. A reviewed image and a separate Manager execution
+assignment are required before a device run.
 
 ## Build without running or flashing
 
@@ -37,8 +41,12 @@ ASCII payload. It uses uppercase A repeated 4096, SHA-256
 `6896d9ea3f73a4434f5832bc65714e7d066f177373f36f34dc8a6f735daa41b1`.
 The real fixture contains ?, A and é, but no lowercase a. The historical
 `bitmap-ascii` therefore does not prove stored-glyph/cache coverage; only the
-new covered-glyph control can make that claim. Host tests check coverage and
-visible pixels. Plugin/Device Tester have been notified of this evidence gap.
+new covered-glyph control can make that claim on a target after execution.
+Corrected host evidence 715/716 passes eight mode/cache pairs with each of two
+allocators, with has_char(A) and !has_char(a) assertions outside counting. Local
+harness tests also check coverage and visible pixels. Those host results do not
+establish target, installed-font or SD coverage. The historical lowercase row
+remains parity evidence with missing glyphs, not stored-glyph/cache qualification.
 
 Each invocation creates a new Fonts registry, 4096-byte input and 40x32 Gray8
 framebuffer before measurement. Blind uses the matching blind frame. Warm does
@@ -53,7 +61,8 @@ and RESULT carry repeat=0..9; serialization occurs after each closed scope.
 | Harness case | External manifest case | Font setup | Input SHA-256 |
 |---|---|---|---|
 | ascii | control-bitmap | synthetic all-script | c93eee2d0db02f10acc7460d9576e122dcf8cd53c4bf8dfcae1b3e74ebcfff5a |
-| bitmap-ascii | control-stored | synthetic Hebrew primary, real stored fixture extension | c93eee2d0db02f10acc7460d9576e122dcf8cd53c4bf8dfcae1b3e74ebcfff5a |
+| bitmap-ascii | control-stored | missing-glyph control, Hebrew primary plus stored fixture | c93eee2d0db02f10acc7460d9576e122dcf8cd53c4bf8dfcae1b3e74ebcfff5a |
+| bitmap-A | control-stored-A | covered uppercase A in stored fixture extension | 6896d9ea3f73a4434f5832bc65714e7d066f177373f36f34dc8a6f735daa41b1 |
 | hebrew | hebrew | synthetic all-script | 6a53c5fc20760eb28b198288ed6668066e89dcf560a06b6ffd99c45b6e860765 |
 | rlm-ascii | single-bidi | synthetic all-script | 2133bde9be9f92a5ce44367b4a6fd8415e69c93830e9e863fb62cf892c0f495a |
 | rlm-alternating | fallback-parts | punctuation primary plus stored ASCII/script extension | b608850c0392486b189305f227765f606129f5e83c3a305bd263e6e15dc57028 |
@@ -72,7 +81,14 @@ normal reader remains alive in both cases. Pin reader state externally.
 
 ## Measurement records
 
-The response is `PP:TEXTPROBE_BEGIN`, `BEFORE`, `AFTER`, `RESULT`, `LIMITS`, `END`, then the standard `PP:END` terminator.
+One invocation emits BEGIN, STACK_SETUP, then zero or two WARMUP records.
+Each measured sample emits SAMPLE(repeat=N), BEFORE, AFTER, RESULT, STACK and
+LIMITS, with the full `PP:TEXTPROBE_` prefix. One normal command has one sample;
+`repeat10` has ten indexed groups, N=0..9, with the same registry/frame/held holes.
+One TEXTPROBE_END and one generic PP:END terminate the invocation. Compare output
+per repeat, worst peak/minimum stack and the retained-memory trend. Ten fresh
+commands cannot substitute for the same-registry retention sequence.
+
 Each line uses space-separated `key=value` fields. An error uses
 `PP:TEXTPROBE_ERROR reason=<token>` followed by END; missing result fields mean
 incomplete measurement, never zero or a pass. BEGIN includes case/path/cache/
@@ -98,11 +114,12 @@ comparison. Derive actual total from atomic used+free, minimum free from total
 minus scoped peak and retained delta from end minus baseline.
 
 The BEGIN/BEFORE records precede the risky draw so a reset does not erase its
-identity. Renderer allocation remains infallible. Before measurement, conservative
-harness admission requires both free and one contiguous block >=96 KiB for the fixed assets.
+identity. Renderer allocation remains infallible. Before every warmup and
+measured draw, admission performs an actual fallible 96 KiB aligned reservation
+and release within the same IRQ mask as the draw, as described below.
 The earlier 80/52 KiB proposal was rejected: a Part-sized largest block can
-leave no contiguous space for later simultaneous order buffers. The new reserve
-still needs source review and target evidence before device admission. This is a test guard, not an arbitrary-font bound
+leave no contiguous space for later simultaneous order buffers. The replacement reserve is source-reviewed under the fixed-asset assumptions;
+formal review and device timing/depth remain required before device admission. This is a test guard, not an arbitrary-font bound
 or production policy. An insufficient-headroom refusal is incomplete/failing
 qualification. The input is never reduced or split to obtain a passing result.
 
@@ -121,10 +138,11 @@ Admission now makes a **real fallible 96 KiB, four-byte-aligned allocation**, th
 releases it before measurement within the same critical section as the callback.
 It is not held during drawing, so it does not add a duplicate 96 KiB to the
 measured baseline. Used bytes must return exactly to the pre-reservation value.
-The allocation/free can affect fragmentation; allocator coalescing and the
-fixed-asset traffic argument need independent review. The requested/charged
+The allocation/free can affect fragmentation. Internal independent source
+review supports LLFF coalescing and the fixed-asset traffic argument; formal
+candidate review remains required. The requested/charged
 reserve and released flag are reported. This is stronger than a size query but
-still depends on target layout attestation. Reserve/probe traffic is excluded
+depends on the recorded target layout attestation and pinned allocator. Reserve/probe traffic is excluded
 from scoped and independent lifetime test peaks as diagnostic activity.
 
 STACK records contain dedicated total/unused/used, guard validity, admission
@@ -155,7 +173,11 @@ this isolated backend comparison. Old prototype v5 is not a candidate or baselin
 
 ## Fixed-asset headroom review
 
-The 96 KiB contiguous reserve is pending target attestation. Source review bounds
+Pinned Rust 1.99.0 diagnostics for riscv32imc-unknown-none-elf attest Part=12
+bytes/alignment4, cache Entry=40/alignment4, and bidi Level=1/alignment1
+(job1988; #228 attachment721). The source is the real private implementation,
+not a copied layout. The 96 KiB argument still requires formal review of its
+fixed-asset assumptions and final candidate. Source review bounds
 allocation **traffic**, including replacement blocks during Vec growth, rather
 than using only peak live demand. For the alternating case, with actual private
 `Part` size S and text-cache `Entry` size E, the conservative formula is:
