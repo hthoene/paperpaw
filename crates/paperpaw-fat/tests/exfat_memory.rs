@@ -34,7 +34,7 @@ unsafe impl std::alloc::GlobalAlloc for AuditAlloc {
     }
 }
 #[test]
-fn removing_long_names_keeps_extra_heap_below_32_kib() {
+fn removal_and_recovery_keep_extra_heap_below_32_kib() {
     let bytes = small();
     let card = mount(&bytes);
     for n in 0..1600 {
@@ -57,5 +57,44 @@ fn removing_long_names_keeps_extra_heap_below_32_kib() {
     assert!(
         extra < 32 * 1024,
         "removal exceeded its 32 KiB host allocation budget: {extra} B"
+    );
+    drop(card);
+    recover_many_temporary_names();
+}
+
+/// One test runs both measurements, so parallel test threads cannot
+/// contaminate the process-wide allocation counters.
+fn recover_many_temporary_names() {
+    use hadris_fs::{MountOptions, Name, SetAttr};
+    use paperpaw_fat::{BlockDisk, ExDisk, SharedDisk};
+    let bytes = small();
+    let (disk, _) = BlockDisk::find(bytes.clone()).unwrap();
+    let disk = SharedDisk::new(disk);
+    let mut fs =
+        hadris_fat::exfat::sync::ExFatFs::mount(ExDisk::new(disk.clone()), MountOptions::new())
+            .unwrap();
+    let root = fs.root();
+    for n in 0..1600 {
+        let name = format!("{n:04}{}~pp.tmp", "x".repeat(180));
+        let node = fs.create(root, Name::new(&name), &SetAttr::new()).unwrap();
+        fs.forget(node, 1);
+    }
+    fs.sync().unwrap();
+    drop(fs);
+    disk.flush_all().unwrap();
+    drop(disk);
+    let card = mount(&bytes);
+    let base = LIVE.load(std::sync::atomic::Ordering::Relaxed);
+    PEAK.store(base, std::sync::atomic::Ordering::Relaxed);
+    let mut seen = 0;
+    card.list("", &mut |_| seen += 1).unwrap();
+    assert_eq!(seen, 0);
+    let extra = PEAK
+        .load(std::sync::atomic::Ordering::Relaxed)
+        .saturating_sub(base);
+    eprintln!("recover 1600 long temporary names: extra host allocation peak={extra} B");
+    assert!(
+        extra < 32 * 1024,
+        "recovery exceeded its 32 KiB host budget: {extra} B"
     );
 }

@@ -510,8 +510,15 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
 
     /// Whether `a` and `b` in `dir` hold the same clusters.
     fn share(&self, dir: NodeId, a: &str, b: &str) -> Result2<bool> {
-        let (Some(x), Some(y)) = (self.find(dir, a)?, self.find(dir, b)?) else {
+        let Some(x) = self.find(dir, a)? else {
             return Ok(false);
+        };
+        let y = match self.find(dir, b) {
+            Ok(Some(y)) => y,
+            other => {
+                self.forget(x);
+                return other.map(|_| false);
+            }
         };
         let shared = match (self.first_cluster(x), self.first_cluster(y)) {
             (Ok(Some(p)), Ok(Some(q))) => Ok(p == q),
@@ -706,26 +713,58 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
         let swept = self.fs.borrow_mut().sweep(node).map_err(error)?;
         self.left_alone
             .set(self.left_alone.get().saturating_add(swept.left));
-        let mut files: Vec<String> = Vec::new();
-        self.each(node, &mut |name, _, _| {
-            if let Some((file, _)) = temp_of(name)
-                && !files.iter().any(|f| same_path(f, file))
-            {
-                files.push(file.to_string());
+        let mut cursor = DirCursor::from_raw(0);
+        while let Some((name, next)) = self.recovery_name(node, cursor, None)? {
+            cursor = next;
+            if let Some((file, _)) = temp_of(&name) {
+                self.settle(node, file, false)?;
             }
-        })?;
-        for file in files {
-            let torn = swept.sealed.iter().any(|name| same_path(name, &file));
-            self.settle(node, &file, torn)?;
         }
         self.write_back()
+    }
+
+    /// Finds one recovery name at a time. A cursor remains valid when
+    /// an earlier entry is removed; only the current name is allocated.
+    fn recovery_name(
+        &self,
+        dir: NodeId,
+        mut cursor: DirCursor,
+        whole_of: Option<&str>,
+    ) -> Result2<Option<(String, DirCursor)>> {
+        for _ in 0..crate::ENTRIES_MAX {
+            let entry = self.fs.borrow_mut().readdir(dir, cursor).map_err(error)?;
+            let Some(entry) = entry else { return Ok(None) };
+            let next = entry.next_cursor();
+            if next.into_raw() <= cursor.into_raw() {
+                return Err(StorageError::Io);
+            }
+            cursor = next;
+            let name = core::str::from_utf8(entry.name().as_bytes())
+                .map_err(|_| StorageError::InvalidPath)?;
+            if let Some((file, kind)) = temp_of(name)
+                && whole_of
+                    .is_none_or(|wanted| matches!(kind, Temp::Whole(_)) && same_path(file, wanted))
+            {
+                let mut owned = String::new();
+                owned
+                    .try_reserve_exact(name.len())
+                    .map_err(|_| StorageError::TooLarge)?;
+                owned.push_str(name);
+                return Ok(Some((owned, next)));
+            }
+        }
+        Err(StorageError::Io)
     }
 
     /// Settles the names a write of `file` in `dir` went through. `torn`:
     /// the entry set of `file` itself was left torn by a cut (and sealed
     /// again), not another file's.
     fn settle(&self, dir: NodeId, file: &str, torn: bool) -> Result2<()> {
-        let tmp = format!("{file}{TMP}");
+        let mut tmp = String::new();
+        tmp.try_reserve_exact(file.len() + TMP.len())
+            .map_err(|_| StorageError::TooLarge)?;
+        tmp.push_str(file);
+        tmp.push_str(TMP);
         let fs_unlink = |name: &str, keep: bool| -> Result2<()> {
             let mut fs = self.fs.borrow_mut();
             let done = if keep {
@@ -738,26 +777,27 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
                 _ => Ok(()),
             }
         };
-        // The contents of the file made whole, with their marks.
-        let mut wholes: Vec<(String, Option<u32>)> = Vec::new();
-        self.each(dir, &mut |name, _, _| {
-            if let Some((of, Temp::Whole(mark))) = temp_of(name)
-                && same_path(of, file)
-            {
-                wholes.push((name.to_string(), mark));
-            }
-        })?;
         if let Some(node) = self.find(dir, &tmp)? {
             self.forget(node);
             // Renamed already, cut off before its old name went: its
             // clusters are the other name's.
             let mut renamed = self.share(dir, &tmp, file)?;
-            for (whole, _) in &wholes {
-                renamed = renamed || self.share(dir, &tmp, whole)?;
+            let mut cursor = DirCursor::from_raw(0);
+            while !renamed {
+                let Some((whole, next)) = self.recovery_name(dir, cursor, Some(file))? else {
+                    break;
+                };
+                cursor = next;
+                renamed = self.share(dir, &tmp, &whole)?;
             }
             fs_unlink(&tmp, renamed)?;
         }
-        for (whole, mark) in wholes {
+        let mut cursor = DirCursor::from_raw(0);
+        while let Some((whole, next)) = self.recovery_name(dir, cursor, Some(file))? {
+            cursor = next;
+            let Some((_, Temp::Whole(mark))) = temp_of(&whole) else {
+                return Err(StorageError::Io);
+            };
             let Some(node) = self.find(dir, &whole)? else {
                 continue;
             };
@@ -963,26 +1003,9 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
 
     // What the calls do.
 
-    /// Calls `visit` with the name, whether a folder, and the size of each
-    /// entry of `dir`, the storage's own too.
-    fn each(
-        &self,
-        dir: NodeId,
-        visit: &mut dyn FnMut(&str, bool, &hadris_fs::Metadata),
-    ) -> Result2<()> {
-        self.each_from(dir, 0, &mut |name, is_dir, meta| {
-            visit(name, is_dir, meta);
-            true
-        })
-        .map(|_| ())
-    }
-
-    /// [`Self::each`] from place `from` (a raw [`DirCursor`]: the index of
-    /// a directory entry, 0 the first), until `visit` answers `false` for
-    /// an entry; returns that entry's place, where a listing from it starts
-    /// with it again, or `None` at the folder's end. hadris lists from the
-    /// first entry set at or after a place, so a place whose set is gone
-    /// goes on with the next one there is.
+    /// Lists entries from raw directory position `from` until `visit`
+    /// returns false. Returns the unconsumed entry's position, or None
+    /// at the end. Removing an earlier entry does not move later slots.
     fn each_from(
         &self,
         dir: NodeId,

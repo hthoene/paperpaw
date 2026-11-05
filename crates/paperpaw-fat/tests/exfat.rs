@@ -10,6 +10,8 @@
 )]
 
 mod common;
+#[path = "exfat/corruption.rs"]
+mod corruption;
 #[path = "exfat/one_shot.rs"]
 mod one_shot;
 

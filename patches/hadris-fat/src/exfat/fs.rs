@@ -1,5 +1,3 @@
-use alloc::string::String;
-use alloc::vec::Vec;
 use core::fmt;
 
 use hadris_fs::Extent as FileExtent;
@@ -283,27 +281,9 @@ pub(super) fn parse_set(entries: &[RawEntry]) -> bool {
 pub struct Swept {
     /// How many entry sets and entries were changed.
     pub changed: u32,
-    /// The names of the entry sets sealed again.
-    pub sealed: Vec<String>,
     /// How many entry sets with a bad checksum were left as they are,
-    /// their stream entry not being possible on this volume.
+    /// whose allocation ownership cannot be established from a checksum.
     pub left: u32,
-}
-
-/// The name a File entry set holds (its first 255 units, as far as it is
-/// text).
-fn set_name(set: &Set) -> String {
-    let len = set.raw[1][3] as usize;
-    let mut units: Vec<u16> = Vec::with_capacity(len);
-    for entry in &set.raw[2..set.count] {
-        for unit in 0..raw::NAME_UNITS_PER_ENTRY {
-            if units.len() == len {
-                break;
-            }
-            units.push(le16(entry, 2 + unit * 2));
-        }
-    }
-    String::from_utf16_lossy(&units)
 }
 
 /// Modified for PaperPaw: whether `entries` start with a File entry set
@@ -3377,24 +3357,10 @@ impl<D: BlockDevice> ExFatFs<D> {
         self.remove_entry_with(dir, name, false, false).await
     }
 
-    /// Modified for PaperPaw: settles what a cut left in the entries of
-    /// `dir` at an earlier mount, as the recovery of an interrupted
-    /// operation does within a mount. A File entry set whose entries are
-    /// all there and in use but whose checksum or name hash does not match
-    /// (one updated across two blocks, cut off between) is sealed again,
-    /// as it stands: its clusters were taken before it named them. A
-    /// secondary entry no File entry holds (a set cut off between its
-    /// blocks in a removal or an insertion) is marked unused. A File entry
-    /// that cannot be sealed is left as it is. Returns what was changed
-    /// (see [`Swept`]).
-    ///
-    /// A set is sealed again only if its stream entry can be true on this
-    /// volume (see `plausible_stream`): a cut of PaperPaw's own leaves such
-    /// sets (its clusters are taken before a set names them), but a set
-    /// with a bad checksum written by another system, or damaged by bit
-    /// rot, may name free clusters or those of another file, and sealing
-    /// it would let the next write take them. Such a set is left as it
-    /// is, as before the sweep, and counted in `Swept::left`.
+    /// Modified for PaperPaw: clears orphan secondary entries, but leaves
+    /// invalid File entry sets untouched. An allocated cluster is not
+    /// proof that a damaged entry owns it. Repair needs separate positive
+    /// evidence; this scan must not manufacture a valid crosslink.
     pub async fn sweep(&mut self, dir: NodeId) -> FsResult<Swept, D::Error> {
         self.prepare().await?;
         let (start, _) = self.dir_info(dir).await?;
@@ -3414,17 +3380,8 @@ impl<D: BlockDevice> ExFatFs<D> {
                         slot += set.count as u32;
                         continue;
                     }
-                    if set.count == held as usize && shaped_set(&set.raw[..set.count]) {
-                        let stream = set.raw[1];
-                        if self.plausible_stream(&stream).await? {
-                            self.reseal(&mut set).await?;
-                            changed += 1;
-                            swept.sealed.push(set_name(&set));
-                        } else {
-                            swept.left += 1;
-                        }
-                    }
-                    // Its entries are its own, sealed or not.
+                    swept.left += 1;
+                    // Preserve all claimed entries, even when they are ambiguous.
                     slot += held.max(1);
                 }
                 // A benign primary entry (volume GUID, TexFAT padding,
@@ -3448,63 +3405,6 @@ impl<D: BlockDevice> ExFatFs<D> {
         }
         swept.changed = changed;
         Ok(swept)
-    }
-
-    /// Modified for PaperPaw: whether a stream entry can be true on this
-    /// volume: its lengths are possible (`ValidDataLength` not beyond
-    /// `DataLength`, which does not exceed the cluster heap), and its data
-    /// starts at a cluster of the heap that the allocation bitmap marks
-    /// used (a contiguous run also ends in the heap); no data is a length
-    /// of nothing.
-    async fn plausible_stream(&mut self, stream: &RawEntry) -> FsResult<bool, D::Error> {
-        let first = le32(stream, 20);
-        let len = le64(stream, 24);
-        let valid = le64(stream, 8);
-        let geometry = self.vol.geometry();
-        let size = u64::from(geometry.cluster_size());
-        let heap = u64::from(geometry.cluster_count()).saturating_mul(size);
-        if valid > len || len > heap {
-            return Ok(false);
-        }
-        if first == 0 {
-            return Ok(len == 0);
-        }
-        if !geometry.is_cluster(first) {
-            return Ok(false);
-        }
-        if stream[1] & raw::NO_FAT_CHAIN != 0 {
-            let last = u64::from(first) + len.div_ceil(size.max(1)).max(1) - 1;
-            if u32::try_from(last).map_or(true, |last| !geometry.is_cluster(last)) {
-                return Ok(false);
-            }
-        }
-        self.bit(first).await
-    }
-
-    /// Modified for PaperPaw: writes `set` again with its name hash and
-    /// checksum made from its entries (see `sweep`).
-    async fn reseal(&mut self, set: &mut Set) -> FsResult<(), D::Error> {
-        let count = set.count;
-        let len = set.raw[1][3] as usize;
-        let mut hash = 0;
-        let mut left = len;
-        for entry in set.raw[2..count].iter() {
-            if left == 0 {
-                break;
-            }
-            let units = left.min(raw::NAME_UNITS_PER_ENTRY);
-            for unit in 0..units {
-                hash = raw::hash_unit(hash, self.upcase_unit(le16(entry, 2 + unit * 2)).await?);
-            }
-            left -= units;
-        }
-        set.raw[1][4..6].copy_from_slice(&hash.to_le_bytes());
-        set.raw[0][2..4].copy_from_slice(&0u16.to_le_bytes());
-        let sum = raw::set_checksum(&set.raw[..count]);
-        set.raw[0][2..4].copy_from_slice(&sum.to_le_bytes());
-        let at = set.at;
-        let raw = set.raw;
-        self.put_entries(&at[..count], &raw[..count]).await
     }
 
     /// Removes the empty directory `name` from `dir`, as `unlink` does a
