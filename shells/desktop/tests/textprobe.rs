@@ -124,3 +124,17 @@ fn real_stored_control_has_covered_glyphs_and_visible_output() {
 
 #[path = "../../xteink/src/textprobe/stack_scope.rs"]
 mod stack_scope;
+
+#[test]
+fn device_admission_excludes_unqualified_stored_churn_modes() {
+    for case in ["bitmap-A", "bitmap-ascii"] {
+        for mode in ["raster", "rtl-ink", "blind", "describing"] {
+            let command = format!("textprobe {case} adapter cold clean {mode}");
+            let config = config::Config::parse(&command).unwrap();
+            assert_eq!(
+                config.mode_qualified(),
+                matches!(mode, "raster" | "rtl-ink")
+            );
+        }
+    }
+}
