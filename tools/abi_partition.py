@@ -1,13 +1,51 @@
 """Keep the inactive flat ABI under its own checked baseline, never unguarded.
 
-The entire host_glue namespace is the interface-7 host boundary. Its text is
-checked separately, not dropped; references/reexports into the old interface
-are refused. rustdoc reachability covers aliases and public reexports too.
+Only explicitly listed declarations belong exclusively to interface 7. Their
+text is checked separately, not dropped; shared declarations remain in both
+gates. rustdoc reachability covers aliases and public reexports too.
 """
 import re
+from pathlib import Path
+from functools import lru_cache
 
 PREFIX = 'paperpaw_native::host_glue'
 PATH = re.compile(r'(?<![A-Za-z0-9_:])paperpaw_[A-Za-z0-9_]+(?:::[A-Za-z_][A-Za-z0-9_]*)+')
+
+
+@lru_cache(maxsize=8)
+def rules(declarations):
+    result = []
+    for line in declarations.splitlines():
+        line = line.split('#', 1)[0].strip()
+        if not line:
+            continue
+        kind, name = line.split()
+        if kind not in ('exclusive-type', 'exclusive-item', 'shared-type') or not PATH.fullmatch(name):
+            raise ValueError('invalid ABI ownership declaration')
+        if (kind != 'shared-type' and not is_flat(name)) or not name.startswith('paperpaw_native::'):
+            raise ValueError('ownership outside the native boundary')
+        if kind.endswith('-type') and name == PREFIX:
+            raise ValueError('a namespace cannot be a type ownership wildcard')
+        for prior_kind, prior in result:
+            if (name == prior or (prior_kind.endswith('-type') and name.startswith(prior + '::'))
+                    or (kind.endswith('-type') and prior.startswith(name + '::'))):
+                raise ValueError('overlapping ABI ownership declaration')
+        result.append((kind, name))
+    return result
+
+
+def ownership(path, declarations=None):
+    if declarations is None:
+        declarations = (Path(__file__).resolve().parents[1] /
+                        'abi/interface-7/ownership.txt').read_text()
+    found = None
+    for kind, name in rules(declarations):
+        if path == name or (kind.endswith('-type') and path.startswith(name + '::')):
+            value = 'shared' if kind == 'shared-type' else 'exclusive'
+            if found is not None and found != value:
+                raise ValueError('ambiguous ABI ownership')
+            found = value
+    return found
 
 
 def is_flat(path):
@@ -48,12 +86,20 @@ def partition(crate, text):
     legacy, flat = [], []
     for line in text.splitlines(keepends=True):
         defining = owner(line)
-        if defining and is_flat(defining):
+        boundary = ownership(defining) if defining else None
+        if defining and is_flat(defining) and boundary is None:
+            raise ValueError(f'unclassified ABI declaration: {defining}')
+        if boundary in ('exclusive', 'shared'):
             if crate != 'paperpaw-native':
                 raise ValueError('flat ABI definition outside paperpaw-native')
             flat.append(line)
+            if boundary == 'shared':
+                if any(ownership(path) == 'exclusive' for path in PATH.findall(line)):
+                    raise ValueError('shared declaration reaches exclusive ABI7 type')
+                legacy.append(line)
         else:
-            if any(is_flat(path) for path in PATH.findall(line)):
+            if any(is_flat(path) and ownership(path) != 'shared'
+                   for path in PATH.findall(line)):
                 raise ValueError(f'interface-6 item refers to interface-7: {line.strip()}')
             legacy.append(line)
     return ''.join(legacy), ''.join(flat)
@@ -122,7 +168,8 @@ def audit_rustdoc(doc):
             if ident in seen:
                 continue
             seen.add(ident)
-            if is_flat(canonical(ident)):
+            target_path = canonical(ident)
+            if is_flat(target_path) and ownership(target_path) != 'shared':
                 return canonical(ident)
             target = index.get(ident)
             if target:
@@ -135,7 +182,10 @@ def audit_rustdoc(doc):
         if item.get('crate_id') != 0 or item.get('visibility') != 'public':
             continue
         own = owners.get(ident) or canonical(ident)
-        if is_flat(own):
+        boundary = ownership(own)
+        if is_flat(own) and boundary is None:
+            raise ValueError(f'unclassified public ABI declaration: {own}')
+        if boundary == 'exclusive':
             continue
         reached = reaches_flat(item['inner'])
         if reached:

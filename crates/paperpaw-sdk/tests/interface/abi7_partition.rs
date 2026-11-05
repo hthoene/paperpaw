@@ -3,35 +3,124 @@
 
 const NAMESPACE: &str = "paperpaw_native::host_glue";
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Owner {
+    Exclusive,
+    Shared,
+}
+
+struct Rule<'a> {
+    path: &'a str,
+    owner: Owner,
+    descendants: bool,
+}
+
+struct Ownership<'a>(Vec<Rule<'a>>);
+
+impl<'a> Ownership<'a> {
+    fn parse(text: &'a str) -> Result<Self, String> {
+        let mut out = Self(Vec::new());
+        for line in text.lines() {
+            let line = line.split('#').next().unwrap_or_default().trim();
+            if line.is_empty() {
+                continue;
+            }
+            let words: Vec<_> = line.split_whitespace().collect();
+            let [kind, path] = words.as_slice() else {
+                return Err(format!("invalid ABI ownership record: {line}"));
+            };
+            let (owner, descendants) = match *kind {
+                "exclusive-type" => (Owner::Exclusive, true),
+                "exclusive-item" => (Owner::Exclusive, false),
+                "shared-type" => (Owner::Shared, true),
+                _ => return Err(format!("unknown ABI ownership kind: {line}")),
+            };
+            if ((!in_namespace(path) && owner != Owner::Shared)
+                || !path.starts_with("paperpaw_native::"))
+                || (descendants && *path == NAMESPACE)
+                || path.ends_with(':')
+                || !path
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b':')
+            {
+                return Err(format!("invalid ABI ownership path: {line}"));
+            }
+            let rule = Rule {
+                path,
+                owner,
+                descendants,
+            };
+            if out
+                .0
+                .iter()
+                .any(|old| covers(old, path) || covers(&rule, old.path))
+            {
+                return Err(format!("overlapping ABI ownership record: {line}"));
+            }
+            out.0.push(rule);
+        }
+        Ok(out)
+    }
+
+    fn owner(&self, path: &str) -> Option<Owner> {
+        self.0
+            .iter()
+            .find(|rule| covers(rule, path))
+            .map(|rule| rule.owner)
+    }
+}
+
+fn covers(rule: &Rule<'_>, path: &str) -> bool {
+    path == rule.path
+        || (rule.descendants
+            && path
+                .strip_prefix(rule.path)
+                .is_some_and(|rest| rest.starts_with("::")))
+}
+
 #[derive(Debug, Default, Eq, PartialEq)]
 struct Partition {
     legacy: String,
     abi7: String,
 }
 
-/// Filter both generations so historical ABI 7 entries can leave the ABI 6
-/// baseline through an ordinary bless. Check the current ABI 7 first, even
+/// Filter both generations for comparison, preserving the original baseline
+/// on bless where its ABI 6 content is unchanged. Check ABI 7 first, even
 /// when `PAPERPAW_BLESS` is set. The independent ABI lock gate still applies.
-pub(super) fn legacy(crate_: &str, kind: &str, kept: &str, current: &str) -> (String, String) {
+pub(super) fn legacy(
+    crate_: &str,
+    kind: &str,
+    kept: &str,
+    current: &str,
+) -> (String, String, String) {
+    let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../abi/interface-7");
+    let ownership = std::fs::read_to_string(folder.join("ownership.txt"))
+        .unwrap_or_else(|error| panic!("required ABI 7 ownership manifest: {error}"));
     let snapshot = (crate_ == "paperpaw-native").then(|| {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../abi/interface-7")
-            .join(format!("paperpaw-native.{kind}"));
+        let path = folder.join(format!("paperpaw-native.{kind}"));
         std::fs::read_to_string(&path)
             .unwrap_or_else(|error| panic!("required ABI 7 snapshot {}: {error}", path.display()))
             .replace("\r\n", "\n")
     });
-    checked_legacy(kept, current, snapshot.as_deref())
-        .unwrap_or_else(|error| panic!("{crate_}.{kind}: {error}"))
+    let (before, after) = checked_legacy(kept, current, snapshot.as_deref(), &ownership)
+        .unwrap_or_else(|error| panic!("{crate_}.{kind}: {error}"));
+    let write = baseline_text(kept, &before, &after);
+    (before, after, write)
+}
+
+fn baseline_text(original: &str, before: &str, after: &str) -> String {
+    if before == after { original } else { after }.to_string()
 }
 
 pub(super) fn checked_legacy(
     kept: &str,
     current: &str,
     snapshot: Option<&str>,
+    ownership: &str,
 ) -> Result<(String, String), String> {
-    let kept = partition(kept)?;
-    let current = partition(current)?;
+    let ownership = Ownership::parse(ownership)?;
+    let kept = partition(kept, &ownership)?;
+    let current = partition(current, &ownership)?;
     match snapshot {
         Some(snapshot) if current.abi7 != snapshot => {
             return Err(
@@ -48,19 +137,34 @@ pub(super) fn checked_legacy(
     Ok((kept.legacy, current.legacy))
 }
 
-fn partition(text: &str) -> Result<Partition, String> {
+fn partition(text: &str, ownership: &Ownership<'_>) -> Result<Partition, String> {
     let mut out = Partition::default();
     for line in text.split_inclusive('\n') {
         // Comments and blank lines stay with the legacy file, byte for byte.
         if (!line.trim_start().starts_with('#') || line.trim_start().starts_with("#["))
-            && mentions_namespace(line)
+            && namespace_paths(line).next().is_some()
         {
-            let owner = defining_owner(line).unwrap_or_default();
-            if !in_namespace(owner) {
-                return Err(format!("legacy definition references ABI 7: {line}"));
+            let path = defining_owner(line).unwrap_or_default();
+            let owner = ownership.owner(path);
+            if in_namespace(path) && owner.is_none() {
+                return Err(format!("unclassified ABI namespace definition: {line}"));
             }
-            out.abi7.push_str(line);
-            continue;
+            for reference in namespace_paths(line) {
+                let referred = ownership
+                    .owner(reference)
+                    .ok_or_else(|| format!("unclassified ABI namespace reference: {line}"))?;
+                if owner != Some(Owner::Exclusive) && referred == Owner::Exclusive {
+                    return Err(format!(
+                        "legacy definition references exclusive ABI 7: {line}"
+                    ));
+                }
+            }
+            if owner.is_some() {
+                out.abi7.push_str(line);
+            }
+            if owner == Some(Owner::Exclusive) {
+                continue;
+            }
         }
         out.legacy.push_str(line);
     }
@@ -74,9 +178,10 @@ fn in_namespace(path: &str) -> bool {
             .is_some_and(|rest| rest.starts_with("::"))
 }
 
-fn mentions_namespace(line: &str) -> bool {
+fn namespace_paths(line: &str) -> impl Iterator<Item = &str> {
     line.split(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != ':')
-        .any(in_namespace)
+        .map(|path| path.trim_end_matches(':'))
+        .filter(|path| in_namespace(path))
 }
 
 /// API declarations use their published path; shapes use their defining
@@ -170,26 +275,53 @@ mod tests {
 
     const LEGACY: &str = "pub mod paperpaw_native\n";
     const ABI7: &str = "pub mod paperpaw_native::host_glue\n";
+    const OWNERS: &str = "\
+exclusive-item paperpaw_native::host_glue
+exclusive-item paperpaw_native::host_glue::buffers
+exclusive-item paperpaw_native::host_glue::MINOR
+exclusive-item paperpaw_native::host_glue::ERR_IO
+exclusive-item paperpaw_native::host_glue::SETTINGS_LAYOUT
+exclusive-item paperpaw_native::host_glue::generated::SETTINGS_LAYOUT
+exclusive-type paperpaw_native::host_glue::PpHost
+exclusive-type paperpaw_native::host_glue::PpPlugin
+exclusive-type paperpaw_native::host_glue::Services
+exclusive-type paperpaw_native::host_glue::ShellCtx
+exclusive-type paperpaw_native::host_glue::SettingValueRef
+exclusive-type paperpaw_native::host_glue::generated::PpHost
+exclusive-type paperpaw_native::host_glue::generated::SettingValueRef
+";
+
+    fn split(text: &str) -> Result<Partition, String> {
+        partition(text, &Ownership::parse(OWNERS).unwrap())
+    }
+
+    fn shared_owners() -> String {
+        OWNERS.replace(
+            "exclusive-type paperpaw_native::host_glue::PpPlugin",
+            "shared-type paperpaw_native::host_glue::PpPlugin",
+        )
+    }
 
     #[test]
     fn appended_abi7_shape_refuses_a_stale_snapshot() {
         let old = "struct paperpaw_native::host_glue::generated::PpHost { size: u32 }\n";
         let new = old.replace("size: u32", "size: u32, extra: u32");
-        assert!(checked_legacy(old, &new, Some(old)).is_err());
-        assert!(checked_legacy(old, &new, Some(&new)).is_ok());
-        assert!(checked_legacy(old, &new, None).is_err());
+        assert!(checked_legacy(old, &new, Some(old), OWNERS).is_err());
+        assert!(checked_legacy(old, &new, Some(&new), OWNERS).is_ok());
+        assert!(checked_legacy(old, &new, None, OWNERS).is_err());
     }
 
     #[test]
-    fn historical_abi7_is_removed_only_after_current_snapshot_matches() {
+    fn unchanged_legacy_keeps_its_physical_baseline_on_bless() {
         let kept = format!("{LEGACY}{ABI7}");
         let new = format!("{kept}pub const paperpaw_native::host_glue::MINOR: u16\n");
-        let snapshot = partition(&new).unwrap().abi7;
-        assert_eq!(
-            checked_legacy(&kept, &new, Some(&snapshot)).unwrap(),
-            (LEGACY.to_string(), LEGACY.to_string())
-        );
-        assert!(checked_legacy(&kept, &new, Some(ABI7)).is_err());
+        let snapshot = split(&new).unwrap().abi7;
+        let (before, after) = checked_legacy(&kept, &new, Some(&snapshot), OWNERS).unwrap();
+        assert_eq!(before, LEGACY);
+        assert_eq!(after, LEGACY);
+        assert_eq!(baseline_text(&kept, &before, &after), kept);
+        assert!(checked_legacy(&kept, &new, Some(ABI7), OWNERS).is_err());
+        assert_eq!(baseline_text(&kept, &before, "changed6\n"), "changed6\n");
     }
 
     #[test]
@@ -201,6 +333,7 @@ mod tests {
                 &format!("{kept}{ABI7}"),
                 &format!("{changed}{ABI7}"),
                 Some(ABI7),
+                OWNERS,
             )
             .unwrap();
             assert_eq!(before, kept);
@@ -210,36 +343,94 @@ mod tests {
     }
 
     #[test]
-    fn legacy_references_to_abi7_are_rejected() {
+    fn legacy_references_to_exclusive_abi7_are_rejected() {
         for line in [
-            "pub fn paperpaw_native::old(paperpaw_native::host_glue::PpHost)",
-            "struct paperpaw_sdk::Old { host: paperpaw_native::host_glue::PpHost }",
+            "pub fn paperpaw_native::Entry::fingerprint_at(*const paperpaw_native::host_glue::PpHost)",
+            "struct paperpaw_native::interface::Entry { host: paperpaw_native::host_glue::PpHost }",
             "impl core::convert::From<paperpaw_native::host_glue::PpHost> for paperpaw_native::Api",
             "impl paperpaw_native::host_glue::Services for paperpaw_native::Api",
             "impl<T: paperpaw_native::host_glue::Services> paperpaw_native::Api<T>",
-            "pub type paperpaw_native::Alias = paperpaw_native::host_glue::PpHost",
-            "pub use paperpaw_native::host_glue::PpHost as paperpaw_native::Alias",
+            "pub use paperpaw_native::host_glue::PpHost as paperpaw_native::Api",
         ] {
-            assert!(partition(line).is_err(), "{line}");
+            assert!(split(line).is_err(), "{line}");
         }
     }
 
     #[test]
-    fn public_reexports_and_private_generated_types_are_abi7() {
+    fn reviewed_public_reexports_and_private_generated_types_are_abi7() {
         for line in [
             ABI7.trim(),
-            "#[repr(C)] pub struct paperpaw_native::host_glue::SettingValueRef<'a>",
+            "#[non_exhaustive] pub enum paperpaw_native::host_glue::SettingValueRef<'a>",
             "pub const paperpaw_native::host_glue::SETTINGS_LAYOUT: u32",
+            "pub const paperpaw_native::host_glue::ERR_IO: i32",
             "pub use paperpaw_native::host_glue::SettingValueRef",
             "enum paperpaw_native::host_glue::generated::SettingValueRef<'a> { Absent }",
             "const paperpaw_native::host_glue::generated::SETTINGS_LAYOUT: u32 = 1u32",
-            "impl core::fmt::Debug for paperpaw_native::host_glue::SettingValueRef<'_>",
-            "impl<'a> paperpaw_native::host_glue::SettingValueRef<'a>",
-            "impl<T: core::convert::Into<u8>> core::convert::From<T> for paperpaw_native::host_glue::Thing<T>",
+            "impl core::fmt::Debug for paperpaw_native::host_glue::PpPlugin",
+            "impl<'a> paperpaw_native::host_glue::ShellCtx<'a>",
+            "impl<T: core::convert::Into<u8>> core::convert::From<T> for paperpaw_native::host_glue::PpPlugin",
         ] {
-            let found = partition(line).unwrap();
+            let found = split(line).unwrap();
             assert_eq!(found.abi7, line);
             assert_eq!(found.legacy, "");
+        }
+    }
+
+    #[test]
+    fn unreviewed_namespace_definitions_and_references_fail() {
+        let owners = OWNERS.replace("exclusive-item paperpaw_native::host_glue::ERR_IO\n", "");
+        let owners = Ownership::parse(&owners).unwrap();
+        for line in [
+            "pub const paperpaw_native::host_glue::ERR_IO: i32",
+            "pub const paperpaw_native::host_glue::MINOR: i32 = paperpaw_native::host_glue::ERR_IO",
+        ] {
+            assert!(partition(line, &owners).is_err(), "{line}");
+        }
+        let item = Ownership::parse("exclusive-item paperpaw_native::host_glue::PpPlugin").unwrap();
+        assert!(partition("pub paperpaw_native::host_glue::PpPlugin::size: u32", &item).is_err());
+    }
+
+    #[test]
+    fn shared_types_and_members_stay_in_both_snapshots() {
+        let owners = shared_owners();
+        let ownership = Ownership::parse(&owners).unwrap();
+        for line in [
+            "struct paperpaw_native::host_glue::PpPlugin { size: u32 }\n",
+            "pub paperpaw_native::host_glue::PpPlugin::size: u32\n",
+            "impl core::fmt::Debug for paperpaw_native::host_glue::PpPlugin\n",
+        ] {
+            let found = partition(line, &ownership).unwrap();
+            assert_eq!(found.abi7, line);
+            assert_eq!(found.legacy, line);
+            let changed = line.replace("u32", "u64");
+            let (before, after) = checked_legacy(line, &changed, Some(&changed), &owners).unwrap();
+            assert_eq!(before, line);
+            assert_eq!(after, changed);
+            assert_eq!(baseline_text(line, &before, &after), changed);
+        }
+    }
+
+    #[test]
+    fn shared_legacy_references_are_allowed_but_exclusive_references_are_not() {
+        let owners = shared_owners();
+        let ownership = Ownership::parse(&owners).unwrap();
+        let line = "struct paperpaw_native::interface::Entry { plugin: paperpaw_native::host_glue::PpPlugin }";
+        let found = partition(line, &ownership).unwrap();
+        assert_eq!(found.legacy, line);
+        assert_eq!(found.abi7, "");
+        let crossing = "struct paperpaw_native::host_glue::PpPlugin { host: paperpaw_native::host_glue::PpHost }";
+        assert!(partition(crossing, &ownership).is_err());
+    }
+
+    #[test]
+    fn manifest_rejects_ambiguous_rules_and_namespace_type_wildcards() {
+        for owners in [
+            "exclusive-type paperpaw_native::host_glue",
+            "exclusive-type paperpaw_native::host_glue::*",
+            "exclusive-type paperpaw_native::host_glue::PpPlugin\nshared-type paperpaw_native::host_glue::PpPlugin",
+            "exclusive-type paperpaw_native::host_glue::PpPlugin\nexclusive-item paperpaw_native::host_glue::PpPlugin::size",
+        ] {
+            assert!(Ownership::parse(owners).is_err(), "{owners}");
         }
     }
 
@@ -247,12 +438,12 @@ mod tests {
     fn namespace_lookalikes_stay_in_legacy() {
         for line in [
             "pub mod paperpaw_native::host_glue_extra",
-            "struct paperpaw_native::host_glue2::Thing { size: u32 }",
-            "pub fn paperpaw_native::old(other_paperpaw_native::host_glue::PpHost)",
-            "pub fn other::paperpaw_native::host_glue::function()",
+            "struct paperpaw_native::host_glue2::PpPlugin { size: u32 }",
+            "pub fn paperpaw_native::Entry::fingerprint_at(other_paperpaw_native::host_glue::PpHost)",
+            "pub fn other::paperpaw_native::host_glue::host_table()",
             "# A comment mentioning paperpaw_native::host_glue\n",
         ] {
-            let found = partition(line).unwrap();
+            let found = split(line).unwrap();
             assert_eq!(found.legacy, line);
             assert_eq!(found.abi7, "");
         }

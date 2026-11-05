@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from abi_partition import audit_rustdoc, partition
+from abi_partition import audit_rustdoc, partition, ownership
 
 
 class PartitionTests(unittest.TestCase):
@@ -55,7 +55,18 @@ class PartitionTests(unittest.TestCase):
         doc = self.doc()
         doc['index']['0']['inner']['module']['items'] = [1, 4]
         doc['index']['1']['inner']['module']['items'] = [2, 3]
+        doc['index']['2']['name'] = 'PpPlugin'
         audit_rustdoc(doc)
+
+    def test_unknown_declaration_in_flat_namespace_is_not_exempt(self):
+        with self.assertRaisesRegex(ValueError, 'unclassified'):
+            partition('paperpaw-native', 'struct paperpaw_native::host_glue::Sneaky {}\n')
+
+    def test_shared_ownership_is_explicit_and_not_a_wildcard(self):
+        rules = 'shared-type paperpaw_native::Both\nexclusive-item paperpaw_native::host_glue\n'
+        self.assertEqual(ownership('paperpaw_native::Both::field', rules), 'shared')
+        self.assertEqual(ownership('paperpaw_native::host_glue', rules), 'exclusive')
+        self.assertIsNone(ownership('paperpaw_native::host_glue::New', rules))
 
     def test_private_alias_in_legacy_field_still_reaches_flat(self):
         doc = self.doc(True)

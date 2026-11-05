@@ -2,7 +2,10 @@
 
 `paperpaw-native.api` and `paperpaw-native.shape` snapshot the inactive
 `paperpaw_native::host_glue` host implementation, including the generated table
-module and its public reexports. These lines are checked exactly, not ignored.
+module and its public reexports. `ownership.txt` lists exact declarations:
+exclusive types include their members, exclusive items match only themselves,
+and shared types remain in both snapshots. Unknown namespace members are
+rejected, not implicitly exempted. These lines are checked exactly, not ignored.
 The namespace is not an interface-6 contract: the existing plugin macro and
 active loader use `paperpaw_native::{Api, Entry}`, the SDK's interface-6 layout
 and fingerprint, and the existing shared tables. Those inputs remain unchanged.
@@ -18,9 +21,10 @@ switched by the gate change.
 
 The original interface-6 comparator still checks every other API/shape item,
 its layout fingerprint, toolchain pins and linker. Historical interface-7 lines
-that were accidentally included there are filtered out of both sides. A normal
-legacy bless can remove those misclassified lines but cannot alter the
-interface-7 snapshots. Regression tests keep changed `Api`/`Entry` layouts
+that were accidentally included there are filtered for comparison only. When
+the legacy contract is unchanged, blessing preserves its original file bytes,
+including those historical lines; it cannot alter interface-7 snapshots.
+Regression tests keep changed `Api`/`Entry` layouts
 breaking even when the interface-7 snapshot matches.
 
 To refresh the interface-7 snapshots after review, use:
