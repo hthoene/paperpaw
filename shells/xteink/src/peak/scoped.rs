@@ -9,6 +9,7 @@ pub struct ScopeSample {
     pub peak_used: usize,
     pub allocations: usize,
     pub requested_bytes: usize,
+    pub largest_requested_bytes: usize,
     pub failed_allocations: usize,
     pub deallocations: usize,
     pub freed_requested_bytes: usize,
@@ -31,6 +32,7 @@ impl Recorder {
                 peak_used: baseline_used,
                 allocations: 0,
                 requested_bytes: 0,
+                largest_requested_bytes: 0,
                 failed_allocations: 0,
                 deallocations: 0,
                 freed_requested_bytes: 0,
@@ -48,6 +50,7 @@ impl Recorder {
                 &mut self.sample.overflowed,
             );
         } else {
+            self.sample.largest_requested_bytes = self.sample.largest_requested_bytes.max(size);
             add(&mut self.sample.allocations, 1, &mut self.sample.overflowed);
             add(
                 &mut self.sample.requested_bytes,
