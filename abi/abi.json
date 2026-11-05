@@ -35,6 +35,46 @@
             },
             "name": "drop",
             "since": 1
+          },
+          {
+            "callback": {
+              "args": [
+                {
+                  "name": "state",
+                  "type": "pointer"
+                },
+                {
+                  "name": "token",
+                  "type": "u32"
+                },
+                {
+                  "name": "input",
+                  "type": "bytes"
+                }
+              ],
+              "nullable": true,
+              "result": "i32"
+            },
+            "name": "dispatch_event",
+            "since": 1
+          },
+          {
+            "callback": {
+              "args": [
+                {
+                  "name": "state",
+                  "type": "pointer"
+                },
+                {
+                  "name": "token",
+                  "type": "u32"
+                }
+              ],
+              "nullable": true,
+              "result": "i32"
+            },
+            "name": "draw",
+            "since": 1
           }
         ],
         "name": "PpPlugin",

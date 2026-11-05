@@ -838,6 +838,46 @@
               "result": "void",
               "nullable": true
             }
+          },
+          {
+            "name": "dispatch_event",
+            "since": 1,
+            "callback": {
+              "args": [
+                {
+                  "name": "state",
+                  "type": "pointer"
+                },
+                {
+                  "name": "token",
+                  "type": "u32"
+                },
+                {
+                  "name": "input",
+                  "type": "bytes"
+                }
+              ],
+              "result": "i32",
+              "nullable": true
+            }
+          },
+          {
+            "name": "draw",
+            "since": 1,
+            "callback": {
+              "args": [
+                {
+                  "name": "state",
+                  "type": "pointer"
+                },
+                {
+                  "name": "token",
+                  "type": "u32"
+                }
+              ],
+              "result": "i32",
+              "nullable": true
+            }
           }
         ]
       },

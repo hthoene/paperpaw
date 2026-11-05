@@ -55,6 +55,20 @@ class RequirementTests(unittest.TestCase):
         used = [{'kind': 'field', 'record': 'test.record', 'name': 'early'}]
         self.assertEqual(ABI.required_minor(self.schema, used, 0), 4)
 
+    def test_callback_requirements_include_tail_and_contract_floors(self):
+        schema = copy.deepcopy(self.schema)
+        plugin = schema['entry_contract']['tables'][0]
+        plugin['fields'][-1]['since'] = 3
+        used = [{'kind': 'callback', 'name': 'draw'}]
+        self.assertEqual(ABI.required_minor(schema, used, 0), 3)
+        schema['entry_contract']['since'] = 4
+        self.assertEqual(ABI.required_minor(schema, used, 0), 4)
+        for name in ('missing', 'state', 'size'):
+            self.reject([{'kind': 'callback', 'name': name}], schema=schema)
+        self.reject(used + used, schema=schema)
+        del schema['entry_contract']
+        self.reject(used, schema=schema)
+
     def test_floor_rejects_boolean_and_noninteger_or_out_of_range_values(self):
         for floor in (True, False, -1, 5, 1.0, '1', None, [], {}):
             with self.subTest(floor=floor):
