@@ -159,28 +159,21 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         Ok(())
     }
 
-    /// Publish only after make succeeds and its output has been validated and
-    /// stored in C. The destructor must not unwind or enter ordinary callbacks.
-    /// No foreign code runs between activation and acquiring the batch lease.
+    /// Transfer a validated successful instance and publish its records.
+    /// Store the successful make output in C first. Only Ok transfers its
+    /// destruction to this owner. The destructor must not unwind or reenter.
     ///
     /// # Errors
-    /// Returns Capacity if staging overflowed, or State if revoked before commit. Admission failures roll back the
-    /// records before destroying a successfully constructed instance.
+    /// Returns Capacity if staging overflowed, or State if revoked before commit.
+    /// Every Err drops staged records before returning and leaves destruction
+    /// unarmed. The loader still owns its validated successful output and must
+    /// destroy it exactly once while context and module remain alive. This is
+    /// distinct from cleaning partial or invalid output from a failed make.
     pub fn commit(mut self, destroy: fn(Pin<&C>)) -> Result<RegistrationBatch<'a, C, M, T>, Error> {
         if let Some(error) = self.failure {
             return Err(error);
         }
-        let owner = self.owner;
-        owner.inner().activate(destroy)?;
-        let lease = match owner.lease() {
-            Ok(lease) => lease,
-            Err(error) => {
-                owner.revoke();
-                self.clear();
-                owner.inner().finish()?;
-                return Err(error);
-            }
-        };
+        let lease = CallbackLease(self.owner.inner().activate_leased(destroy)?);
         Ok(RegistrationBatch {
             records: core::mem::replace(&mut self.records, core::array::from_fn(|_| None)),
             len: self.len,

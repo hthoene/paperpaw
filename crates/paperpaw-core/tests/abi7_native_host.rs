@@ -344,6 +344,46 @@ fn rejected_commit_releases_records_before_explicit_foreign_cleanup_and_unload()
     }
 }
 
+#[test]
+fn successful_make_output_stays_loader_owned_on_every_commit_rejection() {
+    for overflow in [false, true] {
+        let state = Rc::new(Observations::default());
+        let owner = tracked_owner(&state);
+        let mut construction = owner.as_ref().begin().unwrap();
+        for _ in 0..8 {
+            assert!(construction.stage(Record::new(&state, "staged")).is_ok());
+        }
+        let expected = if overflow {
+            let Err((error, returned)) = construction.stage(Record::new(&state, "refused")) else {
+                panic!("capacity must refuse");
+            };
+            drop(returned);
+            error
+        } else {
+            owner.as_ref().revoke();
+            Error::State
+        };
+        // The fixture's make output is successful and its destructor validated.
+        assert!(matches!(construction.commit(destroy), Err(error) if error == expected));
+        assert_eq!(state.records_dropped.get(), if overflow { 9 } else { 8 });
+        assert_eq!(state.destroyed.get(), 0);
+        assert_eq!(state.module_dropped.get(), 0);
+        // Err retains loader ownership: call the supplied destructor ourselves.
+        destroy(owner.as_ref().context());
+        assert_eq!(state.destroyed.get(), 1);
+        owner.as_ref().revoke();
+        owner.as_ref().finish().unwrap();
+        drop(owner);
+        assert_eq!(state.destroyed.get(), 1);
+        assert_eq!(state.module_dropped.get(), 1);
+        let events = state.events.borrow();
+        assert_eq!(
+            &events[events.len() - 3..],
+            &["destroy", "context", "module"]
+        );
+    }
+}
+
 #[derive(Default)]
 struct Observations {
     context_live: Cell<bool>,

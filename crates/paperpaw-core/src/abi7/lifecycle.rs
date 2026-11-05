@@ -79,6 +79,20 @@ impl<C, M> Owner<C, M> {
         Ok(())
     }
 
+    /// Transfer a validated instance and reserve its first lease together.
+    /// Every refusal precedes arming destruction; no failure follows transfer.
+    pub(crate) fn activate_leased(
+        self: Pin<&Self>,
+        destroy: Destroy<C>,
+    ) -> Result<Lease<'_, C, M>, Error> {
+        if self.leases.get() >= 8 {
+            return Err(Error::Capacity);
+        }
+        self.activate(destroy)?;
+        self.leases.set(self.leases.get() + 1);
+        Ok(Lease { owner: self })
+    }
+
     /// Reserve before publishing a registration or queued callback. Eight is
     /// a conservative local lease bound, not a device-wide memory guarantee.
     pub(crate) fn lease(self: Pin<&Self>) -> Result<Lease<'_, C, M>, Error> {

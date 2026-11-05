@@ -288,3 +288,23 @@ impl Drop for Module {
         self.0.events.borrow_mut().push("module");
     }
 }
+
+#[test]
+fn activation_with_first_lease_transfers_only_on_success() {
+    let state = Rc::new(Observations::default());
+    let owner = tracked_owner(&state);
+    state
+        .address
+        .set(std::ptr::from_ref(owner.as_ref().context().get_ref()));
+    let lease = owner.as_ref().activate_leased(destroy).unwrap();
+    assert!(matches!(
+        owner.as_ref().activate_leased(destroy),
+        Err(Error::State)
+    ));
+    owner.as_ref().revoke();
+    assert_eq!(owner.as_ref().finish(), Err(Error::Busy));
+    drop(lease);
+    owner.as_ref().finish().unwrap();
+    drop(owner);
+    assert_eq!(state.destroyed.get(), 1);
+}

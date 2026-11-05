@@ -48,8 +48,8 @@ returns the refused record to its caller. The loader must treat decoding or
 staging refusal as a failed construction transaction, not commit a partial set.
 
 After make returns, validate its output and store the successful plugin state in
-C. Only then commit with the destructor thunk. Commit activates the owner and
-returns a `RegistrationBatch<T>` with its own lease. No foreign code runs between
+C. Only then commit with the destructor thunk. Commit reserves the first lease and activates the owner without a fallible
+step after ownership transfer, then returns a `RegistrationBatch<T>` with its own lease. No foreign code runs between
 activation and lease reservation. Dropping the batch destroys its records before
 releasing the lease. Additional queued work obtains its own callback lease.
 
@@ -64,3 +64,16 @@ These are generic host records, not a substitute for generated callback tables,
 wire validation or registration codecs. Publication into global registries,
 fallible owner allocation, module guard implementation, scoped FrameSlot setup,
 foreign dispatch and aggregate resource accounting still require integration.
+
+### Successful make followed by commit rejection
+
+The loader owns a validated successful make result until commit returns Ok.
+Every commit Err leaves owner destruction unarmed and drops staged records before
+returning. The loader must then invoke the validated output destructor exactly
+once while the context and module are still alive. This applies to both poisoned
+capacity and revocation errors, even though make itself succeeded. Owner finish
+or drop does not clean this rejected output. Keep the output in its loader guard
+until Ok transfers it; disarm that guard only on Ok.
+
+A failed make or invalid output is a different case: abort staging, then follow
+the entry contract for partial output. Never call an unvalidated destructor.
