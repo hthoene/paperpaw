@@ -883,3 +883,62 @@ reentrant cancellation, missing services, quota exhaustion and chunk failure
 cases to the shared corpus or runtime tests as appropriate. A small raw ABI
 fixture is useful for exercising these gates, but does not replace review of
 the full grammar and resource profile.
+
+### Experimental M1 X4 resource profile (proposal for review)
+
+This profile makes the first slice falsifiable; it is not qualification of all
+plugins. Values are proposed admission limits, not measured consumption. Charge
+allocation capacity, alignment, allocator overhead and bookkeeping on both sides.
+Per-plugin limits never multiply the device-wide limit.
+
+| Category | Device-wide charged bytes | Additional count limit |
+|---|---:|---|
+| Retained handles, tokens, owner metadata and added captures | 1,792 | 32 handles and 32 dynamic tokens |
+| Live encoded input/output storage | 512 | one 384-byte inline batch |
+| Committed queue plus private uncommitted segment | 512 | 8 commands total |
+| TextScope storage | 512 | 256 bytes per active callback |
+| Decoder workspace | 256 | never retained across a plugin callback |
+| Stream chunk storage | 512 | two streams, one outstanding chunk globally |
+| **Total additional boundary storage** | **4,096** | depth at most 2 |
+
+Per plugin: at most four persistent handles, eight dynamic callback tokens,
+256 bytes of added capture storage, eight queued commands, one stream. Captures
+are included in the retained category, not an extra allowance. Static token
+functions require no dynamic token slot, but their module leases still count.
+Generation retirement consumes capacity until owner teardown; it cannot wrap
+into a valid stale handle. Handle bit allocation and concrete slot sizes remain
+part of the grammar/runtime review, not implicit claims from this table.
+
+The proposed encoded payload maximum is 384 bytes per inline batch including
+headers; a stream chunk carries at most 384 payload bytes. The larger schema
+operation caps are maximum logical sizes, not promises that every value is
+admitted inline. Larger records/data must use a declared bounded stream before
+porting that operation. Refusal is observable, never truncation. Thirty-two
+handles/tokens do not establish capacity for 43 packaged plugins; perform a
+simultaneous-demand census before full ports and revise only through review.
+
+Reserve capacity before invoking a producer or admitting work. Quota failure
+returns NoSpace; allocator failure returns NoMemory. Cleanup and release allocate
+nothing. Existing queue contents and the entire candidate segment count together.
+Failure leaves the previous queue unchanged and releases newly acquired leases.
+Retained blobs count their backing storage and extended lifetime, even when no
+copy occurs. No per-plugin 4 KiB scratch buffer is allowed by this profile.
+
+A stream uses an owner lease and bounded positional reads into receiver storage;
+backpressure is applied before another read. Define premature EOF, short read,
+card loss and cancellation explicitly. Stateful producers use a consuming state
+machine rather than a repeatable size query. One terminal release is required.
+
+Acceptance remains measured: total peak at most 222,822 bytes (85% of 256 KiB),
+peak delta at most 4,096 bytes against a matched baseline, retained handle/token
+metadata below 2,048 bytes, and stack increase at most 512 bytes with at least
+10 KiB free. Measure simultaneous output, queue, nested scopes and streams;
+isolated peaks cannot prove this bound. A 4 KiB output plus a 4 KiB queued copy
+already contradicts the delta target and must not be hidden in separate budgets.
+
+Failure tests cover every byte/count boundary and one above it, two competing
+owners, depth three, same-state dispatch through different tokens, allocator
+failure at each ownership transition, malformed last record, stale/generation-
+exhausted handles, output release on all exits, stable text references, and
+stream cancellation/unload at every chunk boundary. Until the runtime enforces
+and measures this profile, the aggregate-resource gate remains open.
