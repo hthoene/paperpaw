@@ -390,7 +390,8 @@ can read the entry. A check after the load is too late. The contract:
    parsing the object's headers from the bytes. The `.ppn` of the X4 carries the
    same record in its header. A bytes-only function in `paperpaw-native`
    (`preflight(bytes, target) -> Result<Accepted, Refusal>`) does all of it; the
-   shells call it and nothing else decides.
+   shells call it and nothing else decides. The digest and the signature are not in
+   this section: they form an envelope outside it (item 7).
 2. **Refuse every way to run code at load time, read from the structures the
    system loader itself uses, not from section names** (sections can be absent or
    wrong): ELF program headers and the dynamic segment, Mach-O load commands, the PE
