@@ -385,8 +385,8 @@ the Android and macOS equivalents run initialisers while loading, before the loa
 can read the entry. A check after the load is too late. The contract:
 
 1. **Metadata the preflight can read without loading.** Identity, target,
-   `needs_minor`, the entry descriptor and the signature digest live in a named
-   section (`.ppn_meta` in ELF and PE, `__DATA,__ppn_meta` in Mach-O), found by
+   `needs_minor` and the entry descriptor live in a named
+   section (`.ppn_meta` in ELF and PE, `__DATA,__ppn_meta` in Mach-O; names are placeholders until the generated descriptor fixes them), found by
    parsing the object's headers from the bytes. The `.ppn` of the X4 carries the
    same record in its header. A bytes-only function in `paperpaw-native`
    (`preflight(bytes, target) -> Result<Accepted, Refusal>`) does all of it; the
@@ -395,8 +395,9 @@ can read the entry. A check after the load is too late. The contract:
    system loader itself uses, not from section names** (sections can be absent or
    wrong): ELF program headers and the dynamic segment, Mach-O load commands, the PE
    optional header and its data directories. For M1 a PE has **no entry point**
-   (`AddressOfEntryPoint` zero); a linker-made stub is accepted only if it is exactly
-   the bytes a named tool produces, never a claimed no-op. The mechanisms: ELF: `DT_INIT`, `DT_PREINIT_ARRAY`,
+   (`AddressOfEntryPoint` zero), without exception. A linker-made stub is not an
+   alternative in M1; if one is ever wanted it is a later, separately reviewed change
+   that names the exact tool-produced bytes. The mechanisms: ELF: `DT_INIT`, `DT_PREINIT_ARRAY`,
    `DT_INIT_ARRAY` (non-empty), `DT_FINI*`, `.ctors`/`.dtors`, IFUNC symbols
    (`STT_GNU_IFUNC`), TLS with a dynamic initialiser, any `DT_NEEDED` outside the
    allowlist (the C library and nothing else, for host builds), text relocations.
