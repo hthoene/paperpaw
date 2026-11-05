@@ -166,6 +166,15 @@ fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, P
     if paperpaw_core::sdk::digest::sha256::digest(&copied) != code.sha256 {
         return Err(PluginProblem::Changed);
     }
+    // Before anything of it can run: a library's initialisers run while
+    // the system loads it, so what it holds is read from its bytes first.
+    if let Err(why) = preflight(&copied) {
+        eprintln!(
+            "code plugin {}: refused before loading ({why:?})",
+            code.id.as_str()
+        );
+        return Err(PluginProblem::Damaged);
+    }
     if let Err(why) = built_here(&copied) {
         eprintln!("code plugin {}: {why}", code.id.as_str());
         return Err(PluginProblem::OtherBuild);
@@ -213,6 +222,31 @@ fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, P
     // is in use.
     std::mem::forget(library);
     Ok(plugin)
+}
+
+/// The preflight of ADR 0034 section 6 for this computer's libraries:
+/// refuses every way to run code while the library loads.
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+fn preflight(bytes: &[u8]) -> Result<(), paperpaw_native::preflight::Refusal> {
+    let machine = if cfg!(target_arch = "x86_64") {
+        62
+    } else {
+        183
+    };
+    paperpaw_native::preflight::check_elf64_le(bytes, machine)
+}
+
+/// Mach-O and PE libraries are not yet checked before loading: their
+/// preflight comes with the generated metadata (ADR 0034, M1).
+#[cfg(not(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+)))]
+fn preflight(_bytes: &[u8]) -> Result<(), paperpaw_native::preflight::Refusal> {
+    Ok(())
 }
 
 /// Whether the library `bytes` was built by the compiler that built the
@@ -348,8 +382,8 @@ version = 0.1.0
         );
         assert_eq!(
             problem(true),
-            Some(PluginProblem::OtherBuild),
-            "loaded, and found no library of this compiler"
+            Some(PluginProblem::Damaged),
+            "not a library: refused by the preflight, before it was loaded"
         );
         crate::device::set_code_plugins(false);
         let _ = std::fs::remove_dir_all(&root);
@@ -371,7 +405,7 @@ version = 0.1.0
             paperpaw_core::sdk::native::installed_code(&storage, "hello"),
             Some(paperpaw_core::sdk::digest::sha256::digest(b"not a library"))
         );
-        // Installed but no library of this compiler: said, not fatal.
+        // Installed but not a library the preflight reads: said, not fatal.
         let id = paperpaw_core::sdk::Id::new_static("hello");
         let path = format!("plugins/hello/{}", file_name());
         let code = CodeFile {
@@ -381,7 +415,7 @@ version = 0.1.0
         };
         assert_eq!(
             HostLoader.load(&storage, &code).err(),
-            Some(PluginProblem::OtherBuild)
+            Some(PluginProblem::Damaged)
         );
         let changed = CodeFile {
             sha256: [0; 32],
@@ -390,6 +424,80 @@ version = 0.1.0
         assert_eq!(
             HostLoader.load(&storage, &changed).err(),
             Some(PluginProblem::Changed)
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// ADR 0034 section 6: a library whose initialiser runs when it is loaded
+    /// is refused before it is loaded. The control loads the same library
+    /// by hand and sees the initialiser run, so the test can fail.
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn a_library_with_an_initialiser_is_refused_before_it_is_loaded() {
+        let root = std::env::temp_dir().join(format!("paperpaw-init-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let hello = root.join("plugins/hello");
+        std::fs::create_dir_all(&hello).unwrap();
+        let marker = root.join("initialiser-ran");
+        let source = format!(
+            r#"#![no_std]
+#[panic_handler]
+fn panic(_: &core::panic::PanicInfo) -> ! {{ loop {{}} }}
+unsafe extern "C" {{ fn creat(path: *const u8, mode: u32) -> i32; }}
+extern "C" fn make_marker() {{ unsafe {{ creat(b"{}\0".as_ptr(), 0o600); }} }}
+#[used]
+#[unsafe(link_section = ".init_array")]
+static INIT: extern "C" fn() = make_marker;
+"#,
+            marker.display()
+        );
+        let src = root.join("init.rs");
+        let lib = hello.join(file_name());
+        std::fs::write(&src, source).unwrap();
+        let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
+        let built = std::process::Command::new(rustc)
+            .args([
+                "--edition",
+                "2024",
+                "--crate-type",
+                "cdylib",
+                "-C",
+                "panic=abort",
+            ])
+            .args(["-C", "link-arg=-nostartfiles", "-O", "-o"])
+            .arg(&lib)
+            .arg(&src)
+            .status();
+        if !matches!(built, Ok(s) if s.success()) {
+            eprintln!("no rustc to build the library; test skipped");
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        }
+        // The control: loading it by hand runs the initialiser.
+        // SAFETY: a library built here, whose only code is the marker.
+        drop(unsafe { libloading::Library::new(&lib) }.unwrap());
+        assert!(marker.exists(), "the fixture does not run an initialiser");
+        std::fs::remove_file(&marker).unwrap();
+        // The loader refuses it and never loads it.
+        let bytes = std::fs::read(&lib).unwrap();
+        let storage = crate::device::library(&root).unwrap();
+        let id = paperpaw_core::sdk::Id::new_static("hello");
+        let path = format!("plugins/hello/{}", file_name());
+        let code = CodeFile {
+            id: &id,
+            path: &path,
+            sha256: paperpaw_core::sdk::digest::sha256::digest(&bytes),
+        };
+        assert_eq!(
+            HostLoader.load(&storage, &code).err(),
+            Some(PluginProblem::Damaged)
+        );
+        assert!(
+            !marker.exists(),
+            "the initialiser ran while the loader refused it"
         );
         let _ = std::fs::remove_dir_all(&root);
     }
