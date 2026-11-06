@@ -340,7 +340,8 @@ mod tests {
     fn repeated_acquire_release_and_teardown_keep_slot_memory_flat() {
         let mut handles = Handles::new();
         let first = handles.insert(1, Kind::Font, 7).unwrap();
-        let capacity = handles.slots.capacity();
+        let capacity = handles.capacity();
+        let retained_bytes = capacity * slot_bytes::<i32>();
         assert_eq!(capacity, GROWTH);
         assert_eq!(handles.remove(1, Kind::Font, first), Ok(7));
         let mut previous = first;
@@ -352,7 +353,7 @@ mod tests {
             assert_eq!(handles.take_owner(owner), Some(8));
             assert!(handles.take_owner(owner).is_none());
             assert_eq!(handles.slots.len(), 1);
-            assert_eq!(handles.slots.capacity(), capacity);
+            assert_eq!(handles.capacity() * slot_bytes::<i32>(), retained_bytes);
             previous = handle;
         }
     }
