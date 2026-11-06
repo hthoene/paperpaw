@@ -1,0 +1,256 @@
+//! Borrow a bounded command stage only during a synchronous foreign callback.
+//! The owner keeps this pinned slot, not a stage, registry or queue reference.
+//! Accepted commands stay host-private until the host drains the stage after
+//! the callback; the kernel applies them, so the next callback reads them back.
+
+use super::Error;
+pub use crate::abi7::commands_wire::{
+    COMMAND_MAX_BYTES, COMMAND_MAX_KEY_BYTES, COMMAND_MAX_RECORDS, COMMAND_SET_SETTING_TAG,
+    Command as WireCommand, CommandBatch, commands_decode, commands_encode,
+};
+use crate::abi7::settings_wire::SettingValueRef;
+use alloc::{borrow::Cow, string::String, vec::Vec};
+use core::{cell::RefCell, fmt, marker::PhantomPinned, pin::Pin, ptr::NonNull};
+use paperpaw_native::host_glue::{
+    ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBytes,
+    buffers,
+};
+use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
+
+/// Host staging for one callback: the submitting plugin's identity, the live
+/// settings registry used for validation, and at most `limit` accepted commands.
+/// Construction allocates nothing; each accepted batch reserves fallibly.
+pub struct CommandStage<'a> {
+    owner: &'a Id,
+    settings: &'a Settings,
+    staged: Vec<Command>,
+    limit: usize,
+}
+
+impl<'a> CommandStage<'a> {
+    /// Stage for `owner`, the host-known plugin identity, never a plugin claim.
+    #[must_use]
+    pub const fn new(owner: &'a Id, settings: &'a Settings, limit: usize) -> Self {
+        Self {
+            owner,
+            settings,
+            staged: Vec::new(),
+            limit,
+        }
+    }
+
+    /// Commands accepted so far, in submission order.
+    #[must_use]
+    pub fn staged(&self) -> &[Command] {
+        &self.staged
+    }
+
+    /// Hand accepted commands to the host's queue after the callback returns.
+    #[must_use]
+    pub fn into_commands(self) -> Vec<Command> {
+        self.staged
+    }
+
+    /// The setting's spec, if this plugin may set it through slot 15.
+    /// Interface 7 admits only registered, non-secret settings in the
+    /// submitting plugin's own namespace; secrets need their own path.
+    fn admitted(&self, key: &str) -> Result<&'a SettingSpec, i32> {
+        if key.split('.').next() != Some(self.owner.as_str()) {
+            return Err(ERR_INVALID);
+        }
+        let spec = self.settings.spec(key).ok_or(ERR_INVALID)?;
+        if spec.extra().secret {
+            return Err(ERR_UNSUPPORTED);
+        }
+        Ok(spec)
+    }
+
+    /// Validate an entire decoded batch, then stage it, or stage nothing.
+    fn stage(&mut self, batch: &CommandBatch<'_>) -> i32 {
+        if self.staged.len().saturating_add(batch.len()) > self.limit {
+            return ERR_NO_SPACE;
+        }
+        // Authority, registration and scalar ranges, without allocating.
+        for WireCommand::SetSetting { key, value } in batch.iter() {
+            let spec = match self.admitted(key) {
+                Ok(spec) => spec,
+                Err(error) => return error,
+            };
+            let scalar = match value {
+                SettingValueRef::Bool(value) => Some(SettingValue::Bool(value)),
+                SettingValueRef::Int(value) => Some(SettingValue::Int(value)),
+                _ => None,
+            };
+            if scalar.is_some_and(|scalar| !spec.accepts(&scalar)) {
+                return ERR_INVALID;
+            }
+        }
+        if self.staged.try_reserve(batch.len()).is_err() {
+            return ERR_NO_MEMORY;
+        }
+        let start = self.staged.len();
+        for command in batch.iter() {
+            match self.owned(command) {
+                // Capacity is reserved, so this push cannot reallocate.
+                Ok(command) => self.staged.push(command),
+                Err(error) => {
+                    self.staged.truncate(start);
+                    return error;
+                }
+            }
+        }
+        OK
+    }
+
+    /// Convert one admitted command, copying text fallibly and checking it.
+    fn owned(&self, command: WireCommand<'_>) -> Result<Command, i32> {
+        let WireCommand::SetSetting { key, value } = command;
+        let spec = self.admitted(key)?;
+        let value = match value {
+            SettingValueRef::Bool(value) => SettingValue::Bool(value),
+            SettingValueRef::Int(value) => SettingValue::Int(value),
+            SettingValueRef::Text(text) => {
+                let mut owned = String::new();
+                owned
+                    .try_reserve_exact(text.len())
+                    .map_err(|_| ERR_NO_MEMORY)?;
+                owned.push_str(text);
+                SettingValue::Text(Cow::Owned(owned))
+            }
+            SettingValueRef::Absent => return Err(ERR_INVALID),
+        };
+        if !spec.accepts(&value) {
+            return Err(ERR_INVALID);
+        }
+        // Keys are at most COMMAND_MAX_KEY_BYTES; a placement key is parsed.
+        let id = if key == spec.id.as_str() {
+            spec.id.clone()
+        } else {
+            Id::parse(key).map_err(|_| ERR_INVALID)?
+        };
+        Ok(Command::SetSetting(id, value))
+    }
+}
+
+impl fmt::Debug for CommandStage<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CommandStage")
+            .field("owner", self.owner)
+            .field("staged", &self.staged.len())
+            .field("limit", &self.limit)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Allocation-free command slot inside a pinned host context.
+/// This single-threaded slot lends a stage only for one callback.
+#[non_exhaustive]
+pub struct CommandScope {
+    current: RefCell<Option<NonNull<CommandStage<'static>>>>,
+    _pin: PhantomPinned,
+}
+
+struct Reset<'a>(&'a CommandScope);
+impl Drop for Reset<'_> {
+    fn drop(&mut self) {
+        // Every submission's private borrow guard has ended before scope exit,
+        // including unwinding. No user code can retain a guard or stage view.
+        *self.0.current.borrow_mut() = None;
+    }
+}
+
+impl CommandScope {
+    /// Create an empty slot before pinning the containing context.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            current: RefCell::new(None),
+            _pin: PhantomPinned,
+        }
+    }
+
+    /// Exclusively lend a stage for one synchronous callback.
+    /// No RefCell guard or submission borrow spans `call`. Errors and
+    /// unwinding clear the slot before the stage borrow ends.
+    ///
+    /// # Errors
+    /// Returns Busy for nested scopes or while a submission is active.
+    pub fn scope<R>(
+        self: Pin<&Self>,
+        stage: &mut CommandStage<'_>,
+        call: impl FnOnce() -> R,
+    ) -> Result<R, Error> {
+        let mut current = self.current.try_borrow_mut().map_err(|_| Error::Busy)?;
+        if current.is_some() {
+            return Err(Error::Busy);
+        }
+        // Erase only the stage's borrowed lifetime. The exclusive caller
+        // borrow lasts through call and Reset; no pointer is exposed.
+        *current = Some(NonNull::from(stage).cast::<CommandStage<'static>>());
+        drop(current);
+        let _reset = Reset(self.get_ref());
+        Ok(call())
+    }
+
+    /// Slot-15 bridge: decode and validate a whole batch, then stage all of it.
+    ///
+    /// Returns OK, or an error with the stage unchanged: ERR_STATE outside a
+    /// callback, ERR_BUSY during another submission, codec statuses for the
+    /// bytes, ERR_INVALID for a foreign, unregistered or unaccepted setting
+    /// value, ERR_UNSUPPORTED for a secret, ERR_NO_SPACE beyond the stage
+    /// limit and ERR_NO_MEMORY if fallible staging cannot reserve memory.
+    ///
+    /// # Safety
+    /// When non-null with nonzero length, `bytes` must designate initialized
+    /// storage readable for `len` bytes, live, stable and unmodified until
+    /// this call returns, and disjoint from host state. No pointer is retained.
+    #[must_use]
+    pub unsafe fn submit(&self, bytes: *const u8, len: usize) -> i32 {
+        let Ok(mut current) = self.current.try_borrow_mut() else {
+            return ERR_BUSY;
+        };
+        let Some(pointer) = current.as_mut() else {
+            return ERR_STATE;
+        };
+        if len > COMMAND_MAX_BYTES {
+            return ERR_NO_SPACE;
+        }
+        // SAFETY: the caller guarantees readable, stable storage; the helper
+        // checks null and size bounds before constructing any nonempty slice.
+        let batch = match unsafe { buffers::bytes_in(PpBytes { ptr: bytes, len }, len) }
+            .and_then(commands_decode)
+        {
+            Ok(batch) => batch,
+            Err(error) => return error,
+        };
+        // SAFETY: scope retains the exclusive caller borrow of a live stage.
+        // The RefMut excludes overlapping submissions; the reference exists
+        // only for this call and is gone before Reset clears the pointer.
+        let stage = unsafe { pointer.as_mut() };
+        stage.stage(&batch)
+    }
+}
+
+impl Default for CommandScope {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Debug for CommandScope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CommandScope").finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn overlapping_submission_refuses_without_panicking() {
+        let scope = CommandScope::new();
+        let _borrow = scope.current.borrow_mut();
+        // SAFETY: a zero-length submission reads no storage.
+        assert_eq!(unsafe { scope.submit(core::ptr::null(), 0) }, ERR_BUSY);
+    }
+}

@@ -19,6 +19,7 @@ from abi_callbacks import rust_callbacks
 from abi_records import validate_records, compatible_records, rust_records
 from abi_snapshot import validate_snapshot, compatible_snapshot, rust_snapshot
 from abi_color import validate_color, compatible_color, rust_color
+from abi_commands import validate_commands, compatible_commands, rust_commands
 TYPES = {'context': 'void *', 'pointer': 'void *', 'bytes': 'PpBytes',
          'buffer': 'PpBuffer', 'handle': 'uint32_t', 'usize': 'size_t',
          'u16': 'uint16_t', 'u32': 'uint32_t', 'u64': 'uint64_t',
@@ -92,6 +93,7 @@ def validate(schema):
          (' entry_contract' if 'entry_contract' in schema else '') +
          (' settings_value' if 'settings_value' in schema else '') +
          (' record_codec' if 'record_codec' in schema else '') +
+         (' command_codec' if 'command_codec' in schema else '') +
          (' snapshot_value' if 'snapshot_value' in schema else '') +
          (' color_value' if 'color_value' in schema else ''))
     require(type(schema['format']) is int and schema['format'] == 1,
@@ -138,6 +140,7 @@ def validate(schema):
     for record in schema['records']:
         validate_record(record, schema['minor'])
     validate_records(schema)
+    validate_commands(schema)
     return schema
 
 
@@ -205,6 +208,7 @@ def compatible(old, new, released_minor=None):
     compatible_records(old, new, minimum_since)
     compatible_snapshot(old, new, minimum_since)
     compatible_color(old, new, minimum_since)
+    compatible_commands(old, new, minimum_since)
     require(old['format'] == new['format'] and old['major'] == new['major'],
             'format/major change needs separate reviewed baseline')
     require(old['minor'] <= new['minor'] <= old['minor'] + 1,
@@ -305,25 +309,27 @@ def rust_module(schema):
 
 def lock_record(schema, released_minor=0):
     """Keep exact emitted declarations as well as logical schema semantics."""
-    return {'lock_format': 6, 'released_minor': released_minor,
+    return {'lock_format': 7, 'released_minor': released_minor,
             'schema': schema, 'emitted_c': header(schema),
             'emitted_rust': rust_module(schema),
             'emitted_metadata': resolved_metadata(schema),
             'emitted_records': rust_records(schema),
             'emitted_snapshot': rust_snapshot(schema),
-            'emitted_color': rust_color(schema)}
+            'emitted_color': rust_color(schema),
+            'emitted_commands': rust_commands(schema)}
 
 
 def check_lock(prior, schema):
     require(type(prior) is dict, 'lock must be an object')
     version = prior.get('lock_format')
-    require(type(version) is int and version in (1, 2, 3, 4, 5, 6), 'unsupported lock format')
+    require(type(version) is int and version in (1, 2, 3, 4, 5, 6, 7), 'unsupported lock format')
     keys(prior, 'lock_format released_minor schema emitted_c' +
          (' emitted_rust' if version >= 2 else '') +
          (' emitted_metadata' if version >= 3 else '') +
          (' emitted_records' if version >= 4 else '') +
          (' emitted_snapshot' if version >= 5 else '') +
-         (' emitted_color' if version >= 6 else ''))
+         (' emitted_color' if version >= 6 else '') +
+         (' emitted_commands' if version >= 7 else ''))
     validate(prior['schema'])
     integer(prior['released_minor'], prior['schema']['minor'])
     # Re-render the OLD schema using THIS generator. This detects changes in
@@ -346,6 +352,9 @@ def check_lock(prior, schema):
     if version >= 6:
         require(prior['emitted_color'] == rust_color(prior['schema']),
                 'emitted color contract changed from prior lock')
+    if version >= 7:
+        require(prior['emitted_commands'] == rust_commands(prior['schema']),
+                'emitted commands contract changed from prior lock')
     compatible(prior['schema'], schema, prior['released_minor'])
 
 
@@ -396,6 +405,10 @@ def run(argv=None):
     if codec:
         outputs[folder / 'generated' / 'color_wire.rs'] = codec
         outputs[args.root / 'crates/paperpaw-core/src/abi7/color_wire.rs'] = codec
+    codec = rust_commands(schema)
+    if codec:
+        outputs[folder / 'generated' / 'commands_wire.rs'] = codec
+        outputs[args.root / 'crates/paperpaw-core/src/abi7/commands_wire.rs'] = codec
     if args.check:
         require(load(lock) == lock_record(schema, released_minor), 'lock stale; explicitly review/update it')
         for path, wanted in outputs.items():
