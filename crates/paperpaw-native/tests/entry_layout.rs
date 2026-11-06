@@ -11,23 +11,26 @@ mod raw {
 
 use core::ffi::c_void;
 use core::mem::{align_of, offset_of, size_of};
-use raw::{PpBytes, PpEntry, PpHost, PpPlugin};
+use raw::{PpBuffer, PpBytes, PpEntry, PpHost, PpPlugin};
 
 type Make = unsafe extern "C" fn(*const PpHost, *mut c_void, *mut *const PpPlugin) -> i32;
 type Drop = unsafe extern "C" fn(*mut c_void);
-type Event = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
-type Draw = unsafe extern "C" fn(*mut c_void, u32) -> i32;
+type Event = unsafe extern "C" fn(*mut c_void, u32, PpBytes, PpBuffer) -> i32;
+type Draw = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
+type Input = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
 
 #[test]
 fn bounded_plugin_readers_are_available_to_loaders() {
     use paperpaw_native::host_glue as public;
     type Reader<T> = unsafe fn(*const u8, usize) -> Result<T, i32>;
-    type Dispatch = unsafe extern "C" fn(*mut c_void, u32, public::PpBytes) -> i32;
+    type Dispatch =
+        unsafe extern "C" fn(*mut c_void, u32, public::PpBytes, public::PpBuffer) -> i32;
+    type PublicDraw = unsafe extern "C" fn(*mut c_void, u32, public::PpBytes) -> i32;
     let _: Reader<usize> = public::read_plugin_size;
     let _: Reader<*mut c_void> = public::read_plugin_state;
     let _: Reader<Drop> = public::read_plugin_drop;
     let _: Reader<Dispatch> = public::read_plugin_dispatch_event;
-    let _: Reader<Draw> = public::read_plugin_draw;
+    let _: Reader<PublicDraw> = public::read_plugin_draw;
     assert_eq!(public::PLUGIN_PREFIX_BYTES, raw::PLUGIN_PREFIX_BYTES);
 }
 
@@ -68,7 +71,7 @@ fn entry_and_plugin_fields_remain_exhaustive_and_typed() {
         input,
     } = plugin;
     let _: (u32, *mut c_void, Option<Drop>) = (size, state, drop);
-    let _: (Option<Event>, Option<Draw>, Option<Event>) = (dispatch_event, draw, input);
+    let _: (Option<Event>, Option<Draw>, Option<Input>) = (dispatch_event, draw, input);
 }
 
 #[test]

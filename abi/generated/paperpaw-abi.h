@@ -70,9 +70,9 @@ struct PpPlugin {
     /* drop: since minor 1. */
     void (*drop)(void * state);
     /* dispatch_event: since minor 1. */
-    int32_t (*dispatch_event)(void * state, uint32_t token, PpBytes input);
+    int32_t (*dispatch_event)(void * state, uint32_t token, PpBytes input, PpBuffer out);
     /* draw: since minor 1. */
-    int32_t (*draw)(void * state, uint32_t token);
+    int32_t (*draw)(void * state, uint32_t token, PpBytes input);
     /* input: since minor 1. */
     int32_t (*input)(void * state, uint32_t token, PpBytes input);
 };

@@ -193,21 +193,32 @@ class WireRecordTests(unittest.TestCase):
                             '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
 
-    def test_every_family_accepts_its_range_and_refuses_the_rest(self):
-        ranges = {'setting.x': (5, 31), 'resource.x': (5, 31), 'action.x': (5, 31),
-                  'menu.x': (5, 31), 'screen.x': (5, 31), 'icon.x': (5, 31), 'event.x': (32, 39),
-                  'input.x': (40, 43), 'i18n.x': (44, 47), 'service.x': (48, 55), 'command.x': (56, 62)}
+    def test_every_family_accepts_its_ranges_and_refuses_the_rest(self):
+        declarative = ((5, 31), (224, 511))
+        ranges = {'setting.x': declarative, 'resource.x': declarative, 'action.x': declarative,
+                  'menu.x': declarative, 'screen.x': declarative, 'icon.x': declarative,
+                  'format.x': declarative, 'registration.x': declarative,
+                  'stage.x': ((512, 1023),), 'event.x': ((32, 39), (64, 191)),
+                  'input.x': ((40, 43), (192, 223)), 'draw.x': ((192, 223),),
+                  'i18n.x': ((44, 47),), 'service.x': ((48, 55), (1024, 1535)),
+                  'command.x': ((56, 62), (1536, 2047))}
+        taken = {record['id'] for record in self.schema['records']}
         small = [field('a', 'u32')]
-        for name, (low, high) in ranges.items():
-            # Tags 5-10, 32-37 and 48-52 are taken by declared records.
-            first = {'event.x': 38, 'service.x': 53}.get(name, max(low, 11))
-            for tag in sorted({first, high}):
-                with self.subTest(name=name, tag=tag):
-                    validate_records(self.with_record(synthetic(name, tag, small)))
-            for tag in (low - 1, high + 1, 0, 63, 64, 65536):
+        for name, spans in ranges.items():
+            inside = lambda tag: any(low <= tag <= high for low, high in spans)
+            for low, high in spans:
+                free = [tag for tag in range(low, high + 1) if tag not in taken]
+                for tag in sorted({free[0], free[-1]}) if free else ():
+                    with self.subTest(name=name, tag=tag):
+                        validate_records(self.with_record(synthetic(name, tag, small)))
+                for tag in (low - 1, high + 1):
+                    if not inside(tag):
+                        with self.subTest(name=name, refused=tag), self.assertRaises(ValueError):
+                            validate_records(self.with_record(synthetic(name, tag, small)))
+            for tag in (0, 65535):
                 with self.subTest(name=name, refused=tag), self.assertRaises(ValueError):
                     validate_records(self.with_record(synthetic(name, tag, small)))
-        with self.assertRaisesRegex(ValueError, 'outside its family range 32-39'):
+        with self.assertRaisesRegex(ValueError, 'outside its family ranges 32-39, 64-191'):
             validate_records(self.with_record(synthetic('event.x', 5, small)))
 
     def test_unknown_family_duplicate_and_moved_initial_tags_are_refused(self):
@@ -218,11 +229,11 @@ class WireRecordTests(unittest.TestCase):
             validate_records(self.with_record(synthetic('setting.x', 6, small)))
         candidate = copy.deepcopy(self.schema)
         next(r for r in candidate['records'] if r['name'] == 'event.tick')['id'] = 32
-        with self.assertRaisesRegex(ValueError, 'outside its family range 1-3'):
+        with self.assertRaisesRegex(ValueError, 'outside its family ranges 1-3'):
             validate_records(candidate)
         candidate = copy.deepcopy(self.schema)
         next(r for r in candidate['records'] if r['name'] == 'setting.spec')['id'] = 32
-        with self.assertRaisesRegex(ValueError, 'outside its family range 5-31'):
+        with self.assertRaisesRegex(ValueError, 'outside its family ranges 5-31, 224-511'):
             validate_records(candidate)
 
     def test_scalar_defaults_must_fit_their_type(self):

@@ -81,8 +81,10 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventPageTurned(_)
         | Record::EventScreenShown(_)
         | Record::EventActionRun(_) => Err(ERR_INVALID),
-        // Input records go to `PpPlugin.input`; format arguments to slot 27.
-        Record::InputKey(_)
+        // Input records go to `PpPlugin.input`, frames to `draw`, format
+        // arguments to slot 27.
+        Record::DrawFrame(_)
+        | Record::InputKey(_)
         | Record::InputPointer(_)
         | Record::InputGesture(_)
         | Record::InputAction(_)

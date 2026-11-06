@@ -5,6 +5,7 @@ This draft generates raw declarations and the bounded settings wire codec.
 A checked-in lock is independent of normal generation; updating it is explicit.
 """
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -367,6 +368,33 @@ def check_lock(prior, schema):
     compatible(prior['schema'], schema, prior['released_minor'])
 
 
+def baseline_replaced(folder, baseline_path, baseline, schema):
+    """Whether a reviewed replacement names exactly this trusted baseline.
+
+    `abi/baseline-replacement.json` lets one reviewed pull request replace the
+    trusted lock while nothing is released: it names the SHA-256 of the exact
+    baseline lock it replaces and why. It never applies once a minor is released,
+    and it matches no other baseline, so it is single-use by construction.
+    """
+    path = folder / 'baseline-replacement.json'
+    if not path.exists():
+        return False
+    marker = load(path)
+    require(type(marker) is dict and set(marker) == {'replaces_sha256', 'reason', 'ticket'}
+            and all(type(marker[key]) is str and marker[key] for key in marker),
+            'baseline replacement needs replaces_sha256, reason and ticket')
+    digest = hashlib.sha256(baseline_path.read_bytes()).hexdigest()
+    if marker['replaces_sha256'] != digest:
+        print('abi-gen: stale baseline replacement ignored; remove abi/baseline-replacement.json',
+              file=sys.stderr)
+        return False
+    require(baseline['released_minor'] == 0 and schema['minor'] == baseline['schema']['minor'],
+            'a baseline replacement is only allowed before any minor is released')
+    print(f"abi-gen: reviewed baseline replacement ({marker['ticket']}): {marker['reason']}",
+          file=sys.stderr)
+    return True
+
+
 def run(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=ROOT)
@@ -381,7 +409,11 @@ def run(argv=None):
     release_floor = 0
     if args.baseline:
         baseline = load(args.baseline)
-        check_lock(baseline, schema)
+        try:
+            check_lock(baseline, schema)
+        except ValueError:
+            if not baseline_replaced(folder, args.baseline, baseline, schema):
+                raise
         release_floor = baseline['released_minor']
     released_minor = release_floor
     if lock.exists():

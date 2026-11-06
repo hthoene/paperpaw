@@ -12,14 +12,23 @@ COMMAND_RECORDS = ('command.set_setting',)
 
 # Tag allocation (interface-7 contract, shared rule 1). Tags are never reused.
 # A name is matched exactly first, then by its first segment; 63 is reserved.
+# Tag families, each a tuple of inclusive ranges. The second range of a family
+# is its growth block (N3, #241): reserved now so later families never collide.
+# Decoders classify records by exact tag only, never by range; the ranges only
+# check where a schema author puts a new record.
+DECLARATIVE = ((5, 31), (224, 511))
 TAG_RANGES = {
-    'registration.event': (1, 3), 'registration.draw': (1, 3), 'event.tick': (1, 3),
-    'command.set_setting': (4, 4),
+    'registration.event': ((1, 3),), 'registration.draw': ((1, 3),), 'event.tick': ((1, 3),),
+    'registration': DECLARATIVE,
+    'command.set_setting': ((4, 4),),
     # Declarative registration (PR #158, section 8): settings and resources,
-    # then actions, menus, screens and icons (Part 5), all within 5-31.
-    'setting': (5, 31), 'resource': (5, 31),
-    'action': (5, 31), 'menu': (5, 31), 'screen': (5, 31), 'icon': (5, 31),
-    'event': (32, 39), 'input': (40, 43), 'i18n': (44, 47), 'service': (48, 55), 'command': (56, 62),
+    # then actions, menus, screens and icons (Part 5).
+    'setting': DECLARATIVE, 'resource': DECLARATIVE, 'action': DECLARATIVE,
+    'menu': DECLARATIVE, 'screen': DECLARATIVE, 'icon': DECLARATIVE,
+    'format': DECLARATIVE, 'stage': ((512, 1023),),
+    'event': ((32, 39), (64, 191)), 'input': ((40, 43), (192, 223)), 'draw': ((192, 223),),
+    'i18n': ((44, 47),), 'service': ((48, 55), (1024, 1535)),
+    'command': ((56, 62), (1536, 2047)),
 }
 KEYWORDS = frozenset(
     'as break const continue crate else enum extern false fn for if impl in let loop match '
@@ -58,9 +67,9 @@ def check_tags(records):
         bounds = tag_range(name)
         _require(bounds is not None,
                  f'record {name} is in no tag family; add its family to TAG_RANGES with a range')
-        _require(bounds[0] <= tag <= bounds[1],
-                 f'record {name} has tag {tag} outside its family range '
-                 f'{bounds[0]}-{bounds[1]}')
+        _require(any(low <= tag <= high for low, high in bounds),
+                 f'record {name} has tag {tag} outside its family ranges '
+                 + ', '.join(f'{low}-{high}' for low, high in bounds))
         _require(tag not in seen, f'duplicate record codec tag {tag} '
                  f'({seen.get(tag)} and {name})')
         seen[tag] = name

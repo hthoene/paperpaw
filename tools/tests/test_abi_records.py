@@ -220,7 +220,7 @@ class RecordsTests(unittest.TestCase):
                           ('event.screen_shown', 38), ('event.action_run', 39),
                           ('input.key', 40), ('input.pointer', 41), ('input.gesture', 42),
                           ('input.action', 43), ('i18n.arg_str', 44), ('i18n.arg_int', 45),
-                          ('i18n.count', 46)])
+                          ('i18n.count', 46), ('draw.frame', 192)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             if record['id'] <= 3:

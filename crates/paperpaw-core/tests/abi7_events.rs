@@ -188,6 +188,7 @@ fn raw_encoder_refuses_over_cap_fields_and_non_events() {
         chapter: "",
         page: None,
         pages: None,
+        insert: None,
     });
     let mut out = [0x77; 2048];
     assert_eq!(events::encode(&record, &mut out), Err(ERR_NO_SPACE));
@@ -258,6 +259,7 @@ fn decode_refuses_page_turns_that_cannot_be_said() {
             chapter: "",
             page: page_no,
             pages,
+            insert: None,
         });
         let n = events::encode(&record, &mut out).unwrap();
         assert_eq!(

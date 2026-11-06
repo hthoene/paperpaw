@@ -167,6 +167,8 @@ pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, 
         chapter: cut(turn.chapter, EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES),
         page: turn.page,
         pages: turn.pages,
+        // The kernel reader inserts no content: every page starts in text (N5).
+        insert: None,
     };
     encode(&Record::EventPageTurned(record), out)
 }

@@ -814,6 +814,8 @@ pub struct EventPageTurned<'a> {
     pub page: Option<u32>,
     /// Little-endian u32. Appended and optional; `None` when absent.
     pub pages: Option<u32>,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub insert: Option<u32>,
 }
 
 impl<'a> EventPageTurned<'a> {
@@ -829,6 +831,7 @@ impl<'a> EventPageTurned<'a> {
             chapter: body.string(EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES)?,
             page: body.maybe_u32(bits, 0x01)?,
             pages: body.maybe_u32(bits, 0x02)?,
+            insert: body.maybe_u32(bits, 0x04)?,
         }))
     }
 
@@ -839,6 +842,9 @@ impl<'a> EventPageTurned<'a> {
         }
         if self.pages.is_some() {
             bits |= 0x02;
+        }
+        if self.insert.is_some() {
+            bits |= 0x04;
         }
         bits
     }
@@ -860,6 +866,9 @@ impl<'a> EventPageTurned<'a> {
         if bits & 0x02 != 0 {
             len += 4;
         }
+        if bits & 0x04 != 0 {
+            len += 4;
+        }
         Ok(len)
     }
 
@@ -875,6 +884,9 @@ impl<'a> EventPageTurned<'a> {
             write_bytes(&value.to_le_bytes(), out, offset);
         }
         if let Some(value) = self.pages {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+        if let Some(value) = self.insert {
             write_bytes(&value.to_le_bytes(), out, offset);
         }
     }
@@ -1590,6 +1602,76 @@ impl I18nCount {
         write_bytes(&self.value.to_le_bytes(), out, offset);
     }
 }
+/// Wire tag of the `draw.frame` record.
+pub const DRAW_FRAME_TAG: u32 = 192;
+/// Maximum bytes of `draw.frame.payload`.
+pub const DRAW_FRAME_PAYLOAD_MAX_BYTES: usize = 256;
+
+/// The `draw.frame` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DrawFrame<'a> {
+    /// Little-endian u32.
+    pub purpose: u32,
+    /// Little-endian i32.
+    pub x: i32,
+    /// Little-endian i32.
+    pub y: i32,
+    /// Little-endian u32.
+    pub width: u32,
+    /// Little-endian u32.
+    pub height: u32,
+    /// Little-endian i32.
+    pub clip_top: i32,
+    /// Little-endian i32.
+    pub clip_bottom: i32,
+    /// Little-endian u32.
+    pub id: u32,
+    /// Opaque bytes, at most 256.
+    pub payload: &'a [u8],
+}
+
+impl<'a> DrawFrame<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::DrawFrame(Self {
+            purpose: u32::from_le_bytes(body.scalar()?),
+            x: i32::from_le_bytes(body.scalar()?),
+            y: i32::from_le_bytes(body.scalar()?),
+            width: u32::from_le_bytes(body.scalar()?),
+            height: u32::from_le_bytes(body.scalar()?),
+            clip_top: i32::from_le_bytes(body.scalar()?),
+            clip_bottom: i32::from_le_bytes(body.scalar()?),
+            id: u32::from_le_bytes(body.scalar()?),
+            payload: body.blob(DRAW_FRAME_PAYLOAD_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += blob_len(self.payload.len(), DRAW_FRAME_PAYLOAD_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.purpose.to_le_bytes(), out, offset);
+        write_bytes(&self.x.to_le_bytes(), out, offset);
+        write_bytes(&self.y.to_le_bytes(), out, offset);
+        write_bytes(&self.width.to_le_bytes(), out, offset);
+        write_bytes(&self.height.to_le_bytes(), out, offset);
+        write_bytes(&self.clip_top.to_le_bytes(), out, offset);
+        write_bytes(&self.clip_bottom.to_le_bytes(), out, offset);
+        write_bytes(&self.id.to_le_bytes(), out, offset);
+        write_blob(self.payload, out, offset);
+    }
+}
 
 /// A registration or declaration record, borrowed from one validated batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1653,6 +1735,8 @@ pub enum Record<'a> {
     I18nArgInt(I18nArgInt<'a>),
     /// A `I18nCount` record.
     I18nCount(I18nCount),
+    /// A `DrawFrame` record.
+    DrawFrame(DrawFrame<'a>),
 }
 
 impl<'a> Reader<'a> {
@@ -1725,6 +1809,7 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         I18N_ARG_STR_TAG => I18nArgStr::decode(body)?,
         I18N_ARG_INT_TAG => I18nArgInt::decode(body)?,
         I18N_COUNT_TAG => I18nCount::decode(body)?,
+        DRAW_FRAME_TAG => DrawFrame::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -1844,6 +1929,7 @@ impl Record<'_> {
             Record::I18nArgStr(_) => I18N_ARG_STR_TAG,
             Record::I18nArgInt(_) => I18N_ARG_INT_TAG,
             Record::I18nCount(_) => I18N_COUNT_TAG,
+            Record::DrawFrame(_) => DRAW_FRAME_TAG,
         }
     }
 
@@ -1879,6 +1965,7 @@ impl Record<'_> {
             Record::I18nArgStr(record) => record.body_len(),
             Record::I18nArgInt(record) => record.body_len(),
             Record::I18nCount(record) => record.body_len(),
+            Record::DrawFrame(record) => record.body_len(),
         }
     }
 
@@ -1919,6 +2006,7 @@ impl Record<'_> {
             Record::I18nArgStr(record) => record.write(out, offset),
             Record::I18nArgInt(record) => record.write(out, offset),
             Record::I18nCount(record) => record.write(out, offset),
+            Record::DrawFrame(record) => record.write(out, offset),
         }
     }
 

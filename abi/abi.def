@@ -1452,6 +1452,15 @@
           "ordinal": 1,
           "default": null,
           "max_bytes": 0
+        },
+        {
+          "name": "insert",
+          "type": "u32",
+          "since": 1,
+          "optional": true,
+          "ordinal": 2,
+          "default": null,
+          "max_bytes": 0
         }
       ]
     },
@@ -2124,6 +2133,94 @@
           "max_bytes": 0
         }
       ]
+    },
+    {
+      "id": 192,
+      "name": "draw.frame",
+      "since": 1,
+      "fields": [
+        {
+          "name": "purpose",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "x",
+          "type": "i32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "y",
+          "type": "i32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "width",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "height",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "clip_top",
+          "type": "i32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "clip_bottom",
+          "type": "i32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "id",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "payload",
+          "type": "bytes",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 256
+        }
+      ]
     }
   ],
   "statuses": [
@@ -2435,6 +2532,10 @@
                 {
                   "name": "input",
                   "type": "bytes"
+                },
+                {
+                  "name": "out",
+                  "type": "buffer"
                 }
               ],
               "result": "i32",
@@ -2453,6 +2554,10 @@
                 {
                   "name": "token",
                   "type": "u32"
+                },
+                {
+                  "name": "input",
+                  "type": "bytes"
                 }
               ],
               "result": "i32",

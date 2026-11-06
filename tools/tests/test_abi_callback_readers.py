@@ -22,21 +22,21 @@ use core::ffi::c_void;
 use core::mem::{align_of, offset_of, size_of};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-type Dispatch = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
-type Draw = unsafe extern "C" fn(*mut c_void, u32) -> i32;
+type Dispatch = unsafe extern "C" fn(*mut c_void, u32, PpBytes, PpBuffer) -> i32;
+type Draw = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
 static CALLS: AtomicUsize = AtomicUsize::new(0);
 
-unsafe extern "C" fn dispatch(_: *mut c_void, token: u32, _: PpBytes) -> i32 {
+unsafe extern "C" fn dispatch(_: *mut c_void, token: u32, _: PpBytes, _: PpBuffer) -> i32 {
     CALLS.fetch_add(1, Ordering::SeqCst);
     token as i32
 }
 
-unsafe extern "C" fn draw(_: *mut c_void, token: u32) -> i32 {
+unsafe extern "C" fn draw(_: *mut c_void, token: u32, _: PpBytes) -> i32 {
     CALLS.fetch_add(1, Ordering::SeqCst);
     token as i32
 }
 
-unsafe extern "C" fn prefix_dispatch(_: *mut c_void, token: u32, _: PpBytes) -> i32 {
+unsafe extern "C" fn prefix_dispatch(_: *mut c_void, token: u32, _: PpBytes, _: PpBuffer) -> i32 {
     token as i32
 }
 
@@ -149,7 +149,8 @@ fn real_dispatch_prefix_can_retrieve_only_dispatch() {
         let found = read_plugin_dispatch_event(pointer, size_of::<ThroughDispatch>()).unwrap();
         // Function addresses need not be identical across codegen instances.
         let input = PpBytes { ptr: core::ptr::null(), len: 0 };
-        assert_eq!(found(core::ptr::null_mut(), 19, input), 19);
+        let out = PpBuffer { ptr: core::ptr::null_mut(), cap: 0 };
+        assert_eq!(found(core::ptr::null_mut(), 19, input, out), 19);
         assert_eq!(read_plugin_draw(pointer, size_of::<ThroughDispatch>()).unwrap_err(),
                    ERR_UNSUPPORTED);
     }
@@ -206,8 +207,9 @@ fn retrieval_does_not_call_callbacks_and_returns_callable_unsafe_pointers() {
         let draw_pointer: Draw = read_plugin_draw(bytes(&full), size_of::<PpPlugin>()).unwrap();
         assert_eq!(CALLS.load(Ordering::SeqCst), 0);
         let input = PpBytes { ptr: core::ptr::null(), len: 0 };
-        assert_eq!(dispatch_pointer(full.state, 17, input), 17);
-        assert_eq!(draw_pointer(full.state, 23), 23);
+        let out = PpBuffer { ptr: core::ptr::null_mut(), cap: 0 };
+        assert_eq!(dispatch_pointer(full.state, 17, input, out), 17);
+        assert_eq!(draw_pointer(full.state, 23, input), 23);
     }
     assert_eq!(CALLS.load(Ordering::SeqCst), 2);
 }
@@ -282,9 +284,10 @@ class CallbackReaderTests(unittest.TestCase):
                      lambda field: field['callback']['args'][0].update(name='other'),
                      lambda field: field['callback']['args'][0].update(type='u32'),
                      lambda field: field['callback']['args'].reverse(),
-                     lambda field: field['callback']['args'].pop(),
+                     lambda field: field['callback']['args'].pop(1),
+                     lambda field: field['callback']['args'].append(dict(name='more', type='u32')),
                      lambda field: field['callback'].update(extra=True)]
-        for name in ('dispatch_event', 'draw'):
+        for name in ('dispatch_event', 'draw', 'input'):
             for index, mutate in enumerate(mutations):
                 with self.subTest(name=name, mutation=index):
                     candidate = copy.deepcopy(self.schema)
@@ -298,6 +301,19 @@ class CallbackReaderTests(unittest.TestCase):
             field['type'] = 'pointer'
             with self.assertRaises(ValueError):
                 rust_callbacks(candidate)
+
+    def test_draft_four_signatures_still_render_for_older_locks(self):
+        # Draft 5 appended `out` to dispatch_event (N1) and `input` to draw (N2).
+        # Re-rendering an older blessed schema must keep working.
+        candidate = copy.deepcopy(self.schema)
+        for name in ('dispatch_event', 'draw'):
+            field = next(field for field in plugin_fields(candidate) if field['name'] == name)
+            field['callback']['args'].pop()
+        older = rust_callbacks(candidate)
+        self.assertIn('fn(*mut core::ffi::c_void, u32) -> i32', older)
+        self.assertIn('fn(*mut core::ffi::c_void, u32, PpBytes) -> i32', older)
+        current = rust_callbacks(self.schema)
+        self.assertIn('fn(*mut core::ffi::c_void, u32, PpBytes, PpBuffer) -> i32', current)
 
     def test_callback_status_constants_are_required_and_exact(self):
         for name in ('ERR_INVALID', 'ERR_UNSUPPORTED'):
