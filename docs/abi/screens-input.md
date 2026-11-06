@@ -227,14 +227,16 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
 - [D] Dispatch depth 2 is final: a host callback may cause one nested plugin callback, no more. A
   stage subscriber that calls `stage.run` gets `ERR_STATE`. This keeps the X4 stack bounded.
 
-## 12. User grants: styles and installs (owner decisions 131, 132)
+## 12. User grants: styles and installs (owner decisions 131, 132, 134)
 
 - [D] A plugin may override the user's reading settings (font, size, colour, spacing and so on)
   only when the user has granted that plugin the right (decision 131). Without the grant the
   user's setting wins, and the host or reader drops the override. Style stages (N4) carry this
   rule.
 - [D] Installs and updates that a plugin triggers always need a host confirmation, unless the user
-  has exempted that plugin (decision 132). The confirmation flow belongs to the DEV family.
+  has exempted that plugin (decision 132). A firmware change a plugin triggers always needs the
+  confirmation, even for an exempted plugin (decision 134). The confirmation flow belongs to the
+  DEV family.
 - [D] **Guarded grants.** User grants are host-held guarded settings under
   `core.grant.<kind>.<plugin id>` (`kind`: `style`, `install`). No plugin can ever write them:
   `command.set_setting`, a preview or a preset touching `core.grant.*` is `ERR_DENIED` and refuses
