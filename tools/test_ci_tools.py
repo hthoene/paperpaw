@@ -251,6 +251,50 @@ esac
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([f.name for f in cache.iterdir()], [self.DEB])
 
+    def stalled_mirror(self):
+        """clang-18 is missing and apt never gets it (a timeout, 124)."""
+        (self.bin / "clang-18").unlink()
+        self.write("sudo", "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$CALLS\"\nexit 124\n")
+
+    def test_a_stalled_mirror_falls_back_to_the_runners_newest_clang_if_allowed(self):
+        self.stalled_mirror()
+        for number in (17, 19, 21):
+            self.write(f"clang-{number}", self.template.read_text())
+        result = self.run_setup(MBEDTLS_CLANG_FALLBACK="runner")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # The newest of at least 18; said in the log, and what the build is given.
+        self.assertIn("::warning title=clang::", result.stdout)
+        self.assertIn("clang-21 instead", result.stdout)
+        self.assertIn("CLANG_PATH=" + self.shell_path(self.bin) + "/clang-21", (self.root / "env").read_text())
+        # Two shorter tries, not three: the update never worked.
+        guard = "timeout --kill-after=10"
+        self.assertEqual(self.calls(), [f"{guard} 60 apt-get {self.OPTIONS} update"] * 2)
+
+    def test_a_release_keeps_to_the_named_clang_whatever_the_runner_has(self):
+        self.stalled_mirror()
+        self.write("clang-21", self.template.read_text())
+        result = self.run_setup()
+        self.assertEqual(result.returncode, 124)
+        self.assertEqual(len(self.calls()), 3)
+        self.assertFalse((self.root / "env").exists())
+
+    def test_the_fallback_is_not_used_where_apt_works(self):
+        (self.bin / "clang-18").unlink()
+        self.write("clang-21", self.template.read_text())
+        result = self.run_setup(MBEDTLS_CLANG_FALLBACK="runner")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("::warning", result.stdout)
+        self.assertIn("/clang-18", (self.root / "env").read_text())
+
+    def test_the_fallback_needs_a_clang_of_version_18_or_later_and_cmake_and_ninja(self):
+        self.stalled_mirror()
+        self.write("clang-17", self.template.read_text())
+        self.assertEqual(self.run_setup(MBEDTLS_CLANG_FALLBACK="runner").returncode, 124)
+        self.write("clang-20", self.template.read_text())
+        (self.bin / "ninja").unlink()
+        self.assertEqual(self.run_setup(MBEDTLS_CLANG_FALLBACK="runner").returncode, 124)
+        self.assertFalse((self.root / "env").exists())
+
     def test_failed_install_does_not_publish_an_environment(self):
         (self.bin / "cmake").unlink()
         self.write("sudo", "#!/bin/sh\nexit 17\n")

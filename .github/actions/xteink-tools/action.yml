@@ -15,6 +15,12 @@ inputs:
   espflash:
     description: Whether to install espflash too.
     default: "false"
+  clang-fallback:
+    description: >
+      Whether mbedTLS may be built with the runner's own (newer) clang where the
+      named clang-18 cannot be installed from a slow mirror in time. Source
+      checks say yes; a release does not (it keeps to the named compiler).
+    default: "false"
 runs:
   using: composite
   steps:
@@ -23,7 +29,10 @@ runs:
       run: grep -E '^[A-Z_]+=' shells/xteink/versions.env >> "$GITHUB_ENV"
     # The runner image has no clang-18, and Ubuntu's Azure mirror has stalled
     # for most of an hour (#876): the packages' .deb files are kept here, so a
-    # run that finds them downloads nothing. Only pushes to main and
+    # run that finds them downloads nothing. Where the mirror stays slow, the
+    # source checks (clang-fallback) go on with the runner's own clang and say
+    # so; no cache exists before a push has saved one, and a pull request
+    # reads the one of its base branch. Only pushes to main and
     # abi7/integration save an entry (about 150 MB each, one per branch scope; a
     # manual run of a workflow or a pull request only reads).
     # The script gives apt a kept file only if its SHA-256 is the authenticated
@@ -36,6 +45,8 @@ runs:
         key: apt-debs-${{ runner.os }}-${{ env.MBEDTLS_CLANG_PACKAGE }}-${{ hashFiles('tools/ci/build-prerequisites.sh', 'shells/xteink/versions.env') }}
     - name: What builds mbedTLS
       shell: bash
+      env:
+        MBEDTLS_CLANG_FALLBACK: ${{ inputs.clang-fallback == 'true' && 'runner' || '' }}
       run: |
         # CMake and Ninja for every device; clang compiles it for the X4
         # (the ESP32-S3's with espup's Xtensa GCC).
