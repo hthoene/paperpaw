@@ -18,7 +18,7 @@ port-classification-748/README.md`).
    (a) **folder files** (plugin.ini, `i18n/*`, resource files), which the kernel's data-plugin loader
    already reads for every plugin folder; (b) the **inline batch** of slot 16 for small declarations
    and for every record that carries a callback token; (c) **record frames in a file** of the plugin
-   folder for bulk declarations (settings). The wire grammar of `docs/abi/records.md` is unchanged.
+   folder for bulk declarations (settings), reserved for a lazy-retention step and not needed for M1. The wire grammar of `docs/abi/records.md` is unchanged.
 2. **Manifest/identity needs no record.** Identity is the folder's `plugin.ini` (host-known, never a
    claim in bytes); target, ABI minor, services and `uses` permissions are signed metadata.
 3. **Translations need no record.** They are `i18n/<lang>.ini|.ppcat` in the plugin folder
@@ -162,6 +162,10 @@ question Q1.
 | Inline batch, slot 16 | token records; the few declarative records; pointers (paths) to resource files | `abi.def`: 8 records, 4096 B per batch, any number of batches during `make` |
 | Frame file | the same records, for bulk declarations | a file `declarations.ppr` in the plugin folder, read by the host in frames (2.3) |
 
+**M1 needs only the first two rows.** The frame file is specified so that, if the host later retains
+settings lazily (S2 in Part 3), the wire and the schemas do not change; it can be left out of the first
+implementation (estimate below counts it separately).
+
 Rationale: records are a good fit for typed, validated, cross-referenced declarations, but a batch is
 8 records / 4096 B (and a profile proposal of 384 B), so bulk data does not fit; folder files are already
 how data plugins ship translations and fonts and cost the plugin no rodata; and keeping one grammar means
@@ -188,13 +192,13 @@ dropped. Consequences:
 ### 2.3 Frame file (Proposal)
 
 `plugins/<id>/declarations.ppr`: a magic `PPRG`, a u32 layout (1), then frames, each `u16 length` + one
-**ordinary registration batch** (count, records) of at most 1024 bytes and 8 records, until EOF. The host
-reads one frame at a time into a single 1 KiB buffer, decodes with the same `registrations_decode`, checks
+**ordinary registration batch** (count, records) of at most 2048 bytes and 8 records, until EOF. The host
+reads one frame at a time into a single 2 KiB buffer, decodes with the same `registrations_decode`, checks
 the frame, stages its records, and repeats. Properties: no new codec; transient heap is one frame; a
 malformed or oversize frame refuses the whole file (`ERR_INVALID`/`ERR_NO_SPACE`) before commit; the file
 is announced by one inline record or by plugin.ini (`declarations = declarations.ppr`, so a plugin without
-it pays nothing). The 1024-byte frame is my choice to stay well under the 4 KiB boundary profile; the
-alternative of 4096-byte frames costs an extra 3 KiB transient (Q6). The file is produced by the author's
+it pays nothing). The 2048-byte frame is my choice: one `setting.spec` with 24 choices can reach about 1.4 KB (Part 4 of
+settings, below), so 1024 would be too small and 4096 costs 2 KiB more transient heap (Q6). The file is produced by the author's
 build (a `paperpaw-dev`/`paperpaw-sign` step, like `paperpaw-sign catalog` for `.ppcat`), from the same
 `SETTINGS` data the SDK macros read.
 
@@ -235,7 +239,7 @@ the folder's `plugin.ini`. What a plugin may do (`uses`) is declared as signed m
 ### Rationale
 
 A manifest record would duplicate `plugin.ini` (which the store, installer and plugin manager read without
-loading code: `docs/plugin-conventions.md:67-73`) and would spend one of eight record slots and part of the
+loading code: `docs/plugin-conventions.md:64-72`) and would spend one of eight record slots and part of the
 transient batch on text that is already on the card. Metadata is the right home for permissions because
 it is the only signed, pre-`make` channel.
 
@@ -245,7 +249,7 @@ it is the only signed, pre-`make` channel.
 - Metadata: add three feature descriptors to `abi.def.metadata.features` (currently `[]`); the generator
   and lock tooling already own that list (`abi/metadata.md:3-9`, `abi/abi.json` key `metadata.features`). Encoder rejects duplicates; loader refuses
   an unknown feature key before `make` (`metadata.md:19-25`).
-- Validation: folder id equals `plugin.ini` id (existing, `plugins.rs:981-987`); `plugin.ini` at most 4 KiB
+- Validation: folder id equals `plugin.ini` id (existing, `plugins.rs:983-984`); `plugin.ini` at most 4 KiB
   (`data_plugin.rs:68`). Failure: plugin not loaded, a warning naming the folder; not an ABI status.
 - Memory: unchanged from a data plugin today: `plugin.ini` is read transiently (at most 4 KiB), the
   retained manifest is a few strings (**Estimate** under 200 B).
@@ -303,3 +307,151 @@ repository's own check (`docs/plugin-conventions.md:205-207`, `:272`).
   through `tr`. Should slot 6 return a distinct status for a missing key (an interface-7 change that I would
   prefer to batch now, since the batch is open) or stay as is?
 - Verify (Unverified in 1.4) that `code.ppn` folders pass through `load_folder`.
+
+## 5. Part 3: setting specs
+
+### Decision (Proposal)
+
+Three records: `setting.group` (tag 5), `setting.spec` (tag 6), `setting.extra` (tag 7). Carried **inline,
+over as many `registrations.submit` calls as needed during `make`**; the frame file of 2.3 is an optional
+later transport for the same records. Retention is host-internal: **S1 (M1): eager, owned copies** in the
+existing `Specs` registry; **S2 (later): lazy**, only if the heap numbers below demand it.
+
+### Rationale
+
+- **Records, not a table resource, for M1.** The wire shape is identical either way, so the choice between
+  S1 and S2 is a host decision that does not touch the ABI. Starting with S1 needs no new file format, no
+  build step for authors and no change to `Specs`; its cost is the 200 B per spec of Fact 1.3.
+- **Numbers.** 37 plugins register settings; 28 of them have 8 or fewer (median 3), 9 have more
+  (widgets 53, mail 25, picture-home 23, stats 18, home 13, weather 12, reader 12, vocabulary 9,
+  sleep 9). **Estimate** of one `setting.spec` on the wire: name 12 + group 12 + title 28 + help 15 +
+  default 16 + choices 30 + five 1-byte lengths + 16 B of fixed scalars + about 6 B framing = about 140 B.
+  8 records are about 1.1 KB (inside 4096 B, so the **record count** cap binds before the byte cap);
+  widgets' 53 specs are about 7.4 KB, so about 8 submissions. Raising `REGISTRATIONS` to 53+ is **not**
+  proposed: that array is the callback registry (2.2) and would grow `Construction` for every plugin.
+- **Heap (S1).** All 246 in-tree specs enabled at once would be about 49 KB; 28 small plugins at 3 specs
+  would be about 17 KB. The X4 starts with about 125 KiB of heap in use (ADR 0033, Context), so 49 KB is
+  the pessimistic case, not the typical one. S2 would keep about 4 B per spec of index (as the fixed
+  lists do today, `specs.rs:5-26`) plus a decode cache for the group on screen, at the price of reading the
+  frame file on demand and of refactoring `Specs::get(&str) -> &SettingSpec` to return an owned or cached
+  spec. I recommend building S1, measuring on the X4 with the largest realistic set, and deciding S2 on the
+  measurement (Q7).
+- **Why a closed `kind` and not `Extended`.** Extended is used nowhere in `plugins/*/src` (grep: 0), and
+  interface 6 treats an unknown extended kind as read-only text (`settings.rs:30-39`). Interface 7 can add a
+  kind number in a later minor and refuse unknown kinds now (`ERR_UNSUPPORTED`).
+- **Relative names.** `name` is relative to the plugin id; the host forms `<plugin>.<name>`. This makes the
+  namespace rule true by construction (no foreign id can be expressed), saves about 8-15 B a spec, and
+  matches slot 15, whose namespace is the first dot segment (`commands.md:49`). A plugin that today uses a
+  nested id (`weather.now.symbol`) writes `now.symbol`.
+
+### `setting.group` (tag 5)
+
+| # | Field | Type | Cap | Meaning |
+|---|---|---|---|---|
+| 1 | `name` | str | 96 | group id relative to the plugin (`page` becomes `weather.page`) |
+| 2 | `title` | str | 96 | translation key of the group's name; empty is refused |
+| 3 | `order` | i32 | | smallest first; 0 names none |
+| 4 | `page` | str | 96 | screen id of the plugin that replaces the generated page, relative; empty none |
+| 5 | `parent` | str | 128 | full id of the parent group (own or foreign); empty none |
+
+### `setting.spec` (tag 6)
+
+| # | Field | Type | Cap | Meaning |
+|---|---|---|---|---|
+| 1 | `name` | str | 96 | setting id relative to the plugin; full id at most 128 B (slot 15's key cap) |
+| 2 | `kind` | u32 | | 0 bool, 1 int, 2 choice, 3 text, 4 language, 5 list; others `ERR_UNSUPPORTED` |
+| 3 | `flags` | u32 | | bit0 scoped, bit1 guarded, bit2 kept_on_reset, bit3 secret, bit4 advanced (`Level::Advanced`); unknown bits `ERR_UNSUPPORTED` |
+| 4 | `group` | str | 128 | full id of the group; empty is refused |
+| 5 | `title` | str | 96 | translation key; empty derives `<plugin>.setting.<last segment of name>` |
+| 6 | `help` | str | 96 | translation key; empty means no help (never derived, so a missing key is never silent) |
+| 7 | `default` | bytes | 512 | exactly one `settings_value` (layout 1, `abi/settings.md`): bool, int or text, 12-byte header included |
+| 8 | `min` | i32 | | int only; zero otherwise |
+| 9 | `max` | i32 | | int only; zero otherwise |
+| 10 | `choices` | str | 1024 | choice only: 1 to 32 values joined by `\n`; empty otherwise |
+
+`secret` moves from `SettingExtra` (`settings.rs:260-263`) into `flags` because slot 15 must decide on
+it without loading an extra. The 24-entry choice lists in the tree (largest static array found, lexical)
+fit in 1024 B if keys average under 40 B; that is a guess (Q8).
+
+### `setting.extra` (tag 7)
+
+Refers to a spec by name, may appear anywhere after it in the same construction, at most once per spec.
+Used by about 94 of 246 specs (Fact 1.3), so it is optional and kept apart, as in the SDK.
+
+| # | Field | Type | Cap | Meaning |
+|---|---|---|---|---|
+| 1 | `name` | str | 96 | the spec's relative name |
+| 2 | `unit` | str | 96 | translation key of the unit format; empty none |
+| 3 | `section` | str | 96 | translation key of the part of its group; empty none |
+| 4 | `follows` | str | 128 | full id of the setting whose value it has until set; empty none |
+| 5 | `shown_id` | str | 128 | `shown_if` setting id; empty none |
+| 6 | `shown_value` | str | 128 | `shown_if` value as written in `paperpaw.ini`; empty when `shown_id` is empty |
+| 7 | `editor_kind` | u32 | | 0 none, 1 screen, 2 slot |
+| 8 | `editor` | str | 96 | screen id (relative to the plugin) or slot id; empty iff `editor_kind` is 0 |
+| 9 | `step` | i32 | | 0 means 1; positive otherwise |
+| 10 | `flags` | u32 | | bit0 slider, bit1 section_of_plugin, bit2 keeps_unknown; unknown bits `ERR_UNSUPPORTED` |
+| 11 | `check` | u32 | | callback token of a value check; **must be 0 in M1** (`ERR_UNSUPPORTED`): interface 6's `SettingCheck` is `fn(&Settings, &SettingValue)` (`settings.rs:271-285`), which needs a callback and a settings view that do not exist yet |
+
+### Validation before effects (all `ERR_INVALID` unless stated)
+
+Per record, before staging, without allocating:
+
+1. UTF-8 of every str (`ERR_UTF8`); every cap (`ERR_NO_SPACE`); unknown `kind`/flags (`ERR_UNSUPPORTED`).
+2. `name`: dot-separated segments of `[a-z0-9-]`, no empty segment, full id at most 128 B
+   (`docs/plugin-conventions.md:~124`, "Anything the plugin registers").
+3. `default` decodes as exactly one `settings_value`, is not absent, and **its kind matches**: bool for
+   `kind 1`, int for 2, text otherwise; then the default passes the same `SettingKind::accepts` the live
+   registry uses (int within `min..=max` with `min <= max`; choice default is one of `choices`; language
+   tag charset). A default that slot 15 would refuse never registers.
+4. `choices` for `kind 2` only: no empty or duplicate value, none longer than 96 B, at most 32.
+5. Fields that do not apply to the kind must be zero/empty (so a later minor can give them meaning).
+6. `secret` and `scoped` together are refused (a secret has no scopes, as in interface 6; **Unverified**,
+   I did not trace the settings code for that rule).
+
+Whole batch, before the first record is staged: every record above is valid, and tags are in the
+supported set (an unknown tag is `ERR_UNSUPPORTED`, as `registrations.rs:55-67`). Cross-record, at commit
+(checked against `Declarations` and the merged registries, `plugins.rs:205-225`): setting ids unique within
+the plugin and against every registered setting; group ids likewise; an own-namespace `group` must be a
+`setting.group` of this plugin (declared before or after in the same `make`) or already registered; a foreign
+group (`core.*` and other plugins') is not required to exist, as `builtin::groups` are kernel constants;
+`parent` must not form a cycle; each `setting.extra` names one spec of this plugin; `follows` must name a
+setting of the same kind once registered (interface 6 follows one step only, `settings.rs:264-267`);
+`editor`/`page` screen ids must be registered by part 5. Limits per plugin (**guesses**): 128 specs, 32
+groups, 128 extras.
+
+### Failure semantics
+
+A refusal returns the status above and **poisons construction** (`registrations.rs:102-111`); the plugin is
+not loaded and the user sees one warning naming the plugin and the first failing id. Allocation failure while
+staging is `ERR_NO_MEMORY`, and also poisons. Over-limit count is `ERR_NO_SPACE`. Nothing reaches the kernel
+settings registry before `commit`.
+
+### Consistency with slots 5 and 15
+
+- **Slot 5** returns the value or the spec default of a registered setting through `Settings::get`
+  (`abi/settings.md:21-24`); `absent` stays the answer for an **unknown key only**, because a default is
+  never absent (rule 3).
+- **Slot 15** finds the spec in the same registry: namespace by first segment, kind and range via the same
+  `accepts`, `secret` refused with `ERR_UNSUPPORTED` (`commands.md:49-54`). A guarded setting is writable by
+  its own plugin by namespace; guarded protects against other plugins, which cannot name it.
+- **Secrets.** Slot 5 on a secret key should return `absent`, since secrets live in the secret store
+  (`settings.rs:260-263`); the current slot-5 code does not special-case this (`queries.rs:28-37`) and I did
+  not check what `Settings::get` returns for one (Q9).
+- A setting whose spec arrived in this record is the only kind slot 15 may set; therefore the record is also
+  the **permission list** of slot 15.
+
+### Memory cost
+
+Transient: one decoded batch (at most 4096 B of input, borrowed, not copied) plus the staged `Declarations`
+(S1: about 200 B per spec until commit, then owned by `Specs`). Retained (S1): about 200 B per spec, 49 KB
+for all 246, about 0.6 KB for a plugin with 3. Retained (S2): about 4 B per spec plus a cache (**Estimate**,
+not measured). Nothing is retained in the callback registry.
+
+### Open questions (Part 3)
+
+- Q7: S1 or S2, and the per-plugin caps (128/32/128 are guesses).
+- Q8: is 1024 B enough for `choices`? Measure the longest real list.
+- Q9: slot 5 on a secret key.
+- Q10: `Extended` kinds and `check` callbacks: defer until a plugin needs them (none uses Extended today).
+- Q11: should `title` default derivation exist at all, or should every title be explicit (about 25 B more per
+  spec, but no hidden convention)?
