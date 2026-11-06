@@ -261,17 +261,25 @@ impl Plugin for Probe {
         r.subscribe(
             paperpaw_sdk::builtin::events::STARTED,
             Box::new(move |env, _, _| {
-                let slot = pin!(FrameSlot::new());
+                let slot = pin!(paperpaw_core::native_host::environment::EnvironmentScope::new());
                 let mut bytes = [0; SNAPSHOT_BYTES];
                 slot.as_ref()
                     .scope(env, || {
-                        assert_eq!(output(&slot, &mut bytes), SNAPSHOT_BYTES as i32);
+                        // SAFETY: bytes is exclusive live output disjoint from the context.
+                        assert_eq!(
+                            unsafe { slot.copy(bytes.as_mut_ptr(), bytes.len()) },
+                            SNAPSHOT_BYTES as i32
+                        );
                         let decoded = snapshot_decode(&bytes).unwrap();
                         assert_eq!(decoded.unix_seconds, paperpaw_sdk::time::unix_seconds(env));
                         seen.borrow_mut().push(decoded);
                     })
                     .unwrap();
-                assert_eq!(output(&slot, &mut bytes), ERR_STATE);
+                // SAFETY: the same live exclusive output; scope has been cleared.
+                assert_eq!(
+                    unsafe { slot.copy(bytes.as_mut_ptr(), bytes.len()) },
+                    ERR_STATE
+                );
             }),
         )
     }

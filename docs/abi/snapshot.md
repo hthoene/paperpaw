@@ -84,3 +84,21 @@ This includes standalone `no_std` compilation with warnings denied, Rust wire
 vectors, output initialization and capacity checks, every pixel format,
 malformed prefix checks, accepted extensions and descriptor release floors.
 The codec allocates no heap memory and uses one 52-byte encoding buffer.
+
+## Host integration
+
+A pinned per-plugin context owns `native_host::environment::EnvironmentScope`.
+Call `scope(env, callback)` around synchronous dispatch, then forward slot 4
+through unsafe `copy(out.ptr, out.cap)`. The caller must provide live exclusive
+output storage disjoint from host state; uninitialized output is supported.
+The method returns the complete encoded byte count on success. Short buffers
+fail without writes; no active environment returns `ERR_STATE` for valid output.
+Scope cleanup runs on normal return and unwind, and nested installation is Busy.
+Only owned snapshot values leave the borrowed frame.
+
+Capture uses the current Env's device, SystemStatus and monotonic Instant. Unix
+seconds use the same wall-clock mapping and floor division as SDK UnixTime.
+Pixel format is preserved, including vendor Other code/bits; the facade retains
+its existing gray-level fallback policy rather than assigning it in the codec.
+This supplies current-state values only. Full Battery also needs storage, usage,
+plugin metadata/work, richer i18n/UI and the real foreign callback proof.

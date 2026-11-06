@@ -932,6 +932,139 @@
       "since": 1
     }
   ],
+  "snapshot_value": {
+    "byte_order": "little",
+    "fields": [
+      {
+        "name": "monotonic_ms",
+        "type": "u64"
+      },
+      {
+        "name": "unix_seconds",
+        "type": "i64"
+      },
+      {
+        "name": "width",
+        "type": "u16"
+      },
+      {
+        "name": "height",
+        "type": "u16"
+      },
+      {
+        "name": "dpi",
+        "type": "u16"
+      },
+      {
+        "name": "pixel_kind",
+        "type": "u16"
+      },
+      {
+        "name": "pixel_code",
+        "type": "u16"
+      },
+      {
+        "name": "pixel_bits",
+        "type": "u8"
+      },
+      {
+        "name": "percent",
+        "type": "u8"
+      },
+      {
+        "name": "millivolts",
+        "type": "u16"
+      },
+      {
+        "name": "charging",
+        "type": "u8"
+      },
+      {
+        "name": "saver",
+        "type": "u8"
+      },
+      {
+        "name": "touch",
+        "type": "u8"
+      },
+      {
+        "name": "reserved_tail",
+        "type": "bytes3"
+      }
+    ],
+    "header": [
+      {
+        "name": "version",
+        "type": "u32"
+      },
+      {
+        "name": "total_bytes",
+        "type": "u32"
+      },
+      {
+        "name": "presence",
+        "type": "u32"
+      },
+      {
+        "name": "reserved",
+        "type": "u32"
+      }
+    ],
+    "max_bytes": 128,
+    "pixels": [
+      {
+        "bits": 1,
+        "name": "mono1",
+        "tag": 0
+      },
+      {
+        "bits": 2,
+        "name": "gray2",
+        "tag": 1
+      },
+      {
+        "bits": 4,
+        "name": "gray4",
+        "tag": 2
+      },
+      {
+        "bits": 8,
+        "name": "gray8",
+        "tag": 3
+      },
+      {
+        "bits": 16,
+        "name": "rgb565",
+        "tag": 4
+      },
+      {
+        "bits": 24,
+        "name": "rgb888",
+        "tag": 5
+      },
+      {
+        "bits": 0,
+        "name": "other",
+        "tag": 6
+      }
+    ],
+    "presence": [
+      {
+        "bit": 1,
+        "name": "battery"
+      },
+      {
+        "bit": 2,
+        "name": "voltage"
+      },
+      {
+        "bit": 4,
+        "name": "unix"
+      }
+    ],
+    "since": 1,
+    "version": 1
+  },
   "statuses": [
     {
       "name": "OK",
