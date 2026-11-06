@@ -37,6 +37,9 @@ pub mod registrations;
 /// Host-owned copies of declaration records staged during construction.
 #[path = "native_host/staged.rs"]
 pub mod staged;
+/// Interface-7 storage slots 20-26 over the platform storage (not wired).
+#[path = "native_host/storage.rs"]
+pub mod storage;
 
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NO_SPACE};
 use registrations::{Record, RecordBatch, Registration};
