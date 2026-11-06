@@ -67,6 +67,9 @@ struct PinnedPlugin<S> {
     /// Host-known plugin id (from the folder, never from the library) that
     /// staged declaration names are checked against.
     id: Box<str>,
+    /// The library's read-only data as mapped: address and length. Valid
+    /// while the owner holds the library; see [`PinnedPlugin::image`].
+    image: (usize, usize),
 }
 
 impl<S: Services> PinnedPlugin<S> {
@@ -83,7 +86,11 @@ impl<S: Services> PinnedPlugin<S> {
         table.settings_read = environment::settings_read::<S>;
         table.canvas_fill_rect = canvas::fill_rect::<S>;
         // SAFETY: the caller supplies authorization and inode immutability.
-        let CheckedLibrary { library, make } = unsafe { checked_library(path, digest, &table) }?;
+        let CheckedLibrary {
+            library,
+            make,
+            image,
+        } = unsafe { checked_library(path, digest, &table) }?;
         let context = Context {
             table,
             services,
@@ -98,7 +105,27 @@ impl<S: Services> PinnedPlugin<S> {
             owner,
             make,
             id: id.into(),
+            image,
         })
+    }
+
+    /// The library's read-only data, as mapped.
+    ///
+    /// # Safety
+    ///
+    /// The returned slice must not outlive the owner's library: the caller
+    /// ties it to a borrow of the plugin that holds the owner, and gives no
+    /// slice once the plugin is stopped. The bytes are read-only mappings; a
+    /// plugin without a sandbox can remap them, so every reader decodes with
+    /// checks and never trusts them to stay as they were.
+    unsafe fn image(&self) -> &[u8] {
+        let (start, len) = self.image;
+        if len == 0 {
+            return &[];
+        }
+        // SAFETY: a read-only mapping of `len` bytes at `start`, held by the
+        // owner's library for as long as `self` lives (the caller's contract).
+        unsafe { std::slice::from_raw_parts(start as *const u8, len) }
     }
 
     fn begin<T>(&self) -> Result<Transaction<'_, S, T>, Error> {
@@ -317,6 +344,9 @@ unsafe extern "C" fn registrations_submit<S: Services>(ctx: *mut c_void, batch: 
 
 enum Invocation<'a> {
     Tick(&'a [u8]),
+    /// An event of interface 7's list, its payload encoded by core
+    /// (`native_host::events`): handed to the callback as it is.
+    Event(&'a [u8]),
     Draw,
 }
 
@@ -341,6 +371,23 @@ fn invoke_registration<S>(
                 .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
             // SAFETY: admitted owner retains state/context/module. The callback
             // is present, bytes remain live for this call and do not alias host state.
+            Ok(unsafe {
+                callback(
+                    instance.state,
+                    token,
+                    PpBytes {
+                        ptr: bytes.as_ptr(),
+                        len: bytes.len(),
+                    },
+                )
+            })
+        }
+        (Registration::Event { token, .. }, Invocation::Event(bytes)) => {
+            let callback = instance
+                .event
+                .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
+            // SAFETY: same admitted owner lifetime; the payload is borrowed for
+            // this call only and does not alias host state.
             Ok(unsafe {
                 callback(
                     instance.state,

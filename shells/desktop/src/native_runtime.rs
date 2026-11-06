@@ -133,7 +133,8 @@ pub unsafe fn load(
     host: &'static DesktopHost,
 ) -> Result<LoadedPlugin, RuntimeError> {
     // SAFETY: the same authorization and immutable-file contract applies.
-    let CheckedLibrary { library, make } = unsafe { checked_library(path, digest, host.table()) }?;
+    let CheckedLibrary { library, make, .. } =
+        unsafe { checked_library(path, digest, host.table()) }?;
     let mut out = ptr::null();
     // SAFETY: table and context outlive the plugin; output storage is writable.
     let status = unsafe { make(host.table(), host.ctx(), &mut out) };
@@ -157,6 +158,50 @@ type Make = unsafe extern "C" fn(*const PpHost, *mut c_void, *mut *const PpPlugi
 struct CheckedLibrary {
     library: HeldLibrary,
     make: Make,
+    /// The library's read-only data as mapped: its address and length
+    /// (`read_only_segment`), valid as long as `library` is loaded.
+    image: (usize, usize),
+}
+
+fn u64_at(bytes: &[u8], at: usize) -> Option<u64> {
+    let raw = bytes.get(at..at.checked_add(8)?)?;
+    Some(u64::from_le_bytes(raw.try_into().ok()?))
+}
+
+/// The first loadable segment of the 64-bit little-endian ELF `bytes` that is
+/// neither writable nor executable (the library's read-only data), as
+/// `(address, length)` once the library is mapped at `base`; `(0, 0)` where
+/// there is none. Only the file's program headers are read; every offset is
+/// checked, so a hostile table gives `(0, 0)`, never a panic.
+fn read_only_segment(bytes: &[u8], base: usize) -> (usize, usize) {
+    const PT_LOAD: u32 = 1;
+    const PF_X: u32 = 1;
+    const PF_W: u32 = 2;
+    const PF_R: u32 = 4;
+    let find = || {
+        let phoff = usize::try_from(u64_at(bytes, 32)?).ok()?;
+        let entry = usize::from(u16_at(bytes, 54).ok()?);
+        let count = usize::from(u16_at(bytes, 56).ok()?);
+        if entry < 56 {
+            return None;
+        }
+        for i in 0..count.min(64) {
+            let at = phoff.checked_add(i.checked_mul(entry)?)?;
+            let flags = u32_at(bytes, at.checked_add(4)?).ok()?;
+            if u32_at(bytes, at).ok()? != PT_LOAD || flags & (PF_X | PF_W) != 0 || flags & PF_R == 0
+            {
+                continue;
+            }
+            let vaddr = usize::try_from(u64_at(bytes, at.checked_add(16)?)?).ok()?;
+            let filesz = usize::try_from(u64_at(bytes, at.checked_add(32)?)?).ok()?;
+            let memsz = usize::try_from(u64_at(bytes, at.checked_add(40)?)?).ok()?;
+            let len = filesz.min(memsz);
+            base.checked_add(vaddr)?.checked_add(len)?;
+            return Some((base + vaddr, len));
+        }
+        None
+    };
+    find().unwrap_or((0, 0))
 }
 
 // SAFETY requirements match load: authorized code and immutable checked inode.
@@ -229,7 +274,15 @@ unsafe fn checked_library(
         return Err(RuntimeError::Entry);
     }
     let make = entry.make.ok_or(RuntimeError::Entry)?;
-    Ok(CheckedLibrary { library, make })
+    let image = read_only_segment(
+        &bytes,
+        (loaded_meta as usize).wrapping_sub(locator.address as usize),
+    );
+    Ok(CheckedLibrary {
+        library,
+        make,
+        image,
+    })
 }
 
 mod plugin_output;
@@ -241,6 +294,7 @@ mod plugin_output;
 )]
 mod owned;
 
+pub(crate) use owned::dev::load_flat;
 /// The developer switch's loader for interface-7 plugins (assignment #772),
 /// off unless `--abi7-dev-loader` or `PAPERPAW_ABI7_DEV_LOADER=1` says so.
 pub use owned::dev::{DevPlugins, Kind, Refusal, classify, enabled, set_enabled};
