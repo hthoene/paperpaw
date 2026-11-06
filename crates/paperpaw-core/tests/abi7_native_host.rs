@@ -1,15 +1,5 @@
 //! Host-only transaction and ownership checks, not foreign ABI activation proof.
-#[path = "../src/abi7/calls.rs"]
-pub(crate) mod calls;
-#[path = "../src/abi7/lifecycle.rs"]
-pub(crate) mod lifecycle;
-
-mod abi7 {
-    pub(crate) use crate::{calls, lifecycle};
-}
-
-#[path = "../src/native_host.rs"]
-pub mod native_host;
+use paperpaw_core::native_host;
 
 use native_host::{DispatchDepth, Error, HostOwner};
 use std::{

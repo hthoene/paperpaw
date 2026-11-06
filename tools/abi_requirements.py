@@ -105,4 +105,8 @@ def required_minor(schema, used, floor):
             # Slot 5 consumes this codec even though its C signature is older.
             required = max(required, _integer(schema['settings_value'].get('since'),
                                               'settings value since', minor, 1))
+        if kind == 'host' and item['name'] == 'env.snapshot' and 'snapshot_value' in schema:
+            # Slot 4's stable signature still requires its selected wire layout.
+            required = max(required, _integer(schema['snapshot_value'].get('since'),
+                                              'snapshot value since', minor, 1))
     return required
