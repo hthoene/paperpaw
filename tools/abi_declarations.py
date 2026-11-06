@@ -1,31 +1,151 @@
-"""Closed declaration record schemas and their generated borrowed-field codec."""
+"""Generic wire records and their generated borrowed-field codec.
 
-# Closed schemas: exact ordered fields, (name, wire type, byte cap); the cap is 0
-# for scalars. Every field is required. There are no optional fields, no wire
-# defaults, and no field is ever appended to a record after release.
-DECLS = {
-    'setting.group': [('name', 'str', 96), ('title', 'str', 96), ('order', 'i32', 0),
-                      ('page', 'str', 96), ('parent', 'str', 128)],
-    'setting.spec': [('name', 'str', 96), ('kind', 'u32', 0), ('flags', 'u32', 0),
-                     ('group', 'str', 128), ('title', 'str', 96), ('help', 'str', 96),
-                     ('default', 'bytes', 512), ('min', 'i32', 0), ('max', 'i32', 0),
-                     ('choices', 'str', 1024)],
-    'setting.extra': [('name', 'str', 96), ('unit', 'str', 96), ('section', 'str', 96),
-                      ('follows', 'str', 128), ('shown_id', 'str', 128),
-                      ('shown_value', 'str', 128), ('editor_kind', 'u32', 0),
-                      ('editor', 'str', 96), ('step', 'i32', 0), ('flags', 'u32', 0),
-                      ('check', 'u32', 0)],
-    'resource.hyphenation': [('language', 'str', 35), ('path', 'str', 100)],
-    'resource.font_face': [('name', 'str', 96), ('path', 'str', 100),
-                           ('family', 'str', 64), ('style', 'u32', 0),
-                           ('weight', 'u32', 0), ('role', 'str', 96),
-                           ('priority', 'i32', 0)],
-    'resource.font_extension': [('name', 'str', 96), ('path', 'str', 100),
-                                ('extends', 'str', 128)],
+Every record in `abi/abi.def` other than the three initial shapes and the slot-15
+command is generated from its declared fields: closed wire types, required
+fields first, then optional appended fields (a presence bit and a default).
+"""
+import re
+
+# Records with their own hand-written codec; every other record is generated.
+INITIAL_RECORDS = ('registration.event', 'registration.draw', 'event.tick')
+COMMAND_RECORDS = ('command.set_setting',)
+
+# Tag allocation (interface-7 contract, shared rule 1). Tags are never reused.
+# A name is matched exactly first, then by its first segment; 63 is reserved.
+TAG_RANGES = {
+    'registration.event': (1, 3), 'registration.draw': (1, 3), 'event.tick': (1, 3),
+    'command.set_setting': (4, 4),
+    # Declarative registration (PR #158, section 8): settings and resources,
+    # then actions, menus, screens and icons (Part 5), all within 5-31.
+    'setting': (5, 31), 'resource': (5, 31),
+    'action': (5, 31), 'menu': (5, 31), 'screen': (5, 31), 'icon': (5, 31),
+    'event': (32, 43), 'i18n': (44, 47), 'service': (48, 55), 'command': (56, 62),
 }
+KEYWORDS = frozenset(
+    'as break const continue crate else enum extern false fn for if impl in let loop match '
+    'mod move mut pub ref return self Self static struct super trait true type unsafe use '
+    'where while async await dyn abstract become box do final macro override priv typeof '
+    'unsized virtual yield try gen'.split())
+MAX_FIELD_BYTES = 4096
+MAX_OPTIONAL = 8
 SCALAR_BYTES = {'u32': 4, 'i32': 4, 'u64': 8}
 RUST_TYPES = {'str': "&'a str", 'bytes': "&'a [u8]", 'u32': 'u32', 'i32': 'i32',
               'u64': 'u64'}
+NAME = re.compile(r'[a-z][a-z0-9]*(_[a-z0-9]+)*')
+RECORD_NAME = re.compile(r'[a-z][a-z0-9]*(_[a-z0-9]+)*(\.[a-z][a-z0-9]*(_[a-z0-9]+)*)+')
+
+
+def _require(ok, message):
+    if not ok:
+        raise ValueError(message)
+
+
+def tag_range(name):
+    """The inclusive tag range of a record's family, or None for an unknown family."""
+    return TAG_RANGES.get(name) or TAG_RANGES.get(name.split('.')[0])
+
+
+def check_tags(records):
+    """Every record's tag lies in its family's range, and no tag is declared twice."""
+    seen = {}
+    for item in records:
+        if type(item) is not dict:
+            continue
+        name, tag = item.get('name'), item.get('id')
+        _require(type(name) is str, 'record name must be text')
+        _require(type(tag) is int and 0 <= tag <= 65535,
+                 'record tag must be an unsigned declaration ID')
+        bounds = tag_range(name)
+        _require(bounds is not None,
+                 f'record {name} is in no tag family; add its family to TAG_RANGES with a range')
+        _require(bounds[0] <= tag <= bounds[1],
+                 f'record {name} has tag {tag} outside its family range '
+                 f'{bounds[0]}-{bounds[1]}')
+        _require(tag not in seen, f'duplicate record codec tag {tag} '
+                 f'({seen.get(tag)} and {name})')
+        seen[tag] = name
+
+
+def wire_records(schema):
+    """The generated records, in schema order, with checked fields."""
+    out = []
+    for item in schema.get('records', []):
+        if type(item) is dict and item.get('name') not in INITIAL_RECORDS + COMMAND_RECORDS:
+            out.append(dict(name=item['name'], id=item['id'], since=item['since'],
+                            fields=_fields(item)))
+    return out
+
+
+# The values a scalar field (and so its default) can hold.
+SCALAR_RANGES = {'u32': (0, 2**32 - 1), 'u64': (0, 2**64 - 1), 'i32': (-2**31, 2**31 - 1)}
+
+
+def _fields(record):
+    """Required fields first, then optional ones with consecutive ordinals."""
+    name, fields = record['name'], record.get('fields')
+    _require(type(fields) is list and fields, f'{name}: fields must be a non-empty list')
+    out, seen, optional = [], set(), 0
+    for field in fields:
+        _require(type(field) is dict, f'{name}: field must be an object')
+        label, kind, cap = field.get('name'), field.get('type'), field.get('max_bytes')
+        _require(type(label) is str and NAME.fullmatch(label) and label not in KEYWORDS,
+                 f'{name}: field name is not a plain lowercase Rust identifier')
+        _require(label not in seen, f'{name}: duplicate field {label}')
+        seen.add(label)
+        _require(kind in RUST_TYPES, f'{name}.{label}: wire type outside u32 u64 i32 str bytes')
+        _require(type(cap) is int and (0 if kind in SCALAR_BYTES else 1) <= cap <= (
+                 0 if kind in SCALAR_BYTES else MAX_FIELD_BYTES),
+                 f'{name}.{label}: str/bytes need a max_bytes cap of 1-{MAX_FIELD_BYTES}, '
+                 'scalars need 0')
+        _require(type(field.get('since')) is int and type(field.get('optional')) is bool,
+                 f'{name}.{label}: since and optional are required')
+        if field['optional']:
+            _require(field.get('ordinal') == optional and type(field['ordinal']) is int,
+                     f'{name}.{label}: optional ordinals must be 0, 1, ... in field order')
+            optional += 1
+            _require(optional <= MAX_OPTIONAL,
+                     f'{name}: at most {MAX_OPTIONAL} optional fields')
+            default = field.get('default')
+            if kind in SCALAR_BYTES:
+                low, high = SCALAR_RANGES[kind]
+                _require(type(default) is int and low <= default <= high,
+                         f'{name}.{label}: default must be an integer in the range of {kind}')
+            else:
+                _require(default == '' and type(default) is str,
+                         f'{name}.{label}: str/bytes default must be empty')
+        else:
+            _require(not optional, f'{name}.{label}: required field after an optional one')
+            _require(field.get('ordinal') is None and field.get('default') is None,
+                     f'{name}.{label}: required field has no ordinal or default')
+            _require(field['since'] == record['since'],
+                     f'{name}.{label}: required fields start with their record')
+        _require(record['since'] <= field['since'],
+                 f'{name}.{label}: field older than its record')
+        out.append(dict(name=label, kind=kind, cap=cap, optional=field['optional'], since=field['since'],
+                        ordinal=field['ordinal'], default=field['default']))
+    return out
+
+
+def validate_wire_records(schema, descriptor):
+    """Generated records have checked tags, names and fields."""
+    declared = wire_records(schema)
+    check_tags(schema['records'])
+    titles, consts = set(), set()
+    for record in declared:
+        _require(RECORD_NAME.fullmatch(record['name']) is not None,
+                 f'record name {record["name"]!r} is not dotted lowercase')
+        _require(type(record['since']) is int and
+                 descriptor['since'] <= record['since'] <= schema.get('minor', 0),
+                 'record since outside codec/schema minor')
+        title, const = _camel(record['name']), _const(record['name'])
+        _require(title not in titles and const not in consts and title != 'Registration',
+                 f'record {record["name"]} collides with another generated name')
+        titles.add(title)
+        consts.add(const)
+        for field in record['fields']:
+            _require(field['since'] <= schema.get('minor', 0),
+                     f'{record["name"]}.{field["name"]}: since outside schema minor')
+    return declared
 
 
 def _camel(name):
@@ -36,66 +156,198 @@ def _const(name):
     return name.upper().replace('.', '_')
 
 
-def _record_source(name, tag):
+def _call(indent, prefix, args, suffix):
+    """A call as rustfmt lays it out: arguments over 60 columns go one per line."""
+    if len(args) <= 60:
+        return [f'{indent}{prefix}({args}){suffix}']
+    return ([f'{indent}{prefix}('] + [f'{indent}    {arg},' for arg in args.split(', ')]
+            + [f'{indent}){suffix}'])
+
+
+def _mask(ordinal):
+    return f'0x{1 << ordinal:02x}'
+
+
+def _decode_value(field, prefix):
+    kind, cap = field['kind'], f'{prefix}_{field["name"].upper()}_MAX_BYTES'
+    if not field['optional']:
+        if kind in SCALAR_BYTES:
+            return [f'{kind}::from_le_bytes(body.scalar()?)']
+        return _call('', f'body.{"string" if kind == "str" else "blob"}', cap, '?')
+    bits = f'bits, {_mask(field["ordinal"])}'
+    if kind in SCALAR_BYTES:
+        return _call('', f'body.opt_{kind}', f'{bits}, {field["default"]}', '?')
+    return _call('', f'body.opt_{"string" if kind == "str" else "blob"}', f'{bits}, {cap}', '?')
+
+
+def _record_source(record):
     """One borrowed record struct with decode, length and write steps."""
+    name, tag, fields = record['name'], record['id'], record['fields']
     title, prefix = _camel(name), _const(name)
-    fields = DECLS[name]
+    optional = [f for f in fields if f['optional']]
     out = [f'/// Wire tag of the `{name}` record.', f'pub const {prefix}_TAG: u32 = {tag};']
-    for field, _kind, cap in fields:
-        if cap:
-            out += [f'/// Maximum bytes of `{name}.{field}`.',
-                    f'pub const {prefix}_{field.upper()}_MAX_BYTES: usize = {cap};']
+    for field in fields:
+        if field['cap']:
+            out += [f'/// Maximum bytes of `{name}.{field["name"]}`.',
+                    f'pub const {prefix}_{field["name"].upper()}_MAX_BYTES: usize = '
+                    f'{field["cap"]};']
     out += ['', f'/// The `{name}` record, borrowed from its batch.',
             '#[derive(Clone, Copy, Debug, PartialEq, Eq)]', f"pub struct {title}<'a> {{"]
-    for field, kind, cap in fields:
+    for field in fields:
+        kind, cap = field['kind'], field['cap']
         text = {'str': f'UTF-8 text of at most {cap} bytes.',
                 'bytes': f'Opaque bytes, at most {cap}.'}.get(kind, f'Little-endian {kind}.')
-        out += [f'    /// {text}', f'    pub {field}: {RUST_TYPES[kind]},']
+        if field['optional']:
+            absent = field['default'] if kind in SCALAR_BYTES else 'empty'
+            text += f' Appended and optional; {absent} when absent.'
+        out += [f'    /// {text}', f'    pub {field["name"]}: {RUST_TYPES[kind]},']
     out += ['}', '', f"impl<'a> {title}<'a> {{",
             "    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {",
-            '        body.bitmap()?;', f'        Ok(Record::{title}(Self {{']
-    for field, kind, _cap in fields:
-        cap = f'{prefix}_{field.upper()}_MAX_BYTES'
-        if kind in SCALAR_BYTES:
-            value = f'{kind}::from_le_bytes(body.scalar()?)'
-        else:
-            value = f'body.{"string" if kind == "str" else "blob"}({cap})?'
-        out.append(f'            {field}: {value},')
-    out += ['        }))', '    }', '', '    fn body_len(&self) -> Result<usize, i32> {',
-            '        let mut len = 1; // The initial bitmap is empty.']
-    for field, kind, _cap in fields:
-        if kind in SCALAR_BYTES:
-            out.append(f'        len += {SCALAR_BYTES[kind]};')
-        else:
-            cap = f'{prefix}_{field.upper()}_MAX_BYTES'
-            args = f'self.{field}.len(), {cap}'
-            line = f'        len += blob_len({args})?;'
-            # Wrap where rustfmt does (call arguments over 60 columns), so the
-            # output stays rustfmt-stable.
-            out += [line] if len(args) <= 60 else [
-                '        len += blob_len(', f'            self.{field}.len(),',
-                f'            {cap},', '        )?;']
+            '        let bits = body.bitmap_bits()?;' if optional else '        body.bitmap()?;',
+            f'        Ok(Record::{title}(Self {{']
+    for field in fields:
+        value = _decode_value(field, prefix)
+        out.append(f'            {field["name"]}: {value[0]}' + ('' if len(value) > 1 else ','))
+        out += [f'            {line}' for line in value[1:]]
+        if len(value) > 1:
+            out[-1] += ','
+    out += ['        }))', '    }', '']
+    if optional:
+        out += ['    fn bits(&self) -> u8 {', '        let mut bits = 0;']
+        for field in optional:
+            if field['kind'] in SCALAR_BYTES:
+                test = f'self.{field["name"]} != {field["default"]}'
+            else:
+                test = f'!self.{field["name"]}.is_empty()'
+            out += [f'        if {test} {{', f'            bits |= {_mask(field["ordinal"])};',
+                    '        }']
+        out += ['        bits', '    }', '']
+    out += ['    fn body_len(&self) -> Result<usize, i32> {']
+    if optional:
+        out += ['        let bits = self.bits();',
+                '        // The bitmap is one byte when any optional field is present.',
+                '        let mut len = 1 + usize::from(bits != 0);']
+    else:
+        out.append('        let mut len = 1; // The initial bitmap is empty.')
+    for field in fields:
+        if field['optional']:
+            continue
+        out += _length_lines(field, prefix, '        ')
+    for field in optional:
+        out.append(f'        if bits & {_mask(field["ordinal"])} != 0 {{')
+        out += _length_lines(field, prefix, '            ')
+        out.append('        }')
     out += ['        Ok(len)', '    }', '',
             '    fn write(&self, out: &mut [u8], offset: &mut usize) {']
-    for field, kind, _cap in fields:
-        if kind in SCALAR_BYTES:
-            out.append(f'        write_bytes(&self.{field}.to_le_bytes(), out, offset);')
-        elif kind == 'str':
-            out.append(f'        write_blob(self.{field}.as_bytes(), out, offset);')
+    if optional:
+        out.append('        let bits = self.bits();')
+    for field in fields:
+        if field['optional']:
+            out.append(f'        if bits & {_mask(field["ordinal"])} != 0 {{')
+            out.append(_write_line(field, '            '))
+            out.append('        }')
         else:
-            out.append(f'        write_blob(self.{field}, out, offset);')
+            out.append(_write_line(field, '        '))
     out += ['    }', '}', '']
     return '\n'.join(out)
 
 
-def declaration_source(records, statuses):
-    """Mixed-batch API: registrations plus capped, borrowed declaration records."""
-    names = list(DECLS)
-    arms = lambda text: ''.join(text.replace('@T@', _camel(n)).replace('@C@', _const(n)) + '\n'
-                                for n in names)
+def _length_lines(field, prefix, indent):
+    kind, label = field['kind'], field['name']
+    if kind in SCALAR_BYTES:
+        return [f'{indent}len += {SCALAR_BYTES[kind]};']
+    cap = f'{prefix}_{label.upper()}_MAX_BYTES'
+    args = f'self.{label}.len(), {cap}'
+    # Wrap where rustfmt does (call arguments over 60 columns), so the output
+    # stays rustfmt-stable.
+    if len(args) <= 60:
+        return [f'{indent}len += blob_len({args})?;']
+    return [f'{indent}len += blob_len(', f'{indent}    self.{label}.len(),',
+            f'{indent}    {cap},', f'{indent})?;']
+
+
+def _write_line(field, indent):
+    kind, label = field['kind'], field['name']
+    if kind in SCALAR_BYTES:
+        return f'{indent}write_bytes(&self.{label}.to_le_bytes(), out, offset);'
+    if kind == 'str':
+        return f'{indent}write_blob(self.{label}.as_bytes(), out, offset);'
+    return f'{indent}write_blob(self.{label}, out, offset);'
+
+
+def _reader_extra(declared):
+    """Reader methods for optional fields; only the ones some record uses."""
+    optional = [f for r in declared for f in r['fields'] if f['optional']]
+    if not optional:
+        return ''
+    kinds = {f['kind'] for f in optional}
+    out = ['''
+    fn bitmap_bits(&mut self) -> Result<u8, i32> {
+        let len = self.varint()? as usize;
+        // At most eight optional fields: the first bitmap byte is all that is known.
+        Ok(self.take(len)?.first().copied().unwrap_or(0))
+    }
+''']
+    for kind in sorted(kinds & set(SCALAR_BYTES)):
+        out.append(f'''
+    fn opt_{kind}(&mut self, bits: u8, mask: u8, default: {kind}) -> Result<{kind}, i32> {{
+        if bits & mask == 0 {{
+            return Ok(default);
+        }}
+        Ok({kind}::from_le_bytes(self.scalar()?))
+    }}
+''')
+    if 'bytes' in kinds or 'str' in kinds:
+        out.append('''
+    fn opt_blob(&mut self, bits: u8, mask: u8, cap: usize) -> Result<&'a [u8], i32> {
+        if bits & mask == 0 {
+            return Ok(&[]);
+        }
+        self.blob(cap)
+    }
+''')
+    if 'str' in kinds:
+        out.append('''
+    fn opt_string(&mut self, bits: u8, mask: u8, cap: usize) -> Result<&'a str, i32> {
+        core::str::from_utf8(self.opt_blob(bits, mask, cap)?).map_err(|_| @UTF8@)
+    }
+''')
+    return ''.join(out)
+
+
+def _record_extra(declared):
+    """Record methods that give optional fields their presence bitmap."""
+    arms = ''.join(f'            Record::{_camel(r["name"])}(record) => record.bits(),\n'
+                   for r in declared if any(f['optional'] for f in r['fields']))
+    return '''
+    fn bits(&self) -> u8 {
+        match self {
+''' + arms + '''            _ => 0,
+        }
+    }
+
+    fn write_bitmap(&self, out: &mut [u8], offset: &mut usize) {
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+    }
+''' if arms else ''
+
+
+def declaration_source(declared, statuses):
+    """Mixed-batch API: registrations plus capped, borrowed wire records."""
+    arms = lambda text: ''.join(text.replace('@T@', _camel(r['name']))
+                                .replace('@C@', _const(r['name'])) + '\n' for r in declared)
+    has_optional = any(f['optional'] for r in declared for f in r['fields'])
     source = '\n// Declaration records and the mixed-batch API.\n'
-    source += ''.join(_record_source(name, records[name]['id']) for name in names)
+    source += ''.join(_record_source(record) for record in declared)
     source += (DECL_TEMPLATE
+               .replace('@READER_EXTRA@', _reader_extra(declared))
+               .replace('@RECORD_EXTRA@', _record_extra(declared))
+               .replace('@BITMAP@', 'record.write_bitmap(out, &mut offset);' if has_optional
+                        else 'write_varint(0, out, &mut offset);')
                .replace('@VARIANTS@', arms("    /// A `@T@` record.\n    @T@(@T@<'a>),").rstrip('\n'))
                .replace('@DECODE@', arms('        @C@_TAG => @T@::decode(body)?,').rstrip('\n'))
                .replace('@TAGS@', arms('            Record::@T@(_) => @C@_TAG,').rstrip('\n'))
@@ -131,7 +383,7 @@ impl<'a> Reader<'a> {
     fn string(&mut self, cap: usize) -> Result<&'a str, i32> {
         core::str::from_utf8(self.blob(cap)?).map_err(|_| @UTF8@)
     }
-}
+@READER_EXTRA@}
 
 fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
     Ok(match tag {
@@ -264,7 +516,7 @@ impl Record<'_> {
 @WRITES@
         }
     }
-}
+@RECORD_EXTRA@}
 
 /// Encode a canonical mixed batch without allocating.
 ///
@@ -292,7 +544,7 @@ pub fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i
         let body = record.body_len()?;
         write_varint(record.tag(), out, &mut offset);
         write_varint(body as u32, out, &mut offset);
-        write_varint(0, out, &mut offset);
+        @BITMAP@
         record.write(out, &mut offset);
     }
     Ok(offset)

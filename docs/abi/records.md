@@ -29,13 +29,40 @@ Overlong, overflowing or truncated varints are malformed.
 Tag 4 is the slot-15 command (`docs/abi/commands.md`). Tags 5-10 are the
 declaration records of `docs/abi/proposals/declarative-registration.md`. A
 `str` is a canonical u32 LEB128 length and that many UTF-8 bytes; `bytes` is the
-same framing without the UTF-8 rule. Every field is required, there are no
-optional fields, and the schema is closed: the generator refuses appended,
-reordered, optional or re-capped fields. Tag 8 deliberately differs from the
+same framing without the UTF-8 rule. Tag 8 deliberately differs from the
 proposal's body table: it has no `name` (a language is its own identity), only
 `language` and `path`.
 
-All declarations and fields start at minor 1. There are no optional fields yet.
+## Generated records
+
+Every record in `abi/abi.def` except tags 1-4 is generated from its declared
+fields, with no per-record generator code: the struct, `decode`, `encode` and
+body length. Fields use the closed wire types `u32 u64 i32 str bytes`. A `str`
+or `bytes` field has a `max_bytes` cap of 1 to 4096; a scalar has 0. Required
+fields come first, in order. Optional fields are appended after them, with
+ordinals 0, 1, ... in field order (at most 8), and a `default`: an integer for a
+scalar, empty for `str` and `bytes`. The encoder writes the one-byte presence
+bitmap only when a field differs from its default, then the present optional
+fields in ordinal order; a decoder gives an absent field its default. A record
+with no optional field keeps the empty bitmap. Field names are lowercase Rust
+identifiers, record names are dotted lowercase, and two records may not map to
+the same generated name.
+
+Tag allocation, checked by the generator (a tag outside its family's range, an
+unknown family or a tag declared twice is refused; tags are never reused):
+
+| Tags | Family |
+| --- | --- |
+| 1-3 | `registration.event`, `registration.draw`, `event.tick` |
+| 4 | `command.set_setting` |
+| 5-31 | declarative registration: `setting.*`, `resource.*`, `action.*`, `menu.*`, `screen.*`, `icon.*` |
+| 32-43 | `event.*` |
+| 44-47 | `i18n.*` |
+| 48-55 | `service.*` |
+| 56-62 | `command.*` |
+| 63 | reserved |
+
+All declarations and fields start at minor 1. Tags 1-10 have no optional fields.
 Unknown bitmap bits, extra bitmap bytes and trailing fields inside a known
 record are accepted for forward compatibility. Known required fields must still
 be present after the bitmap. Bytes outside the declared batch are malformed.

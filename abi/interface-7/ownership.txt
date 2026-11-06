@@ -3,8 +3,10 @@ exclusive-item paperpaw_native::host_glue
 exclusive-item paperpaw_native::host_glue::ENTRY_SYMBOL
 exclusive-item paperpaw_native::host_glue::ERR_BUSY
 exclusive-item paperpaw_native::host_glue::ERR_CANCELLED
+exclusive-item paperpaw_native::host_glue::ERR_FULL
 exclusive-item paperpaw_native::host_glue::ERR_INVALID
 exclusive-item paperpaw_native::host_glue::ERR_IO
+exclusive-item paperpaw_native::host_glue::ERR_NOT_FOUND
 exclusive-item paperpaw_native::host_glue::ERR_NO_MEMORY
 exclusive-item paperpaw_native::host_glue::ERR_NO_SPACE
 exclusive-item paperpaw_native::host_glue::ERR_STATE
@@ -35,8 +37,10 @@ exclusive-item paperpaw_native::host_glue::clock_micros
 exclusive-item paperpaw_native::host_glue::generated::ENTRY_SYMBOL
 exclusive-item paperpaw_native::host_glue::generated::ERR_BUSY
 exclusive-item paperpaw_native::host_glue::generated::ERR_CANCELLED
+exclusive-item paperpaw_native::host_glue::generated::ERR_FULL
 exclusive-item paperpaw_native::host_glue::generated::ERR_INVALID
 exclusive-item paperpaw_native::host_glue::generated::ERR_IO
+exclusive-item paperpaw_native::host_glue::generated::ERR_NOT_FOUND
 exclusive-item paperpaw_native::host_glue::generated::ERR_NO_MEMORY
 exclusive-item paperpaw_native::host_glue::generated::ERR_NO_SPACE
 exclusive-item paperpaw_native::host_glue::generated::ERR_STATE
