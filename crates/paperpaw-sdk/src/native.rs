@@ -66,7 +66,7 @@ pub const INTERFACE: u16 = 7;
 /// Freezing deletes this constant and that line: the fingerprint is then
 /// made as if there had never been drafts, and refuses every draft's
 /// builds too.
-pub const DRAFT: u16 = 5;
+pub const DRAFT: u16 = 7;
 
 /// The crates whose types cross between a plugin and PaperPaw, by the
 /// names their paths begin with: the SDK and every crate of PaperPaw it
@@ -323,13 +323,26 @@ mod binding;
 #[doc(hidden)]
 pub use binding::entry as __entry;
 pub use binding::{Error, Host, Plugin};
+pub mod callbacks;
+pub mod canvas;
 pub mod clock;
+pub mod commands;
 pub mod declare;
 pub mod events;
+pub mod fonts;
+pub mod formatting;
 pub mod keys;
 pub mod registrations;
+pub mod reply;
 pub mod services;
+pub mod settings;
+pub mod snapshot;
 pub mod storage;
+mod wire;
+
+#[cfg(test)]
+#[path = "native/slot_limits_tests.rs"]
+mod slot_limits_tests;
 
 #[cfg(feature = "kernel")]
 mod installed;

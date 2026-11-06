@@ -292,6 +292,37 @@ unsafe extern "C" fn unsupported_text_measure(
 ) -> i32 {
     ERR_UNSUPPORTED
 }
+unsafe extern "C" fn unsupported_text_metrics(
+    _: *mut c_void,
+    _: u32,
+    _: f32,
+    _: *mut f32,
+    _: *mut f32,
+    _: *mut f32,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
+unsafe extern "C" fn unsupported_text_ink(
+    _: *mut c_void,
+    _: u32,
+    _: f32,
+    _: PpBytes,
+    _: *mut i32,
+    _: *mut i32,
+    _: *mut i32,
+    _: *mut i32,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
+unsafe extern "C" fn unsupported_canvas_clip(
+    _: *mut c_void,
+    _: i32,
+    _: i32,
+    _: u32,
+    _: u32,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
 unsafe extern "C" fn unsupported_text_draw(
     _: *mut c_void,
     _: u32,
@@ -396,6 +427,9 @@ pub const fn host_table() -> PpHost {
         storage_sync: unsupported_storage_sync,
         i18n_format: unsupported_format,
         i18n_digits: unsupported_read,
+        text_metrics: unsupported_text_metrics,
+        text_ink: unsupported_text_ink,
+        canvas_clip: unsupported_canvas_clip,
     }
 }
 

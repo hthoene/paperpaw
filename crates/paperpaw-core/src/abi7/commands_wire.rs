@@ -8,6 +8,20 @@ pub const COMMAND_MAX_RECORDS: usize = 8;
 /// Maximum UTF-8 bytes of one setting key.
 pub const COMMAND_MAX_KEY_BYTES: usize = 128;
 /// Wire tag of the SetSetting command.
+/// Wire tag of the OpenScreen command.
+pub const COMMAND_OPEN_SCREEN_TAG: u32 = 56;
+/// Maximum UTF-8 bytes of the full screen id of OpenScreen.
+pub const COMMAND_MAX_SCREEN_BYTES: usize = 128;
+/// Wire tag of the RunAction command.
+pub const COMMAND_RUN_ACTION_TAG: u32 = 57;
+/// Maximum UTF-8 bytes of the full action id of RunAction.
+pub const COMMAND_MAX_ACTION_BYTES: usize = 128;
+/// Wire tag of the Redraw command.
+pub const COMMAND_REDRAW_TAG: u32 = 58;
+/// Highest redraw mode: 0 redraw only, 1 fast, 2 partial, 3 full.
+pub const COMMAND_REDRAW_MAX_MODE: u32 = 3;
+/// Wire tag of the CloseScreen command.
+pub const COMMAND_CLOSE_SCREEN_TAG: u32 = 59;
 pub const COMMAND_SET_SETTING_TAG: u32 = 4;
 
 /// A command borrowed from one validated batch. No Rust value crosses the ABI.
@@ -21,6 +35,23 @@ pub enum Command<'a> {
         /// Present Boolean, integer or text value; never absent.
         value: SettingValueRef<'a>,
     },
+    /// Open a registered screen, own or foreign, by its full id.
+    OpenScreen {
+        /// Nonempty UTF-8 full screen id.
+        screen: &'a str,
+    },
+    /// Run a registered action, own or foreign, by its full id.
+    RunAction {
+        /// Nonempty UTF-8 full action id.
+        action: &'a str,
+    },
+    /// Redraw the submitting plugin's screen on top in `mode`.
+    Redraw {
+        /// 0 redraw only, 1 fast, 2 partial, 3 full.
+        mode: u32,
+    },
+    /// Close the submitting plugin's own screen on top.
+    CloseScreen,
 }
 
 /// A fully validated, allocation-free command batch.
@@ -128,6 +159,30 @@ fn set_setting<'a>(body: &mut Reader<'a>) -> Result<Command<'a>, i32> {
     Ok(Command::SetSetting { key, value })
 }
 
+fn id(bytes: &[u8], cap: usize) -> Result<&str, i32> {
+    if bytes.is_empty() {
+        Err(-2)
+    } else if bytes.len() > cap {
+        Err(-3)
+    } else {
+        core::str::from_utf8(bytes).map_err(|_| -5)
+    }
+}
+
+fn u32_le(bytes: &[u8]) -> u32 {
+    let mut value = [0; 4];
+    value.copy_from_slice(bytes);
+    u32::from_le_bytes(value)
+}
+
+fn mode(mode: u32) -> Result<u32, i32> {
+    if mode > COMMAND_REDRAW_MAX_MODE {
+        Err(-2)
+    } else {
+        Ok(mode)
+    }
+}
+
 /// Decode an entire batch before exposing any command.
 ///
 /// Framing must be canonical u32 LEB128. Unknown command tags and unknown
@@ -150,10 +205,32 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
     };
     for slot in &mut batch.records[..len] {
         let (tag, mut body) = reader.record()?;
-        if tag != COMMAND_SET_SETTING_TAG {
-            return Err(-1);
-        }
-        *slot = Some(set_setting(&mut body)?);
+        *slot = Some(match tag {
+            COMMAND_SET_SETTING_TAG => set_setting(&mut body)?,
+            COMMAND_OPEN_SCREEN_TAG => {
+                body.bitmap()?;
+                Command::OpenScreen {
+                    screen: id(body.bytes()?, COMMAND_MAX_SCREEN_BYTES)?,
+                }
+            }
+            COMMAND_RUN_ACTION_TAG => {
+                body.bitmap()?;
+                Command::RunAction {
+                    action: id(body.bytes()?, COMMAND_MAX_ACTION_BYTES)?,
+                }
+            }
+            COMMAND_REDRAW_TAG => {
+                body.bitmap()?;
+                Command::Redraw {
+                    mode: mode(u32_le(body.take(4)?))?,
+                }
+            }
+            COMMAND_CLOSE_SCREEN_TAG => {
+                body.bitmap()?;
+                Command::CloseScreen
+            }
+            _ => return Err(-1),
+        });
     }
     reader.finish()?;
     Ok(batch)
@@ -194,6 +271,35 @@ fn set_setting_len(key: &str, value: SettingValueRef<'_>) -> Result<(usize, usiz
     Ok((body, value_len))
 }
 
+/// A command's tag and body length, every bound checked.
+fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
+    match *command {
+        Command::SetSetting { key, value } => {
+            let (body, _) = set_setting_len(key, value)?;
+            Ok((COMMAND_SET_SETTING_TAG, body))
+        }
+        Command::OpenScreen { screen } => {
+            id(screen.as_bytes(), COMMAND_MAX_SCREEN_BYTES)?;
+            Ok((
+                COMMAND_OPEN_SCREEN_TAG,
+                1 + varint_len(screen.len() as u32) + screen.len(),
+            ))
+        }
+        Command::RunAction { action } => {
+            id(action.as_bytes(), COMMAND_MAX_ACTION_BYTES)?;
+            Ok((
+                COMMAND_RUN_ACTION_TAG,
+                1 + varint_len(action.len() as u32) + action.len(),
+            ))
+        }
+        Command::Redraw { mode: value } => {
+            mode(value)?;
+            Ok((COMMAND_REDRAW_TAG, 1 + 4))
+        }
+        Command::CloseScreen => Ok((COMMAND_CLOSE_SCREEN_TAG, 1)),
+    }
+}
+
 /// Encode a canonical batch without allocating.
 ///
 /// Every key, value and bound, and the complete output capacity, are checked
@@ -205,9 +311,8 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
     }
     let mut required = varint_len(commands.len() as u32);
     for command in commands {
-        let Command::SetSetting { key, value } = *command;
-        let (body, _) = set_setting_len(key, value)?;
-        required += varint_len(COMMAND_SET_SETTING_TAG) + varint_len(body as u32) + body;
+        let (tag, body) = command_len(command)?;
+        required += varint_len(tag) + varint_len(body as u32) + body;
         if required > COMMAND_MAX_BYTES {
             return Err(-3);
         }
@@ -218,11 +323,32 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
     let mut offset = 0;
     write_varint(commands.len() as u32, out, &mut offset);
     for command in commands {
-        let Command::SetSetting { key, value } = *command;
-        let (body, value_len) = set_setting_len(key, value)?;
-        write_varint(COMMAND_SET_SETTING_TAG, out, &mut offset);
+        let (tag, body) = command_len(command)?;
+        write_varint(tag, out, &mut offset);
         write_varint(body as u32, out, &mut offset);
         write_varint(0, out, &mut offset);
+        let Command::SetSetting { key, value } = *command else {
+            match *command {
+                Command::OpenScreen { screen } => {
+                    write_varint(screen.len() as u32, out, &mut offset);
+                    out[offset..offset + screen.len()].copy_from_slice(screen.as_bytes());
+                    offset += screen.len();
+                }
+                Command::RunAction { action } => {
+                    write_varint(action.len() as u32, out, &mut offset);
+                    out[offset..offset + action.len()].copy_from_slice(action.as_bytes());
+                    offset += action.len();
+                }
+                Command::Redraw { mode } => {
+                    out[offset..offset + 4].copy_from_slice(&mode.to_le_bytes());
+                    offset += 4;
+                }
+                Command::CloseScreen => {}
+                Command::SetSetting { .. } => {}
+            }
+            continue;
+        };
+        let (_, value_len) = set_setting_len(key, value)?;
         write_varint(key.len() as u32, out, &mut offset);
         out[offset..offset + key.len()].copy_from_slice(key.as_bytes());
         offset += key.len();
