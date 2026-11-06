@@ -188,6 +188,36 @@ Pro's. A port to a board like one PaperPaw knows is mostly a board file.
   `rust-toolchain.toml` pin: plugin files run only on firmware of the
   same compiler, and newer Xtensa GCCs reject esp-hal's linker scripts.
 
+## The lifecycle window
+
+Plugins save in `core.suspend` and `core.stopping`, and the interface-7
+storage contract relies on it (`docs/abi/proposals/interface-7-events-storage-services.md`,
+D1.2, gate V2). A shell must therefore not cut the power, restart or exit
+until `Kernel::suspend` / `Kernel::stop` have **returned**; both write the
+storage back (`storage.sync`) after the plugins ran, so what a plugin wrote
+in its handler is on the card when they return (host test
+`crates/paperpaw-core/tests/lifecycle_window.rs`). Order on every path:
+suspend or stop dispatch, then the work it started is finished, then the
+last `sync`, then the panel, then the power.
+
+| Shell | Path | Order (function, `file:line` at the time of writing) | Early cut? |
+| --- | --- | --- | --- |
+| X4 / X4 Pro / X3 / Classic | sleep (idle, power button, low battery, plugin asks) | `step` -> `sleep` (`firmware.rs:739`): `kernel.suspend` (`:747`) -> radios down -> `finish_work` (`:898`, waits for work the plugins started, at most `SLEEP_WAIT_MS`, stops at a press) -> `power_off` (`:786`): `slept::mark` writes the mark **and syncs** -> panel sleep -> `network.leave` -> latch low / deep sleep (`power::deep`) | none: `power_off` is called from `sleep` only |
+| X4 family | light sleep (`asleep-light`, hours) | `sleep` -> `kernel.suspend` -> `finish_work` -> **`write_back` (`storage.sync`, called in `sleep()` right after `finish_work`)** -> `sleep_lightly` (`:835`); a card swapped or a power cut during it loses only what was written after that sync (none) | none |
+| X4 family | doze on USB | `doze` (`firmware/dozing.rs:39`): `kernel.suspend`; no power is cut; a cable pulled ends in `sleep` (`suspended_already` skips a second suspend) | none |
+| X4 family | restart (kernel asks, code plugins to load, `Restart` over serial) | `restart` (`firmware.rs:463`): `kernel.stop` (`:468`) -> `network.leave` -> `software_reset` (`:470`); remote `Command::Restart` (`:1467`) the same | none |
+| X4 family | panic, watchdog, failed update trial | `crash.rs:134`, `ota.rs:225,257`, `power.rs:386` (`software_reset`) | **yes, by design**: no dispatch is possible after a panic or a hang; data not synced is lost. The update trial paths run before the kernel exists. The `remote` feature's `rest` reset (`firmware.rs:667`) and `try_long_nap` (`power.rs:386`) are developer-build trials after a sleep (suspend ran before it) |
+| Desktop emulator | window close, `quit` over stdio | `Device::shut_down` (`device.rs:666`): `kernel.suspend` unless asleep -> waits for answers (`SHUT_DOWN_WAIT`) -> the process ends (`gui.rs:257`, `stdio/mod.rs:380`) | none; host test `quitting_gives_plugins_their_moment_to_save_first` (`stdio/tests.rs`) |
+| Desktop emulator | sleep screen (power button), restart | `execute` (`device.rs:788`): `kernel.suspend`; `Device::restart` (`device.rs:887`): `kernel.stop` before the new kernel | none |
+| Android | app paused | `MainEvent::Pause` (`app.rs:184`): `kernel.suspend`, then the system may kill the process: Pause is the only save point there is. `Destroy` (`app.rs:205`) ends the loop without a `stop` (it follows a Pause); restart (`app.rs:317`) calls `kernel.stop` first | the system may kill after Pause returns: not a shell decision |
+| Web | none | no suspend or stop (a tab closing is not seen); the emulated card is memory only; `restart` goes through the desktop `Device` (`stop`) | not applicable |
+
+What only a device can show (owner's return package): `sleep`'s order on the
+X4 (`firmware.rs:739-776`, the firmware is not built for the host), the
+`finish_work` wait ending at a press, the power-button release wait in
+`power_off`, and that the card holds a plugin's last write after a power
+cut that follows a sleep.
+
 ## Checking a port on the device
 
 Build the firmware with remote control over USB (the feature `remote`,

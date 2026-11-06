@@ -694,10 +694,7 @@ impl Firmware {
         if let Some(worked) = self.state.unsynced {
             let due = worked + SYNC_MS;
             if now().0 >= due {
-                self.state.unsynced = None;
-                if self.kernel.storage().sync().is_err() {
-                    warn!("card: not all written back");
-                }
+                self.write_back();
             } else {
                 until = until.min(due);
             }
@@ -753,6 +750,9 @@ impl Firmware {
         self.network
             .bluetooth(paperpaw_core::BtCall::Radio { on: false });
         let pressed = !self.finish_work();
+        // What the work finished wrote is on the card before a light sleep
+        // of hours (`slept::mark` writes back once more at the power-off).
+        self.write_back();
         // A plugin may have asked to switch off while it heard core.suspend
         // or in the work finished: that is honoured now, not after a wake.
         let next = paperpaw_x4::sleeping::after_suspend(lightly, self.state.power_off, pressed);
