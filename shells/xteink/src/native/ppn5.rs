@@ -90,7 +90,7 @@ fn refused(path: &str, head: &[u8], why: Refusal) -> PluginProblem {
 /// [module documentation](self)). `place` puts the image where it runs.
 pub fn load(
     place: &mut super::Place,
-    depth: &Rc<DispatchDepth>,
+    depth: &mut Option<Rc<DispatchDepth>>,
     storage: &dyn Storage,
     code: &CodeFile<'_>,
 ) -> Result<Box<dyn Plugin>, PluginProblem> {
@@ -365,7 +365,7 @@ mod x4 {
         header: &Header5,
         placed: &crate::native::flash::Placed5,
         make: u32,
-        depth: &Rc<DispatchDepth>,
+        depth: &mut Option<Rc<DispatchDepth>>,
         started: u64,
     ) -> Result<Box<dyn Plugin>, PluginProblem> {
         let id = code.id.as_str();
@@ -405,10 +405,22 @@ mod x4 {
             call_begin,
             call_end,
         };
+        // Room for what comes after `make` and std can only allocate
+        // infallibly: the shared depth's `Rc`, the id's copy in the manifest
+        // and `FlatPlugin`'s `Rc::from`. Taken now, before the plugin runs
+        // (nothing it allocates can take it), given back as soon as the
+        // plugin is made: one core and nothing else allocates in between, so
+        // those calls always find it. If there is no room, the plugin is not
+        // made at all.
+        let mut room: Vec<u8> = Vec::new();
+        room.try_reserve_exact(POST_MAKE_ROOM).map_err(|_| {
+            warn!("native: {id}: no room for the plugin's host objects");
+            PluginProblem::NoRoom
+        })?;
         // SAFETY: as above; the read-only data [0, code_at) of the image is
         // mapped at `placed.base` for the session (nothing erases the region
         // before a restart: it is only written by `put5` into free room).
-        let instance = unsafe {
+        let loaded = unsafe {
             Instance::load(
                 X4Services,
                 FlashModule,
@@ -418,8 +430,9 @@ mod x4 {
                 report,
                 hooks,
             )
-        }
-        .map_err(|why| {
+        };
+        drop(room);
+        let instance = loaded.map_err(|why| {
             warn!("native: {id}: format 5: refused while making: {why:?}");
             match why {
                 shell::Error::Allocation => PluginProblem::NoRoom,
@@ -439,7 +452,8 @@ mod x4 {
             paperpaw_sdk::Version::new(0, 0, 0),
         );
         let instance = shell::try_box(instance).map_err(no_room)?;
-        let plugin = FlatPlugin::new(manifest, instance, Rc::clone(depth), code.host).map_err(
+        let depth = Rc::clone(depth.get_or_insert_with(|| Rc::new(DispatchDepth::new())));
+        let plugin = FlatPlugin::new(manifest, instance, depth, code.host).map_err(
             |why| {
                 warn!("native: {id}: format 5: {why:?}");
                 PluginProblem::Unsupported
@@ -463,6 +477,16 @@ mod x4 {
         });
         Ok(shell::try_box(plugin).map_err(no_room)?)
     }
+
+    /// What the allocations after `make` that cannot fail softly need at most:
+    /// the plugin's instance twice (boxed, then `Rc::from`), the flat plugin,
+    /// the depth's `Rc`, the id's copy (128 bytes at most) and the allocator's
+    /// headers and padding.
+    const POST_MAKE_ROOM: usize = 2 * core::mem::size_of::<Instance<X4Services, FlashModule>>()
+        + core::mem::size_of::<FlatPlugin>()
+        + core::mem::size_of::<DispatchDepth>()
+        + 128
+        + 512;
 
     /// `text` copied, or `NoRoom`.
     fn try_string(text: &str) -> Result<alloc::string::String, PluginProblem> {

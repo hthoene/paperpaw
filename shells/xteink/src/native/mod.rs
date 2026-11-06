@@ -218,7 +218,9 @@ pub type Place = flash::Flash;
 /// Loads code plugins for the kernel (see the [module documentation](self)).
 pub struct Loader {
     place: Place,
-    /// The nesting budget every interface-7 plugin of this device shares.
+    /// The nesting budget every interface-7 plugin of this device shares,
+    /// made with the first one (inside the room `ppn5::x4::run` holds for
+    /// the allocations std has no fallible form of).
     #[cfg(feature = "ppn5")]
     depth: Option<alloc::rc::Rc<paperpaw_core::native_host::DispatchDepth>>,
 }
@@ -230,30 +232,6 @@ impl Loader {
             #[cfg(feature = "ppn5")]
             depth: None,
         }
-    }
-
-    /// The budget shared by every interface-7 plugin, made when the first is
-    /// loaded: a full heap is `NoRoom` for that plugin, not an abort.
-    #[cfg(feature = "ppn5")]
-    fn shared_depth(
-        &mut self,
-    ) -> Result<alloc::rc::Rc<paperpaw_core::native_host::DispatchDepth>, PluginProblem> {
-        use paperpaw_core::native_host::DispatchDepth;
-        if let Some(depth) = &self.depth {
-            return Ok(alloc::rc::Rc::clone(depth));
-        }
-        // `Rc::new` cannot fail softly: prove the room first with a block of
-        // the size it takes (two counts and the value), freed again at once;
-        // one core, nothing allocates in between.
-        let words = 2 + size_of::<DispatchDepth>().div_ceil(size_of::<usize>());
-        let mut probe: Vec<usize> = Vec::new();
-        probe
-            .try_reserve_exact(words)
-            .map_err(|_| PluginProblem::NoRoom)?;
-        drop(probe);
-        let depth = alloc::rc::Rc::new(DispatchDepth::new());
-        self.depth = Some(alloc::rc::Rc::clone(&depth));
-        Ok(depth)
     }
 
     fn load_file(
@@ -270,8 +248,7 @@ impl Loader {
         // Interface 7's files (format 5) are read by their own loader.
         #[cfg(feature = "ppn5")]
         if ppn5::is_format5(&head) {
-            let depth = self.shared_depth()?;
-            return ppn5::load(&mut self.place, &depth, storage, code);
+            return ppn5::load(&mut self.place, &mut self.depth, storage, code);
         }
         let header = Header::read(&head).map_err(|p| problem_of(&head, p))?;
         if header.chip != CHIP {
