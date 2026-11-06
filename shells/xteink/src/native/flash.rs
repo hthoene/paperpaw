@@ -28,7 +28,7 @@ use paperpaw_native::header5::{HEADER_LEN as HEADER5_LEN, Header5};
 use paperpaw_native::index::Mark;
 use paperpaw_native::index::{Index, Layout, Placement, Region, SECTOR};
 #[cfg(feature = "ppn5")]
-use paperpaw_native::stream5::{Relocator5, Source};
+use paperpaw_native::stream5::{Cached, Relocator5, Source};
 use paperpaw_native::{CODE_OFFSET, HEADER_LEN, Header, LINK_BASE, Relocator};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::PluginProblem;
@@ -39,6 +39,12 @@ use super::partition::{Behind, PAGE, behind_image, running_partition};
 
 /// An app slot of PaperPaw's own layout (`partitions.csv`).
 const OWN_SLOT: u32 = 0x7F_0000;
+
+/// The block of the plugin file the lookups into its relocation words and
+/// patches are served from: a sector of the card. Whether it saves enough
+/// reads is to be measured on the device.
+#[cfg(feature = "ppn5")]
+const READ_BLOCK: usize = 512;
 
 /// The MMU's entries (data and instruction bus share them).
 const ENTRIES: u32 = 128;
@@ -241,22 +247,31 @@ impl Flash {
             )
             .map_err(|_| PluginProblem::NoRoom)?;
         self.placed += 1;
-        match Self::write5(
+        let mut touched = false;
+        let written = Self::write5(
             flash,
-            &mut self.erased,
+            (&mut self.erased, &mut touched),
             layout,
             storage,
             path,
             header,
             &placement,
-        ) {
+        );
+        match written {
             Ok(hot) => Ok(Placed5 {
                 base: placement.base,
                 hot,
                 mark,
             }),
             Err(why) => {
-                layout.rewind(mark);
+                // Refused before a sector was erased: the layout is as it
+                // was, and so is what the next plugins cost. After: the
+                // index is written anew.
+                if touched {
+                    layout.rewind(mark);
+                } else {
+                    layout.forget(mark);
+                }
                 self.placed -= 1;
                 Err(why)
             }
@@ -276,7 +291,7 @@ impl Flash {
     #[cfg(feature = "ppn5")]
     fn write5(
         flash: &crate::ota::Flash,
-        erased: &mut bool,
+        (erased, touched): (&mut bool, &mut bool),
         layout: &Layout,
         storage: &dyn Storage,
         path: &str,
@@ -292,15 +307,30 @@ impl Flash {
             .try_reserve_exact(SECTOR as usize)
             .map_err(|_| PluginProblem::NoRoom)?;
         piece.resize(SECTOR as usize, 0);
-        let src = super::ppn5::StorageSource::new(storage, path);
+        // The lookups into the relocation words and the patches are tiny
+        // reads; the block of the file read last answers the next ones.
+        let mut block = Vec::new();
+        block
+            .try_reserve_exact(READ_BLOCK)
+            .map_err(|_| PluginProblem::NoRoom)?;
+        block.resize(READ_BLOCK, 0);
+        let size = storage.size(path).map_err(|_| PluginProblem::Damaged)?;
+        let file = super::ppn5::StorageSource::new(storage, path);
+        let src = Cached::new(&file, size, &mut block);
         let mut relocator =
             Relocator5::new(header, &src, placement.base).map_err(super::problem)?;
         if placement.hot != 0 {
             relocator = relocator.hot_at(placement.hot).map_err(super::problem)?;
         }
-        // The digest and every word to relocate, on the file as read now,
-        // before a sector of the flash is erased.
+        // Everything that can refuse the file, on the file as read now and
+        // before a sector of the flash is erased: the digest, each word to
+        // relocate, and the entry and metadata as they will lie once placed.
+        // A file refused here costs no write, now or at any later start.
         relocator.verify(&mut piece).map_err(super::problem)?;
+        relocator
+            .check_entry(&super::ppn5::HOST, &mut piece)
+            .map_err(|why| super::ppn5::entry_check_failed(path, why))?;
+        *touched = true;
         if placement.erase_index && !*erased {
             let start = layout.region().start;
             flash

@@ -571,4 +571,4 @@ fn le32(bytes: &[u8], at: usize) -> u32 {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

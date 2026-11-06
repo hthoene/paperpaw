@@ -559,7 +559,7 @@ fn the_entry_itself_is_checked_for_size_versions_and_make() {
 
 /// The generated metadata record of the X4 profile
 /// (`abi/fixtures/entry`), the bytes the prefix offsets are pinned by.
-fn x4_record() -> Vec<u8> {
+pub(crate) fn x4_record() -> Vec<u8> {
     let hex = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../abi/fixtures/entry/esp32c3-riscv32imc-ilp32-soft-le.hex"

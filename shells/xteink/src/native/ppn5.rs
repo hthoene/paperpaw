@@ -9,13 +9,18 @@
 //! 2. the room is found and the image placed (ESP32-C3 only: the X4 Pro and
 //!    the X4 Classic refuse every format-5 file at step 3, target 9 having
 //!    no profile yet);
-//! 3. the digest and every word to relocate are checked on the file, before
-//!    a sector of the flash is touched (`Flash::put5`, step 8 and 9);
+//! 3. the digest, every word to relocate, and the entry and metadata as they
+//!    will lie once placed (relocated in RAM) are checked on the file,
+//!    before a sector of the flash is erased (`Flash::put5`, steps 8 and 9):
+//!    a deterministic refusal writes nothing, and the layout forgets the
+//!    file as if it had not been placed;
 //! 4. the image is relocated for its place and written, a sector at a time,
 //!    through a buffer of one sector: nothing is held in proportion to the
 //!    file, the image or the number of words;
-//! 5. the entry the image holds is checked against the header and the
-//!    metadata record (`Header5::check_entry`, step 9).
+//! 5. the entry the written image holds is checked once more against the
+//!    header and the metadata record (`Header5::check_entry`, step 9), which
+//!    catches only a flash that did not keep what it was given; a refusal
+//!    there rewinds the layout.
 //!
 //! **Nothing of the plugin runs.** The core has no interface-7 plugin to
 //! put the entry's `make` into yet (S2 and the event dispatch come later),
@@ -31,13 +36,13 @@ use log::warn;
 use paperpaw_core::CodeFile;
 use paperpaw_native::MAGIC;
 use paperpaw_native::header5::{HEADER_LEN, Header5, Host, Refusal};
-use paperpaw_native::stream5::{ReadError, Source};
+use paperpaw_native::stream5::{EntryCheck, ReadError, Source};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::{Plugin, PluginProblem};
 
 /// What this firmware is, to compare a file with: the X4 at the interface
 /// minor the generated ABI says.
-const HOST: Host = Host::x4(paperpaw_native::host_glue::MINOR);
+pub(super) const HOST: Host = Host::x4(paperpaw_native::host_glue::MINOR);
 
 /// The newest format a header may carry for [`is_format5`] to take the file
 /// as one of ours: the reader below says what it is.
@@ -86,6 +91,13 @@ fn refused(path: &str, head: &[u8], why: Refusal) -> PluginProblem {
         Refusal::UnknownChip | Refusal::OtherChip | Refusal::NoProfile => PluginProblem::OtherBuild,
         _ => PluginProblem::Damaged,
     }
+}
+
+/// Why the file's entry, checked in RAM before the flash was touched, is
+/// refused: a damaged file.
+pub(super) fn entry_check_failed(path: &str, why: EntryCheck) -> PluginProblem {
+    warn!("native: {path}: format 5: refused before writing: {why:?}");
+    PluginProblem::Damaged
 }
 
 /// Loads the format-5 file `code` as far as the core takes it (see the

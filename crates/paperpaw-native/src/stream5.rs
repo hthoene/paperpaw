@@ -13,8 +13,13 @@
 //! the table words that format 5 does not have (no host slot, no families).
 //! Nothing here writes flash or runs code.
 
+use core::cell::RefCell;
+
 use crate::header::{CODE_OFFSET, Problem};
-use crate::header5::{HEADER_LEN, Header5};
+use crate::header5::{
+    EntryFacts, EntryRefusal, HEADER_LEN, Header5, Host, META_MAX, RawEntry, RecordFacts,
+    X4_ENTRY_BYTES,
+};
 use crate::reloc::PatchKind;
 
 /// A read that did not deliver all its bytes: past the end of the file, or
@@ -34,6 +39,86 @@ impl Source for [u8] {
         let at = usize::try_from(at).map_err(|_| ReadError)?;
         let end = at.checked_add(buf.len()).ok_or(ReadError)?;
         buf.copy_from_slice(self.get(at..end).ok_or(ReadError)?);
+        Ok(())
+    }
+}
+
+/// Why [`Relocator5::check_entry`] refused the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryCheck {
+    /// Its bytes could not be read or relocated, or the record is not one
+    /// this host reads.
+    File(Problem),
+    /// The entry disagrees with the header or the record.
+    Entry(EntryRefusal),
+}
+
+/// A [`Source`] that serves the small reads of the lookups from one block
+/// of the file held in `block`: a binary search probes a word or a pair at
+/// a time, and a probe in the block read last costs no read of the inner
+/// source. Reads of a block or more go to it directly. The file is not
+/// written while it is read, so the block is never stale.
+///
+/// On the X4 the inner source is a file of the card (`FatStorage`), where
+/// every read costs a sector; how much the block saves is measured on the
+/// device (`abi/ppn5.md`, "Size caps and memory"), not assumed.
+pub struct Cached<'a, S: Source + ?Sized> {
+    inner: &'a S,
+    len: u64,
+    state: RefCell<CacheState<'a>>,
+}
+
+struct CacheState<'a> {
+    block: &'a mut [u8],
+    /// Where in the file the block's bytes begin, and how many are valid
+    /// (0: none).
+    start: u64,
+    valid: usize,
+}
+
+impl<'a, S: Source + ?Sized> Cached<'a, S> {
+    /// Reads of `inner`, a file of `len` bytes, through `block` (at least
+    /// one byte).
+    pub fn new(inner: &'a S, len: u64, block: &'a mut [u8]) -> Self {
+        Self {
+            inner,
+            len,
+            state: RefCell::new(CacheState {
+                block,
+                start: 0,
+                valid: 0,
+            }),
+        }
+    }
+}
+
+impl<S: Source + ?Sized> Source for Cached<'_, S> {
+    fn read_at(&self, mut at: u64, mut buf: &mut [u8]) -> Result<(), ReadError> {
+        let mut state = self.state.borrow_mut();
+        let size = state.block.len();
+        while !buf.is_empty() {
+            if buf.len() >= size {
+                return self.inner.read_at(at, buf);
+            }
+            let cached = at >= state.start && at - state.start < state.valid as u64;
+            if !cached {
+                let start = at - at % size as u64;
+                let valid = self.len.saturating_sub(start).min(size as u64) as usize;
+                if at >= self.len {
+                    return Err(ReadError);
+                }
+                state.valid = 0;
+                self.inner.read_at(start, &mut state.block[..valid])?;
+                state.start = start;
+                state.valid = valid;
+            }
+            let from = (at - state.start) as usize;
+            let take = buf.len().min(state.valid - from);
+            let (now, rest) = buf.split_at_mut(take);
+            now.copy_from_slice(&state.block[from..from + take]);
+            at += take as u64;
+            buf = rest;
+        }
         Ok(())
     }
 }
@@ -303,6 +388,51 @@ impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
         }
     }
 
+    /// Step 9 on the image **as it will be after relocation**, built in RAM
+    /// from the file, before anything is written: the entry and the metadata
+    /// view are read from the file and relocated for this placement
+    /// ([`Relocator5::apply`] on each), then given to
+    /// [`Header5::check_entry`] with the base the image is placed at and
+    /// `make` mapped to its image offset (flash or hot arena). A file
+    /// whose entry is refused is therefore refused before a sector is
+    /// erased, on every start alike, and wears nothing.
+    ///
+    /// `scratch` holds the record twice (`2 * meta_len` bytes, at most
+    /// [`META_MAX`] each); the device passes the sector it verifies with.
+    pub fn check_entry(&self, host: &Host, scratch: &mut [u8]) -> Result<(), EntryCheck> {
+        let header = self.header;
+        let len = header.meta_len as usize;
+        if len > META_MAX as usize || scratch.len() < 2 * len {
+            return Err(EntryCheck::File(Problem::Malformed));
+        }
+        let (record, view) = scratch[..2 * len].split_at_mut(len);
+        let meta_at = HEADER_LEN as u64 + u64::from(header.meta_at);
+        self.tail.read(meta_at, record).map_err(EntryCheck::File)?;
+        view.copy_from_slice(record);
+        self.apply(header.meta_at, view).map_err(EntryCheck::File)?;
+        let mut entry = [0u8; X4_ENTRY_BYTES as usize];
+        let entry_at = HEADER_LEN as u64 + u64::from(header.entry);
+        self.tail
+            .read(entry_at, &mut entry)
+            .map_err(EntryCheck::File)?;
+        self.apply(header.entry, &mut entry)
+            .map_err(EntryCheck::File)?;
+        let raw = RawEntry::read(&entry).ok_or(EntryCheck::File(Problem::Damaged))?;
+        let facts = RecordFacts::read(record).ok_or(EntryCheck::File(Problem::Damaged))?;
+        let found = EntryFacts {
+            size: raw.size,
+            abi_major: raw.abi_major,
+            needs_minor: raw.needs_minor,
+            metadata_ptr: raw.metadata_ptr,
+            metadata_len: raw.metadata_len,
+            metadata: view,
+            make_at: header.make_offset(raw.make, self.base, self.hot),
+        };
+        header
+            .check_entry(self.base, host, &facts, record, &found)
+            .map_err(EntryCheck::Entry)
+    }
+
     fn hot_moved(&self) -> bool {
         self.hot != self.base + CODE_OFFSET + self.header.hot_at
     }
@@ -321,6 +451,7 @@ impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
 
     fn words(&self, at: u32, end: u32, piece: &mut [u8]) -> Result<(), Problem> {
         let mut buf = [0u8; 4 * RELOCS_PER_READ as usize];
+        let mut next = at;
         let mut i = self.tail.first_reloc_from(at)?;
         while i < self.header.relocs {
             let n = (self.header.relocs - i).min(RELOCS_PER_READ) as usize;
@@ -331,6 +462,13 @@ impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
                 if word >= end {
                     return Ok(());
                 }
+                // The list was checked by `Tail::check`, but is read again
+                // here: a source that serves other bytes the second time
+                // (a card swapped, a flaky read) is refused, never trusted.
+                if word < next || !word.is_multiple_of(4) {
+                    return Err(Problem::Relocation);
+                }
+                next = word.checked_add(4).ok_or(Problem::Relocation)?;
                 let at_word = (word - at) as usize;
                 let Some(bytes) = piece.get_mut(at_word..at_word + 4) else {
                     return Err(Problem::Relocation);
@@ -428,12 +566,18 @@ impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
                     .ok_or(Problem::Relocation)?,
             ),
         };
+        // Read again since `Tail::check`: both ends must still be in the image.
+        let image_len = self.header.image_len;
+        if from >= image_len || to >= image_len {
+            return Err(Problem::Relocation);
+        }
         let distance = self.runs_at(to).wrapping_sub(self.runs_at(from));
         let bits = kind.bits(distance).to_le_bytes();
         let kept = kind.kept().to_le_bytes();
         for i in 0..4 {
-            let Some(byte) = (site + i)
-                .checked_sub(at)
+            let Some(byte) = site
+                .checked_add(i)
+                .and_then(|byte_at| byte_at.checked_sub(at))
                 .and_then(|j| piece.get_mut(j as usize))
             else {
                 continue;
