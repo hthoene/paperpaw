@@ -26,7 +26,9 @@
 //!   state at the jump is joined into every instruction of the function, so
 //!   a jump back to the start finds nothing it can grow;
 //! - inside a frame: refused. That is a jump table (a `match`), and where it
-//!   goes is not known; build the plugin with `-C jump-tables=no`. (The
+//!   goes is not known; build the plugin with `-C jump-tables=no` (which
+//!   does not reach the precompiled `core`: float formatting keeps its
+//!   tables until they are resolved). (The
 //!   listing of the firmware's own frames, which is no gate, reads such a
 //!   jump's cases from the state at the jump.)
 //!
@@ -1010,10 +1012,12 @@ fn refusal(finding: &Finding, text: &Section, symbols: &[Symbol], text_index: us
              buffer or ask the host for the memory"
         ),
         Finding::Table { .. } => format!(
-            "{place} jumps through a register inside its stack frame (a jump table, compiled \
-             from a `match`): the packer cannot tell where it goes. Build the plugin with \
-             `-C jump-tables=no` (the rustflags of `samples/abi7-x4-min/.cargo/config.toml` \
-             set it)"
+            "{place} jumps through a register inside its stack frame (a jump table): the packer \
+             cannot tell where it goes. A `match` in the plugin's own code gets no jump table \
+             with `-C jump-tables=no` (the rustflags of `samples/abi7-x4-min/.cargo/config.toml` \
+             set it). The flag does not reach the precompiled `core`: a table there (formatting \
+             a float, `{{}}` of an f32 or f64) cannot be avoided, so keep such code out of the \
+             plugin until the packer resolves jump tables (`abi/ppn5.md`)"
         ),
         Finding::Uncovered { .. } => format!(
             ".text+{at:#x} is code that no function symbol covers: the packer reads each \

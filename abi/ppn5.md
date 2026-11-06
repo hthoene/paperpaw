@@ -210,6 +210,11 @@ a frame, which is how a `match` compiled to a jump table looks, because where it
 bounds each function's frame, not the depth of a call path; the band at the stack's end and the device's
 high-water test cover that.
 
+The flag reaches the plugin's own code, not the precompiled `core` it links: the tables in `core`'s float
+formatting (`{}` of an `f32` or `f64`, `{:.2}`) stay, and the packer refuses a plugin that links them. Until the
+packer resolves jump tables from the relocations in `.rodata` (a follow-up), **an X4 plugin cannot format floats**;
+show a percentage or a size from integers (`n * 100 / total`, fixed digits).
+
 `paperpaw-sign pack <plugin.elf> <plugin.ppn> [--key <file>]` writes format 5 for a plugin linked with
 `paperpaw-plugin7.x` and `--emit-relocs` that defines `PAPERPAW_METADATA`; a plugin that defines `PAPERPAW_API` is
 interface 6 and gets format 4, and one that defines both or neither is refused. The file is made as above:
