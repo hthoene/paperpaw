@@ -9,4 +9,5 @@
 4 additive: SDK callback Host and native_plugin entry, bounded storage slots 20-26 and borrowed event decoding 32-37 (#228)
 5 draft 5, the one breaking batch before 1.0: dispatch_event reply buffer (N1), draw.frame input (N2), tag growth blocks (N3), insert ordinal (N5), screens/input/formatting records and PpPlugin.input, required feature flag (D1), ERR_DENIED/ERR_TIMEOUT (D2), 32 services (D5), generated choice limits, reviewed baseline replacement; #241, #890 (#228)
 5 additive: paperpaw_native::host_glue re-exports ERR_DENIED and ERR_TIMEOUT (#228)
+5 additive: private SDK copies of the generated snapshot, colour and command codecs in native::wire (shape only, nothing public) (#228)
 5 additive: SDK typed events, bounded reply writer, draw frames and input, screen/action declarations and formatting (#228)

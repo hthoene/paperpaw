@@ -3,16 +3,9 @@
 //! The typed facades build on these; no wire framing is written by hand, and
 //! nothing here is public API.
 
-#[rustfmt::skip]
-#[allow(
-    clippy::all,
-    clippy::pedantic,
-    missing_docs,
-    dead_code,
-    unreachable_pub,
-    reason = "generated settings value codec (abi/generated/settings_value.rs, byte for byte)"
-)]
-pub(crate) mod settings_wire;
+// The settings value codec keeps its path in `declare` (the interface's
+// shape names it there); the command codec reaches it by this name.
+pub(crate) use super::declare::settings_value as settings_wire;
 #[rustfmt::skip]
 #[allow(
     clippy::all,
