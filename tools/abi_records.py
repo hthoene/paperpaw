@@ -1,4 +1,5 @@
 """Validate and emit the initial bounded registration and tick record codecs."""
+from abi_declarations import DECLS, declaration_source
 
 
 def _require(ok, message):
@@ -20,7 +21,9 @@ def validate_records(schema):
     _require(type(records) is list, 'records must be a list')
     recognized = [item for item in records
                   if type(item) is dict and item.get('name') in SHAPES]
-    if not recognized and 'record_codec' not in schema:
+    declared = [item for item in records
+                if type(item) is dict and item.get('name') in DECLS]
+    if not recognized and not declared and 'record_codec' not in schema:
         return
     descriptor = schema.get('record_codec')
     _require(type(descriptor) is dict and set(descriptor) == {'since', 'max_records'},
@@ -48,9 +51,12 @@ def validate_records(schema):
         _require(fields == expected and all(type(field['since']) is int and
                  type(field['max_bytes']) is int for field in fields),
                  'unsupported initial record fields')
+    _validate_declarations(schema, descriptor, declared)
     statuses = schema.get('statuses', [])
-    for name, value in [('ERR_UNSUPPORTED', -1), ('ERR_INVALID', -2),
-                        ('ERR_NO_SPACE', -3)]:
+    needed = [('ERR_UNSUPPORTED', -1), ('ERR_INVALID', -2), ('ERR_NO_SPACE', -3)]
+    if declared:
+        needed.append(('ERR_UTF8', -5))
+    for name, value in needed:
         matches = [item for item in statuses if item.get('name') == name]
         _require(len(matches) == 1 and type(matches[0].get('value')) is int and
                  matches[0]['value'] == value and
@@ -61,6 +67,30 @@ def validate_records(schema):
                if item.get('name') == 'registrations.submit']
     _require(len(entries) == 1 and type(entries[0].get('max_bytes')) is int and
              entries[0]['max_bytes'] == 4096, 'registration codec byte cap')
+
+
+def _validate_declarations(schema, descriptor, declared):
+    """Declaration records are all-or-none and have exact, capped, required fields."""
+    if not declared:
+        return
+    _require(len(declared) == len(DECLS) and {item['name'] for item in declared} == set(DECLS),
+             'declaration records must include every supported shape')
+    tags = [item.get('id') for item in schema['records'] if type(item) is dict]
+    _require(len(set(tags)) == len(tags), 'duplicate record codec tag')
+    for record in declared:
+        _require(type(record.get('id')) is int and 0 <= record['id'] <= 65535,
+                 'record tag must be an unsigned declaration ID')
+        _require(type(record.get('since')) is int and
+                 descriptor['since'] <= record['since'] <= schema.get('minor', 0),
+                 'record since outside codec/schema minor')
+        expected = [dict(name=name, type=kind, since=record['since'], optional=False,
+                         ordinal=None, default=None, max_bytes=cap)
+                    for name, kind, cap in DECLS[record['name']]]
+        fields = record.get('fields')
+        _require(type(fields) is list and fields == expected and
+                 all(type(field['since']) is int and type(field['max_bytes']) is int and
+                     type(field['optional']) is bool for field in fields),
+                 'unsupported declaration record fields')
 
 
 def compatible_records(old, new, minimum_since):
@@ -357,4 +387,8 @@ pub fn tick_decode(bytes: &[u8]) -> Result<u64, i32> {
 '''
     for marker, value in replacements.items():
         source = source.replace(marker, str(value))
+    if 'setting.group' in records:
+        # Appended, never interleaved: schemas without declarations keep the
+        # exact bytes already pinned by older locks.
+        source += declaration_source(records, statuses)
     return source

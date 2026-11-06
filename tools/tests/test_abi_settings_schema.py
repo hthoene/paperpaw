@@ -111,11 +111,11 @@ class SettingsSchemaTests(unittest.TestCase):
         del before['settings_value']
         # Slot-15 command values depend on this contract and are removed with it.
         del before['command_codec']
-        before['records'] = [item for item in before['records']
-                             if item['name'] != 'command.set_setting']
+        # Declaration records are removed with the command record before them.
+        before['records'] = [item for item in before['records'] if item['id'] < 4]
         later['command_codec']['since'] = 2
         for record in later['records']:
-            if record['name'] == 'command.set_setting':
+            if record['id'] >= 4:
                 record['since'] = 2
                 for field in record['fields']:
                     field['since'] = 2

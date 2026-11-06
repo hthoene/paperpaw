@@ -221,7 +221,8 @@ class CommandTests(unittest.TestCase):
     def test_absence_backdating_and_lock_pinning(self):
         before = copy.deepcopy(self.schema)
         del before['command_codec']
-        before['records'].remove(self.record(before))
+        # Declaration records follow the command record, so they go with it.
+        before['records'] = [item for item in before['records'] if item['id'] < 4]
         self.assertEqual(rust_commands(before), '')
         ABI.compatible(before, self.schema, 0)
         with self.assertRaisesRegex(ValueError, 'backdated'):
