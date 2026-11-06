@@ -897,3 +897,32 @@ fn the_compressed_forms_of_the_table_jump_are_followed_too() {
         Some(Finding::Large { bytes: 2016, .. })
     ));
 }
+
+#[test]
+fn a_table_longer_than_the_function_is_refused_not_cut() {
+    // The function has 11 instructions. A table of 12 words that all point
+    // into it, the last the only way into a case with a big frame: reading
+    // only the first 11 would miss it, so the table is not read at all.
+    let big = [W(addi(SP, SP, -2040)), W(addi(SP, SP, 2040)), W(RET)];
+    let f = table_function(&big);
+    let mut words = vec![TEXT + 24; 11];
+    words.push(TEXT + 32);
+    let relocated: Vec<u32> = (0..12).map(|k| k * 4).collect();
+    assert!(matches!(
+        with_table(&f, &words, &relocated),
+        Some(Finding::Table { .. })
+    ));
+    // The same table of exactly 11 words, the last the big case, is read to
+    // its end: the case is found.
+    let mut words = vec![TEXT + 24; 10];
+    words.push(TEXT + 32);
+    assert!(matches!(
+        with_table(&f, &words, &relocated[..11]),
+        Some(Finding::Large { bytes: 2056, .. })
+    ));
+    // Many entries for the same target are one target.
+    let case1 = [W(addi(SP, SP, 16)), W(RET)];
+    let g = table_function(&case1);
+    let words = vec![TEXT + 24; 8];
+    assert_eq!(with_table(&g, &words, &relocated[..8]), None);
+}
