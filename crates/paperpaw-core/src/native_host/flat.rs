@@ -6,9 +6,9 @@
 
 use super::shared::{self, Shared};
 use super::{DispatchDepth, Error, FlatHost, environment::EnvironmentScope, events};
-use alloc::{boxed::Box, format, rc::Rc};
+use alloc::{boxed::Box, format, rc::Rc, string::String};
 use core::{fmt, pin::Pin};
-use paperpaw_sdk::{Env, Id, Manifest, Params, Plugin, RegisterError, Registrar};
+use paperpaw_sdk::{Env, Id, Manifest, Params, Plugin, RegisterError, Registrar, Version};
 
 #[path = "flat/page.rs"]
 mod page;
@@ -145,6 +145,25 @@ impl FlatPlugin {
     #[cfg(test)]
     pub(crate) fn reference_counts(&self) -> (u32, u32) {
         (self.instance.strong_count(), self.depth.0.strong_count())
+    }
+
+    /// Copy loader metadata after make with checked allocation only.
+    ///
+    /// # Errors
+    /// Returns Allocation if the owned id or name cannot be copied.
+    pub fn try_manifest(id: &Id, name: &str, version: Version) -> Result<Manifest, FlatError> {
+        let id = id.try_clone().ok_or(FlatError::Allocation)?;
+        let mut owned_name = String::new();
+        owned_name
+            .try_reserve_exact(name.len())
+            .map_err(|_| FlatError::Allocation)?;
+        owned_name.push_str(name);
+        // Str adopts a boxed string. Refuse unexpected spare capacity rather
+        // than letting that adoption attempt an unchecked shrink allocation.
+        if owned_name.capacity() != owned_name.len() {
+            return Err(FlatError::Allocation);
+        }
+        Ok(Manifest::new(id, owned_name, version))
     }
 
     /// Retain a shell-owned instance. Allocations occur only during construction

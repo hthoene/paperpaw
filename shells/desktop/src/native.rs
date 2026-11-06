@@ -181,11 +181,9 @@ impl HostLoader {
         })?;
         // The folder's data names and versions it (`plugin.ini`); this is the
         // code's own, which the kernel replaces by that version.
-        let manifest = paperpaw_core::sdk::Manifest::new(
-            code.id.clone(),
-            id.to_owned(),
-            paperpaw_core::sdk::Version::new(0, 0, 0),
-        );
+        let manifest =
+            FlatPlugin::try_manifest(code.id, id, paperpaw_core::sdk::Version::new(0, 0, 0))
+                .map_err(|_| PluginProblem::NoRoom)?;
         let plugin = FlatPlugin::new(manifest, instance, depth, code.host).map_err(|why| {
             eprintln!("code plugin {id}: {why}");
             match why {
