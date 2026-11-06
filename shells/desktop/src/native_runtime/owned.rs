@@ -97,7 +97,7 @@ impl<S: Services> PinnedPlugin<S> {
             make,
             image,
             ..
-        } = unsafe { checked_library(path, digest, &table) }?;
+        } = unsafe { checked_library(path, digest, &table, &[]) }?;
         let context = Context {
             table,
             services,

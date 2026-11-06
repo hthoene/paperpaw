@@ -261,7 +261,8 @@ impl Loaded {
             library,
             make,
             image,
-        } = unsafe { checked_library(&copy, &digest, &table) }.map_err(Refusal::Runtime)?;
+        } = unsafe { checked_library(&copy, &digest, &table, shared_shell::DATA_SERVICES) }
+            .map_err(Refusal::Runtime)?;
         // SAFETY: the checked module owns the executable entry and read-only image.
         let plugin = checked_box(unsafe {
             SharedPlugin::new(

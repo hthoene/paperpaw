@@ -65,12 +65,13 @@ fn u32_at(bytes: &[u8], at: usize) -> Result<u32, RuntimeError> {
 /// This shell advertises only capabilities it implements, never slot presence.
 #[cfg(test)]
 fn metadata(bytes: &[u8], host: &PpHost) -> Result<u16, RuntimeError> {
-    checked_metadata(bytes, host).map(|checked| checked.needs_minor)
+    checked_metadata(bytes, host, &[]).map(|checked| checked.needs_minor)
 }
 
 fn checked_metadata<'a>(
     bytes: &'a [u8],
     host: &PpHost,
+    services: &[paperpaw_native::metadata::Service<'_>],
 ) -> Result<paperpaw_native::metadata::Checked<'a>, RuntimeError> {
     use paperpaw_native::metadata::{self, Host, Profile, Refusal};
     let capabilities = Host {
@@ -81,7 +82,7 @@ fn checked_metadata<'a>(
             entry_layout: wire::PROFILE_ENTRY_LAYOUT as u16,
             entry_bytes: wire::PROFILE_ENTRY_BYTES as u16,
         },
-        services: &[],
+        services,
         features: &[],
     };
     match metadata::check(bytes, &capabilities) {
@@ -140,7 +141,7 @@ pub unsafe fn load(
 ) -> Result<LoadedPlugin, RuntimeError> {
     // SAFETY: the same authorization and immutable-file contract applies.
     let CheckedLibrary { library, make, .. } =
-        unsafe { checked_library(path, digest, host.table()) }?;
+        unsafe { checked_library(path, digest, host.table(), &[]) }?;
     let mut out = ptr::null();
     // SAFETY: table and context outlive the plugin; output storage is writable.
     let status = unsafe { make(host.table(), host.ctx(), &mut out) };
@@ -240,6 +241,7 @@ unsafe fn checked_library(
     path: &Path,
     digest: &[u8; 32],
     host: &PpHost,
+    services: &[paperpaw_native::metadata::Service<'_>],
 ) -> Result<CheckedLibrary, RuntimeError> {
     let mut file = std::fs::File::open(path).map_err(|_| RuntimeError::File)?;
     let mut bytes = Vec::new();
@@ -262,7 +264,7 @@ unsafe fn checked_library(
     })?;
     let locator =
         data_export(&bytes, 62, METADATA_SYMBOL, true).map_err(|_| RuntimeError::Export)?;
-    let checked = checked_metadata(locator.bytes, host)?;
+    let checked = checked_metadata(locator.bytes, host, services)?;
     let minor = checked.needs_minor;
     let declared_services = native_host::shell::DeclaredServices::try_from_iter(checked.services())
         .map_err(|error| match error {
