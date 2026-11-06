@@ -984,7 +984,7 @@ fn path_reference_rule() {
         })
     };
     assert_eq!(check(f("..")), Err(ERR_INVALID));
-    assert_eq!(check(f("a/b")), Ok(()));
+    assert_eq!(check(f("a/b.ppfp")), Ok(()));
     let g = |path: &'static str| Record::ResourceFontFace(ResourceFontFace { path, ..face() });
     assert_eq!(check(g("/etc")), Err(ERR_INVALID));
 }
@@ -1149,7 +1149,25 @@ fn font_extension_rules() {
             e(|x| ResourceFontExtension { name: "x y", ..x }),
             ERR_INVALID,
         ),
+        (
+            "not a ppfp",
+            e(|x| ResourceFontExtension {
+                path: "fonts/cjk.ttf",
+                ..x
+            }),
+            ERR_INVALID,
+        ),
+        (
+            "ppfp extension only",
+            e(|x| ResourceFontExtension { path: ".ppfp", ..x }),
+            ERR_INVALID,
+        ),
     ]);
+    let upper = e(|x| ResourceFontExtension {
+        path: "fonts/CJK.PPFP",
+        ..x
+    });
+    assert_eq!(check(upper), Ok(()));
 }
 
 // ---- the hook: whole-batch validation and poisoning ----------------------------------

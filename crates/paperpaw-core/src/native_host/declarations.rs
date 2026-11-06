@@ -230,5 +230,7 @@ fn face_check(plugin_id: &str, face: &ResourceFontFace<'_>) -> Check {
 fn extension_check(plugin_id: &str, extension: &ResourceFontExtension<'_>) -> Check {
     relative(plugin_id, extension.name)?;
     path_reference(extension.path)?;
+    // An extension adds glyphs to a face: only a PaperPaw pack can (PR #158).
+    ensure(has_extension(extension.path, ".ppfp"))?;
     full_id(extension.extends)
 }

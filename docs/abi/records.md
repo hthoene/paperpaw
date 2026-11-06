@@ -119,7 +119,8 @@ It stages nothing; the loader stages the returned records. Rules:
   and 1 (italic); `weight` is 0 or 1 to 1000 and must be 0 for a `.ppfp` path;
   `role` is empty or a full id; `priority` is -100 to 100, and 0 when `role` is
   empty.
-- `resource.font_extension`: `extends` is a full id.
+- `resource.font_extension`: `path` ends in `.ppfp` (compared without case),
+  since only a PaperPaw pack can add glyphs to a face; `extends` is a full id.
 
 Cross-record rules (uniqueness, references that must resolve, per-plugin
 limits) belong to the commit and are not checked here.
