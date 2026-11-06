@@ -85,6 +85,8 @@ pub paperpaw_native::host_glue::PpHost::size: u32
 pub paperpaw_native::host_glue::PpHost::text_draw: fn(*mut core::ffi::c_void, u32, f32, f32, i32, u32, paperpaw_native::host_glue::PpBytes, *mut f32) -> i32
 pub paperpaw_native::host_glue::PpHost::text_measure: fn(*mut core::ffi::c_void, u32, f32, paperpaw_native::host_glue::PpBytes, *mut f32) -> i32
 #[repr(C)] pub struct paperpaw_native::host_glue::PpPlugin
+pub paperpaw_native::host_glue::PpPlugin::dispatch_event: core::option::Option<fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes) -> i32>
+pub paperpaw_native::host_glue::PpPlugin::draw: core::option::Option<fn(*mut core::ffi::c_void, u32) -> i32>
 pub paperpaw_native::host_glue::PpPlugin::drop: core::option::Option<fn(*mut core::ffi::c_void)>
 pub paperpaw_native::host_glue::PpPlugin::size: u32
 pub paperpaw_native::host_glue::PpPlugin::state: *mut core::ffi::c_void
