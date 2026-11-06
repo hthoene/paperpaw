@@ -137,6 +137,30 @@ impl CodeLoader for HostLoader {
     }
 }
 
+/// Whether the interface-7 developer switch is on (never where that loader is
+/// not built).
+fn dev_switch() -> bool {
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    return crate::native_runtime::enabled();
+    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+    false
+}
+
+/// Whether this (interface-6) loader may take the library: always with the
+/// developer switch off, else only one told from its bytes to be interface 6.
+pub(crate) fn interface6_only(bytes: &[u8], switch_on: bool) -> bool {
+    if !switch_on {
+        return true;
+    }
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    return crate::native_runtime::classify(bytes) == crate::native_runtime::Kind::Interface6;
+    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+    {
+        let _ = bytes;
+        true
+    }
+}
+
 /// [`HostLoader::load`], its memory not counted against the budget.
 fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, PluginProblem> {
     let bytes = paperpaw_core::sdk::read_file(storage, code.path, MAX_FILE)
@@ -183,6 +207,16 @@ fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, P
     if let Err(why) = preflight(&copied) {
         eprintln!(
             "code plugin {}: refused before loading ({why:?})",
+            code.id.as_str()
+        );
+        return Err(PluginProblem::Damaged);
+    }
+    // With the interface-7 developer switch on, this loader takes interface-6
+    // libraries only: one that also exports interface 7's metadata (or neither
+    // kind) is refused, and an interface-7 library is left to the other loader.
+    if !interface6_only(&copied, dev_switch()) {
+        eprintln!(
+            "code plugin {}: not an interface-6 library (the interface-7 developer switch is on)",
             code.id.as_str()
         );
         return Err(PluginProblem::Damaged);
