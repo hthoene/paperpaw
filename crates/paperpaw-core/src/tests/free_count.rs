@@ -135,7 +135,7 @@ fn a_storage_that_cannot_tell_its_size_is_not_asked() {
     assert_eq!(storage.asks.get(), 0);
 }
 
-fn waiting_press_resumes_count(sleep_after: i32) {
+fn waiting_press_resumes_count(sleep_after: i64) {
     let storage = Counting::new(5, true);
     let mut kernel = kernel(&storage);
     kernel
@@ -161,6 +161,12 @@ fn waiting_press_resumes_count(sleep_after: i32) {
     kernel.count_free(Instant(1_250));
     assert_eq!(storage.asks.get(), 1);
     assert_eq!(kernel.free_count.due(), Some(Instant(1_300)));
+    for part in 1..5 {
+        assert!(kernel.free_count.due().is_some());
+        kernel.count_free(Instant(1_250 + part * 50));
+    }
+    assert_eq!(storage.asks.get(), 5);
+    assert_eq!(kernel.free_count.due(), None);
 }
 
 #[test]
