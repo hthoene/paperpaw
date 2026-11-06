@@ -196,3 +196,20 @@ fn owned_screen_copies_exhaust_the_existing_aggregate_budget_without_publication
     ));
     assert!(keys(&store).is_empty());
 }
+
+#[test]
+fn every_declaration_kind_matches_the_raw_index_category() {
+    let source = image();
+    let bytes = source.bytes.borrow();
+    let batch = records_decode(&bytes).unwrap();
+    let mut seen = [false; KIND_COUNT];
+    for record in batch.iter().chain(pair()) {
+        let kind = Kind::of(&record).unwrap();
+        assert_eq!(
+            Some(kind.category()),
+            crate::native_host::declaration_index::key(record).map(|(category, _)| category)
+        );
+        seen[kind as usize] = true;
+    }
+    assert!(seen.into_iter().all(|kind| kind));
+}

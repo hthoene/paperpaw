@@ -52,6 +52,8 @@ pub(crate) enum Kind {
     Screen,
     Action,
 }
+const _: () = assert!(Kind::Action as usize + 1 == KIND_COUNT);
+
 impl Kind {
     fn category(self) -> u8 {
         match self {
