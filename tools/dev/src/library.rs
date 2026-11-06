@@ -15,7 +15,10 @@ use paperpaw_native::preflight::{
 use crate::cli::Context;
 use crate::report::{Finding, Report};
 
-/// The most a library may be for this check to read it.
+/// The most a library may be for this check to read it. The loaders' own
+/// limits are private to the shells (the desktop emulator reads up to
+/// 256 MiB; there is no constant shared with this tool), so this stays below
+/// them: a library over this is refused here, never the other way round.
 const MAX_BYTES: u64 = 64 << 20;
 
 /// Checks every `.so` library of the target.
@@ -60,16 +63,24 @@ pub fn check_file(path: &Path) -> Vec<Finding> {
 /// `place` (a file's path or a name in a package): one error saying what to
 /// change, or one info.
 pub(crate) fn check_library(bytes: &[u8], place: &str, out: &mut Vec<Finding>) {
-    // The machine the file says it is for; only the two the loaders read.
-    let Some(machine) = bytes.get(18..20).map(|m| u16::from_le_bytes([m[0], m[1]])) else {
+    if bytes.len() < 20 {
         out.push(Finding::error(
             "package.library",
             place,
             "too short to be a library (no ELF header)",
         ));
         return;
+    }
+    // The machine is read only where the header is the 64-bit little-endian
+    // one the loaders read (`EI_CLASS` 2, `EI_DATA` 1); for anything else the
+    // loader's own preflight says what is wrong (machine 0 is no machine).
+    let elf64_le = bytes.starts_with(b"\x7fELF") && bytes[4] == 2 && bytes[5] == 1;
+    let machine = if elf64_le {
+        u16::from_le_bytes([bytes[18], bytes[19]])
+    } else {
+        0
     };
-    if bytes.get(..4) == Some(b"\x7fELF") && machine != EM_X86_64 && machine != EM_AARCH64 {
+    if elf64_le && machine != EM_X86_64 && machine != EM_AARCH64 {
         out.push(Finding::error(
             "package.library",
             place,
@@ -175,12 +186,26 @@ mod tests {
         let short = one(b"\x7fELF");
         assert_eq!(short.level, crate::report::Level::Error);
         assert!(short.message.contains("too short"), "{}", short.message);
-        // A well-formed header start for machine 3 (x86), not read.
+        // A 64-bit little-endian header for machine 3 (x86), not read.
         let mut header = [0u8; 64];
         header[..4].copy_from_slice(b"\x7fELF");
+        header[4] = 2;
+        header[5] = 1;
         header[18] = 3;
         let other = one(&header);
         assert!(other.message.contains("machine 3"), "{}", other.message);
+        // A 32-bit or big-endian header: its machine field is not read the
+        // little-endian 64-bit way; the loader's preflight speaks instead.
+        for (class, data) in [(1, 1), (2, 2), (0, 0)] {
+            header[4] = class;
+            header[5] = data;
+            let other = one(&header);
+            assert!(
+                other.message.contains("loader refuses") && !other.message.contains("machine 3"),
+                "{class}/{data}: {}",
+                other.message
+            );
+        }
         // Not an ELF at all: the loader's refusal, not a machine.
         let junk = one(&[0u8; 64]);
         assert!(junk.message.contains("loader refuses"), "{}", junk.message);
