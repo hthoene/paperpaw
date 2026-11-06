@@ -212,7 +212,10 @@ class RecordsTests(unittest.TestCase):
                           ('resource.hyphenation', 8), ('resource.font_face', 9),
                           ('resource.font_extension', 10), ('event.started', 32),
                           ('event.resume', 33), ('event.suspend', 34), ('event.stopping', 35),
-                          ('event.battery_measured', 36), ('event.page_turned', 37)])
+                          ('event.battery_measured', 36), ('event.page_turned', 37),
+                          ('service.usage', 48), ('service.plugin_usage', 49),
+                          ('service.plugin', 50), ('service.work_note', 51),
+                          ('service.end', 52)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             if record['id'] <= 3:

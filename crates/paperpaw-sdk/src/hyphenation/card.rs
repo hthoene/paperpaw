@@ -685,7 +685,6 @@ mod tests {
         assert!(heap <= BUDGET);
     }
 
-    /// At most OPEN tables, however small: the idle one is closed.
     /// Patterns that break before every `b`, and exceptions of about 4 KB:
     /// a sound table that needs more heap than a header saying "no blocks,
     /// no exceptions" bounds.
@@ -846,6 +845,7 @@ mod tests {
         assert!(kernel_opener::open(&storage, "t.pph", &mut room).is_ok());
     }
 
+    /// At most OPEN tables, however small: the idle one is closed.
     #[test]
     fn at_most_two_are_open() {
         opened();

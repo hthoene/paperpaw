@@ -387,6 +387,9 @@ def declaration_source(declared, statuses):
                         .rstrip('\n'))
                .replace('@WRITES@', arms('            Record::@T@(record) => record.write(out, offset),')
                         .rstrip('\n')))
+    if any(r['name'].startswith('service.') for r in declared):
+        source += BARE_TEMPLATE.replace('@BITMAP@', 'record.write_bitmap(out, &mut offset);'
+                                        if has_optional else 'write_varint(0, out, &mut offset);')
     for marker, name in [('@INVALID@', 'ERR_INVALID'), ('@UNSUPPORTED@', 'ERR_UNSUPPORTED'),
                          ('@NO_SPACE@', 'ERR_NO_SPACE'), ('@UTF8@', 'ERR_UTF8')]:
         source = source.replace(marker, str(statuses[name]))
@@ -580,5 +583,57 @@ pub fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i
         record.write(out, &mut offset);
     }
     Ok(offset)
+}
+'''
+
+
+# Bare-record framing of service blobs (PR #198): emitted only with service
+# records, so a schema without them renders exactly as before.
+BARE_TEMPLATE = '''
+/// Bytes of one bare record: tag, body length and body, with no count.
+///
+/// The framing of a service blob (`docs/abi/proposals/interface-7-usage-clock.md`):
+/// a scalar service is exactly one such record, a table page several of them.
+/// A field over its cap, or a record over the batch byte limit, returns
+/// ERR_NO_SPACE.
+pub fn record_framed_len(record: &Record<'_>) -> Result<usize, i32> {
+    let body = record.body_len()?;
+    let len = varint_len(record.tag()) + varint_len(body as u32) + body;
+    if len > REGISTRATION_MAX_BYTES {
+        return Err(@NO_SPACE@);
+    }
+    Ok(len)
+}
+
+/// Encode one bare record (see [`record_framed_len`]) at the front of `out`.
+///
+/// Every cap and the output capacity are checked before any write. Failure
+/// returns ERR_NO_SPACE and leaves the entire output unchanged.
+pub fn record_encode_one(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
+    let required = record_framed_len(record)?;
+    if out.len() < required {
+        return Err(@NO_SPACE@);
+    }
+    let body = record.body_len()?;
+    let mut offset = 0;
+    write_varint(record.tag(), out, &mut offset);
+    write_varint(body as u32, out, &mut offset);
+    @BITMAP@
+    record.write(out, &mut offset);
+    Ok(offset)
+}
+
+/// Decode exactly one bare record (see [`record_framed_len`]): no count, and
+/// no byte after it. The caller checks that the tag is the one it expects.
+/// Errors are those of [`records_decode`].
+pub fn record_decode_one(bytes: &[u8]) -> Result<Record<'_>, i32> {
+    if bytes.len() > REGISTRATION_MAX_BYTES {
+        return Err(@NO_SPACE@);
+    }
+    let mut reader = Reader { remaining: bytes };
+    let (tag, mut body) = reader.record()?;
+    let record = record_decode(tag, &mut body)?;
+    reader.finish()?;
+    Ok(record)
 }
 '''

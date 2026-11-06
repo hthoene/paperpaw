@@ -318,6 +318,37 @@ unsafe extern "C" fn unsupported_services_query(
 unsafe extern "C" fn unsupported_blob_read(_: *mut c_void, _: u32, _: u64, _: PpBuffer) -> i32 {
     ERR_UNSUPPORTED
 }
+unsafe extern "C" fn unsupported_storage_path(_: *mut c_void, _: u32, _: PpBytes) -> i32 {
+    ERR_UNSUPPORTED
+}
+unsafe extern "C" fn unsupported_storage_size(
+    _: *mut c_void,
+    _: u32,
+    _: PpBytes,
+    _: *mut u64,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
+unsafe extern "C" fn unsupported_storage_read_at(
+    _: *mut c_void,
+    _: u32,
+    _: PpBytes,
+    _: u64,
+    _: PpBuffer,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
+unsafe extern "C" fn unsupported_storage_two(
+    _: *mut c_void,
+    _: u32,
+    _: PpBytes,
+    _: PpBytes,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
+unsafe extern "C" fn unsupported_storage_sync(_: *mut c_void) -> i32 {
+    ERR_UNSUPPORTED
+}
 
 /// The host table of this build: the shell's entries wired, every other
 /// slot answering `ERR_UNSUPPORTED`.
@@ -347,6 +378,13 @@ pub const fn host_table() -> PpHost {
         services_query: unsupported_services_query,
         blob_read: unsupported_blob_read,
         blob_release: unsupported_handle,
+        storage_size: unsupported_storage_size,
+        storage_read_at: unsupported_storage_read_at,
+        storage_write: unsupported_storage_two,
+        storage_append: unsupported_storage_two,
+        storage_rename: unsupported_storage_two,
+        storage_remove: unsupported_storage_path,
+        storage_sync: unsupported_storage_sync,
     }
 }
 
