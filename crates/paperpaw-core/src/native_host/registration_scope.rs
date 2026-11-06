@@ -87,6 +87,12 @@ impl<T: 'static> RegistrationScope<T> {
         }
     }
 
+    /// Whether a synchronous construction scope is currently installed.
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        self.current.get().is_some()
+    }
+
     /// Admit submissions only while the synchronous make closure runs.
     /// Clears the slot on return or unwind. The closure receives no construction
     /// reference, so it cannot commit or retain a borrow through this bridge.
@@ -99,7 +105,7 @@ impl<T: 'static> RegistrationScope<T> {
         construction: &mut Construction<'_, C, M, T>,
         make: impl FnOnce() -> R,
     ) -> Result<R, Error> {
-        if self.current.get().is_some() {
+        if self.is_active() {
             return Err(Error::Busy);
         }
         let target = Staging::new(construction);

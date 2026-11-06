@@ -13,6 +13,10 @@ pub mod registration_scope;
 
 const REGISTRATIONS: usize = 8;
 
+/// Bounded decoded registration submission during plugin construction.
+#[path = "native_host/registrations.rs"]
+pub mod registrations;
+
 /// Host admission or construction failure.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
