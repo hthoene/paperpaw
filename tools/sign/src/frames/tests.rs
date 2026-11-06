@@ -649,3 +649,74 @@ fn a_mangled_name_with_a_length_that_overflows_is_no_name() {
         "core::panicking::panic"
     );
 }
+
+/// A small deterministic generator for the fuzz-like tests below.
+fn xorshift(state: &mut u64) -> u64 {
+    *state ^= *state << 13;
+    *state ^= *state >> 7;
+    *state ^= *state << 17;
+    *state
+}
+
+#[test]
+fn random_code_and_ranges_never_panic_the_scan() {
+    // Debug builds check every overflow: this is where a counter or a length
+    // that wraps would show. Random bytes (mostly branches and sp writes are
+    // not likely, so some runs are seeded with them), ranges that cut
+    // instructions, overlap, start off a halfword or run past the code.
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    for round in 0..4000 {
+        let len = (xorshift(&mut seed) % 400) as usize;
+        let mut bytes: Vec<u8> = (0..len).map(|_| xorshift(&mut seed) as u8).collect();
+        if round % 2 == 0 {
+            // Many branches and stack changes among the noise.
+            for chunk in bytes.as_chunks_mut::<4>().0 {
+                match xorshift(&mut seed) % 4 {
+                    0 => *chunk = addi(SP, SP, -16).to_le_bytes(),
+                    1 => *chunk = beq_to(11, 0, -8).to_le_bytes(),
+                    2 => *chunk = jr(A0).to_le_bytes(),
+                    _ => {}
+                }
+            }
+        }
+        let n = (xorshift(&mut seed) % 6) as usize;
+        let ranges: Vec<(usize, usize)> = (0..n)
+            .map(|_| {
+                let s = (xorshift(&mut seed) % (len as u64 + 8)) as usize;
+                let e = s + (xorshift(&mut seed) % (len as u64 + 8)) as usize;
+                (s, e)
+            })
+            .collect();
+        let base = xorshift(&mut seed) as u32;
+        let proved = noreturn_functions(&bytes, &ranges, base, false);
+        for lenient in [false, true] {
+            let env = Env {
+                base,
+                noreturn: &proved,
+                lenient,
+            };
+            let _ = scan_ranges(&bytes, &ranges, env);
+            let _ = frame_sizes_in(&bytes, &ranges, env);
+        }
+        let _ = uncovered(&bytes, &ranges);
+    }
+}
+
+#[test]
+fn random_symbol_names_never_panic_the_path_reader() {
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let alphabet = b"_ZNRC0123456789abcdefhsxE";
+    for _ in 0..20000 {
+        let len = (xorshift(&mut seed) % 60) as usize;
+        let mut name = String::from(["_ZN", "_R", ""][(xorshift(&mut seed) % 3) as usize]);
+        for _ in 0..len {
+            name.push(alphabet[(xorshift(&mut seed) % alphabet.len() as u64) as usize] as char);
+        }
+        let _ = path(&name);
+    }
+    // Lengths at the limits of usize and u64.
+    for n in ["18446744073709551615", "4294967295", "99999999999999999999"] {
+        let _ = path(&format!("_ZN{n}x4core5panicE"));
+        let _ = path(&format!("_RNvC{n}x"));
+    }
+}

@@ -37,6 +37,16 @@
 //! `ebreak` and `unimp`, ends a path: the firmware's handler never resumes
 //! it).
 //!
+//! What this is for, and not for: the goal is that no single function lowers
+//! `sp` by [`LIMIT`] or more in total without a store in between, which the
+//! band at the stack's end would see. The depth of a whole call path and
+//! loops through calls are not decided here (not statically decidable); the
+//! band catches those at run time, and the device's high-water test measures
+//! them. The scan is conservative where it must be: a function's frame is the
+//! lowest `sp` along its paths, so two frames that exclude each other are not
+//! added, but a frame taken in steps is, and a plugin that needs a path it
+//! cannot prove (a computed `sp`, a jump table) is refused.
+//!
 //! What changes `sp` and is let through:
 //! - `addi sp, sp, imm`, `c.addi`, `c.addi16sp`: an immediate;
 //! - `add`/`sub sp, sp, rX` where `rX` is a constant on every path to it,
