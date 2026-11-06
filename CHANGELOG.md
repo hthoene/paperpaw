@@ -11,6 +11,10 @@ change the plugin SDK.
 - Core adapter for shell-owned interface-7 plugins: deliver registered lifecycle, battery and page-turn
   events through the kernel subscription pipeline with bounded encoding and callback-scoped environment
   access. Shells supply the owner bridge and failure logging; loader wiring follows separately (#228).
+- Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
+  device usage, translated plugin names and work-note readers. Includes a deterministic fake-host
+  fixture for Battery port tests; helpers use bounded buffers and allocate nothing (#228).
+
 - Interface-7 SDK callback host binding and `native_plugin!` entry glue, with checked table admission
   and fallible host allocation. Storage slots 20-26 use caller-owned buffers; event tags 32-37 decode
   into borrowed payloads. These facades do not activate any shell loader (#228).
