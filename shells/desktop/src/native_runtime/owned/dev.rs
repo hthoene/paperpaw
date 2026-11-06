@@ -288,15 +288,29 @@ impl Loaded {
 }
 
 impl Drop for Loaded {
-    /// Release order: the batch (its lease on the owner), then admission
-    /// revoked and finished, then the owner drops (the plugin's destructor,
-    /// then the services, then the library is unmapped).
+    /// Revoke, cancel and release resources before dropping the batch lease.
+    /// Finish destroys the plugin only after the leases drain; the library
+    /// remains mapped throughout cleanup.
     fn drop(&mut self) {
         self.stopped.set(true);
-        drop(self.batch.take());
         let owner = self.plugin.owner.as_ref();
         owner.revoke();
-        if owner.finish().is_ok() {
+        if owner.prepare_teardown().is_err() {
+            // Safe callers cannot drop Loaded while borrowed by a callback.
+            // Preserve the mapped owner if an external unsafe caller does so.
+            eprintln!("abi7 dev loader: {}: active at teardown, kept", self.id);
+            return;
+        }
+        drop(self.batch.take());
+        let finished = owner.finish();
+        if finished.is_err() {
+            eprintln!("abi7 dev loader: {}: retained lease after cleanup", self.id);
+        }
+        debug_assert!(
+            finished.is_ok(),
+            "leases must drain before final destruction"
+        );
+        if finished.is_ok() {
             // SAFETY: dropped exactly once, here; nothing borrows the owner
             // any longer (the batch is gone and `finish` saw no lease).
             unsafe { ManuallyDrop::drop(&mut self.plugin) };

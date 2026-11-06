@@ -362,7 +362,13 @@ fn construction_retains_a_snapshot_and_record_offsets_after_input_is_gone() {
         .unwrap();
     input.fill(0);
     drop(input);
-    let mut committed = construction.commit(|_| {}).unwrap();
+    let mut committed = construction
+        .commit(crate::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy: |_| {},
+        })
+        .unwrap();
     let raw = committed.take_raw_declarations();
     assert_eq!(raw.batches.len(), 1);
     let batch = &raw.batches[0];

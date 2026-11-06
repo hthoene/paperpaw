@@ -613,7 +613,13 @@ fn mixed_setting_declaration_is_retained_separately_from_callback_registrations(
     let len = records_encode(&records, &mut bytes).unwrap();
     let decoded = records_decode(&bytes[..len]).unwrap();
     construction.stage_batch(&decoded, |r| r).unwrap();
-    let mut batch = construction.commit(|_| {}).unwrap();
+    let mut batch = construction
+        .commit(crate::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy: |_| {},
+        })
+        .unwrap();
     assert_eq!(batch.len(), 1);
     let declarations = batch.take_declarations();
     assert_eq!(declarations.specs().len(), 1);

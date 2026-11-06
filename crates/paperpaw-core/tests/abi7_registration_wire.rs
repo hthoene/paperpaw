@@ -53,7 +53,13 @@ fn decoded_records_are_admitted_only_after_successful_commit() {
         assert!(matches!(owner.as_ref().lease(), Err(Error::State)));
     })
     .unwrap();
-    let batch = construction.commit(destroy).unwrap();
+    let batch = construction
+        .commit(paperpaw_core::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy,
+        })
+        .unwrap();
     for (index, expected) in records.iter().enumerate() {
         assert_eq!(
             batch.dispatch(index, &DispatchDepth::new(), |_, record| *record),
@@ -95,7 +101,14 @@ fn ignored_malformed_or_unsupported_batch_refuses_all_publication() {
             assert_eq!(submit(&slot, &encode(&[]).unwrap()), ERR_INVALID);
         })
         .unwrap();
-        assert!(matches!(construction.commit(destroy), Err(Error::Invalid)));
+        assert!(matches!(
+            construction.commit(paperpaw_core::native_host::Teardown {
+                cancel: |_| {},
+                release: |_| {},
+                destroy
+            }),
+            Err(Error::Invalid)
+        ));
         assert_eq!(dropped.get(), 0);
         // Successful foreign output would still belong to the loader here.
         destroy(owner.as_ref().context());
@@ -121,7 +134,14 @@ fn repeated_batches_cannot_exceed_the_transaction_capacity() {
         assert_eq!(slot.admission(), Err(Error::Capacity));
     })
     .unwrap();
-    assert!(matches!(construction.commit(destroy), Err(Error::Capacity)));
+    assert!(matches!(
+        construction.commit(paperpaw_core::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy
+        }),
+        Err(Error::Capacity)
+    ));
 }
 
 #[test]
@@ -136,7 +156,14 @@ fn empty_batch_checks_decoder_latch_even_without_staged_records() {
         assert_eq!(submit(&slot, &encode(&[]).unwrap()), ERR_INVALID);
     })
     .unwrap();
-    assert!(matches!(construction.commit(destroy), Err(Error::Invalid)));
+    assert!(matches!(
+        construction.commit(paperpaw_core::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy
+        }),
+        Err(Error::Invalid)
+    ));
 }
 
 #[test]
@@ -160,7 +187,14 @@ fn null_oversized_and_empty_inputs_obey_scope_and_refusal_rules() {
             );
         })
         .unwrap();
-        assert!(matches!(construction.commit(destroy), Err(Error::Invalid)));
+        assert!(matches!(
+            construction.commit(paperpaw_core::native_host::Teardown {
+                cancel: |_| {},
+                release: |_| {},
+                destroy
+            }),
+            Err(Error::Invalid)
+        ));
     }
 }
 
@@ -180,7 +214,13 @@ fn revoked_queued_and_registered_work_is_refused_before_the_body_runs() {
         )
     })
     .unwrap();
-    let batch = construction.commit(destroy).unwrap();
+    let batch = construction
+        .commit(paperpaw_core::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy,
+        })
+        .unwrap();
     let queued = owner.as_ref().lease().unwrap();
     let calls = Cell::new(0);
     owner.as_ref().revoke();

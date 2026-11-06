@@ -7,6 +7,7 @@
 
 use crate::abi7::{calls, lifecycle};
 use core::{cell::Cell, fmt, pin::Pin};
+pub use lifecycle::Teardown;
 
 #[path = "native_host/registration_scope.rs"]
 pub mod registration_scope;
@@ -199,6 +200,27 @@ impl<C, M> HostOwner<C, M> {
         self.inner().revoke();
     }
 
+    /// Whether this owner is inside a callback. After revoke, resource cleanup
+    /// must wait for the active call to return; retained leases are separate.
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        self.inner.is_active()
+    }
+
+    /// Revoke immediately and run cancellation then release once, unless a
+    /// callback is active. The shell must defer Busy to its next tick. After
+    /// success, remove subscriptions and queued work before calling finish.
+    ///
+    /// # Errors
+    /// Returns Busy during construction or an active callback.
+    pub fn prepare_teardown(self: Pin<&Self>) -> Result<(), Error> {
+        self.revoke();
+        if self.preparing.get() {
+            return Err(Error::Busy);
+        }
+        self.inner().prepare_teardown().map_err(Into::into)
+    }
+
     /// Destroy the plugin once all leases have been released.
     /// Host context, allocator and module remain alive throughout destruction.
     ///
@@ -304,7 +326,10 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// unarmed. The loader still owns its validated successful output and must
     /// destroy it exactly once while context and module remain alive. This is
     /// distinct from cleaning partial or invalid output from a failed make.
-    pub fn commit(mut self, destroy: fn(Pin<&C>)) -> Result<RegistrationBatch<'a, C, M, T>, Error> {
+    pub fn commit(
+        mut self,
+        teardown: Teardown<C>,
+    ) -> Result<RegistrationBatch<'a, C, M, T>, Error> {
         if let Some(error) = self.failure {
             return Err(error);
         }
@@ -313,7 +338,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         if self.raw.image_entries != 0 {
             return Err(Error::DeclarationViewsUnavailable);
         }
-        let lease = CallbackLease(self.owner.inner().activate_leased(destroy)?);
+        let lease = CallbackLease(self.owner.inner().activate_leased(teardown)?);
         Ok(RegistrationBatch {
             records: core::mem::replace(&mut self.records, core::array::from_fn(|_| None)),
             len: self.len,

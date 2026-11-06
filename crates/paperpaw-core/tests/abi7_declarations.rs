@@ -1192,7 +1192,13 @@ fn run(bytes: &[u8]) -> (Result<(), i32>, bool) {
             }
         })
         .unwrap();
-    let committed = construction.commit(|_| ()).is_ok();
+    let committed = construction
+        .commit(paperpaw_core::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy: |_| (),
+        })
+        .is_ok();
     (if status == OK { Ok(()) } else { Err(status) }, committed)
 }
 

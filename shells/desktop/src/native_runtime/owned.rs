@@ -239,7 +239,13 @@ impl<'a, S, T> PendingInstance<'a, S, T> {
         // The pending guard owns staging so panic or cancellation also drains
         // records before foreign output destruction. It is present until here.
         let transaction = self.transaction.take().ok_or(Error::Attempt)?;
-        let batch = transaction.staging.commit(destroy_context::<S>)?;
+        let batch = transaction
+            .staging
+            .commit(paperpaw_core::native_host::Teardown {
+                cancel: |_| {},
+                release: |_| {},
+                destroy: destroy_context::<S>,
+            })?;
         self.armed = false;
         Ok(batch)
     }

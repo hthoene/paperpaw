@@ -249,5 +249,13 @@ fn ignored_builder_refusal_aborts_host_construction() {
     })
     .unwrap();
     assert_eq!(calls, 1);
-    assert!(construction.commit(|_| ()).is_err());
+    assert!(
+        construction
+            .commit(paperpaw_core::native_host::Teardown {
+                cancel: |_| {},
+                release: |_| {},
+                destroy: |_| ()
+            })
+            .is_err()
+    );
 }

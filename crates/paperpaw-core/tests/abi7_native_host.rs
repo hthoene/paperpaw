@@ -26,7 +26,14 @@ fn ignored_decoder_refusal_rolls_back_before_loader_cleanup() {
         })
         .unwrap();
     assert_eq!(scope.reject(), Err(Error::State));
-    assert!(matches!(construction.commit(destroy), Err(Error::Invalid)));
+    assert!(matches!(
+        construction.commit(paperpaw_core::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy
+        }),
+        Err(Error::Invalid)
+    ));
     assert_eq!(&*state.events.borrow(), &["record"]);
     assert_eq!(state.destroyed.get(), 0);
     destroy(owner.as_ref().context());
@@ -66,7 +73,13 @@ fn overlapping_construction_is_busy_and_abort_permits_retry() {
     let retry = owner.as_ref().begin::<()>("weather").unwrap();
     retry.abort();
     let final_attempt = owner.as_ref().begin::<()>("weather").unwrap();
-    let batch = final_attempt.commit(ignore_context).unwrap();
+    let batch = final_attempt
+        .commit(paperpaw_core::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy: ignore_context,
+        })
+        .unwrap();
     assert!(batch.is_empty());
     assert_eq!(batch.len(), 0);
     assert!(matches!(
@@ -83,7 +96,14 @@ fn cancellation_during_make_refuses_commit_and_rolls_back_before_finish() {
     assert!(construction.stage(Record::new(&state, "record")).is_ok());
     owner.as_ref().revoke();
     assert_eq!(owner.as_ref().finish(), Err(Error::Busy));
-    assert!(matches!(construction.commit(destroy), Err(Error::State)));
+    assert!(matches!(
+        construction.commit(paperpaw_core::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy
+        }),
+        Err(Error::State)
+    ));
     assert_eq!(&*state.events.borrow(), &["record"]);
     assert_eq!(state.destroyed.get(), 0);
     assert!(matches!(
@@ -109,7 +129,11 @@ fn ninth_record_is_returned_unchanged_on_capacity_refusal() {
     assert_eq!(ptr::from_ref(returned.as_ref()), address);
     assert_eq!(*returned, "retained by caller");
     assert!(matches!(
-        construction.commit(ignore_context),
+        construction.commit(paperpaw_core::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy: ignore_context
+        }),
         Err(Error::Capacity)
     ));
     assert!(matches!(owner.as_ref().lease(), Err(Error::State)));
@@ -117,7 +141,13 @@ fn ninth_record_is_returned_unchanged_on_capacity_refusal() {
     for index in 0..8 {
         retry.stage(index.to_string()).unwrap();
     }
-    let batch = retry.commit(ignore_context).unwrap();
+    let batch = retry
+        .commit(paperpaw_core::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy: ignore_context,
+        })
+        .unwrap();
     assert_eq!(batch.len(), 8);
     assert!(!batch.is_empty());
     assert_eq!(
@@ -138,7 +168,13 @@ fn abort_drops_records_with_dependencies_alive_and_allows_a_new_transaction() {
     assert_eq!(state.destroyed.get(), 0);
     let mut retry = owner.as_ref().begin("weather").unwrap();
     assert!(retry.stage(Record::new(&state, "retry")).is_ok());
-    let batch = retry.commit(destroy).unwrap();
+    let batch = retry
+        .commit(paperpaw_core::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy,
+        })
+        .unwrap();
     assert_eq!(
         batch.dispatch(0, &DispatchDepth::new(), |_, record| record.event),
         Ok("retry")
@@ -161,7 +197,13 @@ fn commit_admits_records_with_a_stable_pinned_context() {
     let moved_owner = owner;
     let mut construction = moved_owner.as_ref().begin("weather").unwrap();
     assert!(construction.stage(Record::new(&state, "record")).is_ok());
-    let batch = construction.commit(destroy).unwrap();
+    let batch = construction
+        .commit(paperpaw_core::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy,
+        })
+        .unwrap();
     assert_eq!(batch.len(), 1);
     let depth = DispatchDepth::default();
     batch
@@ -191,7 +233,13 @@ fn batch_and_queued_callback_share_instance_reentry_admission() {
     let owner = Box::pin(HostOwner::new((), ()));
     let mut construction = owner.as_ref().begin("weather").unwrap();
     construction.stage(17).unwrap();
-    let batch = construction.commit(ignore_context).unwrap();
+    let batch = construction
+        .commit(paperpaw_core::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy: ignore_context,
+        })
+        .unwrap();
     let queued = owner.as_ref().lease().unwrap();
     let depth = DispatchDepth::new();
     let called = Cell::new(false);
@@ -219,7 +267,13 @@ fn revoked_batch_and_queue_refuse_callbacks_and_hold_finish_busy() {
     let owner = tracked_owner(&state);
     let mut construction = owner.as_ref().begin("weather").unwrap();
     assert!(construction.stage(Record::new(&state, "record")).is_ok());
-    let batch = construction.commit(destroy).unwrap();
+    let batch = construction
+        .commit(paperpaw_core::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy,
+        })
+        .unwrap();
     let queued = owner.as_ref().lease().unwrap();
     owner.as_ref().revoke();
     let called = Cell::new(false);
@@ -256,7 +310,13 @@ fn record_cleanup_precedes_owner_drop_and_plugin_dependency_cleanup() {
     let mut construction = owner.as_ref().begin("weather").unwrap();
     assert!(construction.stage(Record::new(&state, "first")).is_ok());
     assert!(construction.stage(Record::new(&state, "second")).is_ok());
-    let batch = construction.commit(destroy).unwrap();
+    let batch = construction
+        .commit(paperpaw_core::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy,
+        })
+        .unwrap();
     drop(batch);
     assert_eq!(&*state.events.borrow(), &["first", "second"]);
     drop(owner);
@@ -272,7 +332,13 @@ fn owned_host_callback_result_survives_owner_teardown() {
     let owner = Box::pin(HostOwner::new(String::from("owned host context"), ()));
     let mut construction = owner.as_ref().begin("weather").unwrap();
     construction.stage(String::from("record")).unwrap();
-    let batch = construction.commit(|_| ()).unwrap();
+    let batch = construction
+        .commit(paperpaw_core::native_host::Teardown {
+            cancel: |_| {},
+            release: |_| {},
+            destroy: |_| (),
+        })
+        .unwrap();
     // This copies host data; it does not validate a foreign callback result.
     let result = batch
         .dispatch(0, &DispatchDepth::new(), |context, record| {
@@ -300,7 +366,11 @@ fn distinct_owners_share_depth_limit_and_recover_after_refusal() {
                 .as_ref()
                 .begin::<()>("weather")
                 .unwrap()
-                .commit(ignore_context)
+                .commit(paperpaw_core::native_host::Teardown {
+                    cancel: |_| {},
+                    release: |_| {},
+                    destroy: ignore_context,
+                })
                 .unwrap()
         })
         .collect();
@@ -350,7 +420,9 @@ fn rejected_commit_releases_records_before_explicit_foreign_cleanup_and_unload()
             owner.as_ref().revoke();
             Error::State
         };
-        assert!(matches!(construction.commit(destroy), Err(error) if error == expected));
+        assert!(
+            matches!(construction.commit(paperpaw_core::native_host::Teardown { cancel: |_| {}, release: |_| {}, destroy: destroy }), Err(error) if error == expected)
+        );
         assert_eq!(state.records_dropped.get(), if overflow { 9 } else { 8 });
         assert_eq!(state.destroyed.get(), 0);
         assert_eq!(state.module_dropped.get(), 0);
@@ -389,7 +461,9 @@ fn successful_make_output_stays_loader_owned_on_every_commit_rejection() {
             Error::State
         };
         // The fixture's make output is successful and its destructor validated.
-        assert!(matches!(construction.commit(destroy), Err(error) if error == expected));
+        assert!(
+            matches!(construction.commit(paperpaw_core::native_host::Teardown { cancel: |_| {}, release: |_| {}, destroy: destroy }), Err(error) if error == expected)
+        );
         assert_eq!(state.records_dropped.get(), if overflow { 9 } else { 8 });
         assert_eq!(state.destroyed.get(), 0);
         assert_eq!(state.module_dropped.get(), 0);

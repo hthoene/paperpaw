@@ -28,6 +28,61 @@ pub(crate) trait Release {
     fn release(self);
 }
 
+/// Cancel under a temporary registry borrow; cancellation never calls plugins.
+pub(crate) fn cancel_owner<R: Release>(
+    registry: &core::cell::RefCell<Handles<R>>,
+    owner: u64,
+) -> Result<(), Error> {
+    registry
+        .try_borrow_mut()
+        .map_err(|_| Error::State)?
+        .each_owner_mut(owner, Release::cancel);
+    Ok(())
+}
+
+/// Each value leaves the registry borrow before releasing its host resource.
+pub(crate) fn release_owner<R: Release>(
+    registry: &core::cell::RefCell<Handles<R>>,
+    owner: u64,
+) -> Result<(), Error> {
+    loop {
+        let resource = registry
+            .try_borrow_mut()
+            .map_err(|_| Error::State)?
+            .take_owner(owner);
+        let Some(resource) = resource else {
+            return Ok(());
+        };
+        resource.release();
+    }
+}
+
+/// Releasing an individual running operation first cancels it. Invalidate its
+/// handle before cleanup, so a late completion cannot resolve it again.
+pub(crate) fn release<R: Release>(
+    registry: &core::cell::RefCell<Handles<R>>,
+    owner: u64,
+    kind: Kind,
+    handle: u32,
+) -> Result<(), Error> {
+    let mut resource = registry
+        .try_borrow_mut()
+        .map_err(|_| Error::State)?
+        .remove(owner, kind, handle)?;
+    resource.cancel();
+    resource.release();
+    Ok(())
+}
+
+impl Error {
+    pub(crate) fn status(self) -> i32 {
+        match self {
+            Self::State => paperpaw_native::host_glue::ERR_STATE,
+            Self::Capacity => paperpaw_native::host_glue::ERR_FULL,
+        }
+    }
+}
+
 struct Entry<T> {
     owner: u64,
     kind: Kind,
@@ -184,16 +239,36 @@ mod tests {
                     .is_ok()
             );
         }
-        handles.each_owner_mut(1, Release::cancel);
-        while let Some(resource) = handles.take_owner(1) {
-            resource.release();
-        }
+        let registry = RefCell::new(handles);
+        cancel_owner(&registry, 1).unwrap();
+        release_owner(&registry, 1).unwrap();
         assert_eq!(
             &*events.borrow(),
             &[(1, false), (3, false), (1, true), (3, true)]
         );
-        handles.each_owner_mut(1, |_| panic!("removed owner"));
-        assert!(handles.take_owner(2).is_some());
+        registry
+            .borrow_mut()
+            .each_owner_mut(1, |_| panic!("removed owner"));
+        let handle = registry
+            .borrow_mut()
+            .insert(
+                2,
+                Kind::Blob,
+                Resource {
+                    id: 4,
+                    events: Rc::clone(&events),
+                },
+            )
+            .ok()
+            .unwrap();
+        release(&registry, 2, Kind::Blob, handle).unwrap();
+        assert_eq!(
+            release(&registry, 2, Kind::Blob, handle)
+                .unwrap_err()
+                .status(),
+            paperpaw_native::host_glue::ERR_STATE
+        );
+        assert!(registry.borrow_mut().take_owner(2).is_some());
     }
 
     #[test]
