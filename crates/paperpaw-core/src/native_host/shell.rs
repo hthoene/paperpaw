@@ -206,6 +206,20 @@ pub fn host_table<S: Services>() -> PpHost {
     table.env_snapshot = env_snapshot::<S>;
     table.settings_read = settings_read::<S>;
     table.canvas_fill_rect = canvas_fill_rect::<S>;
+    table.i18n_copy = i18n_copy::<S>;
+    table.i18n_format = i18n_format::<S>;
+    table.i18n_digits = i18n_digits::<S>;
+    table.canvas_draw_line = canvas_draw_line::<S>;
+    table.canvas_fill_round = canvas_fill_round::<S>;
+    table.canvas_stroke_round = canvas_stroke_round::<S>;
+    table.canvas_clip = canvas_clip::<S>;
+    table.storage_size = storage_size::<S>;
+    table.storage_read_at = storage_read_at::<S>;
+    table.storage_write = storage_write::<S>;
+    table.storage_append = storage_append::<S>;
+    table.storage_rename = storage_rename::<S>;
+    table.storage_remove = storage_remove::<S>;
+    table.storage_sync = storage_sync::<S>;
     table
 }
 
@@ -747,3 +761,192 @@ pub fn dispatch_draw<S, M>(
 #[cfg(test)]
 #[path = "shell_tests.rs"]
 mod tests;
+
+unsafe extern "C" fn i18n_copy<S>(ctx: *mut c_void, key: PpBytes, out: PpBuffer) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe { super::formatting::copy(&context.environment, key, out) }
+}
+
+unsafe extern "C" fn i18n_format<S>(
+    ctx: *mut c_void,
+    key: PpBytes,
+    args: PpBytes,
+    out: PpBuffer,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe { super::formatting::format(&context.environment, key, args, out) }
+}
+
+unsafe extern "C" fn i18n_digits<S>(ctx: *mut c_void, text: PpBytes, out: PpBuffer) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe { super::formatting::digits(&context.environment, text, out) }
+}
+
+unsafe extern "C" fn storage_size<S>(
+    ctx: *mut c_void,
+    root: u32,
+    path: PpBytes,
+    out: *mut u64,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe { super::storage_slots::size(&context.environment, &context.id, root, path, out) }
+}
+
+unsafe extern "C" fn storage_read_at<S>(
+    ctx: *mut c_void,
+    root: u32,
+    path: PpBytes,
+    offset: u64,
+    out: PpBuffer,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe {
+        super::storage_slots::read_at(&context.environment, &context.id, root, path, offset, out)
+    }
+}
+
+unsafe extern "C" fn storage_write<S>(
+    ctx: *mut c_void,
+    root: u32,
+    path: PpBytes,
+    data: PpBytes,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe { super::storage_slots::write(&context.environment, &context.id, root, path, data) }
+}
+
+unsafe extern "C" fn storage_append<S>(
+    ctx: *mut c_void,
+    root: u32,
+    path: PpBytes,
+    data: PpBytes,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe { super::storage_slots::append(&context.environment, &context.id, root, path, data) }
+}
+
+unsafe extern "C" fn storage_rename<S>(
+    ctx: *mut c_void,
+    root: u32,
+    from: PpBytes,
+    to: PpBytes,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe { super::storage_slots::rename(&context.environment, &context.id, root, from, to) }
+}
+
+unsafe extern "C" fn storage_remove<S>(ctx: *mut c_void, root: u32, path: PpBytes) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
+    unsafe { super::storage_slots::remove(&context.environment, &context.id, root, path) }
+}
+
+unsafe extern "C" fn storage_sync<S>(ctx: *mut c_void) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    super::storage_slots::sync(&context.environment, &context.id)
+}
+
+unsafe extern "C" fn canvas_draw_line<S>(
+    ctx: *mut c_void,
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    width: u32,
+    color: u32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    context.canvas.draw_line(x0, y0, x1, y1, width, color)
+}
+
+unsafe extern "C" fn canvas_fill_round<S>(
+    ctx: *mut c_void,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    radius: u32,
+    color: u32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    context
+        .canvas
+        .fill_round(x, y, width, height, radius, color)
+}
+
+unsafe extern "C" fn canvas_stroke_round<S>(
+    ctx: *mut c_void,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    radius: u32,
+    thickness: u32,
+    color: u32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    context
+        .canvas
+        .stroke_round(x, y, width, height, radius, thickness, color)
+}
+
+unsafe extern "C" fn canvas_clip<S>(
+    ctx: *mut c_void,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    context.canvas.clip(x, y, width, height)
+}

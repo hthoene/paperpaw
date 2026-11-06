@@ -16,6 +16,11 @@ pub mod registration_scope;
 #[path = "native_host/shared.rs"]
 mod shared;
 
+#[path = "native_host/formatting.rs"]
+mod formatting;
+#[path = "native_host/storage_slots.rs"]
+mod storage_slots;
+
 const REGISTRATIONS: usize = 8;
 
 /// Callback-scoped drawing for host-owned plugin contexts.
