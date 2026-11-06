@@ -55,6 +55,9 @@ class Handbook(unittest.TestCase):
         # Nor the generated table of icon names: data with nothing to read, 53 KB zipped.
         self.assertNotIn(top + "src/paperpaw-sdk/icon_table.rs", names)
         self.assertIn(top + "src/paperpaw-sdk/icons.rs", names)
+        # Nor the SDK's private copies of the generated wire codecs.
+        self.assertFalse(any(n.startswith(top + "src/paperpaw-sdk/native/wire/") for n in names))
+        self.assertNotIn(top + "src/paperpaw-sdk/native/declare/records_wire.rs", names)
         # Neither the kernel nor a shell.
         self.assertFalse(any(n.startswith((top + "src/paperpaw-core/", top + "shells/")) for n in names))
         self.assertNotIn("#[cfg(test)]\nmod tests {", battery)
@@ -71,7 +74,10 @@ class Handbook(unittest.TestCase):
         # The Workshop takes no whole handbook into a prompt (it hands out topics of
         # at most MAX_TOPIC_TOKENS, src/handbook/handbook.ts), so its size has no
         # hard limit there: this keeps growth seen, a step at a time.
-        self.assertLess(size, 3_600_000, "near 3.6 MB")
+        # Past 3.6 MB with interface 7's SDK (#228: the flat C boundary's typed
+        # wrappers, records and their docs), even with the private copies of the
+        # generated wire codecs left out (about 20 KB zipped): 3.60 MB at #233.
+        self.assertLess(size, 3_700_000, "near 3.7 MB")
 
 
 if __name__ == "__main__":
