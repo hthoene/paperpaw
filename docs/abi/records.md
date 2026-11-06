@@ -102,19 +102,23 @@ It stages nothing; the loader stages the returned records. Rules:
   settings value (`abi/settings.md`), never absent: bool for kind 0, int for 1,
   text for 2 to 5. An int default lies within `min..=max` and `min <= max`;
   `min` and `max` are 0 for other kinds. `choices` is used only by kind 2, with
-  1 to 32 distinct values of 1 to 96 bytes joined by `\n`, and `default` is one
+  1 to 32 distinct values of 1 to 96 bytes joined by `\n` (refused as soon as a
+  33rd starts), and `default` is one
   of them; it is empty for other kinds. A language default is `[A-Za-z0-9-]`,
   at most 35 bytes (empty allowed).
 - `setting.extra`: `check` is 0. Flags: bit0 slider, bit1 section_of_plugin,
   bit2 keeps_unknown. `step` is 0 or positive. `editor` is empty exactly when
-  `editor_kind` is 0 (1 screen, 2 slot). `shown_value` is empty exactly when
+  `editor_kind` is 0; for 1 (a screen) it is a name relative to the plugin, for
+  2 (a slot) a full id. `shown_value` is empty exactly when
   `shown_id` is empty.
 - Paths are relative, `[A-Za-z0-9._-]` and `/`, at most 3 segments and 100
   bytes, with no empty, `.`, `..` or dot-leading segment.
 - `resource.hyphenation`: `language` is `[A-Za-z0-9-]`, 1 to 35 bytes.
-- `resource.font_face`: `style` uses bits 0 (bold) and 1 (italic); `weight` is
-  0 or 1 to 1000 and must be 0 for a `.ppfp` path (extension compared without
-  case); `priority` is -100 to 100; `role` is empty or a full id.
+- `resource.font_face`: `path` ends in `.ppfp`, `.ttf`, `.otf` or `.ttc`
+  (compared without case), which selects the reader; `style` uses bits 0 (bold)
+  and 1 (italic); `weight` is 0 or 1 to 1000 and must be 0 for a `.ppfp` path;
+  `role` is empty or a full id; `priority` is -100 to 100, and 0 when `role` is
+  empty.
 - `resource.font_extension`: `extends` is a full id.
 
 Cross-record rules (uniqueness, references that must resolve, per-plugin

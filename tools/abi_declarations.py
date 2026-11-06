@@ -155,11 +155,11 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
 
 /// A fully validated, allocation-free batch of registrations and declarations.
 ///
-/// It keeps the borrowed, already validated input and decodes each record again
-/// while iterating, so it holds no array of records.
+/// Every record is decoded once, by [`records_decode`], and kept as decoded:
+/// what is staged is exactly what was validated, and iteration cannot fail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RecordBatch<'a> {
-    records: &'a [u8],
+    records: [Option<Record<'a>>; REGISTRATION_MAX_RECORDS],
     len: usize,
 }
 
@@ -175,35 +175,25 @@ impl<'a> RecordBatch<'a> {
     }
 
     /// Iterate over records by value in wire order.
-    pub fn iter(&self) -> RecordIter<'a> {
+    pub fn iter(&self) -> RecordIter<'_, 'a> {
         RecordIter {
-            remaining: self.records,
-            left: self.len,
+            records: self.records[..self.len].iter(),
         }
     }
 }
 
 /// Iterator over a validated [`RecordBatch`].
-#[derive(Clone, Copy, Debug)]
-pub struct RecordIter<'a> {
-    remaining: &'a [u8],
-    left: usize,
+#[derive(Clone, Debug)]
+pub struct RecordIter<'b, 'a> {
+    records: core::slice::Iter<'b, Option<Record<'a>>>,
 }
 
-impl<'a> Iterator for RecordIter<'a> {
+impl<'a> Iterator for RecordIter<'_, 'a> {
     type Item = Record<'a>;
 
     fn next(&mut self) -> Option<Record<'a>> {
-        if self.left == 0 {
-            return None;
-        }
-        self.left -= 1;
-        let mut reader = Reader {
-            remaining: self.remaining,
-        };
-        let (tag, mut body) = reader.record().ok()?;
-        self.remaining = reader.remaining;
-        record_decode(tag, &mut body).ok()
+        // The first `len` places all hold a record (`records_decode`).
+        self.records.find_map(|record| *record)
     }
 }
 
@@ -223,10 +213,10 @@ pub fn records_decode(bytes: &[u8]) -> Result<RecordBatch<'_>, i32> {
     if len > REGISTRATION_MAX_RECORDS {
         return Err(@NO_SPACE@);
     }
-    let records = reader.remaining;
-    for _ in 0..len {
+    let mut records = [None; REGISTRATION_MAX_RECORDS];
+    for place in records.iter_mut().take(len) {
         let (tag, mut body) = reader.record()?;
-        record_decode(tag, &mut body)?;
+        *place = Some(record_decode(tag, &mut body)?);
     }
     reader.finish()?;
     Ok(RecordBatch { records, len })

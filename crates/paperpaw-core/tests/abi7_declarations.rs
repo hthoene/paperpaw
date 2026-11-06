@@ -492,7 +492,7 @@ fn valid_records_of_every_kind_pass() {
             style: 0,
             family: "",
             role: "",
-            priority: 100,
+            priority: 0,
             ..face()
         }),
         Record::ResourceFontExtension(extension()),
@@ -802,6 +802,17 @@ fn spec_choice_list_rules() {
         ("trailing newline", with("a\n"), ERR_INVALID),
         ("leading newline", with("\na"), ERR_INVALID),
         ("duplicate", with("a\nb\na"), ERR_INVALID),
+        // 512 one-byte values in 1023 bytes: refused at the 33rd, not compared all.
+        (
+            "512 tiny values",
+            with(Box::leak(
+                core::iter::repeat_n("a", 512)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    .into_boxed_str(),
+            )),
+            ERR_INVALID,
+        ),
     ]);
 }
 
@@ -852,6 +863,24 @@ fn extra_rules() {
         (
             "editor kind 2 without editor",
             e(|x| SettingExtra { editor: "", ..x }),
+            ERR_INVALID,
+        ),
+        (
+            "screen editor not a relative name",
+            e(|x| SettingExtra {
+                editor_kind: 1,
+                editor: "Picker",
+                ..x
+            }),
+            ERR_INVALID,
+        ),
+        (
+            "slot editor not a full id",
+            e(|x| SettingExtra {
+                editor_kind: 2,
+                editor: "core..slot",
+                ..x
+            }),
             ERR_INVALID,
         ),
         (
@@ -1028,6 +1057,28 @@ fn font_face_rules() {
         (
             "bad role",
             f(|x| ResourceFontFace { role: "Core", ..x }),
+            ERR_INVALID,
+        ),
+        (
+            "priority without role",
+            f(|x| ResourceFontFace {
+                role: "",
+                priority: 5,
+                ..x
+            }),
+            ERR_INVALID,
+        ),
+        (
+            "unknown font extension",
+            f(|x| ResourceFontFace {
+                path: "fonts/serif.woff",
+                ..x
+            }),
+            ERR_INVALID,
+        ),
+        (
+            "font extension only",
+            f(|x| ResourceFontFace { path: ".ttf", ..x }),
             ERR_INVALID,
         ),
         (
