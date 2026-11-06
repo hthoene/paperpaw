@@ -9,7 +9,7 @@ use super::{
     settings_wire::{SettingValueRef, settings_encode},
 };
 use paperpaw_native::host_glue::{
-    ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED, PpBuffer, PpBytes, buffers,
+    ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, PpBuffer, PpBytes, buffers,
 };
 use paperpaw_sdk::SettingValue;
 
@@ -47,21 +47,22 @@ pub(crate) unsafe fn settings_read(slot: &FrameSlot, key: PpBytes, out: PpBuffer
 /// # Safety
 /// Same pair-validity and no-alias requirements as `settings_read`.
 pub(crate) unsafe fn i18n_copy(slot: &FrameSlot, key: PpBytes, out: PpBuffer) -> i32 {
+    // SAFETY: the caller supplies valid, nonoverlapping pairs.
+    let key = match unsafe { buffers::text_in(key, buffers::TEXT_MAX) } {
+        Ok(key) => key,
+        Err(error) => return error,
+    };
+    // SAFETY: the output validity and exclusive access are caller obligations.
+    let out = match unsafe { buffers::buffer_out(out, buffers::TEXT_MAX) } {
+        Ok(out) => out,
+        Err(error) => return error,
+    };
     slot.with(|frame| {
-        // SAFETY: the caller supplies valid, nonoverlapping pairs.
-        let key = match unsafe { buffers::text_in(key, buffers::TEXT_MAX) } {
-            Ok(key) => key,
-            Err(error) => return error,
-        };
-        // SAFETY: output validity and exclusive access are caller obligations.
-        let out = match unsafe { buffers::buffer_out(out, buffers::TEXT_MAX) } {
-            Ok(out) => out,
-            Err(error) => return error,
-        };
-        let Some(message) = frame.translator().get(key) else {
-            return ERR_NOT_FOUND;
-        };
-        buffers::copy_required(message.as_bytes(), out, buffers::TEXT_MAX)
+        buffers::copy_required(
+            frame.translator().tr(key).as_bytes(),
+            out,
+            buffers::TEXT_MAX,
+        )
     })
     .unwrap_or(ERR_STATE)
 }

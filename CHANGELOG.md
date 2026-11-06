@@ -40,9 +40,6 @@ change the plugin SDK.
 
 ### Changed
 
-- Interface-7 slot 6 `i18n.copy` returns `ERR_NOT_FOUND` for a missing translation key,
-  leaving output unchanged, instead of copying the key (D5, #228).
-
 - Background-work notes are cut to 256 UTF-8 bytes at a character boundary when stored;
   interface-6 `env.work().note()` readers see the same bounded text (#228).
 
