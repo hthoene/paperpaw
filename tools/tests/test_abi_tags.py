@@ -36,6 +36,9 @@ TAGGED = re.compile(r'\btag\b|_tag\b|\bTAG\b|_TAG\b', re.IGNORECASE)
 # Shell files that handle plugin-interface records; the rest of a shell
 # (reset reasons, key codes) has its own numeric ranges.
 ABI_CODE = re.compile(r'records_decode|commands_decode|_TAG\b|paperpaw_abi|host_glue')
+# Test files by name (`tests.rs`, `x_tests.rs`, `x_test.rs`, `test_x.rs`), never
+# by substring: `attestation.rs` is code and is scanned.
+TEST_FILE = re.compile(r'^(tests?|test_\w+|\w+_tests?)\.rs$')
 # Copies of the generated codec that abi-gen keeps byte for byte the same.
 COPIES = {
     'abi/generated/records_wire.rs': ['crates/paperpaw-core/src/abi7/records_wire.rs',
@@ -65,7 +68,7 @@ def rust_files():
             yield from sorted(p for p in path.rglob('*.rs')
                               if 'target' not in p.relative_to(ROOT).parts
                               # Tests iterate tag ranges on purpose; they classify nothing.
-                              and 'test' not in p.name and 'tests' not in p.parts
+                              and not TEST_FILE.match(p.name) and 'tests' not in p.parts
                               and (source != 'shells' or ABI_CODE.search(p.read_text())))
         elif path.exists():
             yield path
@@ -80,6 +83,12 @@ class ExactTagTests(unittest.TestCase):
                 if RANGE.search(code) or (NUMERIC_RANGE.search(code) and TAGGED.search(code)):
                     found.append(f'{path.relative_to(ROOT)}:{number}: {line.strip()}')
         self.assertEqual(found, [], 'classify records by exact tag only')
+
+    def test_only_test_files_are_skipped_by_name(self):
+        for name in ['tests.rs', 'shell_tests.rs', 'gray_test.rs', 'test_loader.rs']:
+            self.assertTrue(TEST_FILE.match(name), name)
+        for name in ['attestation.rs', 'testing.rs', 'contest.rs', 'latest_tag.rs']:
+            self.assertFalse(TEST_FILE.match(name), name)
 
     def test_every_tag_up_to_2047_is_classified_exactly_by_the_decoders(self):
         """Behavioural: whatever form a decoder uses, a tag it does not know
