@@ -29,6 +29,7 @@ use paperpaw_native::host_glue::{
 use paperpaw_platform::Rect;
 
 use super::canvas::CanvasScope;
+pub use super::data_services::DATA_SERVICES;
 pub use super::declared_services::{DeclaredServices, Error as DeclaredServicesError};
 use super::environment::EnvironmentScope;
 use super::registration_scope::RegistrationScope;

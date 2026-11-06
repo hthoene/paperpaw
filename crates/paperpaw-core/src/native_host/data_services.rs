@@ -4,6 +4,35 @@ use crate::abi7::context::{Frame, PluginRow};
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND};
 
+/// Data-service capabilities implemented by the shared host table.
+/// Admission must advertise this catalog only when using that implementation.
+pub static DATA_SERVICES: &[paperpaw_native::metadata::Service<'static>] = &[
+    paperpaw_native::metadata::Service {
+        key: "core.plugin",
+        major: 1,
+        semantic_revision: 0,
+        min_table_bytes: 0,
+    },
+    paperpaw_native::metadata::Service {
+        key: "core.plugin-usage",
+        major: 1,
+        semantic_revision: 0,
+        min_table_bytes: 0,
+    },
+    paperpaw_native::metadata::Service {
+        key: "core.usage",
+        major: 1,
+        semantic_revision: 0,
+        min_table_bytes: 0,
+    },
+    paperpaw_native::metadata::Service {
+        key: "core.work-note",
+        major: 1,
+        semantic_revision: 0,
+        min_table_bytes: 0,
+    },
+];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Query<'a> {
     Usage,
