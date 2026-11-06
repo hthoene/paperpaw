@@ -732,7 +732,17 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
         .collect();
     later.extend(point_files(storage, path, &mut budget));
     let roles = fonts_for_roles(&source, path, &mut budget);
-    let tables = hyphenation::tables(&source, path, budget.formats, &mut budget.problems);
+    let code = paperpaw_sdk::native::CODE_FILES
+        .iter()
+        .any(|file| storage.size(&format!("{path}/{file}")).is_ok());
+    let mut tables = hyphenation::tables(&source, path, budget.formats, &mut budget.problems);
+    // A code plugin's tables come with its registration, not from plugin.ini.
+    if code && !tables.is_empty() {
+        budget.problems.push(format!(
+            "{path}/plugin.ini: [hyphenation] left out, read only for data plugins"
+        ));
+        tables.clear();
+    }
     let (family, faces) = family(&source, path);
     let mut fonts = font_files(storage, &format!("{path}/fonts"), false);
     // A family's faces are not fonts of their own as well.
@@ -754,9 +764,7 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
         family,
         loose_faces: RefCell::new(Vec::new()),
         hyphenation: RefCell::new(tables),
-        code: paperpaw_sdk::native::CODE_FILES
-            .iter()
-            .any(|file| storage.size(&format!("{path}/{file}")).is_ok()),
+        code,
     })
 }
 

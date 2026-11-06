@@ -186,7 +186,7 @@ impl Tables {
             })
     }
 
-    /// Takes out what `plugin` named (switched off or removed).
+    /// Takes out what `plugin` named, as it is removed.
     pub(crate) fn remove(&mut self, plugin: &str) {
         self.entries.retain(|e| e.plugin != plugin);
     }
