@@ -533,9 +533,8 @@ mod tests {
 
     #[test]
     fn counts_and_offsets_that_do_not_fit_are_refused() {
-        // Where `usize` is 32 bits the block count overflows (Header); elsewhere the index
-        // is simply too long for the file (Index). Either way it is refused.
-        // is simply too long for the file (Header, too). Either way it is refused.
+        // Where `usize` is 32 bits the block count overflows; elsewhere the index is
+        // simply too long for the file. Either way the result is Header.
         assert_eq!(
             check_table(&header(u32::MAX, 24, 0)),
             Err(TableError::Header)
