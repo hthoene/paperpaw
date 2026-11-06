@@ -45,7 +45,7 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
     InputCaps::new(true, true, false, &[]),
     MemoryClass::Small,
 );
-static BOOL: [SettingSpec; 1] = [SettingSpec::switch(
+pub(super) static BOOL: [SettingSpec; 1] = [SettingSpec::switch(
     KEY,
     "enabled",
     false,

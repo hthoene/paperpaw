@@ -2,8 +2,8 @@
 //! through the inactive owner path: preflight, make with wire registrations,
 //! leased tick/draw dispatch inside a scoped environment (slots 4/5), teardown,
 //! and clean refusals. Nothing here activates the production loader.
-use super::environment::{run, KEY};
 use super::super::environment as bridge;
+use super::environment::{KEY, run};
 use super::*;
 use paperpaw_core::native_host::registrations::{self, Registration};
 use paperpaw_core::sdk::SettingSpec;
@@ -54,9 +54,11 @@ fn sample() -> Fixture {
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .find(|path| {
-            path.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
-                name.starts_with("libpaperpaw_sample_abi7_tick_draw-") && name.ends_with(".so")
-            })
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| {
+                    name.starts_with("libpaperpaw_sample_abi7_tick_draw-") && name.ends_with(".so")
+                })
         })
         .expect("the sample's cdylib");
     let path = root.join("sample.so");
