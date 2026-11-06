@@ -65,6 +65,11 @@ pub fn path(mangled: &str) -> String {
                 i += 1;
             }
             let n: usize = mangled[start..i].parse().unwrap_or(0);
+            // In v0 a name that starts with an underscore or a digit follows
+            // the number after an underscore of its own.
+            if v0 && n > 0 && b.get(i) == Some(&b'_') {
+                i += 1;
+            }
             let ident = mangled
                 .get(i..i + n)
                 .filter(|id| n > 0 && id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_'));
