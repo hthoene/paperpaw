@@ -35,6 +35,9 @@ paperpaw-sdk = { workspace = true, features = ["kernel"] }
 paperpaw-hid.workspace = true
 
 [dev-dependencies]
+paperpaw-plugin-battery = { workspace = true, features = ["linked"] }
+paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
+png = "0.18"
 paperpaw-text.workspace = true
 paperpaw-table.workspace = true
 # Loads a native plugin built apart (tests/native_plugin.rs).
