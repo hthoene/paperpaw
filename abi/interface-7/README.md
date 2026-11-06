@@ -19,8 +19,11 @@ While it is a draft:
   lines are only appended. CI (`tools/abi-reference-check.py`, job "Stable ABI against trusted base") compares
   the reference files with the PR's base and refuses a change without a new line, a line that names another
   draft than `native::DRAFT`, an edited line, a draft that moves back, and an interface that moves back or skips.
-- **Freezing** is the owner's decision: `native::DRAFT` becomes 0, with a last line `0 frozen ... (#...)`. From
-  then on the reference bytes stay as they are, and only a raise to interface 8 changes what plugins see.
+- **Freezing** is the owner's decision. The freeze PR deletes `native::DRAFT` and the line `draft = N` of
+  `interface.txt` without a trace (nothing stays behind as 0), and appends `0 frozen ... (#...)` here. `DRAFT`
+  is hashed into the fingerprint only while it exists, so the frozen interface-7 fingerprint is byte for byte
+  the one it would be without any draft concept, and it refuses every draft's builds. From then on the
+  reference bytes stay as they are, and only a raise to interface 8 changes what plugins see.
 
 The C boundary itself (`abi/abi.def`, `abi/abi.lock`, `abi/generated/`) keeps its own append-only check against
 the trusted base's lock (`tools/abi-check.sh --ci`, the same job). `raise.md` records the rows the raise and the

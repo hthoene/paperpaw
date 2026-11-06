@@ -57,7 +57,7 @@ class Fixture(unittest.TestCase):
 
 
 class FrozenTests(Fixture):
-    files = {reference.SOURCE: source(6, 0)}
+    files = {reference.SOURCE: source(6)}
 
     def test_unchanged_reference_bytes_pass(self):
         self.assertIn('4 frozen interface-6 reference files match', self.check())
@@ -97,9 +97,11 @@ class FrozenTests(Fixture):
                 reference.check(self.root, base)
 
     def test_source_cannot_hide_a_constant_in_an_expression(self):
-        for text in ['pub const INTERFACE: u16 = 3 + 3;\npub const DRAFT: u16 = 0;\n',
+        for text in ['pub const INTERFACE: u16 = 3 + 3;\n',
                      'pub const INTERFACE: u16 = 6;\npub const DRAFT: u16 = 0 + 1;\n',
-                     'pub const INTERFACE: u16 = 6;\n']:
+                     'pub const INTERFACE: u16 = 6;\npub(crate) const DRAFT: u16 = 1;\n',
+                     'pub const INTERFACE: u16 = 6;\npub const DRAFT: u16 = 1;\n'
+                     'pub const DRAFT: u16 = 1;\n']:
             with self.subTest(text=text):
                 self.write(reference.SOURCE, text)
                 with self.assertRaisesRegex(ValueError, 'cannot establish'):
@@ -108,8 +110,7 @@ class FrozenTests(Fixture):
     def test_leading_zeros_do_not_bypass_a_frozen_reference(self):
         for spelling in ('06', '0006'):
             with self.subTest(spelling=spelling):
-                self.write(reference.SOURCE, f'pub const INTERFACE: u16 = {spelling};\n'
-                           'pub const DRAFT: u16 = 0;\n')
+                self.write(reference.SOURCE, f'pub const INTERFACE: u16 = {spelling};\n')
                 self.write(API, 'pub struct Api\n')
                 self.assertIn('reference files match', self.check())
                 self.write(API, 'candidate changed API\n')
@@ -120,10 +121,13 @@ class FrozenTests(Fixture):
         self.write(reference.SOURCE, source(6, 1))
         with self.assertRaisesRegex(ValueError, 'cannot become a draft'):
             self.check()
-        self.write(reference.SOURCE, source(5, 0))
+        self.write(reference.SOURCE, source(6, 0))
+        with self.assertRaisesRegex(ValueError, 'never 0'):
+            self.check()
+        self.write(reference.SOURCE, source(5))
         with self.assertRaisesRegex(ValueError, 'backwards'):
             self.check()
-        self.write(reference.SOURCE, source(8, 1))
+        self.write(reference.SOURCE, source(8))
         with self.assertRaisesRegex(ValueError, 'one at a time'):
             self.check()
 
@@ -177,9 +181,20 @@ class DraftTests(Fixture):
         self.write(reference.SOURCE, source(7, 2))
         with self.assertRaisesRegex(ValueError, 'gains no line'):
             self.check()
-        self.write(reference.SOURCE, source(7, 0))
+        # Freezing deletes DRAFT, and is named with draft 0.
+        self.write(reference.SOURCE, source(7))
+        with self.assertRaisesRegex(ValueError, 'gains no line'):
+            self.check()
         self.write(SEVEN, '1 early raise, draft baseline (#228)\n0 frozen by the owner (#228)\n')
         self.assertIn('blessed as draft 0', self.check())
+        self.commit('frozen')
+        self.base = self.run_git('rev-parse', 'HEAD').decode().strip()
+        self.assertIn('frozen interface-7 reference files match', self.check())
+        self.write(API, 'pub struct Api3\n')
+        self.write(SEVEN, '1 early raise, draft baseline (#228)\n0 frozen by the owner (#228)\n'
+                   '0 after the freeze (#1)\n')
+        with self.assertRaisesRegex(ValueError, 'frozen interface-7 reference changed'):
+            self.check()
 
 
 class LaterDraftTests(Fixture):

@@ -41,14 +41,26 @@ fn a_breaking_bless_that_keeps_the_fingerprint_is_refused_whatever_interface_txt
 fn a_raise_and_what_plugins_built_before_do_not_see_are_blessed() {
     let five = Some(("x86_64", 0x0005_3e32_9406_09b9));
     let six = Fingerprint(0x0006_3e32_9406_09b9);
-    assert_eq!(bless_refused(&kept_at(5, five), true, six, 0, "x86_64"), None);
-    assert_eq!(bless_refused(&kept_at(5, five), true, six, 0, "aarch64"), None);
+    assert_eq!(
+        bless_refused(&kept_at(5, five), true, six, 0, "x86_64"),
+        None
+    );
+    assert_eq!(
+        bless_refused(&kept_at(5, five), true, six, 0, "aarch64"),
+        None
+    );
     let kept = kept_at(6, Some(("x86_64", six.0)));
     assert_eq!(bless_refused(&kept, false, six, 0, "x86_64"), None);
     // Kept before the fingerprint was: the number alone, as before.
-    assert_eq!(bless_refused(&kept_at(5, None), true, six, 0, "x86_64"), None);
+    assert_eq!(
+        bless_refused(&kept_at(5, None), true, six, 0, "x86_64"),
+        None
+    );
     assert!(bless_refused(&kept_at(6, None), true, six, 0, "x86_64").is_some());
-    assert_eq!(bless_refused(&kept_at(6, None), false, six, 0, "x86_64"), None);
+    assert_eq!(
+        bless_refused(&kept_at(6, None), false, six, 0, "x86_64"),
+        None
+    );
 }
 
 /// What `interface.txt` keeps at draft `draft` of interface `n`.
@@ -72,7 +84,10 @@ fn a_draft_changes_only_with_the_next_draft_and_a_frozen_one_never() {
     assert!(bless_refused(&at_one, false, now, 1, "x86_64").is_some());
     assert!(bless_refused(&kept_draft(7, 3, one), true, now, 2, "x86_64").is_some());
     // What plugins do not see changes at the draft kept, as at any interface.
-    assert_eq!(bless_refused(&at_one, false, Fingerprint(one), 1, "x86_64"), None);
+    assert_eq!(
+        bless_refused(&at_one, false, Fingerprint(one), 1, "x86_64"),
+        None
+    );
     // Frozen (no draft kept, or draft 0): only a raise.
     for frozen in [kept_at(7, Some(("x86_64", one))), kept_draft(7, 0, one)] {
         assert!(bless_refused(&frozen, true, now, 1, "x86_64").is_some());
@@ -80,9 +95,17 @@ fn a_draft_changes_only_with_the_next_draft_and_a_frozen_one_never() {
         let eight = Fingerprint(0x0008_0000_0000_0001);
         assert_eq!(bless_refused(&frozen, true, eight, 1, "x86_64"), None);
     }
+    // Frozen, interface.txt keeps no draft line, as before there were drafts.
+    assert_eq!(
+        (draft_line(0), draft_line(2)),
+        (String::new(), "draft = 2\n".into())
+    );
     // The raise of interface 6 to the first draft of 7.
     let six = kept_at(6, Some(("x86_64", 0x0006_3e32_9406_09b9)));
-    assert_eq!(bless_refused(&six, true, Fingerprint(one), 1, "x86_64"), None);
+    assert_eq!(
+        bless_refused(&six, true, Fingerprint(one), 1, "x86_64"),
+        None
+    );
 }
 
 /// Layouts of what crosses that changed while the shapes did not (a

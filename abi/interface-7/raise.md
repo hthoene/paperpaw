@@ -20,6 +20,12 @@ raise happens early on `abi7/integration`, not as the last step of the batch:
 3. The Senior Reviewer reviews the raise PR, in particular that the trusted-base ABI CI (#147/#150) is retargeted
    to the draft-7 baseline, not silently disabled.
 
+**Freeze (Manager condition, 2026-11-06 09:09).** The owner wants no remnants after the freeze: the freeze PR
+deletes `native::DRAFT` and the `draft = N` line of `crates/paperpaw-sdk/interface.txt` completely (nothing
+stays behind as 0). `DRAFT` is hashed into the fingerprint only while it is not 0, so the frozen interface-7
+fingerprint is byte for byte the one without any draft concept. The freeze PR also replaces the interface
+test's import of `DRAFT` with 0 and appends `0 frozen ... (#...)` to `blessings.txt`.
+
 **Split (Manager decision, 2026-11-06 08:29).** The early raise applies **row 1 only**, so that the 13
 hyphenation data plugins (PR #164) install. Row 2 follows directly as the first named re-bless, with its own
 review; until it lands those plugins load, but their languages are not used on a page. Rows 3 and 4 follow as

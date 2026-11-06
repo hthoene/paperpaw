@@ -30,8 +30,9 @@
 //! Until the owner freezes it, an interface is a draft (`native::DRAFT`,
 //! `draft` in `interface.txt`): what plugins rely on may then change
 //! without a new interface, but only with the next draft, which is in the
-//! fingerprint, so builds of an earlier draft are refused. Freezing sets it
-//! to 0, and from then on only a raise changes what plugins rely on.
+//! fingerprint, so builds of an earlier draft are refused. Freezing deletes
+//! `native::DRAFT` and the line (this test then takes 0, frozen), and from
+//! then on only a raise changes what plugins rely on.
 
 #![allow(
     clippy::unwrap_used,
@@ -104,14 +105,25 @@ fn now() -> Option<String> {
          # without native::INTERFACE raised. Written by `PAPERPAW_BLESS=1\n\
          # cargo test -p paperpaw-sdk --test interface`.\n\
          interface = {INTERFACE}\n\
-         draft = {DRAFT}\n\
+         {}\
          linker = {:016x}\n\
          x4 = rustc {x4}\n\
          x4-pro = esp {esp}\n\
          android = rustc {android}\n\
          third-party = {third}\n",
+        draft_line(DRAFT),
         fnv(&linker)
     ))
+}
+
+/// The line `interface.txt` keeps of draft `draft`: none once frozen (0),
+/// as before there were drafts.
+fn draft_line(draft: u16) -> String {
+    if draft == 0 {
+        String::new()
+    } else {
+        format!("draft = {draft}\n")
+    }
 }
 
 /// The fingerprint plugins of this build fit, as `interface.txt` keeps it:
@@ -171,7 +183,7 @@ fn layouts_changed(kept: &str, now: Fingerprint, arch: &str) -> bool {
 ///
 /// At the interface kept, such a change is a bless only while it is a
 /// draft (`kept` says a `draft` other than 0) and `draft` is the next
-/// draft, or 0 (frozen): both change the fingerprint, so builds of the
+/// draft, or 0 (frozen: `DRAFT` deleted): both change the fingerprint, so builds of the
 /// draft kept are refused. A frozen interface never goes back to a draft.
 fn bless_refused(
     kept: &str,

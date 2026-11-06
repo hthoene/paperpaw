@@ -6,16 +6,18 @@ The reference files are `crates/paperpaw-sdk/interface.txt` and the folder
 trusted base (the PR's base, or the commit before a push):
 
 - `native::INTERFACE` never moves back and is raised by one at most;
-- a frozen interface (`native::DRAFT` 0 at the base) keeps its reference
-  bytes and file set exactly, and never becomes a draft again;
-- a draft (`DRAFT` other than 0) moves on to a higher draft or to 0
-  (frozen), never back;
+- a frozen interface (no `native::DRAFT`: freezing deletes it, and an
+  interface from before drafts has none) keeps its reference bytes and file
+  set exactly, and never becomes a draft again;
+- a draft (`DRAFT`, never 0) moves on to a higher draft or is frozen,
+  never back;
 - every raise, and every change of a draft's reference files or of
   `DRAFT`, is named: `abi/interface-<N>/blessings.txt` keeps the base's
   lines as they were and gains at least one, and its last line names the
   candidate's draft.
 
-A blessing line is `<draft> <what changed> (#<ticket or PR>)`; lines that
+A blessing line is `<draft> <what changed> (#<ticket or PR>)`, with draft 0
+for the freeze; lines that
 start with `#` and blank lines are comments. This supplements the
 candidate's semantic compatibility checks (`tools/abi-check.sh`, the SDK's
 interface test). It does not establish caller provenance or defend against
@@ -31,6 +33,7 @@ DIRECTORY = 'crates/paperpaw-sdk/interface'
 SUMMARY = 'crates/paperpaw-sdk/interface.txt'
 VERSION = re.compile(rb'^pub const INTERFACE: u16 = ([0-9]+);$', re.M)
 DRAFT = re.compile(rb'^pub const DRAFT: u16 = ([0-9]+);$', re.M)
+DRAFT_NAMED = re.compile(rb'\bconst\s+DRAFT\b')
 ENTRY = re.compile(r'([0-9]+) \S.* \(#[0-9]+\)')
 
 
@@ -42,13 +45,21 @@ def blessings_path(interface):
     return f'abi/interface-{interface}/blessings.txt'
 
 
-def constant(pattern, text, name, missing=None):
+def constant(pattern, text, name):
     found = pattern.findall(text)
-    if not found and missing is not None:
-        return missing
     if len(found) != 1:
         raise ValueError('cannot establish native::' + name)
     return int(found[0])
+
+
+def draft_of(text):
+    """`native::DRAFT`, 0 where there is none (frozen); never one in an expression."""
+    if not DRAFT_NAMED.search(text):
+        return 0
+    draft = constant(DRAFT, text, 'DRAFT')
+    if draft == 0:
+        raise ValueError('native::DRAFT is never 0: freezing deletes it')
+    return draft
 
 
 def entries(text):
@@ -107,10 +118,9 @@ def check(root, base):
     source = (root / SOURCE).read_bytes()
     trusted_source = git(root, 'show', base + ':' + SOURCE)
     interface = constant(VERSION, source, 'INTERFACE')
-    draft = constant(DRAFT, source, 'DRAFT')
+    draft = draft_of(source)
     base_interface = constant(VERSION, trusted_source, 'INTERFACE')
-    # Before drafts existed, every interface was frozen.
-    base_draft = constant(DRAFT, trusted_source, 'DRAFT', missing=0)
+    base_draft = draft_of(trusted_source)
     if interface < base_interface:
         raise ValueError('native::INTERFACE cannot move backwards')
     if interface > base_interface + 1:

@@ -59,11 +59,13 @@ pub use paperpaw_native::{Chip, HEADER_LEN, Header, Problem, Signature};
 pub const INTERFACE: u16 = 7;
 
 /// The draft of [`INTERFACE`] this build is, while the owner has not frozen
-/// it; 0 once frozen. A draft may change what plugins see without a new
-/// interface, but each such change takes the next draft, and the draft is
-/// part of [`FINGERPRINT`]: a plugin built for an earlier draft is refused,
-/// never loaded. Freezing sets it to 0, which refuses every draft's builds
-/// too. `crates/paperpaw-sdk/interface.txt` keeps it as `draft`.
+/// it. A draft may change what plugins see without a new interface, but
+/// each such change takes the next draft, and the draft is part of
+/// [`FINGERPRINT`]: a plugin built for an earlier draft is refused, never
+/// loaded. `crates/paperpaw-sdk/interface.txt` keeps it as `draft`.
+/// Freezing deletes this constant and that line: the fingerprint is then
+/// made as if there had never been drafts, and refuses every draft's
+/// builds too.
 pub const DRAFT: u16 = 1;
 
 /// The crates whose types cross between a plugin and PaperPaw, by the
@@ -119,7 +121,11 @@ pub const FINGERPRINT: Fingerprint = Fingerprint::of(INTERFACE, {
     // in colour, and plugins built without it run there.
     hash = hash.number(paperpaw_text::OUTLINES as u64);
     hash = hash.number(layout::DIGEST);
-    hash = hash.number(DRAFT as u64);
+    // Only while a draft: a frozen interface's fingerprint is made as if
+    // there had never been drafts (freezing deletes `DRAFT`).
+    if DRAFT != 0 {
+        hash = hash.number(DRAFT as u64);
+    }
     hash.0
 });
 

@@ -22,7 +22,7 @@ change the plugin SDK.
 - Generated optional event/draw callback tails, bounded table readers and callback
   minor requirements for the interface-7 prototype (#228). No live dispatch yet.
 - `native::DRAFT`: the draft of the plugin interface, part of `native::FINGERPRINT`, so a plugin built for
-  an earlier draft is refused; 0 once the owner freezes the interface (#228).
+  an earlier draft is refused. Freezing the interface (the owner's decision) deletes it (#228).
 
 ### Changed
 

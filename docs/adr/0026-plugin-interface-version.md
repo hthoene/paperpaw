@@ -287,15 +287,18 @@ spend a number per change; keeping the number with a bless of a change
 plugins rely on is what the amendment above refuses. So an interface has
 drafts:
 
-- `native::DRAFT` (a `u16`) is the draft of `native::INTERFACE`, 0 once
-  frozen. It is hashed into `native::FINGERPRINT` like the layouts: a
-  plugin built for another draft does not fit and is refused, never
-  loaded (`Fingerprint::misfit` says so). `interface.txt` keeps it as
-  `draft`.
+- `native::DRAFT` (a `u16`, from 1) is the draft of `native::INTERFACE`.
+  It is hashed into `native::FINGERPRINT` like the layouts: a plugin
+  built for another draft does not fit and is refused, never loaded
+  (`Fingerprint::misfit` says so). `interface.txt` keeps it as `draft`.
+- Freezing deletes `native::DRAFT` and the `draft` line without a trace.
+  It is hashed only while it is not 0, so the frozen fingerprint is the
+  one the interface would have without drafts, and differs from every
+  draft's: their builds are refused.
 - At the interface kept, a bless of a change plugins rely on is refused
-  unless the draft kept is not 0 and `DRAFT` is a higher draft, or 0
+  unless a draft is kept and `DRAFT` is a higher draft, or gone
   (frozen). A frozen interface never becomes a draft again: only a raise
-  changes it. A raise may start at any draft.
+  changes it. A raise may start at a draft or frozen.
 - Every raise, re-bless of a draft and freeze is named in
   `abi/interface-<N>/blessings.txt`, a line `<draft> <what changed>
   (#<ticket>)`, only appended. CI (`tools/abi-reference-check.py`)
@@ -303,5 +306,4 @@ drafts:
   the interface never moves back or skips, a frozen interface's files
   stay byte for byte, a draft never moves back, and a change without a
   new line naming the candidate's draft is refused.
-- Freezing is the owner's decision and sets `DRAFT` to 0, which refuses
-  every draft's builds once more.
+- Freezing is the owner's decision, named with draft 0.
