@@ -58,8 +58,8 @@ const _: () = assert!(super::registrations::REGISTRATION_MAX_RECORDS <= 8);
 /// Sorts `items` by `key`, unstable, in place, without recursion or extra
 /// memory: a heap sort. The standard library's unstable sort is a large
 /// generic that every item type instantiates again (about 6 KB of the X4's
-/// flash for the name index alone); the lists here are at most a few hundred
-/// entries, where a heap sort's `O(n log n)` costs nothing noticeable.
+/// flash for the name index alone). A heap sort is `O(n log n)` in time; the
+/// lists here are bounded by the per-plugin declaration limits.
 pub(crate) fn sort_by_key<T, K: Ord>(items: &mut [T], key: impl Fn(&T) -> K) {
     let len = items.len();
     for start in (0..len / 2).rev() {
