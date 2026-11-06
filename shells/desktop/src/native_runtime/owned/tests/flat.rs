@@ -344,7 +344,7 @@ fn update_and_uninstall_unmap_each_copy_only_after_its_release() {
     drop(old);
     assert_eq!(
         mapped_copies("flatupdate"),
-        [new_copy.clone()],
+        std::slice::from_ref(&new_copy),
         "the old copy is unmapped by its own release, the new one stays"
     );
     assert_eq!(
