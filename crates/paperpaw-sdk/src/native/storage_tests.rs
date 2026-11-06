@@ -109,15 +109,18 @@ fn every_slot_forwards_root_paths_buffers_and_status() {
         table: &table,
         ctx: ptr::from_mut(&mut ctx).cast(),
     };
-    assert_eq!(size(&host, 0, "log.csv"), Ok(u64::MAX));
+    assert_eq!(size(&host, Root::Data, "log.csv"), Ok(u64::MAX));
     ctx.count.set(2);
     let mut out = [0; 5];
-    assert_eq!(read_at(&host, 1, "book.epub", u64::MAX, &mut out), Ok(2));
+    assert_eq!(
+        read_at(&host, Root::Files, "book.epub", u64::MAX, &mut out),
+        Ok(2)
+    );
     assert_eq!(out, [42, 42, 0, 0, 0]);
-    write(&host, 0, ".hidden/a", b"new").unwrap();
-    append(&host, 0, "log.csv", b"").unwrap();
-    rename(&host, 0, "new", "old").unwrap();
-    remove(&host, 0, "old").unwrap();
+    write(&host, Root::Data, ".hidden/a", b"new").unwrap();
+    append(&host, Root::Data, "log.csv", b"").unwrap();
+    rename(&host, Root::Data, "new", "old").unwrap();
+    remove(&host, Root::Data, "old").unwrap();
     sync(&host).unwrap();
     assert_eq!(
         *ctx.calls.borrow(),
@@ -132,11 +135,11 @@ fn every_slot_forwards_root_paths_buffers_and_status() {
         ]
     );
     ctx.result.set(abi::ERR_FULL);
-    assert_eq!(append(&host, 0, "log", b"x"), Err(Error::Full));
+    assert_eq!(append(&host, Root::Data, "log", b"x"), Err(Error::Full));
     ctx.result.set(abi::ERR_IO);
     assert_eq!(sync(&host), Err(Error::Io));
     ctx.result.set(abi::ERR_NOT_FOUND);
-    assert_eq!(size(&host, 0, "missing"), Err(Error::NotFound));
+    assert_eq!(size(&host, Root::Data, "missing"), Err(Error::NotFound));
 }
 
 #[test]
@@ -150,22 +153,34 @@ fn invalid_input_is_refused_before_any_host_call() {
     for path in [
         "", "/x", "x/", "a//b", "..", "a/../b", "a\\b", "a:b", "NUL", "a.", "a ", "a\n",
     ] {
-        assert_eq!(size(&host, 0, path), Err(Error::Invalid));
-        assert_eq!(rename(&host, 0, "valid", path), Err(Error::Invalid));
+        assert_eq!(size(&host, Root::Data, path), Err(Error::Invalid));
+        assert_eq!(
+            rename(&host, Root::Data, "valid", path),
+            Err(Error::Invalid)
+        );
     }
-    assert_eq!(size(&host, 0, "a".repeat(256)), Err(Error::NoSpace));
-    assert_eq!(size(&host, 0, "a/".repeat(257)), Err(Error::NoSpace));
-    assert_eq!(size(&host, 0, "é".repeat(128)), Err(Error::NoSpace));
     assert_eq!(
-        append(&host, 0, "a", &[0; MAX_DATA + 1]),
+        size(&host, Root::Data, "a".repeat(256)),
         Err(Error::NoSpace)
     );
     assert_eq!(
-        write(&host, 0, "a", &[0; MAX_DATA + 1]),
+        size(&host, Root::Data, "a/".repeat(257)),
         Err(Error::NoSpace)
     );
     assert_eq!(
-        read_at(&host, 0, "a", 0, &mut [0; MAX_DATA + 1]),
+        size(&host, Root::Data, "é".repeat(128)),
+        Err(Error::NoSpace)
+    );
+    assert_eq!(
+        append(&host, Root::Data, "a", &[0; MAX_DATA + 1]),
+        Err(Error::NoSpace)
+    );
+    assert_eq!(
+        write(&host, Root::Data, "a", &[0; MAX_DATA + 1]),
+        Err(Error::NoSpace)
+    );
+    assert_eq!(
+        read_at(&host, Root::Data, "a", 0, &mut [0; MAX_DATA + 1]),
         Err(Error::NoSpace)
     );
     assert!(ctx.calls.borrow().is_empty());
@@ -182,15 +197,21 @@ fn caps_empty_buffers_eof_and_invalid_host_counts() {
     let path = alloc::format!("{}/{}/", "a".repeat(255), "b".repeat(254));
     let path = alloc::format!("{}c", &path[..511]);
     assert_eq!(path.len(), MAX_PATH);
-    assert_eq!(size(&host, 7, path), Ok(u64::MAX));
-    write(&host, 0, "a", &[1; MAX_DATA]).unwrap();
-    write(&host, 0, "a", b"").unwrap();
-    assert_eq!(read_at(&host, 0, "a", 0, &mut []), Ok(0));
-    assert_eq!(read_at(&host, 0, "a", 0, &mut [0; 3]), Ok(0));
+    assert_eq!(size(&host, Root::Files, path), Ok(u64::MAX));
+    write(&host, Root::Data, "a", &[1; MAX_DATA]).unwrap();
+    write(&host, Root::Data, "a", b"").unwrap();
+    assert_eq!(read_at(&host, Root::Data, "a", 0, &mut []), Ok(0));
+    assert_eq!(read_at(&host, Root::Data, "a", 0, &mut [0; 3]), Ok(0));
     ctx.count.set(4);
-    assert_eq!(read_at(&host, 0, "a", 0, &mut [0; 3]), Err(Error::Invalid));
+    assert_eq!(
+        read_at(&host, Root::Data, "a", 0, &mut [0; 3]),
+        Err(Error::Invalid)
+    );
     ctx.count.set(abi::ERR_STATE);
-    assert_eq!(read_at(&host, 0, "a", 0, &mut [0; 3]), Err(Error::State));
+    assert_eq!(
+        read_at(&host, Root::Data, "a", 0, &mut [0; 3]),
+        Err(Error::State)
+    );
 }
 
 #[test]
@@ -201,14 +222,17 @@ fn default_table_refuses_all_storage_operations() {
         table: &table,
         ctx: ptr::from_mut(&mut ctx).cast(),
     };
-    assert_eq!(size(&host, 0, "x"), Err(Error::Unsupported));
+    assert_eq!(size(&host, Root::Data, "x"), Err(Error::Unsupported));
     assert_eq!(
-        read_at(&host, 0, "x", 0, &mut [0; 1]),
+        read_at(&host, Root::Data, "x", 0, &mut [0; 1]),
         Err(Error::Unsupported)
     );
-    assert_eq!(write(&host, 0, "x", b"a"), Err(Error::Unsupported));
-    assert_eq!(append(&host, 0, "x", b"a"), Err(Error::Unsupported));
-    assert_eq!(rename(&host, 0, "x", "y"), Err(Error::Unsupported));
-    assert_eq!(remove(&host, 0, "x"), Err(Error::Unsupported));
+    assert_eq!(write(&host, Root::Data, "x", b"a"), Err(Error::Unsupported));
+    assert_eq!(
+        append(&host, Root::Data, "x", b"a"),
+        Err(Error::Unsupported)
+    );
+    assert_eq!(rename(&host, Root::Data, "x", "y"), Err(Error::Unsupported));
+    assert_eq!(remove(&host, Root::Data, "x"), Err(Error::Unsupported));
     assert_eq!(sync(&host), Err(Error::Unsupported));
 }

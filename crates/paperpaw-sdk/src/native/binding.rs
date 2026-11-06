@@ -123,7 +123,10 @@ impl fmt::Debug for Host<'_> {
 }
 
 /// A flat native plugin. The host admits callbacks exclusively and retains the
-/// table and context until destruction. Use [`crate::native_plugin!`] to export it.
+/// table and context until destruction. Drop has no host access; the host's
+/// owner teardown releases outstanding handles. Perform host calls needed for
+/// saving in the stopping event, before teardown. Use [`crate::native_plugin!`]
+/// to export the plugin.
 pub trait Plugin: Sized + 'static {
     /// Construct the instance and submit its registrations through the host.
     ///

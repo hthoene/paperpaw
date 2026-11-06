@@ -3147,16 +3147,19 @@ pub fn paperpaw_sdk::native::keys::rotation_message(&str, &[u8; 32], &[u8; 32]) 
 pub mod paperpaw_sdk::native::registrations
 pub fn paperpaw_sdk::native::registrations::submit(&paperpaw_sdk::native::Host<'_>, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::storage
+#[non_exhaustive] pub enum paperpaw_sdk::native::storage::Root
+pub paperpaw_sdk::native::storage::Root::Data
+pub paperpaw_sdk::native::storage::Root::Files
 pub const paperpaw_sdk::native::storage::MAX_DATA: usize
 pub const paperpaw_sdk::native::storage::MAX_PATH: usize
 pub const paperpaw_sdk::native::storage::MAX_SEGMENT: usize
-pub fn paperpaw_sdk::native::storage::append(&paperpaw_sdk::native::Host<'_>, u32, impl core::convert::AsRef<str>, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::storage::read_at(&paperpaw_sdk::native::Host<'_>, u32, impl core::convert::AsRef<str>, u64, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::storage::remove(&paperpaw_sdk::native::Host<'_>, u32, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::storage::rename(&paperpaw_sdk::native::Host<'_>, u32, impl core::convert::AsRef<str>, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::storage::size(&paperpaw_sdk::native::Host<'_>, u32, impl core::convert::AsRef<str>) -> core::result::Result<u64, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::storage::append(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::storage::read_at(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>, u64, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::storage::remove(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::storage::rename(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::storage::size(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>) -> core::result::Result<u64, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::storage::sync(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::storage::write(&paperpaw_sdk::native::Host<'_>, u32, impl core::convert::AsRef<str>, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::storage::write(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 #[non_exhaustive] pub enum paperpaw_sdk::native::Author
 pub paperpaw_sdk::native::Author::Known
 pub paperpaw_sdk::native::Author::New

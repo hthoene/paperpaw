@@ -217,3 +217,37 @@ fn what_the_builder_refuses_the_host_would_refuse() {
             .is_err()
     );
 }
+
+#[test]
+fn ignored_builder_refusal_aborts_host_construction() {
+    use paperpaw_core::native_host::{
+        HostOwner,
+        registration_scope::RegistrationScope,
+        registrations::{self, Registration},
+    };
+    use paperpaw_sdk::native::declare::DeclareError;
+    let owner = Box::pin(HostOwner::new(RegistrationScope::<Registration>::new(), ()));
+    let slot = owner.as_ref().context();
+    let mut construction = owner.as_ref().begin(PLUGIN).unwrap();
+    let mut calls = 0;
+    slot.scope(&mut construction, || {
+        let mut builder = Declarations::new(|bytes: &[u8]| {
+            calls += 1;
+            assert!(bytes.is_empty(), "pending valid records must not escape");
+            // SAFETY: bytes remains readable for the synchronous submission.
+            let status = unsafe { registrations::submit(&slot, bytes.as_ptr(), bytes.len()) };
+            assert_eq!(status, ERR_INVALID);
+            Err(status)
+        });
+        builder
+            .group(GroupDecl::new("page", "weather.page"))
+            .unwrap();
+        let _ = builder.group(GroupDecl::new("bad", ""));
+        assert_eq!(builder.submit(), Err(DeclareError::Empty("group title")));
+        assert_eq!(builder.submit(), Err(DeclareError::Empty("group title")));
+        // Simulate make ignoring every returned error.
+    })
+    .unwrap();
+    assert_eq!(calls, 1);
+    assert!(construction.commit(|_| ()).is_err());
+}

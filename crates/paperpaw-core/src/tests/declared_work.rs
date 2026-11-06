@@ -771,3 +771,57 @@ fn plugins_know_whether_the_reader_is_waiting() {
     kernel.tick(Instant(10));
     assert_eq!(*log.borrow(), ["reader true", "reader false"]);
 }
+
+#[test]
+fn stored_work_notes_cut_at_utf8_boundaries() {
+    let mut kernel = Kernel::builder(DEVICE).build().unwrap();
+    let owner = Id::new_static("wk");
+    for (text, expected) in [
+        ("a".repeat(256), "a".repeat(256)),
+        (alloc::format!("{}é!", "a".repeat(255)), "a".repeat(255)),
+        (alloc::format!("{}🦊!", "a".repeat(254)), "a".repeat(254)),
+        (String::with_capacity(4096), String::new()),
+        ("a".repeat(4096), "a".repeat(256)),
+        (String::new(), String::new()),
+    ] {
+        kernel.shared.set_work_note(
+            owner.clone(),
+            paperpaw_sdk::work::Note::new(Instant(42), text),
+        );
+        let note = kernel.shared.work_states.note(&owner).unwrap();
+        assert_eq!(note.text, expected);
+        assert!(note.text.capacity() <= 256);
+        assert_eq!(note.at, Instant(42));
+    }
+}
+
+#[test]
+fn global_usage_counters_saturate() {
+    let mut kernel = Kernel::builder(DEVICE).build().unwrap();
+    kernel.shared.usage.inputs = u32::MAX;
+    kernel.shared.usage.sleeps = u32::MAX;
+    kernel.shared.usage.panel_ms = u64::MAX;
+    kernel.shared.usage.pixels = u64::MAX;
+    kernel.shared.usage.refreshes =
+        paperpaw_sdk::usage::Refreshes::new(u32::MAX, u32::MAX, u32::MAX);
+    kernel.handle(
+        Instant(1),
+        InputEvent::Button {
+            name: "next",
+            state: ButtonState::Pressed,
+        },
+    );
+    kernel.panel_busy(1);
+    kernel.suspend(Instant(2));
+    for mode in [RefreshMode::Fast, RefreshMode::Partial, RefreshMode::Full] {
+        kernel.shared.usage.refreshed(mode, Rect::new(0, 0, 1, 1));
+    }
+    assert_eq!(kernel.shared.usage.inputs, u32::MAX);
+    assert_eq!(kernel.shared.usage.sleeps, u32::MAX);
+    assert_eq!(kernel.shared.usage.panel_ms, u64::MAX);
+    assert_eq!(kernel.shared.usage.pixels, u64::MAX);
+    assert_eq!(
+        kernel.shared.usage.refreshes,
+        paperpaw_sdk::usage::Refreshes::new(u32::MAX, u32::MAX, u32::MAX)
+    );
+}

@@ -123,8 +123,9 @@ Sizes:
 - A tag 52 record is 16 bytes of fields, 19 bytes with its framing.
 - [D] `shown_ms`, `read`, `written` and `awake_ms` are **`u64` on the wire** (Senior #811 item 5), so the
   interface never fixes the kernel's narrow `u32` for good. That costs 16 bytes a row. The kernel's tables stay
-  `u32` to save memory, and the host widens when it encodes. While the kernel saturates at `u32::MAX`, a
-  value of exactly 4,294,967,295 in these fields means "at least this much". A later kernel may count wider
+  `u32` to save memory, and the host widens when it encodes. These counters saturate at a host limit
+  of at least `u32::MAX` (today exactly `u32::MAX`). A reader cannot distinguish an exact value from a
+  saturated one and treats a value that stops growing as a lower bound. A later kernel may count wider
   with no change to the interface.
 
 ### 2.3 Meaning, units and overflow of every field

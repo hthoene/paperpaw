@@ -8,20 +8,46 @@ use paperpaw_native::host_glue::{MAJOR, MINOR, PpBytes, PpEntry, PpHost, PpPlugi
 #[repr(transparent)]
 pub struct Entry(PpEntry);
 impl Entry {
-    /// Create an immutable export with the plugin's static metadata bytes.
+    /// Construct the macro's export, checking that its derived minor matches
+    /// the validated metadata. Invalid records return None without panicking.
     #[must_use]
-    pub const fn new<T: Plugin>(metadata: &'static [u8]) -> Self {
-        Self(PpEntry {
-            size: mem::size_of::<PpEntry>() as u32,
-            abi_major: MAJOR,
-            needs_minor: MINOR,
-            metadata: PpBytes {
-                ptr: metadata.as_ptr(),
-                len: metadata.len(),
-            },
-            make: Some(make::<T>),
-        })
+    pub const fn new<T: Plugin, const NEEDS_MINOR: u16>(metadata: &'static [u8]) -> Option<Self> {
+        match metadata_minor(metadata) {
+            Some(minor) if minor == NEEDS_MINOR => Some(Self(PpEntry {
+                size: mem::size_of::<PpEntry>() as u32,
+                abi_major: MAJOR,
+                needs_minor: minor,
+                metadata: PpBytes {
+                    ptr: metadata.as_ptr(),
+                    len: metadata.len(),
+                },
+                make: Some(make::<T, NEEDS_MINOR>),
+            })),
+            _ => None,
+        }
     }
+}
+
+/// Validate the generated layout-2 prefix for the export macro. The metadata's
+/// declared minor, not the SDK's current minor, controls host admission.
+#[must_use]
+pub const fn metadata_minor(bytes: &[u8]) -> Option<u16> {
+    if bytes.len() < 32 {
+        return None;
+    }
+    if bytes[0] != b'P'
+        || bytes[1] != b'P'
+        || bytes[2] != b'A'
+        || bytes[3] != b'M'
+        || u16::from_le_bytes([bytes[4], bytes[5]]) != 2
+        || u16::from_le_bytes([bytes[6], bytes[7]]) != 32
+        || u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize != bytes.len()
+        || u16::from_le_bytes([bytes[12], bytes[13]]) != MAJOR
+    {
+        return None;
+    }
+    let minor = u16::from_le_bytes([bytes[14], bytes[15]]);
+    if minor > MINOR { None } else { Some(minor) }
 }
 // SAFETY: macro exports point only to immutable static metadata and code.
 unsafe impl Sync for Entry {}
@@ -44,7 +70,7 @@ struct State<T> {
 /// A non-null host exposes its size header and the claimed bytes, aligned for
 /// PpHost. Context and table outlive destruction. Output is writable, aligned
 /// and disjoint from them. Host allocation obeys the allocator contract.
-pub(super) unsafe extern "C" fn make<T: Plugin>(
+pub(super) unsafe extern "C" fn make<T: Plugin, const NEEDS_MINOR: u16>(
     host: *const PpHost,
     ctx: *mut c_void,
     out: *mut *const PpPlugin,
@@ -58,7 +84,7 @@ pub(super) unsafe extern "C" fn make<T: Plugin>(
     }
     // SAFETY: size was checked before forming a reference to the full table.
     let table = unsafe { &*host };
-    if table.major != MAJOR || table.minor < MINOR {
+    if table.major != MAJOR || table.minor < NEEDS_MINOR {
         return ERR_UNSUPPORTED;
     }
     if mem::align_of::<State<T>>() > MAX_ALIGN {
@@ -109,6 +135,8 @@ pub(super) unsafe extern "C" fn make<T: Plugin>(
     OK
 }
 
+/// # Safety
+/// The host enforces reentry deny: no callback re-enters this same instance.
 unsafe extern "C" fn event<T: Plugin>(state: *mut c_void, token: u32, input: PpBytes) -> i32 {
     if state.is_null() || input.len > 4096 || (input.len != 0 && input.ptr.is_null()) {
         return ERR_INVALID;
@@ -132,6 +160,8 @@ unsafe extern "C" fn event<T: Plugin>(state: *mut c_void, token: u32, input: PpB
         .map_or_else(Error::status, |()| OK)
 }
 
+/// # Safety
+/// The host enforces reentry deny: no callback re-enters this same instance.
 unsafe extern "C" fn draw<T: Plugin>(state: *mut c_void, token: u32) -> i32 {
     if state.is_null() {
         return ERR_INVALID;
@@ -177,12 +207,56 @@ unsafe fn free<T>(host: *const PpHost, ctx: *mut c_void, block: *mut c_void) {
     }
 }
 
-/// Export a flat interface-7 plugin with immutable generated metadata.
+/// Export a flat interface-7 plugin with generated metadata bytes. The macro
+/// emits both required symbols in the platform linker sections. A malformed
+/// prefix or metadata requiring a newer SDK minor fails at compile time.
+///
+/// ```compile_fail
+/// use paperpaw_sdk::native::{Plugin, Host, Error};
+/// struct P;
+/// impl Plugin for P {
+///     fn make(_: &Host<'_>) -> Result<Self, Error> { Err(Error::Unsupported) }
+/// }
+/// // A different ABI major cannot be exported.
+/// paperpaw_sdk::native_plugin!(P, metadata = b"PPAM\x02\0\x20\0\x20\0\0\0\x08\0\x01\0\x01\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
+/// ```
+/// ```compile_fail
+/// use paperpaw_sdk::native::{Plugin, Host, Error};
+/// struct P;
+/// impl Plugin for P {
+///     fn make(_: &Host<'_>) -> Result<Self, Error> { Err(Error::Unsupported) }
+/// }
+/// // A minor beyond this SDK cannot be exported.
+/// paperpaw_sdk::native_plugin!(P, metadata = b"PPAM\x02\0\x20\0\x20\0\0\0\x07\0\xff\xff\x01\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
+/// ```
 #[macro_export]
 macro_rules! native_plugin {
     ($ty:ty, metadata = $metadata:expr) => {
+        #[used]
         #[unsafe(no_mangle)]
-        pub static PAPERPAW_ENTRY: $crate::native::__entry::Entry =
-            $crate::native::__entry::Entry::new::<$ty>($metadata);
+        #[unsafe(link_section = ".rodata.paperpaw_metadata")]
+        pub static PAPERPAW_METADATA: [u8; ($metadata).len()] = {
+            let source: &[u8] = $metadata;
+            let mut bytes = [0; ($metadata).len()];
+            let mut i = 0;
+            while i < source.len() {
+                bytes[i] = source[i];
+                i += 1;
+            }
+            bytes
+        };
+        #[used]
+        #[unsafe(no_mangle)]
+        #[unsafe(link_section = ".rodata.paperpaw_entry")]
+        pub static PAPERPAW_ENTRY: $crate::native::__entry::Entry = {
+            const MINOR: u16 = match $crate::native::__entry::metadata_minor($metadata) {
+                Some(minor) => minor,
+                None => panic!("invalid interface-7 metadata prefix"),
+            };
+            match $crate::native::__entry::Entry::new::<$ty, MINOR>(&PAPERPAW_METADATA) {
+                Some(entry) => entry,
+                None => panic!("invalid interface-7 entry metadata"),
+            }
+        };
     };
 }
