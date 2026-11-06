@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
 use super::*;
-use abi::{OK, PpBytes, PpPlugin};
+use abi::{OK, PpBuffer, PpBytes, PpPlugin};
 use alloc::rc::Rc;
 use core::cell::Cell;
 use core::{alloc::Layout, mem, ptr};
@@ -127,11 +127,12 @@ fn macro_entry_dispatches_and_drops_with_the_matching_host_allocator() {
                 PpBytes {
                     ptr: b"event".as_ptr(),
                     len: 5
-                }
+                },
+                no_reply()
             ),
             OK
         );
-        assert_eq!(p.draw.unwrap()(p.state, 43), abi::ERR_BUSY);
+        assert_eq!(p.draw.unwrap()(p.state, 43, empty()), abi::ERR_BUSY);
         assert_eq!(
             p.dispatch_event.unwrap()(
                 p.state,
@@ -139,7 +140,8 @@ fn macro_entry_dispatches_and_drops_with_the_matching_host_allocator() {
                 PpBytes {
                     ptr: ptr::null(),
                     len: 1
-                }
+                },
+                no_reply()
             ),
             abi::ERR_INVALID
         );
@@ -147,14 +149,19 @@ fn macro_entry_dispatches_and_drops_with_the_matching_host_allocator() {
             p.dispatch_event.unwrap()(
                 p.state,
                 42,
+                // N7: no fixed cap, only length consistency.
                 PpBytes {
                     ptr: b"x".as_ptr(),
-                    len: 4097
-                }
+                    len: usize::MAX
+                },
+                no_reply()
             ),
             abi::ERR_INVALID
         );
-        assert_eq!(p.draw.unwrap()(ptr::null_mut(), 43), abi::ERR_INVALID);
+        assert_eq!(
+            p.draw.unwrap()(ptr::null_mut(), 43, empty()),
+            abi::ERR_INVALID
+        );
         assert_eq!(
             p.dispatch_event.unwrap()(
                 ptr::null_mut(),
@@ -162,7 +169,8 @@ fn macro_entry_dispatches_and_drops_with_the_matching_host_allocator() {
                 PpBytes {
                     ptr: ptr::null(),
                     len: 0
-                }
+                },
+                no_reply()
             ),
             abi::ERR_INVALID
         );
@@ -404,4 +412,18 @@ fn invalid_metadata_prefixes_return_none_without_panicking() {
         assert_eq!(entry::metadata_minor(&bytes), None);
     }
     assert!(entry::Entry::new::<TestPlugin, 0>(TEST_METADATA).is_none());
+}
+
+fn no_reply() -> PpBuffer {
+    PpBuffer {
+        ptr: ptr::NonNull::dangling().as_ptr(),
+        cap: 0,
+    }
+}
+
+fn empty() -> PpBytes {
+    PpBytes {
+        ptr: ptr::NonNull::dangling().as_ptr(),
+        len: 0,
+    }
 }

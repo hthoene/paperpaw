@@ -2,7 +2,7 @@
 use super::{Error, Host, Plugin, status};
 use core::{ffi::c_void, mem, ptr};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED, MAX_ALIGN, OK};
-use paperpaw_native::host_glue::{MAJOR, MINOR, PpBytes, PpEntry, PpHost, PpPlugin};
+use paperpaw_native::host_glue::{MAJOR, MINOR, PpBuffer, PpBytes, PpEntry, PpHost, PpPlugin};
 
 /// Immutable entry export; metadata and function addresses live with the module.
 #[repr(transparent)]
@@ -127,6 +127,8 @@ pub(super) unsafe extern "C" fn make<T: Plugin, const NEEDS_MINOR: u16>(
                 drop: Some(destroy::<T>),
                 dispatch_event: Some(event::<T>),
                 draw: Some(draw::<T>),
+                // Screens and input come with the draft-5 facades (#902).
+                input: None,
             },
             value,
         });
@@ -137,8 +139,19 @@ pub(super) unsafe extern "C" fn make<T: Plugin, const NEEDS_MINOR: u16>(
 
 /// # Safety
 /// The host enforces reentry deny: no callback re-enters this same instance.
-unsafe extern "C" fn event<T: Plugin>(state: *mut c_void, token: u32, input: PpBytes) -> i32 {
-    if state.is_null() || input.len > 4096 || (input.len != 0 && input.ptr.is_null()) {
+/// The families this binding dispatches (tick, events 32-37) have no reply, so
+/// `_out` is never written and the result is a status (screens-input.md section 6).
+unsafe extern "C" fn event<T: Plugin>(
+    state: *mut c_void,
+    token: u32,
+    input: PpBytes,
+    _out: PpBuffer,
+) -> i32 {
+    // Null and length consistency only, never a fixed cap (N7).
+    if state.is_null()
+        || isize::try_from(input.len).is_err()
+        || (input.len != 0 && input.ptr.is_null())
+    {
         return ERR_INVALID;
     }
     let input = if input.len == 0 {
@@ -162,7 +175,9 @@ unsafe extern "C" fn event<T: Plugin>(state: *mut c_void, token: u32, input: PpB
 
 /// # Safety
 /// The host enforces reentry deny: no callback re-enters this same instance.
-unsafe extern "C" fn draw<T: Plugin>(state: *mut c_void, token: u32) -> i32 {
+/// The `draw.frame` input is decoded by the draft-5 facades (#902); this binding
+/// draws the whole screen as before.
+unsafe extern "C" fn draw<T: Plugin>(state: *mut c_void, token: u32, _input: PpBytes) -> i32 {
     if state.is_null() {
         return ERR_INVALID;
     }
