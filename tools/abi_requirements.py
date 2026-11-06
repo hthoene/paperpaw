@@ -87,4 +87,8 @@ def required_minor(schema, used, floor):
             raise ValueError(f'duplicate requirement: {identity!r}')
         seen.add(identity)
         required = max(required, declaration['since'])
+        if kind == 'host' and item['name'] == 'settings.read' and 'settings_value' in schema:
+            # Slot 5 consumes this codec even though its C signature is older.
+            required = max(required, _integer(schema['settings_value'].get('since'),
+                                              'settings value since', minor, 1))
     return required

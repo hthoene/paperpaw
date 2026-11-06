@@ -839,6 +839,52 @@
   },
   "minor": 1,
   "records": [],
+  "settings_value": {
+    "byte_order": "little",
+    "header": [
+      {
+        "name": "layout",
+        "type": "u32"
+      },
+      {
+        "name": "kind",
+        "type": "u32"
+      },
+      {
+        "name": "payload_bytes",
+        "type": "u32"
+      }
+    ],
+    "kinds": [
+      {
+        "max_bytes": 0,
+        "name": "absent",
+        "tag": 0,
+        "type": "none"
+      },
+      {
+        "max_bytes": 1,
+        "name": "bool",
+        "tag": 1,
+        "type": "bool"
+      },
+      {
+        "max_bytes": 8,
+        "name": "int",
+        "tag": 2,
+        "type": "i64"
+      },
+      {
+        "max_bytes": 4084,
+        "name": "text",
+        "tag": 3,
+        "type": "utf8"
+      }
+    ],
+    "layout": 1,
+    "max_bytes": 4096,
+    "since": 1
+  },
   "statuses": [
     {
       "name": "OK",
