@@ -149,7 +149,7 @@ impl Write for Key {
     }
 }
 
-fn fill(blob: &Blob<'_>, offset: &mut u64, out: &mut [u8]) -> Result<usize, Error> {
+fn fill_usage_buffer(blob: &Blob<'_>, offset: &mut u64, out: &mut [u8]) -> Result<usize, Error> {
     let mut len = 0;
     while len < out.len() {
         let n = blob.read(*offset, &mut out[len..])?;
@@ -180,7 +180,7 @@ fn scalar<T>(
     let blob = query(host, key, 1, 0)?;
     let mut bytes = [0; READ_BYTES];
     let mut offset = 0;
-    let len = fill(&blob, &mut offset, &mut bytes)?;
+    let len = fill_usage_buffer(&blob, &mut offset, &mut bytes)?;
     if len == bytes.len() && blob.read(offset, &mut [0])? != 0 {
         return Err(Error::NoSpace);
     }
@@ -279,7 +279,7 @@ pub fn plugin_usage_page(
     let mut offset = 0;
     let mut end = None;
     loop {
-        let len = fill(&blob, &mut offset, &mut bytes)?;
+        let len = fill_usage_buffer(&blob, &mut offset, &mut bytes)?;
         if len == 0 {
             break;
         }
