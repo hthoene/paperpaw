@@ -27,8 +27,11 @@ impl Frame for CoreFrame<'_> {
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
         Some(self.env.fonts())
     }
-    fn font_removals(&self) -> Option<&crate::native_host::font_removals::FontRemovals> {
-        Some(self.font_removals)
+    fn font_generation(&self) -> Option<u64> {
+        self.font_removals.generation()
+    }
+    fn font_valid(&self, provider: &str, acquired: u64) -> bool {
+        self.font_removals.valid(provider, acquired)
     }
     fn storage(&self) -> Option<&dyn paperpaw_platform::Storage> {
         Some(self.env.storage())

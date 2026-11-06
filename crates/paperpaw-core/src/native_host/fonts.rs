@@ -47,8 +47,7 @@ fn resolve<'a>(frame: &'a dyn Frame, key: &FontKey) -> Result<FontHandle<'a>, i3
     match key {
         FontKey::Role(role) => resolve_role(fonts, *role).ok_or(ERR_NOT_FOUND),
         FontKey::Named { id, acquired } => {
-            let tracker = frame.font_removals().ok_or(ERR_STATE)?;
-            if !tracker.valid(id.namespace(), *acquired) {
+            if !frame.font_valid(id.namespace(), *acquired) {
                 return Err(ERR_STATE);
             }
             fonts.get(id.as_str()).ok_or(ERR_STATE)
@@ -120,10 +119,7 @@ pub(crate) unsafe fn acquire(
                 }
                 return Ok(FontKey::Role(role));
             }
-            let acquired = frame
-                .font_removals()
-                .and_then(|tracker| tracker.generation())
-                .ok_or(ERR_STATE)?;
+            let acquired = frame.font_generation().ok_or(ERR_STATE)?;
             let font = fonts.get(key).ok_or(ERR_NOT_FOUND)?;
             let id = font.id().try_clone().ok_or(ERR_NO_MEMORY)?;
             Ok(FontKey::Named { id, acquired })
