@@ -24,11 +24,13 @@ samples/abi7-tick-draw/verify.sh
 The release artifact is `$CARGO_TARGET_DIR/release/deps/libpaperpaw_sample_abi7_tick_draw-<hash>.so`
 (with the crate type given on the command line cargo uses a hashed name and does not list the
 file among its artifacts; `verify.sh` removes older ones, builds, requires exactly one and prints
-it as `artifact:`). `src/freestanding.rs` defines `rust_eh_personality` and `memcpy`, which the
-linked library would otherwise import, and `verify.sh` fails if `nm -D --undefined-only`
-lists any symbol, because a real `dlopen` of such a library fails. `check_artifact.py` also
-disassembles `memcpy` to make sure it does not call itself (LLVM may turn a copy loop into a
-call to `memcpy`) and copies buffers of up to 65,537 bytes through the library.
+it as `artifact:`). `src/freestanding.rs` defines `rust_eh_personality` and `memcpy` as hidden symbols,
+which the linked library would otherwise import. The loader accepts no undefined symbol,
+no needed library and no dynamic export beyond `PAPERPAW_ENTRY` and `PAPERPAW_METADATA`;
+`check_artifact.py` (run by `verify.sh`) checks all of that with `nm -D` and `readelf -d`.
+It also disassembles the copy routine to make sure it does not call `memcpy` (LLVM may
+turn a copy loop into a call to it) and calls both the hidden `memcpy` and the routine in
+the loaded library, copying up to 65,537 bytes at unaligned offsets.
 
 The standalone sample workspace does not change root manifests or SDK files.
 `build.rs` invokes the canonical metadata generator and rejects unsupported

@@ -18,12 +18,7 @@ if [ "${#built[@]}" -ne 1 ]; then
 fi
 so="${built[0]}"
 test -f "$so" || { echo "missing artifact: $so" >&2; exit 1; }
-# A real dlopen needs no symbol from the process: the host table is the only link.
-undefined="$(nm -D --undefined-only "$so")"
-if [ -n "$undefined" ]; then
-    echo "undefined symbols in $so:" >&2
-    echo "$undefined" >&2
-    exit 1
-fi
+# A real dlopen needs no symbol from the process, no other library and no export
+# beyond the two entry symbols; check_artifact.py checks all three, and memcpy.
 python3 -I check_artifact.py "$so"
 echo "artifact: $so"
