@@ -8,12 +8,24 @@
 use crate::abi7::{calls, lifecycle};
 use core::{cell::Cell, fmt, pin::Pin};
 
+#[path = "native_host/registration_scope.rs"]
+pub mod registration_scope;
+
 const REGISTRATIONS: usize = 8;
+
+/// Scoped environment copy-out for host-owned plugin contexts.
+#[path = "native_host/environment.rs"]
+pub mod environment;
+/// Bounded decoded registration submission during plugin construction.
+#[path = "native_host/registrations.rs"]
+pub mod registrations;
 
 /// Host admission or construction failure.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
+    /// Registration decoding or validation refused the construction transaction.
+    Invalid,
     /// The owner is not in the required lifetime phase.
     State,
     /// Construction, callback execution or retained leases prevent this action.
@@ -140,12 +152,22 @@ pub struct Construction<'a, C, M, T> {
 }
 
 impl<'a, C, M, T> Construction<'a, C, M, T> {
+    /// Poison this transaction after any registration decoding or validation
+    /// refusal, even if foreign code ignores the returned status. Preserve an
+    /// earlier staging failure. Only a new transaction can clear this latch.
+    pub fn reject(&mut self) {
+        if self.failure.is_none() {
+            self.failure = Some(Error::Invalid);
+        }
+    }
+
     /// Stage a validated host record, returning it untouched on refusal.
     /// Generic T is not a wire schema; decoding and retained-byte limits apply
     /// before calling this method. Eight records is an experimental count cap.
     ///
     /// # Errors
-    /// Returns Capacity with the unchanged record if all eight slots are filled.
+    /// Returns Capacity with the unchanged record if all eight slots are filled,
+    /// or the already latched failure if this transaction was rejected.
     pub fn stage(&mut self, record: T) -> Result<(), (Error, T)> {
         if let Some(error) = self.failure {
             return Err((error, record));
@@ -164,7 +186,8 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// destruction to this owner. The destructor must not unwind or reenter.
     ///
     /// # Errors
-    /// Returns Capacity if staging overflowed, or State if revoked before commit.
+    /// Returns Invalid after validation refusal, Capacity if staging overflowed,
+    /// or State if revoked before commit.
     /// Every Err drops staged records before returning and leaves destruction
     /// unarmed. The loader still owns its validated successful output and must
     /// destroy it exactly once while context and module remain alive. This is

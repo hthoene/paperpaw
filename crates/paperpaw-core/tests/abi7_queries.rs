@@ -8,6 +8,14 @@ mod context;
 mod queries;
 #[path = "../src/abi7/settings_wire.rs"]
 mod settings_wire;
+#[path = "../src/abi7/snapshot_wire.rs"]
+#[allow(
+    dead_code,
+    clippy::all,
+    clippy::pedantic,
+    reason = "complete generated codec is exercised by snapshot tests"
+)]
+mod snapshot_wire;
 
 use context::{Frame, FrameSlot};
 use paperpaw_i18n::{Catalog, Translator};
@@ -71,6 +79,9 @@ fn buffer(output: &mut [u8]) -> PpBuffer {
 }
 
 fn query(query: Query, slot: &FrameSlot, key: &str, output: &mut [u8]) -> i32 {
+    if let Ok(result) = slot.with(|frame| frame.snapshot()) {
+        assert!(matches!(result, Err(ERR_STATE)));
+    }
     // SAFETY: both slices are live and disjoint throughout this synchronous call.
     unsafe { query(slot, bytes(key.as_bytes()), buffer(output)) }
 }

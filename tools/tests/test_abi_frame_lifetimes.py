@@ -10,6 +10,9 @@ MODULE = ROOT / 'crates/paperpaw-core/src/abi7/context.rs'
 PREFIX = '''#![allow(dead_code, reason = "compile-only lifetime probe")]
 extern crate self as paperpaw_sdk;
 extern crate self as paperpaw_i18n;
+extern crate self as paperpaw_native;
+pub mod host_glue { pub const ERR_STATE: i32 = -6; }
+mod snapshot_wire { pub struct Snapshot; }
 pub struct Settings;
 pub struct Translator;
 #[path = MODULE_PATH]
@@ -22,6 +25,9 @@ class FrameLifetimes(unittest.TestCase):
         cases = [
             ('owned', 'fn valid(s: &context::FrameSlot) { '
              'let _: Result<usize, _> = s.with(|_| 7); }', True),
+            ('snapshot_owned', 'fn valid(s: &context::FrameSlot) { '
+             'let _: Result<Result<snapshot_wire::Snapshot, i32>, _> = '
+             's.with(|frame| frame.snapshot()); }', True),
             ('frame', 'fn escape(s: &context::FrameSlot) -> &dyn context::Frame { '
              's.with(|f| f).unwrap() }', False),
             ('derived', 'fn escape(s: &context::FrameSlot) -> &Settings { '

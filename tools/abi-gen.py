@@ -16,6 +16,8 @@ from abi_metadata_schema import compatible_metadata, resolved_metadata, validate
 from abi_entry import validate_entry, compatible_entry, c_entry, rust_entry
 from abi_settings import validate_settings, compatible_settings, rust_settings
 from abi_callbacks import rust_callbacks
+from abi_records import validate_records, compatible_records, rust_records
+from abi_snapshot import validate_snapshot, compatible_snapshot, rust_snapshot
 TYPES = {'context': 'void *', 'pointer': 'void *', 'bytes': 'PpBytes',
          'buffer': 'PpBuffer', 'handle': 'uint32_t', 'usize': 'size_t',
          'u16': 'uint16_t', 'u32': 'uint32_t', 'u64': 'uint64_t',
@@ -87,12 +89,15 @@ def validate(schema):
          (' statuses' if 'statuses' in schema else '') +
          (' metadata' if 'metadata' in schema else '') +
          (' entry_contract' if 'entry_contract' in schema else '') +
-         (' settings_value' if 'settings_value' in schema else ''))
+         (' settings_value' if 'settings_value' in schema else '') +
+         (' record_codec' if 'record_codec' in schema else '') +
+         (' snapshot_value' if 'snapshot_value' in schema else ''))
     require(type(schema['format']) is int and schema['format'] == 1,
             'unsupported schema format')
     integer(schema['major'], 65535, 1)
     integer(schema['minor'], 65535, 1)
     validate_settings(schema)
+    validate_snapshot(schema)
     if 'entry_contract' in schema:
         validate_entry(schema)
     if 'metadata' in schema:
@@ -129,6 +134,7 @@ def validate(schema):
             require(entry['max_bytes'] > 0, 'buffer entries need a positive cap')
     for record in schema['records']:
         validate_record(record, schema['minor'])
+    validate_records(schema)
     return schema
 
 
@@ -193,6 +199,8 @@ def compatible(old, new, released_minor=None):
     compatible_metadata(old, new, minimum_since)
     compatible_entry(old, new, minimum_since)
     compatible_settings(old, new, minimum_since)
+    compatible_records(old, new, minimum_since)
+    compatible_snapshot(old, new, minimum_since)
     require(old['format'] == new['format'] and old['major'] == new['major'],
             'format/major change needs separate reviewed baseline')
     require(old['minor'] <= new['minor'] <= old['minor'] + 1,
@@ -293,19 +301,23 @@ def rust_module(schema):
 
 def lock_record(schema, released_minor=0):
     """Keep exact emitted declarations as well as logical schema semantics."""
-    return {'lock_format': 3, 'released_minor': released_minor,
+    return {'lock_format': 5, 'released_minor': released_minor,
             'schema': schema, 'emitted_c': header(schema),
             'emitted_rust': rust_module(schema),
-            'emitted_metadata': resolved_metadata(schema)}
+            'emitted_metadata': resolved_metadata(schema),
+            'emitted_records': rust_records(schema),
+            'emitted_snapshot': rust_snapshot(schema)}
 
 
 def check_lock(prior, schema):
     require(type(prior) is dict, 'lock must be an object')
     version = prior.get('lock_format')
-    require(type(version) is int and version in (1, 2, 3), 'unsupported lock format')
+    require(type(version) is int and version in (1, 2, 3, 4, 5), 'unsupported lock format')
     keys(prior, 'lock_format released_minor schema emitted_c' +
          (' emitted_rust' if version >= 2 else '') +
-         (' emitted_metadata' if version >= 3 else ''))
+         (' emitted_metadata' if version >= 3 else '') +
+         (' emitted_records' if version >= 4 else '') +
+         (' emitted_snapshot' if version >= 5 else ''))
     validate(prior['schema'])
     integer(prior['released_minor'], prior['schema']['minor'])
     # Re-render the OLD schema using THIS generator. This detects changes in
@@ -319,6 +331,12 @@ def check_lock(prior, schema):
     if version >= 3:
         require(prior['emitted_metadata'] == resolved_metadata(prior['schema']),
                 'emitted metadata layout changed from prior lock')
+    if version >= 4:
+        require(prior['emitted_records'] == rust_records(prior['schema']),
+                'emitted records contract changed from prior lock')
+    if version >= 5:
+        require(prior['emitted_snapshot'] == rust_snapshot(prior['schema']),
+                'emitted snapshot contract changed from prior lock')
     compatible(prior['schema'], schema, prior['released_minor'])
 
 
@@ -357,6 +375,14 @@ def run(argv=None):
         codec = rust_settings(schema)
         outputs[folder / 'generated' / 'settings_value.rs'] = codec
         outputs[args.root / 'crates/paperpaw-core/src/abi7/settings_wire.rs'] = codec
+    codec = rust_records(schema)
+    if codec:
+        outputs[folder / 'generated' / 'records_wire.rs'] = codec
+        outputs[args.root / 'crates/paperpaw-core/src/abi7/records_wire.rs'] = codec
+    codec = rust_snapshot(schema)
+    if codec:
+        outputs[folder / 'generated' / 'snapshot_wire.rs'] = codec
+        outputs[args.root / 'crates/paperpaw-core/src/abi7/snapshot_wire.rs'] = codec
     if args.check:
         require(load(lock) == lock_record(schema, released_minor), 'lock stale; explicitly review/update it')
         for path, wanted in outputs.items():

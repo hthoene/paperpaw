@@ -1,15 +1,5 @@
 //! Host-only transaction and ownership checks, not foreign ABI activation proof.
-#[path = "../src/abi7/calls.rs"]
-pub(crate) mod calls;
-#[path = "../src/abi7/lifecycle.rs"]
-pub(crate) mod lifecycle;
-
-mod abi7 {
-    pub(crate) use crate::{calls, lifecycle};
-}
-
-#[path = "../src/native_host.rs"]
-mod native_host;
+use paperpaw_core::native_host;
 
 use native_host::{DispatchDepth, Error, HostOwner};
 use std::{
@@ -21,6 +11,32 @@ use std::{
 };
 
 fn ignore_context(_: Pin<&()>) {}
+
+#[test]
+fn ignored_decoder_refusal_rolls_back_before_loader_cleanup() {
+    let state = Rc::new(Observations::default());
+    let owner = tracked_owner(&state);
+    let scope = Box::pin(native_host::registration_scope::RegistrationScope::new());
+    let mut construction = owner.as_ref().begin().unwrap();
+    scope
+        .as_ref()
+        .scope(&mut construction, || {
+            assert!(scope.submit(Record::new(&state, "record")).is_ok());
+            assert_eq!(scope.reject(), Ok(()));
+        })
+        .unwrap();
+    assert_eq!(scope.reject(), Err(Error::State));
+    assert!(matches!(construction.commit(destroy), Err(Error::Invalid)));
+    assert_eq!(&*state.events.borrow(), &["record"]);
+    assert_eq!(state.destroyed.get(), 0);
+    destroy(owner.as_ref().context());
+    drop(owner);
+    assert_eq!(state.destroyed.get(), 1);
+    assert_eq!(
+        &*state.events.borrow(),
+        &["record", "destroy", "context", "module"]
+    );
+}
 
 #[test]
 fn staged_records_cannot_acquire_live_callback_admission() {
