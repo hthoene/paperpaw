@@ -1192,7 +1192,10 @@ fn one_bad_record_refuses_the_whole_batch_and_poisons_construction() {
             ERR_INVALID,
         ),
         (
-            batch(&[record(9, &[s("n"), s("a"), s(""), u(4), u(0), s(""), i(0)])]),
+            batch(&[record(
+                9,
+                &[s("n"), s("a.ttf"), s(""), u(4), u(0), s(""), i(0)],
+            )]),
             ERR_UNSUPPORTED,
         ),
         (batch(&[record(11, &[])]), ERR_UNSUPPORTED),
