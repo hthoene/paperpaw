@@ -63,7 +63,7 @@ named re-blesses too.
 ## Meaning changes inside the draft
 
 Slot 6 `i18n.copy` answers `ERR_NOT_FOUND` for a missing key instead of copying the key
-(D5, decided 2026-11-06 05:27 before the raise; PR #201). This is the one recorded
+(D5, decided 2026-11-06 05:27 before the raise; #228). This is the one recorded
 exception to "existing entries only gain meaning". No re-bless is needed.
 
 ## Steps of the raise itself

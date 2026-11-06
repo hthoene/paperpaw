@@ -1,5 +1,6 @@
 //! Test images keep only nonzero blocks, including when a mount is leaked.
 //! Logical size and all byte offsets stay identical to a dense card image.
+use super::std;
 use std::collections::BTreeMap;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 
