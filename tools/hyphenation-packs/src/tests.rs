@@ -288,47 +288,6 @@ fn an_index_that_is_not_ascending_or_points_past_the_patterns_is_refused() {
 }
 
 #[test]
-fn the_table_check_on_small_tables() {
-    let header = |blocks: u32, exceptions: u32, count: u32| {
-        let mut t = b"PPHP\x01\x02\x02\x05\0\0\0\0".to_vec();
-        t.extend_from_slice(&blocks.to_le_bytes());
-        t.extend_from_slice(&exceptions.to_le_bytes());
-        t.extend_from_slice(&count.to_le_bytes());
-        t
-    };
-    // No patterns, no exceptions: the smallest table.
-    assert_eq!(table_check(&header(0, 24, 0)), Ok(()));
-    // One exception, `a-b`, ending exactly at the end.
-    let mut one = header(0, 24, 1);
-    one.extend_from_slice(&[3, b'a', b'-', b'b']);
-    assert_eq!(table_check(&one), Ok(()));
-    one.push(0);
-    assert!(table_check(&one).is_err());
-    // An exception that is not UTF-8, one longer than the file, a count beyond it.
-    let mut bad = header(0, 24, 1);
-    bad.extend_from_slice(&[1, 0xFF]);
-    assert_eq!(table_check(&bad), Err("an exception is not UTF-8"));
-    let mut long = header(0, 24, 1);
-    long.extend_from_slice(&[9, b'a']);
-    assert_eq!(table_check(&long), Err("an exception is cut off"));
-    assert_eq!(
-        table_check(&header(0, 24, 2)),
-        Err("the exceptions are cut off")
-    );
-    // The old magic, a short file, and a block count that overflows.
-    let mut old = header(0, 24, 0);
-    old[..5].copy_from_slice(b"QIHP\x01");
-    assert!(table_check(&old).unwrap_err().contains("QIHP"));
-    assert!(table_check(&old[..10]).is_err());
-    assert!(table_check(&header(u32::MAX, 24, 0)).is_err());
-    // The entries start at 24 + 4 * blocks, which must be at most the exceptions offset.
-    assert_eq!(
-        table_check(&header(2, 24, 0)),
-        Err("the index runs past the exceptions offset")
-    );
-}
-
-#[test]
 fn language_plugins_outrank_the_base_and_no_tag_is_provided_twice() {
     // D4: the greatest plugin id wins, compared byte-wise. Every `hyphenation-<lang>` id sorts
     // after the base `hyphenation`, and none of them provides `en`.
@@ -369,11 +328,14 @@ fn a_table_over_the_cap_is_refused() {
     bytes.resize(MAX_TABLE as usize + 1, 0);
     fs::write(&path, bytes).unwrap();
     assert!(mentions(&problems(&dir), "at most"));
-    // Exactly the cap passes the size rule (the header still fits).
+    // Exactly the cap passes the size rule; zero padding still fails the table check,
+    // because the exceptions must end exactly at the end of the file.
     let mut bytes = fs::read(&path).unwrap();
     bytes.truncate(MAX_TABLE as usize);
     fs::write(&path, bytes).unwrap();
-    assert!(!mentions(&problems(&dir), "at most"));
+    let found = problems(&dir);
+    assert!(!mentions(&found, "at most"));
+    assert!(mentions(&found, "table check failed"), "{found:?}");
 }
 
 #[test]
@@ -476,4 +438,33 @@ fn the_cap_constants_are_the_contract_ones() {
         (MAX_LANGUAGES, MAX_TABLE, MAX_PATH, FORMATS),
         (8, 2 * 1024 * 1024, 100, 5)
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn symbolic_links_are_refused_and_not_followed() {
+    let dir = copy_of("hyphenation-sv", "links");
+    // A link in place of the table, and one in place of a catalog.
+    fs::remove_file(dir.join("hyphenation/sv.pphp")).unwrap();
+    std::os::unix::fs::symlink(
+        built().join("hyphenation-da/hyphenation/da.pphp"),
+        dir.join("hyphenation/sv.pphp"),
+    )
+    .unwrap();
+    fs::remove_file(dir.join("i18n/de.ini")).unwrap();
+    std::os::unix::fs::symlink(
+        built().join("hyphenation-sv/i18n/de.ini"),
+        dir.join("i18n/de.ini"),
+    )
+    .unwrap();
+    let found = problems(&dir);
+    assert!(
+        mentions(&found, "hyphenation/sv.pphp: a symbolic link"),
+        "{found:?}"
+    );
+    assert!(
+        mentions(&found, "i18n/de.ini: a symbolic link"),
+        "{found:?}"
+    );
+    assert!(mentions(&found, "i18n/de.ini is missing"), "{found:?}");
 }

@@ -25,8 +25,8 @@ data-plugin kind"; this tool refuses on the host what the loader and the reader 
 - A table is at most 2 MiB (provisional until the X4 gate) and PPHP version 1 only: the older `QIHP`
   magic is refused. The table check follows the contract: block count, exceptions offset and count in
   the 24 byte header, an ascending index inside the patterns, and an exceptions walk that ends exactly
-  at the end of the file, so a truncated or padded table is refused. It is `table_check` here; the
-  contract makes it one function of `paperpaw-hyphen`, which replaces it.
+  at the end of the file, so a truncated or padded table is refused. It is `paperpaw_hyphen::check_table`, the one function the kernel's
+  reader shares with this tool (behind that crate's `kernel` feature).
 - At run time the registry key is the tag alone. A book's tag is lowercased (`_` read as `-`) and looked
   up whole, then with its last subtag removed repeatedly (`de-ch-1996`, `de-ch`, `de`); there is no
   fallback to a longer tag or to another language (`no` finds only what a plugin registers as `no`).

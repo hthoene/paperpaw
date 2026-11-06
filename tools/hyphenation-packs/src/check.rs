@@ -39,8 +39,9 @@ fn value<'a>(ini: &'a str, section_name: &str, key: &str) -> Option<&'a str> {
         .find_map(|(k, v)| (k == key).then_some(v))
 }
 
-/// Every file below `dir`, as `/`-separated paths from it.
-fn files(dir: &Path, prefix: &str, out: &mut Vec<String>) {
+/// Every file below `dir`, as `/`-separated paths from it. A symbolic link is
+/// never followed: it is listed in `links` and not read.
+fn files(dir: &Path, prefix: &str, out: &mut Vec<String>, links: &mut Vec<String>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
@@ -53,10 +54,10 @@ fn files(dir: &Path, prefix: &str, out: &mut Vec<String>) {
         } else {
             format!("{prefix}/{name}")
         };
-        if entry.path().is_dir() {
-            files(&entry.path(), &path, out);
-        } else {
-            out.push(path);
+        match entry.file_type() {
+            Ok(kind) if kind.is_symlink() => links.push(path),
+            Ok(kind) if kind.is_dir() => files(&entry.path(), &path, out, links),
+            _ => out.push(path),
         }
     }
 }
@@ -132,7 +133,11 @@ fn layout(files: &[String], id: &str, out: &mut Vec<Problem>) {
 
 fn text(dir: &Path, file: &str, cap: u64, out: &mut Vec<Problem>) -> Option<String> {
     let path = dir.join(file);
-    let size = fs::metadata(&path).ok()?.len();
+    let meta = fs::symlink_metadata(&path).ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    let size = meta.len();
     if size > cap {
         out.push(Problem(format!("{file}: {size} bytes, at most {cap}")));
         return None;
@@ -202,12 +207,18 @@ fn table(dir: &Path, tag: &str, path: &str, out: &mut Vec<Problem>) {
         return;
     }
     let file: PathBuf = dir.join(path);
-    let Ok(meta) = fs::metadata(&file) else {
+    let Ok(meta) = fs::symlink_metadata(&file) else {
         out.push(Problem(format!(
             "[hyphenation] {tag}: {path} does not exist"
         )));
         return;
     };
+    if !meta.is_file() {
+        out.push(Problem(format!(
+            "[hyphenation] {tag}: {path} is not a plain file"
+        )));
+        return;
+    }
     if meta.len() > MAX_TABLE {
         out.push(Problem(format!(
             "[hyphenation] {tag}: {path} is {} bytes, at most {MAX_TABLE}",
@@ -221,7 +232,7 @@ fn table(dir: &Path, tag: &str, path: &str, out: &mut Vec<Problem>) {
         )));
         return;
     };
-    if let Err(why) = crate::table_check(&bytes) {
+    if let Err(why) = paperpaw_hyphen::check_table(&bytes) {
         out.push(Problem(format!(
             "[hyphenation] {tag}: {path}: table check failed, {why}"
         )));
@@ -266,8 +277,13 @@ pub fn check(dir: &Path) -> Vec<Problem> {
     if !is_plugin_id(&id) {
         out.push(Problem(format!("{id}: not a plugin id")));
     }
-    let mut found = Vec::new();
-    files(dir, "", &mut found);
+    let (mut found, mut links) = (Vec::new(), Vec::new());
+    files(dir, "", &mut found, &mut links);
+    for link in &links {
+        out.push(Problem(format!(
+            "{id}: {link}: a symbolic link, which is never followed"
+        )));
+    }
     layout(&found, &id, &mut out);
     identity(dir, &id, &mut out);
     languages(dir, &found, &mut out);
