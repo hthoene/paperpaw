@@ -174,7 +174,9 @@ subscriptions. Families added later refer to it instead of defining their own.
   event is a level-triggered hint: it may be coalesced and never carries the only copy of the
   result. The result stays readable through the handle until `handle.release`. Stop or unload
   cancels every open operation, and nothing is called back afterwards; a late completion is
-  refused (`ERR_STATE`). SDK glue builds on exactly this.
+  refused (`ERR_STATE`). Releasing the handle of a running operation cancels it first. Live
+  handles and operations per plugin are capped; one past the cap is `ERR_FULL`. SDK glue builds on
+  exactly this.
 - [D] **Dropped events (D6).** `event_dropped` applies only to families whose contract says they
   may drop (today: the lifecycle events of section 1.5 in the events proposal). Other families
   deliver or fail the request; the lifecycle drop rule does not generalise.
