@@ -201,3 +201,36 @@ nonzero flags or reserved, wrong file length, misaligned or overlapping parts, o
 and for the entry checks of step 9 as a function over the relocated bytes. Unit tests for each; no
 firmware change. It does not depend on PR #186. Firmware wiring (slice 2) follows once this note
 is merged.
+
+## The packer (slice 3)
+
+`paperpaw-sign pack <plugin.elf> <plugin.ppn> [--key <file>]` writes format 5 for a plugin linked with
+`paperpaw-plugin7.x` and `--emit-relocs` that defines `PAPERPAW_METADATA`; a plugin that defines `PAPERPAW_API` is
+interface 6 and gets format 4, and one that defines both or neither is refused. The file is made as above:
+
+- the image is the linked `.rodata`, then `.text`; the words to relocate are the relocations that name an
+  address in the image, by data or by code, the end included (as the loader takes them); the hot code and the
+  patches that move it are format 4's, and **more than 8,192 patches are refused**;
+- `entry` is `PAPERPAW_ENTRY` (exactly 20 bytes, 8-aligned) and `meta_at`, `meta_len` are `PAPERPAW_METADATA`
+  (4-aligned, at most 2,048 bytes, a record this host reads); `abi_major` and `needs_minor` are the record's
+  own. **Nothing is written for a draft** (there is no draft field), no fingerprint, no compiler;
+- target 9 (**the X4 Pro**: a plugin built for Xtensa) is refused with the reason, until an Xtensa profile exists
+  in `abi/entry.md`;
+- the pack-time half of the freestanding rule: an undefined symbol, an exported symbol besides the two
+  (`PAPERPAW_HOT` and `PAPERPAW_HOT_END` are the linker script's), a writable section or any section but
+  `.rodata` and `.text` that takes memory (`.data`, `.bss`, TLS, `.init_array`, `.ctors`, `.fini*`), and a
+  relocation kind outside the short list, are refused with the symbol or section named;
+- before it returns, the packer reads the file as the loader does, at the base it is linked at and at another,
+  with the hot code in the arena: the header, the digest, every word to relocate, and the entry and the
+  metadata as they will lie once placed (`Relocator5::verify` and `check_entry`). A file it makes is one the
+  X4's loader takes;
+- `--key` signs the file as for format 4 (the signature follows the file; the digest does not cover it), and
+  `plugin`, `sign-plugin` and `check-plugin` read both formats.
+
+`samples/abi7-x4-min` is the smallest interface-7 plugin for the X4 (entry, record, a plugin that does nothing,
+one hot function called from cold code). Its linked ELF and the file the packer makes of it are kept in
+`crates/paperpaw-native/tests/data/` and read by the tests of the packer, of `Header5` and of `stream5`;
+`samples/abi7-x4-min/build.sh --check` builds it again and compares. Not covered: a plugin that holds a
+function pointer to hot code in its read-only data (the format-4 packer refuses that too), and the
+Xtensa profile.
+

@@ -10,6 +10,10 @@ change the plugin SDK.
 
 - Host-side storage adapter for interface-7 slots 20–26 (path rules, free-space reserve, per-plugin
   read/write/sync counting), not wired (#228).
+- `paperpaw-sign pack` writes the X4's interface-7 plugin file (format 5, `abi/ppn5.md`) for a plugin linked with
+  `paperpaw-plugin7.x` (it defines `PAPERPAW_METADATA`), reads it back as the loader does, and refuses the X4 Pro (target 9),
+  an exported symbol besides the two, writable data and more than 8,192 patches; `plugin`, `sign-plugin` and `check-plugin`
+  read both formats. `samples/abi7-x4-min` is a riscv32imc sample built by it (#228).
 - Desktop emulator: a developer switch, `--abi7-dev-loader` or `PAPERPAW_ABI7_DEV_LOADER=1` (Linux x86-64, off by
   default), loads interface-7 plugin libraries (`plugins/<id>/code-host.so`, told from their bytes) for loader work. What a
   plugin declares is staged but not applied yet, and nothing is drawn; interface-6 plugins are unchanged (#228, #772).

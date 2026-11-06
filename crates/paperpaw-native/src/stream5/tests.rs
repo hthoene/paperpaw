@@ -827,3 +827,115 @@ fn the_entry_is_checked_as_it_will_be_once_placed_before_anything_is_written() {
         Err(EntryCheck::File(Problem::Malformed))
     );
 }
+
+/// A file the real packer made (`paperpaw-sign pack`, from the linked sample
+/// `samples/abi7-x4-min`; `build.sh --update` there makes it again): a real
+/// entry, a real metadata record, hot code and patches.
+const PACKED: &[u8] = include_bytes!("../../tests/data/abi7-x4-min.ppn");
+
+fn packed_header() -> Header5 {
+    Header5::read(PACKED, PACKED.len() as u64, &Host::x4(1)).unwrap()
+}
+
+#[test]
+fn the_packer_made_file_is_taken_at_any_place_and_with_hot_code_in_or_out_of_place() {
+    let h = packed_header();
+    assert_eq!(
+        (h.image_len, h.hot_len, h.patches, h.relocs),
+        (220, 12, 2, 3)
+    );
+    for base in [LINK_BASE, 0x3C81_0000, 0x3C80_0040] {
+        for hot in [0, 0x4038_1000, 0x4038_1004] {
+            for buf in [4, 12, 64, 4096] {
+                assert_eq!(
+                    verified(&h, PACKED, base, hot, buf),
+                    Ok(()),
+                    "{base:#x} {hot:#x} {buf}"
+                );
+            }
+            assert_eq!(
+                check_entry_of_packed(&h, base, hot),
+                Ok(()),
+                "{base:#x} {hot:#x}"
+            );
+        }
+    }
+}
+
+fn check_entry_of_packed(h: &Header5, base: u32, hot: u32) -> Result<(), EntryCheck> {
+    let mut relocator = Relocator5::new(h, PACKED, base).map_err(EntryCheck::File)?;
+    if hot != 0 {
+        relocator = relocator.hot_at(hot).map_err(EntryCheck::File)?;
+    }
+    relocator.check_entry(&Host::x4(1), &mut [0u8; 4096])
+}
+
+#[test]
+fn the_packer_made_file_relocates_its_words_to_the_place_and_its_calls_to_the_hot_code() {
+    let h = packed_header();
+    let base = 0x3C81_0000;
+    let hot = 0x4038_1000;
+    let mut image = PACKED[HEADER5_LEN..HEADER5_LEN + h.image_len as usize].to_vec();
+    let relocator = Relocator5::new(&h, PACKED, base)
+        .unwrap()
+        .hot_at(hot)
+        .unwrap();
+    for (i, chunk) in image.chunks_mut(52).enumerate() {
+        relocator.apply((i * 52) as u32, chunk).unwrap();
+    }
+    let word =
+        |at: usize| u32::from_le_bytes([image[at], image[at + 1], image[at + 2], image[at + 3]]);
+    // The entry: its metadata view is where the record lies once placed, and
+    // `make` is a code address in the image placed (not in the arena).
+    assert_eq!(word(8), base + h.meta_at);
+    let make = word(16);
+    assert_eq!(h.make_offset(make, base, hot) < h.image_len, true);
+    assert!((base + CODE_OFFSET..base + CODE_OFFSET + h.image_len).contains(&make));
+    // The plugin table's `drop`, the third word of the table, is in the image too.
+    assert!(h.word_in_image(word(h.code_at as usize - 20 + 8) - base + h.base));
+    // The call of the hot function reaches the arena: auipc + jalr from the
+    // call site in `make` give `hot + (table_ok - hot_at)`.
+    let mut reached = Vec::new();
+    for at in (h.code_at as usize..h.hot_at as usize).step_by(2) {
+        let insn = word(at);
+        if insn & 0x7F == 0x17 && at + 8 <= image.len() {
+            let next = word(at + 4);
+            if next & 0x7F == 0x67 || next & 0x7F == 0x13 {
+                let distance = (insn & 0xFFFF_F000).wrapping_add(((next as i32) >> 20) as u32);
+                reached.push((base + CODE_OFFSET + at as u32).wrapping_add(distance));
+            }
+        }
+    }
+    assert!(reached.contains(&hot), "{reached:#x?}");
+}
+
+#[test]
+fn no_byte_of_the_packer_made_file_changes_without_being_refused() {
+    let h = packed_header();
+    assert_eq!(verified(&h, PACKED, LINK_BASE, 0, 4096), Ok(()));
+    for at in HEADER5_LEN..PACKED.len() {
+        let mut changed = PACKED.to_vec();
+        changed[at] ^= 0x01;
+        let got = verified(&h, &changed, LINK_BASE, 0, 64);
+        assert!(
+            matches!(
+                got,
+                Err(Problem::Damaged | Problem::Relocation | Problem::Malformed)
+            ),
+            "byte {at}: {got:?}"
+        );
+    }
+    // The header: the reader refuses what it can, and the digest the rest.
+    for at in 0..HEADER5_LEN {
+        let mut changed = PACKED.to_vec();
+        changed[at] ^= 0x01;
+        let read = Header5::read(&changed, changed.len() as u64, &Host::x4(1));
+        if let Ok(read) = read {
+            let got = verified(&read, &changed, LINK_BASE, 0, 64);
+            assert!(
+                matches!(got, Err(Problem::Damaged | Problem::Relocation)),
+                "byte {at}: {got:?}"
+            );
+        }
+    }
+}

@@ -375,6 +375,8 @@ g_firmware-build() {
         (cd samples/hello-native && env -u RUSTFLAGS cargo +'"$x4_toolchain"' x4)
         cargo run -q --release -p paperpaw-sign -- pack samples/hello-native/target/riscv32imc-unknown-none-elf/release/hello target/ci-local/hello-esp32c3.ppn
         cargo run -q --release -p paperpaw-sign -- plugin target/ci-local/hello-esp32c3.ppn | grep -Eq "^fingerprint: +$fp\$"'
+    run "firmware-build: the interface-7 sample packs to the committed file" '
+        env -u RUSTFLAGS CARGO_TARGET_DIR="$PWD/target/ci-local/abi7-x4-min" samples/abi7-x4-min/build.sh --check'
     run "firmware-build: the store's plugins fit the firmware" '
         fp="$(cargo run -q --release -p paperpaw-sign -- fingerprint shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink)"
         out=target/ci-local/plugins

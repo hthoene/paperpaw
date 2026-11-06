@@ -702,3 +702,50 @@ fn make_maps_back_to_its_image_offset_in_flash_or_in_the_hot_arena() {
         Ok(())
     );
 }
+
+/// A file the real packer made (`samples/abi7-x4-min`, `build.sh --update`).
+const PACKED: &[u8] = include_bytes!("../../tests/data/abi7-x4-min.ppn");
+
+#[test]
+fn the_packer_made_file_reads_and_its_record_is_the_generated_one() {
+    let h = read_packed();
+    assert_eq!(
+        (h.target, h.abi_major, h.needs_minor, h.base),
+        (Chip::Esp32C3, 7, 1, 0x3C00_0000)
+    );
+    assert_eq!((h.entry, h.meta_at, h.meta_len, h.align), (0, 20, 88, 16));
+    assert!(!h.signed);
+    assert_eq!(PACKED.len() as u64, h.file_len());
+    // The record in the image is the generated fixture, byte for byte.
+    let at = HEADER_LEN + h.meta_at as usize;
+    let record = &PACKED[at..at + h.meta_len as usize];
+    assert_eq!(record, x4_record());
+    assert_eq!(
+        RecordFacts::read(record),
+        Some(RecordFacts {
+            abi_major: 7,
+            needs_minor: 1,
+            entry_bytes: X4_ENTRY_BYTES
+        })
+    );
+    // As the loader checks the file's length, against the signed form too.
+    assert_eq!(read(&PACKED[..HEADER_LEN], h.file_len()), Ok(h));
+    assert_eq!(
+        read(&PACKED[..HEADER_LEN], h.file_len() + SIGNATURE_LEN as u64),
+        Ok(Header5 { signed: true, ..h })
+    );
+    assert_eq!(
+        read(&PACKED[..HEADER_LEN], h.file_len() + 1),
+        Err(Refusal::Length)
+    );
+    // Another host: a newer minor is no problem, an older one is one.
+    assert!(Header5::read(PACKED, PACKED.len() as u64, &Host::x4(2)).is_ok());
+    assert_eq!(
+        Header5::read(PACKED, PACKED.len() as u64, &Host::x4(0)),
+        Err(Refusal::NeedsNewerMinor)
+    );
+}
+
+fn read_packed() -> Header5 {
+    Header5::read(PACKED, PACKED.len() as u64, &HOST).unwrap()
+}
