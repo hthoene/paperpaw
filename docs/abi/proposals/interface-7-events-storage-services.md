@@ -27,7 +27,7 @@ priority. It blocks every port; this document blocks Battery and the UI groups.
 - **Events (1):** agreed. Keep `event.battery_measured` as its own event: tick has no fixed rate, and the
   host already gates sampling on a battery being present. Lifecycle and page turn are event kinds. Input
   stays with the screen callback, which must return whether it handled the input.
-- **Storage (2):** agreed in shape: path-based slots 20–26, root 0 (the plugin folder, stamped by the host)
+- **Storage (2):** agreed in shape: path-based slots 20–26, root 0 (the data folder, stamped by the host)
   only, other roots reserved. **No power-loss claim is final until cut tests exist.** These are: `write`
   old-or-new, rename over a file written by `append`, and the torn tail after `append` without `sync`.
   They are the first implementation item, before any slot is wired. A host-framed `append_record` stays out
@@ -39,6 +39,41 @@ priority. It blocks every port; this document blocks Battery and the UI groups.
 - **Text, font, i18n, commands (4):** the facts are correct: only heap and clock are installed in a host table.
   The slot 13/14 adapters, font acquire/release and the i18n format/digits slots are the next text items
   after registration.
+
+## Binding amendments after Senior review (S1–S4, 2026-11-06)
+
+These amendments override the sections below wherever they differ. The storage contract becomes final only
+when each of them is in the implementation and closed by its test.
+
+- **S1 Large writes (amends D2.5).** The recipe is: `remove(name.tmp)`, then `append` the chunks to
+  `name.tmp`, then `sync`, then `rename(name.tmp, name)`. Removing first is required: a leftover temp file from
+  an earlier cut or failure would otherwise receive the new chunks after its stale bytes, and the rename would
+  publish a corrupt file that looks valid. Any error at any step abandons the attempt; the next attempt starts
+  again with the remove. Test: start from a leftover `name.tmp` holding old data and show that the published
+  file holds exactly the new bytes.
+- **S2 Torn tails may hold stale bytes (amends D2.5 and V1).** The V1 cut tests check two cases: a tail that is
+  short, and a file whose recorded size covers clusters whose new data was never written. The second would
+  expose bytes of a deleted file, for example Battery's rotated `log.old.csv`, as rows that parse as valid. If
+  V1 shows the second case can happen, per-record integrity becomes **required**: either a CRC in the plugin's
+  record format or the host-framed `append_record` of Q8. Until V1 has run, the contract promises only "a prefix
+  of the appended stream, possibly torn", and Battery must treat unverifiable rows as damaged.
+- **S3 Lifecycle events are never dropped (amends 1.4 and 1.5).** `event.suspend` and `event.stopping` bypass the
+  per-plugin event queue limit and are never deferred because of `ERR_BUSY`. The host dispatches them
+  synchronously before it suspends or powers off. **V2 is a gate, not an open question:** power-off must wait
+  until the suspend and stopping dispatch has returned, so that a handler's `append` and `sync` complete. The
+  shell must show this before lifecycle events are activated.
+- **S4 Failed appends (amends D2.6 and 2.3).** `append` and `write` check the free-space reserve **including the
+  data length** before writing anything, so a full card normally writes nothing and returns `ERR_FULL`. After an
+  `ERR_FULL` or `ERR_IO` from `append`, a partial line may still remain in the live file. The plugin must end
+  that line (write a line break, or start the next record with a terminator) before it appends again; readers
+  drop the unterminated fragment.
+- **Two folders (terminology).** The **install folder** `plugins/<id>/` holds the plugin's code, `plugin.ini`,
+  catalogs and resource files (registration proposal, PR #158); it is replaced by an update and removed by
+  uninstall. The **data folder** `.paperpaw/plugins/<id>/` is storage root 0, where the plugin's own files live.
+  An update keeps the data folder. Proposal: uninstall keeps it too, and the user removes it explicitly (in
+  *Clean up storage* or when confirming the uninstall). This is **[Q]**: today `remove_plugin` removes only the
+  install folder of a data plugin (`crates/paperpaw-core/src/plugins.rs:812-820`); a rule for code plugins'
+  data folders is not written down. In this document "plugin folder" means the data folder.
 
 ## 0. Shared rules used by all four sections
 
