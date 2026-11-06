@@ -1,3 +1,5 @@
+extern crate std;
+
 use super::*;
 use alloc::{borrow::Cow, string::String};
 use core::{ops::ControlFlow, pin::pin};
