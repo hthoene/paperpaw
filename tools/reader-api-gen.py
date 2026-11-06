@@ -26,7 +26,14 @@ def main():
                 raise ValueError("inconsistent shared reader record")
             records[tag] = record
     schema["records"] = [records[tag] for tag in sorted(records)]
+    for key in ('max_block_inserts', 'max_chapter_inserts'):
+        if type(schema[key]) is not int or not 1 <= schema[key] <= 64:
+            raise ValueError('invalid reader insert cap')
+    if schema['max_block_inserts'] > schema['max_records']:
+        raise ValueError('insert reply exceeds record cap')
     source = stage_codec_source(schema)
+    source += (f"\npub const MAX_BLOCK_INSERTS: usize = {schema['max_block_inserts']};\n"
+               f"pub const MAX_CHAPTER_INSERTS: u32 = {schema['max_chapter_inserts']};\n")
     target = CRATE / "src/wire.rs"
     if args.check:
         if not target.exists() or target.read_text() != source:

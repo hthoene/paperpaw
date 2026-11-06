@@ -11,5 +11,7 @@
     "schemas/status.def",
     "schemas/draw.def",
     "schemas/tap.def"
-  ]
+  ],
+  "max_block_inserts": 4,
+  "max_chapter_inserts": 64
 }

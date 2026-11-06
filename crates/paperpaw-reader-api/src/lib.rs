@@ -1,14 +1,14 @@
 //! Versioned, bounded reader-owned stage payloads. No host ABI types cross here.
 #![no_std]
 
-#[allow(dead_code, clippy::all, reason = "canonical generated codec")]
+#[allow(dead_code, reason = "canonical codec includes helpers unused by some schemas")]
 #[rustfmt::skip]
 pub mod wire;
 
 use wire::Record;
 
 pub const VERSION: u32 = 1;
-pub const MAX_CHAPTER_INSERTS: u32 = 64;
+pub use wire::{MAX_BLOCK_INSERTS, MAX_CHAPTER_INSERTS};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stage {
@@ -135,7 +135,9 @@ fn validate<'a>(
         }
         count += 1;
     }
-    if count > 8 || (stage == Stage::Insert && reply && count > 4) {
+    if count > wire::RECORD_MAX_RECORDS
+        || (stage == Stage::Insert && reply && count > MAX_BLOCK_INSERTS)
+    {
         return Err(Error::Limit);
     }
     if !reply && count == 0 {

@@ -1348,3 +1348,6 @@ pub fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i
     }
     Ok(offset)
 }
+
+pub const MAX_BLOCK_INSERTS: usize = 4;
+pub const MAX_CHAPTER_INSERTS: u32 = 64;
