@@ -14,6 +14,28 @@ struct Row {
     requests: u32,
     refused: u32,
 }
+/// Select only the four displayed rows, preserving input order for equal scores.
+/// Stable slice sorting pulls a >4 KiB driftsort frame into the X4 image.
+fn top_four(rows: &[Row], minimum: u64, score: impl Fn(&Row) -> u64) -> [Option<&Row>; 4] {
+    let mut best: [Option<&Row>; 4] = [None; 4];
+    for row in rows {
+        let value = score(row);
+        if value < minimum {
+            continue;
+        }
+        if let Some(at) = best
+            .iter()
+            .position(|old| old.is_none_or(|old| score(old) < value))
+        {
+            for index in (at + 1..best.len()).rev() {
+                best[index] = best[index - 1];
+            }
+            best[at] = Some(row);
+        }
+    }
+    best
+}
+
 fn rows(host: &Host<'_>) -> Result<Vec<Row>, Error> {
     let mut rows: Vec<Row> = Vec::new();
     services::for_each_plugin_usage(host, &mut |p| {
@@ -49,11 +71,10 @@ pub(super) fn append(
 ) -> Result<(), Error> {
     let usage = rows(host)?;
     if style::boolean(host, "core.developer")? && style::boolean(host, "battery.by-plugin")? {
-        let mut shown: Vec<_> = usage.iter().filter(|p| p.shown >= 60_000).collect();
-        shown.sort_by_key(|p| core::cmp::Reverse(p.shown));
-        if !shown.is_empty() {
+        let shown = top_four(&usage, 60_000, |p| p.shown);
+        if shown[0].is_some() {
             lines.push(Line::Heading(m.copy(host, "battery.by-screen")?));
-            for p in shown.into_iter().take(4) {
+            for p in shown.into_iter().flatten() {
                 let duration = m.duration(host, p.shown)?;
                 let text = m.format(
                     host,
@@ -73,24 +94,21 @@ pub(super) fn append(
                 lines.push(Line::Value(name(host, m, &p.id)?, text));
             }
         }
-        let mut busy: Vec<_> = usage.iter().filter(|p| p.busy >= 100_000).collect();
-        busy.sort_by_key(|p| core::cmp::Reverse(p.busy));
-        if !busy.is_empty() {
+        let busy = top_four(&usage, 100_000, |p| p.busy);
+        if busy[0].is_some() {
             lines.push(Line::Heading(m.copy(host, "battery.by-processor")?));
-            for p in busy.into_iter().take(4) {
+            for p in busy.into_iter().flatten() {
                 lines.push(Line::Value(name(host, m, &p.id)?, m.seconds(host, p.busy)?));
             }
         }
     }
-    let mut net: Vec<_> = usage
-        .iter()
-        .filter(|p| p.requests.saturating_add(p.refused) > 0)
-        .collect();
-    net.sort_by_key(|p| core::cmp::Reverse(p.requests.saturating_add(p.refused)));
-    if !net.is_empty() {
+    let net = top_four(&usage, 1, |p| {
+        u64::from(p.requests.saturating_add(p.refused))
+    });
+    if net[0].is_some() {
         lines.push(Line::Heading(m.copy(host, "battery.network")?));
     }
-    for p in net.into_iter().take(4) {
+    for p in net.into_iter().flatten() {
         lines.push(Line::Value(
             name(host, m, &p.id)?,
             m.format(
@@ -142,4 +160,41 @@ pub(super) fn append(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn top_four_preserves_stable_ties_and_thresholds() {
+        let scores = [0, 30, 20, 30, 40, 30, 50, 30];
+        let rows: Vec<_> = scores
+            .iter()
+            .enumerate()
+            .map(|(index, &shown)| Row {
+                id: alloc::format!("{index}"),
+                shown,
+                busy: 0,
+                refreshes: 0,
+                requests: 0,
+                refused: 0,
+            })
+            .collect();
+        let ids: Vec<_> = top_four(&rows, 20, |r| r.shown)
+            .into_iter()
+            .flatten()
+            .map(|r| r.id.as_str())
+            .collect();
+        assert_eq!(ids, ["6", "4", "1", "3"]);
+        assert!(top_four(&rows, 51, |r| r.shown).iter().all(Option::is_none));
+        assert_eq!(
+            top_four(&rows, 40, |r| r.shown)
+                .into_iter()
+                .flatten()
+                .count(),
+            2
+        );
+        assert!(top_four(&[], 0, |r| r.shown).iter().all(Option::is_none));
+    }
 }
