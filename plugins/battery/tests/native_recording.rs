@@ -34,7 +34,8 @@ fn harness() -> host::Harness {
 // Existing generated SDK-entry metadata is adequate for this in-process probe.
 paperpaw_sdk::native_plugin!(
     Probe,
-    metadata = include_bytes!("../testdata/native-test-metadata.bin")
+    metadata = include_bytes!("../testdata/native-test-metadata.bin"),
+    heap = none
 );
 fn event(h: &mut host::Harness, encode: fn(u64, &mut [u8]) -> Result<usize, i32>, at: u64) {
     let mut bytes = [0; 64];

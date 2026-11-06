@@ -10,6 +10,10 @@ homepage.workspace = true
 authors.workspace = true
 categories = ["no-std"]
 
+[features]
+linked = []
+native-entry = []
+
 [dependencies]
 paperpaw-sdk.workspace = true
 

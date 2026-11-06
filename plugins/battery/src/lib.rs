@@ -11,6 +11,9 @@
 extern crate alloc;
 
 mod log;
+mod native_entry;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 pub mod native_plugin;
 mod native_view;
 pub mod recording;
