@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 import zipfile
@@ -87,6 +88,9 @@ class Espflash(unittest.TestCase):
 
 
 class BuildPrerequisites(unittest.TestCase):
+    OPTIONS = "-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+    DEB = "ninja-build_1.12.1-1_amd64.deb"
+
     def setUp(self):
         self.bash = (r"C:\Program Files\Git\bin\bash.exe" if os.name == "nt" else shutil.which("bash"))
         if not self.bash or not pathlib.Path(self.bash).is_file():
@@ -96,26 +100,37 @@ class BuildPrerequisites(unittest.TestCase):
         self.root = pathlib.Path(self.directory.name)
         self.bin = self.root / "bin"
         self.bin.mkdir()
+        self.archives = self.root / "archives"
+        self.archives.mkdir()
         self.template = self.root / "tool"
         self.template.write_text("#!/bin/sh\nprintf 'fixture tool\\n'\n", encoding="utf-8")
         for tool in ["cmake", "ninja", "clang-18"]:
             self.write(tool, self.template.read_text())
         # The only commands besides the fixtures on the isolated PATH (the sudo mock uses wc).
-        for tool in ["mkdir", "cp", "sleep", "wc"]:
+        for tool in ["mkdir", "cp", "sleep", "wc", "rm", "sha256sum"]:
             (self.bin / tool).symlink_to(shutil.which(tool))
+        # What the package list says of the one package: its file and SHA-256.
+        self.good = b"the genuine package"
+        self.sha = hashlib.sha256(self.good).hexdigest()
+        self.write("apt-cache", "#!/bin/sh\nprintf 'Package: ninja-build\\nSHA256: %s\\n' " + repr(self.sha) + "\n")
         self.write("sudo", """#!/bin/sh
-printf '%s\n' "$*" >> "$CALLS"
-# apt-get takes its -o options before the verb: look for `install` anywhere.
-case " $* " in *' apt-get '*' install '*) installing=yes;; *) installing=;; esac
-if [ -n "$installing" ]; then
-  for package in "$@"; do
-    case "$package" in
-      cmake) tool=cmake;; ninja-build) tool=ninja;; clang-18) tool=clang-18;; *) continue;;
-    esac
-    /bin/cp "$TOOL_TEMPLATE" "$FAKE_BIN/$tool"
-    /bin/chmod +x "$FAKE_BIN/$tool"
-  done
-fi
+printf '%s\\n' "$*" >> "$CALLS"
+case " $* " in
+  # What the install would fetch (the authenticated list's file name).
+  *' --print-uris '*) printf "'http://mirror/%s' %s 1 SHA256:x\\n" "$DEB" "$DEB";;
+  # apt-get takes its -o options before the verb: look for `install` anywhere.
+  *' apt-get '*' install '*)
+    for package in "$@"; do
+      case "$package" in
+        cmake) tool=cmake;; ninja-build) tool=ninja;; clang-18) tool=clang-18;; *) continue;;
+      esac
+      /bin/cp "$TOOL_TEMPLATE" "$FAKE_BIN/$tool"
+      /bin/chmod +x "$FAKE_BIN/$tool"
+    done
+    # apt puts what it downloaded in its archive folder.
+    printf 'downloaded' > "$ARCHIVES/$DEB";;
+  *' cp '*) /bin/cp "$@" 2>/dev/null || true;;
+esac
 """)
 
     def write(self, name, text):
@@ -135,10 +150,14 @@ fi
             "GITHUB_ENV": self.shell_path(self.root / "env"),
             "CALLS": self.shell_path(self.root / "calls"),
             "FAKE_BIN": self.shell_path(self.bin), "TOOL_TEMPLATE": self.shell_path(self.template),
-            "APT_RETRY_PAUSE": "0", "APT_ARCHIVES": self.shell_path(self.root / "archives"),
+            "APT_RETRY_PAUSE": "0", "APT_ARCHIVES": self.shell_path(self.archives),
+            "ARCHIVES": self.shell_path(self.archives), "DEB": self.DEB,
         } | extra
         return subprocess.run([self.bash, "--noprofile", "--norc", str(HERE / "ci/build-prerequisites.sh")],
                               env=env, capture_output=True, text=True)
+
+    def calls(self):
+        return (self.root / "calls").read_text().splitlines()
 
     def test_preinstalled_commands_need_no_package_manager(self):
         result = self.run_setup()
@@ -152,50 +171,73 @@ fi
         (self.bin / "ninja").unlink()
         result = self.run_setup()
         self.assertEqual(result.returncode, 0, result.stderr)
-        # Retries and timeouts on both requests (a stalled mirror must fail the
-        # step), and only the missing package is installed.
-        options = "-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
-        self.assertEqual((self.root / "calls").read_text().splitlines(),
-                         [f"timeout 120 apt-get {options} update",
-                          f"timeout 240 apt-get {options} install -y ninja-build"])
+        # Retries and timeouts on every request (a stalled mirror must fail
+        # the step), a kill after the grace period, and only the missing
+        # package is installed.
+        guard = "timeout --kill-after=10"
+        self.assertEqual(self.calls(), [
+            f"{guard} 90 apt-get {self.OPTIONS} update",
+            f"{guard} 30 apt-get {self.OPTIONS} install --print-uris -qq -y ninja-build",
+            f"{guard} 180 apt-get {self.OPTIONS} install -y ninja-build"])
 
     def test_a_stalled_attempt_is_retried_and_ends_after_three(self):
         (self.bin / "ninja").unlink()
-        # Fails (as `timeout` does, 124) until the third call, then installs.
-        self.write("sudo", """#!/bin/sh
-printf '%s\\n' "$*" >> "$CALLS"
-n=$(wc -l < "$CALLS")
-if [ "$n" -lt 3 ]; then exit 124; fi
-case " $* " in *' install '*) /bin/cp "$TOOL_TEMPLATE" "$FAKE_BIN/ninja"; /bin/chmod +x "$FAKE_BIN/ninja";; esac
-""")
+        # Fails (as `timeout` does, 124) until the third call, then works.
+        sudo = (self.bin / "sudo").read_text()
+        self.write("sudo", sudo.replace("case \" $* \" in", 'n=$(wc -l < "$CALLS")\n'
+                   'if [ "$n" -lt 3 ]; then exit 124; fi\ncase " $* " in', 1))
         result = self.run_setup()
         self.assertEqual(result.returncode, 0, result.stderr)
-        calls = (self.root / "calls").read_text().splitlines()
-        self.assertEqual(len(calls), 4)  # update twice (fail, fail), update ok, install
-        self.assertEqual(sum("update" in call for call in calls), 3)
+        self.assertEqual(sum("update" in call for call in self.calls()), 3)
         self.write("sudo", "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$CALLS\"\nexit 124\n")
         (self.bin / "ninja").unlink()
         (self.root / "calls").unlink()
         result = self.run_setup()
         self.assertEqual(result.returncode, 124)
-        self.assertEqual(len((self.root / "calls").read_text().splitlines()), 3)
+        self.assertEqual(len(self.calls()), 3)
 
-    def test_downloaded_packages_are_kept_and_reused(self):
+    def test_an_attempt_that_ignores_the_stop_signal_is_killed_in_time(self):
         (self.bin / "ninja").unlink()
-        archives = self.root / "archives"
-        archives.mkdir()
+        self.write("sudo", '#!/bin/sh\nexec "$@"\n')
+        # A fake apt-get that ignores TERM (and so does its sleep).
+        self.write("apt-get", "#!/bin/sh\ntrap '' TERM\nsleep 30\n")
+        self.write("timeout", "#!/bin/sh\nexec " + shutil.which("timeout") + ' "$@"\n')
+        started = time.monotonic()
+        result = self.run_setup(APT_UPDATE_SECONDS="1", APT_KILL_GRACE="1")
+        took = time.monotonic() - started
+        self.assertNotEqual(result.returncode, 0)
+        # Three attempts of 1 s + 1 s grace, nowhere near the 30 s the process would take.
+        self.assertLess(took, 12, result.stderr)
+
+    def test_kept_packages_are_reused_only_if_they_match_the_package_list(self):
+        (self.bin / "ninja").unlink()
         cache = self.root / "debs"
-        # A cache holding a package gives it to apt first (through sudo: the
-        # archives belong to root); what apt downloaded is kept afterwards.
         cache.mkdir()
-        (cache / "old.deb").write_text("old")
-        (archives / "ninja-build.deb").write_text("new")
+        (cache / self.DEB).write_bytes(self.good)
         result = self.run_setup(APT_DEB_CACHE=self.shell_path(cache))
         self.assertEqual(result.returncode, 0, result.stderr)
-        calls = (self.root / "calls").read_text().splitlines()
-        self.assertEqual(calls[0], f"cp -n {self.shell_path(cache)}/old.deb {self.shell_path(archives)}/")
-        self.assertTrue((cache / "ninja-build.deb").is_file())
-        self.assertTrue((cache / "old.deb").is_file())
+        self.assertEqual((self.archives / self.DEB).read_bytes().decode(), "downloaded")
+        self.assertTrue(any(call.startswith("cp -n ") for call in self.calls()), self.calls())
+
+    def test_a_tampered_kept_package_is_not_given_to_apt_and_is_dropped(self):
+        (self.bin / "ninja").unlink()
+        cache = self.root / "debs"
+        cache.mkdir()
+        (cache / self.DEB).write_bytes(b"a different file")
+        result = self.run_setup(APT_DEB_CACHE=self.shell_path(cache))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(any(call.startswith("cp -n ") for call in self.calls()), self.calls())
+        self.assertIn("does not match the package list", result.stderr)
+        # What apt then downloaded is kept in its place.
+        self.assertEqual((cache / self.DEB).read_bytes().decode(), "downloaded")
+
+    def test_only_the_files_of_this_install_are_kept(self):
+        (self.bin / "ninja").unlink()
+        cache = self.root / "debs"
+        (self.archives / "unrelated_1_amd64.deb").write_text("x")
+        result = self.run_setup(APT_DEB_CACHE=self.shell_path(cache))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([f.name for f in cache.iterdir()], [self.DEB])
 
     def test_failed_install_does_not_publish_an_environment(self):
         (self.bin / "cmake").unlink()

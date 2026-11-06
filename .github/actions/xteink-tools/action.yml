@@ -25,8 +25,8 @@ runs:
     # for most of an hour (#876): the packages' .deb files are kept here, so a
     # run that finds them downloads nothing. Only pushes to main and
     # abi7/integration save the entry (about 150 MB); the others only read it.
-    # apt checks every .deb against the signed package index, so a cached file
-    # can only be the one the mirror offers.
+    # The script gives apt a kept file only if its SHA-256 is the authenticated
+    # package list's, so a cached file can only be the one the mirror offers.
     - name: The apt packages for mbedTLS, kept between runs
       id: apt-debs
       uses: actions/cache/restore@v4
