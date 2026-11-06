@@ -20,6 +20,9 @@
 //! field. A sink failure is returned as [`DeclareError::Sink`] with its unchanged
 //! status and permanently poisons the builder. Every later addition or submission
 //! returns that same error without calling the sink, even for invalid input.
+//! A failed allocation similarly latches [`DeclareError::NoMemory`], distinct
+//! from a host-reported sink status. Dropping a pending, healthy builder is
+//! a programmer error checked by a debug assertion; always submit its last batch.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -99,6 +102,8 @@ pub enum DeclareError {
     Encode(i32),
     /// The submission sink refused a batch. This builder cannot submit again.
     Sink(i32),
+    /// The builder could not allocate memory. No further submission is possible.
+    NoMemory,
 }
 
 impl fmt::Display for DeclareError {
@@ -112,6 +117,7 @@ impl fmt::Display for DeclareError {
             DeclareError::SecretScoped => f.write_str("a secret setting cannot be scoped"),
             DeclareError::Encode(status) => write!(f, "the encoder refused it ({status})"),
             DeclareError::Sink(status) => write!(f, "the submission sink refused it ({status})"),
+            DeclareError::NoMemory => f.write_str("not enough memory for declarations"),
         }
     }
 }
@@ -354,7 +360,31 @@ pub struct Declarations<F> {
     used: usize,
     count: usize,
     total: usize,
-    failed: Option<i32>,
+    failed: Option<Latched>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Latched {
+    Sink(i32),
+    NoMemory,
+}
+
+impl Latched {
+    fn error(self) -> DeclareError {
+        match self {
+            Self::Sink(status) => DeclareError::Sink(status),
+            Self::NoMemory => DeclareError::NoMemory,
+        }
+    }
+}
+
+impl<F> Drop for Declarations<F> {
+    fn drop(&mut self) {
+        debug_assert!(
+            self.count == 0 || self.failed.is_some(),
+            "declarations dropped without submit()"
+        );
+    }
 }
 
 impl<F> fmt::Debug for Declarations<F> {
@@ -386,12 +416,16 @@ fn filled(text: &str, field: &'static str) -> Result<(), DeclareError> {
 
 /// The wire value of a default: one `settings_value`, header included.
 fn value_bytes(value: SettingValueRef<'_>) -> Result<Vec<u8>, DeclareError> {
-    let mut out =
-        alloc::vec![MaybeUninit::<u8>::uninit(); records_wire::SETTING_SPEC_DEFAULT_MAX_BYTES];
+    let mut out = [MaybeUninit::<u8>::uninit(); records_wire::SETTING_SPEC_DEFAULT_MAX_BYTES];
     let len = settings_encode(value, &mut out).map_err(|_| DeclareError::Default)?;
     let bytes = out.get(..len).ok_or(DeclareError::TooLong("default"))?;
+    let mut encoded = Vec::new();
+    encoded
+        .try_reserve_exact(len)
+        .map_err(|_| DeclareError::NoMemory)?;
     // SAFETY: `settings_encode` initialized the first `len` bytes of `out`.
-    Ok(bytes.iter().map(|b| unsafe { b.assume_init() }).collect())
+    encoded.extend(bytes.iter().map(|byte| unsafe { byte.assume_init() }));
+    Ok(encoded)
 }
 
 fn choices_text(choices: &[&str], default: &str) -> Result<String, DeclareError> {
@@ -414,7 +448,17 @@ fn choices_text(choices: &[&str], default: &str) -> Result<String, DeclareError>
     if length > records_wire::SETTING_SPEC_CHOICES_MAX_BYTES {
         return Err(DeclareError::TooLong("choices"));
     }
-    Ok(choices.join("\n"))
+    let mut joined = String::new();
+    joined
+        .try_reserve_exact(length)
+        .map_err(|_| DeclareError::NoMemory)?;
+    for (index, choice) in choices.iter().enumerate() {
+        if index != 0 {
+            joined.push('\n');
+        }
+        joined.push_str(choice);
+    }
+    Ok(joined)
 }
 
 impl<'a> SpecDecl<'a> {
@@ -480,14 +524,24 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// Starts an empty stream with one reusable 4 KiB buffer. Declaration strings
     /// are borrowed only while adding each item; no declaration is retained.
     /// Call [`Self::submit`] to send the final batch. Dropping does not submit.
+    /// If allocation fails, every addition and submission returns
+    /// [`DeclareError::NoMemory`] without calling the sink.
     pub fn new(sink: F) -> Self {
+        let mut bytes = Vec::new();
+        let failed = match bytes.try_reserve_exact(BATCH_MAX_BYTES) {
+            Ok(()) => {
+                bytes.resize(BATCH_MAX_BYTES, 0);
+                None
+            }
+            Err(_) => Some(Latched::NoMemory),
+        };
         Self {
             sink,
-            bytes: alloc::vec![0; BATCH_MAX_BYTES],
+            bytes,
             used: 1,
             count: 0,
             total: 0,
-            failed: None,
+            failed,
         }
     }
 
@@ -566,7 +620,11 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
         if spec.secret && spec.scoped {
             return Err(DeclareError::SecretScoped);
         }
-        let parts = spec.parts()?;
+        let parts = spec.parts().inspect_err(|error| {
+            if *error == DeclareError::NoMemory {
+                self.failed = Some(Latched::NoMemory);
+            }
+        })?;
         within(
             &parts.choices,
             records_wire::SETTING_SPEC_CHOICES_MAX_BYTES,
@@ -725,14 +783,12 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     ///
     /// A sink refusal is returned and latched: no further batch is submitted.
     pub fn submit(&mut self) -> Result<(), DeclareError> {
-        if let Some(status) = self.failed {
-            return Err(DeclareError::Sink(status));
-        }
+        self.check_sink()?;
         if self.count == 0 {
             return Ok(());
         }
         if let Err(status) = (self.sink)(&self.bytes[..self.used]) {
-            self.failed = Some(status);
+            self.failed = Some(Latched::Sink(status));
             return Err(DeclareError::Sink(status));
         }
         self.used = 1;
@@ -741,14 +797,11 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     }
 
     fn check_sink(&self) -> Result<(), DeclareError> {
-        self.failed
-            .map_or(Ok(()), |status| Err(DeclareError::Sink(status)))
+        self.failed.map_or(Ok(()), |failure| Err(failure.error()))
     }
 
     fn push(&mut self, item: Item<'_>) -> Result<(), DeclareError> {
-        if let Some(status) = self.failed {
-            return Err(DeclareError::Sink(status));
-        }
+        self.check_sink()?;
         if self.count == BATCH_MAX_RECORDS {
             self.submit()?;
         }
