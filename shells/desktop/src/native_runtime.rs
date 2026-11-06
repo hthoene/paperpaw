@@ -168,12 +168,21 @@ fn u64_at(bytes: &[u8], at: usize) -> Option<u64> {
     Some(u64::from_le_bytes(raw.try_into().ok()?))
 }
 
-/// The first loadable segment of the 64-bit little-endian ELF `bytes` that is
-/// neither writable nor executable (the library's read-only data), as
-/// `(address, length)` once the library is mapped at `base`; `(0, 0)` where
-/// there is none. Only the file's program headers are read; every offset is
-/// checked, so a hostile table gives `(0, 0)`, never a panic.
-fn read_only_segment(bytes: &[u8], base: usize) -> (usize, usize) {
+/// The library's read-only data, as the registration step's image: the
+/// loadable segment of the 64-bit little-endian ELF `bytes` that holds
+/// `anchor` (the address of `PAPERPAW_METADATA`, a read-only record), as
+/// `(address, length)` once the library is mapped at `base`. Offsets of
+/// `DeclRef::Image` are relative to its start.
+///
+/// The segment must be readable and neither writable nor executable, and its
+/// file bytes must lie wholly inside the file (`bytes`, the file as checked),
+/// so no mapped page of it reaches past the end of the file (a read there
+/// would be a bus error). `(0, 0)` where there is none: a batch is then kept
+/// in the plugin's own budget, not as offsets. The segment holding the
+/// headers and the dynamic symbols is not taken for it: with GNU ld the
+/// `.rodata` lies in a later one. Only the program headers are read and every
+/// offset is checked, so a hostile table gives `(0, 0)`, never a panic.
+fn read_only_segment(bytes: &[u8], base: usize, anchor: u64) -> (usize, usize) {
     const PT_LOAD: u32 = 1;
     const PF_X: u32 = 1;
     const PF_W: u32 = 2;
@@ -188,14 +197,29 @@ fn read_only_segment(bytes: &[u8], base: usize) -> (usize, usize) {
         for i in 0..count.min(64) {
             let at = phoff.checked_add(i.checked_mul(entry)?)?;
             let flags = u32_at(bytes, at.checked_add(4)?).ok()?;
-            if u32_at(bytes, at).ok()? != PT_LOAD || flags & (PF_X | PF_W) != 0 || flags & PF_R == 0
-            {
+            if u32_at(bytes, at).ok()? != PT_LOAD {
                 continue;
             }
-            let vaddr = usize::try_from(u64_at(bytes, at.checked_add(16)?)?).ok()?;
-            let filesz = usize::try_from(u64_at(bytes, at.checked_add(32)?)?).ok()?;
-            let memsz = usize::try_from(u64_at(bytes, at.checked_add(40)?)?).ok()?;
-            let len = filesz.min(memsz);
+            let offset = u64_at(bytes, at.checked_add(8)?)?;
+            let vaddr = u64_at(bytes, at.checked_add(16)?)?;
+            let filesz = u64_at(bytes, at.checked_add(32)?)?;
+            let memsz = u64_at(bytes, at.checked_add(40)?)?;
+            // The segment that holds the anchor, whatever its flags.
+            if anchor < vaddr || anchor - vaddr >= filesz {
+                continue;
+            }
+            if flags & (PF_X | PF_W) != 0 || flags & PF_R == 0 {
+                return None;
+            }
+            // `p_filesz` bytes come from the file, the rest up to `p_memsz` is
+            // zeros: more file than memory is no segment, and the file bytes
+            // must lie wholly inside the file.
+            if filesz > memsz || offset.checked_add(filesz)? > u64::try_from(bytes.len()).ok()? {
+                return None;
+            }
+            let len = filesz;
+            let vaddr = usize::try_from(vaddr).ok()?;
+            let len = usize::try_from(len).ok()?;
             base.checked_add(vaddr)?.checked_add(len)?;
             return Some((base + vaddr, len));
         }
@@ -277,6 +301,7 @@ unsafe fn checked_library(
     let image = read_only_segment(
         &bytes,
         (loaded_meta as usize).wrapping_sub(locator.address as usize),
+        locator.address,
     );
     Ok(CheckedLibrary {
         library,
