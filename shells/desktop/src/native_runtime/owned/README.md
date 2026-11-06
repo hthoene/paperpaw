@@ -38,14 +38,27 @@ library handle is opened for observation. Tests cover successful construction,
 revocation and queued leases, capacity-poisoned and revoked commit, factory
 failure, null successful output and owner-drop teardown and abandoned pending construction.
 
-Registration values in this increment are host-only test records. They are
-staged before make and cannot dispatch until commit; this does not prove foreign
-`registrations.submit` decoding or staging during make. Kernel owns the generated
-callback record schema and the scoped active-transaction context seam. There is
-no invented wire slot, foreign callback dispatcher, global registry publication,
-or production activation here. The next runtime gate is one real plugin calling
-the generated registration bridge during make, followed by admitted foreign
-callback dispatch and refusal after revoke, using these same ownership guards.
+The original transaction tests retain host-only records. A separate registered
+make path uses the pinned context's RegistrationScope<Registration>, installed
+only around synchronous make. Its explicit typed host bridge forwards raw batch
+pointer/length to the reviewed Kernel decoder. Complete decoding/support checks
+precede staging; active refusal latches transaction rejection even if ignored.
+The scope clears before factory output validation or pending-output commit.
+
+The foreign child tests build registration/event bytes using the generated
+encoders, compile a real no_std library invoking registrations_submit during
+make, and dispatch its event/draw callbacks only through admitted leased batches
+or queued leases. Independent one-byte heap markers distinguish callback effects
+from instance allocation/free. Cases cover valid commit, ignored malformed,
+unsupported and capacity refusals, invalid event rejection, out-of-scope submit,
+and revoke with Busy finish until all leases drain. These implementation cases
+still require execution and independent review before acceptance.
+
+Explicit dependency: registration wire PR #152 at cdc9e2da and prefix-loader
+PR #151. Production CodeLoader, application registry publication, FrameSlot/Env
+service integration, returned commands/screens and Battery migration are not
+activated or qualified by this isolated tick/draw heap-marker proof. No real
+hardware or aggregate 256 KiB device-memory result is implied.
 
 Targeted verification:
 

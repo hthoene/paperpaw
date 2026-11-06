@@ -1,5 +1,5 @@
-//! Real dlopen/factory/destruction proof. Staged records are host-only pending
-//! the generated foreign registration schema; no callback ABI claim is made.
+//! Real dlopen/factory/destruction proof. Original cases use typed host records;
+//! the foreign child module exercises reviewed wire submission and callbacks.
 use super::*;
 use paperpaw_core::native_host::DispatchDepth;
 use std::{cell::RefCell, process::Command, rc::Rc};
@@ -12,6 +12,8 @@ struct Evidence {
     frees: Cell<usize>,
     clocks: Cell<usize>,
     records: Cell<usize>,
+    callback_markers: Cell<usize>,
+    callback_frees: Cell<usize>,
 }
 
 struct ServicesProbe {
@@ -29,10 +31,17 @@ impl Services for ServicesProbe {
     fn alloc(&self, size: usize, align: usize) -> *mut u8 {
         assert!(self.evidence.live.get());
         assert!(mapped(&self.path));
-        self.evidence
-            .allocations
-            .set(self.evidence.allocations.get() + 1);
-        self.evidence.events.borrow_mut().push("allocate");
+        if size == 1 && align == 1 {
+            self.evidence
+                .callback_markers
+                .set(self.evidence.callback_markers.get() + 1);
+            self.evidence.events.borrow_mut().push("callback");
+        } else {
+            self.evidence
+                .allocations
+                .set(self.evidence.allocations.get() + 1);
+            self.evidence.events.borrow_mut().push("allocate");
+        }
         // SAFETY: host glue validated this nonzero layout.
         unsafe { std::alloc::alloc(Layout::from_size_align(size, align).unwrap()) }
     }
@@ -40,8 +49,14 @@ impl Services for ServicesProbe {
     unsafe fn dealloc(&self, block: *mut u8, size: usize, align: usize) {
         assert!(self.evidence.live.get());
         assert!(mapped(&self.path));
-        self.evidence.frees.set(self.evidence.frees.get() + 1);
-        self.evidence.events.borrow_mut().push("free");
+        if size == 1 && align == 1 {
+            self.evidence
+                .callback_frees
+                .set(self.evidence.callback_frees.get() + 1);
+        } else {
+            self.evidence.frees.set(self.evidence.frees.get() + 1);
+            self.evidence.events.borrow_mut().push("free");
+        }
         // SAFETY: fixture returns exactly the allocation and layout above.
         unsafe { std::alloc::dealloc(block, Layout::from_size_align(size, align).unwrap()) };
     }
@@ -67,6 +82,10 @@ impl Drop for ServicesProbe {
         assert!(self.evidence.live.replace(false));
         assert!(mapped(&self.path), "context must drop before module unload");
         assert_eq!(self.evidence.allocations.get(), self.evidence.frees.get());
+        assert_eq!(
+            self.evidence.callback_markers.get(),
+            self.evidence.callback_frees.get()
+        );
         self.evidence.events.borrow_mut().push("context");
     }
 }
@@ -100,6 +119,12 @@ impl Fixture {
             .canonicalize()
             .unwrap();
         let bytes = super::super::tests::metadata_bytes();
+        let plugin_table = if mode == 3 { "Prefix" } else { "PpPlugin" };
+        let callback_fields = if mode == 3 {
+            ""
+        } else {
+            ", dispatch_event: None, draw: None"
+        };
         let source = format!(
             r#"
 #![no_std]
@@ -113,7 +138,9 @@ unsafe impl Sync for Entry {{}}
  size: core::mem::size_of::<PpEntry>() as u32, abi_major: 7, needs_minor: 1,
  metadata: PpBytes {{ ptr: PAPERPAW_METADATA.as_ptr(), len: {len} }}, make: Some(make),
 }});
-#[repr(C)] struct State {{ host: *const PpHost, ctx: *mut core::ffi::c_void, plugin: PpPlugin }}
+#[repr(C)] struct Prefix {{ size: u32, state: *mut core::ffi::c_void, drop: Option<unsafe extern "C" fn(*mut core::ffi::c_void)> }}
+const _: () = assert!(core::mem::size_of::<Prefix>() == PLUGIN_PREFIX_BYTES);
+#[repr(C)] struct State {{ host: *const PpHost, ctx: *mut core::ffi::c_void, plugin: {plugin_table} }}
 unsafe extern "C" fn make(host: *const PpHost, ctx: *mut core::ffi::c_void, out: *mut *const PpPlugin) -> i32 {{
  let h = unsafe {{ &*host }};
  let mut stamp = 0;
@@ -124,8 +151,8 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut core::ffi::c_void, out:
  let status = unsafe {{ (h.heap_alloc)(ctx, core::mem::size_of::<State>(), core::mem::align_of::<State>(), &mut block) }};
  if status != OK {{ return status; }}
  let state = block.cast::<State>();
- unsafe {{ state.write(State {{ host, ctx, plugin: PpPlugin {{ size: core::mem::size_of::<PpPlugin>() as u32, state: block, drop: Some(destroy) }} }});
- out.write(&raw const (*state).plugin); }}
+ unsafe {{ state.write(State {{ host, ctx, plugin: {plugin_table} {{ size: core::mem::size_of::<{plugin_table}>() as u32, state: block, drop: Some(destroy){callback_fields} }} }});
+ out.write((&raw const (*state).plugin).cast()); }}
  OK
 }}
 unsafe extern "C" fn destroy(state: *mut core::ffi::c_void) {{
@@ -322,6 +349,25 @@ fn real_library_abandoned_pending_guard_drains_records_before_foreign_drop() {
 }
 
 #[test]
+fn real_short_prefix_and_null_full_tail_construct_without_optional_callbacks() {
+    for mode in [0, 3] {
+        let fixture = Fixture::build(mode);
+        let (plugin, evidence) = fixture.open();
+        let transaction = plugin.begin::<()>().unwrap();
+        let batch = plugin.construct(transaction).unwrap();
+        let instance = plugin.owner.as_ref().context().instance.get().unwrap();
+        assert!(instance.event.is_none());
+        assert!(instance.draw.is_none());
+        drop(batch);
+        drop(plugin);
+        assert_eq!(evidence.clocks.get(), 2);
+        assert_eq!(evidence.allocations.get(), 1);
+        assert_eq!(evidence.frees.get(), 1);
+        assert!(!mapped(&fixture.path));
+    }
+}
+
+#[test]
 fn real_library_panicking_staged_drop_still_destroys_validated_foreign_output() {
     struct PanickingRecord {
         record: Option<Record>,
@@ -378,3 +424,5 @@ fn real_library_panicking_staged_drop_still_destroys_validated_foreign_output() 
     );
     assert_eq!(evidence.events.borrow().last(), Some(&"context"));
 }
+
+mod foreign;

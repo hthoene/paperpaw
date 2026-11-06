@@ -101,6 +101,7 @@ pub struct LoadedPlugin {
     _library: HeldLibrary,
     // The host context remains alive through destruction; currently process-owned.
     _host: &'static DesktopHost,
+    _callbacks: plugin_output::PluginOutput,
 }
 
 impl Drop for LoadedPlugin {
@@ -133,20 +134,15 @@ pub unsafe fn load(
     if status != OK {
         return Err(RuntimeError::Factory(status));
     }
-    if out.is_null() || !(out as usize).is_multiple_of(align_of::<PpPlugin>()) {
-        return Err(RuntimeError::Plugin);
-    }
-    // SAFETY: successful factory supplies a live, readable size prefix.
-    if unsafe { out.cast::<u32>().read() } < size_of::<PpPlugin>() as u32 {
-        return Err(RuntimeError::Plugin);
-    }
-    // SAFETY: a current table is accessible as its size declares.
-    let plugin = unsafe { &*out };
+    // SAFETY: successful authorized make supplies its stable declared span;
+    // the library and host stay alive while generated prefix/tail readers run.
+    let plugin = unsafe { plugin_output::read(out) }?;
     Ok(LoadedPlugin {
         state: plugin.state,
-        destroy: plugin.drop.ok_or(RuntimeError::Plugin)?,
+        destroy: plugin.destroy,
         _library: library,
         _host: host,
+        _callbacks: plugin,
     })
 }
 
@@ -221,6 +217,8 @@ unsafe fn checked_library(
     let make = entry.make.ok_or(RuntimeError::Entry)?;
     Ok(CheckedLibrary { library, make })
 }
+
+mod plugin_output;
 
 // Separate from both CodeLoader and the process-owned inactive load path.
 #[allow(
