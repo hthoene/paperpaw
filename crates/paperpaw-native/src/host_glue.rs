@@ -25,6 +25,10 @@ mod generated {
 }
 
 pub use generated::{ENTRY_SYMBOL, METADATA_SYMBOL, PpBuffer, PpBytes, PpEntry, PpHost, PpPlugin};
+pub use generated::{
+    PLUGIN_PREFIX_BYTES, read_plugin_dispatch_event, read_plugin_draw, read_plugin_drop,
+    read_plugin_size, read_plugin_state,
+};
 
 pub use generated::{
     ERR_BUSY, ERR_CANCELLED, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE,

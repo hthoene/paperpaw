@@ -19,6 +19,19 @@ type Event = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
 type Draw = unsafe extern "C" fn(*mut c_void, u32) -> i32;
 
 #[test]
+fn bounded_plugin_readers_are_available_to_loaders() {
+    use paperpaw_native::host_glue as public;
+    type Reader<T> = unsafe fn(*const u8, usize) -> Result<T, i32>;
+    type Dispatch = unsafe extern "C" fn(*mut c_void, u32, public::PpBytes) -> i32;
+    let _: Reader<usize> = public::read_plugin_size;
+    let _: Reader<*mut c_void> = public::read_plugin_state;
+    let _: Reader<Drop> = public::read_plugin_drop;
+    let _: Reader<Dispatch> = public::read_plugin_dispatch_event;
+    let _: Reader<Draw> = public::read_plugin_draw;
+    assert_eq!(public::PLUGIN_PREFIX_BYTES, raw::PLUGIN_PREFIX_BYTES);
+}
+
+#[test]
 fn entry_and_plugin_fields_remain_exhaustive_and_typed() {
     let entry = PpEntry {
         size: size_of::<PpEntry>() as u32,
