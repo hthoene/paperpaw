@@ -16,7 +16,7 @@ mod snapshot;
 pub mod snapshot_wire;
 
 use context::{Frame, FrameSlot};
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_STATE, PpBuffer};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_STATE, OK, PpBuffer};
 use paperpaw_platform::{
     Battery, DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
     SystemStatus, WallClock,
@@ -138,7 +138,7 @@ fn fresh_frames_preserve_unknown_zero_and_charging_transitions() {
         let frame = view(SystemStatus::new(None, battery)).unwrap();
         slot.as_ref()
             .scope(&frame, || {
-                assert_eq!(output(&slot, &mut bytes), SNAPSHOT_BYTES as i32);
+                assert_eq!(output(&slot, &mut bytes), OK);
                 assert_eq!(snapshot_decode(&bytes).unwrap(), frame.value);
             })
             .unwrap();
@@ -197,13 +197,13 @@ fn short_invalid_and_uninitialized_outputs_have_bounded_writes() {
                         },
                     )
                 },
-                SNAPSHOT_BYTES as i32
+                OK
             );
             // SAFETY: successful encoder return initialized exactly SNAPSHOT_BYTES.
             let bytes = unsafe { std::slice::from_raw_parts(out.as_ptr().cast::<u8>(), out.len()) };
             assert_eq!(snapshot_decode(bytes).unwrap(), frame.value);
             let mut extra = [0xa5; SNAPSHOT_MAX_BYTES];
-            assert_eq!(output(&slot, &mut extra), SNAPSHOT_BYTES as i32);
+            assert_eq!(output(&slot, &mut extra), OK);
             assert!(extra[SNAPSHOT_BYTES..].iter().all(|b| *b == 0xa5));
         })
         .unwrap();
@@ -221,7 +221,7 @@ fn scope_cleanup_and_nested_refusal_preserve_the_current_snapshot() {
                 slot.as_ref().scope(&frame, || ()),
                 Err(context::Error::Busy)
             ));
-            assert_eq!(output(&slot, &mut bytes), SNAPSHOT_BYTES as i32);
+            assert_eq!(output(&slot, &mut bytes), OK);
             assert_eq!(
                 slot.with(|f| ptr::eq(f.settings(), &frame.settings)),
                 Ok(true)
@@ -241,9 +241,7 @@ fn scope_cleanup_and_nested_refusal_preserve_the_current_snapshot() {
     assert!(unwind.is_err());
     assert_eq!(output(&slot, &mut bytes), ERR_STATE);
     slot.as_ref()
-        .scope(&frame, || {
-            assert_eq!(output(&slot, &mut bytes), SNAPSHOT_BYTES as i32)
-        })
+        .scope(&frame, || assert_eq!(output(&slot, &mut bytes), OK))
         .unwrap();
 }
 
@@ -266,10 +264,7 @@ impl Plugin for Probe {
                 slot.as_ref()
                     .scope(env, || {
                         // SAFETY: bytes is exclusive live output disjoint from the context.
-                        assert_eq!(
-                            unsafe { slot.copy(bytes.as_mut_ptr(), bytes.len()) },
-                            SNAPSHOT_BYTES as i32
-                        );
+                        assert_eq!(unsafe { slot.copy(bytes.as_mut_ptr(), bytes.len()) }, OK);
                         let decoded = snapshot_decode(&bytes).unwrap();
                         assert_eq!(decoded.unix_seconds, paperpaw_sdk::time::unix_seconds(env));
                         seen.borrow_mut().push(decoded);

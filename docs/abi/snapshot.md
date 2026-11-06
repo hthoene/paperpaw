@@ -91,7 +91,8 @@ A pinned per-plugin context owns `native_host::environment::EnvironmentScope`.
 Call `scope(env, callback)` around synchronous dispatch, then forward slot 4
 through unsafe `copy(out.ptr, out.cap)`. The caller must provide live exclusive
 output storage disjoint from host state; uninitialized output is supported.
-The method returns the complete encoded byte count on success. Short buffers
+The host method returns `OK` on success; the generated `total_bytes` header
+field carries the encoded length. The standalone encoder returns a byte count. Short buffers
 fail without writes; no active environment returns `ERR_STATE` for valid output.
 Scope cleanup runs on normal return and unwind, and nested installation is Busy.
 Only owned snapshot values leave the borrowed frame.

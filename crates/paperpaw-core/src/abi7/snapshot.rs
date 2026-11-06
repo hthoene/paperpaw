@@ -4,7 +4,7 @@ use super::{
     context::{Frame, FrameSlot},
     snapshot_wire::{self, Battery, PixelFormat, Snapshot},
 };
-use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, PpBuffer, buffers};
+use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, buffers};
 use paperpaw_platform::{DeviceInfo, Instant, SystemStatus};
 use paperpaw_sdk::Env;
 
@@ -59,7 +59,7 @@ pub(crate) fn capture(
     })
 }
 
-/// Slot-4 copy-out backend. Returns the complete encoded byte count on success.
+/// Slot-4 copy-out backend. Returns OK after complete encoding.
 /// Short buffers fail before any write; bytes beyond that count are untouched.
 /// No frame, or a query-only frame, returns ERR_STATE.
 ///
@@ -81,7 +81,7 @@ pub(crate) unsafe fn snapshot(slot: &FrameSlot, out: PpBuffer) -> i32 {
         frame
             .snapshot()
             .and_then(|value| snapshot_wire::snapshot_encode(&value, out))
-            .and_then(|length| i32::try_from(length).map_err(|_| ERR_NO_SPACE))
+            .map(|_| OK)
             .unwrap_or_else(|error| error)
     })
     .unwrap_or(ERR_STATE)

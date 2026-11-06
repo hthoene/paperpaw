@@ -13,6 +13,8 @@ SPEC = importlib.util.spec_from_file_location('abi_gen_snapshot', ROOT / 'tools/
 ABI = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ABI)
 from abi_snapshot import rust_snapshot
+from abi_requirements import required_minor
+from abi_metadata import encode, decode
 
 RUST_TESTS = r'''
 #[cfg(test)]
@@ -195,6 +197,21 @@ mod tests {
 class SnapshotTests(unittest.TestCase):
     def setUp(self):
         self.schema = ABI.load(ROOT / 'abi/abi.def')
+
+    def test_host_requirement_includes_initial_codec_floor(self):
+        prior = copy.deepcopy(self.schema)
+        del prior['snapshot_value']
+        trusted = ABI.lock_record(prior, released_minor=1)
+        candidate = copy.deepcopy(self.schema)
+        candidate['minor'] = 2
+        candidate['snapshot_value']['since'] = 2
+        ABI.check_lock(trusted, candidate)
+        used = [dict(kind='host', name='env.snapshot')]
+        self.assertEqual(required_minor(candidate, used, 0), 2)
+        self.assertEqual(required_minor(candidate, [dict(kind='host', name='heap.alloc')], 0), 1)
+        build = dict(target=candidate['metadata']['profiles'][0]['name'], used=used,
+                     floor=0, services=[], features=[])
+        self.assertEqual(decode(candidate, encode(candidate, build))['needs_minor'], 2)
 
     def test_descriptor_and_derived_tags(self):
         ABI.validate(self.schema)

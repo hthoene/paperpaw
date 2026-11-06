@@ -43,7 +43,8 @@ impl EnvironmentScope {
         })
     }
 
-    /// Copy the current snapshot, returning its complete byte count or status.
+    /// Copy the current snapshot, returning OK or a negative error status.
+    /// The generated total_bytes header field carries the encoded length.
     /// This does not expose a native table type in the host API.
     ///
     /// # Safety
