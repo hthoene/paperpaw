@@ -16,8 +16,9 @@ There are two kinds of work here; tell which one a task is.
   which builds on the SDK as released. Its limits do not apply to work
   on PaperPaw itself.
 
-Before a push, run `tools/ci-local.sh` (`full` for a change to the SDK,
-the firmware or the tools): it is CI's host-side checks, and CI minutes
+Before a push, run `tools/ci-local.sh` (`affected` for a change that
+reaches more than fmt, lint and test, `full` for a change to the SDK, the
+firmware or the tools): it is CI's host-side checks, and CI minutes
 are limited. See CONTRIBUTING.md.
 
 [docs/plugins.md](docs/plugins.md) explains how plugins are written, for

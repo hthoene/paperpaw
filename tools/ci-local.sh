@@ -2,11 +2,17 @@
 # The host-side checks of .github/workflows/ci.yml, in one command, so a
 # change is checked here before it is pushed (CI minutes are limited):
 #
-#   tools/ci-local.sh [quick|full] [-j N] [--only <group>[,<group>...]] [--list] [-v]
+#   tools/ci-local.sh [quick|affected|full] [-j N] [--only <group>[,<group>...]] [--base REF] [--list] [-v]
 #
-#   quick   fmt, lint, test: what every change needs (the default)
-#   full    every group below except `fuzz`, `firmware-build` and `release-versions`
-#   --only  just these groups (names as `--list` prints them)
+#   quick     fmt, lint, test: what every change needs (the default)
+#   affected  quick, `architecture` (cheap, always), and the other groups of
+#             `full` that the files changed since `--base` (default
+#             origin/abi7/integration, then origin/main) can reach; the rest are
+#             named as NOT RUN, not as passes. A changed file no rule knows runs
+#             everything. GitHub CI still runs every job.
+#   full      every group below except `fuzz`, `firmware-build` and `release-versions`
+#   --only    just these groups (names as `--list` prints them)
+#   --base    the commit `affected` compares with (the merge base is used)
 #   -j N    cargo's parallel jobs (default 4; the container has 16 GB of RAM,
 #           an out-of-memory kill takes every agent's work with it)
 #   -v      show each step's output (otherwise it is kept in
@@ -18,7 +24,16 @@
 #
 # Each step is a real command with its real exit code: a failing step is
 # listed in the summary and the script exits 1, whatever the output looked
-# like. RUSTFLAGS is `-D warnings` as in CI. A step whose tool is not
+# like. RUSTFLAGS is `-D warnings` as in CI.
+#
+# Cheaper builds, with the same checks: the dev and test profiles carry line
+# tables only (`CARGO_PROFILE_DEV_DEBUG=line-tables-only`: backtraces keep
+# functions, files and lines; the release and firmware profiles are not
+# touched), and when `sccache` is installed it is the compiler wrapper
+# (`RUSTC_WRAPPER`, cache in $SCCACHE_DIR, `CARGO_INCREMENTAL=0` which it
+# needs). Clippy still runs on this tree's own crates; the firmware's own
+# .cargo/config switches the wrapper off. `CI_LOCAL_SCCACHE=0` turns it off,
+# a RUSTC_WRAPPER or CARGO_PROFILE_DEV_DEBUG already set is kept. A step whose tool is not
 # installed is SKIPPED, with the reason, and listed; it is not a pass.
 #
 # `release-versions` (only on request) builds the store files twice, once for the last
@@ -40,14 +55,16 @@ fi
 mode=quick
 jobs=4
 only=""
+base=""
 verbose=0
 list=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        quick | full) mode=$1 ;;
+        quick | affected | full) mode=$1 ;;
         -j) jobs=${2:?-j needs a number}; shift ;;
         -j*) jobs=${1#-j} ;;
         --only) only=${2:?--only needs groups}; shift ;;
+        --base) base=${2:?--base needs a commit}; shift ;;
         --list) list=1 ;;
         -v) verbose=1 ;;
         -h | --help) sed -n '2,/^set -uo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -59,6 +76,15 @@ done
 export CARGO_TERM_COLOR=never
 export CARGO_BUILD_JOBS="$jobs"
 export RUSTFLAGS="-D warnings"
+# Line tables are enough for backtraces in test builds (the workspace's own
+# `debug = "limited"` keeps variable info nobody reads here): smaller build
+# folders, less to compile and link. Release and firmware profiles stay.
+: "${CARGO_PROFILE_DEV_DEBUG:=line-tables-only}"
+export CARGO_PROFILE_DEV_DEBUG
+# A shared compiler cache, when there is one (see CONTRIBUTING.md).
+if [[ -z "${RUSTC_WRAPPER:-}" && "${CI_LOCAL_SCCACHE:-1}" != 0 ]] && command -v sccache > /dev/null; then
+    export RUSTC_WRAPPER=sccache CARGO_INCREMENTAL=0
+fi
 
 all_groups=(fmt abi lint test doc msrv screens sdk embedded native architecture emulator deny firmware android)
 quick_groups=(fmt lint test)
@@ -66,15 +92,67 @@ opt_groups=(firmware-build fuzz release-versions)
 
 if [[ $list -eq 1 ]]; then
     echo "quick: ${quick_groups[*]}"
+    echo "affected: quick + architecture + the groups of full that the changed files reach"
     echo "full:  ${all_groups[*]}"
     echo "only on request (--only): ${opt_groups[*]}"
     exit 0
 fi
 
+# The groups of `full` that a change can reach, by the files it changed:
+# `affected_groups <changed files on stdin>`. Conservative: a file that no
+# rule below knows, or a change to this script or to CI, runs every group.
+# Always run: quick's and `architecture` (cheap, its rules read the whole
+# tree). `abi` runs whenever a file it reads can have changed, and then needs
+# ABI_BASELINE and ABI_BASE_REV like `full` (no baseline is inferred; it fails
+# without them, it is never skipped).
+affected_groups() {
+    local files wanted=" fmt lint test architecture " g unknown
+    files="$(cat)"
+    [[ -n "$files" ]] || { echo "${quick_groups[*]} architecture"; return; }
+    unknown="$(printf '%s\n' "$files" | grep -Ev '^(crates/|plugins/|samples/|shells/|tools/|docs/|abi/|fastlane/|store/|fuzz/|patches/|x/)|^(README|CHANGELOG|CONTRIBUTING|AGENTS|CODE_OF_CONDUCT|SECURITY|LICENSE|NOTICE|clippy\.toml|rustfmt\.toml|deny\.toml|Cargo\.(toml|lock))' || true)"
+    if [[ -n "$unknown" ]] || printf '%s\n' "$files" | grep -Eq '^(tools/ci-local\.sh|\.github/|rust-toolchain\.toml)'; then
+        echo "${all_groups[*]}"
+        return
+    fi
+    touches() { printf '%s\n' "$files" | grep -Eq "$1" && wanted+="$2 "; }
+    # Rust source, manifests or the lock file: everything that compiles.
+    touches '^(crates/|plugins/|samples/|shells/|fuzz/|patches/|tools/(dev|bluetooth-tests)/)|(^|/)Cargo\.(toml|lock)$|(^|/)(clippy|rustfmt)\.toml$' "doc msrv"
+    touches '^(crates/|plugins/|tools/dev/|samples/|(^|/)Cargo\.)' "screens"
+    touches '^(crates/|plugins/|shells/web/|samples/|Cargo\.)' "embedded"
+    touches '^(crates/|plugins/|shells/(desktop|web)/|samples/|tools/handbook\.py|Cargo\.)' "emulator"
+    touches '^(crates/|plugins/|shells/xteink/|samples/|Cargo\.)' "firmware"
+    touches '^(crates/|plugins/|shells/android/|Cargo\.)' "android"
+    touches '^(crates/|abi/|tools/(interface|test_interface|shared-table|test_shared_table|table-compat)|Cargo\.)' "sdk"
+    touches '^(crates/|samples/hello-native/|tools/(licences|dev/templates)/|shells/xteink/(rust-toolchain|versions)|NOTICE|LICENSE|Cargo\.)' "native"
+    touches '(^|/)Cargo\.(toml|lock)$|^deny\.toml$' "deny"
+    touches '^(abi/|crates/paperpaw-(sdk|native|core|table|platform)/|tools/(abi|interface|test_interface|gen)|Cargo\.lock$)' "abi"
+    for g in "${all_groups[@]}"; do [[ "$wanted" == *" $g "* ]] && printf '%s ' "$g"; done
+    echo
+}
+
 if [[ -n "$only" ]]; then
     IFS=, read -r -a groups <<< "$only"
 elif [[ $mode == full ]]; then
     groups=("${all_groups[@]}")
+elif [[ $mode == affected ]]; then
+    if [[ -z "$base" ]]; then
+        for candidate in origin/abi7/integration origin/main; do
+            git rev-parse --verify -q "$candidate" > /dev/null && { base=$candidate; break; }
+        done
+    fi
+    if [[ -n "$base" ]] && mb="$(git merge-base "$base" HEAD 2> /dev/null)"; then
+        changed="$({ git diff --name-only "$mb" HEAD; git diff --name-only HEAD; git ls-files --others --exclude-standard; } | sort -u)"
+        read -r -a groups <<< "$(printf '%s\n' "$changed" | affected_groups)"
+        echo "ci-local affected: $(printf '%s\n' "$changed" | grep -c .) changed file(s) since ${mb:0:10} ($base)"
+        notrun=()
+        for g in "${all_groups[@]}"; do
+            [[ " ${groups[*]} " == *" $g "* ]] || notrun+=("$g")
+        done
+        [[ ${#notrun[@]} -eq 0 ]] || echo "ci-local affected: NOT RUN (no changed file reaches them; GitHub CI still runs them): ${notrun[*]}"
+    else
+        echo "ci-local affected: no base to compare with (--base REF): running every group of full" >&2
+        groups=("${all_groups[@]}")
+    fi
 else
     groups=("${quick_groups[@]}")
 fi

@@ -39,8 +39,13 @@ before 1.0.
    `.github/workflows/ci.yml` in one command, with `RUSTFLAGS=-D warnings`
    and 4 cargo jobs (`-j N` changes that): `tools/ci-local.sh` (fmt, lint,
    tests), `tools/ci-local.sh full` (everything below that can run on a
-   Linux computer), `--only <group>` for one group, `--list` for the
-   names. Each step's exit code is its own: the summary lists the failed
+   Linux computer), `tools/ci-local.sh affected` (quick, `architecture`
+   and the groups of `full` that the files you changed since
+   `origin/abi7/integration` can reach, the others named as not run; `--base`
+   picks another commit; GitHub CI runs everything either way), `--only
+   <group>` for one group, `--list` for the names. Builds use line-tables-only
+   debug info in the dev and test profiles and, where `sccache` is installed,
+   it as the compiler wrapper (`CI_LOCAL_SCCACHE=0` turns it off). Each step's exit code is its own: the summary lists the failed
    steps and the skipped ones (a missing tool is a skip, not a pass).
    Not run there: the Xtensa firmware (X4 Pro, X4 Classic), the Windows and
    macOS emulators, the update path, the Android APK, the reproducible
