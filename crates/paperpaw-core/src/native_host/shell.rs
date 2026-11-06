@@ -3,7 +3,7 @@
 //! `make`, the plugin's output, and the scoped dispatch of its callbacks.
 //!
 //! What differs between shells is only small and stays in the shell: the
-//! [`Services`] (heap, clock), the *module* `M` the owner keeps alive (a
+//! [`Services`](paperpaw_native::host_glue::Services) (heap, clock), the *module* `M` the owner keeps alive (a
 //! loaded library on the desktop, the placed image on the X4), the `make`
 //! function, and the read-only range of the image. Everything that touches
 //! the plugin's table and the lifetime rules is here once, so it is reviewed
