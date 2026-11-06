@@ -153,8 +153,14 @@ esac
             "APT_RETRY_PAUSE": "0", "APT_ARCHIVES": self.shell_path(self.archives),
             "ARCHIVES": self.shell_path(self.archives), "DEB": self.DEB,
         } | extra
-        return subprocess.run([self.bash, "--noprofile", "--norc", str(HERE / "ci/build-prerequisites.sh")],
-                              env=env, capture_output=True, text=True)
+        # Output goes to files, not pipes: a process the script left behind
+        # (a grandchild of a killed command) must not hold up the test.
+        out, err = self.root / "stdout", self.root / "stderr"
+        with out.open("w") as stdout, err.open("w") as stderr:
+            done = subprocess.run([self.bash, "--noprofile", "--norc", str(HERE / "ci/build-prerequisites.sh")],
+                                  env=env, stdout=stdout, stderr=stderr, text=True)
+        done.stdout, done.stderr = out.read_text(), err.read_text()
+        return done
 
     def calls(self):
         return (self.root / "calls").read_text().splitlines()
@@ -196,18 +202,23 @@ esac
         self.assertEqual(result.returncode, 124)
         self.assertEqual(len(self.calls()), 3)
 
-    def test_an_attempt_that_ignores_the_stop_signal_is_killed_in_time(self):
+    def test_an_attempt_that_ignores_the_stop_signal_is_killed(self):
         (self.bin / "ninja").unlink()
         self.write("sudo", '#!/bin/sh\nexec "$@"\n')
-        # A fake apt-get that ignores TERM (and so does its sleep).
-        self.write("apt-get", "#!/bin/sh\ntrap '' TERM\nsleep 30\n")
+        # A fake apt-get that ignores TERM (the ignoring is kept by `exec`: one
+        # process, so it makes no difference whether `timeout` signals a group).
+        self.write("apt-get", "#!/bin/sh\ntrap '' TERM\nexec sleep 30\n")
         self.write("timeout", "#!/bin/sh\nexec " + shutil.which("timeout") + ' "$@"\n')
         started = time.monotonic()
         result = self.run_setup(APT_UPDATE_SECONDS="1", APT_KILL_GRACE="1")
         took = time.monotonic() - started
         self.assertNotEqual(result.returncode, 0)
-        # Three attempts of 1 s + 1 s grace, nowhere near the 30 s the process would take.
-        self.assertLess(took, 12, result.stderr)
+        # Each attempt ended by the kill (137), not by the process: three times,
+        # not once (the stop signal alone would have left each attempt at its 30 s).
+        self.assertEqual(result.stderr.count("ended with 137"), 3, result.stderr)
+        # A bound far below the 3 x 30 s of attempts that were not killed; not a tight one,
+        # for a slow runner.
+        self.assertLess(took, 25, result.stderr)
 
     def test_kept_packages_are_reused_only_if_they_match_the_package_list(self):
         (self.bin / "ninja").unlink()
