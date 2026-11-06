@@ -18,6 +18,12 @@ a plugin and PaperPaw (ADR 0026), as the plugin interface's test
 
     python3 tools/interface.py           # writes both files of each crate
     python3 tools/interface.py --check   # fails where one is not current
+    ABI_BASELINE=/trusted/abi.lock python3 tools/interface.py --write-abi7-baseline
+
+The inactive host_glue boundary has a separate interface-7 snapshot. Normal
+writes and PAPERPAW_BLESS never bless that snapshot; explicit writes first check
+the independently supplied ABI lock. Legacy exports reaching flat declarations
+are rejected, including renamed reexports and private aliases.
 
 The crates are those `crates/paperpaw-sdk/interface/crates.txt` names.
 Needs the nightly Rust that `NIGHTLY` names, with cargo-public-api of the
@@ -30,6 +36,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+from abi_partition import audit_rustdoc, partition
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 NIGHTLY = "nightly-2026-10-17"
@@ -377,6 +384,7 @@ def source_value(item):
 
 def shape(crate, target):
     doc = rustdoc(crate, target)
+    audit_rustdoc(doc)
     shapes = Shapes(doc)
     lines = {shapes.line(i) for i in shapes.wanted()} | set(shapes.constants())
     return HEADER + "".join(line + "\n" for line in sorted(lines))
@@ -384,11 +392,30 @@ def shape(crate, target):
 
 def main():
     check = "--check" in sys.argv[1:]
+    write_flat = "--write-abi7-baseline" in sys.argv[1:]
+    if check and write_flat:
+        sys.exit("--check cannot write the interface-7 baseline")
+    if write_flat:
+        baseline = os.environ.get("ABI_BASELINE")
+        if not baseline:
+            sys.exit("writing the interface-7 baseline requires trusted ABI_BASELINE")
+        subprocess.run([sys.executable, str(REPO / "tools/abi-gen.py"),
+                        "--baseline", baseline, "--check"], check=True)
     check_public_api()
     stale = []
     with tempfile.TemporaryDirectory(prefix="interface-") as target:
         for crate in crates():
             for name, text in (("api.txt", api(crate)), ("shape.txt", shape(crate, target))):
+                _, flat = partition(crate, text)
+                if crate == "paperpaw-native":
+                    flat_path = REPO / "abi/interface-7" / (crate + "." + name.split(".")[0])
+                    old_flat = flat_path.read_text() if flat_path.exists() else None
+                    if old_flat != flat:
+                        if write_flat:
+                            flat_path.parent.mkdir(parents=True, exist_ok=True)
+                            flat_path.write_text(flat, encoding="utf-8", newline="\n")
+                        else:
+                            stale.append(str(flat_path.relative_to(REPO)))
                 path = REPO / "crates" / crate / name
                 old = path.read_text(encoding="utf-8").replace("\r\n", "\n") if path.exists() else None
                 if old == text:
@@ -399,7 +426,9 @@ def main():
                     path.write_text(text, encoding="utf-8", newline="\n")
                     print("wrote", path.relative_to(REPO))
     if stale:
-        sys.exit("not current; write them with python3 tools/interface.py:\n  " + "\n  ".join(stale))
+        sys.exit("not current; refresh crate files with python3 tools/interface.py; "
+                 "ABI7 snapshots require --write-abi7-baseline and trusted ABI_BASELINE:\n  "
+                 + "\n  ".join(stale))
 
 
 if __name__ == "__main__":

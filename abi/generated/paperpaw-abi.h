@@ -58,6 +58,10 @@ struct PpPlugin {
     void * state;
     /* drop: since minor 1. */
     void (*drop)(void * state);
+    /* dispatch_event: since minor 1. */
+    int32_t (*dispatch_event)(void * state, uint32_t token, PpBytes input);
+    /* draw: since minor 1. */
+    int32_t (*draw)(void * state, uint32_t token);
 };
 /* PpEntry: raw table since minor 1. */
 struct PpEntry {

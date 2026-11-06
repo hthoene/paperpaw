@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / 'tools'))
 from abi_metadata_schema import compatible_metadata, resolved_metadata, validate_metadata
 from abi_entry import validate_entry, compatible_entry, c_entry, rust_entry
 from abi_settings import validate_settings, compatible_settings, rust_settings
+from abi_callbacks import rust_callbacks
 TYPES = {'context': 'void *', 'pointer': 'void *', 'bytes': 'PpBytes',
          'buffer': 'PpBuffer', 'handle': 'uint32_t', 'usize': 'size_t',
          'u16': 'uint16_t', 'u32': 'uint32_t', 'u64': 'uint64_t',
@@ -98,6 +99,7 @@ def validate(schema):
         validate_metadata(schema)
     if 'statuses' in schema:
         validate_statuses(schema['statuses'], schema['minor'])
+    rust_callbacks(schema)  # Validate any recognized tail signatures before output.
     for kind in ('host_entries', 'records'):
         declarations(schema[kind], schema['minor'])
     c_names = set()
@@ -282,6 +284,9 @@ def rust_module(schema):
         lines += [rust_entry(schema).rstrip('\n')]
     if 'settings_value' in schema:
         lines += [rust_settings(schema).rstrip('\n')]
+    readers = rust_callbacks(schema)
+    if readers:
+        lines += [readers.rstrip('\n')]
     lines += ['']
     return '\n'.join(lines)
 

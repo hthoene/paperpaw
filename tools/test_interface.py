@@ -3,9 +3,13 @@
 import copy
 import importlib.util
 import pathlib
+import sys
 import unittest
 
 HERE = pathlib.Path(__file__).resolve().parent
+# CI uses isolated Python (-I), which omits the script directory from sys.path.
+# Resolve only our own tooling directory so interface can import its sibling gate.
+sys.path.insert(0, str(HERE))
 spec = importlib.util.spec_from_file_location("interface", HERE / "interface.py")
 interface = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(interface)

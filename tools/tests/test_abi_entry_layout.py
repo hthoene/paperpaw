@@ -16,11 +16,14 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 FIELDS = {
     'PpEntry': ('size', 'abi_major', 'needs_minor', 'metadata', 'make'),
-    'PpPlugin': ('size', 'state', 'drop'),
+    'PpPlugin': ('size', 'state', 'drop', 'dispatch_event', 'draw'),
 }
 MAKE = ('Option<unsafe extern "C" fn(*const PpHost, '
         '*mut core::ffi::c_void, *mut *const PpPlugin) -> i32>')
 DROP = 'Option<unsafe extern "C" fn(*mut core::ffi::c_void)>'
+DISPATCH_EVENT = ('Option<unsafe extern "C" fn(*mut core::ffi::c_void, '
+                  'u32, PpBytes) -> i32>')
+DRAW = 'Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> i32>'
 
 
 def raw_module():
@@ -74,11 +77,16 @@ class EntryLayoutTests(unittest.TestCase):
         c.extend(['printf("%zu\\n", sizeof(void *));',
                   'printf("%zu\\n", sizeof(((PpEntry *)0)->make));',
                   'printf("%zu\\n", sizeof(((PpPlugin *)0)->drop));',
+                  'printf("%zu\\n", sizeof(((PpPlugin *)0)->dispatch_event));',
+                  'printf("%zu\\n", sizeof(((PpPlugin *)0)->draw));',
                   'return 0; }'])
         rust.extend(['println!("{}", core::mem::size_of::<*mut core::ffi::c_void>());',
                      f'println!("{{}}", core::mem::size_of::<{MAKE}>());',
-                     f'println!("{{}}", core::mem::size_of::<{DROP}>());', '}'])
-        expected = [32, 8, 0, 4, 6, 8, 24, 24, 8, 0, 8, 16, 8, 8, 8]
+                     f'println!("{{}}", core::mem::size_of::<{DROP}>());',
+                     f'println!("{{}}", core::mem::size_of::<{DISPATCH_EVENT}>());',
+                     f'println!("{{}}", core::mem::size_of::<{DRAW}>());', '}'])
+        expected = [32, 8, 0, 4, 6, 8, 24, 40, 8, 0, 8, 16, 24, 32,
+                    8, 8, 8, 8, 8]
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             (base / 'layout.c').write_text('\n'.join(c))
@@ -94,13 +102,13 @@ class EntryLayoutTests(unittest.TestCase):
         assertions = ['#![no_std]', raw_module(), 'const _: () = {']
         for kind, size, align, offsets in (
                 ('PpEntry', 20, 4, (0, 4, 6, 8, 16)),
-                ('PpPlugin', 12, 4, (0, 4, 8))):
+                ('PpPlugin', 20, 4, (0, 4, 8, 12, 16))):
             assertions.append(f'assert!(core::mem::size_of::<{kind}>() == {size});')
             assertions.append(f'assert!(core::mem::align_of::<{kind}>() == {align});')
             for field, offset in zip(FIELDS[kind], offsets):
                 assertions.append(
                     f'assert!(core::mem::offset_of!({kind}, {field}) == {offset});')
-        for kind in ('*mut core::ffi::c_void', MAKE, DROP):
+        for kind in ('*mut core::ffi::c_void', MAKE, DROP, DISPATCH_EVENT, DRAW):
             assertions.append(f'assert!(core::mem::size_of::<{kind}>() == 4);')
             assertions.append(f'assert!(core::mem::align_of::<{kind}>() == 4);')
         assertions.extend(['assert!(core::mem::size_of::<u64>() == 8);',
@@ -119,7 +127,7 @@ class EntryLayoutTests(unittest.TestCase):
         assertions = ['#include "abi/generated/paperpaw-abi.h"']
         for kind, size, align, offsets in (
                 ('PpEntry', 20, 4, (0, 4, 6, 8, 16)),
-                ('PpPlugin', 12, 4, (0, 4, 8))):
+                ('PpPlugin', 20, 4, (0, 4, 8, 12, 16))):
             assertions.extend([
                 f'_Static_assert(sizeof({kind}) == {size}, "{kind} size");',
                 f'_Static_assert(_Alignof({kind}) == {align}, "{kind} alignment");'])
@@ -127,7 +135,9 @@ class EntryLayoutTests(unittest.TestCase):
                 assertions.append(f'_Static_assert(offsetof({kind}, {field}) == '
                                   f'{offset}, "{kind}.{field} offset");')
         for kind in ('void *', 'int32_t (*)(const PpHost *, void *, const PpPlugin **)',
-                     'void (*)(void *)'):
+                     'void (*)(void *)',
+                     'int32_t (*)(void *, uint32_t, PpBytes)',
+                     'int32_t (*)(void *, uint32_t)'):
             assertions.extend([
                 f'_Static_assert(sizeof({kind}) == 4, "pointer size");',
                 f'_Static_assert(_Alignof({kind}) == 4, "pointer alignment");'])
