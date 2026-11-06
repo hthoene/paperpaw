@@ -136,6 +136,44 @@ mod tests {
     }
 
     #[test]
+    fn screen_action_redraw_and_close_commands() {
+        let goldens: [(Command<'static>, &[u8]); 4] = [
+            (Command::OpenScreen { screen: "a.b" }, &[1, 56, 5, 0, 3, b'a', b'.', b'b']),
+            (Command::RunAction { action: "x" }, &[1, 57, 3, 0, 1, b'x']),
+            (Command::Redraw { mode: 2 }, &[1, 58, 5, 0, 2, 0, 0, 0]),
+            (Command::CloseScreen, &[1, 59, 1, 0]),
+        ];
+        for (command, bytes) in goldens {
+            assert_eq!(encode(&[command]).unwrap(), bytes, "{command:?}");
+            assert_eq!(decode(bytes).unwrap(), [command]);
+        }
+        let id = "s".repeat(COMMAND_MAX_SCREEN_BYTES);
+        let mixed = [FLAG, Command::OpenScreen { screen: &id }, Command::Redraw { mode: 3 },
+                     Command::RunAction { action: "p.go" }, Command::CloseScreen];
+        assert_eq!(decode(&encode(&mixed).unwrap()).unwrap(), mixed);
+        let long = "s".repeat(COMMAND_MAX_SCREEN_BYTES + 1);
+        for (command, error) in [(Command::OpenScreen { screen: "" }, -2),
+                                 (Command::RunAction { action: &long }, -3),
+                                 (Command::Redraw { mode: COMMAND_REDRAW_MAX_MODE + 1 }, -2)] {
+            let mut out = [0xa5_u8; 300];
+            assert_eq!(commands_encode(&[FLAG, command], &mut out), Err(error));
+            assert!(out.iter().all(|&byte| byte == 0xa5));
+        }
+        let cases: [(&[u8], i32); 5] = [
+            (&[1, 56, 2, 0, 0], -2),
+            (&[1, 57, 3, 0, 1, 0xff], -5),
+            (&[1, 58, 5, 0, 4, 0, 0, 0], -2),
+            (&[1, 58, 4, 0, 2, 0, 0], -2),
+            (&[1, 60, 1, 0], -1),
+        ];
+        for (bytes, error) in cases {
+            assert_eq!(decode(bytes), Err(error), "{bytes:?}");
+        }
+        // A known command skips an extended bitmap and trailing fields.
+        assert_eq!(decode(&[1, 59, 3, 1, 0xff, 7]).unwrap(), [Command::CloseScreen]);
+    }
+
+    #[test]
     fn arbitrary_mutations_never_panic() {
         for index in 0..GOLDEN.len() {
             for byte in 0..=u8::MAX {
@@ -172,10 +210,12 @@ class CommandTests(unittest.TestCase):
         later = copy.deepcopy(self.schema)
         later['minor'] = 2
         later['command_codec']['since'] = 2
-        record = self.record(later)
-        record['since'] = 2
-        for field in record['fields']:
-            field['since'] = 2
+        # Every command record follows the codec it belongs to.
+        for record in later['records']:
+            if record['name'].startswith('command.'):
+                record['since'] = 2
+                for field in record['fields']:
+                    field['since'] = 2
         ABI.validate(later)
         self.assertEqual(required_minor(later, [dict(kind='host', name='commands.submit')], 0), 2)
         self.assertEqual(required_minor(later, [dict(kind='host', name='heap.alloc')], 0), 1)

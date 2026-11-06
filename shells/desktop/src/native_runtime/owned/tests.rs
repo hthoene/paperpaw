@@ -2,6 +2,7 @@
 //! the foreign child module exercises reviewed wire submission and callbacks.
 use super::*;
 use paperpaw_core::native_host::DispatchDepth;
+use std::alloc::Layout;
 use std::{cell::RefCell, process::Command, rc::Rc};
 
 #[derive(Default)]

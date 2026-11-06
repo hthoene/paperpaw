@@ -6,7 +6,9 @@
 //! No type here is a wire record or a foreign callback signature.
 
 use crate::abi7::{calls, lifecycle};
-use core::{cell::Cell, fmt, pin::Pin};
+use alloc::boxed::Box;
+use core::{cell::Cell, fmt, mem::ManuallyDrop, ops::Deref, pin::Pin};
+pub use lifecycle::{Teardown, TeardownStep};
 
 #[path = "native_host/registration_scope.rs"]
 pub mod registration_scope;
@@ -131,8 +133,64 @@ impl Default for DispatchDepth {
     }
 }
 
+/// Owns the pinned allocation and retains it if plugin code is still active.
+/// Shell holders must use this instead of dropping a raw pinned owner Box.
+#[allow(
+    missing_debug_implementations,
+    reason = "holds opaque context and module"
+)]
+#[must_use]
+pub struct PinnedOwner<C, M>(ManuallyDrop<Pin<Box<HostOwner<C, M>>>>);
+
+impl<C, M> PinnedOwner<C, M> {
+    /// Allocate the owner fallibly, keeping the pinned Box private forever.
+    ///
+    /// Returns None if the actual owner allocation fails.
+    pub fn try_new(owner: HostOwner<C, M>) -> Option<Self> {
+        let layout = core::alloc::Layout::new::<HostOwner<C, M>>();
+        // SAFETY: lifecycle flags make the owner nonzero-sized; layout is exact.
+        let allocation = unsafe { alloc::alloc::alloc(layout) }.cast::<HostOwner<C, M>>();
+        if allocation.is_null() {
+            return None;
+        }
+        // SAFETY: uniquely allocated Box storage, initialized before pinning.
+        Some(Self(ManuallyDrop::new(unsafe {
+            allocation.write(owner);
+            Box::into_pin(Box::from_raw(allocation))
+        })))
+    }
+
+    /// Borrow the pinned owner without exposing ownership of its allocation.
+    #[must_use]
+    pub fn as_ref(&self) -> Pin<&HostOwner<C, M>> {
+        self.0.as_ref()
+    }
+}
+
+impl<C, M> Deref for PinnedOwner<C, M> {
+    type Target = HostOwner<C, M>;
+    fn deref(&self) -> &Self::Target {
+        self.as_ref().get_ref()
+    }
+}
+
+impl<C, M> Drop for PinnedOwner<C, M> {
+    fn drop(&mut self) {
+        if self.0.as_ref().inner().abandon_if_active() {
+            // Retain the entire allocation: ctx still points inside it.
+            return;
+        }
+        // SAFETY: inactive allocation, released exactly once by this holder.
+        unsafe { ManuallyDrop::drop(&mut self.0) };
+    }
+}
+
 /// Pinned host context and opaque executable-module guard for one plugin.
 /// Allocate fallibly and account for C, M and registration storage externally.
+/// The shell must prepare teardown, remove subscriptions and queued work, then
+/// finish before dropping the owner. Drop is a last-resort host bug path; its
+/// hooks must own only host resources that cannot reference plugin state,
+/// executable code or its mapped image.
 #[non_exhaustive]
 pub struct HostOwner<C, M> {
     inner: lifecycle::Owner<C, M>,
@@ -201,6 +259,34 @@ impl<C, M> HostOwner<C, M> {
     /// Stop callback admission before removing registrations and queued work.
     pub fn revoke(self: Pin<&Self>) {
         self.inner().revoke();
+    }
+
+    /// Whether this owner is inside a callback. After revoke, resource cleanup
+    /// must wait for the active call to return; retained leases are separate.
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        self.inner.is_active()
+    }
+
+    /// Revoke immediately and run cancellation then release once, unless a
+    /// callback is active. The shell must defer Busy to its next tick. After
+    /// success, remove subscriptions and queued work before calling finish.
+    ///
+    /// # Errors
+    /// Returns Busy during construction or an active callback.
+    pub fn prepare_teardown(self: Pin<&Self>) -> Result<(), Error> {
+        self.revoke();
+        if self.preparing.get() {
+            return Err(Error::Busy);
+        }
+        self.inner().prepare_teardown().map_err(Into::into)
+    }
+
+    /// Take a non-retryable cleanup-hook error for shell logging. Such a hook
+    /// is marked done, so a broken backend cannot cause an infinite retry.
+    #[must_use]
+    pub fn take_teardown_error(&self) -> Option<Error> {
+        self.inner.take_teardown_error()
     }
 
     /// Destroy the plugin once all leases have been released.
@@ -308,7 +394,10 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// unarmed. The loader still owns its validated successful output and must
     /// destroy it exactly once while context and module remain alive. This is
     /// distinct from cleaning partial or invalid output from a failed make.
-    pub fn commit(mut self, destroy: fn(Pin<&C>)) -> Result<RegistrationBatch<'a, C, M, T>, Error> {
+    pub fn commit(
+        mut self,
+        teardown: Teardown<C>,
+    ) -> Result<RegistrationBatch<'a, C, M, T>, Error> {
         if let Some(error) = self.failure {
             return Err(error);
         }
@@ -317,7 +406,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         if !self.raw.batches.is_empty() {
             return Err(Error::DeclarationViewsUnavailable);
         }
-        let lease = CallbackLease(self.owner.inner().activate_leased(destroy)?);
+        let lease = CallbackLease(self.owner.inner().activate_leased(teardown)?);
         Ok(RegistrationBatch {
             records: core::mem::replace(&mut self.records, core::array::from_fn(|_| None)),
             len: self.len,
@@ -559,3 +648,64 @@ impl<C, M> fmt::Debug for CallbackLease<'_, C, M> {
 #[cfg(test)]
 #[path = "native_host/declaration_image_tests.rs"]
 mod declaration_image_tests;
+
+#[cfg(test)]
+mod pinned_owner_tests {
+    use super::*;
+    use alloc::rc::Rc;
+
+    struct Context {
+        canary: u32,
+        reports: Rc<Cell<u8>>,
+        dropped: Rc<Cell<bool>>,
+    }
+    impl Drop for Context {
+        fn drop(&mut self) {
+            self.dropped.set(true);
+        }
+    }
+    struct Module(Rc<Cell<bool>>);
+    impl Drop for Module {
+        fn drop(&mut self) {
+            self.0.set(true);
+        }
+    }
+
+    #[test]
+    fn active_pinned_owner_retains_the_allocation_and_reports_once() {
+        let reports = Rc::new(Cell::new(0));
+        let context_dropped = Rc::new(Cell::new(false));
+        let module_dropped = Rc::new(Cell::new(false));
+        let holder = PinnedOwner::try_new(HostOwner::new(
+            Context {
+                canary: 0x1234_5678,
+                reports: Rc::clone(&reports),
+                dropped: Rc::clone(&context_dropped),
+            },
+            Module(Rc::clone(&module_dropped)),
+        ))
+        .unwrap();
+        let batch = holder
+            .as_ref()
+            .begin::<()>("fixture")
+            .unwrap()
+            .commit(Teardown {
+                report: |context, step, error| {
+                    assert_eq!((step, error), (TeardownStep::Release, Error::Busy));
+                    context.reports.set(context.reports.get() + 1);
+                },
+                cancel: |_| panic!("active owner must not cancel"),
+                release: |_| panic!("active owner must not release"),
+                destroy: |_| panic!("active owner must not destroy"),
+            })
+            .unwrap();
+        drop(batch);
+        let context = holder.as_ref().context().get_ref() as *const Context;
+        holder.as_ref().inner().force_active();
+        drop(holder);
+        assert_eq!(reports.get(), 1);
+        assert!(!context_dropped.get() && !module_dropped.get());
+        // SAFETY: the active holder deliberately retained the entire allocation.
+        assert_eq!(unsafe { (*context).canary }, 0x1234_5678);
+    }
+}

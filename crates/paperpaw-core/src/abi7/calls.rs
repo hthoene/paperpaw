@@ -31,6 +31,10 @@ impl Instance {
         }
     }
 
+    pub(crate) fn is_active(&self) -> bool {
+        self.entered.get()
+    }
+
     /// All callback tokens for one mutable state must use this same instance.
     /// No plugin state is accessed on either refusal path.
     pub(crate) fn enter<'a>(&'a self, depth: &'a Depth) -> Result<Call<'a>, Error> {
@@ -59,5 +63,20 @@ impl Drop for Call<'_> {
     fn drop(&mut self) {
         self.instance.entered.set(false);
         self.depth.live.set(self.depth.live.get().saturating_sub(1));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn active_query_covers_only_the_admitted_callback() {
+        let instance = Instance::new();
+        let depth = Depth::new();
+        assert!(!instance.is_active());
+        let call = instance.enter(&depth).unwrap();
+        assert!(instance.is_active());
+        drop(call);
+        assert!(!instance.is_active());
     }
 }
