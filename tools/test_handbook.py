@@ -68,10 +68,18 @@ class Handbook(unittest.TestCase):
         # out: working papers, not for plugin authors. Without them the handbook
         # of abi7/integration was 3.60 MB at 12edb5ab; without the generated table
         # of icon names (icon_table.rs, 53 KB zipped) it is 3.54 MB.
+        # And past 3.6 MB with the interface-7 round (#228): the SDK's native
+        # layer (binding, entry, storage, events, registrations, declare:
+        # about 14 KB zipped by 8cef08c20) and two interface-7 samples
+        # (abi7-x4-min, abi7-sdk-entry: about 17 KB with their linker scripts);
+        # nothing that does not belong (no tests, assets or generated tables got
+        # in: checked file by file against 23256027b, 3.57 MB). The interface-7
+        # work to come adds more SDK code, so the bound is 4.5 MB: room for it,
+        # still a limit that notices an asset or a generated file by mistake.
         # The Workshop takes no whole handbook into a prompt (it hands out topics of
         # at most MAX_TOPIC_TOKENS, src/handbook/handbook.ts), so its size has no
         # hard limit there: this keeps growth seen, a step at a time.
-        self.assertLess(size, 3_600_000, "near 3.6 MB")
+        self.assertLess(size, 4_500_000, "near 4.5 MB")
 
 
 if __name__ == "__main__":

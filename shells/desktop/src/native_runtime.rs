@@ -133,7 +133,8 @@ pub unsafe fn load(
     host: &'static DesktopHost,
 ) -> Result<LoadedPlugin, RuntimeError> {
     // SAFETY: the same authorization and immutable-file contract applies.
-    let CheckedLibrary { library, make } = unsafe { checked_library(path, digest, host.table()) }?;
+    let CheckedLibrary { library, make, .. } =
+        unsafe { checked_library(path, digest, host.table()) }?;
     let mut out = ptr::null();
     // SAFETY: table and context outlive the plugin; output storage is writable.
     let status = unsafe { make(host.table(), host.ctx(), &mut out) };
@@ -157,6 +158,74 @@ type Make = unsafe extern "C" fn(*const PpHost, *mut c_void, *mut *const PpPlugi
 struct CheckedLibrary {
     library: HeldLibrary,
     make: Make,
+    /// The library's read-only data as mapped: its address and length
+    /// (`read_only_segment`), valid as long as `library` is loaded.
+    image: (usize, usize),
+}
+
+fn u64_at(bytes: &[u8], at: usize) -> Option<u64> {
+    let raw = bytes.get(at..at.checked_add(8)?)?;
+    Some(u64::from_le_bytes(raw.try_into().ok()?))
+}
+
+/// The library's read-only data, as the registration step's image: the
+/// loadable segment of the 64-bit little-endian ELF `bytes` that holds
+/// `anchor` (the address of `PAPERPAW_METADATA`, a read-only record), as
+/// `(address, length)` once the library is mapped at `base`. Offsets of
+/// `DeclRef::Image` are relative to its start.
+///
+/// The segment must be readable and neither writable nor executable, and its
+/// file bytes must lie wholly inside the file (`bytes`, the file as checked),
+/// so no mapped page of it reaches past the end of the file (a read there
+/// would be a bus error). `(0, 0)` where there is none: a batch is then kept
+/// in the plugin's own budget, not as offsets. The segment holding the
+/// headers and the dynamic symbols is not taken for it: with GNU ld the
+/// `.rodata` lies in a later one. Only the program headers are read and every
+/// offset is checked, so a hostile table gives `(0, 0)`, never a panic.
+fn read_only_segment(bytes: &[u8], base: usize, anchor: u64) -> (usize, usize) {
+    const PT_LOAD: u32 = 1;
+    const PF_X: u32 = 1;
+    const PF_W: u32 = 2;
+    const PF_R: u32 = 4;
+    let find = || {
+        let phoff = usize::try_from(u64_at(bytes, 32)?).ok()?;
+        let entry = usize::from(u16_at(bytes, 54).ok()?);
+        let count = usize::from(u16_at(bytes, 56).ok()?);
+        if entry < 56 {
+            return None;
+        }
+        for i in 0..count.min(64) {
+            let at = phoff.checked_add(i.checked_mul(entry)?)?;
+            let flags = u32_at(bytes, at.checked_add(4)?).ok()?;
+            if u32_at(bytes, at).ok()? != PT_LOAD {
+                continue;
+            }
+            let offset = u64_at(bytes, at.checked_add(8)?)?;
+            let vaddr = u64_at(bytes, at.checked_add(16)?)?;
+            let filesz = u64_at(bytes, at.checked_add(32)?)?;
+            let memsz = u64_at(bytes, at.checked_add(40)?)?;
+            // The segment that holds the anchor, whatever its flags.
+            if anchor < vaddr || anchor - vaddr >= filesz {
+                continue;
+            }
+            if flags & (PF_X | PF_W) != 0 || flags & PF_R == 0 {
+                return None;
+            }
+            // `p_filesz` bytes come from the file, the rest up to `p_memsz` is
+            // zeros: more file than memory is no segment, and the file bytes
+            // must lie wholly inside the file.
+            if filesz > memsz || offset.checked_add(filesz)? > u64::try_from(bytes.len()).ok()? {
+                return None;
+            }
+            let len = filesz;
+            let vaddr = usize::try_from(vaddr).ok()?;
+            let len = usize::try_from(len).ok()?;
+            base.checked_add(vaddr)?.checked_add(len)?;
+            return Some((base + vaddr, len));
+        }
+        None
+    };
+    find().unwrap_or((0, 0))
 }
 
 // SAFETY requirements match load: authorized code and immutable checked inode.
@@ -229,7 +298,16 @@ unsafe fn checked_library(
         return Err(RuntimeError::Entry);
     }
     let make = entry.make.ok_or(RuntimeError::Entry)?;
-    Ok(CheckedLibrary { library, make })
+    let image = read_only_segment(
+        &bytes,
+        (loaded_meta as usize).wrapping_sub(locator.address as usize),
+        locator.address,
+    );
+    Ok(CheckedLibrary {
+        library,
+        make,
+        image,
+    })
 }
 
 mod plugin_output;
@@ -241,6 +319,7 @@ mod plugin_output;
 )]
 mod owned;
 
+pub(crate) use owned::dev::load_flat;
 /// The developer switch's loader for interface-7 plugins (assignment #772),
 /// off unless `--abi7-dev-loader` or `PAPERPAW_ABI7_DEV_LOADER=1` says so.
 pub use owned::dev::{DevPlugins, Kind, Refusal, classify, enabled, set_enabled};

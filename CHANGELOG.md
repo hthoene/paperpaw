@@ -8,6 +8,10 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
+  device usage, translated plugin names and work-note readers. Includes a deterministic fake-host
+  fixture for Battery port tests; helpers use bounded buffers and allocate nothing (#228).
+
 - Interface-7 SDK callback host binding and `native_plugin!` entry glue, with checked table admission
   and fallible host allocation. Storage slots 20-26 use caller-owned buffers; event tags 32-37 decode
   into borrowed payloads. These facades do not activate any shell loader (#228).
@@ -89,6 +93,13 @@ change the plugin SDK.
   `paperpaw-hyphen` (kernel): `StoredPatterns::open_within` refuses a table over a heap budget
   (`OpenError::OverBudget`), `StoredPatterns::heap_bound` bounds it from its header.
 
+### Fixed
+
+- *Discover fonts* in the reading settings, where *More fonts* does not run, says why and offers the one thing to
+  do (it is not installed: open its page; it is switched off: switch it on; it waits for a restart: restart),
+  instead of only opening the store's page of the plugin. A plugin's page opened without a connection says
+  "No connection", not "Plugin not found", and carries the plugin's name (#240).
+
 ## [0.6.0-beta.3] - 2026-11-05
 
 ### Added
@@ -158,6 +169,10 @@ change the plugin SDK.
   and the help texts that send you to it.
 
 ### Fixed
+
+- Interface-7 page-turn delivery keeps the location when optional page counters are stale or
+  unparsable, marking unavailable counters absent. Callback enumeration excludes declarations,
+  which shells must apply separately before activation (#228).
 
 - **Dual boot: no false positive on plain devices, and a way out** (#224). The dualbooter's `x4boot` tag counts only
   as a word of its own (not inside `x4bootloader` or a path); the bootloaders PaperPaw ships for X4, X3, X4 Pro and

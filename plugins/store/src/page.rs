@@ -108,6 +108,9 @@ enum Details {
     Here(Box<Plugin>),
     /// Not to be had.
     Failed,
+    /// Not to be had for want of a connection: not the library's saying
+    /// that the plugin is gone.
+    Offline,
 }
 
 pub(crate) struct PageScreen {
@@ -118,6 +121,10 @@ pub(crate) struct PageScreen {
     list: ListView,
     status: Rect,
     id: String,
+    /// The plugin's name where the page is opened by its id alone (the
+    /// reading settings' *More fonts*), while the library's page is not
+    /// here.
+    name: String,
     plugin: Option<Entry>,
     details: Details,
     /// *Install* or *Update* was chosen before the files were known.
@@ -155,6 +162,7 @@ impl PageScreen {
             top,
             status,
             id,
+            name: params.get(params::TITLE).unwrap_or_default().to_string(),
             plugin,
             details: Details::None,
             waiting: false,
@@ -269,11 +277,14 @@ impl PageScreen {
     /// Asks the library for the plugin's page.
     fn fetch(&mut self, cx: &mut Cx<'_, '_>) {
         let env = *cx.env();
-        let Some(device) =
-            Device::of(&env).filter(|_| env.caps().network && install::is_plugin_name(&self.id))
-        else {
+        // No connection is not "no such plugin".
+        if !env.caps().network {
+            self.details = Details::Offline;
+            return self.redraw(cx);
+        }
+        let Some(device) = Device::of(&env).filter(|_| install::is_plugin_name(&self.id)) else {
             self.details = Details::Failed;
-            return;
+            return self.redraw(cx);
         };
         let list = env.settings().read(&CATALOG);
         let language = env.i18n().language();
@@ -325,7 +336,12 @@ impl PageScreen {
                 }
             }
             None => {
-                self.details = Details::Failed;
+                // No answer at all is no connection (the lists say so too).
+                self.details = if reply.status == 0 {
+                    Details::Offline
+                } else {
+                    Details::Failed
+                };
                 if core::mem::take(&mut self.waiting) {
                     let name = self.plugin.as_ref().map_or("", |p| p.name.as_str());
                     cx.command(failed(&env, name));
@@ -373,6 +389,9 @@ impl PageScreen {
                 self.redraw(cx);
             }
             Details::Failed => cx.command(failed(&env, name)),
+            Details::Offline => {
+                cx.command(Command::Notify(env.i18n().tr("store.offline").to_string()))
+            }
             Details::None | Details::Asked(_) => {
                 self.waiting = true;
                 if self.details == Details::None {
@@ -673,13 +692,17 @@ impl Screen for PageScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         let style = self.style;
         let rows = self.rows(env);
-        let title = self.plugin.as_ref().map_or("", |p| p.name.as_str());
+        let title = self
+            .plugin
+            .as_ref()
+            .map_or(self.name.as_str(), |p| p.name.as_str());
         let Some(plugin) = &self.plugin else {
             let mut ui = ui::Ui::new(canvas, env, &style);
             self.header
                 .draw(&mut ui, title, None, self.list.paging(rows.len()));
             let (icon, title, text) = match self.details {
                 Details::Failed => ("cloud", "store.gone", "store.gone.help"),
+                Details::Offline => ("wifi-off", "store.offline", "store.offline.page"),
                 _ => ("cloud-download", "store.loading-plugin", ""),
             };
             let area = Rect::new(
@@ -691,7 +714,7 @@ impl Screen for PageScreen {
             let text = if text.is_empty() {
                 ""
             } else {
-                env.i18n().tr(text)
+                ui::tr_input(env, text)
             };
             ui.empty(area, icon, env.i18n().tr(title), text);
             return;
