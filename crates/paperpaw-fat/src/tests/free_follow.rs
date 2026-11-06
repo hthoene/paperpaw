@@ -132,7 +132,9 @@ fn removing_a_corrupt_chain_never_counts_a_free_cluster_twice() {
     let copies = usize::from(image[16]);
     let root = fat + fat_size * copies;
     let entry = image[root..]
-        .chunks_exact(32)
+        .as_chunks::<32>()
+        .0
+        .iter()
         .find(|entry| &entry[..11] == b"BROKEN  BIN")
         .unwrap();
     let first = usize::from(u16::from_le_bytes([entry[26], entry[27]]));
