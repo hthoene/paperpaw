@@ -14,6 +14,10 @@ change the plugin SDK.
   `sync`) declared in `abi/abi.def`; the default table answers `ERR_UNSUPPORTED` until they are wired. The
   storage contract records owner decisions 124 (uninstall asks before deleting the data folder) and 125 (root 1
   for the user's files, gated by a signed `uses.storage`) (#228).
+- Interface-7 draft: service records 48-52 (`service.usage`, `plugin_usage`, `plugin`, `work_note`, `end`) and the
+  four data services of slot 17 in the metadata catalog (semantic revision 0, no call table), with a generated
+  codec for one bare record (`record_framed_len`, `record_encode_one`, `record_decode_one`). A plugin cannot submit
+  them (#228).
 - Desktop emulator: a developer switch, `--abi7-dev-loader` or `PAPERPAW_ABI7_DEV_LOADER=1` (Linux x86-64, off by
   default), loads interface-7 plugin libraries (`plugins/<id>/code-host.so`, told from their bytes) for loader work. What a
   plugin declares is staged but not applied yet, and nothing is drawn; interface-6 plugins are unchanged (#228, #772).
