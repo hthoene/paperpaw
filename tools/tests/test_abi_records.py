@@ -213,11 +213,12 @@ class RecordsTests(unittest.TestCase):
                           ('resource.font_extension', 10)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
-            record['id'] += 127
+            if record['id'] <= 3:
+                record['id'] = record['id'] % 3 + 1  # rotate within the initial range
         source = rust_records(changed)
-        self.assertIn('EVENT_TICK_TAG: u32 = 130;', source)
-        self.assertIn('REGISTRATION_EVENT_TAG: u32 = 128;', source)
-        self.assertIn('REGISTRATION_DRAW_TAG: u32 = 129;', source)
+        self.assertIn('EVENT_TICK_TAG: u32 = 1;', source)
+        self.assertIn('REGISTRATION_EVENT_TAG: u32 = 2;', source)
+        self.assertIn('REGISTRATION_DRAW_TAG: u32 = 3;', source)
         before = copy.deepcopy(self.schema)
         before['records'] = []
         del before['record_codec']

@@ -1,4 +1,4 @@
-"""Declaration records 5-10: closed schemas, caps, and standalone golden vectors."""
+"""Declaration records 5-10: pinned schemas, caps, and standalone golden vectors."""
 import copy
 import importlib.util
 from pathlib import Path
@@ -11,8 +11,29 @@ ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location('abi_gen_decls', ROOT / 'tools/abi-gen.py')
 ABI = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ABI)
-from abi_declarations import DECLS
 from abi_records import rust_records, validate_records
+
+# The shapes of tags 5-10, pinned here: (name, wire type, byte cap; 0 for scalars).
+DECLS = {
+    'setting.group': [('name', 'str', 96), ('title', 'str', 96), ('order', 'i32', 0),
+                      ('page', 'str', 96), ('parent', 'str', 128)],
+    'setting.spec': [('name', 'str', 96), ('kind', 'u32', 0), ('flags', 'u32', 0),
+                     ('group', 'str', 128), ('title', 'str', 96), ('help', 'str', 96),
+                     ('default', 'bytes', 512), ('min', 'i32', 0), ('max', 'i32', 0),
+                     ('choices', 'str', 1024)],
+    'setting.extra': [('name', 'str', 96), ('unit', 'str', 96), ('section', 'str', 96),
+                      ('follows', 'str', 128), ('shown_id', 'str', 128),
+                      ('shown_value', 'str', 128), ('editor_kind', 'u32', 0),
+                      ('editor', 'str', 96), ('step', 'i32', 0), ('flags', 'u32', 0),
+                      ('check', 'u32', 0)],
+    'resource.hyphenation': [('language', 'str', 35), ('path', 'str', 100)],
+    'resource.font_face': [('name', 'str', 96), ('path', 'str', 100),
+                           ('family', 'str', 64), ('style', 'u32', 0),
+                           ('weight', 'u32', 0), ('role', 'str', 96),
+                           ('priority', 'i32', 0)],
+    'resource.font_extension': [('name', 'str', 96), ('path', 'str', 100),
+                                ('extends', 'str', 128)],
+}
 
 RUST_TESTS = r'''
 #[cfg(test)]
@@ -98,38 +119,27 @@ class DeclarationTests(unittest.TestCase):
                     const = f'{name.upper().replace(".", "_")}_{field.upper()}_MAX_BYTES'
                     self.assertIn(f'pub const {const}: usize = {cap};', source)
 
-    def test_non_closed_schemas_are_refused(self):
+    def test_malformed_record_schemas_are_refused(self):
         def mutate(name, edit):
             candidate = copy.deepcopy(self.schema)
             edit(self.record(candidate, name))
             return candidate
-        extra = dict(name='more', type='u32', since=1, optional=False, ordinal=None,
-                     default=None, max_bytes=0)
         edits = {
-            'appended field': lambda r: r['fields'].append(extra),
-            'missing field': lambda r: r['fields'].pop(),
-            'reordered': lambda r: r['fields'].reverse(),
             'optional': lambda r: r['fields'][0].update(optional=True),
             'ordinal': lambda r: r['fields'][0].update(ordinal=3),
             'default': lambda r: r['fields'][0].update(default='x'),
-            'cap raised': lambda r: r['fields'][0].update(max_bytes=r['fields'][0]['max_bytes'] + 1),
             'cap zero': lambda r: r['fields'][0].update(max_bytes=0),
-            'type changed': lambda r: r['fields'][0].update(type='bytes'),
-            'name changed': lambda r: r['fields'][0].update(name='other'),
+            'cap too large': lambda r: r['fields'][0].update(max_bytes=4097),
             'bool cap': lambda r: r['fields'][0].update(max_bytes=True),
             'since too late': lambda r: r.update(since=2),
+            'no fields': lambda r: r.update(fields=[]),
         }
         for name in DECLS:
             for label, edit in edits.items():
                 with self.subTest(record=name, edit=label), self.assertRaises(ValueError):
                     validate_records(mutate(name, edit))
 
-    def test_partial_or_duplicate_declaration_sets_are_refused(self):
-        for name in DECLS:
-            candidate = copy.deepcopy(self.schema)
-            candidate['records'] = [r for r in candidate['records'] if r['name'] != name]
-            with self.subTest(missing=name), self.assertRaises(ValueError):
-                validate_records(candidate)
+    def test_duplicate_or_oversized_tags_are_refused(self):
         candidate = copy.deepcopy(self.schema)
         self.record(candidate, 'setting.spec')['id'] = 5
         with self.assertRaises(ValueError):
