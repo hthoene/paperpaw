@@ -3,8 +3,11 @@
 //! rust-fatfs counts the free clusters by reading the whole FAT when the
 //! volume was not unmounted cleanly (which a reader that is switched off
 //! never does): megabytes over a card's bus in one call. Here the FAT is
-//! counted [`STEP`] bytes at each ask, and what the storage writes and
-//! removes from then on is taken off or added, cluster by cluster. Until
+//! counted [`STEP`] bytes at each ask, and the clusters the file system
+//! marks taken and free from then on (`FileSystem::cluster_changes` of
+//! the patched rust-fatfs, counted as each mark is written: also by a
+//! write that fails part of the way, and by a folder that grows) are taken
+//! off or added. Until
 //! the count is done the free space is not known: the count the card keeps
 //! in its FS information sector (FAT32) is not used, as after a power cut
 //! it may say more than is free (#238), and a reserve kept by it would not
@@ -140,9 +143,29 @@ pub(crate) struct Free {
     /// freed ones are not added. The count can then only be low, never
     /// more than is free.
     taken_meanwhile: u64,
+    /// The file system's `cluster_changes` followed last: taken, freed.
+    seen: (u64, u64),
 }
 
 impl Free {
+    /// Nothing known yet, the file system's `cluster_changes` being
+    /// `seen` now.
+    pub(crate) fn new(seen: (u64, u64)) -> Free {
+        Free {
+            seen,
+            ..Free::default()
+        }
+    }
+
+    /// Follows the file system's `cluster_changes`, now `changes`: what
+    /// it marked taken and free since they were followed last.
+    pub(crate) fn follow(&mut self, changes: (u64, u64)) {
+        let taken = changes.0.wrapping_sub(self.seen.0);
+        let freed = changes.1.wrapping_sub(self.seen.1);
+        self.seen = changes;
+        self.changed(taken, freed);
+    }
+
     /// Counts on (one step), and the free bytes once counted.
     pub(crate) fn ask(&mut self, read: &Read) -> Option<u64> {
         let geometry = self.geometry(read)?;
@@ -201,15 +224,10 @@ impl Free {
         Some(self.known? * self.geometry?.cluster)
     }
 
-    /// The clusters `bytes` take.
-    pub(crate) fn clusters(&self, bytes: u64) -> u64 {
-        self.geometry.map_or(0, |g| bytes.div_ceil(g.cluster))
-    }
-
     /// `taken` clusters were taken and `freed` freed by a change of the
     /// storage: the count known follows, and a count going on takes the
     /// taken ones off when it is done (see `taken_meanwhile`).
-    pub(crate) fn changed(&mut self, taken: u64, freed: u64) {
+    fn changed(&mut self, taken: u64, freed: u64) {
         let Some(geometry) = self.geometry else {
             return;
         };

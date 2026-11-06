@@ -60,6 +60,11 @@ named re-blesses too.
 | 3 | `crates/paperpaw-sdk/src/native/declare.rs` and its child modules, `crates/paperpaw-sdk/api.txt`/`shape.txt` (about 158 lines) | The module `paperpaw_sdk::native::declare`: the builder of the declaration records 5-10 (setting groups, specs and extras, hyphenation, font faces and extensions) that plugins submit while they are made | A ported plugin declares its settings and resources through records, not the interface-6 `Registrar` | PR #180 (#768) | Every plugin port that declares settings or resources |
 | 4 | `tools/abi-gen.py`, `crates/paperpaw-sdk/src/native/declare/records_wire.rs`, `crates/paperpaw-sdk/src/native/declare/settings_value.rs`, `abi/abi.def` | `tools/abi-gen.py` writes both SDK copies as generated outputs (checked by `--check`, replacing the byte-identity test of PR #180), and the choice limits (`CHOICES_MAX_VALUES`, `CHOICE_MAX_BYTES`) come from `abi.def` instead of two hand-kept copies in the SDK and `paperpaw-core/src/native_host/declarations.rs` | One source for the codec and its limits on both sides of the boundary | PR #180 review | Row 3 (its re-bless takes the generated copies) |
 
+The interface-6 declaration converters belong only to the integration tests'
+`tests/support/` helpers, never the production SDK. Delete these helpers once
+the last plugin port lands; the ported plugins declare through the borrowed
+interface-7 builder directly.
+
 ## Meaning changes inside the draft
 
 Slot 6 `i18n.copy` answers `ERR_NOT_FOUND` for a missing key instead of copying the key
