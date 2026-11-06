@@ -18,7 +18,7 @@ fn storage() -> FatStorage<Disk> {
     FatStorage::new(Box::leak(Box::new(fs)))
 }
 
-fn names(storage: &FatStorage<Disk>, dir: &str) -> Vec<(String, bool, u64)> {
+fn names<IO: ReadWriteSeek>(storage: &FatStorage<IO>, dir: &str) -> Vec<(String, bool, u64)> {
     let mut out = Vec::new();
     storage
         .list(dir, &mut |e| {
@@ -498,7 +498,7 @@ fn assert_beside(s: &dyn Storage, crowded: bool, cut: usize) {
 }
 
 /// The files on `s` that share a cluster with another.
-fn cross_linked(s: &FatStorage<Disk>) -> Vec<String> {
+fn cross_linked<IO: ReadWriteSeek>(s: &FatStorage<IO>) -> Vec<String> {
     let mut clusters = Vec::new();
     let mut dirs = vec![(String::new(), s.root())];
     while let Some((path, dir)) = dirs.pop() {
@@ -1436,6 +1436,7 @@ fn short_names_alone_are_names() {
 }
 
 mod after_cuts;
+mod cuts_v1;
 mod damaged;
 mod failing_writes;
 mod listed;
