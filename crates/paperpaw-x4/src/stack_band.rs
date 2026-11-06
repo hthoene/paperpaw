@@ -91,15 +91,12 @@ mod tests {
     #[test]
     fn the_triggers_are_free_in_the_versions_checked() {
         let lock = include_str!("../../../shells/xteink/Cargo.lock");
-        let version = |name: &str| {
+        let version = |name: &str| -> &'static str {
             let mut lines = lock.lines();
             while let Some(line) = lines.next() {
                 if line == alloc::format!("name = \"{name}\"") {
                     let v = lines.next().unwrap_or_default();
-                    return v
-                        .trim_start_matches("version = ")
-                        .trim_matches('"')
-                        .to_string();
+                    return v.trim_start_matches("version = ").trim_matches('"');
                 }
             }
             panic!("{name} is not in the lock file");
