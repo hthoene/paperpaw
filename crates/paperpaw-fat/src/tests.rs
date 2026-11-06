@@ -38,6 +38,7 @@ fn names<IO: ReadWriteSeek>(storage: &FatStorage<IO>, dir: &str) -> Vec<(String,
 struct Cut {
     data: alloc::rc::Rc<RefCell<Vec<u8>>>,
     writes: alloc::rc::Rc<RefCell<Vec<Written>>>,
+    recording: alloc::rc::Rc<core::cell::Cell<bool>>,
     /// Blocks read so far.
     reads: alloc::rc::Rc<core::cell::Cell<usize>>,
 }
@@ -50,8 +51,15 @@ impl Cut {
         Self {
             data: alloc::rc::Rc::new(RefCell::new(data)),
             writes: alloc::rc::Rc::default(),
+            recording: alloc::rc::Rc::default(),
             reads: alloc::rc::Rc::default(),
         }
+    }
+
+    /// Keep only the writes a power-loss or block-order test will replay.
+    fn record_writes(&self) {
+        self.writes.borrow_mut().clear();
+        self.recording.set(true);
     }
 
     /// A card of 4 MB, formatted with `options`.
@@ -91,7 +99,9 @@ impl Blocks for Cut {
     fn write_block(&mut self, index: u32, block: &[u8; BLOCK]) -> Result<(), DiskError> {
         let at = index as usize * BLOCK;
         self.data.borrow_mut()[at..at + BLOCK].copy_from_slice(block);
-        self.writes.borrow_mut().push((index, *block));
+        if self.recording.get() {
+            self.writes.borrow_mut().push((index, *block));
+        }
         Ok(())
     }
 
@@ -233,12 +243,12 @@ fn cuts(
     }
     s.sync().unwrap();
     let mut image = card.image();
-    card.writes.borrow_mut().clear();
+    card.record_writes();
     op(&s);
     let mut cuts = vec![contents(&mounted(image.clone()), "")];
-    for (index, block) in card.writes.borrow().iter() {
-        let at = *index as usize * BLOCK;
-        image[at..at + BLOCK].copy_from_slice(block);
+    for (index, block) in core::mem::take(&mut *card.writes.borrow_mut()) {
+        let at = index as usize * BLOCK;
+        image[at..at + BLOCK].copy_from_slice(&block);
         cuts.push(contents(&mounted(image.clone()), ""));
     }
     cuts
@@ -318,12 +328,12 @@ fn cut_images(image: Vec<u8>, op: impl FnOnce(&FatStorage<SharedDisk<Cut>>)) -> 
     let card = Cut::new(image);
     let s = card.storage();
     let mut image = card.image();
-    card.writes.borrow_mut().clear();
+    card.record_writes();
     op(&s);
     let mut cuts = vec![image.clone()];
-    for (index, block) in card.writes.borrow().iter() {
-        let at = *index as usize * BLOCK;
-        image[at..at + BLOCK].copy_from_slice(block);
+    for (index, block) in core::mem::take(&mut *card.writes.borrow_mut()) {
+        let at = index as usize * BLOCK;
+        image[at..at + BLOCK].copy_from_slice(&block);
         cuts.push(image.clone());
     }
     cuts
@@ -571,6 +581,7 @@ fn blocks_reach_the_card_in_the_order_changed() {
     // whole, read between.
     let blocks = 2 * disk::SLOTS;
     let card = Cut::new(vec![0; blocks * BLOCK]);
+    card.record_writes();
     let mut disk = BlockDisk::new(card.clone()).unwrap();
     let mut model = vec![0u8; blocks * BLOCK];
     // The disk after each change.
@@ -1334,4 +1345,14 @@ fn files_tell_when_they_were_changed() {
     };
     assert_eq!(at(1980, 1, 1, 0, 0, 0), 315_532_800);
     assert_eq!(at(2026, 10, 24, 12, 30, 5), 1_792_845_005);
+}
+
+#[test]
+fn unrecorded_fixture_writes_do_not_accumulate() {
+    let mut card = Cut::new(vec![0; BLOCK]);
+    card.write_block(0, &[1; BLOCK]).unwrap();
+    assert!(card.writes.borrow().is_empty());
+    card.record_writes();
+    card.write_block(0, &[2; BLOCK]).unwrap();
+    assert_eq!(&*card.writes.borrow(), &[(0, [2; BLOCK])]);
 }
