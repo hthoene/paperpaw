@@ -203,8 +203,8 @@ jobs:
           git show "${ABI_BASE_REV}:abi/abi.lock" > "$ABI_BASELINE"
           test -s "$ABI_BASELINE"
           sha256sum "$ABI_BASELINE"
-      - name: Keep interface-6 reference bytes frozen against the trusted base
-        run: python3 tools/abi-frozen6-check.py --base "$ABI_BASE_REV"
+      - name: Raise, re-bless or freeze the plugin interface only by name, against the trusted base
+        run: python3 tools/abi-reference-check.py --base "$ABI_BASE_REV"
       - name: Check generated ABI and append-only compatibility
         env:
           ABI_BASELINE: ${{ runner.temp }}/paperpaw-abi-baseline.lock

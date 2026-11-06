@@ -205,7 +205,7 @@ g_sdk() {
 # Keep the baseline supplied independently by the caller. Missing input fails
 # through abi-check --ci; a candidate checkout is never its own reference.
 g_abi() {
-    run "abi: frozen interface-6 reference bytes" 'python3 tools/abi-frozen6-check.py --base "${ABI_BASE_REV:?set the exact independently trusted PR-base commit}"'
+    run "abi: interface reference files against the trusted base" 'python3 tools/abi-reference-check.py --base "${ABI_BASE_REV:?set the exact independently trusted PR-base commit}"'
     run "abi: generated declarations and trusted baseline" "bash tools/abi-check.sh --ci"
 }
 

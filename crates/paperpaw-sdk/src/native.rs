@@ -58,6 +58,14 @@ pub use paperpaw_native::{Chip, HEADER_LEN, Header, Problem, Signature};
 /// keeps what it was, and CI fails while they differ (ADR 0026).
 pub const INTERFACE: u16 = 6;
 
+/// The draft of [`INTERFACE`] this build is, while the owner has not frozen
+/// it; 0 once frozen. A draft may change what plugins see without a new
+/// interface, but each such change takes the next draft, and the draft is
+/// part of [`FINGERPRINT`]: a plugin built for an earlier draft is refused,
+/// never loaded. Freezing sets it to 0, which refuses every draft's builds
+/// too. `crates/paperpaw-sdk/interface.txt` keeps it as `draft`.
+pub const DRAFT: u16 = 1;
+
 /// The crates whose types cross between a plugin and PaperPaw, by the
 /// names their paths begin with: the SDK and every crate of PaperPaw it
 /// depends on. The plugin interface keeps their types as they are
@@ -111,6 +119,7 @@ pub const FINGERPRINT: Fingerprint = Fingerprint::of(INTERFACE, {
     // in colour, and plugins built without it run there.
     hash = hash.number(paperpaw_text::OUTLINES as u64);
     hash = hash.number(layout::DIGEST);
+    hash = hash.number(DRAFT as u64);
     hash.0
 });
 
@@ -626,7 +635,7 @@ impl Fingerprint {
             ))
         } else {
             Some(String::from(
-                "built for another chip, or with other features, of the same plugin interface",
+                "built for another chip, with other features or for another draft, of the same plugin interface",
             ))
         }
     }
