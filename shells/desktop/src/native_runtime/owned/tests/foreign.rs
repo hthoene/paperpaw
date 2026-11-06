@@ -29,6 +29,10 @@ fn records() -> [Registration; 2] {
 }
 
 fn fixture(invalid: &[u8], ignore_invalid: bool) -> Fixture {
+    fixture_query(invalid, ignore_invalid, "")
+}
+
+pub(super) fn fixture_query(invalid: &[u8], ignore_invalid: bool, query: &str) -> Fixture {
     let root = crate::private::dir("paperpaw-foreign726").unwrap();
     let path = root.join("fixture.so");
     let abi = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -47,6 +51,7 @@ fn fixture(invalid: &[u8], ignore_invalid: bool) -> Fixture {
         ("EXPECTED_EVENT", format!("{:?}", tick_bytes())),
         ("TOKEN", TOKEN.to_string()),
         ("IGNORE_INVALID", ignore_invalid.to_string()),
+        ("QUERY_BODY", query.to_owned()),
     ] {
         source = source.replace(&format!("@{name}@"), &value);
     }
