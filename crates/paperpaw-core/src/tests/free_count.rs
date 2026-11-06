@@ -168,7 +168,10 @@ fn a_storage_that_never_finishes_stops_at_the_part_limit() {
     kernel
         .shared
         .settings
-        .set(settings::SLEEP_AFTER.as_str(), 0.into())
+        .set(
+            settings::SLEEP_AFTER.as_str(),
+            paperpaw_sdk::SettingValue::Int(0),
+        )
         .unwrap();
     for n in 0..4_100 {
         kernel.count_free(Instant(1_000 + n * 50));
