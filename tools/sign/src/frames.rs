@@ -389,7 +389,17 @@ fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
                 effect.ctl = match (rs1, imm_i, state.tab[rs1]) {
                     (1, 0, _) => Ctl::Ret,
                     (_, 0, Tab::Entry(at)) => Ctl::Table(at),
-                    _ => Ctl::Indirect,
+                    // A tail call, `auipc` and `jr` (the compilers' `tail`):
+                    // where it goes is known, a jump like `jal`'s, out of the
+                    // function or into it.
+                    _ => match state.regs[rs1] {
+                        Some(v) => Ctl::Jump(
+                            i64::from(v as u32)
+                                .wrapping_add(i64::from(imm_i))
+                                .wrapping_sub(i64::from(pc)),
+                        ),
+                        None => Ctl::Indirect,
+                    },
                 };
             } else {
                 // A call through a register, an `auipc` pair's: where to?

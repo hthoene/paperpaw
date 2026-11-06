@@ -1006,3 +1006,29 @@ fn an_unreadable_jump_at_sp_zero_may_enter_code_already_walked_in_the_listing_to
         );
     }
 }
+
+#[test]
+fn a_tail_call_by_auipc_and_jr_is_a_known_jump_out_not_an_unreadable_one() {
+    const T1: u32 = 6;
+    // auipc t1, 0x10; jr 0x20(t1): the compilers' `tail`, to a function
+    // elsewhere. Known, so nothing is joined into the rest of the function.
+    let f = code(&[W(auipc(T1, 0x10)), W(jalr(0, T1, 0x20))]);
+    assert_eq!(scan(&f, &[0]), None);
+    assert_eq!(frame_sizes(&f, &[0]), vec![Some(0)]);
+    // Into the function itself (a jump back to its start with sp lowered once
+    // would be a loop that moves sp: refused as unbounded).
+    let f = code(&[W(addi(SP, SP, -16)), W(auipc(T1, 0)), W(jalr(0, T1, -4))]);
+    assert_eq!(frame_sizes(&f, &[0]), vec![None]);
+}
+
+#[test]
+fn a_jump_table_beside_a_tail_call_is_still_read() {
+    const T1: u32 = 6;
+    // Case 1 gives its frame back and tail-calls out. An unreadable jump at
+    // sp 0 would be joined into every instruction, the table's code included,
+    // and the table could no longer be read; this one is known.
+    let case1 = [W(addi(SP, SP, 16)), W(auipc(T1, 1)), W(jalr(0, T1, 0))];
+    let f = table_function(&case1);
+    assert_eq!(with_table(&f, &[TEXT + 24, TEXT + 32], &[0, 4]), None);
+    assert_eq!(linked_sizes(&f, &[TEXT + 24, TEXT + 32]).bytes, Some(16));
+}
