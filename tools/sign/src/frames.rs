@@ -76,9 +76,11 @@
 
 use crate::elf::{Elf, Section, Symbol};
 
-/// A frame this large (in bytes) or larger is refused: 1.5 KiB, under the
-/// band's 2 KiB with room for the rest of the frames of the call.
-pub const LIMIT: u32 = 1536;
+/// A frame this large (in bytes) or larger is refused: the band's height
+/// (2 KiB, `paperpaw_x4::stack_band`). A frame of less cannot step over the
+/// band, and the reserve below it keeps the room the panic handler needs
+/// even when two such frames meet there.
+pub const LIMIT: u32 = paperpaw_x4::stack_band::FRAME_LIMIT;
 
 /// `STT_FUNC`: a symbol that names a function.
 const STT_FUNC: u8 = 2;
@@ -1169,9 +1171,9 @@ fn refusal(finding: &Finding, text: &Section, symbols: &[Symbol], text_index: us
         .unwrap_or_else(|| format!(".text+{at:#x}"));
     match finding {
         Finding::Large { bytes, .. } => format!(
-            "{place} has a stack frame of {bytes} bytes, over the {LIMIT} the X4 watches for \
-             (the stack's end band is 2 KiB): keep large buffers in memory the plugin asks the \
-             host for, not on the stack"
+            "{place} has a stack frame of {bytes} bytes; {LIMIT} or more is refused, as the X4 \
+             watches the stack's end with a band of that height that a bigger frame could step \
+             over: keep large buffers in memory the plugin asks the host for, not on the stack"
         ),
         Finding::Unknown { .. } => format!(
             "{place} changes the stack pointer in a way the packer cannot bound (a dynamically \

@@ -212,10 +212,16 @@ into the function) and follows every entry, and refuses one it cannot read. Plug
 interface-7 plugin build), which leaves the plugin's own `match`es nothing to read; the flag does not reach the
 precompiled `core`, whose tables the scan reads.
 
-**Floats:** formatting a float (`{}` or `{:.2}` of an `f32` or `f64`) is refused for another reason than its
-tables: `core`'s `float_to_decimal_common_exact` has a stack frame of 1,952 bytes (RV32IMC, `opt-level = "s"`),
-over the 1,536 the scan allows, and any float `Display` links it. An X4 plugin shows a percentage or a size from
-integers (`n * 100 / total`, fixed digits).
+**Frame limit and floats (ADR 0034, decision #953):** a frame of 2,048 bytes or more is refused (the limit is the
+band's height at the stack's end, `paperpaw_x4::stack_band::FRAME_LIMIT`); one of less cannot step over the band. The
+panic handler's room is kept for the worst case of two such frames meeting in the band: the band lies
+`RESERVE = HANDLER + FRAME_LIMIT` = 4,096 bytes above the stack's end (`HANDLER` is 2 KiB, handler depth and a
+256-byte margin, until the device measures it; if it is more, the reserve grows, not the limit). Band, reserve and
+alignment take 6 to 8 KiB of the X4's 41,096-byte main stack. So `core`'s float formatting, whose
+`float_to_decimal_common_exact` has a frame of 1,952 bytes, packs: `{}` and `{:.N}` of an `f32` or `f64` work on the
+X4. The SDK's fixed-point formatter stays the recommended way (it saves roughly 10 KiB of flash), not a requirement.
+If the deepest legitimate path does not fit the stack that is left (about 33 KiB), the limit falls back to 1,536
+bytes and floats are refused again.
 
 `paperpaw-sign pack <plugin.elf> <plugin.ppn> [--key <file>]` writes format 5 for a plugin linked with
 `paperpaw-plugin7.x` and `--emit-relocs` that defines `PAPERPAW_METADATA`; a plugin that defines `PAPERPAW_API` is

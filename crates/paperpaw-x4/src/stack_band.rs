@@ -18,24 +18,41 @@
 //! not the store's address: a frame of N bytes that reaches into the
 //! band from above has its pointer N bytes below where it stood, and the
 //! store may be N bytes above it. So the room counts from the pointer, and
-//! the band lies [`RESERVE`] bytes above the stack's end, aligned: whatever
-//! frame of less than [`BAND`] bytes reaches the band, the pointer is still
-//! at least [`RESERVE`] bytes above the end (see [`room_at_trap`]), for the
-//! exception handler, the panic's message and the crash slot (the
-//! handler's real depth is measured on the device).
-//! What it cannot see: a single frame of [`BAND`] bytes or more that never
-//! stores into it (`paperpaw-sign pack` refuses frames of 1.5 KiB or more
-//! in a plugin's code), nor a stack pointer moved by something other than
-//! a store.
+//! the worst case is two frames: the first brings the pointer into the band
+//! without a store there (any frame under [`FRAME_LIMIT`] can), the second
+//! fires the trigger at its first store and brings the pointer down by its
+//! own size. The band lies [`RESERVE`] bytes above the stack's end, aligned,
+//! with `RESERVE = HANDLER + FRAME_LIMIT`: the handler is left at least
+//! [`HANDLER`] bytes whatever two frames under the limit meet in the band
+//! (see [`room_at_trap`]), for the exception handler, the panic's message and
+//! the crash slot. `HANDLER` is the depth the handler takes and a margin of
+//! 256 bytes; until the device measures it, 2 KiB is assumed
+//! (`shells/xteink/frame-budget.txt` holds the build-time half, the chain of
+//! its functions at about 1.5 KiB); if the measured depth is more, the
+//! reserve grows, not the frame limit (ADR 0034 decision #953).
+//!
+//! What it cannot see: a single frame of [`FRAME_LIMIT`] bytes or more that
+//! never stores into it (`paperpaw-sign pack` refuses those in a plugin's
+//! code), nor a stack pointer moved by something other than a store.
 
 /// The band's height: a power of two, as the trigger matches a naturally
 /// aligned region.
 pub const BAND: u32 = 2048;
 
-/// The room kept below the band for the panic handler: the trap frame,
-/// its 400-byte message, the backtrace's frames and the formatting, with
-/// room to spare.
-pub const RESERVE: u32 = 2048;
+/// The depth the panic handler needs below the stack pointer, with a margin
+/// of 256 bytes: the trap frame, its 400-byte message, the backtrace's
+/// frames and the formatting. Assumed until the device measures it (the
+/// build-time chain is about 1.5 KiB).
+pub const HANDLER: u32 = 2048;
+
+/// The largest frame a plugin's code may have, plus one: a frame of this
+/// many bytes or more is refused by `paperpaw-sign pack`. The band's height,
+/// so that a frame under it cannot step over the band.
+pub const FRAME_LIMIT: u32 = BAND;
+
+/// The room kept below the band: the handler's depth for the worst case of
+/// two frames under the limit meeting in the band (see [`room_at_trap`]).
+pub const RESERVE: u32 = HANDLER + FRAME_LIMIT;
 
 /// The stack must reach this far above the band, or there is none (a
 /// stack that small is no design this guards).
@@ -52,13 +69,15 @@ pub fn band(end: u32, top: u32) -> Option<u32> {
 }
 
 /// The bytes between the stack's end and the stack pointer when the
-/// trigger fires for a frame of `frame` bytes that reaches into the band
-/// from above, at the worst: the pointer stood at the band's top
-/// (`start + BAND`), nothing stored in the band yet, and the frame
-/// brought it `frame` bytes down. Nothing for a frame that takes it below
-/// the end.
-pub fn room_at_trap(end: u32, start: u32, frame: u32) -> u32 {
-    (start + BAND).saturating_sub(frame).saturating_sub(end)
+/// trigger fires, at the worst: the pointer stood at the band's top
+/// (`start + BAND`), a frame of `first` bytes brought it down into the band
+/// with no store there, and a frame of `second` bytes fired the trigger and
+/// brought it down again. Nothing when that takes it below the end.
+pub fn room_at_trap(end: u32, start: u32, first: u32, second: u32) -> u32 {
+    (start + BAND)
+        .saturating_sub(first)
+        .saturating_sub(second)
+        .saturating_sub(end)
 }
 
 /// The trigger's control word (`tdata1`) for the band: type match, machine
@@ -116,44 +135,58 @@ mod tests {
 
     #[test]
     fn the_band_is_the_first_aligned_region_a_reserve_above_the_end() {
-        assert_eq!(band(0x3fcc_4378, 0x3fcc_e400), Some(0x3fcc_5000));
-        assert_eq!(band(0x3fcc_4800, 0x3fcc_e400), Some(0x3fcc_5000));
-        assert_eq!(band(0x3fcc_4801, 0x3fcc_e400), Some(0x3fcc_5800));
+        assert_eq!(band(0x3fcc_4378, 0x3fcc_e400), Some(0x3fcc_5800));
+        assert_eq!(band(0x3fcc_4800, 0x3fcc_e400), Some(0x3fcc_5800));
+        assert_eq!(band(0x3fcc_4801, 0x3fcc_e400), Some(0x3fcc_6000));
     }
 
     #[test]
-    fn the_reserve_stays_below_the_pointer_for_any_frame_under_the_band() {
-        // Whatever the stack's end and the frame (up to the band's height
-        // less one), at least the reserve is left below the pointer.
+    fn the_handler_keeps_its_room_for_any_two_frames_under_the_limit() {
+        // Whatever the stack's end and the two frames (each up to the limit
+        // less one), at least the handler's depth is left below the pointer.
         for end in (0x3fcc_4000u32..0x3fcc_5000).step_by(4) {
             let start = band(end, 0x3fcd_0000).unwrap();
             assert!(start.is_multiple_of(BAND));
             assert!(start >= end + RESERVE, "end {end:#x}");
-            for frame in [0, 16, 512, 1024, 1536, BAND - 1] {
-                let room = room_at_trap(end, start, frame);
-                assert!(room >= RESERVE, "end {end:#x} frame {frame}: {room}");
+            for first in [0, 16, 512, 1024, 1536, FRAME_LIMIT - 1] {
+                for second in [0, 16, 512, 1024, 1536, FRAME_LIMIT - 1] {
+                    let room = room_at_trap(end, start, first, second);
+                    assert!(
+                        room >= HANDLER,
+                        "end {end:#x} frames {first} and {second}: {room}"
+                    );
+                }
             }
         }
     }
 
     #[test]
-    fn without_a_reserve_a_large_frame_would_leave_little() {
-        // The band at the end (no reserve): a 1 KiB frame leaves 1 KiB.
-        let (end, start) = (0x3fcc_4800u32, 0x3fcc_4800u32);
-        assert_eq!(room_at_trap(end, start, 1024), 1024);
-        // With the reserve, the same stack's band lies higher.
+    fn a_reserve_of_the_handler_alone_would_not_do_for_two_big_frames() {
+        // The reserve before decision #953 (the handler's 2 KiB, a limit of
+        // 1.5 KiB): a frame of 2,047 bytes into the band without a store,
+        // then one of 1,535, leave 514 bytes, not 2 KiB.
+        let (end, start) = (0x3fcc_4800u32, 0x3fcc_4800u32 + 2048);
+        assert_eq!(start % BAND, 0);
+        assert_eq!(room_at_trap(end, start, 2047, 1535), 514);
+        assert!(room_at_trap(end, start, 2047, 1535) < HANDLER / 2);
+        // With the reserve, the same two frames leave the handler its room.
         let start = band(end, 0x3fcd_0000).unwrap();
-        assert_eq!(start, 0x3fcc_5000);
-        assert!(room_at_trap(end, start, 1024) >= RESERVE + 1024);
+        assert!(room_at_trap(end, start, FRAME_LIMIT - 1, FRAME_LIMIT - 1) >= HANDLER);
+    }
+
+    #[test]
+    fn the_reserve_is_the_handler_and_the_limit() {
+        assert_eq!(RESERVE, 4096);
+        assert_eq!(FRAME_LIMIT, BAND);
     }
 
     #[test]
     fn a_stack_without_room_has_no_band() {
         assert_eq!(band(0x3fcc_4378, 0x3fcc_4378 + 2048), None);
-        assert_eq!(band(0x3fcc_4378, 0x3fcc_5000 + BAND + ABOVE - 1), None);
+        assert_eq!(band(0x3fcc_4378, 0x3fcc_5800 + BAND + ABOVE - 1), None);
         assert_eq!(
-            band(0x3fcc_4378, 0x3fcc_5000 + BAND + ABOVE),
-            Some(0x3fcc_5000)
+            band(0x3fcc_4378, 0x3fcc_5800 + BAND + ABOVE),
+            Some(0x3fcc_5800)
         );
         assert_eq!(band(u32::MAX - 100, u32::MAX), None);
     }
