@@ -523,3 +523,19 @@ fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_c
         assert_eq!(MAKES.with(Cell::get), 0, "make was never called");
     }
 }
+
+#[test]
+fn an_empty_visible_region_sends_no_frame_and_a_full_one_its_rows() {
+    let mut out = [0; 64];
+    for empty in [Rect::new(0, 0, 8, 0), Rect::new(0, 4, 0, 8)] {
+        assert_eq!(screen_frame(empty, &mut out), Ok(None), "{empty:?}");
+    }
+    let len = screen_frame(Rect::new(2, 4, 8, 6), &mut out)
+        .unwrap()
+        .unwrap();
+    let batch = registrations::records_decode(&out[..len]).unwrap();
+    let Some(registrations::Record::DrawFrame(frame)) = batch.iter().next() else {
+        panic!("not a frame");
+    };
+    assert_eq!((frame.y, frame.clip_top, frame.clip_bottom), (4, 4, 10));
+}

@@ -1192,6 +1192,10 @@ struct paperpaw_sdk::native::declare::records_wire::SettingGroup<'a> { name: &'a
 struct paperpaw_sdk::native::declare::records_wire::SettingSpec<'a> { name: &'a str, kind: u32, flags: u32, group: &'a str, title: &'a str, help: &'a str, default: &'a [u8], min: i32, max: i32, choices: &'a str }
 struct paperpaw_sdk::native::events::PageTurn<'a> { now_ms: u64, section: u32, offset: u32, progress_ppm: u32, path: &'a str, title: &'a str, chapter: &'a str, page: core::option::Option<u32>, pages: core::option::Option<u32> }
 struct paperpaw_sdk::native::keys::Revocation { plugin: alloc::string::String, key: [u8; 32], signature: [u8; 64] }
+struct paperpaw_sdk::native::services::Blob<'cb> { host: &'cb paperpaw_sdk::native::binding::Host<'cb>, handle: core::option::Option<u32> }
+struct paperpaw_sdk::native::services::usage::PageEnd { total: u32, generation: u32, next: u32, truncated: bool, left_out: bool }
+struct paperpaw_sdk::native::services::usage::ServicePluginUsage<'a> { plugin: &'a str, busy_us: u64, calls: u32, shown_ms: u64, fast: u32, partial: u32, full: u32, pixels: u64, read: u64, written: u64, syncs: u32, requests: u32, refused: u32, awake_ms: u64, awake_reason: &'a str }
+struct paperpaw_sdk::native::services::usage::ServiceUsage { fast: u32, partial: u32, full: u32, pixels: u64, inputs: u32, sleeps: u32, panel_ms: u64, bluetooth_ms: u64 }
 struct paperpaw_sdk::native::wire::commands_wire::CommandBatch<'a> { records: [core::option::Option<paperpaw_sdk::native::wire::commands_wire::Command<'a>>; 8], len: usize }
 struct paperpaw_sdk::native::wire::snapshot_wire::Battery { percent: u8, charging: bool, saver: bool, millivolts: core::option::Option<u16> }
 struct paperpaw_sdk::native::wire::snapshot_wire::Snapshot { monotonic_ms: u64, unix_seconds: core::option::Option<i64>, battery: core::option::Option<paperpaw_sdk::native::wire::snapshot_wire::Battery>, width: u16, height: u16, dpi: u16, touch: bool, pixel: paperpaw_sdk::native::wire::snapshot_wire::PixelFormat }
