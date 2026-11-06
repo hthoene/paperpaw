@@ -591,6 +591,50 @@ fn v1_an_appended_file_evicted_from_the_open_cache_after_any_cut() {
     }
 }
 
+/// No cut, no remount: a file appended to and pushed out of the open-file
+/// cache by more files than it holds is read back in the same mount with
+/// everything appended, before and after a sync. Eviction must not drop
+/// data that no power loss took.
+#[test]
+fn v1_an_evicted_append_is_read_back_whole_in_the_same_mount() {
+    for card in &CARDS {
+        let c = card.cluster();
+        for new_len in [1, c / 2, 2 * c + 5, 6 * c + c / 3] {
+            let (old, new) = (data(c / 2 + 3, 1), data(new_len, 150));
+            let cut = Cut::formatted_of(card.size, card.options());
+            let s = cut.storage();
+            s.write("log.csv", &old).unwrap();
+            s.sync().unwrap();
+            s.append("log.csv", &new).unwrap();
+            for n in 0..=OPEN_FILES {
+                s.write(&format!("Books/e{n:02}.txt"), b"x").unwrap();
+            }
+            let want: Vec<u8> = old.iter().chain(&new).copied().collect();
+            assert_eq!(
+                whole(&s, "log.csv").map(|got| got.len()),
+                Ok(want.len()),
+                "{} new {new_len}: size after eviction",
+                card.label
+            );
+            assert!(
+                whole(&s, "log.csv") == Ok(want.clone()),
+                "{} new {new_len}: content after eviction",
+                card.label
+            );
+            s.sync().unwrap();
+            assert!(
+                whole(&s, "log.csv") == Ok(want),
+                "{}: after sync",
+                card.label
+            );
+            eprintln!(
+                "V1.3e evicted, same mount {:<16} new {new_len:>5}: read back whole",
+                card.label
+            );
+        }
+    }
+}
+
 /// Several small appends (a log's rows) and one sync, cut anywhere: what a
 /// reader sees is the old content and a whole number of appended bytes from
 /// the start of the stream, never stale or zero-filled bytes.
