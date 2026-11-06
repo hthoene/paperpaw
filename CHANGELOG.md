@@ -8,7 +8,8 @@ change the plugin SDK.
 
 - Interface 7 draft 7 SDK: typed callbacks and frame-owned drawing, font metrics
   and ink, nested clipping, exact snapshot views, complete message copies,
-  settings/grant reads and typed screen/action/redraw/setting commands.
+  settings/grant reads, typed callback subscriptions and
+  screen/action/redraw/setting commands.
 
 
 - Interface 7 draft 5 SDK: bounded callback replies, typed draw frames and input,

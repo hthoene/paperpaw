@@ -1,7 +1,8 @@
 //! Declaration records for native plugins (interface 7): a builder that writes
 //! the records `setting.group`, `setting.spec`, `setting.extra`,
 //! `resource.hyphenation`, `resource.font_face`, `resource.font_extension`,
-//! `screen.spec` and `action.spec` (tags 5-12) with the generated encoder, as the batches a plugin submits
+//! `screen.spec` and `action.spec` (tags 5-12), and event/draw callback
+//! registrations (tags 1-2) with the generated encoder, as the batches a plugin submits
 //! through `registrations.submit` while it is made.
 //!
 //! A plugin creates [`Declarations`] with a submission sink, adds borrowed
@@ -56,6 +57,9 @@ use records_wire::{
     SettingExtra, SettingGroup, SettingSpec, records_encode,
 };
 use settings_value::{SettingValueRef, settings_encode};
+
+mod callbacks;
+pub use callbacks::EventKind;
 
 /// Most records in one batch.
 pub const BATCH_MAX_RECORDS: usize = records_wire::REGISTRATION_MAX_RECORDS;
@@ -401,6 +405,7 @@ impl<'a> ActionDecl<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Item<'a> {
+    Registration(records_wire::Registration),
     Group(GroupDecl<'a>),
     Spec(SpecDecl<'a>, SpecParts),
     Extra(ExtraDecl<'a>),
@@ -1015,6 +1020,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
 impl<'a> Item<'a> {
     fn record(&self) -> Record<'_> {
         match self {
+            Item::Registration(registration) => Record::Registration(*registration),
             Item::Group(g) => Record::SettingGroup(SettingGroup {
                 name: g.name,
                 title: g.title,
