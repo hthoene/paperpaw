@@ -123,6 +123,7 @@ fn no_part_is_counted_just_before_sleep() {
     let effects = kernel.tick(Instant(58_100));
     assert_eq!(storage.asks.get(), before);
     assert!(effects.wake_at().is_some());
+    assert_eq!(kernel.free_count.due(), kernel.sleep_due());
 }
 
 #[test]
@@ -134,18 +135,52 @@ fn a_storage_that_cannot_tell_its_size_is_not_asked() {
     assert_eq!(storage.asks.get(), 0);
 }
 
-#[test]
-fn a_waiting_press_does_not_poll_the_count() {
+fn waiting_press_resumes_count(sleep_after: i32) {
     let storage = Counting::new(5, true);
     let mut kernel = kernel(&storage);
+    kernel
+        .shared
+        .settings
+        .set(
+            settings::SLEEP_AFTER.as_str(),
+            paperpaw_sdk::SettingValue::Int(sleep_after),
+        )
+        .unwrap();
     kernel.input.pending = Some((
         crate::keymap::InputKey::Button("next".into()),
-        Instant(2_000),
+        Instant(1_250),
         None,
     ));
     kernel.count_free(Instant(1_000));
     assert_eq!(storage.asks.get(), 0);
-    assert_eq!(kernel.free_count.due(), kernel.sleep_due());
+    assert_eq!(kernel.free_count.due(), Some(Instant(1_250)));
+    kernel.count_free(Instant(1_249));
+    assert_eq!(storage.asks.get(), 0);
+    // The normal gesture path clears the pending press when it is decided.
+    kernel.input.pending = None;
+    kernel.count_free(Instant(1_250));
+    assert_eq!(storage.asks.get(), 1);
+    assert_eq!(kernel.free_count.due(), Some(Instant(1_300)));
+}
+
+#[test]
+fn a_waiting_press_with_sleep_off_resumes_the_count() {
+    waiting_press_resumes_count(0);
+}
+
+#[test]
+fn a_waiting_press_does_not_defer_to_a_ten_minute_sleep_timeout() {
+    waiting_press_resumes_count(10);
+}
+
+#[test]
+fn sleeping_stops_counting_until_wake() {
+    let storage = Counting::new(5, true);
+    let mut kernel = kernel(&storage);
+    kernel.sleep = true;
+    kernel.count_free(Instant(1_000));
+    assert_eq!(storage.asks.get(), 0);
+    assert_eq!(kernel.free_count.due(), None);
 }
 
 #[test]

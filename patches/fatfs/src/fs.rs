@@ -537,11 +537,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// The place in the chain of the directory beginning at `cluster` kept with its note.
     pub(crate) fn dir_chain(&self, cluster: u32) -> Option<(u32, u32)> {
         let notes = self.dir_notes.borrow();
-        notes
-            .iter()
-            .flatten()
-            .find(|n| n.cluster == cluster)
-            .and_then(|n| n.chain)
+        notes.iter().flatten().find(|n| n.cluster == cluster).and_then(|n| n.chain)
     }
 
     /// Keeps `chain` as the place in the chain of the directory beginning at `cluster`, where it
@@ -651,8 +647,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
 
     // Modified for PaperPaw: added.
     fn note_freed(&self, freed: u32) {
-        self.clusters_freed
-            .set(self.clusters_freed.get().wrapping_add(u64::from(freed)));
+        self.clusters_freed.set(self.clusters_freed.get().wrapping_add(u64::from(freed)));
     }
 
     // Modified for PaperPaw: added.
@@ -671,14 +666,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         let hint = self.fs_info.borrow().next_free_cluster;
         let cluster = {
             let mut fat = self.fat_slice();
-            alloc_cluster(
-                &mut fat,
-                self.fat_type,
-                prev_cluster,
-                hint,
-                self.total_clusters,
-                &self.clusters_taken,
-            )?
+            alloc_cluster(&mut fat, self.fat_type, prev_cluster, hint, self.total_clusters, &self.clusters_taken)?
         };
         if zero {
             let mut disk = self.disk.borrow_mut();
