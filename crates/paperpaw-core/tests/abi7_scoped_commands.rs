@@ -124,7 +124,9 @@ fn refusals(scope: &CommandScope) {
 }
 
 /// Stage byte budget used by the fixture: keys plus text of staged commands.
-const BYTES: usize = 64;
+/// Tight enough that a byte count wrongly kept after a refused batch would
+/// make the later text batch fail.
+const BYTES: usize = 40;
 
 /// A panic in the callback clears the slot; afterwards a new scope works.
 fn unwinding(owner: &Id, env: &Env<'_>) {
