@@ -109,4 +109,9 @@ def required_minor(schema, used, floor):
             # Slot 4's stable signature still requires its selected wire layout.
             required = max(required, _integer(schema['snapshot_value'].get('since'),
                                               'snapshot value since', minor, 1))
+        if kind == 'host' and 'color_value' in schema and any(
+                arg.get('name') == 'color' for arg in declaration['args']):
+            # A scalar signature also requires its declared packed-color encoding.
+            required = max(required, _integer(schema['color_value'].get('since'),
+                                              'color value since', minor, 1))
     return required
