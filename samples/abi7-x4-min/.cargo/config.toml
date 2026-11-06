@@ -14,8 +14,9 @@ rustflags = [
     "-C", "link-arg=--no-relax",
     "-C", "code-model=medium",
     "-C", "relocation-model=static",
-    # No jump tables: the packer reads a `match` compiled to one as a jump it
-    # cannot follow, and refuses the plugin (`paperpaw-sign pack`, the stack
-    # frame scan). Every interface-7 plugin build sets this.
+    # No jump tables in the plugin's own code: the packer's stack frame scan
+    # reads a table from `.rodata` and follows every entry, and refuses one
+    # it cannot read; with none, there is nothing to read. Every interface-7
+    # plugin build sets this.
     "-C", "jump-tables=no",
 ]

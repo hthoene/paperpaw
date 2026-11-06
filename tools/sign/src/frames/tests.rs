@@ -516,6 +516,7 @@ fn code_after_a_call_that_never_returns_is_not_reached_from_it() {
     let env = Env {
         base,
         noreturn: &noreturn,
+        tables: Tables::none(),
         lenient: false,
     };
     assert_eq!(scan_ranges(&f, &[(0, 24)], env), None);
@@ -548,7 +549,7 @@ fn a_function_that_never_returns_is_proved_from_its_code_not_its_name() {
     ]);
     let ranges = [(0, 4), (4, 12), (12, 16), (16, 20), (20, 32)];
     let base = 0x4200_0000;
-    let proved = noreturn_functions(&f, &ranges, base, false);
+    let proved = noreturn_functions(&f, &ranges, base, Tables::none(), false);
     // The spinner, its caller (the call never comes back) and the trap
     // never return; the one with `ret` does, and so does its caller.
     assert_eq!(proved, vec![base, base + 4, base + 12]);
@@ -570,11 +571,12 @@ fn a_panic_like_name_does_not_end_the_path_of_a_call_that_returns() {
     ]);
     let ranges = [(0, 28), (28, 32)];
     let base = 0x4200_0000;
-    let proved = noreturn_functions(&f, &ranges, base, false);
+    let proved = noreturn_functions(&f, &ranges, base, Tables::none(), false);
     assert_eq!(proved, Vec::<u32>::new());
     let env = Env {
         base,
         noreturn: &proved,
+        tables: Tables::none(),
         lenient: false,
     };
     assert!(matches!(
@@ -696,11 +698,31 @@ fn random_code_and_ranges_never_panic_the_scan() {
             })
             .collect();
         let base = xorshift(&mut seed) as u32;
-        let proved = noreturn_functions(&bytes, &ranges, base, false);
+        // A random .rodata whose words point into the code, and random
+        // relocated offsets: the tables the code may jump by.
+        let table_bytes: Vec<u8> = (0..64)
+            .map(|k| {
+                if k % 4 == 0 {
+                    base.wrapping_add((xorshift(&mut seed) % (len as u64 + 8)) as u32) as u8
+                } else {
+                    (xorshift(&mut seed) >> 8) as u8
+                }
+            })
+            .collect();
+        let relocated: std::collections::BTreeSet<u32> = (0..16)
+            .map(|_| (xorshift(&mut seed) % 20) as u32 * 4)
+            .collect();
+        let tables = Tables {
+            addr: base,
+            bytes: &table_bytes,
+            relocated: &relocated,
+        };
+        let proved = noreturn_functions(&bytes, &ranges, base, tables, false);
         for lenient in [false, true] {
             let env = Env {
                 base,
                 noreturn: &proved,
+                tables,
                 lenient,
             };
             let _ = scan_ranges(&bytes, &ranges, env);
@@ -727,4 +749,188 @@ fn random_symbol_names_never_panic_the_path_reader() {
         let _ = path(&format!("_ZN{n}x4core5panicE"));
         let _ = path(&format!("_RNvC{n}x"));
     }
+}
+
+/// `slli rd, rs1, shamt`.
+fn slli(rd: u32, rs1: u32, shamt: u32) -> u32 {
+    (shamt << 20) | (rs1 << 15) | (1 << 12) | (rd << 7) | 0x13
+}
+fn lw(rd: u32, rs1: u32, imm: i32) -> u32 {
+    ((imm as u32 & 0xfff) << 20) | (rs1 << 15) | (2 << 12) | (rd << 7) | 0x03
+}
+const A1: u32 = 11;
+
+/// A function that jumps by a table: its frame of 16, a `lui` of the table's
+/// address, the index scaled, added and loaded, the jump. Cases follow at 24
+/// (give the frame back and return) and 32 (the same).
+fn table_function(case1: &[I]) -> Vec<u8> {
+    let mut items = vec![
+        W(addi(SP, SP, -16)),
+        W(lui(A1, 0x3c000)),
+        W(slli(A0, A0, 2)),
+        W(add(A0, A0, A1)),
+        W(lw(A0, A0, 0)),
+        W(jr(A0)),
+        // 24: case 0
+        W(addi(SP, SP, 16)),
+        W(RET),
+    ];
+    // 32: case 1
+    items.extend(case1.iter().map(|i| match i {
+        W(w) => W(*w),
+        N(n) => N(*n),
+    }));
+    code(&items)
+}
+
+const ROD: u32 = 0x3c00_0000;
+const TEXT: u32 = 0x4200_0000;
+
+fn rodata(words: &[u32]) -> Vec<u8> {
+    words.iter().flat_map(|w| w.to_le_bytes()).collect()
+}
+
+fn with_table(f: &[u8], words: &[u32], relocated: &[u32]) -> Option<Finding> {
+    let bytes = rodata(words);
+    let relocated: std::collections::BTreeSet<u32> = relocated.iter().copied().collect();
+    let env = Env {
+        tables: Tables {
+            addr: ROD,
+            bytes: &bytes,
+            relocated: &relocated,
+        },
+        ..Env::none()
+    };
+    scan_ranges(f, &[(0, f.len())], env)
+}
+
+#[test]
+fn a_jump_table_is_followed_to_each_of_its_entries() {
+    let case1 = [W(addi(SP, SP, 16)), W(RET)];
+    let f = table_function(&case1);
+    // Both entries are labels in the function, both relocated words.
+    assert_eq!(with_table(&f, &[TEXT + 24, TEXT + 32], &[0, 4]), None);
+    // Every entry's state is checked: a case that takes a big frame.
+    let big = [W(addi(SP, SP, -1600)), W(addi(SP, SP, 1616)), W(RET)];
+    let f = table_function(&big);
+    assert!(matches!(
+        with_table(&f, &[TEXT + 24, TEXT + 32], &[0, 4]),
+        Some(Finding::Large { bytes: 1616, .. })
+    ));
+    // The same without a table to read: a jump through a register in a frame.
+    assert!(matches!(
+        scan_ranges(&f, &[(0, f.len())], Env::none()),
+        Some(Finding::Table { .. })
+    ));
+}
+
+#[test]
+fn a_table_whose_entry_goes_back_to_the_start_grows_the_frame_and_is_refused() {
+    let case1 = [W(addi(SP, SP, 16)), W(RET)];
+    let f = table_function(&case1);
+    // Entry 1 is the first instruction: each round takes 16 more.
+    assert!(matches!(
+        with_table(&f, &[TEXT + 24, TEXT], &[0, 4]),
+        Some(Finding::Unknown { .. })
+    ));
+}
+
+#[test]
+fn a_table_that_cannot_be_read_is_a_jump_through_a_register() {
+    let case1 = [W(addi(SP, SP, 16)), W(RET)];
+    let f = table_function(&case1);
+    let table = |words: &[u32], relocated: &[u32]| with_table(&f, words, relocated);
+    // The first word points out of the function: no entry.
+    assert!(matches!(
+        table(&[TEXT + 4096, TEXT + 32], &[0, 4]),
+        Some(Finding::Table { .. })
+    ));
+    // A word that is not relocated (it would not move with the plugin).
+    assert!(matches!(
+        table(&[TEXT + 24, TEXT + 32], &[4]),
+        Some(Finding::Table { .. })
+    ));
+    // An entry into the middle of an instruction.
+    assert!(matches!(
+        table(&[TEXT + 26, TEXT + 32], &[0, 4]),
+        Some(Finding::Table { .. })
+    ));
+    // A table outside .rodata.
+    assert!(matches!(table(&[], &[]), Some(Finding::Table { .. })));
+}
+
+#[test]
+fn a_table_ends_at_the_first_word_that_points_elsewhere() {
+    // Entries 0 and 1 are the function's; the next word is the start of
+    // another function's table: not read.
+    let case1 = [W(addi(SP, SP, 16)), W(RET)];
+    let f = table_function(&case1);
+    assert_eq!(
+        with_table(&f, &[TEXT + 24, TEXT + 32, TEXT + 4096], &[0, 4, 8]),
+        None
+    );
+}
+
+#[test]
+fn the_compressed_forms_of_the_table_jump_are_followed_too() {
+    // c.slli a0, 2; c.add a0, a1; c.lw a0, 0(a0); c.jr a0
+    let c_slli = |rd: u32, shamt: u32| ((rd << 7) | (shamt << 2) | 0b10) as u16;
+    let c_lw = 0x4108u16; // c.lw a0, 0(a0)
+    let c_jr = 0x8502u16; // c.jr a0
+    let f = code(&[
+        W(addi(SP, SP, -16)),
+        W(lui(A1, 0x3c000)),
+        N(c_slli(A0, 2)),
+        N(c_add(A0, A1)),
+        N(c_lw),
+        N(c_jr),
+        // 16: the case
+        W(addi(SP, SP, 16)),
+        W(RET),
+    ]);
+    assert_eq!(with_table(&f, &[TEXT + 16], &[0]), None);
+    // And with the case's frame too big.
+    let g = code(&[
+        W(addi(SP, SP, -16)),
+        W(lui(A1, 0x3c000)),
+        N(c_slli(A0, 2)),
+        N(c_add(A0, A1)),
+        N(c_lw),
+        N(c_jr),
+        W(addi(SP, SP, -2000)),
+        W(RET),
+    ]);
+    assert!(matches!(
+        with_table(&g, &[TEXT + 16], &[0]),
+        Some(Finding::Large { bytes: 2016, .. })
+    ));
+}
+
+#[test]
+fn a_table_longer_than_the_function_is_refused_not_cut() {
+    // The function has 11 instructions. A table of 12 words that all point
+    // into it, the last the only way into a case with a big frame: reading
+    // only the first 11 would miss it, so the table is not read at all.
+    let big = [W(addi(SP, SP, -2040)), W(addi(SP, SP, 2040)), W(RET)];
+    let f = table_function(&big);
+    let mut words = vec![TEXT + 24; 11];
+    words.push(TEXT + 32);
+    let relocated: Vec<u32> = (0..12).map(|k| k * 4).collect();
+    assert!(matches!(
+        with_table(&f, &words, &relocated),
+        Some(Finding::Table { .. })
+    ));
+    // The same table of exactly 11 words, the last the big case, is read to
+    // its end: the case is found.
+    let mut words = vec![TEXT + 24; 10];
+    words.push(TEXT + 32);
+    assert!(matches!(
+        with_table(&f, &words, &relocated[..11]),
+        Some(Finding::Large { bytes: 2056, .. })
+    ));
+    // Many entries for the same target are one target.
+    let case1 = [W(addi(SP, SP, 16)), W(RET)];
+    let g = table_function(&case1);
+    let words = vec![TEXT + 24; 8];
+    assert_eq!(with_table(&g, &words, &relocated[..8]), None);
 }
