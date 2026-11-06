@@ -28,6 +28,9 @@ pub(crate) struct Meter {
     /// The plugins whose code runs, the innermost last, with when it began
     /// (or went on after an inner one), in microseconds.
     running: RefCell<Vec<(usize, u64)>>,
+    /// `Storage::sync` calls by plugin, in the order of `table` (kept
+    /// apart: `PluginUsage` is a published type).
+    syncs: RefCell<Vec<u32>>,
 }
 
 impl core::fmt::Debug for Meter {
@@ -51,6 +54,7 @@ impl Meter {
             clock,
             table: RefCell::new(Vec::new()),
             running: RefCell::new(Vec::new()),
+            syncs: RefCell::new(Vec::new()),
         });
         meter.index(CORE);
         meter
@@ -82,6 +86,26 @@ impl Meter {
         let id = Id::parse(plugin).unwrap_or(Id::new_static(CORE));
         table.push(PluginUsage::new(id));
         table.len() - 1
+    }
+
+    /// A `Storage::sync` by the code running now.
+    fn synced(&self) {
+        let index = self.running.borrow().last().map_or(0, |&(i, _)| i);
+        let mut syncs = self.syncs.borrow_mut();
+        if syncs.len() <= index {
+            syncs.resize(index + 1, 0);
+        }
+        syncs[index] = syncs[index].saturating_add(1);
+    }
+
+    /// The `Storage::sync` calls `plugin`'s code made.
+    #[allow(
+        dead_code,
+        reason = "read by the storage adapter tests until Battery shows it"
+    )]
+    pub(crate) fn syncs_of(&self, plugin: &str) -> u32 {
+        let index = self.index(plugin);
+        self.syncs.borrow().get(index).copied().unwrap_or(0)
     }
 
     /// `plugin`'s code runs until the result is dropped; the code it was
@@ -217,6 +241,7 @@ impl Storage for Metered {
     }
 
     fn sync(&self) -> Result<(), StorageError> {
+        self.meter.synced();
         self.inner.sync()
     }
 
