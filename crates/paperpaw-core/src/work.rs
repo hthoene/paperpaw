@@ -269,7 +269,20 @@ impl Queue {
     }
 
     /// Whether work is held back.
-    #[cfg(test)]
+    
+impl crate::Shared {
+    /// Bound retained note text once, so all readers see the same text.
+    pub(crate) fn set_work_note(&mut self, owner: Id, mut note: paperpaw_sdk::work::Note) {
+        let mut end = note.text.len().min(256);
+        while !note.text.is_char_boundary(end) {
+            end -= 1;
+        }
+        note.text.truncate(end);
+        self.work_states.set_note(owner, note);
+    }
+}
+
+#[cfg(test)]
     pub(crate) fn is_held(&self) -> bool {
         self.held
     }
@@ -1198,17 +1211,5 @@ mod tests {
         queue.saw(&events::STARTED.id().clone(), &Params::new());
         queue.saw(&events::BOOK_CLOSED.id().clone(), &Params::new());
         assert_eq!(queue.moments, Moments::WAKE | Moments::BOOK_CLOSED);
-    }
-}
-
-impl crate::Shared {
-    /// Bound retained note text once, so all readers see the same text.
-    pub(crate) fn set_work_note(&mut self, owner: Id, mut note: paperpaw_sdk::work::Note) {
-        let mut end = note.text.len().min(256);
-        while !note.text.is_char_boundary(end) {
-            end -= 1;
-        }
-        note.text.truncate(end);
-        self.work_states.set_note(owner, note);
     }
 }
