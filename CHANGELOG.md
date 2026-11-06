@@ -8,6 +8,12 @@ change the plugin SDK.
 
 ### Added
 
+- Interface 7: host slots 29-31 (`text.metrics`, `text.ink`, `canvas.clip`) for text placed by its
+  line and ink and for nested clipping, commands 56-59 (open screen, run action, redraw, close
+  screen) in the generated command codec, and generated i18n format/digits limits. Hosts answer
+  `ERR_UNSUPPORTED` until they wire them; the SDK keeps private generated copies of the snapshot,
+  settings, colour and command codecs (#228).
+
 - Interface-7 SDK callback host binding and `native_plugin!` entry glue, with checked table admission
   and fallible host allocation. Storage slots 20-26 use caller-owned buffers; event tags 32-37 decode
   into borrowed payloads. These facades do not activate any shell loader (#228).

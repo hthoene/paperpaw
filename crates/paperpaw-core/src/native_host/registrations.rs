@@ -31,6 +31,12 @@ pub use wire::{
     SETTING_SPEC_CHOICES_SEPARATOR, SettingExtra, SettingGroup, SettingSpec, records_decode,
     records_encode,
 };
+// The i18n formatting limits (slots 27 and 28, `docs/abi/screens-input.md`
+// section 5): the host's format and digits entries bound their input by these.
+pub use wire::{
+    I18N_DIGITS_MAX_BYTES, I18N_FORMAT_MAX_ARGUMENT_BYTES, I18N_FORMAT_MAX_KEY_BYTES,
+    I18N_FORMAT_MAX_RECORDS,
+};
 // Service records 48-52 and the bare framing of service blobs (slots 17-19,
 // `docs/abi/proposals/interface-7-usage-clock.md`): built by the host, never
 // submitted by a plugin.
