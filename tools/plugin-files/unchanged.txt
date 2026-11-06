@@ -33,3 +33,6 @@ a68cd54bba1ed74302aa11f5d5e0e7a1d34755c9 language-ar, language-es  # paperpaw-si
 736e9af2d3e5f0d8902d3bf6746ab7d0ebcfca14 language-ar, language-es  # paperpaw-sign pack frame scan (#228)
 0e1b62c1c4d79f78edfc1dbf73e0ebbc26e1be8c language-ar, language-es  # paperpaw-sign pack frame scan (#228)
 cfdcc54f4ff042e5c22838e21fda0349d5905687 language-ar, language-es  # paperpaw-sign pack frame scan (#228)
+8f359346e3ba0bb3239631266a0bbbf7665af447 language-ar, language-es  # paperpaw-sign frames (#228, PR #254): a new subcommand; the built files at 8f359346e are byte-identical (see PR #252's entry)
+35f03a3fd0ac7271ef1aa67d7236f1b2e2e6f859 language-ar, language-es  # paperpaw-sign frames (#228, PR #254): a new subcommand; the built files at 8f359346e are byte-identical (see PR #252's entry)
+55bfd8f7dad39015ddc09ebd42d11fb8d8b83970 language-ar, language-es  # paperpaw-sign frames (#228, PR #254): a new subcommand; the built files at 8f359346e are byte-identical (see PR #252's entry)
