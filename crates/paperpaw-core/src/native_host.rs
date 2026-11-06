@@ -283,7 +283,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// Returns Invalid after validation refusal or when the staged declarations
     /// fail their cross-record checks ([`Declarations::finish`]), Capacity if staging overflowed
     /// a slot, count or byte limit, Memory if staging ran out of memory, or State if revoked
-    /// before commit. DeclarationViewsUnavailable refuses image declarations
+    /// before commit. DeclarationViewsUnavailable refuses wire declarations
     /// until the draft-4 SDK registry views are wired.
     /// Every Err drops staged records before returning and leaves destruction
     /// unarmed. The loader still owns its validated successful output and must
@@ -295,7 +295,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         }
         // Cross-record checks come first: a refusal leaves destruction unarmed.
         self.finish_declarations().map_err(|_| Error::Invalid)?;
-        if self.raw.image_entries != 0 {
+        if !self.raw.batches.is_empty() {
             return Err(Error::DeclarationViewsUnavailable);
         }
         let lease = CallbackLease(self.owner.inner().activate_leased(destroy)?);
@@ -368,18 +368,19 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         }
         declarations::validate_batch(self.plugin_id, batch)?;
         let raw = self.raw.prepare(self.image, wire, batch)?;
-        if raw
-            .as_ref()
-            .is_none_or(|pending| pending.batch.image.is_none())
+        self.raw
+            .check_counts(&self.declarations, batch, raw.as_ref())?;
+        let retained = self.raw.retained(raw.as_ref());
+        if raw.is_none() {
+            self.declarations
+                .stage_retaining(self.plugin_id, batch, retained)?;
+        } else if self
+            .declarations
+            .bytes()
+            .checked_add(retained)
+            .is_none_or(|n| n > staged::DECLARATIONS_MAX_BYTES)
         {
-            let retained = self.raw.retained(raw.as_ref());
-            if self.image.is_some_and(|image| !image.is_empty()) && wire.is_some() {
-                self.declarations
-                    .stage_verified(self.plugin_id, batch, retained)?;
-            } else {
-                self.declarations
-                    .stage_retaining(self.plugin_id, batch, retained)?;
-            }
+            return Err(ERR_NO_SPACE);
         }
         self.raw.commit(raw);
         for record in batch.iter() {

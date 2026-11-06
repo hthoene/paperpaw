@@ -39,12 +39,14 @@ pub(crate) struct PreparedRaw {
     pub(crate) batch: RawBatch,
     index: [NameEntry; REGISTRATION_MAX_RECORDS],
     len: usize,
+    counts: [usize; 6],
 }
 
 #[derive(Default)]
 pub(crate) struct RawDeclarations {
     pub(crate) batches: Vec<RawBatch>,
     bytes: usize,
+    owned_counts: [usize; 6],
     pub(crate) index: Vec<NameEntry>,
     sorted: bool,
     #[cfg(test)]
@@ -118,7 +120,48 @@ impl RawDeclarations {
             },
             index,
             len,
+            counts: counts(batch),
         }))
+    }
+    pub(crate) fn check_counts(
+        &self,
+        decoded: &super::staged::Declarations,
+        batch: &RecordBatch<'_>,
+        pending: Option<&PreparedRaw>,
+    ) -> Result<(), i32> {
+        use super::staged::{
+            EXTRAS_MAX, FONT_EXTENSIONS_MAX, FONT_FACES_MAX, GROUPS_MAX, HYPHENATIONS_MAX,
+            SPECS_MAX,
+        };
+        if pending.is_some_and(|p| p.batch.image.is_some()) {
+            return Ok(());
+        }
+        let old = [
+            decoded.groups().len(),
+            decoded.specs().len(),
+            decoded.extras().len(),
+            decoded.hyphenations().len(),
+            decoded.font_faces().len(),
+            decoded.font_extensions().len(),
+        ];
+        let limits = [
+            GROUPS_MAX,
+            SPECS_MAX,
+            EXTRAS_MAX,
+            HYPHENATIONS_MAX,
+            FONT_FACES_MAX,
+            FONT_EXTENSIONS_MAX,
+        ];
+        if old
+            .into_iter()
+            .zip(self.owned_counts)
+            .zip(counts(batch))
+            .zip(limits)
+            .any(|(((decoded, raw), new), limit)| decoded + raw + new > limit)
+        {
+            return Err(ERR_NO_SPACE);
+        }
+        Ok(())
     }
     fn retained_with(&self, len: usize, entries: usize) -> Result<usize, i32> {
         self.bytes
@@ -141,6 +184,9 @@ impl RawDeclarations {
                 self.index_bytes += index_cost(pending.len);
             } else {
                 self.bytes += index_cost(pending.len) + batch.bytes.len();
+                for (total, count) in self.owned_counts.iter_mut().zip(pending.counts) {
+                    *total += count;
+                }
             }
             self.batches.push(batch);
             self.index.extend_from_slice(&pending.index[..pending.len]);
@@ -168,8 +214,10 @@ impl RawDeclarations {
             .get(usize::from(entry.batch))
             .ok_or(ERR_INVALID)?;
         let bytes = batch.view(image)?;
-        let decoded = super::registrations::records_decode(bytes)?;
-        let record = decoded.iter().nth(entry.record()).ok_or(ERR_INVALID)?;
+        let offset = usize::from(*batch.offsets.get(entry.record()).ok_or(ERR_INVALID)?);
+        let (record, _) = super::registrations::record_decode_prefix(
+            bytes.get(offset..).ok_or(ERR_INVALID)?
+        )?;
         let (kind, name) = key(record).ok_or(ERR_INVALID)?;
         if kind != entry.kind() || self.hash(kind, name) != entry.hash {
             return Err(ERR_INVALID);
@@ -245,6 +293,22 @@ pub(crate) fn is_declaration(record: &Record<'_>) -> bool {
             | Record::ResourceFontExtension(_)
     )
 }
+fn counts(batch: &RecordBatch<'_>) -> [usize; 6] {
+    let mut counts = [0; 6];
+    for record in batch.iter() {
+        let kind = match record {
+            Record::SettingGroup(_) => 0,
+            Record::SettingSpec(_) => 1,
+            Record::SettingExtra(_) => 2,
+            Record::ResourceHyphenation(_) => 3,
+            Record::ResourceFontFace(_) => 4,
+            Record::ResourceFontExtension(_) => 5,
+            _ => continue,
+        };
+        counts[kind] += 1;
+    }
+    counts
+}
 fn index_cost(entries: usize) -> usize {
     size_of::<RawBatch>() + entries * size_of::<NameEntry>()
 }
@@ -259,7 +323,7 @@ fn image_range(image: &[u8], wire: &[u8]) -> Option<ImageRange> {
     })
 }
 /// The generated decoder validates framing; only offsets are collected here.
-fn offsets(wire: &[u8], count: usize) -> Result<[u16; REGISTRATION_MAX_RECORDS], i32> {
+pub(crate) fn offsets(wire: &[u8], count: usize) -> Result<[u16; REGISTRATION_MAX_RECORDS], i32> {
     let mut offsets = [0; REGISTRATION_MAX_RECORDS];
     let mut cursor = 0;
     let encoded_count = varint(wire, &mut cursor)?;

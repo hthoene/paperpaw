@@ -3,6 +3,8 @@
 //! Only committed construction batches may enter this store. Registry adapters
 //! will add cross-plugin reference checks before prepare. No decoded view lives
 //! beyond its visitor, and the retained owner supplies every image lookup.
+//! Consumers must not rely on uniqueness or valid references after admission:
+//! native plugins can change image bytes without a sandbox.
 
 use super::{
     declarations,
@@ -208,15 +210,7 @@ impl PendingDeclarations {
         let bytes = input.bytes();
         let decoded = records_decode(bytes)?;
         declarations::validate_batch(self.id.as_str(), &decoded)?;
-        if let Input::Committed(raw) = &input
-            && raw
-                .offsets
-                .iter()
-                .take(decoded.len())
-                .any(|offset| usize::from(*offset) >= bytes.len())
-        {
-            return Err(ERR_INVALID);
-        }
+        let offsets = super::raw_declarations::offsets(bytes, decoded.len())?;
         let mut counts = [0usize; 6];
         let mut kinds = [None; super::registrations::REGISTRATION_MAX_RECORDS];
         for (index, record) in decoded.iter().enumerate() {
@@ -266,7 +260,7 @@ impl PendingDeclarations {
                 self.kinds[kind as usize].push(Slot {
                     hash,
                     batch,
-                    record: u16::try_from(record).unwrap_or(u16::MAX),
+                    record: offsets[record],
                 });
             }
         }
@@ -544,8 +538,9 @@ fn decode_entry<'a>(
         }
         DeclRef::Owned(bytes) => bytes,
     };
-    let decoded = records_decode(bytes)?;
-    let record = decoded.iter().nth(usize::from(record)).ok_or(ERR_INVALID)?;
+    let (record, _) = super::registrations::record_decode_prefix(
+        bytes.get(usize::from(record)..).ok_or(ERR_INVALID)?
+    )?;
     declarations::validate_record(owner.id.as_str(), &record)?;
     Ok(record)
 }

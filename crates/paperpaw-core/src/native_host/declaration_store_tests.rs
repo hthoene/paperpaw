@@ -272,11 +272,12 @@ fn corrupted_image_is_revalidated_each_time_and_never_cached() {
         .commit();
     let key = keys(&store)[0];
     assert!(store.with_record(key, &mut |_| {}));
-    let first = source.bytes.borrow()[0];
-    source.bytes.borrow_mut()[0] = 0xff;
+    let offset = usize::from(key.record);
+    let first = source.bytes.borrow()[offset];
+    source.bytes.borrow_mut()[offset] = 0xff;
     assert!(!store.with_record(key, &mut |_| panic!("corrupt image")));
     assert_eq!(source.errors.get(), 1);
-    source.bytes.borrow_mut()[0] = first;
+    source.bytes.borrow_mut()[offset] = first;
     assert!(store.with_record(key, &mut |_| {}));
 }
 
