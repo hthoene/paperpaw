@@ -47,6 +47,33 @@ impl<'a> MenuEntryDecl<'a> {
     }
 }
 
+/// A plugin-owned heading contributed to a menu.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct MenuSectionDecl<'a> {
+    /// Section id relative to the declaring plugin.
+    pub name: &'a str,
+    /// Translation key of the heading label.
+    pub title: &'a str,
+    /// Full menu id, including its owner's namespace.
+    pub menu: &'a str,
+    /// Position among ordered entries, lower first.
+    pub order: i16,
+}
+
+impl<'a> MenuSectionDecl<'a> {
+    /// Declare a section sorted by order zero.
+    #[must_use]
+    pub const fn new(name: &'a str, title: &'a str, menu: &'a str) -> Self {
+        Self {
+            name,
+            title,
+            menu,
+            order: 0,
+        }
+    }
+}
+
 impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// Offer an item in a menu, including another plugin's item or menu.
     /// Missing anchors fall back to order; the host resolves ids.
@@ -56,8 +83,8 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// for malformed ids, or a latched builder or sink refusal.
     pub fn menu_entry(&mut self, entry: MenuEntryDecl<'_>) -> Result<&mut Self, DeclareError> {
         let record = (|| {
-            menu_identifier(entry.menu, wire::MENU_ENTRY_MENU_MAX_BYTES, "menu")?;
-            menu_identifier(entry.item, wire::MENU_ENTRY_ITEM_MAX_BYTES, "menu item")?;
+            menu_full_id(entry.menu, wire::MENU_ENTRY_MENU_MAX_BYTES, "menu")?;
+            menu_full_id(entry.item, wire::MENU_ENTRY_ITEM_MAX_BYTES, "menu item")?;
             let (place, anchor) = match entry.place {
                 EntryPlacement::Order => (0, ""),
                 EntryPlacement::After(anchor) => (1, anchor),
@@ -70,7 +97,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
                 entry.place,
                 EntryPlacement::After(_) | EntryPlacement::Before(_) | EntryPlacement::InSection(_)
             ) {
-                menu_identifier(anchor, wire::MENU_ENTRY_ANCHOR_MAX_BYTES, "menu anchor")?;
+                menu_full_id(anchor, wire::MENU_ENTRY_ANCHOR_MAX_BYTES, "menu anchor")?;
             }
             Ok(Item::MenuEntry(wire::MenuEntry {
                 menu: entry.menu,
@@ -91,7 +118,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// for malformed ids or icon names, or a latched builder or sink refusal.
     pub fn icon(&mut self, item: &str, icon: &str) -> Result<&mut Self, DeclareError> {
         let record = (|| {
-            menu_identifier(item, wire::ICON_SPEC_ITEM_MAX_BYTES, "icon item")?;
+            menu_full_id(item, wire::ICON_SPEC_ITEM_MAX_BYTES, "icon item")?;
             filled(icon, "icon name")?;
             within(icon, wire::ICON_SPEC_ICON_MAX_BYTES, "icon name")?;
             if !icon.bytes().all(menu_name_byte) {
@@ -115,7 +142,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
         need: crate::MenuNeed,
     ) -> Result<&mut Self, DeclareError> {
         let record = (|| {
-            menu_identifier(item, wire::MENU_NEED_ITEM_MAX_BYTES, "need item")?;
+            menu_full_id(item, wire::MENU_NEED_ITEM_MAX_BYTES, "need item")?;
             let (need, capability) = match need {
                 crate::MenuNeed::Speech => (0, 0),
                 crate::MenuNeed::Sleep => (1, 0),
@@ -139,6 +166,74 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
                 need,
                 capability,
             }))
+        })();
+        self.accept_menu_declaration(record)
+    }
+
+    /// Add an owned heading to any plugin's menu. The host resolves ids and
+    /// checks section-name uniqueness at commit.
+    ///
+    /// # Errors
+    /// Returns Empty or TooLong for fields outside the contract, Encode(Invalid)
+    /// for malformed ids, or a latched builder or sink refusal.
+    pub fn menu_section(
+        &mut self,
+        section: MenuSectionDecl<'_>,
+    ) -> Result<&mut Self, DeclareError> {
+        let record = (|| {
+            menu_identifier(
+                section.name,
+                wire::MENU_SECTION_NAME_MAX_BYTES,
+                "section name",
+            )?;
+            filled(section.title, "section title")?;
+            within(
+                section.title,
+                wire::MENU_SECTION_TITLE_MAX_BYTES,
+                "section title",
+            )?;
+            menu_full_id(
+                section.menu,
+                wire::MENU_SECTION_MENU_MAX_BYTES,
+                "section menu",
+            )?;
+            Ok(Item::MenuSection(wire::MenuSection {
+                name: section.name,
+                title: section.title,
+                menu: section.menu,
+                order: i32::from(section.order),
+            }))
+        })();
+        self.accept_menu_declaration(record)
+    }
+
+    /// Hide an item from a plugin-defined menu, including a foreign item.
+    /// User-defined lists keep the item. The host checks duplicate pairs.
+    ///
+    /// # Errors
+    /// Returns Empty or TooLong for fields outside the contract, Encode(Invalid)
+    /// for malformed ids, or a latched builder or sink refusal.
+    pub fn hide_menu_entry(&mut self, menu: &str, item: &str) -> Result<&mut Self, DeclareError> {
+        let record = (|| {
+            menu_full_id(menu, wire::MENU_HIDE_MENU_MAX_BYTES, "hidden menu")?;
+            menu_full_id(item, wire::MENU_HIDE_ITEM_MAX_BYTES, "hidden item")?;
+            Ok(Item::MenuHide(wire::MenuHide { menu, item }))
+        })();
+        self.accept_menu_declaration(record)
+    }
+
+    /// Add a translated description below one of the plugin's own items.
+    /// The item id is relative; the host checks uniqueness at commit.
+    ///
+    /// # Errors
+    /// Returns Empty or TooLong for fields outside the contract, Encode(Invalid)
+    /// for a malformed item id, or a latched builder or sink refusal.
+    pub fn describe_item(&mut self, item: &str, key: &str) -> Result<&mut Self, DeclareError> {
+        let record = (|| {
+            menu_identifier(item, wire::MENU_DESCRIBE_ITEM_MAX_BYTES, "described item")?;
+            filled(key, "description key")?;
+            within(key, wire::MENU_DESCRIBE_KEY_MAX_BYTES, "description key")?;
+            Ok(Item::MenuDescribe(wire::MenuDescribe { item, key }))
         })();
         self.accept_menu_declaration(record)
     }
@@ -174,5 +269,16 @@ fn menu_identifier(value: &str, maximum: usize, field: &'static str) -> Result<(
     Ok(())
 }
 
+fn menu_full_id(value: &str, maximum: usize, field: &'static str) -> Result<(), DeclareError> {
+    menu_identifier(value, maximum, field)?;
+    if !value.contains('.') {
+        return Err(DeclareError::Encode(ERR_INVALID));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod more_tests;

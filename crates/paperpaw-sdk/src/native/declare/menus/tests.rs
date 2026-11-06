@@ -4,6 +4,7 @@
 )]
 use super::*;
 use crate::native::declare::{BATCH_MAX_RECORDS, EventKind};
+use alloc::string::ToString;
 use alloc::{vec, vec::Vec};
 use wire::{Record, records_decode, records_encode};
 
@@ -110,9 +111,9 @@ fn every_need_uses_the_contract_value_and_preserves_declaration_order() {
 
 #[test]
 fn maximum_field_lengths_fit_and_unknown_icon_names_are_kept() {
-    let menu = "a".repeat(wire::MENU_ENTRY_MENU_MAX_BYTES);
-    let item = "b".repeat(wire::MENU_ENTRY_ITEM_MAX_BYTES);
-    let anchor = "c".repeat(wire::MENU_ENTRY_ANCHOR_MAX_BYTES);
+    let menu = "a.".to_string() + &"a".repeat(wire::MENU_ENTRY_MENU_MAX_BYTES - 2);
+    let item = "b.".to_string() + &"b".repeat(wire::MENU_ENTRY_ITEM_MAX_BYTES - 2);
+    let anchor = "c.".to_string() + &"c".repeat(wire::MENU_ENTRY_ANCHOR_MAX_BYTES - 2);
     let icon = "d".repeat(wire::ICON_SPEC_ICON_MAX_BYTES);
     let mut batches = Vec::new();
     let mut builder = Declarations::new(|batch: &[u8]| {
@@ -141,6 +142,13 @@ fn invalid_menu_fields_latch_and_abort_pending_callbacks() {
     let long_anchor = "a".repeat(wire::MENU_ENTRY_ANCHOR_MAX_BYTES + 1);
     for (menu, item, place) in [
         ("", "battery.open", EntryPlacement::Order),
+        ("tools", "battery.open", EntryPlacement::Order),
+        ("core.tools", "open", EntryPlacement::Order),
+        (
+            "core.tools",
+            "battery.open",
+            EntryPlacement::After("anchor"),
+        ),
         ("Core.tools", "battery.open", EntryPlacement::Order),
         ("core..tools", "battery.open", EntryPlacement::Order),
         ("core.tools", "", EntryPlacement::Order),
@@ -154,7 +162,11 @@ fn invalid_menu_fields_latch_and_abort_pending_callbacks() {
         ),
         (&long_menu, "battery.open", EntryPlacement::Order),
         ("core.tools", &long_item, EntryPlacement::Order),
-        ("core.tools", "battery.open", EntryPlacement::After(&long_anchor)),
+        (
+            "core.tools",
+            "battery.open",
+            EntryPlacement::After(&long_anchor),
+        ),
     ] {
         let mut batches = Vec::new();
         let mut builder = Declarations::new(|batch: &[u8]| {
@@ -228,6 +240,22 @@ fn sink_refusal_is_preserved_without_retry_or_further_encoding() {
         error
     );
     assert_eq!(builder.icon("battery.open", "battery").unwrap_err(), error);
+    assert_eq!(
+        builder
+            .menu_section(MenuSectionDecl::new("heading", "title", "core.tools"))
+            .unwrap_err(),
+        error
+    );
+    assert_eq!(
+        builder
+            .hide_menu_entry("core.tools", "other.open")
+            .unwrap_err(),
+        error
+    );
+    assert_eq!(
+        builder.describe_item("open", "battery.help").unwrap_err(),
+        error
+    );
     assert_eq!(builder.submit(), Err(error));
     drop(builder);
     assert_eq!(calls, 1);
