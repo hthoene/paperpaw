@@ -27,6 +27,8 @@ extern crate alloc;
 #[cfg(feature = "kernel")]
 mod check;
 mod compile;
+#[cfg(feature = "kernel")]
+mod stored;
 
 use alloc::vec::Vec;
 use core::cmp::Ordering;
@@ -38,6 +40,8 @@ pub use check::{
     TableError, check_source, check_table,
 };
 pub use compile::compile;
+#[cfg(feature = "kernel")]
+pub use stored::{CACHE_BLOCKS, MAX_CACHE_BLOCKS, OpenError, StoredPatterns};
 
 /// Patterns per index entry.
 pub const BLOCK: usize = 16;
