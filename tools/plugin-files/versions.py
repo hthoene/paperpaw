@@ -36,10 +36,11 @@ Where the plugin interface was raised since the release
 (`native::DRAFT`, part of the fingerprint like the interface), every
 plugin needs a newer version, changed or not: its code built before does
 not run on the new firmware, and devices fetch the new build only as an
-update. Drafts that come and go between two releases count once, and it
-is counted from the build that carries the plugin's newest version: a plugin
-released alone after the raise has had its bump (a draft that moves on after
-that asks for no further one), and the `Plugin-unchanged` trailer excuses
+update. Drafts that come and go between two releases count once, and
+it is counted from the build that carries the plugin's newest version
+(interface and draft compared with now): a plugin released alone at the
+current draft owes nothing, one released at an older draft owes one bump
+(beta drafts can reach devices), and the `Plugin-unchanged` trailer excuses
 none of it.
 
 The data plugins of data.toml are held to the same: one whose builder or
@@ -168,11 +169,10 @@ def draft_at(text):
     return int(found.group(1)) if found else None
 
 
-def interface_raised(since, drafts=True):
+def interface_raised(since):
     """The plugin interface now (with its draft, if one), where it or its
-    draft changed since `since` (`drafts`: only where the interface did,
-    not its draft); None where neither did (or `native.rs` is not there to
-    say)."""
+    draft changed since `since`; None where neither did (or `native.rs` is
+    not there to say)."""
     try:
         now_text = (ROOT / NATIVE).read_text(encoding="utf-8")
         then_text = git("show", f"{since}:{NATIVE}")
@@ -182,20 +182,21 @@ def interface_raised(since, drafts=True):
     if None in (now, then):
         return None
     draft, then_draft = draft_at(now_text), draft_at(then_text)
-    if now == then and (not drafts or draft == then_draft):
+    if (now, draft) == (then, then_draft):
         return None
-    return f"{now}" if draft is None or not drafts else f"{now} (draft {draft})"
+    return f"{now}" if draft is None else f"{now} (draft {draft})"
 
 
 def raised_for(versions, before, since):
     """Whether the plugin interface was raised since the build that carries
     `before` (see `interface_raised`), the version a plugin has to better:
     the release `since`'s, or the plugin's own newer one (`versions`, tag ->
-    version). A plugin released alone after the raise has had its bump, and
-    a draft that moves on after its own release asks for no further one: it
-    is counted once, from the release."""
+    version). The interface and draft of that build are compared with now:
+    a plugin released alone at the current draft owes nothing, one released
+    at an older draft owes a bump (beta drafts can reach devices), and the
+    drafts that come and go between two releases count once."""
     tag = next((t for t, v in versions.items() if semver(v) == semver(before)), since)
-    return interface_raised(tag, drafts=tag == since)
+    return interface_raised(tag)
 
 
 def problem(plugin, before, now, changes, raised=None):

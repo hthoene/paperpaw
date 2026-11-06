@@ -80,19 +80,17 @@ class Versions(unittest.TestCase):
     def test_a_plugin_s_raise_is_counted_from_the_build_that_carries_its_version(self):
         def raised(**tags):
             """`interface_raised` answers by the tag it is asked about."""
-            def answer(tag, drafts=True):
-                return tags.get(tag)
-            with unittest.mock.patch.object(versions, "interface_raised", side_effect=answer) as asked:
+            with unittest.mock.patch.object(versions, "interface_raised", side_effect=tags.get) as asked:
                 found = versions.raised_for({"v1": "1.0.0", "p-v1.0.1": "1.0.1"}, "1.0.1", "v1")
                 return found, asked.call_args
-        # Its own release after the raise carries the version: asked from there, drafts left out.
+        # Its own release carries the version: asked from there, the draft counted.
         self.assertEqual(raised(**{"v1": "7 (draft 1)"})[0], None)
-        self.assertEqual(raised(**{"p-v1.0.1": "8"})[0], "8")
-        self.assertEqual(raised(**{"p-v1.0.1": "8"})[1].kwargs, {"drafts": False})
-        # The release itself carries it: asked from there, drafts counted.
+        self.assertEqual(raised(**{"p-v1.0.1": "7 (draft 2)"})[0], "7 (draft 2)")
+        self.assertEqual(raised(**{"p-v1.0.1": "8 (draft 1)"})[1].args, ("p-v1.0.1",))
+        # The release itself carries it.
         with unittest.mock.patch.object(versions, "interface_raised", return_value="7 (draft 1)") as asked:
             self.assertEqual(versions.raised_for({"v1": "1.0.0"}, "1.0.0", "v1"), "7 (draft 1)")
-            self.assertEqual(asked.call_args.kwargs, {"drafts": True})
+            self.assertEqual(asked.call_args.args, ("v1",))
 
     def test_a_change_no_reader_sees_keeps_it(self):
         quiet = "test(stats): one more case\n\nPlugin-unchanged: stats, widgets"
@@ -335,19 +333,31 @@ class Repository(unittest.TestCase):
         self.commit("interface: raise to 8")
         self.assertTrue(self.check())
 
-    def test_a_plugin_released_alone_after_the_raise_is_not_asked_again(self):
+    def test_a_plugin_released_alone_at_the_current_draft_is_not_asked_again(self):
         self.raise_to(7, 1)
         self.version("1.0.2")
         self.commit("interface: raise to 7, draft 1; vocabulary 1.0.2")
         self.git("tag", "vocabulary-v1.0.2")
-        # Its newest release is built at interface 7: nothing is owed, though the PaperPaw
-        # release before it was at 6 (the check used to ask for another bump).
+        # Its newest release is built at interface 7 draft 1: nothing is owed, though the
+        # PaperPaw release before it was at 6.
         self.assertTrue(self.check())
-        # Nor for a draft that moves on after its own release ...
+
+    def test_a_plugin_released_alone_at_an_older_draft_owes_one_bump(self):
+        self.raise_to(7, 1)
+        self.version("1.0.2")
+        self.commit("interface: raise to 7, draft 1; vocabulary 1.0.2")
+        self.git("tag", "vocabulary-v1.0.2")
+        self.assertTrue(self.check())
+        # Draft 2: beta drafts can reach devices, so the draft 1 build is stale.
         self.raise_to(7, 2)
-        self.commit("interface: draft 2")
+        self.commit("interface: draft 2\n\nPlugin-unchanged: all")
+        self.assertFalse(self.check())
+        self.version("1.0.3")
+        self.commit("vocabulary 1.0.3 for draft 2")
         self.assertTrue(self.check())
-        # ... but a raise to another interface after it does.
+        # Released at draft 2, it owes nothing more until the interface moves again.
+        self.git("tag", "vocabulary-v1.0.3")
+        self.assertTrue(self.check())
         self.raise_to(8, 1)
         self.commit("interface: raise to 8")
         self.assertFalse(self.check())
