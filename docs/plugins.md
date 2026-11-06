@@ -2637,7 +2637,7 @@ clip rows and borrowed payload. `input` receives a typed `Input` and returns
 callback. Decoders reject unknown exact tags and invalid input enum values.
 
 Declare screens and actions with `native::declare::ScreenDecl` and `ActionDecl`.
-Decode their shown/run events with `native::events::decode`. Format catalog strings
+Decode their shown/run events with `native::events::Event::decode`. Format catalog strings
 with `native::formatting::format` using caller-owned argument scratch and output;
 `digits` maps ASCII digits. Both return the full required byte length, so retry
 when the result exceeds the output capacity.

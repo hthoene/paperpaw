@@ -86,7 +86,7 @@ impl<'a> Event<'a> {
 /// # Errors
 /// Returns framing/UTF-8/cap errors from the generated codec; Invalid for a
 /// non-singleton batch or unsound counters/progress; Unsupported for other tags.
-pub fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
+fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
     let record = wire::records_decode_single(bytes).map_err(Error::from_status)?;
     Ok(match record {
         Record::EventStarted(r) => Event::Started { now_ms: r.now_ms },
