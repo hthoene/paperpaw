@@ -8,7 +8,7 @@ use wire::{
 #[test]
 fn host_scalar_vectors_decode_with_distinct_tags() {
     for now_ms in [0_u64, 1, u64::MAX] {
-        for tag in 32..=36 {
+        for tag in [32, 33, 34, 35, 36] {
             let mut bytes = [0; 12];
             bytes[..4].copy_from_slice(&[1, tag, 9, 0]);
             bytes[4..].copy_from_slice(&now_ms.to_le_bytes());
@@ -225,14 +225,14 @@ fn event_decoding_uses_exact_tags_for_growth_and_input_records() {
     )
     .unwrap();
     assert_eq!(decode(&bytes[..len]), Err(Error::Unsupported));
-    for tag in [63, 64, 127, 191] {
-        // A reserved event-family tag remains unsupported even with valid framing.
-        let unknown = if tag < 128 {
-            alloc::vec![1, tag, 1, 0]
-        } else {
-            alloc::vec![1, tag | 0x80, 1, 1, 0]
-        };
-        assert_eq!(decode(&unknown), Err(Error::Unsupported));
+    // Reserved tags stay unsupported even with valid framing.
+    for unknown in [
+        &[1, 63, 1, 0][..],
+        &[1, 64, 1, 0][..],
+        &[1, 127, 1, 0][..],
+        &[1, 191, 1, 1, 0][..],
+    ] {
+        assert_eq!(decode(unknown), Err(Error::Unsupported));
     }
 }
 
