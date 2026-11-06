@@ -11,7 +11,7 @@ pub const MAX_KEY_BYTES: usize = wire::I18N_FORMAT_MAX_KEY_BYTES;
 pub const MAX_ARGUMENT_BYTES: usize = wire::I18N_FORMAT_MAX_ARGUMENT_BYTES;
 /// Maximum UTF-8 bytes passed to digit conversion.
 pub const MAX_DIGIT_BYTES: usize = wire::I18N_DIGITS_MAX_BYTES;
-/// Maximum translated message size in bytes (slot 6).
+/// Maximum byte size accepted by i18n.copy (slot 6) for keys and messages.
 pub const MAX_MESSAGE_BYTES: usize = 4096;
 
 /// One formatting argument. Signed integers use the wire's two's complement encoding.
@@ -96,13 +96,17 @@ fn length(result: i32) -> Result<usize, Error> {
 ///
 /// # Errors
 /// Returns NoSpace when the complete message does not fit, Utf8 for malformed
-/// host text, or the host's refusal, including NotFound for a missing key.
+/// host text, Invalid for an oversized key, or the host's refusal, including
+/// NotFound for a missing key.
 pub fn copy_message<'a>(
     host: &Host<'_>,
     key: impl AsRef<str>,
     out: &'a mut [u8],
 ) -> Result<&'a str, Error> {
     let key = key.as_ref();
+    if key.len() > MAX_MESSAGE_BYTES {
+        return Err(Error::Invalid);
+    }
     let capacity = out.len().min(MAX_MESSAGE_BYTES);
     // SAFETY: callback binding, key and exclusively borrowed output remain live.
     let count = length(unsafe {

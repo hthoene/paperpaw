@@ -157,7 +157,7 @@ fn invalid_sizes_and_oversized_utf8_are_refused_before_host_calls() {
     };
     assert_eq!(
         Font::acquire(&host, "é".repeat(65)).unwrap_err(),
-        Error::NoSpace
+        Error::Invalid
     );
     assert_eq!(ctx.acquired.get(), 0);
     let font = Font::acquire(&host, "a".repeat(128)).unwrap();
@@ -166,7 +166,7 @@ fn invalid_sizes_and_oversized_utf8_are_refused_before_host_calls() {
     }
     assert_eq!(
         font.measure_text(18.0, "é".repeat(2049)),
-        Err(Error::NoSpace)
+        Err(Error::Invalid)
     );
     assert_eq!(ctx.measured.get(), 0);
     assert_eq!(font.measure_text(18.0, "é".repeat(2048)), Ok(0.0));

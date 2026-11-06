@@ -58,6 +58,7 @@ class Handbook(unittest.TestCase):
         # Nor the SDK's private copies of the generated wire codecs.
         self.assertFalse(any(n.startswith(top + "src/paperpaw-sdk/native/wire/") for n in names))
         self.assertNotIn(top + "src/paperpaw-sdk/native/declare/records_wire.rs", names)
+        self.assertNotIn(top + "src/paperpaw-sdk/native/declare/settings_value.rs", names)
         # Neither the kernel nor a shell.
         self.assertFalse(any(n.startswith((top + "src/paperpaw-core/", top + "shells/")) for n in names))
         self.assertNotIn("#[cfg(test)]\nmod tests {", battery)

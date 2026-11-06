@@ -12,6 +12,7 @@ pub struct Snapshot {
     percent: Option<u8>,
     millivolts: Option<u16>,
     charging: bool,
+    power_saving: bool,
     width: u16,
     height: u16,
     dpi: u16,
@@ -48,6 +49,12 @@ impl Snapshot {
     #[must_use]
     pub const fn is_charging(&self) -> bool {
         self.charging
+    }
+
+    /// Whether battery saving mode is active; false when no battery is reported.
+    #[must_use]
+    pub const fn is_power_saving(&self) -> bool {
+        self.power_saving
     }
 
     /// Display width in pixels.
@@ -107,6 +114,7 @@ pub fn capture_snapshot(host: &Host<'_>) -> Result<Snapshot, Error> {
         percent: value.battery.map(|battery| battery.percent),
         millivolts: value.battery.and_then(|battery| battery.millivolts),
         charging: value.battery.is_some_and(|battery| battery.charging),
+        power_saving: value.battery.is_some_and(|battery| battery.saver),
         width: value.width,
         height: value.height,
         dpi: value.dpi,

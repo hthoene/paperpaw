@@ -3111,6 +3111,16 @@ pub fn paperpaw_sdk::native::declare::DeclareError::fmt(&self, &mut core::fmt::F
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::EditorDecl<'a>
 pub paperpaw_sdk::native::declare::EditorDecl::Screen(&'a str)
 pub paperpaw_sdk::native::declare::EditorDecl::Slot(&'a str)
+#[non_exhaustive] pub enum paperpaw_sdk::native::declare::EventKind
+pub paperpaw_sdk::native::declare::EventKind::ActionRun
+pub paperpaw_sdk::native::declare::EventKind::BatteryMeasured
+pub paperpaw_sdk::native::declare::EventKind::PageTurned
+pub paperpaw_sdk::native::declare::EventKind::Resume
+pub paperpaw_sdk::native::declare::EventKind::ScreenShown
+pub paperpaw_sdk::native::declare::EventKind::Started
+pub paperpaw_sdk::native::declare::EventKind::Stopping
+pub paperpaw_sdk::native::declare::EventKind::Suspend
+pub paperpaw_sdk::native::declare::EventKind::Tick
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::Kind<'a>
 pub paperpaw_sdk::native::declare::Kind::Bool(bool)
 pub paperpaw_sdk::native::declare::Kind::Choice
@@ -3144,6 +3154,9 @@ pub fn paperpaw_sdk::native::declare::Declarations<F>::new(F) -> Self
 pub fn paperpaw_sdk::native::declare::Declarations<F>::screen(&mut self, paperpaw_sdk::native::declare::ScreenDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::spec(&mut self, paperpaw_sdk::native::declare::SpecDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::submit(&mut self) -> core::result::Result<(), paperpaw_sdk::native::declare::DeclareError>
+impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::register_draw(&mut self, u32) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::subscribe_event(&mut self, paperpaw_sdk::native::declare::EventKind, u32) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 impl<F> core::fmt::Debug for paperpaw_sdk::native::declare::Declarations<F>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<F> core::ops::drop::Drop for paperpaw_sdk::native::declare::Declarations<F>
@@ -3398,6 +3411,7 @@ pub const fn paperpaw_sdk::native::snapshot::Snapshot::display_width(&self) -> u
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::has_touch(&self) -> bool
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::instant(&self) -> paperpaw_platform::input::Instant
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::is_charging(&self) -> bool
+pub const fn paperpaw_sdk::native::snapshot::Snapshot::is_power_saving(&self) -> bool
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::unix_seconds(&self) -> core::option::Option<i64>
 pub fn paperpaw_sdk::native::snapshot::capture_snapshot(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<paperpaw_sdk::native::snapshot::Snapshot, paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::storage

@@ -1,5 +1,5 @@
 //! Font metrics and ink queried through the callback's live host binding.
-use super::{Font, bytes, validate_text};
+use super::{Font, TEXT_INK_MAX_BYTES, bytes, validate_font_size, validate_text};
 use crate::{
     LineMetrics,
     native::{Error, binding::status},
@@ -40,7 +40,7 @@ impl Font<'_> {
     /// Returns Invalid for a nonpositive or nonfinite size, or the host's refusal,
     /// including State when the font handle is stale.
     pub fn read_line_metrics(&self, size: f32) -> Result<LineMetrics, Error> {
-        validate_text(size, "")?;
+        validate_font_size(size)?;
         let handle = self.handle.ok_or(Error::State)?;
         let mut ascent = 0.0;
         let mut descent = 0.0;
@@ -65,11 +65,11 @@ impl Font<'_> {
     /// This operation works outside a draw callback.
     ///
     /// # Errors
-    /// Returns Invalid for a nonpositive or nonfinite size, NoSpace for overlong
-    /// text, or the host's refusal, including State when the font handle is stale.
+    /// Returns Invalid for a nonpositive or nonfinite size or overlong text,
+    /// or the host's refusal, including State when the font handle is stale.
     pub fn ink(&self, size: f32, text: impl AsRef<str>) -> Result<Option<InkBounds>, Error> {
         let text = text.as_ref();
-        validate_text(size, text)?;
+        validate_text(size, text, TEXT_INK_MAX_BYTES)?;
         let handle = self.handle.ok_or(Error::State)?;
         let mut top = 0;
         let mut bottom = 0;

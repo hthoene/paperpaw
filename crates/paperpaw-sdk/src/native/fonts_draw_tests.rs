@@ -154,10 +154,10 @@ fn invalid_text_inputs_do_not_reach_the_host() {
         ),
         Err(Error::Invalid)
     );
-    let long = "é".repeat(TEXT_MAX_BYTES / 2 + 1);
+    let long = "é".repeat(TEXT_DRAW_MAX_BYTES / 2 + 1);
     assert_eq!(
         font.render_text(&canvas, 12.0, TextOrigin::new(0.0, 0), Color::BLACK, &long),
-        Err(Error::NoSpace)
+        Err(Error::Invalid)
     );
     assert!(ctx.drawn.borrow().is_none());
 }
