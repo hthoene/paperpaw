@@ -355,3 +355,72 @@ fn longest_note_can_arrive_one_byte_at_a_time_and_scalars_preserve_wide_values()
         )
     );
 }
+
+#[test]
+fn every_generated_counter_field_survives_facade_conversion() {
+    let table = fixture::table();
+    let mut state = UsageHost::default();
+    let global = wire::ServiceUsage {
+        fast: 11,
+        partial: 12,
+        full: 13,
+        pixels: 14,
+        inputs: 15,
+        sleeps: 16,
+        panel_ms: 17,
+        bluetooth_ms: 18,
+    };
+    let plugin = wire::ServicePluginUsage {
+        plugin: "unique-plugin",
+        busy_us: 101,
+        calls: 102,
+        shown_ms: 103,
+        fast: 104,
+        partial: 105,
+        full: 106,
+        pixels: 107,
+        read: 108,
+        written: 109,
+        syncs: 110,
+        requests: 111,
+        refused: 112,
+        awake_ms: 113,
+        awake_reason: "unique-reason",
+    };
+    state.responses[0].1 = page(&[Record::ServiceUsage(global)]);
+    state.responses[1].1 = page(&[Record::ServicePluginUsage(plugin), end(0, 1, 1, 1)]);
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut state).cast(),
+    };
+    let got = device_usage(&host).unwrap();
+    assert_eq!(got.fast, 11);
+    assert_eq!(got.partial, 12);
+    assert_eq!(got.full, 13);
+    assert_eq!(got.pixels, 14);
+    assert_eq!(got.inputs, 15);
+    assert_eq!(got.sleeps, 16);
+    assert_eq!(got.panel_ms, 17);
+    assert_eq!(got.bluetooth_ms, 18);
+    let mut visited = 0;
+    plugin_usage_page(&host, 0, &mut |got| {
+        visited += 1;
+        assert_eq!(got.plugin, "unique-plugin");
+        assert_eq!(got.busy_us, 101);
+        assert_eq!(got.calls, 102);
+        assert_eq!(got.shown_ms, 103);
+        assert_eq!(got.fast, 104);
+        assert_eq!(got.partial, 105);
+        assert_eq!(got.full, 106);
+        assert_eq!(got.pixels, 107);
+        assert_eq!(got.read, 108);
+        assert_eq!(got.written, 109);
+        assert_eq!(got.syncs, 110);
+        assert_eq!(got.requests, 111);
+        assert_eq!(got.refused, 112);
+        assert_eq!(got.awake_ms, 113);
+        assert_eq!(got.awake_reason, "unique-reason");
+    })
+    .unwrap();
+    assert_eq!(visited, 1);
+}

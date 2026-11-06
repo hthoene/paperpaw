@@ -65,22 +65,39 @@ pub struct ServicePluginUsage<'a> {
 
 impl<'a> ServicePluginUsage<'a> {
     fn from_wire(r: wire::ServicePluginUsage<'a>) -> Self {
+        let wire::ServicePluginUsage {
+            plugin,
+            busy_us,
+            calls,
+            shown_ms,
+            fast,
+            partial,
+            full,
+            pixels,
+            read,
+            written,
+            syncs,
+            requests,
+            refused,
+            awake_ms,
+            awake_reason,
+        } = r;
         Self {
-            plugin: r.plugin,
-            busy_us: r.busy_us,
-            calls: r.calls,
-            shown_ms: r.shown_ms,
-            fast: r.fast,
-            partial: r.partial,
-            full: r.full,
-            pixels: r.pixels,
-            read: r.read,
-            written: r.written,
-            syncs: r.syncs,
-            requests: r.requests,
-            refused: r.refused,
-            awake_ms: r.awake_ms,
-            awake_reason: r.awake_reason,
+            plugin,
+            busy_us,
+            calls,
+            shown_ms,
+            fast,
+            partial,
+            full,
+            pixels,
+            read,
+            written,
+            syncs,
+            requests,
+            refused,
+            awake_ms,
+            awake_reason,
         }
     }
 }
@@ -181,15 +198,25 @@ pub fn device_usage(host: &Host<'_>) -> Result<ServiceUsage, Error> {
         let Record::ServiceUsage(r) = record else {
             return Err(Error::Invalid);
         };
+        let wire::ServiceUsage {
+            fast,
+            partial,
+            full,
+            pixels,
+            inputs,
+            sleeps,
+            panel_ms,
+            bluetooth_ms,
+        } = r;
         Ok(ServiceUsage {
-            fast: r.fast,
-            partial: r.partial,
-            full: r.full,
-            pixels: r.pixels,
-            inputs: r.inputs,
-            sleeps: r.sleeps,
-            panel_ms: r.panel_ms,
-            bluetooth_ms: r.bluetooth_ms,
+            fast,
+            partial,
+            full,
+            pixels,
+            inputs,
+            sleeps,
+            panel_ms,
+            bluetooth_ms,
         })
     })
 }
