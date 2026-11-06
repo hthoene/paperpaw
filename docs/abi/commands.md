@@ -45,13 +45,14 @@ settings registry, and a limit on accepted commands.
 1. Outside a callback it returns `ERR_STATE`; during another submission,
    `ERR_BUSY`.
 2. Codec statuses as above. Nothing is staged.
-3. If the batch would exceed the stage limit: `ERR_NO_SPACE`.
+3. If the batch would exceed the stage's command limit: `ERR_NO_SPACE`.
 4. For every command, without allocating: the key's namespace (its first
    dot-separated segment) must be the submitting plugin. The setting must be
    registered, and Boolean and integer values must be accepted by its spec
    (kind and range). A foreign, unregistered or unaccepted setting returns
    `ERR_INVALID`. A secret setting returns `ERR_UNSUPPORTED`; secrets keep
-   their own path.
+   their own path. The bytes of keys and text staged in this callback must
+   stay within the stage's byte budget, or the batch returns `ERR_NO_SPACE`.
 5. The stage reserves room for the whole batch fallibly (`ERR_NO_MEMORY`), then
    converts each command, copying text with a fallible reservation and
    checking it against the spec. If any conversion fails, the commands of this
@@ -64,8 +65,12 @@ kernel then applies them as `Command::SetSetting`. That includes book scopes,
 a setting's own check and the change event. The next callback reads the new
 value back through slot 5.
 
-Setting keys are copied as `Id`s with the global allocator. Each copy is bounded
-by the 128-byte key cap and at most 8 per batch. Text is copied fallibly.
+Queue space and text are reserved fallibly. Setting ids are not: a key equal
+to the registered id clones it, and a placement key is parsed with `Id::parse`,
+both through the global allocator. Each copy is bounded by the 128-byte key cap,
+and keys and text together are bounded by the byte budget the host gives the
+stage. Without that budget, 8 commands of about 4 KiB text each could retain
+about 32 KiB per callback; a profile sets it within its boundary memory budget.
 
 ## Not covered
 

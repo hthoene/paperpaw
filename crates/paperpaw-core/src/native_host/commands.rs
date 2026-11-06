@@ -18,24 +18,38 @@ use paperpaw_native::host_glue::{
 use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
 
 /// Host staging for one callback: the submitting plugin's identity, the live
-/// settings registry used for validation, and at most `limit` accepted commands.
-/// Construction allocates nothing; each accepted batch reserves fallibly.
+/// settings registry used for validation, at most `limit` accepted commands,
+/// and at most `byte_limit` bytes of copied keys and text across them.
+/// Construction allocates nothing. Each accepted batch reserves queue space and
+/// copies text fallibly; setting ids are copied with the global allocator
+/// (bounded by the key cap and counted in `byte_limit`).
 pub struct CommandStage<'a> {
     owner: &'a Id,
     settings: &'a Settings,
     staged: Vec<Command>,
     limit: usize,
+    byte_limit: usize,
+    bytes: usize,
 }
 
 impl<'a> CommandStage<'a> {
     /// Stage for `owner`, the host-known plugin identity, never a plugin claim.
+    /// `byte_limit` bounds the heap one callback can retain through staged keys
+    /// and text; a profile chooses it within its boundary memory budget.
     #[must_use]
-    pub const fn new(owner: &'a Id, settings: &'a Settings, limit: usize) -> Self {
+    pub const fn new(
+        owner: &'a Id,
+        settings: &'a Settings,
+        limit: usize,
+        byte_limit: usize,
+    ) -> Self {
         Self {
             owner,
             settings,
             staged: Vec::new(),
             limit,
+            byte_limit,
+            bytes: 0,
         }
     }
 
@@ -70,8 +84,17 @@ impl<'a> CommandStage<'a> {
         if self.staged.len().saturating_add(batch.len()) > self.limit {
             return ERR_NO_SPACE;
         }
-        // Authority, registration and scalar ranges, without allocating.
+        // Authority, registration, scalar ranges and the byte budget, without allocating.
+        let mut bytes = self.bytes;
         for WireCommand::SetSetting { key, value } in batch.iter() {
+            let text = match value {
+                SettingValueRef::Text(text) => text.len(),
+                _ => 0,
+            };
+            bytes = bytes.saturating_add(key.len()).saturating_add(text);
+            if bytes > self.byte_limit {
+                return ERR_NO_SPACE;
+            }
             let spec = match self.admitted(key) {
                 Ok(spec) => spec,
                 Err(error) => return error,
@@ -99,6 +122,7 @@ impl<'a> CommandStage<'a> {
                 }
             }
         }
+        self.bytes = bytes;
         OK
     }
 
@@ -138,6 +162,8 @@ impl fmt::Debug for CommandStage<'_> {
             .field("owner", self.owner)
             .field("staged", &self.staged.len())
             .field("limit", &self.limit)
+            .field("bytes", &self.bytes)
+            .field("byte_limit", &self.byte_limit)
             .finish_non_exhaustive()
     }
 }
@@ -198,7 +224,7 @@ impl CommandScope {
     /// callback, ERR_BUSY during another submission, codec statuses for the
     /// bytes, ERR_INVALID for a foreign, unregistered or unaccepted setting
     /// value, ERR_UNSUPPORTED for a secret, ERR_NO_SPACE beyond the stage
-    /// limit and ERR_NO_MEMORY if fallible staging cannot reserve memory.
+    /// limit or byte budget and ERR_NO_MEMORY if fallible staging cannot reserve memory.
     ///
     /// # Safety
     /// When non-null with nonzero length, `bytes` must designate initialized

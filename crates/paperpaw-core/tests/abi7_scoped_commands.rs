@@ -24,7 +24,14 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
 );
 
 static SECRET: SettingExtra = SettingExtra::new().secret();
-static SETTINGS: [SettingSpec; 4] = [
+static SETTINGS: [SettingSpec; 5] = [
+    SettingSpec::choice(
+        "probe.mode",
+        "mode",
+        &["a", "b"],
+        "a",
+        builtin::groups::OTHER,
+    ),
     SettingSpec::switch("probe.flag", "flag", false, builtin::groups::OTHER),
     SettingSpec::number("probe.number", "number", -1, 1, 0, builtin::groups::OTHER),
     SettingSpec::text("probe.text", "text", "", builtin::groups::OTHER),
@@ -69,7 +76,17 @@ fn read(env: &Env<'_>, key: &str) -> Vec<u8> {
 /// Every refusal stages nothing; the final staged list proves it.
 fn refusals(scope: &CommandScope) {
     let flag = set("probe.flag", SettingValueRef::Bool(true));
-    let cases: [(Vec<u8>, i32); 9] = [
+    let long = "t".repeat(BYTES);
+    let cases: [(Vec<u8>, i32); 11] = [
+        // Second-pass refusal: the flag is converted first, then rolled back.
+        (
+            batch(&[flag, set("probe.mode", SettingValueRef::Text("z"))]),
+            ERR_INVALID,
+        ),
+        (
+            batch(&[set("probe.text", SettingValueRef::Text(&long))]),
+            ERR_NO_SPACE,
+        ),
         (
             batch(&[flag, set("other.flag", SettingValueRef::Bool(true))]),
             ERR_INVALID,
@@ -106,9 +123,33 @@ fn refusals(scope: &CommandScope) {
     assert_eq!(submit(scope, &vec![0; COMMAND_MAX_BYTES + 1]), ERR_NO_SPACE);
 }
 
+/// Stage byte budget used by the fixture: keys plus text of staged commands.
+const BYTES: usize = 64;
+
+/// A panic in the callback clears the slot; afterwards a new scope works.
+fn unwinding(owner: &Id, env: &Env<'_>) {
+    let scope = pin!(CommandScope::new());
+    let mut stage = CommandStage::new(owner, env.settings(), 1, BYTES);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        scope
+            .as_ref()
+            .scope(&mut stage, || panic!("fixture unwind"))
+            .unwrap();
+    }));
+    assert!(result.is_err());
+    let flag = batch(&[set("probe.flag", SettingValueRef::Bool(true))]);
+    assert_eq!(submit(&scope, &flag), ERR_STATE);
+    let status = scope
+        .as_ref()
+        .scope(&mut stage, || submit(&scope, &flag))
+        .unwrap();
+    assert_eq!(status, OK);
+    assert_eq!(stage.staged().len(), 1);
+}
+
 fn started(env: &Env<'_>, out: &mut Commands) {
     let owner = Id::new_static("probe");
-    let mut stage = CommandStage::new(&owner, env.settings(), 3);
+    let mut stage = CommandStage::new(&owner, env.settings(), 3, BYTES);
     let scope = pin!(CommandScope::new());
     let flag = batch(&[set("probe.flag", SettingValueRef::Bool(true))]);
     assert_eq!(submit(&scope, &flag), ERR_STATE);
@@ -121,7 +162,7 @@ fn started(env: &Env<'_>, out: &mut Commands) {
             assert_eq!(submit(&scope, &text), OK);
             let two = batch(&[set("probe.flag", SettingValueRef::Bool(true)); 2]);
             assert_eq!(submit(&scope, &two), ERR_NO_SPACE);
-            let mut nested = CommandStage::new(&owner, env.settings(), 1);
+            let mut nested = CommandStage::new(&owner, env.settings(), 1, BYTES);
             assert!(scope.as_ref().scope(&mut nested, || ()).is_err());
         })
         .unwrap();
@@ -141,6 +182,7 @@ fn started(env: &Env<'_>, out: &mut Commands) {
         settings_decode(&read(env, "probe.flag")),
         Ok(SettingValueRef::Bool(false))
     );
+    unwinding(&owner, env);
     out.extend(stage.into_commands());
 }
 
