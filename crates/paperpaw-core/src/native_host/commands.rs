@@ -17,6 +17,25 @@ use paperpaw_native::host_glue::{
 };
 use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
 
+/// Host-resolved authority for guarded settings, shared with the drain-time filter.
+#[derive(Clone, Copy, Debug)]
+pub struct CommandAuthority {
+    guarded_exempt: bool,
+}
+
+impl crate::Kernel {
+    /// Resolve command authority for a host-known submitting identity.
+    /// Resolve anew when creating each callback's stage; never retain this token
+    /// across callbacks. BindSlot or uninstall can change the settings editor.
+    #[must_use]
+    pub fn command_settings_authority(&self, owner: &Id) -> CommandAuthority {
+        let reserved = crate::commands::Reserved::of(&self.shared.settings, &self.shared.registry);
+        CommandAuthority {
+            guarded_exempt: reserved.guarded_exempt(owner.as_str()),
+        }
+    }
+}
+
 /// Host staging for one callback: the submitting plugin's identity, the live
 /// settings registry used for validation, at most `limit` accepted commands,
 /// and at most `byte_limit` bytes of copied keys and text across them.
@@ -26,6 +45,7 @@ use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
 pub struct CommandStage<'a> {
     owner: &'a Id,
     settings: &'a Settings,
+    guarded_exempt: bool,
     staged: Vec<Command>,
     limit: usize,
     byte_limit: usize,
@@ -34,18 +54,23 @@ pub struct CommandStage<'a> {
 
 impl<'a> CommandStage<'a> {
     /// Stage for `owner`, the host-known plugin identity, never a plugin claim.
+    /// `authority` comes from `Kernel::command_settings_authority` for this owner.
+    /// `None` exempts nobody: every foreign guarded setting is refused,
+    /// including for an editor or kernel identity without host authority.
     /// `byte_limit` bounds the heap one callback can retain through staged keys
     /// and text; a profile chooses it within its boundary memory budget.
     #[must_use]
-    pub const fn new(
+    pub fn new(
         owner: &'a Id,
         settings: &'a Settings,
+        authority: Option<CommandAuthority>,
         limit: usize,
         byte_limit: usize,
     ) -> Self {
         Self {
             owner,
             settings,
+            guarded_exempt: authority.is_some_and(|authority| authority.guarded_exempt),
             staged: Vec::new(),
             limit,
             byte_limit,
@@ -66,15 +91,18 @@ impl<'a> CommandStage<'a> {
     }
 
     /// The setting's spec, if this plugin may set it through slot 15.
-    /// Interface 7 admits only registered, non-secret settings in the
-    /// submitting plugin's own namespace; secrets need their own path.
+    /// Registered, non-secret settings may belong to any plugin. Foreign
+    /// guarded settings require the host-known editor or kernel identity.
     fn admitted(&self, key: &str) -> Result<&'a SettingSpec, i32> {
-        if key.split('.').next() != Some(self.owner.as_str()) {
-            return Err(ERR_INVALID);
-        }
         let spec = self.settings.spec(key).ok_or(ERR_INVALID)?;
         if spec.extra().secret {
             return Err(ERR_UNSUPPORTED);
+        }
+        if spec.guarded
+            && !self.guarded_exempt
+            && key.split('.').next() != Some(self.owner.as_str())
+        {
+            return Err(ERR_INVALID);
         }
         Ok(spec)
     }
@@ -84,7 +112,7 @@ impl<'a> CommandStage<'a> {
         if self.staged.len().saturating_add(batch.len()) > self.limit {
             return ERR_NO_SPACE;
         }
-        // Authority, registration, scalar ranges and the byte budget, without allocating.
+        // Registration, scalar ranges and the byte budget, without allocating.
         let mut bytes = self.bytes;
         for WireCommand::SetSetting { key, value } in batch.iter() {
             let text = match value {
@@ -222,7 +250,7 @@ impl CommandScope {
     ///
     /// Returns OK, or an error with the stage unchanged: ERR_STATE outside a
     /// callback, ERR_BUSY during another submission, codec statuses for the
-    /// bytes, ERR_INVALID for a foreign, unregistered or unaccepted setting
+    /// bytes, ERR_INVALID for a foreign guarded, unregistered or unaccepted setting
     /// value, ERR_UNSUPPORTED for a secret, ERR_NO_SPACE beyond the stage
     /// limit or byte budget and ERR_NO_MEMORY if fallible staging cannot reserve memory.
     ///
@@ -272,6 +300,23 @@ impl fmt::Debug for CommandScope {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn no_host_authority_refuses_foreign_guarded_settings_even_for_core() {
+        let mut settings = Settings::new();
+        let spec = SettingSpec::switch(
+            "other.guarded",
+            "guarded",
+            false,
+            paperpaw_sdk::builtin::groups::OTHER,
+        )
+        .guarded();
+        assert!(settings.define(spec).is_ok());
+        let owner = Id::new_static("core");
+        let stage = CommandStage::new(&owner, &settings, None, 1, 40);
+        assert_eq!(stage.admitted("other.guarded").err(), Some(ERR_INVALID));
+        assert!(stage.staged().is_empty());
+    }
+
     #[test]
     fn overlapping_submission_refuses_without_panicking() {
         let scope = CommandScope::new();
