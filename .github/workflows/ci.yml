@@ -466,20 +466,10 @@ jobs:
           workspaces: |
             .
             crates/paperpaw-core/tests/native-plugin
-      - name: The list is only appended to, and old plugins still agree
-        run: |
-          baseline="$(sed -e 's/#.*//' crates/paperpaw-table/table-baseline.txt | awk 'NF { print $1; exit }')"
-          if [[ -z "$baseline" || "$baseline" == none ]]; then
-            # The raise commit sets the baseline: once an interface with
-            # tables is tagged, `none` would let every check pass unused.
-            if git tag -l 'interface-*' | awk -F- '$2 + 0 >= 5 { found = 1 } END { exit !found }'; then
-              echo "::error file=crates/paperpaw-table/table-baseline.txt::interface 5 or later is tagged, but the baseline is still none: set it to the raise's commit"
-              exit 1
-            fi
-            echo "no interface raise with tables yet: nothing to compare"
-            exit 0
-          fi
-          tools/table-compat.sh "$baseline"
+      - name: The list is only appended to, and old plugins still agree (or, of an older interface or draft, are refused)
+        # The baseline from table-baseline.txt, `none` refused once an
+        # interface with tables is tagged: in the script, as ci-local runs it.
+        run: tools/table-compat.sh
 
   architecture:
     name: Architecture rules
