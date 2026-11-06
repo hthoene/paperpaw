@@ -59,7 +59,7 @@ fn first_and_later_plugin_refuse_each_post_make_allocation_and_destroy_once() {
     reset(NORMAL);
     let host = FlatHost {
         meter: crate::meter::Meter::new(None),
-        font_removals: Rc::new(super::super::font_removals::FontRemovals::new()),
+        font_removals: Rc::new(crate::native_host::font_removals::FontRemovals::new()),
     };
     for owned in [false, true] {
         let text = alloc::string::String::from("a").repeat(96);
@@ -211,7 +211,7 @@ fn registration_rollback(registry_oom: bool) {
     reset(NORMAL);
     let host = FlatHost {
         meter: crate::meter::Meter::new(None),
-        font_removals: Rc::new(super::super::font_removals::FontRemovals::new()),
+        font_removals: Rc::new(crate::native_host::font_removals::FontRemovals::new()),
     };
     let destroyed = Rc::new(Cell::new(0));
     let calls = Rc::new(Cell::new(0));
