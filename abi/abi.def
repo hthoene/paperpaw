@@ -2414,7 +2414,7 @@
           "optional": false,
           "ordinal": null,
           "default": null,
-          "max_bytes": 96
+          "max_bytes": 128
         },
         {
           "name": "order",
@@ -2457,7 +2457,7 @@
           "optional": false,
           "ordinal": null,
           "default": null,
-          "max_bytes": 96
+          "max_bytes": 128
         },
         {
           "name": "icon",
@@ -2482,7 +2482,7 @@
           "optional": false,
           "ordinal": null,
           "default": null,
-          "max_bytes": 96
+          "max_bytes": 128
         },
         {
           "name": "need",
@@ -2501,6 +2501,99 @@
           "ordinal": null,
           "default": null,
           "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "name": "menu.section",
+      "since": 1,
+      "fields": [
+        {
+          "name": "name",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "title",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "menu",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "order",
+          "type": "i32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "name": "menu.hide",
+      "since": 1,
+      "fields": [
+        {
+          "name": "menu",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "item",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "name": "menu.describe",
+      "since": 1,
+      "fields": [
+        {
+          "name": "item",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "key",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
         }
       ]
     }
