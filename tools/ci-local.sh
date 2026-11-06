@@ -59,6 +59,12 @@ done
 export CARGO_TERM_COLOR=never
 export CARGO_BUILD_JOBS="$jobs"
 export RUSTFLAGS="-D warnings"
+# A shared compiler cache where sccache is installed (tools/sccache-wrap.sh
+# says what it does and leaves alone); `CI_LOCAL_SCCACHE=0` turns it off, a
+# RUSTC_WRAPPER already set is kept.
+if [[ -z "${RUSTC_WRAPPER:-}" && "${CI_LOCAL_SCCACHE:-1}" != 0 ]] && command -v sccache > /dev/null; then
+    export RUSTC_WRAPPER="$root/tools/sccache-wrap.sh"
+fi
 
 all_groups=(fmt abi lint test doc msrv screens sdk embedded native architecture emulator deny firmware android)
 quick_groups=(fmt lint test)

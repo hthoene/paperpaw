@@ -1303,6 +1303,7 @@ mod after_cuts;
 mod cuts_v1;
 mod damaged;
 mod failing_writes;
+mod free_follow;
 mod free_space;
 mod listed;
 mod noted;
