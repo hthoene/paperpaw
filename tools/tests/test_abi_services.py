@@ -92,6 +92,17 @@ class ServiceTests(unittest.TestCase):
             with self.subTest(index=index), self.assertRaises(ValueError):
                 validate_services(candidate)
 
+    def test_module_names_are_unique(self):
+        # core.test-echo and core-test.echo would share the module core_test_echo_v1.
+        candidate = copy.deepcopy(self.schema)
+        catalog = candidate['metadata']['services']
+        entry = next(item for item in catalog if item['key'] == 'core.test-echo')
+        catalog.append(dict(copy.deepcopy(entry), key='core-test.echo'))
+        candidate['services'].insert(0, dict(copy.deepcopy(self.echo(candidate)),
+                                             key='core-test.echo'))
+        with self.assertRaisesRegex(ValueError, 'module name core_test_echo_v1 taken'):
+            validate_services(candidate)
+
     def test_published_schemas_only_grow(self):
         grown = copy.deepcopy(self.schema)
         self.echo(grown)['revision'] = 1

@@ -86,6 +86,7 @@ def validate_services(schema):
     _require(len(keys) == len(services) and all(type(major) is int for _, major in keys) and
              keys == sorted(keys) and len(set(keys)) == len(keys),
              'service schemas sorted by key and major, one per key and major')
+    modules = set()
     for service in services:
         _require(type(service) is dict and set(service) == SCHEMA_KEYS, 'service schema keys')
         key = service['key']
@@ -95,6 +96,9 @@ def validate_services(schema):
         _integer(service['revision'], 0, 65535, f'{key}: revision 0..=65535')
         _integer(service['since'], 1, schema.get('minor', 0), f'{key}: since within schema minor')
         _require(type(service['test_only']) is bool, f'{key}: test_only is true or false')
+        module = _module_name(key, service['major'])
+        _require(module not in modules, f'{key}: module name {module} taken by another schema')
+        modules.add(module)
         entry = catalog.get((key, service['major']))
         _require(entry is not None and entry.get('semantic_revision') == service['revision'],
                  f'{key}: needs a metadata catalog entry of the same major and revision')
@@ -125,7 +129,7 @@ def compatible_services(old, new, minimum_since):
         _require((service['key'], major) in after, f'service schema {key} removed')
         grown = after[(service['key'], major)]
         _require(grown['since'] == service['since'], f'{key}: since changed')
-        _require(grown['test_only'] == service['test_only'], f'{key}: test_only changed')
+        _require(grown.get('test_only') == service.get('test_only'), f'{key}: test_only changed')
         _require(grown['revision'] >= service['revision'], f'{key}: revision went back')
         ops = {op['id']: op for op in grown['ops']}
         for op in service['ops']:
