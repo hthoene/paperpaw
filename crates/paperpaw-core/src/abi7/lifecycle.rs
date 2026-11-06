@@ -296,11 +296,12 @@ impl<C> Drop for DestroyOnDrop<'_, C> {
 
 // Local guards keep context-before-module field cleanup even if a host hook
 // violates its no-unwind contract. The active-call guard creates neither.
-struct DropField<'a, T>(&'a mut ManuallyDrop<T>);
-impl<T> Drop for DropField<'_, T> {
+struct DropField<T>(*mut ManuallyDrop<T>);
+impl<T> Drop for DropField<T> {
     fn drop(&mut self) {
-        // SAFETY: this guard alone owns field cleanup, exactly once in place.
-        unsafe { ManuallyDrop::drop(self.0) };
+        // SAFETY: the owner outlives its local guards. Each guard drops one
+        // field exactly once, after destroy has returned or unwound.
+        unsafe { ManuallyDrop::drop(&mut *self.0) };
     }
 }
 
@@ -320,13 +321,13 @@ impl<C, M> Drop for Owner<C, M> {
         }
         // Reverse local drop order preserves context before module, including
         // an unactivated owner and a panic in a host cleanup hook.
-        let _module = DropField(&mut self.module);
-        let context_field = DropField(&mut self.context);
+        let _module = DropField(&raw mut self.module);
+        let _context_field = DropField(&raw mut self.context);
         let Some(teardown) = teardown else {
             return;
         };
         // SAFETY: the field guard drops this pinned context only after destroy.
-        let context = unsafe { Pin::new_unchecked(&**context_field.0) };
+        let context = unsafe { Pin::new_unchecked(&*self.context) };
         let _destroy = DestroyOnDrop {
             context,
             destroy: teardown.destroy,

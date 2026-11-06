@@ -11,7 +11,7 @@ use paperpaw_core::native_host::registration_scope::RegistrationScope;
 use paperpaw_core::native_host::registrations::{self, EVENT_TICK_TAG, Registration};
 use paperpaw_core::native_host::{self, Construction, DispatchDepth, HostOwner, RegistrationBatch};
 use paperpaw_native::host_glue::{self, PpBuffer, PpBytes, PpHost, PpPlugin, Services, ShellCtx};
-use std::{alloc::Layout, cell::Cell, ffi::c_void, path::Path, pin::Pin, ptr};
+use std::{cell::Cell, ffi::c_void, path::Path, pin::Pin, ptr};
 
 #[derive(Debug)]
 enum Error {
@@ -216,20 +216,7 @@ impl<S: Services> PinnedPlugin<S> {
 fn pin_owner<S>(
     value: Owner<S>,
 ) -> Result<native_host::PinnedOwner<Context<S>, HeldLibrary>, Error> {
-    let layout = Layout::new::<Owner<S>>();
-    // SAFETY: layout is nonzero and valid for this exact owner type.
-    let allocation = unsafe { std::alloc::alloc(layout) }.cast::<Owner<S>>();
-    if allocation.is_null() {
-        return Err(Error::Allocation);
-    }
-    // SAFETY: uniquely owned allocation of the exact Box layout, initialized
-    // before creating its Box. Nothing has observed the unpinned owner yet.
-    unsafe {
-        allocation.write(value);
-        Ok(native_host::PinnedOwner::new(Box::into_pin(Box::from_raw(
-            allocation,
-        ))))
-    }
+    native_host::PinnedOwner::try_new(value).ok_or(Error::Allocation)
 }
 
 struct PendingInstance<'a, S, T> {

@@ -571,3 +571,20 @@ fn shared_shell_reports_fallback_failure_before_destroying_and_unmapping() {
     drop(hosted);
     assert_eq!(logged(), ["report", "destroy", "module"]);
 }
+
+#[test]
+fn pinned_owner_allocation_failure_drops_unactivated_context_then_module() {
+    struct Probe(&'static str);
+    impl Drop for Probe {
+        fn drop(&mut self) {
+            log(self.0);
+        }
+    }
+    reset(NORMAL);
+    let value = super::super::HostOwner::new(Probe("context"), Probe("module"));
+    arm_failure(1);
+    let refused = super::super::PinnedOwner::try_new(value);
+    arm_failure(0);
+    assert!(refused.is_none());
+    assert_eq!(logged(), ["context", "module"]);
+}

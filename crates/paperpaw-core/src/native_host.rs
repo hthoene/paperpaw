@@ -139,20 +139,38 @@ impl Default for DispatchDepth {
     missing_debug_implementations,
     reason = "holds opaque context and module"
 )]
+#[must_use]
 pub struct PinnedOwner<C, M>(ManuallyDrop<Pin<Box<HostOwner<C, M>>>>);
 
 impl<C, M> PinnedOwner<C, M> {
-    /// Adopt a fallibly allocated owner without allocating or moving its fields.
+    /// Allocate the owner fallibly, keeping the pinned Box private forever.
+    ///
+    /// Returns None if the actual owner allocation fails.
+    pub fn try_new(owner: HostOwner<C, M>) -> Option<Self> {
+        let layout = core::alloc::Layout::new::<HostOwner<C, M>>();
+        // SAFETY: lifecycle flags make the owner nonzero-sized; layout is exact.
+        let allocation = unsafe { alloc::alloc::alloc(layout) }.cast::<HostOwner<C, M>>();
+        if allocation.is_null() {
+            return None;
+        }
+        // SAFETY: uniquely allocated Box storage, initialized before pinning.
+        Some(Self(ManuallyDrop::new(unsafe {
+            allocation.write(owner);
+            Box::into_pin(Box::from_raw(allocation))
+        })))
+    }
+
+    /// Borrow the pinned owner without exposing ownership of its allocation.
     #[must_use]
-    pub fn new(owner: Pin<Box<HostOwner<C, M>>>) -> Self {
-        Self(ManuallyDrop::new(owner))
+    pub fn as_ref(&self) -> Pin<&HostOwner<C, M>> {
+        self.0.as_ref()
     }
 }
 
 impl<C, M> Deref for PinnedOwner<C, M> {
-    type Target = Pin<Box<HostOwner<C, M>>>;
+    type Target = HostOwner<C, M>;
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.as_ref().get_ref()
     }
 }
 
@@ -658,14 +676,15 @@ mod pinned_owner_tests {
         let reports = Rc::new(Cell::new(0));
         let context_dropped = Rc::new(Cell::new(false));
         let module_dropped = Rc::new(Cell::new(false));
-        let holder = PinnedOwner::new(Box::pin(HostOwner::new(
+        let holder = PinnedOwner::try_new(HostOwner::new(
             Context {
                 canary: 0x1234_5678,
                 reports: Rc::clone(&reports),
                 dropped: Rc::clone(&context_dropped),
             },
             Module(Rc::clone(&module_dropped)),
-        )));
+        ))
+        .unwrap();
         let batch = holder
             .as_ref()
             .begin::<()>("fixture")
