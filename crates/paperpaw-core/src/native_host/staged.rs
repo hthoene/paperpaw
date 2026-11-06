@@ -1,0 +1,553 @@
+//! Host-owned copies of declaration records staged during one construction.
+//!
+//! The wire records borrow the caller's bytes, so the host copies what it keeps.
+//! One [`Declarations`] belongs to one `make` call. A batch is staged whole or
+//! not at all: [`Declarations::stage`] checks everything without allocating,
+//! then reserves every Vec and every owned copy, and only then inserts with
+//! operations that cannot fail. After any `Err` the value is unchanged.
+//! [`Declarations::finish`] runs the intra-plugin cross-record checks once
+//! `make` has returned. Mapping onto the settings, font and hyphenation
+//! registries is not done here; foreign references are left to that step.
+
+use super::{
+    declarations,
+    registrations::{
+        Record, RecordBatch, ResourceFontExtension, ResourceFontFace, ResourceHyphenation,
+        SettingExtra, SettingGroup, SettingSpec,
+    },
+};
+use alloc::{string::String, vec::Vec};
+use core::mem::size_of;
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE};
+
+/// Most setting groups one plugin may declare.
+pub const GROUPS_MAX: usize = 32;
+/// Most setting specs one plugin may declare (provisional, Q7).
+pub const SPECS_MAX: usize = 128;
+/// Most setting extras one plugin may declare (provisional, Q7).
+pub const EXTRAS_MAX: usize = 128;
+/// Most hyphenation resources one plugin may declare.
+pub const HYPHENATIONS_MAX: usize = 8;
+/// Most font faces one plugin may declare.
+pub const FONT_FACES_MAX: usize = 16;
+/// Most font extensions one plugin may declare.
+pub const FONT_EXTENSIONS_MAX: usize = 16;
+/// Byte budget for everything one plugin's staged declarations own: each entry
+/// counts its struct size plus every owned string and byte copy. Provisional
+/// until the X4 heap gate has measured it.
+pub const DECLARATIONS_MAX_BYTES: usize = 32 * 1024;
+
+/// An owned setting group.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct StagedGroup {
+    /// Name relative to the plugin.
+    pub name: String,
+    /// Display title.
+    pub title: String,
+    /// Sort order.
+    pub order: i32,
+    /// Relative page name, or empty.
+    pub page: String,
+    /// Full parent group id, or empty.
+    pub parent: String,
+}
+
+/// An owned setting spec.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct StagedSpec {
+    /// Name relative to the plugin.
+    pub name: String,
+    /// Kind: bool, int, choice, text, language, list.
+    pub kind: u32,
+    /// Flag bits.
+    pub flags: u32,
+    /// Full group id.
+    pub group: String,
+    /// Display title.
+    pub title: String,
+    /// Help text, or empty.
+    pub help: String,
+    /// The validated `settings_value` bytes of the default.
+    pub default: Vec<u8>,
+    /// Integer minimum.
+    pub min: i32,
+    /// Integer maximum.
+    pub max: i32,
+    /// Newline-separated choice values.
+    pub choices: String,
+}
+
+/// An owned setting extra; its `name` is the name of a staged spec.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct StagedExtra {
+    /// Name of the spec this extends.
+    pub name: String,
+    /// Unit label.
+    pub unit: String,
+    /// Section label.
+    pub section: String,
+    /// Full id of the setting this one follows, or empty.
+    pub follows: String,
+    /// Full id of a setting that gates display, or empty.
+    pub shown_id: String,
+    /// Value of `shown_id` that shows this setting.
+    pub shown_value: String,
+    /// Editor kind.
+    pub editor_kind: u32,
+    /// Editor name.
+    pub editor: String,
+    /// Step for integer editors.
+    pub step: i32,
+    /// Flag bits.
+    pub flags: u32,
+}
+
+/// An owned hyphenation resource.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct StagedHyphenation {
+    /// Language tag.
+    pub language: String,
+    /// Relative resource path.
+    pub path: String,
+}
+
+/// An owned font face.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct StagedFontFace {
+    /// Name relative to the plugin.
+    pub name: String,
+    /// Relative resource path.
+    pub path: String,
+    /// Family name.
+    pub family: String,
+    /// Style bits.
+    pub style: u32,
+    /// Weight, 0 to 1000.
+    pub weight: u32,
+    /// Full role id, or empty.
+    pub role: String,
+    /// Priority, -100 to 100.
+    pub priority: i32,
+}
+
+/// An owned font extension.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct StagedFontExtension {
+    /// Name relative to the plugin.
+    pub name: String,
+    /// Relative resource path.
+    pub path: String,
+    /// Full id of the font it extends.
+    pub extends: String,
+}
+
+/// Declarations staged by one construction. Empty values do not allocate.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Declarations {
+    groups: Vec<StagedGroup>,
+    specs: Vec<StagedSpec>,
+    extras: Vec<StagedExtra>,
+    hyphenations: Vec<StagedHyphenation>,
+    faces: Vec<StagedFontFace>,
+    extensions: Vec<StagedFontExtension>,
+    bytes: usize,
+}
+
+#[derive(Clone, Copy, Default)]
+struct Counts {
+    groups: usize,
+    specs: usize,
+    extras: usize,
+    hyphenations: usize,
+    faces: usize,
+    extensions: usize,
+    bytes: usize,
+}
+
+impl Counts {
+    fn of(batch: &RecordBatch<'_>) -> Self {
+        let mut counts = Self::default();
+        for record in batch.iter() {
+            let (slot, cost) = match &record {
+                Record::SettingGroup(r) => (&mut counts.groups, group_cost(r)),
+                Record::SettingSpec(r) => (&mut counts.specs, spec_cost(r)),
+                Record::SettingExtra(r) => (&mut counts.extras, extra_cost(r)),
+                Record::ResourceHyphenation(r) => (&mut counts.hyphenations, hyph_cost(r)),
+                Record::ResourceFontFace(r) => (&mut counts.faces, face_cost(r)),
+                Record::ResourceFontExtension(r) => (&mut counts.extensions, ext_cost(r)),
+                _ => continue,
+            };
+            *slot += 1;
+            counts.bytes += cost;
+        }
+        counts
+    }
+}
+
+fn group_cost(r: &SettingGroup<'_>) -> usize {
+    size_of::<StagedGroup>() + r.name.len() + r.title.len() + r.page.len() + r.parent.len()
+}
+
+fn spec_cost(r: &SettingSpec<'_>) -> usize {
+    size_of::<StagedSpec>()
+        + r.name.len()
+        + r.group.len()
+        + r.title.len()
+        + r.help.len()
+        + r.default.len()
+        + r.choices.len()
+}
+
+fn extra_cost(r: &SettingExtra<'_>) -> usize {
+    size_of::<StagedExtra>()
+        + r.name.len()
+        + r.unit.len()
+        + r.section.len()
+        + r.follows.len()
+        + r.shown_id.len()
+        + r.shown_value.len()
+        + r.editor.len()
+}
+
+fn hyph_cost(r: &ResourceHyphenation<'_>) -> usize {
+    size_of::<StagedHyphenation>() + r.language.len() + r.path.len()
+}
+
+fn face_cost(r: &ResourceFontFace<'_>) -> usize {
+    size_of::<StagedFontFace>() + r.name.len() + r.path.len() + r.family.len() + r.role.len()
+}
+
+fn ext_cost(r: &ResourceFontExtension<'_>) -> usize {
+    size_of::<StagedFontExtension>() + r.name.len() + r.path.len() + r.extends.len()
+}
+
+fn own(text: &str) -> Result<String, i32> {
+    let mut out = String::new();
+    out.try_reserve_exact(text.len())
+        .map_err(|_| ERR_NO_MEMORY)?;
+    out.push_str(text);
+    Ok(out)
+}
+
+fn own_bytes(bytes: &[u8]) -> Result<Vec<u8>, i32> {
+    let mut out = Vec::new();
+    out.try_reserve_exact(bytes.len())
+        .map_err(|_| ERR_NO_MEMORY)?;
+    out.extend_from_slice(bytes);
+    Ok(out)
+}
+
+fn reserve<T>(vec: &mut Vec<T>, additional: usize) -> Result<(), i32> {
+    vec.try_reserve_exact(additional).map_err(|_| ERR_NO_MEMORY)
+}
+
+/// Entries built from one batch, every buffer already allocated.
+struct Pending {
+    groups: Vec<StagedGroup>,
+    specs: Vec<StagedSpec>,
+    extras: Vec<StagedExtra>,
+    hyphenations: Vec<StagedHyphenation>,
+    faces: Vec<StagedFontFace>,
+    extensions: Vec<StagedFontExtension>,
+}
+
+impl Pending {
+    fn build(batch: &RecordBatch<'_>, counts: &Counts) -> Result<Self, i32> {
+        let mut pending = Self {
+            groups: Vec::new(),
+            specs: Vec::new(),
+            extras: Vec::new(),
+            hyphenations: Vec::new(),
+            faces: Vec::new(),
+            extensions: Vec::new(),
+        };
+        reserve(&mut pending.groups, counts.groups)?;
+        reserve(&mut pending.specs, counts.specs)?;
+        reserve(&mut pending.extras, counts.extras)?;
+        reserve(&mut pending.hyphenations, counts.hyphenations)?;
+        reserve(&mut pending.faces, counts.faces)?;
+        reserve(&mut pending.extensions, counts.extensions)?;
+        for record in batch.iter() {
+            pending.copy(&record)?;
+        }
+        Ok(pending)
+    }
+
+    /// Capacity was reserved from the batch's own counts, so no push grows.
+    fn copy(&mut self, record: &Record<'_>) -> Result<(), i32> {
+        match record {
+            Record::SettingGroup(r) => self.groups.push(StagedGroup {
+                name: own(r.name)?,
+                title: own(r.title)?,
+                order: r.order,
+                page: own(r.page)?,
+                parent: own(r.parent)?,
+            }),
+            Record::SettingSpec(r) => self.specs.push(StagedSpec {
+                name: own(r.name)?,
+                kind: r.kind,
+                flags: r.flags,
+                group: own(r.group)?,
+                title: own(r.title)?,
+                help: own(r.help)?,
+                default: own_bytes(r.default)?,
+                min: r.min,
+                max: r.max,
+                choices: own(r.choices)?,
+            }),
+            Record::SettingExtra(r) => self.extras.push(StagedExtra {
+                name: own(r.name)?,
+                unit: own(r.unit)?,
+                section: own(r.section)?,
+                follows: own(r.follows)?,
+                shown_id: own(r.shown_id)?,
+                shown_value: own(r.shown_value)?,
+                editor_kind: r.editor_kind,
+                editor: own(r.editor)?,
+                step: r.step,
+                flags: r.flags,
+            }),
+            Record::ResourceHyphenation(r) => self.hyphenations.push(StagedHyphenation {
+                language: own(r.language)?,
+                path: own(r.path)?,
+            }),
+            Record::ResourceFontFace(r) => self.faces.push(StagedFontFace {
+                name: own(r.name)?,
+                path: own(r.path)?,
+                family: own(r.family)?,
+                style: r.style,
+                weight: r.weight,
+                role: own(r.role)?,
+                priority: r.priority,
+            }),
+            Record::ResourceFontExtension(r) => self.extensions.push(StagedFontExtension {
+                name: own(r.name)?,
+                path: own(r.path)?,
+                extends: own(r.extends)?,
+            }),
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+/// The relative part of `id` when it lies in the plugin's own namespace.
+fn own_name<'a>(plugin_id: &str, id: &'a str) -> Option<&'a str> {
+    id.strip_prefix(plugin_id)?.strip_prefix('.')
+}
+
+impl Declarations {
+    /// Staged groups in declaration order.
+    #[must_use]
+    pub fn groups(&self) -> &[StagedGroup] {
+        &self.groups
+    }
+
+    /// Staged specs in declaration order.
+    #[must_use]
+    pub fn specs(&self) -> &[StagedSpec] {
+        &self.specs
+    }
+
+    /// Staged extras in declaration order.
+    #[must_use]
+    pub fn extras(&self) -> &[StagedExtra] {
+        &self.extras
+    }
+
+    /// Staged hyphenation resources in declaration order.
+    #[must_use]
+    pub fn hyphenations(&self) -> &[StagedHyphenation] {
+        &self.hyphenations
+    }
+
+    /// Staged font faces in declaration order.
+    #[must_use]
+    pub fn font_faces(&self) -> &[StagedFontFace] {
+        &self.faces
+    }
+
+    /// Staged font extensions in declaration order.
+    #[must_use]
+    pub fn font_extensions(&self) -> &[StagedFontExtension] {
+        &self.extensions
+    }
+
+    /// Whether nothing is staged.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.bytes == 0
+    }
+
+    /// Bytes counted against [`DECLARATIONS_MAX_BYTES`].
+    #[must_use]
+    pub const fn bytes(&self) -> usize {
+        self.bytes
+    }
+
+    /// Stage a whole batch or nothing.
+    ///
+    /// Runs [`declarations::validate_batch`] itself, so a caller needs no
+    /// earlier validation. Callback registrations in the batch are ignored.
+    ///
+    /// # Errors
+    /// The status of the first violated per-record rule; `ERR_NO_SPACE` when a
+    /// count or the byte budget would be exceeded; `ERR_INVALID` for a duplicate
+    /// name or an extra without its spec or beside another extra for the same
+    /// spec; `ERR_NO_MEMORY` when an allocation fails. `self` is unchanged.
+    pub fn stage(&mut self, plugin_id: &str, batch: &RecordBatch<'_>) -> Result<(), i32> {
+        let counts = self.check(plugin_id, batch)?;
+        let mut pending = Pending::build(batch, &counts)?;
+        reserve(&mut self.groups, counts.groups)?;
+        reserve(&mut self.specs, counts.specs)?;
+        reserve(&mut self.extras, counts.extras)?;
+        reserve(&mut self.hyphenations, counts.hyphenations)?;
+        reserve(&mut self.faces, counts.faces)?;
+        reserve(&mut self.extensions, counts.extensions)?;
+        // Everything is allocated. Append moves within reserved capacity.
+        self.groups.append(&mut pending.groups);
+        self.specs.append(&mut pending.specs);
+        self.extras.append(&mut pending.extras);
+        self.hyphenations.append(&mut pending.hyphenations);
+        self.faces.append(&mut pending.faces);
+        self.extensions.append(&mut pending.extensions);
+        self.bytes += counts.bytes;
+        Ok(())
+    }
+
+    /// First pass: no allocation, no change.
+    fn check(&self, plugin_id: &str, batch: &RecordBatch<'_>) -> Result<Counts, i32> {
+        declarations::validate_batch(plugin_id, batch)?;
+        let counts = Counts::of(batch);
+        if self.groups.len() + counts.groups > GROUPS_MAX
+            || self.specs.len() + counts.specs > SPECS_MAX
+            || self.extras.len() + counts.extras > EXTRAS_MAX
+            || self.hyphenations.len() + counts.hyphenations > HYPHENATIONS_MAX
+            || self.faces.len() + counts.faces > FONT_FACES_MAX
+            || self.extensions.len() + counts.extensions > FONT_EXTENSIONS_MAX
+            || self.bytes + counts.bytes > DECLARATIONS_MAX_BYTES
+        {
+            return Err(ERR_NO_SPACE);
+        }
+        for (index, record) in batch.iter().enumerate() {
+            let earlier = batch.iter().take(index);
+            if !self.is_new(&record, earlier) {
+                return Err(ERR_INVALID);
+            }
+        }
+        Ok(counts)
+    }
+
+    /// Whether `record` repeats no name of its namespace, and an extra has its
+    /// spec. `earlier` are the records before it in the same batch.
+    fn is_new<'a>(
+        &self,
+        record: &Record<'_>,
+        earlier: impl Iterator<Item = Record<'a>> + Clone,
+    ) -> bool {
+        match record {
+            Record::SettingGroup(r) => {
+                !self.groups.iter().any(|x| x.name == r.name)
+                    && !earlier
+                        .clone()
+                        .any(|e| matches!(e, Record::SettingGroup(x) if x.name == r.name))
+            }
+            Record::SettingSpec(r) => {
+                !self.specs.iter().any(|x| x.name == r.name)
+                    && !earlier
+                        .clone()
+                        .any(|e| matches!(e, Record::SettingSpec(x) if x.name == r.name))
+            }
+            Record::SettingExtra(r) => {
+                let has_spec = self.specs.iter().any(|x| x.name == r.name)
+                    || earlier
+                        .clone()
+                        .any(|e| matches!(e, Record::SettingSpec(x) if x.name == r.name));
+                has_spec
+                    && !self.extras.iter().any(|x| x.name == r.name)
+                    && !earlier
+                        .clone()
+                        .any(|e| matches!(e, Record::SettingExtra(x) if x.name == r.name))
+            }
+            Record::ResourceHyphenation(r) => {
+                !self
+                    .hyphenations
+                    .iter()
+                    .any(|x| x.language.eq_ignore_ascii_case(r.language))
+                    && !earlier.clone().any(|e| {
+                        matches!(e, Record::ResourceHyphenation(x)
+                            if x.language.eq_ignore_ascii_case(r.language))
+                    })
+            }
+            Record::ResourceFontFace(r) => self.font_name_is_new(r.name, earlier),
+            Record::ResourceFontExtension(r) => self.font_name_is_new(r.name, earlier),
+            _ => true,
+        }
+    }
+
+    /// Faces and extensions share one namespace.
+    fn font_name_is_new<'a>(
+        &self,
+        name: &str,
+        earlier: impl Iterator<Item = Record<'a>>,
+    ) -> bool {
+        !self.faces.iter().any(|x| x.name == name)
+            && !self.extensions.iter().any(|x| x.name == name)
+            && !{ earlier }.any(|e| match e {
+                Record::ResourceFontFace(x) => x.name == name,
+                Record::ResourceFontExtension(x) => x.name == name,
+                _ => false,
+            })
+    }
+
+    /// Cross-record checks inside one plugin, after `make` has returned.
+    ///
+    /// Every spec `group` and group `parent` in the plugin's own namespace
+    /// (`<plugin_id>.`) must name a group staged here, and own parents must not
+    /// form a cycle. An extra whose `follows` names a staged spec of this plugin
+    /// needs the same kind as its own spec. Ids outside the namespace
+    /// (`core.*`, other plugins) and an own `follows` that names no spec are
+    /// left to the kernel's apply step. Does not allocate.
+    ///
+    /// # Errors
+    /// `ERR_INVALID` for the first violation.
+    pub fn finish(&self, plugin_id: &str) -> Result<(), i32> {
+        let group = |name: &str| self.groups.iter().find(|g| g.name == name);
+        for spec in &self.specs {
+            if let Some(name) = own_name(plugin_id, &spec.group)
+                && group(name).is_none()
+            {
+                return Err(ERR_INVALID);
+            }
+        }
+        for start in &self.groups {
+            let mut current = start;
+            let mut steps = 0;
+            while let Some(parent) = own_name(plugin_id, &current.parent) {
+                current = group(parent).ok_or(ERR_INVALID)?;
+                steps += 1;
+                if steps > self.groups.len() {
+                    return Err(ERR_INVALID);
+                }
+            }
+        }
+        for extra in &self.extras {
+            let Some(name) = own_name(plugin_id, &extra.follows) else {
+                continue;
+            };
+            let kind_of = |name: &str| self.specs.iter().find(|s| s.name == name).map(|s| s.kind);
+            if let (Some(followed), Some(own_kind)) = (kind_of(name), kind_of(&extra.name))
+                && followed != own_kind
+            {
+                return Err(ERR_INVALID);
+            }
+        }
+        Ok(())
+    }
+}

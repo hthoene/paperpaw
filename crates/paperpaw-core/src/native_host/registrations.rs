@@ -25,16 +25,18 @@ pub use wire::{
     SettingExtra, SettingGroup, SettingSpec, records_decode, records_encode,
 };
 
-use super::{Error, declarations, registration_scope::RegistrationScope};
+use super::{Error, registration_scope::RegistrationScope};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBytes, buffers,
 };
 
-/// Validate an entire borrowed batch, then stage owned scalar registrations.
+/// Decode and validate an entire borrowed batch, then stage it: callback
+/// registrations and declaration records (tags 5-10) together, all or nothing.
 /// All records remain private until the loader commits validated `make` output.
-/// Every decode, unsupported-event or staging refusal poisons that transaction;
-/// the loader must abort it even when the foreign caller ignores this status.
-/// No allocation occurs here and no input pointer is retained.
+/// Every decode, validation, unsupported-event or staging refusal poisons that
+/// transaction; the loader must abort it even when the foreign caller ignores
+/// this status. The plugin id for name checks is the one given to `begin`.
+/// Only the bounded staging copies are allocated and no input pointer is kept.
 ///
 /// # Safety
 /// When non-null with nonzero length, `bytes` must designate initialized storage
@@ -52,70 +54,24 @@ pub unsafe fn submit(scope: &RegistrationScope<Registration>, bytes: *const u8, 
         // SAFETY: caller guarantees readable, stable storage; the helper also
         // checks null and size bounds before constructing any nonempty slice.
         unsafe { buffers::bytes_in(PpBytes { ptr: bytes, len }, REGISTRATION_MAX_BYTES) }
-            .and_then(wire::registrations_decode)
+            .and_then(wire::records_decode)
     };
     let batch = match result {
         Ok(batch) => batch,
         Err(error) => return refuse(scope, error),
     };
-    // Validate support for the whole batch before staging even its first item.
-    for record in batch.iter() {
-        match record {
-            Registration::Event {
-                event_tag: EVENT_TICK_TAG,
-                ..
-            }
-            | Registration::Draw { .. } => {}
-            _ => return refuse(scope, ERR_UNSUPPORTED),
-        }
+    // Only the tick event is supported; refuse before staging anything.
+    let supported = batch.iter().all(|record| match record {
+        Record::Registration(Registration::Event { event_tag, .. }) => event_tag == EVENT_TICK_TAG,
+        _ => true,
+    });
+    if !supported {
+        return refuse(scope, ERR_UNSUPPORTED);
     }
-    for record in batch.iter() {
-        if let Err((error, _record)) = scope.submit(record) {
-            return refuse(scope, status(error));
-        }
-    }
-    OK
-}
-
-/// Decode and syntactically validate a whole mixed batch for one plugin, without
-/// staging anything. The loader stages the returned records itself.
-///
-/// Every refusal (framing, UTF-8, caps, unknown tag, any validation rule of
-/// [`super::declarations`]) poisons the transaction like [`submit`] does, so the
-/// plugin is not loaded even if it ignores the status. The returned batch
-/// borrows the caller's bytes and must not outlive them.
-///
-/// # Errors
-/// The `ERR_*` status that was latched.
-///
-/// # Safety
-/// Same contract as [`submit`]; the returned `'a` must end before the bytes
-/// are modified or freed.
-pub unsafe fn validate_records<'a, T>(
-    scope: &RegistrationScope<T>,
-    plugin_id: &str,
-    bytes: *const u8,
-    len: usize,
-) -> Result<RecordBatch<'a>, i32> {
-    if let Err(error) = scope.admission() {
-        return Err(refuse_any(scope, status(error)));
-    }
-    let result = if len > REGISTRATION_MAX_BYTES {
-        Err(ERR_NO_SPACE)
-    } else {
-        // SAFETY: caller guarantees readable, stable storage; the helper also
-        // checks null and size bounds before constructing any nonempty slice.
-        unsafe { buffers::bytes_in(PpBytes { ptr: bytes, len }, REGISTRATION_MAX_BYTES) }
-            .and_then(wire::records_decode)
-            .and_then(|batch| declarations::validate_batch(plugin_id, &batch).map(|()| batch))
-    };
-    result.map_err(|error| refuse_any(scope, error))
-}
-
-fn refuse_any<T>(scope: &RegistrationScope<T>, error: i32) -> i32 {
-    match scope.reject() {
-        Ok(()) => error,
-        Err(error) => status(error),
+    match scope.submit_batch(&batch, |registration| registration) {
+        Ok(()) => OK,
+        // The construction latched itself; this also covers an overlapping call.
+        Err(error) => refuse(scope, error),
     }
 }
 
@@ -128,7 +84,7 @@ fn refuse(scope: &RegistrationScope<Registration>, error: i32) -> i32 {
     }
 }
 
-fn status(error: Error) -> i32 {
+pub(super) fn status(error: Error) -> i32 {
     match error {
         Error::State => ERR_STATE,
         Error::Busy | Error::Depth => ERR_BUSY,

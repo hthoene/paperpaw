@@ -28,7 +28,7 @@ fn pinned_owner_stages_without_activation_and_commits_only_after_scope() {
     let owner = pin!(HostOwner::new(RegistrationScope::<String>::new(), ()));
     let slot = owner.as_ref().context();
     let address = ptr::from_ref(slot.get_ref());
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     let output = slot
         .scope(&mut construction, || {
             slot.submit(String::from("first")).unwrap();
@@ -63,8 +63,8 @@ fn nested_scope_is_busy_and_preserves_the_outer_target() {
     let owner = pin!(HostOwner::new(RegistrationScope::<u32>::new(), ()));
     let other = pin!(HostOwner::new((), ()));
     let slot = owner.as_ref().context();
-    let mut outer = owner.as_ref().begin().unwrap();
-    let mut inner = other.as_ref().begin::<u32>().unwrap();
+    let mut outer = owner.as_ref().begin("weather").unwrap();
+    let mut inner = other.as_ref().begin::<u32>("weather").unwrap();
     let nested_called = Cell::new(false);
     slot.scope(&mut outer, || {
         assert_eq!(
@@ -88,7 +88,7 @@ fn nested_scope_is_busy_and_preserves_the_outer_target() {
 fn a_returned_make_error_clears_the_scope_and_allows_retry() {
     let owner = pin!(HostOwner::new(RegistrationScope::<u32>::default(), ()));
     let slot = owner.as_ref().context();
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     assert_eq!(
         slot.scope(&mut construction, || {
             slot.submit(1).unwrap();
@@ -98,7 +98,7 @@ fn a_returned_make_error_clears_the_scope_and_allows_retry() {
     );
     assert_eq!(slot.submit(2), Err((Error::State, 2)));
     construction.abort();
-    let mut retry = owner.as_ref().begin().unwrap();
+    let mut retry = owner.as_ref().begin("weather").unwrap();
     slot.scope(&mut retry, || slot.submit(3)).unwrap().unwrap();
     let batch = retry.commit(ignore_context).unwrap();
     assert_eq!(batch.len(), 1);
@@ -113,7 +113,7 @@ fn unwind_clears_scope_before_transaction_rollback_and_retry() {
     let dropped = Rc::new(Cell::new(0));
     let owner = pin!(HostOwner::new(RegistrationScope::<Record>::new(), ()));
     let slot = owner.as_ref().context();
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
             slot.scope(&mut construction, || {
@@ -132,7 +132,7 @@ fn unwind_clears_scope_before_transaction_rollback_and_retry() {
     drop(refused);
     construction.abort();
     assert_eq!(dropped.get(), 2);
-    let mut retry = owner.as_ref().begin().unwrap();
+    let mut retry = owner.as_ref().begin("weather").unwrap();
     slot.scope(&mut retry, || {
         assert!(slot.submit(Record(dropped.clone())).is_ok());
     })
@@ -147,7 +147,7 @@ fn unwind_clears_scope_before_transaction_rollback_and_retry() {
 fn capacity_refusal_preserves_record_and_poisoned_transaction() {
     let owner = pin!(HostOwner::new(RegistrationScope::<Box<u32>>::new(), ()));
     let slot = owner.as_ref().context();
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     slot.scope(&mut construction, || {
         for number in 0..8 {
             slot.submit(Box::new(number)).unwrap();
@@ -190,7 +190,7 @@ fn ignored_rejection_blocks_successful_make_and_drops_all_staged_records() {
     let output_drops = Rc::new(Cell::new(0));
     let owner = pin!(HostOwner::new(RegistrationScope::<Record>::new(), ()));
     let slot = owner.as_ref().context();
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     let output = slot
         .scope(&mut construction, || {
             for _ in 0..2 {
@@ -219,7 +219,7 @@ fn ignored_rejection_blocks_successful_make_and_drops_all_staged_records() {
 fn rejection_returns_further_records_unchanged_and_survives_scope_exit() {
     let owner = pin!(HostOwner::new(RegistrationScope::<Box<String>>::new(), ()));
     let slot = owner.as_ref().context();
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     let record = Box::new(String::from("decoder-owned"));
     let address = ptr::from_ref(record.as_ref());
     let returned = slot
@@ -250,7 +250,7 @@ fn rejection_outside_scope_returns_state_without_poisoning_construction() {
     let owner = pin!(HostOwner::new(RegistrationScope::<u32>::new(), ()));
     let slot = owner.as_ref().context();
     assert_eq!(slot.reject(), Err(Error::State));
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     assert_eq!(slot.reject(), Err(Error::State));
     slot.scope(&mut construction, || slot.submit(7))
         .unwrap()
@@ -269,7 +269,7 @@ fn rejection_survives_caught_unwind_after_scope_reset() {
     let dropped = Rc::new(Cell::new(0));
     let owner = pin!(HostOwner::new(RegistrationScope::<Record>::new(), ()));
     let slot = owner.as_ref().context();
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
             slot.scope(&mut construction, || {
@@ -295,7 +295,7 @@ fn aborting_rejected_transaction_leaves_a_clean_retry() {
     let dropped = Rc::new(Cell::new(0));
     let owner = pin!(HostOwner::new(RegistrationScope::<Record>::new(), ()));
     let slot = owner.as_ref().context();
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     slot.scope(&mut construction, || {
         assert!(slot.submit(Record(dropped.clone())).is_ok());
         assert_eq!(slot.reject(), Ok(()));
@@ -303,7 +303,7 @@ fn aborting_rejected_transaction_leaves_a_clean_retry() {
     .unwrap();
     construction.abort();
     assert_eq!(dropped.get(), 1);
-    let mut retry = owner.as_ref().begin().unwrap();
+    let mut retry = owner.as_ref().begin("weather").unwrap();
     slot.scope(&mut retry, || {
         assert!(slot.submit(Record(dropped.clone())).is_ok());
     })
@@ -319,7 +319,7 @@ fn aborting_rejected_transaction_leaves_a_clean_retry() {
 fn repeated_rejection_is_idempotent() {
     let owner = pin!(HostOwner::new(RegistrationScope::<u32>::new(), ()));
     let slot = owner.as_ref().context();
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     slot.scope(&mut construction, || {
         for _ in 0..3 {
             assert_eq!(slot.reject(), Ok(()));
@@ -339,7 +339,7 @@ fn capacity_failure_precedes_later_decoder_rejection() {
     let dropped = Rc::new(Cell::new(0));
     let owner = pin!(HostOwner::new(RegistrationScope::<Record>::new(), ()));
     let slot = owner.as_ref().context();
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     slot.scope(&mut construction, || {
         for _ in 0..8 {
             assert!(slot.submit(Record(dropped.clone())).is_ok());

@@ -17,7 +17,7 @@ fn ignored_decoder_refusal_rolls_back_before_loader_cleanup() {
     let state = Rc::new(Observations::default());
     let owner = tracked_owner(&state);
     let scope = Box::pin(native_host::registration_scope::RegistrationScope::new());
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     scope
         .as_ref()
         .scope(&mut construction, || {
@@ -43,7 +43,7 @@ fn staged_records_cannot_acquire_live_callback_admission() {
     let state = Rc::new(Observations::default());
     let owner = tracked_owner(&state);
     assert!(matches!(owner.as_ref().lease(), Err(Error::State)));
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     assert!(construction.stage(Record::new(&state, "record")).is_ok());
     assert!(matches!(owner.as_ref().lease(), Err(Error::State)));
     assert_eq!(owner.as_ref().finish(), Err(Error::Busy));
@@ -57,30 +57,30 @@ fn staged_records_cannot_acquire_live_callback_admission() {
 #[test]
 fn overlapping_construction_is_busy_and_abort_permits_retry() {
     let owner = Box::pin(HostOwner::new((), ()));
-    let first = owner.as_ref().begin::<()>().unwrap();
-    assert!(matches!(owner.as_ref().begin::<()>(), Err(Error::Busy)));
+    let first = owner.as_ref().begin::<()>("weather").unwrap();
+    assert!(matches!(owner.as_ref().begin::<()>("weather"), Err(Error::Busy)));
     first.abort();
-    let retry = owner.as_ref().begin::<()>().unwrap();
+    let retry = owner.as_ref().begin::<()>("weather").unwrap();
     retry.abort();
-    let final_attempt = owner.as_ref().begin::<()>().unwrap();
+    let final_attempt = owner.as_ref().begin::<()>("weather").unwrap();
     let batch = final_attempt.commit(ignore_context).unwrap();
     assert!(batch.is_empty());
     assert_eq!(batch.len(), 0);
-    assert!(matches!(owner.as_ref().begin::<()>(), Err(Error::State)));
+    assert!(matches!(owner.as_ref().begin::<()>("weather"), Err(Error::State)));
 }
 
 #[test]
 fn cancellation_during_make_refuses_commit_and_rolls_back_before_finish() {
     let state = Rc::new(Observations::default());
     let owner = tracked_owner(&state);
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     assert!(construction.stage(Record::new(&state, "record")).is_ok());
     owner.as_ref().revoke();
     assert_eq!(owner.as_ref().finish(), Err(Error::Busy));
     assert!(matches!(construction.commit(destroy), Err(Error::State)));
     assert_eq!(&*state.events.borrow(), &["record"]);
     assert_eq!(state.destroyed.get(), 0);
-    assert!(matches!(owner.as_ref().begin::<()>(), Err(Error::State)));
+    assert!(matches!(owner.as_ref().begin::<()>("weather"), Err(Error::State)));
     owner.as_ref().finish().unwrap();
     drop(owner);
     assert_eq!(&*state.events.borrow(), &["record", "context", "module"]);
@@ -89,7 +89,7 @@ fn cancellation_during_make_refuses_commit_and_rolls_back_before_finish() {
 #[test]
 fn ninth_record_is_returned_unchanged_on_capacity_refusal() {
     let owner = Box::pin(HostOwner::new((), ()));
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     for index in 0..8 {
         assert!(construction.stage(Box::new(index.to_string())).is_ok());
     }
@@ -104,7 +104,7 @@ fn ninth_record_is_returned_unchanged_on_capacity_refusal() {
         Err(Error::Capacity)
     ));
     assert!(matches!(owner.as_ref().lease(), Err(Error::State)));
-    let mut retry = owner.as_ref().begin().unwrap();
+    let mut retry = owner.as_ref().begin("weather").unwrap();
     for index in 0..8 {
         retry.stage(index.to_string()).unwrap();
     }
@@ -121,13 +121,13 @@ fn ninth_record_is_returned_unchanged_on_capacity_refusal() {
 fn abort_drops_records_with_dependencies_alive_and_allows_a_new_transaction() {
     let state = Rc::new(Observations::default());
     let owner = tracked_owner(&state);
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     assert!(construction.stage(Record::new(&state, "first")).is_ok());
     assert!(construction.stage(Record::new(&state, "second")).is_ok());
     construction.abort();
     assert_eq!(&*state.events.borrow(), &["first", "second"]);
     assert_eq!(state.destroyed.get(), 0);
-    let mut retry = owner.as_ref().begin().unwrap();
+    let mut retry = owner.as_ref().begin("weather").unwrap();
     assert!(retry.stage(Record::new(&state, "retry")).is_ok());
     let batch = retry.commit(destroy).unwrap();
     assert_eq!(
@@ -150,7 +150,7 @@ fn commit_admits_records_with_a_stable_pinned_context() {
     let owner = tracked_owner(&state);
     let address = state.address.get();
     let moved_owner = owner;
-    let mut construction = moved_owner.as_ref().begin().unwrap();
+    let mut construction = moved_owner.as_ref().begin("weather").unwrap();
     assert!(construction.stage(Record::new(&state, "record")).is_ok());
     let batch = construction.commit(destroy).unwrap();
     assert_eq!(batch.len(), 1);
@@ -180,7 +180,7 @@ fn commit_admits_records_with_a_stable_pinned_context() {
 #[test]
 fn batch_and_queued_callback_share_instance_reentry_admission() {
     let owner = Box::pin(HostOwner::new((), ()));
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     construction.stage(17).unwrap();
     let batch = construction.commit(ignore_context).unwrap();
     let queued = owner.as_ref().lease().unwrap();
@@ -208,7 +208,7 @@ fn batch_and_queued_callback_share_instance_reentry_admission() {
 fn revoked_batch_and_queue_refuse_callbacks_and_hold_finish_busy() {
     let state = Rc::new(Observations::default());
     let owner = tracked_owner(&state);
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     assert!(construction.stage(Record::new(&state, "record")).is_ok());
     let batch = construction.commit(destroy).unwrap();
     let queued = owner.as_ref().lease().unwrap();
@@ -244,7 +244,7 @@ fn revoked_batch_and_queue_refuse_callbacks_and_hold_finish_busy() {
 fn record_cleanup_precedes_owner_drop_and_plugin_dependency_cleanup() {
     let state = Rc::new(Observations::default());
     let owner = tracked_owner(&state);
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     assert!(construction.stage(Record::new(&state, "first")).is_ok());
     assert!(construction.stage(Record::new(&state, "second")).is_ok());
     let batch = construction.commit(destroy).unwrap();
@@ -261,7 +261,7 @@ fn record_cleanup_precedes_owner_drop_and_plugin_dependency_cleanup() {
 #[test]
 fn owned_host_callback_result_survives_owner_teardown() {
     let owner = Box::pin(HostOwner::new(String::from("owned host context"), ()));
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     construction.stage(String::from("record")).unwrap();
     let batch = construction.commit(|_| ()).unwrap();
     // This copies host data; it does not validate a foreign callback result.
@@ -289,7 +289,7 @@ fn distinct_owners_share_depth_limit_and_recover_after_refusal() {
         .map(|owner| {
             owner
                 .as_ref()
-                .begin::<()>()
+                .begin::<()>("weather")
                 .unwrap()
                 .commit(ignore_context)
                 .unwrap()
@@ -325,7 +325,7 @@ fn rejected_commit_releases_records_before_explicit_foreign_cleanup_and_unload()
     for overflow in [false, true] {
         let state = Rc::new(Observations::default());
         let owner = tracked_owner(&state);
-        let mut construction = owner.as_ref().begin().unwrap();
+        let mut construction = owner.as_ref().begin("weather").unwrap();
         for _ in 0..8 {
             assert!(construction.stage(Record::new(&state, "staged")).is_ok());
         }
@@ -365,7 +365,7 @@ fn successful_make_output_stays_loader_owned_on_every_commit_rejection() {
     for overflow in [false, true] {
         let state = Rc::new(Observations::default());
         let owner = tracked_owner(&state);
-        let mut construction = owner.as_ref().begin().unwrap();
+        let mut construction = owner.as_ref().begin("weather").unwrap();
         for _ in 0..8 {
             assert!(construction.stage(Record::new(&state, "staged")).is_ok());
         }
