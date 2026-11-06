@@ -7,7 +7,9 @@ use super::{declarations, registrations as wire};
 use crate::abi7::settings_wire::{SettingValueRef, settings_decode};
 use alloc::{borrow::Cow, string::String, vec::Vec};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED};
-use paperpaw_sdk::{Choices, Id, Level, SettingGroupSpec, SettingKind, SettingSpec, SettingValue};
+use paperpaw_sdk::{
+    Choices, Id, IdError, Level, SettingGroupSpec, SettingKind, SettingSpec, SettingValue,
+};
 
 const SCOPED: u32 = 1;
 const GUARDED: u32 = 1 << 1;
@@ -30,6 +32,19 @@ pub(crate) enum Value {
     Group(SettingGroupSpec),
     Screen(Callback),
     Action(Callback),
+}
+
+/// Production entry point: dynamic ids use the SDK's checked allocation path.
+pub(crate) fn from_record(owner: &str, record: wire::Record<'_>) -> Result<Value, i32> {
+    normalize(owner, record, &mut checked_id)
+}
+
+fn checked_id(text: &str) -> Result<Id, i32> {
+    Id::try_parse(text).map_err(|error| match error {
+        IdError::Invalid => ERR_INVALID,
+        IdError::NoMemory => ERR_NO_MEMORY,
+        _ => ERR_INVALID,
+    })
 }
 
 /// Normalize one decoded declaration without exposing any partial result.

@@ -5,7 +5,7 @@ use crate::abi7::settings_wire::settings_encode;
 use core::mem::MaybeUninit;
 
 fn checked(text: &str) -> Result<Id, i32> {
-    Id::parse(text).map_err(|_| ERR_INVALID)
+    checked_id(text)
 }
 
 fn encoded(value: SettingValueRef<'_>) -> Vec<u8> {
@@ -220,4 +220,15 @@ fn secret_settings_resources_and_callback_registrations_are_unsupported() {
             Err(ERR_UNSUPPORTED)
         ));
     }
+}
+
+#[test]
+fn production_mapping_uses_checked_id_creation() {
+    let default = encoded(SettingValueRef::Bool(true));
+    let value = from_record("battery", wire::Record::SettingSpec(spec(&default))).unwrap();
+    let Value::Setting(value) = value else {
+        panic!("expected a setting")
+    };
+    assert_eq!(value.id.as_str(), "battery.enabled");
+    assert_eq!(checked_id("invalid/id").unwrap_err(), ERR_INVALID);
 }
