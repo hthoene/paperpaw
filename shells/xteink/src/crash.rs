@@ -161,16 +161,40 @@ fn handle(info: &core::panic::PanicInfo<'_>, entry: usize) -> ! {
     // How deep the handler went, now that the deepest of it is done: the note
     // is the last of the text, in the room kept for it.
     let used = cut.len;
-    let (depth, left) = crate::stack::handler_use(entry);
-    let mut note = Cut {
-        buf: &mut buf[paperpaw_x4::rtc_guard::BODY][used..],
-        len: 0,
-    };
-    let _ = paperpaw_x4::stack_note::write(&mut note, depth, left);
+    // Only for a panic that ran on the main stack; the handler's depth only
+    // after a band trap (a breakpoint, `mcause` 3: the store trigger).
+    let breakpoint = from_exception && trap_cause() == Some(BREAKPOINT);
+    if let Some((depth, left)) = crate::stack::handler_use(entry, breakpoint) {
+        let mut note = Cut {
+            buf: &mut buf[paperpaw_x4::rtc_guard::BODY][used..],
+            len: 0,
+        };
+        let _ = paperpaw_x4::stack_note::write(&mut note, depth, left);
+    }
     paperpaw_x4::rtc_guard::seal_message(&mut buf);
     // SAFETY: one core, the firmware stopped: nothing else touches it.
     unsafe { core::ptr::addr_of_mut!(LAST).write_volatile(buf) };
     esp_hal::system::software_reset()
+}
+
+/// `mcause` of a breakpoint exception, the band's store trigger (and an
+/// `ebreak`).
+const BREAKPOINT: u32 = 3;
+
+/// The cause of the exception being handled: `mcause`, still what the trap
+/// left (nothing has trapped since, as for [`fault_address`]); an interrupt
+/// has its top bit set. Only the RISC-V chips have it.
+#[cfg(target_arch = "riscv32")]
+fn trap_cause() -> Option<u32> {
+    let cause: u32;
+    // SAFETY: reads a machine-mode CSR; no memory is touched.
+    unsafe { core::arch::asm!("csrr {}, mcause", out(reg) cause, options(nomem, nostack)) };
+    Some(cause)
+}
+
+#[cfg(not(target_arch = "riscv32"))]
+fn trap_cause() -> Option<u32> {
+    None
 }
 
 /// The instruction that faulted: `mepc` is still its address inside the
