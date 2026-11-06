@@ -8,7 +8,7 @@
 //!
 //! The wire form is a batch of exactly one record (the form tick uses), so the
 //! plugin decodes any event with the same framing. Dispatch rules that this module
-//! only states, never enforces: see [`bypasses_queue`].
+//! only states, never enforces: see [`bypasses_queue`](crate::native_host::events::bypasses_queue).
 
 use super::registrations::{
     EVENT_BATTERY_MEASURED_TAG, EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES,
