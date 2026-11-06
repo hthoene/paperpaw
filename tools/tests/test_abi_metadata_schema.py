@@ -95,6 +95,35 @@ class MetadataSchemaTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             GEN.check_lock(GEN.lock_record(prior), candidate)
 
+    def test_data_services_have_revision_0_and_no_table(self):
+        # PR #198: a data service's first version is semantic revision 0 and it
+        # has no call table (min_table_bytes 0); a table has its size word.
+        services = self.schema['metadata']['services']
+        self.assertEqual(sorted(item['key'] for item in services),
+                         ['core.plugin', 'core.plugin-usage', 'core.usage', 'core.work-note'])
+        for item in services:
+            self.assertEqual((item['major'], item['semantic_revision'],
+                              item['min_table_bytes'], item['since']), (1, 0, 0, 1))
+        GEN.validate(self.schema)
+        for bytes_ in (1, 2, 3):
+            with self.subTest(min_table_bytes=bytes_):
+                candidate = copy.deepcopy(self.schema)
+                candidate['metadata']['services'][0]['min_table_bytes'] = bytes_
+                with self.assertRaisesRegex(ValueError, 'size word'):
+                    GEN.validate(candidate)
+        candidate = copy.deepcopy(self.schema)
+        candidate['metadata']['services'][0]['semantic_revision'] = -1
+        with self.assertRaises(ValueError):
+            GEN.validate(candidate)
+        fixture = GEN.load(ROOT / 'abi/fixtures/metadata/schema.json')
+        candidate = copy.deepcopy(self.schema)
+        candidate['metadata']['profiles'] = fixture['metadata']['profiles']
+        build = dict(target='test-only-le64', used=[dict(kind='host', name='heap.alloc')],
+                     floor=0, services=['core.usage'], features=[])
+        decoded = decode(candidate, encode(candidate, build))
+        self.assertEqual(decoded['services'], [dict(key='core.usage', major=1,
+                                                    semantic_revision=0, min_table_bytes=0)])
+
     def test_first_metadata_catalogs_obey_released_pre_metadata_floor(self):
         prior = copy.deepcopy(self.schema)
         del prior['metadata']
@@ -109,6 +138,9 @@ class MetadataSchemaTests(unittest.TestCase):
             with self.subTest(kind=kind):
                 candidate = copy.deepcopy(self.schema)
                 candidate['minor'] = 2
+                # Only this requirement is new after the released minor 1.
+                candidate['metadata']['services'] = []
+                candidate['metadata']['features'] = []
                 candidate['metadata'][kind] = [copy.deepcopy(item)]
                 with self.assertRaisesRegex(ValueError, 'backdated metadata requirement'):
                     GEN.check_lock(trusted, candidate)

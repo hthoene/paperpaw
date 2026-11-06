@@ -11,7 +11,7 @@
 use alloc::boxed::Box;
 use alloc::rc::Rc;
 use alloc::vec::Vec;
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 
 use paperpaw_platform::{DirEntry, Rect, RefreshMode, Storage, StorageError};
 use paperpaw_sdk::Id;
@@ -22,6 +22,7 @@ pub(crate) const CORE: &str = "core";
 
 pub(crate) struct Meter {
     clock: Option<fn() -> u64>,
+    generation: Cell<u32>,
     /// By plugin, `core` first; plugins read it through
     /// `Env::plugin_usage`, the one copy kept.
     pub(crate) table: RefCell<Vec<PluginUsage>>,
@@ -52,12 +53,47 @@ impl Meter {
     pub(crate) fn new(clock: Option<fn() -> u64>) -> Rc<Self> {
         let meter = Rc::new(Self {
             clock,
+            generation: Cell::new(0),
             table: RefCell::new(Vec::new()),
             running: RefCell::new(Vec::new()),
             syncs: RefCell::new(Vec::new()),
         });
         meter.index(CORE);
+        meter.generation.set(0);
         meter
+    }
+
+    /// Read rows directly while one host visitor runs; no borrow crosses plugin code.
+    #[allow(
+        dead_code,
+        reason = "read by the usage service frame before slot wiring"
+    )]
+    pub(crate) fn visit_rows(
+        &self,
+        from: u32,
+        visitor: &mut dyn FnMut(&crate::abi7::context::PluginRow<'_>) -> core::ops::ControlFlow<()>,
+    ) -> Result<crate::abi7::context::RowsEnd, i32> {
+        use paperpaw_native::host_glue::ERR_STATE;
+        let table = self.table.try_borrow().map_err(|_| ERR_STATE)?;
+        let syncs = self.syncs.try_borrow().map_err(|_| ERR_STATE)?;
+        let total = u32::try_from(table.len()).map_err(|_| ERR_STATE)?;
+        let mut next = from.min(total);
+        for row in table
+            .iter()
+            .skip(usize::try_from(next).unwrap_or(usize::MAX))
+        {
+            let synced = syncs.get(next as usize).copied().unwrap_or(0);
+            let row = crate::abi7::context::PluginRow::new(row, synced);
+            if visitor(&row).is_break() {
+                break;
+            }
+            next += 1;
+        }
+        Ok(crate::abi7::context::RowsEnd {
+            total,
+            generation: self.generation.get(),
+            next,
+        })
     }
 
     fn now(&self) -> u64 {
@@ -85,6 +121,7 @@ impl Meter {
         }
         let id = Id::parse(plugin).unwrap_or(Id::new_static(CORE));
         table.push(PluginUsage::new(id));
+        self.generation.set(self.generation.get().wrapping_add(1));
         table.len() - 1
     }
 
@@ -122,7 +159,8 @@ impl Meter {
             self.add_busy(outer, now.saturating_sub(since));
         }
         running.push((index, now));
-        self.table.borrow_mut()[index].calls += 1;
+        let mut table = self.table.borrow_mut();
+        table[index].calls = table[index].calls.saturating_add(1);
         Running(self.clone())
     }
 
@@ -372,3 +410,7 @@ mod tests {
         assert_eq!((row("core").read, row("core").written), (u32::MAX, 3));
     }
 }
+
+#[cfg(test)]
+#[path = "meter_usage_tests.rs"]
+mod usage_tests;

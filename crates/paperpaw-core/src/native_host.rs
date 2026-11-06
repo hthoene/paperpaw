@@ -48,6 +48,10 @@ pub mod environment;
 /// Interface-7 event records (tags 32-37): host encode, decode and admission.
 #[path = "native_host/events.rs"]
 pub mod events;
+/// Production event adapter for a shell-owned flat plugin instance.
+#[path = "native_host/flat.rs"]
+pub mod flat;
+
 /// Bounded decoded registration submission during plugin construction.
 #[path = "native_host/registrations.rs"]
 pub mod registrations;

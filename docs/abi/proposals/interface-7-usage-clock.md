@@ -17,9 +17,10 @@ decision of this contract, **[Q]** is left open. Nothing here is implemented yet
   17-19, which so far only answer `ERR_UNSUPPORTED`. No existing slot, record, field or status changes
   meaning, so the meaning rule (`abi/interface-7/raise.md`, Manager decision 2026-11-06 11:21, arriving
   with PR #195) is kept: during a draft, existing entries only gain meaning. This document itself changes no generated file and needs no re-bless.
-- [D] The `abi.def` rows for tags 48-52 and their codecs land with the generator work (row 4: singleton
-  `records_decode_one`, plus the stream reader of section 2.4), re-blessed inside the draft that is open
-  then. Slot 3 and the snapshot are not touched.
+- [D] The `abi.def` rows for tags 48-52, the four service entries of the metadata catalog and the bare
+  record codec (`record_framed_len`, `record_encode_one`, `record_decode_one`) land with the storage-slots
+  PR; the plugin's stream reader of section 2.4 and the SDK's `native::Host` land with row 4. Slot 3 and
+  the snapshot are not touched.
 - [D] **The interface minor is 1.** Slots 17-19 are declared since minor 1 (`abi/abi.def`), and tags 48-52
   are declared since minor 1 as well, as every interface-7 declaration is while 7 is a draft
   (`docs/abi/records.md`: "All declarations and fields start at minor 1"). A plugin that uses them has
@@ -122,8 +123,9 @@ Sizes:
 - A tag 52 record is 16 bytes of fields, 19 bytes with its framing.
 - [D] `shown_ms`, `read`, `written` and `awake_ms` are **`u64` on the wire** (Senior #811 item 5), so the
   interface never fixes the kernel's narrow `u32` for good. That costs 16 bytes a row. The kernel's tables stay
-  `u32` to save memory, and the host widens when it encodes. While the kernel saturates at `u32::MAX`, a
-  value of exactly 4,294,967,295 in these fields means "at least this much". A later kernel may count wider
+  `u32` to save memory, and the host widens when it encodes. These counters saturate at a host limit
+  of at least `u32::MAX` (today exactly `u32::MAX`). A reader cannot distinguish an exact value from a
+  saturated one and treats a value that stops growing as a lower bound. A later kernel may count wider
   with no change to the interface.
 
 ### 2.3 Meaning, units and overflow of every field
@@ -134,7 +136,7 @@ Sizes:
 - [D] Every counter **saturates** at its type's largest value and stays there, and it is never cut down to
   a smaller type. A host that keeps a wider value converts it to the field's type by saturating.
   - Implementation item: `bluetooth_ms` is the only counter that adds with `+=` today
-    (`bluetooth.rs:160`); it becomes `saturating_add` in the services PR.
+    (`bluetooth.rs:160`); it becomes `saturating_add` in Core's accessor PR (Manager, 2026-11-06).
 
 **Tag 48, the device:**
 
@@ -212,9 +214,14 @@ plugin without a translated name gets its id.
   (`records.md`, forward compatibility).
 - [D] **Codec ownership:** the Kernel's generator emits the codecs from `abi.def`:
   - the records;
-  - `records_decode_one(&[u8])` for a scalar blob (row 4);
+  - `record_decode_one(&[u8])` for a scalar blob, one bare record with no count and nothing after it
+    (with `record_encode_one` and `record_framed_len` for the host);
   - a stream reader that takes one record at a time from a carry buffer of at most 256 bytes and reports
-    the end record.
+    the end record: `RecordStream::{feed, finish}` over `record_decode_prefix`, with
+    `RECORD_CARRY_MAX_BYTES` (lock format 8, its own `emitted_streams` section, so earlier locks
+    re-render unchanged);
+  - `records_decode_single(&[u8])` for an event payload (a batch of exactly one record) without a
+    `RecordBatch` on the stack.
 
   Services builds the SDK facade on top and writes no codec by hand.
 
@@ -263,7 +270,7 @@ plugin without a translated name gets its id.
   narrowed to 384 bytes on the X4.
   - What this costs Battery: one row a page at worst, three for typical rows. With about 70 rows that is
     about 24 pages every 10 minutes (70 at worst), 3 crossings each, a few milliseconds in total.
-  - The scalar services fit: tag 48 needs 47 bytes, tag 50 at most 133, tag 51 at most 270.
+  - The scalar services fit: tag 48 needs 47 bytes, tag 50 at most 134, tag 51 at most 270.
 - [D] **Other hosts** may allow more live blobs and larger pages, up to E7 D3.4's two per owner, 16 KiB
   in total and 4 KiB a page. A plugin may rely only on the X4 floor: one live blob at a time, not while
   it has a stream chunk outstanding, and pages of at least 384 bytes. It must follow `next` rather than
@@ -285,6 +292,7 @@ plugin without a translated name gets its id.
 | key not UTF-8 | `ERR_UTF8` |
 | key not in the grammar (2.1), including a bad `from.<n>` | `ERR_INVALID` |
 | unknown service | `ERR_NOT_FOUND` |
+| a known service with an argument of the wrong shape (`core.usage/x`, `core.plugin` without an id or with an id outside the id grammar, `core.plugin-usage/foo`) | `ERR_INVALID` |
 | key not declared in the metadata, wrong major, or minor too high | `ERR_UNSUPPORTED` |
 | unknown plugin id in `core.plugin` or `core.work-note`, or no note | `ERR_NOT_FOUND` |
 | a live blob already exists, or a stream chunk is outstanding (X4: device-wide), or no free handle (per owner or in the registry) | `ERR_BUSY` |
@@ -296,10 +304,17 @@ plugin without a translated name gets its id.
   such resources. `ERR_NO_SPACE` stays as the ADR says for capacity: an output buffer or batch too small,
   or a request larger than the profile can ever admit.
 - [D] **`blob.read` (slot 18):** a stale, foreign or wrong-kind handle gives `ERR_STATE`. An offset at or
-  past the end returns 0, and a zero-capacity read copies nothing (`abi/README.md`). A read never
-  returns more than the capacity or 4,096 bytes.
+  past the end returns 0, and a zero-capacity read copies nothing (`abi/README.md`). The checks run in
+  this order: a null `ctx` gives `ERR_INVALID`; no live frame or the wrong owner `ERR_STATE`; a bad
+  output pair (null with a capacity, or a capacity above 4,096, as for every buffer slot) `ERR_INVALID`;
+  then the handle. A read never returns more than the capacity.
 - [D] **`blob.release` (slot 19):** a stale, foreign or wrong-kind handle gives `ERR_STATE` and releases
-  nothing. A blob that expired at the end of its callback is stale.
+  nothing. A blob that expired at the end of its callback is stale. A null `ctx` gives `ERR_INVALID` and no
+  live frame or the wrong owner `ERR_STATE`, before the handle is looked at.
+- [D] **The producer filters** (freeze review G3, notes PR #20): the host writes only the fields of the
+  service minor the query asked for, so a reader never meets a record larger than the bound of the minor
+  it asked for (256 bytes for service 1.0). A later minor's reader sizes its carry from that minor's
+  generated bound. Unknown appended fields within the bound are still skipped.
 
 ### 2.7 Where the host reads the tables (answers Q9)
 
@@ -313,7 +328,8 @@ plugin without a translated name gets its id.
 ## 3. The clock (answers Q10)
 
 - [D] **No new slot or record.** Slot 3 and the snapshot cover what plugins need. A checked SDK wrapper
-  is enough: `paperpaw_sdk::native::clock::micros() -> Result<u64, i32>`.
+  is enough: `paperpaw_sdk::native::clock::micros(host: Host<'_>) -> Result<u64, i32>`, with the
+  callback-scoped host capability of row 4 (there is no global host pointer, `abi/entry.md`).
 - [D] **Slot 3 is always present.** Every interface-7 host installs it: it has existed since minor 1, and
   the shell's `Services` must provide `micros`.
   - It never answers `ERR_UNSUPPORTED`. With a valid `ctx` and `out` it always answers `OK`, and it
