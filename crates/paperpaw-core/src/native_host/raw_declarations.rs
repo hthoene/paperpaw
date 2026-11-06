@@ -181,6 +181,8 @@ impl RawDeclarations {
             .try_reserve_exact(name_cap - self.index.len())
             .map_err(|_| ERR_NO_MEMORY)?;
         // Allocators may grant more than requested. Refuse if that exceeds the budget.
+        // The larger capacity remains as charged spare until the failed
+        // construction drops; no batch or index entries are published.
         if index_size(self.batches.capacity(), self.index.capacity())? > budget {
             return Err(ERR_NO_SPACE);
         }

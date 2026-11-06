@@ -790,3 +790,77 @@ fn shifted_image_bytes_fail_at_still_in_bounds_offsets() {
             .is_err()
     );
 }
+
+#[test]
+fn changed_image_font_names_are_unique_across_face_and_extension_runs() {
+    const FACE: &str = "entryboludzyf";
+    const EXTENSION: &str = "entryoxzxketp";
+    assert_eq!(
+        super::super::declaration_index::name_hash(4, FACE),
+        super::super::declaration_index::name_hash(4, EXTENSION)
+    );
+    for change_face in [false, true] {
+        let records = [
+            Record::ResourceFontFace(ResourceFontFace {
+                name: FACE,
+                path: "fonts/a.ttf",
+                family: "Fixture",
+                style: 0,
+                weight: 400,
+                role: "",
+                priority: 0,
+            }),
+            Record::ResourceFontExtension(ResourceFontExtension {
+                name: EXTENSION,
+                path: "fonts/a.ppfp",
+                extends: "core.face",
+            }),
+        ];
+        let mut bytes = vec![0; REGISTRATION_MAX_BYTES];
+        let len = records_encode(&records, &mut bytes).unwrap();
+        bytes.truncate(len);
+        let source = Rc::new(Image {
+            bytes: RefCell::new(bytes),
+            generation: Cell::new(1),
+            live: Cell::new(true),
+            errors: Cell::new(0),
+            active: Cell::new(false),
+            denied: Cell::new(0),
+        });
+        let mut allocations = Allocations::default();
+        let mut store = DeclarationStore::default();
+        store
+            .prepare(
+                pending(&source, false, &mut allocations).unwrap(),
+                &mut allocations,
+            )
+            .unwrap()
+            .commit();
+        assert!(store.find("fixture", Kind::Face, FACE, &mut |_| {}));
+        assert!(store.find("fixture", Kind::Extension, EXTENSION, &mut |_| {}));
+        let (old, new) = if change_face {
+            (FACE, EXTENSION)
+        } else {
+            (EXTENSION, FACE)
+        };
+        let at = source
+            .bytes
+            .borrow()
+            .windows(old.len())
+            .position(|bytes| bytes == old.as_bytes())
+            .unwrap();
+        source.bytes.borrow_mut()[at..at + old.len()].copy_from_slice(new.as_bytes());
+        for kind in [Kind::Face, Kind::Extension] {
+            assert!(!store.find("fixture", kind, new, &mut |_| panic!(
+                "cross-kind duplicate"
+            )));
+        }
+        for key in keys(&store) {
+            assert!(!store.with_record(key, &mut |_| panic!("duplicate key")));
+        }
+        assert!(source.errors.get() > 0);
+        source.bytes.borrow_mut()[at..at + old.len()].copy_from_slice(old.as_bytes());
+        assert!(store.find("fixture", Kind::Face, FACE, &mut |_| {}));
+        assert!(store.find("fixture", Kind::Extension, EXTENSION, &mut |_| {}));
+    }
+}

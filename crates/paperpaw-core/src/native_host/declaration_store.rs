@@ -566,16 +566,29 @@ fn check_indexed_name(
     }
     // Revalidate collisions under the same guard. Valid changed bytes must
     // not turn distinct admitted names into duplicate keys at lookup time.
-    for peer in run.filter(|slot| slot.batch != key.batch || slot.record != key.record) {
-        let Ok(other) = decode_entry(owner, image, peer.batch, peer.record) else {
-            continue;
-        };
-        if name_key(other).is_some_and(|(other_kind, other_name)| {
-            other_kind == category
-                && name_hash(category, other_name) == hash
-                && same_name(category, name, other_name)
-        }) {
-            return Err(ERR_INVALID);
+    let peer_kinds = if category == 4 {
+        &[Kind::Face, Kind::Extension][..]
+    } else {
+        core::slice::from_ref(&kind)
+    };
+    for peer_kind in peer_kinds {
+        let peers = &owner.kinds[*peer_kind as usize];
+        let from = peers.partition_point(|slot| slot.hash < hash);
+        for peer in peers[from..]
+            .iter()
+            .take_while(|slot| slot.hash == hash)
+            .filter(|slot| slot.batch != key.batch || slot.record != key.record)
+        {
+            let Ok(other) = decode_entry(owner, image, peer.batch, peer.record) else {
+                continue;
+            };
+            if name_key(other).is_some_and(|(other_kind, other_name)| {
+                other_kind == category
+                    && name_hash(category, other_name) == hash
+                    && same_name(category, name, other_name)
+            }) {
+                return Err(ERR_INVALID);
+            }
         }
     }
     Ok(())
