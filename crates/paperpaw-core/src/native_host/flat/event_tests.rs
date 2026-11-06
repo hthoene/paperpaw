@@ -297,16 +297,12 @@ fn malformed_page_producers_drop_without_invoking_the_plugin() {
     for p in [
         Params::new(),
         params().with("section", "bad"),
-        params().with("page", "0"),
-        params().with("pages", "0"),
-        params().with("page", "11"),
-        params().with("pages", "bad"),
         params().with("progress", "bad"),
     ] {
         emit(&mut kernel, 37, 1, p);
     }
     assert!(seen.calls.borrow().is_empty());
-    assert_eq!(&*seen.dropped.borrow(), &[(37, DropReason::Producer); 7]);
+    assert_eq!(&*seen.dropped.borrow(), &[(37, DropReason::Producer); 3]);
     emit(&mut kernel, 37, 2, params());
     assert_eq!(seen.calls.borrow().len(), 1);
 }
@@ -540,4 +536,141 @@ fn code_loader_returns_flat_adapter_to_the_production_kernel_route() {
             .collect::<Vec<_>>(),
         [32, 33, 36, 34, 35, 37]
     );
+}
+
+fn unavailable_counters(page: u32, pages: u32) {
+    let seen = Observed::new();
+    let mut kernel = kernel(&seen, &[37]);
+    let reading = builtin::Reading::new("a.epub".into(), "A".into(), 50.0, 2, 4, "C".into())
+        .page(page)
+        .pages(pages);
+    for p in [reading.to_params(), Params::new().carrying(reading)] {
+        emit(&mut kernel, 37, 1, p);
+    }
+    assert_eq!(seen.calls.borrow().len(), 2);
+    for (_, bytes) in seen.calls.borrow().iter() {
+        let Record::EventPageTurned(r) = events::decode(bytes).unwrap() else {
+            panic!()
+        };
+        assert_eq!((r.page, r.pages), (None, None));
+        assert_eq!((r.section, r.offset, r.progress_ppm), (2, 4, 500_000));
+    }
+    assert!(seen.dropped.borrow().is_empty());
+}
+#[test]
+fn zero_page_counter_does_not_drop_a_page_turn() {
+    unavailable_counters(0, 10);
+    unavailable_counters(4, 0);
+}
+#[test]
+fn page_past_count_does_not_drop_a_page_turn() {
+    unavailable_counters(11, 10);
+}
+#[test]
+fn unparsable_optional_counter_is_unavailable_without_dropping_the_location() {
+    let seen = Observed::new();
+    let mut kernel = kernel(&seen, &[37]);
+    for (p, expected) in [
+        (params().with("pages", "bad"), (Some(4), None)),
+        (params().with("page", "bad"), (None, Some(10))),
+    ] {
+        emit(&mut kernel, 37, 1, p);
+        let calls = seen.calls.borrow();
+        let Record::EventPageTurned(r) = events::decode(&calls.last().unwrap().1).unwrap() else {
+            panic!()
+        };
+        assert_eq!((r.page, r.pages), expected);
+    }
+    assert!(seen.dropped.borrow().is_empty());
+}
+
+#[test]
+fn mixed_setting_declaration_is_retained_separately_from_callback_registrations() {
+    let owner = Box::pin(crate::native_host::HostOwner::new((), ()));
+    let mut construction = owner.as_ref().begin::<Registration>("flat").unwrap();
+    let records = [
+        Record::Registration(Registration::Event {
+            event_tag: 32,
+            token: 7,
+        }),
+        Record::SettingSpec(SettingSpec {
+            name: "enabled",
+            kind: 0,
+            flags: 0,
+            group: "core.other",
+            title: "Enabled",
+            help: "",
+            default: &[1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+            min: 0,
+            max: 0,
+            choices: "",
+        }),
+    ];
+    let mut bytes = [0; 512];
+    let len = records_encode(&records, &mut bytes).unwrap();
+    let decoded = records_decode(&bytes[..len]).unwrap();
+    construction.stage_batch(&decoded, |r| r).unwrap();
+    let mut batch = construction.commit(|_| {}).unwrap();
+    assert_eq!(batch.len(), 1);
+    let declarations = batch.take_declarations();
+    assert_eq!(declarations.specs().len(), 1);
+    let registration = batch.dispatch(0, &DispatchDepth::new(), |_, r| *r).unwrap();
+    let Registration::Event { event_tag, token } = registration else {
+        panic!()
+    };
+    assert_eq!((event_tag, token), (32, 7));
+    let seen = Observed::new();
+    let observed = Rc::clone(&seen);
+    let mut kernel = crate::native_host::flat::test_loader::load(
+        Kernel::builder(DEVICE),
+        &["flat"],
+        move |code| {
+            *observed.meter.borrow_mut() = Some(Rc::clone(&code.host.meter));
+            let adapter = FlatPlugin::new(
+                Manifest::new(code.id.clone(), "Flat", Version::new(1, 0, 0)),
+                Box::new(Instance {
+                    registrations: alloc::vec![(event_tag, 0)],
+                    seen: Rc::clone(&observed),
+                }),
+                Rc::new(DispatchDepth::new()),
+                code.host,
+            )
+            .unwrap();
+            Ok(Box::new(adapter))
+        },
+    );
+    emit(&mut kernel, 32, 1, Params::new());
+    let calls = seen.calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert_eq!((calls[0].0, tag(&calls[0].1)), (0, 32));
+    assert_eq!(declarations.specs().len(), 1);
+    assert_eq!(seen.scopes.get(), 1);
+    assert_eq!(seen.usages.borrow().len(), 1);
+    assert!(seen.dropped.borrow().is_empty());
+}
+
+#[test]
+fn independently_available_page_counters_are_preserved() {
+    let seen = Observed::new();
+    let mut kernel = kernel(&seen, &[37]);
+    for (reading, expected) in [
+        (
+            builtin::Reading::new("a".into(), "A".into(), 0.0, 0, 0, "".into()).page(4),
+            (Some(4), None),
+        ),
+        (
+            builtin::Reading::new("a".into(), "A".into(), 0.0, 0, 0, "".into()).pages(10),
+            (None, Some(10)),
+        ),
+    ] {
+        for p in [reading.to_params(), Params::new().carrying(reading)] {
+            emit(&mut kernel, 37, 1, p);
+            let calls = seen.calls.borrow();
+            let Record::EventPageTurned(r) = events::decode(&calls.last().unwrap().1).unwrap()
+            else {
+                panic!()
+            };
+            assert_eq!((r.page, r.pages), expected);
+        }
+    }
 }
