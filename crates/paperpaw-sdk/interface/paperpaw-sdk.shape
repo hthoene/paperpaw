@@ -495,10 +495,10 @@ const paperpaw_sdk::memory::Memory::NONE: Self = Self { read: None }
 const paperpaw_sdk::memory::Placement::FAST: Self = Self(1)
 const paperpaw_sdk::memory::Placement::LARGE: Self = Self(2)
 const paperpaw_sdk::native::CODE_FILES: &[&str] = &[ "code.ppn", "code.so", "code-host.dll", "code-host.so", "code-host.dylib", ]
-const paperpaw_sdk::native::DRAFT: u16 = 1u16
+const paperpaw_sdk::native::DRAFT: u16 = 2u16
 const paperpaw_sdk::native::FINGERPRINT: paperpaw_sdk::native::Fingerprint = Fingerprint::of(INTERFACE, { let mut hash = layout::Fnv::new()
 const paperpaw_sdk::native::INTERFACE: u16 = 7u16
-const paperpaw_sdk::native::LAYOUT: u64 = 10_440_263_880_052_507_335u64
+const paperpaw_sdk::native::LAYOUT: u64 = 10_966_988_515_060_024_239u64
 const paperpaw_sdk::native::TOOLCHAIN: &str = if cfg!(target_arch = "riscv32") { "rustc 1.99.0, riscv32imc-unknown-none-elf" } else if cfg!(target_arch = "xtensa") { "esp 1.97.0.0, xtensa-esp32s3-none-elf" } else { "the compiler of PaperPaw's release, for this computer" }
 const paperpaw_sdk::native::keys::MAX_REVOKED: usize = 256usize
 const paperpaw_sdk::numbers::DECIMAL_MARK: &str = "core.decimal"
@@ -741,6 +741,8 @@ enum paperpaw_sdk::firmware::Signer { PaperPaw, Unknown }
 enum paperpaw_sdk::gesture::Direction { Left, Right, Up, Down }
 enum paperpaw_sdk::gesture::GestureKind { Tap, LongPress, Swipe(0: paperpaw_sdk::gesture::Direction), Pinch { out: bool }, DoubleTap, TwoFingerTap, Other(0: &'static str) }
 enum paperpaw_sdk::help::Input { Any, Touch, Buttons }
+enum paperpaw_sdk::hyphenation::Table<'a> { Compiled(0: paperpaw_hyphen::Patterns<'static>), Card(0: &'a paperpaw_sdk::hyphenation::card::CardTables, 1: u32) }
+enum paperpaw_sdk::hyphenation::card::Unopened { Failed, GiveUp, NoRoom }
 enum paperpaw_sdk::install::Digest { Sha1(0: alloc::string::String), Sha256(0: alloc::string::String) }
 enum paperpaw_sdk::install::Received { Other, Next(0: paperpaw_sdk::install::Progress), Complete(0: paperpaw_sdk::install::Progress), Failed(0: paperpaw_sdk::install::Progress) }
 enum paperpaw_sdk::install::origin::Origin { Store, Local }
@@ -969,8 +971,13 @@ struct paperpaw_sdk::help::HelpHint { text: alloc::string::String, input: paperp
 struct paperpaw_sdk::help::Zone { x: u16, y: u16, w: u16, h: u16 }
 struct paperpaw_sdk::host::Hosted { id: paperpaw_sdk::id::Id, params: paperpaw_sdk::params::Params, screen: alloc::boxed::Box<dyn paperpaw_sdk::screen::Screen>, area: paperpaw_platform::geometry::Rect }
 struct paperpaw_sdk::host::ScreenHost { hosted: core::option::Option<paperpaw_sdk::host::Hosted> }
-struct paperpaw_sdk::hyphenation::Hyphenation { languages: alloc::vec::Vec<(paperpaw_sdk::id::Id, alloc::borrow::Cow<'static, str>, paperpaw_hyphen::Patterns<'static>)> }
+struct paperpaw_sdk::hyphenation::Hyphenation { languages: alloc::vec::Vec<(paperpaw_sdk::id::Id, alloc::borrow::Cow<'static, str>, paperpaw_hyphen::Patterns<'static>)>, card: paperpaw_sdk::hyphenation::card::CardTables }
 struct paperpaw_sdk::hyphenation::HyphenationSpec { id: paperpaw_sdk::id::Id, language: alloc::borrow::Cow<'static, str>, patterns: &'static [u8] }
+struct paperpaw_sdk::hyphenation::Hyphenator<'a> { table: paperpaw_sdk::hyphenation::Table<'a>, left: usize, right: usize }
+struct paperpaw_sdk::hyphenation::card::CardTables { storage: core::option::Option<alloc::rcs::rc::Rc<dyn paperpaw_platform::storage::Storage>>, opener: core::option::Option<paperpaw_sdk::hyphenation::card::Opener>, entries: alloc::vec::Vec<paperpaw_sdk::hyphenation::card::Entry>, next_serial: u32, open: core::cell::RefCell<alloc::vec::Vec<paperpaw_sdk::hyphenation::card::Open>>, clock: core::cell::Cell<u64> }
+struct paperpaw_sdk::hyphenation::card::Entry { plugin: alloc::string::String, tag: alloc::string::String, path: alloc::string::String, serial: u32, failures: core::cell::Cell<u8>, needed: core::cell::Cell<usize> }
+struct paperpaw_sdk::hyphenation::card::Open { serial: u32, stamp: u64, reader: alloc::boxed::Box<dyn paperpaw_sdk::hyphenation::card::Reader> }
+struct paperpaw_sdk::hyphenation::card::Opener { open: fn(&alloc::rcs::rc::Rc<dyn paperpaw_platform::storage::Storage>, &str, &mut dyn core::ops::function::FnMut(usize) -> core::option::Option<usize> + '_) -> core::result::Result<alloc::boxed::Box<dyn paperpaw_sdk::hyphenation::card::Reader>, paperpaw_sdk::hyphenation::card::Unopened> }
 struct paperpaw_sdk::id::Id(0: paperpaw_sdk::id::Text)
 struct paperpaw_sdk::id::InvalidId
 struct paperpaw_sdk::id::Text { start: core::ptr::non_null::NonNull<u8>, len: usize }
@@ -1237,6 +1244,7 @@ struct paperpaw_sdk::work::WorkSpec { id: paperpaw_sdk::id::Id, title: alloc::bo
 struct paperpaw_sdk::work::WorkStates { works: alloc::vec::Vec<(paperpaw_sdk::id::Id, alloc::string::String, paperpaw_sdk::work::WorkState)>, notes: alloc::vec::Vec<(paperpaw_sdk::id::Id, paperpaw_sdk::work::Note)> }
 trait paperpaw_sdk::event::EventData { function to_params(&Self) -> paperpaw_sdk::params::Params, function from_params(&paperpaw_sdk::params::Params) -> core::option::Option<Self>, function into_params(Self) -> paperpaw_sdk::params::Params }
 trait paperpaw_sdk::event::ParamValue { function to_param(&Self) -> alloc::string::String, function from_param(&str) -> core::option::Option<Self>, function missing() -> core::option::Option<Self> }
+trait paperpaw_sdk::hyphenation::card::Reader { function hyphenate(&mut Self, usize, usize, &str, &mut dyn core::ops::function::FnMut(usize)), function is_failed(&Self) -> bool, function heap(&Self) -> usize }
 trait paperpaw_sdk::keys::GestureRecognizer { function pointer(&mut Self, &paperpaw_platform::input::PointerEvent, paperpaw_platform::input::Instant) -> paperpaw_sdk::keys::PointerVerdict, function tick(&mut Self, paperpaw_platform::input::Instant) -> paperpaw_sdk::keys::Recognition, function next_tick(&Self) -> core::option::Option<paperpaw_platform::input::Instant>, function extended(&mut Self, &paperpaw_sdk::id::Id, &paperpaw_sdk::params::Params) -> paperpaw_sdk::screen::Handled }
 trait paperpaw_sdk::keys::KeyBindings { function bound(&Self, &[&str], &str) -> core::option::Option<paperpaw_sdk::id::Id>, function bindings(&Self, &str) -> alloc::vec::Vec<(alloc::string::String, core::option::Option<paperpaw_sdk::id::Id>, paperpaw_sdk::keys::BindingOrigin)>, function extended(&Self, &paperpaw_sdk::id::Id, &paperpaw_sdk::params::Params) -> core::option::Option<paperpaw_sdk::params::Params> }
 trait paperpaw_sdk::library::service::Library { function book(&Self, &paperpaw_sdk::env::Env<'_>, &str) -> core::option::Option<paperpaw_sdk::library::Book>, function catalog_state(&Self, &paperpaw_sdk::env::Env<'_>) -> paperpaw_sdk::library::catalog::State, function each(&Self, &paperpaw_sdk::env::Env<'_>, &mut dyn core::ops::function::FnMut(u64, paperpaw_sdk::library::catalog::Record)), function records(&Self, &paperpaw_sdk::env::Env<'_>, &[u64]) -> alloc::vec::Vec<core::option::Option<paperpaw_sdk::library::catalog::Record>>, function version(&Self, &paperpaw_sdk::env::Env<'_>) -> core::option::Option<u64>, function query(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library::catalog::Query, core::option::Option<&paperpaw_sdk::library::catalog::Record>, usize) -> alloc::vec::Vec<paperpaw_sdk::library::catalog::Record>, function found(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library::catalog::Query) -> usize, function index(&Self, &paperpaw_sdk::env::Env<'_>, usize, &str) -> paperpaw_sdk::library::index::Index, function is_current(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library::index::Index) -> bool, function refresh(&Self, &paperpaw_sdk::env::Env<'_>, &mut paperpaw_sdk::library::index::Index), function keep_index(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library::index::Index, &str, &str) -> bool, function kept_index(&Self, &paperpaw_sdk::env::Env<'_>, &str, &str) -> core::option::Option<paperpaw_sdk::library::index::Index>, function record(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library::index::Index, usize) -> core::option::Option<paperpaw_sdk::library::catalog::Record>, function set_finished(&Self, &paperpaw_sdk::env::Env<'_>, &str, bool) -> paperpaw_sdk::command::Command, function set_favourite(&Self, &paperpaw_sdk::env::Env<'_>, &str, bool) -> paperpaw_sdk::command::Command, function can_delete(&Self, &paperpaw_sdk::env::Env<'_>, &str) -> bool, function delete(&Self, &paperpaw_sdk::env::Env<'_>, &[&str]) -> paperpaw_sdk::library::service::Deleted, function extended(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::id::Id, &paperpaw_sdk::params::Params) -> core::option::Option<paperpaw_sdk::params::Params> }
