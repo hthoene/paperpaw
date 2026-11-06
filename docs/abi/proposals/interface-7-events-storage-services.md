@@ -80,9 +80,12 @@ when each of them is in the implementation and closed by its test.
 - **S6 Blob budget on the X4 (amends D3.4).** The X4 profile allows **one live service blob per device, at most
   4 KiB**, within ADR 0034's 4,096-byte boundary profile. Larger hosts may keep the D3.4 figures. A result that
   does not fit is truncated at a record boundary and flagged in its `service.end` record. The plugin asks for
-  the next part with a row offset in the key, for example `core.plugin-usage/1/from/<n>`. The host builds the blob
-  directly from the kernel's own table, never through a second copy such as `Env::plugin_usage()`, which
-  already clones several KB per call.
+  the next part with a row offset as the key's argument, `core.plugin-usage/from.<n>` (D3.2 grammar; the
+  service version is slot 17's `major`/`minor`, never part of the key). The host builds each page directly from
+  the kernel's own table, never through a second copy such as `Env::plugin_usage()`, which already clones
+  several KB per call. Pages are **not a consistent snapshot**: rows can shift between callbacks, so a reader
+  may see a row twice or miss one. `service.end` carries the table's total row count and a generation counter
+  that changes whenever the table changes, so the reader can tell that its pages came from different states.
 - **S7 Sync accounting (amends Q9).** `Metered` counts `storage.sync` calls per plugin, next to bytes read and
   written, so a plugin that wears the card shows up in Battery's developer view. A rate limit stays an open
   question.
@@ -497,7 +500,7 @@ interface services and appends a separate `data.query` slot. The handle registry
 
 **D3.2 Key grammar.** [P] `key = service [ "/" arg ]`, ASCII, at most 128 bytes (the
 metadata key limit). `service = segment ("." segment)+`, segment `[a-z][a-z0-9-]*`
-(<= 32 bytes). `arg = [A-Za-z0-9._-]{1,64}` (a plugin id). Anything else is `ERR_INVALID`;
+(<= 32 bytes). `arg = [A-Za-z0-9._-]{1,64}` (a plugin id, or `from.<n>` for a page offset). Anything else is `ERR_INVALID`;
 non-UTF-8 is `ERR_UTF8`. Unknown service: `ERR_NOT_FOUND`. `major` must equal the
 provider's major, `minor` must be <= the provider's, otherwise `ERR_UNSUPPORTED` (ADR34
 compatibility rule: a plugin built at `7.m` runs on `7.n`, `n >= m`). The service key and
@@ -525,10 +528,10 @@ created.
 
 | Key | Arg | Response | Used by Battery for |
 | --- | --- | --- | --- |
-| `core.usage/1` | none | one record tag 48 | global counters per sample |
-| `core.plugin-usage/1` | none | stream of tag 49 rows, then tag 52 | 10-minute plugin lines, developer view |
-| `core.plugin/1` | plugin id | one record tag 50 | display name |
-| `core.work-note/1` | plugin id | one record tag 51 (absent = `ERR_NOT_FOUND`) | note under a plugin in the view |
+| `core.usage` | none | one record tag 48 | global counters per sample |
+| `core.plugin-usage` | none | stream of tag 49 rows, then tag 52 | 10-minute plugin lines, developer view |
+| `core.plugin` | plugin id | one record tag 50 | display name |
+| `core.work-note` | plugin id | one record tag 51 (absent = `ERR_NOT_FOUND`) | note under a plugin in the view |
 
 | Tag | Record | Fields in order (all required) | Caps |
 | --- | --- | --- | --- |
