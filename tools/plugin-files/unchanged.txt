@@ -37,3 +37,4 @@ ef3be8ec641bfc36c338793b922dad5580748f7a language-ar, language-es  # paperpaw-si
 363de05c41f77748301902adef572e3e20768f00 language-ar, language-es  # paperpaw-sign pack frame scan (#228): tests and docs only
 6fef67f073bd44b5f8d00bde63d284fb9f416d09 language-ar, language-es  # paperpaw-sign pack frame scan (#228): the refusal's text only
 36a2cc0a0 language-ar, language-es  # sign: heap word only in pack5 (format 5) and show5 output; language packs are built by `paperpaw-sign catalog` (format 4), untouched
+8c7673db1bebfddb15be7d729e07d3d3ac70b80b language-ar, language-es  # paperpaw-sign pack frame scan (#228): the refusal's text only
