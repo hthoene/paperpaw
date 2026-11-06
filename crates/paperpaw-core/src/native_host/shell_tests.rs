@@ -685,6 +685,47 @@ mod instance_tests {
     }
 
     #[test]
+    fn a_failing_cancel_or_release_is_told_once_and_the_unload_still_finishes() {
+        use crate::native_host::flat::FlatPlugin;
+        use crate::native_host::{Error as HostError, FlatHost, TeardownStep};
+        // A Busy step cannot be deferred from a drop: it is told, `finish`
+        // retries the same step (the fault is one-shot) and the destructor
+        // then runs; a step that failed for good is told through the owner's
+        // recorded error. Either way: told exactly once, destroy once.
+        for (step, error) in [
+            (TeardownStep::Cancel, HostError::Invalid),
+            (TeardownStep::Release, HostError::Invalid),
+            (TeardownStep::Release, HostError::Busy),
+        ] {
+            reset(NORMAL);
+            EVENT_ONLY.with(|e| e.set(true));
+            let host = FlatHost {
+                meter: crate::meter::Meter::new(None),
+            };
+            let manifest = paperpaw_sdk::Manifest::new(
+                paperpaw_sdk::Id::parse("fake.plugin").unwrap(),
+                "fake",
+                paperpaw_sdk::Version::new(0, 0, 0),
+            );
+            let plugin = FlatPlugin::new(
+                manifest,
+                alloc::boxed::Box::new(load().unwrap()),
+                crate::native_host::flat::FlatDepth::try_new().unwrap(),
+                &host,
+            )
+            .unwrap();
+            teardown_fault::arm(step, error);
+            drop(plugin);
+            assert_eq!(
+                logged(),
+                ["teardown_failed", "destroy", "module"],
+                "{step:?} {error:?}"
+            );
+            assert_eq!(OPEN.with(Cell::get), 0, "every call ended");
+        }
+    }
+
+    #[test]
     fn every_announced_call_is_ended_also_when_make_fails_or_a_load_is_refused() {
         for mode in [FAILS, IGNORES_REFUSAL, BAD_TABLE] {
             reset(mode);
