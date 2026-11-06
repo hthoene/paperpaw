@@ -7,7 +7,7 @@ use paperpaw_sdk::native::{
 };
 
 /// A valid CSV record is less than 512 bytes even with maximum-width numbers.
-/// Refuse oversized records instead of retaining an unbounded damaged tail.
+/// Discard oversized damaged records without retaining an unbounded tail.
 const LINE_BYTES: usize = 512;
 
 pub(super) fn read(host: &Host<'_>) -> Result<Sessions, Error> {
@@ -20,9 +20,10 @@ pub(super) fn read(host: &Host<'_>) -> Result<Sessions, Error> {
 
 fn read_file(host: &Host<'_>, name: &str, sessions: &mut Sessions) -> Result<(), Error> {
     let mut offset = 0u64;
-    let mut bytes = [0; 2048];
+    let mut bytes = [0; 512];
     let mut line = [0; LINE_BYTES];
     let mut length = 0;
+    let mut oversized = false;
     loop {
         let count = match storage::read_at(host, Root::Data, name, offset, &mut bytes) {
             Ok(count) => count,
@@ -35,16 +36,25 @@ fn read_file(host: &Host<'_>, name: &str, sessions: &mut Sessions) -> Result<(),
         offset = offset.checked_add(count as u64).ok_or(Error::Invalid)?;
         for &byte in &bytes[..count] {
             if byte == b'\n' {
-                feed(sessions, &line[..length]);
+                if !oversized {
+                    feed(sessions, &line[..length]);
+                }
                 length = 0;
+                oversized = false;
             } else {
-                *line.get_mut(length).ok_or(Error::NoSpace)? = byte;
-                length += 1;
+                if let Some(out) = line.get_mut(length) {
+                    *out = byte;
+                    length += 1;
+                } else {
+                    oversized = true;
+                }
             }
         }
     }
     // As before, a final unterminated line is parsed if its fields suffice.
-    feed(sessions, &line[..length]);
+    if !oversized {
+        feed(sessions, &line[..length]);
+    }
     Ok(())
 }
 
