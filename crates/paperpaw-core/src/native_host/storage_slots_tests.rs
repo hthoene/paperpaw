@@ -320,7 +320,7 @@ fn bad_pairs_and_bounds_are_rejected_before_storage_or_output() {
 }
 
 #[test]
-fn reserve_errors_preserve_files_and_bad_read_counts_zero_output() {
+fn reserve_errors_preserve_files_and_read_errors_zero_output() {
     let backend = Backend::default();
     // Stay above the 4096-byte recall limit so an invalid backend count
     // reaches the raw adapter instead of being consumed by the file cache.
@@ -435,13 +435,12 @@ fn preflight_failures_preserve_output_and_read_failures_zero_it() {
         .files
         .write(FILE, &alloc::vec![0x5a; MAX_DATA + 1])
         .unwrap();
-    scoped(&backend, |scope, kernel| {
+    scoped(&backend, |scope, _| {
         for (error, expected) in [
             (StorageError::NotFound, ERR_NOT_FOUND),
             (StorageError::Io, ERR_IO),
-            (StorageError::InvalidPath, ERR_INVALID),
+            (StorageError::InvalidData, ERR_INVALID),
         ] {
-            kernel.shared.recall.clear();
             let mut out = [0xa5; 7];
             backend.fail.set(Some(error));
             // SAFETY: valid disjoint input and exclusive output.
@@ -451,8 +450,6 @@ fn preflight_failures_preserve_output_and_read_failures_zero_it() {
             );
             assert_eq!(out, [0xa5; 7], "preflight must not write");
             backend.fail.set(None);
-            // Each phase models a fresh call, without cached preflight errors.
-            kernel.shared.recall.clear();
             backend.read_failure.set(Some(error));
             // SAFETY: same live output; the read begins after successful preflight.
             assert_eq!(
