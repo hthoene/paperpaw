@@ -16,6 +16,7 @@ struct Backend {
     fail: Rc<Cell<Option<StorageError>>>,
     bad_count: Rc<Cell<bool>>,
     partial_error: Rc<Cell<bool>>,
+    read_failure: Rc<Cell<Option<StorageError>>>,
 }
 
 impl Backend {
@@ -27,6 +28,10 @@ impl Backend {
 impl Storage for Backend {
     fn read_at(&self, path: &str, offset: u64, out: &mut [u8]) -> Result<usize, StorageError> {
         self.check()?;
+        if let Some(error) = self.read_failure.get() {
+            out.fill(0xee);
+            return Err(error);
+        }
         if self.bad_count.get() {
             out.fill(0xee);
             return Ok(out.len() + 1);
@@ -315,7 +320,7 @@ fn bad_pairs_and_bounds_are_rejected_before_storage_or_output() {
 }
 
 #[test]
-fn reserve_errors_preserve_files_and_read_errors_zero_output() {
+fn reserve_errors_preserve_files_and_bad_read_counts_zero_output() {
     let backend = Backend::default();
     // Stay above the 4096-byte recall limit so an invalid backend count
     // reaches the raw adapter instead of being consumed by the file cache.
@@ -341,6 +346,7 @@ fn reserve_errors_preserve_files_and_read_errors_zero_output() {
                 read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut out)),
                 ERR_IO
             );
+            assert_eq!(out, [0xa5; 4], "preflight failure preserves output");
             assert_eq!(remove(scope, OWNER, 0, bytes(b"state")), ERR_IO);
             assert_eq!(
                 rename(scope, OWNER, 0, bytes(b"state"), bytes(b"other")),
@@ -418,6 +424,58 @@ fn a_backend_that_partly_writes_then_fails_leaves_initialized_zero_output() {
             );
             assert_eq!(out.map(|byte| byte.assume_init()), [0; 4]);
         }
+    });
+}
+
+#[test]
+fn preflight_failures_preserve_output_and_read_failures_zero_it() {
+    let backend = Backend::default();
+    // Above the recall limit: each read reaches the actual backend.
+    backend
+        .files
+        .write(FILE, &alloc::vec![0x5a; MAX_DATA + 1])
+        .unwrap();
+    scoped(&backend, |scope, kernel| {
+        for (error, expected) in [
+            (StorageError::NotFound, ERR_NOT_FOUND),
+            (StorageError::Io, ERR_IO),
+            (StorageError::InvalidPath, ERR_INVALID),
+        ] {
+            kernel.shared.recall.clear();
+            let mut out = [0xa5; 7];
+            backend.fail.set(Some(error));
+            // SAFETY: valid disjoint input and exclusive output.
+            assert_eq!(
+                unsafe { read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut out)) },
+                expected
+            );
+            assert_eq!(out, [0xa5; 7], "preflight must not write");
+            backend.fail.set(None);
+            // Each phase models a fresh call, without cached preflight errors.
+            kernel.shared.recall.clear();
+            backend.read_failure.set(Some(error));
+            // SAFETY: same live output; the read begins after successful preflight.
+            assert_eq!(
+                unsafe { read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut out)) },
+                expected
+            );
+            assert_eq!(out, [0; 7], "read failure must leave no partial bytes");
+            backend.read_failure.set(None);
+        }
+        let mut out = [0xa5; 7];
+        // SAFETY: valid call, but no file exists for this path.
+        assert_eq!(
+            unsafe { read_at(scope, OWNER, 0, bytes(b"absent"), 0, output(&mut out)) },
+            ERR_NOT_FOUND
+        );
+        assert_eq!(out, [0xa5; 7]);
+        backend.bad_count.set(true);
+        // SAFETY: backend over-reporting is validated before returning success.
+        assert_eq!(
+            unsafe { read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut out)) },
+            ERR_INVALID
+        );
+        assert_eq!(out, [0; 7]);
     });
 }
 

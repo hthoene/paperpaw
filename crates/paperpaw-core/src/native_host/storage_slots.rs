@@ -104,8 +104,9 @@ pub(crate) unsafe fn size(
 }
 
 /// Slot 21: read a bounded chunk into possibly uninitialized caller storage.
-/// Once the scoped storage adapter is available, the entire output is zeroed
-/// before reading into it. A storage failure or invalid count leaves it zeroed.
+/// Validation and file preflight failures preserve caller output. After the
+/// file preflight succeeds, output is initialized in place. A subsequent read
+/// failure or invalid count leaves its whole capacity zeroed.
 ///
 /// # Safety
 /// Nonempty input must be live and readable; nonempty output must be live,
@@ -125,6 +126,9 @@ pub(crate) unsafe fn read_at(
         // SAFETY: validated bounds and the caller's exclusive output contract.
         let out = unsafe { buffers::buffer_out(out, MAX_DATA) }?;
         with_adapter(scope, owner, |adapter| {
+            // Check existence and read-path validation before touching output.
+            // A later media failure is covered by read_at's zero-output rule.
+            adapter.size(root, path)?;
             // Storage takes initialized bytes. Initialize the caller's output
             // in place so no maximum-sized host scratch is needed on the stack.
             for byte in out.iter_mut() {
