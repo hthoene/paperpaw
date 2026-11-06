@@ -30,7 +30,7 @@ impl FlatInstance for Instance {
         panic!("unexpected drop {why:?}");
     }
 }
-fn flat(calls: &Rc<Cell<usize>>) -> FlatPlugin {
+fn flat(calls: &Rc<Cell<usize>>, host: &FlatHost) -> FlatPlugin {
     FlatPlugin::new(
         Manifest::new(Id::new_static("flat"), "Flat", Version::new(1, 0, 0)),
         Box::new(Instance {
@@ -38,8 +38,15 @@ fn flat(calls: &Rc<Cell<usize>>) -> FlatPlugin {
             calls: Rc::clone(calls),
         }),
         Rc::new(DispatchDepth::new()),
+        host,
     )
     .unwrap()
+}
+fn load_flat(builder: crate::KernelBuilder, calls: &Rc<Cell<usize>>) -> crate::Kernel {
+    let calls = Rc::clone(calls);
+    test_loader::load(builder, &["flat"], move |code| {
+        Ok(Box::new(flat(&calls, code.host)))
+    })
 }
 struct RustListener(Rc<Cell<usize>>);
 impl Plugin for RustListener {
@@ -59,11 +66,10 @@ impl Plugin for RustListener {
 fn only_and_password_restrictions_apply_to_flat_and_rust_handlers() {
     let a = Rc::new(Cell::new(0));
     let b = Rc::new(Cell::new(0));
-    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(flat(&a))
-        .plugin(RustListener(Rc::clone(&b)))
-        .build()
-        .unwrap();
+    let mut kernel = load_flat(
+        crate::Kernel::builder(crate::tests::DEVICE).plugin(RustListener(Rc::clone(&b))),
+        &a,
+    );
     kernel.emit_to(builtin::STARTED.id(), &Params::new(), Some("rust"));
     assert_eq!((a.get(), b.get()), (0, 1));
     kernel.emit_to(builtin::STARTED.id(), &Params::new(), Some("flat"));
@@ -109,12 +115,12 @@ impl Plugin for GuardPlugin {
 fn guard_owned_events_filter_flat_and_rust_handlers_identically() {
     let a = Rc::new(Cell::new(0));
     let b = Rc::new(Cell::new(0));
-    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(flat(&a))
-        .plugin(RustListener(Rc::clone(&b)))
-        .plugin(GuardPlugin)
-        .build()
-        .unwrap();
+    let mut kernel = load_flat(
+        crate::Kernel::builder(crate::tests::DEVICE)
+            .plugin(RustListener(Rc::clone(&b)))
+            .plugin(GuardPlugin),
+        &a,
+    );
     kernel.open_screen(
         paperpaw_platform::Instant(1),
         Id::new_static("guard.screen"),
@@ -135,6 +141,7 @@ struct Reentrant<'a, 'env> {
     env: &'a Env<'env>,
     calls: Rc<Cell<usize>>,
     drops: Rc<Cell<usize>>,
+    host: FlatHost,
 }
 impl FlatInstance for Reentrant<'_, '_> {
     fn registrations(&self, visit: &mut dyn FnMut(FlatRegistration)) {
@@ -150,7 +157,7 @@ impl FlatInstance for Reentrant<'_, '_> {
         self.calls.set(self.calls.get() + 1);
         // Re-enter the exact handler used by FlatPlugin while its scope is live.
         // Admission must fail before dispatch_event can see plugin state again.
-        deliver(self, depth, 32, 0, self.env, &Params::new());
+        deliver(self, depth, &self.host, 32, 0, self.env, &Params::new());
         Ok(0)
     }
     fn event_dropped(&self, tag: u32, why: DropReason) {
@@ -159,16 +166,18 @@ impl FlatInstance for Reentrant<'_, '_> {
     }
 }
 struct ReentryDriver {
+    host: FlatHost,
     calls: Rc<Cell<usize>>,
     drops: Rc<Cell<usize>>,
 }
 impl Plugin for ReentryDriver {
     fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("reentry"), "Reentry", Version::new(1, 0, 0))
+        Manifest::new(Id::new_static("flat"), "Reentry", Version::new(1, 0, 0))
     }
     fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
         let calls = Rc::clone(&self.calls);
         let drops = Rc::clone(&self.drops);
+        let meter = Rc::clone(&self.host.meter);
         r.subscribe(
             builtin::STARTED,
             Box::new(move |env, _, _| {
@@ -177,8 +186,19 @@ impl Plugin for ReentryDriver {
                     env,
                     calls: Rc::clone(&calls),
                     drops: Rc::clone(&drops),
+                    host: FlatHost {
+                        meter: Rc::clone(&meter),
+                    },
                 };
-                deliver(&instance, &DispatchDepth::new(), 32, 0, env, &Params::new());
+                deliver(
+                    &instance,
+                    &DispatchDepth::new(),
+                    &instance.host,
+                    32,
+                    0,
+                    env,
+                    &Params::new(),
+                );
             }),
         )
     }
@@ -187,13 +207,21 @@ impl Plugin for ReentryDriver {
 fn callback_reentry_is_busy_before_plugin_callback_runs_twice() {
     let calls = Rc::new(Cell::new(0));
     let drops = Rc::new(Cell::new(0));
-    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(ReentryDriver {
-            calls: Rc::clone(&calls),
-            drops: Rc::clone(&drops),
-        })
-        .build()
-        .unwrap();
+    let observed_calls = Rc::clone(&calls);
+    let observed_drops = Rc::clone(&drops);
+    let mut kernel = test_loader::load(
+        crate::Kernel::builder(crate::tests::DEVICE),
+        &["flat"],
+        move |code| {
+            Ok(Box::new(ReentryDriver {
+                calls: Rc::clone(&observed_calls),
+                drops: Rc::clone(&observed_drops),
+                host: FlatHost {
+                    meter: Rc::clone(&code.host.meter),
+                },
+            }))
+        },
+    );
     kernel.start(paperpaw_platform::Instant(1));
     assert_eq!((calls.get(), drops.get()), (1, 1));
 }
