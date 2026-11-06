@@ -12,3 +12,4 @@
 5 additive: paperpaw_native::host_glue re-exports ERR_DENIED and ERR_TIMEOUT (#228)
 5 additive: private SDK copies of the generated snapshot, colour and command codecs in native::wire (shape only, nothing public) (#228)
 6 text.metrics, text.ink and canvas.clip appended to PpHost as slots 29-31 (out_i32 argument type) answering ERR_UNSUPPORTED until wired, and commands 56-59 in the generated command codec, change the one-line PpHost and Command shapes, so the next draft; generated i18n format/digits limits (#228)
+7 typed SDK callbacks, borrowed draw access and complete Battery host wrappers (#228)

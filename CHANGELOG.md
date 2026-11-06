@@ -6,6 +6,17 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+- Interface 7 draft 7 SDK: typed callbacks and frame-owned drawing, font metrics
+  and ink, nested clipping, exact snapshot views, complete message copies,
+  settings/grant reads, typed callback subscriptions and
+  screen/action/redraw/setting commands.
+
+
+- Interface 7 draft 5 SDK: bounded callback replies, typed draw frames and input,
+  screen/action declarations and events, catalog formatting and digit conversion,
+  and distinct permission/timeout errors. Callback input has no fixed glue cap.
+
+
 ### Added
 
 - Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
