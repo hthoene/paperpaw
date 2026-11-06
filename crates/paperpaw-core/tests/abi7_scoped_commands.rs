@@ -302,6 +302,9 @@ fn staged_set_setting_is_read_back_in_the_next_callback() {
 struct EmptyEditor;
 impl Screen for EmptyEditor {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+        paperpaw_sdk::Handled::No
+    }
 }
 
 struct GuardedWriter {
