@@ -8,6 +8,8 @@ change the plugin SDK.
 
 ### Added
 
+- Host-side storage adapter for interface-7 slots 20–26 (path rules, free-space reserve, per-plugin
+  read/write/sync counting), not wired (#228).
 - Interface-7 draft: statuses `ERR_NOT_FOUND` (-10) and `ERR_FULL` (-11), and record codecs generated from
   the fields declared in `abi/abi.def` (optional appended fields, tag ranges per record family) (#228).
 - `tools/hyphenation-packs`: builds and checks the thirteen hyphenation plugins as data plugins
