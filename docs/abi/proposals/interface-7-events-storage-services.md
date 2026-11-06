@@ -444,13 +444,18 @@ Gates before plugin storage goes live (Senior's remarks 1 and 2 on PR #188, Mana
 - **G-free-1, the count is driven.** The kernel asks for one part in its idle ticks
   (`paperpaw-core/src/free_count.rs`): from the start, again on waking and after the card was a
   USB drive, a 50 ms pause between parts, never while a press waits to be told single or double
-  nor within 2 s of sleep, not on a storage that cannot tell its size. Done on host; open: the
-  X4's time per part and for a full count of a large card, and that no part falls in the suspend
-  window (Firmware measures, with the next device run).
+  nor within 2 s of sleep, not on a storage that cannot tell its size. Done on host. Open on the X4
+  (Firmware measures with the next device run, Kernel confirms; Notes PR #16 lists the same rows):
+  (a) each part takes **at most 25 ms** (from the log); (b) on a FAT32 card of 64 GB or more, after a
+  cold boot, the free space is known within **30 s** of idle; (c) over 10 sleeps, **no part** starts
+  within 2 s before sleep; (d) a press during the count is handled no later than with the count off,
+  and within 25 ms.
 - **G-free-2, no drift after the count.** The free space follows the clusters the patched
   rust-fatfs marks taken and free in the FAT (`FileSystem::cluster_changes`), so a write that
   fails part of the way, a folder that grows and temporary files are followed exactly
-  (`paperpaw-fat/src/tests/free_follow.rs`). Done on host.
+  (`paperpaw-fat/src/tests/free_follow.rs`). Done on host. Open on the X4: once the count is done,
+  20 writes, appends, renames and deletes; then the free space differs by **0 clusters** from a fresh
+  count (after a restart) and from a PC's value for the card.
 
 ### 2.3 Failure semantics
 
