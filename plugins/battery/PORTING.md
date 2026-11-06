@@ -100,3 +100,17 @@ keeps them.
 
 `battery.by-plugin`'s effect on the view (see section 4): the port needs a
 deterministic clock/busy fixture to test it.
+
+## Interface-7 preparation (merged contracts only)
+
+`tests/abi7_preparation.rs` compares borrowed literal settings declarations with
+the existing golden without converting a Registrar. Its event fixtures use the
+merged host encoders for records 32–37, including unknown page counters. They
+are input fixtures for the future SDK facade, not a native plugin or live
+dispatch proof. No wire layouts are duplicated in Battery.
+
+Pending production integration points: public event/storage/service wrappers;
+screen/action registration and application; key/touch/action/gesture callbacks;
+open/action/redraw commands; font roles and lifetimes; text and i18n formatting.
+These remain explicit tasks until Kernel's contracts and the SDK APIs land.
+The logging implementation and all acceptance goldens remain unchanged here.
