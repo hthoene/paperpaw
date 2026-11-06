@@ -489,18 +489,24 @@ fn line(counts: &BTreeMap<String, usize>) -> String {
 /// listed on purpose: measured, they never appear (S2: no host-framed
 /// `append_record` is needed on this storage); if one ever does, S2 must be
 /// decided again, not this list edited.
+/// An append larger than the 24-slot block cache (12 KB): the cache evicts
+/// while the chain of clusters grows, on every cluster size.
+const BIG: usize = 20 * 1024 + 7;
+
 const BAD: [&str; 5] = ["Missing", "Other", "Unreadable", "Stale", "ZeroTail"];
 
 /// Appended without a sync, cut at every block the storage writes: the file
 /// reads as the old content, or the old content and a prefix of what was
 /// appended. It is never lost and the old content is never changed. (Measured:
-/// nothing of an unsynced append reaches the card, the file stays old.)
+/// blocks do reach the card during a large append, as the block cache of 24
+/// slots evicts; the file stays old because the block with its size, which
+/// the write-back changes last, is not among them.)
 #[test]
 fn v1_append_without_sync_leaves_a_prefix_never_a_lost_file() {
     for card in &CARDS {
         let c = card.cluster();
         let old = data(c / 2 + 3, 1);
-        for new_len in [1, c / 2, c, 2 * c + 5, 6 * c + c / 3] {
+        for new_len in [1, c / 2, c, 2 * c + 5, 6 * c + c / 3, BIG] {
             let new = data(new_len, 150);
             let (cuts, counts) = tally(card, &old, &new, |s| s.append("log.csv", &new).unwrap());
             for bad in BAD {
@@ -528,7 +534,7 @@ fn v1_a_cut_inside_sync_leaves_a_prefix_never_a_lost_file() {
     for card in &CARDS {
         let c = card.cluster();
         let old = data(c / 2 + 3, 1);
-        for new_len in [1, c / 2, c, 2 * c + 5, 6 * c + c / 3] {
+        for new_len in [1, c / 2, c, 2 * c + 5, 6 * c + c / 3, BIG] {
             let new = data(new_len, 150);
             let (cuts, counts) = tally(card, &old, &new, |s| {
                 s.append("log.csv", &new).unwrap();
@@ -630,6 +636,60 @@ fn v1_an_evicted_append_is_read_back_whole_in_the_same_mount() {
             eprintln!(
                 "V1.3e evicted, same mount {:<16} new {new_len:>5}: read back whole",
                 card.label
+            );
+        }
+    }
+}
+
+/// Free clusters the FAT of `card` counts (all of it read).
+fn free_clusters(card: &Overlay) -> u32 {
+    mounted(card.clone()).fs.stats().unwrap().free_clusters()
+}
+
+/// What an unsynced append that is cut leaves on the card besides the file:
+/// clusters taken in the FAT that the file does not use. Recorded per cut as
+/// the free clusters short of the card before the append, and whether
+/// removing the file (and a sync) gives them back. Measured: reported, not
+/// asserted, except that a cut never frees more than there was.
+#[test]
+fn v1_clusters_taken_by_a_cut_append_are_counted_and_given_back_by_removal() {
+    for card in &CARDS {
+        let c = card.cluster();
+        let old = data(c / 2 + 3, 1);
+        for new_len in [c / 2, 2 * c + 5, BIG] {
+            let new = data(new_len, 150);
+            let image = with_stale_clusters(card, "log.csv", &old, 24 * c);
+            let cuts = cuts_of(image, |s| s.append("log.csv", &new).unwrap());
+            let start = cuts.iter().next().unwrap();
+            let before = free_clusters(&start);
+            // The same card with the file removed: what removal must give.
+            let removed = {
+                let s = mounted(start.clone());
+                s.remove("log.csv").unwrap();
+                s.fs.stats().unwrap().free_clusters()
+            };
+            let (mut leaks, mut most, mut kept) = (0, 0, 0);
+            for (n, cut) in cuts.iter().enumerate() {
+                let free = free_clusters(&cut);
+                assert!(
+                    free <= before,
+                    "{} cut {n}: more free than before",
+                    card.label
+                );
+                if free < before {
+                    leaks += 1;
+                    most = most.max(before - free);
+                }
+                let s = mounted(cut);
+                s.remove("log.csv").unwrap();
+                if s.fs.stats().unwrap().free_clusters() != removed {
+                    kept += 1;
+                }
+            }
+            eprintln!(
+                "V1.3f clusters taken {:<16} new {new_len:>5}: {:>3} cuts, {leaks:>3} with clusters taken (most {most}), {kept:>3} not given back by removal",
+                card.label,
+                cuts.len()
             );
         }
     }
