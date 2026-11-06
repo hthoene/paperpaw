@@ -8,6 +8,8 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 draft: statuses `ERR_NOT_FOUND` (-10) and `ERR_FULL` (-11), and record codecs generated from
+  the fields declared in `abi/abi.def` (optional appended fields, tag ranges per record family) (#228).
 - Interface-7 groundwork: generated typed settings values and scoped settings/translation
   copy-out adapters, with bounded handle and callback admission checks (#228).
   The new host table is not yet activated.

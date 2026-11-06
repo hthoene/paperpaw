@@ -15,7 +15,10 @@ COMMAND_RECORDS = ('command.set_setting',)
 TAG_RANGES = {
     'registration.event': (1, 3), 'registration.draw': (1, 3), 'event.tick': (1, 3),
     'command.set_setting': (4, 4),
+    # Declarative registration (PR #158, section 8): settings and resources,
+    # then actions, menus, screens and icons (Part 5), all within 5-31.
     'setting': (5, 31), 'resource': (5, 31),
+    'action': (5, 31), 'menu': (5, 31), 'screen': (5, 31), 'icon': (5, 31),
     'event': (32, 43), 'i18n': (44, 47), 'service': (48, 55), 'command': (56, 62),
 }
 KEYWORDS = frozenset(
@@ -73,6 +76,10 @@ def wire_records(schema):
     return out
 
 
+# The values a scalar field (and so its default) can hold.
+SCALAR_RANGES = {'u32': (0, 2**32 - 1), 'u64': (0, 2**64 - 1), 'i32': (-2**31, 2**31 - 1)}
+
+
 def _fields(record):
     """Required fields first, then optional ones with consecutive ordinals."""
     name, fields = record['name'], record.get('fields')
@@ -100,7 +107,9 @@ def _fields(record):
                      f'{name}: at most {MAX_OPTIONAL} optional fields')
             default = field.get('default')
             if kind in SCALAR_BYTES:
-                _require(type(default) is int, f'{name}.{label}: default must be an integer')
+                low, high = SCALAR_RANGES[kind]
+                _require(type(default) is int and low <= default <= high,
+                         f'{name}.{label}: default must be an integer in the range of {kind}')
             else:
                 _require(default == '' and type(default) is str,
                          f'{name}.{label}: str/bytes default must be empty')

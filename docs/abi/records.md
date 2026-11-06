@@ -55,7 +55,7 @@ unknown family or a tag declared twice is refused; tags are never reused):
 | --- | --- |
 | 1-3 | `registration.event`, `registration.draw`, `event.tick` |
 | 4 | `command.set_setting` |
-| 5-31 | declarative registration: `setting.*`, `resource.*` |
+| 5-31 | declarative registration: `setting.*`, `resource.*`, `action.*`, `menu.*`, `screen.*`, `icon.*` |
 | 32-43 | `event.*` |
 | 44-47 | `i18n.*` |
 | 48-55 | `service.*` |

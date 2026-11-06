@@ -96,6 +96,12 @@ mod tests {
         assert_eq!(out[n - 1], b'z');
         out[n - 1] = 0xff;
         assert_eq!(records_decode(&out[..n]).map(|_| ()), Err(-5));
+        // A presence bit set without its field (`g`, the last two bytes): refused.
+        let n = records_encode(&[Record::SettingSynthetic(some)], &mut out).unwrap();
+        let mut cut = [0u8; 128];
+        cut[..n - 2].copy_from_slice(&out[..n - 2]);
+        cut[2] -= 2;
+        assert_eq!(records_decode(&cut[..n - 2]).map(|_| ()), Err(-2));
     }
 }
 '''
@@ -150,7 +156,8 @@ class WireRecordTests(unittest.TestCase):
             subprocess.run([str(binary)], check=True)
 
     def test_every_family_accepts_its_range_and_refuses_the_rest(self):
-        ranges = {'setting.x': (5, 31), 'resource.x': (5, 31), 'event.x': (32, 43),
+        ranges = {'setting.x': (5, 31), 'resource.x': (5, 31), 'action.x': (5, 31),
+                  'menu.x': (5, 31), 'screen.x': (5, 31), 'icon.x': (5, 31), 'event.x': (32, 43),
                   'i18n.x': (44, 47), 'service.x': (48, 55), 'command.x': (56, 62)}
         small = [field('a', 'u32')]
         for name, (low, high) in ranges.items():
@@ -178,6 +185,15 @@ class WireRecordTests(unittest.TestCase):
         next(r for r in candidate['records'] if r['name'] == 'setting.spec')['id'] = 32
         with self.assertRaisesRegex(ValueError, 'outside its family range 5-31'):
             validate_records(candidate)
+
+    def test_scalar_defaults_must_fit_their_type(self):
+        for kind, bad in [('u32', -1), ('u32', 2**32), ('u64', 2**64), ('i32', 2**31),
+                          ('i32', -2**31 - 1)]:
+            fields = [field('a', 'u32'), field('b', kind, optional=True, ordinal=0, default=bad)]
+            with self.subTest(kind=kind, default=bad), self.assertRaises(ValueError):
+                validate_records(self.with_record(synthetic(fields=fields)))
+        fields = [field('a', 'u32'), field('b', 'i32', optional=True, ordinal=0, default=-2**31)]
+        validate_records(self.with_record(synthetic(fields=fields)))
 
     def test_field_rules_are_enforced(self):
         required = [field('a', 'u32')]
