@@ -314,4 +314,5 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
   - input/event decoding;
   - i18n/fonts wrappers;
   - section 10 in the event glue.
-- Follow-up PR (additive at draft 5): N4 stages and N6 images.
+- Follow-up (additive at draft 5): N4 stages, N6 images and `service.call` (D4), specified in
+  `stages-images-services.md`.
