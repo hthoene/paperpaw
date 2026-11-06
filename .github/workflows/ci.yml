@@ -470,6 +470,12 @@ jobs:
         # The baseline from table-baseline.txt, `none` refused once an
         # interface with tables is tagged: in the script, as ci-local runs it.
         run: tools/table-compat.sh
+      - name: This tree's own plugin runs, built with its own copies and in host table mode
+        # While the interface is a draft the step above only asserts that
+        # the interface-6 baseline is refused; the baseline HEAD (this
+        # tree) is of the same interface and draft, so both builds must
+        # run and agree, as they will against the frozen baseline.
+        run: tools/table-compat.sh HEAD
 
   architecture:
     name: Architecture rules

@@ -20,7 +20,8 @@ trusted base (the PR's base, or the commit before a push):
   reference file of the base is still there with all its lines in their order,
   and files and lines may be added. A line in `shared.list` and `table.sig` (and,
   within each kind, in `lang.list` and `i18n.list`) is added at the end only: a
-  line slipped in before shifts the slots plugins were built against. A change
+  line slipped in before shifts the slots plugins were built against; the pins
+  of `crate-pins.list` are a set (any order). A change
   plugins rely on takes the next draft;
 - every raise, every step to another draft and every addition is named:
   `abi/interface-<N>/blessings.txt` keeps the base's lines as they were
@@ -123,6 +124,8 @@ def summary_values(text):
 # indexed within each kind, the first word of the line.
 ORDERED = {DIRECTORY + '/shared.list', DIRECTORY + '/table.sig'}
 ORDERED_BY_KIND = {DIRECTORY + '/lang.list', DIRECTORY + '/i18n.list'}
+# A set, as the SDK interface test reads it: no index, so only the pins count.
+UNORDERED = {DIRECTORY + '/crate-pins.list'}
 
 
 def kind(line):
@@ -139,9 +142,12 @@ def by_kind(lines):
 
 def kept(name, old, new):
     """Whether `new` holds every line of `old` and nothing slipped in before
-    the end of it. In an ordered list `old` is a prefix of `new`, in a list
-    indexed by kind it is within each kind; elsewhere the lines of `old`
+    the end of it. In a set (the pins of crates) every old line is still
+    there, in any order. In an ordered list `old` is a prefix of `new`, in a
+    list indexed by kind it is within each kind; elsewhere the lines of `old`
     are all there, in the same order."""
+    if name in UNORDERED:
+        return set(old) <= set(new)
     if name in ORDERED:
         return new[:len(old)] == old
     if name in ORDERED_BY_KIND:
