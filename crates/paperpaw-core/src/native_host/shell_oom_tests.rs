@@ -299,3 +299,84 @@ fn font_removal_map_or_id_oom_invalidates_older_handles_without_panicking() {
         assert!(tracker.valid("owned-pack", after));
     }
 }
+
+#[test]
+fn service_budget_refusal_never_allocates_another_x4_page() {
+    use crate::abi7::core_frame::CoreFrame;
+    use crate::native_host::{HostResources, service_slots, shell::DeclaredServices};
+    use core::pin::pin;
+    use paperpaw_native::{
+        host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_NOT_FOUND, OK, PpBytes},
+        metadata::Declared,
+    };
+    use paperpaw_platform::Instant;
+    let pool = HostResources::try_new().unwrap();
+    let owner = pool.try_owner().unwrap();
+    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let declared =
+        DeclaredServices::try_from_iter(["core.plugin", "core.usage"].into_iter().map(|key| {
+            Declared {
+                key,
+                major: 1,
+                semantic_revision: 0,
+            }
+        }))
+        .unwrap();
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(Instant(0));
+    let frame = CoreFrame {
+        env: &env,
+        meter: &kernel.shared.meter,
+        font_removals: &kernel.shared.font_removals,
+        usage: &kernel.shared.usage,
+        plugins: &kernel.shared.plugins,
+        work: &kernel.shared.work_states,
+    };
+    let query = |text: &str, out: &mut u32| {
+        // SAFETY: borrowed fixture inputs and scalar output are live and disjoint.
+        unsafe {
+            service_slots::query(
+                &scope,
+                &owner,
+                &declared,
+                PpBytes {
+                    ptr: text.as_ptr(),
+                    len: text.len(),
+                },
+                1,
+                0,
+                out,
+            )
+        }
+    };
+    scope
+        .as_ref()
+        .scope_core(&frame, || {
+            let mut first = 0;
+            assert_eq!(query("core.usage", &mut first), OK);
+            for (key, expected) in [
+                ("core.usage", ERR_BUSY),
+                ("core.plugin/missing", ERR_NOT_FOUND),
+            ] {
+                let mut out = 0x9876;
+                arm_failure(1);
+                let result = query(key, &mut out);
+                let no_attempt = super::FAIL_NTH.with(|n| n.get() == 1);
+                arm_failure(0);
+                assert_eq!(result, expected);
+                assert_eq!(out, 0x9876);
+                assert!(no_attempt, "query must refuse before allocating scratch");
+            }
+            assert_eq!(service_slots::release(&scope, &owner, first), OK);
+            let mut out = 0x9876;
+            arm_failure(1);
+            let result = query("core.usage", &mut out);
+            arm_failure(0);
+            assert_eq!(result, ERR_NO_MEMORY);
+            assert_eq!(out, 0x9876);
+            assert_eq!(query("core.usage", &mut out), OK);
+        })
+        .unwrap();
+}
