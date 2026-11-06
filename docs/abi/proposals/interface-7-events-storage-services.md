@@ -513,7 +513,144 @@ fit the budget on X4 (not measured).
 
 ## 4. Text, font, i18n and command vocabulary
 
-(placeholder)
+### 4.1 Facts: what is integrated, compiled, installed
+
+- [V] **Installed in a combined host table: none of the text, font, i18n or command slots.** The only table
+  constructor, `host_table()`, wires heap and clock; `font_acquire`, `handle_release`,
+  `text_measure`, `text_draw`, `i18n_copy`, `commands_submit` and the rest answer
+  `ERR_UNSUPPORTED` (`paperpaw-native/src/host_glue.rs:233-353`). `git grep` across
+  `origin/abi7/integration`, `fw/abi7-loader-prefix-228`, `fw/abi7-foreign-fixture-228`,
+  `kernel/abi7-scoped-settings-228` and the two `samples/*` refs finds no field
+  initializer for these slots other than that stub table and the generated/baseline files.
+  `abi/settings.md:29-31` says the settings/translation backends "compile in core but are
+  not installed in a combined host table"; that remains true.
+- [V] **Compiled in `paperpaw-core/src/abi7`:**
+  - slot 5 and slot 6 backends: `queries::settings_read` and `queries::i18n_copy`
+    (`abi7/queries.rs:21,49`), `unsafe`, scoped to a live frame; `i18n_copy` copies
+    `Translator::tr(key)`, which **returns the key itself when the message is missing**
+    (`paperpaw-i18n/src/lib.rs:273-277`), so a plugin cannot tell missing from present;
+  - slot 4: `snapshot` + `snapshot_wire` (`abi7/snapshot.rs`);
+  - text: **safe Rust functions** `graphics::text_measure(&FontHandle, size, &str)` and
+    `graphics::text_draw(&mut Canvas, &FontHandle, size, x, baseline, &str, Color)`
+    (`abi7/graphics.rs:118,133`). Their error contract is documented: input errors fail
+    before drawing, a bad returned advance is reported **after** drawing, so slot 14 is not
+    atomic (`graphics.rs:127-131`). These are not `extern "C"` adapters and have no frame
+    or handle lookup in front of them;
+  - the generic handle registry (`abi7/handles.rs`), no adapter uses it yet.
+- [V] **Missing for fonts:** no adapter resolves a `font.acquire` key to a font, no
+  `handle.release` adapter exists, and the font slots take a `u32` handle while the SDK's
+  `FontHandle<'a>` is a **borrow** of the registry, cache and drawing state
+  (`paperpaw-sdk/src/fonts.rs:796-810`); it cannot be stored in the registry past the call.
+  A persistent handle must hold an owned key (the font id) and **re-resolve on each
+  `text.*` call**, failing with `ERR_STATE` when the pack was replaced
+  (ADR34:127-135 "a stale one fails with `ERR_STATE`"). Fonts are looked up by string id
+  today (`Fonts::get(id)`, `fonts.rs:542`).
+- [V] Canvas slots 9-12: only a typed `CanvasScope` on the Kernel branch
+  `kernel/abi7-scoped-canvas-228` (head 2f8f99cc per the #228 ticket comments); it is not
+  in this base and was not inspected here.
+- [V] Battery's UI is built from SDK widgets (`ui::Row`, `ui::Label`, `heading`, paging
+  header, `UiStyle`; `view.rs:140-466` on the 734 ref) that call fonts, i18n and style
+  through the SDK's shared table today. How those widgets work in interface 7 (plugin-side
+  code over slots 7, 13, 14, 9-12 and settings, or host widget entries, ADR34:~190 class B)
+  is not defined anywhere I found. **[Q19]** This is the largest unknown on the view side.
+
+### 4.2 i18n formatting, plural and digits
+
+- [V] Battery calls `format(key, [("m", Arg::Int)])`, `plural(key, n, [])`, `number(i64)` and
+  `localize_digits(text)` (`view.rs:55-73,81-82,117-129,189-193`), plus `tr(key)`.
+  `Arg` is `Str(&str) | Int(i64)` (`paperpaw-i18n/src/format.rs:6-9`). Digits come from the
+  catalog's `[meta] digits` (`paperpaw-i18n/src/lib.rs:195-199`); `Arg::Int` and `{count}` use
+  them, `localize_digits` maps the Latin digits of a pre-formatted string, which can change
+  its byte length (Arabic-Indic digits are 2 bytes).
+- [P] **Do the work in the host, once** (catalog and plural rules live there; copying them
+  into every plugin costs flash on the X4). Append two slots:
+
+| Id | Entry | Arguments (after `ctx`) | Result | Effect | max_bytes |
+| --- | --- | --- | --- | --- | --- |
+| 27 | `i18n.format` | `key: bytes`, `args: bytes`, `out: buffer` | length | query | 4096 |
+| 28 | `i18n.digits` | `text: bytes`, `out: buffer` | length | query | 4096 |
+
+  `i18n.format` follows the snprintf rule used by slots 5 and 6 (returns the full length,
+  writes at most `cap`, caller retries with a larger buffer; repeatable and read-only, so
+  the schema's `length` result is allowed, `abi-gen.py:~140`). `args` is a record batch
+  (<= 8 records, <= 1024 B total) of:
+
+| Tag | Record | Fields |
+| --- | --- | --- |
+| 44 | `i18n.arg_str` | `name: str` (<= 32), `value: str` (<= 256) |
+| 45 | `i18n.arg_int` | `name: str` (<= 32), `value: u64` (two's-complement `i64`; no `i64` wire type exists) |
+| 46 | `i18n.count` | `value: u64` (an `i64`) |
+
+  Semantics: no `i18n.count` record = `Translator::format`; with exactly one = plural
+  selection by the catalog's rule (`key.<category>`, fallback `key.other`) with `{count}`
+  bound, as `Translator::plural` (`paperpaw-i18n/src/lib.rs:281-300`). More than one count
+  record, a duplicate name, an unknown tag or over-cap field: `ERR_INVALID` (unknown tag
+  inside the args batch: `ERR_UNSUPPORTED`). A missing key returns the key (same as
+  `tr`). Number localization is `i18n.digits(decimal text)`; `number(n)` becomes ASCII
+  format in the plugin plus one `digits` call. `i18n.copy` (slot 6) stays for raw
+  templates.
+- [P] Memory: host builds the result in a 4 KiB stack/scratch buffer (today
+  `Translator::format` returns a heap `String`, `lib.rs:281`); plugin stack holds only the
+  caller's buffer. Validation completes before the first catalog lookup.
+- [Q20] Whether a "key found" signal is wanted (`i18n.copy` and `format` return the key
+  for a missing message); proposal: a status `ERR_NOT_FOUND` only for an explicit
+  variant, not for the default.
+
+### 4.3 Fonts and text slots (7, 8, 13, 14): what Battery needs
+
+- [P] `font.acquire(key)`: `key` = the registered font id as `Fonts::get` takes it
+  (<= 128 B, id grammar of section 3.2); returns a persistent handle, per-owner limit 4
+  (registry). Battery needs one or two (regular, bold if headings use bold). **[Q21]** the
+  key for "the user's UI font" and the reading font: reserved role keys
+  (`role:ui`) versus ids; not defined in `abi.def`.
+- [P] `handle.release(h)` for fonts; stale -> `ERR_STATE`; teardown frees all.
+- [P] `text.measure`/`text.draw`: keep the slot signatures; the host wraps
+  `graphics::text_measure/text_draw` behind frame + handle resolution. Needs: finite,
+  non-negative `size`, `x` finite and in range, text <= 4096 B UTF-8, canvas present
+  (slot 14, else `ERR_STATE`). `text.draw` is documented non-atomic on an advance error.
+- Not needed by Battery now: wrapping/layout, hyphenation, glyph caches, reading faces
+  (ADR34:202-206 text layout redesign); they stay out of this document.
+
+### 4.4 Command vocabulary beyond `command.set_setting`
+
+- [V] The commands Battery's interface-6 code issues: `Command::OpenScreen(SCREEN,
+  Params::new())` and `Command::run(action)` = `RunAction(id, Params::new())`
+  (`plugins/battery/src/lib.rs:165-166`, `view.rs:460` on the 734 ref;
+  `sdk/src/command.rs:1141-1143`), plus screen outputs `request_redraw()` and
+  `request_refresh(RefreshMode::Partial)` (`view.rs:~440-448`; `sdk/src/screen.rs:874-876,
+  1003-1006`). `Command::Redraw(RefreshMode)` exists (`command.rs:743`). Battery sets no
+  setting itself (no `SetSetting`), uses no `Notify`.
+- [V] No `commands.submit` adapter exists in core (grep found none). SetSetting (tag 4,
+  `key: str <= 128`, `value: settings_value` bytes, own-namespace registered non-secret
+  settings only, whole-batch validation, <= 8 commands / 4096 B) is on Kernel's commands
+  branch; not read by me, referenced only.
+- [P] Records, tags 56-58 (tags 5-31 are the registration document's, 4 is SetSetting):
+
+| Tag | Record | Fields | Caps |
+| --- | --- | --- | --- |
+| 56 | `command.open_screen` | `screen: str` | 128 (id grammar) |
+| 57 | `command.run_action` | `action: str` | 128 (id grammar) |
+| 58 | `command.redraw` | `mode: u32` (open set; 0 = request a redraw only, 1.. = `RefreshMode` ordinal + 1, so unknown modes are refused, not mapped) | - |
+
+  Optional trailing field `params: bytes` (<= 256) is **not** added now: `Params` is a
+  typed bag (`Params::carried::<T: Any>` cannot cross, ADR34:~230) and Battery passes none.
+  An `open_screen` of a screen id the plugin did not register, or an action not owned by
+  or exposed to it, is checked **by the host before queueing**: `ERR_INVALID` for a
+  malformed id, `ERR_NOT_FOUND` for a missing target (whole batch refused, nothing queued).
+  Owner is stamped by the host (ADR34:339), never read from the record. Redraw and refresh
+  from within a screen callback are `command.redraw` in the same batch (ADR34's "batch
+  header flags" idea would change the batch grammar; `docs/abi/records.md` has only a
+  count). **[Q22]** header flags versus a record.
+- Failure semantics follow commands.submit: whole batch validated first; a refused batch
+  queues nothing; commands run after the callback returns (ADR34:279-293).
+
+### 4.5 Open questions
+
+Q19 widget/UI strategy for the Battery view. Q20 "key found" signal. Q21 font keys.
+Q22 redraw as record or header flag. Q23 how a font handle survives a language/pack
+change (re-resolve each call: cost per `text.draw` of a registry lookup, not measured).
+Q24 the frame behind these slots must also carry `Canvas` and font registry; the
+`Frame` trait offers only settings, translator, snapshot today (`abi7/context.rs:12-17`).
 
 ## 5. Summary, open questions, estimates
 
