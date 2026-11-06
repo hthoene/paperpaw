@@ -37,6 +37,11 @@ pub const FONT_EXTENSIONS_MAX: usize = 16;
 /// until the X4 heap gate has measured it.
 pub const DECLARATIONS_MAX_BYTES: usize = 32 * 1024;
 
+/// Most declarations one plugin may borrow from its immutable image.
+pub const IMAGE_DECLARATIONS_MAX: usize = 512;
+/// Resident indexes for image-backed declarations, separate from owned copies.
+pub const IMAGE_INDEX_MAX_BYTES: usize = 8 * 1024;
+
 /// An owned setting group.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -510,7 +515,47 @@ impl Declarations {
     /// name or an extra without its spec or beside another extra for the same
     /// spec; `ERR_NO_MEMORY` when an allocation fails. `self` is unchanged.
     pub fn stage(&mut self, plugin_id: &str, batch: &RecordBatch<'_>) -> Result<(), i32> {
-        let counts = self.check(plugin_id, batch)?;
+        self.stage_retaining(plugin_id, batch, 0)
+    }
+
+    pub(crate) fn stage_retaining(
+        &mut self,
+        plugin_id: &str,
+        batch: &RecordBatch<'_>,
+        retained: usize,
+    ) -> Result<(), i32> {
+        self.stage_owned(plugin_id, batch, retained, false)
+    }
+
+    pub(crate) fn stage_verified(
+        &mut self,
+        plugin_id: &str,
+        batch: &RecordBatch<'_>,
+        retained: usize,
+    ) -> Result<(), i32> {
+        self.stage_owned(plugin_id, batch, retained, true)
+    }
+
+    fn stage_owned(
+        &mut self,
+        plugin_id: &str,
+        batch: &RecordBatch<'_>,
+        retained: usize,
+        verified: bool,
+    ) -> Result<(), i32> {
+        let counts = if verified {
+            self.check_counts(plugin_id, batch)?
+        } else {
+            self.check(plugin_id, batch)?
+        };
+        if self
+            .bytes
+            .checked_add(counts.bytes)
+            .and_then(|n| n.checked_add(retained))
+            .is_none_or(|n| n > DECLARATIONS_MAX_BYTES)
+        {
+            return Err(ERR_NO_SPACE);
+        }
         let mut pending = Pending::build(batch, &counts)?;
         grow(&mut self.groups, counts.groups)?;
         grow(&mut self.specs, counts.specs)?;
@@ -530,7 +575,7 @@ impl Declarations {
     }
 
     /// First pass: no allocation, no change.
-    fn check(&self, plugin_id: &str, batch: &RecordBatch<'_>) -> Result<Counts, i32> {
+    fn check_counts(&self, plugin_id: &str, batch: &RecordBatch<'_>) -> Result<Counts, i32> {
         declarations::validate_batch(plugin_id, batch)?;
         let counts = Counts::of(batch);
         if self.groups.len() + counts.groups > GROUPS_MAX
@@ -543,6 +588,11 @@ impl Declarations {
         {
             return Err(ERR_NO_SPACE);
         }
+        Ok(counts)
+    }
+
+    fn check(&self, plugin_id: &str, batch: &RecordBatch<'_>) -> Result<Counts, i32> {
+        let counts = self.check_counts(plugin_id, batch)?;
         for (index, record) in batch.iter().enumerate() {
             let earlier = batch.iter().take(index);
             if !self.is_new(&record, earlier) {
