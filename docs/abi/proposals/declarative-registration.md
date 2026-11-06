@@ -47,6 +47,20 @@ These override the sections below wherever they differ.
   operations that cannot fail. If any reservation fails, nothing has changed, the construction fails with
   `ERR_NO_MEMORY` and the plugin is not loaded. Tests inject an allocation failure at each step of the apply
   phase and show that no registry holds any part of the plugin afterwards.
+- **D2 Card-backed hyphenation reader (amends Part 4, Memory).** The table file is untrusted for the reader's
+  whole lifetime. Every index entry and every block read is bounds-checked against the current file length. An
+  I/O error or a card swap mid-book makes the language missing; nothing panics. If an update replaces
+  `hyphenation/<lang>.pphp` while the reader is open, the reader notices (file size and first cluster, or an
+  update hook) and reopens or deactivates. A stale index is never applied to new bytes.
+- **D3 Memory during `make` (amends Part 3, Memory).** Commit moves the staged declarations into the settings
+  registry, it does not copy them, so the peak does not double (widgets' 53 specs are about 10.6 KB staged). S1's
+  worst case of about 49 KB retained is an explicit X4 measurement gate before ports beyond the first data batch.
+- **D4 Deterministic language order (answers Q15).** When several plugins register the same hyphenation language,
+  the winner is decided by plugin id order (the greatest id wins), never by folder order on the card, which FAT
+  does not keep stable. The rule is documented with the `[hyphenation]` file kind.
+- **D5 One status change (answers Q5).** Slot 6's distinct missing-key status, `ERR_NOT_FOUND` (-10) and `ERR_FULL`
+  (-11) from the storage proposal go into the interface-7 batch together, in one change to `abi.def`, the generated
+  files, the lock and the draft-7 gate. No frozen interface-6 file is touched.
 
 ## 0. Summary of the proposal
 
