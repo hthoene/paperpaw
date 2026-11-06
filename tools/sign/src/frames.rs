@@ -21,16 +21,23 @@
 //! frame hides.
 //!
 //! A jump through a register that is not a return:
+//! - by a jump table (a `match` compiled to one): `lui`/`auipc` and `addi`
+//!   give the table's address, an add of the scaled index gives the entry's,
+//!   `lw` loads it, `jr` jumps. The table is read from the plugin's `.rodata`:
+//!   the run of its relocated words (they move with the plugin) from that
+//!   address, up to the first that does not point into this function. Each
+//!   entry is a target with the frame the jump has, and no register known,
+//!   and the walk goes on from every one. The table's length is the run, not
+//!   the compiler's bound check on the index. A table the scan cannot read
+//!   (no entry, a word not relocated, an entry into the middle of an
+//!   instruction) is a jump through a register as below;
 //! - with the frame given back (`sp` at the function's start): a tail call
 //!   (`jr a5` after the epilogue), or a jump anywhere in the function; the
 //!   state at the jump is joined into every instruction of the function, so
 //!   a jump back to the start finds nothing it can grow;
-//! - inside a frame: refused. That is a jump table (a `match`), and where it
-//!   goes is not known; build the plugin with `-C jump-tables=no` (which
-//!   does not reach the precompiled `core`: float formatting keeps its
-//!   tables until they are resolved). (The
+//! - inside a frame, otherwise: refused, where it goes is not known. (The
 //!   listing of the firmware's own frames, which is no gate, reads such a
-//!   jump's cases from the state at the jump.)
+//!   jump's cases from the state at the jump and does not size the function.)
 //!
 //! A call to a function that never returns ends its path. Which functions
 //! those are is proved from the code, not from names: one whose paths from
@@ -92,10 +99,24 @@ pub enum Finding {
 /// What a register holds, as far as the scan knows.
 type Regs = [Option<i32>; 32];
 
+/// What a register holds of a jump table, as far as the scan follows it: the
+/// code that jumps by a table is `base + index` (an add of a constant and an
+/// index), a load of the word at it, a jump to that word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    None,
+    /// A constant (the table's address, whole or its upper part) plus an index.
+    Indexed(u32),
+    /// The word loaded at that address of `.rodata`.
+    Entry(u32),
+}
+
 /// What the walk knows before an instruction.
 #[derive(Clone, PartialEq, Eq)]
 struct State {
     regs: Regs,
+    /// What the registers hold of a jump table.
+    tab: [Tab; 32],
     /// `sp` relative to the function's start (negative: the frame).
     sp: i64,
     /// `s0` as `sp` was when it was set from it, relative to the start;
@@ -110,9 +131,17 @@ impl State {
         regs[0] = Some(0);
         State {
             regs,
+            tab: [Tab::None; 32],
             sp: 0,
             fp: None,
         }
+    }
+
+    /// No register known (but zero), as at a jump's targets.
+    fn forget_regs(&mut self) {
+        self.regs = [None; 32];
+        self.regs[0] = Some(0);
+        self.tab = [Tab::None; 32];
     }
 
     /// Where paths meet: a register that differs is unknown, the frame
@@ -124,8 +153,15 @@ impl State {
                 *r = None;
             }
         }
+        let mut tab = self.tab;
+        for (t, o) in tab.iter_mut().zip(other.tab) {
+            if *t != o {
+                *t = Tab::None;
+            }
+        }
         State {
             regs,
+            tab,
             sp: self.sp.min(other.sp),
             fp: if self.fp == other.fp { self.fp } else { None },
         }
@@ -139,6 +175,7 @@ impl State {
         self.regs = [None; 32];
         self.regs[0] = zero;
         self.regs[8] = s0;
+        self.tab = [Tab::None; 32];
     }
 
     fn set(&mut self, rd: usize, value: Option<i32>) {
@@ -148,6 +185,49 @@ impl State {
         }
         if rd != 0 {
             self.regs[rd] = value;
+            self.tab[rd] = Tab::None;
+        }
+    }
+
+    /// `rd = rs1 + rs2`: a constant if both are; a table's address plus an
+    /// index if one is a constant and the other is not known at all.
+    fn add(&mut self, rd: usize, rs1: usize, rs2: usize) {
+        let (a, b) = (self.regs[rs1], self.regs[rs2]);
+        let value = a.zip(b).map(|(a, b)| a.wrapping_add(b));
+        let tab = match (a, b, self.tab[rs1], self.tab[rs2]) {
+            (Some(c), None, _, Tab::None) | (None, Some(c), Tab::None, _) => Tab::Indexed(c as u32),
+            _ => Tab::None,
+        };
+        self.set(rd, value);
+        if rd != 0 {
+            self.tab[rd] = tab;
+        }
+    }
+
+    /// `rd = rs1 + imm`.
+    fn add_imm(&mut self, rd: usize, rs1: usize, imm: i32) {
+        let value = self.regs[rs1].map(|v| v.wrapping_add(imm));
+        let tab = match self.tab[rs1] {
+            Tab::Indexed(b) => Tab::Indexed(b.wrapping_add(imm as u32)),
+            t if imm == 0 => t,
+            _ => Tab::None,
+        };
+        self.set(rd, value);
+        if rd != 0 {
+            self.tab[rd] = tab;
+        }
+    }
+
+    /// `rd = word at rs1 + imm`: the entry of a table if `rs1` is an index
+    /// into one.
+    fn load(&mut self, rd: usize, rs1: usize, imm: i32) {
+        let tab = match self.tab[rs1] {
+            Tab::Indexed(b) => Tab::Entry(b.wrapping_add(imm as u32)),
+            _ => Tab::None,
+        };
+        self.set(rd, None);
+        if rd != 0 {
+            self.tab[rd] = tab;
         }
     }
 }
@@ -165,6 +245,8 @@ enum Ctl {
     NoReturn,
     /// A jump through a register that is not a return.
     Indirect,
+    /// A jump through the word at this address of `.rodata`: a jump table.
+    Table(u32),
     /// `ebreak`, `unimp`: the CPU takes an exception and the firmware's
     /// handler never resumes the code (`shells/xteink/src/crash.rs`).
     Trap,
@@ -250,8 +332,7 @@ fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
                     state.fp = Some(state.sp + i64::from(imm_i));
                     return effect;
                 }
-                let value = state.regs[rs1].map(|v| v.wrapping_add(imm_i));
-                state.set(rd, value);
+                state.add_imm(rd, rs1, imm_i);
             } else {
                 state.set(rd, None);
             }
@@ -264,12 +345,15 @@ fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
                 effect.unbounded = by_register(state, rs2, sub);
                 handled = true;
             }
-            let value = match (add, sub, state.regs[rs1], state.regs[rs2]) {
-                (true, _, Some(a), Some(b)) => Some(a.wrapping_add(b)),
-                (_, true, Some(a), Some(b)) => Some(a.wrapping_sub(b)),
-                _ => None,
-            };
-            state.set(rd, value);
+            if add {
+                state.add(rd, rs1, rs2);
+            } else {
+                let value = match (sub, state.regs[rs1], state.regs[rs2]) {
+                    (true, Some(a), Some(b)) => Some(a.wrapping_sub(b)),
+                    _ => None,
+                };
+                state.set(rd, value);
+            }
         }
         // The branches: imm[12|10:5] and imm[4:1|11].
         0x63 => {
@@ -302,10 +386,10 @@ fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
         // jalr: a return, a call (falls through), or a jump through a register.
         0x67 => {
             if rd == 0 {
-                effect.ctl = if rs1 == 1 && imm_i == 0 {
-                    Ctl::Ret
-                } else {
-                    Ctl::Indirect
+                effect.ctl = match (rs1, imm_i, state.tab[rs1]) {
+                    (1, 0, _) => Ctl::Ret,
+                    (_, 0, Tab::Entry(at)) => Ctl::Table(at),
+                    _ => Ctl::Indirect,
                 };
             } else {
                 // A call through a register, an `auipc` pair's: where to?
@@ -319,7 +403,9 @@ fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
         }
         // auipc: the pc plus the immediate, a known address
         0x17 => state.set(rd, Some(pc.wrapping_add(w & 0xffff_f000) as i32)),
-        // loads, atomics, system, floating-point to a register
+        // lw: the entry of a jump table, if it reads one
+        0x03 if funct3 == 2 => state.load(rd, rs1, imm_i),
+        // other loads, atomics, system, floating-point to a register
         0x03 | 0x2f | 0x73 | 0x53 | 0x07 => state.set(rd, None),
         _ => {}
     }
@@ -372,13 +458,13 @@ fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
             }
         }
         // c.lw
-        (0, 2) => state.set((w >> 2 & 7) as usize + 8, None),
+        (0, 2) => {
+            let imm = (w >> 6 & 1) << 2 | (w >> 10 & 7) << 3 | (w >> 5 & 1) << 6;
+            state.load((w >> 2 & 7) as usize + 8, prime, imm as i32);
+        }
         // c.addi, and c.nop (rd 0)
         (1, 0) if rd == 2 => state.sp += i64::from(imm6),
-        (1, 0) => {
-            let value = state.regs[rd].map(|v| v.wrapping_add(imm6));
-            state.set(rd, value);
-        }
+        (1, 0) => state.add_imm(rd, rd, imm6),
         // c.jal: a call
         (1, 1) => {
             if env.is_noreturn(pc.wrapping_add(cj_offset(w) as u32)) {
@@ -421,7 +507,13 @@ fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
             let bit12 = w >> 12 & 1;
             match (bit12, rs2) {
                 // c.jr: a return through `ra`, or a jump through a register
-                (0, 0) => effect.ctl = if rd == 1 { Ctl::Ret } else { Ctl::Indirect },
+                (0, 0) => {
+                    effect.ctl = match (rd, state.tab[rd]) {
+                        (1, _) => Ctl::Ret,
+                        (_, Tab::Entry(at)) => Ctl::Table(at),
+                        _ => Ctl::Indirect,
+                    }
+                }
                 // c.mv: `mv sp, s0` is the frame pointer's restore, `mv s0,
                 // sp` sets it; any other value for `sp` is not followed
                 (0, _) => {
@@ -435,8 +527,7 @@ fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
                         state.set(8, None);
                         state.fp = Some(state.sp);
                     } else {
-                        let value = state.regs[rs2];
-                        state.set(rd, value);
+                        state.add_imm(rd, rs2, 0);
                     }
                 }
                 // c.ebreak
@@ -453,11 +544,7 @@ fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
                     if rd == 2 {
                         effect.unbounded = by_register(state, rs2, false);
                     } else {
-                        let value = match (state.regs[rd], state.regs[rs2]) {
-                            (Some(a), Some(b)) => Some(a.wrapping_add(b)),
-                            _ => None,
-                        };
-                        state.set(rd, value);
+                        state.add(rd, rd, rs2);
                     }
                 }
             }
@@ -465,6 +552,36 @@ fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
         _ => {}
     }
     effect
+}
+
+/// The plugin's `.rodata`, where the tables of a `match` lie: its bytes, where
+/// they are linked, and which words of it are relocated (they name an
+/// address inside the image, so they move with it).
+#[derive(Clone, Copy)]
+pub struct Tables<'a> {
+    /// The address `bytes` is linked at.
+    pub addr: u32,
+    /// The bytes of `.rodata`.
+    pub bytes: &'a [u8],
+    /// The offsets in `bytes` of the words to relocate.
+    pub relocated: &'a std::collections::BTreeSet<u32>,
+}
+
+static NO_WORDS: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+
+impl Tables<'static> {
+    /// No `.rodata`: no table can be read.
+    #[allow(
+        dead_code,
+        reason = "the tests and the firmware listing (`paperpaw-sign frames`)"
+    )]
+    pub fn none() -> Self {
+        Tables {
+            addr: 0,
+            bytes: &[],
+            relocated: &NO_WORDS,
+        }
+    }
 }
 
 /// What the walk needs to know of the code's place: where it lies, and the
@@ -476,6 +593,8 @@ pub struct Env<'a> {
     pub base: u32,
     /// The start addresses of the functions that do not return, sorted.
     pub noreturn: &'a [u32],
+    /// Where the jump tables are.
+    pub tables: Tables<'a>,
     /// Reads the cases of a jump table from the state at the jump (the
     /// listing of the firmware's own frames, `paperpaw-sign frames`). A
     /// plugin's pack is strict: a jump through a register inside a frame is
@@ -490,6 +609,7 @@ impl Env<'_> {
         Env {
             base: 0x4200_0000,
             noreturn: &[],
+            tables: Tables::none(),
             lenient: false,
         }
     }
@@ -580,6 +700,40 @@ impl Walk<'_> {
         }
     }
 
+    /// The instructions a jump through the table at `b` goes to: the run of
+    /// relocated words of `.rodata` from `b`, up to the first that does not
+    /// point into this function (the compiler's tables hold labels of the
+    /// function they jump in, so a word that points elsewhere is the start of
+    /// other data). `None` if there is none, or one points into the middle of
+    /// an instruction.
+    fn table_targets(&self, b: u32) -> Option<Vec<usize>> {
+        let tables = self.env.tables;
+        let mut at = usize::try_from(b.checked_sub(tables.addr)?).ok()?;
+        if !at.is_multiple_of(4) {
+            return None;
+        }
+        let mut out = Vec::new();
+        while out.len() < self.insns.len() {
+            let Some(word) = at.checked_add(4).and_then(|end| tables.bytes.get(at..end)) else {
+                break;
+            };
+            if !u32::try_from(at).is_ok_and(|o| tables.relocated.contains(&o)) {
+                break;
+            }
+            let to = u32::from_le_bytes([word[0], word[1], word[2], word[3]]);
+            let Some(offset) = to
+                .checked_sub(self.env.base)
+                .and_then(|o| usize::try_from(o).ok())
+                .filter(|&o| o >= self.start && o < self.end)
+            else {
+                break;
+            };
+            out.push(self.insns.binary_search_by_key(&offset, |&(a, _)| a).ok()?);
+            at += 4;
+        }
+        (!out.is_empty()).then_some(out)
+    }
+
     /// Runs instruction `i` on its state and queues where it goes.
     fn step(&mut self, i: usize) {
         let (at, len) = self.insns[i];
@@ -594,7 +748,7 @@ impl Walk<'_> {
         };
         let code = self.code;
         let pc = self.env.base.wrapping_add(at as u32);
-        let effect = if len == 4 {
+        let mut effect = if len == 4 {
             wide(
                 u32::from_le_bytes([code[at], code[at + 1], code[at + 2], code[at + 3]]),
                 &mut state,
@@ -616,6 +770,20 @@ impl Walk<'_> {
             self.out.frame = u32::try_from(-state.sp).unwrap_or(u32::MAX);
             self.out.frame_at = at;
         }
+        if let Ctl::Table(b) = effect.ctl {
+            // Through the table: to each of its entries, with the frame it
+            // has here and no register known. A table that cannot be read is
+            // a jump through a register.
+            if let Some(targets) = self.table_targets(b) {
+                let mut at_target = state.clone();
+                at_target.forget_regs();
+                for j in targets {
+                    self.join_into(j, &at_target);
+                }
+                return;
+            }
+            effect.ctl = Ctl::Indirect;
+        }
         let next = (i + 1 < self.insns.len()).then_some(i + 1);
         if next.is_none() && matches!(effect.ctl, Ctl::Fall | Ctl::Branch(_)) {
             // Runs on past the function's end.
@@ -630,14 +798,13 @@ impl Walk<'_> {
                 [None, None]
             }
             Ctl::NoReturn | Ctl::Trap => [None, None],
-            Ctl::Indirect => {
+            Ctl::Indirect | Ctl::Table(_) => {
                 self.out.returns = true;
                 if self.env.lenient {
                     // The cases are entered from the jump, with the frame
                     // pointer it had, and no register known.
                     let mut s = state.clone();
-                    s.regs = [None; 32];
-                    s.regs[0] = Some(0);
+                    s.forget_regs();
                     self.indirect = Some(match self.indirect.take() {
                         Some(old) => old.join(&s),
                         None => s,
@@ -651,8 +818,7 @@ impl Walk<'_> {
                     // jump anywhere in it. `sp` there is at most this (the
                     // walk keeps the lowest); the rest is not known.
                     let mut s = state.clone();
-                    s.regs = [None; 32];
-                    s.regs[0] = Some(0);
+                    s.forget_regs();
                     s.fp = None;
                     for j in 0..self.insns.len() {
                         self.join_into(j, &s);
@@ -735,8 +901,7 @@ pub fn walk(code: &[u8], start: usize, end: usize, env: Env<'_>) -> Walked {
             break;
         };
         let mut seed = w.indirect.clone().unwrap_or_else(State::entry);
-        seed.regs = [None; 32];
-        seed.regs[0] = Some(0);
+        seed.forget_regs();
         w.states[j] = Some(seed);
         w.work.push(j);
         w.out.returns = returns;
@@ -756,6 +921,7 @@ pub fn noreturn_functions(
     code: &[u8],
     ranges: &[(usize, usize)],
     base: u32,
+    tables: Tables<'_>,
     lenient: bool,
 ) -> Vec<u32> {
     let mut set: Vec<u32> = ranges
@@ -773,6 +939,7 @@ pub fn noreturn_functions(
                 let env = Env {
                     base,
                     noreturn: &set,
+                    tables,
                     lenient,
                 };
                 let w = walk(code, s, e, env);
@@ -1012,12 +1179,11 @@ fn refusal(finding: &Finding, text: &Section, symbols: &[Symbol], text_index: us
              buffer or ask the host for the memory"
         ),
         Finding::Table { .. } => format!(
-            "{place} jumps through a register inside its stack frame (a jump table): the packer \
-             cannot tell where it goes. A `match` in the plugin's own code gets no jump table \
-             with `-C jump-tables=no` (the rustflags of `samples/abi7-x4-min/.cargo/config.toml` \
-             set it). The flag does not reach the precompiled `core`: a table there (formatting \
-             a float, `{{}}` of an f32 or f64) cannot be avoided, so keep such code out of the \
-             plugin until the packer resolves jump tables (`abi/ppn5.md`)"
+            "{place} jumps through a register inside its stack frame, and the packer cannot read \
+             where to: a jump table is read from the relocated words of `.rodata` that point \
+             into the function, and this one is not (or it is a computed jump). A `match` in the \
+             plugin's own code gets no jump table with `-C jump-tables=no` (the rustflags of \
+             `samples/abi7-x4-min/.cargo/config.toml` set it)"
         ),
         Finding::Uncovered { .. } => format!(
             ".text+{at:#x} is code that no function symbol covers: the packer reads each \
@@ -1035,6 +1201,7 @@ pub fn check(
     text: &Section,
     text_index: usize,
     symbols: &[Symbol],
+    tables: Tables<'_>,
 ) -> Result<(), String> {
     let code = elf.data(text)?;
     let sized: Vec<(usize, usize)> = symbols
@@ -1043,10 +1210,11 @@ pub fn check(
         .map(|s| (s.value.wrapping_sub(text.addr) as usize, s.size as usize))
         .collect();
     let merged = function_ranges(&sized, code.len());
-    let noreturn = noreturn_functions(code, &merged, text.addr, false);
+    let noreturn = noreturn_functions(code, &merged, text.addr, tables, false);
     let env = Env {
         base: text.addr,
         noreturn: &noreturn,
+        tables,
         lenient: false,
     };
     let found = uncovered(code, &merged)
