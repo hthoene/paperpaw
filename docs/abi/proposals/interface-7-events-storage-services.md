@@ -40,7 +40,7 @@ priority. It blocks every port; this document blocks Battery and the UI groups.
   The slot 13/14 adapters, font acquire/release and the i18n format/digits slots are the next text items
   after registration.
 
-## Binding amendments after Senior review (S1–S4, 2026-11-06)
+## Binding amendments after Senior review (S1–S7, 2026-11-06)
 
 These amendments override the sections below wherever they differ. The storage contract becomes final only
 when each of them is in the implementation and closed by its test.
@@ -74,6 +74,18 @@ when each of them is in the implementation and closed by its test.
   *Clean up storage* or when confirming the uninstall). This is **[Q]**: today `remove_plugin` removes only the
   install folder of a data plugin (`crates/paperpaw-core/src/plugins.rs:812-820`); a rule for code plugins'
   data folders is not written down. In this document "plugin folder" means the data folder.
+- **S5 Root 0 cannot reach the install folder.** A root-0 path is validated as a relative path first and then
+  joined under `.paperpaw/plugins/<id>/` by the host, so it can never name a file in the install folder
+  `plugins/<id>/` (or anywhere outside the data folder).
+- **S6 Blob budget on the X4 (amends D3.4).** The X4 profile allows **one live service blob per device, at most
+  4 KiB**, within ADR 0034's 4,096-byte boundary profile. Larger hosts may keep the D3.4 figures. A result that
+  does not fit is truncated at a record boundary and flagged in its `service.end` record. The plugin asks for
+  the next part with a row offset in the key, for example `core.plugin-usage/1/from/<n>`. The host builds the blob
+  directly from the kernel's own table, never through a second copy such as `Env::plugin_usage()`, which
+  already clones several KB per call.
+- **S7 Sync accounting (amends Q9).** `Metered` counts `storage.sync` calls per plugin, next to bytes read and
+  written, so a plugin that wears the card shows up in Battery's developer view. A rate limit stays an open
+  question.
 
 ## 0. Shared rules used by all four sections
 
