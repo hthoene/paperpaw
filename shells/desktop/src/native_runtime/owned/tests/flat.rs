@@ -351,7 +351,7 @@ fn update_and_uninstall_unmap_each_copy_only_after_its_release() {
         "the old copy is unmapped by its own release, the new one stays"
     );
     assert_eq!(
-        new.dispatch_event(0, &tick_bytes(), &DispatchDepth::new()),
+        new.dispatch_event(0, &tick_bytes(), &mut [], &DispatchDepth::new()),
         Ok(host_glue::OK),
         "and runs"
     );
