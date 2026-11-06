@@ -275,7 +275,10 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
   - A read of any `core.grant.<kind>.<id>` key, the caller's own id included, is `ERR_DENIED`, so
     there is exactly one spelling.
   - An unknown `<kind>` is `ERR_UNSUPPORTED` (a newer plugin on an older host).
-  - A grant change shows on the next read; no event announces it.
+  - The value is a plain yes or no. A grant change, revoke included, shows on the next read; no
+    event announces it, and nothing may be cached on the plugin side.
+  - A read outside a dispatch frame (no callback running) is `ERR_STATE`, like every
+    `settings.read`.
   - Another plugin's grant reaches a plugin only where the host stamps it into a host-built record
     (N4: `style_granted` in each stage reply).
   - The SDK offers one typed read, `settings::own_grant(host, GrantKind) -> Result<bool, Error>`,
