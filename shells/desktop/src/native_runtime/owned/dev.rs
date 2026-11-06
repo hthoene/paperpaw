@@ -196,9 +196,15 @@ impl Loaded {
         // process, and the owner keeps it open until after unload.
         let plugin =
             Box::new(unsafe { PinnedPlugin::open(&copy, &digest, id, DesktopServices::new()) }?);
-        let mut batch = plugin
-            .make_registered(plugin.begin::<Registration>()?)?
-            .commit()?;
+        let mut transaction = plugin.begin::<Registration>()?;
+        // SAFETY: the slice borrows `plugin`, whose owner keeps the library
+        // mapped until the batch is gone (the batch is released first, see
+        // `Loaded`); declarations are read through `Loaded::image`, which
+        // gives none once stopped, never through this borrow.
+        transaction
+            .set_image(unsafe { plugin.image() })
+            .map_err(|e| Refusal::Lifecycle(format!("{e:?}")))?;
+        let mut batch = plugin.make_registered(transaction)?.commit()?;
         let declarations = batch.take_declarations();
         let depth = DispatchDepth::new();
         let records = (0..batch.len())

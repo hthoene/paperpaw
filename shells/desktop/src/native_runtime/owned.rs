@@ -54,9 +54,15 @@ struct Transaction<'a, S, T> {
     staging: Staging<'a, S, T>,
 }
 
-impl<S, T> Transaction<'_, S, T> {
+impl<'a, S, T> Transaction<'a, S, T> {
     fn stage(&mut self, record: T) -> Result<(), (native_host::Error, T)> {
         self.staging.stage(record)
+    }
+
+    /// Gives staging the library's read-only data before `make`: a batch
+    /// lying wholly inside it is kept as offsets, not copied.
+    fn set_image(&mut self, image: &'a [u8]) -> Result<(), native_host::Error> {
+        self.staging.set_image(image)
     }
 }
 type Batch<'a, S, T> = RegistrationBatch<'a, Context<S>, HeldLibrary, T>;
