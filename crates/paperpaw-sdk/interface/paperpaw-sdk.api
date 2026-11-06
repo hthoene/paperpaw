@@ -7137,6 +7137,7 @@ pub const fn paperpaw_sdk::Id::new_static(&'static str) -> paperpaw_sdk::Id
 pub fn paperpaw_sdk::Id::parse(&str) -> core::result::Result<paperpaw_sdk::Id, paperpaw_sdk::InvalidId>
 pub fn paperpaw_sdk::Id::placement(&self, u32) -> paperpaw_sdk::Id
 pub const fn paperpaw_sdk::Id::static_str(self) -> &'static str
+pub fn paperpaw_sdk::Id::try_clone(&self) -> core::option::Option<paperpaw_sdk::Id>
 pub fn paperpaw_sdk::Id::unplaced(&self) -> core::option::Option<paperpaw_sdk::Id>
 impl core::borrow::Borrow<str> for paperpaw_sdk::Id
 pub fn paperpaw_sdk::Id::borrow(&self) -> &str
