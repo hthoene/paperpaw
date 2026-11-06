@@ -194,7 +194,7 @@ fn the_heap_word_lies_in_the_read_only_data_outside_the_entry_and_the_metadata()
         assert_eq!(with(at), bad("the heap word is not 4-aligned"), "at {at}");
     }
     // In the read-only data: [at, at + 4) <= code_at.
-    for at in [1024, 1028, 4092, u32::MAX - 3, u32::MAX & !3] {
+    for at in [1024, 1028, 4092, u32::MAX - 3, !3u32] {
         assert_eq!(
             with(at),
             bad("the heap word is not in the read-only data"),
