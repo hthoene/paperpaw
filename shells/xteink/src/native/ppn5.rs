@@ -132,7 +132,7 @@ mod x4 {
 
     use log::{info, warn};
     use paperpaw_core::CodeFile;
-    use paperpaw_core::native_host::flat::{DropReason, FlatDepth, FlatError, FlatPlugin};
+    use paperpaw_core::native_host::flat::{DropReason, FlatDepth, FlatError};
     use paperpaw_core::native_host::shell::instance::{Hooks, Instance};
     use paperpaw_core::native_host::shell::{self, Make};
     use paperpaw_native::host_glue::Services;
@@ -479,9 +479,5 @@ mod x4 {
             .map_err(|_| PluginProblem::NoRoom)?;
         copy.push_str(text);
         Ok(copy)
-    }
-
-    fn no_room(_: shell::Error) -> PluginProblem {
-        PluginProblem::NoRoom
     }
 }
