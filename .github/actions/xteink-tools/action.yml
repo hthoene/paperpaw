@@ -24,7 +24,8 @@ runs:
     # The runner image has no clang-18, and Ubuntu's Azure mirror has stalled
     # for most of an hour (#876): the packages' .deb files are kept here, so a
     # run that finds them downloads nothing. Only pushes to main and
-    # abi7/integration save the entry (about 150 MB); the others only read it.
+    # abi7/integration save an entry (about 150 MB each, one per branch scope; a
+    # manual run of a workflow or a pull request only reads).
     # The script gives apt a kept file only if its SHA-256 is the authenticated
     # package list's, so a cached file can only be the one the mirror offers.
     - name: The apt packages for mbedTLS, kept between runs
@@ -40,7 +41,7 @@ runs:
         # (the ESP32-S3's with espup's Xtensa GCC).
         APT_DEB_CACHE="$HOME/apt-debs" bash tools/ci/build-prerequisites.sh
     - name: Keep the apt packages
-      if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/abi7/integration') && steps.apt-debs.outputs.cache-hit != 'true'
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/abi7/integration') && steps.apt-debs.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
       with:
         path: ~/apt-debs

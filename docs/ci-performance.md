@@ -9,7 +9,7 @@ attempt (three attempts; a process that ignores the stop signal is killed
 10 s later): at most about 17 minutes if every attempt stalls, instead of
 the job's whole timeout. The `.deb` files are kept between runs
 (`~/apt-debs`, about 150 MB, saved by pushes to `main` and `abi7/integration`
-only), and a kept file is handed to apt only if its SHA-256 is the one the
+only, one entry for each, never by a manual workflow run), and a kept file is handed to apt only if its SHA-256 is the one the
 authenticated package list (`apt-cache show`) names; apt itself trusts a
 file already in its archive folder by its size alone. A stalled Ubuntu
 mirror once held a firmware job for 30–49 minutes (#876). `CLANG_PATH`, Ninja and the firmware compiler settings
