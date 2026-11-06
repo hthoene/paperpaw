@@ -1,10 +1,18 @@
 //! The public settings bridge uses a real dispatch Env and the existing codec.
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
-mod common;
 use paperpaw_core::native_host::environment::{EnvironmentScope, SettingValueRef, settings_decode};
 use paperpaw_native::host_glue::{ERR_STATE, ERR_UTF8};
 use paperpaw_sdk::{Manifest, Plugin, RegisterError, Registrar, SettingSpec, builtin};
 use std::{cell::Cell, pin::pin, rc::Rc};
+
+use paperpaw_platform::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat, Rotation};
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "snapshot-test",
+    "Snapshot fixture",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, false, false, &[]),
+    MemoryClass::Small,
+);
 
 static SETTINGS: [SettingSpec; 3] = [
     SettingSpec::switch("probe.flag", "flag", false, builtin::groups::OTHER),
@@ -18,7 +26,11 @@ fn read(scope: &EnvironmentScope, key: &[u8], out: &mut [u8]) -> i32 {
 struct Probe(Rc<Cell<u32>>);
 impl Plugin for Probe {
     fn manifest(&self) -> Manifest {
-        common::manifest("probe")
+        Manifest::new(
+            paperpaw_sdk::Id::new_static("probe"),
+            "Probe",
+            paperpaw_sdk::Version::new(1, 0, 0),
+        )
     }
     fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
         r.add_settings(&SETTINGS)?;
@@ -81,7 +93,7 @@ impl Plugin for Probe {
 #[test]
 fn typed_settings_query_and_cleanup_use_actual_dispatch_frame() {
     let count = Rc::new(Cell::new(0));
-    let mut kernel = paperpaw_core::Kernel::builder(common::DEVICE)
+    let mut kernel = paperpaw_core::Kernel::builder(DEVICE)
         .plugin(Probe(count.clone()))
         .build()
         .unwrap();
