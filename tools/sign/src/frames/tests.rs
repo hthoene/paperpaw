@@ -459,7 +459,7 @@ fn code_that_no_function_covers_is_refused_unless_it_is_padding() {
     // A function's range ends where its symbol says: what lies beyond is read
     // as the neighbour's or not at all, never as part of it.
     let f = code(&[W(RET), W(addi(SP, SP, -1600))]);
-    assert_eq!(scan_ranges(&f, &[(0, 4)]), None);
+    assert_eq!(scan_ranges(&f, &[(0, 4)], Env::none()), None);
 }
 
 #[test]
@@ -485,4 +485,66 @@ fn a_symbols_size_that_runs_into_its_neighbour_is_cut_at_the_neighbour() {
     let mut code = vec![0u8; 100];
     code[40..44].copy_from_slice(&addi(SP, SP, -1600).to_le_bytes());
     assert_eq!(uncovered(&code, &r), Some(40));
+}
+
+fn auipc(rd: u32, imm20: u32) -> u32 {
+    (imm20 << 12) | (rd << 7) | 0x17
+}
+fn jalr(rd: u32, rs1: u32, imm: i32) -> u32 {
+    ((imm as u32 & 0xfff) << 20) | (rs1 << 15) | (rd << 7) | 0x67
+}
+
+#[test]
+fn code_after_a_call_that_never_returns_is_not_reached_from_it() {
+    // A shrink-wrapped panic path, as rustc lays it out: the cold block
+    // allocates its frame and calls a panic; the block after it is entered by
+    // a branch only, and goes back to the cold block's start. Falling through
+    // the call would make that a loop that moves sp.
+    let f = code(&[
+        W(beq_to(11, 0, 16)),            // 0: to 16
+        W(addi(SP, SP, -16)),            // 4
+        W(auipc(1, 0)),                  // 8: ra = pc
+        W(jalr(1, 1, 24)),               // 12: call pc(8) + 24 = 32
+        W(beq_to(12, 13, -12) | 0x1000), // 16: bne a2, a3, back to 4
+        W(RET),                          // 20
+    ]);
+    let base = 0x4200_0000;
+    let noreturn = [base + 32];
+    let env = Env {
+        base,
+        noreturn: &noreturn,
+    };
+    assert_eq!(scan_ranges(&f, &[(0, 24)], env), None);
+    assert_eq!(frame_sizes_in(&f, &[(0, 24)], env), vec![Some(16)]);
+    // Without knowing that, the call falls through into a loop that moves sp.
+    assert!(matches!(
+        scan_ranges(&f, &[(0, 24)], Env::none()),
+        Some(Finding::Unknown { .. })
+    ));
+}
+
+#[test]
+fn the_panics_of_the_languages_crates_are_the_functions_that_never_return() {
+    for p in [
+        "core::panicking::panic_fmt",
+        "core::str::slice_error_fail",
+        "core::slice::index::slice_index_order_fail",
+        "core::result::unwrap_failed",
+        "core::option::expect_failed",
+        "alloc::alloc::handle_alloc_error",
+        "alloc::raw_vec::capacity_overflow",
+        "__rustc::rust_begin_unwind",
+    ] {
+        assert!(is_noreturn_path(p), "{p}");
+    }
+    for p in [
+        "paperpaw_text::layout::pair",
+        // A plugin's function named like a panic is not trusted not to return.
+        "my_plugin::panicking::fail",
+        "my_plugin::slice_error_fail",
+        "core::fmt::write",
+        "core::slice::sort::stable::merge",
+    ] {
+        assert!(!is_noreturn_path(p), "{p}");
+    }
 }

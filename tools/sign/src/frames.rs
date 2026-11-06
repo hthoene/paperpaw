@@ -131,6 +131,8 @@ enum Ctl {
     /// Goes to `offset`, does not fall through.
     Jump(i64),
     Ret,
+    /// A call that does not return (a panic's): nothing follows it.
+    NoReturn,
     /// A jump through a register that is not a return.
     Indirect,
 }
@@ -182,7 +184,7 @@ fn writes_rd(opcode: u32) -> bool {
 }
 
 /// A 32-bit instruction.
-fn wide(w: u32, state: &mut State) -> Effect {
+fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
     let opcode = w & 0x7f;
     let rd = (w >> 7 & 31) as usize;
     let rs1 = (w >> 15 & 31) as usize;
@@ -252,6 +254,9 @@ fn wide(w: u32, state: &mut State) -> Effect {
             if rd == 0 {
                 effect.ctl = Ctl::Jump(offset);
             } else {
+                if env.is_noreturn(pc.wrapping_add(offset as u32)) {
+                    effect.ctl = Ctl::NoReturn;
+                }
                 state.called();
                 state.set(rd, None);
             }
@@ -265,12 +270,19 @@ fn wide(w: u32, state: &mut State) -> Effect {
                     Ctl::Indirect
                 };
             } else {
+                // A call through a register, an `auipc` pair's: where to?
+                let target = state.regs[rs1].map(|v| (v as u32).wrapping_add(imm_i as u32));
+                if target.is_some_and(|t| env.is_noreturn(t)) {
+                    effect.ctl = Ctl::NoReturn;
+                }
                 state.called();
                 state.set(rd, None);
             }
         }
-        // loads, auipc, atomics, system, floating-point to a register
-        0x03 | 0x17 | 0x2f | 0x73 | 0x53 | 0x07 => state.set(rd, None),
+        // auipc: the pc plus the immediate, a known address
+        0x17 => state.set(rd, Some(pc.wrapping_add(w & 0xffff_f000) as i32)),
+        // loads, atomics, system, floating-point to a register
+        0x03 | 0x2f | 0x73 | 0x53 | 0x07 => state.set(rd, None),
         _ => {}
     }
     // Any other write to sp is unbounded: `mv sp, a0` after `sub a0, sp, a0`
@@ -281,8 +293,22 @@ fn wide(w: u32, state: &mut State) -> Effect {
     effect
 }
 
+/// The offset of `c.j` and `c.jal`: imm[11|4|9:8|10|6|7|3:1|5].
+fn cj_offset(w: u32) -> i32 {
+    (((w >> 12 & 1) << 11
+        | (w >> 11 & 1) << 4
+        | (w >> 9 & 3) << 8
+        | (w >> 8 & 1) << 10
+        | (w >> 7 & 1) << 6
+        | (w >> 6 & 1) << 7
+        | (w >> 3 & 7) << 1
+        | (w >> 2 & 1) << 5) as i32)
+        << 20
+        >> 20
+}
+
 /// A 16-bit (compressed) instruction.
-fn narrow(w: u16, state: &mut State) -> Effect {
+fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
     let w = u32::from(w);
     let funct3 = w >> 13;
     let rd = (w >> 7 & 31) as usize;
@@ -314,7 +340,12 @@ fn narrow(w: u16, state: &mut State) -> Effect {
             state.set(rd, value);
         }
         // c.jal: a call
-        (1, 1) => state.called(),
+        (1, 1) => {
+            if env.is_noreturn(pc.wrapping_add(cj_offset(w) as u32)) {
+                effect.ctl = Ctl::NoReturn;
+            }
+            state.called();
+        }
         // c.li
         (1, 2) if rd == 2 => effect.unbounded = true,
         (1, 2) => state.set(rd, Some(imm6)),
@@ -330,20 +361,8 @@ fn narrow(w: u16, state: &mut State) -> Effect {
         (1, 3) => state.set(rd, Some(imm6 << 12)),
         // c.srli, c.srai, c.andi, c.sub, c.xor, c.or, c.and
         (1, 4) => state.set(prime, None),
-        // c.j: imm[11|4|9:8|10|6|7|3:1|5]
-        (1, 5) => {
-            let offset = (((w >> 12 & 1) << 11
-                | (w >> 11 & 1) << 4
-                | (w >> 9 & 3) << 8
-                | (w >> 8 & 1) << 10
-                | (w >> 7 & 1) << 6
-                | (w >> 6 & 1) << 7
-                | (w >> 3 & 7) << 1
-                | (w >> 2 & 1) << 5) as i32)
-                << 20
-                >> 20;
-            effect.ctl = Ctl::Jump(i64::from(offset));
-        }
+        // c.j
+        (1, 5) => effect.ctl = Ctl::Jump(i64::from(cj_offset(w))),
         // c.beqz, c.bnez: imm[8|4:3|7:6|2:1|5]
         (1, 6 | 7) => {
             let offset = (((w >> 12 & 1) << 8
@@ -382,8 +401,13 @@ fn narrow(w: u16, state: &mut State) -> Effect {
                 }
                 // c.ebreak
                 (_, 0) if rd == 0 => {}
-                // c.jalr: a call
-                (_, 0) => state.called(),
+                // c.jalr: a call through a register
+                (_, 0) => {
+                    if state.regs[rd].is_some_and(|t| env.is_noreturn(t as u32)) {
+                        effect.ctl = Ctl::NoReturn;
+                    }
+                    state.called();
+                }
                 // c.add
                 _ => {
                     if rd == 2 {
@@ -401,6 +425,32 @@ fn narrow(w: u16, state: &mut State) -> Effect {
         _ => {}
     }
     effect
+}
+
+/// What the walk needs to know of the code's place: where it lies, and the
+/// functions that never return (the panics: code after a call to one is not
+/// reached from it).
+#[derive(Clone, Copy)]
+pub struct Env<'a> {
+    /// The address of the first byte of the code.
+    pub base: u32,
+    /// The start addresses of the functions that do not return, sorted.
+    pub noreturn: &'a [u32],
+}
+
+impl Env<'_> {
+    /// No place known, no function that does not return.
+    #[cfg(test)]
+    pub fn none() -> Env<'static> {
+        Env {
+            base: 0x4200_0000,
+            noreturn: &[],
+        }
+    }
+
+    fn is_noreturn(&self, target: u32) -> bool {
+        self.noreturn.binary_search(&target).is_ok()
+    }
 }
 
 /// What the graph walk of one function found.
@@ -421,6 +471,7 @@ const VISITS: u8 = 64;
 /// The walk of one function.
 struct Walk<'c> {
     code: &'c [u8],
+    env: Env<'c>,
     start: usize,
     end: usize,
     /// The function's instructions: offset and length.
@@ -475,13 +526,21 @@ impl Walk<'_> {
             return;
         };
         let code = self.code;
+        let pc = self.env.base.wrapping_add(at as u32);
         let effect = if len == 4 {
             wide(
                 u32::from_le_bytes([code[at], code[at + 1], code[at + 2], code[at + 3]]),
                 &mut state,
+                pc,
+                &self.env,
             )
         } else {
-            narrow(u16::from_le_bytes([code[at], code[at + 1]]), &mut state)
+            narrow(
+                u16::from_le_bytes([code[at], code[at + 1]]),
+                &mut state,
+                pc,
+                &self.env,
+            )
         };
         if effect.unbounded {
             self.out.unbounded.get_or_insert(at);
@@ -495,7 +554,7 @@ impl Walk<'_> {
             Ctl::Fall => [next, None],
             Ctl::Branch(offset) => [next, self.target(at, offset)],
             Ctl::Jump(offset) => [self.target(at, offset), None],
-            Ctl::Ret => [None, None],
+            Ctl::Ret | Ctl::NoReturn => [None, None],
             Ctl::Indirect => {
                 // The cases are entered from the jump, with the frame pointer
                 // it had, and no register known.
@@ -517,7 +576,7 @@ impl Walk<'_> {
 
 /// Walks the function that is `code[start..end]`: every instruction along
 /// every path, as described in the module documentation.
-pub fn walk(code: &[u8], start: usize, end: usize) -> Walked {
+pub fn walk(code: &[u8], start: usize, end: usize, env: Env<'_>) -> Walked {
     let end = end.min(code.len());
     let mut insns: Vec<(usize, usize)> = Vec::new();
     let mut at = start;
@@ -533,6 +592,7 @@ pub fn walk(code: &[u8], start: usize, end: usize) -> Walked {
     let count = insns.len();
     let mut w = Walk {
         code,
+        env,
         start,
         end,
         insns,
@@ -611,9 +671,9 @@ fn ranges(code: &[u8], starts: &[usize]) -> Vec<(usize, usize)> {
 
 /// The first frame in the functions `ranges` of `code` that is [`LIMIT`]
 /// bytes or larger, or whose `sp` is not bounded.
-pub fn scan_ranges(code: &[u8], ranges: &[(usize, usize)]) -> Option<Finding> {
+pub fn scan_ranges(code: &[u8], ranges: &[(usize, usize)], env: Env<'_>) -> Option<Finding> {
     for &(start, end) in ranges {
-        let w = walk(code, start, end);
+        let w = walk(code, start, end, env);
         if let Some(at) = w.unbounded {
             return Some(Finding::Unknown { at });
         }
@@ -631,7 +691,7 @@ pub fn scan_ranges(code: &[u8], ranges: &[(usize, usize)]) -> Option<Finding> {
 /// the next.
 #[cfg(test)]
 pub fn scan(code: &[u8], starts: &[usize]) -> Option<Finding> {
-    scan_ranges(code, &ranges(code, starts))
+    scan_ranges(code, &ranges(code, starts), Env::none())
 }
 
 /// The frame of each function in `ranges` (`None`: `sp` not bounded).
@@ -639,11 +699,11 @@ pub fn scan(code: &[u8], starts: &[usize]) -> Option<Finding> {
     dead_code,
     reason = "the tests and the firmware listing (`paperpaw-sign frames`)"
 )]
-pub fn frame_sizes_in(code: &[u8], ranges: &[(usize, usize)]) -> Vec<Option<u32>> {
+pub fn frame_sizes_in(code: &[u8], ranges: &[(usize, usize)], env: Env<'_>) -> Vec<Option<u32>> {
     ranges
         .iter()
         .map(|&(s, e)| {
-            let w = walk(code, s, e);
+            let w = walk(code, s, e, env);
             w.unbounded.is_none().then_some(w.frame)
         })
         .collect()
@@ -653,7 +713,7 @@ pub fn frame_sizes_in(code: &[u8], ranges: &[(usize, usize)]) -> Vec<Option<u32>
 /// to the next.
 #[cfg(test)]
 pub fn frame_sizes(code: &[u8], starts: &[usize]) -> Vec<Option<u32>> {
-    frame_sizes_in(code, &ranges(code, starts))
+    frame_sizes_in(code, &ranges(code, starts), Env::none())
 }
 
 /// The first byte of `code` that no range in `ranges` (sorted by start)
@@ -693,6 +753,95 @@ pub fn uncovered(code: &[u8], ranges: &[(usize, usize)]) -> Option<usize> {
         at = gap_end;
     }
     None
+}
+
+/// The names in a mangled symbol (legacy `_ZN…E` or v0 `_R…`) joined with
+/// `::`: the length-prefixed identifiers, without the crate's disambiguator
+/// and the hash. Not a demangler: enough to match `crash::panic`.
+pub fn path(mangled: &str) -> String {
+    let b = mangled.as_bytes();
+    let v0 = mangled.starts_with("_R");
+    let mut i = if v0 {
+        2
+    } else if mangled.starts_with("_ZN") {
+        3
+    } else {
+        return mangled.to_string();
+    };
+    let mut parts: Vec<&str> = Vec::new();
+    while i < b.len() {
+        // A crate's disambiguator, `s<base62>_`, after its `C`.
+        if b[i] == b'C' && b.get(i + 1) == Some(&b's') {
+            i += 2;
+            while i < b.len() && b[i] != b'_' {
+                i += 1;
+            }
+            i += 1;
+            continue;
+        }
+        if b[i].is_ascii_digit() {
+            let start = i;
+            while i < b.len() && b[i].is_ascii_digit() {
+                i += 1;
+            }
+            let n: usize = mangled[start..i].parse().unwrap_or(0);
+            // In v0 a name that starts with an underscore or a digit follows
+            // the number after an underscore of its own.
+            if v0 && n > 0 && b.get(i) == Some(&b'_') {
+                i += 1;
+            }
+            let ident = mangled
+                .get(i..i + n)
+                .filter(|id| n > 0 && id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_'));
+            if let Some(ident) = ident {
+                // The legacy hash, `h` and sixteen hex digits.
+                let hash = ident.len() == 17
+                    && ident.starts_with('h')
+                    && ident[1..].bytes().all(|c| c.is_ascii_hexdigit());
+                if !hash {
+                    parts.push(ident);
+                }
+                i += n;
+            }
+            continue;
+        }
+        i += 1;
+    }
+    parts.join("::")
+}
+
+/// Whether a symbol's path (see [`path`]) is a panic of the language's own
+/// crates, which never returns.
+fn is_noreturn_path(path: &str) -> bool {
+    let parts: Vec<&str> = path.split("::").collect();
+    let std_crate = matches!(parts.first(), Some(&("core" | "alloc" | "std")));
+    let panics = parts.iter().any(|p| {
+        matches!(
+            *p,
+            "panicking" | "handle_alloc_error" | "capacity_overflow" | "handle_error" | "abort"
+        ) || p.ends_with("_fail")
+            || p.ends_with("_failed")
+    });
+    (std_crate && panics) || path == "__rustc::rust_begin_unwind"
+}
+
+/// The start addresses of the functions that never return, sorted: the
+/// panics of `core`, `alloc` and `std` (`core::panicking::*`, `*_fail`,
+/// `*_failed`, `handle_alloc_error`, `capacity_overflow`, `handle_error`,
+/// `abort`) and the language's `rust_begin_unwind`. Found by the path of
+/// their symbols, which a plugin cannot take for its own functions unless it
+/// names its crate `core`: code after a call to one is not reached from it
+/// (a panic's cold path often leaves a shrink-wrapped prologue after it).
+pub fn noreturn_functions(symbols: &[Symbol]) -> Vec<u32> {
+    let mut out: Vec<u32> = symbols
+        .iter()
+        .filter(|s| s.kind() == STT_FUNC && s.size > 0)
+        .filter(|s| is_noreturn_path(&path(&s.name)))
+        .map(|s| s.value)
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
 }
 
 /// Why a plugin with `finding` is refused, with the function it lies in.
@@ -748,9 +897,14 @@ pub fn check(
         .map(|s| (s.value.wrapping_sub(text.addr) as usize, s.size as usize))
         .collect();
     let merged = function_ranges(&sized, code.len());
+    let noreturn = noreturn_functions(symbols);
+    let env = Env {
+        base: text.addr,
+        noreturn: &noreturn,
+    };
     let found = uncovered(code, &merged)
         .map(|at| Finding::Uncovered { at })
-        .or_else(|| scan_ranges(code, &merged));
+        .or_else(|| scan_ranges(code, &merged, env));
     match found {
         None => Ok(()),
         Some(found) => Err(refusal(&found, text, symbols, text_index)),
