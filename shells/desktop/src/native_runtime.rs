@@ -8,10 +8,10 @@ use std::ffi::c_void;
 use std::path::Path;
 use std::ptr;
 
-use paperpaw_native::host_glue::{
-    ENTRY_SYMBOL, METADATA_SYMBOL, OK, PLUGIN_EXPORTS, PpEntry, PpHost, PpPlugin,
+use paperpaw_native::host_glue::{ENTRY_SYMBOL, METADATA_SYMBOL, OK, PpEntry, PpHost, PpPlugin};
+use paperpaw_native::preflight::{
+    FreestandingRefusal, PLUGIN_EXPORTS, check_freestanding, data_export,
 };
-use paperpaw_native::preflight::{Refusal, check_freestanding, data_export};
 
 use crate::host_services::DesktopHost;
 use crate::native::HeldLibrary;
@@ -179,7 +179,9 @@ unsafe fn checked_library(
     // PR #133: a plugin needs no library, binds no symbol of the process and
     // exports nothing but its two entry symbols. One rule, shared with the packager.
     check_freestanding(&bytes, 62, PLUGIN_EXPORTS).map_err(|refusal| match refusal {
-        Refusal::UndefinedImport | Refusal::NeededLibrary => RuntimeError::Import,
+        FreestandingRefusal::UndefinedImport | FreestandingRefusal::NeededLibrary => {
+            RuntimeError::Import
+        }
         _ => RuntimeError::Export,
     })?;
     let locator =

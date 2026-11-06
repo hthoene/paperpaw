@@ -5,7 +5,8 @@ extern crate std;
 
 use alloc::vec::Vec;
 
-use super::{Refusal, check_elf64_le, check_freestanding};
+use super::{FreestandingRefusal as Free, check_freestanding};
+use super::{Refusal, check_elf64_le};
 
 /// The one name every built file defines (its two symbols are both `sym`).
 const ALLOWED: &[&str] = &["sym"];
@@ -352,7 +353,7 @@ fn imports_are_refused_strong_or_weak_and_a_clean_file_has_none() {
                 assert_eq!(check_elf64_le(&bytes, machine), Ok(()));
                 assert_eq!(
                     check_freestanding(&bytes, machine, ALLOWED),
-                    Err(Refusal::UndefinedImport),
+                    Err(Free::UndefinedImport),
                     "machine {machine} gnu_hash={gnu_hash} binding={binding}"
                 );
             }
@@ -370,7 +371,7 @@ fn the_import_check_keeps_every_other_refusal_and_never_panics_on_hostile_tables
     };
     assert_eq!(
         check_freestanding(&build(&ifunc), X86, ALLOWED),
-        Err(Refusal::RunsCodeAtLoad("an IFUNC symbol")),
+        Err(Free::Preflight(Refusal::RunsCodeAtLoad("an IFUNC symbol"))),
     );
     let lying = Spec {
         gnu_hash: true,
@@ -380,7 +381,7 @@ fn the_import_check_keeps_every_other_refusal_and_never_panics_on_hostile_tables
     };
     assert_eq!(
         check_freestanding(&build(&lying), X86, ALLOWED),
-        Err(Refusal::Symbols)
+        Err(Free::Preflight(Refusal::Symbols))
     );
     // Cut anywhere or one byte changed anywhere: bounded, no panic, and a cut
     // file is never accepted.
@@ -412,11 +413,11 @@ fn the_import_check_keeps_every_other_refusal_and_never_panics_on_hostile_tables
     // Not an ELF file, and a wrong machine, are refused before any table is read.
     assert_eq!(
         check_freestanding(b"not an elf", X86, ALLOWED),
-        Err(Refusal::NotSupported)
+        Err(Free::Preflight(Refusal::NotSupported))
     );
     assert_eq!(
         check_freestanding(&build(&plain(ARM)), X86, ALLOWED),
-        Err(Refusal::OtherMachine)
+        Err(Free::Preflight(Refusal::OtherMachine))
     );
 }
 
@@ -434,7 +435,7 @@ fn a_needed_library_or_an_unlisted_export_is_refused_and_exactly_the_listed_ones
             assert_eq!(check_elf64_le(&bytes, machine), Ok(()));
             assert_eq!(
                 check_freestanding(&bytes, machine, ALLOWED),
-                Err(Refusal::NeededLibrary)
+                Err(Free::NeededLibrary)
             );
             // Defined symbols that the caller did not list are exports it refuses.
             let clean = build(&Spec {
@@ -444,13 +445,13 @@ fn a_needed_library_or_an_unlisted_export_is_refused_and_exactly_the_listed_ones
             assert_eq!(check_freestanding(&clean, machine, ALLOWED), Ok(()));
             assert_eq!(
                 check_freestanding(&clean, machine, &[]),
-                Err(Refusal::UnexpectedExport),
+                Err(Free::UnexpectedExport),
                 "an empty list allows nothing"
             );
             for other in [&["other"][..], &["sy"], &["syms"], &["", "SYM"]] {
                 assert_eq!(
                     check_freestanding(&clean, machine, other),
-                    Err(Refusal::UnexpectedExport),
+                    Err(Free::UnexpectedExport),
                     "{other:?}: names compare exactly"
                 );
             }
@@ -467,7 +468,7 @@ fn a_needed_library_or_an_unlisted_export_is_refused_and_exactly_the_listed_ones
             assert_eq!(check_freestanding(&weak, machine, ALLOWED), Ok(()));
             assert_eq!(
                 check_freestanding(&weak, machine, &[]),
-                Err(Refusal::UnexpectedExport)
+                Err(Free::UnexpectedExport)
             );
             // An import is reported as an import, whatever the export list says.
             let import = build(&Spec {
@@ -477,7 +478,7 @@ fn a_needed_library_or_an_unlisted_export_is_refused_and_exactly_the_listed_ones
             });
             assert_eq!(
                 check_freestanding(&import, machine, &[]),
-                Err(Refusal::UndefinedImport)
+                Err(Free::UndefinedImport)
             );
         }
     }
@@ -1035,7 +1036,9 @@ mod real {
     use std::{format, fs};
 
     use super::{ARM, X86};
-    use crate::preflight::{Refusal, check_elf64_le, check_freestanding};
+    use crate::preflight::{
+        FreestandingRefusal as Free, Refusal, check_elf64_le, check_freestanding,
+    };
 
     /// The one symbol every fixture library below defines.
     const ALLOWED: &[&str] = &["plugin_entry"];
@@ -1116,7 +1119,7 @@ pub extern "C" fn plugin_entry() -> u32 { 7 }
             assert_eq!(check_elf64_le(lib, MACHINE), Ok(()), "{name}");
             assert_eq!(
                 check_freestanding(lib, MACHINE, ALLOWED),
-                Err(Refusal::UndefinedImport),
+                Err(Free::UndefinedImport),
                 "{name}"
             );
             // Hostile edits of a real import table: bounded, no panic.

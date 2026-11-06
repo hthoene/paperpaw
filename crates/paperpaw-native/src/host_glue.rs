@@ -26,11 +26,6 @@ mod generated {
 
 pub use generated::{ENTRY_SYMBOL, METADATA_SYMBOL, PpBuffer, PpBytes, PpEntry, PpHost, PpPlugin};
 
-/// The dynamic symbols a host plugin library may define, and no others: the
-/// metadata locator and the entry. The one list for the loader and for the
-/// packager's check (`preflight::check_freestanding`), so no caller types the
-/// two names a second time; a test ties it to `abi/abi.def`.
-pub const PLUGIN_EXPORTS: &[&str] = &[METADATA_SYMBOL, ENTRY_SYMBOL];
 pub use generated::{
     PLUGIN_PREFIX_BYTES, read_plugin_dispatch_event, read_plugin_draw, read_plugin_drop,
     read_plugin_size, read_plugin_state,
@@ -391,20 +386,6 @@ mod const_table {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn plugin_exports_are_exactly_the_symbols_abi_def_names() {
-        let def = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../abi/abi.def"));
-        assert!(def.contains(&std::format!("\"symbol\": \"{}\"", super::METADATA_SYMBOL)));
-        assert!(def.contains(&std::format!(
-            "\"entry_symbol\": \"{}\"",
-            super::ENTRY_SYMBOL
-        )));
-        assert_eq!(
-            super::PLUGIN_EXPORTS,
-            &["PAPERPAW_METADATA", "PAPERPAW_ENTRY"][..]
-        );
-    }
-
     extern crate std;
 
     use std::alloc::{Layout, alloc, dealloc, realloc};
