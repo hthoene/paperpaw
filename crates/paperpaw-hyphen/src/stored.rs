@@ -397,6 +397,29 @@ impl<S: Source> StoredPatterns<S> {
         }
     }
 
+    /// As [`hyphenate`](Self::hyphenate), with the minimums `left` and
+    /// `right` for this word alone, where they are not 0 (as
+    /// [`with_minimums`](Self::with_minimums) takes them): one reader
+    /// serves callers that set different ones.
+    pub fn hyphenate_with_minimums(
+        &mut self,
+        left: usize,
+        right: usize,
+        word: &str,
+        out: &mut dyn FnMut(usize),
+    ) {
+        if !self.failed {
+            let mut rules = self.rules;
+            if left > 0 {
+                rules.left_min = left.min(MAX_MINIMUM);
+            }
+            if right > 0 {
+                rules.right_min = right.min(MAX_MINIMUM);
+            }
+            hyphenate_with(self, rules, word, out);
+        }
+    }
+
     /// Reads, or fails for good.
     fn fetch(&mut self, at: u64, buf: &mut [u8]) -> bool {
         self.reads += 1;

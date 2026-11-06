@@ -10,7 +10,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use paperpaw_hyphen::Patterns;
+use crate::hyphenation::Hyphenator;
 
 use super::WordBox;
 use crate::builtin::{fonts, settings};
@@ -411,7 +411,7 @@ impl PageType {
     /// The patterns words are hyphenated with: those of the page's
     /// language, with the minimums the reader set where they are not 0;
     /// `None` where the page is not hyphenated.
-    pub fn patterns(&self, env: &Env<'_>) -> Option<Patterns<'static>> {
+    pub fn patterns<'a>(&self, env: &Env<'a>) -> Option<Hyphenator<'a>> {
         let language = self.hyphenation.as_deref()?;
         let (left, right) = self.hyphen_minimums;
         env.hyphenation()

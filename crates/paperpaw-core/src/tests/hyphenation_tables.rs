@@ -22,9 +22,9 @@ fn with_plugin(storage: MemoryStorage, id: &str, lines: &str, files: &[&str]) ->
 fn found(kernel: &Kernel, tag: &str) -> Option<(String, String)> {
     kernel
         .shared
-        .hyphenation_tables
-        .find(tag)
-        .map(|e| (e.plugin.clone(), e.path.clone()))
+        .hyphenation
+        .card_table(tag)
+        .map(|e| (e.plugin().into(), e.path().into()))
 }
 
 #[test]

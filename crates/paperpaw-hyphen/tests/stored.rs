@@ -69,13 +69,20 @@ fn minimums_and_exceptions_are_the_slices() {
         let want = patterns.with_minimums(l, r);
         let mut reader = open(&table, 2).with_minimums(l, r);
         assert_eq!(reader.minimums(), want.minimums());
+        // One reader, the minimums given word by word: the same, and the
+        // reader's own stay as they were.
+        let mut shared = open(&table, 2);
         for word in ["abab", "ababab", "bbbb", "a", ""] {
             assert_eq!(
                 stored_breaks(&mut reader, word),
                 breaks_of(&want, word),
                 "{word}"
             );
+            let mut breaks = Vec::new();
+            shared.hyphenate_with_minimums(l, r, word, &mut |at| breaks.push(at));
+            assert_eq!(breaks, breaks_of(&want, word), "{word}");
         }
+        assert_eq!(shared.minimums(), patterns.minimums());
     }
 }
 

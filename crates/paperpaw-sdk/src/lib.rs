@@ -169,7 +169,10 @@ pub use formats::{
     COVER_FIT, FormatOpener, FormatPrepared, FormatSpec, Formats, IMAGE_FIT, OpenOptions, cover_fit,
 };
 pub use gesture::{Direction, Gesture, GestureKind};
-pub use hyphenation::{Hyphenation, HyphenationSpec};
+#[cfg(feature = "kernel")]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub use hyphenation::CardTable;
+pub use hyphenation::{Hyphenation, HyphenationSpec, Hyphenator};
 pub use id::{Id, InvalidId};
 pub use memory_storage::{MemoryStorage, read_file};
 pub use menus::{
