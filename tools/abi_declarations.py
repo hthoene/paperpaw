@@ -12,14 +12,23 @@ COMMAND_RECORDS = ('command.set_setting',)
 
 # Tag allocation (interface-7 contract, shared rule 1). Tags are never reused.
 # A name is matched exactly first, then by its first segment; 63 is reserved.
+# Tag families, each a tuple of inclusive ranges. The second range of a family
+# is its growth block (N3, #241): reserved now so later families never collide.
+# Decoders classify records by exact tag only, never by range; the ranges only
+# check where a schema author puts a new record.
+DECLARATIVE = ((5, 31), (224, 511))
 TAG_RANGES = {
-    'registration.event': (1, 3), 'registration.draw': (1, 3), 'event.tick': (1, 3),
-    'command.set_setting': (4, 4),
+    'registration.event': ((1, 3),), 'registration.draw': ((1, 3),), 'event.tick': ((1, 3),),
+    'registration': DECLARATIVE,
+    'command.set_setting': ((4, 4),),
     # Declarative registration (PR #158, section 8): settings and resources,
-    # then actions, menus, screens and icons (Part 5), all within 5-31.
-    'setting': (5, 31), 'resource': (5, 31),
-    'action': (5, 31), 'menu': (5, 31), 'screen': (5, 31), 'icon': (5, 31),
-    'event': (32, 43), 'i18n': (44, 47), 'service': (48, 55), 'command': (56, 62),
+    # then actions, menus, screens and icons (Part 5).
+    'setting': DECLARATIVE, 'resource': DECLARATIVE, 'action': DECLARATIVE,
+    'menu': DECLARATIVE, 'screen': DECLARATIVE, 'icon': DECLARATIVE,
+    'format': DECLARATIVE, 'stage': ((512, 1023),),
+    'event': ((32, 39), (64, 191)), 'input': ((40, 43), (192, 223)), 'draw': ((192, 223),),
+    'i18n': ((44, 47),), 'service': ((48, 55), (1024, 1535)),
+    'command': ((56, 62), (1536, 2047)),
 }
 KEYWORDS = frozenset(
     'as break const continue crate else enum extern false fn for if impl in let loop match '
@@ -58,9 +67,9 @@ def check_tags(records):
         bounds = tag_range(name)
         _require(bounds is not None,
                  f'record {name} is in no tag family; add its family to TAG_RANGES with a range')
-        _require(bounds[0] <= tag <= bounds[1],
-                 f'record {name} has tag {tag} outside its family range '
-                 f'{bounds[0]}-{bounds[1]}')
+        _require(any(low <= tag <= high for low, high in bounds),
+                 f'record {name} has tag {tag} outside its family ranges '
+                 + ', '.join(f'{low}-{high}' for low, high in bounds))
         _require(tag not in seen, f'duplicate record codec tag {tag} '
                  f'({seen.get(tag)} and {name})')
         seen[tag] = name
@@ -123,7 +132,20 @@ def _fields(record):
                      f'{name}.{label}: required fields start with their record')
         _require(record['since'] <= field['since'],
                  f'{name}.{label}: field older than its record')
-        out.append(dict(name=label, kind=kind, cap=cap, optional=field['optional'], since=field['since'],
+        items = field.get('list')
+        if items is not None:
+            _require(kind == 'str' and type(items) is dict
+                     and set(items) == {'separator', 'max_items', 'item_max_bytes'},
+                     f'{name}.{label}: list needs separator, max_items, item_max_bytes on a str')
+            _require(type(items['separator']) is str and len(items['separator']) == 1
+                     and items['separator'].isascii(),
+                     f'{name}.{label}: list separator must be one ASCII character')
+            _require(type(items['max_items']) is int and 1 <= items['max_items'] <= 255
+                     and type(items['item_max_bytes']) is int
+                     and 1 <= items['item_max_bytes'] <= cap,
+                     f'{name}.{label}: list bounds outside 1-255 items, 1-cap bytes')
+        out.append(dict(name=label, kind=kind, cap=cap, items=items, optional=field['optional'],
+                        since=field['since'],
                         ordinal=field['ordinal'], default=field['default'],
                         maybe=field['optional'] and kind in SCALAR_BYTES and field['default'] is None))
     return out
@@ -201,6 +223,16 @@ def _record_source(record):
             out += [f'/// Maximum bytes of `{name}.{field["name"]}`.',
                     f'pub const {prefix}_{field["name"].upper()}_MAX_BYTES: usize = '
                     f'{field["cap"]};']
+        items = field.get('items')
+        if items:
+            constant = f'{prefix}_{field["name"].upper()}'
+            out += [f'/// Separator of the list in `{name}.{field["name"]}`.',
+                    # Python's repr of one ASCII character is a valid Rust char literal.
+                    f'pub const {constant}_SEPARATOR: char = {items["separator"]!r};',
+                    f'/// Most items in `{name}.{field["name"]}`.',
+                    f'pub const {constant}_MAX_ITEMS: usize = {items["max_items"]};',
+                    f'/// Longest item of `{name}.{field["name"]}` in bytes.',
+                    f'pub const {constant}_ITEM_MAX_BYTES: usize = {items["item_max_bytes"]};']
     out += ['', f'/// The `{name}` record, borrowed from its batch.',
             '#[derive(Clone, Copy, Debug, PartialEq, Eq)]', f"pub struct {title}{_lifetime(record)} {{"]
     for field in fields:

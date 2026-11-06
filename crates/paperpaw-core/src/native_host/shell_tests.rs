@@ -193,6 +193,7 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
                 drop: Some(destroy),
                 dispatch_event: Some(event),
                 draw: Some(draw),
+                input: None,
             },
             host,
             ctx,
@@ -217,16 +218,28 @@ unsafe extern "C" fn destroy(state: *mut c_void) {
     }
 }
 
-unsafe extern "C" fn event(_: *mut c_void, token: u32, input: PpBytes) -> i32 {
-    if token != TOKEN || input.len != 3 {
+unsafe extern "C" fn event(_: *mut c_void, token: u32, input: PpBytes, reply: PpBuffer) -> i32 {
+    // Started and the other events 32-39 have no reply family (section 6).
+    if token != TOKEN || input.len != 3 || reply.ptr.is_null() || reply.cap != 0 {
         return ERR_INVALID;
     }
     EVENTS.with(|e| e.set(e.get() + 1));
     OK
 }
 
-unsafe extern "C" fn draw(_: *mut c_void, token: u32) -> i32 {
-    if token == TOKEN { OK } else { ERR_INVALID }
+unsafe extern "C" fn draw(_: *mut c_void, token: u32, frame: PpBytes) -> i32 {
+    if token != TOKEN || frame.len == 0 || frame.ptr.is_null() {
+        return ERR_INVALID;
+    }
+    // A positive result is a fault, never a length: the host maps it.
+    if frame.len == 1 { 1 } else { OK }
+}
+
+fn frame() -> Vec<u8> {
+    let mut bytes = [0; 64];
+    let frame = super::super::frames::screen(0, 0, 8, 8, (0, 8));
+    let len = super::super::frames::encode(&frame, &mut bytes).unwrap();
+    bytes[..len].to_vec()
 }
 
 fn fake() -> Hosted<Heap, Module> {
@@ -261,12 +274,17 @@ fn a_made_plugin_registers_dispatches_and_is_destroyed_once_before_its_module() 
         Ok(ERR_INVALID)
     );
     assert_eq!(
-        dispatch_registration(&batch, 1, &depth, Invocation::Draw),
+        dispatch_registration(&batch, 1, &depth, Invocation::Draw(&frame())),
         Ok(OK)
+    );
+    // A positive draw result is a plugin fault, never a length.
+    assert_eq!(
+        dispatch_registration(&batch, 1, &depth, Invocation::Draw(&[0])),
+        Ok(ERR_INVALID)
     );
     // A record that was never registered is the owner's error.
     assert_eq!(
-        dispatch_registration(&batch, 7, &depth, Invocation::Draw),
+        dispatch_registration(&batch, 7, &depth, Invocation::Draw(&frame())),
         Err(Error::Lifecycle(super::super::Error::State))
     );
     assert!(logged().is_empty(), "nothing destroyed while in use");
@@ -504,4 +522,20 @@ fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_c
         assert_eq!(logged(), ["module"], "the module is dropped, once");
         assert_eq!(MAKES.with(Cell::get), 0, "make was never called");
     }
+}
+
+#[test]
+fn an_empty_visible_region_sends_no_frame_and_a_full_one_its_rows() {
+    let mut out = [0; 64];
+    for empty in [Rect::new(0, 0, 8, 0), Rect::new(0, 4, 0, 8)] {
+        assert_eq!(screen_frame(empty, &mut out), Ok(None), "{empty:?}");
+    }
+    let len = screen_frame(Rect::new(2, 4, 8, 6), &mut out)
+        .unwrap()
+        .unwrap();
+    let batch = registrations::records_decode(&out[..len]).unwrap();
+    let Some(registrations::Record::DrawFrame(frame)) = batch.iter().next() else {
+        panic!("not a frame");
+    };
+    assert_eq!((frame.y, frame.clip_top, frame.clip_bottom), (4, 4, 10));
 }

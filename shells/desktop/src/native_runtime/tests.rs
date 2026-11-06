@@ -97,7 +97,7 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut core::ffi::c_void, out:
     let status = unsafe {{ (h.heap_alloc)(ctx, core::mem::size_of::<State>(), core::mem::align_of::<State>(), &mut block) }};
     if status != OK {{ return status; }}
     let state = block.cast::<State>();
-    unsafe {{ state.write(State {{ host, ctx, plugin: PpPlugin {{ size: core::mem::size_of::<PpPlugin>() as u32, state: block, drop: Some(destroy), dispatch_event: None, draw: None }} }});
+    unsafe {{ state.write(State {{ host, ctx, plugin: PpPlugin {{ size: core::mem::size_of::<PpPlugin>() as u32, state: block, drop: Some(destroy), dispatch_event: None, draw: None, input: None }} }});
         out.write(&raw const (*state).plugin); }}
     OK
 }}

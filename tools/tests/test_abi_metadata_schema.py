@@ -31,7 +31,7 @@ class MetadataSchemaTests(unittest.TestCase):
 
     def test_format_and_limits_are_frozen(self):
         for key, value in [('magic', 'OTHER'), ('byte_order', 'big'),
-                           ('max_bytes', 4096), ('max_services', 17),
+                           ('max_bytes', 4096), ('max_services', 33),
                            ('max_features', True), ('max_exports', 3)]:
             with self.subTest(key=key):
                 candidate = copy.deepcopy(self.schema)

@@ -273,7 +273,7 @@ impl RawDeclarations {
         name_hash(kind, name)
     }
     pub(crate) fn sort_index(&mut self) {
-        self.index.sort_unstable_by_key(|entry| entry.order());
+        super::declaration_index::sort_by_key(&mut self.index, |entry| entry.order());
         self.sorted = true;
     }
     pub(crate) fn record<'a>(
@@ -354,16 +354,9 @@ impl RawDeclarations {
         Ok(())
     }
 }
+/// A record the name index holds: exactly those `key` names, so the two never drift.
 pub(crate) fn is_declaration(record: &Record<'_>) -> bool {
-    matches!(
-        record,
-        Record::SettingGroup(_)
-            | Record::SettingSpec(_)
-            | Record::SettingExtra(_)
-            | Record::ResourceHyphenation(_)
-            | Record::ResourceFontFace(_)
-            | Record::ResourceFontExtension(_)
-    )
+    key(*record).is_some()
 }
 fn index_size(batches: usize, names: usize) -> Result<usize, i32> {
     batches

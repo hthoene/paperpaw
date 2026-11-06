@@ -35,6 +35,8 @@ fn page() -> EventPageTurned<'static> {
         chapter: "One",
         page: Some(12),
         pages: Some(300),
+        // N5: a page that starts in text (absent = 0).
+        insert: None,
     }
 }
 #[test]

@@ -141,7 +141,7 @@ fn h1_real_make_submission_commits_then_dispatches_event_and_draw() {
         host_glue::OK
     );
     assert_eq!(
-        dispatch_registration(&batch, 1, &depth, Invocation::Draw).unwrap(),
+        dispatch_registration(&batch, 1, &depth, Invocation::Draw(&screen_frame())).unwrap(),
         host_glue::OK
     );
     assert_eq!(evidence.callback_markers.get(), 2);
@@ -231,7 +231,7 @@ fn h4_real_callback_and_queued_lease_revoke_before_final_destruction() {
         host_glue::OK
     );
     assert_eq!(
-        dispatch_registration(&batch, 1, &depth, Invocation::Draw).unwrap(),
+        dispatch_registration(&batch, 1, &depth, Invocation::Draw(&screen_frame())).unwrap(),
         host_glue::OK
     );
     assert_eq!(evidence.callback_markers.get(), 2);
