@@ -82,8 +82,8 @@ measurement stay provisional until the X4 gate.
 - **Q11:** no derived titles; every title key is explicit.
 - **Q14:** file caps of 2 MiB for hyphenation tables and 64 MiB for font files, provisional until the X4 gate.
 - **Q16:** the action routing table is designed together with actions and screens.
-- **Owner decisions (on #228, open):** whether slot 15 may write other plugins' unguarded settings
-  (recommendation: own settings only, as implemented).
+- **Owner decision 126 (2026-11-06, settled):** slot 15 may write other plugins' unguarded,
+  non-secret settings, as in interface 6. The host-known identity records the submitter.
 
 ## The `[hyphenation]` data-plugin kind (Kernel Engineer, 2026-11-06)
 
@@ -210,8 +210,8 @@ question Q1.
   `with_extra`/`with_owned_extra`; 65 `SettingGroupSpec::new`. 246 x ~200 B is about 49 KB of heap if all
   were enabled at once; a typical install enables a fraction. The 81 `number` calls contain no literal
   of 9 or more digits, so an `i32` range holds them (lexical check only).
-- Slot 15 `SetSetting`: key namespace (first dot segment) must be the submitting plugin; the setting must
-  be registered; bool/int must satisfy its spec; a secret setting returns `ERR_UNSUPPORTED`
+- Slot 15 `SetSetting`: the setting must be registered, including other plugins' settings
+  (owner decision 126, 2026-11-06); bool/int must satisfy its spec; a secret setting returns `ERR_UNSUPPORTED`
   (`wt-abi7-commands/docs/abi/commands.md:49-54`). Slot 5 returns absent/bool/int/text and keeps
   defaults by going through `Settings::get` (`abi/settings.md:3-6`, `:21-24`;
   `crates/paperpaw-core/src/abi7/queries.rs:28-37`).
@@ -551,9 +551,10 @@ settings registry before `commit`.
 - **Slot 5** returns the value or the spec default of a registered setting through `Settings::get`
   (`abi/settings.md:21-24`); `absent` stays the answer for an **unknown key only**, because a default is
   never absent (rule 3).
-- **Slot 15** finds the spec in the same registry: namespace by first segment, kind and range via the same
-  `accepts`, `secret` refused with `ERR_UNSUPPORTED` (`commands.md:49-54`). A guarded setting is writable by
-  its own plugin by namespace; guarded protects against other plugins, which cannot name it.
+- **Slot 15** finds the spec in the same registry: kind and range via the same `accepts`, `secret`
+  refused with `ERR_UNSUPPORTED`. Other plugins' unguarded settings may be changed (owner decision 126,
+  2026-11-06). The normal plugin command path refuses foreign guarded settings using the host-known
+  submitter, with the interface-6 settings-editor and kernel exceptions. The wire is unchanged.
 - **Secrets.** Slot 5 on a secret key should return `absent`, since secrets live in the secret store
   (`settings.rs:258-263`); the current slot-5 code does not special-case this (`queries.rs:28-37`) and I did
   not check what `Settings::get` returns for one (Q9).

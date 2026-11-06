@@ -66,12 +66,9 @@ impl<'a> CommandStage<'a> {
     }
 
     /// The setting's spec, if this plugin may set it through slot 15.
-    /// Interface 7 admits only registered, non-secret settings in the
-    /// submitting plugin's own namespace; secrets need their own path.
+    /// Registered, non-secret settings may belong to any plugin. The kernel
+    /// vets guarded settings using the host-known submitting identity.
     fn admitted(&self, key: &str) -> Result<&'a SettingSpec, i32> {
-        if key.split('.').next() != Some(self.owner.as_str()) {
-            return Err(ERR_INVALID);
-        }
         let spec = self.settings.spec(key).ok_or(ERR_INVALID)?;
         if spec.extra().secret {
             return Err(ERR_UNSUPPORTED);
@@ -84,7 +81,7 @@ impl<'a> CommandStage<'a> {
         if self.staged.len().saturating_add(batch.len()) > self.limit {
             return ERR_NO_SPACE;
         }
-        // Authority, registration, scalar ranges and the byte budget, without allocating.
+        // Registration, scalar ranges and the byte budget, without allocating.
         let mut bytes = self.bytes;
         for WireCommand::SetSetting { key, value } in batch.iter() {
             let text = match value {
@@ -222,7 +219,7 @@ impl CommandScope {
     ///
     /// Returns OK, or an error with the stage unchanged: ERR_STATE outside a
     /// callback, ERR_BUSY during another submission, codec statuses for the
-    /// bytes, ERR_INVALID for a foreign, unregistered or unaccepted setting
+    /// bytes, ERR_INVALID for an unregistered or unaccepted setting
     /// value, ERR_UNSUPPORTED for a secret, ERR_NO_SPACE beyond the stage
     /// limit or byte budget and ERR_NO_MEMORY if fallible staging cannot reserve memory.
     ///

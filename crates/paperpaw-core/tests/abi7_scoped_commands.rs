@@ -1,5 +1,5 @@
-//! Slot-15 SetSetting: whole-batch validation, owner authority before any
-//! staging, and readback of the applied value in the next real callback.
+//! Slot-15 SetSetting: whole-batch validation, reserved-setting protection,
+//! and readback of the applied value in the next real callback.
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
 use paperpaw_core::native_host::commands::{
     COMMAND_MAX_BYTES, CommandScope, CommandStage, WireCommand, commands_encode,
@@ -37,12 +37,11 @@ static SETTINGS: [SettingSpec; 5] = [
     SettingSpec::text("probe.text", "text", "", builtin::groups::OTHER),
     SettingSpec::text("probe.secret", "secret", "", builtin::groups::OTHER).with_extra(&SECRET),
 ];
-static FOREIGN: [SettingSpec; 1] = [SettingSpec::switch(
-    "other.flag",
-    "flag",
-    false,
-    builtin::groups::OTHER,
-)];
+static FOREIGN: [SettingSpec; 3] = [
+    SettingSpec::switch("other.flag", "flag", false, builtin::groups::OTHER),
+    SettingSpec::switch("other.guarded", "guarded", false, builtin::groups::OTHER).guarded(),
+    SettingSpec::text("other.secret", "secret", "", builtin::groups::OTHER).with_extra(&SECRET),
+];
 
 fn set<'a>(key: &'a str, value: SettingValueRef<'a>) -> WireCommand<'a> {
     WireCommand::SetSetting { key, value }
@@ -88,8 +87,8 @@ fn refusals(scope: &CommandScope) {
             ERR_NO_SPACE,
         ),
         (
-            batch(&[flag, set("other.flag", SettingValueRef::Bool(true))]),
-            ERR_INVALID,
+            batch(&[flag, set("other.secret", SettingValueRef::Text("x"))]),
+            ERR_UNSUPPORTED,
         ),
         (
             batch(&[flag, set("probe.none", SettingValueRef::Bool(true))]),
@@ -186,6 +185,24 @@ fn started(env: &Env<'_>, out: &mut Commands) {
     );
     unwinding(&owner, env);
     out.extend(stage.into_commands());
+    cross_plugin_settings(&owner, env, out);
+}
+
+fn cross_plugin_settings(owner: &Id, env: &Env<'_>, out: &mut Commands) {
+    let mut stage = CommandStage::new(owner, env.settings(), 2, BYTES);
+    let scope = pin!(CommandScope::new());
+    let bytes = batch(&[
+        set("other.flag", SettingValueRef::Bool(true)),
+        set("other.guarded", SettingValueRef::Bool(true)),
+    ]);
+    scope
+        .as_ref()
+        .scope(&mut stage, || assert_eq!(submit(&scope, &bytes), OK))
+        .unwrap();
+    // The normal plugin command path vets the guarded command after draining.
+    assert_eq!(stage.staged().len(), 2);
+    assert!(!env.settings().bool("other.flag"));
+    out.extend(stage.into_commands());
 }
 
 struct Probe(Rc<RefCell<Vec<String>>>);
@@ -206,7 +223,13 @@ impl Plugin for Probe {
         let log = self.0.clone();
         r.subscribe(
             builtin::events::SETTING_CHANGED,
-            Box::new(move |env, _, _| {
+            Box::new(move |env, event, _| {
+                if event.get(builtin::params::ID) == Some("other.flag") {
+                    assert!(env.settings().bool("other.flag"));
+                    log.borrow_mut().push("other.flag changed".into());
+                    return;
+                }
+                assert_ne!(event.get(builtin::params::ID), Some("other.guarded"));
                 let flag = read(env, "probe.flag");
                 let flag = settings_decode(&flag).unwrap();
                 let text = read(env, "probe.text");
@@ -240,10 +263,22 @@ fn staged_set_setting_is_read_back_in_the_next_callback() {
         .build()
         .unwrap();
     kernel.start(paperpaw_platform::Instant(0));
+    assert!(kernel.settings().bool("other.flag"));
+    assert!(!kernel.settings().bool("other.guarded"));
+    assert_eq!(kernel.settings().text("other.secret"), "");
+    assert_eq!(kernel.secrets().get("other.secret"), None);
     let log = log.borrow();
+    assert_eq!(
+        log.iter()
+            .filter(|entry| *entry == "other.flag changed")
+            .count(),
+        1
+    );
     assert!(!log.is_empty(), "no SETTING_CHANGED callback ran");
     assert_eq!(
-        log.last().unwrap(),
+        log.iter()
+            .find(|entry| entry.starts_with("Bool(true)"))
+            .unwrap(),
         "Bool(true) Ok(Text(\"Grüße\"))",
         "{log:?}"
     );
