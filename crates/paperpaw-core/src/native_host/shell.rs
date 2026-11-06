@@ -14,7 +14,7 @@
 //! records stay non-dispatchable until the output validates and commits; the
 //! plugin's destructor runs exactly once, while the context, services and
 //! module are alive; Env and Canvas are lent for one synchronous callback.
-use alloc::alloc::{alloc, handle_alloc_error};
+use alloc::alloc::alloc;
 use alloc::boxed::Box;
 use alloc::string::String;
 use core::alloc::Layout;
@@ -254,7 +254,9 @@ impl<S: Services, M> Hosted<S, M> {
         })
     }
 
-    /// The pinned owner; callers lease, revoke and finish through it.
+    /// The pinned owner; callers lease and finish through it. To stop the
+    /// plugin call [`stop`](Self::stop), not `revoke` here: only `stop` also
+    /// withdraws [`image`](Self::image).
     #[must_use]
     pub fn owner(&self) -> Pin<&Owner<S, M>> {
         self.owner.as_ref()
@@ -266,6 +268,12 @@ impl<S: Services, M> Hosted<S, M> {
     pub fn stop(&self) {
         self.stopped.set(true);
         self.owner.as_ref().revoke();
+    }
+
+    /// Whether [`stop`](Self::stop) was called.
+    #[must_use]
+    pub fn is_stopped(&self) -> bool {
+        self.stopped.get()
     }
 
     /// The plugin's read-only data, as mapped; `None` once stopped. The bytes
@@ -375,24 +383,29 @@ impl<S: Services, M> Hosted<S, M> {
     }
 }
 
-/// Fallible placement of the owner: it holds a context and a module, so its
-/// allocation is never zero-sized.
-fn pin_owner<S, M>(value: Owner<S, M>) -> Result<Pin<Box<Owner<S, M>>>, Error> {
-    let layout = Layout::new::<Owner<S, M>>();
+/// Fallible placement of a value on the heap: the X4 has no room to abort.
+pub(super) fn try_box<T>(value: T) -> Result<Box<T>, Error> {
+    let layout = Layout::new::<T>();
     if layout.size() == 0 {
-        handle_alloc_error(layout);
+        return Ok(Box::new(value));
     }
-    // SAFETY: the layout is nonzero and valid for this exact owner type.
-    let allocation = unsafe { alloc(layout) }.cast::<Owner<S, M>>();
+    // SAFETY: the layout is nonzero and valid for this exact type.
+    let allocation = unsafe { alloc(layout) }.cast::<T>();
     if allocation.is_null() {
         return Err(Error::Allocation);
     }
     // SAFETY: a uniquely owned allocation of the exact `Box` layout,
-    // initialized before the `Box` exists. Nothing has seen the unpinned owner.
+    // initialized before the `Box` exists.
     unsafe {
         allocation.write(value);
-        Ok(Box::into_pin(Box::from_raw(allocation)))
+        Ok(Box::from_raw(allocation))
     }
+}
+
+/// Fallible placement of the owner, pinned: it holds a context and a module,
+/// so its allocation is never zero-sized, and nothing has seen it unpinned.
+fn pin_owner<S, M>(value: Owner<S, M>) -> Result<Pin<Box<Owner<S, M>>>, Error> {
+    try_box(value).map(Box::into_pin)
 }
 
 /// A made plugin whose records are not yet dispatchable. Dropped before
@@ -700,6 +713,10 @@ pub fn dispatch_draw<S, M>(
         })??
     })?
 }
+
+/// One hosted, made and committed plugin as the kernel's `FlatInstance`.
+#[path = "shell_instance.rs"]
+pub mod instance;
 
 #[cfg(test)]
 #[path = "shell_tests.rs"]

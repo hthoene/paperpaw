@@ -154,7 +154,8 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
             )
         };
     }
-    let mut bytes = vec![0; registrations::REGISTRATION_MAX_BYTES];
+    // On the stack: the plugin's own allocations are not under test here.
+    let mut bytes = [0u8; registrations::REGISTRATION_MAX_BYTES];
     let len = registrations::registrations_encode(
         &[
             Registration::Event {
@@ -503,5 +504,119 @@ fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_c
         assert_eq!(refused.err(), Some(Error::Allocation), "allocation {nth}");
         assert_eq!(logged(), ["module"], "the module is dropped, once");
         assert_eq!(MAKES.with(Cell::get), 0, "make was never called");
+    }
+}
+
+mod instance_tests {
+    use super::*;
+    use crate::native_host::flat::{DropReason, FlatInstance, FlatRegistration};
+    use crate::native_host::shell::instance::{Hooks, Instance};
+
+    fn dropped(_: &str, _: u32, _: DropReason) {
+        log("dropped");
+    }
+    fn leaked(_: &str) {
+        log("leaked");
+    }
+    fn hooks() -> Hooks {
+        Hooks {
+            event_dropped: dropped,
+            leaked,
+        }
+    }
+    fn load() -> Result<Instance<Heap, Module>, Error> {
+        // SAFETY: `make` is this file's plugin, always callable; no image.
+        unsafe { Instance::load(Heap, Module::new(), make, "fake", (0, 0), hooks()) }
+    }
+
+    #[test]
+    fn an_instance_visits_dispatches_stops_and_releases_in_order() {
+        reset(NORMAL);
+        let instance = load().unwrap();
+        assert_eq!(instance.id(), "fake");
+        let mut seen = Vec::new();
+        instance.registrations(&mut |r| seen.push(r));
+        assert_eq!(
+            seen,
+            [
+                FlatRegistration::Event {
+                    event_tag: registrations::EVENT_STARTED_TAG,
+                    index: 0
+                },
+                FlatRegistration::Other { record_tag: 2 },
+            ]
+        );
+        let depth = DispatchDepth::new();
+        assert_eq!(instance.dispatch_event(0, &[1, 2, 3], &depth), Ok(OK));
+        assert_eq!(
+            instance.dispatch_event(0, &[1], &depth),
+            Ok(ERR_INVALID),
+            "the callback's own refusal is its status"
+        );
+        assert_eq!(
+            instance.dispatch_event(9, &[1, 2, 3], &depth),
+            Err(super::super::super::Error::State)
+        );
+        assert_eq!(instance.declared_records(), 0);
+        assert!(instance.image().is_some());
+        // The same scope every call.
+        let first = ptr::from_ref(instance.environment().get_ref());
+        assert_eq!(first, ptr::from_ref(instance.environment().get_ref()));
+        instance.event_dropped(registrations::EVENT_STARTED_TAG, DropReason::Busy);
+        assert_eq!(logged(), ["dropped"]);
+        // Stopped: the owner's error before anything of the plugin runs, no image.
+        let before = EVENTS.with(Cell::get);
+        instance.stop();
+        assert_eq!(
+            instance.dispatch_event(0, &[1, 2, 3], &depth),
+            Err(super::super::super::Error::State)
+        );
+        assert_eq!(EVENTS.with(Cell::get), before);
+        assert_eq!(instance.image(), None);
+        assert_eq!(logged(), ["dropped"], "nothing destroyed while it is held");
+        drop(instance);
+        assert_eq!(logged(), ["dropped", "destroy", "module"]);
+    }
+
+    #[test]
+    fn a_failing_make_is_a_refusal_with_the_module_dropped_once() {
+        reset(FAILS);
+        assert_eq!(load().err(), Some(Error::Factory(ERR_INVALID)));
+        assert_eq!(logged(), ["module"]);
+    }
+
+    #[test]
+    fn a_plugin_that_ignores_a_refused_submit_is_not_loaded() {
+        reset(IGNORES_REFUSAL);
+        assert!(load().is_err());
+        assert_eq!(logged(), ["destroy", "module"]);
+        assert_eq!(EVENTS.with(Cell::get), 0);
+    }
+
+    #[test]
+    fn an_allocation_that_fails_anywhere_in_a_load_leaves_nothing_behind() {
+        let mut loaded = 0;
+        for nth in 1..=12 {
+            reset(NORMAL);
+            arm_failure(nth);
+            let result = load();
+            arm_failure(0);
+            match result {
+                Ok(instance) => {
+                    loaded += 1;
+                    drop(instance);
+                    assert_eq!(logged(), ["destroy", "module"], "allocation {nth}");
+                }
+                Err(_) => {
+                    let log = logged();
+                    assert_eq!(log.last(), Some(&"module"), "allocation {nth}: {log:?}");
+                    assert!(
+                        log.iter().filter(|e| **e == "destroy").count() <= 1,
+                        "allocation {nth}: {log:?}"
+                    );
+                }
+            }
+        }
+        assert!(loaded > 0, "past the last allocation it loads");
     }
 }
