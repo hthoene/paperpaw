@@ -7,7 +7,7 @@
 
 use crate::abi7::{calls, lifecycle};
 use core::{cell::Cell, fmt, pin::Pin};
-pub use lifecycle::Teardown;
+pub use lifecycle::{Error as TeardownError, Teardown};
 
 #[path = "native_host/registration_scope.rs"]
 pub mod registration_scope;
@@ -219,6 +219,13 @@ impl<C, M> HostOwner<C, M> {
             return Err(Error::Busy);
         }
         self.inner().prepare_teardown().map_err(Into::into)
+    }
+
+    /// Take a non-retryable cleanup-hook error for shell logging. Such a hook
+    /// is marked done, so a broken backend cannot cause an infinite retry.
+    #[must_use]
+    pub fn take_teardown_error(&self) -> Option<TeardownError> {
+        self.inner.take_teardown_error()
     }
 
     /// Destroy the plugin once all leases have been released.

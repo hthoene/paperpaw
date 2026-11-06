@@ -10,10 +10,15 @@ use super::calls::{Depth, Instance};
 use core::{cell::Cell, marker::PhantomPinned, pin::Pin};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum Error {
+/// Host lifecycle or teardown-hook refusal. Busy is retryable without effects.
+pub enum Error {
+    /// The owner or resource is not in the required state.
     State,
+    /// No effects occurred; retry from the next shell tick.
     Busy,
+    /// The bounded host capacity is exhausted.
     Capacity,
+    /// The callback nesting limit is exhausted.
     Depth,
 }
 
@@ -30,9 +35,9 @@ enum State {
 /// Explicit no-op functions are required when a context owns no resources.
 pub struct Teardown<C> {
     /// Cancel this owner's open operations without calling the provider.
-    pub cancel: fn(Pin<&C>),
+    pub cancel: fn(Pin<&C>) -> Result<(), Error>,
     /// Release this owner's handles outside their registry borrow.
-    pub release: fn(Pin<&C>),
+    pub release: fn(Pin<&C>) -> Result<(), Error>,
     /// Destroy the validated plugin state, after every lease has gone.
     pub destroy: fn(Pin<&C>),
 }
@@ -56,7 +61,9 @@ pub(crate) struct Owner<C, M> {
     leases: Cell<u8>,
     instance: Instance,
     teardown: Cell<Option<Teardown<C>>>,
-    resources_released: Cell<bool>,
+    cancel_done: Cell<bool>,
+    release_done: Cell<bool>,
+    teardown_error: Cell<Option<Error>>,
     _pin: PhantomPinned,
 }
 
@@ -75,7 +82,9 @@ impl<C, M> Owner<C, M> {
             leases: Cell::new(0),
             instance: Instance::new(),
             teardown: Cell::new(None),
-            resources_released: Cell::new(false),
+            cancel_done: Cell::new(false),
+            release_done: Cell::new(false),
+            teardown_error: Cell::new(None),
             _pin: PhantomPinned,
         }
     }
@@ -147,17 +156,41 @@ impl<C, M> Owner<C, M> {
         if self.is_active() {
             return Err(Error::Busy);
         }
-        self.release_resources();
+        self.release_resources()
+    }
+
+    fn release_resources(self: Pin<&Self>) -> Result<(), Error> {
+        let Some(teardown) = self.teardown.get() else {
+            return Ok(());
+        };
+        self.run_hook(&self.cancel_done, teardown.cancel)?;
+        self.run_hook(&self.release_done, teardown.release)
+    }
+
+    fn run_hook(
+        self: Pin<&Self>,
+        done: &Cell<bool>,
+        hook: fn(Pin<&C>) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        if done.get() {
+            return Ok(());
+        }
+        match hook(self.context()) {
+            Ok(()) => done.set(true),
+            Err(Error::Busy) => return Err(Error::Busy),
+            Err(error) => {
+                // The shell logs this programming error; do not retry forever.
+                if self.teardown_error.get().is_none() {
+                    self.teardown_error.set(Some(error));
+                }
+                done.set(true);
+            }
+        }
         Ok(())
     }
 
-    fn release_resources(self: Pin<&Self>) {
-        if !self.resources_released.replace(true)
-            && let Some(teardown) = self.teardown.get()
-        {
-            (teardown.cancel)(self.context());
-            (teardown.release)(self.context());
-        }
+    pub(crate) fn take_teardown_error(&self) -> Option<Error> {
+        self.teardown_error.take()
     }
 
     /// The caller releases registrations and queued work before finishing.
@@ -172,7 +205,7 @@ impl<C, M> Owner<C, M> {
         if self.is_active() {
             return Err(Error::Busy);
         }
-        self.release_resources();
+        self.release_resources()?;
         if self.leases.get() != 0 {
             return Err(Error::Busy);
         }
@@ -214,18 +247,56 @@ impl<C, M> Drop for Lease<'_, C, M> {
     }
 }
 
+// This guard destroys the plugin before the owner fields (and module), even
+// if a debug assertion reports a host bug during fallback cleanup.
+struct DestroyOnDrop<'a, C> {
+    context: Pin<&'a C>,
+    destroy: fn(Pin<&C>),
+}
+impl<C> Drop for DestroyOnDrop<'_, C> {
+    fn drop(&mut self) {
+        (self.destroy)(self.context);
+    }
+}
+
 impl<C, M> Drop for Owner<C, M> {
     fn drop(&mut self) {
         self.state.set(State::Dead);
-        if let Some(teardown) = self.teardown.take() {
-            // SAFETY: only activation on a pinned owner arms teardown. Context
-            // remains pinned through cleanup and its module is still mapped.
-            let context = unsafe { Pin::new_unchecked(&self.context) };
-            if !self.resources_released.replace(true) {
-                (teardown.cancel)(context);
-                (teardown.release)(context);
+        let Some(teardown) = self.teardown.take() else {
+            return;
+        };
+        // SAFETY: activation pins context through cleanup and module release.
+        let context = unsafe { Pin::new_unchecked(&self.context) };
+        let _destroy = DestroyOnDrop {
+            context,
+            destroy: teardown.destroy,
+        };
+        let mut busy = false;
+        for (done, hook) in [
+            (&self.cancel_done, teardown.cancel),
+            (&self.release_done, teardown.release),
+        ] {
+            if done.get() {
+                continue;
             }
-            (teardown.destroy)(context);
+            match hook(context) {
+                Ok(()) => done.set(true),
+                Err(error) => {
+                    self.teardown_error.set(Some(error));
+                    if error == Error::Busy {
+                        // No retry is possible during Drop. Leave the bounded
+                        // entries under the dead, never-reused owner identity.
+                        busy = true;
+                        break;
+                    }
+                    done.set(true);
+                }
+            }
         }
+        debug_assert!(
+            !busy,
+            "busy teardown hook during owner Drop: {:p}",
+            &self.context
+        );
     }
 }

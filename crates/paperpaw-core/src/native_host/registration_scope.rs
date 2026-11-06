@@ -273,8 +273,8 @@ mod tests {
         }
         assert!(matches!(
             construction.commit(crate::native_host::Teardown {
-                cancel: |_| {},
-                release: |_| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
                 destroy: |_| ()
             }),
             Err(Error::Invalid)
@@ -289,8 +289,8 @@ mod tests {
         assert_eq!(
             construction
                 .commit(crate::native_host::Teardown {
-                    cancel: |_| {},
-                    release: |_| {},
+                    cancel: |_| Ok(()),
+                    release: |_| Ok(()),
                     destroy: |_| ()
                 })
                 .unwrap()

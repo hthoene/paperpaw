@@ -615,8 +615,8 @@ fn mixed_setting_declaration_is_retained_separately_from_callback_registrations(
     construction.stage_batch(&decoded, |r| r).unwrap();
     let mut batch = construction
         .commit(crate::native_host::Teardown {
-            cancel: |_| {},
-            release: |_| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
             destroy: |_| {},
         })
         .unwrap();

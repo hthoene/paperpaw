@@ -55,8 +55,8 @@ fn decoded_records_are_admitted_only_after_successful_commit() {
     .unwrap();
     let batch = construction
         .commit(paperpaw_core::native_host::Teardown {
-            cancel: |_| {},
-            release: |_| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
             destroy,
         })
         .unwrap();
@@ -103,8 +103,8 @@ fn ignored_malformed_or_unsupported_batch_refuses_all_publication() {
         .unwrap();
         assert!(matches!(
             construction.commit(paperpaw_core::native_host::Teardown {
-                cancel: |_| {},
-                release: |_| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
                 destroy
             }),
             Err(Error::Invalid)
@@ -136,8 +136,8 @@ fn repeated_batches_cannot_exceed_the_transaction_capacity() {
     .unwrap();
     assert!(matches!(
         construction.commit(paperpaw_core::native_host::Teardown {
-            cancel: |_| {},
-            release: |_| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
             destroy
         }),
         Err(Error::Capacity)
@@ -158,8 +158,8 @@ fn empty_batch_checks_decoder_latch_even_without_staged_records() {
     .unwrap();
     assert!(matches!(
         construction.commit(paperpaw_core::native_host::Teardown {
-            cancel: |_| {},
-            release: |_| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
             destroy
         }),
         Err(Error::Invalid)
@@ -189,8 +189,8 @@ fn null_oversized_and_empty_inputs_obey_scope_and_refusal_rules() {
         .unwrap();
         assert!(matches!(
             construction.commit(paperpaw_core::native_host::Teardown {
-                cancel: |_| {},
-                release: |_| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
                 destroy
             }),
             Err(Error::Invalid)
@@ -216,8 +216,8 @@ fn revoked_queued_and_registered_work_is_refused_before_the_body_runs() {
     .unwrap();
     let batch = construction
         .commit(paperpaw_core::native_host::Teardown {
-            cancel: |_| {},
-            release: |_| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
             destroy,
         })
         .unwrap();

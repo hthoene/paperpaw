@@ -242,8 +242,8 @@ impl<'a, S, T> PendingInstance<'a, S, T> {
         let batch = transaction
             .staging
             .commit(paperpaw_core::native_host::Teardown {
-                cancel: |_| {},
-                release: |_| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
                 destroy: destroy_context::<S>,
             })?;
         self.armed = false;

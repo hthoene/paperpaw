@@ -355,8 +355,8 @@ fn submit_one(tag: u32) -> (i32, bool) {
     })
     .unwrap();
     let batch = construction.commit(paperpaw_core::native_host::Teardown {
-        cancel: |_| {},
-        release: |_| {},
+        cancel: |_| Ok(()),
+        release: |_| Ok(()),
         destroy: |_| {},
     });
     let dispatched = batch.is_ok_and(|batch| {
@@ -400,8 +400,8 @@ fn a_registration_batch_cannot_carry_an_event_record() {
     assert!(
         construction
             .commit(paperpaw_core::native_host::Teardown {
-                cancel: |_| {},
-                release: |_| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
                 destroy: |_| {}
             })
             .is_err()

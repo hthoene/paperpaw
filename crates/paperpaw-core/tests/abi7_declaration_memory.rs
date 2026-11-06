@@ -122,8 +122,8 @@ fn measure(plugin: &str, golden: &[u8], image: bool) {
     let resident = LIVE.get();
     // A failure drops both representations; success transfers and then drops them.
     let committed = construction.commit(paperpaw_core::native_host::Teardown {
-        cancel: |_| {},
-        release: |_| {},
+        cancel: |_| Ok(()),
+        release: |_| Ok(()),
         destroy: |_| {},
     });
     let unavailable = matches!(
@@ -192,8 +192,8 @@ fn every_construction_allocation_refusal_poisons_and_rolls_back_raw_and_decoded_
             .unwrap();
         FAIL_AFTER.set(None);
         let committed = construction.commit(paperpaw_core::native_host::Teardown {
-            cancel: |_| {},
-            release: |_| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
             destroy: |_| {},
         });
         let success = committed.is_ok();

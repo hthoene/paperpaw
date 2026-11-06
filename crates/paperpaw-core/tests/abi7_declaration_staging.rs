@@ -508,8 +508,8 @@ fn a_plugin_declares_fifty_three_specs_over_eight_submissions_and_commit_moves_t
 
     let mut published = construction
         .commit(paperpaw_core::native_host::Teardown {
-            cancel: |_| {},
-            release: |_| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
             destroy: |_| (),
         })
         .unwrap();
@@ -545,8 +545,8 @@ fn a_refused_batch_keeps_earlier_batches_and_poisons_the_construction() {
     assert_eq!(construction.declarations(), &before);
     assert!(matches!(
         construction.commit(paperpaw_core::native_host::Teardown {
-            cancel: |_| {},
-            release: |_| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
             destroy: |_| ()
         }),
         Err(Error::Invalid)
@@ -587,8 +587,8 @@ fn a_record_failing_validation_poisons_without_staging_the_valid_ones_before_it(
         assert!(construction.declarations().is_empty());
         assert!(matches!(
             construction.commit(paperpaw_core::native_host::Teardown {
-                cancel: |_| {},
-                release: |_| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
                 destroy: |_| ()
             }),
             Err(Error::Invalid)
@@ -608,8 +608,8 @@ fn callbacks_and_declarations_are_staged_together_or_not_at_all() {
     assert!(construction.declarations().is_empty());
     assert!(matches!(
         construction.commit(paperpaw_core::native_host::Teardown {
-            cancel: |_| {},
-            release: |_| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
             destroy: |_| ()
         }),
         Err(Error::Capacity)
@@ -633,8 +633,8 @@ fn commit_refuses_failed_cross_record_checks_and_drops_the_declarations() {
     assert_eq!(send(&owner, &mut construction, &encode(&[spec("a")])), OK);
     assert!(matches!(
         construction.commit(paperpaw_core::native_host::Teardown {
-            cancel: |_| {},
-            release: |_| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
             destroy: |_| ()
         }),
         Err(Error::Invalid)
@@ -646,8 +646,8 @@ fn commit_refuses_failed_cross_record_checks_and_drops_the_declarations() {
     assert!(
         construction
             .commit(paperpaw_core::native_host::Teardown {
-                cancel: |_| {},
-                release: |_| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
                 destroy: |_| ()
             })
             .is_ok()
@@ -739,8 +739,8 @@ fn the_construction_latches_the_cause_of_a_refusal() {
     assert_eq!(status, ERR_NO_SPACE);
     assert!(matches!(
         construction.commit(paperpaw_core::native_host::Teardown {
-            cancel: |_| {},
-            release: |_| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
             destroy: |_| ()
         }),
         Err(Error::Capacity)
@@ -756,8 +756,8 @@ fn the_construction_latches_the_cause_of_a_refusal() {
     assert_eq!(status, ERR_NO_MEMORY);
     assert!(matches!(
         construction.commit(paperpaw_core::native_host::Teardown {
-            cancel: |_| {},
-            release: |_| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
             destroy: |_| ()
         }),
         Err(Error::Memory)

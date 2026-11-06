@@ -364,8 +364,8 @@ fn construction_retains_a_snapshot_and_record_offsets_after_input_is_gone() {
     drop(input);
     let mut committed = construction
         .commit(crate::native_host::Teardown {
-            cancel: |_| {},
-            release: |_| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
             destroy: |_| {},
         })
         .unwrap();

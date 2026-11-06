@@ -1194,8 +1194,8 @@ fn run(bytes: &[u8]) -> (Result<(), i32>, bool) {
         .unwrap();
     let committed = construction
         .commit(paperpaw_core::native_host::Teardown {
-            cancel: |_| {},
-            release: |_| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
             destroy: |_| (),
         })
         .is_ok();

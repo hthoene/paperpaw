@@ -252,8 +252,8 @@ fn ignored_builder_refusal_aborts_host_construction() {
     assert!(
         construction
             .commit(paperpaw_core::native_host::Teardown {
-                cancel: |_| {},
-                release: |_| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
                 destroy: |_| ()
             })
             .is_err()

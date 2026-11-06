@@ -295,7 +295,14 @@ impl Drop for Loaded {
         self.stopped.set(true);
         let owner = self.plugin.owner.as_ref();
         owner.revoke();
-        if owner.prepare_teardown().is_err() {
+        let prepared = owner.prepare_teardown();
+        if let Some(error) = owner.take_teardown_error() {
+            eprintln!(
+                "abi7 dev loader: {}: teardown hook failed: {error:?}",
+                self.id
+            );
+        }
+        if prepared.is_err() {
             // Safe callers cannot drop Loaded while borrowed by a callback.
             // Preserve the mapped owner if an external unsafe caller does so.
             eprintln!("abi7 dev loader: {}: active at teardown, kept", self.id);
