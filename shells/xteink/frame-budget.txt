@@ -7,18 +7,19 @@
 # fails the build instead of the reserve.
 #
 # frame <bytes> <name>      the largest frame of a function whose path holds <name>
-# chain <bytes> <name>...   the frames of each name, summed
+# chain <bytes> <name>...   the frames of each name, summed; `+<bytes>` adds a constant
 #
-# Frames today (riscv32imc, release): the panic handler with its 400-byte
-# message 896, `crash::panic`'s closures 272, ExceptionHandler 96,
-# core::fmt::write 64. The trap frame (esp-hal's assembly, no function of
-# its own, about 144 bytes) and what the handler's callees add come out of
-# the chain's allowance.
-frame 1024 rust_begin_unwind
-frame 320 crash::panic
+# Frames today (riscv32imc, release, with the handler split in two for the
+# stack note, PR #262): `rust_begin_unwind` 16 (it only reads the stack pointer
+# and calls the handler), `crash::handle` with its 400-byte message 912, its
+# closures 272 (named `crash::handle::_` or `::0` from build to build: the chain adds them as a constant), ExceptionHandler 96, core::fmt::write 64.
+# The trap frame (esp-hal's assembly, no function of its own, about 144 bytes)
+# and what the handler's callees add come out of the chain's allowance.
+frame 64 rust_begin_unwind
+frame 1024 crash::handle
 frame 128 ExceptionHandler
 frame 96 core::fmt::write
 # The packer's reading of a mangled `impl` name is rough (the logger's `log` is
 # `esp_println::logger::_12E::log::Log::log` in one build and another path in the next), so the
 # chain names the tail `log::Log::log`: every `Log::log` of the firmware, and the largest counts.
-chain 1792 rust_begin_unwind crash::panic ExceptionHandler core::fmt::write log::Log::log
+chain 1792 rust_begin_unwind crash::handle +320 ExceptionHandler core::fmt::write log::Log::log

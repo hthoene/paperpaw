@@ -10,7 +10,7 @@
 //! frame, so a change that makes the handler's frames larger fails the build.
 //!
 //! The budget is lines of `frame <bytes> <name>` (the largest frame of any
-//! function whose path is `<name>` or ends in `::<name>`) and `chain <bytes> <name> ...` (the
+//! function whose path is `<name>` or ends in `::<name>`) and `chain <bytes> <name> ...` (a word `+<bytes>` is a constant added to the sum, for frames no name can say) (the
 //! sum of the largest frame of each name stays within `<bytes>`: what one call
 //! down the chain takes at most). A name that matches no function fails too,
 //! so a rename cannot make a check pass by matching nothing. A function whose
@@ -178,7 +178,12 @@ fn parse(budget: &str) -> Result<Vec<Rule>, String> {
                 max,
                 name: names[0].clone(),
             }),
-            ("chain", 1..) => rules.push(Rule::Chain { max, names }),
+            ("chain", 1..) => {
+                if let Some(bad) = names.iter().find(|n| extra(n).is_some_and(|e| e.is_none())) {
+                    return Err(format!("line {at}: `{bad}` is not `+<bytes>`"));
+                }
+                rules.push(Rule::Chain { max, names });
+            }
             _ => {
                 return Err(format!(
                     "line {at}: `frame <bytes> <name>` or `chain <bytes> <name>...`"
@@ -187,6 +192,13 @@ fn parse(budget: &str) -> Result<Vec<Rule>, String> {
         }
     }
     Ok(rules)
+}
+
+/// A chain's constant, `+<bytes>`: frames the chain has that no name can say
+/// (a closure's name changes from one build to the next). `None` if `word` is
+/// not one, `Some(None)` if it starts with `+` but is no number.
+fn extra(word: &str) -> Option<Option<u32>> {
+    word.strip_prefix('+').map(|n| n.parse().ok())
 }
 
 /// Whether a function's `path` is `name`, or ends in `::name`: the whole
@@ -237,6 +249,10 @@ pub fn check(all: &[Frame], budget: &str) -> Result<Vec<String>, String> {
                 let mut sum = Some(0u32);
                 let mut bad = false;
                 for name in &names {
+                    if let Some(Some(bytes)) = extra(name) {
+                        sum = sum.and_then(|s| s.checked_add(bytes));
+                        continue;
+                    }
                     match largest(all, name) {
                         Err(e) => {
                             problems.push(e);

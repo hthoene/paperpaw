@@ -114,3 +114,21 @@ fn a_chain_of_frames_that_would_overflow_is_over_its_budget_not_a_panic() {
     assert_eq!(p.len(), 1);
     assert!(p[0].contains("more than"), "{p:?}");
 }
+
+#[test]
+fn a_chain_may_add_a_constant_for_frames_no_name_can_say() {
+    let all = [frame("a::panic", Some(1000)), frame("c::fmt", Some(300))];
+    assert!(
+        check(&all, "chain 1620 a::panic +320 c::fmt")
+            .unwrap()
+            .is_empty()
+    );
+    let p = check(&all, "chain 1619 a::panic +320 c::fmt").unwrap();
+    assert!(p[0].contains("1620") && p[0].contains("1619"), "{p:?}");
+    // Not a number: refused when the budget is read, not matched as a name.
+    assert!(check(&all, "chain 100 a::panic +x").is_err());
+    assert!(check(&all, "chain 100 a::panic +").is_err());
+    // A constant that overflows the sum is over any budget, not a panic.
+    let p = check(&all, "chain 4294967295 a::panic +4294967295").unwrap();
+    assert_eq!(p.len(), 1);
+}
