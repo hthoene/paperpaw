@@ -34,3 +34,4 @@ a68cd54bba1ed74302aa11f5d5e0e7a1d34755c9 language-ar, language-es  # paperpaw-si
 0e1b62c1c4d79f78edfc1dbf73e0ebbc26e1be8c language-ar, language-es  # paperpaw-sign pack frame scan (#228)
 cfdcc54f4ff042e5c22838e21fda0349d5905687 language-ar, language-es  # paperpaw-sign pack frame scan (#228)
 ef3be8ec641bfc36c338793b922dad5580748f7a language-ar, language-es  # paperpaw-sign pack frame scan (#228): pack only, catalog unchanged
+363de05c41f77748301902adef572e3e20768f00 language-ar, language-es  # paperpaw-sign pack frame scan (#228): tests and docs only
