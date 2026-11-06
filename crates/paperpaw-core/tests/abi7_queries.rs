@@ -460,20 +460,38 @@ fn a_missing_translation_with_a_partial_buffer_returns_not_found() {
 }
 
 #[test]
-fn translation_frame_validation_precedes_input_validation() {
+fn translation_input_validation_precedes_the_missing_frame_error() {
     let slot = pin!(FrameSlot::new());
     let mut output = [SENTINEL; 8];
-    // SAFETY: null input is deliberately invalid; without a frame it is never read.
-    let status = unsafe {
-        queries::i18n_copy(
-            &slot,
+    let oversized = [b'a'; 4097];
+    for (key, expected) in [
+        (bytes(&[0xff]), ERR_UTF8),
+        (bytes(&oversized), ERR_INVALID),
+        (
             PpBytes {
                 ptr: ptr::null(),
                 len: 1,
             },
-            buffer(&mut output),
-        )
-    };
-    assert_eq!(status, ERR_STATE);
-    assert_eq!(output, [SENTINEL; 8]);
+            ERR_INVALID,
+        ),
+    ] {
+        // SAFETY: input is live, or a deliberately invalid null pair.
+        let status = unsafe { queries::i18n_copy(&slot, key, buffer(&mut output)) };
+        assert_eq!(status, expected);
+        assert_eq!(output, [SENTINEL; 8]);
+    }
+    // SAFETY: null output with nonzero capacity is rejected before lookup.
+    assert_eq!(
+        unsafe {
+            queries::i18n_copy(
+                &slot,
+                bytes(b"missing"),
+                PpBuffer {
+                    ptr: ptr::null_mut(),
+                    cap: 1,
+                },
+            )
+        },
+        ERR_INVALID
+    );
 }

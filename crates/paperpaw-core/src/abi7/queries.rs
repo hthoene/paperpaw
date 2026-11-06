@@ -47,17 +47,17 @@ pub(crate) unsafe fn settings_read(slot: &FrameSlot, key: PpBytes, out: PpBuffer
 /// # Safety
 /// Same pair-validity and no-alias requirements as `settings_read`.
 pub(crate) unsafe fn i18n_copy(slot: &FrameSlot, key: PpBytes, out: PpBuffer) -> i32 {
+    // SAFETY: the caller supplies valid, nonoverlapping pairs.
+    let key = match unsafe { buffers::text_in(key, buffers::TEXT_MAX) } {
+        Ok(key) => key,
+        Err(error) => return error,
+    };
+    // SAFETY: output validity and exclusive access are caller obligations.
+    let out = match unsafe { buffers::buffer_out(out, buffers::TEXT_MAX) } {
+        Ok(out) => out,
+        Err(error) => return error,
+    };
     slot.with(|frame| {
-        // SAFETY: the caller supplies valid, nonoverlapping pairs.
-        let key = match unsafe { buffers::text_in(key, buffers::TEXT_MAX) } {
-            Ok(key) => key,
-            Err(error) => return error,
-        };
-        // SAFETY: output validity and exclusive access are caller obligations.
-        let out = match unsafe { buffers::buffer_out(out, buffers::TEXT_MAX) } {
-            Ok(out) => out,
-            Err(error) => return error,
-        };
         let Some(message) = frame.translator().get(key) else {
             return ERR_NOT_FOUND;
         };
