@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, integration]
+    branches: [main, integration, abi7/integration]
     paths-ignore:
       - "docs/**"
       - "CHANGELOG.md"
@@ -44,6 +44,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' }}
       - run: cargo fmt --all --check
       # The firmware is a crate of its own, outside the workspace.
       - run: rustfmt --edition 2024 --check shells/xteink/src/main.rs
@@ -92,6 +94,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' }}
       - run: cargo build --release -p paperpaw-dev
       # Every screen and widget on the X4s and the Boox, offline from the
       # emulator's fixtures: a text under a row or a control, a part off
@@ -122,6 +126,8 @@ jobs:
       # rust-toolchain.toml.
       - uses: dtolnay/rust-toolchain@1.88
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' }}
       - run: cargo +1.88 check --workspace --all-targets
       - name: Bluetooth host regressions on oldest Rust
         run: cargo +1.88 test --manifest-path tools/bluetooth-tests/Cargo.toml --locked --target x86_64-unknown-linux-gnu
@@ -139,6 +145,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: rustup toolchain install "$NIGHTLY" --profile minimal
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' }}
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-semver-checks@0.51.0,cargo-public-api@0.52.0
@@ -224,6 +232,8 @@ jobs:
           targets: ${{ matrix.target }}
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' }}
       - name: Build kernel and first-party plugins
         # The standard app pulls in every first-party plugin, so a new
         # one is built here without being listed.
@@ -247,6 +257,9 @@ jobs:
     name: Firmware (${{ matrix.device }})
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
+    # Normally 3-20 minutes. An apt mirror that stalls once held a run for 45
+    # (build-prerequisites.sh): fail then and rerun.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -262,6 +275,7 @@ jobs:
           device: ${{ matrix.device }}
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.event_name == 'push' }}
           # The firmware, the sample code plugin and paperpaw-sign.
           workspaces: |
             shells/xteink
@@ -367,6 +381,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.event_name == 'push' }}
           key: update-path
       - uses: actions/download-artifact@v8
         with:
@@ -392,6 +407,7 @@ jobs:
           targets: riscv32imc-unknown-none-elf
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.event_name == 'push' }}
           workspaces: |
             .
             crates/paperpaw-core/tests/native-plugin
@@ -463,6 +479,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.event_name == 'push' }}
           workspaces: |
             .
             crates/paperpaw-core/tests/native-plugin
@@ -532,6 +549,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' }}
       - run: cargo build -p paperpaw-emulator
       - name: Headless smoke test on every profile
         shell: bash
@@ -587,6 +606,8 @@ jobs:
           targets: aarch64-linux-android
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' }}
       - run: cargo install cargo-ndk --locked
       # The runner's variables are not in the `env` context, so the NDK
       # path is passed on through GITHUB_ENV.
@@ -611,6 +632,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.event_name == 'push' }}
           workspaces: fuzz
       - run: cargo install cargo-fuzz --locked
       - name: One minute per target, seeded with the sample books

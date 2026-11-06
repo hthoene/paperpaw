@@ -14,6 +14,14 @@ change the plugin SDK.
 
 - Host-side storage adapter for interface-7 slots 20–26 (path rules, free-space reserve, per-plugin
   read/write/sync counting), not wired (#228).
+- Interface-7 draft: host-table slots 20–26 (`storage.size`, `read_at`, `write`, `append`, `rename`, `remove`,
+  `sync`) declared in `abi/abi.def`; the default table answers `ERR_UNSUPPORTED` until they are wired. The
+  storage contract records owner decisions 124 (uninstall asks before deleting the data folder) and 125 (root 1
+  for the user's files, gated by a signed `uses.storage`) (#228).
+- Interface-7 draft: service records 48-52 (`service.usage`, `plugin_usage`, `plugin`, `work_note`, `end`) and the
+  four data services of slot 17 in the metadata catalog (semantic revision 0, no call table), with a generated
+  codec for one bare record (`record_framed_len`, `record_encode_one`, `record_decode_one`). A plugin cannot submit
+  them (#228).
 - Desktop emulator: a developer switch, `--abi7-dev-loader` or `PAPERPAW_ABI7_DEV_LOADER=1` (Linux x86-64, off by
   default), loads interface-7 plugin libraries (`plugins/<id>/code-host.so`, told from their bytes) for loader work. What a
   plugin declares is staged but not applied yet, and nothing is drawn; interface-6 plugins are unchanged (#228, #772).
@@ -44,6 +52,12 @@ change the plugin SDK.
   an earlier draft is refused. Freezing the interface (the owner's decision) deletes it (#228).
 
 ### Changed
+
+- Interface-7 slot 6 `i18n.copy` returns `ERR_NOT_FOUND` for a missing translation key,
+  leaving output unchanged, instead of copying the key (D5, #228).
+
+- Background-work notes are cut to 256 UTF-8 bytes at a character boundary when stored;
+  interface-6 `env.work().note()` readers see the same bounded text (#228).
 
 - **Plugin interface 7, draft 1** (#228, early raise on `abi7/integration`): `native::INTERFACE` is 7 and
   every plugin with code needs a build for it; plugins built for interface 6 are refused as built for an

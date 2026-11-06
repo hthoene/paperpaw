@@ -1,6 +1,6 @@
 //! Borrow page-turn data without constructing an owned Reading.
 
-use super::{DispatchDepth, DropReason, Env, FlatInstance, Params, events, invoke};
+use super::{DispatchDepth, DropReason, Env, FlatHost, FlatInstance, Params, events, invoke};
 use paperpaw_sdk::event::ParamValue;
 
 use crate::native_host::registrations::{
@@ -22,6 +22,7 @@ const _: () = assert!(ENCODE_BYTES < 1100);
 pub(super) fn deliver(
     instance: &dyn FlatInstance,
     depth: &DispatchDepth,
+    host: &FlatHost,
     index: usize,
     env: &Env<'_>,
     params: &Params,
@@ -29,7 +30,7 @@ pub(super) fn deliver(
     let turn = turn(env.now().millis(), params).ok_or(DropReason::Producer)?;
     let mut bytes = [0; ENCODE_BYTES];
     let len = events::encode_page_turned(&turn, &mut bytes).map_err(|_| DropReason::Producer)?;
-    invoke(instance, depth, index, env, &bytes[..len])
+    invoke(instance, depth, host, index, env, &bytes[..len])
 }
 
 fn turn(now_ms: u64, params: &Params) -> Option<events::PageTurn<'_>> {

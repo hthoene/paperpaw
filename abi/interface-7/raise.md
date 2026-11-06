@@ -59,11 +59,32 @@ named re-blesses too.
 | 2 (applied at draft 2) | `crates/paperpaw-sdk/src/hyphenation.rs` (`Hyphenation`, `Hyphenation::get`), `crates/paperpaw-sdk/src/env.rs` (`Env::hyphenation`), their `api.txt`/`shape.txt` | `Hyphenation::get` returns a table the kernel may read from the card (the card-backed reader in `paperpaw-hyphen`), not only `&Patterns<'static>`; the typesetter (`reading/typeset.rs`) and `widgets/grid.rs` follow | The tables of `[hyphenation]` data plugins are files on the card, which the frozen `get` cannot return; the kernel keeps them by language (`paperpaw-core/src/data_plugin/hyphenation.rs`, `Tables::find`) until then. With it, the reader reopens a table once after a transient I/O error before it gives up on it (Senior's remark B3 on PR #176), since only then is it read on a page | Contract D2 and the `[hyphenation]` section | Hyphenation from data plugins on a page (the 13 plugins of PR #164 load, but their languages are not used before this row) |
 | 3 | `crates/paperpaw-sdk/src/native/declare.rs` and its child modules, `crates/paperpaw-sdk/api.txt`/`shape.txt` (about 158 lines) | The module `paperpaw_sdk::native::declare`: the builder of the declaration records 5-10 (setting groups, specs and extras, hyphenation, font faces and extensions) that plugins submit while they are made | A ported plugin declares its settings and resources through records, not the interface-6 `Registrar` | PR #180 (#768) | Every plugin port that declares settings or resources |
 | 4 | `tools/abi-gen.py`, `crates/paperpaw-sdk/src/native/declare/records_wire.rs`, `crates/paperpaw-sdk/src/native/declare/settings_value.rs`, `abi/abi.def` | `tools/abi-gen.py` writes both SDK copies as generated outputs (checked by `--check`, replacing the byte-identity test of PR #180), and the choice limits (`CHOICES_MAX_VALUES`, `CHOICE_MAX_BYTES`) come from `abi.def` instead of two hand-kept copies in the SDK and `paperpaw-core/src/native_host/declarations.rs` | One source for the codec and its limits on both sides of the boundary | PR #180 review | Row 3 (its re-bless takes the generated copies) |
+| 5 (applied at draft 3) | `abi/abi.def` (host entries 20-26), `abi/abi.lock`, the generated `abi/generated/*` and `crates/paperpaw-native/src/host_glue/paperpaw_abi.rs`, `crates/paperpaw-native/src/host_glue.rs` (default table), `crates/paperpaw-sdk/interface/paperpaw-native.*` | The storage slots `storage.size`, `read_at`, `write`, `append`, `rename`, `remove` and `sync`, appended to `PpHost`; they answer `ERR_UNSUPPORTED` until they are wired to the host adapter (`crates/paperpaw-core/src/native_host/storage.rs`, #188) | A ported plugin keeps its own files (Battery's logs) through the boundary | `docs/abi/proposals/interface-7-events-storage-services.md`, D2.1-D2.6 | Battery; Services' storage SDK bindings |
+
+## Gates before plugin storage goes live
+
+Slots 20-26 are declared by row 5 but answer `ERR_UNSUPPORTED` until they are wired. Before any build wires them
+on a device, these hold (each one is named in the PR that closes it):
+
+- **G-free-1 and G-free-2** (D2.6 of the storage contract): the free-space count is driven in idle ticks and
+  follows the clusters the FAT marks. Both are done on host; the X4 measurements and their thresholds are in D2.6
+  and in the final device test package (Notes PR #16).
+- **V1** (S2 of the storage contract): the cut tests for `write`, rename over a file written by `append`, and
+  the torn tail after `append` without `sync`.
+- **Root 1** opens only with the admission of owner decision 125 (D2.2): the signed `uses.storage` gate and the
+  excluded folders, each with its test.
 
 The interface-6 declaration converters belong only to the integration tests'
 `tests/support/` helpers, never the production SDK. Delete these helpers once
 the last plugin port lands; the ported plugins declare through the borrowed
 interface-7 builder directly.
+
+## Meaning changes inside the draft
+
+Slot 6 `i18n.copy` answers `ERR_NOT_FOUND` for a missing key instead of copying the key
+(D5, decided 2026-11-06 05:27 before the raise; PR #201). This is the one recorded
+exception to "existing entries only gain meaning". No re-bless is needed.
+It is effective from draft 3; no draft-2 build calls slot 6 through an SDK wrapper.
 
 ## Steps of the raise itself
 

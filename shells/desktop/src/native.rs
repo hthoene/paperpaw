@@ -133,7 +133,35 @@ impl CodeLoader for HostLoader {
     ) -> Result<Box<dyn Plugin>, PluginProblem> {
         // Not the device's heap: its code lies in flash (or the PSRAM it
         // runs from), never on the heap a plugin's budget counts.
-        crate::budget::untracked(|| load(storage, code))
+        load_installed(storage, &Installed::of(code))
+    }
+}
+
+/// [`load`] with its memory not counted against the budget.
+fn load_installed(
+    storage: &dyn Storage,
+    code: &Installed<'_>,
+) -> Result<Box<dyn Plugin>, PluginProblem> {
+    crate::budget::untracked(|| load(storage, code))
+}
+
+/// What [`load`] needs of a [`CodeFile`]: the plugin and the file installed.
+/// The kernel's `host` handle is not part of it (it has no public
+/// constructor), so that tests can load a file without a kernel.
+#[derive(Debug, Clone, Copy)]
+struct Installed<'a> {
+    id: &'a paperpaw_core::sdk::Id,
+    path: &'a str,
+    sha256: [u8; 32],
+}
+
+impl<'a> Installed<'a> {
+    fn of(code: &CodeFile<'a>) -> Self {
+        Self {
+            id: code.id,
+            path: code.path,
+            sha256: code.sha256,
+        }
     }
 }
 
@@ -162,7 +190,7 @@ pub(crate) fn interface6_only(bytes: &[u8], switch_on: bool) -> bool {
 }
 
 /// [`HostLoader::load`], its memory not counted against the budget.
-fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, PluginProblem> {
+fn load(storage: &dyn Storage, code: &Installed<'_>) -> Result<Box<dyn Plugin>, PluginProblem> {
     let bytes = paperpaw_core::sdk::read_file(storage, code.path, MAX_FILE)
         .map_err(|_| PluginProblem::Damaged)?;
     // Only the file installed.
@@ -534,21 +562,18 @@ version = 0.1.0
         // Installed but not a library the preflight reads: said, not fatal.
         let id = paperpaw_core::sdk::Id::new_static("hello");
         let path = format!("plugins/hello/{}", file_name());
-        let code = CodeFile {
+        let code = Installed {
             id: &id,
             path: &path,
             sha256: paperpaw_core::sdk::digest::sha256::digest(b"not a library"),
         };
-        assert_eq!(
-            HostLoader.load(&storage, &code).err(),
-            Some(not_a_library())
-        );
-        let changed = CodeFile {
+        assert_eq!(load_installed(&storage, &code).err(), Some(not_a_library()));
+        let changed = Installed {
             sha256: [0; 32],
             ..code
         };
         assert_eq!(
-            HostLoader.load(&storage, &changed).err(),
+            load_installed(&storage, &changed).err(),
             Some(PluginProblem::Changed)
         );
         let _ = std::fs::remove_dir_all(&root);
@@ -744,13 +769,13 @@ pub static TABLE: [extern "C" fn() -> u32; 2] = [f, f];
         let path = format!("plugins/hello/{}", file_name());
         for bad in [&moved, &counted] {
             std::fs::write(&lib, bad).unwrap();
-            let code = CodeFile {
+            let code = Installed {
                 id: &id,
                 path: &path,
                 sha256: paperpaw_core::sdk::digest::sha256::digest(bad),
             };
             assert_eq!(
-                HostLoader.load(&storage, &code).err(),
+                load_installed(&storage, &code).err(),
                 Some(PluginProblem::Damaged)
             );
         }
@@ -851,13 +876,13 @@ static INIT: extern "C" fn() = make_marker;
         let storage = crate::device::library(&root).unwrap();
         let id = paperpaw_core::sdk::Id::new_static("hello");
         let path = format!("plugins/hello/{}", file_name());
-        let code = CodeFile {
+        let code = Installed {
             id: &id,
             path: &path,
             sha256: paperpaw_core::sdk::digest::sha256::digest(&bytes),
         };
         assert_eq!(
-            HostLoader.load(&storage, &code).err(),
+            load_installed(&storage, &code).err(),
             Some(PluginProblem::Damaged)
         );
         assert!(

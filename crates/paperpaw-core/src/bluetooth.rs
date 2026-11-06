@@ -157,7 +157,11 @@ impl Kernel {
             return;
         };
         radio.set_manager(manager);
-        self.shared.usage.bluetooth_ms += radio.take_on_ms(self.now);
+        self.shared.usage.bluetooth_ms = self
+            .shared
+            .usage
+            .bluetooth_ms
+            .saturating_add(radio.take_on_ms(self.now));
         let state = radio.state();
         if self.shared.bluetooth.as_ref() != Some(&state) {
             self.shared.bluetooth = Some(state);

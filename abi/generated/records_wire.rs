@@ -879,6 +879,282 @@ impl<'a> EventPageTurned<'a> {
         }
     }
 }
+/// Wire tag of the `service.usage` record.
+pub const SERVICE_USAGE_TAG: u32 = 48;
+
+/// The `service.usage` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUsage {
+    /// Little-endian u32.
+    pub fast: u32,
+    /// Little-endian u32.
+    pub partial: u32,
+    /// Little-endian u32.
+    pub full: u32,
+    /// Little-endian u64.
+    pub pixels: u64,
+    /// Little-endian u32.
+    pub inputs: u32,
+    /// Little-endian u32.
+    pub sleeps: u32,
+    /// Little-endian u64.
+    pub panel_ms: u64,
+    /// Little-endian u64.
+    pub bluetooth_ms: u64,
+}
+
+impl ServiceUsage {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUsage(Self {
+            fast: u32::from_le_bytes(body.scalar()?),
+            partial: u32::from_le_bytes(body.scalar()?),
+            full: u32::from_le_bytes(body.scalar()?),
+            pixels: u64::from_le_bytes(body.scalar()?),
+            inputs: u32::from_le_bytes(body.scalar()?),
+            sleeps: u32::from_le_bytes(body.scalar()?),
+            panel_ms: u64::from_le_bytes(body.scalar()?),
+            bluetooth_ms: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 8;
+        len += 4;
+        len += 4;
+        len += 8;
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.fast.to_le_bytes(), out, offset);
+        write_bytes(&self.partial.to_le_bytes(), out, offset);
+        write_bytes(&self.full.to_le_bytes(), out, offset);
+        write_bytes(&self.pixels.to_le_bytes(), out, offset);
+        write_bytes(&self.inputs.to_le_bytes(), out, offset);
+        write_bytes(&self.sleeps.to_le_bytes(), out, offset);
+        write_bytes(&self.panel_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.bluetooth_ms.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.plugin_usage` record.
+pub const SERVICE_PLUGIN_USAGE_TAG: u32 = 49;
+/// Maximum bytes of `service.plugin_usage.plugin`.
+pub const SERVICE_PLUGIN_USAGE_PLUGIN_MAX_BYTES: usize = 64;
+/// Maximum bytes of `service.plugin_usage.awake_reason`.
+pub const SERVICE_PLUGIN_USAGE_AWAKE_REASON_MAX_BYTES: usize = 64;
+
+/// The `service.plugin_usage` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServicePluginUsage<'a> {
+    /// UTF-8 text of at most 64 bytes.
+    pub plugin: &'a str,
+    /// Little-endian u64.
+    pub busy_us: u64,
+    /// Little-endian u32.
+    pub calls: u32,
+    /// Little-endian u64.
+    pub shown_ms: u64,
+    /// Little-endian u32.
+    pub fast: u32,
+    /// Little-endian u32.
+    pub partial: u32,
+    /// Little-endian u32.
+    pub full: u32,
+    /// Little-endian u64.
+    pub pixels: u64,
+    /// Little-endian u64.
+    pub read: u64,
+    /// Little-endian u64.
+    pub written: u64,
+    /// Little-endian u32.
+    pub syncs: u32,
+    /// Little-endian u32.
+    pub requests: u32,
+    /// Little-endian u32.
+    pub refused: u32,
+    /// Little-endian u64.
+    pub awake_ms: u64,
+    /// UTF-8 text of at most 64 bytes.
+    pub awake_reason: &'a str,
+}
+
+impl<'a> ServicePluginUsage<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServicePluginUsage(Self {
+            plugin: body.string(SERVICE_PLUGIN_USAGE_PLUGIN_MAX_BYTES)?,
+            busy_us: u64::from_le_bytes(body.scalar()?),
+            calls: u32::from_le_bytes(body.scalar()?),
+            shown_ms: u64::from_le_bytes(body.scalar()?),
+            fast: u32::from_le_bytes(body.scalar()?),
+            partial: u32::from_le_bytes(body.scalar()?),
+            full: u32::from_le_bytes(body.scalar()?),
+            pixels: u64::from_le_bytes(body.scalar()?),
+            read: u64::from_le_bytes(body.scalar()?),
+            written: u64::from_le_bytes(body.scalar()?),
+            syncs: u32::from_le_bytes(body.scalar()?),
+            requests: u32::from_le_bytes(body.scalar()?),
+            refused: u32::from_le_bytes(body.scalar()?),
+            awake_ms: u64::from_le_bytes(body.scalar()?),
+            awake_reason: body.string(SERVICE_PLUGIN_USAGE_AWAKE_REASON_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.plugin.len(), SERVICE_PLUGIN_USAGE_PLUGIN_MAX_BYTES)?;
+        len += 8;
+        len += 4;
+        len += 8;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 8;
+        len += 8;
+        len += 8;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 8;
+        len += blob_len(
+            self.awake_reason.len(),
+            SERVICE_PLUGIN_USAGE_AWAKE_REASON_MAX_BYTES,
+        )?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.plugin.as_bytes(), out, offset);
+        write_bytes(&self.busy_us.to_le_bytes(), out, offset);
+        write_bytes(&self.calls.to_le_bytes(), out, offset);
+        write_bytes(&self.shown_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.fast.to_le_bytes(), out, offset);
+        write_bytes(&self.partial.to_le_bytes(), out, offset);
+        write_bytes(&self.full.to_le_bytes(), out, offset);
+        write_bytes(&self.pixels.to_le_bytes(), out, offset);
+        write_bytes(&self.read.to_le_bytes(), out, offset);
+        write_bytes(&self.written.to_le_bytes(), out, offset);
+        write_bytes(&self.syncs.to_le_bytes(), out, offset);
+        write_bytes(&self.requests.to_le_bytes(), out, offset);
+        write_bytes(&self.refused.to_le_bytes(), out, offset);
+        write_bytes(&self.awake_ms.to_le_bytes(), out, offset);
+        write_blob(self.awake_reason.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.plugin` record.
+pub const SERVICE_PLUGIN_TAG: u32 = 50;
+/// Maximum bytes of `service.plugin.name`.
+pub const SERVICE_PLUGIN_NAME_MAX_BYTES: usize = 128;
+
+/// The `service.plugin` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServicePlugin<'a> {
+    /// UTF-8 text of at most 128 bytes.
+    pub name: &'a str,
+}
+
+impl<'a> ServicePlugin<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServicePlugin(Self {
+            name: body.string(SERVICE_PLUGIN_NAME_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), SERVICE_PLUGIN_NAME_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.work_note` record.
+pub const SERVICE_WORK_NOTE_TAG: u32 = 51;
+/// Maximum bytes of `service.work_note.text`.
+pub const SERVICE_WORK_NOTE_TEXT_MAX_BYTES: usize = 256;
+
+/// The `service.work_note` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceWorkNote<'a> {
+    /// Little-endian u64.
+    pub at_ms: u64,
+    /// UTF-8 text of at most 256 bytes.
+    pub text: &'a str,
+}
+
+impl<'a> ServiceWorkNote<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceWorkNote(Self {
+            at_ms: u64::from_le_bytes(body.scalar()?),
+            text: body.string(SERVICE_WORK_NOTE_TEXT_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += blob_len(self.text.len(), SERVICE_WORK_NOTE_TEXT_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.at_ms.to_le_bytes(), out, offset);
+        write_blob(self.text.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.end` record.
+pub const SERVICE_END_TAG: u32 = 52;
+
+/// The `service.end` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceEnd {
+    /// Little-endian u32.
+    pub flags: u32,
+    /// Little-endian u32.
+    pub total: u32,
+    /// Little-endian u32.
+    pub generation: u32,
+    /// Little-endian u32.
+    pub next: u32,
+}
+
+impl ServiceEnd {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceEnd(Self {
+            flags: u32::from_le_bytes(body.scalar()?),
+            total: u32::from_le_bytes(body.scalar()?),
+            generation: u32::from_le_bytes(body.scalar()?),
+            next: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_bytes(&self.total.to_le_bytes(), out, offset);
+        write_bytes(&self.generation.to_le_bytes(), out, offset);
+        write_bytes(&self.next.to_le_bytes(), out, offset);
+    }
+}
 
 /// A registration or declaration record, borrowed from one validated batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -910,6 +1186,16 @@ pub enum Record<'a> {
     EventBatteryMeasured(EventBatteryMeasured),
     /// A `EventPageTurned` record.
     EventPageTurned(EventPageTurned<'a>),
+    /// A `ServiceUsage` record.
+    ServiceUsage(ServiceUsage),
+    /// A `ServicePluginUsage` record.
+    ServicePluginUsage(ServicePluginUsage<'a>),
+    /// A `ServicePlugin` record.
+    ServicePlugin(ServicePlugin<'a>),
+    /// A `ServiceWorkNote` record.
+    ServiceWorkNote(ServiceWorkNote<'a>),
+    /// A `ServiceEnd` record.
+    ServiceEnd(ServiceEnd),
 }
 
 impl<'a> Reader<'a> {
@@ -966,6 +1252,11 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         EVENT_STOPPING_TAG => EventStopping::decode(body)?,
         EVENT_BATTERY_MEASURED_TAG => EventBatteryMeasured::decode(body)?,
         EVENT_PAGE_TURNED_TAG => EventPageTurned::decode(body)?,
+        SERVICE_USAGE_TAG => ServiceUsage::decode(body)?,
+        SERVICE_PLUGIN_USAGE_TAG => ServicePluginUsage::decode(body)?,
+        SERVICE_PLUGIN_TAG => ServicePlugin::decode(body)?,
+        SERVICE_WORK_NOTE_TAG => ServiceWorkNote::decode(body)?,
+        SERVICE_END_TAG => ServiceEnd::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -1069,6 +1360,11 @@ impl Record<'_> {
             Record::EventStopping(_) => EVENT_STOPPING_TAG,
             Record::EventBatteryMeasured(_) => EVENT_BATTERY_MEASURED_TAG,
             Record::EventPageTurned(_) => EVENT_PAGE_TURNED_TAG,
+            Record::ServiceUsage(_) => SERVICE_USAGE_TAG,
+            Record::ServicePluginUsage(_) => SERVICE_PLUGIN_USAGE_TAG,
+            Record::ServicePlugin(_) => SERVICE_PLUGIN_TAG,
+            Record::ServiceWorkNote(_) => SERVICE_WORK_NOTE_TAG,
+            Record::ServiceEnd(_) => SERVICE_END_TAG,
         }
     }
 
@@ -1088,6 +1384,11 @@ impl Record<'_> {
             Record::EventStopping(record) => record.body_len(),
             Record::EventBatteryMeasured(record) => record.body_len(),
             Record::EventPageTurned(record) => record.body_len(),
+            Record::ServiceUsage(record) => record.body_len(),
+            Record::ServicePluginUsage(record) => record.body_len(),
+            Record::ServicePlugin(record) => record.body_len(),
+            Record::ServiceWorkNote(record) => record.body_len(),
+            Record::ServiceEnd(record) => record.body_len(),
         }
     }
 
@@ -1112,6 +1413,11 @@ impl Record<'_> {
             Record::EventStopping(record) => record.write(out, offset),
             Record::EventBatteryMeasured(record) => record.write(out, offset),
             Record::EventPageTurned(record) => record.write(out, offset),
+            Record::ServiceUsage(record) => record.write(out, offset),
+            Record::ServicePluginUsage(record) => record.write(out, offset),
+            Record::ServicePlugin(record) => record.write(out, offset),
+            Record::ServiceWorkNote(record) => record.write(out, offset),
+            Record::ServiceEnd(record) => record.write(out, offset),
         }
     }
 
@@ -1161,4 +1467,196 @@ pub fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i
         record.write(out, &mut offset);
     }
     Ok(offset)
+}
+
+/// Bytes of one bare record: tag, body length and body, with no count.
+///
+/// The framing of a service blob (`docs/abi/proposals/interface-7-usage-clock.md`):
+/// a scalar service is exactly one such record, a table page several of them.
+/// A field over its cap, or a record over the batch byte limit, returns
+/// ERR_NO_SPACE.
+pub fn record_framed_len(record: &Record<'_>) -> Result<usize, i32> {
+    let body = record.body_len()?;
+    let len = varint_len(record.tag()) + varint_len(body as u32) + body;
+    if len > REGISTRATION_MAX_BYTES {
+        return Err(-3);
+    }
+    Ok(len)
+}
+
+/// Encode one bare record (see [`record_framed_len`]) at the front of `out`.
+///
+/// Every cap and the output capacity are checked before any write. Failure
+/// returns ERR_NO_SPACE and leaves the entire output unchanged.
+pub fn record_encode_one(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
+    let required = record_framed_len(record)?;
+    if out.len() < required {
+        return Err(-3);
+    }
+    let body = record.body_len()?;
+    let mut offset = 0;
+    write_varint(record.tag(), out, &mut offset);
+    write_varint(body as u32, out, &mut offset);
+    record.write_bitmap(out, &mut offset);
+    record.write(out, &mut offset);
+    Ok(offset)
+}
+
+/// Decode exactly one bare record (see [`record_framed_len`]): no count, and
+/// no byte after it. The caller checks that the tag is the one it expects.
+/// Errors are those of [`records_decode`].
+pub fn record_decode_one(bytes: &[u8]) -> Result<Record<'_>, i32> {
+    if bytes.len() > REGISTRATION_MAX_BYTES {
+        return Err(-3);
+    }
+    let mut reader = Reader { remaining: bytes };
+    let (tag, mut body) = reader.record()?;
+    let record = record_decode(tag, &mut body)?;
+    reader.finish()?;
+    Ok(record)
+}
+
+// Single-record and streaming decoders (lock format 8).
+
+/// Bytes a [`RecordStream`] keeps between chunks: every framed table row and
+/// the end record fit (`docs/abi/proposals/interface-7-usage-clock.md` 2.4).
+pub const RECORD_CARRY_MAX_BYTES: usize = 256;
+
+/// Decode the first bare record of `bytes`; returns it and the frame length
+/// it consumed (tag, body length and body).
+///
+/// Unknown trailing fields inside a known record are skipped. An unknown tag,
+/// a truncated or non-canonical frame and an over-cap field are errors, with
+/// the statuses of [`records_decode`].
+pub fn record_decode_prefix(bytes: &[u8]) -> Result<(Record<'_>, usize), i32> {
+    let limit = bytes.len().min(REGISTRATION_MAX_BYTES);
+    let mut reader = Reader {
+        remaining: bytes.get(..limit).unwrap_or(bytes),
+    };
+    let (tag, mut body) = reader.record()?;
+    let record = record_decode(tag, &mut body)?;
+    Ok((record, limit - reader.remaining.len()))
+}
+
+/// Decode a batch that holds exactly one record (count 1, then the record, then
+/// nothing), without a [`RecordBatch`] on the stack. Event payloads are such
+/// batches. Errors are those of [`records_decode`]; any other count is
+/// ERR_INVALID.
+pub fn records_decode_single(bytes: &[u8]) -> Result<Record<'_>, i32> {
+    if bytes.len() > REGISTRATION_MAX_BYTES {
+        return Err(-3);
+    }
+    let mut reader = Reader { remaining: bytes };
+    if reader.varint()? != 1 {
+        return Err(-2);
+    }
+    let (tag, mut body) = reader.record()?;
+    let record = record_decode(tag, &mut body)?;
+    reader.finish()?;
+    Ok(record)
+}
+
+/// The frame length of the bare record at the front of `bytes`, `None` while
+/// its header or body is still incomplete; a non-canonical header is ERR_INVALID.
+fn frame_len(bytes: &[u8]) -> Result<Option<usize>, i32> {
+    let mut at = 0;
+    let mut header = [0_u32; 2];
+    for value in &mut header {
+        let mut shift = 0;
+        loop {
+            let Some(&byte) = bytes.get(at) else {
+                return Ok(None);
+            };
+            at += 1;
+            if shift == 28 && byte > 0x0f {
+                return Err(-2);
+            }
+            *value |= u32::from(byte & 0x7f) << shift;
+            if byte & 0x80 == 0 {
+                if shift > 0 && byte == 0 {
+                    return Err(-2);
+                }
+                break;
+            }
+            shift += 7;
+        }
+    }
+    let len = at.saturating_add(header[1] as usize);
+    Ok(if len <= bytes.len() { Some(len) } else { None })
+}
+
+/// Reads bare records from a byte stream that arrives in chunks of any size,
+/// carrying at most [`RECORD_CARRY_MAX_BYTES`] of an incomplete record between
+/// chunks. Records are visited in order, borrowed for the visit only.
+#[derive(Clone, Debug)]
+pub struct RecordStream {
+    carry: [u8; RECORD_CARRY_MAX_BYTES],
+    len: usize,
+}
+
+impl Default for RecordStream {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RecordStream {
+    /// An empty stream.
+    pub const fn new() -> Self {
+        Self {
+            carry: [0; RECORD_CARRY_MAX_BYTES],
+            len: 0,
+        }
+    }
+
+    /// Feed the next chunk and visit every record it completes.
+    ///
+    /// A record whose frame is longer than [`RECORD_CARRY_MAX_BYTES`] and does
+    /// not lie whole inside one chunk is ERR_INVALID. Decode errors are those
+    /// of [`record_decode_prefix`]; an error from `visit` stops and is returned.
+    pub fn feed(
+        &mut self,
+        mut chunk: &[u8],
+        visit: &mut dyn FnMut(Record<'_>) -> Result<(), i32>,
+    ) -> Result<(), i32> {
+        if self.len > 0 {
+            let old = self.len;
+            let moved = chunk.len().min(RECORD_CARRY_MAX_BYTES - old);
+            self.carry[old..old + moved].copy_from_slice(&chunk[..moved]);
+            match frame_len(&self.carry[..old + moved])? {
+                Some(len) => {
+                    let (record, _) = record_decode_prefix(&self.carry[..len])?;
+                    self.len = 0;
+                    visit(record)?;
+                    chunk = &chunk[len - old..];
+                }
+                None if old + moved == RECORD_CARRY_MAX_BYTES => return Err(-2),
+                None => {
+                    self.len = old + moved;
+                    return Ok(());
+                }
+            }
+        }
+        while !chunk.is_empty() {
+            match frame_len(chunk)? {
+                Some(len) => {
+                    let (record, _) = record_decode_prefix(&chunk[..len])?;
+                    visit(record)?;
+                    chunk = &chunk[len..];
+                }
+                None if chunk.len() >= RECORD_CARRY_MAX_BYTES => return Err(-2),
+                None => {
+                    self.carry[..chunk.len()].copy_from_slice(chunk);
+                    self.len = chunk.len();
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// After the last chunk: ERR_INVALID when an incomplete record is left.
+    pub fn finish(&self) -> Result<(), i32> {
+        if self.len == 0 { Ok(()) } else { Err(-2) }
+    }
 }
