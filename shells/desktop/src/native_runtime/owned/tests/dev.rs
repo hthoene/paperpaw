@@ -240,11 +240,10 @@ fn a_library_exporting_more_than_its_entry_symbols_is_refused_before_it_runs() {
 /// The id is the folder's, never the library's: the same library declares a
 /// setting in the group `weather.main` without declaring the group. Under the
 /// folder `weather` that group is its own and missing, so it is refused at
-/// commit; under the folder `other` the group is another plugin's and the
-/// declaration stands (the kernel then refuses it for now, as declarations in
-/// the image cannot be read back until the draft-4 views are wired).
+/// commit. Under `other` the reference is valid, but the temporary SDK-view
+/// gate still refuses activation. Both libraries must be released.
 #[test]
-fn a_declaration_under_another_plugins_id_is_decided_by_the_folders_id() {
+fn declarations_validate_by_folder_then_refuse_until_views_are_available() {
     let mut valid = vec![0; REGISTRATION_MAX_BYTES];
     let len = records_encode(
         &[Record::SettingSpec(SpecRecord {
@@ -267,30 +266,24 @@ fn a_declaration_under_another_plugins_id_is_decided_by_the_folders_id() {
     let bytes = std::fs::read(&library.path).unwrap();
     let root = card(&[("weather", bytes.as_slice()), ("other", bytes.as_slice())]);
     let found = DevPlugins::load_folder_if(&root, true);
-    // Under `other` the declaration stands, and the kernel refuses it only
-    // because declarations in the image cannot be read back yet (temporary,
-    // until the draft-4 views are wired): visibly, not loaded without them.
     assert!(found.ids().is_empty(), "{:?}", found.refused());
-    assert!(
-        found
+    assert_eq!(found.declared("other"), None);
+    assert_eq!(found.refused().len(), 2);
+    for (id, expected) in [
+        ("weather", paperpaw_core::native_host::Error::Invalid),
+        (
+            "other",
+            paperpaw_core::native_host::Error::DeclarationViewsUnavailable,
+        ),
+    ] {
+        let (_, refusal) = found
             .refused()
             .iter()
-            .any(|(id, why)| id == "other"
-                && format!("{why}").contains("DeclarationViewsUnavailable")),
-        "{:?}",
-        found.refused()
-    );
-    // Under its own id the group is missing: refused at the cross-record
-    // check, before the image question comes up.
-    assert!(
-        found.refused().iter().any(|(id, why)| id == "weather"
-            && matches!(why, Refusal::Lifecycle(_) | Refusal::Runtime(_))
-            && !format!("{why}").contains("DeclarationViewsUnavailable")),
-        "refused under its own id: {:?}",
-        found.refused()
-    );
-    assert_eq!(found.refused().len(), 2, "{:?}", found.refused());
-    assert!(!mapped_copy("weather"), "released after the refusal");
+            .find(|(actual, _)| actual == id)
+            .unwrap();
+        assert_eq!(refusal, &Refusal::Lifecycle(expected));
+        assert!(!mapped_copy(id), "released after refusal: {id}");
+    }
     drop(found);
     std::fs::remove_dir_all(&root).unwrap();
 }

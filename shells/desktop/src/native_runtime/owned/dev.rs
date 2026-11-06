@@ -89,7 +89,9 @@ pub enum Refusal {
     /// Refused by the checks before any code ran, or by the factory.
     Runtime(RuntimeError),
     /// Refused while staging or committing what it declared.
-    Lifecycle(String),
+    Lifecycle(paperpaw_core::native_host::Error),
+    /// Host allocation or construction setup failed.
+    Host(String),
     /// It declared records (settings, fonts, hyphenation) and this loader has
     /// no apply step for them yet: refused visibly, never loaded without them.
     Declared(usize),
@@ -105,7 +107,8 @@ impl std::fmt::Display for Refusal {
             }
             Self::Kind(_) => f.write_str("not an interface-7 library (or not one this reads)"),
             Self::Runtime(why) => write!(f, "refused: {why:?}"),
-            Self::Lifecycle(why) => write!(f, "refused while staging: {why}"),
+            Self::Lifecycle(why) => write!(f, "refused while staging: {why:?}"),
+            Self::Host(why) => write!(f, "host construction refused: {why}"),
             Self::Declared(n) => write!(
                 f,
                 "declares {n} records, which this loader cannot apply yet: not loaded"
@@ -118,7 +121,8 @@ impl From<Error> for Refusal {
     fn from(error: Error) -> Self {
         match error {
             Error::Runtime(why) => Self::Runtime(why),
-            other => Self::Lifecycle(format!("{other:?}")),
+            Error::Lifecycle(why) => Self::Lifecycle(why),
+            other => Self::Host(format!("{other:?}")),
         }
     }
 }
@@ -203,14 +207,14 @@ impl Loaded {
         // gives none once stopped, never through this borrow.
         transaction
             .set_image(unsafe { plugin.image() })
-            .map_err(|e| Refusal::Lifecycle(format!("{e:?}")))?;
+            .map_err(Refusal::Lifecycle)?;
         let mut batch = plugin.make_registered(transaction)?.commit()?;
         let declarations = batch.take_declarations();
         let depth = DispatchDepth::new();
         let records = (0..batch.len())
             .map(|index| batch.dispatch(index, &depth, |_, record| *record))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| Refusal::Lifecycle(format!("{e:?}")))?;
+            .map_err(Refusal::Lifecycle)?;
         // SAFETY: the batch borrows the owner, which lives on the heap inside
         // `plugin` (a `Box` that is never moved out of nor dropped before the
         // batch: `Drop` releases the batch first and field order does the

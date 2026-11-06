@@ -319,8 +319,16 @@ pub fn remember_author(storage: &dyn Storage, plugin: &str, key: &[u8; 32]) -> b
 /// the Wi-Fi transfer nor plugins' own folders reach.
 const INSTALLED: &str = crate::data_path!("plugin-code.txt");
 
+mod binding;
+#[doc(hidden)]
+pub use binding::entry as __entry;
+pub use binding::{Error, Host, Plugin};
+pub mod clock;
 pub mod declare;
+pub mod events;
 pub mod keys;
+pub mod registrations;
+pub mod storage;
 
 #[cfg(feature = "kernel")]
 mod installed;
