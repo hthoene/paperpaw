@@ -29,7 +29,8 @@ pub fn check(context: &Context, report: &mut Report) -> Result<(), String> {
 }
 
 /// The machines the check reads (`e_machine`): x86-64 and AArch64, the
-/// desktop and Android loaders'. Anything else is an error of its own.
+/// desktop loaders' (Linux and macOS on AArch64 included; Android loads no
+/// code plugins). Anything else is an error of its own.
 const EM_X86_64: u16 = 62;
 const EM_AARCH64: u16 = 183;
 

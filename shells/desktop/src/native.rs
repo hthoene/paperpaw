@@ -1,9 +1,9 @@
 //! Code plugins in the emulator (ADR 0024): a plugin's crate built for
 //! this computer (`cargo build --release`, a `cdylib` with `plugin!`) is
 //! `code-host.dll`, `code-host.so` or `code-host.dylib` in its folder of
-//! the emulated card (`plugins/<id>/`), beside its `plugin.ini`; the emulator loads it as
-//! Android loads `code.so`, with the same entry and table as `.ppn` files
-//! on the X4. It must be built by the same compiler, for this computer,
+//! the emulated card (`plugins/<id>/`), beside its `plugin.ini`; the emulator loads it
+//! with the same entry and table as `.ppn` files on the X4 (Android loads no
+//! code plugins). It must be built by the same compiler, for this computer,
 //! against the same SDK as this emulator ([`FINGERPRINT`], which
 //! `--stdio` says; `built_here` checks the compiler), and installed: only a file whose SHA-256 the card
 //! has (`native::remember_code`) runs, as on the devices, which
