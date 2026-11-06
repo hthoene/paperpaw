@@ -292,15 +292,36 @@ impl Loaded {
 }
 
 impl Drop for Loaded {
-    /// Release order: the batch (its lease on the owner), then admission
-    /// revoked and finished, then the owner drops (the plugin's destructor,
-    /// then the services, then the library is unmapped).
+    /// Revoke, cancel and release resources before dropping the batch lease.
+    /// Finish destroys the plugin only after the leases drain; the library
+    /// remains mapped throughout cleanup.
     fn drop(&mut self) {
         self.stopped.set(true);
-        drop(self.batch.take());
         let owner = self.plugin.owner.as_ref();
         owner.revoke();
-        if owner.finish().is_ok() {
+        let prepared = owner.prepare_teardown();
+        if let Some(error) = owner.take_teardown_error() {
+            eprintln!(
+                "abi7 dev loader: {}: teardown hook failed: {error:?}",
+                self.id
+            );
+        }
+        if let Err(error) = prepared {
+            // Safe callers cannot drop Loaded while borrowed by a callback.
+            // Preserve the mapped owner if an external unsafe caller does so.
+            eprintln!(
+                "abi7 dev loader: {}: teardown deferred: {error:?}, kept",
+                self.id
+            );
+            return;
+        }
+        drop(self.batch.take());
+        let finished = owner.finish();
+        if finished.is_err() {
+            eprintln!("abi7 dev loader: {}: retained lease after cleanup", self.id);
+        }
+
+        if finished.is_ok() {
             // SAFETY: dropped exactly once, here; nothing borrows the owner
             // any longer (the batch is gone and `finish` saw no lease).
             unsafe { ManuallyDrop::drop(&mut self.plugin) };
@@ -345,6 +366,7 @@ impl FlatInstance for Loaded {
         &self,
         index: usize,
         payload: &[u8],
+        out: &mut [u8],
         depth: &DispatchDepth,
     ) -> Result<i32, native_host::Error> {
         // Stopped: the owner's error, before anything of the library is read.
@@ -352,7 +374,7 @@ impl FlatInstance for Loaded {
             (Some(batch), false) => batch,
             _ => return Err(native_host::Error::State),
         };
-        match dispatch_registration(batch, index, depth, Invocation::Event(payload)) {
+        match dispatch_registration(batch, index, depth, Invocation::Event(payload, out)) {
             Ok(status) => Ok(status),
             Err(Error::Status(status)) => Ok(status),
             Err(Error::Lifecycle(why)) => Err(why),

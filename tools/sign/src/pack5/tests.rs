@@ -30,8 +30,15 @@ struct Plugin {
 }
 
 fn plugin(machine: u16) -> Plugin {
+    plugin_with(machine, [0; 4])
+}
+
+/// [`plugin`] whose four spare bytes at 20, where a heap word may lie, hold
+/// `spare`.
+fn plugin_with(machine: u16, spare: [u8; 4]) -> Plugin {
     let record = record();
     let mut rodata = vec![0u8; RODATA as usize];
+    rodata[20..24].copy_from_slice(&spare);
     for (at, value) in [
         (0, 20u32),
         (4, 7 | 1 << 16),
@@ -321,4 +328,69 @@ fn a_signed_sample_checks_and_a_changed_one_does_not() {
     other[HEADER_LEN + 3] ^= 1;
     other.extend_from_slice(&paperpaw_native::signature::sign(&other, &seed).to_bytes());
     assert!(check_file5(&other).is_err());
+}
+
+/// A plugin with `PAPERPAW_HEAP` of `size` bytes at `LINK_BASE + at`.
+fn with_heap(spare: [u8; 4], at: u32, size: u32) -> Plugin {
+    let mut p = plugin_with(EM_RISCV, spare);
+    p.b.symbol(HEAP_SYMBOL, LINK_BASE + at, size, p.rodata as u16, false);
+    p
+}
+
+#[test]
+fn the_heap_word_is_found_by_its_symbol_and_recorded_in_the_header() {
+    let plain = pack5(&plugin(EM_RISCV).b.build()).unwrap();
+    assert_eq!(plain.header.heap_at, None);
+    assert_eq!(&plain.file[12..16], &[0; 4]);
+    assert_eq!(&plain.file[60..64], &[0; 4]);
+    let packed = pack5(&with_heap([0; 4], 20, 4).b.build()).unwrap();
+    assert_eq!(packed.header.heap_at, Some(20));
+    // Flag bit 0 and `heap_at` are in the file, and the file reads back as
+    // the loader reads it (the digest covers both).
+    assert_eq!(&packed.file[12..16], &1u32.to_le_bytes());
+    assert_eq!(&packed.file[60..64], &20u32.to_le_bytes());
+    let (back, _) = check_file5(&packed.file).unwrap();
+    assert_eq!(back, packed.header);
+    // Nothing else of the image or the words differs.
+    assert_eq!(packed.file[HEADER_LEN..], plain.file[HEADER_LEN..]);
+    assert_ne!(packed.header.sha256, plain.header.sha256);
+    // And it is no extra export.
+    assert!(pack5(&with_heap([0; 4], 20, 4).b.build()).is_ok());
+}
+
+#[test]
+fn a_heap_word_that_is_not_one_zero_read_only_aligned_word_is_refused() {
+    let error = |p: Plugin| pack5(&p.b.build()).unwrap_err();
+    // The wrong size.
+    for size in [0, 2, 8] {
+        let e = error(with_heap([0; 4], 20, size));
+        assert!(
+            e.contains("not the one word of the host heap"),
+            "{size}: {e}"
+        );
+    }
+    // Not 4-aligned.
+    let e = error(with_heap([0; 4], 22, 4));
+    assert!(e.contains("not 4-aligned"), "{e}");
+    // A value in the file.
+    let e = error(with_heap([1, 0, 0, 0], 20, 4));
+    assert!(e.contains("holds a value in the file"), "{e}");
+    // In the code, not in read-only data.
+    let mut p = plugin(EM_RISCV);
+    p.b.symbol(HEAP_SYMBOL, TEXT + 4, 4, p.text as u16, false);
+    let e = error(p);
+    assert!(e.contains("not in .rodata"), "{e}");
+    // A word to relocate is refused either way: its value in the file points
+    // into the image (so it is no 0), or it points outside it.
+    let mut p = with_heap(LINK_BASE.wrapping_add(24).to_le_bytes(), 20, 4);
+    let meta =
+        p.b.symbol("META2", LINK_BASE + 24, 0, p.rodata as u16, true);
+    p.b.rela(p.rodata, LINK_BASE + 20, meta, 1);
+    let e = error(p);
+    assert!(e.contains("holds a value in the file"), "{e}");
+    let mut p = with_heap([0; 4], 20, 4);
+    let meta =
+        p.b.symbol("META2", LINK_BASE + 24, 0, p.rodata as u16, true);
+    p.b.rela(p.rodata, LINK_BASE + 20, meta, 1);
+    assert!(pack5(&p.b.build()).is_err());
 }
