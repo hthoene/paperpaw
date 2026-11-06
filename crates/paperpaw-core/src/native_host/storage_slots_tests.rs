@@ -309,7 +309,10 @@ fn bad_pairs_and_bounds_are_rejected_before_storage_or_output() {
 #[test]
 fn reserve_backend_errors_and_invalid_read_counts_preserve_output() {
     let backend = Backend::default();
-    backend.files.write(FILE, b"keep").unwrap();
+    // Stay above the 4096-byte recall limit so an invalid backend count
+    // reaches the raw adapter instead of being consumed by the file cache.
+    let data = alloc::vec![0x5a; MAX_DATA + 1];
+    backend.files.write(FILE, &data).unwrap();
     scoped(&backend, |scope, _| {
         backend.free.set(Some(storage::MIN_RESERVE));
         let mut out = [0xa5; 4];
@@ -346,7 +349,7 @@ fn reserve_backend_errors_and_invalid_read_counts_preserve_output() {
         assert_eq!(len, 91);
         assert_eq!(out, [0xa5; 4]);
     });
-    assert_eq!(backend.files.get(FILE).unwrap(), b"keep");
+    assert_eq!(backend.files.get(FILE).unwrap(), data);
 }
 
 #[test]
