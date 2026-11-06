@@ -194,10 +194,12 @@ g_sdk() {
         skip "sdk: shared-table" "tools/shared-table.py is not in this tree (interface 5)"
     fi
     if [[ -f tools/table-compat.sh ]]; then
+        # As CI: the baseline table-baseline.txt names, unless the caller
+        # names another in TABLE_BASELINE.
         if [[ -n "${TABLE_BASELINE:-}" ]]; then
             run "sdk: table-compat against $TABLE_BASELINE" "tools/table-compat.sh '$TABLE_BASELINE'"
         else
-            skip "sdk: table-compat" "set TABLE_BASELINE=<tag or commit of the last interface raise>"
+            run "sdk: table-compat against table-baseline.txt" "tools/table-compat.sh"
         fi
     fi
 }
