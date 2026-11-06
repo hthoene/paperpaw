@@ -52,6 +52,10 @@ pub mod flat;
 /// Bounded decoded registration submission during plugin construction.
 #[path = "native_host/registrations.rs"]
 pub mod registrations;
+/// The shell's side of one hosted plugin (owner, host table, `make`,
+/// scoped dispatch), shared by the desktop and the X4.
+#[path = "native_host/shell.rs"]
+pub mod shell;
 /// Host-owned copies of declaration records staged during construction.
 #[path = "native_host/staged.rs"]
 pub mod staged;
