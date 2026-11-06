@@ -14,6 +14,10 @@ struct Host {
     micros: u64,
     allocations: usize,
     frees: usize,
+    snapshot: snapshot::Snapshot,
+    setting: settings::SettingValueRef<'static>,
+    snapshot_error: i32,
+    setting_reply: Option<i32>,
 }
 impl Host {
     fn new(micros: u64) -> Self {
@@ -25,6 +29,10 @@ impl Host {
             micros,
             allocations: 0,
             frees: 0,
+            snapshot: snapshot::Snapshot::new(480, 800, 220, snapshot::PixelFormat::Mono1),
+            setting: settings::SettingValueRef::Absent,
+            snapshot_error: OK,
+            setting_reply: None,
         }
     }
 }
@@ -94,12 +102,45 @@ unsafe extern "C" fn register(ctx: *mut c_void, input: PpBytes) -> i32 {
     h.staged.extend(records.iter());
     OK
 }
+unsafe extern "C" fn copy_snapshot(ctx: *mut c_void, output: PpBuffer) -> i32 {
+    // SAFETY: test context and exclusive output follow the host callback contract.
+    let h = unsafe { host(ctx) };
+    if h.snapshot_error != OK {
+        return h.snapshot_error;
+    }
+    let out = unsafe {
+        core::slice::from_raw_parts_mut(output.ptr.cast::<core::mem::MaybeUninit<u8>>(), output.cap)
+    };
+    match snapshot::snapshot_encode(&h.snapshot, out) {
+        Ok(_) => OK,
+        Err(e) => e,
+    }
+}
+unsafe extern "C" fn read_setting(ctx: *mut c_void, key: PpBytes, output: PpBuffer) -> i32 {
+    // SAFETY: generated sample key is live and initialized for this synchronous call.
+    let key = unsafe { core::slice::from_raw_parts(key.ptr, key.len) };
+    assert_eq!(key, observations::SETTING_KEY);
+    // SAFETY: test context and output remain valid and disjoint from key/storage.
+    let h = unsafe { host(ctx) };
+    if let Some(error) = h.setting_reply.filter(|v| *v < 0) {
+        return error;
+    }
+    let out = unsafe {
+        core::slice::from_raw_parts_mut(output.ptr.cast::<core::mem::MaybeUninit<u8>>(), output.cap)
+    };
+    match settings::settings_encode(h.setting, out) {
+        Ok(required) => h.setting_reply.unwrap_or(required as i32),
+        Err(error) => error,
+    }
+}
 fn table() -> PpHost {
     let mut table = paperpaw_native::host_glue::host_table();
     table.heap_alloc = allocate;
     table.heap_dealloc = free;
     table.clock_micros = clock;
     table.registrations_submit = register;
+    table.env_snapshot = copy_snapshot;
+    table.settings_read = read_setting;
     table
 }
 fn create(table: &PpHost, ctx: &mut Host) -> *const PpPlugin {
@@ -232,3 +273,5 @@ fn clock_error_does_not_commit_a_draw() {
     }
     destroy_plugin(p);
 }
+
+mod consumer_tests;
