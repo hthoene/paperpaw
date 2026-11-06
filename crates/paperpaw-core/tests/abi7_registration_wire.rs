@@ -19,11 +19,11 @@ fn scope(context: Pin<&Context>) -> Pin<&RegistrationScope<Registration>> {
     unsafe { context.map_unchecked(|context| &context.0) }
 }
 
-fn encode(records: &[Registration]) -> Vec<u8> {
+fn encode(records: &[Registration]) -> Result<Vec<u8>, i32> {
     let mut out = vec![0; registrations::REGISTRATION_MAX_BYTES];
-    let length = registrations_encode(records, &mut out).unwrap();
+    let length = registrations_encode(records, &mut out)?;
     out.truncate(length);
-    out
+    Ok(out)
 }
 
 fn submit(scope: &RegistrationScope<Registration>, bytes: &[u8]) -> i32 {
@@ -46,7 +46,7 @@ fn decoded_records_are_admitted_only_after_successful_commit() {
         },
         Registration::Draw { token: 42 },
     ];
-    let bytes = encode(&records);
+    let bytes = encode(&records).unwrap();
     let mut construction = owner.as_ref().begin().unwrap();
     slot.scope(&mut construction, || {
         assert_eq!(submit(&slot, &bytes), OK);
@@ -73,7 +73,8 @@ fn ignored_malformed_or_unsupported_batch_refuses_all_publication() {
         encode(&[Registration::Event {
             event_tag: u32::MAX,
             token: 1,
-        }]),
+        }])
+        .unwrap(),
     ] {
         let dropped = Rc::new(Cell::new(0));
         let owner = Box::pin(HostOwner::new(
@@ -84,7 +85,7 @@ fn ignored_malformed_or_unsupported_batch_refuses_all_publication() {
         let mut construction = owner.as_ref().begin().unwrap();
         slot.scope(&mut construction, || {
             assert_eq!(
-                submit(&slot, &encode(&[Registration::Draw { token: 3 }])),
+                submit(&slot, &encode(&[Registration::Draw { token: 3 }]).unwrap()),
                 OK
             );
             assert!(matches!(
@@ -108,11 +109,11 @@ fn repeated_batches_cannot_exceed_the_transaction_capacity() {
     let owner = Box::pin(HostOwner::new((RegistrationScope::new(), dropped), ()));
     let slot = scope(owner.as_ref().context());
     let mut construction = owner.as_ref().begin().unwrap();
-    let bytes = encode(&[Registration::Draw { token: 1 }; 8]);
+    let bytes = encode(&[Registration::Draw { token: 1 }; 8]).unwrap();
     slot.scope(&mut construction, || {
         assert_eq!(submit(&slot, &bytes), OK);
         assert_eq!(
-            submit(&slot, &encode(&[Registration::Draw { token: 2 }])),
+            submit(&slot, &encode(&[Registration::Draw { token: 2 }]).unwrap()),
             ERR_NO_SPACE
         );
     })
@@ -125,7 +126,7 @@ fn null_oversized_and_empty_inputs_obey_scope_and_refusal_rules() {
     let dropped = Rc::new(Cell::new(0));
     let owner = Box::pin(HostOwner::new((RegistrationScope::new(), dropped), ()));
     let slot = scope(owner.as_ref().context());
-    assert_eq!(submit(&slot, &encode(&[])), ERR_STATE);
+    assert_eq!(submit(&slot, &encode(&[]).unwrap()), ERR_STATE);
     for length in [0, 1, registrations::REGISTRATION_MAX_BYTES + 1] {
         let mut construction = owner.as_ref().begin().unwrap();
         slot.scope(&mut construction, || {
@@ -156,7 +157,7 @@ fn revoked_queued_and_registered_work_is_refused_before_the_body_runs() {
     let mut construction = owner.as_ref().begin().unwrap();
     slot.scope(&mut construction, || {
         assert_eq!(
-            submit(&slot, &encode(&[Registration::Draw { token: 8 }])),
+            submit(&slot, &encode(&[Registration::Draw { token: 8 }]).unwrap()),
             OK
         )
     })
