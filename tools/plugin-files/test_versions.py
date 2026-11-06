@@ -48,6 +48,26 @@ class Versions(unittest.TestCase):
     def test_the_interface_is_read_from_native_rs(self):
         self.assertEqual(versions.interface_at("pub const INTERFACE: u16 = 3;\n"), 3)
         self.assertIsNone(versions.interface_at("nothing here"))
+        self.assertEqual(versions.draft_at("pub const DRAFT: u16 = 2;\n"), 2)
+        self.assertIsNone(versions.draft_at("pub const INTERFACE: u16 = 7;\n"))
+
+    def test_a_new_draft_or_the_freeze_is_raised_like_an_interface(self):
+        def raised(then, now):
+            with tempfile.TemporaryDirectory() as root:
+                path = pathlib.Path(root) / versions.NATIVE
+                path.parent.mkdir(parents=True)
+                path.write_text(now)
+                with unittest.mock.patch.object(versions, "ROOT", pathlib.Path(root)), \
+                        unittest.mock.patch.object(versions, "git", return_value=then):
+                    return versions.interface_raised("v0.6.0-beta.3")
+        six = "pub const INTERFACE: u16 = 6;\n"
+        seven = "pub const INTERFACE: u16 = 7;\n"
+        draft = lambda n: seven + f"pub const DRAFT: u16 = {n};\n"
+        self.assertEqual(raised(six, draft(1)), "7 (draft 1)")
+        self.assertEqual(raised(draft(1), draft(2)), "7 (draft 2)")
+        self.assertEqual(raised(draft(2), seven), "7")
+        self.assertIsNone(raised(draft(2), draft(2)))
+        self.assertIsNone(raised(seven, seven))
 
     def test_a_change_no_reader_sees_keeps_it(self):
         quiet = "test(stats): one more case\n\nPlugin-unchanged: stats, widgets"

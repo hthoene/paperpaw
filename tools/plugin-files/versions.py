@@ -32,9 +32,11 @@ bump can be made once, when the beta's changes are in; with `--release`
 (the step before the release's version bump) it fails.
 
 Where the plugin interface was raised since the release
-(`native::INTERFACE`), every plugin needs a newer version, changed or
-not: its code built before does not run on the new firmware, and devices
-fetch the new build only as an update.
+(`native::INTERFACE`), or its draft moved on or was frozen
+(`native::DRAFT`, part of the fingerprint like the interface), every
+plugin needs a newer version, changed or not: its code built before does
+not run on the new firmware, and devices fetch the new build only as an
+update. Drafts that come and go between two releases count once.
 
 The data plugins of data.toml are held to the same: one whose builder or
 inputs changed since the release needs a newer version in data.toml (or
@@ -83,6 +85,7 @@ ROOT = HERE.parent.parent
 VERSION = re.compile(r"\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?")
 TRAILER = re.compile(r"^Plugin-unchanged:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
 INTERFACE = re.compile(r"pub const INTERFACE: u16 = (\d+);")
+DRAFT = re.compile(r"pub const DRAFT: u16 = (\d+);")
 NATIVE = "crates/paperpaw-sdk/src/native.rs"
 UNCHANGED = "tools/plugin-files/unchanged.txt"
 
@@ -154,15 +157,29 @@ def interface_at(text):
     return int(found.group(1)) if found else None
 
 
+def draft_at(text):
+    """The draft of the plugin interface `native.rs` (its text) names; None
+    where it names none (frozen, or from before drafts)."""
+    found = DRAFT.search(text)
+    return int(found.group(1)) if found else None
+
+
 def interface_raised(since):
-    """The plugin interface now, where it was raised since `since`; None
-    where it was not (or `native.rs` is not there to say)."""
+    """The plugin interface now (with its draft, if one), where it or its
+    draft changed since `since`; None where neither did (or `native.rs` is
+    not there to say)."""
     try:
-        now = interface_at((ROOT / NATIVE).read_text(encoding="utf-8"))
-        then = interface_at(git("show", f"{since}:{NATIVE}"))
+        now_text = (ROOT / NATIVE).read_text(encoding="utf-8")
+        then_text = git("show", f"{since}:{NATIVE}")
     except (OSError, subprocess.CalledProcessError):
         return None
-    return now if None not in (now, then) and now != then else None
+    now, then = interface_at(now_text), interface_at(then_text)
+    if None in (now, then):
+        return None
+    draft, then_draft = draft_at(now_text), draft_at(then_text)
+    if (now, draft) == (then, then_draft):
+        return None
+    return f"{now}" if draft is None else f"{now} (draft {draft})"
 
 
 def problem(plugin, before, now, changes, raised=None):
