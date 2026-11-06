@@ -316,6 +316,11 @@ registration document's range) plus a `event.named {now_ms, name: str, payload: 
 - [D] `Reading.progress` (f32 percent) maps to `progress_ppm` as
   `((p.clamp(0.0, 100.0) * 10_000.0) + 0.5) as u32`, capped at 1,000,000 (NaN and
   -inf give 0, +inf gives 1,000,000); a bad producer value never drops the event.
+- [D] Page counters (producer rule; the wire rule in `records.md` stays strict): a present
+  0 in `page` or `pages`, or a `page` past `pages`, sends both counters absent; an
+  unparsable optional counter is sent absent on its own, keeping the other when it is valid
+  alone. The page turn is still delivered; only a missing or unparsable required parameter
+  drops it (`DropReason::Producer`). Decoders on both sides refuse what the wire forbids.
 
 ### 1.6 Memory
 
