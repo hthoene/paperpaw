@@ -99,11 +99,11 @@ fn layout(code: &[u8], starts: &[usize]) -> Vec<(usize, usize)> {
         let low = u16::from_le_bytes([code[at], code[at + 1]]);
         let len = if low & 3 == 3 { 4 } else { 2 };
         let next = starts.partition_point(|&s| s <= at);
-        if let Some(&start) = starts.get(next) {
-            if start < at + len {
-                at = start;
-                continue;
-            }
+        if let Some(&start) = starts.get(next)
+            && start < at + len
+        {
+            at = start;
+            continue;
         }
         if at + len > code.len() {
             break;
@@ -170,12 +170,11 @@ fn targets(code: &[u8], layout: &[(usize, usize)]) -> Vec<usize> {
                 _ => None,
             }
         };
-        if let Some(offset) = offset {
-            if let Some(to) = at.checked_add_signed(offset as isize) {
-                if to < code.len() {
-                    out.push(to);
-                }
-            }
+        if let Some(offset) = offset
+            && let Some(to) = at.checked_add_signed(offset as isize)
+            && to < code.len()
+        {
+            out.push(to);
         }
     }
     out.sort_unstable();
@@ -202,10 +201,10 @@ pub fn walk(code: &[u8], starts: &[usize], visit: &mut dyn FnMut(usize, Adj) -> 
         } else {
             narrow(u16::from_le_bytes([code[at], code[at + 1]]), &mut state)
         };
-        if let Some(adj) = adj {
-            if !visit(at, adj) {
-                return;
-            }
+        if let Some(adj) = adj
+            && !visit(at, adj)
+        {
+            return;
         }
     }
 }
@@ -242,7 +241,10 @@ pub fn scan(code: &[u8], starts: &[usize]) -> Option<Finding> {
 /// every function in `starts` (`None`: some change was not readable): the
 /// function's own frame, as the prologue makes it and the epilogues give
 /// it back.
-#[allow(dead_code)] // the firmware listing (`paperpaw-sign frames`) reads them
+#[allow(
+    dead_code,
+    reason = "the firmware listing (`paperpaw-sign frames`) reads them"
+)]
 pub fn frame_sizes(code: &[u8], starts: &[usize]) -> Vec<Option<u32>> {
     let mut sizes: Vec<Option<u32>> = vec![Some(0); starts.len()];
     let mut depth = vec![0i64; starts.len()];
