@@ -853,37 +853,6 @@ fn extra_rules() {
             ERR_INVALID,
         ),
         (
-            "editor kind 0 with editor",
-            e(|x| SettingExtra {
-                editor_kind: 0,
-                ..x
-            }),
-            ERR_INVALID,
-        ),
-        (
-            "editor kind 2 without editor",
-            e(|x| SettingExtra { editor: "", ..x }),
-            ERR_INVALID,
-        ),
-        (
-            "screen editor not a relative name",
-            e(|x| SettingExtra {
-                editor_kind: 1,
-                editor: "Picker",
-                ..x
-            }),
-            ERR_INVALID,
-        ),
-        (
-            "slot editor not a full id",
-            e(|x| SettingExtra {
-                editor_kind: 2,
-                editor: "core..slot",
-                ..x
-            }),
-            ERR_INVALID,
-        ),
-        (
             "shown id without value",
             e(|x| SettingExtra {
                 shown_value: "",
@@ -915,6 +884,52 @@ fn extra_rules() {
             ERR_INVALID,
         ),
     ]);
+    assert_eq!(
+        check(e(|x| SettingExtra {
+            step: i32::MAX,
+            ..x
+        })),
+        Ok(())
+    );
+}
+
+#[test]
+fn extra_editor_rules() {
+    let e =
+        |f: fn(SettingExtra<'static>) -> SettingExtra<'static>| Record::SettingExtra(f(extra()));
+    expect(vec![
+        (
+            "editor kind 0 with editor",
+            e(|x| SettingExtra {
+                editor_kind: 0,
+                ..x
+            }),
+            ERR_INVALID,
+        ),
+        (
+            "editor kind 2 without editor",
+            e(|x| SettingExtra { editor: "", ..x }),
+            ERR_INVALID,
+        ),
+        (
+            "screen editor not a relative name",
+            e(|x| SettingExtra {
+                editor_kind: 1,
+                editor: "Picker",
+                ..x
+            }),
+            ERR_INVALID,
+        ),
+        (
+            "slot editor not a full id",
+            e(|x| SettingExtra {
+                editor_kind: 2,
+                editor: "core..slot",
+                ..x
+            }),
+            ERR_INVALID,
+        ),
+    ]);
     for kind in [0, 1, 2] {
         let editor = if kind == 0 { "" } else { "x" };
         assert_eq!(
@@ -926,13 +941,6 @@ fn extra_rules() {
             Ok(())
         );
     }
-    assert_eq!(
-        check(e(|x| SettingExtra {
-            step: i32::MAX,
-            ..x
-        })),
-        Ok(())
-    );
 }
 
 #[test]
@@ -1024,24 +1032,6 @@ fn font_face_rules() {
             ERR_INVALID,
         ),
         (
-            "weight on ppfp",
-            f(|x| ResourceFontFace {
-                path: "f/a.ppfp",
-                weight: 400,
-                ..x
-            }),
-            ERR_INVALID,
-        ),
-        (
-            "weight on upper-case ppfp",
-            f(|x| ResourceFontFace {
-                path: "f/a.PpFp",
-                weight: 400,
-                ..x
-            }),
-            ERR_INVALID,
-        ),
-        (
             "priority 101",
             f(|x| ResourceFontFace { priority: 101, ..x }),
             ERR_INVALID,
@@ -1069,19 +1059,6 @@ fn font_face_rules() {
             ERR_INVALID,
         ),
         (
-            "unknown font extension",
-            f(|x| ResourceFontFace {
-                path: "fonts/serif.woff",
-                ..x
-            }),
-            ERR_INVALID,
-        ),
-        (
-            "font extension only",
-            f(|x| ResourceFontFace { path: ".ttf", ..x }),
-            ERR_INVALID,
-        ),
-        (
             "bad name",
             f(|x| ResourceFontFace { name: "A", ..x }),
             ERR_INVALID,
@@ -1106,6 +1083,46 @@ fn font_face_rules() {
             Ok(())
         );
     }
+}
+
+#[test]
+fn font_face_path_rules() {
+    let f = |f: fn(ResourceFontFace<'static>) -> ResourceFontFace<'static>| {
+        Record::ResourceFontFace(f(face()))
+    };
+    expect(vec![
+        (
+            "weight on ppfp",
+            f(|x| ResourceFontFace {
+                path: "f/a.ppfp",
+                weight: 400,
+                ..x
+            }),
+            ERR_INVALID,
+        ),
+        (
+            "weight on upper-case ppfp",
+            f(|x| ResourceFontFace {
+                path: "f/a.PpFp",
+                weight: 400,
+                ..x
+            }),
+            ERR_INVALID,
+        ),
+        (
+            "unknown font extension",
+            f(|x| ResourceFontFace {
+                path: "fonts/serif.woff",
+                ..x
+            }),
+            ERR_INVALID,
+        ),
+        (
+            "font extension only",
+            f(|x| ResourceFontFace { path: ".ttf", ..x }),
+            ERR_INVALID,
+        ),
+    ]);
 }
 
 #[test]
