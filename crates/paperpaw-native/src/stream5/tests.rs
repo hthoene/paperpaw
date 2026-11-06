@@ -11,6 +11,7 @@ use crate::header::tests::chip_header;
 use crate::header::{Chip, Header, LINK_BASE};
 use crate::header5::HEADER_LEN as HEADER5_LEN;
 use crate::header5::{EntryRefusal, Host};
+use crate::reloc::PatchKind;
 use crate::reloc::tests::hot_image;
 use crate::{Relocator, check_relocations};
 
@@ -46,6 +47,35 @@ fn file(image: &[u8], words: &[u32]) -> Vec<u8> {
     file
 }
 
+/// The words after the image in format 5, from the format-4 `words` of
+/// `h4`: the words to relocate, then each patch as three words (`kind | site`,
+/// the place the distance is taken from, the place it goes to), sorted by
+/// site, a lower part's `auipc` resolved to the upper part's target.
+fn tail5(h4: &Header, words: &[u32]) -> Vec<u32> {
+    let (relocs, pairs) = words.split_at(h4.relocs as usize);
+    let target = |auipc: u32| {
+        pairs
+            .chunks(2)
+            .find(|p| p[0] == PatchKind::Hi20.record(auipc))
+            .map(|p| p[1])
+            .unwrap()
+    };
+    let mut patches: Vec<[u32; 3]> = pairs
+        .chunks(2)
+        .map(|p| {
+            let (kind, site) = PatchKind::of(p[0]).unwrap();
+            match kind {
+                PatchKind::Hi20 => [p[0], site, p[1]],
+                _ => [p[0], p[1], target(p[1])],
+            }
+        })
+        .collect();
+    patches.sort_by_key(|p| p[0] & 0x0FFF_FFFF);
+    let mut out = relocs.to_vec();
+    out.extend(patches.iter().flatten());
+    out
+}
+
 /// The image relocated by the format-4 relocator in pieces of `piece`.
 fn oracle(h: &Header, image: &[u8], words: &[u32], base: u32, hot: u32, piece: usize) -> Vec<u8> {
     let mut image = image.to_vec();
@@ -75,7 +105,7 @@ fn relocated(h: &Header5, file: &[u8], image: &[u8], base: u32, hot: u32, piece:
 fn words_and_patches_come_out_as_the_slice_relocator_has_them_in_any_pieces() {
     let (h4, image, words) = hot_image();
     let h5 = as_five(&h4);
-    let file = file(&image, &words);
+    let file = file(&image, &tail5(&h4, &words));
     for base in [LINK_BASE, 0x3C81_0000, 0x3C80_0040] {
         for hot in [0, 0x4039_0100] {
             for piece in [4, 8, 12, 20, 64, 128, 160] {
@@ -88,44 +118,68 @@ fn words_and_patches_come_out_as_the_slice_relocator_has_them_in_any_pieces() {
 }
 
 #[test]
-fn the_check_agrees_with_the_slice_check_on_good_and_bad_words() {
+fn the_check_refuses_every_bad_word_and_patch_and_agrees_with_the_slice_check_on_words() {
     let (h4, image, words) = hot_image();
     let h5 = as_five(&h4);
-    let mut cases = alloc::vec![words.clone()];
-    // The same breakages as the slice check's own tests.
-    for (i, record) in [
-        (2, PatchKind::Hi20.record(128)),
-        (1, PatchKind::Hi20.record(92)),
-        (1, PatchKind::Hi20.record(129)),
-        (2, PatchKind::Hi20.record(158)),
-        (1, 4 << 28 | 128),
-        (1, PatchKind::Hi20.record(PatchKind::SITES + 128)),
-    ] {
-        let mut changed = words.clone();
-        changed[1 + 2 * i] = record;
-        cases.push(changed);
+    let good = tail5(&h4, &words);
+    let check = |tail: &[u32]| {
+        let file = file(&image, tail);
+        Tail::new(&h5, file.as_slice()).check(&h5)
+    };
+    assert_eq!(check(&good), Ok(()));
+    // Patch `k` starts after the one word to relocate; field 0 is `kind | site`,
+    // 1 the place it is taken from, 2 the place it goes to.
+    let at = |k: usize, field: usize| 1 + 3 * k + field;
+    let patches = h4.patches as usize;
+    let mut cases: Vec<(alloc::string::String, Vec<u32>)> = Vec::new();
+    // Out of order, and the same site twice.
+    let mut swapped = good.clone();
+    for field in 0..3 {
+        swapped.swap(at(0, field), at(1, field));
     }
-    let mut no_auipc = words.clone();
-    no_auipc[1 + 2 * 3 + 1] = 98 + 2;
-    cases.push(no_auipc);
-    let mut in_hot = words.clone();
+    cases.push(("swapped".into(), swapped));
+    let mut twice = good.clone();
+    for field in 0..3 {
+        twice[at(1, field)] = twice[at(0, field)];
+    }
+    cases.push(("twice".into(), twice));
+    // A site that is no instruction of the code, or no known kind.
+    for (name, record) in [
+        ("below the code", PatchKind::Hi20.record(92)),
+        ("odd", PatchKind::Hi20.record(129)),
+        ("past the end", PatchKind::Hi20.record(158)),
+        ("kind 4", 4 << 28 | 128),
+        ("kind 0", 128),
+        (
+            "past the sites",
+            PatchKind::Hi20.record(PatchKind::SITES + 128),
+        ),
+    ] {
+        let mut changed = good.clone();
+        changed[at(patches - 1, 0)] = record;
+        cases.push((name.into(), changed));
+    }
+    // Each end of every patch moved out of its place.
+    for k in 0..patches {
+        for (field, value) in [(1, 0), (1, 2), (2, 160), (2, u32::MAX)] {
+            let mut changed = good.clone();
+            changed[at(k, field)] = value;
+            cases.push((alloc::format!("patch {k} field {field} = {value}"), changed));
+        }
+    }
+    // Words to relocate: in the hot code.
+    let mut in_hot = good.clone();
     in_hot[0] = 128 + 4;
-    cases.push(in_hot);
-    for case in cases {
-        let file = file(&image, &case);
-        let expected = check_relocations(&h4, &case);
-        assert_eq!(
-            Tail::new(&h5, file.as_slice()).check(&h5),
-            expected,
-            "{case:?}"
-        );
+    cases.push(("word in hot code".into(), in_hot));
+    for (name, case) in cases {
+        assert_eq!(check(&case), Err(Problem::Relocation), "{name}");
     }
     // Words to relocate, on an image of 128 bytes with two.
     let h4 = chip_header(Chip::Esp32S3, 128, 2);
     let h5 = as_five(&h4);
     let image = alloc::vec![0u8; 128];
     for words in [[72, 68], [68, 68], [69, 72], [68, 128], [68, 126], [68, 72]] {
-        let file = file(&image, &words);
+        let file = file(&image, &tail5(&h4, &words));
         let expected = check_relocations(&h4, &words);
         assert_eq!(
             Tail::new(&h5, file.as_slice()).check(&h5),
@@ -139,7 +193,7 @@ fn the_check_agrees_with_the_slice_check_on_good_and_bad_words() {
 fn a_file_cut_short_is_damaged_never_a_panic() {
     let (h4, image, words) = hot_image();
     let h5 = as_five(&h4);
-    let whole = file(&image, &words);
+    let whole = file(&image, &tail5(&h4, &words));
     for len in [0, 10, HEADER5_LEN, whole.len() - 4, whole.len() - 1] {
         let cut = &whole[..len];
         assert_eq!(
@@ -158,7 +212,7 @@ fn more_patches_than_the_cap_and_a_place_not_aligned_are_refused() {
         patches: MAX_PATCHES + 1,
         ..as_five(&h4)
     };
-    let file = file(&image, &words);
+    let file = file(&image, &tail5(&h4, &words));
     assert_eq!(
         Tail::new(&h5, file.as_slice()).check(&h5),
         Err(Problem::Relocation)
@@ -178,7 +232,7 @@ fn more_patches_than_the_cap_and_a_place_not_aligned_are_refused() {
 fn a_word_with_no_address_or_in_moved_hot_code_is_refused_when_applied() {
     let (h4, image, words) = hot_image();
     let h5 = as_five(&h4);
-    let file = file(&image, &words);
+    let file = file(&image, &tail5(&h4, &words));
     let mut bad = image.clone();
     bad[68..72].copy_from_slice(&0x4000_0000u32.to_le_bytes());
     let relocator = Relocator5::new(&h5, file.as_slice(), LINK_BASE).unwrap();
@@ -224,7 +278,7 @@ fn a_piece_reads_only_the_words_it_needs_in_a_fixed_buffer() {
     }
     let h4 = chip_header(Chip::Esp32C3, len, count);
     let h5 = as_five(&h4);
-    let file = file(&image, &words);
+    let file = file(&image, &tail5(&h4, &words));
     let base = 0x3C81_0000;
     // The whole image, a 512-byte piece at a time, as the oracle has it.
     assert_eq!(
@@ -241,7 +295,7 @@ fn a_piece_reads_only_the_words_it_needs_in_a_fixed_buffer() {
     let relocator = Relocator5::new(&h5, &counting, base).unwrap();
     let after_new = counting.reads.get();
     assert!(
-        after_new <= (count as usize).div_ceil(32) + 4,
+        after_new <= (count as usize).div_ceil(RELOCS_PER_READ as usize) + 4,
         "new reads the words once: {after_new}"
     );
     counting.reads.set(0);
@@ -275,7 +329,7 @@ fn verified(h: &Header5, file: &[u8], base: u32, hot: u32, buf: usize) -> Result
 #[test]
 fn a_file_is_verified_whole_in_any_buffer_and_changed_in_no_byte() {
     let (h4, image, words) = hot_image();
-    let file = file(&image, &words);
+    let file = file(&image, &tail5(&h4, &words));
     let h5 = sealed(as_five(&h4), &file);
     for base in [LINK_BASE, 0x3C81_0000] {
         for hot in [0, 0x4039_0100] {
@@ -319,7 +373,7 @@ fn a_file_is_verified_whole_in_any_buffer_and_changed_in_no_byte() {
 #[test]
 fn verifying_reads_the_file_once_in_a_fixed_buffer() {
     let (h4, image, words) = hot_image();
-    let file = file(&image, &words);
+    let file = file(&image, &tail5(&h4, &words));
     let h5 = sealed(as_five(&h4), &file);
     let counting = Counting {
         bytes: file.as_slice(),
@@ -329,7 +383,10 @@ fn verifying_reads_the_file_once_in_a_fixed_buffer() {
     let relocator = Relocator5::new(&h5, &counting, LINK_BASE).unwrap();
     counting.largest.set(0);
     relocator.verify(&mut [0u8; 64]).unwrap();
-    assert!(counting.largest.get() <= 64, "no read past the buffer");
+    assert!(
+        counting.largest.get() <= 96,
+        "no read past the buffer or a list's run"
+    );
 }
 
 #[test]
@@ -425,7 +482,8 @@ impl Source for Switched<'_> {
 fn a_tail_that_changes_after_the_check_is_refused_and_never_panics() {
     let (h4, image, words) = hot_image();
     let h5 = as_five(&h4);
-    let good = file(&image, &words);
+    let good = file(&image, &tail5(&h4, &words));
+    let words = tail5(&h4, &words);
     let mut cases: Vec<Vec<u32>> = Vec::new();
     // The words to relocate: out of order, below the piece, unaligned, huge.
     for (i, value) in [(0, 0), (0, u32::MAX), (0, 3), (0, 70)] {
@@ -433,12 +491,12 @@ fn a_tail_that_changes_after_the_check_is_refused_and_never_panics() {
         changed[i] = value;
         cases.push(changed);
     }
-    // The patches: a reference outside the image, a site that wraps.
-    let patches = h4.relocs as usize;
-    for (offset, value) in [(1, u32::MAX), (1, 1 << 24), (0, u32::MAX), (0, 0)] {
+    // The patches: a site or a place outside the image, one that wraps.
+    let relocs = h4.relocs as usize;
+    for (field, value) in [(1, u32::MAX), (2, 1 << 24), (0, u32::MAX), (0, 0), (2, 0)] {
         for k in 0..h4.patches as usize {
             let mut changed = words.clone();
-            changed[patches + 2 * k + offset] = value;
+            changed[relocs + 3 * k + field] = value;
             cases.push(changed);
         }
     }
@@ -488,7 +546,7 @@ fn written<S: Source + ?Sized>(
 #[test]
 fn the_write_pass_gives_the_relocated_image_the_digest_covers() {
     let (h4, image, words) = hot_image();
-    let file = file(&image, &words);
+    let file = file(&image, &tail5(&h4, &words));
     let h5 = sealed(as_five(&h4), &file);
     for base in [LINK_BASE, 0x3C81_0000] {
         for hot in [0, 0x4039_0100] {
@@ -523,7 +581,7 @@ fn the_write_pass_gives_the_relocated_image_the_digest_covers() {
 #[test]
 fn a_source_that_answers_otherwise_the_second_time_is_refused_in_every_byte() {
     let (h4, image, words) = hot_image();
-    let good = file(&image, &words);
+    let good = file(&image, &tail5(&h4, &words));
     let h5 = sealed(as_five(&h4), &good);
     for at in HEADER5_LEN..good.len() {
         let mut changed = good.clone();
@@ -555,6 +613,94 @@ fn a_source_that_answers_otherwise_the_second_time_is_refused_in_every_byte() {
         Err(7u8)
     });
     assert_eq!((got, relocator_pieces), (Err(Written::Sink(7)), 1));
+}
+
+/// A card that tells one lie while the image is being relocated and the truth
+/// before and after: the lists the relocation reads in order, one byte of
+/// them changed to another value. The check before and the pass that hashes
+/// the whole file afterwards (the header's digest) read the truth.
+struct LiesToTheRelocation<'a> {
+    good: &'a [u8],
+    lies: Cell<bool>,
+    /// The byte to change, as a file offset, and what it becomes.
+    at: u64,
+    value: u8,
+}
+
+impl Source for LiesToTheRelocation<'_> {
+    fn read_at(&self, at: u64, buf: &mut [u8]) -> Result<(), ReadError> {
+        self.good.read_at(at, buf)?;
+        if self.lies.get()
+            && let Some(byte) = self
+                .at
+                .checked_sub(at)
+                .and_then(|i| buf.get_mut(i as usize))
+        {
+            *byte = self.value;
+        }
+        Ok(())
+    }
+}
+
+/// Every byte of the words and of the patches, changed to a value of the same
+/// kind (well formed or not) on the relocation's own reads alone: the check
+/// before and the file-order pass after tell the truth, so the header's
+/// digest holds and the file is well formed, yet what the relocation
+/// consumed is not what the file holds. The image written would differ from
+/// the signed bytes; it must be refused (`Damaged`, or `Relocation` where the
+/// lie is not even a word the relocation takes).
+#[test]
+fn a_source_that_lies_only_to_the_relocation_is_refused_and_a_true_one_is_not() {
+    let (h4, image, words) = hot_image();
+    let good = file(&image, &tail5(&h4, &words));
+    let h5 = sealed(as_five(&h4), &good);
+    let lists_at = h5.relocs_at();
+    let last = u32::try_from(image.len()).unwrap();
+    let relocate = |liar: &LiesToTheRelocation<'_>, buf: usize| {
+        let relocator = Relocator5::new(&h5, liar, LINK_BASE + 0x1_0000).unwrap();
+        liar.lies.set(liar.at != 0);
+        relocator.write_image(&mut alloc::vec![0u8; buf], |done, written| {
+            // The truth again once the last piece is out.
+            if done + written.len() as u32 >= last {
+                liar.lies.set(false);
+            }
+            Ok::<(), ()>(())
+        })
+    };
+    let mut told = 0;
+    for buf in [4, 100, 4096] {
+        for at in lists_at..good.len() as u64 {
+            for value in [0u8, 1, 0x20, 0xFF] {
+                if good[at as usize] == value {
+                    continue;
+                }
+                let liar = LiesToTheRelocation {
+                    good: &good,
+                    lies: Cell::new(false),
+                    at,
+                    value,
+                };
+                let got = relocate(&liar, buf);
+                assert!(
+                    matches!(
+                        got,
+                        Err(Written::File(Problem::Damaged | Problem::Relocation))
+                    ),
+                    "buf {buf}, byte {at} = {value}: {got:?}"
+                );
+                told += 1;
+            }
+        }
+    }
+    assert!(told > 300, "{told} lies told");
+    // The same source telling the truth is written whole.
+    let liar = LiesToTheRelocation {
+        good: &good,
+        lies: Cell::new(false),
+        at: 0,
+        value: 0,
+    };
+    assert_eq!(relocate(&liar, 100), Ok(()));
 }
 
 /// An image with an entry and a metadata record in it, linked at

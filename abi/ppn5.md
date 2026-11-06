@@ -36,13 +36,31 @@ as an argument of `make`, with no global slot and no writable static. Interface-
 | 60..64 | reserved | 0, else refused as a newer format |
 | 64..96 | SHA-256 | of bytes 0..64 and everything after the header |
 
-After the header, unchanged from format 4: the image, then `relocs` u32 offsets (increasing), then
-`patches` pairs of u32, then the author's signature if signed (112 bytes). The file is exactly
-`96 + image_len + 4 * relocs + 8 * patches` bytes, plus 112 if signed; any other length is refused.
+After the header: the image, then `relocs` u32 offsets (increasing, as in format 4), then `patches`
+**patch records of three u32 each (12 bytes, `PATCH_BYTES`)**, then the author's signature if signed (112
+bytes). The file is exactly `96 + image_len + 4 * relocs + 12 * patches` bytes, plus 112 if signed; any other
+length is refused.
+
+A patch record is `kind | site`, `from`, `to` (little-endian words). `kind | site` is as in format 4
+(`site | kind << 28`, kind 1 `Hi20`, 2 `Lo12I`, 3 `Lo12S`, the site an image offset below 2^22). The loader
+sets the bits of the instruction at `site` for the distance `runs_at(to) - runs_at(from)`, where `runs_at` is
+the address an image offset is reached at once placed (hot code in the arena included). For `Hi20` (an
+`auipc`) `from` is the site itself; for a lower part it is the site of its `auipc`, and `to` is where that
+`auipc` reaches, so **a record holds everything its patch needs and nothing is looked up in another
+record**. Records are **sorted by site, strictly increasing** (not, as in format 4, by kind and then site).
+A record is valid when its kind is known, `site` is an even offset in the code with four bytes inside the
+image, `to` is inside the image, and `from` is `site` (`Hi20`) or an even offset in the code with four bytes
+inside the image (lower parts). Whether a lower part's `from` is an `auipc` that a `Hi20` record patches to the
+same `to` is **not checked by the loader**: `paperpaw-sign pack` guarantees it, and the signature covers the
+result like every other byte of the code.
 
 **Removed from format 4:** the fingerprint (8..16), `api` (32..36, no host slot), the compiler (44..48),
 `needs_api` (60..64), the eight family revisions (64..80) and `interface` (80..82). Nothing
 about layouts, compilers or Rust types is in the file.
+
+**Revision before any file existed (2026-11-06, Manager decision, see "Decisions" 4 and 5):** the patch
+record grew from two words to three and the patches are sorted by site. No format-5 file had been written by any
+packer yet, so there is no format 5 before this revision to keep; the number stays 5 and there is no format 6.
 
 **Format 5 is the frozen layout from the day it is written.** The first 16 bytes (magic, format,
 target, `abi_major`, `needs_minor`, `flags`) are read first, and a refusal by any of them comes
@@ -109,7 +127,7 @@ loader's first call into the plugin is `make`. So the rule splits in two:
   relocation kind outside the short list. The same names and list as `PLUGIN_EXPORTS`.
 - **At load time**, which sees no symbols: only what the file still shows, that is step 7 and 9
   above, the relocation words (increasing, 4-aligned, inside the image, naming words that hold an
-  address) and the patches (known kinds, inside the code). Trust in the pack-time check is the
+  address) and the patches (known kinds, increasing sites inside the code, both places inside the image). Trust in the pack-time check is the
   signature plus the installed hash, as for every code plugin.
 
 ## Size caps and memory
@@ -117,24 +135,33 @@ loader's first call into the plugin is `make`. So the rule splits in two:
 `image_len` at most 4 MiB (`MAX_IMAGE_LEN`, above the X4's room; the real limit is the flash room,
 2,273,280 bytes for all plugins); `meta_len` at most 2,048; `relocs` at most `image_len / 4`;
 `patches` at most the code's 2-byte instruction slots, `(image_len − code_at) / 2`, **and at most 8,192
-(`MAX_PATCHES`)**: every call from cold code into the hot code adds a pair, however few call sites there are, and
-the loader reads them by lookup, so the count bounds its work; `paperpaw-sign pack` must refuse a file above it, so pack
+(`MAX_PATCHES`)**: every call from cold code into the hot code adds a record, however few call sites there are, and
+the loader reads every record, so the count bounds its work; `paperpaw-sign pack` must refuse a file above it, so pack
 and load agree; `align` 4..4096; signature 112 bytes; `hot_len` at most the
 X4's IRAM arena (`HOT_MAX`, 16 KiB, as in format 4). The digest, the relocation words and the patches are
 **streamed through a fixed buffer**: nothing is allocated in proportion to the file, the image,
 `relocs` or `patches`, on the 256 KiB heap or elsewhere.
 
-The lists are looked up by binary search, each probe a read of 4 or 8 bytes; the X4 serves them from one block
-of the file held in RAM (512 bytes, `Cached`) so that probes in the block read last cost no read of the card.
-How many reads that saves, and what an install costs in time, is **to be measured on the device**; the host
-tests show only that no read is larger than the buffers. The source must serve, on every read, the bytes the
-digest covered: the lists are checked once and read again while relocating, and a source that answers
-otherwise the second time (a swapped card) is refused with a relocation error, never trusted. The write pass does
-not trust the first read either: it hashes each piece of the image as it reads it for the flash, hashes the lists
-once more in order after the image, and compares with the header's digest; a mismatch (`Damaged`) takes back the
-plugin, so the image in the flash is the image the digest covers. Only the single lookups into the lists while
-relocating are not under that second digest: a source that lies on them alone can move a relocation to another
-word that is valid; every byte it writes is still one the digest covers.
+**The relocation reads both lists in order, once.** A piece of the image takes the next words and the next
+patches whose sites lie in it, from the lists in the file, in runs of at most 16 words or 8 records through a
+fixed buffer; a patch whose instruction reaches into the next piece is carried over. Nothing is looked up
+in the file at a random place by the write path (a lookup, a binary search, is used only to start in the
+middle: `Relocator5::apply` for the entry check, which touches words before `code_at` only). The X4 serves
+the small reads from one block of the file held in RAM (512 bytes, `Cached`); how many reads that saves,
+and what an install costs in time, is **to be measured on the device**.
+
+**Every byte that decides what lands in the flash is covered by a digest compared before the plugin is
+kept.** The write pass (`Relocator5::write_image`, which `verify` is, with nothing written) hashes each
+piece of the image as it reads it for the flash, relocates it, and hands it to the writer. The words and the
+patches it consumes are hashed as it reads them, in separate digests (one of all words, one of all
+patches). After the image it reads the file's own words and patches once more, in file order, and hashes
+them into the header's digest and into two digests of their own. Then three things must hold, else
+`Damaged` and the caller takes back the plugin (`rewind`): the header's digest, the digest of the words
+the relocation consumed equals that of the words in the file, and the same for the patches. A source that
+answers otherwise the second time (a swapped card, a flaky read), whether in the image, in the lists, or
+only to the relocation's own reads, cannot make the loader write a byte that the signed file does not
+decide. The one thing a two-faced source can still do is make a refusal or an acceptance of the
+**entry check** differ (it reads the words before `code_at` by lookup); it can not change what is written.
 
 **A refusal costs no write.** Everything that can refuse a file is decided on the file in RAM before the flash
 is touched: the header, the digest, every word to relocate, and the entry and the metadata record as they
@@ -147,9 +174,23 @@ written anew.
 ## Decisions (Manager, 2026-11-06, on Senior's review #792)
 
 1. No `draft` field and no format 6 at the freeze: see "Identity".
-2. **Hot code and patches stay** as in format 4 (the X4's RISC-V speed).
+2. **Hot code and patches stay** (the X4's RISC-V speed); the patch *record* changed, see 4.
 3. **X4 Pro (ESP32-S3):** target 9 stays refused until an Xtensa profile exists in `abi/entry.md`;
    nothing else is specified for it here.
+4. **Patch records are self-contained and sorted by site** (Manager, 2026-11-06, on Senior's #806 and the
+   Manager's requirement that the signature decide every byte that is written). Changed from format 4: two
+   words become three (`kind | site`, `from`, `to`), and the order is by site, not by kind and site. Why: a
+   lower-part patch needed the target of its `auipc`'s upper-part patch, found by a second binary search in
+   another part of the list. A lookup is a read at a place no digest of the file in order covers, so a source
+   that served other bytes to lookups than to the hashing pass could make the loader write code that
+   differs from the signed bytes. With the target in the record, and the records in the order the image is
+   relocated in, nothing is looked up. Cost: 4 bytes per patch (at most 32 KiB more at `MAX_PATCHES`;
+   2 patches, 8 bytes, in the sample). The loader no longer checks that a lower part's `auipc` is patched
+   (see above); the packer must.
+5. **The write pass compares three digests** (header; consumed words; consumed patches), see "Size caps and
+   memory". A mismatch is `Damaged` and the plugin is taken back. This replaces the earlier wording in this
+   note that only the image and the tail were covered by the second read, and that single lookups into the
+   lists were not.
 
 ## Slice 1
 

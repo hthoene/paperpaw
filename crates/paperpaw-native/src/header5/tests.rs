@@ -159,13 +159,13 @@ fn the_file_is_exactly_as_long_as_the_header_says() {
     ] {
         assert_eq!(read(&bytes, wrong), Err(Refusal::Length), "{wrong}");
     }
-    // Patches count 8 bytes each in the formula.
+    // Patches count 12 bytes each in the formula (`PATCH_BYTES`).
     let patched = Header5 {
         patches: 3,
         ..header
     };
-    assert_eq!(patched.file_len(), exact + 24);
-    assert!(read(&patched.to_bytes(), exact + 24).is_ok());
+    assert_eq!(patched.file_len(), exact + 36);
+    assert!(read(&patched.to_bytes(), exact + 36).is_ok());
     assert_eq!(read(&patched.to_bytes(), exact), Err(Refusal::Length));
 }
 
