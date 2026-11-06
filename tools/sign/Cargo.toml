@@ -12,7 +12,7 @@ publish = false
 
 [dependencies]
 paperpaw-update = { workspace = true }
-paperpaw-native = { workspace = true }
+paperpaw-native = { workspace = true, features = ["kernel"] }
 # The number of families in a firmware's table (`abi`).
 paperpaw-table = { workspace = true }
 paperpaw-digest = { workspace = true }

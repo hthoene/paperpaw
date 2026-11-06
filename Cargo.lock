@@ -2532,6 +2532,7 @@ dependencies = [
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-menu",
+ "paperpaw-plugin-plugin-manager",
  "paperpaw-publish",
  "paperpaw-sdk",
  "paperpaw-text",

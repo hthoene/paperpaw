@@ -8,6 +8,10 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
+  device usage, translated plugin names and work-note readers. Includes a deterministic fake-host
+  fixture for Battery port tests; helpers use bounded buffers and allocate nothing (#228).
+
 - Interface-7 SDK callback host binding and `native_plugin!` entry glue, with checked table admission
   and fallible host allocation. Storage slots 20-26 use caller-owned buffers; event tags 32-37 decode
   into borrowed payloads. These facades do not activate any shell loader (#228).
@@ -18,6 +22,10 @@ change the plugin SDK.
 
 - Host-side storage adapter for interface-7 slots 20–26 (path rules, free-space reserve, per-plugin
   read/write/sync counting), not wired (#228).
+- `paperpaw-sign pack` writes the X4's interface-7 plugin file (format 5, `abi/ppn5.md`) for a plugin linked with
+  `paperpaw-plugin7.x` (it defines `PAPERPAW_METADATA`), reads it back as the loader does, and refuses the X4 Pro (target 9),
+  an exported symbol besides the two, writable data and more than 8,192 patches (a patch record is three words, sorted by site: `abi/ppn5.md` decisions 4 and 5); `plugin`, `sign-plugin` and `check-plugin`
+  read both formats. `samples/abi7-x4-min` is a riscv32imc sample built by it (#228).
 - Interface-7 draft: host-table slots 20–26 (`storage.size`, `read_at`, `write`, `append`, `rename`, `remove`,
   `sync`) declared in `abi/abi.def`; the default table answers `ERR_UNSUPPORTED` until they are wired. The
   storage contract records owner decisions 124 (uninstall asks before deleting the data folder) and 125 (root 1
@@ -84,6 +92,13 @@ change the plugin SDK.
   data plugins' tables in the SDK's `Hyphenation` (the greatest plugin id has a language).
   `paperpaw-hyphen` (kernel): `StoredPatterns::open_within` refuses a table over a heap budget
   (`OpenError::OverBudget`), `StoredPatterns::heap_bound` bounds it from its header.
+
+### Fixed
+
+- *Discover fonts* in the reading settings, where *More fonts* does not run, says why and offers the one thing to
+  do (it is not installed: open its page; it is switched off: switch it on; it waits for a restart: restart),
+  instead of only opening the store's page of the plugin. A plugin's page opened without a connection says
+  "No connection", not "Plugin not found", and carries the plugin's name (#240).
 
 ## [0.6.0-beta.3] - 2026-11-05
 
@@ -154,6 +169,10 @@ change the plugin SDK.
   and the help texts that send you to it.
 
 ### Fixed
+
+- Interface-7 page-turn delivery keeps the location when optional page counters are stale or
+  unparsable, marking unavailable counters absent. Callback enumeration excludes declarations,
+  which shells must apply separately before activation (#228).
 
 - **Dual boot: no false positive on plain devices, and a way out** (#224). The dualbooter's `x4boot` tag counts only
   as a word of its own (not inside `x4bootloader` or a path); the bootloaders PaperPaw ships for X4, X3, X4 Pro and

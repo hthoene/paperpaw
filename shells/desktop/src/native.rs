@@ -122,8 +122,15 @@ unsafe extern "C" fn alloc_in(size: usize, align: usize, _placement: u32) -> *mu
 }
 
 /// Loads code plugins built for this computer.
+///
+/// An interface-7 library (only with the developer switch on) is loaded as a
+/// [`FlatPlugin`](paperpaw_core::native_host::flat::FlatPlugin) over its
+/// pinned owner; every such plugin of this loader shares one
+/// [`DispatchDepth`](paperpaw_core::native_host::DispatchDepth), the device-wide nesting budget.
 #[derive(Debug, Default)]
-pub struct HostLoader;
+pub struct HostLoader {
+    depth: std::rc::Rc<paperpaw_core::native_host::DispatchDepth>,
+}
 
 impl CodeLoader for HostLoader {
     fn load(
@@ -131,18 +138,81 @@ impl CodeLoader for HostLoader {
         storage: &dyn Storage,
         code: &CodeFile<'_>,
     ) -> Result<Box<dyn Plugin>, PluginProblem> {
+        let installed = Installed::of(code);
         // Not the device's heap: its code lies in flash (or the PSRAM it
         // runs from), never on the heap a plugin's budget counts.
-        load_installed(storage, &Installed::of(code))
+        crate::budget::untracked(|| {
+            let bytes = read_installed(storage, &installed)?;
+            if dev_switch() && is_interface7(&bytes) {
+                return self.flat(&bytes, code);
+            }
+            load_bytes(&bytes, &installed)
+        })
     }
 }
 
-/// [`load`] with its memory not counted against the budget.
+impl HostLoader {
+    /// The interface-7 library `bytes` of `code`, as a flat plugin over the
+    /// kernel's adapter: nothing of it runs but `make`, and what it declared
+    /// is applied or the plugin is refused here, never loaded without it.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn flat(&self, bytes: &[u8], code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, PluginProblem> {
+        use crate::native_runtime::Refusal;
+        use paperpaw_core::native_host::flat::FlatPlugin;
+        let id = code.id.as_str();
+        let instance = crate::native_runtime::load_flat(id, bytes).map_err(|why| {
+            eprintln!("code plugin {id}: {why}");
+            match why {
+                Refusal::Declared(_) => PluginProblem::Unsupported,
+                _ => PluginProblem::Damaged,
+            }
+        })?;
+        // The folder's data names and versions it (`plugin.ini`); this is the
+        // code's own, which the kernel replaces by that version.
+        let manifest = paperpaw_core::sdk::Manifest::new(
+            code.id.clone(),
+            id.to_owned(),
+            paperpaw_core::sdk::Version::new(0, 0, 0),
+        );
+        FlatPlugin::new(
+            manifest,
+            instance,
+            std::rc::Rc::clone(&self.depth),
+            code.host,
+        )
+        .map(|plugin| Box::new(plugin) as Box<dyn Plugin>)
+        .map_err(|why| {
+            eprintln!("code plugin {id}: {why}");
+            PluginProblem::Unsupported
+        })
+    }
+
+    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+    fn flat(&self, _: &[u8], _: &CodeFile<'_>) -> Result<Box<dyn Plugin>, PluginProblem> {
+        Err(PluginProblem::Unsupported)
+    }
+}
+
+/// Whether `bytes` is an interface-7 library (never where that loader is not
+/// built).
+fn is_interface7(bytes: &[u8]) -> bool {
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    return crate::native_runtime::classify(bytes) == crate::native_runtime::Kind::Interface7;
+    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+    {
+        let _ = bytes;
+        false
+    }
+}
+
+/// [`load`] with its memory not counted against the budget (the file read
+/// here, then loaded as an interface-6 library).
+#[cfg(test)]
 fn load_installed(
     storage: &dyn Storage,
     code: &Installed<'_>,
 ) -> Result<Box<dyn Plugin>, PluginProblem> {
-    crate::budget::untracked(|| load(storage, code))
+    crate::budget::untracked(|| load_bytes(&read_installed(storage, code)?, code))
 }
 
 /// What [`load`] needs of a [`CodeFile`]: the plugin and the file installed.
@@ -189,14 +259,18 @@ pub(crate) fn interface6_only(bytes: &[u8], switch_on: bool) -> bool {
     }
 }
 
-/// [`HostLoader::load`], its memory not counted against the budget.
-fn load(storage: &dyn Storage, code: &Installed<'_>) -> Result<Box<dyn Plugin>, PluginProblem> {
+/// The installed file, read: only the file installed may run.
+fn read_installed(storage: &dyn Storage, code: &Installed<'_>) -> Result<Vec<u8>, PluginProblem> {
     let bytes = paperpaw_core::sdk::read_file(storage, code.path, MAX_FILE)
         .map_err(|_| PluginProblem::Damaged)?;
-    // Only the file installed.
     if paperpaw_core::sdk::digest::sha256::digest(&bytes) != code.sha256 {
         return Err(PluginProblem::Changed);
     }
+    Ok(bytes)
+}
+
+/// Loads the interface-6 library `bytes` of the installed file `code`.
+fn load_bytes(bytes: &[u8], code: &Installed<'_>) -> Result<Box<dyn Plugin>, PluginProblem> {
     // A copy of its own (the build may change the file meanwhile), in a
     // folder this process made for itself, made anew, then read back and
     // checked again: only what was checked is loaded.
@@ -212,7 +286,7 @@ fn load(storage: &dyn Storage, code: &Installed<'_>) -> Result<Box<dyn Plugin>, 
             .create_new(true)
             .open(&copy)
             .map_err(|_| PluginProblem::Damaged)?;
-        std::io::Write::write_all(&mut file, &bytes).map_err(|_| PluginProblem::Damaged)?;
+        std::io::Write::write_all(&mut file, bytes).map_err(|_| PluginProblem::Damaged)?;
         // Written once: read-only from here on.
         let mut permissions = file
             .metadata()

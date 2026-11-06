@@ -9,7 +9,10 @@ pub(crate) struct NameEntry {
 }
 impl NameEntry {
     pub(crate) fn kind(self) -> u8 {
-        (self.record_kind >> 3) as u8
+        ((self.record_kind >> 3) & 7) as u8
+    }
+    pub(crate) fn is_extension(self) -> bool {
+        self.record_kind & (1 << 6) != 0
     }
     pub(crate) fn record(self) -> usize {
         usize::from(self.record_kind & 7)
