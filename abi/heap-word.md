@@ -59,8 +59,11 @@ typedef struct PpHeap {
 
 - [D] Entries take **no context**. The table is host-owned, read-only for the plugin, and valid for
   as long as any code of the plugin may run. It grows like `PpHost`: entries are only appended, each
-  with the minor it came with, and the plugin checks `size` before it reads an entry (generated
-  checked accessors, as for `PpHost`; a missing entry is "no heap").
+  with the minor it came with. The plugin reads entries only through the generated checked readers
+  (`read_heap_alloc` and the others, from the same generator as the `PpPlugin` readers): each checks
+  that the table is aligned, its `major` is 7 and its `size` covers the entry before it reads it,
+  and gives "no heap" otherwise, never a read past `size`. Nothing is cached (a plugin has no
+  writable static to cache in; the checks are two loads).
 - [D] `alloc(size, align)`: a block of `size` bytes aligned to `align`, or **null**. `size` is not 0;
   `align` is a power of two at most `MAX_ALIGN` (4,096). Null for a zero size, a bad or too large
   alignment, a full budget, a full heap, and outside a dispatch frame (§4). Never aborts.
@@ -100,6 +103,11 @@ typedef struct PpHeap {
   exact.
 - [D] **Budget.** Each plugin has the per-plugin heap budget of the resource profile, shared by both
   doors. One past the budget is null (out of memory for the plugin), not a kernel-wide failure.
+  The padding an alignment needs (up to `MAX_ALIGN`) and the host's per-block bookkeeping count
+  against the plugin's budget too.
+- [D] **Bookkeeping on the X4.** The X4's heap cannot list its blocks, so the teardown sweep needs a
+  per-block header with the owner and a list link (or a per-owner arena); its bytes are the
+  bookkeeping above.
 - [D] **Teardown** (Senior 6). After a plugin's `drop`/destroy returned, the host frees every block
   that plugin still owns and logs the count (a leak report, not an error). It does not free them while
   the owner is kept alive by the leak rule of #232 (a teardown that failed or was refused): then the
@@ -130,9 +138,14 @@ typedef struct PpHeap {
   re-placement after a firmware change is already required by the other build-specific relocations,
   so a fixed address would save no flash write or start time and would add a frozen promise. A
   loader that keeps placed images must key them by firmware build id in the same way.
+- [D] The X4 loader writes the word in the same flash pass as the rest of its sector (no second
+  erase or write for it): NOR flash only clears bits, so the loader stores the address into the
+  piece buffer after relocating that piece and before the sector is programmed. A placed word is
+  never rewritten in place. A format-5 file without `HEAP_WORD` stays valid: such a plugin has no heap.
 - [D] **Checked before every run.** On every start, before `make`, the loader compares the placed
-  word with the address of its current `PpHeap` table. On a mismatch it re-places the plugin or
-  refuses it, and never runs it. Any later check of placed bytes treats the word like a relocated
+  word with the address of its current `PpHeap` table. On a mismatch it never runs the plugin: the
+  X4 refuses it as damaged (the build-keyed index already re-placed everything it would re-place,
+  so a mismatch means a damaged or foreign region); a hosted loader may place it again. Any later check of placed bytes treats the word like a relocated
   word.
 - [D] `paperpaw-sign pack` finds `PAPERPAW_HEAP` by symbol, checks it is in `.rodata`, 4 bytes,
   4-aligned, 0, not relocated, and writes `heap_at` and bit 0; any other writable or loader-patched
@@ -154,7 +167,8 @@ typedef struct PpHeap {
   first bytes of the message. A plugin panic is a **plugin fault**: on the X4 the host records the
   frame owner as the faulting plugin, switches it off for the next start (the X2 crash path), and
   resets the device. Outside any frame it is recorded without a plugin. On hosted targets the host logs
-  the owner and ends the process. Never unwinds into the host.
+  the owner and ends the process, the Workshop emulator included, so the Workshop can start it again
+  and name the plugin. Never unwinds into the host.
 - [D] **No usable heap word.** Where the word is 0, the table's `size` does not cover `abort`, or
   the word is missing, the panic handler has nowhere to report: it executes the profile's trap
   instruction (`unimp` on RISC-V, `ud2` on x86_64). The X4's crash slot then blames the frame owner as
@@ -164,9 +178,12 @@ typedef struct PpHeap {
 
 ## 7. Bookkeeping
 
-- `abi.def`: `heap_table` (`PpHeap`, append-only like the host entries, lock-recorded), the
-  `PAPERPAW_HEAP` export in `entry_contract`, `MAX_ALIGN`, the ppn5 `flags` bit and `heap_at` field;
-  generated Rust, C header (with the macro and checked accessors) and JSON.
+- `abi.def`: `entry_contract.heap_word` (symbol, hidden alias, section, table) and the `PpHeap`
+  table after `PpEntry` (append-only like `PpPlugin`, lock-recorded); generated Rust (the table, the
+  names and the checked `read_heap_*` readers), the C header (`PP_DEFINE_HEAP_WORD()` and the
+  checked `pp_heap()`) and JSON. The metadata record is unchanged (its exports stay the entry): the
+  `.ppn` header says where the word is, and hosted loaders look it up by name. The ppn5 `flags` bit
+  and `heap_at` field are Firmware's header reader (`paperpaw-native` `header5`).
 - SDK: `native_plugin!` defines the word and installs the global allocator and panic handler; a
   plugin that wants no heap opts out. Shape change (new export and table), so the next draft, one
   blessing line, CHANGELOG.

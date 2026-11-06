@@ -60,6 +60,14 @@ pub paperpaw_native::host_glue::PpEntry::make: core::option::Option<fn(*const pa
 pub paperpaw_native::host_glue::PpEntry::metadata: paperpaw_native::host_glue::PpBytes
 pub paperpaw_native::host_glue::PpEntry::needs_minor: u16
 pub paperpaw_native::host_glue::PpEntry::size: u32
+#[repr(C)] pub struct paperpaw_native::host_glue::PpHeap
+pub paperpaw_native::host_glue::PpHeap::abort: core::option::Option<fn(i32, *const u8, usize) -> never>
+pub paperpaw_native::host_glue::PpHeap::alloc: core::option::Option<fn(usize, usize) -> *mut core::ffi::c_void>
+pub paperpaw_native::host_glue::PpHeap::dealloc: core::option::Option<fn(*mut core::ffi::c_void, usize, usize)>
+pub paperpaw_native::host_glue::PpHeap::major: u16
+pub paperpaw_native::host_glue::PpHeap::minor: u16
+pub paperpaw_native::host_glue::PpHeap::realloc: core::option::Option<fn(*mut core::ffi::c_void, usize, usize, usize) -> *mut core::ffi::c_void>
+pub paperpaw_native::host_glue::PpHeap::size: u32
 #[repr(C)] pub struct paperpaw_native::host_glue::PpHost
 pub paperpaw_native::host_glue::PpHost::blob_read: fn(*mut core::ffi::c_void, u32, u64, paperpaw_native::host_glue::PpBuffer) -> i32
 pub paperpaw_native::host_glue::PpHost::blob_release: fn(*mut core::ffi::c_void, u32) -> i32
@@ -121,6 +129,9 @@ pub const paperpaw_native::host_glue::ERR_STATE: i32
 pub const paperpaw_native::host_glue::ERR_TIMEOUT: i32
 pub const paperpaw_native::host_glue::ERR_UNSUPPORTED: i32
 pub const paperpaw_native::host_glue::ERR_UTF8: i32
+pub const paperpaw_native::host_glue::HEAP_ALIAS: &str
+pub const paperpaw_native::host_glue::HEAP_SECTION: &str
+pub const paperpaw_native::host_glue::HEAP_SYMBOL: &str
 pub const paperpaw_native::host_glue::MAJOR: u16
 pub const paperpaw_native::host_glue::MAX_ALIGN: usize
 pub const paperpaw_native::host_glue::METADATA_SYMBOL: &str
@@ -137,6 +148,10 @@ pub unsafe c fn paperpaw_native::host_glue::heap_alloc(*mut core::ffi::c_void, u
 pub unsafe c fn paperpaw_native::host_glue::heap_dealloc(*mut core::ffi::c_void, *mut core::ffi::c_void, usize, usize) -> i32
 pub unsafe c fn paperpaw_native::host_glue::heap_realloc(*mut core::ffi::c_void, *mut core::ffi::c_void, usize, usize, usize, *mut *mut core::ffi::c_void) -> i32
 pub const fn paperpaw_native::host_glue::host_table() -> paperpaw_native::host_glue::PpHost
+pub unsafe fn paperpaw_native::host_glue::read_heap_abort(*const paperpaw_native::host_glue::PpHeap) -> core::option::Option<fn(i32, *const u8, usize) -> never>
+pub unsafe fn paperpaw_native::host_glue::read_heap_alloc(*const paperpaw_native::host_glue::PpHeap) -> core::option::Option<fn(usize, usize) -> *mut core::ffi::c_void>
+pub unsafe fn paperpaw_native::host_glue::read_heap_dealloc(*const paperpaw_native::host_glue::PpHeap) -> core::option::Option<fn(*mut core::ffi::c_void, usize, usize)>
+pub unsafe fn paperpaw_native::host_glue::read_heap_realloc(*const paperpaw_native::host_glue::PpHeap) -> core::option::Option<fn(*mut core::ffi::c_void, usize, usize, usize) -> *mut core::ffi::c_void>
 pub unsafe fn paperpaw_native::host_glue::read_plugin_dispatch_event(*const u8, usize) -> core::result::Result<fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes, paperpaw_native::host_glue::PpBuffer) -> i32, i32>
 pub unsafe fn paperpaw_native::host_glue::read_plugin_draw(*const u8, usize) -> core::result::Result<fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes) -> i32, i32>
 pub unsafe fn paperpaw_native::host_glue::read_plugin_drop(*const u8, usize) -> core::result::Result<fn(*mut core::ffi::c_void), i32>
