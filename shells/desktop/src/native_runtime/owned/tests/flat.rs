@@ -107,17 +107,17 @@ fn an_event_is_dispatched_with_its_payload_and_the_plugins_status_is_returned() 
     let depth = DispatchDepth::new();
     // The callback accepts exactly the bytes it expects.
     assert_eq!(
-        instance.dispatch_event(0, &tick_bytes(), &depth),
+        instance.dispatch_event(0, &tick_bytes(), &mut [], &depth),
         Ok(host_glue::OK)
     );
     // Other bytes: the plugin's refusal comes back as its status, not as a panic.
     assert_eq!(
-        instance.dispatch_event(0, &[1, 2, 3], &depth),
+        instance.dispatch_event(0, &[1, 2, 3], &mut [], &depth),
         Ok(host_glue::ERR_INVALID)
     );
     // An index that was never registered is the owner's error.
     assert_eq!(
-        instance.dispatch_event(9, &tick_bytes(), &depth),
+        instance.dispatch_event(9, &tick_bytes(), &mut [], &depth),
         Err(HostError::State)
     );
     // The environment scope is the owner's own, stable between calls.
@@ -138,7 +138,7 @@ fn a_dropped_event_is_logged_and_never_runs_plugin_code_or_panics() {
         instance.event_dropped(EVENT_STARTED_TAG, why);
     }
     assert_eq!(
-        instance.dispatch_event(0, &tick_bytes(), &DispatchDepth::new()),
+        instance.dispatch_event(0, &tick_bytes(), &mut [], &DispatchDepth::new()),
         Ok(host_glue::OK),
         "still alive and answering"
     );
@@ -150,7 +150,7 @@ fn a_stopped_instance_answers_with_the_owners_error_and_gives_no_image() {
     let loaded = Loaded::from_bytes("flatstop", &bytes).unwrap();
     let depth = DispatchDepth::new();
     assert_eq!(
-        loaded.dispatch_event(0, &tick_bytes(), &depth),
+        loaded.dispatch_event(0, &tick_bytes(), &mut [], &depth),
         Ok(host_glue::OK)
     );
     assert!(loaded.image().is_some_and(|image| !image.is_empty()));
@@ -158,7 +158,7 @@ fn a_stopped_instance_answers_with_the_owners_error_and_gives_no_image() {
     // Referenced still (the kernel's subscriptions hold it), but stopped: the
     // owner's error, and nothing of the library is read.
     assert_eq!(
-        loaded.dispatch_event(0, &tick_bytes(), &depth),
+        loaded.dispatch_event(0, &tick_bytes(), &mut [], &depth),
         Err(HostError::State)
     );
     assert_eq!(loaded.image(), None);
@@ -351,7 +351,7 @@ fn update_and_uninstall_unmap_each_copy_only_after_its_release() {
         "the old copy is unmapped by its own release, the new one stays"
     );
     assert_eq!(
-        new.dispatch_event(0, &tick_bytes(), &DispatchDepth::new()),
+        new.dispatch_event(0, &tick_bytes(), &mut [], &DispatchDepth::new()),
         Ok(host_glue::OK),
         "and runs"
     );

@@ -63,6 +63,7 @@ pub paperpaw_native::host_glue::PpEntry::size: u32
 #[repr(C)] pub struct paperpaw_native::host_glue::PpHost
 pub paperpaw_native::host_glue::PpHost::blob_read: fn(*mut core::ffi::c_void, u32, u64, paperpaw_native::host_glue::PpBuffer) -> i32
 pub paperpaw_native::host_glue::PpHost::blob_release: fn(*mut core::ffi::c_void, u32) -> i32
+pub paperpaw_native::host_glue::PpHost::canvas_clip: fn(*mut core::ffi::c_void, i32, i32, u32, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_draw_line: fn(*mut core::ffi::c_void, i32, i32, i32, i32, u32, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_fill_rect: fn(*mut core::ffi::c_void, i32, i32, u32, u32, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_fill_round: fn(*mut core::ffi::c_void, i32, i32, u32, u32, u32, u32) -> i32
@@ -92,7 +93,9 @@ pub paperpaw_native::host_glue::PpHost::storage_size: fn(*mut core::ffi::c_void,
 pub paperpaw_native::host_glue::PpHost::storage_sync: fn(*mut core::ffi::c_void) -> i32
 pub paperpaw_native::host_glue::PpHost::storage_write: fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes, paperpaw_native::host_glue::PpBytes) -> i32
 pub paperpaw_native::host_glue::PpHost::text_draw: fn(*mut core::ffi::c_void, u32, f32, f32, i32, u32, paperpaw_native::host_glue::PpBytes, *mut f32) -> i32
+pub paperpaw_native::host_glue::PpHost::text_ink: fn(*mut core::ffi::c_void, u32, f32, paperpaw_native::host_glue::PpBytes, *mut i32, *mut i32, *mut i32, *mut i32) -> i32
 pub paperpaw_native::host_glue::PpHost::text_measure: fn(*mut core::ffi::c_void, u32, f32, paperpaw_native::host_glue::PpBytes, *mut f32) -> i32
+pub paperpaw_native::host_glue::PpHost::text_metrics: fn(*mut core::ffi::c_void, u32, f32, *mut f32, *mut f32, *mut f32) -> i32
 #[repr(C)] pub struct paperpaw_native::host_glue::PpPlugin
 pub paperpaw_native::host_glue::PpPlugin::dispatch_event: core::option::Option<fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes, paperpaw_native::host_glue::PpBuffer) -> i32>
 pub paperpaw_native::host_glue::PpPlugin::draw: core::option::Option<fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes) -> i32>

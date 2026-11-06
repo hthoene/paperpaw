@@ -25,7 +25,8 @@ The zip holds, under `paperpaw-handbook-<version>/`:
 
 Never in it: tests (also those in `src/`), pictures, fonts and the sample
 books, design proposals still in draft (`docs/abi/proposals/`), the
-generated table of icon names (`icon_table.rs`), what a build or a run
+generated table of icon names (`icon_table.rs`) and the SDK's private
+copies of the generated wire codecs, what a build or a run
 leaves, and the kernel and the shells, which a plugin never uses. A field or file is only added; FORMAT counts up
 where one changes.
 """
@@ -61,7 +62,15 @@ KERNEL_ONLY = ("crates/paperpaw-native/src/header5.rs", "crates/paperpaw-native/
 # Generated tables of data with nothing to read in them: the names of all
 # of Tabler's icons in one string (172 KB, 53 KB zipped; `tools/icons/subset.py`
 # makes it). The names are public and `icons.rs` says how they are used.
-GENERATED_FOLDERS = ("crates/paperpaw-sdk/src/icon_table.rs",)
+# And the SDK's private byte-for-byte copies of the generated wire codecs
+# (`tools/abi-gen.py` writes them, `abi-gen --check` keeps them equal to
+# `abi/generated/`): no plugin can name an item in them (none is in
+# `api.txt`), and `docs/abi/*.md` describe the wire they frame (about 20 KB
+# zipped).
+GENERATED_FOLDERS = ("crates/paperpaw-sdk/src/icon_table.rs",
+                     "crates/paperpaw-sdk/src/native/wire/",
+                     "crates/paperpaw-sdk/src/native/declare/records_wire.rs",
+                     "crates/paperpaw-sdk/src/native/declare/settings_value.rs")
 # What of a plugin's folder the handbook holds.
 PLUGIN_PARTS = ("Cargo.toml", "plugin.ini", "src", "i18n", "how")
 
