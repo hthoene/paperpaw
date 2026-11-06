@@ -107,6 +107,23 @@ impl<'a> StorageAdapter<'a> {
         with(joined)
     }
 
+    /// Runs `act` on `joined`; where the storage says the folder above it is
+    /// not there (`NotFound`), makes the folders and runs it once more. So the
+    /// common case, a file in a folder that exists, costs no directory lookup.
+    fn with_parents(
+        &self,
+        joined: &str,
+        act: impl Fn(&str) -> Result<(), StorageError>,
+    ) -> Result<(), i32> {
+        match act(joined) {
+            Err(StorageError::NotFound) => {
+                self.make_parents(joined)?;
+                act(joined).map_err(status)
+            }
+            other => other.map_err(status),
+        }
+    }
+
     /// Makes the folders above `joined`, where the storage needs them made.
     fn make_parents(&self, joined: &str) -> Result<(), i32> {
         let Some((parent, _)) = joined.rsplit_once('/') else {
@@ -172,15 +189,14 @@ impl<'a> StorageAdapter<'a> {
         root: u32,
         path: &[u8],
         data: &[u8],
-        act: impl FnOnce(&str) -> Result<(), StorageError>,
+        act: impl Fn(&str) -> Result<(), StorageError>,
     ) -> Result<(), i32> {
         if data.len() > MAX_DATA {
             return Err(ERR_NO_SPACE);
         }
         self.resolve(root, path, |p| {
             self.check_room(data.len())?;
-            self.make_parents(p)?;
-            act(p).map_err(status)
+            self.with_parents(p, &act)
         })
     }
 
@@ -192,8 +208,9 @@ impl<'a> StorageAdapter<'a> {
     pub fn rename(&self, root: u32, from: &[u8], to: &[u8]) -> Result<(), i32> {
         self.resolve(root, from, |f| {
             self.resolve(root, to, |t| {
-                self.make_parents(t)?;
-                self.storage.rename(f, t).map_err(status)
+                // A missing `from` is NotFound too: then the folders above
+                // `to` are made for nothing, and the rename says so again.
+                self.with_parents(t, |t| self.storage.rename(f, t))
             })
         })
     }

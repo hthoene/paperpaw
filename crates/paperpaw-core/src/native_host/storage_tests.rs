@@ -15,6 +15,11 @@ struct Fake {
     free: Cell<Option<u64>>,
     total: Cell<Option<u64>>,
     fail: Cell<Option<StorageError>>,
+    /// Folders must be made before a file in them (as on FAT): the folders
+    /// made, and how often `create_dir` was called.
+    strict: Cell<bool>,
+    made: core::cell::RefCell<Vec<alloc::string::String>>,
+    dir_calls: Cell<u32>,
 }
 
 impl Fake {
@@ -24,10 +29,22 @@ impl Fake {
             free: Cell::new(None),
             total: Cell::new(None),
             fail: Cell::new(None),
+            strict: Cell::new(false),
+            made: core::cell::RefCell::new(Vec::new()),
+            dir_calls: Cell::new(0),
         }
     }
     fn check(&self) -> Result<(), StorageError> {
         self.fail.get().map_or(Ok(()), Err)
+    }
+    /// `NotFound` where strict and the folder above `p` was not made.
+    fn folder_of(&self, p: &str) -> Result<(), StorageError> {
+        let parent = p.rsplit_once('/').map_or("", |(d, _)| d);
+        let made = self.made.borrow().iter().any(|d| d == parent);
+        if self.strict.get() && !made {
+            return Err(StorageError::NotFound);
+        }
+        Ok(())
     }
 }
 
@@ -42,10 +59,12 @@ impl Storage for Fake {
     }
     fn write(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
         self.check()?;
+        self.folder_of(p)?;
         self.files.write(p, d)
     }
     fn append(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
         self.check()?;
+        self.folder_of(p)?;
         self.files.append(p, d)
     }
     fn sync(&self) -> Result<(), StorageError> {
@@ -63,9 +82,12 @@ impl Storage for Fake {
         if !self.files.exists(f) {
             return Err(StorageError::NotFound);
         }
+        self.folder_of(t)?;
         self.files.rename(f, t)
     }
     fn create_dir(&self, p: &str) -> Result<(), StorageError> {
+        self.dir_calls.set(self.dir_calls.get() + 1);
+        self.made.borrow_mut().push(p.into());
         self.files.create_dir(p)
     }
     fn free_space(&self) -> Option<u64> {
@@ -298,4 +320,25 @@ fn use_is_counted_for_the_plugin_that_runs() {
     assert_eq!((row("battery").read, row("battery").written), (6, 6));
     assert_eq!(meter.syncs_of("battery"), 2);
     assert_eq!(meter.syncs_of("core"), 1);
+}
+
+/// Folders are made only where the storage says one is missing: a file in a
+/// folder that exists (every append after the first) costs no `create_dir`.
+#[test]
+fn folders_are_made_only_when_missing() {
+    let fake = Fake::new();
+    fake.strict.set(true);
+    let s = adapter(&fake);
+    assert_eq!(s.append(0, b"log.csv", b"a\n"), Ok(()));
+    assert_eq!(fake.dir_calls.get(), 1);
+    for _ in 0..3 {
+        assert_eq!(s.append(0, b"log.csv", b"b\n"), Ok(()));
+    }
+    assert_eq!(s.write(0, b"state.ini", b"x"), Ok(()));
+    assert_eq!(fake.dir_calls.get(), 1);
+    assert_eq!(s.rename(0, b"log.csv", b"old/log.csv"), Ok(()));
+    assert_eq!(fake.dir_calls.get(), 2);
+    assert_eq!(get(&fake, "old/log.csv").unwrap(), b"a\nb\nb\nb\n");
+    // A missing source stays NotFound, after one try to make the folder.
+    assert_eq!(s.rename(0, b"none", b"new/x"), Err(ERR_NOT_FOUND));
 }
