@@ -34,8 +34,11 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
-  check:
-    name: Format, lint, test
+  # "Format, lint, test" was one job of 18-26 minutes. It is now four jobs in
+  # parallel (the longest is the workspace test) and the aggregate `check`
+  # below, which keeps the name branch protection requires.
+  lint:
+    name: Format, lint (clippy and docs)
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
@@ -50,7 +53,50 @@ jobs:
       # The firmware is a crate of its own, outside the workspace.
       - run: rustfmt --edition 2024 --check shells/xteink/src/main.rs
       - run: cargo clippy --workspace --all-targets
+      - name: API documentation without broken links
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  test:
+    name: Workspace tests
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' }}
       - run: cargo test --workspace
+
+  test-no-default-features:
+    name: Tests without default features
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' }}
+      # Builds without runtime font rendering use bitmap font packs; the plugins of the
+      # store that carry a copy of their card files for the apps read the card without it;
+      # the kernel without panes is that of the Xteink devices.
+      - run: cargo test -p paperpaw-text -p paperpaw-plugin-fonts-default -p paperpaw-core -p paperpaw-plugin-reading-goal -p paperpaw-plugin-widgets -p paperpaw-plugin-vocabulary --no-default-features
+
+  host-checks:
+    name: Line-break table and Bluetooth host tests
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.event_name == 'push' }}
       # The line-break table (crates/paperpaw-text/src/linebreak) is made from
       # Unicode 17.0.0's files, pinned by SHA-256 in the generator (a changed
       # mirror fails here, never passes); the conformance test needs them too.
@@ -77,14 +123,27 @@ jobs:
           cargo fmt --manifest-path tools/bluetooth-tests/Cargo.toml --check
           cargo clippy --manifest-path tools/bluetooth-tests/Cargo.toml --locked --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
           cargo test --manifest-path tools/bluetooth-tests/Cargo.toml --locked --target x86_64-unknown-linux-gnu
-      - name: API documentation without broken links
-        run: cargo doc --workspace --no-deps
+
+  # The one check branch protection requires. It runs whatever the others
+  # did (always()) and is green only if every one of them succeeded: a failed,
+  # cancelled or skipped part must never read as a pass. A draft pull request
+  # skips the parts and this job alike, as the old single job was skipped.
+  check:
+    name: Format, lint, test
+    needs: [lint, test, test-no-default-features, host-checks]
+    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every part succeeded
         env:
-          RUSTDOCFLAGS: -D warnings
-      # Builds without runtime font rendering use bitmap font packs; the plugins of the
-      # store that carry a copy of their card files for the apps read the card without it;
-      # the kernel without panes is that of the Xteink devices.
-      - run: cargo test -p paperpaw-text -p paperpaw-plugin-fonts-default -p paperpaw-core -p paperpaw-plugin-reading-goal -p paperpaw-plugin-widgets -p paperpaw-plugin-vocabulary --no-default-features
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          set -euo pipefail
+          echo "results: $RESULTS"
+          [ "$(wc -w <<<"$RESULTS")" -eq 4 ] || { echo "expected four parts" >&2; exit 1; }
+          for result in $RESULTS; do
+            [ "$result" = success ] || { echo "a part ended as $result" >&2; exit 1; }
+          done
 
   screens:
     name: Screens checked (paperpaw-dev)
