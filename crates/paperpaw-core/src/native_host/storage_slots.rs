@@ -104,6 +104,8 @@ pub(crate) unsafe fn size(
 }
 
 /// Slot 21: read a bounded chunk into possibly uninitialized caller storage.
+/// Once the scoped storage adapter is available, the entire output is zeroed
+/// before reading into it. A storage failure or invalid count leaves it zeroed.
 ///
 /// # Safety
 /// Nonempty input must be live and readable; nonempty output must be live,
@@ -122,16 +124,31 @@ pub(crate) unsafe fn read_at(
         pair(out.ptr, out.cap, MAX_DATA)?;
         // SAFETY: validated bounds and the caller's exclusive output contract.
         let out = unsafe { buffers::buffer_out(out, MAX_DATA) }?;
-        // Storage takes initialized bytes, while raw output need not be initialized.
-        let mut scratch = [0; MAX_DATA];
-        let count = with_adapter(scope, owner, |adapter| {
-            adapter.read_at(root, path, offset, &mut scratch[..out.len()])
-        })?;
-        let bytes = scratch
-            .get(..count)
-            .filter(|bytes| bytes.len() <= out.len())
-            .ok_or(ERR_INVALID)?;
-        Ok(buffers::copy_count(bytes, out))
+        with_adapter(scope, owner, |adapter| {
+            // Storage takes initialized bytes. Initialize the caller's output
+            // in place so no maximum-sized host scratch is needed on the stack.
+            for byte in out.iter_mut() {
+                byte.write(0);
+            }
+            // SAFETY: every byte was initialized above; buffer_out established
+            // a live exclusive slice, including its non-null empty-slice pointer.
+            let initialized = unsafe {
+                core::slice::from_raw_parts_mut(out.as_mut_ptr().cast::<u8>(), out.len())
+            };
+            match adapter.read_at(root, path, offset, initialized) {
+                Ok(count) if count <= initialized.len() => {
+                    i32::try_from(count).map_err(|_| ERR_INVALID)
+                }
+                Ok(_) => {
+                    initialized.fill(0);
+                    Err(ERR_INVALID)
+                }
+                Err(error) => {
+                    initialized.fill(0);
+                    Err(error)
+                }
+            }
+        })
     })();
     result.unwrap_or_else(|error| error)
 }
