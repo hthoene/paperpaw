@@ -753,6 +753,14 @@ impl Firmware {
         self.network
             .bluetooth(paperpaw_core::BtCall::Radio { on: false });
         let pressed = !self.finish_work();
+        // What the work finished wrote (answers to what plugins sent when
+        // they heard core.suspend) is written back now: a light sleep may
+        // last hours, and a card taken out or a power cut meanwhile would
+        // lose it. `slept::mark` writes back once more at the power-off.
+        self.state.unsynced = None;
+        if self.kernel.storage().sync().is_err() {
+            warn!("card: not all written back");
+        }
         // A plugin may have asked to switch off while it heard core.suspend
         // or in the work finished: that is honoured now, not after a wake.
         let next = paperpaw_x4::sleeping::after_suspend(lightly, self.state.power_off, pressed);
