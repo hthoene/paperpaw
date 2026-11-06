@@ -194,7 +194,7 @@ fn narrow(w: u16, at: usize, regs: &mut Regs) -> Option<Finding> {
         // c.srli, c.srai, c.andi, c.sub, c.xor, c.or, c.and
         (1, 4) => set(regs, prime, None),
         // c.j, c.beqz, c.bnez
-        (1, 5 | 6 | 7) => *regs = forgotten(),
+        (1, 5..=7) => *regs = forgotten(),
         // c.slli, c.lwsp
         (2, 0 | 2) => set(regs, rd, None),
         (2, 4) => {
