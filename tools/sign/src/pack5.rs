@@ -136,7 +136,12 @@ pub fn pack5(elf: &[u8]) -> Result<Packed5, String> {
     }
     // After what is wrong with the file's identity, before it is made: the
     // frames the code takes on the stack.
-    crate::frames::check(&elf, image.text, image.text_index, &symbols)?;
+    let tables = crate::frames::Tables {
+        addr: image.rodata.addr,
+        bytes: &image.bytes[..image.code_at as usize],
+        relocated: &words,
+    };
+    crate::frames::check(&elf, image.text, image.text_index, &symbols, tables)?;
     let hot = Hot::of(&elf, &image, chip, &symbols, &words)?;
     let patches = records(&hot.patches)?;
     patch_count(patches.len())?;
