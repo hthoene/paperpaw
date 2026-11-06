@@ -283,7 +283,7 @@ fn real_sample_refusals_are_clean_errors_not_panics() {
     let bytes = std::fs::read(&fixture.path).unwrap();
     let open = |path: &Path, digest: &[u8; 32]| {
         // SAFETY: private immutable inode in the fixture root, as in `Fixture::open`.
-        let result = unsafe { PinnedPlugin::open(path, digest, Refused) };
+        let result = unsafe { PinnedPlugin::open(path, digest, "fixture", Refused) };
         result.err()
     };
     // Wrong digest: bytes-only refusal before any code runs.
@@ -353,7 +353,7 @@ fn well_formed_interface_6_library_is_refused_before_any_code_runs() {
     );
     let digest = paperpaw_core::sdk::digest::sha256::digest(&std::fs::read(&path).unwrap());
     // SAFETY: private immutable inode; refusal happens on bytes before any load.
-    let refused = unsafe { PinnedPlugin::open(&path, &digest, Refused) };
+    let refused = unsafe { PinnedPlugin::open(&path, &digest, "fixture", Refused) };
     assert!(
         matches!(refused, Err(Error::Runtime(RuntimeError::Export))),
         "interface 6 must be refused with the Export status"
@@ -376,7 +376,7 @@ fn real_beta3_host_library_is_refused_cleanly() {
     std::fs::copy(source, &path).unwrap();
     let digest = paperpaw_core::sdk::digest::sha256::digest(&std::fs::read(&path).unwrap());
     // SAFETY: private immutable inode; refusal happens on bytes before any load.
-    let refused = unsafe { PinnedPlugin::open(&path, &digest, Refused) };
+    let refused = unsafe { PinnedPlugin::open(&path, &digest, "fixture", Refused) };
     eprintln!("beta-3 library refused with: {:?}", refused.as_ref().err());
     assert!(
         matches!(refused, Err(Error::Runtime(RuntimeError::Export))),
