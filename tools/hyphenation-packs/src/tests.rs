@@ -241,7 +241,124 @@ fn a_table_whose_header_does_not_fit_is_refused() {
     let path = dir.join("hyphenation/da.pphp");
     let bytes = fs::read(&path).unwrap();
     fs::write(&path, &bytes[..40]).unwrap();
-    assert!(mentions(&problems(&dir), "header does not fit"));
+    assert!(mentions(&problems(&dir), "table check failed"));
+}
+
+fn damaged(name: &str, change: impl Fn(Vec<u8>) -> Vec<u8>) -> Vec<String> {
+    let dir = copy_of("hyphenation-da", name);
+    let path = dir.join("hyphenation/da.pphp");
+    fs::write(&path, change(fs::read(&path).unwrap())).unwrap();
+    problems(&dir)
+}
+
+#[test]
+fn a_padded_or_cut_exceptions_section_is_refused() {
+    // The walk must end exactly at the end of the file.
+    let found = damaged("padded", |mut t| {
+        t.push(0);
+        t
+    });
+    assert!(
+        mentions(&found, "do not end at the end of the file"),
+        "{found:?}"
+    );
+    let found = damaged("cut", |mut t| {
+        t.pop();
+        t
+    });
+    assert!(mentions(&found, "table check failed"), "{found:?}");
+}
+
+#[test]
+fn an_index_that_is_not_ascending_or_points_past_the_patterns_is_refused() {
+    let found = damaged("descending", |mut t| {
+        let (a, b) = (24, 28);
+        let first: Vec<u8> = t[a..a + 4].to_vec();
+        let second: Vec<u8> = t[b..b + 4].to_vec();
+        t[a..a + 4].copy_from_slice(&second);
+        t[b..b + 4].copy_from_slice(&first);
+        t
+    });
+    assert!(mentions(&found, "not ascending"), "{found:?}");
+    let found = damaged("past", |mut t| {
+        t[24..28].copy_from_slice(&u32::MAX.to_le_bytes());
+        t
+    });
+    assert!(mentions(&found, "points past the patterns"), "{found:?}");
+}
+
+#[test]
+fn the_table_check_on_small_tables() {
+    let header = |blocks: u32, exceptions: u32, count: u32| {
+        let mut t = b"PPHP\x01\x02\x02\x05\0\0\0\0".to_vec();
+        t.extend_from_slice(&blocks.to_le_bytes());
+        t.extend_from_slice(&exceptions.to_le_bytes());
+        t.extend_from_slice(&count.to_le_bytes());
+        t
+    };
+    // No patterns, no exceptions: the smallest table.
+    assert_eq!(table_check(&header(0, 24, 0)), Ok(()));
+    // One exception, `a-b`, ending exactly at the end.
+    let mut one = header(0, 24, 1);
+    one.extend_from_slice(&[3, b'a', b'-', b'b']);
+    assert_eq!(table_check(&one), Ok(()));
+    one.push(0);
+    assert!(table_check(&one).is_err());
+    // An exception that is not UTF-8, one longer than the file, a count beyond it.
+    let mut bad = header(0, 24, 1);
+    bad.extend_from_slice(&[1, 0xFF]);
+    assert_eq!(table_check(&bad), Err("an exception is not UTF-8"));
+    let mut long = header(0, 24, 1);
+    long.extend_from_slice(&[9, b'a']);
+    assert_eq!(table_check(&long), Err("an exception is cut off"));
+    assert_eq!(
+        table_check(&header(0, 24, 2)),
+        Err("the exceptions are cut off")
+    );
+    // The old magic, a short file, and a block count that overflows.
+    let mut old = header(0, 24, 0);
+    old[..5].copy_from_slice(b"QIHP\x01");
+    assert!(table_check(&old).unwrap_err().contains("QIHP"));
+    assert!(table_check(&old[..10]).is_err());
+    assert!(table_check(&header(u32::MAX, 24, 0)).is_err());
+    // The entries start at 24 + 4 * blocks, which must be at most the exceptions offset.
+    assert_eq!(
+        table_check(&header(2, 24, 0)),
+        Err("the index runs past the exceptions offset")
+    );
+}
+
+#[test]
+fn language_plugins_outrank_the_base_and_no_tag_is_provided_twice() {
+    // D4: the greatest plugin id wins, compared byte-wise. Every `hyphenation-<lang>` id sorts
+    // after the base `hyphenation`, and none of them provides `en`.
+    for package in PACKAGES.iter().filter(|p| p.id != "hyphenation") {
+        assert!(
+            package.id.as_bytes() > b"hyphenation".as_slice(),
+            "{}",
+            package.id
+        );
+        assert!(
+            package.languages.iter().all(|&(tag, _)| tag != "en"),
+            "{}",
+            package.id
+        );
+    }
+    let mut tags: Vec<&str> = PACKAGES
+        .iter()
+        .flat_map(|p| p.languages.iter().map(|&(t, _)| t))
+        .collect();
+    let all = tags.len();
+    tags.sort_unstable();
+    tags.dedup();
+    assert_eq!(
+        tags.len(),
+        all,
+        "a tag is provided by two first-party plugins"
+    );
+    assert!(PACKAGES.iter().all(|p| p.languages.len() <= MAX_LANGUAGES));
+    // Tags are written in lowercase, the form the registry keeps.
+    assert!(tags.iter().all(|t| *t == t.to_ascii_lowercase()));
 }
 
 #[test]

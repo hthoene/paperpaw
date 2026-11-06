@@ -14,12 +14,25 @@ cargo test -p paperpaw-hyphenation-packs
 ```
 
 `plugin.ini` holds `[plugin]` (`id`, `name`, `description`, `version`, `formats = 5`) and
-`[hyphenation]`: a line `<BCP 47 tag> = <relative path>` for each language, at most 8
-a plugin; two tags may name the same file (`nb` and `no`). The registry key is the tag,
-and where several plugins provide it the greatest plugin id wins. A table is PPHP
-version 1 and at most 2 MiB (provisional until the X4 gate). A bad line is skipped
-with a warning at load; a missing, oversize or non-PPHP file makes the language
-missing at activation. `check` refuses all of these on the host.
+`[hyphenation]`: a line `<tag> = <relative path>` for each language, at most 8 a plugin.
+The contract text is in `docs/abi/proposals/declarative-registration.md`, "The `[hyphenation]`
+data-plugin kind"; this tool refuses on the host what the loader and the reader refuse:
+
+- A tag is `[A-Za-z0-9-]`, 1 to 35 bytes, kept in lowercase; a tag twice in one plugin is refused
+  (the loader would skip the line with a warning). A path is relative, `[A-Za-z0-9._-]` and `/`, at
+  most 3 segments and 100 bytes, with no empty, `.`, `..` or dot-leading segment. Two tags may name
+  one file (`nb` and `no`).
+- A table is at most 2 MiB (provisional until the X4 gate) and PPHP version 1 only: the older `QIHP`
+  magic is refused. The table check follows the contract: block count, exceptions offset and count in
+  the 24 byte header, an ascending index inside the patterns, and an exceptions walk that ends exactly
+  at the end of the file, so a truncated or padded table is refused. It is `table_check` here; the
+  contract makes it one function of `paperpaw-hyphen`, which replaces it.
+- At run time the registry key is the tag alone. A book's tag is lowercased (`_` read as `-`) and looked
+  up whole, then with its last subtag removed repeatedly (`de-ch-1996`, `de-ch`, `de`); there is no
+  fallback to a longer tag or to another language (`no` finds only what a plugin registers as `no`).
+  Where several plugins provide a tag the greatest plugin id wins (byte-wise, lowercase), with a
+  warning naming `<plugin>:<tag>`. The base `hyphenation` provides `en` with no special rank; every
+  `hyphenation-<lang>` id sorts after it. The packages here provide each tag once (a test).
 
 The pattern sources, catalogs and `how/` texts stay in `plugins/<id>/` until the
 interface-6 code plugins are removed; the builder copies the catalogs and texts

@@ -221,13 +221,9 @@ fn table(dir: &Path, tag: &str, path: &str, out: &mut Vec<Problem>) {
         )));
         return;
     };
-    if !bytes.starts_with(b"PPHP\x01") {
+    if let Err(why) = crate::table_check(&bytes) {
         out.push(Problem(format!(
-            "[hyphenation] {tag}: {path} is not a PPHP version 1 table"
-        )));
-    } else if paperpaw_hyphen::Patterns::new(&bytes).is_err() {
-        out.push(Problem(format!(
-            "[hyphenation] {tag}: {path}: the table's header does not fit its bytes"
+            "[hyphenation] {tag}: {path}: table check failed, {why}"
         )));
     }
 }

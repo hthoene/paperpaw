@@ -21,10 +21,12 @@
 
 mod check;
 mod packages;
+mod table;
 mod write;
 
 pub use check::{Problem, check};
 pub use packages::{FORMATS, PACKAGES, Package, VERSION};
+pub use table::table_check;
 pub use write::{build, build_all};
 
 /// Most languages (lines of `[hyphenation]`) of one plugin.
