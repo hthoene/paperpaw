@@ -37,9 +37,16 @@ nesting. It never reads the payloads.
   (an `i16`, as `menu.entry`).
   - A registration naming a stage that is not installed is kept and stays inert. Stages come and go
     with plugins, so this is never a load error.
-  - At most 32 subscribers per stage, counted host-wide; the 33rd registration is refused at commit
-    with `ERR_FULL`, naming the stage. At most 8 stage registrations per plugin (`ERR_FULL`).
-  - A plugin may subscribe to its own stage.
+  - At most 32 active subscribers per stage, counted host-wide. Over 32, only the extra
+    registrations are refused, never the plugin's batch: the first 32 in stage order (section 1.2)
+    are active, the rest stay inert with a log line naming the stage and the plugin. Load order
+    never decides. The user can turn a subscriber off per stage (a host setting, decision 131,
+    #241); a subscriber turned off is inert and does not count.
+  - At most 8 stage registrations per plugin; a 9th is refused with `ERR_FULL` for the whole batch
+    (the plugin's own declarations, so the plugin can fix it).
+  - A registration to the plugin's own stage is refused at commit (`ERR_INVALID`, the whole batch):
+    the owner is inside its own callback whenever the stage runs, so it could only ever answer
+    `ERR_BUSY`.
 - [D] Tags 19 and 20 are in the declaration block; 512 and 513 open the `stage` block
   (`screens-input.md` section 8). Payload tags are local to the stage's schema (for the reader's
   stages, `paperpaw-reader-api`).
@@ -66,6 +73,12 @@ stage.run(ctx, stage: bytes, cursor: u32, input: bytes, out: buffer) -> count   
   most `max_input` (`ERR_NO_SPACE`), and `out` can hold the largest reply this stage can produce:
   `record_framed_len` of a `stage.reply` with a 64-byte subscriber id and `max_reply` payload
   bytes (`ERR_NO_SPACE`).
+- [D] **Membership is frozen for the whole outermost callback** in which the owner runs the stage:
+  plugins started, stopped, installed or turned off during it change the subscriber list only after
+  that callback returns, so a cursor loop sees one list.
+- [D] **A subscriber that is not running (lazy start, `screens-input.md` section 7)** is never
+  started inside `stage.run`: its reply has status `ERR_CANCELLED` and an empty payload, and the host
+  starts the plugin after the outermost callback returns, so it can answer the next run.
 - [D] **What the subscriber gets.** It is called through `dispatch_event` with its token:
   - `input` is one `stage.call { stage, schema, payload = the caller's input }`;
   - the lent `out` has `cap = max_reply` (section 6 of `screens-input.md`);
@@ -78,7 +91,8 @@ stage.run(ctx, stage: bytes, cursor: u32, input: bytes, out: buffer) -> count   
 - [D] **Status in `stage.reply`:**
   - 0 or more: OK, with `payload` holding the reply;
   - the subscriber's own negative status;
-  - `ERR_CANCELLED`: the subscriber plugin is stopped or stopping;
+  - `ERR_CANCELLED`: the subscriber plugin is stopped, stopping or not started yet (lazy start, see
+    above);
   - `ERR_BUSY`: the subscriber is already in a callback (re-entry is refused, as for every
     `dispatch_event`);
   - `ERR_INVALID`: framing violation.
@@ -114,6 +128,9 @@ stage.run(ctx, stage: bytes, cursor: u32, input: bytes, out: buffer) -> count   
 - Per subscriber: one declaration-index entry, about 16 bytes resident; per stage spec about 24.
 - Per `stage.run`: the caller's `out` and one host-framed `stage.call` on the host scratch, both at
   most 4,096 bytes and released when the call returns. Nothing is retained between calls.
+- Timing: a stage the reader runs on every page turn (for example `reader.insert`) costs one
+  callback per subscriber; that time counts against the X4 page-turn budget and is part of the
+  timing gate of the reader port.
 
 ## 2. Services (D4)
 
@@ -157,7 +174,10 @@ service.call(ctx, service: handle, op: u32, input: bytes, out: buffer) -> count 
   | otherwise: the service runs and writes its reply batch into `out` | count, or the service's status |
 
   Every check above runs before the service does anything, so a refused call has no effect and
-  leaves `out` untouched. A service's own failure after that is its documented status.
+  leaves `out` untouched. A service's own failure after that is its documented status, and `out`
+  stays untouched then too (as slot 18, `interface-7-usage-clock.md`): a service writes `out` only
+  once it will succeed, or builds its reply in host scratch of at most `max_reply` bytes and copies
+  it on success.
 - [D] **Synchronous and bounded.** A call never waits on the network or the card beyond its op's
   stated bound. Longer work returns an operation handle (section 7, D3) whose completion is
   `event.op_done`, read with a further op of the same service.
@@ -174,13 +194,13 @@ one exists for host tests only:
 | --- | --- | --- |
 | 1024 | `service.echo` | `text: str 256` |
 
-### 2.3 Schemas (`abi/services/<key>.def`)
+### 2.3 Schemas (`abi/services/<key>@<major>.def`)
 
-Each service has one schema file, `abi/services/<key>.def` (JSON):
+Each major of a service has one schema file, `abi/services/<key>@<major>.def` (JSON):
 
 ```json
 {
-  "key": "core.test-echo", "major": 1, "revision": 0, "since": 1,
+  "key": "core.test-echo", "major": 1, "revision": 0, "since": 1, "test_only": true,
   "ops": [
     {"id": 1, "name": "echo", "since": 0, "effect": "query", "feature": null,
      "input": ["service.echo"], "reply": ["service.echo"],
@@ -189,10 +209,13 @@ Each service has one schema file, `abi/services/<key>.def` (JSON):
 }
 ```
 
-- [D] `key`: the D1 service key grammar; the file name is the key. `major` 1..=65535 and
+- [D] `key`: the D1 service key grammar; the file name is `<key>@<major>`. `major` 1..=65535 and
   `revision` 0..=65535 are the D1 catalog's `major` and `semantic_revision`: every schema has a
   metadata catalog entry (`abi.def` `metadata.services`) with the same key, major and revision,
-  which is what plugins declare. `since` is the interface minor that introduced it.
+  which is what plugins declare. `since` is the interface minor that introduced it; a new schema
+  takes a minor not yet released (as every record, setting and metadata addition). `test_only`
+  marks a schema for host tests: the generated table carries it, and a device host never registers
+  such a service.
 - [D] Ops, in id order: `id` 1..=65535, unique, never renumbered; `name` unique
   (`[a-z][a-z0-9_]*`); `since` the service revision that introduced the op (at most `revision`); `effect` `query` or `mutate`;
   `feature` a D1 feature key that gates it, or null; `input` and `reply` lists of `service.*`
@@ -201,11 +224,13 @@ Each service has one schema file, `abi/services/<key>.def` (JSON):
   `radio` (never: that is an operation handle).
 - [D] `tools/abi-gen.py` validates every schema and writes one generated module, `services_wire`,
   to `abi/generated/`, `crates/paperpaw-core/src/abi7/` and `crates/paperpaw-sdk/src/native/wire/`:
-  per service its key, version and op constants, and a static table the host dispatcher and the SDK
+  per service its key, version and op constants (module `<key>_v<major>`), and a static table the host dispatcher and the SDK
   wrappers share (`SERVICES`, `ServiceSchema`, `ServiceOp`, `service_op`).
-- [D] The ABI lock pins every schema (lock section `services`): a published schema only grows. Its
-  ops, their ids, names, inputs, replies, bounds and features never change; a new op takes a new id
-  and the service's next revision; a breaking change is a new major, a new schema.
+- [D] The ABI lock pins every schema (lock section `services`), by key and major: a published
+  schema only grows. Its ops, their ids, names, inputs, replies, bounds, features, `max_input` and
+  `max_reply` never change (so a reply never grows past what a caller sized for); a new op takes a
+  new id and the service's next revision; a breaking change is a new major, a new schema file next
+  to the old one.
 - [D] **First services**, each with its family's PR: `core.device` (DEV), `core.registry` (REG),
   `core.storage` metadata (FS), `core.library` (LIB), `core.secrets` (SEC), `core.net` (NET).
   `core.test-echo` exists for host tests and is never offered on a device.

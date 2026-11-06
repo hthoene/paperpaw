@@ -657,10 +657,10 @@ const paperpaw_sdk::native::wire::commands_wire::COMMAND_REDRAW_TAG: u32 = 58u32
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_RUN_ACTION_TAG: u32 = 57u32
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_ITEM_STATE_TAG: u32 = 60u32
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_SETTING_TAG: u32 = 4u32
-const paperpaw_sdk::native::wire::services_wire::core_test_echo::KEY: &str = "core.test-echo"
-const paperpaw_sdk::native::wire::services_wire::core_test_echo::MAJOR: u16 = 1u16
-const paperpaw_sdk::native::wire::services_wire::core_test_echo::OP_ECHO: u32 = 1u32
-const paperpaw_sdk::native::wire::services_wire::core_test_echo::REVISION: u16 = 0u16
+const paperpaw_sdk::native::wire::services_wire::core_test_echo_v1::KEY: &str = "core.test-echo"
+const paperpaw_sdk::native::wire::services_wire::core_test_echo_v1::MAJOR: u16 = 1u16
+const paperpaw_sdk::native::wire::services_wire::core_test_echo_v1::OP_ECHO: u32 = 1u32
+const paperpaw_sdk::native::wire::services_wire::core_test_echo_v1::REVISION: u16 = 0u16
 const paperpaw_sdk::native::wire::snapshot_wire::SNAPSHOT_BYTES: usize = 52usize
 const paperpaw_sdk::native::wire::snapshot_wire::SNAPSHOT_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::wire::snapshot_wire::SNAPSHOT_VERSION: u32 = 1u32
@@ -1300,7 +1300,7 @@ struct paperpaw_sdk::native::services::usage::ServiceUsage { fast: u32, partial:
 struct paperpaw_sdk::native::snapshot::Snapshot { now: paperpaw_platform::input::Instant, unix_seconds: core::option::Option<i64>, percent: core::option::Option<u8>, millivolts: core::option::Option<u16>, charging: bool, power_saving: bool, width: u16, height: u16, dpi: u16, touch: bool }
 struct paperpaw_sdk::native::wire::commands_wire::CommandBatch<'a> { records: [core::option::Option<paperpaw_sdk::native::wire::commands_wire::Command<'a>>; 8], len: usize }
 struct paperpaw_sdk::native::wire::services_wire::ServiceOp { id: u32, name: &'static str, since: u16, mutates: bool, feature: core::option::Option<&'static str>, input: &'static [u32], reply: &'static [u32], max_input: usize, max_reply: usize, bound: paperpaw_sdk::native::wire::services_wire::ServiceBound }
-struct paperpaw_sdk::native::wire::services_wire::ServiceSchema { key: &'static str, major: u16, revision: u16, ops: &'static [paperpaw_sdk::native::wire::services_wire::ServiceOp] }
+struct paperpaw_sdk::native::wire::services_wire::ServiceSchema { key: &'static str, major: u16, revision: u16, test_only: bool, ops: &'static [paperpaw_sdk::native::wire::services_wire::ServiceOp] }
 struct paperpaw_sdk::native::wire::snapshot_wire::Battery { percent: u8, charging: bool, saver: bool, millivolts: core::option::Option<u16> }
 struct paperpaw_sdk::native::wire::snapshot_wire::Snapshot { monotonic_ms: u64, unix_seconds: core::option::Option<i64>, battery: core::option::Option<paperpaw_sdk::native::wire::snapshot_wire::Battery>, width: u16, height: u16, dpi: u16, touch: bool, pixel: paperpaw_sdk::native::wire::snapshot_wire::PixelFormat }
 struct paperpaw_sdk::params::Params { values: alloc::vec::Vec<(alloc::borrow::Cow<'static, str>, alloc::string::String)>, carried: core::option::Option<alloc::rcs::rc::Rc<dyn core::any::Any>> }

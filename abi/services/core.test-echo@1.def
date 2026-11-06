@@ -3,6 +3,7 @@
   "major": 1,
   "revision": 0,
   "since": 1,
+  "test_only": true,
   "ops": [
     {
       "id": 1,

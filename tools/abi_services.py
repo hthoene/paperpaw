@@ -1,4 +1,4 @@
-"""Validate service schemas (`abi/services/<key>.def`) and emit their op tables.
+"""Validate service schemas (`abi/services/<key>@<major>.def`) and emit their op tables.
 
 A service schema names a call service's ops: their ids, the `service.*`
 records of `abi.def` each takes and answers, their bounds and the feature
@@ -11,7 +11,7 @@ import re
 
 KEY = re.compile(r'[a-z][a-z0-9]*(-[a-z0-9]+)*(\.[a-z][a-z0-9]*(-[a-z0-9]+)*)+')
 OP_NAME = re.compile(r'[a-z][a-z0-9]*(_[a-z0-9]+)*')
-SCHEMA_KEYS = {'key', 'major', 'revision', 'since', 'ops'}
+SCHEMA_KEYS = {'key', 'major', 'revision', 'since', 'test_only', 'ops'}
 OP_KEYS = {'id', 'name', 'since', 'effect', 'feature', 'input', 'reply', 'max_input',
            'max_reply', 'bound'}
 EFFECTS = ('query', 'mutate')
@@ -33,17 +33,19 @@ def _integer(value, low, high, message):
 
 
 def load_services(folder):
-    """Every schema of `folder`, sorted by key; the file name is the key."""
+    """Every schema of `folder`, sorted by key and major; the file name is `<key>@<major>`."""
     if not folder.is_dir():
         return []
     services = []
     for path in sorted(folder.glob('*.def')):
         with path.open(encoding='utf-8') as handle:
             service = json.load(handle)
-        _require(type(service) is dict and service.get('key') == path.stem,
-                 f'service schema {path.name} must name its own key')
+        _require(type(service) is dict and
+                 f'{service.get("key")}@{service.get("major")}' == path.stem,
+                 f'service schema {path.name} must name its own key and major')
         services.append(service)
-    return services
+    return sorted(services, key=lambda item: (str(item['key']), str(type(item['major'])),
+                                              item['major']))
 
 
 def _validate_op(op, service, records, features):
@@ -80,9 +82,10 @@ def validate_services(schema):
     catalog = {(item.get('key'), item.get('major')): item
                for item in metadata.get('services', []) if type(item) is dict}
     features = {item.get('key') for item in metadata.get('features', []) if type(item) is dict}
-    keys = [item.get('key') for item in services if type(item) is dict]
-    _require(keys == sorted(keys) and len(set(keys)) == len(keys),
-             'service schemas sorted by key, one per key')
+    keys = [(item.get('key'), item.get('major')) for item in services if type(item) is dict]
+    _require(len(keys) == len(services) and all(type(major) is int for _, major in keys) and
+             keys == sorted(keys) and len(set(keys)) == len(keys),
+             'service schemas sorted by key and major, one per key and major')
     for service in services:
         _require(type(service) is dict and set(service) == SCHEMA_KEYS, 'service schema keys')
         key = service['key']
@@ -91,6 +94,7 @@ def validate_services(schema):
         _integer(service['major'], 1, 65535, f'{key}: major 1..=65535')
         _integer(service['revision'], 0, 65535, f'{key}: revision 0..=65535')
         _integer(service['since'], 1, schema.get('minor', 0), f'{key}: since within schema minor')
+        _require(type(service['test_only']) is bool, f'{key}: test_only is true or false')
         entry = catalog.get((key, service['major']))
         _require(entry is not None and entry.get('semantic_revision') == service['revision'],
                  f'{key}: needs a metadata catalog entry of the same major and revision')
@@ -104,15 +108,24 @@ def validate_services(schema):
                  f'{key}: ops in id order')
 
 
-def compatible_services(old, new):
-    """A published schema only grows: same major keeps every op exactly."""
-    before = {item['key']: item for item in old.get('services', [])}
-    after = {item['key']: item for item in new.get('services', [])}
-    for key, service in before.items():
-        _require(key in after, f'service schema {key} removed')
-        grown = after[key]
-        _require(grown['major'] == service['major'], f'{key}: a new major is a new schema')
+def compatible_services(old, new, minimum_since):
+    """A published schema only grows: each (key, major) keeps every op exactly.
+
+    A schema new to `new` takes `since` at least `minimum_since`, the first
+    interface minor not yet released.
+    """
+    before = {(item['key'], item['major']): item for item in old.get('services', [])}
+    after = {(item['key'], item['major']): item for item in new.get('services', [])}
+    for (key, major), service in after.items():
+        if (key, major) not in before:
+            _require(service['since'] >= minimum_since,
+                     f'{key}@{major}: backdated service schema (since {service["since"]})')
+    for (key, major), service in before.items():
+        key = f'{key}@{major}'
+        _require((service['key'], major) in after, f'service schema {key} removed')
+        grown = after[(service['key'], major)]
         _require(grown['since'] == service['since'], f'{key}: since changed')
+        _require(grown['test_only'] == service['test_only'], f'{key}: test_only changed')
         _require(grown['revision'] >= service['revision'], f'{key}: revision went back')
         ops = {op['id']: op for op in grown['ops']}
         for op in service['ops']:
@@ -123,8 +136,8 @@ def compatible_services(old, new):
                          f'{key}: new op {op["name"]} needs the next revision')
 
 
-def _module_name(key):
-    return key.replace('.', '_').replace('-', '_')
+def _module_name(key, major):
+    return key.replace('.', '_').replace('-', '_') + f'_v{major}'
 
 
 def _const_name(name):
@@ -147,7 +160,7 @@ pub enum ServiceBound {
     Card,
 }
 
-/// One operation of a service schema (`abi/services/<key>.def`).
+/// One operation of a service schema (`abi/services/<key>@<major>.def`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ServiceOp {
     /// Operation number, never renumbered.
@@ -181,6 +194,8 @@ pub struct ServiceSchema {
     pub major: u16,
     /// Highest revision of this major.
     pub revision: u16,
+    /// For host tests only: a device host never registers it.
+    pub test_only: bool,
     /// Operations in id order.
     pub ops: &'static [ServiceOp],
 }
@@ -200,7 +215,7 @@ pub fn service_schema(key: &str, major: u16) -> Option<&'static ServiceSchema> {
         .find(|schema| schema.key == key && schema.major == major)
 }
 
-/// Every call service schema, sorted by key.
+/// Every call service schema, sorted by key and major.
 pub static SERVICES: &[ServiceSchema] = &[
 @SCHEMAS@];
 @MODULES@'''
@@ -235,13 +250,14 @@ def rust_services(schema):
                        f'        key: "{service["key"]}",\n'
                        f'        major: {service["major"]},\n'
                        f'        revision: {service["revision"]},\n'
+                       f'        test_only: {"true" if service["test_only"] else "false"},\n'
                        f'        ops: &[\n{ops}        ],\n'
                        f'    }},\n')
         consts = ''.join(f'    /// Operation `{op["name"]}`.\n'
                          f'    pub const OP_{_const_name(op["name"])}: u32 = {op["id"]};\n'
                          for op in service['ops'])
-        modules.append(f'\n/// Constants of `{service["key"]}`.\n'
-                       f'pub mod {_module_name(service["key"])} {{\n'
+        modules.append(f'\n/// Constants of `{service["key"]}` major {service["major"]}.\n'
+                       f'pub mod {_module_name(service["key"], service["major"])} {{\n'
                        f'    /// Service key.\n'
                        f'    pub const KEY: &str = "{service["key"]}";\n'
                        f'    /// Major version.\n'

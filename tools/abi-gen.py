@@ -224,7 +224,7 @@ def compatible(old, new, released_minor=None):
     compatible_color(old, new, minimum_since)
     compatible_commands(old, new, minimum_since)
     compatible_i18n(old, new, minimum_since)
-    compatible_services(old, new)
+    compatible_services(old, new, minimum_since)
     require(old['format'] == new['format'] and old['major'] == new['major'],
             'format/major change needs separate reviewed baseline')
     require(old['minor'] <= new['minor'] <= old['minor'] + 1,

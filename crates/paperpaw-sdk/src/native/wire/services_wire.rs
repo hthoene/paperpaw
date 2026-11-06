@@ -9,7 +9,7 @@ pub enum ServiceBound {
     Card,
 }
 
-/// One operation of a service schema (`abi/services/<key>.def`).
+/// One operation of a service schema (`abi/services/<key>@<major>.def`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ServiceOp {
     /// Operation number, never renumbered.
@@ -43,6 +43,8 @@ pub struct ServiceSchema {
     pub major: u16,
     /// Highest revision of this major.
     pub revision: u16,
+    /// For host tests only: a device host never registers it.
+    pub test_only: bool,
     /// Operations in id order.
     pub ops: &'static [ServiceOp],
 }
@@ -62,12 +64,13 @@ pub fn service_schema(key: &str, major: u16) -> Option<&'static ServiceSchema> {
         .find(|schema| schema.key == key && schema.major == major)
 }
 
-/// Every call service schema, sorted by key.
+/// Every call service schema, sorted by key and major.
 pub static SERVICES: &[ServiceSchema] = &[
     ServiceSchema {
         key: "core.test-echo",
         major: 1,
         revision: 0,
+        test_only: true,
         ops: &[
             ServiceOp {
                 id: 1,
@@ -85,8 +88,8 @@ pub static SERVICES: &[ServiceSchema] = &[
     },
 ];
 
-/// Constants of `core.test-echo`.
-pub mod core_test_echo {
+/// Constants of `core.test-echo` major 1.
+pub mod core_test_echo_v1 {
     /// Service key.
     pub const KEY: &str = "core.test-echo";
     /// Major version.

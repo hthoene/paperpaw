@@ -3508,7 +3508,8 @@
         }
       ],
       "revision": 0,
-      "since": 1
+      "since": 1,
+      "test_only": true
     }
   ],
   "settings_value": {
