@@ -132,15 +132,15 @@ mod x4 {
 
     use log::{info, warn};
     use paperpaw_core::CodeFile;
-    use paperpaw_core::native_host::flat::{DropReason, FlatDepth, FlatError};
+    use paperpaw_core::native_host::flat::{DropReason, FlatDepth, FlatError, FlatPlugin};
     use paperpaw_core::native_host::shell::instance::{Hooks, Instance};
     use paperpaw_core::native_host::shell::{self, Make};
-    use paperpaw_native::host_glue::Services;
-    use paperpaw_sdk::Plugin;
     use paperpaw_native::header5::{
         EntryFacts, EntryRefusal, HEADER_LEN, Header5, RawEntry, RecordFacts,
     };
+    use paperpaw_native::host_glue::Services;
     use paperpaw_platform::Storage;
+    use paperpaw_sdk::Plugin;
     use paperpaw_sdk::PluginProblem;
 
     use paperpaw_native::stream5::{EntryCheck, ReadError, Source};
@@ -435,11 +435,13 @@ mod x4 {
             );
             return Err(PluginProblem::Unsupported);
         }
-        let manifest = paperpaw_sdk::Manifest::new(
-            code.id.clone(),
-            try_string(id)?,
-            paperpaw_sdk::Version::new(0, 0, 0),
-        );
+        // Checked copies of the id and the name; a refusal drops the instance
+        // (the unload, once) as any other post-`make` failure.
+        let manifest = FlatPlugin::try_manifest(code.id, id, paperpaw_sdk::Version::new(0, 0, 0))
+            .map_err(|_| {
+            warn!("native: {id}: no room for the manifest");
+            PluginProblem::NoRoom
+        })?;
         // The instance box, the device-wide depth (made with the first plugin,
         // each plugin holds a counted share), the adapter and its box: all
         // fallible, a full heap is `NoRoom`, never an abort. A refusal drops
