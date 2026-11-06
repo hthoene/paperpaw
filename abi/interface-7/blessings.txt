@@ -3,4 +3,5 @@
 # refuses a change of the reference files or of native::DRAFT without a new line here.
 1 early raise to the draft baseline: DATA_FORMATS 5 (raise.md row 1), partition retired (#228)
 2 Hyphenation::get returns a Hyphenator that also reads data plugins' tables from the card (raise.md row 2) (#228)
+2 additive: native::declare borrowed streaming builder for declaration records 5-10 (#180)
 3 host-table storage slots 20-26 appended to PpHost, answering ERR_UNSUPPORTED until wired; the one-line PpHost shape changes, so the next draft (raise.md row 5) (#228)

@@ -2995,6 +2995,101 @@ pub use paperpaw_sdk::native::Problem
 pub use paperpaw_sdk::native::Signature
 pub use paperpaw_sdk::native::compiler
 pub use paperpaw_sdk::native::signature
+pub mod paperpaw_sdk::native::declare
+#[non_exhaustive] pub enum paperpaw_sdk::native::declare::DeclareError
+pub paperpaw_sdk::native::declare::DeclareError::Choices
+pub paperpaw_sdk::native::declare::DeclareError::Default
+pub paperpaw_sdk::native::declare::DeclareError::Empty(&'static str)
+pub paperpaw_sdk::native::declare::DeclareError::Encode(i32)
+pub paperpaw_sdk::native::declare::DeclareError::Range
+pub paperpaw_sdk::native::declare::DeclareError::SecretScoped
+pub paperpaw_sdk::native::declare::DeclareError::Sink(i32)
+pub paperpaw_sdk::native::declare::DeclareError::TooLong(&'static str)
+impl core::fmt::Display for paperpaw_sdk::native::declare::DeclareError
+pub fn paperpaw_sdk::native::declare::DeclareError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub enum paperpaw_sdk::native::declare::EditorDecl<'a>
+pub paperpaw_sdk::native::declare::EditorDecl::Screen(&'a str)
+pub paperpaw_sdk::native::declare::EditorDecl::Slot(&'a str)
+#[non_exhaustive] pub enum paperpaw_sdk::native::declare::Kind<'a>
+pub paperpaw_sdk::native::declare::Kind::Bool(bool)
+pub paperpaw_sdk::native::declare::Kind::Choice
+pub paperpaw_sdk::native::declare::Kind::Choice::choices: &'a [&'a str]
+pub paperpaw_sdk::native::declare::Kind::Choice::default: &'a str
+pub paperpaw_sdk::native::declare::Kind::Int
+pub paperpaw_sdk::native::declare::Kind::Int::default: i64
+pub paperpaw_sdk::native::declare::Kind::Int::max: i32
+pub paperpaw_sdk::native::declare::Kind::Int::min: i32
+pub paperpaw_sdk::native::declare::Kind::Language(&'a str)
+pub paperpaw_sdk::native::declare::Kind::List(&'a str)
+pub paperpaw_sdk::native::declare::Kind::Text(&'a str)
+pub struct paperpaw_sdk::native::declare::Declarations<F>
+impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::extra(&mut self, paperpaw_sdk::native::declare::ExtraDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::font_extension(&mut self, paperpaw_sdk::native::declare::FontExtensionDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::font_face(&mut self, paperpaw_sdk::native::declare::FontFaceDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::group(&mut self, paperpaw_sdk::native::declare::GroupDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::hyphenation(&mut self, &str, &str) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::is_empty(&self) -> bool
+pub fn paperpaw_sdk::native::declare::Declarations<F>::len(&self) -> usize
+pub fn paperpaw_sdk::native::declare::Declarations<F>::new(F) -> Self
+pub fn paperpaw_sdk::native::declare::Declarations<F>::spec(&mut self, paperpaw_sdk::native::declare::SpecDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::submit(&mut self) -> core::result::Result<(), paperpaw_sdk::native::declare::DeclareError>
+impl<F> core::fmt::Debug for paperpaw_sdk::native::declare::Declarations<F>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub struct paperpaw_sdk::native::declare::ExtraDecl<'a>
+pub paperpaw_sdk::native::declare::ExtraDecl::editor: core::option::Option<paperpaw_sdk::native::declare::EditorDecl<'a>>
+pub paperpaw_sdk::native::declare::ExtraDecl::follows: &'a str
+pub paperpaw_sdk::native::declare::ExtraDecl::keeps_unknown: bool
+pub paperpaw_sdk::native::declare::ExtraDecl::name: &'a str
+pub paperpaw_sdk::native::declare::ExtraDecl::section: &'a str
+pub paperpaw_sdk::native::declare::ExtraDecl::section_of_plugin: bool
+pub paperpaw_sdk::native::declare::ExtraDecl::shown_if: core::option::Option<(&'a str, &'a str)>
+pub paperpaw_sdk::native::declare::ExtraDecl::slider: bool
+pub paperpaw_sdk::native::declare::ExtraDecl::step: i32
+pub paperpaw_sdk::native::declare::ExtraDecl::unit: &'a str
+impl<'a> paperpaw_sdk::native::declare::ExtraDecl<'a>
+pub fn paperpaw_sdk::native::declare::ExtraDecl<'a>::new(&'a str) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::declare::FontExtensionDecl<'a>
+pub paperpaw_sdk::native::declare::FontExtensionDecl::extends: &'a str
+pub paperpaw_sdk::native::declare::FontExtensionDecl::name: &'a str
+pub paperpaw_sdk::native::declare::FontExtensionDecl::path: &'a str
+impl<'a> paperpaw_sdk::native::declare::FontExtensionDecl<'a>
+pub fn paperpaw_sdk::native::declare::FontExtensionDecl<'a>::new(&'a str, &'a str, &'a str) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::declare::FontFaceDecl<'a>
+pub paperpaw_sdk::native::declare::FontFaceDecl::family: &'a str
+pub paperpaw_sdk::native::declare::FontFaceDecl::name: &'a str
+pub paperpaw_sdk::native::declare::FontFaceDecl::path: &'a str
+pub paperpaw_sdk::native::declare::FontFaceDecl::priority: i32
+pub paperpaw_sdk::native::declare::FontFaceDecl::role: &'a str
+pub paperpaw_sdk::native::declare::FontFaceDecl::style: u32
+pub paperpaw_sdk::native::declare::FontFaceDecl::weight: u32
+impl<'a> paperpaw_sdk::native::declare::FontFaceDecl<'a>
+pub fn paperpaw_sdk::native::declare::FontFaceDecl<'a>::new(&'a str, &'a str) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::declare::GroupDecl<'a>
+pub paperpaw_sdk::native::declare::GroupDecl::name: &'a str
+pub paperpaw_sdk::native::declare::GroupDecl::order: i32
+pub paperpaw_sdk::native::declare::GroupDecl::page: &'a str
+pub paperpaw_sdk::native::declare::GroupDecl::parent: &'a str
+pub paperpaw_sdk::native::declare::GroupDecl::title: &'a str
+impl<'a> paperpaw_sdk::native::declare::GroupDecl<'a>
+pub fn paperpaw_sdk::native::declare::GroupDecl<'a>::new(&'a str, &'a str) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::declare::SpecDecl<'a>
+pub paperpaw_sdk::native::declare::SpecDecl::advanced: bool
+pub paperpaw_sdk::native::declare::SpecDecl::group: &'a str
+pub paperpaw_sdk::native::declare::SpecDecl::guarded: bool
+pub paperpaw_sdk::native::declare::SpecDecl::help: &'a str
+pub paperpaw_sdk::native::declare::SpecDecl::kept_on_reset: bool
+pub paperpaw_sdk::native::declare::SpecDecl::kind: paperpaw_sdk::native::declare::Kind<'a>
+pub paperpaw_sdk::native::declare::SpecDecl::name: &'a str
+pub paperpaw_sdk::native::declare::SpecDecl::scoped: bool
+pub paperpaw_sdk::native::declare::SpecDecl::secret: bool
+pub paperpaw_sdk::native::declare::SpecDecl::title: &'a str
+impl<'a> paperpaw_sdk::native::declare::SpecDecl<'a>
+pub fn paperpaw_sdk::native::declare::SpecDecl<'a>::new(&'a str, paperpaw_sdk::native::declare::Kind<'a>, &'a str, &'a str) -> Self
+pub const paperpaw_sdk::native::declare::BATCH_MAX_BYTES: usize
+pub const paperpaw_sdk::native::declare::BATCH_MAX_RECORDS: usize
+pub const paperpaw_sdk::native::declare::CHOICES_MAX_VALUES: usize
+pub const paperpaw_sdk::native::declare::CHOICE_MAX_BYTES: usize
 pub mod paperpaw_sdk::native::keys
 #[non_exhaustive] pub enum paperpaw_sdk::native::keys::RevokedError
 pub paperpaw_sdk::native::keys::RevokedError::Full

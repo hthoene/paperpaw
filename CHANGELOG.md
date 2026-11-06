@@ -30,6 +30,7 @@ change the plugin SDK.
 - `tools/hyphenation-packs`: builds and checks the thirteen hyphenation plugins as data plugins
   (`[hyphenation]` file kind, PPHP version 1 tables); the interface-6 plugins stay until the
   card-backed reader lands (#228).
+- `paperpaw_sdk::native::declare` (interface 7, merges with the raise): a builder for the declaration records 5-10 (setting groups, specs and extras, hyphenation, font faces and extensions) that splits them into batches and encodes them with the generated codec, with golden settings batches of the widgets and Battery plugins as fixtures (#228).
 - `paperpaw-hyphen`: `check_table`, `Layout`, `TableError` and the limits `MAX_BLOCKS` (4096), `MAX_BLOCK_BYTES` (512) and
   `MAX_EXCEPTION_BYTES` (8 KiB) behind the `kernel` feature (not seen by plugins), the one check of a pattern table that the
   kernel's reader and `paperpaw-dev package` share (#228).

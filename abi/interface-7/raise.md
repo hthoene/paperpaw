@@ -74,6 +74,11 @@ on a device, these hold (each one is named in the PR that closes it):
 - **Root 1** opens only with the admission of owner decision 125 (D2.2): the signed `uses.storage` gate and the
   excluded folders, each with its test.
 
+The interface-6 declaration converters belong only to the integration tests'
+`tests/support/` helpers, never the production SDK. Delete these helpers once
+the last plugin port lands; the ported plugins declare through the borrowed
+interface-7 builder directly.
+
 ## Steps of the raise itself
 
 These are not rows of their own, but the raise is not complete without them (all done by the early raise):

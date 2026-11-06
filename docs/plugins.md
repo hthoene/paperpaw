@@ -2037,6 +2037,28 @@ the plugin's admission is revoked and finished, then the plugin is destroyed
 and its copy unmapped. A folder removed while the plugin is loaded changes
 nothing until then: the mapped copy is private.
 
+#### Declaring interface-7 settings and resources
+
+`paperpaw_sdk::native::declare::Declarations` writes declaration records for
+settings, groups, extras, hyphenation tables and fonts. Create it with a sink
+that submits each byte slice through `registrations.submit`, add typed
+declarations, then call `submit()` to send the final batch. Dropping the
+builder does not submit anything.
+
+Declaration fields borrow strings from the plugin image or from values that
+live through the individual add call. The builder encodes each item immediately;
+it does not keep the declarations or copy their strings. It reuses one 4 KiB
+batch buffer, with bounded temporary space for a setting's default and choices.
+The sink must consume each batch during its call, without retaining the slice.
+
+A sink refusal becomes `DeclareError::Sink(status)`, preserving the host's
+status. It permanently poisons the builder: every later addition and `submit()`
+returns that same error, even for invalid input, without invoking the sink
+again. Propagate the error from plugin construction so the host abandons its
+staged declarations; never retry a partially submitted registration stream.
+Conversions from older registration types exist only in test fixtures, not in
+the SDK's production API.
+
 ### Packing and signing
 
 `paperpaw-sign` (in this repository, `tools/sign`) makes the file from
