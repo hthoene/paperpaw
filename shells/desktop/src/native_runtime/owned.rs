@@ -378,4 +378,5 @@ fn dispatch_registration<S>(
 mod tests;
 
 mod canvas;
+pub(super) mod dev;
 mod environment;

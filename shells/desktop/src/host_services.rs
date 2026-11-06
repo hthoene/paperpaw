@@ -20,6 +20,22 @@ pub struct DesktopServices {
     start: Instant,
 }
 
+impl DesktopServices {
+    /// The emulator's heap and clock, the clock starting now.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            start: Instant::now(),
+        }
+    }
+}
+
+impl Default for DesktopServices {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Services for DesktopServices {
     fn alloc(&self, size: usize, align: usize) -> *mut u8 {
         match Layout::from_size_align(size, align) {
