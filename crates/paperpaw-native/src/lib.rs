@@ -84,6 +84,8 @@ mod interface;
 pub mod preflight;
 mod reloc;
 pub mod signature;
+#[cfg(feature = "kernel")]
+pub mod stream5;
 
 pub use extent::ImageExtent;
 pub use header::{
