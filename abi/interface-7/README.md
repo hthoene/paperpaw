@@ -48,3 +48,6 @@ interface-7 batch, not a legacy backend or runtime compatibility shim. It must
 be reassessed with the coordinated interface raise and retirement of the old
 boundary. Any new namespace or permitted cross-contract dependency requires
 explicit review, not a wildcard exception.
+
+Changes the interface-7 batch needs in the frozen interface-6 files are listed in `raise.md`
+and applied only by the coordinated raise.
