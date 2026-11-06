@@ -1,4 +1,5 @@
-//! Borrowed interface-7 event payloads (tags 32-39). All strings borrow the
+//! Borrowed interface-7 events: tick (tag 3) and event payloads (tags 32-39).
+//! All strings borrow the
 //! callback input; decoding allocates nothing and copies no strings.
 use super::{
     Error,
@@ -37,6 +38,8 @@ pub struct PageTurn<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Event<'a> {
+    /// A scheduled tick callback.
+    Tick { now_ms: u64 },
     /// PaperPaw started.
     Started { now_ms: u64 },
     /// PaperPaw resumed.
@@ -87,7 +90,15 @@ impl<'a> Event<'a> {
 /// Returns framing/UTF-8/cap errors from the generated codec; Invalid for a
 /// non-singleton batch or unsound counters/progress; Unsupported for other tags.
 fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
-    let record = wire::records_decode_single(bytes).map_err(Error::from_status)?;
+    let record = match wire::records_decode_single(bytes) {
+        Ok(record) => record,
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED) => {
+            return wire::tick_decode(bytes)
+                .map(|now_ms| Event::Tick { now_ms })
+                .map_err(Error::from_status);
+        }
+        Err(status) => return Err(Error::from_status(status)),
+    };
     Ok(match record {
         Record::EventStarted(r) => Event::Started { now_ms: r.now_ms },
         Record::EventResume(r) => Event::Resume { now_ms: r.now_ms },

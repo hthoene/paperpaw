@@ -6,24 +6,47 @@ use super::{
 use paperpaw_native::host_glue::{PpBuffer, PpBytes};
 
 const PREFIX: &str = "core.grant.";
+// The plugin folder grammar is documented by install::is_plugin_name.
+const MAX_PLUGIN_BYTES: usize = 40;
+const LONGEST_KIND: &str = "install";
 
-/// Read a grant such as `core.grant.style.example.reader` as yes or no.
-/// The host enforces ownership: reading another plugin's grant is denied.
+/// A user permission held and edited only by the host.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum GrantKind {
+    /// Override the user's reading style.
+    Style,
+    /// Install plugins, fonts and data without asking each time.
+    /// Firmware changes always require confirmation.
+    Install,
+}
+impl GrantKind {
+    const fn key(self) -> &'static str {
+        match self {
+            Self::Style => "style",
+            Self::Install => "install",
+        }
+    }
+}
+
+/// Read the caller's grant as yes or no. `plugin` is the caller's own plugin id.
+/// The host checks ownership and denies a request naming any other plugin.
 /// Grants can be changed only through the host's settings UI.
 ///
 /// # Errors
-/// Returns Invalid for an incomplete grant key or a non-Boolean host reply,
-/// or the host's error, including Denied for another plugin's grant.
-pub fn read(host: &Host<'_>, key: impl AsRef<str>) -> Result<bool, Error> {
-    let key = key.as_ref();
-    let Some((kind, owner)) = key
-        .strip_prefix(PREFIX)
-        .and_then(|rest| rest.split_once('.'))
-    else {
+/// Returns Invalid for an invalid plugin id or a non-Boolean or malformed host
+/// reply, or the host's error, including Denied for another plugin's grant.
+pub fn granted(host: &Host<'_>, kind: GrantKind, plugin: &str) -> Result<bool, Error> {
+    if !crate::install::is_plugin_name(plugin) {
         return Err(Error::Invalid);
-    };
-    if kind.is_empty() || owner.is_empty() {
-        return Err(Error::Invalid);
+    }
+    let mut key = [0; PREFIX.len() + LONGEST_KIND.len() + 1 + MAX_PLUGIN_BYTES];
+    let mut length = 0;
+    for part in [PREFIX, kind.key(), ".", plugin] {
+        let end = length + part.len();
+        let slot = key.get_mut(length..end).ok_or(Error::Invalid)?;
+        slot.copy_from_slice(part.as_bytes());
+        length = end;
     }
     let mut out = [0; SETTINGS_HEADER_BYTES + 1];
     // SAFETY: the key and exclusively borrowed output remain live for this call.
@@ -32,7 +55,7 @@ pub fn read(host: &Host<'_>, key: impl AsRef<str>) -> Result<bool, Error> {
             host.ctx,
             PpBytes {
                 ptr: key.as_ptr(),
-                len: key.len(),
+                len: length,
             },
             PpBuffer {
                 ptr: out.as_mut_ptr(),
@@ -42,7 +65,7 @@ pub fn read(host: &Host<'_>, key: impl AsRef<str>) -> Result<bool, Error> {
     };
     let length = usize::try_from(result).map_err(|_| Error::from_status(result))?;
     let bytes = out.get(..length).ok_or(Error::Invalid)?;
-    match settings_decode(bytes).map_err(Error::from_status)? {
+    match settings_decode(bytes).map_err(|_| Error::Invalid)? {
         SettingValueRef::Bool(value) => Ok(value),
         _ => Err(Error::Invalid),
     }

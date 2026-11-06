@@ -235,3 +235,42 @@ fn event_decoding_uses_exact_tags_for_growth_and_input_records() {
         assert_eq!(decode(&unknown), Err(Error::Unsupported));
     }
 }
+
+#[test]
+fn generated_tick_vectors_decode_and_reject_every_truncation() {
+    let mut bytes = [0; 12];
+    for now_ms in [0_u64, u64::MAX] {
+        let len = wire::tick_encode(now_ms, &mut bytes).unwrap();
+        assert_eq!(Event::decode(&bytes[..len]), Ok(Event::Tick { now_ms }));
+        for end in 0..len {
+            assert_eq!(Event::decode(&bytes[..end]), Err(Error::Invalid));
+        }
+    }
+}
+
+#[test]
+fn tick_optional_extensions_are_generated_decoder_compatible() {
+    // One appended bitmap byte and two appended field bytes are forward-compatible.
+    let bytes = [1, 3, 12, 1, 1, 7, 0, 0, 0, 0, 0, 0, 0, 99, 42];
+    assert_eq!(wire::tick_decode(&bytes), Ok(7));
+    assert_eq!(Event::decode(&bytes), Ok(Event::Tick { now_ms: 7 }));
+    let mut trailing = bytes.to_vec();
+    trailing.push(0);
+    assert_eq!(Event::decode(&trailing), Err(Error::Invalid));
+}
+
+#[test]
+fn tick_fallback_preserves_exact_tags_and_singleton_framing() {
+    let mut bytes = [0; 12];
+    let len = wire::tick_encode(17, &mut bytes).unwrap();
+    for tag in [63, 64, 127] {
+        bytes[1] = tag;
+        assert_eq!(Event::decode(&bytes[..len]), Err(Error::Unsupported));
+    }
+    bytes[1] = 3;
+    bytes[0] = 2;
+    assert_eq!(Event::decode(&bytes[..len]), Err(Error::Invalid));
+    let record = Record::Registration(Registration::Draw { token: 3 });
+    let len = records_encode(&[record], &mut bytes).unwrap();
+    assert_eq!(Event::decode(&bytes[..len]), Err(Error::Unsupported));
+}

@@ -2641,3 +2641,8 @@ Decode their shown/run events with `native::events::Event::decode`. Format catal
 with `native::formatting::format` using caller-owned argument scratch and output;
 `digits` maps ASCII digits. Both return the full required byte length, so retry
 when the result exceeds the output capacity.
+
+Read a user grant with `native::grants::granted(host, GrantKind::Style, "your-plugin")`
+(or `GrantKind::Install`). Supply only your own plugin id: the host denies a foreign
+id. The reply is Boolean; there is no grant setter. Firmware changes always need
+host confirmation, including for a trusted installer.
