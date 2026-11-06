@@ -69,3 +69,43 @@ cargo clippy -p paperpaw-emulator --all-targets --no-default-features -j4 -- -D 
 
 Run full `tools/ci-local.sh full -j4` before publishing. These are host proofs;
 no hardware or X4 memory qualification follows from them.
+
+## Scoped snapshot and settings forwarding (#732)
+
+Explicit dependencies: PR #153 at `92b67b4c5287d8d8947a0417d837f43c02333088`,
+PR #155 at `28eb35e87fa4525e86ac782d2d6b6b281033c7aa`, and PR #156 at
+`f6c5dbad5a2a9e1e4cdd1c0a27c57fa461409137` (including their own dependencies).
+
+The concrete owner context now owns an `EnvironmentScope`. Typed slot 4 and
+slot 5 functions decode that context and forward to its reviewed public methods.
+The admitted batch or queue closure calls `environment::invoke` with a borrowed
+`Env`; `environment::dispatch` supplies the batch convenience path. The scope
+is installed after admission and clears before that closure returns or unwinds.
+The plugin keeps only its stable owner context pointer. There is no Env pointer
+in a wire record, retained borrowed service, or private FrameSlot access.
+
+Slot 4 returns status, and its header carries the encoded length. Slot 5 returns
+the complete required length while copying the fitting prefix. Consumers must
+refuse negative status and incomplete output before decoding. No settings value
+is coerced or defaulted by the loader. Keys remain initialized, immutable and
+live through each call; outputs must be exclusive and disjoint from keys and
+host state.
+
+The existing real-library registration fixture accepts an optional query body;
+its original four cases use an empty body. New cases read snapshot and settings
+from both admitted draw and queued event callbacks. Fixture data uses
+`abi7-tick-draw.enabled`; this does not register a product setting. Host cleanup
+checks cover refusal outside scope, nesting, host unwind, revoke/queued leases,
+exactly-once instance destruction and module release. Required lengths exceeding
+a 64-byte caller buffer remain explicit. Validation and review are required
+before accepting these new cases.
+
+This remains inactive Linux host integration. Application registry wiring,
+borrowed Canvas slot 9, commands, visible rendering, Battery acceptance and real
+device behavior are separate gates. A draw callback here reads data and emits
+an allocation marker; it paints no pixels.
+
+The loader integration fixture uses Gray4: Kernel construction refuses
+`PixelFormat::Other` before any Env dispatch (`Graphics::UnsupportedFormat`).
+Preservation of Other remains covered by PR #155's core snapshot tests; this
+loader proof does not claim an actual Kernel callback with that format.

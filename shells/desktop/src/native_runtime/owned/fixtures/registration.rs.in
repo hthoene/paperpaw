@@ -82,6 +82,7 @@ unsafe extern "C" fn draw(state: *mut core::ffi::c_void, token: u32) -> i32 {
 unsafe fn effect(state: *mut core::ffi::c_void) -> i32 {
     let s = unsafe { &*state.cast::<State>() };
     let h = unsafe { &*s.host };
+    @QUERY_BODY@
     let mut marker = core::ptr::null_mut();
     let status = unsafe { (h.heap_alloc)(s.ctx, 1, 1, &mut marker) };
     if status != OK { return status; }
