@@ -32,7 +32,12 @@ The service catalog holds the four data services of slot 17 (`core.usage`, `core
 A selected service contributes the interface minor that introduced it, never its semantic revision.
 
 Metadata is limited to 2,048 bytes, keys to 128 bytes, exports to one, services to
-16 and features to 32. The codec rejects unknown identifiers, invalid lengths,
+32 and features to 32.
+
+A feature record carries `flags` (u16). Bit 0 means required (D1, #890): a host that
+does not know a required feature key refuses the load and names the key, while an
+unknown key without the bit is ignored. Other bits are refused. Known keys must
+match the catalog revision. Service keys stay closed: an unknown one is refused. The codec rejects unknown identifiers, invalid lengths,
 reserved fields, duplicates, invalid UTF-8, noncanonical requirements and trailing
 bytes. A higher required minor is structurally valid; the loader must separately
 refuse an unsupported requirement before invoking plugin code. These are host-tool

@@ -1031,7 +1031,7 @@
     "max_exports": 1,
     "max_features": 32,
     "max_key_bytes": 128,
-    "max_services": 16,
+    "max_services": 32,
     "prefix": [
       {
         "name": "magic",
@@ -1143,7 +1143,7 @@
           "type": "u16"
         },
         {
-          "name": "reserved",
+          "name": "flags",
           "type": "u16"
         }
       ],
@@ -1426,6 +1426,11 @@
         },
         {
           "default": null,
+          "list": {
+            "item_max_bytes": 96,
+            "max_items": 32,
+            "separator": "\n"
+          },
           "max_bytes": 1024,
           "name": "choices",
           "optional": false,
@@ -2848,6 +2853,16 @@
       "name": "ERR_FULL",
       "since": 1,
       "value": -11
+    },
+    {
+      "name": "ERR_DENIED",
+      "since": 1,
+      "value": -12
+    },
+    {
+      "name": "ERR_TIMEOUT",
+      "since": 1,
+      "value": -13
     }
   ]
 }

@@ -1,5 +1,5 @@
 {
   "replaces_sha256": "a31a2313673b4492e4cf1b5aabfe513d0f879529ce8ac809b067935ff56cea9d",
-  "reason": "interface 7 draft 5, the one breaking batch before 1.0 (ADR 0034): PpPlugin.dispatch_event gains the reply buffer (N1) and draw gains its frame input (N2); nothing is released",
+  "reason": "interface 7 draft 5, the one breaking batch before 1.0 (ADR 0034): PpPlugin.dispatch_event gains the reply buffer (N1), draw gains its frame input (N2), metadata feature records gain the required flag (D1) and the service cap rises to 32 (D5), setting.spec.choices declares its list bounds; nothing is released",
   "ticket": "#241"
 }

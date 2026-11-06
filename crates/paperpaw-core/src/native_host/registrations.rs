@@ -27,7 +27,9 @@ pub use wire::{
     EVENT_RESUME_TAG, EVENT_STARTED_TAG, EVENT_STOPPING_TAG, EVENT_SUSPEND_TAG,
     EventBatteryMeasured, EventPageTurned, EventResume, EventStarted, EventStopping, EventSuspend,
     Record, RecordBatch, RecordIter, ResourceFontExtension, ResourceFontFace, ResourceHyphenation,
-    SettingExtra, SettingGroup, SettingSpec, records_decode, records_encode,
+    SETTING_SPEC_CHOICES_ITEM_MAX_BYTES, SETTING_SPEC_CHOICES_MAX_ITEMS,
+    SETTING_SPEC_CHOICES_SEPARATOR, SettingExtra, SettingGroup, SettingSpec, records_decode,
+    records_encode,
 };
 // Service records 48-52 and the bare framing of service blobs (slots 17-19,
 // `docs/abi/proposals/interface-7-usage-clock.md`): built by the host, never

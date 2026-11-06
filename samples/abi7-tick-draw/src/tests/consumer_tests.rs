@@ -7,7 +7,7 @@ use crate::{
 
 fn draw_once(p: *const PpPlugin) -> i32 {
     // SAFETY: tests hold a live sample instance and invoke synchronously.
-    unsafe { ((*p).draw.unwrap())((*p).state, DRAW_TOKEN) }
+    unsafe { ((*p).draw.unwrap())((*p).state, DRAW_TOKEN, frame()) }
 }
 fn observed(p: *const PpPlugin) -> Option<observations::Observations> {
     // SAFETY: each test retains exclusive ownership between synchronous callbacks.

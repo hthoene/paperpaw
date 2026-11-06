@@ -21,7 +21,7 @@
     "max_exports": 1,
     "max_features": 32,
     "max_key_bytes": 128,
-    "max_services": 16,
+    "max_services": 32,
     "prefix": [
       {
         "name": "magic",
@@ -133,7 +133,7 @@
           "type": "u16"
         },
         {
-          "name": "reserved",
+          "name": "flags",
           "type": "u16"
         }
       ],
@@ -338,7 +338,7 @@
           "width": 2
         },
         {
-          "name": "reserved",
+          "name": "flags",
           "offset": 6,
           "type": "u16",
           "width": 2
