@@ -78,6 +78,14 @@ pub mod frames;
 /// Bounded decoded registration submission during plugin construction.
 #[path = "native_host/registrations.rs"]
 pub mod registrations;
+// Static-entry activation uses the shared D1 reader; registry wiring follows.
+#[allow(
+    dead_code,
+    reason = "native built-in registry adapter follows this prerequisite"
+)]
+#[path = "native_host/linked_entry.rs"]
+pub(crate) mod linked_entry;
+
 /// The shell's side of one hosted plugin (owner, host table, `make`,
 /// scoped dispatch), shared by the desktop and the X4.
 #[path = "native_host/shell.rs"]
