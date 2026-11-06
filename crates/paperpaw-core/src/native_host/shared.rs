@@ -44,6 +44,12 @@ impl<T> Shared<T> {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn strong_count(&self) -> u32 {
+        // SAFETY: this handle retains the initialized allocation.
+        unsafe { self.pointer.as_ref() }.count.get()
+    }
+
     pub(crate) fn try_clone(&self) -> Option<Self> {
         // SAFETY: this shared owner keeps the initialized allocation live.
         let inner = unsafe { self.pointer.as_ref() };

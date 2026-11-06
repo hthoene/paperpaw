@@ -142,6 +142,11 @@ impl fmt::Debug for FlatPlugin {
 }
 
 impl FlatPlugin {
+    #[cfg(test)]
+    pub(crate) fn reference_counts(&self) -> (u32, u32) {
+        (self.instance.strong_count(), self.depth.0.strong_count())
+    }
+
     /// Retain a shell-owned instance. Allocations occur only during construction
     /// and subscription registration, never during event encoding or dispatch.
     /// The instance Box and its private shared node cost two allocations per
