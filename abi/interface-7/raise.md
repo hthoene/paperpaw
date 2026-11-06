@@ -78,9 +78,12 @@ These are not rows of their own, but the raise is not complete without them (all
    older interface or an older draft (`interface`/`draft` of its `interface.txt`) builds a plugin this firmware
    must refuse at load (fingerprint, `Native::problem`), before anything of it runs; only a baseline of this
    interface and draft must still run and agree. `crates/paperpaw-table/table-baseline.txt` stays at the
-   interface-6 commit while interface 7 is a draft (draft builds are never released), so the job asserts the
+   interface-6 commit while interface 7 is a draft (a draft build is never the frozen baseline), so the job asserts the
    refusal; the first PR after the freeze sets it to the frozen commit (tag `interface-7`), and from then on the
    job asserts again that old builds run. `tools/ci-local.sh` runs the job from `table-baseline.txt` as CI does.
+   Meanwhile a second step runs `tools/table-compat.sh HEAD` (CI and `ci-local`): this tree's own plugin, built with
+   its own copies and in host table mode, must run and agree, so the "runs" path is exercised too. The script runs
+   its one test by exact name and fails unless exactly one test ran.
 
 Items behind the `kernel` cargo feature (ADR 0020), such as `paperpaw-hyphen`'s table check and card-backed
 reader, are not part of the plugin interface and need no row.

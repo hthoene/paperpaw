@@ -144,9 +144,11 @@ pub const TOOLCHAIN: &str = if cfg!(target_arch = "riscv32") {
 };
 
 /// The names a plugin folder's code has: `code.ppn` on the X4 and the X4
-/// Pro, `code.so` on Android, `code-host.dll`, `.so` or `.dylib` built for
-/// a computer (the desktop emulator). A folder with one is a code plugin's,
-/// also where PaperPaw loads none.
+/// Pro, `code-host.dll`, `.so` or `.dylib` built for a computer (the
+/// desktop emulator), and `code.so`, which no shipped loader reads
+/// (Android loads no code plugins, ADR 0024). A folder with one is a code
+/// plugin's, also where PaperPaw loads none: it is then listed as
+/// unsupported.
 pub const CODE_FILES: &[&str] = &[
     "code.ppn",
     "code.so",
@@ -861,7 +863,7 @@ pub unsafe fn take(made: *mut core::ffi::c_void) -> Option<alloc::boxed::Box<dyn
 /// The crate is `#![no_std]`; for the X4 (`riscv32imc-unknown-none-elf`)
 /// and the X4 Pro (`xtensa-esp32s3-none-elf`) a `#![no_main]` binary,
 /// linked with `paperpaw-plugin.x` and packed by `paperpaw-sign pack`;
-/// where a system loads libraries (a computer, Android) a `cdylib` with
+/// where a system loads libraries (a computer) a `cdylib` with
 /// the same entry. See the [module documentation](crate::native).
 #[macro_export]
 macro_rules! plugin {

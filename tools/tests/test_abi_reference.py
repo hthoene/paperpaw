@@ -397,6 +397,42 @@ class OrderedListTests(Fixture):
             self.write(self.path(name), text)
 
 
+class CratePinsTests(Fixture):
+    """`crate-pins.list` is a set, as the SDK interface test reads it (#783)."""
+    PINS = reference.DIRECTORY + '/crate-pins.list'
+    files = {reference.SOURCE: source(7, 1), reference.SUMMARY: summary(7, 1),
+             SEVEN: '1 early raise, draft baseline (#228)\n',
+             PINS: 'paperpaw-text skrifa =0.48.0\npaperpaw-text read-fonts =0.45.1\n'
+                   'paperpaw-text font-types =0.12.7\n'}
+
+    def named(self):
+        self.write(SEVEN, '1 early raise, draft baseline (#228)\n1 more (#1)\n')
+
+    def test_a_reorder_passes(self):
+        self.write(self.PINS, 'paperpaw-text font-types =0.12.7\npaperpaw-text skrifa =0.48.0\n'
+                              'paperpaw-text read-fonts =0.45.1\n')
+        self.assertIn('draft-1 reference files match', self.check())
+
+    def test_a_removed_or_changed_pin_is_refused(self):
+        for text in ['paperpaw-text skrifa =0.48.0\npaperpaw-text read-fonts =0.45.1\n',
+                     'paperpaw-text skrifa =0.48.1\npaperpaw-text read-fonts =0.45.1\n'
+                     'paperpaw-text font-types =0.12.7\n']:
+            with self.subTest(text=text):
+                self.write(self.PINS, text)
+                self.named()
+                with self.assertRaisesRegex(ValueError, 'crate-pins.list lost or changed a line'):
+                    self.check()
+
+    def test_a_new_pin_needs_a_blessing(self):
+        old = (self.root / self.PINS).read_text()
+        # Added in the middle of a reorder: still only an addition.
+        self.write(self.PINS, 'paperpaw-text new =1.0.0\n' + old)
+        with self.assertRaisesRegex(ValueError, 'gains no line'):
+            self.check()
+        self.named()
+        self.assertIn('additions named (1)', self.check())
+
+
 class LaterDraftTests(Fixture):
     files = {reference.SOURCE: source(7, 3), reference.SUMMARY: summary(7, 3),
              SEVEN: '1 early raise (#228)\n2 a (#1)\n3 b (#2)\n'}
