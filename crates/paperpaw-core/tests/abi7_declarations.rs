@@ -1174,7 +1174,12 @@ fn font_extension_rules() {
 
 type Context = RegistrationScope<paperpaw_core::native_host::registrations::Registration>;
 
-fn run(bytes: &[u8]) -> (Result<(), i32>, bool) {
+fn run(
+    bytes: &[u8],
+) -> (
+    Result<(), i32>,
+    Result<(), paperpaw_core::native_host::Error>,
+) {
     let owner: Pin<Box<HostOwner<Context, ()>>> =
         Box::pin(HostOwner::new(RegistrationScope::new(), ()));
     // SAFETY: projecting the pinned context without moving it.
@@ -1192,19 +1197,25 @@ fn run(bytes: &[u8]) -> (Result<(), i32>, bool) {
             }
         })
         .unwrap();
-    let committed = construction.commit(|_| ()).is_ok();
+    let committed = construction.commit(|_| ()).map(|_| ());
     (if status == OK { Ok(()) } else { Err(status) }, committed)
 }
 
 #[test]
-fn a_valid_batch_passes_and_leaves_construction_committable() {
+fn a_valid_wire_declaration_passes_validation_but_keeps_the_activation_gate() {
     let default = default_text("metric");
     let bytes = batch(&[
         record(5, &group_fields()),
         record(6, &spec_fields(&default)),
         record(2, &[u(7)]),
     ]);
-    assert_eq!(run(&bytes), (Ok(()), true));
+    assert_eq!(
+        run(&bytes),
+        (
+            Ok(()),
+            Err(paperpaw_core::native_host::Error::DeclarationViewsUnavailable)
+        )
+    );
 }
 
 #[test]
@@ -1238,7 +1249,7 @@ fn one_bad_record_refuses_the_whole_batch_and_poisons_construction() {
     for (bytes, status) in cases {
         let (result, committed) = run(&bytes);
         assert_eq!(result, Err(status));
-        assert!(!committed, "refusal must poison construction");
+        assert!(committed.is_err(), "refusal must poison construction");
     }
 }
 
@@ -1252,4 +1263,9 @@ fn validate_batch_returns_the_first_failure() {
     ]);
     let decoded = records_decode(&bytes).unwrap();
     assert_eq!(validate_batch(PLUGIN, &decoded), Err(ERR_INVALID));
+}
+
+#[test]
+fn event_only_wire_batch_remains_committable() {
+    assert_eq!(run(&batch(&[record(2, &[u(7)])])), (Ok(()), Ok(())));
 }
