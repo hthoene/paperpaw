@@ -34,6 +34,10 @@ pub(super) fn dispatch_draw<S>(
 ) -> Result<i32, Error> {
     // The screen frame (N2): the canvas's visible region, drawn in one pass.
     let clip = canvas.clip();
+    // An empty clip is never sent (section 6): nothing visible, no call.
+    if clip.width == 0 || clip.height == 0 {
+        return Ok(host_glue::OK);
+    }
     let frame = paperpaw_core::native_host::frames::screen(
         i32::from(clip.x),
         i32::from(clip.y),

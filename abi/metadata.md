@@ -35,7 +35,8 @@ Metadata is limited to 2,048 bytes, keys to 128 bytes, exports to one, services 
 32 and features to 32.
 
 A feature record carries `flags` (u16). Bit 0 means required (D1, #890). Feature
-revisions only add: a host at revision N serves requests for revision N or lower. A
+revisions only add: a new revision may add to a feature but never change what an older
+revision meant, so a host at revision N serves requests for revision N or lower. A
 feature the host lacks, or has only at a lower revision than requested, is
 unavailable: an optional one is left out, a required one refuses the load and names
 the key. Other bits are refused. Service keys stay closed: an unknown
