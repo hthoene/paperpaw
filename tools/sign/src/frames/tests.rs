@@ -119,7 +119,12 @@ fn an_addi_frame_at_the_limit_is_refused_and_one_below_it_is_not() {
 fn deallocation_and_sp_restores_are_not_frames() {
     // The epilogue's addi sp, sp, +N; `addi sp, s0, -N` (the frame pointer's).
     assert_eq!(found(&[W(addi(SP, SP, 2032))]), None);
-    assert_eq!(found(&[W(addi(SP, 8, -2032))]), None);
+    // `addi sp, s0, -N` with no frame pointer set in the function is not a
+    // restore the scan can prove: refused.
+    assert_eq!(
+        found(&[W(addi(SP, 8, -2032))]),
+        Some(Finding::Unknown { at: 0 })
+    );
     // Another register's adjustment is none of sp's.
     assert_eq!(found(&[W(addi(T0, T0, -2032))]), None);
 }
@@ -164,10 +169,10 @@ fn a_size_that_is_not_known_is_refused() {
         found(&[W(add(SP, SP, T1))]),
         Some(Finding::Unknown { at: 0 })
     );
-    // Set before a branch: not trusted after it.
+    // Set before a branch whose both ways keep it: a constant on every path.
     assert_eq!(
         found(&[W(addi(T0, 0, 64)), W(beq(0, 0)), W(sub(SP, SP, T0))]),
-        Some(Finding::Unknown { at: 8 })
+        None
     );
     // Overwritten by something the scan does not follow (a load).
     let lw = (T0 << 7) | (2 << 12) | (SP << 15) | 0x03;
@@ -257,9 +262,37 @@ fn a_dynamic_alloca_is_refused_whatever_form_it_takes() {
     let lw = (SP << 7) | (2 << 12) | (A0 << 15) | 0x03;
     assert_eq!(found(&[W(lw)]), Some(Finding::Unknown { at: 0 }));
     assert_eq!(found(&[W(lui(SP, 1))]), Some(Finding::Unknown { at: 0 }));
-    // The frame pointer's restore is the frame given back, not an alloca.
-    assert_eq!(found(&[W(addi(SP, S0, -16))]), None);
-    assert_eq!(found(&[N(c_mv(SP, S0))]), None);
+    // The frame pointer's restore, where the function set it from sp, is the
+    // frame given back, not an alloca.
+    assert_eq!(
+        found(&[
+            W(addi(SP, SP, -48)),
+            W(addi(S0, SP, 48)),
+            W(addi(SP, S0, -48)),
+            W(RET)
+        ]),
+        None
+    );
+    assert_eq!(
+        found(&[
+            W(addi(SP, SP, -48)),
+            N(c_mv(S0, SP)),
+            N(c_mv(SP, S0)),
+            W(RET)
+        ]),
+        None
+    );
+    // Without it set in the function (or written since), refused.
+    assert_eq!(
+        found(&[W(addi(SP, S0, -16))]),
+        Some(Finding::Unknown { at: 0 })
+    );
+    assert_eq!(found(&[N(c_mv(SP, S0))]), Some(Finding::Unknown { at: 0 }));
+    let lw_s0 = (S0 << 7) | (2 << 12) | (SP << 15) | 0x03;
+    assert_eq!(
+        found(&[W(addi(S0, SP, 0)), W(lw_s0), W(addi(SP, S0, 0))]),
+        Some(Finding::Unknown { at: 8 })
+    );
 }
 
 #[test]
@@ -285,11 +318,16 @@ fn a_constant_set_on_one_path_is_not_trusted_where_another_path_arrives() {
         ]),
         None
     );
-    // An indirect jump (a switch) loosens the function: a size built after
-    // it is not trusted.
+    // An indirect jump (a switch): the code after it is entered with no
+    // register known, so a size set before the jump is not trusted ...
+    assert_eq!(
+        found(&[W(addi(A0, 0, 16)), W(jr(T1)), W(sub(SP, SP, A0))]),
+        Some(Finding::Unknown { at: 8 })
+    );
+    // ... and one built from immediates after it is a constant all the same.
     assert_eq!(
         found(&[W(jr(T1)), W(addi(A0, 0, 16)), W(sub(SP, SP, A0))]),
-        Some(Finding::Unknown { at: 8 })
+        None
     );
     // A return is not such a jump.
     assert_eq!(
@@ -349,9 +387,77 @@ fn a_functions_frame_is_how_deep_sp_goes_below_its_start() {
     ]);
     assert_eq!(frame_sizes(&f, &[0]), vec![Some(48)]);
     // A frame pointer's restore leaves the frame as it was.
-    let f = code(&[W(addi(SP, SP, -64)), W(addi(SP, S0, -16)), W(RET)]);
+    let f = code(&[
+        W(addi(SP, SP, -64)),
+        W(addi(S0, SP, 64)),
+        W(addi(SP, S0, -64)),
+        W(RET),
+    ]);
     assert_eq!(frame_sizes(&f, &[0]), vec![Some(64)]);
     // A dynamic one: unknown, for that function only.
     let f = code(&[W(sub(SP, SP, T1)), W(RET), W(addi(SP, SP, -32))]);
     assert_eq!(frame_sizes(&f, &[0, 8]), vec![None, Some(32)]);
+}
+
+#[test]
+fn the_most_negative_sp_along_any_path_is_the_frame() {
+    // A branch over a second allocation: one path takes -1900 more.
+    let f = code(&[
+        W(addi(SP, SP, -100)),
+        W(beq_to(11, 0, 8)),
+        W(addi(SP, SP, -1900)),
+        W(addi(SP, SP, 1900)),
+        W(addi(SP, SP, 100)),
+        W(RET),
+    ]);
+    assert_eq!(frame_sizes(&f, &[0]), vec![Some(2000)]);
+    // A loop that moves sp never settles: refused as unbounded.
+    let f = code(&[W(addi(SP, SP, -16)), W(beq_to(0, 0, -4))]);
+    assert_eq!(frame_sizes(&f, &[0]), vec![None]);
+}
+
+#[test]
+fn a_register_built_frame_is_bounded_by_its_immediates_and_over_the_limit() {
+    // What LLVM emits beyond addi's 2 KiB: lui t0,hi; addi t0,t0,lo; add sp,sp,t0.
+    // -6448: lui t0, 0xffffe (-8192); addi t0, t0, 1744; add sp, sp, t0.
+    let f = code(&[
+        W(lui(T0, 0xffffe)),
+        W(addi(T0, T0, 1744)),
+        W(add(SP, SP, T0)),
+        W(RET),
+    ]);
+    assert_eq!(frame_sizes(&f, &[0]), vec![Some(6448)]);
+    assert_eq!(scan(&f, &[0]), Some(Finding::Large { at: 8, bytes: 6448 }));
+    // From a register that is a constant on one path only: refused.
+    let f = code(&[
+        W(beq_to(11, 0, 8)),
+        W(addi(T0, 0, 2000)),
+        W(sub(SP, SP, T0)),
+    ]);
+    assert_eq!(scan(&f, &[0]), Some(Finding::Unknown { at: 8 }));
+}
+
+#[test]
+fn code_that_no_function_covers_is_refused_unless_it_is_padding() {
+    // A gap of zeros, c.nops and a nop between two functions: padding.
+    let mut f = code(&[W(RET)]);
+    f.extend([0, 0]);
+    f.extend(code(&[N(C_NOP), W(0x0000_0013)]));
+    let at = f.len();
+    f.extend(code(&[W(RET)]));
+    assert_eq!(uncovered(&f, &[(0, 4), (at, at + 4)]), None);
+    // `addi sp, sp, -1600` in the gap: not covered, not padding.
+    let mut f = code(&[W(RET)]);
+    f.extend(code(&[W(addi(SP, SP, -1600)), W(RET)]));
+    let at = f.len();
+    f.extend(code(&[W(RET)]));
+    assert_eq!(uncovered(&f, &[(0, 4), (at, at + 4)]), Some(4));
+    // Code before the first function, and after the last.
+    assert_eq!(uncovered(&code(&[W(addi(SP, SP, -1600))]), &[]), Some(0));
+    let f = code(&[W(RET), W(addi(SP, SP, -1600))]);
+    assert_eq!(uncovered(&f, &[(0, 4)]), Some(4));
+    // A function's range ends where its symbol says: what lies beyond is read
+    // as the neighbour's or not at all, never as part of it.
+    let f = code(&[W(RET), W(addi(SP, SP, -1600))]);
+    assert_eq!(scan_ranges(&f, &[(0, 4)]), None);
 }

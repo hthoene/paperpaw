@@ -107,7 +107,6 @@ pub fn pack5(elf: &[u8]) -> Result<Packed5, String> {
         .symbols()?
         .ok_or("no symbol table: do not strip the plugin")?;
     let image = Image::of(&elf, &symbols)?;
-    crate::frames::check(&elf, image.text, image.text_index, &symbols)?;
     exports(&image, &symbols)?;
     let (entry, meta_at, record) = locate(&image, &symbols)?;
     let facts = RecordFacts::read(record).ok_or_else(|| {
@@ -130,6 +129,9 @@ pub fn pack5(elf: &[u8]) -> Result<Packed5, String> {
             paperpaw_native::TABLE_SYMBOLS[n]
         ));
     }
+    // After what is wrong with the file's identity, before it is made: the
+    // frames the code takes on the stack.
+    crate::frames::check(&elf, image.text, image.text_index, &symbols)?;
     let hot = Hot::of(&elf, &image, chip, &symbols, &words)?;
     let patches = records(&hot.patches)?;
     patch_count(patches.len())?;

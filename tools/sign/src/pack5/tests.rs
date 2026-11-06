@@ -47,7 +47,9 @@ fn plugin(machine: u16) -> Plugin {
     let tx = b.section(".text", SHF_ALLOC | 4, TEXT, &[0x13; 32], 4);
     b.symbol(ENTRY_SYMBOL, LINK_BASE, 20, ro as u16, false);
     b.symbol(METADATA_SYMBOL, LINK_BASE + 24, 88, ro as u16, false);
-    let make = b.symbol("make", TEXT, 8, tx as u16, true);
+    // The whole code is the function `make` (the packer reads each function
+    // within its symbol's size and refuses code no function covers).
+    let make = b.function("make", TEXT, 32, tx as u16, true);
     b.symbol("PAPERPAW_HOT", TEXT + 32, 0, tx as u16, false);
     b.symbol("PAPERPAW_HOT_END", TEXT + 32, 0, tx as u16, false);
     let meta = b.symbol("META", LINK_BASE + 24, 0, ro as u16, true);
