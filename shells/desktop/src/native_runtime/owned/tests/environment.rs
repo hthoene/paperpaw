@@ -1,13 +1,14 @@
 //! Actual foreign callbacks read the current Env through the pinned owner.
 use super::super::environment as bridge;
 use super::*;
-use paperpaw_core::native_host::environment::{SNAPSHOT_BYTES, SettingValueRef, settings_decode};
+use paperpaw_core::native_host::environment::SNAPSHOT_BYTES;
 use paperpaw_core::sdk::{Env, Manifest, Plugin, RegisterError, Registrar, SettingSpec, builtin};
 use paperpaw_native::host_glue::PpBuffer;
 use paperpaw_platform::{
     Battery, DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
     SystemStatus, WallClock,
 };
+use settings_wire::{SettingValueRef, settings_decode, settings_encode};
 use std::mem::MaybeUninit;
 
 #[allow(
@@ -23,12 +24,25 @@ mod wire {
     ));
 }
 
+#[allow(
+    dead_code,
+    clippy::all,
+    clippy::pedantic,
+    reason = "schema-generated test codec"
+)]
+mod settings_wire {
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../abi/generated/settings_value.rs"
+    ));
+}
+
 const KEY: &str = "abi7-tick-draw.enabled";
 const DEVICE: DeviceInfo = DeviceInfo::new(
     "scoped-probe",
     "Scoped probe",
     DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
-    InputCaps::new(true, false, false, &[]),
+    InputCaps::new(true, true, false, &[]),
     MemoryClass::Small,
 );
 static BOOL: [SettingSpec; 1] = [SettingSpec::switch(
@@ -121,24 +135,47 @@ fn expected_snapshot(battery: Option<Battery>, clock: bool) -> Vec<u8> {
 }
 
 fn query_fixture(snapshot: &[u8], expected: SettingValueRef<'_>) -> Fixture {
+    let mut setting = [MaybeUninit::uninit(); 64];
+    let count = settings_encode(expected, &mut setting).unwrap();
+    let setting: Vec<u8> = setting[..count]
+        .iter()
+        .map(|byte| {
+            // SAFETY: the encoder initialized exactly count bytes on success.
+            unsafe { byte.assume_init() }
+        })
+        .collect();
     // Generated encoders define both layouts. No slot offsets or bytes are guessed.
     let query = format!(
         r#"
     let mut snapshot = [0xa5; 64];
     let result = unsafe {{ (h.env_snapshot)(s.ctx, PpBuffer {{ ptr: snapshot.as_mut_ptr(), cap: snapshot.len() }}) }};
     if result != OK {{ return result; }}
-    if snapshot[..{snapshot_len}] != {snapshot:?} {{ return ERR_INVALID; }}
+    for (byte, expected) in snapshot[..{snapshot_len}].iter().zip({snapshot:?}) {{
+        // Volatile reads prevent the compiler from introducing a libc bcmp import.
+        if unsafe {{ core::ptr::read_volatile(byte) }} != expected {{ return ERR_INVALID; }}
+    }}
     if snapshot[{snapshot_len}..].iter().any(|b| *b != 0xa5) {{ return ERR_INVALID; }}
     let key = b"abi7-tick-draw.enabled";
     let mut value = [0xa5; 64];
     let count = unsafe {{ (h.settings_read)(s.ctx, PpBytes {{ ptr: key.as_ptr(), len: key.len() }}, PpBuffer {{ ptr: value.as_mut_ptr(), cap: value.len() }}) }};
     if count < 0 {{ return count; }}
     if count as usize > value.len() {{ return ERR_NO_SPACE; }}
-    if settings_decode(&value[..count as usize]) != Ok(SettingValueRef::{expected:?}) {{ return ERR_INVALID; }}
+    if count as usize != {setting_len} {{ return ERR_INVALID; }}
+    for (byte, expected) in value[..count as usize].iter().zip({setting:?}) {{
+        if unsafe {{ core::ptr::read_volatile(byte) }} != expected {{ return ERR_INVALID; }}
+    }}
     "#,
-        snapshot_len = snapshot.len()
+        snapshot_len = snapshot.len(),
+        setting_len = setting.len()
     );
-    foreign::fixture_query(&[], false, &query)
+    let fixture = foreign::fixture_query(&[], false, &query);
+    let bytes = std::fs::read(&fixture.path).unwrap();
+    assert!(
+        paperpaw_native::preflight::data_export(&bytes, 62, host_glue::METADATA_SYMBOL, true)
+            .is_ok(),
+        "query fixture metadata preflight failed"
+    );
+    fixture
 }
 
 fn read<S>(context: Pin<&Context<S>>, key: &[u8], out: &mut [u8]) -> i32 {
