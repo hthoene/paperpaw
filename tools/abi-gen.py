@@ -184,6 +184,9 @@ def validate_record(record, minor):
         require(field['ordinal'] not in ordinals, 'duplicate optional ordinal')
         ordinals.add(field['ordinal'])
         default, kind = field['default'], field['type']
+        # A scalar's `null` default: no value stands for "absent" (`Option`).
+        if kind in ('u32', 'u64', 'i32') and default is None:
+            continue
         if kind == 'u32':
             integer(default, 2**32 - 1)
         elif kind == 'u64':

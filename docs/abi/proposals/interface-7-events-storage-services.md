@@ -472,6 +472,10 @@ section 5, item V1).
 
 ## 3. services.query, plugin names, usage and work notes
 
+Usage, plugin names, work notes and the clock are now contracted in `interface-7-usage-clock.md`, which
+wins where it differs from this section (tag 48/49/50 fields, `next` in tag 52, page size on the X4,
+`generation`).
+
 ### 3.1 Facts
 
 - [V] Slot 17 `services.query(ctx, key: bytes, major: u16, minor: u16, out: out_handle)

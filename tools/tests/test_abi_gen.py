@@ -273,13 +273,17 @@ class SchemaTests(unittest.TestCase):
         new = copy.deepcopy(self.base)
         new['records'][0]['fields'].clear()
         self.reject(new)
-        for default in (True, -1, 2**32, None, '0'):
+        def appended(default):
             new = copy.deepcopy(self.base)
             new['minor'] = 2
             new['records'][0]['fields'].append({
                 'name': 'opt', 'type': 'u32', 'since': 2, 'optional': True,
                 'ordinal': 0, 'default': default, 'max_bytes': 0})
-            self.reject(new)
+            return new
+        for default in (True, -1, 2**32, '0'):
+            self.reject(appended(default))
+        # No default: the field is an `Option` (present iff its bit is set).
+        ABI.compatible(self.base, appended(None))
 
     def test_generation_check_and_invalid_input_preserve_outputs(self):
         with tempfile.TemporaryDirectory() as directory:
