@@ -16,6 +16,10 @@ pub mod registration_scope;
 #[path = "native_host/shared.rs"]
 mod shared;
 
+#[path = "native_host/resources.rs"]
+pub mod resources;
+pub use resources::HostResources;
+
 #[path = "native_host/formatting.rs"]
 mod formatting;
 #[path = "native_host/storage_slots.rs"]

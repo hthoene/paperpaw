@@ -121,6 +121,7 @@ pub struct Context<S> {
     table: PpHost,
     id: Box<str>,
     report: Report<S>,
+    resources: super::resources::OwnerResources,
     /// The shell's heap and clock.
     pub services: S,
     instance: Cell<Option<PluginOutput>>,
@@ -246,7 +247,9 @@ impl<S: Services, M> Hosted<S, M> {
         id: &str,
         image: (usize, usize),
         report: Report<S>,
+        resources: super::HostResources,
     ) -> Result<Self, Error> {
+        let resources = resources.try_owner().map_err(Error::Status)?;
         // Fallible, before anything else is built: the X4 has no room to abort.
         let mut owned = String::new();
         owned
@@ -257,6 +260,7 @@ impl<S: Services, M> Hosted<S, M> {
             table: host_table::<S>(),
             id: owned.into_boxed_str(),
             report,
+            resources,
             services,
             instance: Cell::new(None),
             attempted: Cell::new(false),
@@ -462,12 +466,27 @@ impl<S, M, T> Drop for PendingInstance<'_, S, M, T> {
     }
 }
 
-fn cancel_context<S>(_: Pin<&Context<S>>) -> Result<(), super::Error> {
-    host_cleanup(super::TeardownStep::Cancel)
+fn cancel_context<S>(context: Pin<&Context<S>>) -> Result<(), super::Error> {
+    host_cleanup(super::TeardownStep::Cancel)?;
+    context
+        .resources
+        .cancel_all()
+        .map_err(resource_cleanup_error)
 }
 
-fn release_context<S>(_: Pin<&Context<S>>) -> Result<(), super::Error> {
-    host_cleanup(super::TeardownStep::Release)
+fn release_context<S>(context: Pin<&Context<S>>) -> Result<(), super::Error> {
+    host_cleanup(super::TeardownStep::Release)?;
+    context
+        .resources
+        .release_all()
+        .map_err(resource_cleanup_error)
+}
+
+fn resource_cleanup_error(error: i32) -> super::Error {
+    match error {
+        host_glue::ERR_BUSY => super::Error::Busy,
+        _ => super::Error::State,
+    }
 }
 
 fn host_cleanup(_step: super::TeardownStep) -> Result<(), super::Error> {

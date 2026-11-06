@@ -249,7 +249,18 @@ fn frame() -> Vec<u8> {
 
 fn fake() -> Hosted<Heap, Module> {
     // SAFETY: `make` is this file's plugin, always callable; no image.
-    unsafe { Hosted::new(Heap, Module::new(), make, "fake", (0, 0), report) }.unwrap()
+    unsafe {
+        Hosted::new(
+            Heap,
+            Module::new(),
+            make,
+            "fake",
+            (0, 0),
+            report,
+            super::super::HostResources::try_new().unwrap(),
+        )
+    }
+    .unwrap()
 }
 
 fn finish<S: Services, M>(hosted: &Hosted<S, M>) {
@@ -376,6 +387,7 @@ fn the_image_is_given_before_make_once_and_read_back_as_given() {
             "fake",
             (IMAGE.as_ptr() as usize, IMAGE.len()),
             report,
+            super::super::HostResources::try_new().unwrap(),
         )
     }
     .unwrap();
@@ -520,9 +532,10 @@ fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_c
     for nth in [1, 2] {
         reset(NORMAL);
         let module = Module::new();
+        let resources = super::super::HostResources::try_new().unwrap();
         arm_failure(nth);
         // SAFETY: `make` is this file's plugin; no image.
-        let refused = unsafe { Hosted::new(Heap, module, make, "fake", (0, 0), report) };
+        let refused = unsafe { Hosted::new(Heap, module, make, "fake", (0, 0), report, resources) };
         arm_failure(0);
         assert_eq!(refused.err(), Some(Error::Allocation), "allocation {nth}");
         assert_eq!(logged(), ["module"], "the module is dropped, once");

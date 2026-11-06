@@ -24,18 +24,26 @@ fn stale_owner_and_wrong_type_never_resolve_or_release() {
 fn owner_and_global_limits_return_unconsumed_values() {
     let mut h = Handles::new();
     assert_eq!(h.insert(0, Kind::Service, 90), Err((Error::State, 90)));
-    for owner in 1..=8 {
-        for value in 0..4 {
-            h.insert(owner, Kind::Service, value).unwrap();
-        }
-        assert_eq!(
-            h.insert(owner, Kind::Service, 99),
-            Err((Error::Capacity, 99))
-        );
+    for value in 0..8 {
+        h.insert(1, Kind::Font, value).unwrap();
     }
-    assert_eq!(h.insert(9, Kind::Blob, 98), Err((Error::Capacity, 98)));
+    assert_eq!(h.insert(1, Kind::Font, 99), Err((Error::Capacity, 99)));
+    // Other kinds have independent limits under the same owner.
+    for value in 0..2 {
+        h.insert(1, Kind::Blob, value).unwrap();
+        h.insert_limited(1, Kind::Service, value, 2).unwrap();
+    }
+    assert_eq!(h.insert(1, Kind::Blob, 99), Err((Error::Capacity, 99)));
+    assert_eq!(
+        h.insert_limited(1, Kind::Service, 99, 2),
+        Err((Error::Capacity, 99))
+    );
+    for value in 12..1024 {
+        h.insert(2, Kind::Service, value).unwrap();
+    }
+    assert_eq!(h.insert(3, Kind::Service, 98), Err((Error::Capacity, 98)));
     assert!(h.take_owner(1).is_some());
-    assert!(h.insert(9, Kind::Blob, 98).is_ok());
+    assert!(h.insert(3, Kind::Service, 98).is_ok());
 }
 
 #[test]

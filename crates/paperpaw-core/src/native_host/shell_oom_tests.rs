@@ -259,3 +259,23 @@ fn registration_rollback(registry_oom: bool) {
     drop(kernel);
     assert_eq!(destroyed.get(), 1);
 }
+
+#[test]
+fn resource_slot_growth_oom_creates_no_handle_and_can_retry() {
+    use crate::native_host::{
+        HostResources,
+        resources::{FontKey, FontRole},
+    };
+    use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_STATE};
+    let resources = HostResources::try_new().unwrap();
+    let owner = resources.try_owner().unwrap();
+    arm_failure(1);
+    let refused = owner.insert_font(FontKey::Role(FontRole::Ui));
+    arm_failure(0);
+    assert_eq!(refused, Err(ERR_NO_MEMORY));
+    assert_eq!(owner.with_font(1 << 10, |_| Ok(())), Err(ERR_STATE));
+    let handle = owner.insert_font(FontKey::Role(FontRole::Ui)).unwrap();
+    assert_eq!(handle, 1 << 10);
+    owner.release_all().unwrap();
+    assert_eq!(owner.with_font(handle, |_| Ok(())), Err(ERR_STATE));
+}
