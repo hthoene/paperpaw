@@ -11,6 +11,7 @@
 extern crate alloc;
 
 mod log;
+pub mod recording;
 mod view;
 
 use alloc::borrow::Cow;
