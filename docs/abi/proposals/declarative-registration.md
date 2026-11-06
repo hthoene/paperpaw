@@ -337,7 +337,7 @@ existing `Specs` registry; **S2 (later): lazy**, only if the heap numbers below 
   spec. I recommend building S1, measuring on the X4 with the largest realistic set, and deciding S2 on the
   measurement (Q7).
 - **Why a closed `kind` and not `Extended`.** Extended is used nowhere in `plugins/*/src` (grep: 0), and
-  interface 6 treats an unknown extended kind as read-only text (`settings.rs:30-39`). Interface 7 can add a
+  interface 6 treats an unknown extended kind as read-only text (`settings.rs:38-45`). Interface 7 can add a
   kind number in a later minor and refuse unknown kinds now (`ERR_UNSUPPORTED`).
 - **Relative names.** `name` is relative to the plugin id; the host forms `<plugin>.<name>`. This makes the
   namespace rule true by construction (no foreign id can be expressed), saves about 8-15 B a spec, and
@@ -369,7 +369,7 @@ existing `Specs` registry; **S2 (later): lazy**, only if the heap numbers below 
 | 9 | `max` | i32 | | int only; zero otherwise |
 | 10 | `choices` | str | 1024 | choice only: 1 to 32 values joined by `\n`; empty otherwise |
 
-`secret` moves from `SettingExtra` (`settings.rs:260-263`) into `flags` because slot 15 must decide on
+`secret` moves from `SettingExtra` (`settings.rs:258-263`) into `flags` because slot 15 must decide on
 it without loading an extra. The 24-entry choice lists in the tree (largest static array found, lexical)
 fit in 1024 B if keys average under 40 B; that is a guess (Q8).
 
@@ -390,7 +390,7 @@ Used by about 94 of 246 specs (Fact 1.3), so it is optional and kept apart, as i
 | 8 | `editor` | str | 96 | screen id (relative to the plugin) or slot id; empty iff `editor_kind` is 0 |
 | 9 | `step` | i32 | | 0 means 1; positive otherwise |
 | 10 | `flags` | u32 | | bit0 slider, bit1 section_of_plugin, bit2 keeps_unknown; unknown bits `ERR_UNSUPPORTED` |
-| 11 | `check` | u32 | | callback token of a value check; **must be 0 in M1** (`ERR_UNSUPPORTED`): interface 6's `SettingCheck` is `fn(&Settings, &SettingValue)` (`settings.rs:271-285`), which needs a callback and a settings view that do not exist yet |
+| 11 | `check` | u32 | | callback token of a value check; **must be 0 in M1** (`ERR_UNSUPPORTED`): interface 6's `SettingCheck` is `fn(&Settings, &SettingValue)` (`settings.rs:281-284`), which needs a callback and a settings view that do not exist yet |
 
 ### Validation before effects (all `ERR_INVALID` unless stated)
 
@@ -398,7 +398,7 @@ Per record, before staging, without allocating:
 
 1. UTF-8 of every str (`ERR_UTF8`); every cap (`ERR_NO_SPACE`); unknown `kind`/flags (`ERR_UNSUPPORTED`).
 2. `name`: dot-separated segments of `[a-z0-9-]`, no empty segment, full id at most 128 B
-   (`docs/plugin-conventions.md:~124`, "Anything the plugin registers").
+   (`docs/plugin-conventions.md:121`, "Anything the plugin registers").
 3. `default` decodes as exactly one `settings_value`, is not absent, and **its kind matches**: bool for
    `kind 1`, int for 2, text otherwise; then the default passes the same `SettingKind::accepts` the live
    registry uses (int within `min..=max` with `min <= max`; choice default is one of `choices`; language
@@ -435,7 +435,7 @@ settings registry before `commit`.
   `accepts`, `secret` refused with `ERR_UNSUPPORTED` (`commands.md:49-54`). A guarded setting is writable by
   its own plugin by namespace; guarded protects against other plugins, which cannot name it.
 - **Secrets.** Slot 5 on a secret key should return `absent`, since secrets live in the secret store
-  (`settings.rs:260-263`); the current slot-5 code does not special-case this (`queries.rs:28-37`) and I did
+  (`settings.rs:258-263`); the current slot-5 code does not special-case this (`queries.rs:28-37`) and I did
   not check what `Settings::get` returns for one (Q9).
 - A setting whose spec arrived in this record is the only kind slot 15 may set; therefore the record is also
   the **permission list** of slot 15.
