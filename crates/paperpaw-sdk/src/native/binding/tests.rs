@@ -545,6 +545,25 @@ fn invalid_metadata_prefixes_return_none_without_panicking() {
 crate::native_plugin!(TestPlugin, metadata = TEST_METADATA, linked = LINKED_A);
 crate::native_plugin!(TestPlugin, metadata = TEST_METADATA, linked = LINKED_B);
 
+// Regression (Battery, #228): a caller's constant named like one of the
+// macro's own items (`METADATA`, `MINOR`) used to resolve to that item and
+// make the initializer refer to itself (E0391).
+const METADATA: &[u8] = TEST_METADATA;
+const MINOR: &[u8] = TEST_METADATA;
+crate::native_plugin!(TestPlugin, metadata = METADATA, linked = LINKED_METADATA);
+crate::native_plugin!(TestPlugin, metadata = MINOR, linked = LINKED_MINOR);
+
+#[test]
+fn linked_metadata_may_be_any_caller_constant() {
+    for linked in [&LINKED_METADATA, &LINKED_MINOR] {
+        let entry = linked.entry();
+        // SAFETY: the entry's metadata view is a static of exactly that length.
+        let metadata =
+            unsafe { core::slice::from_raw_parts(entry.metadata.ptr, entry.metadata.len) };
+        assert_eq!(metadata, TEST_METADATA);
+    }
+}
+
 #[test]
 fn linked_plugins_carry_the_exported_entry_under_their_own_names() {
     // SAFETY: exported entry transparently wraps PpEntry.
