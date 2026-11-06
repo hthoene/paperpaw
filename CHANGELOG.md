@@ -8,8 +8,7 @@ change the plugin SDK.
 
 - Interface 7 draft 5 SDK: bounded callback replies, typed draw frames and input,
   screen/action declarations and events, catalog formatting and digit conversion,
-  read-only typed user grants, and distinct permission/timeout errors. Callback
-  input has no fixed glue cap.
+  and distinct permission/timeout errors. Callback input has no fixed glue cap.
 
 
 ### Added

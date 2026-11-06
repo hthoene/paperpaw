@@ -328,7 +328,6 @@ pub mod clock;
 pub mod declare;
 pub mod events;
 pub mod formatting;
-pub mod grants;
 pub mod keys;
 pub mod registrations;
 pub mod reply;

@@ -49,7 +49,7 @@ pub(crate) mod records_wire;
     dead_code,
     reason = "generated settings value codec (abi/generated/settings_value.rs, byte for byte)"
 )]
-pub(super) mod settings_value;
+mod settings_value;
 
 use records_wire::{
     ActionSpec, Record, ResourceFontExtension, ResourceFontFace, ResourceHyphenation, ScreenSpec,
