@@ -15,7 +15,8 @@ mod wire;
 
 pub use wire::{
     EVENT_TICK_TAG, REGISTRATION_MAX_BYTES, REGISTRATION_MAX_RECORDS, Registration,
-    registrations_encode, tick_decode, tick_encode,
+    RegistrationBatch as DecodedRegistrations, registrations_decode, registrations_encode,
+    tick_decode, tick_encode,
 };
 
 use super::{Error, registration_scope::RegistrationScope};
