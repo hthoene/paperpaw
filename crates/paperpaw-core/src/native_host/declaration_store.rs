@@ -374,7 +374,7 @@ impl DeclarationStore {
             return Err(ERR_STATE);
         }
         for entries in &mut pending.kinds {
-            entries.sort_unstable_by_key(|entry| entry.hash);
+            super::declaration_index::sort_by_key(entries, |entry| entry.hash);
         }
         let at = self
             .owners

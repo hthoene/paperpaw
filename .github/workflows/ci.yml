@@ -242,6 +242,9 @@ jobs:
           -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics
           -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict
           -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat
+      - name: SDK interface-7 entry packs and rejects misalignment
+        if: matrix.target == 'riscv32imc-unknown-none-elf'
+        run: CARGO_TARGET_DIR="$PWD/target/abi7-sdk-entry" samples/abi7-sdk-entry/check.sh
       - name: Lint the web emulator
         # The emulator's device model and paperpaw-dev's checks, with std,
         # in a browser (shells/web); its exports exist on wasm32 only.
