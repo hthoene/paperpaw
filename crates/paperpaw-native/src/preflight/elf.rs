@@ -10,6 +10,9 @@ const PHENT: usize = 56;
 const DYN_ENT: usize = 16;
 const SYM_ENT: usize = 24;
 const STT_GNU_IFUNC: u8 = 10;
+/// The section index of an undefined (imported) symbol.
+#[cfg(feature = "kernel")]
+const SHN_UNDEF: u16 = 0;
 
 const DT_NULL: i64 = 0;
 const DT_NEEDED: i64 = 1;
@@ -647,6 +650,141 @@ fn check_symbols(
         let info = *bytes.get(at + i * SYM_ENT + 4).ok_or(Refusal::Truncated)?;
         if info & 0xf == STT_GNU_IFUNC {
             return Err(Refusal::RunsCodeAtLoad("an IFUNC symbol"));
+        }
+    }
+    Ok(())
+}
+
+/// Why [`check_freestanding`] refuses a library.
+#[cfg(feature = "kernel")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FreestandingRefusal {
+    /// The full ELF preflight ([`check_elf64_le`]) refused it.
+    Preflight(Refusal),
+    /// The library names another library it needs (`DT_NEEDED`); a
+    /// freestanding plugin needs none.
+    NeededLibrary,
+    /// The library names a symbol it does not define (an import, strong or
+    /// weak).
+    UndefinedImport,
+    /// The library defines a dynamic symbol that is not one of the entry
+    /// symbols its caller allows.
+    UnexpectedExport,
+}
+
+/// The rule for an interface-7 (freestanding) host plugin, in one place for
+/// every caller (the loader, and the packager's check) so that they cannot
+/// disagree. It runs the full [`check_elf64_le`] preflight and then refuses,
+/// from the bytes alone and before the file is loaded:
+///
+/// 1. **Any `DT_NEEDED`** ([`FreestandingRefusal::NeededLibrary`]). A plugin reaches the
+///    host only through its table (PR #133, ADR 0034 section 6), so it needs
+///    no library, not even the C library the interface-6 path tolerates.
+/// 2. **Any undefined dynamic symbol** ([`FreestandingRefusal::UndefinedImport`]): every
+///    symbol after the null symbol whose section index is `SHN_UNDEF`,
+///    whatever its binding. *Weak* undefined symbols are refused too: a weak
+///    import binds to the process's own definition when there is one, so it
+///    is the same hole as a strong import, and a freestanding library has no
+///    reason to name a symbol it does not define. There is no exception.
+/// 3. **Any defined dynamic symbol not named in `exports`**
+///    ([`FreestandingRefusal::UnexpectedExport`]): the library exports the entry symbols
+///    and nothing else, so it cannot interpose on or add to what the process
+///    sees. An empty `exports` allows none. Compiler-runtime helpers the
+///    library needs (`memcpy`, `rust_eh_personality`) must be defined with
+///    hidden visibility so they never reach the dynamic symbol table.
+///
+/// # Link recipe for authors
+///
+/// The linker may add dynamic symbols a source file never named (`_end`,
+/// `__bss_start`, `_edata`, `_init`, `_fini`, local or section symbols with
+/// an empty name). They are refused as [`FreestandingRefusal::UnexpectedExport`]
+/// like any other. Keep them out of the dynamic symbol table by building with
+/// a version script that makes everything but the entry symbols local (for
+/// example `-Wl,--version-script=exports.map` with
+/// `{ global: PAPERPAW_ENTRY; PAPERPAW_METADATA; local: *; };`), with
+/// `-Wl,--exclude-libs,ALL` for symbols from static libraries, and by
+/// defining runtime helpers with `.hidden` visibility (for instance
+/// `global_asm!(".globl memcpy", ".hidden memcpy", ".set memcpy, {f}", f = sym copy)`).
+/// `nm -D --defined-only` must list exactly the two entry symbols and
+/// `nm -D --undefined-only` nothing; `readelf -d` shows no `NEEDED`.
+///
+/// `check_elf64_le` itself is unchanged: the interface-6 path keeps accepting
+/// the C library it was built on.
+///
+/// # Errors
+///
+/// The [`FreestandingRefusal`] named above; the full preflight's refusals are
+/// passed on as [`FreestandingRefusal::Preflight`]. All
+/// reads are bounded by the checked tables; a malformed symbol table or name
+/// is refused, never followed out of the file.
+#[cfg(feature = "kernel")]
+pub fn check_freestanding(
+    bytes: &[u8],
+    machine: u16,
+    exports: &[&str],
+) -> Result<(), FreestandingRefusal> {
+    freestanding(bytes, machine, exports).map_err(|refusal| match refusal {
+        Inner::Preflight(refusal) => FreestandingRefusal::Preflight(refusal),
+        Inner::Needed => FreestandingRefusal::NeededLibrary,
+        Inner::Import => FreestandingRefusal::UndefinedImport,
+        Inner::Export => FreestandingRefusal::UnexpectedExport,
+    })
+}
+
+#[cfg(feature = "kernel")]
+enum Inner {
+    Preflight(Refusal),
+    Needed,
+    Import,
+    Export,
+}
+
+#[cfg(feature = "kernel")]
+impl From<Refusal> for Inner {
+    fn from(refusal: Refusal) -> Self {
+        Self::Preflight(refusal)
+    }
+}
+
+#[cfg(feature = "kernel")]
+fn freestanding(bytes: &[u8], machine: u16, exports: &[&str]) -> Result<(), Inner> {
+    let (loads, d) = checked(bytes, machine)?;
+    if d.needed_count > 0 {
+        return Err(Inner::Needed);
+    }
+    let Some(symtab) = d.symtab else {
+        return Ok(());
+    };
+    let count = symbol_count(bytes, &loads, &d)?;
+    let total = u64::try_from(count.checked_mul(SYM_ENT).ok_or(Refusal::Truncated)?)
+        .map_err(|_| Refusal::Truncated)?;
+    let at = offset_of(&loads, symtab, total)?;
+    let strings = offset_of(&loads, d.strtab.ok_or(Refusal::Strings)?, d.strsz)?;
+    let strings = bytes
+        .get(
+            strings
+                ..strings
+                    .checked_add(to_usize(d.strsz)?)
+                    .ok_or(Refusal::Truncated)?,
+        )
+        .ok_or(Refusal::Strings)?;
+    // Entry 0 is the reserved null symbol, whose index means "no symbol".
+    for i in 1..count {
+        let sym = at + i * SYM_ENT;
+        if u16_at(bytes, sym + 6)? == SHN_UNDEF {
+            return Err(Inner::Import);
+        }
+    }
+    // Imports are decided first, for every symbol, so the reason reported
+    // does not depend on the order of the table.
+    for i in 1..count {
+        let sym = at + i * SYM_ENT;
+        let start = to_usize(u64::from(u32_at(bytes, sym)?))?;
+        let tail = strings.get(start..).ok_or(Refusal::Strings)?;
+        let end = tail.iter().position(|&b| b == 0).ok_or(Refusal::Strings)?;
+        if !exports.iter().any(|name| name.as_bytes() == &tail[..end]) {
+            return Err(Inner::Export);
         }
     }
     Ok(())

@@ -44,8 +44,9 @@ getrandom = "0.4"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Code plugins built for this computer (`native`).
 libloading = "0.9"
-# What is checked on a plugin's bytes before it is loaded (ADR 0034).
-paperpaw-native.workspace = true
+# What is checked on a plugin's bytes before it is loaded (ADR 0034); the
+# kernel's part is the freestanding rule shared with the packager (ADR 0020).
+paperpaw-native = { workspace = true, features = ["kernel"] }
 
 [dev-dependencies]
 paperpaw-sdk.workspace = true
