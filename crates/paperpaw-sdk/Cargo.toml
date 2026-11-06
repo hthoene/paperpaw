@@ -52,9 +52,9 @@ default = []
 unstable = []
 # What only the kernel and the shells do: registering, setting, binding
 # (ADR 0020). Off for plugins, which get these only to read through
-# `Env`. Adds only functions, never a field or variant: a plugin's
+# `Env`. Adds only functions and types, never a field or variant: a plugin's
 # fingerprint does not change with it.
-kernel = []
+kernel = ["paperpaw-hyphen/kernel"]
 # Makers of what the kernel hands plugins (Bluetooth devices, handles),
 # for a plugin's own tests with made-up events. Adds only functions.
 testing = []

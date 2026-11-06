@@ -599,6 +599,9 @@ impl BuilderParts {
         caps.button_row = !self.button_row.is_empty();
         caps = with_buttons(caps, &self.device.input);
         let links = self.bluetooth_links;
+        // Data plugins' hyphenation tables are read from the card.
+        let mut hyphenation = Hyphenation::new();
+        hyphenation.set_storage(storage.clone());
         let mut translator = Translator::new();
         translator.fixed_indexes(self.catalog_indexes);
         translator.built_catalogs(self.built_catalogs);
@@ -612,7 +615,7 @@ impl BuilderParts {
                 fonts: Fonts::new(self.glyph_cache)
                     .with_pack_limits(paperpaw_sdk::PackLimits::for_memory(self.device.memory)),
                 formats: Formats::new(),
-                hyphenation: Hyphenation::new(),
+                hyphenation,
                 menus: Menus::new(),
                 actions: Actions::new(),
                 plugins: Plugins::new(),
@@ -654,7 +657,6 @@ impl BuilderParts {
                 slots: Vec::new(),
                 font_dirs: Vec::new(),
                 data_folders: Vec::new(),
-                hyphenation_tables: Default::default(),
                 plugin_dirs: Vec::new(),
                 catalog_device: self.catalog_device,
                 secrets: Default::default(),

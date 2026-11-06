@@ -68,7 +68,6 @@ use crate::check::{CheckError, Layout, Source, TableError, check_source};
 use crate::{
     Access, BLOCK, HEADER, MAX_MINIMUM, Points, Rules, entry_at, exception_in, hyphenate_with,
 };
-#[cfg(doc)]
 use crate::{MAX_BLOCK_BYTES, MAX_BLOCKS, MAX_EXCEPTION_BYTES};
 
 /// Blocks kept in memory when the caller has no better number, and the most
@@ -89,6 +88,9 @@ pub enum OpenError<E> {
     Check(CheckError<E>),
     /// There is not enough memory.
     NoMemory,
+    /// Kept open, it would take more than the budget given to
+    /// [`StoredPatterns::open_within`]: `needed` bytes. Nothing was kept.
+    OverBudget { needed: usize },
 }
 
 impl<E> From<TableError> for OpenError<E> {
@@ -146,6 +148,19 @@ impl<S: Source> fmt::Debug for StoredPatterns<S> {
     }
 }
 
+/// The heap a table of `blocks` blocks (the largest `largest_block`
+/// bytes) and `exceptions_len` bytes of exceptions takes while it is
+/// opened with `cache_blocks`: the index and the fences, the exceptions,
+/// the cache, and the scratch buffer of the opening.
+fn heap_needed(blocks: u32, exceptions_len: u32, largest_block: u32, cache_blocks: usize) -> usize {
+    let cache_blocks = cache_blocks.clamp(1, MAX_CACHE_BLOCKS);
+    let blocks = blocks as usize;
+    blocks * (core::mem::size_of::<u32>() + core::mem::size_of::<[u8; 4]>())
+        + exceptions_len as usize
+        + cache_blocks * (core::mem::size_of::<Slot>() + largest_block as usize)
+        + SCRATCH
+}
+
 fn reserved<T>(n: usize) -> Result<Vec<T>, TryReserveFailed> {
     let mut v = Vec::new();
     v.try_reserve_exact(n).map_err(|_| TryReserveFailed)?;
@@ -181,14 +196,33 @@ impl<S: Source> StoredPatterns<S> {
     /// `identity` is any number that tells the file from another or from a
     /// newer one (the kernel derives it from the size and the first
     /// cluster); see [`still_valid`](Self::still_valid).
-    pub fn open(
+    pub fn open(src: S, identity: u64, cache_blocks: usize) -> Result<Self, OpenError<S::Error>> {
+        Self::open_within(src, identity, cache_blocks, usize::MAX)
+    }
+
+    /// As [`open`](Self::open), within `budget` bytes of heap: where the
+    /// table would take more while it is opened (`heap_needed`, with the
+    /// table's own sizes as the check finds them), it is refused with
+    /// [`OpenError::OverBudget`] before its index, fences, exceptions or
+    /// cache are taken.
+    pub fn open_within(
         mut src: S,
         identity: u64,
         cache_blocks: usize,
+        budget: usize,
     ) -> Result<Self, OpenError<S::Error>> {
         let mut scratch = reserved::<u8>(SCRATCH)?;
         scratch.resize(SCRATCH, 0);
         let layout = check_source(&mut src, &mut scratch).map_err(OpenError::Check)?;
+        let needed = heap_needed(
+            layout.blocks,
+            layout.exceptions_len,
+            layout.largest_block,
+            cache_blocks,
+        );
+        if needed > budget {
+            return Err(OpenError::OverBudget { needed });
+        }
         // The shared limits hold: at most MAX_BLOCKS blocks of MAX_BLOCK_BYTES,
         // and MAX_EXCEPTION_BYTES of exceptions (`TableError::TooLarge`).
         let len = layout.table_len();
@@ -379,6 +413,36 @@ impl<S: Source> StoredPatterns<S> {
         self.reads
     }
 
+    /// At most the bytes of heap the table in `src` takes while it is
+    /// opened with `cache_blocks` (as [`open`](Self::open)), from its
+    /// 24-byte header alone (one read; the blocks taken as large as they
+    /// may be): what a caller frees before it opens it. The header is not
+    /// trusted beyond that: [`open_within`](Self::open_within) checks the
+    /// table and its budget again.
+    ///
+    /// # Errors
+    /// The header cannot be read, or it is not a table's.
+    pub fn heap_bound(src: &mut S, cache_blocks: usize) -> Result<usize, CheckError<S::Error>> {
+        let mut head = [0u8; HEADER];
+        if src.len() < head.len() as u64 {
+            return Err(TableError::Header.into());
+        }
+        src.read_at(0, &mut head).map_err(CheckError::Source)?;
+        let word =
+            |at: usize| u32::from_le_bytes([head[at], head[at + 1], head[at + 2], head[at + 3]]);
+        let blocks = word(12).min(MAX_BLOCKS);
+        let exceptions_len = src
+            .len()
+            .saturating_sub(u64::from(word(16)))
+            .min(u64::from(MAX_EXCEPTION_BYTES)) as u32;
+        Ok(heap_needed(
+            blocks,
+            exceptions_len,
+            MAX_BLOCK_BYTES,
+            cache_blocks,
+        ))
+    }
+
     /// Bytes of heap the reader holds, not counting the source.
     pub fn heap_bytes(&self) -> usize {
         self.index.capacity() * 4
@@ -393,6 +457,29 @@ impl<S: Source> StoredPatterns<S> {
     pub fn hyphenate(&mut self, word: &str, out: &mut dyn FnMut(usize)) {
         if !self.failed {
             let rules = self.rules;
+            hyphenate_with(self, rules, word, out);
+        }
+    }
+
+    /// As [`hyphenate`](Self::hyphenate), with the minimums `left` and
+    /// `right` for this word alone, where they are not 0 (as
+    /// [`with_minimums`](Self::with_minimums) takes them): one reader
+    /// serves callers that set different ones.
+    pub fn hyphenate_with_minimums(
+        &mut self,
+        left: usize,
+        right: usize,
+        word: &str,
+        out: &mut dyn FnMut(usize),
+    ) {
+        if !self.failed {
+            let mut rules = self.rules;
+            if left > 0 {
+                rules.left_min = left.min(MAX_MINIMUM);
+            }
+            if right > 0 {
+                rules.right_min = right.min(MAX_MINIMUM);
+            }
             hyphenate_with(self, rules, word, out);
         }
     }

@@ -822,23 +822,24 @@ impl Kernel {
         if tables.is_empty() || !running {
             return;
         }
-        let added = self
-            .shared
-            .hyphenation_tables
-            .add(id.as_str(), plugin.folder(), &tables);
+        let added = self.shared.hyphenation.add_tables(
+            id.as_str(),
+            plugin.folder(),
+            tables.iter().map(|t| (t.tag.as_str(), t.path.as_str())),
+        );
         if added.is_err() {
             let problem = "hyphenation tables left out, no memory for them".into();
             return self.warn(WarningSource::Plugin(id), None, problem);
         }
         let told: Vec<String> = self
             .shared
-            .hyphenation_tables
+            .hyphenation
             .collisions(id.as_str())
             .map(|(lost, kept)| {
                 format!(
                     "{}: hyphenation left out, {} has the language",
                     lost.name(),
-                    kept.plugin
+                    kept.plugin()
                 )
             })
             .collect();
@@ -880,7 +881,7 @@ impl Kernel {
         self.close_ended_runs();
         self.shared.data_folders.retain(|(p, _)| p != id);
         self.shared.fonts.remove_plugin(id.as_str());
-        self.shared.hyphenation_tables.remove(id.as_str());
+        self.shared.hyphenation.remove_tables(id.as_str());
         // Its key maps and stylesheets; the key map is built anew once the
         // plugins changed (`plugins_changed`).
         self.keys.plugins.retain(|(p, _)| p != id);
