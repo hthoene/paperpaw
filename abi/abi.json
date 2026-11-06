@@ -24,6 +24,10 @@
     "since": 1,
     "type": "u32"
   },
+  "command_codec": {
+    "max_records": 8,
+    "since": 1
+  },
   "entry_contract": {
     "entry_symbol": "PAPERPAW_ENTRY",
     "locator": {
@@ -963,6 +967,31 @@
       ],
       "id": 3,
       "name": "event.tick",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "key",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 4096,
+          "name": "value",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        }
+      ],
+      "id": 4,
+      "name": "command.set_setting",
       "since": 1
     }
   ],

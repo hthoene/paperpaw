@@ -11,8 +11,16 @@
 
 use core::ffi::c_void;
 
-/// Never called: with `panic = "abort"` no frame is unwound. The symbol only
-/// satisfies the reference from core's unwinding tables.
+/// Never called: with `panic = "abort"` no frame is unwound, and nothing in
+/// this library catches a panic. The symbol only satisfies the reference from
+/// core's unwinding tables, which name `rust_eh_personality` even under
+/// `-Cpanic=abort`.
+///
+/// It deliberately does nothing. A real personality routine tells the unwinder
+/// whether a frame has a handler; this one would claim "no handler, keep going"
+/// to an unwinder that never runs here. If a future change enabled unwinding in
+/// this library, this stub would have to be replaced, not kept, which is why
+/// `Cargo.toml` and `verify.sh` pin `panic = "abort"`.
 extern "C" fn eh_personality() {}
 
 /// Byte copy for non-overlapping regions.
