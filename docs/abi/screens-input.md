@@ -197,20 +197,39 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
   label, no badge) removes it, the kept copy included. At most one record per item in a batch
   (`ERR_INVALID`); across batches the last one wins.
 - [D] Rendering and the user's control are those of interface 6 `ItemState`: the user's menu
-  edits decide where an item is listed; the state only changes how it is shown. An item whose
-  `menu.need` is not met stays left out whatever its state.
+  edits decide where an item is listed; the state only changes how it is shown. `hidden` takes
+  the item out of the places plugins give it, as `menu.hide` does: an item the user listed in a
+  menu of their own stays shown there. The menu editor still lists a hidden item and says that
+  its plugin hides it. An item whose `menu.need` is not met stays left out whatever its state.
 - [D] Like the other commands it is validated with its whole batch and applied after the callback
   returns, in submit order. It runs no plugin callback, so it is accepted at any hop. A menu on
   screen that lists the item is redrawn once per drain, however many states changed.
 - [D] Lifetime: without `keep`, a state ends at the plugin's teardown (section 7). With `keep`,
-  the host also writes it to a host-owned file (atomically, only when the kept set changed) and
-  restores it at boot before any menu shows, without starting the plugin. Kept states are dropped
-  when the plugin is updated or uninstalled (its keys may be gone) and when it sends the default
-  state.
+  it survives teardown (a stop, a lazy unload) and is shown whenever the item is; while the user
+  has the plugin switched off its items are not in menus, and the kept state waits for it to be
+  switched on. The host keeps kept states in a host-owned file and restores them at boot before
+  any menu shows, without starting the plugin. Kept states are dropped when the plugin is updated
+  or uninstalled (its keys may be gone) and when it sends the default state.
+- [D] **Writing the kept file.** Only when the kept set changed, at most once per drain and at most
+  once a minute per plugin (a newer kept state waits for the next allowed write), and once more
+  before sleep or power-off if one is waiting; always through the host's atomic replace. A badge
+  that changes often therefore wears the card no more than once a minute.
+- [D] **Restoring the kept file is reading untrusted input.** The file names the code it was kept
+  for (the plugin's version and its image's SHA-256, or the build for a linked plugin); a file for
+  other code is dropped, so an update copied onto the card by a computer, which runs no update
+  step, cannot restore states for keys that are gone. Every restored state is checked again with
+  the command codec, the same limits and the declared-item check. A damaged, oversized or unknown
+  file is deleted and logged once; boot never fails on it. If the kept states of all plugins
+  together exceed the device limits, the host restores them in a fixed order (plugin id, then the
+  order in the file) and drops the rest.
 - [D] Limits per plugin: at most 16 items with a state, and at most 2,048 bytes of item ids, keys
   and arguments together (X4; a profile may allow more). Device-wide the host holds at most
-  6,144 bytes of item state (X4) in the shared `HostResources`. A batch that would exceed a limit
-  is `ERR_FULL`, whole. Storage is reserved fallibly (`ERR_NO_MEMORY`).
+  128 items with a state and 6,144 bytes of item state, its index included (about 24 bytes an
+  item), in the shared `HostResources` (X4), whether a plugin runs or only its kept states were
+  restored. Limits are checked on the batch's net result: a record that replaces an item's state
+  counts the new state instead of the old, and one that removes it frees its share, so a plugin at
+  its limit can still change or clear its items. A batch whose result would exceed a limit is
+  `ERR_FULL`, whole. Storage is reserved fallibly (`ERR_NO_MEMORY`).
 - [D] Until a host shows item states, it refuses a batch containing this record with
   `ERR_UNSUPPORTED`, whole (after the codec's checks).
 - [D] The command codec checks the item (nonempty, at most 96 bytes, UTF-8), the flags (closed set,
@@ -469,8 +488,9 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
 - i18n: one 4 KiB host scratch per call, none retained.
 - Reply buffers are lent from the existing host scratch, nothing per plugin.
 - Item state (section 3.1): at most 2,048 bytes of ids, keys and arguments per plugin plus about
-  24 bytes of index per item (16 items: about 2.4 KiB); at most 6 KiB device-wide. Kept states
-  live in one small host file per plugin, read at boot into the same budget.
+  24 bytes of index per item (16 items: about 2.4 KiB); device-wide at most 128 items and 6 KiB,
+  index included. Kept states live in one small host file per plugin, read at boot into the same
+  budget.
 
 ## 15. Work after this contract
 
