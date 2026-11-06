@@ -189,7 +189,8 @@ input(state: pointer, token: u32, input: bytes) -> i32
 - [D] Result as slots 5/6: the full length is returned, at most `cap` bytes written; the caller
   retries with a bigger buffer. `i18n.digits` maps ASCII digits to the UI language's digits
   (may grow the byte length).
-- [D] Host builds into a bounded scratch; validation is complete before the first lookup.
+- [D] Host bounds the result to 4 KiB without result-sized stack storage; validation is complete
+  before the first lookup. A counting pass precedes direct output writes.
 - [D] The limits are generated from `abi.def` (`i18n_limits`, records codec): key 128 bytes
   (`I18N_FORMAT_MAX_KEY_BYTES`), argument batch 1024 bytes (`I18N_FORMAT_MAX_ARGUMENT_BYTES`) of
   at most 8 records (`I18N_FORMAT_MAX_RECORDS`), digits text 4096 bytes (`I18N_DIGITS_MAX_BYTES`).
@@ -382,7 +383,7 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
 
 - Input/screen records and `draw.frame` are encoded on the host stack (a framed `draw.frame` is at most about 300 bytes).
 - Screens/actions: S2 index entries only (image path); about 16 bytes resident each.
-- i18n: one 4 KiB host scratch per call, none retained.
+- i18n: counting and direct output passes, no 4 KiB host stack scratch and nothing retained.
 - Reply buffers are lent from the existing host scratch, nothing per plugin.
 
 ## 15. Work after this contract

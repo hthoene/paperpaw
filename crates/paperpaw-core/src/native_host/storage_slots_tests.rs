@@ -15,6 +15,7 @@ struct Backend {
     free: Rc<Cell<Option<u64>>>,
     fail: Rc<Cell<Option<StorageError>>>,
     bad_count: Rc<Cell<bool>>,
+    partial_error: Rc<Cell<bool>>,
 }
 
 impl Backend {
@@ -27,7 +28,14 @@ impl Storage for Backend {
     fn read_at(&self, path: &str, offset: u64, out: &mut [u8]) -> Result<usize, StorageError> {
         self.check()?;
         if self.bad_count.get() {
+            out.fill(0xee);
             return Ok(out.len() + 1);
+        }
+        if self.partial_error.get() {
+            if let Some(first) = out.first_mut() {
+                *first = 0xee;
+            }
+            return Err(StorageError::Io);
         }
         self.files.read_at(path, offset, out)
     }
@@ -121,7 +129,7 @@ fn all_slots_use_the_scoped_storage_and_only_the_owner_folder() {
                 read_at(scope, OWNER, 0, bytes(b"state"), 2, output(&mut out)),
                 4
             );
-            assert_eq!(&out, b"cdef\xa5\xa5\xa5\xa5");
+            assert_eq!(&out, b"cdef\0\0\0\0");
             assert_eq!(
                 read_at(scope, OWNER, 0, bytes(b"state"), u64::MAX, output(&mut out)),
                 0
@@ -307,7 +315,7 @@ fn bad_pairs_and_bounds_are_rejected_before_storage_or_output() {
 }
 
 #[test]
-fn reserve_backend_errors_and_invalid_read_counts_preserve_output() {
+fn reserve_errors_preserve_files_and_read_errors_zero_output() {
     let backend = Backend::default();
     // Stay above the 4096-byte recall limit so an invalid backend count
     // reaches the raw adapter instead of being consumed by the file cache.
@@ -347,19 +355,19 @@ fn reserve_backend_errors_and_invalid_read_counts_preserve_output() {
             );
         }
         assert_eq!(len, 91);
-        assert_eq!(out, [0xa5; 4]);
+        assert_eq!(out, [0; 4]);
     });
     assert_eq!(backend.files.get(FILE).unwrap(), data);
 }
 
 #[test]
-fn raw_read_initializes_only_the_counted_prefix() {
+fn raw_read_initializes_the_output_in_place_before_storage() {
     let backend = Backend::default();
     backend.files.write(FILE, b"ok").unwrap();
     scoped(&backend, |scope, _| {
         let mut out = [MaybeUninit::<u8>::uninit(); 4];
-        // SAFETY: caller storage is writable and exclusive. Only the returned
-        // initialized prefix is read after the callback.
+        // SAFETY: caller storage is writable and exclusive. The adapter
+        // initializes the full output before borrowing it as bytes.
         unsafe {
             assert_eq!(
                 read_at(
@@ -375,7 +383,40 @@ fn raw_read_initializes_only_the_counted_prefix() {
                 ),
                 2
             );
-            assert_eq!([out[0].assume_init(), out[1].assume_init()], *b"ok");
+            assert_eq!(out.map(|byte| byte.assume_init()), *b"ok\0\0");
+        }
+    });
+}
+
+#[test]
+fn a_backend_that_partly_writes_then_fails_leaves_initialized_zero_output() {
+    let backend = Backend::default();
+    // Bypass the small-file cache so this reaches the failing backend.
+    backend
+        .files
+        .write(FILE, &alloc::vec![0x5a; MAX_DATA + 1])
+        .unwrap();
+    backend.partial_error.set(true);
+    scoped(&backend, |scope, _| {
+        let mut out = [MaybeUninit::<u8>::uninit(); 4];
+        // SAFETY: caller output is live and exclusive. Even on backend error,
+        // the adapter initializes and clears its full capacity before returning.
+        unsafe {
+            assert_eq!(
+                read_at(
+                    scope,
+                    OWNER,
+                    0,
+                    bytes(b"state"),
+                    0,
+                    PpBuffer {
+                        ptr: out.as_mut_ptr().cast(),
+                        cap: out.len()
+                    }
+                ),
+                ERR_IO
+            );
+            assert_eq!(out.map(|byte| byte.assume_init()), [0; 4]);
         }
     });
 }
