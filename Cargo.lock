@@ -1867,6 +1867,7 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
+ "png",
  "proptest",
 ]
 
