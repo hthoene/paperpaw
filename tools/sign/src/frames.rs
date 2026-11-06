@@ -307,11 +307,11 @@ fn jump_through(state: &State, rs1: usize, imm_i: i32, pc: u32) -> Ctl {
         (1, 0, _) => Ctl::Ret,
         (_, 0, Tab::Entry(at)) => Ctl::Table(at),
         _ => match state.regs[rs1] {
-            Some(v) => Ctl::Jump(
-                i64::from(v as u32)
-                    .wrapping_add(i64::from(imm_i))
-                    .wrapping_sub(i64::from(pc)),
-            ),
+            // The address as the CPU makes it: the sum wraps in 32 bits and
+            // the low bit is cleared (`jalr`).
+            Some(v) => {
+                Ctl::Jump(i64::from((v as u32).wrapping_add(imm_i as u32) & !1) - i64::from(pc))
+            }
             None => Ctl::Indirect,
         },
     }

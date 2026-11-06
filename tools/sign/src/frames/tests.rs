@@ -1032,3 +1032,37 @@ fn a_jump_table_beside_a_tail_call_is_still_read() {
     assert_eq!(with_table(&f, &[TEXT + 24, TEXT + 32], &[0, 4]), None);
     assert_eq!(linked_sizes(&f, &[TEXT + 24, TEXT + 32]).bytes, Some(16));
 }
+
+#[test]
+fn a_tail_call_target_wraps_in_32_bits_and_clears_the_low_bit_as_jalr_does() {
+    // Code Reviewer's probe (#254): `li t1, -16; jalr x0, 16(t1)` goes to
+    // address 0 (the sum wraps), the function's start when it is linked at 0:
+    // a loop that moves sp, not a jump far out of the function.
+    const T1: u32 = 6;
+    let at_zero = |items: &[I]| {
+        let f = code(items);
+        let env = Env {
+            base: 0,
+            ..Env::none()
+        };
+        sizes_in(&f, &[(0, f.len())], env)[0].bytes
+    };
+    assert_eq!(
+        at_zero(&[
+            W(addi(SP, SP, -16)),
+            W(addi(T1, 0, -16)),
+            W(jalr(0, T1, 16)),
+        ]),
+        None
+    );
+    // An odd sum has its low bit cleared: 0 + 1 is address 0, the start.
+    assert_eq!(
+        at_zero(&[W(addi(SP, SP, -16)), W(addi(T1, 0, 0)), W(jalr(0, T1, 1)),]),
+        None
+    );
+    // A target out of the function stays a tail call.
+    assert_eq!(
+        at_zero(&[W(addi(T1, 0, 0x100)), W(jalr(0, T1, 0x20)), W(RET)]),
+        Some(0)
+    );
+}
