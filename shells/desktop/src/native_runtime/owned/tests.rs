@@ -347,3 +347,61 @@ fn real_short_prefix_and_null_full_tail_construct_without_optional_callbacks() {
         assert!(!mapped(&fixture.path));
     }
 }
+
+#[test]
+fn real_library_panicking_staged_drop_still_destroys_validated_foreign_output() {
+    struct PanickingRecord {
+        record: Option<Record>,
+        panic_on_drop: bool,
+    }
+    impl Drop for PanickingRecord {
+        fn drop(&mut self) {
+            drop(self.record.take());
+            assert!(!self.panic_on_drop, "expected staged record panic");
+        }
+    }
+    let fixture = Fixture::build(0);
+    let (plugin, evidence) = fixture.open();
+    let mut transaction = plugin.begin().unwrap();
+    for panic_on_drop in [true, false] {
+        assert!(
+            transaction
+                .stage(PanickingRecord {
+                    record: Some(Record(evidence.clone())),
+                    panic_on_drop,
+                })
+                .is_ok()
+        );
+    }
+    let pending = plugin.make(transaction).unwrap();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(pending)));
+    assert!(result.is_err());
+    assert_eq!(
+        evidence.records.get(),
+        2,
+        "all records drain before foreign cleanup"
+    );
+    assert_eq!(
+        evidence.clocks.get(),
+        2,
+        "make and foreign destroy each ran once"
+    );
+    assert_eq!(evidence.allocations.get(), 1);
+    assert_eq!(evidence.frees.get(), 1);
+    assert!(plugin.owner.as_ref().context().instance.get().is_none());
+    assert!(evidence.live.get());
+    assert!(mapped(&fixture.path));
+    assert_eq!(
+        &*evidence.events.borrow(),
+        &["make", "allocate", "record", "record", "destroy", "free"]
+    );
+    drop(plugin);
+    assert!(!evidence.live.get());
+    assert!(!mapped(&fixture.path));
+    assert_eq!(
+        evidence.clocks.get(),
+        2,
+        "owner drop must not destroy twice"
+    );
+    assert_eq!(evidence.events.borrow().last(), Some(&"context"));
+}

@@ -161,12 +161,31 @@ impl<'a, S, T> PendingInstance<'a, S, T> {
     }
 }
 
-impl<S, T> Drop for PendingInstance<'_, S, T> {
+// A separate local guard survives unwinding from a staged host record's Drop.
+// Its foreign destructor must not unwind, including during host cleanup.
+struct ForeignCleanup<'a, S> {
+    context: Pin<&'a Context<S>>,
+    armed: bool,
+}
+
+impl<S> Drop for ForeignCleanup<'_, S> {
     fn drop(&mut self) {
-        drop(self.transaction.take());
         if self.armed {
             destroy_context(self.context);
         }
+    }
+}
+
+impl<S, T> Drop for PendingInstance<'_, S, T> {
+    fn drop(&mut self) {
+        let _cleanup = ForeignCleanup {
+            context: self.context,
+            armed: self.armed,
+        };
+        self.armed = false;
+        // Remaining record fields also drain through Rust's unwind drop glue
+        // before the local foreign-cleanup guard runs. A second panic aborts.
+        drop(self.transaction.take());
     }
 }
 
