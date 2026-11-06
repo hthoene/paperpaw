@@ -4,7 +4,10 @@
 //! points to. The loader borrows its transaction only around make and validates
 //! make's output before committing. This bridge neither activates nor dispatches.
 
-use super::{Construction, Error};
+use super::{
+    Construction, Error,
+    registrations::{self, RecordBatch, Registration},
+};
 use core::{
     cell::{Cell, RefCell},
     fmt,
@@ -12,10 +15,16 @@ use core::{
     pin::Pin,
     ptr::NonNull,
 };
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_STATE};
 
 trait Target<T> {
     fn admission(&self) -> Result<(), Error>;
     fn submit(&self, record: T) -> Result<(), (Error, T)>;
+    fn submit_batch(
+        &self,
+        batch: &RecordBatch<'_>,
+        convert: fn(Registration) -> T,
+    ) -> Result<(), i32>;
     fn reject(&self);
 }
 
@@ -67,6 +76,22 @@ impl<C, M, T> Target<T> for Staging<'_, '_, C, M, T> {
         } else {
             self.reject();
             Err((Error::Busy, record))
+        }
+    }
+
+    fn submit_batch(
+        &self,
+        batch: &RecordBatch<'_>,
+        convert: fn(Registration) -> T,
+    ) -> Result<(), i32> {
+        if let Err(error) = self.admission() {
+            return Err(registrations::status(error));
+        }
+        if let Ok(mut construction) = self.construction.try_borrow_mut() {
+            construction.stage_batch(batch, convert)
+        } else {
+            self.reject();
+            Err(ERR_BUSY)
         }
     }
 
@@ -166,6 +191,23 @@ impl<T: 'static> RegistrationScope<T> {
         Ok(())
     }
 
+    /// Stage a decoded mixed batch (callbacks and declarations) all or nothing;
+    /// see [`Construction::stage_batch`]. A refusal poisons the construction.
+    ///
+    /// # Errors
+    /// The `ERR_*` status of the refusal; `ERR_STATE` outside a scope.
+    pub fn submit_batch(
+        &self,
+        batch: &RecordBatch<'_>,
+        convert: fn(Registration) -> T,
+    ) -> Result<(), i32> {
+        let Some(pointer) = self.current.get() else {
+            return Err(ERR_STATE);
+        };
+        // SAFETY: same scoped target lifetime as `submit`.
+        unsafe { pointer.as_ref() }.submit_batch(batch, convert)
+    }
+
     /// Stage one validated host-owned record through the active scope.
     /// No mutable construction view remains borrowed after this call.
     ///
@@ -205,7 +247,7 @@ mod tests {
     #[test]
     fn overlapping_target_borrow_returns_record_without_panicking() {
         let owner = core::pin::pin!(HostOwner::new((), ()));
-        let mut construction = owner.as_ref().begin::<u32>().unwrap();
+        let mut construction = owner.as_ref().begin::<u32>("weather").unwrap();
         {
             let target = Staging::new(&mut construction);
             let held = target.construction.borrow_mut();
@@ -215,7 +257,7 @@ mod tests {
             assert_eq!(target.submit(18), Err((Error::Invalid, 18)));
         }
         assert!(matches!(construction.commit(|_| ()), Err(Error::Invalid)));
-        let mut construction = owner.as_ref().begin::<u32>().unwrap();
+        let mut construction = owner.as_ref().begin::<u32>("weather").unwrap();
         let slot = core::pin::pin!(RegistrationScope::new());
         slot.as_ref()
             .scope(&mut construction, || slot.submit(19))

@@ -62,12 +62,15 @@ type Batch<'a, S, T> = RegistrationBatch<'a, Context<S>, HeldLibrary, T>;
 struct PinnedPlugin<S> {
     owner: Pin<Box<Owner<S>>>,
     make: Make,
+    /// Host-known plugin id (from the folder, never from the library) that
+    /// staged declaration names are checked against.
+    id: Box<str>,
 }
 
 impl<S: Services> PinnedPlugin<S> {
     /// The caller authorizes native execution and keeps the checked inode
     /// immutable through unload, as required by native_runtime::load.
-    unsafe fn open(path: &Path, digest: &[u8; 32], services: S) -> Result<Self, Error> {
+    unsafe fn open(path: &Path, digest: &[u8; 32], id: &str, services: S) -> Result<Self, Error> {
         let mut table = host_glue::host_table();
         table.heap_alloc = heap_alloc::<S>;
         table.heap_dealloc = heap_dealloc::<S>;
@@ -87,13 +90,17 @@ impl<S: Services> PinnedPlugin<S> {
             environment: EnvironmentScope::new(),
         };
         let owner = pin_owner(HostOwner::new(context, library))?;
-        Ok(Self { owner, make })
+        Ok(Self {
+            owner,
+            make,
+            id: id.into(),
+        })
     }
 
     fn begin<T>(&self) -> Result<Transaction<'_, S, T>, Error> {
         Ok(Transaction {
             context: self.owner.as_ref().context(),
-            staging: self.owner.as_ref().begin()?,
+            staging: self.owner.as_ref().begin(&self.id)?,
         })
     }
 
