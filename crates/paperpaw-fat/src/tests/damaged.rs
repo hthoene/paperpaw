@@ -200,7 +200,7 @@ fn a_damaged_folder_frees_nothing_its_sane_looking_entries_point_at() {
         assert_eq!(s.list("cache/1e", &mut |_| {}), Err(StorageError::NotFound));
         assert_eq!(whole(&s, "keep/other.bin").unwrap(), kept());
         assert_eq!(whole(&s, "keep/folder.bin").unwrap(), kept()[..5_000]);
-        assert!(s.free_space().unwrap() <= total);
+        assert!(s.free_space().is_none_or(|free| free <= total));
         followed_as_counted(&card, &s);
         fill(&s);
         let s = card.storage();

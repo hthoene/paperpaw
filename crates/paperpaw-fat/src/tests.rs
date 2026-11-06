@@ -140,8 +140,8 @@ fn fat32() -> Cut {
 fn free_space_is_counted_a_part_at_a_time() {
     let card = fat32();
     let s = card.storage();
-    let said = s.free_space().unwrap();
-    assert_eq!(said, counted(&s));
+    // Not known until counted: the card's own count is not told.
+    assert_eq!(s.free_space(), None);
     assert!(count_out(&card, &s) > 1);
     assert_eq!(s.free_space(), Some(counted(&s)));
     // Written, appended, made, replaced, moved and removed: followed
@@ -168,26 +168,79 @@ fn free_space_is_counted_a_part_at_a_time() {
     assert_eq!(card.reads.get(), before);
 }
 
-/// A card that was not unmounted (the X4 never unmounts): rust-fatfs
-/// would read all of its FAT; here the count the card keeps, out of
-/// date, serves first, and counting a part at a time puts it right.
+/// Writes `free` as the count of free clusters a FAT32 card's FS
+/// information sector keeps, in `image`.
+fn set_fsinfo_free(image: &mut [u8], free: u32) {
+    let sector = usize::from(u16::from_le_bytes([image[48], image[49]])) * 512;
+    image[sector + 488..sector + 492].copy_from_slice(&free.to_le_bytes());
+}
+
+/// A card that was not unmounted (the X4 never unmounts), nearly full,
+/// whose own count says far more is free than is (as after a power cut,
+/// #238): that count is never told. rust-fatfs would read all of the FAT
+/// at once; here it is counted a part at a time, and until then the free
+/// space is not known, so a reserve is never kept by a count that is not
+/// one.
 #[test]
-fn a_card_not_unmounted_is_counted_a_part_at_a_time() {
+fn a_count_the_card_keeps_is_never_told() {
     let card = fat32();
     let first = card.storage();
-    first.free_space();
-    first.write("big.bin", &vec![7u8; 200 * 1024]).unwrap();
+    count_out(&card, &first);
+    let mut n = 0;
+    while first.free_space().unwrap() > 2 << 20 {
+        first
+            .write(&format!("fill/{n}.bin"), &vec![7u8; 1 << 20])
+            .unwrap();
+        n += 1;
+    }
     first.sync().unwrap();
+    let mut image = card.image();
+    set_fsinfo_free(&mut image, 70_000);
     // Mounted again from what is on the card.
+    let card = Cut::new(image);
+    let s = card.storage();
+    let mut unknown = 0;
+    let free = loop {
+        match s.free_space() {
+            Some(free) => break free,
+            None => unknown += 1,
+        }
+        assert!(unknown < 100, "never counted");
+    };
+    assert!(unknown >= 1, "a FAT of 320 KB counted at one ask");
+    assert_eq!(free, counted(&s));
+    assert!(free <= 2 << 20, "{free}");
+}
+
+/// What is written and removed while the FAT is counted: the count is
+/// done all the same, and says at most what is free (what was taken
+/// meanwhile taken off, what was freed not added).
+#[test]
+fn a_count_with_changes_meanwhile_is_never_more_than_is_free() {
+    let card = fat32();
+    let s = card.storage();
+    s.write("old.bin", &vec![1u8; 100 * 1024]).unwrap();
+    s.sync().unwrap();
     let card = Cut::new(card.image());
     let s = card.storage();
-    let said = s.free_space().unwrap();
-    count_out(&card, &s);
-    let exact = s.free_space().unwrap();
-    assert_eq!(exact, counted(&s));
+    let mut asks = 0_u64;
+    let free = loop {
+        if let Some(free) = s.free_space() {
+            break free;
+        }
+        // Between every two asks: a file written, one removed.
+        s.write(&format!("new{asks}.bin"), &vec![2u8; 30 * 1024])
+            .unwrap();
+        s.remove("old.bin").unwrap();
+        asks += 1;
+        assert!(asks < 100, "never counted");
+    };
+    let exact = counted(&s);
+    assert!(free <= exact, "{free} {exact}");
+    // At most what was taken meanwhile under.
     assert!(
-        said > exact,
-        "the count kept predates the file: {said} {exact}"
+        free + asks * 30 * 1024 + 100 * 1024 >= exact,
+        "{free} {exact}"
     );
 }
 
@@ -265,6 +318,7 @@ fn total_space_is_told_from_the_boot_sector() {
             total,
             u64::from(stats.total_clusters()) * u64::from(stats.cluster_size())
         );
+        count_out(&card, &s);
         assert!(s.free_space().unwrap() <= total);
         assert_eq!(mounted(card.image()).total_space(), Some(total));
     }

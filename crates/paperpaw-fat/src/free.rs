@@ -1,12 +1,14 @@
-//! A card's free space, known without reading all of its FAT at once.
+//! A card's free space, counted without reading all of its FAT at once.
 //!
 //! rust-fatfs counts the free clusters by reading the whole FAT when the
 //! volume was not unmounted cleanly (which a reader that is switched off
-//! never does): megabytes over a card's bus in one call. Here the count
-//! the card keeps in its FS information sector (FAT32) serves at once, as
-//! an estimate; the FAT is then counted exactly, [`STEP`] bytes of it at
-//! each ask; and what the storage writes and removes from then on is
-//! taken off or added, cluster by cluster.
+//! never does): megabytes over a card's bus in one call. Here the FAT is
+//! counted [`STEP`] bytes at each ask, and what the storage writes and
+//! removes from then on is taken off or added, cluster by cluster. Until
+//! the count is done the free space is not known: the count the card keeps
+//! in its FS information sector (FAT32) is not used, as after a power cut
+//! it may say more than is free (#238), and a reserve kept by it would not
+//! be one.
 
 /// Bytes of the FAT read at most each time the free space is asked for.
 pub(crate) const STEP: usize = 128 * 1024;
@@ -29,8 +31,6 @@ struct Geometry {
     clusters: u32,
     /// Bytes of a cluster.
     cluster: u64,
-    /// The FS information sector's first byte (FAT32).
-    info: Option<u64>,
 }
 
 impl Geometry {
@@ -63,28 +63,12 @@ impl Geometry {
             4085..65525 => 16,
             _ => 32,
         };
-        let info = (bits == 32).then(|| u64::from(u16_at(48)) * u64::from(sector));
         Some(Geometry {
             fat: u64::from(reserved) * u64::from(sector),
             bits,
             clusters,
             cluster: u64::from(sector) * u64::from(per_cluster),
-            info,
         })
-    }
-
-    /// The free clusters the FS information sector says, if it says.
-    fn said(&self, read: &Read) -> Option<u32> {
-        let mut sector = [0u8; 512];
-        if !read(self.info?, &mut sector) {
-            return None;
-        }
-        let u32_at = |at: usize| {
-            u32::from_le_bytes([sector[at], sector[at + 1], sector[at + 2], sector[at + 3]])
-        };
-        let signed = u32_at(0) == 0x4161_5252 && u32_at(484) == 0x6141_7272;
-        let free = u32_at(488);
-        (signed && free <= self.clusters).then_some(free)
     }
 
     /// The bytes of the FAT entries `first..first + count`.
@@ -146,16 +130,20 @@ impl Geometry {
 #[derive(Debug, Default)]
 pub(crate) struct Free {
     geometry: Option<Geometry>,
-    /// Free clusters: exact once counted, the card's own word before.
+    /// Free clusters, once counted (and followed since); `None` before.
     known: Option<u64>,
     /// The count going on: the next entry, and the free ones before it.
     counting: Option<(u32, u64)>,
-    /// The count is done: `known` is exact (and kept so).
-    exact: bool,
+    /// Clusters taken while the count goes on, taken off when it is done.
+    /// Whether one was in the part counted already is not known: so taken
+    /// ones are taken off even where the count sees them taken too, and
+    /// freed ones are not added. The count can then only be low, never
+    /// more than is free.
+    taken_meanwhile: u64,
 }
 
 impl Free {
-    /// Counts on (one step), and the free bytes as far as known.
+    /// Counts on (one step), and the free bytes once counted.
     pub(crate) fn ask(&mut self, read: &Read) -> Option<u64> {
         let geometry = self.geometry(read)?;
         let Some((mut next, mut free)) = self.counting else {
@@ -183,9 +171,9 @@ impl Free {
             read_so_far += len;
         }
         if next >= last {
-            self.known = Some(free);
+            self.known = Some(free.saturating_sub(self.taken_meanwhile));
             self.counting = None;
-            self.exact = true;
+            self.taken_meanwhile = 0;
         } else {
             self.counting = Some((next, free));
         }
@@ -198,13 +186,11 @@ impl Free {
         Some(u64::from(geometry.clusters) * geometry.cluster)
     }
 
-    /// The volume's geometry, read from its boot sector at the first ask
-    /// (and the card's own count with it).
+    /// The volume's geometry, read from its boot sector at the first ask.
     fn geometry(&mut self, read: &Read) -> Option<Geometry> {
         if self.geometry.is_none() {
             let mut boot = [0u8; 512];
             let geometry = read(0, &mut boot).then(|| Geometry::of(&boot)).flatten()?;
-            self.known = geometry.said(read).map(u64::from);
             self.counting = Some((2, 0));
             self.geometry = Some(geometry);
         }
@@ -221,8 +207,8 @@ impl Free {
     }
 
     /// `taken` clusters were taken and `freed` freed by a change of the
-    /// storage. A count going on starts anew (the part counted may have
-    /// changed); the count known follows.
+    /// storage: the count known follows, and a count going on takes the
+    /// taken ones off when it is done (see `taken_meanwhile`).
     pub(crate) fn changed(&mut self, taken: u64, freed: u64) {
         let Some(geometry) = self.geometry else {
             return;
@@ -236,13 +222,13 @@ impl Free {
                 .min(u64::from(geometry.clusters));
         }
         if self.counting.is_some() {
-            self.counting = Some((2, 0));
+            self.taken_meanwhile = self.taken_meanwhile.saturating_add(taken);
         }
     }
 
     /// Whether the free clusters were counted (and followed since).
     #[cfg(test)]
     pub(crate) fn exact(&self) -> bool {
-        self.exact
+        self.known.is_some()
     }
 }

@@ -8,11 +8,12 @@
 //! outside (S5). Root 1 and later are reserved.
 //!
 //! The reserve (S4) trusts [`Storage::free_space`] and
-//! [`Storage::total_space`]: a card whose free count is wrong (FAT32
-//! FSInfo after an unclean mount, #238) is the FAT layer's to compute
-//! safely; this adapter only compares what it is told and never makes a
-//! count up. Where a storage cannot say how much is free, nothing is
-//! refused here and the storage's own `Full` becomes `ERR_FULL`.
+//! [`Storage::total_space`]: `free_space` never says more than is free
+//! (the FAT storage tells no count before it has counted its FAT, never
+//! the FAT32 FSInfo count, which after a power cut may say more, #238).
+//! This adapter only compares what it is told and never makes a count up.
+//! Where a storage cannot say how much is free (yet), nothing is refused
+//! here and the storage's own `Full` becomes `ERR_FULL`.
 //!
 //! Counting (S7) is the `Metered` storage the adapter is given: bytes read,
 //! bytes written and `sync` calls of the plugin whose code runs.
