@@ -14,6 +14,7 @@ std::thread_local! {
     static LOG: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
     static MODE: Cell<u8> = const { Cell::new(0) };
     static MODULE_ALIVE: Cell<bool> = const { Cell::new(false) };
+    static MODULES: Cell<u32> = const { Cell::new(0) };
     static EVENTS: Cell<u32> = const { Cell::new(0) };
     static MAKES: Cell<u32> = const { Cell::new(0) };
     /// Calls announced to the shell, and how many are open now.
@@ -23,6 +24,22 @@ std::thread_local! {
     static UNCOVERED: Cell<u32> = const { Cell::new(0) };
     /// The nth allocation of this thread fails (1-based; 0: none).
     static FAIL_NTH: Cell<u32> = const { Cell::new(0) };
+    /// A bounded heap for this thread: the most bytes live at once, each
+    /// allocation charged `alloc_cost` (0: unbounded), what is live, and how
+    /// many allocations it refused.
+    static LIMIT: Cell<usize> = const { Cell::new(0) };
+    static LIVE: Cell<usize> = const { Cell::new(0) };
+    static REFUSED: Cell<u32> = const { Cell::new(0) };
+    /// `make` takes every byte of the heap that is left.
+    static EXHAUST: Cell<bool> = const { Cell::new(false) };
+    /// `make` registers the one event only (the flat adapter routes no draw).
+    static EVENT_ONLY: Cell<bool> = const { Cell::new(false) };
+    /// Makes that returned OK.
+    static MADE: Cell<u32> = const { Cell::new(0) };
+    /// How many charged bytes `make` leaves free when it takes the rest.
+    static LEAVE: Cell<usize> = const { Cell::new(0) };
+    /// The charged bytes free when the held room was given back.
+    static FREE_AT_RELEASE: Cell<usize> = const { Cell::new(usize::MAX) };
 }
 
 /// The test binary's allocator: the system's, failing on request so the
@@ -44,14 +61,61 @@ unsafe impl core::alloc::GlobalAlloc for Failing {
         if fail == Ok(true) {
             return ptr::null_mut();
         }
-        // SAFETY: the caller's layout, forwarded.
-        unsafe { std::alloc::System.alloc(layout) }
+        // The bounded heap: charge this allocation, or refuse it.
+        let charge = match LIMIT.try_with(Cell::get) {
+            Ok(limit) if limit != 0 => {
+                let cost = super::instance::alloc_cost(layout.size());
+                let taken = LIVE.try_with(|live| {
+                    if live.get() + cost > limit {
+                        false
+                    } else {
+                        live.set(live.get() + cost);
+                        true
+                    }
+                });
+                if taken != Ok(true) {
+                    let _ = REFUSED.try_with(|r| r.set(r.get() + 1));
+                    return ptr::null_mut();
+                }
+                cost
+            }
+            _ => 0,
+        };
+        // A header before the block records its charge; the block keeps the
+        // caller's alignment.
+        let align = layout.align().max(HEAD);
+        let Ok(whole) = Layout::from_size_align(layout.size() + align, align) else {
+            return ptr::null_mut();
+        };
+        // SAFETY: a nonzero layout (the header is part of it).
+        let base = unsafe { std::alloc::System.alloc(whole) };
+        if base.is_null() {
+            let _ = LIVE.try_with(|live| live.set(live.get().saturating_sub(charge)));
+            return base;
+        }
+        // SAFETY: inside the block just allocated, aligned for a `usize`.
+        unsafe {
+            let user = base.add(align);
+            user.sub(size_of::<usize>()).cast::<usize>().write(charge);
+            user
+        }
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        // SAFETY: allocated by `alloc` above.
-        unsafe { std::alloc::System.dealloc(ptr, layout) }
+        let align = layout.align().max(HEAD);
+        // SAFETY: allocated by `alloc` above, with this layout and its header.
+        unsafe {
+            let charge = ptr.sub(size_of::<usize>()).cast::<usize>().read();
+            if charge != 0 {
+                let _ = LIVE.try_with(|live| live.set(live.get().saturating_sub(charge)));
+            }
+            let whole = Layout::from_size_align_unchecked(layout.size() + align, align);
+            std::alloc::System.dealloc(ptr.sub(align), whole);
+        }
     }
 }
+
+/// The header before every block (and its alignment floor).
+const HEAD: usize = 16;
 
 #[global_allocator]
 static ALLOCATOR: Failing = Failing;
@@ -78,13 +142,27 @@ fn logged() -> Vec<&'static str> {
 }
 
 fn reset(mode: u8) {
-    LOG.with(|log| log.borrow_mut().clear());
+    // Room for the log's entries before any bound is armed: the log is the
+    // test's own bookkeeping, not part of the heap under test.
+    LOG.with(|log| {
+        let mut log = log.borrow_mut();
+        log.clear();
+        log.reserve(512);
+    });
     MODE.with(|m| m.set(mode));
     EVENTS.with(|e| e.set(0));
     MAKES.with(|m| m.set(0));
     CALLS.with(|c| c.set(0));
     OPEN.with(|o| o.set(0));
     UNCOVERED.with(|u| u.set(0));
+    LIMIT.with(|l| l.set(0));
+    LIVE.with(|l| l.set(0));
+    REFUSED.with(|r| r.set(0));
+    EXHAUST.with(|e| e.set(false));
+    EVENT_ONLY.with(|e| e.set(false));
+    MADE.with(|m| m.set(0));
+    LEAVE.with(|l| l.set(0));
+    FREE_AT_RELEASE.with(|f| f.set(usize::MAX));
 }
 
 /// The shell's heap and clock.
@@ -114,6 +192,7 @@ struct Module;
 
 impl Module {
     fn new() -> Self {
+        MODULES.with(|m| m.set(m.get() + 1));
         MODULE_ALIVE.with(|a| a.set(true));
         Self
     }
@@ -121,7 +200,12 @@ impl Module {
 
 impl Drop for Module {
     fn drop(&mut self) {
-        MODULE_ALIVE.with(|a| a.set(false));
+        // Several modules may be alive (a later plugin beside an earlier one).
+        let left = MODULES.with(|m| {
+            m.set(m.get() - 1);
+            m.get()
+        });
+        MODULE_ALIVE.with(|a| a.set(left > 0));
         log("module");
     }
 }
@@ -131,6 +215,9 @@ struct Fake {
     plugin: PpPlugin,
     host: *const PpHost,
     ctx: *mut c_void,
+    /// What `make` took of the heap when asked to: a list of blocks, each
+    /// holding the next one's address.
+    hoard: *mut c_void,
 }
 
 unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *const PpPlugin) -> i32 {
@@ -169,16 +256,18 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
     }
     // On the stack: the plugin's own allocations are not under test here.
     let mut bytes = [0u8; registrations::REGISTRATION_MAX_BYTES];
-    let len = registrations::registrations_encode(
-        &[
-            Registration::Event {
-                event_tag: registrations::EVENT_STARTED_TAG,
-                token: TOKEN,
-            },
-            Registration::Draw { token: TOKEN },
-        ],
-        &mut bytes,
-    )
+    let started = Registration::Event {
+        event_tag: registrations::EVENT_STARTED_TAG,
+        token: TOKEN,
+    };
+    let len = if EVENT_ONLY.with(Cell::get) {
+        registrations::registrations_encode(&[started], &mut bytes)
+    } else {
+        registrations::registrations_encode(
+            &[started, Registration::Draw { token: TOKEN }],
+            &mut bytes,
+        )
+    }
     .unwrap();
     // SAFETY: readable bytes for this synchronous call.
     let status = unsafe {
@@ -197,6 +286,27 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
         unsafe { (table.heap_dealloc)(ctx, block, size_of::<Fake>(), align_of::<Fake>()) };
         return status;
     }
+    // Taking the rest of the heap, 16 bytes at a time, until it refuses.
+    let mut hoard: *mut c_void = ptr::null_mut();
+    if EXHAUST.with(Cell::get) {
+        loop {
+            // Stops with `LEAVE` bytes (and one more block's charge) free.
+            let free = LIMIT.with(Cell::get).saturating_sub(LIVE.with(Cell::get));
+            if free < LEAVE.with(Cell::get) + 48 {
+                break;
+            }
+            let mut taken = ptr::null_mut();
+            // SAFETY: the table's own heap, with this size and alignment.
+            let status = unsafe { (table.heap_alloc)(ctx, 16, 8, &mut taken) };
+            if status != OK {
+                break;
+            }
+            // SAFETY: a fresh 16-byte block, 8-aligned.
+            unsafe { taken.cast::<*mut c_void>().write(hoard) };
+            hoard = taken;
+        }
+    }
+    MADE.with(|m| m.set(m.get() + 1));
     let fake = block.cast::<Fake>();
     // SAFETY: a fresh block of the right size and alignment.
     unsafe {
@@ -211,6 +321,7 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
             },
             host,
             ctx,
+            hoard,
         });
         out.write(ptr::addr_of!((*fake).plugin));
     }
@@ -228,9 +339,15 @@ unsafe extern "C" fn destroy(state: *mut c_void) {
     }
     let fake = state.cast::<Fake>();
     // SAFETY: the block `make` wrote, destroyed once.
-    let (host, ctx) = unsafe { ((*fake).host, (*fake).ctx) };
-    // SAFETY: the table and context outlive the destructor.
+    let (host, ctx, mut hoard) = unsafe { ((*fake).host, (*fake).ctx, (*fake).hoard) };
+    // SAFETY: the table and context outlive the destructor; the hoard is
+    // the list `make` built, each block freed once.
     unsafe {
+        while !hoard.is_null() {
+            let next = hoard.cast::<*mut c_void>().read();
+            ((*host).heap_dealloc)(ctx, hoard, 16, 8);
+            hoard = next;
+        }
         ((*host).heap_dealloc)(ctx, state, size_of::<Fake>(), align_of::<Fake>());
     }
 }
@@ -739,4 +856,168 @@ fn shared_shell_reports_fallback_failure_before_destroying_and_unmapping() {
     }
     drop(hosted);
     assert_eq!(logged(), ["report", "destroy", "module"]);
+}
+
+/// The allocations after `make` that std cannot make fallibly, against a full
+/// heap: the shell holds `Room` before the plugin runs, a plugin that takes
+/// every byte left cannot starve `into_plugin`, whatever the heap's size.
+mod post_make_tests {
+    use super::*;
+    use crate::native_host::FlatHost;
+    use crate::native_host::flat::{DropReason, FlatPlugin};
+    use crate::native_host::shell::instance::{
+        Hooks, ID_MAX_BYTES, Instance, IntoPluginError, Room, into_plugin, post_make_room,
+    };
+    use alloc::rc::Rc;
+    use paperpaw_sdk::Id;
+
+    fn nothing(_: &str) {}
+    fn dropped(_: &str, _: u32, _: DropReason) {}
+    fn hooks() -> Hooks {
+        Hooks {
+            event_dropped: dropped,
+            leaked: nothing,
+            call_begin: nothing,
+            call_end: nothing,
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum Stage {
+        /// No room for the room: the plugin is not made.
+        NoRoom,
+        /// `make` or the load around it was refused.
+        Load,
+        Post(IntoPluginError),
+        Done,
+    }
+
+    /// What the X4 loader does around `make`, in its order.
+    fn x4_like(
+        text: &str,
+        id: &Id,
+        depth: &mut Option<Rc<DispatchDepth>>,
+        host: &FlatHost,
+    ) -> (Stage, Option<alloc::boxed::Box<FlatPlugin>>) {
+        let Ok(room) = Room::hold::<Heap, Module>() else {
+            return (Stage::NoRoom, None);
+        };
+        // SAFETY: `make` is this file's plugin, always callable; no image.
+        let loaded =
+            unsafe { Instance::load(Heap, Module::new(), make, text, (0, 0), report, hooks()) };
+        drop(room);
+        FREE_AT_RELEASE.with(|f| {
+            f.set(LIMIT.with(Cell::get).saturating_sub(LIVE.with(Cell::get)));
+        });
+        let Ok(instance) = loaded else {
+            return (Stage::Load, None);
+        };
+        match into_plugin(instance, id, text, depth, host) {
+            Ok(plugin) => (Stage::Done, Some(plugin)),
+            Err(why) => (Stage::Post(why), None),
+        }
+    }
+
+    fn count(what: &str) -> usize {
+        logged().iter().filter(|e| **e == what).count()
+    }
+
+    /// Every heap size from nothing to well past what a load needs, in the
+    /// allocator's charge unit; `subsequent`: a first plugin is already
+    /// loaded (the shared depth exists) and stays loaded.
+    fn sweep(text: &str, subsequent: bool) {
+        let id = Id::parse(text).unwrap();
+        let host = FlatHost {
+            meter: crate::meter::Meter::new(None),
+        };
+        let room = post_make_room::<Heap, Module>();
+        let (mut done, mut no_room, mut load, mut tight) = (0, 0, 0, 0);
+        // `leave`: what the plugin leaves free when it takes the rest.
+        for leave in [0, 64, 256, 512, 1024] {
+            for limit in (16..room + 16384).step_by(16) {
+                reset(NORMAL);
+                EVENT_ONLY.with(|e| e.set(true));
+                let mut depth = None;
+                let mut modules = 0;
+                let first = if subsequent {
+                    let first = Id::parse("first.plugin").unwrap();
+                    let (stage, plugin) = x4_like("first.plugin", &first, &mut depth, &host);
+                    assert_eq!(stage, Stage::Done);
+                    modules += 1;
+                    plugin
+                } else {
+                    None
+                };
+                // The bound counts from here; the plugin takes what is left.
+                LIVE.with(|l| l.set(0));
+                REFUSED.with(|r| r.set(0));
+                LEAVE.with(|l| l.set(leave));
+                LIMIT.with(|l| l.set(limit));
+                EXHAUST.with(|e| e.set(true));
+                let (stage, plugin) = x4_like(text, &id, &mut depth, &host);
+                LIMIT.with(|l| l.set(0));
+                EXHAUST.with(|e| e.set(false));
+                match stage {
+                    Stage::NoRoom => no_room += 1,
+                    Stage::Load => {
+                        modules += 1;
+                        load += 1;
+                    }
+                    Stage::Done => {
+                        modules += 1;
+                        done += 1;
+                        // The room was needed: what was free beside it is
+                        // less than the allocations after `make` take.
+                        if FREE_AT_RELEASE.with(Cell::get) < room + leave + 64 {
+                            tight += 1;
+                        }
+                    }
+                    Stage::Post(why) => panic!(
+                        "limit {limit} leave {leave} (room {room}): {why:?} after the room was given back"
+                    ),
+                }
+                // Cleanup, exactly once: every plugin made is destroyed once,
+                // every module dropped once, and nothing stays allocated.
+                drop(plugin);
+                drop(first);
+                drop(depth);
+                assert_eq!(
+                    count("destroy"),
+                    MADE.with(Cell::get) as usize,
+                    "limit {limit}"
+                );
+                assert_eq!(count("module"), modules, "limit {limit}");
+                if !subsequent {
+                    assert_eq!(LIVE.with(Cell::get), 0, "limit {limit}: nothing leaked");
+                }
+            }
+        }
+        assert!(
+            no_room > 0 && load > 0,
+            "the sweep starts below what a load needs"
+        );
+        assert!(done > 0, "and reaches heaps that load");
+        assert!(
+            tight > 0,
+            "a plugin that took the heap down to its leave was made and finished ({done} loads)"
+        );
+    }
+
+    #[test]
+    fn the_first_plugin_finishes_on_every_heap_size_even_when_make_takes_all_that_is_left() {
+        sweep("fake.plugin", false);
+    }
+
+    #[test]
+    fn a_later_plugin_finishes_too_when_the_depth_exists() {
+        sweep("second.plugin", true);
+    }
+
+    #[test]
+    fn the_longest_id_finishes_too() {
+        let text = alloc::format!("{}.{}", "a".repeat(60), "b".repeat(ID_MAX_BYTES - 61));
+        assert_eq!(text.len(), ID_MAX_BYTES);
+        sweep(&text, false);
+        sweep(&text, true);
+    }
 }

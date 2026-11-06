@@ -136,7 +136,9 @@ mod x4 {
     use paperpaw_core::CodeFile;
     use paperpaw_core::native_host::DispatchDepth;
     use paperpaw_core::native_host::flat::{DropReason, FlatPlugin};
-    use paperpaw_core::native_host::shell::instance::{Hooks, Instance};
+    use paperpaw_core::native_host::shell::instance::{
+        Hooks, Instance, IntoPluginError, Room, into_plugin,
+    };
     use paperpaw_core::native_host::shell::{self, Make};
     use paperpaw_native::host_glue::Services;
     use paperpaw_sdk::Plugin;
@@ -406,14 +408,10 @@ mod x4 {
             call_end,
         };
         // Room for what comes after `make` and std can only allocate
-        // infallibly: the shared depth's `Rc`, the id's copy in the manifest
-        // and `FlatPlugin`'s `Rc::from`. Taken now, before the plugin runs
-        // (nothing it allocates can take it), given back as soon as the
-        // plugin is made: one core and nothing else allocates in between, so
-        // those calls always find it. If there is no room, the plugin is not
-        // made at all.
-        let mut room: Vec<u8> = Vec::new();
-        room.try_reserve_exact(POST_MAKE_ROOM).map_err(|_| {
+        // infallibly (see `shell::instance::Room`): taken now, before the
+        // plugin runs, given back as soon as it is made. No room: the plugin
+        // is not made at all.
+        let room = Room::hold::<X4Services, FlashModule>().map_err(|_| {
             warn!("native: {id}: no room for the plugin's host objects");
             PluginProblem::NoRoom
         })?;
@@ -446,19 +444,13 @@ mod x4 {
             );
             return Err(PluginProblem::Unsupported);
         }
-        let manifest = paperpaw_sdk::Manifest::new(
-            code.id.clone(),
-            try_string(id)?,
-            paperpaw_sdk::Version::new(0, 0, 0),
-        );
-        let instance = shell::try_box(instance).map_err(no_room)?;
-        let depth = Rc::clone(depth.get_or_insert_with(|| Rc::new(DispatchDepth::new())));
-        let plugin = FlatPlugin::new(manifest, instance, depth, code.host).map_err(
-            |why| {
+        let plugin = into_plugin(instance, code.id, id, depth, code.host).map_err(|why| match why {
+            IntoPluginError::Allocation => PluginProblem::NoRoom,
+            IntoPluginError::Flat(why) => {
                 warn!("native: {id}: format 5: {why:?}");
                 PluginProblem::Unsupported
-            },
-        )?;
+            }
+        })?;
         let took = crate::native::Took {
             place_us: made - started,
             make_us: crate::micros() - made,
@@ -475,18 +467,8 @@ mod x4 {
                 image.took = Some(took);
             }
         });
-        Ok(shell::try_box(plugin).map_err(no_room)?)
+        Ok(plugin)
     }
-
-    /// What the allocations after `make` that cannot fail softly need at most:
-    /// the plugin's instance twice (boxed, then `Rc::from`), the flat plugin,
-    /// the depth's `Rc`, the id's copy (128 bytes at most) and the allocator's
-    /// headers and padding.
-    const POST_MAKE_ROOM: usize = 2 * core::mem::size_of::<Instance<X4Services, FlashModule>>()
-        + core::mem::size_of::<FlatPlugin>()
-        + core::mem::size_of::<DispatchDepth>()
-        + 128
-        + 512;
 
     /// `text` copied, or `NoRoom`.
     fn try_string(text: &str) -> Result<alloc::string::String, PluginProblem> {
@@ -495,9 +477,5 @@ mod x4 {
             .map_err(|_| PluginProblem::NoRoom)?;
         copy.push_str(text);
         Ok(copy)
-    }
-
-    fn no_room(_: shell::Error) -> PluginProblem {
-        PluginProblem::NoRoom
     }
 }

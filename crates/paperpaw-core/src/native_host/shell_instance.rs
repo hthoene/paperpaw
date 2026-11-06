@@ -8,6 +8,8 @@
 //! the plugin's destructor, then the services, then the module. If `finish`
 //! sees a lease the owner is kept, never freed, and the shell is told.
 use alloc::boxed::Box;
+use alloc::rc::Rc;
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::mem::ManuallyDrop;
 use core::pin::Pin;
@@ -16,8 +18,9 @@ use paperpaw_native::host_glue::{self, Services};
 
 use super::{Batch, Error, Hosted, Invocation, Make, Report, dispatch_registration, try_box};
 use crate::native_host::Declarations;
+use crate::native_host::FlatHost;
 use crate::native_host::environment::EnvironmentScope;
-use crate::native_host::flat::{DropReason, FlatInstance, FlatRegistration};
+use crate::native_host::flat::{DropReason, FlatError, FlatInstance, FlatPlugin, FlatRegistration};
 use crate::native_host::registrations::{self, Registration};
 use crate::native_host::{self, DispatchDepth};
 
@@ -278,4 +281,113 @@ impl<S: Services + 'static, M: 'static> FlatInstance for Instance<S, M> {
     fn event_dropped(&self, tag: u32, why: DropReason) {
         (self.hooks.event_dropped)(&self.id, tag, why);
     }
+}
+
+// ---------------------------------------------------------------------------
+// After `make`: the host objects of a plugin, made inside held room.
+// ---------------------------------------------------------------------------
+//
+// Std has no fallible form of `Rc::new`, `Rc::from(Box<dyn _>)` or the copy of
+// an `Id`. On a heap that plugin code has just used up, any of them would
+// abort the reader. So the shell takes `Room` BEFORE the plugin runs (nothing
+// the plugin allocates can take it), gives it back when `make` is done, and
+// the allocations of `into_plugin` then run on one core with at least that
+// much contiguous memory free: it cannot fail, and without the room the
+// plugin is not made at all.
+//
+// Bound: the room is free as one piece when `Room` drops, and every
+// allocation of `into_plugin` is charged `alloc_cost(size)`: its size rounded
+// up to `ALLOC_ALIGN`, plus an eighth for a size-class allocator that rounds
+// a request up before it looks (esp-alloc's TLSF, `rlsf`: classes 1/16 apart),
+// plus `ALLOC_OVERHEAD` for the header and padding (rlsf: an 8-byte header,
+// sizes in units of 16 on the 32-bit X4, no padding for alignments up to 8:
+// the charge is twice that). The sum below is what `into_plugin` allocates,
+// all counted as live at once although the instance's box is freed before the
+// flat plugin's box is made, so there is slack beyond the proven bound.
+// `post_make_tests` runs this against a bounded heap that a plugin has taken
+// down to nothing.
+
+/// The padding unit every allocation is charged in.
+pub const ALLOC_ALIGN: usize = 16;
+/// The bytes an allocator is charged per allocation for headers and padding.
+pub const ALLOC_OVERHEAD: usize = 32;
+/// The longest plugin id charged (the catalogue's ids have at most 48 bytes).
+pub const ID_MAX_BYTES: usize = 128;
+
+/// What one allocation of `size` bytes is charged.
+#[must_use]
+pub const fn alloc_cost(size: usize) -> usize {
+    size.next_multiple_of(ALLOC_ALIGN) + size / 8 + ALLOC_OVERHEAD
+}
+
+/// What [`into_plugin`] can allocate at most for an [`Instance`] of `S` and `M`.
+#[must_use]
+pub const fn post_make_room<S: Services + 'static, M: 'static>() -> usize {
+    let instance = size_of::<Instance<S, M>>();
+    // The shared depth's `Rc` (made with the first plugin only).
+    alloc_cost(2 * size_of::<usize>() + size_of::<DispatchDepth>())
+        // The id's copy in the manifest, and the name.
+        + 2 * alloc_cost(ID_MAX_BYTES)
+        // The instance boxed, and `Rc::from` of that box while it still lives.
+        + alloc_cost(instance)
+        + alloc_cost(2 * size_of::<usize>() + instance)
+        // The flat plugin boxed.
+        + alloc_cost(size_of::<FlatPlugin>())
+}
+
+/// Memory held for [`into_plugin`] while the plugin's code runs.
+#[derive(Debug)]
+pub struct Room(#[allow(dead_code, reason = "held for its memory only")] Vec<u8>);
+
+impl Room {
+    /// Takes the room of an [`Instance`] of `S` and `M`.
+    ///
+    /// # Errors
+    /// `Allocation` when the heap has none: the plugin is not to be made.
+    pub fn hold<S: Services + 'static, M: 'static>() -> Result<Self, Error> {
+        let mut block = Vec::new();
+        block
+            .try_reserve_exact(post_make_room::<S, M>())
+            .map_err(|_| Error::Allocation)?;
+        Ok(Self(block))
+    }
+}
+
+/// Why [`into_plugin`] gave no plugin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntoPluginError {
+    /// No room (not reached while the [`Room`] was held and then dropped).
+    Allocation,
+    /// The flat adapter refused the plugin's registrations.
+    Flat(FlatError),
+}
+
+/// The flat plugin of a made and committed `instance`: its manifest, the
+/// shared `depth` (made here with the first plugin), and boxes, all in the
+/// [`Room`] the caller dropped after `make`.
+///
+/// # Errors
+/// [`IntoPluginError`]; the instance is dropped (destroyed once) on either.
+pub fn into_plugin<S: Services + 'static, M: 'static>(
+    instance: Instance<S, M>,
+    id: &paperpaw_sdk::Id,
+    name: &str,
+    depth: &mut Option<Rc<DispatchDepth>>,
+    host: &FlatHost,
+) -> Result<Box<FlatPlugin>, IntoPluginError> {
+    let name = try_string(name)?;
+    let manifest =
+        paperpaw_sdk::Manifest::new(id.clone(), name, paperpaw_sdk::Version::new(0, 0, 0));
+    let instance = try_box(instance).map_err(|_| IntoPluginError::Allocation)?;
+    let depth = Rc::clone(depth.get_or_insert_with(|| Rc::new(DispatchDepth::new())));
+    let plugin = FlatPlugin::new(manifest, instance, depth, host).map_err(IntoPluginError::Flat)?;
+    try_box(plugin).map_err(|_| IntoPluginError::Allocation)
+}
+
+fn try_string(text: &str) -> Result<String, IntoPluginError> {
+    let mut copy = String::new();
+    copy.try_reserve_exact(text.len())
+        .map_err(|_| IntoPluginError::Allocation)?;
+    copy.push_str(text);
+    Ok(copy)
 }
