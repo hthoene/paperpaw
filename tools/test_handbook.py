@@ -52,6 +52,9 @@ class Handbook(unittest.TestCase):
         # No design proposal in draft; the docs they become are in (docs/abi/*.md).
         self.assertFalse(any(n.startswith(top + "docs/abi/proposals/") for n in names))
         self.assertIn(top + "docs/abi/records.md", names)
+        # Nor the generated table of icon names: data with nothing to read, 53 KB zipped.
+        self.assertNotIn(top + "src/paperpaw-sdk/icon_table.rs", names)
+        self.assertIn(top + "src/paperpaw-sdk/icons.rs", names)
         # Neither the kernel nor a shell.
         self.assertFalse(any(n.startswith((top + "src/paperpaw-core/", top + "shells/")) for n in names))
         self.assertNotIn("#[cfg(test)]\nmod tests {", battery)
@@ -63,7 +66,8 @@ class Handbook(unittest.TestCase):
         # past 3.5 MB with the picture home (#205) and the widget colours (#206).
         # The interface-7 draft proposals (0.11 MB of text, 45 KB zipped) are left
         # out: working papers, not for plugin authors. Without them the handbook
-        # of abi7/integration is 3.57 MB.
+        # of abi7/integration was 3.60 MB at 12edb5ab; without the generated table
+        # of icon names (icon_table.rs, 53 KB zipped) it is 3.54 MB.
         # The Workshop takes no whole handbook into a prompt (it hands out topics of
         # at most MAX_TOPIC_TOKENS, src/handbook/handbook.ts), so its size has no
         # hard limit there: this keeps growth seen, a step at a time.
