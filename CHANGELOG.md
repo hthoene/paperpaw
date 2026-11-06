@@ -85,6 +85,20 @@ change the plugin SDK.
 
 ### Added
 
+- **Plugin interface 7, draft 5** (#228, #241, the one breaking batch before 1.0; contract in
+  `docs/abi/screens-input.md`):
+  - **Callbacks:** `dispatch_event` gets a reply buffer and returns the reply length or a status, and
+    `draw` gets its `draw.frame` (target rectangle, clip, purpose).
+  - **Screens and input:** screens and actions are declarations, plugins get screen and input events
+    through the new `input` callback (handled or not), and the i18n slots 27/28 add formatting and digits.
+  - **Tag space:** every record family has room to grow, and records are classified by exact tag only.
+  - **Pages:** page turns carry an `insert` ordinal, so pages with inserted content keep their own positions
+    and progress counts text only.
+  - **Statuses:** `ERR_DENIED` and `ERR_TIMEOUT` are new.
+  - **Metadata:** a plugin may mark a feature it needs as required, and may require up to 32 services.
+  - **User grants:** grants to plugins (style overrides, installs without asking) are guarded settings no
+    plugin can change.
+  - Plugins built for an earlier draft are refused.
 - **The Wi-Fi page: the networks have a page of their own** (#161). The Wi-Fi page is short whatever is in the air:
   the switch with where it is, a row *Networks ›* (the network the device is in and how many are in reach; it opens
   the list), the setup with a phone and the three settings. While no network is kept, *Set up with a phone* comes
