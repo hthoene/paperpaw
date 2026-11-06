@@ -586,7 +586,7 @@ fn unparsable_optional_counter_is_unavailable_without_dropping_the_location() {
 
 #[test]
 fn mixed_setting_declaration_is_retained_separately_from_callback_registrations() {
-    let owner = Box::pin(paperpaw_core::native_host::HostOwner::new((), ()));
+    let owner = Box::pin(crate::native_host::HostOwner::new((), ()));
     let mut construction = owner.as_ref().begin::<Registration>("flat").unwrap();
     let records = [
         Record::Registration(Registration::Event {
@@ -620,21 +620,32 @@ fn mixed_setting_declaration_is_retained_separately_from_callback_registrations(
     };
     assert_eq!((event_tag, token), (32, 7));
     let seen = Observed::new();
-    let adapter = FlatPlugin::new(
-        Manifest::new(Id::new_static("flat"), "Flat", Version::new(1, 0, 0)),
-        Box::new(Instance {
-            registrations: vec![(event_tag, 0)],
-            seen: Rc::clone(&seen),
-        }),
-        Rc::new(DispatchDepth::new()),
-    )
-    .unwrap();
-    let mut kernel = Kernel::builder(DEVICE).plugin(adapter).build().unwrap();
+    let observed = Rc::clone(&seen);
+    let mut kernel = crate::native_host::flat::test_loader::load(
+        Kernel::builder(DEVICE),
+        &["flat"],
+        move |code| {
+            *observed.meter.borrow_mut() = Some(Rc::clone(&code.host.meter));
+            let adapter = FlatPlugin::new(
+                Manifest::new(code.id.clone(), "Flat", Version::new(1, 0, 0)),
+                Box::new(Instance {
+                    registrations: alloc::vec![(event_tag, 0)],
+                    seen: Rc::clone(&observed),
+                }),
+                Rc::new(DispatchDepth::new()),
+                code.host,
+            )
+            .unwrap();
+            Ok(Box::new(adapter))
+        },
+    );
     emit(&mut kernel, 32, 1, Params::new());
     let calls = seen.calls.borrow();
     assert_eq!(calls.len(), 1);
     assert_eq!((calls[0].0, tag(&calls[0].1)), (0, 32));
     assert_eq!(declarations.specs().len(), 1);
+    assert_eq!(seen.scopes.get(), 1);
+    assert_eq!(seen.usages.borrow().len(), 1);
     assert!(seen.dropped.borrow().is_empty());
 }
 
