@@ -34,6 +34,10 @@ impl Remote {
             return None;
         };
         let line = String::from_utf8_lossy(&line);
+        #[cfg(feature = "textprobe")]
+        if crate::textprobe::command(&line) {
+            return None;
+        }
         let command = paperpaw_x4::remote::parse(&line);
         if command.is_none() {
             error(&line);
