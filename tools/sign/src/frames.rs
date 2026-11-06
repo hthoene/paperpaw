@@ -96,6 +96,9 @@ pub enum Finding {
     Uncovered { at: usize },
     /// A jump through a register at `at`, inside a frame (a jump table).
     Table { at: usize },
+    /// A change of `sp` at `at` that leaves it not a multiple of 16 below
+    /// where the function was entered.
+    Misaligned { at: usize },
 }
 
 /// What a register holds, as far as the scan knows.
@@ -633,6 +636,10 @@ pub struct Walked {
     /// The first jump through a register inside a frame (a jump table), if
     /// any, in a strict walk.
     pub table: Option<usize>,
+    /// The first instruction after which `sp` is not a multiple of 16 below
+    /// where the function was entered (the psABI keeps it aligned; the stack
+    /// band's reasoning assumes it, `paperpaw_x4::stack_band`).
+    pub misaligned: Option<usize>,
     /// Whether a path from the start can leave the function by returning,
     /// jumping out or running off its end (not through a call to a function
     /// that never returns, or a trap).
@@ -773,6 +780,9 @@ impl Walk<'_> {
         if effect.unbounded {
             self.out.unbounded.get_or_insert(at);
         }
+        if state.sp % 16 != 0 {
+            self.out.misaligned.get_or_insert(at);
+        }
         if state.sp < -i64::from(self.out.frame) {
             self.out.frame = u32::try_from(-state.sp).unwrap_or(u32::MAX);
             self.out.frame_at = at;
@@ -849,6 +859,7 @@ pub fn walk(code: &[u8], start: usize, end: usize, env: Env<'_>) -> Walked {
         frame_at: start,
         unbounded: None,
         table: None,
+        misaligned: None,
         returns: false,
     };
     let mut insns: Vec<(usize, usize)> = Vec::new();
@@ -1015,6 +1026,9 @@ pub fn scan_ranges(code: &[u8], ranges: &[(usize, usize)], env: Env<'_>) -> Opti
         if let Some(at) = w.table {
             return Some(Finding::Table { at });
         }
+        if let Some(at) = w.misaligned {
+            return Some(Finding::Misaligned { at });
+        }
         if w.frame >= LIMIT {
             return Some(Finding::Large {
                 at: w.frame_at,
@@ -1042,7 +1056,8 @@ pub fn frame_sizes_in(code: &[u8], ranges: &[(usize, usize)], env: Env<'_>) -> V
         .iter()
         .map(|&(s, e)| {
             let w = walk(code, s, e, env);
-            (w.unbounded.is_none() && w.table.is_none()).then_some(w.frame)
+            (w.unbounded.is_none() && w.table.is_none() && w.misaligned.is_none())
+                .then_some(w.frame)
         })
         .collect()
 }
@@ -1159,7 +1174,8 @@ fn refusal(finding: &Finding, text: &Section, symbols: &[Symbol], text_index: us
         Finding::Large { at, .. }
         | Finding::Unknown { at }
         | Finding::Uncovered { at }
-        | Finding::Table { at } => *at,
+        | Finding::Table { at }
+        | Finding::Misaligned { at } => *at,
     };
     let place = symbols
         .iter()
@@ -1191,6 +1207,11 @@ fn refusal(finding: &Finding, text: &Section, symbols: &[Symbol], text_index: us
              into the function, and this one is not (or it is a computed jump). A `match` in the \
              plugin's own code gets no jump table with `-C jump-tables=no` (the rustflags of \
              `samples/abi7-x4-min/.cargo/config.toml` set it)"
+        ),
+        Finding::Misaligned { .. } => format!(
+            "{place} moves the stack pointer by an amount that is not a multiple of 16: the \
+             X4's stack band assumes the ABI's 16-byte alignment (a frame is a whole number of \
+             16-byte steps), so a plugin that breaks it is refused"
         ),
         Finding::Uncovered { .. } => format!(
             ".text+{at:#x} is code that no function symbol covers: the packer reads each \

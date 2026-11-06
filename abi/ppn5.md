@@ -215,8 +215,13 @@ precompiled `core`, whose tables the scan reads.
 **Frame limit and floats (ADR 0034, decision #953):** a frame of 2,048 bytes or more is refused (the limit is the
 band's height at the stack's end, `paperpaw_x4::stack_band::FRAME_LIMIT`); one of less cannot step over the band. The
 panic handler's room is kept for the worst case of two such frames meeting in the band: the band lies
-`RESERVE = HANDLER + FRAME_LIMIT` = 4,096 bytes above the stack's end (`HANDLER` is 2 KiB, handler depth and a
-256-byte margin, until the device measures it; if it is more, the reserve grows, not the limit). Band, reserve and
+`RESERVE = DEPTH + FRAME_LIMIT` = 4,096 bytes above the stack's end, `DEPTH` being the larger of `HANDLER` (the panic
+handler's depth) and `INTERRUPT` (an interrupt's depth on the main stack when it arrives with the pointer near the band),
+each 2 KiB with a 256-byte margin until the device measures them together (checklist G7, and the interrupt case of the
+overflow test G8); if either is more, the reserve grows, not the limit. Two assumptions the band rests on are not the
+ABI's promise: `sp` moves in multiples of 16 (the packer refuses a plugin whose `sp` moves by anything else), and a
+function's first store into its frame is its return address at the top (LLVM's habit; the worst case of two frames meeting
+in the band needs a frame to cross into the band with no store there, which that allows). Band, reserve and
 alignment take 6 to 8 KiB of the X4's 41,096-byte main stack. So `core`'s float formatting, whose
 `float_to_decimal_common_exact` has a frame of 1,952 bytes, packs: `{}` and `{:.N}` of an `f32` or `f64` work on the
 X4. The SDK's fixed-point formatter stays the recommended way (it saves roughly 10 KiB of flash), not a requirement.

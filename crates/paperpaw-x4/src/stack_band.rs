@@ -22,14 +22,33 @@
 //! without a store there (any frame under [`FRAME_LIMIT`] can), the second
 //! fires the trigger at its first store and brings the pointer down by its
 //! own size. The band lies [`RESERVE`] bytes above the stack's end, aligned,
-//! with `RESERVE = HANDLER + FRAME_LIMIT`: the handler is left at least
-//! [`HANDLER`] bytes whatever two frames under the limit meet in the band
+//! with `RESERVE = DEPTH + FRAME_LIMIT`: the handler is left at least
+//! [`DEPTH`] bytes whatever two frames under the limit meet in the band
 //! (see [`room_at_trap`]), for the exception handler, the panic's message and
 //! the crash slot. `HANDLER` is the depth the handler takes and a margin of
 //! 256 bytes; until the device measures it, 2 KiB is assumed
 //! (`shells/xteink/frame-budget.txt` holds the build-time half, the chain of
 //! its functions at about 1.5 KiB); if the measured depth is more, the
 //! reserve grows, not the frame limit (ADR 0034 decision #953).
+//!
+//! An interrupt that arrives while the pointer is near the band runs on the
+//! same stack, below it, and may take the stack's last bytes before any
+//! store reaches the band: so what the reserve keeps is the larger of the
+//! handler's depth and an interrupt's ([`DEPTH`] of [`HANDLER`] and
+//! [`INTERRUPT`]), each with its own margin. Both are measured on the device
+//! together (checklist G7, the interrupt case of the overflow test G8).
+//!
+//! Two assumptions the reasoning rests on, neither the ABI's promise:
+//! the stack pointer moves in multiples of 16 (the psABI's alignment, so
+//! that a frame is a whole number of 16-byte steps and an alignment of the
+//! band to its height cannot be stepped over by a frame under it; the packer
+//! refuses a plugin whose pointer changes by anything else), and a function's
+//! first store into its new frame is the return address at the frame's top,
+//! as LLVM emits it. The "two frames" worst case takes the first frame to
+//! cross into the band with no store there, which that habit allows and
+//! needs: a prologue that stored deeper first would fire the trigger sooner,
+//! not later, and one that moves the pointer again after its first store is
+//! counted in the function's whole frame, which the scan sums.
 //!
 //! What it cannot see: a single frame of [`FRAME_LIMIT`] bytes or more that
 //! never stores into it (`paperpaw-sign pack` refuses those in a plugin's
@@ -45,14 +64,28 @@ pub const BAND: u32 = 2048;
 /// build-time chain is about 1.5 KiB).
 pub const HANDLER: u32 = 2048;
 
+/// The depth an interrupt takes on the main stack when it arrives with the
+/// pointer near the band: its frame (the trap frame of the vector, its
+/// handler and what that calls), with a margin of 256 bytes. Assumed until the
+/// device measures it, together with [`HANDLER`].
+pub const INTERRUPT: u32 = 2048;
+
+/// What the reserve keeps below the pointer: the larger of [`HANDLER`] and
+/// [`INTERRUPT`].
+pub const DEPTH: u32 = if HANDLER > INTERRUPT {
+    HANDLER
+} else {
+    INTERRUPT
+};
+
 /// The largest frame a plugin's code may have, plus one: a frame of this
 /// many bytes or more is refused by `paperpaw-sign pack`. The band's height,
 /// so that a frame under it cannot step over the band.
 pub const FRAME_LIMIT: u32 = BAND;
 
-/// The room kept below the band: the handler's depth for the worst case of
-/// two frames under the limit meeting in the band (see [`room_at_trap`]).
-pub const RESERVE: u32 = HANDLER + FRAME_LIMIT;
+/// The room kept below the band: [`DEPTH`] for the worst case of two frames
+/// under the limit meeting in the band (see [`room_at_trap`]).
+pub const RESERVE: u32 = DEPTH + FRAME_LIMIT;
 
 /// The stack must reach this far above the band, or there is none (a
 /// stack that small is no design this guards).
@@ -152,7 +185,7 @@ mod tests {
                 for second in [0, 16, 512, 1024, 1536, FRAME_LIMIT - 1] {
                     let room = room_at_trap(end, start, first, second);
                     assert!(
-                        room >= HANDLER,
+                        room >= DEPTH,
                         "end {end:#x} frames {first} and {second}: {room}"
                     );
                 }
@@ -168,16 +201,18 @@ mod tests {
         let (end, start) = (0x3fcc_4800u32, 0x3fcc_4800u32 + 2048);
         assert_eq!(start % BAND, 0);
         assert_eq!(room_at_trap(end, start, 2047, 1535), 514);
-        assert!(room_at_trap(end, start, 2047, 1535) < HANDLER / 2);
+        assert!(room_at_trap(end, start, 2047, 1535) < DEPTH / 2);
         // With the reserve, the same two frames leave the handler its room.
         let start = band(end, 0x3fcd_0000).unwrap();
-        assert!(room_at_trap(end, start, FRAME_LIMIT - 1, FRAME_LIMIT - 1) >= HANDLER);
+        assert!(room_at_trap(end, start, FRAME_LIMIT - 1, FRAME_LIMIT - 1) >= DEPTH);
     }
 
     #[test]
-    fn the_reserve_is_the_handler_and_the_limit() {
+    fn the_reserve_is_the_larger_of_handler_and_interrupt_and_the_limit() {
         assert_eq!(RESERVE, 4096);
         assert_eq!(FRAME_LIMIT, BAND);
+        assert_eq!(DEPTH, HANDLER.max(INTERRUPT));
+        assert_eq!(RESERVE, HANDLER.max(INTERRUPT) + FRAME_LIMIT);
     }
 
     #[test]
