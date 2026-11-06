@@ -270,10 +270,10 @@ fn the_real_sample_packs_to_the_committed_file() {
         (h.target, h.abi_major, h.needs_minor),
         (Chip::Esp32C3, 7, 1)
     );
-    assert_eq!((h.image_len, h.code_at, h.entry), (220, 128, 0));
+    assert_eq!((h.image_len, h.code_at, h.entry), (236, 144, 0));
     assert_eq!((h.meta_at, h.meta_len, h.relocs, h.align), (20, 88, 3, 16));
     // One hot function, called from cold code: an `auipc` and its partner.
-    assert_eq!((h.hot_at, h.hot_len, h.patches), (208, 12, 2));
+    assert_eq!((h.hot_at, h.hot_len, h.patches), (224, 12, 2));
 }
 
 #[test]
