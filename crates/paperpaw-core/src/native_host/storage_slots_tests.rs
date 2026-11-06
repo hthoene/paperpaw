@@ -129,7 +129,7 @@ fn all_slots_use_the_scoped_storage_and_only_the_owner_folder() {
                 read_at(scope, OWNER, 0, bytes(b"state"), 2, output(&mut out)),
                 4
             );
-            assert_eq!(&out, b"cdef\0\0\0\0");
+            assert_eq!(&out, b"cdef\xa5\xa5\xa5\xa5");
             assert_eq!(
                 read_at(scope, OWNER, 0, bytes(b"state"), u64::MAX, output(&mut out)),
                 0
@@ -355,19 +355,19 @@ fn reserve_errors_preserve_files_and_read_errors_zero_output() {
             );
         }
         assert_eq!(len, 91);
-        assert_eq!(out, [0; 4]);
+        assert_eq!(out, [0xa5; 4]);
     });
     assert_eq!(backend.files.get(FILE).unwrap(), data);
 }
 
 #[test]
-fn raw_read_initializes_the_output_in_place_before_storage() {
+fn raw_read_initializes_only_the_successful_prefix() {
     let backend = Backend::default();
     backend.files.write(FILE, b"ok").unwrap();
     scoped(&backend, |scope, _| {
         let mut out = [MaybeUninit::<u8>::uninit(); 4];
-        // SAFETY: caller storage is writable and exclusive. The adapter
-        // initializes the full output before borrowing it as bytes.
+        // SAFETY: caller storage is writable and exclusive. Only the reported
+        // successful prefix is read after the adapter has initialized it.
         unsafe {
             assert_eq!(
                 read_at(
@@ -383,13 +383,13 @@ fn raw_read_initializes_the_output_in_place_before_storage() {
                 ),
                 2
             );
-            assert_eq!(out.map(|byte| byte.assume_init()), *b"ok\0\0");
+            assert_eq!([out[0].assume_init(), out[1].assume_init()], *b"ok");
         }
     });
 }
 
 #[test]
-fn a_backend_that_partly_writes_then_fails_leaves_initialized_zero_output() {
+fn a_backend_that_partly_writes_then_fails_preserves_the_caller_output() {
     let backend = Backend::default();
     // Bypass the small-file cache so this reaches the failing backend.
     backend
@@ -398,26 +398,31 @@ fn a_backend_that_partly_writes_then_fails_leaves_initialized_zero_output() {
         .unwrap();
     backend.partial_error.set(true);
     scoped(&backend, |scope, _| {
-        let mut out = [MaybeUninit::<u8>::uninit(); 4];
-        // SAFETY: caller output is live and exclusive. Even on backend error,
-        // the adapter initializes and clears its full capacity before returning.
+        let mut out = [0xa5; 4];
+        // SAFETY: caller output is live, exclusive and disjoint from inputs.
         unsafe {
             assert_eq!(
-                read_at(
-                    scope,
-                    OWNER,
-                    0,
-                    bytes(b"state"),
-                    0,
-                    PpBuffer {
-                        ptr: out.as_mut_ptr().cast(),
-                        cap: out.len()
-                    }
-                ),
+                read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut out)),
                 ERR_IO
             );
-            assert_eq!(out.map(|byte| byte.assume_init()), [0; 4]);
+            assert_eq!(out, [0xa5; 4]);
         }
+    });
+}
+
+#[test]
+fn scratch_allocation_refusal_preserves_the_output() {
+    let backend = Backend::default();
+    backend.files.write(FILE, b"keep").unwrap();
+    scoped(&backend, |scope, _| {
+        let mut out = [0xa5; 4];
+        scratch_fault::refuse_next();
+        // SAFETY: valid disjoint input and exclusive initialized output.
+        assert_eq!(
+            unsafe { read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut out)) },
+            ERR_NO_MEMORY
+        );
+        assert_eq!(out, [0xa5; 4]);
     });
 }
 
