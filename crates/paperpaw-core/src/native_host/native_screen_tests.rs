@@ -5,10 +5,12 @@ use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use paperpaw_platform::{Instant, PixelFormat};
 
+type DrawCall = (u32, u32, u32, i32, i32, Rect);
+
 #[derive(Default)]
 struct Recorder {
     calls: RefCell<Vec<(u32, Vec<u8>)>>,
-    draws: RefCell<Vec<(u32, u32, u32, i32, i32, Rect)>>,
+    draws: RefCell<Vec<DrawCall>>,
     dropped: RefCell<Vec<(u32, i32)>>,
     result: Cell<i32>,
 }
