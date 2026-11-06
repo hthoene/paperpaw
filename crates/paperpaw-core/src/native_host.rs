@@ -13,6 +13,9 @@ pub use lifecycle::{Teardown, TeardownStep};
 #[path = "native_host/registration_scope.rs"]
 pub mod registration_scope;
 
+#[path = "native_host/shared.rs"]
+mod shared;
+
 const REGISTRATIONS: usize = 8;
 
 /// Callback-scoped drawing for host-owned plugin contexts.
@@ -139,20 +142,39 @@ impl Default for DispatchDepth {
     missing_debug_implementations,
     reason = "holds opaque context and module"
 )]
+#[must_use]
 pub struct PinnedOwner<C, M>(ManuallyDrop<Pin<Box<HostOwner<C, M>>>>);
 
 impl<C, M> PinnedOwner<C, M> {
-    /// Adopt a fallibly allocated owner without allocating or moving its fields.
+    /// Allocate the owner fallibly, keeping the pinned Box private forever.
+    ///
+    /// Returns None if the actual owner allocation fails.
+    pub fn try_new(owner: HostOwner<C, M>) -> Option<Self> {
+        const { assert!(core::mem::size_of::<HostOwner<C, M>>() != 0) };
+        let layout = core::alloc::Layout::new::<HostOwner<C, M>>();
+        // SAFETY: lifecycle flags make the owner nonzero-sized; layout is exact.
+        let allocation = unsafe { alloc::alloc::alloc(layout) }.cast::<HostOwner<C, M>>();
+        if allocation.is_null() {
+            return None;
+        }
+        // SAFETY: uniquely allocated Box storage, initialized before pinning.
+        Some(Self(ManuallyDrop::new(unsafe {
+            allocation.write(owner);
+            Box::into_pin(Box::from_raw(allocation))
+        })))
+    }
+
+    /// Borrow the pinned owner without exposing ownership of its allocation.
     #[must_use]
-    pub fn new(owner: Pin<Box<HostOwner<C, M>>>) -> Self {
-        Self(ManuallyDrop::new(owner))
+    pub fn as_ref(&self) -> Pin<&HostOwner<C, M>> {
+        self.0.as_ref()
     }
 }
 
 impl<C, M> Deref for PinnedOwner<C, M> {
-    type Target = Pin<Box<HostOwner<C, M>>>;
+    type Target = HostOwner<C, M>;
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.as_ref().get_ref()
     }
 }
 
@@ -655,17 +677,27 @@ mod pinned_owner_tests {
 
     #[test]
     fn active_pinned_owner_retains_the_allocation_and_reports_once() {
+        active_holder(false);
+    }
+
+    #[test]
+    fn last_shared_owner_retains_the_active_pinned_allocation() {
+        active_holder(true);
+    }
+
+    fn active_holder(shared: bool) {
         let reports = Rc::new(Cell::new(0));
         let context_dropped = Rc::new(Cell::new(false));
         let module_dropped = Rc::new(Cell::new(false));
-        let holder = PinnedOwner::new(Box::pin(HostOwner::new(
+        let holder = PinnedOwner::try_new(HostOwner::new(
             Context {
                 canary: 0x1234_5678,
                 reports: Rc::clone(&reports),
                 dropped: Rc::clone(&context_dropped),
             },
             Module(Rc::clone(&module_dropped)),
-        )));
+        ))
+        .unwrap();
         let batch = holder
             .as_ref()
             .begin::<()>("fixture")
@@ -683,7 +715,15 @@ mod pinned_owner_tests {
         drop(batch);
         let context = holder.as_ref().context().get_ref() as *const Context;
         holder.as_ref().inner().force_active();
-        drop(holder);
+        if shared {
+            let holder = super::shared::Shared::try_new(holder).unwrap();
+            let retained = holder.try_clone().unwrap();
+            drop(holder);
+            assert_eq!(reports.get(), 0);
+            drop(retained);
+        } else {
+            drop(holder);
+        }
         assert_eq!(reports.get(), 1);
         assert!(!context_dropped.get() && !module_dropped.get());
         // SAFETY: the active holder deliberately retained the entire allocation.

@@ -273,6 +273,8 @@ jobs:
       - uses: ./.github/actions/xteink-tools
         with:
           device: ${{ matrix.device }}
+          # A slow Ubuntu mirror must not fail a source check (#876); a release does not do this.
+          clang-fallback: "true"
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.event_name == 'push' }}

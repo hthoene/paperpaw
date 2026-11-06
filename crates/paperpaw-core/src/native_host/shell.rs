@@ -14,10 +14,8 @@
 //! records stay non-dispatchable until the output validates and commits; the
 //! plugin's destructor runs exactly once, while the context, services and
 //! module are alive; Env and Canvas are lent for one synchronous callback.
-use alloc::alloc::{alloc, handle_alloc_error};
 use alloc::boxed::Box;
 use alloc::string::String;
-use core::alloc::Layout;
 use core::cell::Cell;
 use core::ffi::c_void;
 use core::pin::Pin;
@@ -419,23 +417,7 @@ pub fn try_box<T>(value: T) -> Result<Box<T>, Error> {
 /// Fallible placement of the owner: it holds a context and a module, so its
 /// allocation is never zero-sized.
 fn pin_owner<S, M>(value: Owner<S, M>) -> Result<super::PinnedOwner<Context<S>, M>, Error> {
-    let layout = Layout::new::<Owner<S, M>>();
-    if layout.size() == 0 {
-        handle_alloc_error(layout);
-    }
-    // SAFETY: the layout is nonzero and valid for this exact owner type.
-    let allocation = unsafe { alloc(layout) }.cast::<Owner<S, M>>();
-    if allocation.is_null() {
-        return Err(Error::Allocation);
-    }
-    // SAFETY: a uniquely owned allocation of the exact `Box` layout,
-    // initialized before the `Box` exists. Nothing has seen the unpinned owner.
-    unsafe {
-        allocation.write(value);
-        Ok(super::PinnedOwner::new(Box::into_pin(Box::from_raw(
-            allocation,
-        ))))
-    }
+    super::PinnedOwner::try_new(value).ok_or(Error::Allocation)
 }
 
 /// A made plugin whose records are not yet dispatchable. Dropped before
