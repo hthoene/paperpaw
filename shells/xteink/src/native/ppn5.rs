@@ -353,6 +353,10 @@ mod x4 {
         warn!("native: {id}: event {tag} dropped: {why:?}");
     }
 
+    fn teardown_failed(id: &str, why: paperpaw_core::native_host::Error) {
+        warn!("native: {id}: unload step failed: {why:?}");
+    }
+
     fn leaked(id: &str) {
         warn!("native: {id}: still in use at unload, kept");
     }
@@ -402,6 +406,7 @@ mod x4 {
         let hooks = Hooks {
             event_dropped,
             leaked,
+            teardown_failed,
             call_begin,
             call_end,
         };

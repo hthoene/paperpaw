@@ -23,6 +23,8 @@ std::thread_local! {
     static UNCOVERED: Cell<u32> = const { Cell::new(0) };
     /// The nth allocation of this thread fails (1-based; 0: none).
     static FAIL_NTH: Cell<u32> = const { Cell::new(0) };
+    /// `make` registers the one event only (the flat adapter routes no draw).
+    static EVENT_ONLY: Cell<bool> = const { Cell::new(false) };
 }
 
 /// The test binary's allocator: the system's, failing on request so the
@@ -85,6 +87,7 @@ fn reset(mode: u8) {
     CALLS.with(|c| c.set(0));
     OPEN.with(|o| o.set(0));
     UNCOVERED.with(|u| u.set(0));
+    EVENT_ONLY.with(|e| e.set(false));
 }
 
 /// The shell's heap and clock.
@@ -169,16 +172,18 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
     }
     // On the stack: the plugin's own allocations are not under test here.
     let mut bytes = [0u8; registrations::REGISTRATION_MAX_BYTES];
-    let len = registrations::registrations_encode(
-        &[
-            Registration::Event {
-                event_tag: registrations::EVENT_STARTED_TAG,
-                token: TOKEN,
-            },
-            Registration::Draw { token: TOKEN },
-        ],
-        &mut bytes,
-    )
+    let started = Registration::Event {
+        event_tag: registrations::EVENT_STARTED_TAG,
+        token: TOKEN,
+    };
+    let len = if EVENT_ONLY.with(Cell::get) {
+        registrations::registrations_encode(&[started], &mut bytes)
+    } else {
+        registrations::registrations_encode(
+            &[started, Registration::Draw { token: TOKEN }],
+            &mut bytes,
+        )
+    }
     .unwrap();
     // SAFETY: readable bytes for this synchronous call.
     let status = unsafe {
@@ -553,6 +558,9 @@ mod instance_tests {
     fn leaked(_: &str) {
         log("leaked");
     }
+    fn teardown_failed(_: &str, _: super::super::super::Error) {
+        log("teardown_failed");
+    }
     fn begin(_: &str) {
         CALLS.with(|c| c.set(c.get() + 1));
         OPEN.with(|o| o.set(o.get() + 1));
@@ -564,6 +572,7 @@ mod instance_tests {
         Hooks {
             event_dropped: dropped,
             leaked,
+            teardown_failed,
             call_begin: begin,
             call_end: end,
         }
@@ -633,6 +642,46 @@ mod instance_tests {
         // but is announced), the drop (1): every announced call was ended.
         assert_eq!(OPEN.with(Cell::get), 0, "every call ended");
         assert!(CALLS.with(Cell::get) >= 5);
+    }
+
+    #[test]
+    fn dropping_the_flat_plugin_unloads_in_order_with_the_destructor_inside_a_call() {
+        use crate::native_host::FlatHost;
+        use crate::native_host::flat::FlatPlugin;
+        reset(NORMAL);
+        EVENT_ONLY.with(|e| e.set(true));
+        let instance = load().unwrap();
+        let host = FlatHost {
+            meter: crate::meter::Meter::new(None),
+        };
+        let manifest = paperpaw_sdk::Manifest::new(
+            paperpaw_sdk::Id::parse("fake.plugin").unwrap(),
+            "fake",
+            paperpaw_sdk::Version::new(0, 0, 0),
+        );
+        let plugin = FlatPlugin::new(
+            manifest,
+            alloc::boxed::Box::new(instance),
+            alloc::rc::Rc::new(DispatchDepth::new()),
+            &host,
+        )
+        .unwrap();
+        assert!(
+            logged().is_empty(),
+            "nothing is destroyed while the plugin is held"
+        );
+        // The kernel removes the plugin's subscriptions and queued work (they
+        // held the instance); the last reference going is the unload: stop,
+        // the batch's lease, cancel and release, finish (the destructor), then
+        // the module, each exactly once and no step failing.
+        drop(plugin);
+        assert_eq!(logged(), ["destroy", "module"]);
+        assert_eq!(
+            UNCOVERED.with(Cell::get),
+            0,
+            "the destructor ran inside a call"
+        );
+        assert_eq!(OPEN.with(Cell::get), 0, "every call ended");
     }
 
     #[test]

@@ -34,6 +34,10 @@ pub struct Hooks {
     /// The owner of this plugin id was still in use at the drop and is kept
     /// (leaked on purpose: whatever holds the module must outlive it).
     pub leaked: fn(id: &str),
+    /// A cancel or release step of this plugin id's teardown failed (logged
+    /// by the shell; the teardown goes on: a broken backend must not keep the
+    /// reader from unloading or powering off).
+    pub teardown_failed: fn(id: &str, why: native_host::Error),
     /// Plugin code of this plugin id is about to run (`make`, a callback or
     /// the plugin's destructor). Always followed by `call_end`, also when the
     /// call failed. The X4 uses the pair to keep the id in memory a reset
@@ -217,12 +221,28 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
 }
 
 impl<S: Services + 'static, M: 'static> Drop for Instance<S, M> {
+    /// The unload sequence (ADR 0034): admission is stopped at once, the
+    /// batch's lease released, the owner's cancel and release steps run
+    /// (`prepare_teardown`) and their errors are told, then `finish` destroys
+    /// the plugin and the owner drops with the services and the module.
+    /// Subscriptions and queued work of this plugin are gone before this
+    /// runs: they held the instance, and this is its last reference.
     fn drop(&mut self) {
         self.hosted.stop();
         drop(self.batch.take());
         // The plugin's destructor runs in `finish` or in the owner's drop.
         let _call = Call::new(&self.hooks, &self.id);
-        if self.hosted.owner().finish().is_ok() {
+        let owner = self.hosted.owner();
+        // A step answering Busy cannot be deferred from a drop: it is told,
+        // and `finish` below tries the same steps once more and refuses the
+        // destroy while one is still busy (the owner is then kept).
+        if let Err(why) = owner.prepare_teardown() {
+            (self.hooks.teardown_failed)(&self.id, why);
+        }
+        if let Some(why) = owner.take_teardown_error() {
+            (self.hooks.teardown_failed)(&self.id, why);
+        }
+        if owner.finish().is_ok() {
             // SAFETY: dropped exactly once, here; nothing borrows the owner
             // any longer (the batch is gone and `finish` saw no lease).
             unsafe { ManuallyDrop::drop(&mut self.hosted) };
