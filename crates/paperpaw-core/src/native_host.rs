@@ -34,7 +34,7 @@ pub mod registrations;
 #[path = "native_host/staged.rs"]
 pub mod staged;
 
-use paperpaw_native::host_glue::ERR_NO_SPACE;
+use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NO_SPACE};
 use registrations::{Record, RecordBatch, Registration};
 use staged::Declarations;
 
@@ -52,6 +52,8 @@ pub enum Error {
     Capacity,
     /// The device-wide callback nesting limit is exhausted.
     Depth,
+    /// Host memory for the staged records ran out.
+    Memory,
 }
 
 impl From<lifecycle::Error> for Error {
@@ -214,8 +216,9 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     ///
     /// # Errors
     /// Returns Invalid after validation refusal or when the staged declarations
-    /// fail their cross-record checks ([`Declarations::finish`]), Capacity if staging overflowed,
-    /// or State if revoked before commit.
+    /// fail their cross-record checks ([`Declarations::finish`]), Capacity if staging overflowed
+    /// a slot, count or byte limit, Memory if staging ran out of memory, or State if revoked
+    /// before commit.
     /// Every Err drops staged records before returning and leaves destruction
     /// unarmed. The loader still owns its validated successful output and must
     /// destroy it exactly once while context and module remain alive. This is
@@ -246,8 +249,9 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// Stage a decoded, mixed batch: its callback registrations (converted by
     /// `convert`) and its declarations, all or nothing for the batch.
     /// Capacity for both is checked before either is changed. A refusal latches
-    /// the transaction: Capacity when the eight callback slots would overflow,
-    /// Invalid for a declaration refusal.
+    /// the transaction: Capacity when the eight callback slots, a declaration
+    /// count or the byte budget would overflow, Memory when an allocation fails,
+    /// Invalid for any other declaration refusal.
     ///
     /// # Errors
     /// The `ERR_*` status of the refusal, or of the earlier latched failure.
@@ -268,7 +272,13 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
             return Err(ERR_NO_SPACE);
         }
         if let Err(code) = self.declarations.stage(self.plugin_id, batch) {
-            self.failure = Some(Error::Invalid);
+            // Latch the cause, so that a warning can tell a limit or low memory
+            // from a broken rule.
+            self.failure = Some(match code {
+                ERR_NO_SPACE => Error::Capacity,
+                ERR_NO_MEMORY => Error::Memory,
+                _ => Error::Invalid,
+            });
             return Err(code);
         }
         for record in batch.iter() {

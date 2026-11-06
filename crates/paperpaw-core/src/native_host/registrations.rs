@@ -27,7 +27,8 @@ pub use wire::{
 
 use super::{Error, registration_scope::RegistrationScope};
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBytes, buffers,
+    ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBytes,
+    buffers,
 };
 
 /// Decode and validate an entire borrowed batch, then stage it: callback
@@ -90,5 +91,6 @@ pub(super) fn status(error: Error) -> i32 {
         Error::Busy | Error::Depth => ERR_BUSY,
         Error::Capacity => ERR_NO_SPACE,
         Error::Invalid => ERR_INVALID,
+        Error::Memory => ERR_NO_MEMORY,
     }
 }

@@ -247,6 +247,13 @@ fn reserve<T>(vec: &mut Vec<T>, additional: usize) -> Result<(), i32> {
     vec.try_reserve_exact(additional).map_err(|_| ERR_NO_MEMORY)
 }
 
+/// Room for `additional` more entries in a vector that grows over several
+/// batches: amortized, so that not every batch reallocates it and leaves old
+/// and new buffers alive at once on the X4 heap.
+fn grow<T>(vec: &mut Vec<T>, additional: usize) -> Result<(), i32> {
+    vec.try_reserve(additional).map_err(|_| ERR_NO_MEMORY)
+}
+
 /// Entries built from one batch, every buffer already allocated.
 struct Pending {
     groups: Vec<StagedGroup>,
@@ -404,12 +411,12 @@ impl Declarations {
     pub fn stage(&mut self, plugin_id: &str, batch: &RecordBatch<'_>) -> Result<(), i32> {
         let counts = self.check(plugin_id, batch)?;
         let mut pending = Pending::build(batch, &counts)?;
-        reserve(&mut self.groups, counts.groups)?;
-        reserve(&mut self.specs, counts.specs)?;
-        reserve(&mut self.extras, counts.extras)?;
-        reserve(&mut self.hyphenations, counts.hyphenations)?;
-        reserve(&mut self.faces, counts.faces)?;
-        reserve(&mut self.extensions, counts.extensions)?;
+        grow(&mut self.groups, counts.groups)?;
+        grow(&mut self.specs, counts.specs)?;
+        grow(&mut self.extras, counts.extras)?;
+        grow(&mut self.hyphenations, counts.hyphenations)?;
+        grow(&mut self.faces, counts.faces)?;
+        grow(&mut self.extensions, counts.extensions)?;
         // Everything is allocated. Append moves within reserved capacity.
         self.groups.append(&mut pending.groups);
         self.specs.append(&mut pending.specs);

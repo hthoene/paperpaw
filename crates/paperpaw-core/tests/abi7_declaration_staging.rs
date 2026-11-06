@@ -660,6 +660,34 @@ fn allocation_failure_at_every_step_leaves_the_declarations_unchanged() {
     assert_eq!(d, before);
 }
 
+#[test]
+fn the_construction_latches_the_cause_of_a_refusal() {
+    // A limit: specs until a count or the byte budget refuses one batch.
+    let owner = new_owner();
+    let mut construction = owner.as_ref().begin(PLUGIN).unwrap();
+    let all = names("s", 8 * 64);
+    let mut status = OK;
+    for chunk in all.chunks(8) {
+        let records: Vec<_> = chunk.iter().map(|name| spec(name)).collect();
+        status = send(&owner, &mut construction, &encode(&records));
+        if status != OK {
+            break;
+        }
+    }
+    assert_eq!(status, ERR_NO_SPACE);
+    assert!(matches!(construction.commit(|_| ()), Err(Error::Capacity)));
+
+    // Low memory: the first allocation of staging fails.
+    let owner = new_owner();
+    let mut construction = owner.as_ref().begin(PLUGIN).unwrap();
+    let bytes = encode(&[spec("a")]);
+    COUNTDOWN.with(|c| c.set(0));
+    let status = send(&owner, &mut construction, &bytes);
+    COUNTDOWN.with(|c| c.set(usize::MAX));
+    assert_eq!(status, ERR_NO_MEMORY);
+    assert!(matches!(construction.commit(|_| ()), Err(Error::Memory)));
+}
+
 // ---- mutation ---------------------------------------------------------------------------
 
 #[test]
