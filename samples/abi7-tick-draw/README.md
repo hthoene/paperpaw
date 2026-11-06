@@ -57,9 +57,13 @@ construction if registration or allocation fails, leaving output null.
 
 Tick input is borrowed only through dispatch and decoded before state changes.
 Each instance remembers tick time/count independently. Draw queries host time,
-then records draw count/time on success. This is draw callback admission, not
-painting: no Canvas or live Env service exists in this path yet. Host clock
-errors leave the draw observation unchanged. Wrong tokens and malformed tick
+then paints one rectangle (x=8, y=8, 64x32, colour `color_encode(0, 0, 0)` from the
+generated colour contract) through `canvas.fill_rect` (slot 9) and only after both
+host calls succeed records the observations, draw count and time. A refused fill
+(for example `ERR_STATE` outside a draw scope or `ERR_BUSY`) is returned as it is and
+changes nothing. The test host records the fill arguments; this is not pixel
+evidence, which belongs to Firmware's #747 harness. Host clock errors leave the
+draw observation unchanged. Wrong tokens and malformed tick
 records are refused. Drop returns the original block to the same host allocator.
 The host owns admission, registration rollback, module/context leases and
 exactly-once destruction; those properties come from the separately reviewed
@@ -74,9 +78,9 @@ To extend setting -> render -> event -> command without inventing an ABI:
    with absent/wrong-type outcomes, bounded copy and explicit error propagation.
    The standalone host currently refuses it; do not substitute a fake production
    setting or silently coerce missing to false.
-2. Connect a borrowed Canvas frame to existing slot9 fill_rect for a minimal
-   visible render, retaining raw validation and origin/clip/semantic behavior.
-   Draw callback admission alone is not this render proof.
+2. Slot 9 is used by the sample (see Behavior). Firmware's #747 harness lends
+   a Canvas frame and asserts the pixels; until then the sample proves only the
+   call and its error propagation.
 3. Tick/event dispatch exists. Slot15 still needs the reviewed generated command
    records, decoder and host-stamped authority for the chosen operation. Do not
    write guessed command bytes. Choose a concrete Notify/SetSetting operation
