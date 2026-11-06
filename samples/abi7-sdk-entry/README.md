@@ -4,6 +4,9 @@ Run `CARGO_TARGET_DIR=/path/to/own-target samples/abi7-sdk-entry/check.sh`.
 It builds a real riscv32imc plugin using `native_plugin!`, packs it as format 5,
 and validates it through `paperpaw-sign plugin` (`check_file5`). Both exported
 symbols, entry alignment, metadata identity and relocation checks must hold.
+The packer's explicit 8-byte alignment guard enforces entry placement. A second
+ELF with its entry symbol shifted four bytes must fail with "not 8-aligned";
+the Rust entry stays exactly 20 bytes on the X4, without alignment padding.
 
 This reuses Firmware's `abi7-x4-min` linker configuration. It requires the format-5
 packer from PR #204. While that PR is unmerged, set `PAPERPAW_PACKER_ROOT` to its
