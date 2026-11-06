@@ -103,6 +103,8 @@ impl Plugin for TestPlugin {
     ) -> Result<(), Error> {
         assert_eq!(token, 43);
         assert_eq!(frame.id, 7);
+        let canvas = frame.canvas()?;
+        assert_eq!(canvas.frame_rect(), frame.rect);
         super::super::clock::micros(host)?;
         Err(Error::Busy)
     }

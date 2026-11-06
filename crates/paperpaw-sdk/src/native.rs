@@ -324,6 +324,7 @@ mod binding;
 pub use binding::entry as __entry;
 pub use binding::{Error, Host, Plugin};
 pub mod callbacks;
+pub mod canvas;
 pub mod clock;
 pub mod declare;
 pub mod events;

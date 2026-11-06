@@ -209,9 +209,10 @@ unsafe extern "C" fn draw<T: Plugin>(state: *mut c_void, token: u32, input: PpBy
         table: unsafe { &*state.host },
         ctx: state.ctx,
     };
+    let access = super::super::callbacks::DrawAccess::new(&host);
     state
         .value
-        .draw(&host, token, frame)
+        .draw(&host, token, frame.bind(&access))
         .map_or_else(Error::status, |()| OK)
 }
 
