@@ -7,7 +7,7 @@
 
 use crate::abi7::{calls, lifecycle};
 use core::{cell::Cell, fmt, pin::Pin};
-pub use lifecycle::{Error as TeardownError, Teardown};
+pub use lifecycle::{Teardown, TeardownStep};
 
 #[path = "native_host/registration_scope.rs"]
 pub mod registration_scope;
@@ -130,6 +130,10 @@ impl Default for DispatchDepth {
 
 /// Pinned host context and opaque executable-module guard for one plugin.
 /// Allocate fallibly and account for C, M and registration storage externally.
+/// The shell must prepare teardown, remove subscriptions and queued work, then
+/// finish before dropping the owner. Drop is a last-resort host bug path; its
+/// hooks must own only host resources that cannot reference plugin state,
+/// executable code or its mapped image.
 #[non_exhaustive]
 pub struct HostOwner<C, M> {
     inner: lifecycle::Owner<C, M>,
@@ -224,7 +228,7 @@ impl<C, M> HostOwner<C, M> {
     /// Take a non-retryable cleanup-hook error for shell logging. Such a hook
     /// is marked done, so a broken backend cannot cause an infinite retry.
     #[must_use]
-    pub fn take_teardown_error(&self) -> Option<TeardownError> {
+    pub fn take_teardown_error(&self) -> Option<Error> {
         self.inner.take_teardown_error()
     }
 

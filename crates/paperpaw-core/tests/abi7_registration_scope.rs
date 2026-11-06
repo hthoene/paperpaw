@@ -46,6 +46,7 @@ fn pinned_owner_stages_without_activation_and_commits_only_after_scope() {
     assert!(matches!(owner.as_ref().lease(), Err(Error::State)));
     let batch = construction
         .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context,
@@ -83,6 +84,7 @@ fn nested_scope_is_busy_and_preserves_the_outer_target() {
     assert!(!nested_called.get());
     let batch = outer
         .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context,
@@ -96,6 +98,7 @@ fn nested_scope_is_busy_and_preserves_the_outer_target() {
     assert!(
         inner
             .commit(paperpaw_core::native_host::Teardown {
+                report: |_, _, _| {},
                 cancel: |_| Ok(()),
                 release: |_| Ok(()),
                 destroy: |_| ()
@@ -123,6 +126,7 @@ fn a_returned_make_error_clears_the_scope_and_allows_retry() {
     slot.scope(&mut retry, || slot.submit(3)).unwrap().unwrap();
     let batch = retry
         .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context,
@@ -166,6 +170,7 @@ fn unwind_clears_scope_before_transaction_rollback_and_retry() {
     .unwrap();
     let batch = retry
         .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context,
@@ -199,6 +204,7 @@ fn capacity_refusal_preserves_record_and_poisoned_transaction() {
     .unwrap();
     assert!(matches!(
         construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context
@@ -241,6 +247,7 @@ fn ignored_rejection_blocks_successful_make_and_drops_all_staged_records() {
     assert_eq!(staged_drops.get(), 0);
     assert!(matches!(
         construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: destroy_untransferred_output
@@ -282,6 +289,7 @@ fn rejection_returns_further_records_unchanged_and_survives_scope_exit() {
     .unwrap();
     assert!(matches!(
         construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context
@@ -303,6 +311,7 @@ fn rejection_outside_scope_returns_state_without_poisoning_construction() {
     assert_eq!(slot.reject(), Err(Error::State));
     let batch = construction
         .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context,
@@ -336,6 +345,7 @@ fn rejection_survives_caught_unwind_after_scope_reset() {
     assert_eq!(dropped.get(), 0);
     assert!(matches!(
         construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context
@@ -365,6 +375,7 @@ fn aborting_rejected_transaction_leaves_a_clean_retry() {
     .unwrap();
     let batch = retry
         .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context,
@@ -390,6 +401,7 @@ fn repeated_rejection_is_idempotent() {
     .unwrap();
     assert!(matches!(
         construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context
@@ -418,6 +430,7 @@ fn capacity_failure_precedes_later_decoder_rejection() {
     assert_eq!(dropped.get(), 1);
     assert!(matches!(
         construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context

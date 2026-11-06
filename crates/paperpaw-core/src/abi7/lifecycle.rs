@@ -7,11 +7,12 @@
 //! and charge owner/lease storage against the aggregate resource budget.
 
 use super::calls::{Depth, Instance};
+use crate::native_host::Error as HostError;
 use core::{cell::Cell, marker::PhantomPinned, pin::Pin};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Host lifecycle or teardown-hook refusal. Busy is retryable without effects.
-pub enum Error {
+pub(crate) enum Error {
     /// The owner or resource is not in the required state.
     State,
     /// No effects occurred; retry from the next shell tick.
@@ -30,14 +31,26 @@ enum State {
     Dead,
 }
 
+/// Host cleanup stage named in fallback diagnostics. Never crosses the ABI.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TeardownStep {
+    /// Cancellation of the owner's operations.
+    Cancel,
+    /// Release of host-owned handles.
+    Release,
+}
+
 /// Host teardown hooks armed only after validated successful construction.
 /// Hooks must not unwind, allocate, reenter teardown or invoke plugin callbacks.
 /// Explicit no-op functions are required when a context owns no resources.
 pub struct Teardown<C> {
+    /// Report a fallback host error once, identifying the owner through context.
+    /// This must not allocate, unwind or call plugin code.
+    pub report: fn(Pin<&C>, TeardownStep, HostError),
     /// Cancel this owner's open operations without calling the provider.
-    pub cancel: fn(Pin<&C>) -> Result<(), Error>,
+    pub cancel: fn(Pin<&C>) -> Result<(), HostError>,
     /// Release this owner's handles outside their registry borrow.
-    pub release: fn(Pin<&C>) -> Result<(), Error>,
+    pub release: fn(Pin<&C>) -> Result<(), HostError>,
     /// Destroy the validated plugin state, after every lease has gone.
     pub destroy: fn(Pin<&C>),
 }
@@ -63,7 +76,7 @@ pub(crate) struct Owner<C, M> {
     teardown: Cell<Option<Teardown<C>>>,
     cancel_done: Cell<bool>,
     release_done: Cell<bool>,
-    teardown_error: Cell<Option<Error>>,
+    teardown_error: Cell<Option<HostError>>,
     _pin: PhantomPinned,
 }
 
@@ -170,14 +183,14 @@ impl<C, M> Owner<C, M> {
     fn run_hook(
         self: Pin<&Self>,
         done: &Cell<bool>,
-        hook: fn(Pin<&C>) -> Result<(), Error>,
+        hook: fn(Pin<&C>) -> Result<(), HostError>,
     ) -> Result<(), Error> {
         if done.get() {
             return Ok(());
         }
         match hook(self.context()) {
             Ok(()) => done.set(true),
-            Err(Error::Busy) => return Err(Error::Busy),
+            Err(HostError::Busy) => return Err(Error::Busy),
             Err(error) => {
                 // The shell logs this programming error; do not retry forever.
                 if self.teardown_error.get().is_none() {
@@ -189,7 +202,7 @@ impl<C, M> Owner<C, M> {
         Ok(())
     }
 
-    pub(crate) fn take_teardown_error(&self) -> Option<Error> {
+    pub(crate) fn take_teardown_error(&self) -> Option<HostError> {
         self.teardown_error.take()
     }
 
@@ -247,8 +260,8 @@ impl<C, M> Drop for Lease<'_, C, M> {
     }
 }
 
-// This guard destroys the plugin before the owner fields (and module), even
-// if a debug assertion reports a host bug during fallback cleanup.
+// Destroy before the owner fields and module. Hooks must not unwind; this
+// guard still preserves destruction order if a host bug violates that contract.
 struct DestroyOnDrop<'a, C> {
     context: Pin<&'a C>,
     destroy: fn(Pin<&C>),
@@ -271,10 +284,9 @@ impl<C, M> Drop for Owner<C, M> {
             context,
             destroy: teardown.destroy,
         };
-        let mut busy = false;
-        for (done, hook) in [
-            (&self.cancel_done, teardown.cancel),
-            (&self.release_done, teardown.release),
+        for (step, done, hook) in [
+            (TeardownStep::Cancel, &self.cancel_done, teardown.cancel),
+            (TeardownStep::Release, &self.release_done, teardown.release),
         ] {
             if done.get() {
                 continue;
@@ -282,21 +294,13 @@ impl<C, M> Drop for Owner<C, M> {
             match hook(context) {
                 Ok(()) => done.set(true),
                 Err(error) => {
-                    self.teardown_error.set(Some(error));
-                    if error == Error::Busy {
-                        // No retry is possible during Drop. Leave the bounded
-                        // entries under the dead, never-reused owner identity.
-                        busy = true;
-                        break;
-                    }
-                    done.set(true);
+                    // Drop cannot retry or panic. Skipped entries are bounded,
+                    // host-only and keyed by a dead, never-reused owner id.
+                    // They must not reference plugin code, state or its image.
+                    // This also avoids a second panic during an existing unwind.
+                    (teardown.report)(context, step, error);
                 }
             }
         }
-        debug_assert!(
-            !busy,
-            "busy teardown hook during owner Drop: {:p}",
-            &self.context
-        );
     }
 }

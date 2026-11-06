@@ -40,13 +40,12 @@ impl Drop for Subscription {
         self.0.borrow_mut().push("subscription");
     }
 }
-fn cancel(context: Pin<&Context>) -> Result<(), paperpaw_core::native_host::TeardownError> {
-    handles::cancel_owner(&context.registry, 1)
-        .map_err(|_| paperpaw_core::native_host::TeardownError::Busy)
+fn cancel(context: Pin<&Context>) -> Result<(), paperpaw_core::native_host::Error> {
+    handles::cancel_owner(&context.registry, 1).map_err(|_| paperpaw_core::native_host::Error::Busy)
 }
-fn release(context: Pin<&Context>) -> Result<(), paperpaw_core::native_host::TeardownError> {
+fn release(context: Pin<&Context>) -> Result<(), paperpaw_core::native_host::Error> {
     handles::release_owner(&context.registry, 1)
-        .map_err(|_| paperpaw_core::native_host::TeardownError::Busy)
+        .map_err(|_| paperpaw_core::native_host::Error::Busy)
 }
 fn destroy(context: Pin<&Context>) {
     context.log.borrow_mut().push("destroy");
@@ -80,6 +79,7 @@ fn reentrant_stop_only_revokes_then_next_tick_cancels_releases_and_destroys_once
     assert!(construction.stage(Subscription(Rc::clone(&log))).is_ok());
     let batch = construction
         .commit(Teardown {
+            report: |_, _, _| {},
             cancel,
             release,
             destroy,
@@ -198,6 +198,7 @@ fn a_fault_inside_a_borrowed_slot_only_revokes_until_the_call_unwinds() {
     assert!(construction.stage(Subscription(Rc::clone(&log))).is_ok());
     let batch = construction
         .commit(Teardown {
+            report: |_, _, _| {},
             cancel,
             release,
             destroy,
@@ -226,7 +227,6 @@ fn a_fault_inside_a_borrowed_slot_only_revokes_until_the_call_unwinds() {
 
 #[test]
 fn a_borrowed_registry_defers_release_without_repeating_cancel() {
-    use paperpaw_core::native_host::TeardownError;
     #[derive(Default)]
     struct Retry {
         registry: RefCell<()>,
@@ -241,15 +241,13 @@ fn a_borrowed_registry_defers_release_without_repeating_cancel() {
         .begin::<()>("fixture")
         .unwrap()
         .commit(Teardown {
+            report: |_, _, _| {},
             cancel: |context| {
                 context.cancel.set(context.cancel.get() + 1);
                 Ok(())
             },
             release: |context| {
-                let _registry = context
-                    .registry
-                    .try_borrow_mut()
-                    .map_err(|_| TeardownError::Busy)?;
+                let _registry = context.registry.try_borrow_mut().map_err(|_| Error::Busy)?;
                 context.release.set(context.release.get() + 1);
                 Ok(())
             },
@@ -288,23 +286,23 @@ fn a_borrowed_registry_defers_release_without_repeating_cancel() {
 
 #[test]
 fn a_non_retryable_hook_error_is_reported_once_and_does_not_retry_forever() {
-    use paperpaw_core::native_host::TeardownError;
     let owner = Box::pin(HostOwner::new(Cell::new(0), ()));
     let batch = owner
         .as_ref()
         .begin::<()>("fixture")
         .unwrap()
         .commit(Teardown {
+            report: |_, _, _| {},
             cancel: |context| {
                 context.set(context.get() + 1);
-                Err(TeardownError::State)
+                Err(Error::State)
             },
             release: |_| Ok(()),
             destroy: |_| {},
         })
         .unwrap();
     owner.as_ref().prepare_teardown().unwrap();
-    assert_eq!(owner.take_teardown_error(), Some(TeardownError::State));
+    assert_eq!(owner.take_teardown_error(), Some(Error::State));
     owner.as_ref().prepare_teardown().unwrap();
     assert_eq!(owner.take_teardown_error(), None);
     assert_eq!(owner.as_ref().context().get(), 1);
@@ -312,29 +310,119 @@ fn a_non_retryable_hook_error_is_reported_once_and_does_not_retry_forever() {
     owner.as_ref().finish().unwrap();
 }
 
-#[cfg(debug_assertions)]
-#[test]
-#[should_panic(expected = "busy teardown hook during owner Drop")]
-fn busy_in_drop_asserts_after_arming_exactly_once_destruction() {
-    struct Verify(Rc<Cell<u8>>);
-    impl Drop for Verify {
-        fn drop(&mut self) {
-            assert_eq!(self.0.get(), 1);
+use paperpaw_core::native_host::TeardownStep;
+
+struct Fallback {
+    log: Log,
+    reports: Rc<RefCell<Vec<(TeardownStep, Error)>>>,
+    dead: Rc<Cell<bool>>,
+    destroyed: Rc<Cell<u8>>,
+    error: Error,
+}
+impl Drop for Fallback {
+    fn drop(&mut self) {
+        self.dead.set(true);
+    }
+}
+// A host-only requester/operation retains a tombstone, never plugin state.
+struct HostOp {
+    dead: Rc<Cell<bool>>,
+    decoded: Cell<bool>,
+    delivered: Cell<bool>,
+}
+impl HostOp {
+    fn complete(&self) -> i32 {
+        if self.dead.get() {
+            return paperpaw_native::host_glue::ERR_STATE;
+        }
+        self.decoded.set(true);
+        self.delivered.set(true);
+        0
+    }
+    fn requester_status(&self) -> i32 {
+        if self.dead.get() {
+            paperpaw_native::host_glue::ERR_CANCELLED
+        } else {
+            0
         }
     }
-    let destroyed = Rc::new(Cell::new(0));
-    let _verify = Verify(Rc::clone(&destroyed));
-    let owner = Box::pin(HostOwner::new(Rc::clone(&destroyed), ()));
-    let batch = owner
-        .as_ref()
-        .begin::<()>("fixture")
-        .unwrap()
-        .commit(Teardown {
-            cancel: |_| Err(paperpaw_core::native_host::TeardownError::Busy),
-            release: |_| panic!("release must wait for cancel"),
-            destroy: |context| context.set(context.get() + 1),
-        })
-        .unwrap();
-    drop(batch);
-    drop(owner);
+}
+
+#[test]
+fn fallback_reports_each_failed_hook_then_destroys_and_unmaps_without_panicking() {
+    for error in [Error::Busy, Error::Invalid] {
+        let log = Log::default();
+        let reports = Rc::new(RefCell::new(Vec::new()));
+        let dead = Rc::new(Cell::new(false));
+        let destroyed = Rc::new(Cell::new(0));
+        let op = HostOp {
+            dead: Rc::clone(&dead),
+            decoded: Cell::new(false),
+            delivered: Cell::new(false),
+        };
+        let registry = RefCell::new(Handles::new());
+        let make = || Resource {
+            log: Rc::clone(&log),
+            cancelled: Rc::new(Cell::new(false)),
+        };
+        let own = registry
+            .borrow_mut()
+            .insert(1, Kind::Blob, make())
+            .ok()
+            .unwrap();
+        let other = registry
+            .borrow_mut()
+            .insert(2, Kind::Blob, make())
+            .ok()
+            .unwrap();
+        let owner = Box::pin(HostOwner::new(
+            Fallback {
+                log: Rc::clone(&log),
+                reports: Rc::clone(&reports),
+                dead: Rc::clone(&dead),
+                destroyed: Rc::clone(&destroyed),
+                error,
+            },
+            Module(Rc::clone(&log)),
+        ));
+        let batch = owner
+            .as_ref()
+            .begin::<()>("fixture")
+            .unwrap()
+            .commit(Teardown {
+                report: |context, step, error| context.reports.borrow_mut().push((step, error)),
+                cancel: |context| Err(context.error),
+                release: |context| Err(context.error),
+                destroy: |context| {
+                    assert_eq!(context.reports.borrow().len(), 2);
+                    context.destroyed.set(context.destroyed.get() + 1);
+                    context.log.borrow_mut().push("destroy");
+                },
+            })
+            .unwrap();
+        owner.as_ref().revoke();
+        assert_eq!(
+            batch.dispatch(0, &DispatchDepth::new(), |_, _| panic!("revoked")),
+            Err(Error::State)
+        );
+        drop(batch);
+        drop(owner);
+        assert_eq!(
+            &*reports.borrow(),
+            &[
+                (TeardownStep::Cancel, error),
+                (TeardownStep::Release, error)
+            ]
+        );
+        assert_eq!(&*log.borrow(), &["destroy", "module"]);
+        assert_eq!(destroyed.get(), 1);
+        assert!(registry.borrow().get(1, Kind::Blob, own).is_ok());
+        assert!(registry.borrow().get(2, Kind::Blob, other).is_ok());
+        assert_eq!(
+            op.requester_status(),
+            paperpaw_native::host_glue::ERR_CANCELLED
+        );
+        assert_eq!(op.complete(), paperpaw_native::host_glue::ERR_STATE);
+        assert!(!op.decoded.get() && !op.delivered.get());
+    }
 }

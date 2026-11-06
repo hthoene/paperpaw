@@ -242,6 +242,7 @@ impl<'a, S, T> PendingInstance<'a, S, T> {
         let batch = transaction
             .staging
             .commit(paperpaw_core::native_host::Teardown {
+                report: report_teardown::<S>,
                 cancel: |_| Ok(()),
                 release: |_| Ok(()),
                 destroy: destroy_context::<S>,
@@ -277,6 +278,17 @@ impl<S, T> Drop for PendingInstance<'_, S, T> {
         // before the local foreign-cleanup guard runs. A second panic aborts.
         drop(self.transaction.take());
     }
+}
+
+fn report_teardown<S>(
+    context: Pin<&Context<S>>,
+    step: native_host::TeardownStep,
+    error: native_host::Error,
+) {
+    eprintln!(
+        "abi7 owner {:p}: fallback {step:?} teardown error: {error:?}",
+        context.get_ref()
+    );
 }
 
 fn destroy_context<S>(context: Pin<&Context<S>>) {

@@ -6,6 +6,7 @@ mod lifecycle;
 
 use calls::{Depth, Instance};
 use lifecycle::{Error, Owner};
+use paperpaw_core::native_host;
 use std::{
     cell::{Cell, RefCell},
     marker::PhantomPinned,
@@ -25,6 +26,7 @@ fn context_address_stays_pinned_through_activation_dispatch_and_destruction() {
     owner
         .as_ref()
         .activate(lifecycle::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy,
@@ -54,6 +56,7 @@ fn admission_requires_activation_and_stops_at_revocation() {
     owner
         .as_ref()
         .activate(lifecycle::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context,
@@ -62,6 +65,7 @@ fn admission_requires_activation_and_stops_at_revocation() {
     assert!(!owner.is_constructing());
     assert_eq!(
         owner.as_ref().activate(lifecycle::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context
@@ -85,6 +89,7 @@ fn admission_requires_activation_and_stops_at_revocation() {
     assert!(matches!(owner.as_ref().lease(), Err(Error::State)));
     assert_eq!(
         owner.as_ref().activate(lifecycle::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context
@@ -99,6 +104,7 @@ fn different_leases_share_one_instance_guard() {
     owner
         .as_ref()
         .activate(lifecycle::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context,
@@ -132,6 +138,7 @@ fn distinct_owners_obey_one_shared_depth_limit_and_recover() {
         owner
             .as_ref()
             .activate(lifecycle::Teardown {
+                report: |_, _, _| {},
                 cancel: |_| Ok(()),
                 release: |_| Ok(()),
                 destroy: ignore_context,
@@ -168,6 +175,7 @@ fn eight_leases_are_allowed_and_releasing_one_restores_capacity() {
     owner
         .as_ref()
         .activate(lifecycle::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context,
@@ -199,6 +207,7 @@ fn revocation_during_dispatch_defers_destruction_until_every_lease_is_released()
     owner
         .as_ref()
         .activate(lifecycle::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy,
@@ -233,6 +242,7 @@ fn finish_and_owner_drop_destroy_exactly_once_before_dependencies_drop() {
     owner
         .as_ref()
         .activate(lifecycle::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy,
@@ -259,6 +269,7 @@ fn owner_drop_also_destroys_an_activated_instance_exactly_once() {
     owner
         .as_ref()
         .activate(lifecycle::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy,
@@ -286,6 +297,7 @@ fn callback_error_and_unwind_release_instance_and_depth_admission() {
     owner
         .as_ref()
         .activate(lifecycle::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context,
@@ -380,6 +392,7 @@ fn activation_with_first_lease_transfers_only_on_success() {
     let lease = owner
         .as_ref()
         .activate_leased(lifecycle::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy,
@@ -387,6 +400,7 @@ fn activation_with_first_lease_transfers_only_on_success() {
         .unwrap();
     assert!(matches!(
         owner.as_ref().activate_leased(lifecycle::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy

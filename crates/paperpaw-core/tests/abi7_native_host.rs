@@ -28,6 +28,7 @@ fn ignored_decoder_refusal_rolls_back_before_loader_cleanup() {
     assert_eq!(scope.reject(), Err(Error::State));
     assert!(matches!(
         construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy
@@ -75,6 +76,7 @@ fn overlapping_construction_is_busy_and_abort_permits_retry() {
     let final_attempt = owner.as_ref().begin::<()>("weather").unwrap();
     let batch = final_attempt
         .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context,
@@ -98,6 +100,7 @@ fn cancellation_during_make_refuses_commit_and_rolls_back_before_finish() {
     assert_eq!(owner.as_ref().finish(), Err(Error::Busy));
     assert!(matches!(
         construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy
@@ -130,6 +133,7 @@ fn ninth_record_is_returned_unchanged_on_capacity_refusal() {
     assert_eq!(*returned, "retained by caller");
     assert!(matches!(
         construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context
@@ -143,6 +147,7 @@ fn ninth_record_is_returned_unchanged_on_capacity_refusal() {
     }
     let batch = retry
         .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context,
@@ -170,6 +175,7 @@ fn abort_drops_records_with_dependencies_alive_and_allows_a_new_transaction() {
     assert!(retry.stage(Record::new(&state, "retry")).is_ok());
     let batch = retry
         .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy,
@@ -199,6 +205,7 @@ fn commit_admits_records_with_a_stable_pinned_context() {
     assert!(construction.stage(Record::new(&state, "record")).is_ok());
     let batch = construction
         .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy,
@@ -235,6 +242,7 @@ fn batch_and_queued_callback_share_instance_reentry_admission() {
     construction.stage(17).unwrap();
     let batch = construction
         .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: ignore_context,
@@ -269,6 +277,7 @@ fn revoked_batch_and_queue_refuse_callbacks_and_hold_finish_busy() {
     assert!(construction.stage(Record::new(&state, "record")).is_ok());
     let batch = construction
         .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy,
@@ -312,6 +321,7 @@ fn record_cleanup_precedes_owner_drop_and_plugin_dependency_cleanup() {
     assert!(construction.stage(Record::new(&state, "second")).is_ok());
     let batch = construction
         .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy,
@@ -334,6 +344,7 @@ fn owned_host_callback_result_survives_owner_teardown() {
     construction.stage(String::from("record")).unwrap();
     let batch = construction
         .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
             cancel: |_| Ok(()),
             release: |_| Ok(()),
             destroy: |_| (),
@@ -367,6 +378,7 @@ fn distinct_owners_share_depth_limit_and_recover_after_refusal() {
                 .begin::<()>("weather")
                 .unwrap()
                 .commit(paperpaw_core::native_host::Teardown {
+                    report: |_, _, _| {},
                     cancel: |_| Ok(()),
                     release: |_| Ok(()),
                     destroy: ignore_context,
@@ -421,7 +433,7 @@ fn rejected_commit_releases_records_before_explicit_foreign_cleanup_and_unload()
             Error::State
         };
         assert!(
-            matches!(construction.commit(paperpaw_core::native_host::Teardown { cancel: |_| Ok(()), release: |_| Ok(()), destroy }), Err(error) if error == expected)
+            matches!(construction.commit(paperpaw_core::native_host::Teardown { report: |_, _, _| {}, cancel: |_| Ok(()), release: |_| Ok(()), destroy }), Err(error) if error == expected)
         );
         assert_eq!(state.records_dropped.get(), if overflow { 9 } else { 8 });
         assert_eq!(state.destroyed.get(), 0);
@@ -462,7 +474,7 @@ fn successful_make_output_stays_loader_owned_on_every_commit_rejection() {
         };
         // The fixture's make output is successful and its destructor validated.
         assert!(
-            matches!(construction.commit(paperpaw_core::native_host::Teardown { cancel: |_| Ok(()), release: |_| Ok(()), destroy }), Err(error) if error == expected)
+            matches!(construction.commit(paperpaw_core::native_host::Teardown { report: |_, _, _| {}, cancel: |_| Ok(()), release: |_| Ok(()), destroy }), Err(error) if error == expected)
         );
         assert_eq!(state.records_dropped.get(), if overflow { 9 } else { 8 });
         assert_eq!(state.destroyed.get(), 0);

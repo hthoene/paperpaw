@@ -21,8 +21,12 @@ pub(crate) enum Error {
     Capacity,
 }
 
-/// Host resources cancel without plugin callbacks or allocation. Release runs
-/// after the value leaves the registry borrow.
+/// Host-only resources cancel without plugin callbacks or allocation. Values
+/// must hold no plugin callback, pointer into plugin state or code, or borrowed
+/// plugin buffer/image. A skipped fallback release may leave an entry under a
+/// dead owner until restart; it must never deliver into that plugin. Completion
+/// paths check owner lifetime and cancellation before reading any payload.
+/// Release runs after the value leaves the registry borrow.
 pub(crate) trait Release {
     fn cancel(&mut self) {}
     fn release(self);
@@ -83,6 +87,8 @@ impl Error {
     }
 }
 
+// T follows Release's host-only lifetime rule. No leaked entry may keep a
+// plugin callback or borrowed module/state/image pointer.
 struct Entry<T> {
     owner: u64,
     kind: Kind,
