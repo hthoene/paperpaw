@@ -14,7 +14,7 @@ use core::pin::Pin;
 
 use paperpaw_native::host_glue::{self, Services};
 
-use super::{Batch, Error, Hosted, Invocation, Make, dispatch_registration, try_box};
+use super::{Batch, Error, Hosted, Invocation, Make, Report, dispatch_registration, try_box};
 use crate::native_host::Declarations;
 use crate::native_host::environment::EnvironmentScope;
 use crate::native_host::flat::{DropReason, FlatInstance, FlatRegistration};
@@ -85,7 +85,7 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
     ///
     /// # Safety
     ///
-    /// As [`Hosted::new`]: `make` is the validated entry of the code `module`
+    /// As [`Hosted::new`] (`report` is the shell's real, non-allocating sink): `make` is the validated entry of the code `module`
     /// keeps loaded, and `image` is a read-only mapping that stays mapped
     /// while `module` lives, or `(0, 0)`.
     pub unsafe fn load(
@@ -94,6 +94,7 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
         make: Make,
         id: &str,
         image: (usize, usize),
+        report: Report<S>,
         hooks: Hooks,
     ) -> Result<Self, Error> {
         // One announced call over the whole load, declared first so that it
@@ -103,7 +104,7 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
         // fails.
         let _call = Call::new(&hooks, id);
         // SAFETY: the caller's contract.
-        let hosted = try_box(unsafe { Hosted::new(services, module, make, id, image) }?)?;
+        let hosted = try_box(unsafe { Hosted::new(services, module, make, id, image, report) }?)?;
         let mut transaction = hosted.begin::<Registration>()?;
         let image = hosted.image().unwrap_or(&[]);
         transaction.set_image(image)?;
@@ -258,8 +259,15 @@ impl<S: Services + 'static, M: 'static> FlatInstance for Instance<S, M> {
         &self,
         index: usize,
         payload: &[u8],
+        out: &mut [u8],
         depth: &DispatchDepth,
     ) -> Result<i32, native_host::Error> {
+        // The events this module hands on have no reply family (an empty,
+        // non-null reply buffer goes to the callback): a caller asking for
+        // a reply is a host mistake, refused before any plugin code.
+        if !out.is_empty() {
+            return Err(native_host::Error::Invalid);
+        }
         match self.dispatch(index, depth, Invocation::Event(payload)) {
             Ok(status) | Err(Error::Status(status)) => Ok(status),
             Err(Error::Lifecycle(why)) => Err(why),

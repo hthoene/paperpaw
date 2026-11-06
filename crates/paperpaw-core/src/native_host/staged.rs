@@ -523,16 +523,7 @@ impl Declarations {
         batch: &RecordBatch<'_>,
         retained: usize,
     ) -> Result<(), i32> {
-        self.stage_owned(plugin_id, batch, retained, false)
-    }
-
-    pub(crate) fn stage_verified(
-        &mut self,
-        plugin_id: &str,
-        batch: &RecordBatch<'_>,
-        retained: usize,
-    ) -> Result<(), i32> {
-        self.stage_owned(plugin_id, batch, retained, true)
+        self.stage_owned(plugin_id, batch, retained)
     }
 
     fn stage_owned(
@@ -540,13 +531,8 @@ impl Declarations {
         plugin_id: &str,
         batch: &RecordBatch<'_>,
         retained: usize,
-        verified: bool,
     ) -> Result<(), i32> {
-        let counts = if verified {
-            self.check_counts(plugin_id, batch)?
-        } else {
-            self.check(plugin_id, batch)?
-        };
+        let counts = self.check(plugin_id, batch)?;
         if self
             .bytes
             .checked_add(counts.bytes)

@@ -23,7 +23,7 @@ static struct {
     unsigned draw_calls;
 } callback_state;
 
-static int32_t dispatch_event(void *state, uint32_t token, PpBytes input) {
+static int32_t dispatch_event(void *state, uint32_t token, PpBytes input, PpBuffer out) {
     static const uint8_t expected[] = {0x00, 0xff, 0x50, 0x80, 0x07};
     if (state != &callback_state) {
         return PP_ERR_INVALID;
@@ -39,14 +39,25 @@ static int32_t dispatch_event(void *state, uint32_t token, PpBytes input) {
         }
     }
     callback_state.event_token = token;
-    return PP_ERR_CANCELLED;
+    /* N1: a reply goes into the host's buffer; the result is its length. */
+    if (out.cap < 3) {
+        return PP_ERR_NO_SPACE;
+    }
+    out.ptr[0] = 0xa5;
+    out.ptr[1] = 0x5a;
+    out.ptr[2] = 0x01;
+    return 3;
 }
 
-static int32_t draw(void *state, uint32_t token) {
+static int32_t draw(void *state, uint32_t token, PpBytes input) {
     if (state != &callback_state) {
         return PP_ERR_INVALID;
     }
     ++callback_state.draw_calls;
+    /* N2: the frame arrives as input bytes. */
+    if (input.len != 2 || input.ptr == NULL || input.ptr[0] != 0x11 || input.ptr[1] != 0x22) {
+        return PP_ERR_INVALID;
+    }
     if (token != UINT32_C(0x89abcdef) ||
         callback_state.event_token != UINT32_C(0xfedcba98)) {
         return PP_ERR_STATE;
@@ -90,7 +101,7 @@ fn main() {
         assert!(!plugin.is_null());
         let bytes = addr_of!((*plugin).size).read() as usize;
         assert!(bytes >= offset_of!(PpPlugin, draw)
-                + size_of::<Option<unsafe extern "C" fn(*mut c_void, u32) -> i32>>());
+                + size_of::<Option<unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32>>());
         let state = addr_of!((*plugin).state).read();
         assert!(!state.is_null());
         assert_eq!(state, probe_state());
@@ -98,25 +109,35 @@ fn main() {
         let draw = addr_of!((*plugin).draw).read().expect("fixture draw");
         let input = [0x00, 0xff, 0x50, 0x80, 0x07];
         let bytes = PpBytes { ptr: input.as_ptr(), len: input.len() };
+        let mut reply = [0u8; 4];
+        let out = PpBuffer { ptr: reply.as_mut_ptr(), cap: reply.len() };
+        let frame = [0x11, 0x22];
+        let frame = PpBytes { ptr: frame.as_ptr(), len: frame.len() };
         assert_eq!(probe_event_calls(), 0);
         assert_eq!(probe_draw_calls(), 0);
-        assert_eq!(dispatch(state, 0xfedcba98, bytes), ERR_CANCELLED);
+        assert_eq!(dispatch(state, 0xfedcba98, bytes, out), 3);
+        assert_eq!(reply, [0xa5, 0x5a, 0x01, 0]);
         assert_eq!(probe_event_calls(), 1);
-        assert_eq!(draw(state, 0x89abcdef), ERR_BUSY);
+        assert_eq!(draw(state, 0x89abcdef, frame), ERR_BUSY);
         assert_eq!(probe_draw_calls(), 1);
+        // A buffer too small for the reply is the plugin's ERR_NO_SPACE.
+        let tight = PpBuffer { ptr: reply.as_mut_ptr(), cap: 2 };
+        assert_eq!(dispatch(state, 0xfedcba98, bytes, tight), ERR_NO_SPACE);
 
         // C checks the opaque state, full-width tokens, length and binary bytes.
-        assert_eq!(dispatch(null_mut(), 0xfedcba98, bytes), ERR_INVALID);
-        assert_eq!(dispatch(state, 0x76543210, bytes), ERR_INVALID);
+        assert_eq!(dispatch(null_mut(), 0xfedcba98, bytes, out), ERR_INVALID);
+        assert_eq!(dispatch(state, 0x76543210, bytes, out), ERR_INVALID);
         let short = PpBytes { ptr: input.as_ptr(), len: input.len() - 1 };
-        assert_eq!(dispatch(state, 0xfedcba98, short), ERR_INVALID);
+        assert_eq!(dispatch(state, 0xfedcba98, short, out), ERR_INVALID);
         let wrong = [0x00, 0xff, 0x50, 0x80, 0x08];
         let wrong = PpBytes { ptr: wrong.as_ptr(), len: wrong.len() };
-        assert_eq!(dispatch(state, 0xfedcba98, wrong), ERR_INVALID);
-        assert_eq!(draw(null_mut(), 0x89abcdef), ERR_INVALID);
-        assert_eq!(draw(state, 0x01234567), ERR_STATE);
-        assert_eq!(probe_event_calls(), 4);
-        assert_eq!(probe_draw_calls(), 2);
+        assert_eq!(dispatch(state, 0xfedcba98, wrong, out), ERR_INVALID);
+        assert_eq!(draw(null_mut(), 0x89abcdef, frame), ERR_INVALID);
+        assert_eq!(draw(state, 0x01234567, frame), ERR_STATE);
+        let empty = PpBytes { ptr: input.as_ptr(), len: 0 };
+        assert_eq!(draw(state, 0x89abcdef, empty), ERR_INVALID);
+        assert_eq!(probe_event_calls(), 5);
+        assert_eq!(probe_draw_calls(), 3);
 
         let prefix = probe_prefix_only();
         assert!(!prefix.is_null());

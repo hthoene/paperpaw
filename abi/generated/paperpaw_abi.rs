@@ -81,6 +81,10 @@ pub struct PpHost {
     pub storage_remove: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, root: u32, path: PpBytes) -> i32,
     /// storage.sync: mutate, status, since 1.
     pub storage_sync: unsafe extern "C" fn(ctx: *mut core::ffi::c_void) -> i32,
+    /// i18n.format: query, length, since 1.
+    pub i18n_format: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, key: PpBytes, args: PpBytes, out: PpBuffer) -> i32,
+    /// i18n.digits: query, length, since 1.
+    pub i18n_digits: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, text: PpBytes, out: PpBuffer) -> i32,
 }
 /// Generated ABI major.
 pub const MAJOR: u16 = 7;
@@ -110,6 +114,10 @@ pub const ERR_BUSY: i32 = -9;
 pub const ERR_NOT_FOUND: i32 = -10;
 /// ERR_FULL: status value since minor 1.
 pub const ERR_FULL: i32 = -11;
+/// ERR_DENIED: status value since minor 1.
+pub const ERR_DENIED: i32 = -12;
+/// ERR_TIMEOUT: status value since minor 1.
+pub const ERR_TIMEOUT: i32 = -13;
 /// Generated metadata_symbol export name.
 pub const METADATA_SYMBOL: &str = "PAPERPAW_METADATA";
 /// Generated entry_symbol export name.
@@ -125,9 +133,11 @@ pub struct PpPlugin {
     /// drop: since minor 1.
     pub drop: Option<unsafe extern "C" fn(state: *mut core::ffi::c_void) -> ()>,
     /// dispatch_event: since minor 1.
-    pub dispatch_event: Option<unsafe extern "C" fn(state: *mut core::ffi::c_void, token: u32, input: PpBytes) -> i32>,
+    pub dispatch_event: Option<unsafe extern "C" fn(state: *mut core::ffi::c_void, token: u32, input: PpBytes, out: PpBuffer) -> i32>,
     /// draw: since minor 1.
-    pub draw: Option<unsafe extern "C" fn(state: *mut core::ffi::c_void, token: u32) -> i32>,
+    pub draw: Option<unsafe extern "C" fn(state: *mut core::ffi::c_void, token: u32, input: PpBytes) -> i32>,
+    /// input: since minor 1.
+    pub input: Option<unsafe extern "C" fn(state: *mut core::ffi::c_void, token: u32, input: PpBytes) -> i32>,
 }
 /// Raw PpEntry table since minor 1.
 /// Check accessible bytes before reading fields.
@@ -340,16 +350,16 @@ pub unsafe fn read_plugin_drop(
 pub unsafe fn read_plugin_dispatch_event(
     table: *const u8,
     accessible: usize,
-) -> Result<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32, i32> {
+) -> Result<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes, PpBuffer) -> i32, i32> {
     // SAFETY: The caller supplies readable stable storage and valid field values.
     let declared = unsafe { plugin_callback_size(table, accessible)? };
     let offset = core::mem::offset_of!(PpPlugin, dispatch_event);
-    let end = offset + core::mem::size_of::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32>>();
+    let end = offset + core::mem::size_of::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes, PpBuffer) -> i32>>();
     if declared < end {
         return Err(ERR_UNSUPPORTED);
     }
     // SAFETY: Both lengths cover this aligned field; its representation is valid.
-    let callback = unsafe { table.add(offset).cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32>>().read() };
+    let callback = unsafe { table.add(offset).cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes, PpBuffer) -> i32>>().read() };
     callback.ok_or(ERR_UNSUPPORTED)
 }
 
@@ -368,15 +378,43 @@ pub unsafe fn read_plugin_dispatch_event(
 pub unsafe fn read_plugin_draw(
     table: *const u8,
     accessible: usize,
-) -> Result<unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> i32, i32> {
+) -> Result<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32, i32> {
     // SAFETY: The caller supplies readable stable storage and valid field values.
     let declared = unsafe { plugin_callback_size(table, accessible)? };
     let offset = core::mem::offset_of!(PpPlugin, draw);
-    let end = offset + core::mem::size_of::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> i32>>();
+    let end = offset + core::mem::size_of::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32>>();
     if declared < end {
         return Err(ERR_UNSUPPORTED);
     }
     // SAFETY: Both lengths cover this aligned field; its representation is valid.
-    let callback = unsafe { table.add(offset).cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> i32>>().read() };
+    let callback = unsafe { table.add(offset).cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32>>().read() };
+    callback.ok_or(ERR_UNSUPPORTED)
+}
+
+/// Retrieve the declared `input` callback without calling it.
+///
+/// A missing tail field or null callback returns `ERR_UNSUPPORTED`. Malformed
+/// alignment or byte counts return `ERR_INVALID`. Plugin state is not read.
+///
+/// # Safety
+/// When non-null, aligned and within the checked length limits, `table` must
+/// designate `accessible` readable bytes in one live allocation. The size and
+/// callback fields read must be initialized, and the callback must have a valid
+/// nullable function-pointer representation. Storage must not change during
+/// this read. The caller must keep the callback's module loaded while using
+/// the returned pointer and satisfy its call contract before invoking it.
+pub unsafe fn read_plugin_input(
+    table: *const u8,
+    accessible: usize,
+) -> Result<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32, i32> {
+    // SAFETY: The caller supplies readable stable storage and valid field values.
+    let declared = unsafe { plugin_callback_size(table, accessible)? };
+    let offset = core::mem::offset_of!(PpPlugin, input);
+    let end = offset + core::mem::size_of::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32>>();
+    if declared < end {
+        return Err(ERR_UNSUPPORTED);
+    }
+    // SAFETY: Both lengths cover this aligned field; its representation is valid.
+    let callback = unsafe { table.add(offset).cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32>>().read() };
     callback.ok_or(ERR_UNSUPPORTED)
 }

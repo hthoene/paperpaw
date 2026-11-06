@@ -7,6 +7,7 @@
 
 use crate::abi7::{calls, lifecycle};
 use core::{cell::Cell, fmt, pin::Pin};
+pub use lifecycle::{Teardown, TeardownStep};
 
 #[path = "native_host/registration_scope.rs"]
 pub mod registration_scope;
@@ -45,12 +46,16 @@ pub mod declarations;
 #[path = "native_host/environment.rs"]
 pub mod environment;
 
-/// Interface-7 event records (tags 32-37): host encode, decode and admission.
+/// Interface-7 event records (tags 32-39): host encode, decode and admission.
 #[path = "native_host/events.rs"]
 pub mod events;
 /// Production event adapter for a shell-owned flat plugin instance.
 #[path = "native_host/flat.rs"]
 pub mod flat;
+/// The `draw.frame` input of `draw` (N2, `docs/abi/screens-input.md` section 6).
+#[path = "native_host/frames.rs"]
+pub mod frames;
+
 /// Bounded decoded registration submission during plugin construction.
 #[path = "native_host/registrations.rs"]
 pub mod registrations;
@@ -129,6 +134,10 @@ impl Default for DispatchDepth {
 
 /// Pinned host context and opaque executable-module guard for one plugin.
 /// Allocate fallibly and account for C, M and registration storage externally.
+/// The shell must prepare teardown, remove subscriptions and queued work, then
+/// finish before dropping the owner. Drop is a last-resort host bug path; its
+/// hooks must own only host resources that cannot reference plugin state,
+/// executable code or its mapped image.
 #[non_exhaustive]
 pub struct HostOwner<C, M> {
     inner: lifecycle::Owner<C, M>,
@@ -197,6 +206,34 @@ impl<C, M> HostOwner<C, M> {
     /// Stop callback admission before removing registrations and queued work.
     pub fn revoke(self: Pin<&Self>) {
         self.inner().revoke();
+    }
+
+    /// Whether this owner is inside a callback. After revoke, resource cleanup
+    /// must wait for the active call to return; retained leases are separate.
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        self.inner.is_active()
+    }
+
+    /// Revoke immediately and run cancellation then release once, unless a
+    /// callback is active. The shell must defer Busy to its next tick. After
+    /// success, remove subscriptions and queued work before calling finish.
+    ///
+    /// # Errors
+    /// Returns Busy during construction or an active callback.
+    pub fn prepare_teardown(self: Pin<&Self>) -> Result<(), Error> {
+        self.revoke();
+        if self.preparing.get() {
+            return Err(Error::Busy);
+        }
+        self.inner().prepare_teardown().map_err(Into::into)
+    }
+
+    /// Take a non-retryable cleanup-hook error for shell logging. Such a hook
+    /// is marked done, so a broken backend cannot cause an infinite retry.
+    #[must_use]
+    pub fn take_teardown_error(&self) -> Option<Error> {
+        self.inner.take_teardown_error()
     }
 
     /// Destroy the plugin once all leases have been released.
@@ -298,22 +335,25 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// Returns Invalid after validation refusal or when the staged declarations
     /// fail their cross-record checks ([`Declarations::finish`]), Capacity if staging overflowed
     /// a slot, count or byte limit, Memory if staging ran out of memory, or State if revoked
-    /// before commit. DeclarationViewsUnavailable refuses image declarations
+    /// before commit. DeclarationViewsUnavailable refuses wire declarations
     /// until the draft-4 SDK registry views are wired.
     /// Every Err drops staged records before returning and leaves destruction
     /// unarmed. The loader still owns its validated successful output and must
     /// destroy it exactly once while context and module remain alive. This is
     /// distinct from cleaning partial or invalid output from a failed make.
-    pub fn commit(mut self, destroy: fn(Pin<&C>)) -> Result<RegistrationBatch<'a, C, M, T>, Error> {
+    pub fn commit(
+        mut self,
+        teardown: Teardown<C>,
+    ) -> Result<RegistrationBatch<'a, C, M, T>, Error> {
         if let Some(error) = self.failure {
             return Err(error);
         }
         // Cross-record checks come first: a refusal leaves destruction unarmed.
         self.finish_declarations().map_err(|_| Error::Invalid)?;
-        if self.raw.image_entries != 0 {
+        if !self.raw.batches.is_empty() {
             return Err(Error::DeclarationViewsUnavailable);
         }
-        let lease = CallbackLease(self.owner.inner().activate_leased(destroy)?);
+        let lease = CallbackLease(self.owner.inner().activate_leased(teardown)?);
         Ok(RegistrationBatch {
             records: core::mem::replace(&mut self.records, core::array::from_fn(|_| None)),
             len: self.len,
@@ -324,7 +364,8 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         })
     }
 
-    /// The declarations staged so far.
+    /// Decoded-only host declarations staged so far. Wire submissions are kept
+    /// separately as raw bytes or image ranges and do not appear here.
     #[must_use]
     pub const fn declarations(&self) -> &Declarations {
         &self.declarations
@@ -382,19 +423,22 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
             return Err(ERR_NO_SPACE);
         }
         declarations::validate_batch(self.plugin_id, batch)?;
-        let raw = self.raw.prepare(self.image, wire, batch)?;
-        if raw
-            .as_ref()
-            .is_none_or(|pending| pending.batch.image.is_none())
+        let raw = self
+            .raw
+            .prepare_retaining(self.image, wire, batch, self.declarations.bytes())?;
+        self.raw
+            .check_counts(&self.declarations, batch, raw.as_ref())?;
+        let retained = self.raw.retained(raw.as_ref());
+        if raw.is_none() {
+            self.declarations
+                .stage_retaining(self.plugin_id, batch, retained)?;
+        } else if self
+            .declarations
+            .bytes()
+            .checked_add(retained)
+            .is_none_or(|n| n > staged::DECLARATIONS_MAX_BYTES)
         {
-            let retained = self.raw.retained(raw.as_ref());
-            if self.image.is_some_and(|image| !image.is_empty()) && wire.is_some() {
-                self.declarations
-                    .stage_verified(self.plugin_id, batch, retained)?;
-            } else {
-                self.declarations
-                    .stage_retaining(self.plugin_id, batch, retained)?;
-            }
+            return Err(ERR_NO_SPACE);
         }
         self.raw.commit(raw);
         for record in batch.iter() {
@@ -461,8 +505,9 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
         core::mem::take(&mut self.raw)
     }
 
-    /// Move the staged declarations out, leaving an empty set behind. They are
-    /// moved, never copied; the kernel's apply step owns them from here.
+    /// Move decoded-only host declarations out, leaving an empty set behind.
+    /// Wire submissions are stored separately and do not appear here. They
+    /// currently refuse commit until the SDK declaration views are wired.
     pub fn take_declarations(&mut self) -> Declarations {
         core::mem::take(&mut self.declarations)
     }

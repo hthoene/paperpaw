@@ -481,6 +481,12 @@ fn send(owner: &HostOwner<Context, ()>, construction: &mut Build<'_>, bytes: &[u
     .unwrap()
 }
 
+fn send_decoded(construction: &mut Build<'_>, bytes: &[u8]) -> i32 {
+    construction
+        .stage_batch(&records_decode(bytes).unwrap(), |r| r)
+        .map_or_else(|e| e, |()| OK)
+}
+
 #[test]
 fn a_plugin_declares_fifty_three_specs_over_eight_submissions_and_commit_moves_them() {
     let owner = new_owner();
@@ -493,7 +499,7 @@ fn a_plugin_declares_fifty_three_specs_over_eight_submissions_and_commit_moves_t
     assert_eq!(batches.len(), 7);
     batches.push(encode(&[hyphenation("de"), face("f")]));
     for bytes in &batches {
-        assert_eq!(send(&owner, &mut construction, bytes), OK);
+        assert_eq!(send_decoded(&mut construction, bytes), OK);
     }
     let staged = construction.declarations();
     assert_eq!(staged.specs().len(), 53);
@@ -506,7 +512,14 @@ fn a_plugin_declares_fifty_three_specs_over_eight_submissions_and_commit_moves_t
     let default = staged.specs()[7].default.as_ptr();
     let list = staged.specs().as_ptr();
 
-    let mut published = construction.commit(|_| ()).unwrap();
+    let mut published = construction
+        .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| (),
+        })
+        .unwrap();
     assert_eq!(published.len(), 1);
     let moved = published.take_declarations();
     assert_eq!(moved, expected);
@@ -523,21 +536,25 @@ fn a_refused_batch_keeps_earlier_batches_and_poisons_the_construction() {
     let owner = new_owner();
     let mut construction = owner.as_ref().begin(PLUGIN).unwrap();
     assert_eq!(
-        send(
-            &owner,
-            &mut construction,
-            &encode(&[group("main", ""), spec("a")])
-        ),
+        send_decoded(&mut construction, &encode(&[group("main", ""), spec("a")])),
         OK
     );
     let before = construction.declarations().clone();
-    let status = send(&owner, &mut construction, &encode(&[spec("b"), spec("a")]));
+    let status = send_decoded(&mut construction, &encode(&[spec("b"), spec("a")]));
     assert_eq!(status, ERR_INVALID);
     assert_eq!(construction.declarations(), &before);
     // Poisoned: a good batch is refused now, and so is commit.
-    assert_ne!(send(&owner, &mut construction, &encode(&[spec("c")])), OK);
+    assert_ne!(send_decoded(&mut construction, &encode(&[spec("c")])), OK);
     assert_eq!(construction.declarations(), &before);
-    assert!(matches!(construction.commit(|_| ()), Err(Error::Invalid)));
+    assert!(matches!(
+        construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| ()
+        }),
+        Err(Error::Invalid)
+    ));
 }
 
 #[test]
@@ -572,7 +589,15 @@ fn a_record_failing_validation_poisons_without_staging_the_valid_ones_before_it(
         let good = encode(&[group("main", ""), spec("a")]);
         assert_ne!(send(&owner, &mut construction, &good), OK);
         assert!(construction.declarations().is_empty());
-        assert!(matches!(construction.commit(|_| ()), Err(Error::Invalid)));
+        assert!(matches!(
+            construction.commit(paperpaw_core::native_host::Teardown {
+                report: |_, _, _| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
+                destroy: |_| ()
+            }),
+            Err(Error::Invalid)
+        ));
     }
 }
 
@@ -586,7 +611,15 @@ fn callbacks_and_declarations_are_staged_together_or_not_at_all() {
     let status = send(&owner, &mut construction, &encode(&[spec("a"), draw(8)]));
     assert_eq!(status, ERR_NO_SPACE);
     assert!(construction.declarations().is_empty());
-    assert!(matches!(construction.commit(|_| ()), Err(Error::Capacity)));
+    assert!(matches!(
+        construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| ()
+        }),
+        Err(Error::Capacity)
+    ));
 
     // A bad declaration keeps its callbacks out too.
     let mut construction = owner.as_ref().begin(PLUGIN).unwrap();
@@ -595,8 +628,17 @@ fn callbacks_and_declarations_are_staged_together_or_not_at_all() {
         &mut construction,
         &encode(&[draw(1), spec("a"), spec("a")]),
     );
-    assert_eq!(status, ERR_INVALID);
-    assert!(format!("{construction:?}").contains("len: 0"));
+    assert_eq!(status, OK);
+    // Wire duplicates are checked at finish; no callback is published.
+    assert!(matches!(
+        construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| ()
+        }),
+        Err(Error::Invalid)
+    ));
 }
 
 #[test]
@@ -604,12 +646,28 @@ fn commit_refuses_failed_cross_record_checks_and_drops_the_declarations() {
     let owner = new_owner();
     let mut construction = owner.as_ref().begin(PLUGIN).unwrap();
     assert_eq!(send(&owner, &mut construction, &encode(&[spec("a")])), OK);
-    assert!(matches!(construction.commit(|_| ()), Err(Error::Invalid)));
+    assert!(matches!(
+        construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| ()
+        }),
+        Err(Error::Invalid)
+    ));
     // The transaction ended: a new one starts clean.
     let mut construction = owner.as_ref().begin(PLUGIN).unwrap();
     let ok = encode(&[group("main", ""), spec("a")]);
     assert_eq!(send(&owner, &mut construction, &ok), OK);
-    assert!(construction.commit(|_| ()).is_ok());
+    assert!(matches!(
+        construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| ()
+        }),
+        Err(Error::DeclarationViewsUnavailable)
+    ));
 }
 
 #[test]
@@ -632,7 +690,16 @@ fn an_unsupported_event_registration_is_refused_whole() {
         send(&owner, &mut construction, &encode(&[spec("b"), other])),
         OK
     );
-    assert_eq!(construction.declarations().specs().len(), 1);
+    assert!(construction.declarations().is_empty());
+    assert!(matches!(
+        construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| ()
+        }),
+        Err(Error::Invalid)
+    ));
 }
 
 // ---- allocation failure -----------------------------------------------------------------
@@ -695,7 +762,15 @@ fn the_construction_latches_the_cause_of_a_refusal() {
         }
     }
     assert_eq!(status, ERR_NO_SPACE);
-    assert!(matches!(construction.commit(|_| ()), Err(Error::Capacity)));
+    assert!(matches!(
+        construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| ()
+        }),
+        Err(Error::Capacity)
+    ));
 
     // Low memory: the first allocation of staging fails.
     let owner = new_owner();
@@ -705,7 +780,15 @@ fn the_construction_latches_the_cause_of_a_refusal() {
     let status = send(&owner, &mut construction, &bytes);
     COUNTDOWN.with(|c| c.set(usize::MAX));
     assert_eq!(status, ERR_NO_MEMORY);
-    assert!(matches!(construction.commit(|_| ()), Err(Error::Memory)));
+    assert!(matches!(
+        construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| ()
+        }),
+        Err(Error::Memory)
+    ));
 }
 
 // ---- mutation ---------------------------------------------------------------------------

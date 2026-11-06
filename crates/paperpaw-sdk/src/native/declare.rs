@@ -40,7 +40,7 @@ use core::mem::MaybeUninit;
     dead_code,
     reason = "generated declaration record codec (abi/generated/records_wire.rs, byte for byte)"
 )]
-mod records_wire;
+pub(crate) mod records_wire;
 #[rustfmt::skip]
 #[allow(
     clippy::all,
@@ -63,10 +63,12 @@ pub const BATCH_MAX_RECORDS: usize = records_wire::REGISTRATION_MAX_RECORDS;
 const _: () = assert!(BATCH_MAX_RECORDS < 128);
 /// Most bytes in one encoded batch.
 pub const BATCH_MAX_BYTES: usize = records_wire::REGISTRATION_MAX_BYTES;
-/// Most values in a choice list.
-pub const CHOICES_MAX_VALUES: usize = 32;
-/// Longest choice value in bytes.
-pub const CHOICE_MAX_BYTES: usize = 96;
+/// Most values in a choice list (generated from `abi.def`).
+pub const CHOICES_MAX_VALUES: usize = records_wire::SETTING_SPEC_CHOICES_MAX_ITEMS;
+/// Longest choice value in bytes (generated from `abi.def`).
+pub const CHOICE_MAX_BYTES: usize = records_wire::SETTING_SPEC_CHOICES_ITEM_MAX_BYTES;
+/// Separator of the encoded choice list.
+const CHOICE_SEPARATOR: char = records_wire::SETTING_SPEC_CHOICES_SEPARATOR;
 
 /// The encoder's status for "does not fit".
 const ERR_NO_SPACE: i32 = paperpaw_native::host_glue::ERR_NO_SPACE;
@@ -439,7 +441,7 @@ fn choices_text(choices: &[&str], default: &str) -> Result<String, DeclareError>
         && choices.len() <= CHOICES_MAX_VALUES
         && choices
             .iter()
-            .all(|v| !v.is_empty() && v.len() <= CHOICE_MAX_BYTES && !v.contains('\n'))
+            .all(|v| !v.is_empty() && v.len() <= CHOICE_MAX_BYTES && !v.contains(CHOICE_SEPARATOR))
         && choices
             .iter()
             .enumerate()
@@ -460,7 +462,7 @@ fn choices_text(choices: &[&str], default: &str) -> Result<String, DeclareError>
         .map_err(|_| DeclareError::NoMemory)?;
     for (index, choice) in choices.iter().enumerate() {
         if index != 0 {
-            joined.push('\n');
+            joined.push(CHOICE_SEPARATOR);
         }
         joined.push_str(choice);
     }
@@ -531,7 +533,8 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// are borrowed only while adding each item; no declaration is retained.
     /// Call [`Self::submit`] to send the final batch. Dropping does not submit.
     /// If allocation fails, every addition and submission returns
-    /// [`DeclareError::NoMemory`] without calling the sink.
+    /// [`DeclareError::NoMemory`]. The sink then sees only the one empty abort
+    /// batch of the next [`Self::submit`], which poisons the host construction.
     pub fn new(sink: F) -> Self {
         let mut bytes = Vec::new();
         let failed = match bytes.try_reserve_exact(BATCH_MAX_BYTES) {

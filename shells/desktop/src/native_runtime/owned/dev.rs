@@ -89,7 +89,9 @@ pub enum Refusal {
     /// Refused by the checks before any code ran, or by the factory.
     Runtime(RuntimeError),
     /// Refused while staging or committing what it declared.
-    Lifecycle(String),
+    Lifecycle(paperpaw_core::native_host::Error),
+    /// Host allocation or construction setup failed.
+    Host(String),
     /// It declared records (settings, fonts, hyphenation) and this loader has
     /// no apply step for them yet: refused visibly, never loaded without them.
     Declared(usize),
@@ -105,7 +107,8 @@ impl std::fmt::Display for Refusal {
             }
             Self::Kind(_) => f.write_str("not an interface-7 library (or not one this reads)"),
             Self::Runtime(why) => write!(f, "refused: {why:?}"),
-            Self::Lifecycle(why) => write!(f, "refused while staging: {why}"),
+            Self::Lifecycle(why) => write!(f, "refused while staging: {why:?}"),
+            Self::Host(why) => write!(f, "host construction refused: {why}"),
             Self::Declared(n) => write!(
                 f,
                 "declares {n} records, which this loader cannot apply yet: not loaded"
@@ -118,7 +121,8 @@ impl From<Error> for Refusal {
     fn from(error: Error) -> Self {
         match error {
             Error::Runtime(why) => Self::Runtime(why),
-            other => Self::Lifecycle(format!("{other:?}")),
+            Error::Lifecycle(why) => Self::Lifecycle(why),
+            other => Self::Host(format!("{other:?}")),
         }
     }
 }
@@ -203,14 +207,14 @@ impl Loaded {
         // gives none once stopped, never through this borrow.
         transaction
             .set_image(unsafe { plugin.image() })
-            .map_err(|e| Refusal::Lifecycle(format!("{e:?}")))?;
+            .map_err(Refusal::Lifecycle)?;
         let mut batch = plugin.make_registered(transaction)?.commit()?;
         let declarations = batch.take_declarations();
         let depth = DispatchDepth::new();
         let records = (0..batch.len())
             .map(|index| batch.dispatch(index, &depth, |_, record| *record))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| Refusal::Lifecycle(format!("{e:?}")))?;
+            .map_err(Refusal::Lifecycle)?;
         // SAFETY: the batch borrows the owner, which lives on the heap inside
         // `plugin` (a `Box` that is never moved out of nor dropped before the
         // batch: `Drop` releases the batch first and field order does the
@@ -288,15 +292,36 @@ impl Loaded {
 }
 
 impl Drop for Loaded {
-    /// Release order: the batch (its lease on the owner), then admission
-    /// revoked and finished, then the owner drops (the plugin's destructor,
-    /// then the services, then the library is unmapped).
+    /// Revoke, cancel and release resources before dropping the batch lease.
+    /// Finish destroys the plugin only after the leases drain; the library
+    /// remains mapped throughout cleanup.
     fn drop(&mut self) {
         self.stopped.set(true);
-        drop(self.batch.take());
         let owner = self.plugin.owner.as_ref();
         owner.revoke();
-        if owner.finish().is_ok() {
+        let prepared = owner.prepare_teardown();
+        if let Some(error) = owner.take_teardown_error() {
+            eprintln!(
+                "abi7 dev loader: {}: teardown hook failed: {error:?}",
+                self.id
+            );
+        }
+        if let Err(error) = prepared {
+            // Safe callers cannot drop Loaded while borrowed by a callback.
+            // Preserve the mapped owner if an external unsafe caller does so.
+            eprintln!(
+                "abi7 dev loader: {}: teardown deferred: {error:?}, kept",
+                self.id
+            );
+            return;
+        }
+        drop(self.batch.take());
+        let finished = owner.finish();
+        if finished.is_err() {
+            eprintln!("abi7 dev loader: {}: retained lease after cleanup", self.id);
+        }
+
+        if finished.is_ok() {
             // SAFETY: dropped exactly once, here; nothing borrows the owner
             // any longer (the batch is gone and `finish` saw no lease).
             unsafe { ManuallyDrop::drop(&mut self.plugin) };
@@ -341,6 +366,7 @@ impl FlatInstance for Loaded {
         &self,
         index: usize,
         payload: &[u8],
+        out: &mut [u8],
         depth: &DispatchDepth,
     ) -> Result<i32, native_host::Error> {
         // Stopped: the owner's error, before anything of the library is read.
@@ -348,7 +374,7 @@ impl FlatInstance for Loaded {
             (Some(batch), false) => batch,
             _ => return Err(native_host::Error::State),
         };
-        match dispatch_registration(batch, index, depth, Invocation::Event(payload)) {
+        match dispatch_registration(batch, index, depth, Invocation::Event(payload, out)) {
             Ok(status) => Ok(status),
             Err(Error::Status(status)) => Ok(status),
             Err(Error::Lifecycle(why)) => Err(why),

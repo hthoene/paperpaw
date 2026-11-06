@@ -28,6 +28,7 @@ use paperpaw_native::host_glue::{
     self, PpBuffer, PpBytes, PpHost, PpPlugin, Services, ShellCtx, read_plugin_dispatch_event,
     read_plugin_draw, read_plugin_drop, read_plugin_size, read_plugin_state,
 };
+use paperpaw_platform::Rect;
 
 use super::canvas::CanvasScope;
 use super::environment::EnvironmentScope;
@@ -63,8 +64,8 @@ impl From<super::Error> for Error {
 /// The plugin's factory: `make(host, ctx, out)`.
 pub type Make = unsafe extern "C" fn(*const PpHost, *mut c_void, *mut *const PpPlugin) -> i32;
 
-type Event = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
-type Draw = unsafe extern "C" fn(*mut c_void, u32) -> i32;
+type Event = unsafe extern "C" fn(*mut c_void, u32, PpBytes, PpBuffer) -> i32;
+type Draw = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
 
 /// What `make` returned, copied from its table: only generated, bounded
 /// fields, and never a reference to the whole table.
@@ -111,11 +112,17 @@ unsafe fn read_output(out: *const PpPlugin) -> Result<PluginOutput, Error> {
     }
 }
 
+/// Shell diagnostic sink. It must log owner, step and error without allocating,
+/// panicking or reentering the owner. No default or silent sink is supplied.
+pub type Report<S> = fn(&S, &str, super::TeardownStep, super::Error);
+
 /// The host table's `ctx`: what the shell's entries reach. Pinned inside the
 /// owner; the plugin keeps only its address.
 #[allow(missing_debug_implementations, reason = "holds the generated table")]
 pub struct Context<S> {
     table: PpHost,
+    id: Box<str>,
+    report: Report<S>,
     /// The shell's heap and clock.
     pub services: S,
     instance: Cell<Option<PluginOutput>>,
@@ -182,9 +189,6 @@ impl<'a, S, M, T> Transaction<'a, S, M, T> {
 pub struct Hosted<S, M> {
     owner: Pin<Box<Owner<S, M>>>,
     make: Make,
-    /// Host-known plugin id (from the folder, never from the library) that
-    /// staged declaration names are checked against.
-    id: Box<str>,
     /// The plugin's read-only data as mapped: address and length.
     image: (usize, usize),
     /// Admission was stopped ([`Hosted::stop`]): no image is given any more.
@@ -209,6 +213,7 @@ pub fn host_table<S: Services>() -> PpHost {
 
 impl<S: Services, M> Hosted<S, M> {
     /// Hosts the plugin `id` whose factory is `make`, kept alive by `module`.
+    /// `report` is the shell's real diagnostic sink, including the X4 sink.
     /// `image` is the address and length of the plugin's read-only data
     /// (`(0, 0)` for none).
     ///
@@ -228,6 +233,7 @@ impl<S: Services, M> Hosted<S, M> {
         make: Make,
         id: &str,
         image: (usize, usize),
+        report: Report<S>,
     ) -> Result<Self, Error> {
         // Fallible, before anything else is built: the X4 has no room to abort.
         let mut owned = String::new();
@@ -237,6 +243,8 @@ impl<S: Services, M> Hosted<S, M> {
         owned.push_str(id);
         let context = Context {
             table: host_table::<S>(),
+            id: owned.into_boxed_str(),
+            report,
             services,
             instance: Cell::new(None),
             attempted: Cell::new(false),
@@ -248,7 +256,6 @@ impl<S: Services, M> Hosted<S, M> {
         Ok(Self {
             owner,
             make,
-            id: owned.into_boxed_str(),
             image,
             stopped: Cell::new(false),
         })
@@ -301,7 +308,10 @@ impl<S: Services, M> Hosted<S, M> {
     pub fn begin<T>(&self) -> Result<Transaction<'_, S, M, T>, Error> {
         Ok(Transaction {
             context: self.owner.as_ref().context(),
-            staging: self.owner.as_ref().begin(&self.id)?,
+            staging: self
+                .owner
+                .as_ref()
+                .begin(&self.owner.as_ref().context().get_ref().id)?,
         })
     }
 
@@ -433,7 +443,12 @@ impl<'a, S, M, T> PendingInstance<'a, S, M, T> {
         // The pending guard owns staging so a panic or cancellation also
         // drains the records before the foreign output is destroyed.
         let transaction = self.transaction.take().ok_or(Error::Attempt)?;
-        let batch = transaction.staging.commit(destroy_context::<S>)?;
+        let batch = transaction.staging.commit(crate::native_host::Teardown {
+            report: report_context::<S>,
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: destroy_context::<S>,
+        })?;
         self.armed = false;
         Ok(batch)
     }
@@ -465,6 +480,10 @@ impl<S, M, T> Drop for PendingInstance<'_, S, M, T> {
         // local foreign-cleanup guard runs. A second panic aborts.
         drop(self.transaction.take());
     }
+}
+
+fn report_context<S>(context: Pin<&Context<S>>, step: super::TeardownStep, error: super::Error) {
+    (context.report)(&context.services, &context.id, step, error);
 }
 
 fn destroy_context<S>(context: Pin<&Context<S>>) {
@@ -595,8 +614,34 @@ pub enum Invocation<'a> {
     /// An event of interface 7's list, its payload encoded by core
     /// (`native_host::events`): handed to the callback as it is.
     Event(&'a [u8]),
-    /// The draw callback.
-    Draw,
+    /// The draw callback with its encoded `draw.frame` record (N2).
+    Draw(&'a [u8]),
+}
+
+fn borrowed(bytes: &[u8]) -> PpBytes {
+    PpBytes {
+        ptr: bytes.as_ptr(),
+        len: bytes.len(),
+    }
+}
+
+/// Events 32-39 and tick have no reply family: an empty, non-null reply
+/// buffer (cap 0, `docs/abi/screens-input.md` section 6).
+fn no_reply() -> PpBuffer {
+    PpBuffer {
+        ptr: ptr::NonNull::dangling().as_ptr(),
+        cap: 0,
+    }
+}
+
+/// Callbacks without a reply family return a status: a positive result is a
+/// plugin fault, never a length (`docs/abi/screens-input.md` section 6).
+fn status_only(result: i32) -> i32 {
+    if result > 0 {
+        host_glue::ERR_INVALID
+    } else {
+        result
+    }
 }
 
 /// Called only inside a batch admission closure that retains its owner.
@@ -621,16 +666,9 @@ fn invoke_registration<S>(
             // SAFETY: the admitted owner retains state, context and module. The
             // callback is present, the bytes live for this call and do not
             // alias host state.
-            Ok(unsafe {
-                callback(
-                    instance.state,
-                    token,
-                    PpBytes {
-                        ptr: bytes.as_ptr(),
-                        len: bytes.len(),
-                    },
-                )
-            })
+            Ok(status_only(unsafe {
+                callback(instance.state, token, borrowed(bytes), no_reply())
+            }))
         }
         (Registration::Event { token, .. }, Invocation::Event(bytes)) => {
             let callback = instance
@@ -638,23 +676,19 @@ fn invoke_registration<S>(
                 .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
             // SAFETY: the same admitted owner lifetime; the payload is
             // borrowed for this call only and does not alias host state.
-            Ok(unsafe {
-                callback(
-                    instance.state,
-                    token,
-                    PpBytes {
-                        ptr: bytes.as_ptr(),
-                        len: bytes.len(),
-                    },
-                )
-            })
+            Ok(status_only(unsafe {
+                callback(instance.state, token, borrowed(bytes), no_reply())
+            }))
         }
-        (Registration::Draw { token }, Invocation::Draw) => {
+        (Registration::Draw { token }, Invocation::Draw(frame)) => {
             let callback = instance
                 .draw
                 .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
-            // SAFETY: the same admitted owner lifetime, no borrowed output.
-            Ok(unsafe { callback(instance.state, token) })
+            // SAFETY: the same admitted owner lifetime; the frame is borrowed
+            // for this call only and does not alias host state.
+            Ok(status_only(unsafe {
+                callback(instance.state, token, borrowed(frame))
+            }))
         }
         _ => Err(Error::Status(host_glue::ERR_UNSUPPORTED)),
     }
@@ -694,6 +728,25 @@ pub fn dispatch_with_env<S, M>(
     })?
 }
 
+/// The screen frame (N2) of a canvas's visible region, encoded into `out`;
+/// `None` when the region is empty, which is never sent.
+fn screen_frame(clip: Rect, out: &mut [u8; 64]) -> Result<Option<usize>, Error> {
+    if clip.width == 0 || clip.height == 0 {
+        return Ok(None);
+    }
+    let (top, height) = (i32::from(clip.y), i32::from(clip.height));
+    let frame = super::frames::screen(
+        i32::from(clip.x),
+        top,
+        u32::from(clip.width),
+        u32::from(clip.height),
+        (top, top + height),
+    );
+    super::frames::encode(&frame, out)
+        .map(Some)
+        .map_err(Error::Status)
+}
+
 /// Draw dispatch with a frame: the Env (slots 4/5) and the Canvas (slot 9)
 /// are both lent for this one synchronous callback and cleared on every exit,
 /// including unwind. Nested installation is refused by the scopes.
@@ -707,13 +760,19 @@ pub fn dispatch_draw<S, M>(
     env: &Env<'_>,
     canvas: &mut Canvas<'_>,
 ) -> Result<i32, Error> {
+    let mut bytes = [0; 64];
+    // An empty clip is never sent (section 6): nothing visible, no call.
+    let Some(len) = screen_frame(canvas.clip(), &mut bytes)? else {
+        return Ok(host_glue::OK);
+    };
+    let frame = &bytes[..len];
     batch.dispatch(index, depth, |context, record| {
         // SAFETY: the owner structurally pins these fields; no API moves them.
         let env_scope = unsafe { context.map_unchecked(|value| &value.environment) };
         let canvas_scope = unsafe { context.map_unchecked(|value| &value.canvas) };
         env_scope.scope(env, || {
             canvas_scope.scope(canvas, || {
-                invoke_registration(context, *record, Invocation::Draw)
+                invoke_registration(context, *record, Invocation::Draw(frame))
             })
         })??
     })?

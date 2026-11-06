@@ -8,6 +8,10 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 SDK callback host binding and `native_plugin!` entry glue, with checked table admission
+  and fallible host allocation. Storage slots 20-26 use caller-owned buffers; event tags 32-37 decode
+  into borrowed payloads. These facades do not activate any shell loader (#228).
+
 - Core adapter for shell-owned interface-7 plugins: deliver registered lifecycle, battery and page-turn
   events through the kernel subscription pipeline with bounded encoding and callback-scoped environment
   access. Shells supply the owner bridge and failure logging; loader wiring follows separately (#228).
@@ -89,6 +93,23 @@ change the plugin SDK.
 
 ### Added
 
+- **Plugin interface 7, draft 5** (#228, #241, the one breaking batch before 1.0; contract in
+  `docs/abi/screens-input.md`):
+  - **Callbacks:** `dispatch_event` gets a reply buffer and returns the reply length or a status, and
+    `draw` gets its `draw.frame` (target rectangle, clip, purpose).
+  - **Screens and input:** screens and actions are declarations, plugins get screen and input events
+    through the new `input` callback (handled or not), and the i18n slots 27/28 add formatting and digits.
+  - **Tag space:** every record family has room to grow, and records are classified by exact tag only.
+  - **Pages:** page turns carry an `insert` ordinal, so pages with inserted content keep their own positions
+    and progress counts text only.
+  - **Statuses:** `ERR_DENIED` and `ERR_TIMEOUT` are new.
+  - **Metadata:** a plugin may mark a feature it needs as required, and may require up to 32 services.
+  - **User grants:** grants to plugins (style overrides, installs without asking) are guarded settings no
+    plugin can change.
+  - Plugins must be rebuilt for draft 5. A host cannot tell drafts apart (the metadata carries no
+    draft), so a plugin built for an earlier draft must not be installed; none was distributed.
+  - A feature a plugin marks optional that the host lacks, or has only at an older revision, is left
+    out; only a required one refuses the load. A host serves every older revision of a feature.
 - **The Wi-Fi page: the networks have a page of their own** (#161). The Wi-Fi page is short whatever is in the air:
   the switch with where it is, a row *Networks ›* (the network the device is in and how many are in reach; it opens
   the list), the setup with a phone and the three settings. While no network is kept, *Set up with a phone* comes

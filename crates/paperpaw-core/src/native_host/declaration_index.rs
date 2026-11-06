@@ -9,7 +9,10 @@ pub(crate) struct NameEntry {
 }
 impl NameEntry {
     pub(crate) fn kind(self) -> u8 {
-        (self.record_kind >> 3) as u8
+        ((self.record_kind >> 3) & 7) as u8
+    }
+    pub(crate) fn is_extension(self) -> bool {
+        self.record_kind & (1 << 6) != 0
     }
     pub(crate) fn record(self) -> usize {
         usize::from(self.record_kind & 7)
@@ -26,6 +29,10 @@ pub(crate) fn key(record: Record<'_>) -> Option<(u8, &str)> {
         Record::ResourceHyphenation(r) => (3, r.language),
         Record::ResourceFontFace(r) => (4, r.name),
         Record::ResourceFontExtension(r) => (4, r.name),
+        // Indexed so that a plugin never declares a screen or an action twice and the
+        // host finds them by name (`open_screen`, `run_action` use `<plugin>.<name>`).
+        Record::ScreenSpec(r) => (5, r.name),
+        Record::ActionSpec(r) => (6, r.name),
         _ => return None,
     })
 }

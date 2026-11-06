@@ -337,6 +337,18 @@ mod x4 {
         crate::safe_mode::returned();
     }
 
+    /// The owner's fallback report of a teardown step that failed (called
+    /// once, without allocating or calling plugin code): the serial log is
+    /// all the X4 has to say it with.
+    fn report(
+        _: &X4Services,
+        id: &str,
+        step: paperpaw_core::native_host::TeardownStep,
+        why: paperpaw_core::native_host::Error,
+    ) {
+        warn!("native: {id}: teardown step {step:?} failed: {why:?}");
+    }
+
     fn event_dropped(id: &str, tag: u32, why: DropReason) {
         warn!("native: {id}: event {tag} dropped: {why:?}");
     }
@@ -403,6 +415,7 @@ mod x4 {
                 make,
                 id,
                 (placed.base as usize, header.code_at as usize),
+                report,
                 hooks,
             )
         }

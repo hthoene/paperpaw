@@ -405,13 +405,15 @@ fn flags_and_the_default_step_are_canonical() {
 
 #[test]
 fn integer_defaults_stay_inside_the_i32_wire_range() {
-    let mut d = Declarations::new(|_| Ok(()));
     for default in [
         i64::MIN,
         i64::from(i32::MIN) - 1,
         i64::from(i32::MAX) + 1,
         i64::MAX,
     ] {
+        // A fresh builder each time: a refusal latches, so a reused builder
+        // would only repeat the first refusal.
+        let mut d = Declarations::new(|_| Ok(()));
         assert_eq!(
             d.spec(SpecDecl::new(
                 "n",
@@ -426,8 +428,8 @@ fn integer_defaults_stay_inside_the_i32_wire_range() {
             .map(|_| ()),
             Err(DeclareError::Default)
         );
+        assert!(d.is_empty());
     }
-    assert!(d.is_empty());
     let mut d = Declarations::new(|_| Ok(()));
     for default in [i64::from(i32::MIN), i64::from(i32::MAX)] {
         d.spec(SpecDecl::new(
