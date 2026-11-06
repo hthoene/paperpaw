@@ -428,6 +428,9 @@ impl Kernel {
             Command::PowerOff => self.power_off = self.shared.caps.power_off,
             Command::UsbDrive => {
                 self.usb_drive = self.shared.caps.has(paperpaw_sdk::Capability::USB_DRIVE);
+                if self.usb_drive {
+                    self.free_count.pause_for_usb();
+                }
             }
             Command::KeepAwake(hold) => self.keep_awake(hold),
             Command::LetSleep(id) => self.let_sleep(&id),

@@ -89,3 +89,65 @@ fn a_folder_that_grows_is_followed() {
     s.remove_dir_all("many").unwrap();
     assert_eq!(s.free_space(), Some(on_card(&s, &card)));
 }
+
+#[test]
+fn replacing_a_file_by_rename_follows_the_freed_clusters() {
+    let card = fat32();
+    let s = card.storage();
+    s.write("source.bin", &[1u8; 512]).unwrap();
+    s.write("target.bin", &[2u8; 4096]).unwrap();
+    count_out(&card, &s);
+    let before = s.free_space().unwrap();
+    s.rename("source.bin", "target.bin").unwrap();
+    let after = s.free_space().unwrap();
+    assert!(after > before);
+    assert_eq!(after, on_card(&s, &card));
+}
+
+#[test]
+fn writes_during_the_count_follow_taken_clusters() {
+    let card = fat32();
+    let s = card.storage();
+    assert_eq!(s.free_space(), None);
+    s.write("during.bin", &[3u8; 4096]).unwrap();
+    assert!(s.fs.cluster_changes().0 > 0);
+    count_out(&card, &s);
+    assert!(s.free_space().unwrap() <= on_card(&s, &card));
+}
+
+#[test]
+fn removing_a_corrupt_chain_never_counts_a_free_cluster_twice() {
+    let card = Cut::formatted_of(
+        8 << 20,
+        FormatVolumeOptions::new().fat_type(fatfs::FatType::Fat16),
+    );
+    let s = card.storage();
+    s.write("broken.bin", &[1u8; 9000]).unwrap();
+    s.sync().unwrap();
+    let mut image = card.image();
+    let word = |at: usize| usize::from(u16::from_le_bytes([image[at], image[at + 1]]));
+    let sector = word(11);
+    let fat = word(14) * sector;
+    let fat_size = word(22) * sector;
+    let copies = usize::from(image[16]);
+    let root = fat + fat_size * copies;
+    let entry = image[root..]
+        .chunks_exact(32)
+        .find(|entry| &entry[..11] == b"BROKEN  BIN")
+        .unwrap();
+    let first = usize::from(u16::from_le_bytes([entry[26], entry[27]]));
+    let next = usize::from(u16::from_le_bytes([
+        image[fat + first * 2],
+        image[fat + first * 2 + 1],
+    ]));
+    // The first cluster still points to a cluster whose FAT entry is now free.
+    for copy in 0..copies {
+        let at = fat + copy * fat_size + next * 2;
+        image[at..at + 2].fill(0);
+    }
+    let card = Cut::new(image);
+    let s = card.storage();
+    count_out(&card, &s);
+    s.remove("broken.bin").unwrap();
+    assert_eq!(s.free_space(), Some(on_card(&s, &card)));
+}

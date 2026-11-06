@@ -43,6 +43,11 @@ impl FreeCount {
     pub(crate) fn due(&self) -> Option<Instant> {
         self.next
     }
+
+    /// No card reads until the host gives the card back.
+    pub(crate) fn pause_for_usb(&mut self) {
+        self.next = None;
+    }
 }
 
 impl Kernel {
@@ -63,11 +68,14 @@ impl Kernel {
         if self.free_count.next.is_none_or(|at| at > now) {
             return;
         }
-        let sleeps_soon = self
-            .sleep_due()
-            .is_some_and(|due| due <= now.add_millis(BEFORE_SLEEP_MS));
+        if self.shared.storage.total_space().is_none() {
+            self.free_count.next = None;
+            return;
+        }
+        let sleep_due = self.sleep_due();
+        let sleeps_soon = sleep_due.is_some_and(|due| due <= now.add_millis(BEFORE_SLEEP_MS));
         if self.input.pending.is_some() || sleeps_soon || self.sleep {
-            self.free_count.next = Some(now.add_millis(PAUSE_MS));
+            self.free_count.next = sleep_due;
             return;
         }
         self.free_count.parts += 1;

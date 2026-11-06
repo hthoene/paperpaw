@@ -147,8 +147,9 @@ where
         }
         Err(e) => return Err(e),
     };
-    write_fat(fat, fat_type, new_cluster, FatValue::EndOfChain)?;
+    // Count first: a mirror write can fail after the primary FAT has changed.
     taken.set(taken.get().wrapping_add(1));
+    write_fat(fat, fat_type, new_cluster, FatValue::EndOfChain)?;
     if let Some(n) = prev_cluster {
         write_fat(fat, fat_type, n, FatValue::Data(new_cluster))?;
     }
@@ -589,6 +590,8 @@ pub(crate) struct ClusterIterator<B, E, S = B> {
     err: bool,
     // Modified for PaperPaw: clusters `free` marked free, a chain freed in part too.
     freed: u32,
+    // Modified for PaperPaw: a free cluster marked taken by `truncate`.
+    taken: u32,
     // phantom is needed to add type bounds on the storage type
     phantom_s: PhantomData<S>,
     phantom_e: PhantomData<E>,
@@ -608,6 +611,7 @@ where
             cluster: Some(cluster),
             err: false,
             freed: 0,
+            taken: 0,
             phantom_s: PhantomData,
             phantom_e: PhantomData,
         }
@@ -615,9 +619,17 @@ where
 
     pub(crate) fn truncate(&mut self) -> Result<u32, Error<E>> {
         if let Some(n) = self.cluster {
-            // Move to the next cluster
-            self.next();
-            // Mark previous cluster as end of chain
+            // Read once, keeping both the next link and whether this entry was free.
+            let value = read_fat(self.fat.borrow_mut(), self.fat_type, n)?;
+            self.cluster = if let FatValue::Data(next) = value {
+                Some(next)
+            } else {
+                None
+            };
+            // A partial mirrored write must leave the count on the low side.
+            if value == FatValue::Free {
+                self.taken += 1;
+            }
             write_fat(self.fat.borrow_mut(), self.fat_type, n, FatValue::EndOfChain)?;
             // Free rest of chain
             self.free()
@@ -629,10 +641,17 @@ where
     pub(crate) fn free(&mut self) -> Result<u32, Error<E>> {
         let mut num_free = 0;
         while let Some(n) = self.cluster {
-            self.next();
-            write_fat(self.fat.borrow_mut(), self.fat_type, n, FatValue::Free)?;
-            num_free += 1;
-            self.freed += 1;
+            let value = read_fat(self.fat.borrow_mut(), self.fat_type, n)?;
+            self.cluster = if let FatValue::Data(next) = value {
+                Some(next)
+            } else {
+                None
+            };
+            if value != FatValue::Free {
+                write_fat(self.fat.borrow_mut(), self.fat_type, n, FatValue::Free)?;
+                num_free += 1;
+                self.freed += 1;
+            }
         }
         Ok(num_free)
     }
@@ -641,6 +660,11 @@ where
     /// The clusters `free` and `truncate` marked free so far, also where they failed on.
     pub(crate) fn freed(&self) -> u32 {
         self.freed
+    }
+
+    // Modified for PaperPaw: added.
+    pub(crate) fn taken(&self) -> u32 {
+        self.taken
     }
 }
 
@@ -740,6 +764,39 @@ mod tests {
         assert_eq!(read_fat(&mut cur, fat_type, 0x14).ok(), Some(FatValue::Free));
         assert_eq!(read_fat(&mut cur, fat_type, 0x15).ok(), Some(FatValue::Free));
         assert_eq!(read_fat(&mut cur, fat_type, 0x16).ok(), Some(FatValue::Free));
+    }
+
+    #[test]
+    fn corrupt_chains_count_only_actual_transitions() {
+        for fat_type in [FatType::Fat12, FatType::Fat16, FatType::Fat32] {
+            let mut fat = StdIoWrapper::new(Cursor::new(vec![0u8; 64]));
+            // A corrupt link points into an already-free entry.
+            write_fat(&mut fat, fat_type, 2, FatValue::Data(3)).unwrap();
+            let mut iter =
+                ClusterIterator::<_, std::io::Error, StdIoWrapper<Cursor<Vec<u8>>>>::new(&mut fat, fat_type, 2);
+            assert_eq!(iter.free().unwrap(), 1);
+            assert_eq!((iter.taken(), iter.freed()), (0, 1));
+            // Freeing that chain again changes nothing.
+            let mut iter =
+                ClusterIterator::<_, std::io::Error, StdIoWrapper<Cursor<Vec<u8>>>>::new(&mut fat, fat_type, 2);
+            assert_eq!(iter.free().unwrap(), 0);
+            assert_eq!(iter.freed(), 0);
+            // A cross-link into an already-freed chain cannot count it twice.
+            write_fat(&mut fat, fat_type, 4, FatValue::Data(2)).unwrap();
+            let mut iter =
+                ClusterIterator::<_, std::io::Error, StdIoWrapper<Cursor<Vec<u8>>>>::new(&mut fat, fat_type, 4);
+            assert_eq!(iter.free().unwrap(), 1);
+            assert_eq!(iter.freed(), 1);
+            // Truncating a free cluster takes it, rather than freeing anything.
+            let mut iter =
+                ClusterIterator::<_, std::io::Error, StdIoWrapper<Cursor<Vec<u8>>>>::new(&mut fat, fat_type, 2);
+            assert_eq!(iter.truncate().unwrap(), 0);
+            assert_eq!((iter.taken(), iter.freed()), (1, 0));
+            let mut iter =
+                ClusterIterator::<_, std::io::Error, StdIoWrapper<Cursor<Vec<u8>>>>::new(&mut fat, fat_type, 2);
+            assert_eq!(iter.truncate().unwrap(), 0);
+            assert_eq!((iter.taken(), iter.freed()), (0, 0));
+        }
     }
 
     #[test]

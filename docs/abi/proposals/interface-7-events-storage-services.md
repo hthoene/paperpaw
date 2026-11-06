@@ -444,7 +444,10 @@ Gates before plugin storage goes live (Senior's remarks 1 and 2 on PR #188, Mana
 - **G-free-1, the count is driven.** The kernel asks for one part in its idle ticks
   (`paperpaw-core/src/free_count.rs`): from the start, again on waking and after the card was a
   USB drive, a 50 ms pause between parts, never while a press waits to be told single or double
-  nor within 2 s of sleep, not on a storage that cannot tell its size. Done on host. Open on the X4
+  nor within 2 s of sleep, not on a storage that cannot tell its size. The count stops while a
+  computer holds the card. The shell must remount the FAT storage or reset its `Free` count before
+  `usb_drive_ended`, since the computer may have changed it. No shell grants `USB_DRIVE` today.
+  Done on host. Open on the X4
   (Firmware measures with the next device run, Kernel confirms; Notes PR #16 lists the same rows):
   (a) each part takes **at most 25 ms** (from the log); (b) on a FAT32 card of 64 GB or more, after a
   cold boot, the free space is known within **30 s** of idle; (c) over 10 sleeps, **no part** starts

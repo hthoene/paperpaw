@@ -17,7 +17,7 @@ struct Counting {
     inner: alloc::rc::Rc<MemoryStorage>,
     parts: alloc::rc::Rc<Cell<u32>>,
     asks: alloc::rc::Rc<Cell<u32>>,
-    sized: bool,
+    sized: alloc::rc::Rc<Cell<bool>>,
 }
 
 impl Counting {
@@ -26,7 +26,7 @@ impl Counting {
             inner: alloc::rc::Rc::default(),
             parts: alloc::rc::Rc::new(Cell::new(parts)),
             asks: alloc::rc::Rc::default(),
-            sized,
+            sized: alloc::rc::Rc::new(Cell::new(sized)),
         }
     }
 }
@@ -57,7 +57,7 @@ impl Storage for Counting {
         (left <= 1).then_some(1 << 20)
     }
     fn total_space(&self) -> Option<u64> {
-        self.sized.then_some(1 << 30)
+        self.sized.get().then_some(1 << 30)
     }
 }
 
@@ -132,4 +132,59 @@ fn a_storage_that_cannot_tell_its_size_is_not_asked() {
     let effects = kernel.tick(Instant(1_000));
     tick_through(&mut kernel, effects, 5_000);
     assert_eq!(storage.asks.get(), 0);
+}
+
+#[test]
+fn a_waiting_press_does_not_poll_the_count() {
+    let storage = Counting::new(5, true);
+    let mut kernel = kernel(&storage);
+    kernel.input.pending = Some((
+        crate::keymap::InputKey::Button("next".into()),
+        Instant(2_000),
+        None,
+    ));
+    kernel.count_free(Instant(1_000));
+    assert_eq!(storage.asks.get(), 0);
+    assert_eq!(kernel.free_count.due(), kernel.sleep_due());
+}
+
+#[test]
+fn a_lost_card_stops_the_count() {
+    let storage = Counting::new(5, true);
+    let mut kernel = kernel(&storage);
+    kernel.count_free(Instant(1_000));
+    assert_eq!(storage.asks.get(), 1);
+    storage.sized.set(false);
+    kernel.count_free(Instant(1_050));
+    assert_eq!(kernel.free_count.due(), None);
+    assert_eq!(storage.asks.get(), 1);
+}
+
+#[test]
+fn a_storage_that_never_finishes_stops_at_the_part_limit() {
+    let storage = Counting::new(100_000, true);
+    let mut kernel = kernel(&storage);
+    // A hold or no sleep setting lets the full attempt budget run.
+    kernel
+        .shared
+        .settings
+        .set(settings::SLEEP_AFTER.as_str(), 0.into())
+        .unwrap();
+    for n in 0..4_100 {
+        kernel.count_free(Instant(1_000 + n * 50));
+    }
+    assert_eq!(storage.asks.get(), 4_096);
+    assert_eq!(kernel.free_count.due(), None);
+}
+
+#[test]
+fn usb_handoff_pauses_the_count_until_the_card_returns() {
+    let storage = Counting::new(5, true);
+    let mut kernel = kernel(&storage);
+    kernel.free_count.pause_for_usb();
+    kernel.count_free(Instant(1_000));
+    assert_eq!(storage.asks.get(), 0);
+    kernel.usb_drive_ended(Instant(2_000));
+    kernel.count_free(Instant(3_000));
+    assert_eq!(storage.asks.get(), 1);
 }
