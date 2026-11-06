@@ -15,7 +15,7 @@ use paperpaw_core::native_host::{
         GROUPS_MAX, HYPHENATIONS_MAX, SPECS_MAX,
     },
 };
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, OK};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_UNSUPPORTED, OK};
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     cell::Cell,
@@ -518,6 +518,42 @@ fn a_refused_batch_keeps_earlier_batches_and_poisons_the_construction() {
     assert_ne!(send(&owner, &mut construction, &encode(&[spec("c")])), OK);
     assert_eq!(construction.declarations(), &before);
     assert!(matches!(construction.commit(|_| ()), Err(Error::Invalid)));
+}
+
+#[test]
+fn a_record_failing_validation_poisons_without_staging_the_valid_ones_before_it() {
+    let bad_face = Record::ResourceFontFace(ResourceFontFace {
+        name: "bad",
+        path: "fonts/a.ttf",
+        family: "Serif",
+        style: 0x8000_0000,
+        weight: 400,
+        role: "",
+        priority: 0,
+    });
+    let cases: [(Vec<u8>, i32); 2] = [
+        // An empty language fails the record's own check.
+        (
+            encode(&[group("main", ""), spec("a"), hyphenation("")]),
+            ERR_INVALID,
+        ),
+        // An unknown style bit is refused as unsupported.
+        (
+            encode(&[group("main", ""), face("f"), bad_face]),
+            ERR_UNSUPPORTED,
+        ),
+    ];
+    for (bytes, expected) in cases {
+        let owner = new_owner();
+        let mut construction = owner.as_ref().begin(PLUGIN).unwrap();
+        assert_eq!(send(&owner, &mut construction, &bytes), expected);
+        // Nothing of the batch is staged, not even the records before the bad one.
+        assert!(construction.declarations().is_empty());
+        let good = encode(&[group("main", ""), spec("a")]);
+        assert_ne!(send(&owner, &mut construction, &good), OK);
+        assert!(construction.declarations().is_empty());
+        assert!(matches!(construction.commit(|_| ()), Err(Error::Invalid)));
+    }
 }
 
 #[test]
