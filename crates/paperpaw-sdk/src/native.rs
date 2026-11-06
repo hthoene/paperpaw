@@ -329,6 +329,7 @@ pub mod events;
 pub mod keys;
 pub mod registrations;
 pub mod storage;
+mod wire;
 
 #[cfg(feature = "kernel")]
 mod installed;
