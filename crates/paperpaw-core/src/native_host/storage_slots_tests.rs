@@ -354,7 +354,7 @@ fn raw_read_initializes_only_the_counted_prefix() {
     let backend = Backend::default();
     backend.files.write(FILE, b"ok").unwrap();
     scoped(&backend, |scope, _| {
-        let mut out = [MaybeUninit::uninit(); 4];
+        let mut out = [MaybeUninit::<u8>::uninit(); 4];
         // SAFETY: caller storage is writable and exclusive. Only the returned
         // initialized prefix is read after the callback.
         unsafe {
@@ -417,8 +417,8 @@ fn outside_dispatch_and_invalid_owner_routes_have_no_effect() {
         }
         let long_owner = "a".repeat(MAX_FOLDER);
         assert_eq!(sync(scope, &long_owner), ERR_INVALID);
-        assert!(StorageAdapter::borrowed_folder(backend, ".paperpaw/plugins/../").is_none());
-        assert!(StorageAdapter::borrowed_folder(backend, "plugins/battery/").is_none());
+        assert!(StorageAdapter::borrowed_folder(&backend, ".paperpaw/plugins/../").is_none());
+        assert!(StorageAdapter::borrowed_folder(&backend, "plugins/battery/").is_none());
     });
     assert_eq!(backend.files.get(FILE), None);
 }
