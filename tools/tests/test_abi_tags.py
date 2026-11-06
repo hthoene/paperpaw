@@ -40,6 +40,8 @@ ABI_CODE = re.compile(r'records_decode|commands_decode|_TAG\b|paperpaw_abi|host_
 COPIES = {
     'abi/generated/records_wire.rs': ['crates/paperpaw-core/src/abi7/records_wire.rs',
                                       'crates/paperpaw-sdk/src/native/declare/records_wire.rs'],
+    'abi/generated/commands_wire.rs': ['crates/paperpaw-core/src/abi7/commands_wire.rs',
+                                       'crates/paperpaw-sdk/src/native/wire/commands_wire.rs'],
 }
 
 

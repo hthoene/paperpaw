@@ -49,20 +49,18 @@ fn decode(batch: &[u8]) -> Vec<String> {
 fn the_generated_copies_are_the_generated_files() {
     extern crate std;
     let here = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let generated = std::fs::read(here.join("../../abi/generated/records_wire.rs"))
-        .expect("the generated records codec must be present");
-    let copy = std::fs::read(here.join("src/native/declare/records_wire.rs")).unwrap();
-    assert!(
-        generated == copy,
-        "src/native/declare/records_wire.rs is not abi/generated/records_wire.rs"
-    );
-    let generated = std::fs::read(here.join("../../abi/generated/settings_value.rs"))
-        .expect("the generated settings codec must be present");
-    let copy = std::fs::read(here.join("src/native/declare/settings_value.rs")).unwrap();
-    assert!(
-        generated == copy,
-        "src/native/declare/settings_value.rs is not abi/generated/settings_value.rs"
-    );
+    for (generated, copy) in [
+        ("records_wire.rs", "src/native/declare/records_wire.rs"),
+        ("settings_value.rs", "src/native/wire/settings_wire.rs"),
+        ("snapshot_wire.rs", "src/native/wire/snapshot_wire.rs"),
+        ("color_wire.rs", "src/native/wire/color_wire.rs"),
+        ("commands_wire.rs", "src/native/wire/commands_wire.rs"),
+    ] {
+        let source = std::fs::read(here.join("../../abi/generated").join(generated))
+            .expect("the generated codec must be present");
+        let kept = std::fs::read(here.join(copy)).unwrap();
+        assert!(source == kept, "{copy} is not abi/generated/{generated}");
+    }
 }
 
 #[test]
