@@ -8,9 +8,6 @@ use super::{
 use core::fmt;
 use paperpaw_native::host_glue::PpBytes;
 
-/// Largest screen or action id accepted by the command contract.
-const COMMAND_ID_MAX_BYTES: usize = 128;
-
 /// Refresh requested after redrawing the submitting plugin's top screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -102,7 +99,7 @@ impl<'cb, 'buf> CommandSender<'cb, 'buf> {
     /// or the host's refusal, including NotFound for an unregistered screen.
     pub fn open_screen(&mut self, screen: impl AsRef<str>) -> Result<(), Error> {
         let screen = screen.as_ref();
-        check_id(screen)?;
+        check_id(screen, wire::COMMAND_MAX_SCREEN_BYTES)?;
         self.submit(wire::Command::OpenScreen { screen })
     }
 
@@ -113,7 +110,7 @@ impl<'cb, 'buf> CommandSender<'cb, 'buf> {
     /// or the host's refusal, including NotFound for an unregistered action.
     pub fn run_action(&mut self, action: impl AsRef<str>) -> Result<(), Error> {
         let action = action.as_ref();
-        check_id(action)?;
+        check_id(action, wire::COMMAND_MAX_ACTION_BYTES)?;
         self.submit(wire::Command::RunAction { action })
     }
 
@@ -151,8 +148,8 @@ impl<'cb, 'buf> CommandSender<'cb, 'buf> {
     }
 }
 
-fn check_id(id: &str) -> Result<(), Error> {
-    if id.is_empty() || id.len() > COMMAND_ID_MAX_BYTES {
+fn check_id(id: &str, maximum: usize) -> Result<(), Error> {
+    if id.is_empty() || id.len() > maximum {
         Err(Error::Invalid)
     } else {
         Ok(())

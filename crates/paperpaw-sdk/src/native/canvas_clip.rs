@@ -10,7 +10,7 @@ impl<'cb> Canvas<'cb> {
     /// # Errors
     /// Returns an intersection validation error or the host refusal. A refused
     /// call leaves the current clip unchanged.
-    pub fn clipped(&mut self, rect: FrameRect) -> Result<ClipGuard<'_, 'cb>, Error> {
+    pub fn clip_region(&mut self, rect: FrameRect) -> Result<ClipGuard<'_, 'cb>, Error> {
         let previous = self._clip;
         let child = intersect_frame_clips(previous, rect)?;
         replace_clip(self, child)?;
@@ -31,7 +31,7 @@ impl<'cb> Canvas<'cb> {
 /// ```compile_fail
 /// use paperpaw_sdk::native::canvas::{Canvas, ClipGuard};
 /// fn escape<'a, 'cb>(canvas: &'a mut Canvas<'cb>) -> ClipGuard<'static, 'cb> {
-///     canvas.clipped(canvas.frame_rect()).unwrap()
+///     canvas.clip_region(canvas.frame_rect()).unwrap()
 /// }
 /// ```
 #[derive(Debug)]

@@ -95,7 +95,7 @@ fn text_draw_preserves_every_scalar_color_and_status() {
     let font = Font::acquire_role(&host, FontRole::Ui).unwrap();
     let mut bytes = [0; 256];
     let mut frame = bound_frame(&host, &mut bytes);
-    let canvas = frame.canvas().unwrap();
+    let canvas = frame.draw_canvas().unwrap();
     let origin = TextOrigin::new(-12.25, i32::MIN);
     assert_eq!(
         font.render_text(
@@ -137,7 +137,7 @@ fn invalid_text_inputs_do_not_reach_the_host() {
     let font = Font::acquire(&host, "role:ui").unwrap();
     let mut bytes = [0; 256];
     let mut frame = bound_frame(&host, &mut bytes);
-    let canvas = frame.canvas().unwrap();
+    let canvas = frame.draw_canvas().unwrap();
     for size in [0.0, -1.0, f32::NAN, f32::INFINITY] {
         assert_eq!(
             font.render_text(&canvas, size, TextOrigin::new(0.0, 0), Color::BLACK, "x"),
@@ -177,7 +177,7 @@ fn font_cannot_be_drawn_through_another_host_binding() {
     let font = Font::acquire(&owner, "role:ui").unwrap();
     let mut bytes = [0; 256];
     let mut frame = bound_frame(&other, &mut bytes);
-    let canvas = frame.canvas().unwrap();
+    let canvas = frame.draw_canvas().unwrap();
     assert_eq!(
         font.render_text(&canvas, 12.0, TextOrigin::new(0.0, 0), Color::BLACK, "x"),
         Err(Error::Invalid)

@@ -265,7 +265,7 @@ fn empty_and_overlong_screen_action_ids_are_invalid_without_effects() {
         ctx: ptr::from_mut(&mut ctx).cast(),
     };
     let mut scratch = [77; 256];
-    let long = "x".repeat(COMMAND_ID_MAX_BYTES + 1);
+    let long = "x".repeat(wire::COMMAND_MAX_SCREEN_BYTES + 1);
     for id in ["", long.as_str()] {
         let mut sender = CommandSender::new(&host, &mut scratch);
         assert_eq!(sender.open_screen(id), Err(Error::Invalid));
@@ -371,7 +371,7 @@ fn full_length_screen_and_action_ids_remain_accepted() {
         table: &table,
         ctx: ptr::from_mut(&mut ctx).cast(),
     };
-    let id = alloc::format!("battery.{}", "a".repeat(COMMAND_ID_MAX_BYTES - 8));
+    let id = alloc::format!("battery.{}", "a".repeat(wire::COMMAND_MAX_SCREEN_BYTES - 8));
     let mut scratch = [0; 256];
     let mut sender = CommandSender::new(&host, &mut scratch);
     sender.open_screen(&id).unwrap();

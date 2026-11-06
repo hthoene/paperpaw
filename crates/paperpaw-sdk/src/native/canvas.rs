@@ -143,3 +143,7 @@ fn packed(color: Color) -> u32 {
 #[cfg(test)]
 #[path = "canvas_tests.rs"]
 mod tests;
+
+#[path = "canvas_clip.rs"]
+mod clip;
+pub use clip::ClipGuard;

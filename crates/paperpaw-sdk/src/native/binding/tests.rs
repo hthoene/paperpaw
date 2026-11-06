@@ -104,7 +104,7 @@ impl Plugin for TestPlugin {
         assert_eq!(token, 43);
         assert_eq!(frame.id, 7);
         let rect = frame.rect;
-        let canvas = frame.canvas()?;
+        let canvas = frame.draw_canvas()?;
         assert_eq!(canvas.frame_rect(), rect);
         super::super::clock::micros(host)?;
         Err(Error::Busy)

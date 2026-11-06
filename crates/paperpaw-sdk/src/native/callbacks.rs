@@ -252,15 +252,15 @@ impl<'a> DrawFrame<'a> {
     /// ```compile_fail
     /// use paperpaw_sdk::native::{callbacks::DrawFrame, canvas::Canvas};
     /// fn escape<'a>(frame: &'a mut DrawFrame<'a>) -> Canvas<'static> {
-    ///     frame.canvas().unwrap()
+    ///     frame.draw_canvas().unwrap()
     /// }
     /// ```
     ///
     /// ```compile_fail
     /// use paperpaw_sdk::native::callbacks::DrawFrame;
     /// fn borrow_twice(frame: &mut DrawFrame<'_>) {
-    ///     let first = frame.canvas().unwrap();
-    ///     let second = frame.canvas().unwrap();
+    ///     let first = frame.draw_canvas().unwrap();
+    ///     let second = frame.draw_canvas().unwrap();
     ///     let _ = first.frame_rect();
     /// }
     /// ```
@@ -268,7 +268,7 @@ impl<'a> DrawFrame<'a> {
     /// # Errors
     /// Returns State for a frame without a callback drawing lease, or Invalid
     /// for a malformed clip.
-    pub fn canvas(&mut self) -> Result<super::canvas::Canvas<'_>, Error> {
+    pub fn draw_canvas(&mut self) -> Result<super::canvas::Canvas<'_>, Error> {
         let host = self.host.ok_or(Error::State)?;
         let frame_bottom = i64::from(self.rect.y)
             .checked_add(i64::from(self.rect.height))

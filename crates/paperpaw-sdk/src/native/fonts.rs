@@ -206,3 +206,7 @@ mod tests;
 #[cfg(test)]
 #[path = "fonts_draw_tests.rs"]
 mod drawing_tests;
+
+#[path = "fonts_metrics.rs"]
+mod metrics;
+pub use metrics::InkBounds;

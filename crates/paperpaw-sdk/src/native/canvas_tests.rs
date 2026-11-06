@@ -231,7 +231,7 @@ fn bound_draw_frame_exposes_exact_callback_canvas_and_clip() {
     let decoded = DrawFrame::decode(&bytes).unwrap();
     let mut bound = decoded.bind(&host);
     assert_eq!(DrawFrame::decode(&bytes).unwrap(), bound);
-    let canvas = bound.canvas().unwrap();
+    let canvas = bound.draw_canvas().unwrap();
     assert_eq!(
         canvas.frame_rect(),
         FrameRect::new(-17, -20, 70_000, 80_000)
@@ -263,21 +263,21 @@ fn callback_canvas_refuses_mutated_invalid_frames_before_drawing() {
         let mut frame = original();
         frame.clip_top = top;
         frame.clip_bottom = bottom;
-        assert_eq!(frame.canvas().unwrap_err(), Error::Invalid);
+        assert_eq!(frame.draw_canvas().unwrap_err(), Error::Invalid);
     }
     let mut empty_width = original();
     empty_width.rect.width = 0;
-    assert_eq!(empty_width.canvas().unwrap_err(), Error::Invalid);
+    assert_eq!(empty_width.draw_canvas().unwrap_err(), Error::Invalid);
     let mut empty_height = original();
     empty_height.rect.height = 0;
-    assert_eq!(empty_height.canvas().unwrap_err(), Error::Invalid);
+    assert_eq!(empty_height.draw_canvas().unwrap_err(), Error::Invalid);
     let mut frame = original();
     frame.rect.y = i32::MIN;
     frame.rect.height = u32::MAX;
     frame.clip_top = i32::MIN;
     frame.clip_bottom = i32::MAX;
     assert_eq!(
-        frame.canvas().unwrap()._clip,
+        frame.draw_canvas().unwrap()._clip,
         FrameRect::new(-17, i32::MIN, 70_000, u32::MAX)
     );
     assert!(ctx.calls.borrow().is_empty());
@@ -295,11 +295,11 @@ fn dropping_canvas_allows_another_borrow_of_the_same_frame() {
     let bytes = draw_bytes();
     let mut frame = DrawFrame::decode(&bytes).unwrap().bind(&host);
     let rect = frame.rect;
-    let first = frame.canvas().unwrap();
+    let first = frame.draw_canvas().unwrap();
     assert_eq!(first.frame_rect(), rect);
     drop(first);
-    let second = frame.canvas().unwrap();
+    let second = frame.draw_canvas().unwrap();
     assert_eq!(second.frame_rect(), rect);
     drop(second);
-    assert!(frame.canvas().is_ok());
+    assert!(frame.draw_canvas().is_ok());
 }

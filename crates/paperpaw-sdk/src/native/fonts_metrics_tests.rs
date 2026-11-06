@@ -41,7 +41,6 @@ unsafe extern "C" fn metrics_slot(
         ctx.result.get()
     }
 }
-#[expect(clippy::too_many_arguments, reason = "matches the text.ink host slot")]
 unsafe extern "C" fn ink_slot(
     ctx: *mut c_void,
     font: u32,
@@ -91,7 +90,10 @@ fn metrics_and_ink_forward_distinct_scalars_without_clamping() {
             host: &host,
             handle: Some(handle),
         };
-        assert_eq!(font.read_line_metrics(17.25), Ok(LineMetrics::new(11.25, 3.75, 20.5)));
+        assert_eq!(
+            font.read_line_metrics(17.25),
+            Ok(LineMetrics::new(11.25, 3.75, 20.5))
+        );
         assert_eq!(
             font.ink(19.5, "Grüße"),
             Ok(Some(InkBounds::new(i32::MIN, i32::MAX, -17, 23)))

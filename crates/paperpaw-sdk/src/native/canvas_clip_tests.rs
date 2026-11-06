@@ -17,7 +17,13 @@ struct Context {
     drawing: Cell<bool>,
 }
 
-unsafe extern "C" fn canvas_clip_slot(ctx: *mut c_void, x: i32, y: i32, width: u32, height: u32) -> i32 {
+unsafe extern "C" fn canvas_clip_slot(
+    ctx: *mut c_void,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> i32 {
     // SAFETY: the test retains Context for the callback's whole host lease.
     let ctx = unsafe { &*ctx.cast::<Context>() };
     let rect = FrameRect::new(x, y, width, height);
@@ -54,10 +60,10 @@ fn nested_guards_restore_parent_clips_in_reverse_order() {
     let parent = FrameRect::new(0, 0, 90, 80);
     let child = FrameRect::new(10, 20, 80, 60);
     {
-        let mut outer = canvas.clipped(parent).unwrap();
+        let mut outer = canvas.clip_region(parent).unwrap();
         assert_eq!(outer._clip, parent);
         {
-            let inner = outer.clipped(FrameRect::new(10, 20, 200, 200)).unwrap();
+            let inner = outer.clip_region(FrameRect::new(10, 20, 200, 200)).unwrap();
             assert_eq!(inner._clip, child);
         }
         assert_eq!(outer._clip, parent);
@@ -81,7 +87,9 @@ fn explicit_restore_is_reported_once_and_empty_clips_are_supported() {
     };
     let mut canvas = Canvas::from(&host, frame(), frame());
     let empty = FrameRect::new(500, 500, 0, 0);
-    let guard = canvas.clipped(FrameRect::new(500, 500, 90, 80)).unwrap();
+    let guard = canvas
+        .clip_region(FrameRect::new(500, 500, 90, 80))
+        .unwrap();
     assert_eq!(guard._clip, empty);
     guard.restore().unwrap();
     assert_eq!(canvas._clip, frame());
@@ -101,11 +109,14 @@ fn host_errors_leave_local_clip_at_the_last_accepted_rectangle() {
     let child = FrameRect::new(0, 0, 90, 80);
     for code in [abi::ERR_INVALID, abi::ERR_BUSY, abi::ERR_UNSUPPORTED, -900] {
         ctx.status.set(code);
-        assert_eq!(canvas.clipped(child).unwrap_err(), Error::from_status(code));
+        assert_eq!(
+            canvas.clip_region(child).unwrap_err(),
+            Error::from_status(code)
+        );
         assert_eq!(canvas._clip, frame());
     }
     ctx.status.set(abi::OK);
-    let guard = canvas.clipped(child).unwrap();
+    let guard = canvas.clip_region(child).unwrap();
     ctx.status.set(abi::ERR_IO);
     assert_eq!(guard.restore(), Err(Error::Io));
     assert_eq!(canvas._clip, child);
@@ -113,7 +124,7 @@ fn host_errors_leave_local_clip_at_the_last_accepted_rectangle() {
     // Four refused entries, one accepted entry and one failed explicit restore.
     assert_eq!(ctx.calls.borrow().len(), 6);
     ctx.status.set(abi::OK);
-    let nested = canvas.clipped(FrameRect::new(10, 20, 20, 30)).unwrap();
+    let nested = canvas.clip_region(FrameRect::new(10, 20, 20, 30)).unwrap();
     ctx.status.set(abi::ERR_STATE);
     drop(nested);
     assert_eq!(canvas._clip, FrameRect::new(10, 20, 20, 30));
@@ -129,7 +140,7 @@ fn absent_draw_context_and_default_table_refuse_clipping() {
         ctx: ptr::from_mut(&mut ctx).cast(),
     };
     let mut canvas = Canvas::from(&host, frame(), frame());
-    assert_eq!(canvas.clipped(frame()).unwrap_err(), Error::State);
+    assert_eq!(canvas.clip_region(frame()).unwrap_err(), Error::State);
     assert_eq!(canvas._clip, frame());
     let default = abi::host_table();
     let host = Host {
@@ -137,7 +148,7 @@ fn absent_draw_context_and_default_table_refuse_clipping() {
         ctx: ptr::from_mut(&mut ctx).cast(),
     };
     let mut canvas = Canvas::from(&host, frame(), frame());
-    assert_eq!(canvas.clipped(frame()).unwrap_err(), Error::Unsupported);
+    assert_eq!(canvas.clip_region(frame()).unwrap_err(), Error::Unsupported);
 }
 
 #[test]
@@ -166,8 +177,8 @@ fn unwind_restores_every_live_guard_in_reverse_order() {
     let parent = FrameRect::new(0, 0, 90, 80);
     let child = FrameRect::new(10, 20, 20, 30);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut outer = canvas.clipped(parent).unwrap();
-        let _inner = outer.clipped(child).unwrap();
+        let mut outer = canvas.clip_region(parent).unwrap();
+        let _inner = outer.clip_region(child).unwrap();
         panic!("exercise clip restoration during unwinding");
     }));
     assert!(result.is_err());

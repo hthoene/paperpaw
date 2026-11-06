@@ -220,7 +220,7 @@ fn argument_limits_never_reach_host_or_modify_output() {
         format_message(
             &host,
             "books",
-            &[Arg::Count(1); wire::REGISTRATION_MAX_RECORDS + 1],
+            &[Arg::Count(1); wire::I18N_FORMAT_MAX_RECORDS + 1],
             &mut FormatBuffers::new(&mut scratch, &mut out)
         ),
         Err(Error::NoSpace)

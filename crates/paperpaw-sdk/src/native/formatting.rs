@@ -6,11 +6,11 @@ use super::{
 use paperpaw_native::host_glue::{PpBuffer, PpBytes};
 
 /// Maximum UTF-8 bytes in a catalog key.
-pub const MAX_KEY_BYTES: usize = 128;
+pub const MAX_KEY_BYTES: usize = wire::I18N_FORMAT_MAX_KEY_BYTES;
 /// Maximum encoded formatting argument batch size.
-pub const MAX_ARGUMENT_BYTES: usize = 1024;
+pub const MAX_ARGUMENT_BYTES: usize = wire::I18N_FORMAT_MAX_ARGUMENT_BYTES;
 /// Maximum UTF-8 bytes passed to digit conversion.
-pub const MAX_DIGIT_BYTES: usize = 4096;
+pub const MAX_DIGIT_BYTES: usize = wire::I18N_DIGITS_MAX_BYTES;
 /// Maximum translated message size in bytes (slot 6).
 pub const MAX_MESSAGE_BYTES: usize = 4096;
 
@@ -138,7 +138,7 @@ pub fn format_message(
     let scratch = &mut *buffers.scratch;
     let out = &mut *buffers.out;
     let key = key.as_ref();
-    if key.len() > MAX_KEY_BYTES || args.len() > wire::REGISTRATION_MAX_RECORDS {
+    if key.len() > MAX_KEY_BYTES || args.len() > wire::I18N_FORMAT_MAX_RECORDS {
         return Err(Error::NoSpace);
     }
     for (index, arg) in args.iter().enumerate() {
@@ -150,7 +150,7 @@ pub fn format_message(
         }
     }
     let mut records =
-        [Record::I18nCount(wire::I18nCount { value: 0 }); wire::REGISTRATION_MAX_RECORDS];
+        [Record::I18nCount(wire::I18nCount { value: 0 }); wire::I18N_FORMAT_MAX_RECORDS];
     for (record, arg) in records.iter_mut().zip(args) {
         *record = arg.record();
     }
@@ -186,3 +186,7 @@ pub fn digits(host: &Host<'_>, text: impl AsRef<str>, out: &mut [u8]) -> Result<
 #[cfg(test)]
 #[path = "formatting_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "formatting_limits_tests.rs"]
+mod limits_tests;

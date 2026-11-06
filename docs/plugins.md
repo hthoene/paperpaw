@@ -2657,9 +2657,9 @@ or `NoSpace`. `MAX_MESSAGE_BYTES` sizes one reusable output buffer. Number label
 can look up `core.decimal` (falling back to "." when missing), format fixed-point
 ASCII text, then use the digit conversion slot.
 
-A draw callback obtains its canvas with `frame.canvas()`. A frame decoded outside
-entry glue has no canvas access and returns `State`. Copied frames share one
-canvas lease; a second live controller returns `Busy`. Canvas primitives preserve
+A draw callback obtains its canvas with `frame.draw_canvas()`. A frame decoded outside
+entry glue has no canvas access and returns `State`. The non-copyable frame is borrowed mutably for the canvas lifetime;
+dropping the canvas allows another borrow. Canvas primitives preserve
 the host's frame clipping and colour conversion. `Font::acquire_role` borrows the
 callback host, `measure_text` returns advance, and `render_text` takes that canvas
 and a `TextOrigin`. Consuming `release` and `Drop` each release a font once. A
@@ -2668,3 +2668,13 @@ font cannot be drawn through a different host binding.
 `native::commands::CommandSender::new(host, scratch)` stages typed setting changes
 with the generated encoder. Each accepted call is one atomic batch, applied by
 the host after the callback. Dropping the sender submits nothing.
+
+`Font::read_line_metrics` returns the SDK's `LineMetrics`; `Font::ink` returns
+optional `InkBounds`, preserving empty text and whitespace as no ink.
+`canvas.clip_region(rect)` returns a nested guard: its clip intersects the parent,
+and dropping it restores the previous clip. Explicit `restore` can report a
+host refusal. The draw-frame clip remains the outer bound.
+
+`CommandSender` also opens screens, runs actions, queues a redraw with typed
+`RedrawMode`, and closes the submitting plugin's top screen. Screen and action
+ids are validated before encoding; each call stages one complete batch or none.
