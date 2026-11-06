@@ -349,6 +349,9 @@ unsafe extern "C" fn unsupported_storage_two(
 unsafe extern "C" fn unsupported_storage_sync(_: *mut c_void) -> i32 {
     ERR_UNSUPPORTED
 }
+unsafe extern "C" fn unsupported_format(_: *mut c_void, _: PpBytes, _: PpBytes, _: PpBuffer) -> i32 {
+    ERR_UNSUPPORTED
+}
 
 /// The host table of this build: the shell's entries wired, every other
 /// slot answering `ERR_UNSUPPORTED`.
@@ -385,6 +388,8 @@ pub const fn host_table() -> PpHost {
         storage_rename: unsupported_storage_two,
         storage_remove: unsupported_storage_path,
         storage_sync: unsupported_storage_sync,
+        i18n_format: unsupported_format,
+        i18n_digits: unsupported_read,
     }
 }
 

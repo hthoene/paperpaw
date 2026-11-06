@@ -57,6 +57,7 @@ fn entry_and_plugin_fields_remain_exhaustive_and_typed() {
         drop: None,
         dispatch_event: None,
         draw: None,
+        input: None,
     };
     let PpPlugin {
         size,
@@ -64,9 +65,10 @@ fn entry_and_plugin_fields_remain_exhaustive_and_typed() {
         drop,
         dispatch_event,
         draw,
+        input,
     } = plugin;
     let _: (u32, *mut c_void, Option<Drop>) = (size, state, drop);
-    let _: (Option<Event>, Option<Draw>) = (dispatch_event, draw);
+    let _: (Option<Event>, Option<Draw>, Option<Event>) = (dispatch_event, draw, input);
 }
 
 #[test]

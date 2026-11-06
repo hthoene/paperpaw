@@ -37,6 +37,8 @@ typedef struct {
     int32_t (*storage_rename)(void * ctx, uint32_t root, PpBytes from, PpBytes to);
     int32_t (*storage_remove)(void * ctx, uint32_t root, PpBytes path);
     int32_t (*storage_sync)(void * ctx);
+    int32_t (*i18n_format)(void * ctx, PpBytes key, PpBytes args, PpBuffer out);
+    int32_t (*i18n_digits)(void * ctx, PpBytes text, PpBuffer out);
 } PpHost;
 #define PP_ABI_MAJOR 7
 #define PP_ABI_MINOR 1
@@ -71,6 +73,8 @@ struct PpPlugin {
     int32_t (*dispatch_event)(void * state, uint32_t token, PpBytes input);
     /* draw: since minor 1. */
     int32_t (*draw)(void * state, uint32_t token);
+    /* input: since minor 1. */
+    int32_t (*input)(void * state, uint32_t token, PpBytes input);
 };
 /* PpEntry: raw table since minor 1. */
 struct PpEntry {

@@ -81,6 +81,10 @@ pub struct PpHost {
     pub storage_remove: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, root: u32, path: PpBytes) -> i32,
     /// storage.sync: mutate, status, since 1.
     pub storage_sync: unsafe extern "C" fn(ctx: *mut core::ffi::c_void) -> i32,
+    /// i18n.format: query, length, since 1.
+    pub i18n_format: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, key: PpBytes, args: PpBytes, out: PpBuffer) -> i32,
+    /// i18n.digits: query, length, since 1.
+    pub i18n_digits: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, text: PpBytes, out: PpBuffer) -> i32,
 }
 /// Generated ABI major.
 pub const MAJOR: u16 = 7;
@@ -128,6 +132,8 @@ pub struct PpPlugin {
     pub dispatch_event: Option<unsafe extern "C" fn(state: *mut core::ffi::c_void, token: u32, input: PpBytes) -> i32>,
     /// draw: since minor 1.
     pub draw: Option<unsafe extern "C" fn(state: *mut core::ffi::c_void, token: u32) -> i32>,
+    /// input: since minor 1.
+    pub input: Option<unsafe extern "C" fn(state: *mut core::ffi::c_void, token: u32, input: PpBytes) -> i32>,
 }
 /// Raw PpEntry table since minor 1.
 /// Check accessible bytes before reading fields.

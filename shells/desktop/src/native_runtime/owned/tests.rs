@@ -123,7 +123,7 @@ impl Fixture {
         let callback_fields = if mode == 3 {
             ""
         } else {
-            ", dispatch_event: None, draw: None"
+            ", dispatch_event: None, draw: None, input: None"
         };
         let source = format!(
             r#"

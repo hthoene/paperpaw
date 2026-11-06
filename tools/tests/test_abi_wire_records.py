@@ -138,7 +138,12 @@ mod tests {
 
 class WireRecordTests(unittest.TestCase):
     def setUp(self):
+        # The generator's mechanics, on the schema without the row-5 contract
+        # records (screens/actions 11-12, screen events and input 38-43, i18n
+        # arguments 44-46), so the synthetic tags below stay free.
         self.schema = ABI.load(ROOT / 'abi/abi.def')
+        self.schema['records'] = [r for r in self.schema['records']
+                                  if r['id'] not in (11, 12, *range(38, 47))]
 
     def with_record(self, record):
         candidate = copy.deepcopy(self.schema)
@@ -190,8 +195,8 @@ class WireRecordTests(unittest.TestCase):
 
     def test_every_family_accepts_its_range_and_refuses_the_rest(self):
         ranges = {'setting.x': (5, 31), 'resource.x': (5, 31), 'action.x': (5, 31),
-                  'menu.x': (5, 31), 'screen.x': (5, 31), 'icon.x': (5, 31), 'event.x': (32, 43),
-                  'i18n.x': (44, 47), 'service.x': (48, 55), 'command.x': (56, 62)}
+                  'menu.x': (5, 31), 'screen.x': (5, 31), 'icon.x': (5, 31), 'event.x': (32, 39),
+                  'input.x': (40, 43), 'i18n.x': (44, 47), 'service.x': (48, 55), 'command.x': (56, 62)}
         small = [field('a', 'u32')]
         for name, (low, high) in ranges.items():
             # Tags 5-10, 32-37 and 48-52 are taken by declared records.
@@ -202,7 +207,7 @@ class WireRecordTests(unittest.TestCase):
             for tag in (low - 1, high + 1, 0, 63, 64, 65536):
                 with self.subTest(name=name, refused=tag), self.assertRaises(ValueError):
                     validate_records(self.with_record(synthetic(name, tag, small)))
-        with self.assertRaisesRegex(ValueError, 'outside its family range 32-43'):
+        with self.assertRaisesRegex(ValueError, 'outside its family range 32-39'):
             validate_records(self.with_record(synthetic('event.x', 5, small)))
 
     def test_unknown_family_duplicate_and_moved_initial_tags_are_refused(self):

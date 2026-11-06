@@ -19,7 +19,7 @@ TAG_RANGES = {
     # then actions, menus, screens and icons (Part 5), all within 5-31.
     'setting': (5, 31), 'resource': (5, 31),
     'action': (5, 31), 'menu': (5, 31), 'screen': (5, 31), 'icon': (5, 31),
-    'event': (32, 43), 'i18n': (44, 47), 'service': (48, 55), 'command': (56, 62),
+    'event': (32, 39), 'input': (40, 43), 'i18n': (44, 47), 'service': (48, 55), 'command': (56, 62),
 }
 KEYWORDS = frozenset(
     'as break const continue crate else enum extern false fn for if impl in let loop match '

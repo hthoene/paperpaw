@@ -48,6 +48,7 @@ fn table() -> PpPlugin {
         drop: None,
         dispatch_event: Some(dispatch),
         draw: Some(draw),
+        input: None,
     }
 }
 

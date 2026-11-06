@@ -152,6 +152,7 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
                 drop: Some(destroy),
                 dispatch_event: Some(event),
                 draw: Some(draw),
+                input: None,
             },
             last_tick_ms: None,
             ticks: 0,
