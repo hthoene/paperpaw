@@ -131,7 +131,10 @@ pub fn native_loaded() {
 /// that run native code do not run: they would have no net.
 #[cfg_attr(
     not(any(target_arch = "riscv32", feature = "ppn5")),
-    allow(dead_code, reason = "the Xtensa chips have no band and, without ppn5, no caller")
+    allow(
+        dead_code,
+        reason = "the Xtensa chips have no band and, without ppn5, no caller"
+    )
 )]
 pub fn band_armed() -> bool {
     // The Xtensa chips have no band.
