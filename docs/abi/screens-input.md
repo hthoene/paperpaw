@@ -125,13 +125,20 @@ input(state: pointer, token: u32, input: bytes) -> i32
   - `text.ink`: the ink of `text` at `size`, counting pixels at least half covered: `top` and
     `bottom` relative to the baseline (above negative), `left` and `right` from the pen's start.
     Text without ink (spaces, empty) is `ERR_NOT_FOUND` with the outputs unchanged. Works
-    outside `draw`.
+    outside `draw`. The numbers come from the host's own rasteriser (hinting, coverage, pack),
+    so they can differ by a pixel or more between hosts (X4, desktop, Android); a plugin lays out
+    by them on the host it runs on and never compares them with stored values.
+  - Outputs of slots 29 and 30: a null or misaligned output pointer is `ERR_INVALID`. The host
+    writes all outputs together and only on `OK`; on any error every output is unchanged.
   - `canvas.clip`: the clip of this draw call becomes the frame's clip intersected with the
     rectangle. Each call replaces the previous one (it can widen again up to the frame's clip,
     never beyond); an empty rectangle draws nothing. It resets when `draw` returns; outside `draw`
     it is `ERR_STATE`. Nesting is the SDK's: a nested canvas sets its parent's rectangle
     intersected with its own and restores the parent's when it ends.
   - A stale font handle is `ERR_STATE`, `size` must be finite and > 0, as for `text.measure`.
+  - Host implementation notes: `text.ink` over up to 4096 bytes uses a bounded scratch buffer (no
+    allocation per glyph) and is timed on the X4 before it is wired there; `canvas.clip` does
+    its bounds arithmetic in 64 bits (`x + width` cannot overflow).
 - [D] `text.measure`/`text.draw` keep their signatures; `size` finite and > 0, text at most 4096
   bytes UTF-8, `text.draw` needs a canvas (inside `draw`), else `ERR_STATE`. `text.draw` is not
   atomic on an advance error (documented).
