@@ -50,7 +50,7 @@ CI must compare with a trusted integration/release lock as well as generated
 freshness; editing both definition and local lock is not compatibility evidence.
 The initial draft may require reviewed baseline replacement before freezing.
 
-The C header and Rust module declare the same first-20 host table. Both remain
+The C header and Rust module declare the same first-27 host table. Both remain
 raw table skeletons. Never create a full `&PpHost` from a shorter table; checked
 prefix/slot wrappers are a separate pending step. It does not implement safe
 slot access, lifetime wrappers, host dispatch, schema-derived semantic errors,

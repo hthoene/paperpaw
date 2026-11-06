@@ -164,16 +164,17 @@ class ColorTests(unittest.TestCase):
 
     def test_lock_coverage_and_legacy_formats_without_descriptor(self):
         trusted = ABI.lock_record(self.schema)
-        self.assertEqual(trusted['lock_format'], 7)
+        self.assertEqual(trusted['lock_format'], 8)
         self.assertEqual(trusted['emitted_color'], rust_color(self.schema))
         older = copy.deepcopy(self.schema)
         del older['color_value']
-        for version in range(1, 8):
+        for version in range(1, 9):
             legacy = ABI.lock_record(older)
             legacy['lock_format'] = version
             for floor, field in [(2, 'emitted_rust'), (3, 'emitted_metadata'),
                                  (4, 'emitted_records'), (5, 'emitted_snapshot'),
-                                 (6, 'emitted_color'), (7, 'emitted_commands')]:
+                                 (6, 'emitted_color'), (7, 'emitted_commands'),
+                                 (8, 'emitted_streams')]:
                 if version < floor:
                     del legacy[field]
             ABI.check_lock(legacy, self.schema)

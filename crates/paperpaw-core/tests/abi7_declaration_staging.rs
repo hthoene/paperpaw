@@ -325,25 +325,45 @@ fn names_are_unique_per_namespace_within_and_across_batches() {
 }
 
 #[test]
-fn an_extra_needs_an_earlier_spec_and_at_most_one_per_spec() {
+fn an_extra_resolves_its_spec_at_finish_and_stays_unique() {
     let mut d = Declarations::default();
-    assert_eq!(stage_one(&mut d, &[extra("s")]), Err(ERR_INVALID));
-    assert_eq!(
-        stage_one(&mut d, &[extra("s"), spec("s")]),
-        Err(ERR_INVALID)
-    );
-    assert!(d.is_empty());
-    stage_one(&mut d, &[spec("s"), extra("s")]).unwrap();
+    stage_one(&mut d, &[group("main", "")]).unwrap();
+    stage_one(&mut d, &[extra("s")]).unwrap();
+    assert_eq!(d.finish(PLUGIN), Err(ERR_INVALID));
+    stage_one(&mut d, &[spec("s")]).unwrap();
+    d.finish(PLUGIN).unwrap();
     assert_eq!(stage_one(&mut d, &[extra("s")]), Err(ERR_INVALID));
     assert_eq!(
         stage_one(&mut d, &[spec("t"), extra("t"), extra("t")]),
         Err(ERR_INVALID)
     );
     assert_eq!(d.specs().len(), 1);
-    // The spec may come from an earlier batch.
-    stage_one(&mut d, &[spec("t")]).unwrap();
-    stage_one(&mut d, &[extra("t")]).unwrap();
+    stage_one(&mut d, &[extra("t"), spec("t")]).unwrap();
+    d.finish(PLUGIN).unwrap();
     assert_eq!(d.extras().len(), 2);
+}
+
+#[test]
+fn s1_forward_extras_resolve_in_one_batch_or_a_later_batch() {
+    for separate in [false, true] {
+        let mut d = Declarations::default();
+        stage_one(&mut d, &[group("main", "")]).unwrap();
+        if separate {
+            stage_one(&mut d, &[extra("s")]).unwrap();
+            stage_one(&mut d, &[spec("s")]).unwrap();
+        } else {
+            stage_one(&mut d, &[extra("s"), spec("s")]).unwrap();
+        }
+        d.finish(PLUGIN).unwrap();
+    }
+}
+
+#[test]
+fn s1_missing_spec_is_rejected_only_when_finishing() {
+    let mut d = Declarations::default();
+    stage_one(&mut d, &[extra("s")]).unwrap();
+    assert_eq!(d.extras().len(), 1);
+    assert_eq!(d.finish(PLUGIN), Err(ERR_INVALID));
 }
 
 #[test]

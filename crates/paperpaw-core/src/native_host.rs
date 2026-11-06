@@ -21,6 +21,9 @@ pub mod canvas;
 #[path = "native_host/commands.rs"]
 pub mod commands;
 
+#[path = "native_host/declaration_index.rs"]
+mod declaration_index;
+
 #[path = "native_host/declaration_checks.rs"]
 mod declaration_checks;
 
@@ -48,7 +51,6 @@ pub mod events;
 /// Production event adapter for a shell-owned flat plugin instance.
 #[path = "native_host/flat.rs"]
 pub mod flat;
-
 /// Bounded decoded registration submission during plugin construction.
 #[path = "native_host/registrations.rs"]
 pub mod registrations;
@@ -253,6 +255,11 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         }
     }
 
+    fn finish_declarations(&mut self) -> Result<(), i32> {
+        self.raw.sort_index();
+        self.declaration_view().finish()
+    }
+
     /// Poison this transaction after any registration decoding or validation
     /// refusal, even if foreign code ignores the returned status. Preserve an
     /// earlier staging failure. Only a new transaction can clear this latch.
@@ -302,9 +309,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
             return Err(error);
         }
         // Cross-record checks come first: a refusal leaves destruction unarmed.
-        self.declaration_view()
-            .finish()
-            .map_err(|_| Error::Invalid)?;
+        self.finish_declarations().map_err(|_| Error::Invalid)?;
         if self.raw.image_entries != 0 {
             return Err(Error::DeclarationViewsUnavailable);
         }
@@ -376,14 +381,20 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         if self.len + tokens > REGISTRATIONS {
             return Err(ERR_NO_SPACE);
         }
-        self.declaration_view().check_batch(batch)?;
+        declarations::validate_batch(self.plugin_id, batch)?;
         let raw = self.raw.prepare(self.image, wire, batch)?;
-        if raw.as_ref().is_none_or(|batch| batch.image.is_none()) {
-            self.declarations.stage_verified(
-                self.plugin_id,
-                batch,
-                self.raw.retained(raw.as_ref()),
-            )?;
+        if raw
+            .as_ref()
+            .is_none_or(|pending| pending.batch.image.is_none())
+        {
+            let retained = self.raw.retained(raw.as_ref());
+            if self.image.is_some_and(|image| !image.is_empty()) && wire.is_some() {
+                self.declarations
+                    .stage_verified(self.plugin_id, batch, retained)?;
+            } else {
+                self.declarations
+                    .stage_retaining(self.plugin_id, batch, retained)?;
+            }
         }
         self.raw.commit(raw);
         for record in batch.iter() {

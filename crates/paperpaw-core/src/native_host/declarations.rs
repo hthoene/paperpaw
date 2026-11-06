@@ -77,6 +77,12 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventStopping(_)
         | Record::EventBatteryMeasured(_)
         | Record::EventPageTurned(_) => Err(ERR_INVALID),
+        // Service records are the host's answers (slots 17-19), never submitted.
+        Record::ServiceUsage(_)
+        | Record::ServicePluginUsage(_)
+        | Record::ServicePlugin(_)
+        | Record::ServiceWorkNote(_)
+        | Record::ServiceEnd(_) => Err(ERR_INVALID),
     }
 }
 
