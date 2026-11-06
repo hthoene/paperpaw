@@ -485,14 +485,14 @@ fn line(counts: &BTreeMap<String, usize>) -> String {
         .join(" ")
 }
 
-/// Outcomes that must never occur after a cut. `Stale` and `ZeroTail` are
-/// listed on purpose: measured, they never appear (S2: no host-framed
-/// `append_record` is needed on this storage); if one ever does, S2 must be
-/// decided again, not this list edited.
 /// An append larger than the 24-slot block cache (12 KB): the cache evicts
 /// while the chain of clusters grows, on every cluster size.
 const BIG: usize = 20 * 1024 + 7;
 
+/// Outcomes that must never occur after a cut. `Stale` and `ZeroTail` are
+/// listed on purpose: measured, they never appear (S2: no host-framed
+/// `append_record` is needed on this storage); if one ever does, S2 must be
+/// decided again, not this list edited.
 const BAD: [&str; 5] = ["Missing", "Other", "Unreadable", "Stale", "ZeroTail"];
 
 /// Appended without a sync, cut at every block the storage writes: the file
@@ -641,9 +641,32 @@ fn v1_an_evicted_append_is_read_back_whole_in_the_same_mount() {
     }
 }
 
+/// The card with its FSInfo free-cluster count (FAT32) marked unknown, so
+/// that mounting it counts the free clusters in the FAT itself: the count
+/// FSInfo keeps can be stale after a cut.
+fn counted_from_the_fat(mut card: Overlay) -> Overlay {
+    const FSINFO_SECTOR_AT: usize = 48;
+    const FREE_COUNT_AT: usize = 488;
+    let base = Rc::clone(&card.base);
+    if &base[82..90] == b"FAT32   " {
+        let sector = u32::from(u16::from_le_bytes([
+            base[FSINFO_SECTOR_AT],
+            base[FSINFO_SECTOR_AT + 1],
+        ]));
+        let mut block = card.block(sector);
+        block[FREE_COUNT_AT..FREE_COUNT_AT + 4].copy_from_slice(&[0xFF; 4]);
+        card.changed.insert(sector, block);
+    }
+    card
+}
+
 /// Free clusters the FAT of `card` counts (all of it read).
 fn free_clusters(card: &Overlay) -> u32 {
-    mounted(card.clone()).fs.stats().unwrap().free_clusters()
+    mounted(counted_from_the_fat(card.clone()))
+        .fs
+        .stats()
+        .unwrap()
+        .free_clusters()
 }
 
 /// What an unsynced append that is cut leaves on the card besides the file:
@@ -661,10 +684,16 @@ fn v1_clusters_taken_by_a_cut_append_are_counted_and_given_back_by_removal() {
             let image = with_stale_clusters(card, "log.csv", &old, 24 * c);
             let cuts = cuts_of(image, |s| s.append("log.csv", &new).unwrap());
             let start = cuts.iter().next().unwrap();
+            assert_eq!(
+                &start.base[82..90] == b"FAT32   ",
+                card.fat32,
+                "{}",
+                card.label
+            );
             let before = free_clusters(&start);
             // The same card with the file removed: what removal must give.
             let removed = {
-                let s = mounted(start.clone());
+                let s = mounted(counted_from_the_fat(start.clone()));
                 s.remove("log.csv").unwrap();
                 s.fs.stats().unwrap().free_clusters()
             };
@@ -680,7 +709,7 @@ fn v1_clusters_taken_by_a_cut_append_are_counted_and_given_back_by_removal() {
                     leaks += 1;
                     most = most.max(before - free);
                 }
-                let s = mounted(cut);
+                let s = mounted(counted_from_the_fat(cut));
                 s.remove("log.csv").unwrap();
                 if s.fs.stats().unwrap().free_clusters() != removed {
                     kept += 1;
