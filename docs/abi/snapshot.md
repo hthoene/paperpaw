@@ -1,0 +1,86 @@
+# Environment snapshot wire format
+
+`abi/abi.def` owns the `snapshot_value` descriptor. `tools/abi-gen.py` emits
+an independent, allocation-free Rust codec in `abi/generated/snapshot_wire.rs`
+and `crates/paperpaw-core/src/abi7/snapshot_wire.rs`. No Rust struct layout
+crosses the ABI. The original raw ABI module stays unchanged.
+
+Host slot 4, `env.snapshot`, is a status operation with a 128-byte output cap.
+The encoder writes a complete 52-byte version 1 snapshot. The caller must
+provide that much storage; a short buffer returns `ERR_NO_SPACE` and receives
+no writes. This slot has no length query or partial-copy behavior. The encoder
+accepts uninitialized output storage and initializes exactly the returned
+prefix, leaving spare capacity untouched. It validates the complete value
+before writing. Percentages above 100 return `ERR_INVALID`.
+
+All multibyte fields use little endian. Offsets below follow the descriptor's
+ordered header and field lists; the generator computes them from field widths.
+There is no alignment padding.
+
+| Offset | Bytes | Field |
+| --- | --- | --- |
+| 0 | 4 | Version, currently 1 |
+| 4 | 4 | Total bytes, currently 52 when encoded |
+| 8 | 4 | Presence bitmap |
+| 12 | 4 | Reserved, zero |
+| 16 | 8 | Monotonic milliseconds, unsigned |
+| 24 | 8 | Unix seconds, signed |
+| 32 | 2 | Display width in pixels |
+| 34 | 2 | Display height in pixels |
+| 36 | 2 | Display pixels per inch |
+| 38 | 2 | Pixel kind |
+| 40 | 2 | Shell-defined pixel code |
+| 42 | 1 | Bits per pixel |
+| 43 | 1 | Battery percentage |
+| 44 | 2 | Battery millivolts |
+| 46 | 1 | Charging Boolean |
+| 47 | 1 | Battery saver Boolean |
+| 48 | 1 | Touch input Boolean |
+| 49 | 3 | Reserved, zero |
+
+Presence bits are battery `1`, voltage `2` and Unix time `4`. Voltage requires
+battery presence. An absent Unix time requires zero seconds. An absent battery
+requires zero percentage and false charging and saver flags. An absent voltage
+requires zero millivolts. These canonical zeros preserve the distinction
+between absence and a present zero value. Battery percentages are 0 through
+100 inclusive. Boolean bytes must be exactly 0 or 1.
+
+| Pixel kind | Meaning | Required bits | Required code |
+| --- | --- | --- | --- |
+| 0 | Mono1 | 1 | 0 |
+| 1 | Gray2 | 2 | 0 |
+| 2 | Gray4 | 4 | 0 |
+| 3 | Gray8 | 8 | 0 |
+| 4 | Rgb565 | 16 | 0 |
+| 5 | Rgb888 | 24 | 0 |
+| 6 | Other | Any u8, including zero | Any u16, including zero |
+
+The local `PixelFormat` facade preserves the SDK's depth semantics:
+`bits_per_pixel()` returns the known depth or the exact `Other.bits` value;
+`gray_levels()` returns 2, 4, 16 or 256 for the grayscale formats and `None`
+for colour and `Other` formats.
+
+The decoder requires an input length of 52 through 128 bytes and a declared
+total equal to that length. It decodes the known prefix and accepts arbitrary
+trailing extension bytes under version 1. Unknown version, presence bits or
+pixel kind return `ERR_UNSUPPORTED`. Input above 128 bytes returns
+`ERR_NO_SPACE`. Truncation, noncanonical absent payloads, invalid known pixel
+depths or codes, invalid Booleans, invalid percentages, nonzero reserved bytes
+and inconsistent declared lengths return `ERR_INVALID`.
+
+The descriptor is closed. Adding it must respect the ABI minor release floor;
+an existing descriptor cannot be removed or changed. Lock format 5 records
+its separate emitted source as `emitted_snapshot`. Lock formats 1 through 4
+remain readable without this field. Generation does not insert snapshot
+facades or codecs into the existing raw Rust module.
+
+Focused validation:
+
+```sh
+python3 -m unittest discover -s tools/tests -p test_abi_snapshot.py
+```
+
+This includes standalone `no_std` compilation with warnings denied, Rust wire
+vectors, output initialization and capacity checks, every pixel format,
+malformed prefix checks, accepted extensions and descriptor release floors.
+The codec allocates no heap memory and uses one 52-byte encoding buffer.
