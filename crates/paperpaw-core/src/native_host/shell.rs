@@ -327,11 +327,11 @@ impl<S: Services, M> Hosted<S, M> {
 
     /// The output stays loader-owned until commit succeeds. A failed factory
     /// returns no live output; no unvalidated partial-output destructor runs.
-    /// A table that does not validate (`Error::Plugin`), and a `make` whose
-    /// own submit was refused (the scope poisons the construction and reports
-    /// it before the output is read), leave the state the plugin made behind:
-    /// nothing may call a destructor it did not prove. The shell logs that
-    /// refusal.
+    /// A table that does not validate (`Error::Plugin`) leaves the state the
+    /// plugin made behind: nothing may call a destructor it did not prove.
+    /// The shell logs that refusal. A `make` whose own submit was refused
+    /// returns a valid table, and the latched refusal is reported at commit,
+    /// where the output is destroyed once.
     fn make_with<'a, T>(
         &'a self,
         mut transaction: Transaction<'a, S, M, T>,

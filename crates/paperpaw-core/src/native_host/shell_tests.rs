@@ -176,7 +176,9 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
             },
         )
     };
-    if status != OK {
+    // A plugin in the ignoring mode goes on with a valid table, whatever
+    // the host said to its submits.
+    if status != OK && mode != IGNORES_REFUSAL {
         // SAFETY: the block just allocated, same layout.
         unsafe { (table.heap_dealloc)(ctx, block, size_of::<Fake>(), align_of::<Fake>()) };
         return status;
@@ -403,15 +405,27 @@ fn an_output_table_that_does_not_validate_is_refused_without_a_destructor() {
 fn a_plugin_that_ignores_a_refused_submit_cannot_activate() {
     reset(IGNORES_REFUSAL);
     let hosted = fake();
-    // The bad batch poisons the construction, whatever `make` returned.
-    let refused = hosted.construct_registered(hosted.begin().unwrap()).err();
-    assert!(refused.is_some(), "{refused:?}");
-    drop(hosted);
-    // Refused at `make`, before its output is read: no destructor can be
-    // called for a table never validated (what the plugin made is left, and
-    // the shell logs the refusal), and nothing was dispatched.
-    assert_eq!(logged(), ["module"]);
+    // `make` succeeds with a valid table; its first submit was refused and
+    // latched, so the construction is poisoned whatever `make` returned.
+    let pending = hosted.make_registered(hosted.begin().unwrap()).unwrap();
+    assert_eq!(MAKES.with(Cell::get), 1);
+    let refused = pending.commit().err();
+    assert!(refused.is_some(), "commit of a poisoned construction");
+    // Destroyed exactly once, while the module lives; nothing was dispatched.
+    assert_eq!(logged(), ["destroy"]);
     assert_eq!(EVENTS.with(Cell::get), 0);
+    // And the one-step path refuses it the same way.
+    drop(hosted);
+    assert_eq!(logged(), ["destroy", "module"]);
+    reset(IGNORES_REFUSAL);
+    let hosted = fake();
+    assert!(
+        hosted
+            .construct_registered(hosted.begin().unwrap())
+            .is_err()
+    );
+    drop(hosted);
+    assert_eq!(logged(), ["destroy", "module"]);
 }
 
 #[test]
