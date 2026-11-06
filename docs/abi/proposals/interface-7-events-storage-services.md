@@ -627,7 +627,7 @@ of one record (<= 256 B for usage rows) between `blob.read` chunks. Total blob s
 **D3.4 Blob lifetime and budget.** [P] A snapshot blob expires **at the end of the callback
 that created it** (stale use returns `ERR_STATE`, the host frees it) unless the key class
 declares otherwise; Battery reads and releases within one callback. Limits: at most 2 live
-blobs per owner (the registry's 4 handles are shared with fonts) and **16 KiB of live
+blobs per owner (no longer shared with fonts: caps are per family, `screens-input.md` section 7) and **16 KiB of live
 blob bytes across all plugins**; beyond that `services.query` returns `ERR_NO_MEMORY`
 (allocation failure) or `ERR_BUSY` (budget used by another owner), with no handle
 created.
@@ -687,7 +687,7 @@ Q13 snapshot vs interface semantics for slot 17 (and an invocation slot for
 `core.library`). Q14 where the note text is bounded. Q15 whether a blob may outlive its
 callback for other consumers (ADR34 section 5 says "retained blobs use owner handles").
 Q16 the per-owner handle limit of 4 is shared by fonts, services and blobs; Battery needs
-at least 1-2 fonts plus up to 2 blobs: confirm the limit or raise it. Q17 `enabled` field.
+at least 1-2 fonts plus up to 2 blobs: confirm the limit or raise it. *(Superseded: per-family caps, `screens-input.md` section 7.)* Q17 `enabled` field.
 Q18 the registry stores a `T` per entry; a `Blob` payload of up to 8 KiB x 2 owners must
 fit the budget on X4 (not measured).
 

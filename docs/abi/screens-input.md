@@ -233,7 +233,9 @@ subscriptions. Families added later refer to it instead of defining their own.
   cancels every open operation, and nothing is called back afterwards; a late completion is
   refused (`ERR_STATE`). Releasing the handle of a running operation cancels it first. Live
   handles and operations per plugin are capped **per family** (fonts: section 4; each later family
-  states its own); there is no cap shared across families. One past a cap is `ERR_FULL`. This
+  states its own); there is no cap shared across families. Today: font handles 8 (section 4); blobs
+  2 live per plugin within the device's blob budget (events proposal D3.4, S6 on the X4); service
+  handles one per declared service key (at most `metadata.max_services`). One past a cap is `ERR_FULL`. This
   replaces ADR 0034's X4 profile line "four persistent handles per plugin" (and its use in the
   proposals as a cap shared with fonts). SDK glue builds on
   exactly this.
