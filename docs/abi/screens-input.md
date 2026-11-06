@@ -194,6 +194,13 @@ subscriptions. Families added later refer to it instead of defining their own.
   the host drops it unread.
 - [D] Stop order: the host cancels open operations, then releases handles, then drops the state.
   No callback runs after `drop`.
+- [D] **Teardown bug path.** The shell always finishes teardown (cancel, release, `drop`) before it
+  frees an owner. If it does not, and a cancel or release step fails then, the host reports it
+  once, skips the step, still calls `drop` exactly once and unmaps the plugin. That is safe only
+  because no host resource borrows the plugin's image or memory past a call: what a skipped step
+  leaves behind is host-owned, bounded per plugin and unreachable under a never-reused owner id.
+  A future family whose host resource does borrow the plugin's image or memory must make its
+  release non-skippable and say so in its own spec.
 - [D] **Async operations (D3, #890).** Every asynchronous operation is a handle. Its completion
   event is a level-triggered hint: it may be coalesced and never carries the only copy of the
   result. The result stays readable through the handle until `handle.release`. Stop or unload
