@@ -49,3 +49,6 @@ dfa1e8df5518bca1ce6a91237145c11b97b51eae language-ar, language-es  # paperpaw-si
 492648f5a0011c95353f0b5cbe61fa1966705d10 language-ar, language-es  # paperpaw-sign pack frame scan (#228): pack only, catalog unchanged
 ad5fb82ecb5f218c07c37c153c33d154cb2b1e1e language-ar, language-es  # paperpaw-sign pack frame scan (#228): pack only, catalog unchanged
 b3f613a918e62e11ad71e00aeded800440d2d9a3 language-ar, language-es  # paperpaw-sign frames (#228, PR #254): the firmware listing reads jump tables; pack unchanged, catalog byte-identical (job #2877)
+aa96216f89db03578e6cf4b7a50ac9f2233c6120 language-ar, language-es  # paperpaw-sign frames (#228, PR #254): listing/walk fix for the Code Reviewer's probe; catalog byte-identical (job #2917)
+8ad265314a497d1a24b9efb706dfc8e38e33ff98 language-ar, language-es  # paperpaw-sign frames (#228, PR #254): listing/walk fix for the Code Reviewer's probe; catalog byte-identical (job #2917)
+059bd6087aa9c7a71e8df652f0541bad36e7f4b3 language-ar, language-es  # paperpaw-sign frames (#228, PR #254): listing/walk fix for the Code Reviewer's probe; catalog byte-identical (job #2917)
