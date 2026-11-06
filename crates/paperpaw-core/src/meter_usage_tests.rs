@@ -90,3 +90,21 @@ fn row_visitors_report_conflicts_and_release_borrows() {
         Err(paperpaw_native::host_glue::ERR_STATE)
     );
 }
+
+#[test]
+fn awake_reason_caps_preserve_utf8_and_exact_boundary_text() {
+    let meter = Meter::new(None);
+    for (text, expected) in [
+        ("a".repeat(64), 64),
+        (alloc::format!("{}é", "a".repeat(63)), 63),
+        (alloc::format!("{}🦊", "a".repeat(62)), 62),
+    ] {
+        meter.awake("reader", 1, text.clone().into());
+        meter
+            .visit_rows(1, &mut |row| {
+                assert_eq!(row.awake_reason, &text[..expected]);
+                core::ops::ControlFlow::Continue(())
+            })
+            .unwrap();
+    }
+}

@@ -780,6 +780,8 @@ fn stored_work_notes_cut_at_utf8_boundaries() {
         ("a".repeat(256), "a".repeat(256)),
         (alloc::format!("{}é!", "a".repeat(255)), "a".repeat(255)),
         (alloc::format!("{}🦊!", "a".repeat(254)), "a".repeat(254)),
+        (String::with_capacity(4096), String::new()),
+        ("a".repeat(4096), "a".repeat(256)),
         (String::new(), String::new()),
     ] {
         kernel.shared.set_work_note(
@@ -788,6 +790,7 @@ fn stored_work_notes_cut_at_utf8_boundaries() {
         );
         let note = kernel.shared.work_states.note(&owner).unwrap();
         assert_eq!(note.text, expected);
+        assert!(note.text.capacity() <= 256);
         assert_eq!(note.at, Instant(42));
     }
 }

@@ -1154,7 +1154,18 @@ impl crate::Shared {
         while !note.text.is_char_boundary(end) {
             end -= 1;
         }
-        note.text.truncate(end);
+        if note.text.capacity() > 256 {
+            let mut bounded = String::new();
+            // A transient notice must not retain a large allocation. If the
+            // bounded copy cannot fit, leave the previous note in place.
+            if bounded.try_reserve_exact(end).is_err() {
+                return;
+            }
+            bounded.push_str(&note.text[..end]);
+            note.text = bounded;
+        } else {
+            note.text.truncate(end);
+        }
         self.work_states.set_note(owner, note);
     }
 }

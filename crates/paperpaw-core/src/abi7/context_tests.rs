@@ -184,3 +184,29 @@ fn pages_keep_source_offsets_and_release_rows_before_plugin_code() {
         Err(ERR_STATE)
     );
 }
+
+#[test]
+fn localized_name_caps_preserve_utf8_and_exact_boundary_text() {
+    for (text, expected) in [
+        ("a".repeat(128), 128),
+        (alloc::format!("{}é", "a".repeat(127)), 127),
+        (alloc::format!("{}🦊", "a".repeat(126)), 126),
+    ] {
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .plugin(Named)
+            .build()
+            .unwrap();
+        let catalog = alloc::format!(
+            "[meta]\nlanguage = en\nname = English\nplural = one-other\n[messages]\nnamed.plugin.name = {text}\n"
+        );
+        kernel
+            .shared
+            .translator
+            .add(paperpaw_i18n::Catalog::parse(catalog).unwrap());
+        let env = kernel.shared.env(Instant(0));
+        let frame = frame(&kernel, &env);
+        frame
+            .plugin_name("named", &mut |name| assert_eq!(name, &text[..expected]))
+            .unwrap();
+    }
+}
