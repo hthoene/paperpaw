@@ -79,7 +79,10 @@ before any other field is read.
    - `relocs <= image_len / 4`, `patches` at most half the code's words, hot code as format 4.
    Else malformed.
 8. Digest over header and file; signature; installed hash; placement (ADR 0024, unchanged).
-9. Before relocation, every relocation word lies inside `[base, base + image_len)`. The metadata
+9. Before relocation, every relocation word (the value in the image at a listed offset) is an
+   address in the image by either bus view, as the relocation itself requires: `[base, base +
+   image_len]` for data or `[base + CODE_OFFSET, base + CODE_OFFSET + image_len]` for code, the end
+   included (a slice may point there). Function pointers such as `make` are code addresses. The metadata
    record at `meta_at` is read with the generated bounded reader and must agree with the header
    (`abi_major`, `needs_minor`, target profile). After relocation and before `make`:
    - `entry.metadata.ptr == base + meta_at` and `entry.metadata.len == meta_len`, and the view is
