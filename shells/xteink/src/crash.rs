@@ -63,6 +63,16 @@ static ENTERED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool:
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
+    // Where the stack pointer stands as the handler is entered (this frame is
+    // a few bytes): the handler's own depth is counted from it.
+    handle(info, crate::stack::sp())
+}
+
+/// The handler. Its frames are separate from `panic`'s, so that `entry` is
+/// the pointer before them: the note it ends the message with (`stack_note`)
+/// is how deep they went.
+#[inline(never)]
+fn handle(info: &core::panic::PanicInfo<'_>, entry: usize) -> ! {
     use core::sync::atomic::Ordering;
     let again = ENTERED.load(Ordering::Relaxed);
     ENTERED.store(true, Ordering::Relaxed);
@@ -70,8 +80,10 @@ fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
         esp_println::println!("PANIC: {info}");
     }
     let mut buf = [0u8; paperpaw_x4::rtc_guard::MESSAGE_LEN];
+    // The last of the text's room is the stack note's: the calls are cut, not it.
     let mut cut = Cut {
-        buf: &mut buf[paperpaw_x4::rtc_guard::BODY],
+        buf: &mut buf[paperpaw_x4::rtc_guard::BODY]
+            [..paperpaw_x4::rtc_guard::BODY.len() - paperpaw_x4::stack_note::NOTE_LEN],
         len: 0,
     };
     // The message first: the location's path is long.
@@ -146,6 +158,15 @@ fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
             }
         });
     }
+    // How deep the handler went, now that the deepest of it is done: the note
+    // is the last of the text, in the room kept for it.
+    let used = cut.len;
+    let (depth, left) = crate::stack::handler_use(entry);
+    let mut note = Cut {
+        buf: &mut buf[paperpaw_x4::rtc_guard::BODY][used..],
+        len: 0,
+    };
+    let _ = paperpaw_x4::stack_note::write(&mut note, depth, left);
     paperpaw_x4::rtc_guard::seal_message(&mut buf);
     // SAFETY: one core, the firmware stopped: nothing else touches it.
     unsafe { core::ptr::addr_of_mut!(LAST).write_volatile(buf) };

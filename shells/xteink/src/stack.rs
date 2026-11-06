@@ -73,6 +73,28 @@ pub fn left() -> (usize, usize) {
     (at - end, start - end)
 }
 
+/// The stack pointer now: the panic handler's entry, for [`handler_use`].
+pub fn sp() -> usize {
+    pointer()
+}
+
+/// What the panic handler used of the stack, read at its end: the depth below
+/// `entry` (the pointer where it was entered, [`sp`]) it went, and the bytes
+/// never touched below that (`paperpaw_x4::stack_note`). The painted words
+/// show it (`paint` ran at start), so it needs nothing kept across the reset:
+/// the figures go into the panic's message in the crash slot, and the
+/// device's checklist (G7) reads the handler's real depth from the message
+/// after a panic on the device (a trap in the band, a plugin's panic).
+pub fn handler_use(entry: usize) -> (u32, u32) {
+    let (left, _) = left();
+    let end = core::ptr::addr_of!(_stack_end) as usize;
+    let to_u32 = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    (
+        paperpaw_x4::stack_note::handler_depth(to_u32(entry), to_u32(end), to_u32(left)),
+        to_u32(left),
+    )
+}
+
 /// Starts the X4 again (by a panic, which keeps the message) if the stack
 /// reached its end since start, or if the band at its end was lost after a
 /// plugin with native code was loaded (a re-arm after a sleep found the
