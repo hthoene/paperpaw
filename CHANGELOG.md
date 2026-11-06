@@ -36,6 +36,9 @@ change the plugin SDK.
 
 ### Changed
 
+- Background-work notes are cut to 256 UTF-8 bytes at a character boundary when stored;
+  interface-6 `env.work().note()` readers see the same bounded text (#228).
+
 - **Plugin interface 7, draft 1** (#228, early raise on `abi7/integration`): `native::INTERFACE` is 7 and
   every plugin with code needs a build for it; plugins built for interface 6 are refused as built for an
   earlier interface. Until it is frozen, a change plugins rely on takes the next draft, named in

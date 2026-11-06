@@ -696,7 +696,7 @@ impl Kernel {
         }
         for (owner, note) in mem::take(&mut self.works.notes) {
             if let Ok(owner) = Id::parse(&owner) {
-                self.shared.work_states.set_note(owner, note);
+                self.shared.set_work_note(owner, note);
             }
         }
     }
@@ -860,7 +860,7 @@ impl Kernel {
             self.shared.work_states.set_works(states);
         }
         for (owner, note) in notes {
-            self.shared.work_states.set_note(owner, note);
+            self.shared.set_work_note(owner, note);
         }
         // Background work, whatever call brought it due.
         let ran = !due.is_empty() || stepped;
@@ -1198,5 +1198,17 @@ mod tests {
         queue.saw(&events::STARTED.id().clone(), &Params::new());
         queue.saw(&events::BOOK_CLOSED.id().clone(), &Params::new());
         assert_eq!(queue.moments, Moments::WAKE | Moments::BOOK_CLOSED);
+    }
+}
+
+impl crate::Shared {
+    /// Bound retained note text once, so all readers see the same text.
+    pub(crate) fn set_work_note(&mut self, owner: Id, mut note: paperpaw_sdk::work::Note) {
+        let mut end = note.text.len().min(256);
+        while !note.text.is_char_boundary(end) {
+            end -= 1;
+        }
+        note.text.truncate(end);
+        self.work_states.set_note(owner, note);
     }
 }
