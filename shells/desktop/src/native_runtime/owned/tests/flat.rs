@@ -40,6 +40,19 @@ fn started_library() -> Vec<u8> {
     bytes
 }
 
+/// The distinct private copies of plugin `id` mapped now, by path.
+fn mapped_copies(id: &str) -> Vec<String> {
+    let mut paths: Vec<String> = std::fs::read_to_string("/proc/self/maps")
+        .unwrap()
+        .lines()
+        .filter(|line| line.contains("paperpaw-abi7") && line.contains(&format!("/{id}-")))
+        .filter_map(|line| line.split_whitespace().nth(5).map(str::to_owned))
+        .collect();
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
 fn mapped_copy(id: &str) -> bool {
     std::fs::read_to_string("/proc/self/maps")
         .unwrap()
@@ -315,19 +328,24 @@ fn update_and_uninstall_unmap_each_copy_only_after_its_release() {
     };
     assert_ne!(first, second);
     let old = Loaded::from_bytes("flatupdate", &first).unwrap();
-    assert!(mapped_copy("flatupdate"));
+    let old_copy = mapped_copies("flatupdate");
+    assert_eq!(old_copy.len(), 1, "the old library: {old_copy:?}");
     // The update: the kernel stops the old one and loads the new one; the old
     // library stays mapped while anything holds its instance.
     old.stop();
     let new = Loaded::from_bytes("flatupdate", &second).unwrap();
-    assert!(mapped_copy("flatupdate"), "both mapped");
+    let both = mapped_copies("flatupdate");
+    assert_eq!(both.len(), 2, "two distinct mappings: {both:?}");
+    assert!(both.contains(&old_copy[0]));
+    let new_copy = both.iter().find(|p| **p != old_copy[0]).unwrap().clone();
     let mut seen = Vec::new();
     new.registrations(&mut |r| seen.push(r));
     assert_eq!(seen.len(), 2, "the new library's registrations");
     drop(old);
-    assert!(
-        mapped_copy("flatupdate"),
-        "the new copy stays mapped when the old one is released"
+    assert_eq!(
+        mapped_copies("flatupdate"),
+        [new_copy.clone()],
+        "the old copy is unmapped by its own release, the new one stays"
     );
     assert_eq!(
         new.dispatch_event(0, &tick_bytes(), &DispatchDepth::new()),
@@ -337,7 +355,11 @@ fn update_and_uninstall_unmap_each_copy_only_after_its_release() {
     // The uninstall: stopped, then released.
     new.stop();
     drop(new);
-    assert!(!mapped_copy("flatupdate"), "no mapping left");
+    assert!(mapped_copies("flatupdate").is_empty(), "no mapping left");
+    assert!(
+        !std::path::Path::new(&new_copy).exists(),
+        "and no copy file left"
+    );
 }
 
 /// A load that fails after the library ran code (`make` done, commit refused)

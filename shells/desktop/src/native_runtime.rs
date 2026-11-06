@@ -205,16 +205,19 @@ fn read_only_segment(bytes: &[u8], base: usize, anchor: u64) -> (usize, usize) {
             let filesz = u64_at(bytes, at.checked_add(32)?)?;
             let memsz = u64_at(bytes, at.checked_add(40)?)?;
             // The segment that holds the anchor, whatever its flags.
-            if anchor < vaddr || anchor - vaddr >= filesz.min(memsz) {
+            if anchor < vaddr || anchor - vaddr >= filesz {
                 continue;
             }
             if flags & (PF_X | PF_W) != 0 || flags & PF_R == 0 {
                 return None;
             }
-            let len = filesz.min(memsz);
-            if offset.checked_add(len)? > u64::try_from(bytes.len()).ok()? {
+            // `p_filesz` bytes come from the file, the rest up to `p_memsz` is
+            // zeros: more file than memory is no segment, and the file bytes
+            // must lie wholly inside the file.
+            if filesz > memsz || offset.checked_add(filesz)? > u64::try_from(bytes.len()).ok()? {
                 return None;
             }
+            let len = filesz;
             let vaddr = usize::try_from(vaddr).ok()?;
             let len = usize::try_from(len).ok()?;
             base.checked_add(vaddr)?.checked_add(len)?;

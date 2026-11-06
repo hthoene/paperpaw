@@ -346,3 +346,19 @@ fn a_segment_reaching_past_the_end_of_the_file_gives_no_image() {
     );
     assert_eq!(read_only_segment(b"junk", 0, 0), (0, 0));
 }
+
+#[test]
+fn a_segment_with_more_file_than_memory_or_past_the_file_gives_no_image() {
+    // Reviewer's repro: filesz 0x500 > memsz 0x100 at offset/vaddr 0x100 in a
+    // file of 0x300 bytes, anchor inside it.
+    let lying = elf_with_loads(&[(R, 0x100, 0x100, 0x500, 0x100)], 0x300);
+    assert_eq!(read_only_segment(&lying, 0x1000, 0x110), (0, 0));
+    // More file than memory, though the file is long enough: no segment.
+    let more = elf_with_loads(&[(R, 0x100, 0x100, 0x200, 0x100)], 0x400);
+    assert_eq!(read_only_segment(&more, 0x1000, 0x110), (0, 0));
+    // The file bytes (not the smaller of the two sizes) must lie in the file.
+    let past = elf_with_loads(&[(R, 0x100, 0x100, 0x300, 0x400)], 0x300);
+    assert_eq!(read_only_segment(&past, 0x1000, 0x110), (0, 0));
+    let inside = elf_with_loads(&[(R, 0x100, 0x100, 0x200, 0x400)], 0x300);
+    assert_eq!(read_only_segment(&inside, 0x1000, 0x110), (0x1100, 0x200));
+}
