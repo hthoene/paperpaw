@@ -229,7 +229,8 @@ class RecordsTests(unittest.TestCase):
                           ('input.action', 43), ('i18n.arg_str', 44), ('i18n.arg_int', 45),
                           ('i18n.count', 46), ('draw.frame', 192),
                           ('command.open_screen', 56), ('command.run_action', 57),
-                          ('command.redraw', 58), ('command.close_screen', 59)])
+                          ('command.redraw', 58), ('command.close_screen', 59),
+                          ('menu.entry', 13), ('icon.spec', 14), ('menu.need', 15)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             if record['id'] <= 3:

@@ -25,6 +25,9 @@ Overlong, overflowing or truncated varints are malformed.
 | 8 | `resource.hyphenation` | `language: str 35`, `path: str 100` |
 | 9 | `resource.font_face` | `name: str 96`, `path: str 100`, `family: str 64`, `style: u32`, `weight: u32`, `role: str 96`, `priority: i32` |
 | 10 | `resource.font_extension` | `name: str 96`, `path: str 100`, `extends: str 128` |
+| 13 | `menu.entry` | `menu: str 128`, `item: str 96`, `order: i32`, `place: u32`, `anchor: str 128` |
+| 14 | `icon.spec` | `item: str 96`, `icon: str 64` |
+| 15 | `menu.need` | `item: str 96`, `need: u32`, `capability: u64` |
 | 32 | `event.started` | `now_ms: u64` |
 | 33 | `event.resume` | `now_ms: u64` |
 | 34 | `event.suspend` | `now_ms: u64` |

@@ -2392,6 +2392,117 @@
       "name": "command.close_screen",
       "since": 1,
       "fields": []
+    },
+    {
+      "id": 13,
+      "name": "menu.entry",
+      "since": 1,
+      "fields": [
+        {
+          "name": "menu",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "item",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "order",
+          "type": "i32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "place",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "anchor",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "name": "icon.spec",
+      "since": 1,
+      "fields": [
+        {
+          "name": "item",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "icon",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 64
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "name": "menu.need",
+      "since": 1,
+      "fields": [
+        {
+          "name": "item",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "need",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "capability",
+          "type": "u64",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
     }
   ],
   "statuses": [

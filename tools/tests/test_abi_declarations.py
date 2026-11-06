@@ -86,7 +86,7 @@ mod tests {
     #[test]
     fn invalid_utf8_and_unknown_tags_are_distinct_statuses() {
         assert_eq!(all(&[1, 8, 5, 0, 1, 0xff, 1, b'p']).map(|_| ()), Err(-5));
-        assert_eq!(all(&[1, 13, 1, 0]).map(|_| ()), Err(-1));
+        assert_eq!(all(&[1, 31, 1, 0]).map(|_| ()), Err(-1));
     }
 }
 '''

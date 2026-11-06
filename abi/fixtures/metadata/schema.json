@@ -2752,6 +2752,117 @@
       "id": 59,
       "name": "command.close_screen",
       "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "menu",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "item",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "order",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "place",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "anchor",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 13,
+      "name": "menu.entry",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "item",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "icon",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 14,
+      "name": "icon.spec",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "item",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "need",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "capability",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 15,
+      "name": "menu.need",
+      "since": 1
     }
   ],
   "snapshot_value": {

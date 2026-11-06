@@ -1678,6 +1678,137 @@ impl<'a> DrawFrame<'a> {
         write_blob(self.payload, out, offset);
     }
 }
+/// Wire tag of the `menu.entry` record.
+pub const MENU_ENTRY_TAG: u32 = 13;
+/// Maximum bytes of `menu.entry.menu`.
+pub const MENU_ENTRY_MENU_MAX_BYTES: usize = 128;
+/// Maximum bytes of `menu.entry.item`.
+pub const MENU_ENTRY_ITEM_MAX_BYTES: usize = 96;
+/// Maximum bytes of `menu.entry.anchor`.
+pub const MENU_ENTRY_ANCHOR_MAX_BYTES: usize = 128;
+
+/// The `menu.entry` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MenuEntry<'a> {
+    /// UTF-8 text of at most 128 bytes.
+    pub menu: &'a str,
+    /// UTF-8 text of at most 96 bytes.
+    pub item: &'a str,
+    /// Little-endian i32.
+    pub order: i32,
+    /// Little-endian u32.
+    pub place: u32,
+    /// UTF-8 text of at most 128 bytes.
+    pub anchor: &'a str,
+}
+
+impl<'a> MenuEntry<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::MenuEntry(Self {
+            menu: body.string(MENU_ENTRY_MENU_MAX_BYTES)?,
+            item: body.string(MENU_ENTRY_ITEM_MAX_BYTES)?,
+            order: i32::from_le_bytes(body.scalar()?),
+            place: u32::from_le_bytes(body.scalar()?),
+            anchor: body.string(MENU_ENTRY_ANCHOR_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.menu.len(), MENU_ENTRY_MENU_MAX_BYTES)?;
+        len += blob_len(self.item.len(), MENU_ENTRY_ITEM_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += blob_len(self.anchor.len(), MENU_ENTRY_ANCHOR_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.menu.as_bytes(), out, offset);
+        write_blob(self.item.as_bytes(), out, offset);
+        write_bytes(&self.order.to_le_bytes(), out, offset);
+        write_bytes(&self.place.to_le_bytes(), out, offset);
+        write_blob(self.anchor.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `icon.spec` record.
+pub const ICON_SPEC_TAG: u32 = 14;
+/// Maximum bytes of `icon.spec.item`.
+pub const ICON_SPEC_ITEM_MAX_BYTES: usize = 96;
+/// Maximum bytes of `icon.spec.icon`.
+pub const ICON_SPEC_ICON_MAX_BYTES: usize = 64;
+
+/// The `icon.spec` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IconSpec<'a> {
+    /// UTF-8 text of at most 96 bytes.
+    pub item: &'a str,
+    /// UTF-8 text of at most 64 bytes.
+    pub icon: &'a str,
+}
+
+impl<'a> IconSpec<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::IconSpec(Self {
+            item: body.string(ICON_SPEC_ITEM_MAX_BYTES)?,
+            icon: body.string(ICON_SPEC_ICON_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.item.len(), ICON_SPEC_ITEM_MAX_BYTES)?;
+        len += blob_len(self.icon.len(), ICON_SPEC_ICON_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.item.as_bytes(), out, offset);
+        write_blob(self.icon.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `menu.need` record.
+pub const MENU_NEED_TAG: u32 = 15;
+/// Maximum bytes of `menu.need.item`.
+pub const MENU_NEED_ITEM_MAX_BYTES: usize = 96;
+
+/// The `menu.need` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MenuNeed<'a> {
+    /// UTF-8 text of at most 96 bytes.
+    pub item: &'a str,
+    /// Little-endian u32.
+    pub need: u32,
+    /// Little-endian u64.
+    pub capability: u64,
+}
+
+impl<'a> MenuNeed<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::MenuNeed(Self {
+            item: body.string(MENU_NEED_ITEM_MAX_BYTES)?,
+            need: u32::from_le_bytes(body.scalar()?),
+            capability: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.item.len(), MENU_NEED_ITEM_MAX_BYTES)?;
+        len += 4;
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.item.as_bytes(), out, offset);
+        write_bytes(&self.need.to_le_bytes(), out, offset);
+        write_bytes(&self.capability.to_le_bytes(), out, offset);
+    }
+}
 
 /// A registration or declaration record, borrowed from one validated batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1743,6 +1874,12 @@ pub enum Record<'a> {
     I18nCount(I18nCount),
     /// A `DrawFrame` record.
     DrawFrame(DrawFrame<'a>),
+    /// A `MenuEntry` record.
+    MenuEntry(MenuEntry<'a>),
+    /// A `IconSpec` record.
+    IconSpec(IconSpec<'a>),
+    /// A `MenuNeed` record.
+    MenuNeed(MenuNeed<'a>),
 }
 
 impl<'a> Reader<'a> {
@@ -1816,6 +1953,9 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         I18N_ARG_INT_TAG => I18nArgInt::decode(body)?,
         I18N_COUNT_TAG => I18nCount::decode(body)?,
         DRAW_FRAME_TAG => DrawFrame::decode(body)?,
+        MENU_ENTRY_TAG => MenuEntry::decode(body)?,
+        ICON_SPEC_TAG => IconSpec::decode(body)?,
+        MENU_NEED_TAG => MenuNeed::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -1936,6 +2076,9 @@ impl Record<'_> {
             Record::I18nArgInt(_) => I18N_ARG_INT_TAG,
             Record::I18nCount(_) => I18N_COUNT_TAG,
             Record::DrawFrame(_) => DRAW_FRAME_TAG,
+            Record::MenuEntry(_) => MENU_ENTRY_TAG,
+            Record::IconSpec(_) => ICON_SPEC_TAG,
+            Record::MenuNeed(_) => MENU_NEED_TAG,
         }
     }
 
@@ -1972,6 +2115,9 @@ impl Record<'_> {
             Record::I18nArgInt(record) => record.body_len(),
             Record::I18nCount(record) => record.body_len(),
             Record::DrawFrame(record) => record.body_len(),
+            Record::MenuEntry(record) => record.body_len(),
+            Record::IconSpec(record) => record.body_len(),
+            Record::MenuNeed(record) => record.body_len(),
         }
     }
 
@@ -2013,6 +2159,9 @@ impl Record<'_> {
             Record::I18nArgInt(record) => record.write(out, offset),
             Record::I18nCount(record) => record.write(out, offset),
             Record::DrawFrame(record) => record.write(out, offset),
+            Record::MenuEntry(record) => record.write(out, offset),
+            Record::IconSpec(record) => record.write(out, offset),
+            Record::MenuNeed(record) => record.write(out, offset),
         }
     }
 

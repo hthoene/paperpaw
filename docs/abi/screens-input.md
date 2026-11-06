@@ -22,6 +22,9 @@ batch lies in the image, owned otherwise; refused at activation until the SDK vi
 | --- | --- | --- | --- |
 | 11 | `screen.spec` | `name: str` (relative), `title: str` (i18n key), `token: u32`, `flags: u32` | 96, 128 |
 | 12 | `action.spec` | `name: str` (relative), `title: str` (i18n key), `token: u32`, `flags: u32` | 96, 128 |
+| 13 | `menu.entry` | `menu: str` (full id), `item: str` (relative), `order: i32`, `place: u32`, `anchor: str` (full id or empty) | 128, 96, 128 |
+| 14 | `icon.spec` | `item: str` (relative), `icon: str` (icon name) | 96, 64 |
+| 15 | `menu.need` | `item: str` (relative), `need: u32`, `capability: u64` | 96 |
 
 - [D] `token` names the plugin callback state the host passes to `draw`, `input` and
   `dispatch_event` for this screen or action. Tokens are the plugin's own numbers; one token may
@@ -34,6 +37,39 @@ batch lies in the image, owned otherwise; refused at activation until the SDK vi
   and an action may share a name); checked at commit, order-independent.
 - [D] Running an action delivers `event.action_run` (tag 39) to its token through
   `dispatch_event`; the plugin answers with commands.
+- [D] `menu.entry` puts one of the plugin's own actions or settings (`item`, relative) into a menu
+  (`menu`, a full id such as `core.tools` or `core.main`; another plugin's menu is allowed). The
+  label is the item's title. `order` must fit an `i16` (lower comes first). `place`: 0 by
+  `order`, 1 after the entry `anchor`, 2 before it, 3 in the section `anchor`, 4 first, 5 last;
+  `anchor` is a full id for 1-3 and empty otherwise (`ERR_INVALID`), other places
+  `ERR_UNSUPPORTED`. Whether `item` and `anchor` resolve is checked at commit (an unknown item is
+  `ERR_INVALID`; an anchor that is not, or no longer, there places the entry by `order`).
+- [D] `icon.spec` gives one of the plugin's own actions, screens or settings (`item`, relative) an
+  icon: one `[a-z0-9-]` segment naming an icon of the host's icon set (the SDK's icon names). A
+  name the host's set lacks is accepted and shows no icon, so hosts may carry smaller sets.
+- [D] `menu.need` offers one of the plugin's own actions, settings or setting groups (`item`,
+  relative) only on devices that have what it needs; elsewhere it is left out of menus and
+  settings pages, also where the user listed it (except `no-touch`, which only leaves it out of
+  the menus plugins define). `need`: 0 `speech`, 1 `sleep` (the device shows the sleep screen),
+  2 `rotation`, 3 `no-touch`, 4 `touch`, 5 `button-row` (buttons below the screen with a row of
+  hints), 6 `colors` (shows colours other than black and white), 7 `wifi`, 8 `firmware` (the device
+  can update its firmware), 9 `black-and-white`, 10 `frontlight`, 11 `bluetooth`, 12 `has`; others
+  `ERR_UNSUPPORTED`. `capability` is 0 except for `has`, where it is a nonzero set of capability
+  bits the device must all have (bit 0 audio, 1 warmth, 2 charge limit, 3 keyboard, 4 hot code,
+  5 page keys, 6 buttons, 7 USB link, 8 render hook, 9 render regions, 10 look extras, 11 USB
+  drive, 12 chords, 13 page turner, 14 hotspot, 15 pen tilt, 16 pen hover, as the SDK's
+  `Capability`); a bit the host does not know is not met, so a later capability needs no new
+  record (`ERR_INVALID` otherwise). At most one need per item (checked at commit, `ERR_INVALID`). An item whose
+  label, switch or badge changes while it is shown needs a callback and is not a declaration (a
+  later registry family).
+- [D] Until a host's menus and icon set take them, a host refuses these three records with
+  `ERR_UNSUPPORTED` (after the syntax checks above, so a malformed record still says
+  `ERR_INVALID`); it never accepts and drops one.
+- [D] Translations need no record. A card plugin's catalogs are the files
+  `plugins/<id>/i18n/<language>.ini` beside its `code.ppn` (the same folder layout as interface 6);
+  a plugin built into the firmware brings them built in. `title` keys, `i18n.copy` (6),
+  `i18n.format` (27) and plurals resolve in the calling plugin's catalogs through the host's language
+  fallback chain, which ends in English; a key in none gives `ERR_NOT_FOUND`.
 
 ## 2. Input and screen events
 
