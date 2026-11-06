@@ -542,6 +542,82 @@ fn discover_fonts_asks_for_the_restart_a_fonts_browser_waits_for() {
     assert!(effects.restart());
 }
 
+/// A kernel that loads code plugins, with the fonts browser's folder on the
+/// storage (its code a file the loader cannot use): the plugin a restart
+/// found and could not start.
+fn discovering_after_a_failed_start(installed: bool) -> Kernel {
+    let storage = Shared::default();
+    storage.create_dir("plugins").unwrap();
+    storage.create_dir("plugins/fonts-browser").unwrap();
+    storage
+        .write(
+            "plugins/fonts-browser/plugin.ini",
+            b"[plugin]\nid = fonts-browser\nname = More fonts\ndescription = Fonts.\nversion = 1.0.5\nformats = 1\n",
+        )
+        .unwrap();
+    storage
+        .write("plugins/fonts-browser/code.ppn", b"not a plugin")
+        .unwrap();
+    if installed {
+        // Named as installed (by the store), so that its code is tried.
+        assert!(paperpaw_sdk::native::remember_code(
+            &storage,
+            "fonts-browser",
+            &[1; 32]
+        ));
+    }
+    let mut native = paperpaw_sdk::native::Native::new("code.ppn");
+    native.fingerprint =
+        paperpaw_sdk::native::Fingerprint::of(paperpaw_sdk::native::INTERFACE, 0x4567_89ab_cdef);
+    let mut kernel = Kernel::builder(common::DEVICE)
+        .storage(storage)
+        .network(true)
+        .catalog_device("x4")
+        .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+        // Its words say why the plugin did not start.
+        .plugin(paperpaw_plugin_plugin_manager::PluginManager)
+        .plugin(Store)
+        .code_plugins(native, Box::new(common::NoCode))
+        .build()
+        .unwrap();
+    kernel.start(Instant(0));
+    kernel
+}
+
+/// A plugin that did not start never falls back to the store's page
+/// unsaid: the reader is told that it could not start, and why, with the
+/// plugin manager's words for it.
+#[test]
+fn discover_fonts_says_that_a_fonts_browser_could_not_start() {
+    for installed in [false, true] {
+        let mut kernel = discovering_after_a_failed_start(installed);
+        let info = kernel.plugins().get("fonts-browser").unwrap().clone();
+        assert!(info.enabled);
+        assert_eq!(info.state, paperpaw_sdk::PluginState::Failed, "{info:?}");
+        kernel.run_action(Instant(100), DISCOVER_FONTS);
+        assert_eq!(
+            kernel.screens().last().map(Id::as_str),
+            Some("core.confirm-dialog")
+        );
+        let text = shown(&mut kernel);
+        assert!(text.contains("“More fonts” could not start"), "{text}");
+        // Why: not installed from the store (no mark), or its code damaged.
+        let reason = if installed {
+            "Its code is damaged"
+        } else {
+            "Not installed from the store"
+        };
+        assert!(text.contains(reason), "{installed}: {text}");
+        assert!(text.contains("Manage plugins"), "{text}");
+        // Its page, to remove or install it again, is one answer away.
+        kernel.run_action(Instant(200), actions::CONFIRM);
+        assert_eq!(
+            kernel.screens().last().map(Id::as_str),
+            Some("store.plugin")
+        );
+    }
+}
+
 /// Where the fonts browser runs, *Discover fonts* opens its list.
 #[test]
 fn discover_fonts_opens_the_list_where_the_fonts_browser_runs() {

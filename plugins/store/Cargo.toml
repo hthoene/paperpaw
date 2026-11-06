@@ -28,6 +28,8 @@ paperpaw-plugin-fonts-browser.workspace = true
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
 paperpaw-plugin-keyboard.workspace = true
 paperpaw-plugin-menu.workspace = true
+# Its words say why a plugin did not start (a test).
+paperpaw-plugin-plugin-manager.workspace = true
 
 [lints]
 workspace = true

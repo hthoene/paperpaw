@@ -46,7 +46,7 @@ use paperpaw_sdk::replies::{Confirmed, HttpReply};
 use paperpaw_sdk::setting::Setting;
 use paperpaw_sdk::{
     Arg, Command, Commands, Env, FixedAction, FixedScreen, Id, Manifest, MenuEntry, Params, Plugin,
-    RegisterError, Registrar, SettingSpec,
+    PluginInfo, PluginProblem, PluginState, RegisterError, Registrar, SettingSpec,
 };
 use trust::Verdict;
 
@@ -128,10 +128,58 @@ static ACTIONS: [FixedAction; 2] = [
         .handler(|_, _, out| out.push(Command::OpenScreen(LIST_SCREEN, Params::new()))),
     FixedAction::new(DISCOVER_FONTS, "store.discover-fonts").handler(discover_fonts),
 ];
+
+/// Whether a plugin that is to run did not start (or was held back for
+/// good): what its start recorded, as *Manage plugins* says it. Held back
+/// for this start only (safe mode, switched on) it waits for a restart.
+fn failed_to_start(info: &PluginInfo) -> bool {
+    info.state == PluginState::Failed
+        || info
+            .problem
+            .is_some_and(|problem| !(problem == PluginProblem::SafeMode && info.enabled))
+}
+
+/// Why `info` did not start, as the plugin manager says it, with where to
+/// read more and what can be done.
+fn why_not(env: &Env<'_>, info: &PluginInfo) -> alloc::string::String {
+    let i18n = env.i18n();
+    let key = match info.problem {
+        Some(PluginProblem::OtherBuild) => "plugin-manager.code.other-build",
+        Some(PluginProblem::Damaged) => "plugin-manager.code.damaged",
+        Some(PluginProblem::Mismatch) => "plugin-manager.code.mismatch",
+        // As the plugin manager says it: a smaller layout (the X4 after an
+        // SD install) gets the web flasher's much larger one named.
+        Some(PluginProblem::NoRoom)
+            if env.native().is_some_and(|_| {
+                paperpaw_sdk::native::code_room(env.storage()).is_some_and(|r| r.larger.is_some())
+            }) =>
+        {
+            "plugin-manager.code.no-room-flash"
+        }
+        Some(PluginProblem::NoRoom) => "plugin-manager.code.no-room",
+        Some(PluginProblem::Unsupported) => "plugin-manager.code.unsupported",
+        Some(PluginProblem::SafeMode) => "plugin-manager.code.safe-mode",
+        Some(PluginProblem::Crashed) => "plugin-manager.code.crashed",
+        Some(PluginProblem::NotInstalled) => "plugin-manager.code.not-installed",
+        Some(PluginProblem::Changed) => "plugin-manager.code.changed",
+        Some(PluginProblem::OlderInterface { .. }) => "plugin-manager.code.older",
+        Some(PluginProblem::NeedsNewerPaperPaw) => "plugin-manager.code.needs-newer",
+        Some(PluginProblem::Revoked) => "plugin-manager.code.revoked",
+        _ => "plugin-manager.failed",
+    };
+    // The plugin manager is always here; its words are the same ones the
+    // reader finds there.
+    let reason = i18n
+        .get(key)
+        .unwrap_or_else(|| i18n.tr("store.fonts.failed.reason"));
+    alloc::format!("{reason}\n{}", i18n.tr("store.fonts.failed.help"))
+}
+
 /// *Discover fonts*: the fonts browser's list where it runs. Otherwise
-/// the reader is told why not (it is not installed, it is switched off, or
-/// it waits for a restart), with the one thing to do about it; the
-/// store's page of it is not the answer to a wish for fonts.
+/// the reader is told why not (it is not installed, it did not start, it
+/// is switched off, or it waits for a restart), with the one thing to do
+/// about it; the store's page of it is not the answer to a wish for fonts,
+/// and a plugin that failed never falls back to it unsaid.
 fn discover_fonts(env: &Env<'_>, _: &Params, out: &mut Commands) {
     if env.actions().contains(FONTS.as_str()) {
         out.push(Command::run(FONTS));
@@ -146,6 +194,19 @@ fn discover_fonts(env: &Env<'_>, _: &Params, out: &mut Commands) {
             "store.fonts.not-now",
             "page",
         ),
+        Some(info) if failed_to_start(info) => {
+            let i18n = env.i18n();
+            out.push(
+                paperpaw_sdk::ask::confirm(i18n.tr("store.fonts.failed"), &FONTS_ANSWER)
+                    .text(why_not(env, info))
+                    .yes(i18n.tr("store.fonts.show"))
+                    .no(i18n.tr("store.fonts.not-now"))
+                    .focus_yes()
+                    .with("then", "page")
+                    .command(),
+            );
+            return;
+        }
         Some(info) if !info.enabled => (
             "store.fonts.off",
             "store.fonts.off.help",
