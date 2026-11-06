@@ -259,6 +259,31 @@ unsafe extern "C" fn make(_: *const PpHost, _: *mut core::ffi::c_void, out: *mut
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn metadata_omits_optional_features_and_names_unavailable_required_ones() {
+    let host = crate::host_services::desktop_host();
+    let key = "test.unimplemented";
+    for flags in [0_u16, 1, 2] {
+        let mut bytes = metadata_bytes();
+        for value in [(8 + key.len()) as u16, key.len() as u16, 1, flags] {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        bytes.extend_from_slice(key.as_bytes());
+        let total = bytes.len() as u32;
+        bytes[wire::TOTAL_BYTES..wire::TOTAL_BYTES + 4].copy_from_slice(&total.to_le_bytes());
+        bytes[wire::FEATURES..wire::FEATURES + 2].copy_from_slice(&1_u16.to_le_bytes());
+        let expected = match flags {
+            0 => Ok(1),
+            1 => Err(RuntimeError::RequiredFeature {
+                key: key.into(),
+                revision: 1,
+            }),
+            _ => Err(RuntimeError::Metadata),
+        };
+        assert_eq!(metadata(&bytes, host.table()), expected);
+    }
+}
+
 /// A 64-bit little-endian ELF header with `loads` as `PT_LOAD` program headers
 /// `(flags, offset, vaddr, filesz, memsz)`, padded to `file_len` bytes.
 fn elf_with_loads(loads: &[(u32, u64, u64, u64, u64)], file_len: usize) -> Vec<u8> {
