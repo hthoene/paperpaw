@@ -27,6 +27,10 @@ OPTIONS:
     --trust-code          Load code plugins built for this computer from the
                           library (plugins/<id>/code-host.dll, .so or .dylib),
                           those there installed first; without it, none
+    --abi7-dev-loader     Developer switch (also PAPERPAW_ABI7_DEV_LOADER=1):
+                          load interface-7 code plugins of the library
+                          (plugins/<id>/code-host.so) without applying what
+                          they declare; Linux x86-64 only, off by default
     --stdio               Be driven by another program over standard input and
                           output, a JSON object a line (see the `stdio` module)
     --registry <file>     Write what the app offers data plugins (settings,
@@ -94,6 +98,9 @@ struct Options {
     trust_code: bool,
     /// Requests answered from the emulator's fixtures (`--network`).
     fixtures: bool,
+    /// Load interface-7 plugins of the card (developer switch, inactive by
+    /// default).
+    abi7_dev_loader: bool,
 }
 
 fn main() -> ExitCode {
@@ -118,6 +125,14 @@ fn run() -> Result<(), String> {
         .library
         .clone()
         .unwrap_or_else(|| PathBuf::from("samples/library"));
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    if options.abi7_dev_loader {
+        paperpaw_emulator::native_runtime::set_enabled(true);
+    }
+    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+    if options.abi7_dev_loader {
+        return Err("--abi7-dev-loader needs Linux on x86-64".into());
+    }
     if options.trust_code {
         device::set_code_plugins(true);
         let installed = paperpaw_emulator::native::trust(&library)
@@ -319,6 +334,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Option<Options>,
             }
             "--heap-report" => options.heap_report = true,
             "--trust-code" => options.trust_code = true,
+            "--abi7-dev-loader" => options.abi7_dev_loader = true,
             "--network" => {
                 options.fixtures = match value("--network")?.as_str() {
                     "real" => false,

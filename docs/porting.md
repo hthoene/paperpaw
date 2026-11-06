@@ -188,6 +188,29 @@ Pro's. A port to a board like one PaperPaw knows is mostly a board file.
   `rust-toolchain.toml` pin: plugin files run only on firmware of the
   same compiler, and newer Xtensa GCCs reject esp-hal's linker scripts.
 
+## Loading interface-7 plugins (desktop developer switch)
+
+Only the desktop emulator loads interface-7 libraries, and only behind
+`--abi7-dev-loader` / `PAPERPAW_ABI7_DEV_LOADER=1`; a device shell does not
+(see `docs/plugins.md`, "Interface-7 libraries"). A shell that adds this loader
+keeps this order, which the tests in `shells/desktop` pin:
+
+1. Read the file and tell its kind from the bytes: `PAPERPAW_METADATA` alone is
+   interface 7, `PAPERPAW_API` alone is interface 6 and left to its own loader,
+   anything else is refused. Never guess.
+2. Run the strict freestanding check (`check_freestanding`, `PLUGIN_EXPORTS`)
+   before any code of the library runs.
+3. Open the plugin with the id of its **folder** (`PinnedPlugin::open`), never
+   the id the library reports; stage its declarations (`HostOwner::begin`) and
+   commit them. Staged declarations are kept and not applied until the kernel's
+   registry apply step (S2) exists; no draw is dispatched before then.
+4. Dispatch lifecycle, tick and draw only inside the kernel's scoped
+   environment; never retain `Env` or a canvas.
+5. Unload in this order: drop the registrations (their leases), revoke and
+   finish admission, drop the owner (the plugin's destructor runs), and only
+   then unmap the library. A removed folder changes nothing until then; the
+   private copy is what is mapped.
+
 ## The lifecycle window
 
 Plugins save in `core.suspend` and `core.stopping`, and the interface-7
