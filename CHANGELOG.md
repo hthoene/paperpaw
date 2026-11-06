@@ -12,6 +12,8 @@ change the plugin SDK.
   the fields declared in `abi/abi.def` (optional appended fields, tag ranges per record family) (#228).
 - Interface-7 draft: event records 32-37 (`started`, `resume`, `suspend`, `stopping`, `battery_measured`,
   `page_turned`) with host encoders in `native_host::events`; a plugin can register for them (#228).
+  An optional scalar field declared with `"default": null` is generated as `Option<T>` (present exactly
+  when its bit is set): `page_turned`'s `page` and `pages`, which have no value meaning "not counted".
 - `tools/hyphenation-packs`: builds and checks the thirteen hyphenation plugins as data plugins
   (`[hyphenation]` file kind, PPHP version 1 tables); the interface-6 plugins stay until the
   card-backed reader lands (#228).

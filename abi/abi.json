@@ -1524,7 +1524,7 @@
           "type": "str"
         },
         {
-          "default": 0,
+          "default": null,
           "max_bytes": 0,
           "name": "page",
           "optional": true,
@@ -1533,7 +1533,7 @@
           "type": "u32"
         },
         {
-          "default": 0,
+          "default": null,
           "max_bytes": 0,
           "name": "pages",
           "optional": true,

@@ -136,13 +136,23 @@ pub fn cut(text: &str, cap: usize) -> &str {
     text.get(..end).unwrap_or("")
 }
 
+/// Whether a page turn says what can be: progress at most 1,000,000 ppm, a page
+/// and a count from 1 (absent where not counted, never 0), the page not past
+/// the count.
+fn sound(progress_ppm: u32, page: Option<u32>, pages: Option<u32>) -> bool {
+    progress_ppm <= 1_000_000
+        && page != Some(0)
+        && pages != Some(0)
+        && !matches!((page, pages), (Some(page), Some(pages)) if page > pages)
+}
+
 /// Encode `event.page_turned`, cutting each string to its cap at a char boundary.
 ///
 /// # Errors
-/// `ERR_INVALID` for `progress_ppm` over 1,000,000 or a `Some(0)` page or count (zero
-/// is how the wire says "not counted"), `ERR_NO_SPACE` when `out` is too small.
+/// `ERR_INVALID` for `progress_ppm` over 1,000,000, a `Some(0)` page or count, or a
+/// page past the count; `ERR_NO_SPACE` when `out` is too small.
 pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, i32> {
-    if turn.progress_ppm > 1_000_000 || turn.page == Some(0) || turn.pages == Some(0) {
+    if !sound(turn.progress_ppm, turn.page, turn.pages) {
         return Err(ERR_INVALID);
     }
     let record = EventPageTurned {
@@ -153,8 +163,8 @@ pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, 
         path: cut(turn.path, EVENT_PAGE_TURNED_PATH_MAX_BYTES),
         title: cut(turn.title, EVENT_PAGE_TURNED_TITLE_MAX_BYTES),
         chapter: cut(turn.chapter, EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES),
-        page: turn.page.unwrap_or(0),
-        pages: turn.pages.unwrap_or(0),
+        page: turn.page,
+        pages: turn.pages,
     };
     encode(&Record::EventPageTurned(record), out)
 }
@@ -163,8 +173,9 @@ pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, 
 ///
 /// # Errors
 /// The codec's status for malformed framing, an over-cap field or bad UTF-8;
-/// `ERR_INVALID` when the batch does not hold exactly one record;
-/// `ERR_UNSUPPORTED` when that record is not an event.
+/// `ERR_INVALID` when the batch does not hold exactly one record, or a page
+/// turn that [`encode_page_turned`] refuses; `ERR_UNSUPPORTED` when that record
+/// is not an event.
 pub fn decode(bytes: &[u8]) -> Result<Record<'_>, i32> {
     let batch = records_decode(bytes)?;
     let mut records = batch.iter();
@@ -176,8 +187,11 @@ pub fn decode(bytes: &[u8]) -> Result<Record<'_>, i32> {
         | Record::EventResume(_)
         | Record::EventSuspend(_)
         | Record::EventStopping(_)
-        | Record::EventBatteryMeasured(_)
-        | Record::EventPageTurned(_) => Ok(record),
+        | Record::EventBatteryMeasured(_) => Ok(record),
+        Record::EventPageTurned(turn) if sound(turn.progress_ppm, turn.page, turn.pages) => {
+            Ok(record)
+        }
+        Record::EventPageTurned(_) => Err(ERR_INVALID),
         _ => Err(ERR_UNSUPPORTED),
     }
 }

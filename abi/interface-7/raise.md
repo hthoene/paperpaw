@@ -57,3 +57,14 @@ These are not rows of their own, but the raise is not complete without them (all
 
 Items behind the `kernel` cargo feature (ADR 0020), such as `paperpaw-hyphen`'s table check and card-backed
 reader, are not part of the plugin interface and need no row.
+
+## Gates before the event records are active
+
+Recorded with PR #187 (Senior's review, Manager 2026-11-06), to hold before any plugin is dispatched events
+32-37:
+
+1. Every tag registration admits (tick and 32-37) has a dispatcher in the host: a plugin registered for
+   `event.suspend` is called on suspend. Admitting a tag that is never dispatched is refused at activation.
+2. The X4 stack check counts the encode buffer of one dispatch: the largest event (`event.page_turned`) is
+   under 1.1 KB, built on the caller's stack (`native_host/events.rs`). Moved to the heap only if the stack
+   check says it does not fit.

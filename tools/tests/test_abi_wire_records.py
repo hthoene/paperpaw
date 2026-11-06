@@ -28,7 +28,8 @@ def synthetic(name='setting.synthetic', tag=11, fields=None):
                   field('g', 'str', 4, optional=True, ordinal=1, default=''),
                   field('h', 'bytes', 4, optional=True, ordinal=2, default=''),
                   field('i', 'i32', optional=True, ordinal=3, default=-3),
-                  field('j', 'u64', optional=True, ordinal=4, default=0)]
+                  field('j', 'u64', optional=True, ordinal=4, default=0),
+                  field('k', 'u32', optional=True, ordinal=5, default=None)]
     return dict(id=tag, name=name, since=1, fields=fields)
 
 
@@ -39,7 +40,7 @@ mod tests {
 
     fn plain() -> SettingSynthetic<'static> {
         SettingSynthetic {
-            a: 1, b: 2, c: -1, d: "hi", e: &[9], f: 7, g: "", h: &[], i: -3, j: 0,
+            a: 1, b: 2, c: -1, d: "hi", e: &[9], f: 7, g: "", h: &[], i: -3, j: 0, k: None,
         }
     }
 
@@ -62,10 +63,12 @@ mod tests {
         full.h = &[5, 6];
         full.i = -4;
         full.j = u64::MAX;
+        // A field with no default: 0 is a value like any other.
+        full.k = Some(0);
         let mut out = [0; 128];
         let n = records_encode(&[Record::SettingSynthetic(full)], &mut out).unwrap();
-        assert_eq!(&out[..8], [1, 11, 22 + 1 + 4 + 2 + 3 + 4 + 8, 1, 0b11111, 1, 0, 0]);
-        assert_eq!(n, 1 + 2 + (22 + 1 + 4 + 2 + 3 + 4 + 8));
+        assert_eq!(&out[..8], [1, 11, 22 + 1 + 4 + 2 + 3 + 4 + 8 + 4, 1, 0b111111, 1, 0, 0]);
+        assert_eq!(n, 1 + 2 + (22 + 1 + 4 + 2 + 3 + 4 + 8 + 4));
         let batch = records_decode(&out[..n]).unwrap();
         assert_eq!(batch.iter().next(), Some(Record::SettingSynthetic(full)));
         let mut some = plain();
@@ -74,6 +77,32 @@ mod tests {
         assert_eq!(out[3..5], [1, 0b10]);
         assert_eq!(records_decode(&out[..n]).unwrap().iter().next(),
                    Some(Record::SettingSynthetic(some)));
+    }
+
+    #[test]
+    fn a_field_without_a_default_is_present_exactly_when_some() {
+        let mut out = [0; 128];
+        for k in [None, Some(0), Some(5), Some(u32::MAX)] {
+            let mut record = plain();
+            record.k = k;
+            let n = records_encode(&[Record::SettingSynthetic(record)], &mut out).unwrap();
+            if k.is_some() {
+                assert_eq!(out[3..5], [1, 0b100000], "{k:?}");
+            } else {
+                assert_eq!(out[3], 0, "{k:?}");
+            }
+            assert_eq!(n, 25 + if k.is_some() { 1 + 4 } else { 0 }, "{k:?}");
+            assert_eq!(records_decode(&out[..n]).unwrap().iter().next(),
+                       Some(Record::SettingSynthetic(record)), "{k:?}");
+        }
+        // Its presence bit set without the field (the last four bytes cut): refused.
+        let mut record = plain();
+        record.k = Some(5);
+        let n = records_encode(&[Record::SettingSynthetic(record)], &mut out).unwrap();
+        let mut cut = [0u8; 128];
+        cut[..n - 4].copy_from_slice(&out[..n - 4]);
+        cut[2] -= 4;
+        assert_eq!(records_decode(&cut[..n - 4]).map(|_| ()), Err(-2));
     }
 
     #[test]
@@ -199,6 +228,10 @@ class WireRecordTests(unittest.TestCase):
                 validate_records(self.with_record(synthetic(fields=fields)))
         fields = [field('a', 'u32'), field('b', 'i32', optional=True, ordinal=0, default=-2**31)]
         validate_records(self.with_record(synthetic(fields=fields)))
+        # No default: an `Option`, for every scalar type.
+        for kind in ('u32', 'u64', 'i32'):
+            fields = [field('a', 'u32'), field('b', kind, optional=True, ordinal=0, default=None)]
+            validate_records(self.with_record(synthetic(fields=fields)))
 
     def test_field_rules_are_enforced(self):
         required = [field('a', 'u32')]
@@ -210,6 +243,7 @@ class WireRecordTests(unittest.TestCase):
             'nine optional': required + [opt(f'o{i}', i) for i in range(9)],
             'text default': required + [opt('b', 0, 'str', 'x', 4)],
             'scalar default is text': required + [opt('b', 0, 'u32', '')],
+            'text default is null': required + [opt('b', 0, 'str', None, 4)],
             'keyword name': [field('type', 'u32')],
             'upper name': [field('Abc', 'u32')],
             'duplicate name': required + [field('a', 'u32')],

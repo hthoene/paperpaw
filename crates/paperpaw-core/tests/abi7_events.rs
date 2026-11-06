@@ -111,10 +111,7 @@ fn page_turned_round_trips_with_and_without_counters() {
             (got.path, got.title, got.chapter),
             ("books/a.epub", "A Title", "One")
         );
-        assert_eq!(
-            (got.page, got.pages),
-            (page_no.unwrap_or(0), pages.unwrap_or(0))
-        );
+        assert_eq!((got.page, got.pages), (page_no, pages));
     }
     // Absent counters cost no bytes: the bitmap stays empty.
     assert_eq!(
@@ -189,8 +186,8 @@ fn raw_encoder_refuses_over_cap_fields_and_non_events() {
         path: &long,
         title: "",
         chapter: "",
-        page: 0,
-        pages: 0,
+        page: None,
+        pages: None,
     });
     let mut out = [0x77; 2048];
     assert_eq!(events::encode(&record, &mut out), Err(ERR_NO_SPACE));
@@ -223,14 +220,52 @@ fn page_turned_values_that_cannot_be_said_are_invalid() {
             pages: Some(0),
             ..turn()
         },
+        PageTurn {
+            page: Some(301),
+            pages: Some(300),
+            ..turn()
+        },
     ] {
         assert_eq!(events::encode_page_turned(&bad, &mut out), Err(ERR_INVALID));
     }
+    let last = PageTurn {
+        page: Some(300),
+        pages: Some(300),
+        ..turn()
+    };
+    assert!(events::encode_page_turned(&last, &mut out).is_ok());
     let full = PageTurn {
         progress_ppm: 1_000_000,
         ..turn()
     };
     assert!(events::encode_page_turned(&full, &mut out).is_ok());
+}
+
+/// What the encoder refuses, the decoder refuses too, also when another
+/// encoder wrote it: a present 0 (the bit set, the field 0) and a page past
+/// the count.
+#[test]
+fn decode_refuses_page_turns_that_cannot_be_said() {
+    let mut out = [0; 2048];
+    for (page_no, pages) in [(Some(0), None), (None, Some(0)), (Some(9), Some(8))] {
+        let record = Record::EventPageTurned(EventPageTurned {
+            now_ms: 1,
+            section: 0,
+            offset: 0,
+            progress_ppm: 0,
+            path: "",
+            title: "",
+            chapter: "",
+            page: page_no,
+            pages,
+        });
+        let n = events::encode(&record, &mut out).unwrap();
+        assert_eq!(
+            events::decode(&out[..n]),
+            Err(ERR_INVALID),
+            "{page_no:?} {pages:?}"
+        );
+    }
 }
 
 #[test]

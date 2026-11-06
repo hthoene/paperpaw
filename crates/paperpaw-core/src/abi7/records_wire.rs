@@ -810,10 +810,10 @@ pub struct EventPageTurned<'a> {
     pub title: &'a str,
     /// UTF-8 text of at most 256 bytes.
     pub chapter: &'a str,
-    /// Little-endian u32. Appended and optional; 0 when absent.
-    pub page: u32,
-    /// Little-endian u32. Appended and optional; 0 when absent.
-    pub pages: u32,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub page: Option<u32>,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub pages: Option<u32>,
 }
 
 impl<'a> EventPageTurned<'a> {
@@ -827,17 +827,17 @@ impl<'a> EventPageTurned<'a> {
             path: body.string(EVENT_PAGE_TURNED_PATH_MAX_BYTES)?,
             title: body.string(EVENT_PAGE_TURNED_TITLE_MAX_BYTES)?,
             chapter: body.string(EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES)?,
-            page: body.opt_u32(bits, 0x01, 0)?,
-            pages: body.opt_u32(bits, 0x02, 0)?,
+            page: body.maybe_u32(bits, 0x01)?,
+            pages: body.maybe_u32(bits, 0x02)?,
         }))
     }
 
     fn bits(&self) -> u8 {
         let mut bits = 0;
-        if self.page != 0 {
+        if self.page.is_some() {
             bits |= 0x01;
         }
-        if self.pages != 0 {
+        if self.pages.is_some() {
             bits |= 0x02;
         }
         bits
@@ -864,7 +864,6 @@ impl<'a> EventPageTurned<'a> {
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        let bits = self.bits();
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_bytes(&self.section.to_le_bytes(), out, offset);
         write_bytes(&self.offset.to_le_bytes(), out, offset);
@@ -872,11 +871,11 @@ impl<'a> EventPageTurned<'a> {
         write_blob(self.path.as_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
         write_blob(self.chapter.as_bytes(), out, offset);
-        if bits & 0x01 != 0 {
-            write_bytes(&self.page.to_le_bytes(), out, offset);
+        if let Some(value) = self.page {
+            write_bytes(&value.to_le_bytes(), out, offset);
         }
-        if bits & 0x02 != 0 {
-            write_bytes(&self.pages.to_le_bytes(), out, offset);
+        if let Some(value) = self.pages {
+            write_bytes(&value.to_le_bytes(), out, offset);
         }
     }
 }
@@ -932,11 +931,11 @@ impl<'a> Reader<'a> {
         Ok(self.take(len)?.first().copied().unwrap_or(0))
     }
 
-    fn opt_u32(&mut self, bits: u8, mask: u8, default: u32) -> Result<u32, i32> {
+    fn maybe_u32(&mut self, bits: u8, mask: u8) -> Result<Option<u32>, i32> {
         if bits & mask == 0 {
-            return Ok(default);
+            return Ok(None);
         }
-        Ok(u32::from_le_bytes(self.scalar()?))
+        Ok(Some(u32::from_le_bytes(self.scalar()?)))
     }
 }
 
