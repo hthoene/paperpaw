@@ -694,6 +694,21 @@ pub enum FreestandingRefusal {
 ///    library needs (`memcpy`, `rust_eh_personality`) must be defined with
 ///    hidden visibility so they never reach the dynamic symbol table.
 ///
+/// # Link recipe for authors
+///
+/// The linker may add dynamic symbols a source file never named (`_end`,
+/// `__bss_start`, `_edata`, `_init`, `_fini`, local or section symbols with
+/// an empty name). They are refused as [`FreestandingRefusal::UnexpectedExport`]
+/// like any other. Keep them out of the dynamic symbol table by building with
+/// a version script that makes everything but the entry symbols local (for
+/// example `-Wl,--version-script=exports.map` with
+/// `{ global: PAPERPAW_ENTRY; PAPERPAW_METADATA; local: *; };`), with
+/// `-Wl,--exclude-libs,ALL` for symbols from static libraries, and by
+/// defining runtime helpers with `.hidden` visibility (for instance
+/// `global_asm!(".globl memcpy", ".hidden memcpy", ".set memcpy, {f}", f = sym copy)`).
+/// `nm -D --defined-only` must list exactly the two entry symbols and
+/// `nm -D --undefined-only` nothing; `readelf -d` shows no `NEEDED`.
+///
 /// `check_elf64_le` itself is unchanged: the interface-6 path keeps accepting
 /// the C library it was built on.
 ///
