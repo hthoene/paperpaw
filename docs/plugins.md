@@ -530,8 +530,8 @@ What it is given:
   `cargo run --example paperpaw-dev -- check --plugin my-plugin`.
 - **A data plugin**: its folder, `paperpaw-dev check path/to/my-theme`.
 - **A code plugin built for a device**: `paperpaw-dev package hello.ppn`.
-- **A code plugin's library** (interface 7, `.so` for the desktop or
-  Android): `paperpaw-dev package libmy_plugin.so` runs the loader's check
+- **A code plugin's library** (interface 7, `.so` for the desktop;
+  Android loads no code plugins): `paperpaw-dev package libmy_plugin.so` runs the loader's check
   before the plugin does: a 64-bit little-endian shared object for x86-64 or
   AArch64 that names no other library (`readelf -d`: no `NEEDED`), imports
   nothing (`nm -D --undefined-only`: empty) and exports exactly
@@ -1965,12 +1965,15 @@ show which plugins wait for a build. Interface 4 came with 0.5.0-beta.8
 (reading, settings and real-time screens), interface 6 with 0.6.0-beta.2
 (right-to-left text, shared functions, plugin files of format 4, TLS
 sockets, screens that fit another size; interface 5 was never released): a plugin
-built for an earlier interface is to be built again for it.
+built for an earlier interface is to be built again for it. Interface 7, the
+plugin boundary of 1.0 (ADR 0034), is a draft until it is frozen: a plugin
+built for one draft is refused by a build of the next one (`native::DRAFT`
+is part of the fingerprint) and is built again for it.
 
 ### The file in the emulator
 
 The desktop emulator loads a plugin's code built for the computer it runs
-on, as Android loads `code.so`: a `cdylib` crate with the same
+on: a `cdylib` crate with the same
 `plugin!` line, built with the emulator's toolchain against its SDK with
 the `outline` feature (the target section above gives it), is `code-host.dll`, `code-host.so` or `code-host.dylib`
 in the plugin's folder (`plugins/<id>/` of the emulator's library,

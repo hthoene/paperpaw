@@ -1,0 +1,4 @@
+# Blessings of plugin interface 7 (README.md): one line per raise, re-bless or freeze,
+# `<draft> <what changed> (#<ticket or PR>)`, only ever appended. tools/abi-reference-check.py
+# refuses a change of the reference files or of native::DRAFT without a new line here.
+1 early raise to the draft baseline: DATA_FORMATS 5 (raise.md row 1), partition retired (#228)

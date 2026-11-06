@@ -201,9 +201,11 @@ pub trait Storage {
     }
 
     /// Bytes free for new files, where the storage can tell without
-    /// reading much at once; `None` where it cannot (yet). A memory card
-    /// may say its own count first and count exactly a part at each ask.
-    /// Storages that wrap another say what it says.
+    /// reading much at once; `None` where it cannot (yet). Never more than
+    /// is free: a count that may be out of date (a memory card's own, after
+    /// a power cut) is not one. A memory card may count a part at each ask
+    /// and say `None` until it is done. Storages that wrap another say what
+    /// it says.
     fn free_space(&self) -> Option<u64> {
         None
     }

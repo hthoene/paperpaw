@@ -2,10 +2,6 @@
 //! keeps them: only running plugins' tables, added as a plugin is
 //! installed, taken out (and given back to another plugin) as it is
 //! removed.
-//!
-//! These need formats 5, which the loader reads once `DATA_FORMATS` is
-//! raised with interface 7 (`abi/interface-7/raise.md`, row 1); until then
-//! the loader refuses such plugins as made for a later PaperPaw.
 
 use super::*;
 use alloc::format;
@@ -32,7 +28,6 @@ fn found(kernel: &Kernel, tag: &str) -> Option<(String, String)> {
 }
 
 #[test]
-#[ignore = "needs DATA_FORMATS 5, raised with interface 7 (abi/interface-7/raise.md, row 1)"]
 fn only_running_plugins_tables_are_kept_at_start_up() {
     let storage = with_plugin(
         MemoryStorage::new(),
@@ -63,7 +58,6 @@ fn only_running_plugins_tables_are_kept_at_start_up() {
 }
 
 #[test]
-#[ignore = "needs DATA_FORMATS 5, raised with interface 7 (abi/interface-7/raise.md, row 1)"]
 fn installed_plugins_add_their_tables_and_removed_ones_give_them_back() {
     let storage = with_plugin(
         MemoryStorage::new(),
@@ -114,25 +108,4 @@ fn installed_plugins_add_their_tables_and_removed_ones_give_them_back() {
     kernel.apply(Command::RemovePlugin(Id::new_static("hyphenation-sv")));
     kernel.finish();
     assert_eq!(found(&kernel, "sv"), None);
-}
-
-/// Before formats 5 a plugin naming tables is refused as made for a later
-/// PaperPaw: its tables are never kept. The raise removes this test with
-/// the `ignore` of the two above.
-#[test]
-fn a_plugin_made_for_formats_5_is_refused_until_the_raise() {
-    let storage = with_plugin(
-        MemoryStorage::new(),
-        "hyphenation-de",
-        "de = hyphenation/de.pphp\n",
-        &["hyphenation/de.pphp"],
-    );
-    let mut kernel = Kernel::builder(DEVICE).storage(storage).build().unwrap();
-    assert!(kernel.plugins().get("hyphenation-de").is_none());
-    assert_eq!(found(&kernel, "de"), None);
-    let warnings = kernel.take_warnings();
-    assert!(
-        warnings.iter().any(|w| w.message.contains("formats 5")),
-        "{warnings:?}"
-    );
 }
