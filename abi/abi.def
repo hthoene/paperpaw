@@ -1171,5 +1171,30 @@
         "bits": 0
       }
     ]
+  },
+  "color_value": {
+    "since": 1,
+    "type": "u32",
+    "color_space": "srgb",
+    "channels": [
+      {
+        "name": "red",
+        "shift": 16,
+        "bits": 8
+      },
+      {
+        "name": "green",
+        "shift": 8,
+        "bits": 8
+      },
+      {
+        "name": "blue",
+        "shift": 0,
+        "bits": 8
+      }
+    ],
+    "reserved_mask": 4278190080,
+    "alpha": "none",
+    "invalid_status": "ERR_INVALID"
   }
 }
