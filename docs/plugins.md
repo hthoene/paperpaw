@@ -530,6 +530,12 @@ What it is given:
   `cargo run --example paperpaw-dev -- check --plugin my-plugin`.
 - **A data plugin**: its folder, `paperpaw-dev check path/to/my-theme`.
 - **A code plugin built for a device**: `paperpaw-dev package hello.ppn`.
+- **A code plugin's library** (interface 7, `.so` for the desktop or
+  Android): `paperpaw-dev package libmy_plugin.so` runs the loader's check
+  before the plugin does: a 64-bit little-endian shared object for x86-64 or
+  AArch64 that names no other library (`readelf -d`: no `NEEDED`), imports
+  nothing (`nm -D --undefined-only`: empty) and exports exactly
+  `PAPERPAW_ENTRY` and `PAPERPAW_METADATA` (`nm -D --defined-only`).
 - **A code plugin's source**: `paperpaw-dev package path/to/crate` reads its
   `src/` for the conventions of
   [Plugin layout and best practices](plugin-conventions.md): files over 4 KB
