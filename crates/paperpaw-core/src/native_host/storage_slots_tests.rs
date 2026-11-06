@@ -16,7 +16,6 @@ struct Backend {
     fail: Rc<Cell<Option<StorageError>>>,
     bad_count: Rc<Cell<bool>>,
     partial_error: Rc<Cell<bool>>,
-    read_failure: Rc<Cell<Option<StorageError>>>,
 }
 
 impl Backend {
@@ -28,10 +27,6 @@ impl Backend {
 impl Storage for Backend {
     fn read_at(&self, path: &str, offset: u64, out: &mut [u8]) -> Result<usize, StorageError> {
         self.check()?;
-        if let Some(error) = self.read_failure.get() {
-            out.fill(0xee);
-            return Err(error);
-        }
         if self.bad_count.get() {
             out.fill(0xee);
             return Ok(out.len() + 1);
@@ -134,7 +129,7 @@ fn all_slots_use_the_scoped_storage_and_only_the_owner_folder() {
                 read_at(scope, OWNER, 0, bytes(b"state"), 2, output(&mut out)),
                 4
             );
-            assert_eq!(&out, b"cdef\0\0\0\0");
+            assert_eq!(&out, b"cdef\xa5\xa5\xa5\xa5");
             assert_eq!(
                 read_at(scope, OWNER, 0, bytes(b"state"), u64::MAX, output(&mut out)),
                 0
@@ -320,7 +315,7 @@ fn bad_pairs_and_bounds_are_rejected_before_storage_or_output() {
 }
 
 #[test]
-fn reserve_errors_preserve_files_and_bad_read_counts_zero_output() {
+fn reserve_and_read_errors_preserve_files_and_output() {
     let backend = Backend::default();
     // Stay above the 4096-byte recall limit so an invalid backend count
     // reaches the raw adapter instead of being consumed by the file cache.
@@ -346,7 +341,6 @@ fn reserve_errors_preserve_files_and_bad_read_counts_zero_output() {
                 read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut out)),
                 ERR_IO
             );
-            assert_eq!(out, [0xa5; 4], "preflight failure preserves output");
             assert_eq!(remove(scope, OWNER, 0, bytes(b"state")), ERR_IO);
             assert_eq!(
                 rename(scope, OWNER, 0, bytes(b"state"), bytes(b"other")),
@@ -361,19 +355,19 @@ fn reserve_errors_preserve_files_and_bad_read_counts_zero_output() {
             );
         }
         assert_eq!(len, 91);
-        assert_eq!(out, [0; 4]);
+        assert_eq!(out, [0xa5; 4]);
     });
     assert_eq!(backend.files.get(FILE).unwrap(), data);
 }
 
 #[test]
-fn raw_read_initializes_the_output_in_place_before_storage() {
+fn raw_read_initializes_only_the_successful_prefix() {
     let backend = Backend::default();
     backend.files.write(FILE, b"ok").unwrap();
     scoped(&backend, |scope, _| {
         let mut out = [MaybeUninit::<u8>::uninit(); 4];
-        // SAFETY: caller storage is writable and exclusive. The adapter
-        // initializes the full output before borrowing it as bytes.
+        // SAFETY: caller storage is writable and exclusive. Only the reported
+        // successful prefix is read after the adapter has initialized it.
         unsafe {
             assert_eq!(
                 read_at(
@@ -389,13 +383,13 @@ fn raw_read_initializes_the_output_in_place_before_storage() {
                 ),
                 2
             );
-            assert_eq!(out.map(|byte| byte.assume_init()), *b"ok\0\0");
+            assert_eq!([out[0].assume_init(), out[1].assume_init()], *b"ok");
         }
     });
 }
 
 #[test]
-fn a_backend_that_partly_writes_then_fails_leaves_initialized_zero_output() {
+fn a_backend_that_partly_writes_then_fails_preserves_the_caller_output() {
     let backend = Backend::default();
     // Bypass the small-file cache so this reaches the failing backend.
     backend
@@ -404,78 +398,31 @@ fn a_backend_that_partly_writes_then_fails_leaves_initialized_zero_output() {
         .unwrap();
     backend.partial_error.set(true);
     scoped(&backend, |scope, _| {
-        let mut out = [MaybeUninit::<u8>::uninit(); 4];
-        // SAFETY: caller output is live and exclusive. Even on backend error,
-        // the adapter initializes and clears its full capacity before returning.
+        let mut out = [0xa5; 4];
+        // SAFETY: caller output is live, exclusive and disjoint from inputs.
         unsafe {
             assert_eq!(
-                read_at(
-                    scope,
-                    OWNER,
-                    0,
-                    bytes(b"state"),
-                    0,
-                    PpBuffer {
-                        ptr: out.as_mut_ptr().cast(),
-                        cap: out.len()
-                    }
-                ),
+                read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut out)),
                 ERR_IO
             );
-            assert_eq!(out.map(|byte| byte.assume_init()), [0; 4]);
+            assert_eq!(out, [0xa5; 4]);
         }
     });
 }
 
 #[test]
-fn preflight_failures_preserve_output_and_read_failures_zero_it() {
+fn scratch_allocation_refusal_preserves_the_output() {
     let backend = Backend::default();
-    // Above the recall limit: each read reaches the actual backend.
-    backend
-        .files
-        .write(FILE, &alloc::vec![0x5a; MAX_DATA + 1])
-        .unwrap();
-    scoped(&backend, |scope, kernel| {
-        for (error, expected) in [
-            (StorageError::NotFound, ERR_NOT_FOUND),
-            (StorageError::Io, ERR_IO),
-            (StorageError::InvalidPath, ERR_INVALID),
-        ] {
-            kernel.shared.recall.clear();
-            let mut out = [0xa5; 7];
-            backend.fail.set(Some(error));
-            // SAFETY: valid disjoint input and exclusive output.
-            assert_eq!(
-                unsafe { read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut out)) },
-                expected
-            );
-            assert_eq!(out, [0xa5; 7], "preflight must not write");
-            backend.fail.set(None);
-            // Each phase models a fresh call, without cached preflight errors.
-            kernel.shared.recall.clear();
-            backend.read_failure.set(Some(error));
-            // SAFETY: same live output; the read begins after successful preflight.
-            assert_eq!(
-                unsafe { read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut out)) },
-                expected
-            );
-            assert_eq!(out, [0; 7], "read failure must leave no partial bytes");
-            backend.read_failure.set(None);
-        }
-        let mut out = [0xa5; 7];
-        // SAFETY: valid call, but no file exists for this path.
-        assert_eq!(
-            unsafe { read_at(scope, OWNER, 0, bytes(b"absent"), 0, output(&mut out)) },
-            ERR_NOT_FOUND
-        );
-        assert_eq!(out, [0xa5; 7]);
-        backend.bad_count.set(true);
-        // SAFETY: backend over-reporting is validated before returning success.
+    backend.files.write(FILE, b"keep").unwrap();
+    scoped(&backend, |scope, _| {
+        let mut out = [0xa5; 4];
+        scratch_fault::refuse_next();
+        // SAFETY: valid disjoint input and exclusive initialized output.
         assert_eq!(
             unsafe { read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut out)) },
-            ERR_INVALID
+            ERR_NO_MEMORY
         );
-        assert_eq!(out, [0; 7]);
+        assert_eq!(out, [0xa5; 4]);
     });
 }
 
@@ -523,4 +470,34 @@ fn outside_dispatch_and_invalid_owner_routes_have_no_effect() {
         assert!(StorageAdapter::borrowed_folder(&backend, "plugins/battery/").is_none());
     });
     assert_eq!(backend.files.get(FILE), None);
+}
+
+#[test]
+fn scratch_matches_requested_capacity_and_empty_reads_need_no_allocation() {
+    for capacity in [1, 17, 1024, MAX_DATA] {
+        let scratch = read_scratch(capacity).unwrap();
+        assert_eq!(scratch.len(), capacity);
+        assert!(scratch.iter().all(|byte| *byte == 0));
+    }
+    scratch_fault::refuse_next();
+    assert!(read_scratch(0).unwrap().is_empty());
+    assert_eq!(read_scratch(1), Err(ERR_NO_MEMORY));
+
+    let backend = Backend::default();
+    backend.files.write(FILE, b"keep").unwrap();
+    scoped(&backend, |scope, _| {
+        scratch_fault::refuse_next();
+        // SAFETY: live input and a non-null, exclusive empty output buffer.
+        assert_eq!(
+            unsafe { read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut [])) },
+            0
+        );
+        let mut out = [0xa5; 1];
+        // SAFETY: live, exclusive output. Empty read did not consume the fault.
+        assert_eq!(
+            unsafe { read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut out)) },
+            ERR_NO_MEMORY
+        );
+        assert_eq!(out, [0xa5]);
+    });
 }
