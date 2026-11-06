@@ -9,17 +9,33 @@
 //!
 //! The code is RISC-V (RV32IMC): 32-bit and 16-bit (compressed)
 //! instructions, told apart by their two lowest bits. Each function is read
-//! within its `STT_FUNC` symbol's `st_size` (never on into a neighbour), as a
-//! graph: a worklist visits every instruction along every path, with what the
-//! registers hold, `sp` and the frame pointer's value relative to the
-//! function's start, joined where paths meet (a register that differs is
-//! unknown; `sp` is the lowest of the paths'). The frame is the most negative
-//! `sp` any path reaches. Code in the function that no path reaches (a
-//! switch's cases, entered through a jump table) is read from the state at
-//! the indirect jump with no register known. Bytes of the `.text` that no
-//! function symbol covers are refused unless they are padding (zeros, `nop`
-//! and `c.nop`): code scanned into a neighbour or not scanned at all is how a
+//! within its `STT_FUNC` symbol's `st_size` (never on into a neighbour; a
+//! range that ends inside an instruction, or starts off a halfword, is
+//! refused), as a graph: a worklist visits every instruction along every
+//! path, with what the registers hold, `sp` and the frame pointer's value
+//! relative to the function's start, joined where paths meet (a register that
+//! differs is unknown; `sp` is the lowest of the paths'). The frame is the
+//! most negative `sp` any path reaches. Bytes of the `.text` that no function
+//! symbol covers are refused unless they are padding (zeros, `nop` and
+//! `c.nop`): code scanned into a neighbour or not scanned at all is how a
 //! frame hides.
+//!
+//! A jump through a register that is not a return:
+//! - with the frame given back (`sp` at the function's start): a tail call
+//!   (`jr a5` after the epilogue), or a jump anywhere in the function; the
+//!   state at the jump is joined into every instruction of the function, so
+//!   a jump back to the start finds nothing it can grow;
+//! - inside a frame: refused. That is a jump table (a `match`), and where it
+//!   goes is not known; build the plugin with `-C jump-tables=no`. (The
+//!   listing of the firmware's own frames, which is no gate, reads such a
+//!   jump's cases from the state at the jump.)
+//!
+//! A call to a function that never returns ends its path. Which functions
+//! those are is proved from the code, not from names: one whose paths from
+//! its start do not return, jump out of it (except to such a function) or run
+//! off its end, found as the largest set with that property (a trap,
+//! `ebreak` and `unimp`, ends a path: the firmware's handler never resumes
+//! it).
 //!
 //! What changes `sp` and is let through:
 //! - `addi sp, sp, imm`, `c.addi`, `c.addi16sp`: an immediate;
@@ -57,6 +73,8 @@ pub enum Finding {
     Unknown { at: usize },
     /// Code at `at` that no function symbol covers and that is no padding.
     Uncovered { at: usize },
+    /// A jump through a register at `at`, inside a frame (a jump table).
+    Table { at: usize },
 }
 
 /// What a register holds, as far as the scan knows.
@@ -135,6 +153,9 @@ enum Ctl {
     NoReturn,
     /// A jump through a register that is not a return.
     Indirect,
+    /// `ebreak`, `unimp`: the CPU takes an exception and the firmware's
+    /// handler never resumes the code (`shells/xteink/src/crash.rs`).
+    Trap,
 }
 
 /// What one instruction does: its way on, and whether it wrote `sp` in a
@@ -194,6 +215,11 @@ fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
     let mut effect = fall();
     // Whether `sp` was written by one of the forms that are let through.
     let mut handled = false;
+    if w == 0x0010_0073 || w == 0xc000_1073 {
+        // ebreak, unimp (`csrrw x0, cycle, x0`)
+        effect.ctl = Ctl::Trap;
+        return effect;
+    }
     match opcode {
         // lui
         0x37 => state.set(rd, Some((w & 0xffff_f000) as i32)),
@@ -319,6 +345,8 @@ fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
     let prime = (w >> 7 & 7) as usize + 8;
     let mut effect = fall();
     match (w & 3, funct3) {
+        // c.unimp: the all-zero halfword is an illegal instruction
+        (0, 0) if w == 0 => effect.ctl = Ctl::Trap,
         // c.addi4spn: rd' = sp + imm, a frame pointer if it is x8
         (0, 0) => {
             let r = (w >> 2 & 7) as usize + 8;
@@ -400,7 +428,7 @@ fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
                     }
                 }
                 // c.ebreak
-                (_, 0) if rd == 0 => {}
+                (_, 0) if rd == 0 => effect.ctl = Ctl::Trap,
                 // c.jalr: a call through a register
                 (_, 0) => {
                     if state.regs[rd].is_some_and(|t| env.is_noreturn(t as u32)) {
@@ -436,6 +464,11 @@ pub struct Env<'a> {
     pub base: u32,
     /// The start addresses of the functions that do not return, sorted.
     pub noreturn: &'a [u32],
+    /// Reads the cases of a jump table from the state at the jump (the
+    /// listing of the firmware's own frames, `paperpaw-sign frames`). A
+    /// plugin's pack is strict: a jump through a register inside a frame is
+    /// refused, because where it goes is not known.
+    pub lenient: bool,
 }
 
 impl Env<'_> {
@@ -445,6 +478,7 @@ impl Env<'_> {
         Env {
             base: 0x4200_0000,
             noreturn: &[],
+            lenient: false,
         }
     }
 
@@ -462,6 +496,13 @@ pub struct Walked {
     pub frame_at: usize,
     /// The first change of `sp` that is not bounded, if any.
     pub unbounded: Option<usize>,
+    /// The first jump through a register inside a frame (a jump table), if
+    /// any, in a strict walk.
+    pub table: Option<usize>,
+    /// Whether a path from the start can leave the function by returning,
+    /// jumping out or running off its end (not through a call to a function
+    /// that never returns, or a trap).
+    pub returns: bool,
 }
 
 /// How often one instruction may be visited before the walk gives up on it
@@ -498,17 +539,30 @@ impl Walk<'_> {
     }
 
     /// The instruction a jump of `offset` from instruction `at` goes to, if it
-    /// is inside the function (a tail jump out of it is not followed).
+    /// is inside the function. A jump out of it leaves it (a tail call): the
+    /// function returns by it unless it goes to a function that never does.
     fn target(&mut self, at: usize, offset: i64) -> Option<usize> {
-        let t = usize::try_from((at as i64).checked_add(offset)?).ok()?;
-        if t < self.start || t >= self.end {
+        let t = (at as i64)
+            .checked_add(offset)
+            .and_then(|t| usize::try_from(t).ok())
+            .filter(|&t| t >= self.start && t < self.end);
+        let Some(t) = t else {
+            let to = self
+                .env
+                .base
+                .wrapping_add(at as u32)
+                .wrapping_add(offset as u32);
+            if !self.env.is_noreturn(to) {
+                self.out.returns = true;
+            }
             return None;
-        }
+        };
         match self.insns.binary_search_by_key(&t, |&(a, _)| a) {
             Ok(j) => Some(j),
             // Into the middle of an instruction: not followed, and not bounded.
             Err(_) => {
                 self.out.unbounded.get_or_insert(at);
+                self.out.returns = true;
                 None
             }
         }
@@ -517,11 +571,12 @@ impl Walk<'_> {
     /// Runs instruction `i` on its state and queues where it goes.
     fn step(&mut self, i: usize) {
         let (at, len) = self.insns[i];
-        self.visits[i] += 1;
-        if self.visits[i] > VISITS {
+        if self.visits[i] >= VISITS {
             self.out.unbounded.get_or_insert(at);
+            self.out.returns = true;
             return;
         }
+        self.visits[i] += 1;
         let Some(mut state) = self.states[i].clone() else {
             return;
         };
@@ -550,21 +605,47 @@ impl Walk<'_> {
             self.out.frame_at = at;
         }
         let next = (i + 1 < self.insns.len()).then_some(i + 1);
+        if next.is_none() && matches!(effect.ctl, Ctl::Fall | Ctl::Branch(_)) {
+            // Runs on past the function's end.
+            self.out.returns = true;
+        }
         let goes = match effect.ctl {
             Ctl::Fall => [next, None],
             Ctl::Branch(offset) => [next, self.target(at, offset)],
             Ctl::Jump(offset) => [self.target(at, offset), None],
-            Ctl::Ret | Ctl::NoReturn => [None, None],
+            Ctl::Ret => {
+                self.out.returns = true;
+                [None, None]
+            }
+            Ctl::NoReturn | Ctl::Trap => [None, None],
             Ctl::Indirect => {
-                // The cases are entered from the jump, with the frame pointer
-                // it had, and no register known.
-                let mut s = state.clone();
-                s.regs = [None; 32];
-                s.regs[0] = Some(0);
-                self.indirect = Some(match self.indirect.take() {
-                    Some(old) => old.join(&s),
-                    None => s,
-                });
+                self.out.returns = true;
+                if self.env.lenient {
+                    // The cases are entered from the jump, with the frame
+                    // pointer it had, and no register known.
+                    let mut s = state.clone();
+                    s.regs = [None; 32];
+                    s.regs[0] = Some(0);
+                    self.indirect = Some(match self.indirect.take() {
+                        Some(old) => old.join(&s),
+                        None => s,
+                    });
+                } else if state.sp != 0 {
+                    // Inside a frame: where it goes is not known (a jump
+                    // table's case, or the start, to grow the frame again).
+                    self.out.table.get_or_insert(at);
+                } else {
+                    // With no frame: a tail call out of the function, or a
+                    // jump anywhere in it. `sp` there is at most this (the
+                    // walk keeps the lowest); the rest is not known.
+                    let mut s = state.clone();
+                    s.regs = [None; 32];
+                    s.regs[0] = Some(0);
+                    s.fp = None;
+                    for j in 0..self.insns.len() {
+                        self.join_into(j, &s);
+                    }
+                }
                 [None, None]
             }
         };
@@ -578,12 +659,32 @@ impl Walk<'_> {
 /// every path, as described in the module documentation.
 pub fn walk(code: &[u8], start: usize, end: usize, env: Env<'_>) -> Walked {
     let end = end.min(code.len());
+    let mut out = Walked {
+        frame: 0,
+        frame_at: start,
+        unbounded: None,
+        table: None,
+        returns: false,
+    };
     let mut insns: Vec<(usize, usize)> = Vec::new();
     let mut at = start;
-    while at + 2 <= end {
-        let low = u16::from_le_bytes([code[at], code[at + 1]]);
-        let len = if low & 3 == 3 { 4 } else { 2 };
-        if at + len > end {
+    if !start.is_multiple_of(2) {
+        out.unbounded = Some(start);
+        out.returns = true;
+        return out;
+    }
+    while at < end {
+        let len = match code.get(at..at + 2) {
+            Some(h) if h[0] & 3 == 3 => 4,
+            Some(_) => 2,
+            None => 0,
+        };
+        // A range that ends inside an instruction does not hold it whole:
+        // the rest of it is read by no range, which a plugin could use to hide
+        // a frame.
+        if len == 0 || at + len > end {
+            out.unbounded = Some(at);
+            out.returns = true;
             break;
         }
         insns.push((at, len));
@@ -600,23 +701,25 @@ pub fn walk(code: &[u8], start: usize, end: usize, env: Env<'_>) -> Walked {
         visits: vec![0; count],
         work: Vec::new(),
         indirect: None,
-        out: Walked {
-            frame: 0,
-            frame_at: start,
-            unbounded: None,
-        },
+        out,
     };
     if count > 0 {
         w.states[0] = Some(State::entry());
         w.work.push(0);
     }
+    let mut returns = None;
     loop {
         while let Some(i) = w.work.pop() {
             w.step(i);
         }
-        // Code no path reaches: a switch's cases, or dead code. Read from the
-        // state at the indirect jump (or the start's), no register known.
+        // What the start reaches decides whether the function returns; the
+        // code that no path reaches is read for its frames only.
+        let returns = *returns.get_or_insert(w.out.returns);
+        // Code no path reaches (dead code after a call that does not return,
+        // or a switch's cases in a lenient walk): read from the state at the
+        // indirect jump (or the start's), no register known.
         let Some(j) = w.states.iter().position(Option::is_none) else {
+            w.out.returns = returns;
             break;
         };
         let mut seed = w.indirect.clone().unwrap_or_else(State::entry);
@@ -624,8 +727,54 @@ pub fn walk(code: &[u8], start: usize, end: usize, env: Env<'_>) -> Walked {
         seed.regs[0] = Some(0);
         w.states[j] = Some(seed);
         w.work.push(j);
+        w.out.returns = returns;
     }
     w.out
+}
+
+/// The start addresses of the functions in `ranges` that never return,
+/// proved from the code: no path from the start returns, jumps out of the
+/// function (but to such a function) or runs off its end, and every call that
+/// goes to such a function is the end of its path. A function is taken to
+/// not return until a path says otherwise, and the rest are found by
+/// repeating that until nothing changes, so that functions that only call
+/// each other never to return are found, and a function that merely has a
+/// name like a panic's is not trusted. Sorted.
+pub fn noreturn_functions(
+    code: &[u8],
+    ranges: &[(usize, usize)],
+    base: u32,
+    lenient: bool,
+) -> Vec<u32> {
+    let mut set: Vec<u32> = ranges
+        .iter()
+        .map(|&(s, _)| base.wrapping_add(s as u32))
+        .collect();
+    set.sort_unstable();
+    set.dedup();
+    loop {
+        let before = set.len();
+        let kept: Vec<u32> = ranges
+            .iter()
+            .filter(|&&(s, _)| set.binary_search(&base.wrapping_add(s as u32)).is_ok())
+            .filter(|&&(s, e)| {
+                let env = Env {
+                    base,
+                    noreturn: &set,
+                    lenient,
+                };
+                let w = walk(code, s, e, env);
+                !w.returns
+            })
+            .map(|&(s, _)| base.wrapping_add(s as u32))
+            .collect();
+        set = kept;
+        set.sort_unstable();
+        set.dedup();
+        if set.len() == before {
+            return set;
+        }
+    }
 }
 
 /// The ranges of the functions in `symbols` (their start and `st_size`), each
@@ -677,6 +826,9 @@ pub fn scan_ranges(code: &[u8], ranges: &[(usize, usize)], env: Env<'_>) -> Opti
         if let Some(at) = w.unbounded {
             return Some(Finding::Unknown { at });
         }
+        if let Some(at) = w.table {
+            return Some(Finding::Table { at });
+        }
         if w.frame >= LIMIT {
             return Some(Finding::Large {
                 at: w.frame_at,
@@ -704,7 +856,7 @@ pub fn frame_sizes_in(code: &[u8], ranges: &[(usize, usize)], env: Env<'_>) -> V
         .iter()
         .map(|&(s, e)| {
             let w = walk(code, s, e, env);
-            w.unbounded.is_none().then_some(w.frame)
+            (w.unbounded.is_none() && w.table.is_none()).then_some(w.frame)
         })
         .collect()
 }
@@ -758,6 +910,10 @@ pub fn uncovered(code: &[u8], ranges: &[(usize, usize)]) -> Option<usize> {
 /// The names in a mangled symbol (legacy `_ZN…E` or v0 `_R…`) joined with
 /// `::`: the length-prefixed identifiers, without the crate's disambiguator
 /// and the hash. Not a demangler: enough to match `crash::panic`.
+#[allow(
+    dead_code,
+    reason = "the budget of the firmware's frames (`paperpaw-sign frames`)"
+)]
 pub fn path(mangled: &str) -> String {
     let b = mangled.as_bytes();
     let v0 = mangled.starts_with("_R");
@@ -790,8 +946,9 @@ pub fn path(mangled: &str) -> String {
             if v0 && n > 0 && b.get(i) == Some(&b'_') {
                 i += 1;
             }
-            let ident = mangled
-                .get(i..i + n)
+            let ident = i
+                .checked_add(n)
+                .and_then(|end| mangled.get(i..end))
                 .filter(|id| n > 0 && id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_'));
             if let Some(ident) = ident {
                 // The legacy hash, `h` and sixteen hex digits.
@@ -810,44 +967,13 @@ pub fn path(mangled: &str) -> String {
     parts.join("::")
 }
 
-/// Whether a symbol's path (see [`path`]) is a panic of the language's own
-/// crates, which never returns.
-fn is_noreturn_path(path: &str) -> bool {
-    let parts: Vec<&str> = path.split("::").collect();
-    let std_crate = matches!(parts.first(), Some(&("core" | "alloc" | "std")));
-    let panics = parts.iter().any(|p| {
-        matches!(
-            *p,
-            "panicking" | "handle_alloc_error" | "capacity_overflow" | "handle_error" | "abort"
-        ) || p.ends_with("_fail")
-            || p.ends_with("_failed")
-    });
-    (std_crate && panics) || path == "__rustc::rust_begin_unwind"
-}
-
-/// The start addresses of the functions that never return, sorted: the
-/// panics of `core`, `alloc` and `std` (`core::panicking::*`, `*_fail`,
-/// `*_failed`, `handle_alloc_error`, `capacity_overflow`, `handle_error`,
-/// `abort`) and the language's `rust_begin_unwind`. Found by the path of
-/// their symbols, which a plugin cannot take for its own functions unless it
-/// names its crate `core`: code after a call to one is not reached from it
-/// (a panic's cold path often leaves a shrink-wrapped prologue after it).
-pub fn noreturn_functions(symbols: &[Symbol]) -> Vec<u32> {
-    let mut out: Vec<u32> = symbols
-        .iter()
-        .filter(|s| s.kind() == STT_FUNC && s.size > 0)
-        .filter(|s| is_noreturn_path(&path(&s.name)))
-        .map(|s| s.value)
-        .collect();
-    out.sort_unstable();
-    out.dedup();
-    out
-}
-
 /// Why a plugin with `finding` is refused, with the function it lies in.
 fn refusal(finding: &Finding, text: &Section, symbols: &[Symbol], text_index: usize) -> String {
     let at = match finding {
-        Finding::Large { at, .. } | Finding::Unknown { at } | Finding::Uncovered { at } => *at,
+        Finding::Large { at, .. }
+        | Finding::Unknown { at }
+        | Finding::Uncovered { at }
+        | Finding::Table { at } => *at,
     };
     let place = symbols
         .iter()
@@ -873,6 +999,11 @@ fn refusal(finding: &Finding, text: &Section, symbols: &[Symbol], text_index: us
              sized stack allocation, or a register that is not a constant): use a bounded \
              buffer or ask the host for the memory"
         ),
+        Finding::Table { .. } => format!(
+            "{place} jumps through a register inside its stack frame (a jump table, compiled \
+             from a `match`): the packer cannot tell where it goes. Build the plugin with \
+             `-C jump-tables=no`"
+        ),
         Finding::Uncovered { .. } => format!(
             ".text+{at:#x} is code that no function symbol covers: the packer reads each \
              function within its symbol's size and does not scan the rest (do not strip the \
@@ -897,10 +1028,11 @@ pub fn check(
         .map(|s| (s.value.wrapping_sub(text.addr) as usize, s.size as usize))
         .collect();
     let merged = function_ranges(&sized, code.len());
-    let noreturn = noreturn_functions(symbols);
+    let noreturn = noreturn_functions(code, &merged, text.addr, false);
     let env = Env {
         base: text.addr,
         noreturn: &noreturn,
+        lenient: false,
     };
     let found = uncovered(code, &merged)
         .map(|at| Finding::Uncovered { at })

@@ -236,7 +236,8 @@ fn compressed_forms_build_a_size_too() {
 
 #[test]
 fn code_that_ends_in_the_middle_of_an_instruction_is_not_a_frame() {
-    assert_eq!(scan(&[0x13, 0x01], &[0]), None);
+    // Half of a 32-bit instruction: refused, not clipped away.
+    assert_eq!(scan(&[0x13, 0x01], &[0]), Some(Finding::Unknown { at: 0 }));
     assert_eq!(scan(&[], &[]), None);
 }
 
@@ -318,16 +319,18 @@ fn a_constant_set_on_one_path_is_not_trusted_where_another_path_arrives() {
         ]),
         None
     );
-    // An indirect jump (a switch): the code after it is entered with no
-    // register known, so a size set before the jump is not trusted ...
+    // An indirect jump (a tail call, with no frame): the code after it may
+    // be entered from it with no register known, so a size set before the
+    // jump is not trusted ...
     assert_eq!(
         found(&[W(addi(A0, 0, 16)), W(jr(T1)), W(sub(SP, SP, A0))]),
         Some(Finding::Unknown { at: 8 })
     );
-    // ... and one built from immediates after it is a constant all the same.
+    // ... and one built from immediates after it is not either: the jump may
+    // go past the `li`.
     assert_eq!(
         found(&[W(jr(T1)), W(addi(A0, 0, 16)), W(sub(SP, SP, A0))]),
-        None
+        Some(Finding::Unknown { at: 8 })
     );
     // A return is not such a jump.
     assert_eq!(
@@ -513,6 +516,7 @@ fn code_after_a_call_that_never_returns_is_not_reached_from_it() {
     let env = Env {
         base,
         noreturn: &noreturn,
+        lenient: false,
     };
     assert_eq!(scan_ranges(&f, &[(0, 24)], env), None);
     assert_eq!(frame_sizes_in(&f, &[(0, 24)], env), vec![Some(16)]);
@@ -523,28 +527,125 @@ fn code_after_a_call_that_never_returns_is_not_reached_from_it() {
     ));
 }
 
+/// `jal x0, +0`: a jump to itself.
+const SPIN: u32 = 0x0000_006f;
+const EBREAK: u32 = 0x0010_0073;
+
 #[test]
-fn the_panics_of_the_languages_crates_are_the_functions_that_never_return() {
-    for p in [
-        "core::panicking::panic_fmt",
-        "core::str::slice_error_fail",
-        "core::slice::index::slice_index_order_fail",
-        "core::result::unwrap_failed",
-        "core::option::expect_failed",
-        "alloc::alloc::handle_alloc_error",
-        "alloc::raw_vec::capacity_overflow",
-        "__rustc::rust_begin_unwind",
-    ] {
-        assert!(is_noreturn_path(p), "{p}");
+fn a_function_that_never_returns_is_proved_from_its_code_not_its_name() {
+    // 0: spin; 4: calls the spinner and nothing else; 12: ebreak; 16: returns
+    // (a function named like a panic that gives a bool back); 20: calls that
+    // one and then returns itself.
+    let f = code(&[
+        W(SPIN),           // 0
+        W(auipc(1, 0)),    // 4: ra = pc
+        W(jalr(1, 1, -4)), // 8: call pc(4) - 4 = 0
+        W(EBREAK),         // 12
+        W(RET),            // 16
+        W(auipc(1, 0)),    // 20
+        W(jalr(1, 1, -4)), // 24: call pc(20) - 4 = 16
+        W(RET),            // 28
+    ]);
+    let ranges = [(0, 4), (4, 12), (12, 16), (16, 20), (20, 32)];
+    let base = 0x4200_0000;
+    let proved = noreturn_functions(&f, &ranges, base, false);
+    // The spinner, its caller (the call never comes back) and the trap
+    // never return; the one with `ret` does, and so does its caller.
+    assert_eq!(proved, vec![base, base + 4, base + 12]);
+}
+
+#[test]
+fn a_panic_like_name_does_not_end_the_path_of_a_call_that_returns() {
+    // Two 1024-byte allocations with a call between them to a function that
+    // returns (`std::panicking::panicking` gives a bool back): 2048 bytes.
+    let f = code(&[
+        W(addi(SP, SP, -1024)),
+        W(auipc(1, 0)),
+        W(jalr(1, 1, 24)), // call pc(4) + 24 = 28
+        W(addi(SP, SP, -1024)),
+        W(addi(SP, SP, 1024)),
+        W(addi(SP, SP, 1024)),
+        W(RET),
+        W(RET), // 28: the callee returns
+    ]);
+    let ranges = [(0, 28), (28, 32)];
+    let base = 0x4200_0000;
+    let proved = noreturn_functions(&f, &ranges, base, false);
+    assert_eq!(proved, Vec::<u32>::new());
+    let env = Env {
+        base,
+        noreturn: &proved,
+        lenient: false,
+    };
+    assert!(matches!(
+        scan_ranges(&f, &ranges, env),
+        Some(Finding::Large { bytes: 2048, .. })
+    ));
+}
+
+#[test]
+fn a_jump_through_a_register_inside_a_frame_is_refused() {
+    // The repro: the frame grows each time a0 sends the jump to the start.
+    assert_eq!(
+        found(&[W(addi(SP, SP, -1024)), W(jr(A0))]),
+        Some(Finding::Table { at: 4 })
+    );
+    // With no frame (a tail call through a vtable, `jr a5` after the frame
+    // is given back) it is a way out of the function.
+    assert_eq!(
+        found(&[W(addi(SP, SP, -16)), W(addi(SP, SP, 16)), W(jr(A0))]),
+        None
+    );
+    // A jump that is a frame's growth: the frame given back, then `jr`, but
+    // the jump goes back to a frame allocation.
+    assert_eq!(
+        found(&[W(addi(SP, SP, -1024)), W(addi(SP, SP, 1024)), W(jr(A0))]),
+        None
+    );
+    // In a lenient walk (the firmware's own listing) the jump's cases are
+    // read from the state at the jump.
+    let f = code(&[W(addi(SP, SP, -1024)), W(jr(A0))]);
+    let env = Env {
+        lenient: true,
+        ..Env::none()
+    };
+    assert_eq!(frame_sizes_in(&f, &[(0, 8)], env), vec![Some(1024)]);
+}
+
+#[test]
+fn an_instruction_cut_by_a_symbols_end_is_refused() {
+    // `addi sp, sp, -1600` is four bytes; ranges of two bytes each hold half.
+    let f = code(&[W(addi(SP, SP, -1600))]);
+    assert_eq!(
+        scan_ranges(&f, &[(0, 2), (2, 4)], Env::none()),
+        Some(Finding::Unknown { at: 0 })
+    );
+    // A function that does not start on a halfword.
+    assert!(matches!(
+        scan_ranges(&f, &[(1, 4)], Env::none()),
+        Some(Finding::Unknown { .. })
+    ));
+}
+
+#[test]
+fn many_paths_into_one_instruction_do_not_overflow_the_visit_count() {
+    // 300 branches, each at a lower sp, into the one `ret`: it is visited
+    // again each time. The walk gives up on it, and does not panic.
+    let mut items = Vec::new();
+    let end = 300 * 8;
+    for k in 0..300i32 {
+        items.push(W(addi(SP, SP, -4)));
+        items.push(W(beq_to(11, 0, end - (k * 8 + 4))));
     }
-    for p in [
-        "paperpaw_text::layout::pair",
-        // A plugin's function named like a panic is not trusted not to return.
-        "my_plugin::panicking::fail",
-        "my_plugin::slice_error_fail",
-        "core::fmt::write",
-        "core::slice::sort::stable::merge",
-    ] {
-        assert!(!is_noreturn_path(p), "{p}");
-    }
+    items.push(W(RET));
+    assert!(found(&items).is_some());
+}
+
+#[test]
+fn a_mangled_name_with_a_length_that_overflows_is_no_name() {
+    assert_eq!(path("_ZN18446744073709551615xE"), "");
+    assert_eq!(
+        path("_ZN4core9panicking5panic17h0123456789abcdefE"),
+        "core::panicking::panic"
+    );
 }
