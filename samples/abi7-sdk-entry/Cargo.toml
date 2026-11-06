@@ -1,0 +1,23 @@
+[package]
+name = "paperpaw-sample-abi7-sdk-entry"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "abi7_sdk_entry"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"

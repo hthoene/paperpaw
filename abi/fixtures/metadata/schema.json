@@ -1023,7 +1023,7 @@
     "features": [
       {
         "key": "test.feature",
-        "revision": 1,
+        "revision": 2,
         "since": 1
       }
     ],

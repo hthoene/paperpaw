@@ -16,8 +16,7 @@ pub(crate) struct View<'a> {
 impl<'a> View<'a> {
     fn visit(&self, visit: &mut dyn FnMut(Record<'a>)) -> Result<(), i32> {
         self.raw.visit(self.plugin, self.image, visit)?;
-        // Ordinary decoded submissions have no raw batch. Owned wire entries
-        // may appear twice; existence checks deliberately ignore multiplicity.
+        // Decoded host submissions have no raw batch.
         for r in self.owned.groups() {
             visit(Record::SettingGroup(SettingGroup {
                 name: &r.name,
@@ -124,14 +123,11 @@ impl<'a> View<'a> {
     pub(crate) fn finish(&self) -> Result<(), i32> {
         self.raw.check_duplicates(self.image)?;
         self.check_owned_names()?;
-        // Decoded-only host submissions have no raw index. Compare them with
-        // image entries without mistaking an owned wire mirror for a duplicate.
+        // Decoded host submissions must be distinct from every raw entry.
         for entry in self.raw.index.iter().filter(|_| !self.owned.is_empty()) {
-            if self.raw.batches[usize::from(entry.batch)].image.is_some() {
-                let (kind, name) = key(self.raw.record(self.image, *entry)?).ok_or(ERR_INVALID)?;
-                if self.owned_has(kind, name) {
-                    return Err(ERR_INVALID);
-                }
+            let (kind, name) = key(self.raw.record(self.image, *entry)?).ok_or(ERR_INVALID)?;
+            if self.owned_has(kind, name) {
+                return Err(ERR_INVALID);
             }
         }
         let groups = self
@@ -155,8 +151,6 @@ impl<'a> View<'a> {
         })?;
         result
     }
-    // A decoded-only host batch has no raw index. Its names must also be
-    // checked against owned wire mirrors retained in the decoded collection.
     fn check_owned_names(&self) -> Result<(), i32> {
         unique_names(self.owned.groups().iter().map(|r| r.name.as_str()), false)?;
         unique_names(self.owned.specs().iter().map(|r| r.name.as_str()), false)?;
