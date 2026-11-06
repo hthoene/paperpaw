@@ -663,7 +663,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             folders: RefCell::new(alloc::vec::Vec::new()),
             flush_disk: None,
             read: None,
-            free: RefCell::default(),
+            free: RefCell::new(free::Free::new(fs.cluster_changes())),
             moves_settled: Cell::new(false),
             settled_folders: RefCell::new(Vec::new()),
             settling: Cell::new(false),
@@ -691,88 +691,6 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         self
     }
 
-    /// Follows a change of the free space: `taken` bytes in files written,
-    /// `freed` in files removed (each in whole clusters).
-    fn follow(&self, taken: u64, freed: u64) {
-        if self.read.is_some() {
-            let mut free = self.free.borrow_mut();
-            let (taken, freed) = (free.clusters(taken), free.clusters(freed));
-            free.changed(taken, freed);
-        }
-    }
-
-    /// The bytes of the file at `path` (0 where there is none), where the
-    /// free space is followed.
-    fn len_of(&self, path: &str) -> u64 {
-        if self.read.is_none() {
-            return 0;
-        }
-        Storage::size(self, path).unwrap_or(0)
-    }
-
-    /// The clusters the files and folders below `path` take, as bytes in
-    /// whole clusters, where the free space is followed: what removing
-    /// them frees (see `remove_tree`), none of a damaged folder.
-    fn tree_len(&self, path: &str) -> u64 {
-        if self.read.is_none() {
-            return 0;
-        }
-        let cluster = self.cluster();
-        let mut taken = 0;
-        let mut dirs = alloc::vec![(String::from(path), None)];
-        while let Some((path, place)) = dirs.pop() {
-            // One that cannot be read counts as empty.
-            let Ok(dir) = self.dir(&path) else {
-                continue;
-            };
-            let (mut here, mut below, mut damaged) = (cluster, alloc::vec::Vec::new(), false);
-            let mut own = None;
-            for (at, entry) in entries(&dir).enumerate() {
-                let Ok(entry) = entry else {
-                    break;
-                };
-                let name = entry.file_name();
-                damaged |= damaged::is_damaged(self.fs, &entry, &name, at, place);
-                if at == 0 {
-                    own = entry.first_cluster();
-                }
-                if name == "." || name == ".." || is_temp_name(&name) && entry.is_dir() {
-                    // Its clusters stay taken.
-                } else if entry.is_dir() {
-                    below.push((format!("{path}/{name}"), Some((entry.first_cluster(), own))));
-                } else {
-                    here += self.free.borrow().clusters(entry.len()) * cluster;
-                }
-            }
-            if !damaged {
-                taken += here;
-                dirs.append(&mut below);
-            }
-        }
-        taken
-    }
-
-    /// The bytes the folders of `dir` that are not there yet take once
-    /// made (a cluster each), where the free space is followed.
-    fn new_dirs(&self, dir: &str) -> u64 {
-        if self.read.is_none() || dir.is_empty() {
-            return 0;
-        }
-        // From the deepest up: a folder there has its parents (a kept
-        // one is there), so a file's folders are not each looked for in
-        // theirs again, some with hundreds of names.
-        let mut made = 0;
-        let mut path = dir;
-        while !self.is_kept(path) && !self.is_there(path) {
-            made += 1;
-            match path.rfind('/') {
-                Some(at) => path = &path[..at],
-                None => break,
-            }
-        }
-        made * self.cluster()
-    }
-
     /// Whether folder `path` is kept (see [`FOLDERS`]): it is there.
     fn is_kept(&self, path: &str) -> bool {
         let path = path.trim_matches('/');
@@ -780,24 +698,6 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             .borrow()
             .iter()
             .any(|(p, _)| same_path(p, path))
-    }
-
-    /// Bytes of a cluster, where known.
-    fn cluster(&self) -> u64 {
-        let free = self.free.borrow();
-        // One byte takes one cluster: its size is what `clusters` rounds to.
-        if free.clusters(1) == 0 {
-            return 0;
-        }
-        self.fs.cluster_size().into()
-    }
-
-    /// Whether a file or a folder is at `path`, looked up in its folder
-    /// (no file opened).
-    fn is_there(&self, path: &str) -> bool {
-        self.dir(parent(path))
-            .and_then(|dir| lookup(&dir, name(path), false))
-            .is_ok_and(|found| found.entry.is_some())
     }
 
     fn root(&self) -> FatDir<IO> {
@@ -1213,21 +1113,13 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
         check(path)?;
         self.settle_moves()?;
         self.hold(path)?;
-        let before = self.len_of(path);
-        let made = self.new_dirs(parent(path));
-        let written = self.written(self.write_whole(path, data));
-        if written.is_ok() {
-            self.follow(made + data.len() as u64, before);
-        }
-        written
+        self.written(self.write_whole(path, data))
     }
 
     /// Kept in the open file until it is written back (see the [crate
     /// documentation](crate)).
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         self.settle_moves()?;
-        let before = self.len_of(path);
-        let made = self.new_dirs(parent(path));
         self.with_open(path, true, |o| {
             // Not after clusters that end before its size (see `read_at`).
             if o.file.seek(SeekFrom::End(0)).map_err(error)? != o.len {
@@ -1238,12 +1130,7 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
             // As far as it came, where the card is full.
             o.len = o.file.seek(SeekFrom::Current(0)).map_err(error)?;
             written
-        })?;
-        // In whole clusters: what the file takes more, and its folders.
-        let more = self.free.borrow().clusters(before + data.len() as u64)
-            - self.free.borrow().clusters(before);
-        self.follow(made + more * self.cluster(), 0);
-        Ok(())
+        })
     }
 
     fn sync(&self) -> Result<(), StorageError> {
@@ -1297,12 +1184,7 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
 
     fn remove(&self, path: &str) -> Result<(), StorageError> {
         self.settle_moves()?;
-        let before = self.len_of(path);
-        let removed = self.written(self.remove_entry(path, true));
-        if removed.is_ok() {
-            self.follow(0, before);
-        }
-        removed
+        self.written(self.remove_entry(path, true))
     }
 
     fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
@@ -1311,17 +1193,7 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
         if self.stuck.borrow().is_some() {
             return Err(StorageError::Io);
         }
-        // A file it takes the place of is gone.
-        let replaced = if from.eq_ignore_ascii_case(to) {
-            0
-        } else {
-            self.len_of(to)
-        };
-        let moved = self.written(self.move_entry(from, to));
-        if moved.is_ok() {
-            self.follow(0, replaced);
-        }
-        moved
+        self.written(self.move_entry(from, to))
     }
 
     /// FAT names entries without regard to case.
@@ -1330,13 +1202,18 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
     }
 
     /// With the disk shared ([`FatStorage::with_disk`], as on the
-    /// devices): at first what the card says of itself (FAT32), counted
-    /// exactly a part of the FAT at each ask, then followed as files are
-    /// written and removed; never all of the FAT at once (see `free`).
-    /// Without it, rust-fatfs's count (which may read all of the FAT).
+    /// devices): unknown until the FAT is counted, a part of it at each
+    /// ask, then followed by the clusters the file system marks taken and
+    /// free; never all of the FAT at once, never the count the card keeps
+    /// of itself (see `free`). Without it, rust-fatfs's count (which may
+    /// read all of the FAT).
     fn free_space(&self) -> Option<u64> {
         match &self.read {
-            Some(read) => self.free.borrow_mut().ask(read.as_ref()),
+            Some(read) => {
+                let mut free = self.free.borrow_mut();
+                free.follow(self.fs.cluster_changes());
+                free.ask(read.as_ref())
+            }
             None => {
                 let stats = self.fs.stats().ok()?;
                 Some(u64::from(stats.free_clusters()) * u64::from(stats.cluster_size()))
@@ -1357,22 +1234,12 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
 
     fn create_dir(&self, path: &str) -> Result<(), StorageError> {
         self.settle_moves()?;
-        let made = self.new_dirs(path);
-        let created = self.written(self.create_dirs(path));
-        if created.is_ok() {
-            self.follow(made, 0);
-        }
-        created
+        self.written(self.create_dirs(path))
     }
 
     fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
         self.settle_moves()?;
-        let before = self.tree_len(path);
-        let removed = self.written(self.remove_tree(path, None));
-        if removed.is_ok() {
-            self.follow(0, before);
-        }
-        removed
+        self.written(self.remove_tree(path, None))
     }
 }
 

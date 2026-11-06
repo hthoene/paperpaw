@@ -746,6 +746,7 @@ impl BuilderParts {
             power_off: false,
             usb_drive: false,
             suspended_at: None,
+            free_count: crate::free_count::FreeCount::default(),
             hint: hints::HintRow::new(self.button_row),
             busy_mark: self.busy_mark,
             withheld: Vec::new(),
