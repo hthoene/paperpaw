@@ -8,8 +8,8 @@
 //! enforced by the codec (`ERR_UTF8`, `ERR_NO_SPACE`).
 
 use super::registrations::{
-    Record, RecordBatch, ResourceFontExtension, ResourceFontFace, ResourceHyphenation,
-    SettingExtra, SettingGroup, SettingSpec,
+    ActionSpec, Record, RecordBatch, ResourceFontExtension, ResourceFontFace, ResourceHyphenation,
+    ScreenSpec, SettingExtra, SettingGroup, SettingSpec,
 };
 use crate::abi7::settings_wire::{SettingValueRef, settings_decode};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
@@ -69,6 +69,8 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         Record::ResourceHyphenation(record) => hyphenation_check(record),
         Record::ResourceFontFace(face) => face_check(plugin_id, face),
         Record::ResourceFontExtension(extension) => extension_check(plugin_id, extension),
+        Record::ScreenSpec(screen) => screen_check(plugin_id, screen),
+        Record::ActionSpec(action) => action_check(plugin_id, action),
         Record::Registration(_) => Ok(()),
         // Events flow from the host to the plugin; a batch never carries one.
         Record::EventStarted(_)
@@ -76,7 +78,19 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventSuspend(_)
         | Record::EventStopping(_)
         | Record::EventBatteryMeasured(_)
-        | Record::EventPageTurned(_) => Err(ERR_INVALID),
+        | Record::EventPageTurned(_)
+        | Record::EventScreenShown(_)
+        | Record::EventActionRun(_) => Err(ERR_INVALID),
+        // Input records go to `PpPlugin.input`, frames to `draw`, format
+        // arguments to slot 27.
+        Record::DrawFrame(_)
+        | Record::InputKey(_)
+        | Record::InputPointer(_)
+        | Record::InputGesture(_)
+        | Record::InputAction(_)
+        | Record::I18nArgStr(_)
+        | Record::I18nArgInt(_)
+        | Record::I18nCount(_) => Err(ERR_INVALID),
         // Service records are the host's answers (slots 17-19), never submitted.
         Record::ServiceUsage(_)
         | Record::ServicePluginUsage(_)
@@ -302,4 +316,41 @@ fn extension_check(plugin_id: &str, extension: &ResourceFontExtension<'_>) -> Ch
     // An extension adds glyphs to a face: only a PaperPaw pack can (PR #158).
     ensure(has_extension(extension.path, ".ppfp"))?;
     full_id(extension.extends)
+}
+
+/// `screen.spec` flag bit 0: full refresh when the screen opens.
+pub const SCREEN_FULL_REFRESH_ON_OPEN: u32 = 1;
+/// `action.spec` flag bit 0: runs only while one of the plugin's screens is on top.
+pub const ACTION_NEEDS_SCREEN: u32 = 1;
+
+fn screen_check(plugin_id: &str, screen: &ScreenSpec<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let ScreenSpec {
+        name,
+        title,
+        token: _,
+        flags,
+    } = screen;
+    relative(plugin_id, name)?;
+    ensure(!title.is_empty())?;
+    if flags & !SCREEN_FULL_REFRESH_ON_OPEN != 0 {
+        return Err(ERR_UNSUPPORTED);
+    }
+    Ok(())
+}
+
+fn action_check(plugin_id: &str, action: &ActionSpec<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let ActionSpec {
+        name,
+        title,
+        token: _,
+        flags,
+    } = action;
+    relative(plugin_id, name)?;
+    ensure(!title.is_empty())?;
+    if flags & !ACTION_NEEDS_SCREEN != 0 {
+        return Err(ERR_UNSUPPORTED);
+    }
+    Ok(())
 }

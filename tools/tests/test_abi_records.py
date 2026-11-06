@@ -216,7 +216,11 @@ class RecordsTests(unittest.TestCase):
                           ('event.battery_measured', 36), ('event.page_turned', 37),
                           ('service.usage', 48), ('service.plugin_usage', 49),
                           ('service.plugin', 50), ('service.work_note', 51),
-                          ('service.end', 52)])
+                          ('service.end', 52), ('screen.spec', 11), ('action.spec', 12),
+                          ('event.screen_shown', 38), ('event.action_run', 39),
+                          ('input.key', 40), ('input.pointer', 41), ('input.gesture', 42),
+                          ('input.action', 43), ('i18n.arg_str', 44), ('i18n.arg_int', 45),
+                          ('i18n.count', 46), ('draw.frame', 192)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             if record['id'] <= 3:

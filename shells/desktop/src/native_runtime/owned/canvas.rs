@@ -32,13 +32,29 @@ pub(super) fn dispatch_draw<S>(
     env: &Env<'_>,
     canvas: &mut Canvas<'_>,
 ) -> Result<i32, Error> {
+    // The screen frame (N2): the canvas's visible region, drawn in one pass.
+    let clip = canvas.clip();
+    let frame = paperpaw_core::native_host::frames::screen(
+        i32::from(clip.x),
+        i32::from(clip.y),
+        u32::from(clip.width),
+        u32::from(clip.height),
+        (
+            i32::from(clip.y),
+            i32::from(clip.y) + i32::from(clip.height),
+        ),
+    );
+    let mut bytes = [0; 64];
+    let len =
+        paperpaw_core::native_host::frames::encode(&frame, &mut bytes).map_err(Error::Status)?;
+    let frame = &bytes[..len];
     batch.dispatch(index, depth, |context, record| {
         // SAFETY: the owner structurally pins these fields; no API moves them.
         let env_scope = unsafe { context.map_unchecked(|value| &value.environment) };
         let canvas_scope = unsafe { context.map_unchecked(|value| &value.canvas) };
         env_scope.scope(env, || {
             canvas_scope.scope(canvas, || {
-                invoke_registration(context, *record, Invocation::Draw)
+                invoke_registration(context, *record, Invocation::Draw(frame))
             })
         })??
     })?

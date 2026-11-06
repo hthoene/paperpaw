@@ -9,10 +9,10 @@ import re
 _TABLES = {'PpPlugin', 'PpEntry'}
 _FIELD_TYPES = {'u16', 'u32', 'pointer', 'bytes'}
 _C_TYPES = {'u16': 'uint16_t', 'u32': 'uint32_t', 'i32': 'int32_t',
-            'pointer': 'void *', 'bytes': 'PpBytes',
+            'pointer': 'void *', 'bytes': 'PpBytes', 'buffer': 'PpBuffer',
             'host_ptr': 'const PpHost *', 'plugin_out': 'const PpPlugin **'}
 _RUST_TYPES = {'u16': 'u16', 'u32': 'u32', 'i32': 'i32',
-               'pointer': '*mut core::ffi::c_void', 'bytes': 'PpBytes',
+               'pointer': '*mut core::ffi::c_void', 'bytes': 'PpBytes', 'buffer': 'PpBuffer',
                'host_ptr': '*const PpHost', 'plugin_out': '*mut *const PpPlugin'}
 _RESULTS = {'i32': ('int32_t', 'i32'), 'void': ('void', '()')}
 _PREFIXES = {

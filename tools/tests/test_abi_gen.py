@@ -40,7 +40,7 @@ class SchemaTests(unittest.TestCase):
         ABI.compatible(self.base, copy.deepcopy(self.base))
         reordered = dict(reversed(list(self.base.items())))
         self.assertEqual(ABI.canonical(self.base), ABI.canonical(reordered))
-        self.assertEqual(len(self.base['host_entries']), 27)
+        self.assertEqual(len(self.base['host_entries']), 29)
 
     def test_each_existing_contract_is_frozen(self):
         changes = {'id': 400, 'name': 'renamed', 'since': 2,
@@ -213,6 +213,47 @@ class SchemaTests(unittest.TestCase):
         released = ABI.lock_record(copy.deepcopy(self.base), released_minor=1)
         with self.assertRaises(ValueError):
             ABI.check_lock(released, candidate)
+
+    def test_reviewed_baseline_replacement_is_exact_single_use_and_pre_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'abi').mkdir()
+            definition = root / 'abi/abi.def'
+            definition.write_text(ABI.canonical(self.base))
+            ABI.run(['--root', str(root), '--write-lock'])
+            trusted = root / 'trusted.lock'
+            trusted.write_bytes((root / 'abi/abi.lock').read_bytes())
+            # A breaking change of an unreleased callback signature.
+            new = copy.deepcopy(self.base)
+            draw = next(f for f in new['entry_contract']['tables'][0]['fields']
+                        if f['name'] == 'draw')
+            draw['callback']['args'].pop()
+            definition.write_text(ABI.canonical(new))
+            (root / 'abi/abi.lock').unlink()
+            ABI.run(['--root', str(root), '--write-lock'])
+            check = ['--root', str(root), '--baseline', str(trusted), '--check']
+            with self.assertRaisesRegex(ValueError, 'entry field'):
+                ABI.run(check)
+            marker = root / 'abi/baseline-replacement.json'
+            digest = ABI.hashlib.sha256(trusted.read_bytes()).hexdigest()
+            for bad in [dict(replaces_sha256=digest, reason='r'),
+                        dict(replaces_sha256=digest, reason='', ticket='#1')]:
+                with self.subTest(bad=bad):
+                    marker.write_text(json.dumps(bad))
+                    with self.assertRaisesRegex(ValueError, 'needs replaces_sha256'):
+                        ABI.run(check)
+            # A marker for another baseline is stale and replaces nothing.
+            marker.write_text(json.dumps(dict(replaces_sha256='0' * 64, reason='r', ticket='#1')))
+            with self.assertRaisesRegex(ValueError, 'entry field'):
+                ABI.run(check)
+            marker.write_text(json.dumps(dict(replaces_sha256=digest, reason='r', ticket='#1')))
+            ABI.run(check)
+            # Never once a minor is released.
+            trusted.write_text(ABI.canonical(ABI.lock_record(self.base, 1)))
+            digest = ABI.hashlib.sha256(trusted.read_bytes()).hexdigest()
+            marker.write_text(json.dumps(dict(replaces_sha256=digest, reason='r', ticket='#1')))
+            with self.assertRaisesRegex(ValueError, 'before any minor is released'):
+                ABI.run(check)
 
     def test_trusted_release_floor_survives_two_steps_in_all_modes(self):
         with tempfile.TemporaryDirectory() as directory:

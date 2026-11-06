@@ -261,12 +261,12 @@ fn check_foreign(fixture: &Fixture, env: &Env<'_>) {
     );
     // Direct unscoped foreign dispatch fails without a callback marker.
     assert_eq!(
-        dispatch_registration(&batch, 1, &depth, Invocation::Draw).unwrap(),
+        dispatch_registration(&batch, 1, &depth, Invocation::Draw(&screen_frame())).unwrap(),
         host_glue::ERR_STATE
     );
     assert_eq!(evidence.callback_markers.get(), 0);
     assert_eq!(
-        bridge::dispatch(&batch, 1, &depth, Invocation::Draw, env).unwrap(),
+        bridge::dispatch(&batch, 1, &depth, Invocation::Draw(&screen_frame()), env).unwrap(),
         host_glue::OK
     );
     let mut tick = [0; 64];
@@ -296,7 +296,7 @@ fn check_foreign(fixture: &Fixture, env: &Env<'_>) {
     );
     plugin.owner.as_ref().revoke();
     assert!(matches!(
-        bridge::dispatch(&batch, 1, &depth, Invocation::Draw, env),
+        bridge::dispatch(&batch, 1, &depth, Invocation::Draw(&screen_frame()), env),
         Err(Error::Lifecycle(native_host::Error::State))
     ));
     assert!(matches!(

@@ -814,6 +814,8 @@ pub struct EventPageTurned<'a> {
     pub page: Option<u32>,
     /// Little-endian u32. Appended and optional; `None` when absent.
     pub pages: Option<u32>,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub insert: Option<u32>,
 }
 
 impl<'a> EventPageTurned<'a> {
@@ -829,6 +831,7 @@ impl<'a> EventPageTurned<'a> {
             chapter: body.string(EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES)?,
             page: body.maybe_u32(bits, 0x01)?,
             pages: body.maybe_u32(bits, 0x02)?,
+            insert: body.maybe_u32(bits, 0x04)?,
         }))
     }
 
@@ -839,6 +842,9 @@ impl<'a> EventPageTurned<'a> {
         }
         if self.pages.is_some() {
             bits |= 0x02;
+        }
+        if self.insert.is_some() {
+            bits |= 0x04;
         }
         bits
     }
@@ -860,6 +866,9 @@ impl<'a> EventPageTurned<'a> {
         if bits & 0x02 != 0 {
             len += 4;
         }
+        if bits & 0x04 != 0 {
+            len += 4;
+        }
         Ok(len)
     }
 
@@ -875,6 +884,9 @@ impl<'a> EventPageTurned<'a> {
             write_bytes(&value.to_le_bytes(), out, offset);
         }
         if let Some(value) = self.pages {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+        if let Some(value) = self.insert {
             write_bytes(&value.to_le_bytes(), out, offset);
         }
     }
@@ -1155,6 +1167,511 @@ impl ServiceEnd {
         write_bytes(&self.next.to_le_bytes(), out, offset);
     }
 }
+/// Wire tag of the `screen.spec` record.
+pub const SCREEN_SPEC_TAG: u32 = 11;
+/// Maximum bytes of `screen.spec.name`.
+pub const SCREEN_SPEC_NAME_MAX_BYTES: usize = 96;
+/// Maximum bytes of `screen.spec.title`.
+pub const SCREEN_SPEC_TITLE_MAX_BYTES: usize = 128;
+
+/// The `screen.spec` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScreenSpec<'a> {
+    /// UTF-8 text of at most 96 bytes.
+    pub name: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub title: &'a str,
+    /// Little-endian u32.
+    pub token: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl<'a> ScreenSpec<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ScreenSpec(Self {
+            name: body.string(SCREEN_SPEC_NAME_MAX_BYTES)?,
+            title: body.string(SCREEN_SPEC_TITLE_MAX_BYTES)?,
+            token: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), SCREEN_SPEC_NAME_MAX_BYTES)?;
+        len += blob_len(self.title.len(), SCREEN_SPEC_TITLE_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_bytes(&self.token.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `action.spec` record.
+pub const ACTION_SPEC_TAG: u32 = 12;
+/// Maximum bytes of `action.spec.name`.
+pub const ACTION_SPEC_NAME_MAX_BYTES: usize = 96;
+/// Maximum bytes of `action.spec.title`.
+pub const ACTION_SPEC_TITLE_MAX_BYTES: usize = 128;
+
+/// The `action.spec` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ActionSpec<'a> {
+    /// UTF-8 text of at most 96 bytes.
+    pub name: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub title: &'a str,
+    /// Little-endian u32.
+    pub token: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl<'a> ActionSpec<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ActionSpec(Self {
+            name: body.string(ACTION_SPEC_NAME_MAX_BYTES)?,
+            title: body.string(ACTION_SPEC_TITLE_MAX_BYTES)?,
+            token: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), ACTION_SPEC_NAME_MAX_BYTES)?;
+        len += blob_len(self.title.len(), ACTION_SPEC_TITLE_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_bytes(&self.token.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.screen_shown` record.
+pub const EVENT_SCREEN_SHOWN_TAG: u32 = 38;
+/// Maximum bytes of `event.screen_shown.screen`.
+pub const EVENT_SCREEN_SHOWN_SCREEN_MAX_BYTES: usize = 128;
+
+/// The `event.screen_shown` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventScreenShown<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// UTF-8 text of at most 128 bytes.
+    pub screen: &'a str,
+    /// Little-endian u32.
+    pub width: u32,
+    /// Little-endian u32.
+    pub height: u32,
+}
+
+impl<'a> EventScreenShown<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventScreenShown(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            screen: body.string(EVENT_SCREEN_SHOWN_SCREEN_MAX_BYTES)?,
+            width: u32::from_le_bytes(body.scalar()?),
+            height: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += blob_len(self.screen.len(), EVENT_SCREEN_SHOWN_SCREEN_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_blob(self.screen.as_bytes(), out, offset);
+        write_bytes(&self.width.to_le_bytes(), out, offset);
+        write_bytes(&self.height.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.action_run` record.
+pub const EVENT_ACTION_RUN_TAG: u32 = 39;
+/// Maximum bytes of `event.action_run.action`.
+pub const EVENT_ACTION_RUN_ACTION_MAX_BYTES: usize = 128;
+
+/// The `event.action_run` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventActionRun<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// UTF-8 text of at most 128 bytes.
+    pub action: &'a str,
+}
+
+impl<'a> EventActionRun<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventActionRun(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            action: body.string(EVENT_ACTION_RUN_ACTION_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += blob_len(self.action.len(), EVENT_ACTION_RUN_ACTION_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_blob(self.action.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `input.key` record.
+pub const INPUT_KEY_TAG: u32 = 40;
+/// Maximum bytes of `input.key.key`.
+pub const INPUT_KEY_KEY_MAX_BYTES: usize = 32;
+
+/// The `input.key` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InputKey<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// UTF-8 text of at most 32 bytes.
+    pub key: &'a str,
+    /// Little-endian u32.
+    pub state: u32,
+}
+
+impl<'a> InputKey<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::InputKey(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            key: body.string(INPUT_KEY_KEY_MAX_BYTES)?,
+            state: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += blob_len(self.key.len(), INPUT_KEY_KEY_MAX_BYTES)?;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_blob(self.key.as_bytes(), out, offset);
+        write_bytes(&self.state.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `input.pointer` record.
+pub const INPUT_POINTER_TAG: u32 = 41;
+
+/// The `input.pointer` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InputPointer {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian i32.
+    pub x: i32,
+    /// Little-endian i32.
+    pub y: i32,
+    /// Little-endian u32.
+    pub phase: u32,
+}
+
+impl InputPointer {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::InputPointer(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            x: i32::from_le_bytes(body.scalar()?),
+            y: i32::from_le_bytes(body.scalar()?),
+            phase: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.x.to_le_bytes(), out, offset);
+        write_bytes(&self.y.to_le_bytes(), out, offset);
+        write_bytes(&self.phase.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `input.gesture` record.
+pub const INPUT_GESTURE_TAG: u32 = 42;
+
+/// The `input.gesture` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InputGesture {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub kind: u32,
+    /// Little-endian i32.
+    pub x: i32,
+    /// Little-endian i32.
+    pub y: i32,
+}
+
+impl InputGesture {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::InputGesture(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            kind: u32::from_le_bytes(body.scalar()?),
+            x: i32::from_le_bytes(body.scalar()?),
+            y: i32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.kind.to_le_bytes(), out, offset);
+        write_bytes(&self.x.to_le_bytes(), out, offset);
+        write_bytes(&self.y.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `input.action` record.
+pub const INPUT_ACTION_TAG: u32 = 43;
+/// Maximum bytes of `input.action.action`.
+pub const INPUT_ACTION_ACTION_MAX_BYTES: usize = 128;
+
+/// The `input.action` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InputAction<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// UTF-8 text of at most 128 bytes.
+    pub action: &'a str,
+}
+
+impl<'a> InputAction<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::InputAction(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            action: body.string(INPUT_ACTION_ACTION_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += blob_len(self.action.len(), INPUT_ACTION_ACTION_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_blob(self.action.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `i18n.arg_str` record.
+pub const I18N_ARG_STR_TAG: u32 = 44;
+/// Maximum bytes of `i18n.arg_str.name`.
+pub const I18N_ARG_STR_NAME_MAX_BYTES: usize = 32;
+/// Maximum bytes of `i18n.arg_str.value`.
+pub const I18N_ARG_STR_VALUE_MAX_BYTES: usize = 256;
+
+/// The `i18n.arg_str` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct I18nArgStr<'a> {
+    /// UTF-8 text of at most 32 bytes.
+    pub name: &'a str,
+    /// UTF-8 text of at most 256 bytes.
+    pub value: &'a str,
+}
+
+impl<'a> I18nArgStr<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::I18nArgStr(Self {
+            name: body.string(I18N_ARG_STR_NAME_MAX_BYTES)?,
+            value: body.string(I18N_ARG_STR_VALUE_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), I18N_ARG_STR_NAME_MAX_BYTES)?;
+        len += blob_len(self.value.len(), I18N_ARG_STR_VALUE_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_blob(self.value.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `i18n.arg_int` record.
+pub const I18N_ARG_INT_TAG: u32 = 45;
+/// Maximum bytes of `i18n.arg_int.name`.
+pub const I18N_ARG_INT_NAME_MAX_BYTES: usize = 32;
+
+/// The `i18n.arg_int` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct I18nArgInt<'a> {
+    /// UTF-8 text of at most 32 bytes.
+    pub name: &'a str,
+    /// Little-endian u64.
+    pub value: u64,
+}
+
+impl<'a> I18nArgInt<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::I18nArgInt(Self {
+            name: body.string(I18N_ARG_INT_NAME_MAX_BYTES)?,
+            value: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), I18N_ARG_INT_NAME_MAX_BYTES)?;
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_bytes(&self.value.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `i18n.count` record.
+pub const I18N_COUNT_TAG: u32 = 46;
+
+/// The `i18n.count` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct I18nCount {
+    /// Little-endian u64.
+    pub value: u64,
+}
+
+impl I18nCount {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::I18nCount(Self {
+            value: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.value.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `draw.frame` record.
+pub const DRAW_FRAME_TAG: u32 = 192;
+/// Maximum bytes of `draw.frame.payload`.
+pub const DRAW_FRAME_PAYLOAD_MAX_BYTES: usize = 256;
+
+/// The `draw.frame` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DrawFrame<'a> {
+    /// Little-endian u32.
+    pub purpose: u32,
+    /// Little-endian i32.
+    pub x: i32,
+    /// Little-endian i32.
+    pub y: i32,
+    /// Little-endian u32.
+    pub width: u32,
+    /// Little-endian u32.
+    pub height: u32,
+    /// Little-endian i32.
+    pub clip_top: i32,
+    /// Little-endian i32.
+    pub clip_bottom: i32,
+    /// Little-endian u32.
+    pub id: u32,
+    /// Opaque bytes, at most 256.
+    pub payload: &'a [u8],
+}
+
+impl<'a> DrawFrame<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::DrawFrame(Self {
+            purpose: u32::from_le_bytes(body.scalar()?),
+            x: i32::from_le_bytes(body.scalar()?),
+            y: i32::from_le_bytes(body.scalar()?),
+            width: u32::from_le_bytes(body.scalar()?),
+            height: u32::from_le_bytes(body.scalar()?),
+            clip_top: i32::from_le_bytes(body.scalar()?),
+            clip_bottom: i32::from_le_bytes(body.scalar()?),
+            id: u32::from_le_bytes(body.scalar()?),
+            payload: body.blob(DRAW_FRAME_PAYLOAD_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += blob_len(self.payload.len(), DRAW_FRAME_PAYLOAD_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.purpose.to_le_bytes(), out, offset);
+        write_bytes(&self.x.to_le_bytes(), out, offset);
+        write_bytes(&self.y.to_le_bytes(), out, offset);
+        write_bytes(&self.width.to_le_bytes(), out, offset);
+        write_bytes(&self.height.to_le_bytes(), out, offset);
+        write_bytes(&self.clip_top.to_le_bytes(), out, offset);
+        write_bytes(&self.clip_bottom.to_le_bytes(), out, offset);
+        write_bytes(&self.id.to_le_bytes(), out, offset);
+        write_blob(self.payload, out, offset);
+    }
+}
 
 /// A registration or declaration record, borrowed from one validated batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1196,6 +1713,30 @@ pub enum Record<'a> {
     ServiceWorkNote(ServiceWorkNote<'a>),
     /// A `ServiceEnd` record.
     ServiceEnd(ServiceEnd),
+    /// A `ScreenSpec` record.
+    ScreenSpec(ScreenSpec<'a>),
+    /// A `ActionSpec` record.
+    ActionSpec(ActionSpec<'a>),
+    /// A `EventScreenShown` record.
+    EventScreenShown(EventScreenShown<'a>),
+    /// A `EventActionRun` record.
+    EventActionRun(EventActionRun<'a>),
+    /// A `InputKey` record.
+    InputKey(InputKey<'a>),
+    /// A `InputPointer` record.
+    InputPointer(InputPointer),
+    /// A `InputGesture` record.
+    InputGesture(InputGesture),
+    /// A `InputAction` record.
+    InputAction(InputAction<'a>),
+    /// A `I18nArgStr` record.
+    I18nArgStr(I18nArgStr<'a>),
+    /// A `I18nArgInt` record.
+    I18nArgInt(I18nArgInt<'a>),
+    /// A `I18nCount` record.
+    I18nCount(I18nCount),
+    /// A `DrawFrame` record.
+    DrawFrame(DrawFrame<'a>),
 }
 
 impl<'a> Reader<'a> {
@@ -1257,6 +1798,18 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         SERVICE_PLUGIN_TAG => ServicePlugin::decode(body)?,
         SERVICE_WORK_NOTE_TAG => ServiceWorkNote::decode(body)?,
         SERVICE_END_TAG => ServiceEnd::decode(body)?,
+        SCREEN_SPEC_TAG => ScreenSpec::decode(body)?,
+        ACTION_SPEC_TAG => ActionSpec::decode(body)?,
+        EVENT_SCREEN_SHOWN_TAG => EventScreenShown::decode(body)?,
+        EVENT_ACTION_RUN_TAG => EventActionRun::decode(body)?,
+        INPUT_KEY_TAG => InputKey::decode(body)?,
+        INPUT_POINTER_TAG => InputPointer::decode(body)?,
+        INPUT_GESTURE_TAG => InputGesture::decode(body)?,
+        INPUT_ACTION_TAG => InputAction::decode(body)?,
+        I18N_ARG_STR_TAG => I18nArgStr::decode(body)?,
+        I18N_ARG_INT_TAG => I18nArgInt::decode(body)?,
+        I18N_COUNT_TAG => I18nCount::decode(body)?,
+        DRAW_FRAME_TAG => DrawFrame::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -1365,6 +1918,18 @@ impl Record<'_> {
             Record::ServicePlugin(_) => SERVICE_PLUGIN_TAG,
             Record::ServiceWorkNote(_) => SERVICE_WORK_NOTE_TAG,
             Record::ServiceEnd(_) => SERVICE_END_TAG,
+            Record::ScreenSpec(_) => SCREEN_SPEC_TAG,
+            Record::ActionSpec(_) => ACTION_SPEC_TAG,
+            Record::EventScreenShown(_) => EVENT_SCREEN_SHOWN_TAG,
+            Record::EventActionRun(_) => EVENT_ACTION_RUN_TAG,
+            Record::InputKey(_) => INPUT_KEY_TAG,
+            Record::InputPointer(_) => INPUT_POINTER_TAG,
+            Record::InputGesture(_) => INPUT_GESTURE_TAG,
+            Record::InputAction(_) => INPUT_ACTION_TAG,
+            Record::I18nArgStr(_) => I18N_ARG_STR_TAG,
+            Record::I18nArgInt(_) => I18N_ARG_INT_TAG,
+            Record::I18nCount(_) => I18N_COUNT_TAG,
+            Record::DrawFrame(_) => DRAW_FRAME_TAG,
         }
     }
 
@@ -1389,6 +1954,18 @@ impl Record<'_> {
             Record::ServicePlugin(record) => record.body_len(),
             Record::ServiceWorkNote(record) => record.body_len(),
             Record::ServiceEnd(record) => record.body_len(),
+            Record::ScreenSpec(record) => record.body_len(),
+            Record::ActionSpec(record) => record.body_len(),
+            Record::EventScreenShown(record) => record.body_len(),
+            Record::EventActionRun(record) => record.body_len(),
+            Record::InputKey(record) => record.body_len(),
+            Record::InputPointer(record) => record.body_len(),
+            Record::InputGesture(record) => record.body_len(),
+            Record::InputAction(record) => record.body_len(),
+            Record::I18nArgStr(record) => record.body_len(),
+            Record::I18nArgInt(record) => record.body_len(),
+            Record::I18nCount(record) => record.body_len(),
+            Record::DrawFrame(record) => record.body_len(),
         }
     }
 
@@ -1418,6 +1995,18 @@ impl Record<'_> {
             Record::ServicePlugin(record) => record.write(out, offset),
             Record::ServiceWorkNote(record) => record.write(out, offset),
             Record::ServiceEnd(record) => record.write(out, offset),
+            Record::ScreenSpec(record) => record.write(out, offset),
+            Record::ActionSpec(record) => record.write(out, offset),
+            Record::EventScreenShown(record) => record.write(out, offset),
+            Record::EventActionRun(record) => record.write(out, offset),
+            Record::InputKey(record) => record.write(out, offset),
+            Record::InputPointer(record) => record.write(out, offset),
+            Record::InputGesture(record) => record.write(out, offset),
+            Record::InputAction(record) => record.write(out, offset),
+            Record::I18nArgStr(record) => record.write(out, offset),
+            Record::I18nArgInt(record) => record.write(out, offset),
+            Record::I18nCount(record) => record.write(out, offset),
+            Record::DrawFrame(record) => record.write(out, offset),
         }
     }
 

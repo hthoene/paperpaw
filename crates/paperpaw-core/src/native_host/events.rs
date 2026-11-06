@@ -1,4 +1,4 @@
-//! Interface-7 event records (tags 32-37): host-side encode, decode and admission.
+//! Interface-7 event records (tags 32-39): host-side encode, decode and admission.
 //!
 //! The host builds one event record into a caller-owned buffer (a stack array is
 //! enough: the largest record is under 1.1 KB) and hands the bytes to the plugin's
@@ -45,7 +45,7 @@ pub const fn bypasses_queue(tag: u32) -> bool {
 /// Encode one event record as a one-record batch; returns the bytes written.
 ///
 /// # Errors
-/// `ERR_INVALID` when `record` is not an event record (tags 32-37),
+/// `ERR_INVALID` when `record` is not an event record (tags 32-39),
 /// `ERR_NO_SPACE` when a string is over its cap or `out` is too small.
 pub fn encode(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
     match record {
@@ -54,7 +54,9 @@ pub fn encode(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
         | Record::EventSuspend(_)
         | Record::EventStopping(_)
         | Record::EventBatteryMeasured(_)
-        | Record::EventPageTurned(_) => records_encode(&[*record], out),
+        | Record::EventPageTurned(_)
+        | Record::EventScreenShown(_)
+        | Record::EventActionRun(_) => records_encode(&[*record], out),
         _ => Err(ERR_INVALID),
     }
 }
@@ -165,11 +167,13 @@ pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, 
         chapter: cut(turn.chapter, EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES),
         page: turn.page,
         pages: turn.pages,
+        // The kernel reader inserts no content: every page starts in text (N5).
+        insert: None,
     };
     encode(&Record::EventPageTurned(record), out)
 }
 
-/// Decode bytes that hold exactly one event record (tags 32-37).
+/// Decode bytes that hold exactly one event record (tags 32-39).
 ///
 /// # Errors
 /// The codec's status for malformed framing, an over-cap field or bad UTF-8;
@@ -187,7 +191,9 @@ pub fn decode(bytes: &[u8]) -> Result<Record<'_>, i32> {
         | Record::EventResume(_)
         | Record::EventSuspend(_)
         | Record::EventStopping(_)
-        | Record::EventBatteryMeasured(_) => Ok(record),
+        | Record::EventBatteryMeasured(_)
+        | Record::EventScreenShown(_)
+        | Record::EventActionRun(_) => Ok(record),
         Record::EventPageTurned(turn) if sound(turn.progress_ppm, turn.page, turn.pages) => {
             Ok(record)
         }

@@ -45,12 +45,15 @@ pub mod declarations;
 #[path = "native_host/environment.rs"]
 pub mod environment;
 
-/// Interface-7 event records (tags 32-37): host encode, decode and admission.
+/// Interface-7 event records (tags 32-39): host encode, decode and admission.
 #[path = "native_host/events.rs"]
 pub mod events;
 /// Production event adapter for a shell-owned flat plugin instance.
 #[path = "native_host/flat.rs"]
 pub mod flat;
+/// The `draw.frame` input of `draw` (N2, `docs/abi/screens-input.md` section 6).
+#[path = "native_host/frames.rs"]
+pub mod frames;
 
 /// Bounded decoded registration submission during plugin construction.
 #[path = "native_host/registrations.rs"]
