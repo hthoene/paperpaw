@@ -1,4 +1,5 @@
-//! Borrowed interface-7 event payloads (tags 32-37). All strings borrow the
+//! Borrowed interface-7 events: tick (tag 3) and event payloads (tags 32-39).
+//! All strings borrow the
 //! callback input; decoding allocates nothing and copies no strings.
 use super::{
     Error,
@@ -16,6 +17,8 @@ pub struct PageTurn<'a> {
     pub section: u32,
     /// Offset within the section.
     pub offset: u32,
+    /// Insert ordinal at this text position; zero is source text.
+    pub insert: u32,
     /// Progress from 0 to 1,000,000.
     pub progress_ppm: u32,
     /// Book path.
@@ -35,6 +38,8 @@ pub struct PageTurn<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Event<'a> {
+    /// A scheduled tick callback.
+    Tick { now_ms: u64 },
     /// PaperPaw started.
     Started { now_ms: u64 },
     /// PaperPaw resumed.
@@ -47,6 +52,35 @@ pub enum Event<'a> {
     BatteryMeasured { now_ms: u64 },
     /// The displayed page changed.
     PageTurned(PageTurn<'a>),
+    /// A screen became visible or its pane changed size.
+    ScreenShown {
+        now_ms: u64,
+        screen: &'a str,
+        width: u32,
+        height: u32,
+    },
+    /// A registered action was invoked.
+    ActionRun { now_ms: u64, action: &'a str },
+}
+
+impl<'a> Event<'a> {
+    /// Decode one event, borrowing strings from the callback input.
+    ///
+    /// The decoded event cannot outlive its input:
+    ///
+    /// ```compile_fail
+    /// use paperpaw_sdk::native::events::Event;
+    /// fn escape(input: &[u8]) -> Event<'static> {
+    ///     Event::decode(input).unwrap()
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    /// Returns framing, UTF-8, cap or event-field errors. Other exact tags
+    /// return [`Error::Unsupported`].
+    pub fn decode(bytes: &'a [u8]) -> Result<Self, Error> {
+        decode(bytes)
+    }
 }
 
 /// Decode exactly one event record. Unknown appended optional fields are
@@ -55,8 +89,16 @@ pub enum Event<'a> {
 /// # Errors
 /// Returns framing/UTF-8/cap errors from the generated codec; Invalid for a
 /// non-singleton batch or unsound counters/progress; Unsupported for other tags.
-pub fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
-    let record = wire::records_decode_single(bytes).map_err(Error::from_status)?;
+fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
+    let record = match wire::records_decode_single(bytes) {
+        Ok(record) => record,
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED) => {
+            return wire::tick_decode(bytes)
+                .map(|now_ms| Event::Tick { now_ms })
+                .map_err(Error::from_status);
+        }
+        Err(status) => return Err(Error::from_status(status)),
+    };
     Ok(match record {
         Record::EventStarted(r) => Event::Started { now_ms: r.now_ms },
         Record::EventResume(r) => Event::Resume { now_ms: r.now_ms },
@@ -75,6 +117,7 @@ pub fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
                 now_ms: r.now_ms,
                 section: r.section,
                 offset: r.offset,
+                insert: r.insert.unwrap_or(0),
                 progress_ppm: r.progress_ppm,
                 path: r.path,
                 title: r.title,
@@ -83,6 +126,16 @@ pub fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
                 pages: r.pages,
             })
         }
+        Record::EventScreenShown(r) => Event::ScreenShown {
+            now_ms: r.now_ms,
+            screen: r.screen,
+            width: r.width,
+            height: r.height,
+        },
+        Record::EventActionRun(r) => Event::ActionRun {
+            now_ms: r.now_ms,
+            action: r.action,
+        },
         _ => return Err(Error::Unsupported),
     })
 }
