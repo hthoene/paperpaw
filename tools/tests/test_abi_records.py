@@ -210,7 +210,9 @@ class RecordsTests(unittest.TestCase):
                           ('command.set_setting', 4), ('setting.group', 5),
                           ('setting.spec', 6), ('setting.extra', 7),
                           ('resource.hyphenation', 8), ('resource.font_face', 9),
-                          ('resource.font_extension', 10)])
+                          ('resource.font_extension', 10), ('event.started', 32),
+                          ('event.resume', 33), ('event.suspend', 34), ('event.stopping', 35),
+                          ('event.battery_measured', 36), ('event.page_turned', 37)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             if record['id'] <= 3:

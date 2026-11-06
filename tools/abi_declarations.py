@@ -107,9 +107,11 @@ def _fields(record):
                      f'{name}: at most {MAX_OPTIONAL} optional fields')
             default = field.get('default')
             if kind in SCALAR_BYTES:
+                # `null`: no default, the field is `Option` (present iff its bit is set),
+                # where every value is one (no value may stand for "absent").
                 low, high = SCALAR_RANGES[kind]
-                _require(type(default) is int and low <= default <= high,
-                         f'{name}.{label}: default must be an integer in the range of {kind}')
+                _require(default is None or (type(default) is int and low <= default <= high),
+                         f'{name}.{label}: default must be null or an integer in the range of {kind}')
             else:
                 _require(default == '' and type(default) is str,
                          f'{name}.{label}: str/bytes default must be empty')
@@ -122,7 +124,8 @@ def _fields(record):
         _require(record['since'] <= field['since'],
                  f'{name}.{label}: field older than its record')
         out.append(dict(name=label, kind=kind, cap=cap, optional=field['optional'], since=field['since'],
-                        ordinal=field['ordinal'], default=field['default']))
+                        ordinal=field['ordinal'], default=field['default'],
+                        maybe=field['optional'] and kind in SCALAR_BYTES and field['default'] is None))
     return out
 
 
@@ -175,9 +178,16 @@ def _decode_value(field, prefix):
             return [f'{kind}::from_le_bytes(body.scalar()?)']
         return _call('', f'body.{"string" if kind == "str" else "blob"}', cap, '?')
     bits = f'bits, {_mask(field["ordinal"])}'
+    if field['maybe']:
+        return _call('', f'body.maybe_{kind}', bits, '?')
     if kind in SCALAR_BYTES:
         return _call('', f'body.opt_{kind}', f'{bits}, {field["default"]}', '?')
     return _call('', f'body.opt_{"string" if kind == "str" else "blob"}', f'{bits}, {cap}', '?')
+
+
+def _lifetime(record):
+    """`<'a>` when a field borrows from the batch; scalar-only records carry none."""
+    return "<'a>" if any(f['kind'] in ('str', 'bytes') for f in record['fields']) else ''
 
 
 def _record_source(record):
@@ -192,17 +202,23 @@ def _record_source(record):
                     f'pub const {prefix}_{field["name"].upper()}_MAX_BYTES: usize = '
                     f'{field["cap"]};']
     out += ['', f'/// The `{name}` record, borrowed from its batch.',
-            '#[derive(Clone, Copy, Debug, PartialEq, Eq)]', f"pub struct {title}<'a> {{"]
+            '#[derive(Clone, Copy, Debug, PartialEq, Eq)]', f"pub struct {title}{_lifetime(record)} {{"]
     for field in fields:
         kind, cap = field['kind'], field['cap']
         text = {'str': f'UTF-8 text of at most {cap} bytes.',
                 'bytes': f'Opaque bytes, at most {cap}.'}.get(kind, f'Little-endian {kind}.')
-        if field['optional']:
+        rust = RUST_TYPES[kind]
+        if field['maybe']:
+            text += ' Appended and optional; `None` when absent.'
+            rust = f'Option<{rust}>'
+        elif field['optional']:
             absent = field['default'] if kind in SCALAR_BYTES else 'empty'
             text += f' Appended and optional; {absent} when absent.'
-        out += [f'    /// {text}', f'    pub {field["name"]}: {RUST_TYPES[kind]},']
-    out += ['}', '', f"impl<'a> {title}<'a> {{",
-            "    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {",
+        out += [f'    /// {text}', f'    pub {field["name"]}: {rust},']
+    borrows = _lifetime(record)
+    out += ['}', '', f"impl<'a> {title}<'a> {{" if borrows else f'impl {title} {{',
+            "    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {" if borrows
+            else "    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {",
             '        let bits = body.bitmap_bits()?;' if optional else '        body.bitmap()?;',
             f'        Ok(Record::{title}(Self {{']
     for field in fields:
@@ -215,7 +231,9 @@ def _record_source(record):
     if optional:
         out += ['    fn bits(&self) -> u8 {', '        let mut bits = 0;']
         for field in optional:
-            if field['kind'] in SCALAR_BYTES:
+            if field['maybe']:
+                test = f'self.{field["name"]}.is_some()'
+            elif field['kind'] in SCALAR_BYTES:
                 test = f'self.{field["name"]} != {field["default"]}'
             else:
                 test = f'!self.{field["name"]}.is_empty()'
@@ -239,10 +257,14 @@ def _record_source(record):
         out.append('        }')
     out += ['        Ok(len)', '    }', '',
             '    fn write(&self, out: &mut [u8], offset: &mut usize) {']
-    if optional:
+    if any(not f['maybe'] for f in optional):
         out.append('        let bits = self.bits();')
     for field in fields:
-        if field['optional']:
+        if field['maybe']:
+            out.append(f'        if let Some(value) = self.{field["name"]} {{')
+            out.append('            write_bytes(&value.to_le_bytes(), out, offset);')
+            out.append('        }')
+        elif field['optional']:
             out.append(f'        if bits & {_mask(field["ordinal"])} != 0 {{')
             out.append(_write_line(field, '            '))
             out.append('        }')
@@ -288,7 +310,16 @@ def _reader_extra(declared):
         Ok(self.take(len)?.first().copied().unwrap_or(0))
     }
 ''']
-    for kind in sorted(kinds & set(SCALAR_BYTES)):
+    for kind in sorted({f['kind'] for f in optional if f['maybe']}):
+        out.append(f'''
+    fn maybe_{kind}(&mut self, bits: u8, mask: u8) -> Result<Option<{kind}>, i32> {{
+        if bits & mask == 0 {{
+            return Ok(None);
+        }}
+        Ok(Some({kind}::from_le_bytes(self.scalar()?)))
+    }}
+''')
+    for kind in sorted({f['kind'] for f in optional if not f['maybe']} & set(SCALAR_BYTES)):
         out.append(f'''
     fn opt_{kind}(&mut self, bits: u8, mask: u8, default: {kind}) -> Result<{kind}, i32> {{
         if bits & mask == 0 {{
@@ -339,7 +370,8 @@ def _record_extra(declared):
 def declaration_source(declared, statuses):
     """Mixed-batch API: registrations plus capped, borrowed wire records."""
     arms = lambda text: ''.join(text.replace('@T@', _camel(r['name']))
-                                .replace('@C@', _const(r['name'])) + '\n' for r in declared)
+                                .replace('@L@', _lifetime(r)).replace('@C@', _const(r['name']))
+                                + '\n' for r in declared)
     has_optional = any(f['optional'] for r in declared for f in r['fields'])
     source = '\n// Declaration records and the mixed-batch API.\n'
     source += ''.join(_record_source(record) for record in declared)
@@ -348,7 +380,7 @@ def declaration_source(declared, statuses):
                .replace('@RECORD_EXTRA@', _record_extra(declared))
                .replace('@BITMAP@', 'record.write_bitmap(out, &mut offset);' if has_optional
                         else 'write_varint(0, out, &mut offset);')
-               .replace('@VARIANTS@', arms("    /// A `@T@` record.\n    @T@(@T@<'a>),").rstrip('\n'))
+               .replace('@VARIANTS@', arms("    /// A `@T@` record.\n    @T@(@T@@L@),").rstrip('\n'))
                .replace('@DECODE@', arms('        @C@_TAG => @T@::decode(body)?,').rstrip('\n'))
                .replace('@TAGS@', arms('            Record::@T@(_) => @C@_TAG,').rstrip('\n'))
                .replace('@LENS@', arms('            Record::@T@(record) => record.body_len(),')

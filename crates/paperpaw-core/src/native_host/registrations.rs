@@ -21,6 +21,10 @@ pub use wire::{
 // Mixed registration and declaration batches: borrowed records with capped
 // strings. `registrations_decode` still admits callback registrations only.
 pub use wire::{
+    EVENT_BATTERY_MEASURED_TAG, EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES,
+    EVENT_PAGE_TURNED_PATH_MAX_BYTES, EVENT_PAGE_TURNED_TAG, EVENT_PAGE_TURNED_TITLE_MAX_BYTES,
+    EVENT_RESUME_TAG, EVENT_STARTED_TAG, EVENT_STOPPING_TAG, EVENT_SUSPEND_TAG,
+    EventBatteryMeasured, EventPageTurned, EventResume, EventStarted, EventStopping, EventSuspend,
     Record, RecordBatch, RecordIter, ResourceFontExtension, ResourceFontFace, ResourceHyphenation,
     SettingExtra, SettingGroup, SettingSpec, records_decode, records_encode,
 };
@@ -61,9 +65,11 @@ pub unsafe fn submit(scope: &RegistrationScope<Registration>, bytes: *const u8, 
         Ok(batch) => batch,
         Err(error) => return refuse(scope, error),
     };
-    // Only the tick event is supported; refuse before staging anything.
+    // Only events with a host encoder can be named; refuse before staging anything.
     let supported = batch.iter().all(|record| match record {
-        Record::Registration(Registration::Event { event_tag, .. }) => event_tag == EVENT_TICK_TAG,
+        Record::Registration(Registration::Event { event_tag, .. }) => {
+            super::events::is_event_tag(event_tag)
+        }
         _ => true,
     });
     if !supported {
