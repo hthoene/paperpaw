@@ -975,7 +975,7 @@ struct paperpaw_sdk::hyphenation::Hyphenation { languages: alloc::vec::Vec<(pape
 struct paperpaw_sdk::hyphenation::HyphenationSpec { id: paperpaw_sdk::id::Id, language: alloc::borrow::Cow<'static, str>, patterns: &'static [u8] }
 struct paperpaw_sdk::hyphenation::Hyphenator<'a> { table: paperpaw_sdk::hyphenation::Table<'a>, left: usize, right: usize }
 struct paperpaw_sdk::hyphenation::card::CardTables { storage: core::option::Option<alloc::rcs::rc::Rc<dyn paperpaw_platform::storage::Storage>>, opener: core::option::Option<paperpaw_sdk::hyphenation::card::Opener>, entries: alloc::vec::Vec<paperpaw_sdk::hyphenation::card::Entry>, next_serial: u32, open: core::cell::RefCell<alloc::vec::Vec<paperpaw_sdk::hyphenation::card::Open>>, clock: core::cell::Cell<u64> }
-struct paperpaw_sdk::hyphenation::card::Entry { plugin: alloc::string::String, tag: alloc::string::String, path: alloc::string::String, serial: u32, failures: core::cell::Cell<u8> }
+struct paperpaw_sdk::hyphenation::card::Entry { plugin: alloc::string::String, tag: alloc::string::String, path: alloc::string::String, serial: u32, failures: core::cell::Cell<u8>, needed: core::cell::Cell<usize> }
 struct paperpaw_sdk::hyphenation::card::Open { serial: u32, stamp: u64, reader: alloc::boxed::Box<dyn paperpaw_sdk::hyphenation::card::Reader> }
 struct paperpaw_sdk::hyphenation::card::Opener { open: fn(&alloc::rcs::rc::Rc<dyn paperpaw_platform::storage::Storage>, &str, &mut dyn core::ops::function::FnMut(usize) -> core::option::Option<usize> + '_) -> core::result::Result<alloc::boxed::Box<dyn paperpaw_sdk::hyphenation::card::Reader>, paperpaw_sdk::hyphenation::card::Unopened> }
 struct paperpaw_sdk::id::Id(0: paperpaw_sdk::id::Text)
