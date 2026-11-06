@@ -237,6 +237,12 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         })
     }
 
+    /// The declarations staged so far.
+    #[must_use]
+    pub const fn declarations(&self) -> &Declarations {
+        &self.declarations
+    }
+
     /// Stage a decoded, mixed batch: its callback registrations (converted by
     /// `convert`) and its declarations, all or nothing for the batch.
     /// Capacity for both is checked before either is changed. A refusal latches

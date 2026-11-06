@@ -8,7 +8,6 @@ use super::{
     Construction, Error,
     registrations::{self, RecordBatch, Registration},
 };
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_STATE};
 use core::{
     cell::{Cell, RefCell},
     fmt,
@@ -16,12 +15,16 @@ use core::{
     pin::Pin,
     ptr::NonNull,
 };
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_STATE};
 
 trait Target<T> {
     fn admission(&self) -> Result<(), Error>;
     fn submit(&self, record: T) -> Result<(), (Error, T)>;
-    fn submit_batch(&self, batch: &RecordBatch<'_>, convert: fn(Registration) -> T)
-    -> Result<(), i32>;
+    fn submit_batch(
+        &self,
+        batch: &RecordBatch<'_>,
+        convert: fn(Registration) -> T,
+    ) -> Result<(), i32>;
     fn reject(&self);
 }
 

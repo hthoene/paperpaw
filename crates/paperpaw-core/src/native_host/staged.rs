@@ -492,11 +492,7 @@ impl Declarations {
     }
 
     /// Faces and extensions share one namespace.
-    fn font_name_is_new<'a>(
-        &self,
-        name: &str,
-        earlier: impl Iterator<Item = Record<'a>>,
-    ) -> bool {
+    fn font_name_is_new<'a>(&self, name: &str, earlier: impl Iterator<Item = Record<'a>>) -> bool {
         !self.faces.iter().any(|x| x.name == name)
             && !self.extensions.iter().any(|x| x.name == name)
             && !{ earlier }.any(|e| match e {

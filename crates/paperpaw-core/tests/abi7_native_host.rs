@@ -58,7 +58,10 @@ fn staged_records_cannot_acquire_live_callback_admission() {
 fn overlapping_construction_is_busy_and_abort_permits_retry() {
     let owner = Box::pin(HostOwner::new((), ()));
     let first = owner.as_ref().begin::<()>("weather").unwrap();
-    assert!(matches!(owner.as_ref().begin::<()>("weather"), Err(Error::Busy)));
+    assert!(matches!(
+        owner.as_ref().begin::<()>("weather"),
+        Err(Error::Busy)
+    ));
     first.abort();
     let retry = owner.as_ref().begin::<()>("weather").unwrap();
     retry.abort();
@@ -66,7 +69,10 @@ fn overlapping_construction_is_busy_and_abort_permits_retry() {
     let batch = final_attempt.commit(ignore_context).unwrap();
     assert!(batch.is_empty());
     assert_eq!(batch.len(), 0);
-    assert!(matches!(owner.as_ref().begin::<()>("weather"), Err(Error::State)));
+    assert!(matches!(
+        owner.as_ref().begin::<()>("weather"),
+        Err(Error::State)
+    ));
 }
 
 #[test]
@@ -80,7 +86,10 @@ fn cancellation_during_make_refuses_commit_and_rolls_back_before_finish() {
     assert!(matches!(construction.commit(destroy), Err(Error::State)));
     assert_eq!(&*state.events.borrow(), &["record"]);
     assert_eq!(state.destroyed.get(), 0);
-    assert!(matches!(owner.as_ref().begin::<()>("weather"), Err(Error::State)));
+    assert!(matches!(
+        owner.as_ref().begin::<()>("weather"),
+        Err(Error::State)
+    ));
     owner.as_ref().finish().unwrap();
     drop(owner);
     assert_eq!(&*state.events.borrow(), &["record", "context", "module"]);
