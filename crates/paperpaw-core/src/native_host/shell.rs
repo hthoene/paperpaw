@@ -411,8 +411,8 @@ impl<'a, S, M, T> PendingInstance<'a, S, M, T> {
         let transaction = self.transaction.take().ok_or(Error::Attempt)?;
         let batch = transaction.staging.commit(crate::native_host::Teardown {
             report: report_context::<S>,
-            cancel: |_| Ok(()),
-            release: |_| Ok(()),
+            cancel: cancel_context::<S>,
+            release: release_context::<S>,
             destroy: destroy_context::<S>,
         })?;
         self.armed = false;
@@ -445,6 +445,47 @@ impl<S, M, T> Drop for PendingInstance<'_, S, M, T> {
         // Remaining record fields drain through the drop glue before the
         // local foreign-cleanup guard runs. A second panic aborts.
         drop(self.transaction.take());
+    }
+}
+
+fn cancel_context<S>(_: Pin<&Context<S>>) -> Result<(), super::Error> {
+    host_cleanup(super::TeardownStep::Cancel)
+}
+
+fn release_context<S>(_: Pin<&Context<S>>) -> Result<(), super::Error> {
+    host_cleanup(super::TeardownStep::Release)
+}
+
+fn host_cleanup(_step: super::TeardownStep) -> Result<(), super::Error> {
+    #[cfg(test)]
+    return teardown_fault::run(_step);
+    #[cfg(not(test))]
+    Ok(())
+}
+
+/// Test-only one-shot host failures. Never present in device builds.
+#[cfg(test)]
+pub(crate) mod teardown_fault {
+    extern crate std as test_std;
+    use crate::native_host::{Error, TeardownStep};
+    use core::cell::Cell;
+
+    test_std::thread_local! {
+        static FAILURE: Cell<Option<(TeardownStep, Error)>> = const { Cell::new(None) };
+    }
+
+    pub(crate) fn arm(step: TeardownStep, error: Error) {
+        FAILURE.with(|failure| failure.set(Some((step, error))));
+    }
+
+    pub(super) fn run(step: TeardownStep) -> Result<(), Error> {
+        FAILURE.with(|failure| match failure.get() {
+            Some((wanted, error)) if wanted == step => {
+                failure.set(None);
+                Err(error)
+            }
+            _ => Ok(()),
+        })
     }
 }
 
