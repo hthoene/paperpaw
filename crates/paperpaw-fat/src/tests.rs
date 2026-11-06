@@ -7,11 +7,14 @@ use alloc::vec::Vec;
 use fatfs::{FormatVolumeOptions, FsOptions, StdIoWrapper};
 use std::io::Cursor;
 
-type Disk = StdIoWrapper<Cursor<Vec<u8>>>;
+mod sparse;
+use sparse::SparseDisk;
+
+type Disk = StdIoWrapper<SparseDisk>;
 
 /// A fresh FAT disk of 4 MB, formatted.
 fn storage() -> FatStorage<Disk> {
-    let mut disk = StdIoWrapper::from(Cursor::new(vec![0u8; 4 << 20]));
+    let mut disk = StdIoWrapper::from(SparseDisk::empty(4 << 20));
     fatfs::format_volume(&mut disk, FormatVolumeOptions::new()).unwrap();
     disk.seek(SeekFrom::Start(0)).unwrap();
     let fs = FileSystem::new(disk, FsOptions::new()).unwrap();
@@ -99,7 +102,11 @@ impl Blocks for Cut {
 
 /// The storage on the card `bytes`.
 fn mounted(bytes: Vec<u8>) -> FatStorage<Disk> {
-    let fs = FileSystem::new(StdIoWrapper::from(Cursor::new(bytes)), FsOptions::new()).unwrap();
+    let fs = FileSystem::new(
+        StdIoWrapper::from(SparseDisk::from_bytes(&bytes)),
+        FsOptions::new(),
+    )
+    .unwrap();
     FatStorage::new(Box::leak(Box::new(fs)))
 }
 
