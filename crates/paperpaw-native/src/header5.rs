@@ -327,6 +327,22 @@ impl Header5 {
             + 8 * u64::from(self.patches)
     }
 
+    /// Where the words to relocate begin in the file; the patches follow
+    /// them ([`Header5::patches_at`]).
+    pub fn relocs_at(&self) -> u64 {
+        HEADER_LEN as u64 + u64::from(self.image_len)
+    }
+
+    /// Where the patches begin in the file.
+    pub fn patches_at(&self) -> u64 {
+        self.relocs_at() + 4 * u64::from(self.relocs)
+    }
+
+    /// Whether the image offset `at` lies in the hot code.
+    pub fn in_hot(&self, at: u32) -> bool {
+        at.wrapping_sub(self.hot_at) < self.hot_len
+    }
+
     /// Whether a file of `len` bytes ends with a signature; any other
     /// length is [`Refusal::Length`].
     fn signed_for(&self, len: u64) -> Result<bool, Refusal> {
