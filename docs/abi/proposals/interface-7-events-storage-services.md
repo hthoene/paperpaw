@@ -654,4 +654,76 @@ Q24 the frame behind these slots must also carry `Canvas` and font registry; the
 
 ## 5. Summary, open questions, estimates
 
-(placeholder)
+### 5.1 Decisions at a glance (all proposed)
+
+| # | Item | Proposal | New ABI surface |
+| --- | --- | --- | --- |
+| D1.1 | Battery sample | Keep a dedicated `battery_measured` event; not tick-driven | record 36 |
+| D1.2 | Lifecycle / page turn | Event kinds with `now_ms` header; not a query | records 32-35, 37 |
+| D1.3 | Key/touch/action input | Not events: screen callback table (Handled needed) | none here |
+| D2.1 | Storage | 7 path-based slots, no handles | slots 20-26 |
+| D2.2 | Namespace | `root` argument; root 0 = stamped plugin folder; others reserved | in slot signatures |
+| D2.5 | Power loss | `write` atomic <= 4096 B; `append` durable only after `sync`, torn tail possible | contract text |
+| D2.6 | Quota | Metering + free-space reserve (`ERR_FULL`); no hard quota | statuses -10, -11 |
+| D3.1-4 | services.query | Snapshot "data services", handle = Blob, 8 KiB cap, 16 KiB global budget, expires at callback end | records 48-52 |
+| D4.2 | i18n | `i18n.format` (args batch, plural via count record) and `i18n.digits` | slots 27, 28; records 44-46 |
+| D4.3 | Text/fonts | Keep slots 7, 8, 13, 14; build adapters; persistent handle = owned key, re-resolved per call | none |
+| D4.4 | Commands | `open_screen`, `run_action`, `redraw` beside `set_setting` | records 56-58 |
+
+Totals: 9 new slots (20-28), 2 new statuses, about 17 new record tags, all in 32-63.
+Generator work is required for all of them (`tools/abi_records.py:10-14,50` accepts only
+three shapes).
+
+### 5.2 Consolidated open questions for the owner and Senior
+
+Decisions the owner should make first:
+1. **Q13** Is slot 17 a snapshot query (this proposal) or reserved for interface services
+   with call tables, with a separate data query slot?
+2. **Q6** Does the owner want root confinement at all (ADR 0024 "no sandbox")? If yes,
+   which roots exist in M1 and how `Uses`/metadata gates the rest.
+3. **Q19** Widget strategy: plugin-side drawing code over slots, or host widget entries
+   (ADR34 class B/E)? Battery's view cannot be ported without an answer.
+4. **Q1** Screen input callbacks and action delivery (not events).
+5. **Q7** Free-space reserve size and whether any hard per-plugin quota exists.
+
+Also open: Q2 plugin-defined events (string ids); Q3 page-turned payload now or later,
+progress precision; Q4 event queue/drop policy; Q5 shell cadence of
+`battery_measured` and power-cut ordering after `suspend`/`stopping`; Q8 host-framed append
+record; Q9 `sync` fairness; Q10 status numbers and a media-gone status; Q11 `storage.list`;
+Q14 where a work-note is bounded; Q15 blobs outliving a callback; Q16 handle limit 4 per
+owner; Q17 `enabled` field; Q18 blob memory on X4; Q20 "key found" signal; Q21 font keys;
+Q22 redraw record versus batch header flag; Q23 cost of re-resolving fonts; Q24 frame
+contents; whether the generator copes with two `bytes` arguments in one entry.
+
+### 5.3 Verification items not done (needed before the text is final)
+
+- **V1** A cut test for `append`, `sync` and rename-over-an-appended-file in
+  `paperpaw-fat` (the existing cut harness `tests.rs:354-398,446` supports it); until it
+  exists section 2.1's torn-tail statements are inference.
+- **V2** Shell facts: how often `Kernel::tick` and `set_status` run on the X4 and the
+  desktop shell, and whether power-off waits for the suspend dispatch to return.
+- **V3** `docs/abi/commands.md` on Kernel's commands branch (not reachable) and
+  `docs/abi/proposals/declarative-registration.md` (not yet present): check for tag and
+  vocabulary overlap.
+- **V4** Heap numbers on the X4 (blob budget, args scratch, handle registry) are
+  estimates; none was measured. PlainBoard `get_task` #228 was readable; the Plugin
+  Engineer's Battery inventory (26-38 agent-hours) was used for the Battery-side facts.
+
+### 5.4 Implementation estimate (agent-hours, Kernel side, rough)
+
+Assumptions: includes generator changes, core adapters, unit tests, docs and one Senior
+review round per item; excludes X4 device qualification, the SDK facade and the plugin port
+itself (the Plugin Engineer's 26-38 h), and the declarative-registration and SetSetting
+work. Hours are for one agent working with the usual build limits.
+
+| Item | Work | Hours |
+| --- | --- | --- |
+| Generator groundwork | `str` fields, more record shapes, tag ranges, new statuses, lock/baseline updates, tests | 12-18 |
+| 1 Events | records 32-37, host encode and admission, dispatch order, tests | 10-16 |
+| 2 Storage | 7 slots, core adapter over `Storage` (root, path join/validate, reserve, metering), mapping table, FAT cut tests (V1) | 22-32 |
+| 3 services | key parser, 4 services, blob registry integration with budget and expiry, stream grammar, frame extension (usage, plugins, notes) | 22-32 |
+| 4 Text/fonts/i18n | font adapters and persistent handle with re-resolve, `handle.release`, extern wrappers for 13/14, `i18n.format`/`digits` | 18-26 |
+| 4 Commands | records 56-58, owner and target checks (on top of the SetSetting path) | 8-12 |
+| Total | | about 92-136 |
+
+The widget/UI strategy (Q19) is not in these numbers and may dominate the port.
