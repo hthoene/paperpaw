@@ -16,7 +16,7 @@ mirror once held a firmware job for 30–49 minutes (#876). `CLANG_PATH`, Ninja 
 are unchanged.
 
 Where the mirror is too slow to install `clang-18` (two attempts of 60 s for
-the package lists and 120 s for the install, about 8 minutes at most; the
+the package lists and 120 s for the install, 8 min 6 s at most (plus local processing); the
 partial files are kept between the attempts), the firmware jobs of the source
 checks (`clang-fallback: "true"` of the `xteink-tools` action, `ci.yml` only)
 go on with the newest `clang-NN` of at least version 18 that the runner image
