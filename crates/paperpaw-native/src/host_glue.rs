@@ -31,8 +31,8 @@ pub use generated::{
 };
 
 pub use generated::{
-    ERR_BUSY, ERR_CANCELLED, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE,
-    ERR_UNSUPPORTED, ERR_UTF8, MAJOR, MINOR, OK,
+    ERR_BUSY, ERR_CANCELLED, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE,
+    ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED, ERR_UTF8, MAJOR, MINOR, OK,
 };
 
 /// The largest alignment an allocation may ask for.

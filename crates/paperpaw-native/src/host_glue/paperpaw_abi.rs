@@ -92,6 +92,10 @@ pub const ERR_CANCELLED: i32 = -7;
 pub const ERR_IO: i32 = -8;
 /// ERR_BUSY: status value since minor 1.
 pub const ERR_BUSY: i32 = -9;
+/// ERR_NOT_FOUND: status value since minor 1.
+pub const ERR_NOT_FOUND: i32 = -10;
+/// ERR_FULL: status value since minor 1.
+pub const ERR_FULL: i32 = -11;
 /// Generated metadata_symbol export name.
 pub const METADATA_SYMBOL: &str = "PAPERPAW_METADATA";
 /// Generated entry_symbol export name.

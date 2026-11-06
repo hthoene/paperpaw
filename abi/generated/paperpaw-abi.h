@@ -43,6 +43,8 @@ typedef struct {
 #define PP_ERR_CANCELLED (-7)
 #define PP_ERR_IO (-8)
 #define PP_ERR_BUSY (-9)
+#define PP_ERR_NOT_FOUND (-10)
+#define PP_ERR_FULL (-11)
 /* Raw plugin tables. Check accessible bytes before reading fields. */
 typedef struct PpPlugin PpPlugin;
 typedef struct PpEntry PpEntry;

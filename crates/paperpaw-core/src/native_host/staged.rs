@@ -191,10 +191,31 @@ impl Counts {
 }
 
 fn group_cost(r: &SettingGroup<'_>) -> usize {
+    // Every field named: a text field added to the record must be counted here.
+    let SettingGroup {
+        name: _,
+        title: _,
+        order: _,
+        page: _,
+        parent: _,
+    } = r;
     size_of::<StagedGroup>() + r.name.len() + r.title.len() + r.page.len() + r.parent.len()
 }
 
 fn spec_cost(r: &SettingSpec<'_>) -> usize {
+    // Every field named: a text field added to the record must be counted here.
+    let SettingSpec {
+        name: _,
+        kind: _,
+        flags: _,
+        group: _,
+        title: _,
+        help: _,
+        default: _,
+        min: _,
+        max: _,
+        choices: _,
+    } = r;
     size_of::<StagedSpec>()
         + r.name.len()
         + r.group.len()
@@ -205,6 +226,20 @@ fn spec_cost(r: &SettingSpec<'_>) -> usize {
 }
 
 fn extra_cost(r: &SettingExtra<'_>) -> usize {
+    // Every field named: a text field added to the record must be counted here.
+    let SettingExtra {
+        name: _,
+        unit: _,
+        section: _,
+        follows: _,
+        shown_id: _,
+        shown_value: _,
+        editor_kind: _,
+        editor: _,
+        step: _,
+        flags: _,
+        check: _,
+    } = r;
     size_of::<StagedExtra>()
         + r.name.len()
         + r.unit.len()
@@ -216,14 +251,35 @@ fn extra_cost(r: &SettingExtra<'_>) -> usize {
 }
 
 fn hyph_cost(r: &ResourceHyphenation<'_>) -> usize {
+    // Every field named: a text field added to the record must be counted here.
+    let ResourceHyphenation {
+        language: _,
+        path: _,
+    } = r;
     size_of::<StagedHyphenation>() + r.language.len() + r.path.len()
 }
 
 fn face_cost(r: &ResourceFontFace<'_>) -> usize {
+    // Every field named: a text field added to the record must be counted here.
+    let ResourceFontFace {
+        name: _,
+        path: _,
+        family: _,
+        style: _,
+        weight: _,
+        role: _,
+        priority: _,
+    } = r;
     size_of::<StagedFontFace>() + r.name.len() + r.path.len() + r.family.len() + r.role.len()
 }
 
 fn ext_cost(r: &ResourceFontExtension<'_>) -> usize {
+    // Every field named: a text field added to the record must be counted here.
+    let ResourceFontExtension {
+        name: _,
+        path: _,
+        extends: _,
+    } = r;
     size_of::<StagedFontExtension>() + r.name.len() + r.path.len() + r.extends.len()
 }
 
@@ -287,56 +343,101 @@ impl Pending {
     }
 
     /// Capacity was reserved from the batch's own counts, so no push grows.
+    /// Every field is named, so a field added to a record fails to compile
+    /// here until it is staged.
     fn copy(&mut self, record: &Record<'_>) -> Result<(), i32> {
         match record {
-            Record::SettingGroup(r) => self.groups.push(StagedGroup {
-                name: own(r.name)?,
-                title: own(r.title)?,
-                order: r.order,
-                page: own(r.page)?,
-                parent: own(r.parent)?,
+            Record::SettingGroup(SettingGroup {
+                name,
+                title,
+                order,
+                page,
+                parent,
+            }) => self.groups.push(StagedGroup {
+                name: own(name)?,
+                title: own(title)?,
+                order: *order,
+                page: own(page)?,
+                parent: own(parent)?,
             }),
-            Record::SettingSpec(r) => self.specs.push(StagedSpec {
-                name: own(r.name)?,
-                kind: r.kind,
-                flags: r.flags,
-                group: own(r.group)?,
-                title: own(r.title)?,
-                help: own(r.help)?,
-                default: own_bytes(r.default)?,
-                min: r.min,
-                max: r.max,
-                choices: own(r.choices)?,
+            Record::SettingSpec(SettingSpec {
+                name,
+                kind,
+                flags,
+                group,
+                title,
+                help,
+                default,
+                min,
+                max,
+                choices,
+            }) => self.specs.push(StagedSpec {
+                name: own(name)?,
+                kind: *kind,
+                flags: *flags,
+                group: own(group)?,
+                title: own(title)?,
+                help: own(help)?,
+                default: own_bytes(default)?,
+                min: *min,
+                max: *max,
+                choices: own(choices)?,
             }),
-            Record::SettingExtra(r) => self.extras.push(StagedExtra {
-                name: own(r.name)?,
-                unit: own(r.unit)?,
-                section: own(r.section)?,
-                follows: own(r.follows)?,
-                shown_id: own(r.shown_id)?,
-                shown_value: own(r.shown_value)?,
-                editor_kind: r.editor_kind,
-                editor: own(r.editor)?,
-                step: r.step,
-                flags: r.flags,
+            Record::SettingExtra(SettingExtra {
+                name,
+                unit,
+                section,
+                follows,
+                shown_id,
+                shown_value,
+                editor_kind,
+                editor,
+                step,
+                flags,
+                check: _,
+            }) => self.extras.push(StagedExtra {
+                name: own(name)?,
+                unit: own(unit)?,
+                section: own(section)?,
+                follows: own(follows)?,
+                shown_id: own(shown_id)?,
+                shown_value: own(shown_value)?,
+                editor_kind: *editor_kind,
+                editor: own(editor)?,
+                step: *step,
+                flags: *flags,
             }),
-            Record::ResourceHyphenation(r) => self.hyphenations.push(StagedHyphenation {
-                language: own(r.language)?,
-                path: own(r.path)?,
+            Record::ResourceHyphenation(ResourceHyphenation { language, path }) => {
+                self.hyphenations.push(StagedHyphenation {
+                    language: own(language)?,
+                    path: own(path)?,
+                })
+            }
+            Record::ResourceFontFace(ResourceFontFace {
+                name,
+                path,
+                family,
+                style,
+                weight,
+                role,
+                priority,
+            }) => self.faces.push(StagedFontFace {
+                name: own(name)?,
+                path: own(path)?,
+                family: own(family)?,
+                style: *style,
+                weight: *weight,
+                role: own(role)?,
+                priority: *priority,
             }),
-            Record::ResourceFontFace(r) => self.faces.push(StagedFontFace {
-                name: own(r.name)?,
-                path: own(r.path)?,
-                family: own(r.family)?,
-                style: r.style,
-                weight: r.weight,
-                role: own(r.role)?,
-                priority: r.priority,
-            }),
-            Record::ResourceFontExtension(r) => self.extensions.push(StagedFontExtension {
-                name: own(r.name)?,
-                path: own(r.path)?,
-                extends: own(r.extends)?,
+            Record::ResourceFontExtension(ResourceFontExtension {
+                name,
+                path,
+                extends,
+            }) => self.extensions.push(StagedFontExtension {
+                name: own(name)?,
+                path: own(path)?,
+                extends: own(extends)?,
             }),
             _ => {}
         }
