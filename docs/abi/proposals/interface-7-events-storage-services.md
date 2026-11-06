@@ -550,6 +550,11 @@ cache is the existing ~100 B per open file x 16 (`lib.rs:117-125`) and is shared
 2048 B buffer plus a carry `Vec` (`log.rs:164-185`); with a 4096 cap the stack buffer
 should stay at 1-2 KiB on the X4.
 
+Each raw `read_at` adds a `size()` preflight before initializing output. This can
+add a FAT directory walk when the size is not already recalled. Measure the lookup
+cost with Battery's reads in the open X4 timing gate; no 4 KiB host heap staging
+is needed.
+
 ### 2.5 Open questions
 
 Q6 root/confinement policy (D2.2): settled by owner decision 125. Q7 reserve size and per-plugin quota. Q8 host-framed
