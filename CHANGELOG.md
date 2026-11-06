@@ -31,6 +31,8 @@ change the plugin SDK.
   is not shown), so plugins for a later host still load. Hosts check them and answer
   `ERR_UNSUPPORTED` until their menus take them; a plugin's translations stay the
   `i18n/<language>.ini` files of its folder (#228).
+- `Id::try_clone`: a copy of an id that gives `None` where the heap refuses instead of aborting
+  (kept ids copy without allocating), for hosts that must survive a full heap (#228).
 - Interface 7: host slots 29-31 (`text.metrics`, `text.ink`, `canvas.clip`) for text placed by its
   line and ink and for nested clipping, commands 56-59 (open screen, run action, redraw, close
   screen) in the generated command codec, and generated i18n format/digits limits. Hosts answer

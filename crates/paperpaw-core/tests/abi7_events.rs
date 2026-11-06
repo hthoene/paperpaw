@@ -354,7 +354,12 @@ fn submit_one(tag: u32) -> (i32, bool) {
         status = unsafe { registrations::submit(&slot, bytes.as_ptr(), n) };
     })
     .unwrap();
-    let batch = construction.commit(|_| {});
+    let batch = construction.commit(paperpaw_core::native_host::Teardown {
+        report: |_, _, _| {},
+        cancel: |_| Ok(()),
+        release: |_| Ok(()),
+        destroy: |_| {},
+    });
     let dispatched = batch.is_ok_and(|batch| {
         batch.dispatch(0, &DispatchDepth::new(), |_, r| *r)
             == Ok(Registration::Event {
@@ -393,5 +398,14 @@ fn a_registration_batch_cannot_carry_an_event_record() {
         assert_eq!(status, ERR_INVALID);
     })
     .unwrap();
-    assert!(construction.commit(|_| {}).is_err());
+    assert!(
+        construction
+            .commit(paperpaw_core::native_host::Teardown {
+                report: |_, _, _| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
+                destroy: |_| {}
+            })
+            .is_err()
+    );
 }
