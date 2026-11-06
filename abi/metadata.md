@@ -20,7 +20,9 @@ A build supplies `target`, `used`, `floor`, `services` and `features`. It cannot
 supply a downward `needs_minor` override. Host entries, records and individual
 fields contribute their declared minor; a field also requires its enclosing
 record's minor. Selected services and semantic features contribute their minor
-as well. Empty `used` requires the current SDK minor as a conservative floor.
+as well: the interface minor that introduced the service or feature, never a
+service's own version (its `major` and `semantic_revision` in the service record,
+see `docs/abi/proposals/interface-7-usage-clock.md`). Empty `used` requires the current SDK minor as a conservative floor.
 This does not discover actual code usage: generated stubs and build provenance
 must supply an honest complete dependency set before runtime qualification.
 
