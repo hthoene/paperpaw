@@ -60,6 +60,8 @@ use settings_value::{SettingValueRef, settings_encode};
 
 mod callbacks;
 pub use callbacks::EventKind;
+mod menus;
+pub use menus::{EntryPlacement, MenuEntryDecl};
 
 /// Most records in one batch.
 pub const BATCH_MAX_RECORDS: usize = records_wire::REGISTRATION_MAX_RECORDS;
@@ -405,6 +407,9 @@ impl<'a> ActionDecl<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Item<'a> {
+    MenuEntry(records_wire::MenuEntry<'a>),
+    Icon(records_wire::IconSpec<'a>),
+    MenuNeed(records_wire::MenuNeed<'a>),
     Registration(records_wire::Registration),
     Group(GroupDecl<'a>),
     Spec(SpecDecl<'a>, SpecParts),
@@ -1020,6 +1025,9 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
 impl<'a> Item<'a> {
     fn record(&self) -> Record<'_> {
         match self {
+            Item::MenuEntry(entry) => Record::MenuEntry(*entry),
+            Item::Icon(icon) => Record::IconSpec(*icon),
+            Item::MenuNeed(need) => Record::MenuNeed(*need),
             Item::Registration(registration) => Record::Registration(*registration),
             Item::Group(g) => Record::SettingGroup(SettingGroup {
                 name: g.name,
