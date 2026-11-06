@@ -85,6 +85,33 @@ measurement stay provisional until the X4 gate.
 - **Owner decisions (on #228, open):** whether slot 15 may write other plugins' unguarded settings
   (recommendation: own settings only, as implemented).
 
+## The `[hyphenation]` data-plugin kind (Kernel Engineer, 2026-11-06)
+
+This specifies Q1's data-plugin kind. Hyphenation data plugins use it instead of `resource.hyphenation`
+records.
+
+- **Format level.** A `plugin.ini` with a `[hyphenation]` section declares `formats = 5`. The kernel raises
+  `DATA_FORMATS` to 5 in the interface-7 batch, with the SDK interface files and CHANGELOG. A loader below 5
+  refuses the plugin as it refuses any newer format.
+- **Grammar.** One line per language: `<tag> = <path>`, for example `de = hyphenation/de.pphp`.
+  - `<tag>` is a BCP 47 tag of `[A-Za-z0-9-]`, 1 to 35 bytes, compared case-insensitively and kept in
+    lowercase.
+  - `<path>` follows Part 4's reference rule: relative to the plugin's install folder, `[A-Za-z0-9._-]` and `/`,
+    at most 3 segments and 100 bytes, no empty, `.`, `..` or dot-leading segment.
+  - At most 8 lines per plugin. Several tags may name the same file (`nb` and `no` on one table).
+- **Registry.** The key is the language tag alone; there is no per-table id. If several plugins provide one tag,
+  the plugin with the greatest id wins (D4). Warnings name an entry as `<plugin>:<tag>`.
+- **Errors at load.** A line with a bad tag, a bad path, a tag repeated in the same plugin, or beyond the eighth
+  is skipped with one warning. The plugin stays loaded.
+- **Errors at activation.** A missing file, a file over 2 MiB, or a file that is not `PPHP` version 1 with
+  consistent header offsets makes that language missing, with one warning. The plugin stays loaded, and the
+  reader treats the file as untrusted for its whole lifetime (D2).
+- **Packaging.** `paperpaw-dev package` checks all of the above on the host and refuses to package on any
+  failure: syntax, line count, that each file exists, the 2 MiB cap, and the `PPHP` version 1 header through
+  `paperpaw-hyphen`'s own validation. Its folder check accepts the `[hyphenation]` section and a `hyphenation/`
+  folder.
+- **English.** The base plugin `hyphenation` provides `en`; another plugin providing `en` overrides it by D4.
+
 ## 0. Summary of the proposal
 
 1. Registration is split over **three transports that share one record grammar**:
