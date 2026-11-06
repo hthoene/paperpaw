@@ -266,8 +266,20 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
 - [D] **Guarded grants.** User grants are host-held guarded settings under
   `core.grant.<kind>.<plugin id>` (`kind`: `style`, `install`). No plugin can ever write them:
   `command.set_setting`, a preview or a preset touching `core.grant.*` is `ERR_DENIED` and refuses
-  the whole batch, for every plugin including the one the grant names. A plugin may read only its
-  own grants, as yes/no; reading another plugin's grant is `ERR_DENIED`.
+  the whole batch, for every plugin including the one the grant names.
+- [D] **Own-grant reads (identity route).** A plugin reads its own grant with `settings.read` on the
+  short key `core.grant.<kind>`, without a plugin id. The host takes the caller from `ctx`, the
+  owner of the current dispatch frame, and answers a boolean: true only when the user granted that
+  kind to this plugin. The plugin never names itself, so it cannot name another plugin either; there
+  is no plugin id in the snapshot and no extra slot. Rules:
+  - A read of any `core.grant.<kind>.<id>` key, the caller's own id included, is `ERR_DENIED`, so
+    there is exactly one spelling.
+  - An unknown `<kind>` is `ERR_UNSUPPORTED` (a newer plugin on an older host).
+  - A grant change shows on the next read; no event announces it.
+  - Another plugin's grant reaches a plugin only where the host stamps it into a host-built record
+    (N4: `style_granted` in each stage reply).
+  - The SDK offers one typed read, `settings::own_grant(host, GrantKind) -> Result<bool, Error>`,
+    with a `#[non_exhaustive]` `GrantKind` (`Style`, `Install`).
 
 ## 13. Statuses, features and service families (D1, D2, D4, D5)
 
