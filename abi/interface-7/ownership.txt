@@ -15,6 +15,7 @@ exclusive-item paperpaw_native::host_glue::MAX_ALIGN
 exclusive-item paperpaw_native::host_glue::METADATA_SYMBOL
 exclusive-item paperpaw_native::host_glue::MINOR
 exclusive-item paperpaw_native::host_glue::OK
+exclusive-item paperpaw_native::host_glue::PLUGIN_PREFIX_BYTES
 exclusive-type paperpaw_native::host_glue::PpBuffer
 exclusive-type paperpaw_native::host_glue::PpBytes
 exclusive-type paperpaw_native::host_glue::PpEntry
@@ -67,3 +68,8 @@ exclusive-item paperpaw_native::host_glue::heap_alloc
 exclusive-item paperpaw_native::host_glue::heap_dealloc
 exclusive-item paperpaw_native::host_glue::heap_realloc
 exclusive-item paperpaw_native::host_glue::host_table
+exclusive-item paperpaw_native::host_glue::read_plugin_dispatch_event
+exclusive-item paperpaw_native::host_glue::read_plugin_draw
+exclusive-item paperpaw_native::host_glue::read_plugin_drop
+exclusive-item paperpaw_native::host_glue::read_plugin_size
+exclusive-item paperpaw_native::host_glue::read_plugin_state
