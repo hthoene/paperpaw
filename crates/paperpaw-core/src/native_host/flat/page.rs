@@ -35,6 +35,7 @@ pub(super) fn deliver(
 
 fn turn(now_ms: u64, params: &Params) -> Option<events::PageTurn<'_>> {
     if let Some(reading) = params.carried::<paperpaw_sdk::builtin::events::Reading>() {
+        let (page, pages) = counters(reading.page, reading.pages);
         return Some(events::PageTurn {
             now_ms,
             section: reading.section,
@@ -43,10 +44,11 @@ fn turn(now_ms: u64, params: &Params) -> Option<events::PageTurn<'_>> {
             path: &reading.path,
             title: &reading.title,
             chapter: &reading.chapter,
-            page: reading.page,
-            pages: reading.pages,
+            page,
+            pages,
         });
     }
+    let (page, pages) = counters(optional(params, "page"), optional(params, "pages"));
     Some(events::PageTurn {
         now_ms,
         section: u32::from_param(params.get("section")?)?,
@@ -55,16 +57,26 @@ fn turn(now_ms: u64, params: &Params) -> Option<events::PageTurn<'_>> {
         path: params.get("path")?,
         title: params.get("title")?,
         chapter: params.get("chapter")?,
-        page: optional(params, "page")?,
-        pages: optional(params, "pages")?,
+        page,
+        pages,
     })
 }
 
-fn optional(params: &Params, key: &str) -> Option<Option<u32>> {
-    match params.get(key) {
-        Some(value) => Some(Some(u32::from_param(value)?)),
-        None => Some(None),
+// Recounting can leave stale counters while the location is already current.
+// Keep delivering the location, marking unavailable counters as absent together.
+fn counters(page: Option<u32>, pages: Option<u32>) -> (Option<u32>, Option<u32>) {
+    if page == Some(0)
+        || pages == Some(0)
+        || matches!((page, pages), (Some(page), Some(pages)) if page > pages)
+    {
+        (None, None)
+    } else {
+        (page, pages)
     }
+}
+
+fn optional(params: &Params, key: &str) -> Option<u32> {
+    params.get(key).and_then(u32::from_param)
 }
 
 #[expect(

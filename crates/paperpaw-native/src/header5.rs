@@ -31,6 +31,10 @@ pub const HEADER_LEN: usize = 96;
 const DIGESTED_LEN: usize = 64;
 /// The most the metadata record may be (`max_bytes` of its descriptor).
 pub const META_MAX: u32 = 2048;
+
+/// The bytes of one patch in the file: three words, `kind | site`, the place
+/// the distance is taken from and the place it goes to (`abi/ppn5.md`).
+pub const PATCH_BYTES: u64 = 12;
 /// The interface major this firmware family speaks.
 pub const ABI_MAJOR: u16 = 7;
 /// The entry's length on the ESP32-C3 (profile `esp32c3-riscv32imc-ilp32-soft-le`).
@@ -389,7 +393,7 @@ impl Header5 {
         HEADER_LEN as u64
             + u64::from(self.image_len)
             + 4 * u64::from(self.relocs)
-            + 8 * u64::from(self.patches)
+            + PATCH_BYTES * u64::from(self.patches)
     }
 
     /// Where the words to relocate begin in the file; the patches follow
