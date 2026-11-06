@@ -282,8 +282,10 @@ impl<S: Services + 'static, M: 'static> Drop for Instance<S, M> {
             // any longer (the batch is gone and `finish` saw no lease).
             unsafe { ManuallyDrop::drop(&mut self.hosted) };
         } else {
-            // Not reachable while no lease is held. If it ever is, whatever
-            // holds the module must outlive it: kept, never freed.
+            // A teardown step still refuses (Busy) after its retry: the
+            // plugin is not destroyed and the owner is kept, never freed, so
+            // whatever holds the module must outlive it (tested with a
+            // persistent fault). The shell is told.
             (self.hooks.leaked)(&self.id);
         }
     }

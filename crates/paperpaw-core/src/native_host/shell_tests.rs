@@ -725,6 +725,30 @@ mod instance_tests {
         }
     }
 
+    #[test]
+    fn a_release_that_stays_busy_keeps_the_owner_and_reports_leaked_without_destroying() {
+        use crate::native_host::{Error as HostError, TeardownStep};
+        reset(NORMAL);
+        EVENT_ONLY.with(|e| e.set(true));
+        let host = flat_host();
+        let mut depth = None;
+        let plugin = load()
+            .unwrap()
+            .into_plugin(manifest(), &mut depth, &host)
+            .unwrap();
+        teardown_fault::arm_persistent(TeardownStep::Release, HostError::Busy);
+        drop(plugin);
+        teardown_fault::disarm();
+        // Told once (the first attempt), refused again by `finish`: the owner
+        // is kept, so the destructor never ran and the module was not freed.
+        assert_eq!(logged(), ["teardown_failed", "leaked"]);
+        assert!(
+            MODULE_ALIVE.with(Cell::get),
+            "the module outlives the kept owner"
+        );
+        assert_eq!(OPEN.with(Cell::get), 0, "every call ended");
+    }
+
     fn flat_host() -> crate::native_host::FlatHost {
         crate::native_host::FlatHost {
             meter: crate::meter::Meter::new(None),
@@ -747,10 +771,13 @@ mod instance_tests {
     fn an_allocation_failing_after_make_unloads_the_plugin_once_for_the_first_and_a_later_plugin() {
         use crate::native_host::flat::FlatError;
         let host = flat_host();
-        let mut refused = 0;
-        let mut made = 0;
         for later in [false, true] {
-            for nth in 1..=8 {
+            // The first plugin allocates the instance box, the device depth,
+            // the adapter's shared node and the adapter's box (4); a later
+            // one shares the depth (3). Every one of them can fail; past them
+            // the plugin is made.
+            let allocations = if later { 3 } else { 4 };
+            for nth in 1..=allocations + 2 {
                 reset(NORMAL);
                 EVENT_ONLY.with(|e| e.set(true));
                 let mut depth = None;
@@ -774,7 +801,7 @@ mod instance_tests {
                 assert_eq!(OPEN.with(Cell::get), 0, "{context}");
                 match result {
                     Err(why) => {
-                        refused += 1;
+                        assert!(nth <= allocations, "{context}: refused past the last");
                         assert_eq!(why, FlatError::Allocation, "{context}");
                         assert_eq!(logged(), ["destroy", "module"], "{context}: once");
                         if let (Some(first), Some(held)) = (first.as_ref(), held) {
@@ -782,7 +809,7 @@ mod instance_tests {
                         }
                     }
                     Ok(plugin) => {
-                        made += 1;
+                        assert!(nth > allocations, "{context}: made despite a failure");
                         drop(plugin);
                         assert_eq!(logged(), ["destroy", "module"], "{context}");
                     }
@@ -794,8 +821,6 @@ mod instance_tests {
                 assert_eq!(UNCOVERED.with(Cell::get), 0, "{context}: first");
             }
         }
-        assert!(refused > 0, "some step refused");
-        assert!(made > 0, "past the last allocation it is made");
     }
 
     #[test]
