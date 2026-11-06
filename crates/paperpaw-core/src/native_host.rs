@@ -1,4 +1,4 @@
-//! Host-only ownership for flat plugins, not installed in production dispatch.
+//! Host-only ownership and production dispatch for flat plugins.
 //!
 //! Shells pin an owner before calling make. The context owns the host table and
 //! allocator/service dependencies; the module guard keeps code mapped. Queues
@@ -20,6 +20,23 @@ pub mod canvas;
 /// Callback-scoped slot-15 command staging for host-owned plugin contexts.
 #[path = "native_host/commands.rs"]
 pub mod commands;
+
+#[path = "native_host/declaration_index.rs"]
+mod declaration_index;
+
+#[path = "native_host/declaration_checks.rs"]
+mod declaration_checks;
+
+#[path = "native_host/raw_declarations.rs"]
+mod raw_declarations;
+
+// Kept crate-private until Kernel's draft-4 SDK source contract lands.
+#[allow(
+    dead_code,
+    reason = "draft-4 SDK registry wiring follows the tested substrate"
+)]
+#[path = "native_host/declaration_store.rs"]
+pub(crate) mod declaration_store;
 
 /// Registry-free syntactic validation of declaration records.
 #[path = "native_host/declarations.rs"]
@@ -49,6 +66,14 @@ use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NO_SPACE};
 use registrations::{Record, RecordBatch, Registration};
 use staged::Declarations;
 
+/// Kernel-owned dependencies supplied to a shell's code loader.
+/// Only the kernel constructs this handle; adapters retain its shared meter.
+#[non_exhaustive]
+#[derive(Debug)]
+pub struct FlatHost {
+    pub(crate) meter: alloc::rc::Rc<crate::meter::Meter>,
+}
+
 /// Host admission or construction failure.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,6 +90,9 @@ pub enum Error {
     Depth,
     /// Host memory for the staged records ran out.
     Memory,
+    /// Temporary: removed when the draft-4 SDK declaration views land.
+    /// Image declarations cannot activate before those views are wired.
+    DeclarationViewsUnavailable,
 }
 
 impl From<lifecycle::Error> for Error {
@@ -148,7 +176,10 @@ impl<C, M> HostOwner<C, M> {
             records: core::array::from_fn(|_| None),
             len: 0,
             declarations: Declarations::default(),
+            raw: raw_declarations::RawDeclarations::default(),
             failure: None,
+            image: None,
+            submitted: false,
         })
     }
 
@@ -188,10 +219,44 @@ pub struct Construction<'a, C, M, T> {
     records: [Option<T>; REGISTRATIONS],
     len: usize,
     declarations: Declarations,
+    raw: raw_declarations::RawDeclarations,
     failure: Option<Error>,
+    image: Option<&'a [u8]>,
+    submitted: bool,
 }
 
 impl<'a, C, M, T> Construction<'a, C, M, T> {
+    /// Supply the module's immutable read-only image before make submits data.
+    /// The borrow remains live through the committed registration batch.
+    /// The shell must keep the mapping alive until the batch and owner leases
+    /// are dropped, including when it extends a mapped image's lifetime.
+    /// Post-construction access must use the live owner's image visitor and
+    /// generation checks. A stopped owner supplies no image.
+    ///
+    /// # Errors
+    /// Returns State after any submission or a previous image installation.
+    pub fn set_image(&mut self, image: &'a [u8]) -> Result<(), Error> {
+        if self.submitted || self.image.is_some() || self.failure.is_some() {
+            return Err(Error::State);
+        }
+        self.image = Some(image);
+        Ok(())
+    }
+
+    fn declaration_view(&self) -> declaration_checks::View<'_> {
+        declaration_checks::View {
+            raw: &self.raw,
+            owned: &self.declarations,
+            image: self.image,
+            plugin: self.plugin_id,
+        }
+    }
+
+    fn finish_declarations(&mut self) -> Result<(), i32> {
+        self.raw.sort_index();
+        self.declaration_view().finish()
+    }
+
     /// Poison this transaction after any registration decoding or validation
     /// refusal, even if foreign code ignores the returned status. Preserve an
     /// earlier staging failure. Only a new transaction can clear this latch.
@@ -209,6 +274,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// Returns Capacity with the unchanged record if all eight slots are filled,
     /// or the already latched failure if this transaction was rejected.
     pub fn stage(&mut self, record: T) -> Result<(), (Error, T)> {
+        self.submitted = true;
         if let Some(error) = self.failure {
             return Err((error, record));
         }
@@ -229,7 +295,8 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// Returns Invalid after validation refusal or when the staged declarations
     /// fail their cross-record checks ([`Declarations::finish`]), Capacity if staging overflowed
     /// a slot, count or byte limit, Memory if staging ran out of memory, or State if revoked
-    /// before commit.
+    /// before commit. DeclarationViewsUnavailable refuses image declarations
+    /// until the draft-4 SDK registry views are wired.
     /// Every Err drops staged records before returning and leaves destruction
     /// unarmed. The loader still owns its validated successful output and must
     /// destroy it exactly once while context and module remain alive. This is
@@ -239,14 +306,17 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
             return Err(error);
         }
         // Cross-record checks come first: a refusal leaves destruction unarmed.
-        self.declarations
-            .finish(self.plugin_id)
-            .map_err(|_| Error::Invalid)?;
+        self.finish_declarations().map_err(|_| Error::Invalid)?;
+        if self.raw.image_entries != 0 {
+            return Err(Error::DeclarationViewsUnavailable);
+        }
         let lease = CallbackLease(self.owner.inner().activate_leased(destroy)?);
         Ok(RegistrationBatch {
             records: core::mem::replace(&mut self.records, core::array::from_fn(|_| None)),
             len: self.len,
             declarations: core::mem::take(&mut self.declarations),
+            raw: core::mem::take(&mut self.raw),
+            _image: self.image,
             lease,
         })
     }
@@ -271,27 +341,59 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         batch: &RecordBatch<'_>,
         convert: fn(Registration) -> T,
     ) -> Result<(), i32> {
+        self.stage_with_raw(batch, convert, None)
+    }
+
+    fn stage_with_raw(
+        &mut self,
+        batch: &RecordBatch<'_>,
+        convert: fn(Registration) -> T,
+        wire: Option<&[u8]>,
+    ) -> Result<(), i32> {
         if let Some(error) = self.failure {
             return Err(registrations::status(error));
         }
-        let tokens = batch
-            .iter()
-            .filter(|record| matches!(record, Record::Registration(_)))
-            .count();
-        if self.len + tokens > REGISTRATIONS {
-            self.failure = Some(Error::Capacity);
-            return Err(ERR_NO_SPACE);
-        }
-        if let Err(code) = self.declarations.stage(self.plugin_id, batch) {
-            // Latch the cause, so that a warning can tell a limit or low memory
-            // from a broken rule.
+        self.submitted = true;
+        let result = self.stage_inner(batch, convert, wire);
+        if let Err(code) = result {
             self.failure = Some(match code {
                 ERR_NO_SPACE => Error::Capacity,
                 ERR_NO_MEMORY => Error::Memory,
                 _ => Error::Invalid,
             });
-            return Err(code);
         }
+        result
+    }
+
+    fn stage_inner(
+        &mut self,
+        batch: &RecordBatch<'_>,
+        convert: fn(Registration) -> T,
+        wire: Option<&[u8]>,
+    ) -> Result<(), i32> {
+        let tokens = batch
+            .iter()
+            .filter(|record| matches!(record, Record::Registration(_)))
+            .count();
+        if self.len + tokens > REGISTRATIONS {
+            return Err(ERR_NO_SPACE);
+        }
+        declarations::validate_batch(self.plugin_id, batch)?;
+        let raw = self.raw.prepare(self.image, wire, batch)?;
+        if raw
+            .as_ref()
+            .is_none_or(|pending| pending.batch.image.is_none())
+        {
+            let retained = self.raw.retained(raw.as_ref());
+            if self.image.is_some_and(|image| !image.is_empty()) && wire.is_some() {
+                self.declarations
+                    .stage_verified(self.plugin_id, batch, retained)?;
+            } else {
+                self.declarations
+                    .stage_retaining(self.plugin_id, batch, retained)?;
+            }
+        }
+        self.raw.commit(raw);
         for record in batch.iter() {
             if let (Record::Registration(registration), Some(slot)) =
                 (record, self.records.get_mut(self.len))
@@ -332,6 +434,8 @@ pub struct RegistrationBatch<'a, C, M, T> {
     records: [Option<T>; REGISTRATIONS],
     len: usize,
     declarations: Declarations,
+    raw: raw_declarations::RawDeclarations,
+    _image: Option<&'a [u8]>,
     lease: CallbackLease<'a, C, M>,
 }
 
@@ -346,6 +450,12 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.len == 0
+    }
+
+    // The draft-4 bridge consumes these snapshots together with Declarations.
+    #[allow(dead_code, reason = "draft-4 registry bridge follows the substrate")]
+    pub(crate) fn take_raw_declarations(&mut self) -> raw_declarations::RawDeclarations {
+        core::mem::take(&mut self.raw)
     }
 
     /// Move the staged declarations out, leaving an empty set behind. They are
@@ -433,3 +543,7 @@ impl<C, M> fmt::Debug for CallbackLease<'_, C, M> {
         f.debug_struct("CallbackLease").finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+#[path = "native_host/declaration_image_tests.rs"]
+mod declaration_image_tests;

@@ -8,10 +8,6 @@ use paperpaw_sdk::{Env, Plugins, Settings, usage::Usage, work::WorkStates};
 
 /// Separate shared field borrows, assembled by core dispatch before foreign code.
 /// This holds no mutable plugin state and never clones the meter's table.
-#[allow(
-    dead_code,
-    reason = "core service frame awaits slots 17-19 host wiring"
-)]
 pub(crate) struct CoreFrame<'a> {
     pub(crate) env: &'a Env<'a>,
     pub(crate) meter: &'a crate::meter::Meter,

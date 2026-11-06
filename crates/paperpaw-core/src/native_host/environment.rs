@@ -47,10 +47,6 @@ impl EnvironmentScope {
 
     /// Core dispatch supplies separate shared field borrows for one callback.
     /// Usage-table borrows exist only inside individual host visitor calls.
-    #[allow(
-        dead_code,
-        reason = "installed by core service dispatch when slots 17-19 are wired"
-    )]
     pub(crate) fn scope_core<R>(
         self: Pin<&Self>,
         frame: &CoreFrame<'_>,
@@ -135,3 +131,7 @@ impl fmt::Debug for EnvironmentScope {
         f.debug_struct("EnvironmentScope").finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+#[path = "flat/event_tests.rs"]
+mod event_tests;

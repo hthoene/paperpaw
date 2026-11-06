@@ -127,6 +127,43 @@ fn queries_without_a_frame_leave_output_unchanged() {
 }
 
 #[test]
+fn malformed_pairs_outside_dispatch_return_invalid_for_both_slots() {
+    let slot = pin!(FrameSlot::new());
+    for call in [queries::settings_read as Query, queries::i18n_copy] {
+        let mut output = [SENTINEL; 32];
+        // SAFETY: null with a nonzero length is rejected before dereferencing.
+        assert_eq!(
+            unsafe {
+                call(
+                    &slot,
+                    PpBytes {
+                        ptr: ptr::null(),
+                        len: 1,
+                    },
+                    buffer(&mut output),
+                )
+            },
+            ERR_INVALID
+        );
+        assert_eq!(output, [SENTINEL; 32]);
+        // SAFETY: the input is live; the invalid null output pair is rejected.
+        assert_eq!(
+            unsafe {
+                call(
+                    &slot,
+                    bytes(b"test.key"),
+                    PpBuffer {
+                        ptr: ptr::null_mut(),
+                        cap: 1,
+                    },
+                )
+            },
+            ERR_INVALID
+        );
+    }
+}
+
+#[test]
 fn malformed_pairs_are_rejected_before_any_frame_lookup() {
     let slot = pin!(FrameSlot::new());
     let settings = Settings::new();

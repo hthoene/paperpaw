@@ -64,10 +64,6 @@ impl Meter {
     }
 
     /// Read rows directly while one host visitor runs; no borrow crosses plugin code.
-    #[allow(
-        dead_code,
-        reason = "read by the usage service frame before slot wiring"
-    )]
     pub(crate) fn visit_rows(
         &self,
         from: u32,
