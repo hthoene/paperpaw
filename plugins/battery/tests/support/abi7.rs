@@ -1,7 +1,7 @@
 use paperpaw_core::native_host::events::{self, PageTurn};
 #[path = "../../declarations.rs"]
 mod declarations;
-pub use declarations::settings;
+pub use declarations::{settings, ui};
 
 pub struct EventFixture {
     pub name: &'static str,

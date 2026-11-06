@@ -91,3 +91,17 @@ fn image_settings_match_runtime_and_golden() {
     .unwrap();
     assert_eq!(index, image::SETTINGS.len());
 }
+
+#[test]
+fn image_screen_and_action_match_the_builder() {
+    let mut index = 0;
+    fixture::ui(|batch| {
+        assert_eq!(batch, image::UI[index]);
+        let records = paperpaw_core::native_host::registrations::records_decode(batch).unwrap();
+        validate_batch("battery", &records).unwrap();
+        index += 1;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(index, image::UI.len());
+}

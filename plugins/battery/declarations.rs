@@ -23,3 +23,15 @@ pub fn settings(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), Declar
     declarations.spec(by_plugin)?;
     declarations.submit()
 }
+
+/// Callback tokens are stable within this plugin image.
+pub const SCREEN_TOKEN: u32 = 10;
+pub const OPEN_TOKEN: u32 = 11;
+
+pub fn ui(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
+    use paperpaw_sdk::native::declare::{ActionDecl, ScreenDecl};
+    let mut declarations = Declarations::new(sink);
+    declarations.screen(ScreenDecl::new("screen", "battery.title", SCREEN_TOKEN))?;
+    declarations.action(ActionDecl::new("open", "battery.title", OPEN_TOKEN))?;
+    declarations.submit()
+}
