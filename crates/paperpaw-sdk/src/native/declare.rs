@@ -42,11 +42,11 @@ use core::mem::MaybeUninit;
 )]
 pub(crate) mod records_wire;
 
+use super::wire::settings_wire::{SettingValueRef, settings_encode};
 use records_wire::{
     ActionSpec, Record, ResourceFontExtension, ResourceFontFace, ResourceHyphenation, ScreenSpec,
     SettingExtra, SettingGroup, SettingSpec, records_encode,
 };
-use super::wire::settings_wire::{SettingValueRef, settings_encode};
 
 /// Most records in one batch.
 pub const BATCH_MAX_RECORDS: usize = records_wire::REGISTRATION_MAX_RECORDS;
