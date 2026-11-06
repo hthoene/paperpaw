@@ -10,7 +10,7 @@
 //! frame, so a change that makes the handler's frames larger fails the build.
 //!
 //! The budget is lines of `frame <bytes> <name>` (the largest frame of any
-//! function whose path holds `<name>`) and `chain <bytes> <name> ...` (the
+//! function whose path is `<name>` or ends in `::<name>`) and `chain <bytes> <name> ...` (the
 //! sum of the largest frame of each name stays within `<bytes>`: what one call
 //! down the chain takes at most). A name that matches no function fails too,
 //! so a rename cannot make a check pass by matching nothing. A function whose
@@ -35,43 +35,45 @@ pub struct Frame {
     pub path: String,
 }
 
-/// Every function of the executable sections of `elf`, with its frame.
+/// Every function of the executable sections of `elf`, with its frame. A
+/// symbol of no size has none to read: its frame is unknown, and so is an
+/// alias's of the same start that has none either way; an alias of a sized
+/// function has that function's frame.
 pub fn frames(elf: &Elf<'_>) -> Result<Vec<Frame>, String> {
     let (_, symbols) = elf
         .symbols()?
         .ok_or("no symbol table: the firmware is stripped")?;
-    let noreturn = noreturn_functions(&symbols);
     let mut out = Vec::new();
     for (index, section) in elf.sections.iter().enumerate() {
         if section.flags & SHF_EXECINSTR == 0 || section.size == 0 || section.kind == 8 {
             continue;
         }
         let code = elf.data(section)?;
-        let mut funcs: Vec<&Symbol> = symbols
+        let funcs: Vec<&Symbol> = symbols
             .iter()
-            .filter(|s| s.kind() == STT_FUNC && s.shndx as usize == index && s.size > 0)
+            .filter(|s| s.kind() == STT_FUNC && s.shndx as usize == index)
             .collect();
-        funcs.sort_by_key(|s| s.value);
-        funcs.dedup_by_key(|s| s.value);
         // Each function within its symbol's size and no further than the next
         // function's start, as the pack-time scan reads it.
         let sized: Vec<(usize, usize)> = funcs
             .iter()
+            .filter(|s| s.size > 0)
             .map(|s| (s.value.wrapping_sub(section.addr) as usize, s.size as usize))
             .collect();
         let ranges = function_ranges(&sized, code.len());
-        // One symbol per range: the first at that start.
-        let mut funcs: Vec<&Symbol> = funcs
-            .into_iter()
-            .filter(|s| (s.value.wrapping_sub(section.addr) as usize) < code.len())
-            .collect();
-        funcs.sort_by_key(|s| s.value);
-        funcs.dedup_by_key(|s| s.value);
+        let noreturn = noreturn_functions(code, &ranges, section.addr, true);
         let env = Env {
             base: section.addr,
             noreturn: &noreturn,
+            lenient: true,
         };
-        for (symbol, bytes) in funcs.iter().zip(frame_sizes_in(code, &ranges, env)) {
+        let sizes = frame_sizes_in(code, &ranges, env);
+        for symbol in funcs {
+            let at = symbol.value.wrapping_sub(section.addr) as usize;
+            let bytes = (symbol.size > 0)
+                .then(|| ranges.binary_search_by_key(&at, |&(s, _)| s).ok())
+                .flatten()
+                .and_then(|r| sizes[r]);
             out.push(Frame {
                 address: symbol.value,
                 bytes,
@@ -120,12 +122,22 @@ fn parse(budget: &str) -> Result<Vec<Rule>, String> {
     Ok(rules)
 }
 
-/// The largest frame of the functions whose path holds `name`: `Err` if
-/// none does, `Ok(None)` if one of them has a frame that cannot be read.
+/// Whether a function's `path` is `name`, or ends in `::name`: the whole
+/// path, not a part of a segment (`handler` is not `handler_helper`).
+fn names(path: &str, name: &str) -> bool {
+    path == name
+        || path
+            .strip_suffix(name)
+            .is_some_and(|before| before.ends_with("::"))
+}
+
+/// The largest frame of the functions whose path is `name` (see [`names`]):
+/// `Err` if none is, `Ok(None)` if one of them has a frame that cannot be
+/// read.
 fn largest(all: &[Frame], name: &str) -> Result<Option<u32>, String> {
     let mut found = false;
     let mut max = 0u32;
-    for f in all.iter().filter(|f| f.path.contains(name)) {
+    for f in all.iter().filter(|f| names(&f.path, name)) {
         found = true;
         match f.bytes {
             None => return Ok(None),
@@ -167,7 +179,7 @@ pub fn check(all: &[Frame], budget: &str) -> Result<Vec<String>, String> {
                             problems.push(format!("`{name}` has a frame the code does not size"));
                             bad = true;
                         }
-                        Ok(Some(b)) => sum += b,
+                        Ok(Some(b)) => sum = sum.saturating_add(b),
                     }
                 }
                 if !bad && sum > max {

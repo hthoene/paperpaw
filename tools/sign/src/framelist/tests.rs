@@ -87,3 +87,25 @@ fn the_budget_file_is_read_with_comments_and_refuses_nonsense() {
     assert!(check(&all, "chain 10").is_err());
     assert!(check(&all, "loop 10 a").is_err());
 }
+
+#[test]
+fn a_name_is_a_whole_path_or_its_tail_not_a_part_of_a_segment() {
+    // A renamed handler does not pass through a helper that holds its name.
+    let all = [frame("a::handler_helper", Some(10))];
+    let p = check(&all, "frame 100 handler").unwrap();
+    assert!(p[0].contains("no function matches"), "{p:?}");
+    let all = [frame("a::handler", Some(10)), frame("handler", Some(20))];
+    assert_eq!(check(&all, "frame 20 handler").unwrap().len(), 0);
+    assert!(check(&all, "frame 19 handler").unwrap()[0].contains("20"));
+    // Not a tail of a longer segment, nor a closure inside it.
+    assert!(!names("a::my_handler", "handler"));
+    assert!(!names("a::handler::{{closure}}", "handler"));
+    assert!(names("a::b::handler", "b::handler"));
+}
+
+#[test]
+fn a_chain_of_frames_that_would_overflow_is_over_its_budget_not_a_panic() {
+    let all = [frame("a::f", Some(u32::MAX)), frame("b::g", Some(10))];
+    let p = check(&all, "chain 100 a::f b::g").unwrap();
+    assert_eq!(p.len(), 1);
+}
