@@ -11,8 +11,11 @@ for pair in "cmake:cmake" "ninja:ninja-build" "$MBEDTLS_CLANG_PACKAGE:$MBEDTLS_C
   command -v "$tool" >/dev/null || missing+=("${pair#*:}")
 done
 if (( ${#missing[@]} )); then
-  sudo apt-get update
-  sudo apt-get install -y "${missing[@]}"
+  # A mirror that stalls must fail the step (and the job's timeout end it),
+  # not hold it for most of an hour: retries and timeouts on every request.
+  apt_options=(-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+  sudo apt-get "${apt_options[@]}" update
+  sudo apt-get "${apt_options[@]}" install -y "${missing[@]}"
 fi
 
 cmake --version

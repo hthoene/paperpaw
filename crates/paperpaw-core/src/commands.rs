@@ -235,6 +235,7 @@ impl Kernel {
             timer,
             notice,
             work,
+            self.free_count.due(),
             self.sleep_due(),
             shot,
             self.network_deadline(),
@@ -334,6 +335,34 @@ impl Kernel {
         }
     }
 
+    /// Opens a book in the reading app that takes it (`Command::OpenBook`).
+    fn open_book_command(&mut self, params: Params) {
+        let env = self.shared.env(self.now);
+        match paperpaw_sdk::readers::resolve(&env, &params) {
+            // The slot's own screen, by name: in place of another
+            // reading app the slot may show now. Not where it could
+            // not open the book either (it is a reader too): it
+            // says why itself.
+            Command::OpenSlot(slot, params) => {
+                let screen = self.shared.registry.resolve_slot(slot.as_str()).cloned();
+                let failed = screen.as_ref().is_some_and(|screen| {
+                    paperpaw_sdk::readers::past(&params).any(|past| {
+                        self.shared
+                            .readers
+                            .get(past)
+                            .is_some_and(|r| r.screen == *screen)
+                    })
+                });
+                if failed {
+                    self.warn_runtime("no reading app could open the book");
+                } else {
+                    self.open_slot_command(slot, screen, params);
+                }
+            }
+            command => self.apply(command),
+        }
+    }
+
     /// Carries out a command, by its kind.
     pub(crate) fn apply(&mut self, command: Command) {
         // Network use the plugin's manifest does not declare: refused.
@@ -353,32 +382,7 @@ impl Kernel {
             Command::OpenInSlot(slot, screen, params) => {
                 self.open_slot_command(slot, Some(screen), params);
             }
-            Command::OpenBook(params) => {
-                let env = self.shared.env(self.now);
-                match paperpaw_sdk::readers::resolve(&env, &params) {
-                    // The slot's own screen, by name: in place of another
-                    // reading app the slot may show now. Not where it could
-                    // not open the book either (it is a reader too): it
-                    // says why itself.
-                    Command::OpenSlot(slot, params) => {
-                        let screen = self.shared.registry.resolve_slot(slot.as_str()).cloned();
-                        let failed = screen.as_ref().is_some_and(|screen| {
-                            paperpaw_sdk::readers::past(&params).any(|past| {
-                                self.shared
-                                    .readers
-                                    .get(past)
-                                    .is_some_and(|r| r.screen == *screen)
-                            })
-                        });
-                        if failed {
-                            self.warn_runtime("no reading app could open the book");
-                        } else {
-                            self.open_slot_command(slot, screen, params);
-                        }
-                    }
-                    command => self.apply(command),
-                }
-            }
+            Command::OpenBook(params) => self.open_book_command(params),
             Command::Close(key) => self.close_screen(key),
             Command::Replace(screen, params) => self.replace(screen, &params),
             Command::BackTo(id) => self.back_to(&id),
@@ -431,6 +435,9 @@ impl Kernel {
             Command::PowerOff => self.power_off = self.shared.caps.power_off,
             Command::UsbDrive => {
                 self.usb_drive = self.shared.caps.has(paperpaw_sdk::Capability::USB_DRIVE);
+                if self.usb_drive {
+                    self.free_count.pause_for_usb();
+                }
             }
             Command::KeepAwake(hold) => self.keep_awake(hold),
             Command::LetSleep(id) => self.let_sleep(&id),

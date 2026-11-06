@@ -102,7 +102,9 @@ class BuildPrerequisites(unittest.TestCase):
             self.write(tool, self.template.read_text())
         self.write("sudo", """#!/bin/sh
 printf '%s\n' "$*" >> "$CALLS"
-if [ "$1 $2" = 'apt-get install' ]; then
+# apt-get takes its -o options before the verb: look for `install` anywhere.
+case " $* " in *' apt-get '*' install '*) installing=yes;; *) installing=;; esac
+if [ -n "$installing" ]; then
   for package in "$@"; do
     case "$package" in
       cmake) tool=cmake;; ninja-build) tool=ninja;; clang-18) tool=clang-18;; *) continue;;
@@ -146,8 +148,11 @@ fi
         (self.bin / "ninja").unlink()
         result = self.run_setup()
         self.assertEqual(result.returncode, 0, result.stderr)
+        # Retries and timeouts on both requests (a stalled mirror must fail the
+        # step), and only the missing package is installed.
+        options = "-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
         self.assertEqual((self.root / "calls").read_text().splitlines(),
-                         ["apt-get update", "apt-get install -y ninja-build"])
+                         [f"apt-get {options} update", f"apt-get {options} install -y ninja-build"])
 
     def test_failed_install_does_not_publish_an_environment(self):
         (self.bin / "cmake").unlink()

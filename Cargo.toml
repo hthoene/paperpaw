@@ -292,7 +292,9 @@ jni-macros = { path = "patches/jni-macros" }
 # again (`Dir::rename_found`, `remove_found`), lists a folder from an entry
 # on (`Dir::iter_from`, seeking from a place in the folder's cluster chain
 # kept with its note) and keeps notes about folders until an entry is
-# added to them (`Dir::note`), for lookups in big folders (patches/fatfs,
+# added to them (`Dir::note`), for lookups in big folders; and it counts
+# the clusters it marks taken and free (`FileSystem::cluster_changes`), so
+# paperpaw-fat follows the free space exactly (patches/fatfs,
 # "Modified for PaperPaw"). The X4's
 # firmware, a workspace of its own, patches it the same way.
 [patch."https://github.com/rafalh/rust-fatfs"]
