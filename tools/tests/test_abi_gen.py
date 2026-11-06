@@ -114,14 +114,14 @@ class SchemaTests(unittest.TestCase):
         for item in [dict(name='ERR_BAD', value=True, since=1),
                      dict(name='ERR_BAD', value=0, since=1),
                      dict(name='ERR_BAD', value=-1, since=1),
-                     dict(name='ERR_BAD', value=-12, since=True),
-                     dict(name='bad', value=-12, since=1)]:
+                     dict(name='ERR_BAD', value=-14, since=True),
+                     dict(name='bad', value=-14, since=1)]:
             new = copy.deepcopy(self.base)
             new['statuses'].append(item)
             with self.assertRaises(ValueError):
                 ABI.validate(new)
         new = copy.deepcopy(self.base)
-        new['statuses'].append(dict(name='ERR_NEXT', value=-12, since=1))
+        new['statuses'].append(dict(name='ERR_NEXT', value=-14, since=1))
         self.reject(new)
         new['minor'] = 2
         new['statuses'][-1]['since'] = 2

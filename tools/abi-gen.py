@@ -168,7 +168,9 @@ def validate_record(record, minor):
     require(type(record['fields']) is list, 'fields must be a list')
     names, ordinals = set(), set()
     for field in record['fields']:
-        keys(field, 'name type since optional ordinal default max_bytes')
+        # `list` (str fields only) bounds a separated list inside the text.
+        keys(field, 'name type since optional ordinal default max_bytes' +
+             (' list' if type(field) is dict and 'list' in field else ''))
         name(field['name'])
         require(field['name'] not in names, 'duplicate field name')
         names.add(field['name'])
@@ -438,6 +440,8 @@ def run(argv=None):
     if codec:
         outputs[folder / 'generated' / 'records_wire.rs'] = codec
         outputs[args.root / 'crates/paperpaw-core/src/abi7/records_wire.rs'] = codec
+        # The SDK's private copy (#180): byte for byte the same codec.
+        outputs[args.root / 'crates/paperpaw-sdk/src/native/declare/records_wire.rs'] = codec
     codec = rust_snapshot(schema)
     if codec:
         outputs[folder / 'generated' / 'snapshot_wire.rs'] = codec

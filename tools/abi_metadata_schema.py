@@ -31,7 +31,7 @@ def validate_metadata(schema):
     require(m['byte_order'] == 'little' and m['magic'] == 'PPAM', 'unsupported metadata encoding')
     integer(m['max_bytes'], 32, 2048)
     integer(m['max_key_bytes'], 1, 128)
-    integer(m['max_services'], 0, 16)
+    integer(m['max_services'], 0, 32)
     integer(m['max_features'], 0, 32)
     export_count = 2 if m['format'] == 1 else 1
     integer(m['max_exports'], export_count, export_count)
@@ -48,7 +48,7 @@ def validate_metadata(schema):
     keys(m['records'], 'export service feature')
     fields = {'export': 'record_bytes kind reserved expected_bytes name_bytes',
               'service': 'record_bytes key_bytes major semantic_revision min_table_bytes',
-              'feature': 'record_bytes key_bytes revision reserved'}
+              'feature': 'record_bytes key_bytes revision flags'}
     types = {'export': 'u16 u8 u8 u32 u16',
              'service': 'u16 u16 u16 u16 u32', 'feature': 'u16 u16 u16 u16'}
     for kind, names in fields.items():

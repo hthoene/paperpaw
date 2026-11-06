@@ -1048,7 +1048,12 @@
           "optional": false,
           "ordinal": null,
           "default": null,
-          "max_bytes": 1024
+          "max_bytes": 1024,
+          "list": {
+            "separator": "\n",
+            "max_items": 32,
+            "item_max_bytes": 96
+          }
         }
       ]
     },
@@ -2283,6 +2288,16 @@
       "name": "ERR_FULL",
       "value": -11,
       "since": 1
+    },
+    {
+      "name": "ERR_DENIED",
+      "value": -12,
+      "since": 1
+    },
+    {
+      "name": "ERR_TIMEOUT",
+      "value": -13,
+      "since": 1
     }
   ],
   "metadata": {
@@ -2291,7 +2306,7 @@
     "magic": "PPAM",
     "max_bytes": 2048,
     "max_key_bytes": 128,
-    "max_services": 16,
+    "max_services": 32,
     "max_features": 32,
     "max_exports": 1,
     "containers": {
@@ -2471,7 +2486,7 @@
           "type": "u16"
         },
         {
-          "name": "reserved",
+          "name": "flags",
           "type": "u16"
         }
       ]

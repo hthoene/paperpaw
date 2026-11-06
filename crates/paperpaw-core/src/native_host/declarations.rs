@@ -9,17 +9,18 @@
 
 use super::registrations::{
     ActionSpec, Record, RecordBatch, ResourceFontExtension, ResourceFontFace, ResourceHyphenation,
-    ScreenSpec, SettingExtra, SettingGroup, SettingSpec,
+    SETTING_SPEC_CHOICES_ITEM_MAX_BYTES, SETTING_SPEC_CHOICES_MAX_ITEMS,
+    SETTING_SPEC_CHOICES_SEPARATOR, ScreenSpec, SettingExtra, SettingGroup, SettingSpec,
 };
 use crate::abi7::settings_wire::{SettingValueRef, settings_decode};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
 
 /// Longest full id (plugin id, dot, relative name) in bytes: slot 15's key cap.
 pub const FULL_ID_MAX_BYTES: usize = 128;
-/// Most values in a choice list.
-pub const CHOICES_MAX_VALUES: usize = 32;
-/// Longest single choice value in bytes.
-pub const CHOICE_MAX_BYTES: usize = 96;
+/// Most values in a choice list (generated from `abi.def`).
+pub const CHOICES_MAX_VALUES: usize = SETTING_SPEC_CHOICES_MAX_ITEMS;
+/// Longest single choice value in bytes (generated from `abi.def`).
+pub const CHOICE_MAX_BYTES: usize = SETTING_SPEC_CHOICES_ITEM_MAX_BYTES;
 /// Most segments in a resource path.
 pub const PATH_MAX_SEGMENTS: usize = 3;
 /// Longest resource path in bytes.
@@ -189,12 +190,12 @@ fn spec_check(plugin_id: &str, spec: &SettingSpec<'_>) -> Check {
 fn choices_check(choices: &str, default: &str) -> Check {
     let mut count = 0;
     let mut found = false;
-    for (index, value) in choices.split('\n').enumerate() {
+    for (index, value) in choices.split(SETTING_SPEC_CHOICES_SEPARATOR).enumerate() {
         ensure(index < CHOICES_MAX_VALUES)?;
         ensure(!value.is_empty() && value.len() <= CHOICE_MAX_BYTES)?;
         ensure(
             choices
-                .split('\n')
+                .split(SETTING_SPEC_CHOICES_SEPARATOR)
                 .take(index)
                 .all(|earlier| earlier != value),
         )?;

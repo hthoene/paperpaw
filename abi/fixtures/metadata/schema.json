@@ -75,6 +75,10 @@
                 {
                   "name": "input",
                   "type": "bytes"
+                },
+                {
+                  "name": "out",
+                  "type": "buffer"
                 }
               ],
               "nullable": true,
@@ -93,6 +97,10 @@
                 {
                   "name": "token",
                   "type": "u32"
+                },
+                {
+                  "name": "input",
+                  "type": "bytes"
                 }
               ],
               "nullable": true,
@@ -1019,7 +1027,7 @@
     "max_exports": 1,
     "max_features": 32,
     "max_key_bytes": 128,
-    "max_services": 16,
+    "max_services": 32,
     "prefix": [
       {
         "name": "magic",
@@ -1122,7 +1130,7 @@
           "type": "u16"
         },
         {
-          "name": "reserved",
+          "name": "flags",
           "type": "u16"
         }
       ],
@@ -1787,6 +1795,15 @@
           "name": "pages",
           "optional": true,
           "ordinal": 1,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "insert",
+          "optional": true,
+          "ordinal": 2,
           "since": 1,
           "type": "u32"
         }
@@ -2464,6 +2481,94 @@
       "id": 46,
       "name": "i18n.count",
       "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "purpose",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "x",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "y",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "width",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "height",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "clip_top",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "clip_bottom",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "id",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 256,
+          "name": "payload",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        }
+      ],
+      "id": 192,
+      "name": "draw.frame",
+      "since": 1
     }
   ],
   "snapshot_value": {
@@ -2659,6 +2764,16 @@
       "name": "ERR_FULL",
       "since": 1,
       "value": -11
+    },
+    {
+      "name": "ERR_DENIED",
+      "since": 1,
+      "value": -12
+    },
+    {
+      "name": "ERR_TIMEOUT",
+      "since": 1,
+      "value": -13
     }
   ]
 }

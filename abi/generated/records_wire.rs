@@ -331,6 +331,12 @@ pub const SETTING_SPEC_HELP_MAX_BYTES: usize = 96;
 pub const SETTING_SPEC_DEFAULT_MAX_BYTES: usize = 512;
 /// Maximum bytes of `setting.spec.choices`.
 pub const SETTING_SPEC_CHOICES_MAX_BYTES: usize = 1024;
+/// Separator of the list in `setting.spec.choices`.
+pub const SETTING_SPEC_CHOICES_SEPARATOR: char = '\n';
+/// Most items in `setting.spec.choices`.
+pub const SETTING_SPEC_CHOICES_MAX_ITEMS: usize = 32;
+/// Longest item of `setting.spec.choices` in bytes.
+pub const SETTING_SPEC_CHOICES_ITEM_MAX_BYTES: usize = 96;
 
 /// The `setting.spec` record, borrowed from its batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -132,7 +132,20 @@ def _fields(record):
                      f'{name}.{label}: required fields start with their record')
         _require(record['since'] <= field['since'],
                  f'{name}.{label}: field older than its record')
-        out.append(dict(name=label, kind=kind, cap=cap, optional=field['optional'], since=field['since'],
+        items = field.get('list')
+        if items is not None:
+            _require(kind == 'str' and type(items) is dict
+                     and set(items) == {'separator', 'max_items', 'item_max_bytes'},
+                     f'{name}.{label}: list needs separator, max_items, item_max_bytes on a str')
+            _require(type(items['separator']) is str and len(items['separator']) == 1
+                     and items['separator'].isascii(),
+                     f'{name}.{label}: list separator must be one ASCII character')
+            _require(type(items['max_items']) is int and 1 <= items['max_items'] <= 255
+                     and type(items['item_max_bytes']) is int
+                     and 1 <= items['item_max_bytes'] <= cap,
+                     f'{name}.{label}: list bounds outside 1-255 items, 1-cap bytes')
+        out.append(dict(name=label, kind=kind, cap=cap, items=items, optional=field['optional'],
+                        since=field['since'],
                         ordinal=field['ordinal'], default=field['default'],
                         maybe=field['optional'] and kind in SCALAR_BYTES and field['default'] is None))
     return out
@@ -210,6 +223,16 @@ def _record_source(record):
             out += [f'/// Maximum bytes of `{name}.{field["name"]}`.',
                     f'pub const {prefix}_{field["name"].upper()}_MAX_BYTES: usize = '
                     f'{field["cap"]};']
+        items = field.get('items')
+        if items:
+            constant = f'{prefix}_{field["name"].upper()}'
+            out += [f'/// Separator of the list in `{name}.{field["name"]}`.',
+                    # Python's repr of one ASCII character is a valid Rust char literal.
+                    f'pub const {constant}_SEPARATOR: char = {items["separator"]!r};',
+                    f'/// Most items in `{name}.{field["name"]}`.',
+                    f'pub const {constant}_MAX_ITEMS: usize = {items["max_items"]};',
+                    f'/// Longest item of `{name}.{field["name"]}` in bytes.',
+                    f'pub const {constant}_ITEM_MAX_BYTES: usize = {items["item_max_bytes"]};']
     out += ['', f'/// The `{name}` record, borrowed from its batch.',
             '#[derive(Clone, Copy, Debug, PartialEq, Eq)]', f"pub struct {title}{_lifetime(record)} {{"]
     for field in fields:

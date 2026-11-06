@@ -170,6 +170,14 @@ subscriptions. Families added later refer to it instead of defining their own.
   the host drops it unread.
 - [D] Stop order: the host cancels open operations, then releases handles, then drops the state.
   No callback runs after `drop`.
+- [D] **Async operations (D3, #890).** Every asynchronous operation is a handle. Its completion
+  event is a level-triggered hint: it may be coalesced and never carries the only copy of the
+  result. The result stays readable through the handle until `handle.release`. Stop or unload
+  cancels every open operation, and nothing is called back afterwards; a late completion is
+  refused (`ERR_STATE`). SDK glue builds on exactly this.
+- [D] **Dropped events (D6).** `event_dropped` applies only to families whose contract says they
+  may drop (today: the lifecycle events of section 1.5 in the events proposal). Other families
+  deliver or fail the request; the lifecycle drop rule does not generalise.
 
 ## 8. Tag space (N3)
 
@@ -219,21 +227,46 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
 - [D] Dispatch depth 2 is final: a host callback may cause one nested plugin callback, no more. A
   stage subscriber that calls `stage.run` gets `ERR_STATE`. This keeps the X4 stack bounded.
 
-## 12. Plugin styles versus user settings (owner decision 131)
+## 12. User grants: styles and installs (owner decisions 131, 132)
 
 - [D] A plugin may override the user's reading settings (font, size, colour, spacing and so on)
-  only when the user has granted that plugin the right. Without the grant the user's setting wins,
-  and the host or reader drops the override. The grant is per plugin and stored as a user
-  setting. Style stages (N4) carry this rule.
+  only when the user has granted that plugin the right (decision 131). Without the grant the
+  user's setting wins, and the host or reader drops the override. Style stages (N4) carry this
+  rule.
+- [D] Installs and updates that a plugin triggers always need a host confirmation, unless the user
+  has exempted that plugin (decision 132). The confirmation flow belongs to the DEV family.
+- [D] **Guarded grants.** User grants are host-held guarded settings under
+  `core.grant.<kind>.<plugin id>` (`kind`: `style`, `install`). No plugin can ever write them:
+  `command.set_setting`, a preview or a preset touching `core.grant.*` is `ERR_DENIED` and refuses
+  the whole batch, for every plugin including the one the grant names. A plugin may read only its
+  own grants, as yes/no; reading another plugin's grant is `ERR_DENIED`.
 
-## 13. Memory (X4)
+## 13. Statuses, features and service families (D1, D2, D4, D5)
+
+- [D] **New statuses (D2).** `ERR_DENIED` (-12): the plugin did not declare the feature, or the
+  user refused (consent, a guarded grant). `ERR_TIMEOUT` (-13): a network or socket operation ran
+  out of time. Both stay distinct from `ERR_UNSUPPORTED` (the host lacks the function) and
+  `ERR_CANCELLED` (dismissed, stopped). SDK status types name both from 1.0 on.
+- [D] **Feature records (D1).** A plugin states the families it uses as metadata feature records,
+  `uses.<family>` (`uses.net`, `uses.secrets`, `uses.sockets`, `uses.library`, `uses.registry`,
+  `uses.device`). Bit 0 of the record's `flags` means required: a host that does not know a
+  required key refuses the load and names the key; a host ignores an unknown key without the bit.
+  Other bits are refused. See `abi/metadata.md`.
+- [D] **Service families (D4).** Every later family (NET, LIB, REG, FS, SEC, DEV and the rest) is a
+  versioned service schema behind `services.query`, not a set of one-off slots. Calls go through
+  one generic slot, `service.call(ctx, service, op: u32, input, out) -> count` (synchronous and
+  bounded); asynchronous work returns an operation handle under section 7. The slot and its
+  generator path come in the additive follow-up to this draft.
+- [D] **Limits (D5).** A plugin may require up to 32 services (was 16) and 32 features.
+
+## 14. Memory (X4)
 
 - Input/screen records and `draw.frame` are encoded on the host stack (a framed `draw.frame` is at most about 300 bytes).
 - Screens/actions: S2 index entries only (image path); about 16 bytes resident each.
 - i18n: one 4 KiB host scratch per call, none retained.
 - Reply buffers are lent from the existing host scratch, nothing per plugin.
 
-## 14. Work after this contract
+## 15. Work after this contract
 
 - Host adapters (Core):
   - screen/action apply (S2);

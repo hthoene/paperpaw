@@ -114,6 +114,10 @@ pub const ERR_BUSY: i32 = -9;
 pub const ERR_NOT_FOUND: i32 = -10;
 /// ERR_FULL: status value since minor 1.
 pub const ERR_FULL: i32 = -11;
+/// ERR_DENIED: status value since minor 1.
+pub const ERR_DENIED: i32 = -12;
+/// ERR_TIMEOUT: status value since minor 1.
+pub const ERR_TIMEOUT: i32 = -13;
 /// Generated metadata_symbol export name.
 pub const METADATA_SYMBOL: &str = "PAPERPAW_METADATA";
 /// Generated entry_symbol export name.
