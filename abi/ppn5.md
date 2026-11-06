@@ -45,8 +45,8 @@ After the header, unchanged from format 4: the image, then `relocs` u32 offsets 
 about layouts, compilers or Rust types is in the file.
 
 **The first 16 bytes never move** (magic, format, target, `abi_major`, `needs_minor`, `draft`,
-`flags`). So a later draft may change anything after them, and an older or newer draft is
-refused by `draft` before any other field is read.
+`flags`) while the draft lasts. So a later draft may change anything after them, and an older
+or newer draft is refused by `draft` before any other field is read.
 
 ## Identity: no fingerprint, a draft number
 
@@ -57,10 +57,18 @@ refused by `draft` before any other field is read.
 - The flat C boundary is versioned by `abi_major` / `needs_minor` (ABI lock). During the draft that
   is not enough, since a draft may change what a minor means. Hence `draft`: the header and the
   host carry the same number; **a file of another draft is refused, never loaded** (older: "built
-  for an earlier draft, rebuild"; newer: "needs a newer PaperPaw"). The freeze deletes the host's
-  draft constant without a trace (owner's condition on #186); the field stays at its offset as
-  required-zero, so no later offset moves. This needs one generator change on Kernel's side: the
-  draft is read from the lock, not typed in a shell.
+  for an earlier draft, rebuild"; newer: "needs a newer PaperPaw"). This needs one generator change on
+  Kernel's side: the draft is read from the lock, not typed in a shell.
+- **The freeze leaves no trace (owner's condition on #186), so the field cannot stay as a
+  required-zero.** A reserved-zero field *is* a trace of the draft concept in the frozen format.
+  Proposal: the draft header is **format 5** and is never a released format; the freeze PR
+  publishes the frozen header **without `draft`** as **format 6** (later offsets move once, in the
+  freeze batch, where the generator re-emits every layout anyway). A file built at a draft is then
+  refused by its format number ("built for an older PaperPaw") before any offset is read, exactly
+  like an interface-6 file; no draft file can be misread by the frozen loader. Nothing needs to
+  stay in the host or the lock. Alternative if a stable format number matters more: keep format 5
+  and the field as required-zero (a layout fact, not a draft constant), at the price of two
+  reserved bytes that name nothing. Decision for the reviewers.
 
 ## The loader's order (X4; the same as ADR 0034 section 6)
 
@@ -105,8 +113,8 @@ anything is read at the extents they name; counts multiply with checked arithmet
 ## Open for the reviewers
 
 1. **`draft` in the header** (above) against deriving the draft from the lock's identity and keeping
-   it only in the metadata record. The header field refuses before the layout is read; the
-   metadata alternative is smaller but needs the layout first.
+   it only in the metadata record (smaller, but needs the layout first), and, if the header field
+   stays, **format 6 at the freeze or required-zero** (see "The freeze leaves no trace").
 2. **Hot code and patches stay** in format 5 (the X4's RISC-V speed), unchanged from format 4.
 3. **X4 Pro (ESP32-S3):** no Xtensa profile exists in `abi/entry.md`; `target` 9 is reserved, nothing
    else is specified for it here.
