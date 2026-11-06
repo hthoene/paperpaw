@@ -37,7 +37,7 @@ use core::mem::MaybeUninit;
     dead_code,
     reason = "generated declaration record codec (abi/generated/records_wire.rs, byte for byte)"
 )]
-mod records_wire;
+pub(crate) mod records_wire;
 #[rustfmt::skip]
 #[allow(
     clippy::all,
