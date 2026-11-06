@@ -4,7 +4,8 @@
 //! Checking that identity first avoids dereferencing an unverified raw pointer.
 //! No factory executes here and no signature or placement check is implied.
 
-use super::shell::Make;
+use super::shell::{self, Make};
+use paperpaw_native::host_glue::Services;
 use paperpaw_native::{host_glue::PpEntry, metadata};
 
 /// A refusal before a linked plugin factory is allowed to run.
@@ -21,6 +22,46 @@ pub(crate) enum Refusal {
 pub(crate) struct Admitted {
     pub(crate) make: Make,
     pub(crate) metadata: metadata::Checked<'static>,
+}
+
+impl Admitted {
+    /// Copy validated service admission before retaining the linked factory.
+    /// This constructs only the host; the registration transaction runs make.
+    ///
+    /// # Safety
+    /// The linked factory must obey Hosted's native factory contract. Its code
+    /// and static data must remain loaded for the entire program lifetime.
+    pub(crate) unsafe fn hosted<S: Services>(
+        self,
+        services: S,
+        id: &str,
+        report: shell::Report<S>,
+        resources: super::HostResources,
+    ) -> Result<shell::Hosted<S, ()>, shell::Error> {
+        let declared =
+            shell::DeclaredServices::try_from_iter(self.metadata.services()).map_err(|error| {
+                match error {
+                    shell::DeclaredServicesError::Invalid => {
+                        shell::Error::Status(paperpaw_native::host_glue::ERR_INVALID)
+                    }
+                    shell::DeclaredServicesError::NoMemory => shell::Error::Allocation,
+                }
+            })?;
+        // SAFETY: the caller guarantees the factory contract and static code
+        // lifetime; linked entries retain no unloadable module or image range.
+        unsafe {
+            shell::Hosted::new(
+                services,
+                (),
+                self.make,
+                id,
+                (0, 0),
+                report,
+                resources,
+                declared,
+            )
+        }
+    }
 }
 
 /// Admit the immutable entry/metadata pair linked by the app or shell.

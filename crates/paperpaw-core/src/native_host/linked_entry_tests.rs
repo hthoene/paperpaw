@@ -156,3 +156,42 @@ fn linked_entry_preserves_required_feature_refusals() {
         })
     );
 }
+
+#[test]
+fn linked_host_copies_service_admission_before_any_factory_call() {
+    struct NoHeap;
+    impl Services for NoHeap {
+        fn alloc(&self, _: usize, _: usize) -> *mut u8 {
+            ptr::null_mut()
+        }
+        unsafe fn dealloc(&self, _: *mut u8, _: usize, _: usize) {}
+        unsafe fn realloc(&self, _: *mut u8, _: usize, _: usize, _: usize) -> *mut u8 {
+            ptr::null_mut()
+        }
+        fn micros(&self) -> u64 {
+            0
+        }
+    }
+    MAKES.with(|count| count.set(0));
+    let admitted = check(entry(METADATA, |_| {}), METADATA, &host()).unwrap();
+    // SAFETY: this test's factory and data are static and never unloaded.
+    let hosted = unsafe {
+        admitted.hosted(
+            NoHeap,
+            "fixture",
+            |_, _, _, _| {},
+            super::super::HostResources::try_new().unwrap(),
+        )
+    }
+    .unwrap();
+    assert_eq!(MAKES.with(Cell::get), 0);
+    assert_eq!(hosted.image(), Some(&[][..]));
+    let transaction = hosted
+        .begin::<super::super::registrations::Registration>()
+        .unwrap();
+    assert_eq!(
+        hosted.make_registered(transaction).err(),
+        Some(shell::Error::Factory(host_glue::ERR_UNSUPPORTED))
+    );
+    assert_eq!(MAKES.with(Cell::get), 1);
+}
