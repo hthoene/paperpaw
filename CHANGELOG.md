@@ -8,6 +8,8 @@ change the plugin SDK.
 
 ### Added
 
+- `paperpaw-hyphen`: `check_table` and `TableError` behind the `kernel` feature (not seen by plugins), the one check of a pattern table that the
+  kernel's reader and `paperpaw-dev package` share (#228).
 - Interface-7 groundwork: generated typed settings values and scoped settings/translation
   copy-out adapters, with bounded handle and callback admission checks (#228).
   The new host table is not yet activated.

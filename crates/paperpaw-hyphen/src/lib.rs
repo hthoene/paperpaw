@@ -24,12 +24,16 @@
 
 extern crate alloc;
 
+#[cfg(feature = "kernel")]
+mod check;
 mod compile;
 
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 use core::fmt;
 
+#[cfg(feature = "kernel")]
+pub use check::{TableError, check_table};
 pub use compile::compile;
 
 /// Patterns per index entry.
