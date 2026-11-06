@@ -19,6 +19,11 @@ change the plugin SDK.
 
 ### Added
 
+- Interface 7: command 60 `command.set_item_state` in the generated command codec: a plugin says
+  what menus show of its own actions and settings (label and badge as catalog keys with arguments,
+  hidden, faint, a switch) when it changes, instead of interface 6's callback asked on every menu;
+  with `keep` the host restores it at boot without starting the plugin. Hosts answer
+  `ERR_UNSUPPORTED` until their menus take it (#228).
 - Graphics: `Framebuffer::probe`, a framebuffer that keeps no pixels but where masks put ink
   (pixels at or above the frame's ink threshold, `Framebuffer::ink_threshold`, unclipped), and
   `InkBounds`; host-only `FontHandle::ink_drawn`

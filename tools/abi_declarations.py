@@ -9,7 +9,7 @@ import re
 # Records with their own hand-written codec; every other record is generated.
 INITIAL_RECORDS = ('registration.event', 'registration.draw', 'event.tick')
 COMMAND_RECORDS = ('command.set_setting', 'command.open_screen', 'command.run_action',
-                   'command.redraw', 'command.close_screen')
+                   'command.redraw', 'command.close_screen', 'command.set_item_state')
 
 # Tag allocation (interface-7 contract, shared rule 1). Tags are never reused.
 # A name is matched exactly first, then by its first segment; 63 is reserved.
