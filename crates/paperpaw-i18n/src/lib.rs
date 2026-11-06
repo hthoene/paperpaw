@@ -283,6 +283,8 @@ impl Translator {
     /// `scratch` must hold at least `key.len() + 6` bytes for the lookup key.
     /// Returns `None` if the scratch is too small or no catalog has a message.
     /// The message borrows this translator, independently of the scratch.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn get_plural<'s>(&'s self, key: &str, count: i64, scratch: &mut [u8]) -> Option<&'s str> {
         let required = key.len().checked_add(6)?;
         let scratch = scratch.get_mut(..required)?;

@@ -30,7 +30,7 @@ paperpaw-native.workspace = true
 paperpaw-platform.workspace = true
 paperpaw-config.workspace = true
 paperpaw-graphics.workspace = true
-paperpaw-i18n.workspace = true
+paperpaw-i18n = { workspace = true, features = ["kernel"] }
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
 paperpaw-hid.workspace = true
 
