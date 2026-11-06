@@ -1,4 +1,4 @@
-//! Public kernel-backed dispatch without exposing borrowed CoreFrame internals.
+//! Test-only kernel-backed dispatch without exposing borrowed CoreFrame internals.
 use super::{
     Batch, DispatchDepth, Error, Invocation, Registration, invoke_registration, screen_frame,
 };
@@ -14,7 +14,7 @@ impl Kernel {
     ///
     /// # Errors
     /// Returns the owner or frame refusal, or a missing callback error.
-    pub fn dispatch_native<S, M>(
+    pub(crate) fn dispatch_native_for_test<S, M>(
         &self,
         batch: &Batch<'_, S, M, Registration>,
         index: usize,
@@ -45,7 +45,7 @@ impl Kernel {
     ///
     /// # Errors
     /// Returns an owner, frame or canvas refusal, or a missing callback error.
-    pub fn draw_native<S, M>(
+    pub(crate) fn draw_native_for_test<S, M>(
         &self,
         batch: &Batch<'_, S, M, Registration>,
         index: usize,

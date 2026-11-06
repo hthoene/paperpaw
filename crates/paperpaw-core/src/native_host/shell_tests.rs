@@ -238,6 +238,9 @@ unsafe extern "C" fn event(state: *mut c_void, token: u32, input: PpBytes, reply
 }
 
 unsafe extern "C" fn draw(state: *mut c_void, token: u32, frame: PpBytes) -> i32 {
+    if !has_expected_core_frame(state) {
+        return host_glue::ERR_STATE;
+    }
     if token != TOKEN || frame.len == 0 || frame.ptr.is_null() {
         return ERR_INVALID;
     }
@@ -764,13 +767,13 @@ fn kernel_dispatch_supplies_real_core_views_and_clears_them_after_callbacks() {
         Ok(host_glue::ERR_STATE)
     );
     assert_eq!(
-        kernel.dispatch_native(&batch, 0, &depth, Invocation::Event(&[1, 2, 3]), now),
+        kernel.dispatch_native_for_test(&batch, 0, &depth, Invocation::Event(&[1, 2, 3]), now),
         Ok(OK)
     );
     let mut framebuffer =
         paperpaw_graphics::Framebuffer::new(20, 80, paperpaw_platform::PixelFormat::Gray8).unwrap();
     assert_eq!(
-        kernel.draw_native(&batch, 1, &depth, now, &mut framebuffer.canvas()),
+        kernel.draw_native_for_test(&batch, 1, &depth, now, &mut framebuffer.canvas()),
         Ok(OK)
     );
     assert_eq!(
