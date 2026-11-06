@@ -1,4 +1,4 @@
-//! Host-only ownership for flat plugins, not installed in production dispatch.
+//! Host-only ownership and production dispatch for flat plugins.
 //!
 //! Shells pin an owner before calling make. The context owns the host table and
 //! allocator/service dependencies; the module guard keeps code mapped. Queues
@@ -48,6 +48,14 @@ pub mod storage;
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NO_SPACE};
 use registrations::{Record, RecordBatch, Registration};
 use staged::Declarations;
+
+/// Kernel-owned dependencies supplied to a shell's code loader.
+/// Only the kernel constructs this handle; adapters retain its shared meter.
+#[non_exhaustive]
+#[derive(Debug)]
+pub struct FlatHost {
+    pub(crate) meter: alloc::rc::Rc<crate::meter::Meter>,
+}
 
 /// Host admission or construction failure.
 #[non_exhaustive]
