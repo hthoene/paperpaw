@@ -662,7 +662,7 @@ mod instance_tests {
         let plugin = FlatPlugin::new(
             manifest,
             alloc::boxed::Box::new(instance),
-            alloc::rc::Rc::new(DispatchDepth::new()),
+            crate::native_host::flat::FlatDepth::try_new().unwrap(),
             &host,
         )
         .unwrap();
