@@ -49,10 +49,9 @@ use records_wire::{
 };
 use settings_value::{SETTINGS_MAX_BYTES, SettingValueRef, settings_encode};
 
-use crate::settings::{
-    Editor, Level, SettingExtra as SdkExtra, SettingGroupSpec, SettingKind, SettingSpec as SdkSpec,
-    SettingValue,
-};
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+mod interface6;
 
 /// Most records in one batch.
 pub const BATCH_MAX_RECORDS: usize = records_wire::REGISTRATION_MAX_RECORDS;
@@ -64,6 +63,9 @@ pub const CHOICES_MAX_VALUES: usize = 32;
 pub const CHOICE_MAX_BYTES: usize = 96;
 
 /// Setting flags of a `setting.spec` record.
+/// The encoder's status for "does not fit".
+const ERR_NO_SPACE: i32 = paperpaw_native::host_glue::ERR_NO_SPACE;
+
 const SPEC_SCOPED: u32 = 1;
 const SPEC_GUARDED: u32 = 1 << 1;
 const SPEC_KEPT_ON_RESET: u32 = 1 << 2;
@@ -148,6 +150,7 @@ pub enum Kind {
 
 /// A `setting.group` record.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GroupDecl {
     /// The group's id, relative to the plugin.
     pub name: String,
@@ -177,6 +180,7 @@ impl GroupDecl {
 
 /// A `setting.spec` record.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SpecDecl {
     /// The setting's id, relative to the plugin.
     pub name: String,
@@ -221,6 +225,7 @@ impl SpecDecl {
 
 /// A `setting.extra` record: what few settings have, for the setting `name`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ExtraDecl {
     /// The setting's relative name.
     pub name: String,
@@ -234,7 +239,8 @@ pub struct ExtraDecl {
     pub shown_if: Option<(String, String)>,
     /// Where it is edited.
     pub editor: Option<EditorDecl>,
-    /// How much one step changes a number; 1 is the default.
+    /// How much one step changes a number. 0 and 1 both mean one step and are
+    /// written to the wire as 0.
     pub step: i32,
     /// Shown as a slider on touch screens.
     pub slider: bool,
@@ -273,6 +279,7 @@ impl ExtraDecl {
 
 /// A `resource.font_face` record.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FontFaceDecl {
     /// The face's id, relative to the plugin.
     pub name: String,
@@ -290,8 +297,25 @@ pub struct FontFaceDecl {
     pub priority: i32,
 }
 
+impl FontFaceDecl {
+    /// A face `name` (relative to the plugin) from the file `path`; the rest as
+    /// set with the fields.
+    pub fn new(name: &str, path: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            path: path.to_owned(),
+            family: String::new(),
+            style: 0,
+            weight: 0,
+            role: String::new(),
+            priority: 0,
+        }
+    }
+}
+
 /// A `resource.font_extension` record: glyphs a `.ppfp` pack adds to a face.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FontExtensionDecl {
     /// The extension's id, relative to the plugin.
     pub name: String,
@@ -299,6 +323,18 @@ pub struct FontExtensionDecl {
     pub path: String,
     /// The full id of the face it extends.
     pub extends: String,
+}
+
+impl FontExtensionDecl {
+    /// An extension `name` (relative to the plugin) from the `.ppfp` file
+    /// `path`, adding glyphs to the face `extends` (a full id).
+    pub fn new(name: &str, path: &str, extends: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            path: path.to_owned(),
+            extends: extends.to_owned(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -672,8 +708,9 @@ impl Declarations {
     fn fill_batch(&self, start: usize) -> Result<(Vec<u8>, usize), DeclareError> {
         let rest = self.items.get(start..).unwrap_or_default();
         let mut taken = rest.len().min(BATCH_MAX_RECORDS);
+        // A refused encode leaves the output unchanged, so one buffer serves every try.
+        let mut out = alloc::vec![0_u8; BATCH_MAX_BYTES];
         loop {
-            let mut out = alloc::vec![0_u8; BATCH_MAX_BYTES];
             let records: Vec<Record<'_>> = rest[..taken].iter().map(Item::record).collect();
             match records_encode(&records, &mut out) {
                 Ok(len) => {
@@ -681,172 +718,10 @@ impl Declarations {
                     return Ok((out, taken));
                 }
                 // Too many bytes for this many records: try one fewer.
-                Err(-3) if taken > 1 => taken -= 1,
+                Err(ERR_NO_SPACE) if taken > 1 => taken -= 1,
                 Err(status) => return Err(DeclareError::Encode(status)),
             }
         }
-    }
-}
-
-/// `id` without `<plugin>.`: the name a record carries.
-fn relative_to<'a>(plugin: &str, id: &'a str) -> Result<&'a str, DeclareError> {
-    id.strip_prefix(plugin)
-        .and_then(|rest| rest.strip_prefix('.'))
-        .filter(|rest| !rest.is_empty())
-        .ok_or(DeclareError::Unsupported(
-            "an id outside the plugin's namespace",
-        ))
-}
-
-fn kind_of(spec: &SdkSpec) -> Result<Kind, DeclareError> {
-    let text = |value: &SettingValue| match value {
-        SettingValue::Text(text) => Ok(text.as_ref().to_owned()),
-        _ => Err(DeclareError::Default),
-    };
-    Ok(match (&spec.kind, &spec.default) {
-        (SettingKind::Bool, SettingValue::Bool(v)) => Kind::Bool(*v),
-        (SettingKind::Int { min, max }, SettingValue::Int(default)) => Kind::Int {
-            default: *default,
-            min: i32::try_from(*min).map_err(|_| DeclareError::Range)?,
-            max: i32::try_from(*max).map_err(|_| DeclareError::Range)?,
-        },
-        (SettingKind::Choice(choices), default) => Kind::Choice {
-            default: text(default)?,
-            choices: choices.iter().map(ToOwned::to_owned).collect(),
-        },
-        (SettingKind::Text, default) => Kind::Text(text(default)?),
-        (SettingKind::Language, default) => Kind::Language(text(default)?),
-        (SettingKind::List, default) => Kind::List(text(default)?),
-        (SettingKind::Extended { .. }, _) => {
-            return Err(DeclareError::Unsupported("an extended setting kind"));
-        }
-        _ => return Err(DeclareError::Default),
-    })
-}
-
-fn editor_of(plugin: &str, editor: &Editor) -> Result<EditorDecl, DeclareError> {
-    Ok(match editor {
-        Editor::Screen(id) => EditorDecl::Screen(relative_to(plugin, id.as_str())?.to_owned()),
-        Editor::Slot(id) => EditorDecl::Slot(id.as_str().to_owned()),
-    })
-}
-
-/// The extra of an interface-6 spec, if it sets anything the extra record holds.
-fn extra_of(plugin: &str, name: &str, extra: &SdkExtra) -> Result<Option<ExtraDecl>, DeclareError> {
-    if extra.check.is_some() {
-        return Err(DeclareError::Unsupported("a value check (a callback)"));
-    }
-    let mut out = ExtraDecl::new(name);
-    out.unit = extra.unit.as_deref().unwrap_or_default().to_owned();
-    out.section = extra.section.as_deref().unwrap_or_default().to_owned();
-    out.follows = extra
-        .follows
-        .as_ref()
-        .map(|id| id.as_str().to_owned())
-        .unwrap_or_default();
-    out.shown_if = extra
-        .shown_if
-        .as_ref()
-        .map(|(id, value)| (id.as_str().to_owned(), (*value).to_owned()));
-    out.editor = extra
-        .editor
-        .as_ref()
-        .map(|e| editor_of(plugin, e))
-        .transpose()?;
-    out.step = i32::try_from(extra.step).map_err(|_| DeclareError::Range)?;
-    out.slider = extra.slider;
-    out.section_of_plugin = extra.section_of_plugin;
-    out.keeps_unknown = extra.keeps_unknown;
-    Ok((out != ExtraDecl::new(name)).then_some(out))
-}
-
-impl Declarations {
-    /// Adds a group of interface 6 as the plugin `plugin` registers it.
-    ///
-    /// # Errors
-    ///
-    /// The group's id is not `<plugin>.<name>`, or [`Declarations::group`]
-    /// refuses it.
-    pub fn from_group(
-        &mut self,
-        plugin: &str,
-        group: &SettingGroupSpec,
-    ) -> Result<&mut Self, DeclareError> {
-        let mut out = GroupDecl::new(relative_to(plugin, group.id.as_str())?, &group.title);
-        out.order = group.order;
-        if let Some(page) = &group.page {
-            out.page = relative_to(plugin, page.as_str())?.to_owned();
-        }
-        out.parent = group
-            .parent
-            .as_ref()
-            .map(|id| id.as_str().to_owned())
-            .unwrap_or_default();
-        self.group(out)
-    }
-
-    /// Adds a setting of interface 6 as the plugin `plugin` registers it: the
-    /// `setting.spec`, and a `setting.extra` after it when it sets any of what
-    /// that holds. A secret moves into the spec's flags.
-    ///
-    /// # Errors
-    ///
-    /// The id is not `<plugin>.<name>`, the kind is extended, a value check is
-    /// set, or [`Declarations::spec`] / [`Declarations::extra`] refuses it.
-    pub fn from_spec(&mut self, plugin: &str, spec: &SdkSpec) -> Result<&mut Self, DeclareError> {
-        let name = relative_to(plugin, spec.id.as_str())?;
-        let extra = spec.extra();
-        let mut out = SpecDecl::new(name, kind_of(spec)?, spec.group.as_str(), &spec.title);
-        out.help = spec
-            .description
-            .as_ref()
-            .map(|d| d.as_str().to_owned())
-            .unwrap_or_default();
-        out.scoped = spec.scoped;
-        out.guarded = spec.guarded;
-        out.kept_on_reset = spec.kept_on_reset;
-        out.secret = extra.secret;
-        out.advanced = spec.level == Level::Advanced;
-        let extra = extra_of(plugin, name, extra)?;
-        self.spec(out)?;
-        match extra {
-            Some(extra) => self.extra(extra),
-            None => Ok(self),
-        }
-    }
-}
-
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-impl Declarations {
-    /// The settings and groups an interface-6 plugin registered, as records in
-    /// the order it registered them: for the kernel's and the tests' fixtures
-    /// (a plugin ported to interface 7 declares them with the other methods).
-    ///
-    /// # Errors
-    ///
-    /// The first setting or group that [`Declarations::from_spec`] or
-    /// [`Declarations::from_group`] refuses.
-    pub fn from_registrar(plugin: &str, registrar: crate::Registrar) -> Result<Self, DeclareError> {
-        use crate::Contribution;
-        let mut out = Self::new();
-        for contribution in registrar.into_contributions() {
-            match contribution {
-                Contribution::Setting(spec) => {
-                    out.from_spec(plugin, &spec)?;
-                }
-                Contribution::FixedSettings(list) => {
-                    for spec in list {
-                        out.from_spec(plugin, spec)?;
-                    }
-                }
-                Contribution::SettingGroup(group) => {
-                    out.from_group(plugin, &group)?;
-                }
-                _ => {}
-            }
-        }
-        Ok(out)
     }
 }
 

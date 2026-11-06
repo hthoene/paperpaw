@@ -70,21 +70,20 @@ fn a_valid_declaration_of_every_record_and_kind_is_accepted() {
     extra.shown_if = Some(("weather.flag".into(), "true".into()));
     d.extra(extra).unwrap();
     d.hyphenation("de-ch", "hyphenation/de-ch.pphp").unwrap();
-    d.font_face(FontFaceDecl {
-        name: "serif".into(),
-        path: "fonts/serif.ppfp".into(),
-        family: "Serif".into(),
-        style: 1,
-        weight: 0,
-        role: "core.role.body".into(),
-        priority: 10,
+    d.font_face({
+        let mut face = FontFaceDecl::new("serif", "fonts/serif.ppfp");
+        face.family = "Serif".into();
+        face.style = 1;
+        face.role = "core.role.body".into();
+        face.priority = 10;
+        face
     })
     .unwrap();
-    d.font_extension(FontExtensionDecl {
-        name: "more".into(),
-        path: "fonts/more.ppfp".into(),
-        extends: "weather.serif".into(),
-    })
+    d.font_extension(FontExtensionDecl::new(
+        "more",
+        "fonts/more.ppfp",
+        "weather.serif",
+    ))
     .unwrap();
     assert_accepted(&d, 11);
 }
@@ -137,34 +136,22 @@ fn rules_the_host_checks_are_refused_in_a_batch_the_builder_wrote() {
         d.hyphenation("de_ch", "a.pphp").unwrap();
     });
     with("font extension of a ttf", &|d| {
-        d.font_extension(FontExtensionDecl {
-            name: "more".into(),
-            path: "fonts/more.ttf".into(),
-            extends: "weather.serif".into(),
-        })
+        d.font_extension(FontExtensionDecl::new(
+            "more",
+            "fonts/more.ttf",
+            "weather.serif",
+        ))
         .unwrap();
     });
     with("font face without a font file", &|d| {
-        d.font_face(FontFaceDecl {
-            name: "serif".into(),
-            path: "fonts/serif.txt".into(),
-            family: String::new(),
-            style: 0,
-            weight: 0,
-            role: String::new(),
-            priority: 0,
-        })
-        .unwrap();
+        d.font_face(FontFaceDecl::new("serif", "fonts/serif.txt"))
+            .unwrap();
     });
     with("priority without a role", &|d| {
-        d.font_face(FontFaceDecl {
-            name: "serif".into(),
-            path: "fonts/serif.ppfp".into(),
-            family: String::new(),
-            style: 0,
-            weight: 0,
-            role: String::new(),
-            priority: 5,
+        d.font_face({
+            let mut face = FontFaceDecl::new("serif", "fonts/serif.ppfp");
+            face.priority = 5;
+            face
         })
         .unwrap();
     });
