@@ -14,7 +14,7 @@
 //! records stay non-dispatchable until the output validates and commits; the
 //! plugin's destructor runs exactly once, while the context, services and
 //! module are alive; Env and Canvas are lent for one synchronous callback.
-use alloc::alloc::alloc;
+use alloc::alloc::{alloc, handle_alloc_error};
 use alloc::boxed::Box;
 use alloc::string::String;
 use core::alloc::Layout;
@@ -187,7 +187,7 @@ impl<'a, S, M, T> Transaction<'a, S, M, T> {
 /// ```
 #[allow(missing_debug_implementations, reason = "holds the generated table")]
 pub struct Hosted<S, M> {
-    owner: Pin<Box<Owner<S, M>>>,
+    owner: super::PinnedOwner<Context<S>, M>,
     make: Make,
     /// The plugin's read-only data as mapped: address and length.
     image: (usize, usize),
@@ -393,9 +393,8 @@ impl<S: Services, M> Hosted<S, M> {
     }
 }
 
-/// Fallible placement of a value on the heap: the X4 has no room to abort.
 /// Boxes `value` or says `Allocation`; the host is never aborted by a plugin's
-/// memory use.
+/// memory use (the X4 has no room to abort).
 ///
 /// # Errors
 /// `Allocation` when the heap has no room.
@@ -417,10 +416,26 @@ pub fn try_box<T>(value: T) -> Result<Box<T>, Error> {
     }
 }
 
-/// Fallible placement of the owner, pinned: it holds a context and a module,
-/// so its allocation is never zero-sized, and nothing has seen it unpinned.
-fn pin_owner<S, M>(value: Owner<S, M>) -> Result<Pin<Box<Owner<S, M>>>, Error> {
-    try_box(value).map(Box::into_pin)
+/// Fallible placement of the owner: it holds a context and a module, so its
+/// allocation is never zero-sized.
+fn pin_owner<S, M>(value: Owner<S, M>) -> Result<super::PinnedOwner<Context<S>, M>, Error> {
+    let layout = Layout::new::<Owner<S, M>>();
+    if layout.size() == 0 {
+        handle_alloc_error(layout);
+    }
+    // SAFETY: the layout is nonzero and valid for this exact owner type.
+    let allocation = unsafe { alloc(layout) }.cast::<Owner<S, M>>();
+    if allocation.is_null() {
+        return Err(Error::Allocation);
+    }
+    // SAFETY: a uniquely owned allocation of the exact `Box` layout,
+    // initialized before the `Box` exists. Nothing has seen the unpinned owner.
+    unsafe {
+        allocation.write(value);
+        Ok(super::PinnedOwner::new(Box::into_pin(Box::from_raw(
+            allocation,
+        ))))
+    }
 }
 
 /// A made plugin whose records are not yet dispatchable. Dropped before
