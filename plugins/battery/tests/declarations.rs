@@ -22,16 +22,24 @@ use paperpaw_plugin_battery::Battery;
 use paperpaw_sdk::native::declare::Declarations;
 use paperpaw_sdk::{Plugin, Registrar};
 
+#[path = "support/declarations.rs"]
+mod support;
+
 const PLUGIN: &str = "battery";
 const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/declarations.bin.v1");
 
 fn built() -> Vec<Vec<u8>> {
     let mut r = Registrar::new(paperpaw_sdk::Id::new_static(PLUGIN));
     Battery.register(&mut r).unwrap();
-    Declarations::from_registrar(PLUGIN, r)
-        .unwrap()
-        .batches()
-        .unwrap()
+    let contributions = r.into_contributions();
+    let mut batches = Vec::new();
+    let mut builder = Declarations::new(|batch: &[u8]| {
+        batches.push(batch.to_vec());
+        Ok(())
+    });
+    support::submit(PLUGIN, &contributions, &mut builder).unwrap();
+    drop(builder);
+    batches
 }
 
 fn framed(batches: &[Vec<u8>]) -> Vec<u8> {

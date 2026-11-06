@@ -22,16 +22,61 @@ use paperpaw_plugin_widgets::Widgets;
 use paperpaw_sdk::native::declare::Declarations;
 use paperpaw_sdk::{Plugin, Registrar};
 
+#[path = "support/declarations.rs"]
+mod support;
+
+#[path = "support/allocations.rs"]
+mod allocations;
+
+#[global_allocator]
+static ALLOCATOR: allocations::Counting = allocations::Counting;
+
 const PLUGIN: &str = "widgets";
 const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/declarations.bin.v1");
+
+#[test]
+fn streaming_all_widgets_uses_at_most_eight_kib() {
+    let mut registrar = Registrar::new(paperpaw_sdk::Id::new_static(PLUGIN));
+    Widgets.register(&mut registrar).unwrap();
+    let contributions = registrar.into_contributions();
+    let golden = include_bytes!("../testdata/declarations.bin.v1");
+    let mut offset = 0;
+    let mut batches = 0;
+    let mut specs = 0;
+    let (remaining, peak) = allocations::measure(|| {
+        let mut builder = Declarations::new(|batch: &[u8]| {
+            let length = u32::from_le_bytes(golden[offset..offset + 4].try_into().unwrap());
+            offset += 4;
+            assert_eq!(batch, &golden[offset..offset + length as usize]);
+            offset += length as usize;
+            let decoded = records_decode(batch).unwrap();
+            specs += decoded
+                .iter()
+                .filter(|record| matches!(record, Record::SettingSpec(_)))
+                .count();
+            batches += 1;
+            Ok(())
+        });
+        support::submit(PLUGIN, &contributions, &mut builder).unwrap();
+    });
+    assert_eq!(offset, golden.len());
+    assert_eq!((specs, batches, remaining), (330, 50, 0));
+    assert!(peak <= 8192, "widgets declaration peak: {peak} bytes");
+    eprintln!("widgets: {specs} specs, {batches} batches, {peak} bytes peak additional heap");
+}
 
 fn built() -> Vec<Vec<u8>> {
     let mut r = Registrar::new(paperpaw_sdk::Id::new_static(PLUGIN));
     Widgets.register(&mut r).unwrap();
-    Declarations::from_registrar(PLUGIN, r)
-        .unwrap()
-        .batches()
-        .unwrap()
+    let contributions = r.into_contributions();
+    let mut batches = Vec::new();
+    let mut builder = Declarations::new(|batch: &[u8]| {
+        batches.push(batch.to_vec());
+        Ok(())
+    });
+    support::submit(PLUGIN, &contributions, &mut builder).unwrap();
+    drop(builder);
+    batches
 }
 
 fn framed(batches: &[Vec<u8>]) -> Vec<u8> {
