@@ -217,7 +217,7 @@ fn render(kernel: &Kernel) -> (i32, Vec<u8>) {
         .construct_registered(hosted.begin().unwrap())
         .unwrap();
     let mut bytes = [0; 256];
-    let n = crate::native_host::events::encode_started(0, &mut bytes).unwrap();
+    let n = crate::native_host::events::encode_started(200, &mut bytes).unwrap();
     let depth = DispatchDepth::new();
     let mut status = kernel
         .dispatch_native_for_test(
@@ -225,7 +225,7 @@ fn render(kernel: &Kernel) -> (i32, Vec<u8>) {
             0,
             &depth,
             shell::Invocation::Event(&bytes[..n]),
-            Instant(0),
+            Instant(200),
         )
         .unwrap();
     let mut framebuffer = Framebuffer::new(480, 800, PixelFormat::Gray4).unwrap();
@@ -234,7 +234,7 @@ fn render(kernel: &Kernel) -> (i32, Vec<u8>) {
         .fill_rect(0, 0, 480, 800, paperpaw_sdk::Color::WHITE);
     if status == 0 {
         status = kernel
-            .draw_native_for_test(&batch, 1, &depth, Instant(0), &mut framebuffer.canvas())
+            .draw_native_for_test(&batch, 1, &depth, Instant(200), &mut framebuffer.canvas())
             .unwrap();
     }
     let view = framebuffer.view();
@@ -259,47 +259,179 @@ fn png_write(path: &Path, pixels: &[u8]) {
         .write_image_data(pixels)
         .unwrap();
 }
+
+use alloc::string::String;
+use core::fmt::Write as _;
+use paperpaw_platform::{Battery as Charge, SystemStatus};
+use paperpaw_sdk::MemoryStorage;
+const HEADER: &str =
+    "kind,ms,millivolts,percent,charging,fast,partial,full,kilopixels,inputs,panel_ms,pages,unix\n";
+fn few() -> String {
+    format!(
+        "{HEADER}start,0,4100,90,0,0,0,0,0,0,0,0,\n\
+         end,3600000,4000,85,0,0,0,0,0,0,0,1,\n\
+         start,4000000,4000,85,0,0,0,0,0,0,0,0,\n\
+         end,7600000,3900,80,0,0,0,0,0,0,0,2,\n"
+    )
+}
+
+/// Seventy completed times awake of different lengths, so that the list
+/// takes several pages.
+fn many() -> String {
+    let mut log = String::from(HEADER);
+    for i in 0..70_u64 {
+        let start = i * 4 * 3_600_000;
+        let hours = 1 + i % 5;
+        let from = 100 - (i % 40) as u8;
+        let to = from.saturating_sub(hours as u8 * 3);
+        writeln!(log, "start,{start},4100,{from},0,0,0,0,0,0,0,0,").unwrap();
+        writeln!(
+            log,
+            "end,{},3900,{to},0,0,0,0,0,0,0,{},",
+            start + hours * 3_600_000,
+            hours * 40
+        )
+        .unwrap();
+    }
+    log
+}
+
+struct Case {
+    name: &'static str,
+    language: &'static str,
+    developer: bool,
+    history: Option<String>,
+    charge: Option<Charge>,
+}
+fn cases() -> Vec<Case> {
+    let known = Some(Charge::new(73, false, Some(4012)));
+    let mut cases = vec![];
+    for (language, unknown, present, history) in [
+        ("en", "empty-unknown-en", "empty-known-en", "few-en"),
+        ("de", "empty-unknown-de", "empty-known-de", "few-de"),
+    ] {
+        for (name, history, charge) in [
+            (unknown, None, None),
+            (present, None, known),
+            (history, Some(few()), known),
+        ] {
+            cases.push(Case {
+                name,
+                language,
+                history,
+                charge,
+                developer: false,
+            });
+        }
+    }
+    for (name, language, developer, history, charge) in [
+        (
+            "charging",
+            "en",
+            false,
+            few(),
+            Charge::new(73, true, Some(4012)),
+        ),
+        (
+            "charging-no-voltage",
+            "en",
+            false,
+            few(),
+            Charge::new(41, true, None),
+        ),
+        ("low", "en", false, few(), Charge::new(5, false, Some(3300))),
+        ("empty", "en", false, few(), Charge::new(0, false, None)),
+        (
+            "charging-de",
+            "de",
+            false,
+            few(),
+            Charge::new(73, true, Some(4012)),
+        ),
+        (
+            "many-page-1",
+            "en",
+            false,
+            many(),
+            Charge::new(64, false, None),
+        ),
+        (
+            "developer-footer",
+            "en",
+            true,
+            few(),
+            Charge::new(73, false, Some(4012)),
+        ),
+    ] {
+        cases.push(Case {
+            name,
+            language,
+            developer,
+            history: Some(history),
+            charge: Some(charge),
+        });
+    }
+    cases
+}
+fn matches_golden(name: &str, pixels: &[u8]) -> bool {
+    let golden = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("../../plugins/battery/testdata/screens/{name}.png"));
+    let mut reader = png::Decoder::new(BufReader::new(File::open(golden).unwrap()))
+        .read_info()
+        .unwrap();
+    let mut expected = vec![0; reader.output_buffer_size().unwrap()];
+    let info = reader.next_frame(&mut expected).unwrap();
+    expected.truncate(info.buffer_size());
+    let out = std::env::temp_dir().join(format!("battery-native-{name}"));
+    png_write(&out.with_extension("actual.png"), pixels);
+    let diff: Vec<_> = pixels
+        .iter()
+        .zip(&expected)
+        .map(|(a, b)| a.abs_diff(*b))
+        .collect();
+    png_write(&out.with_extension("diff.png"), &diff);
+    let different = diff.iter().filter(|&&v| v != 0).count();
+    eprintln!(
+        "{name}: {different} changed pixels; diff {}",
+        out.with_extension("diff.png").display()
+    );
+    pixels == expected
+}
 #[test]
 fn native_battery_pixel_acceptance() {
-    for language in ["en", "de"] {
+    let mut failures = Vec::new();
+    for case in cases() {
+        let storage = case
+            .history
+            .as_ref()
+            .map_or_else(MemoryStorage::new, |text| {
+                MemoryStorage::new().with(".paperpaw/plugins/battery/log.csv", text)
+            });
         let mut kernel = Kernel::builder(DEVICE)
+            .storage(storage)
             .user_config(format!(
-                "[core]\nlanguage = {language}\n[battery]\nenabled = off\n"
+                "[core]\nlanguage = {}\ndeveloper = {}\n[battery]\nenabled = off\n",
+                case.language,
+                if case.developer { "on" } else { "off" }
             ))
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
             .plugin(Catalogs)
             .build()
             .unwrap();
         kernel.start(Instant(0));
+        kernel.set_status(Instant(100), SystemStatus::new(None, case.charge));
         let (status, pixels) = render(&kernel);
-        let name = format!("empty-unknown-{language}");
-        let golden = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join(format!("../../plugins/battery/testdata/screens/{name}.png"));
-        let mut reader = png::Decoder::new(BufReader::new(File::open(golden).unwrap()))
-            .read_info()
-            .unwrap();
-        let mut expected = vec![0; reader.output_buffer_size().unwrap()];
-        let info = reader.next_frame(&mut expected).unwrap();
-        expected.truncate(info.buffer_size());
-        let out = std::env::temp_dir().join(format!("battery-native-{name}"));
-        png_write(&out.with_extension("actual.png"), &pixels);
-        let diff: Vec<_> = pixels
-            .iter()
-            .zip(&expected)
-            .map(|(a, b)| a.abs_diff(*b))
-            .collect();
-        png_write(&out.with_extension("diff.png"), &diff);
-        assert_eq!(
-            status,
-            0,
-            "native callback refused before pixel comparison; blank actual is a BLOCKED render, not layout drift; diff: {}",
-            out.with_extension("diff.png").display()
-        );
-        assert_eq!(
-            pixels,
-            expected,
-            "native pixel mismatch: {}",
-            out.with_extension("diff.png").display()
-        );
+        if status != 0 {
+            eprintln!("{}: BLOCKED native render, status {status}", case.name);
+            failures.push(case.name);
+            continue;
+        }
+        if !matches_golden(case.name, &pixels) {
+            failures.push(case.name);
+        }
     }
+    assert!(
+        failures.is_empty(),
+        "native pixel acceptance failed: {failures:?}"
+    );
 }
