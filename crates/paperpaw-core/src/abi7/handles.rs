@@ -132,6 +132,43 @@ impl<T> Handles<T> {
         self.slots.capacity()
     }
 
+    /// Admission checks without allocating or consuming a resource.
+    pub(crate) fn check_insert(&self, owner: u64, kind: Kind) -> Result<(), Error> {
+        if owner == 0 {
+            return Err(Error::State);
+        }
+        let owned = self
+            .slots
+            .iter()
+            .filter(|slot| {
+                slot.entry
+                    .as_ref()
+                    .is_some_and(|entry| entry.owner == owner && entry.kind == kind)
+            })
+            .count();
+        if owned >= limit(kind)
+            || (self.slots.len() == SLOTS
+                && !self
+                    .slots
+                    .iter()
+                    .any(|slot| slot.entry.is_none() && slot.generation != 0))
+        {
+            return Err(Error::Capacity);
+        }
+        Ok(())
+    }
+
+    /// Host-only budget accounting; the visitor cannot reenter the registry.
+    pub(crate) fn visit_kind(&self, kind: Kind, mut visit: impl FnMut(&T)) {
+        for slot in &self.slots {
+            if let Some(entry) = &slot.entry
+                && entry.kind == kind
+            {
+                visit(&entry.value);
+            }
+        }
+    }
+
     /// On refusal the value returns to its caller; no resource is lost.
     /// Service callers further restrict admission to declared, distinct keys.
     pub(crate) fn insert(&mut self, owner: u64, kind: Kind, value: T) -> Result<u32, (Error, T)> {
@@ -240,6 +277,18 @@ impl<T> Handles<T> {
             slot.entry
                 .as_ref()
                 .is_some_and(|entry| entry.owner == owner)
+        })?;
+        let entry = slot.entry.take()?;
+        advance(slot);
+        Some(entry.value)
+    }
+
+    /// Drain one family without invalidating another family's handles.
+    pub(crate) fn take_owner_kind(&mut self, owner: u64, kind: Kind) -> Option<T> {
+        let slot = self.slots.iter_mut().find(|slot| {
+            slot.entry
+                .as_ref()
+                .is_some_and(|entry| entry.owner == owner && entry.kind == kind)
         })?;
         let entry = slot.entry.take()?;
         advance(slot);
@@ -371,5 +420,25 @@ mod tests {
         assert_ne!(new & INDEX_MASK, old & INDEX_MASK);
         assert_eq!(handles.get(1, Kind::Font, old), Err(Error::State));
         assert_eq!(handles.slots[0].generation, 0);
+    }
+    #[test]
+    fn family_expiry_preserves_fonts_and_other_owners_and_invalidates_blobs() {
+        let mut handles = Handles::new();
+        assert_eq!(handles.check_insert(0, Kind::Blob), Err(Error::State));
+        let font = handles.insert(1, Kind::Font, 7).unwrap();
+        let blob = handles.insert(1, Kind::Blob, 11).unwrap();
+        handles.insert(1, Kind::Blob, 13).unwrap();
+        let other = handles.insert(2, Kind::Blob, 17).unwrap();
+        assert_eq!(handles.check_insert(1, Kind::Blob), Err(Error::Capacity));
+        let mut sum = 0;
+        handles.visit_kind(Kind::Blob, |value| sum += value);
+        assert_eq!(sum, 41);
+        assert_eq!(handles.take_owner_kind(1, Kind::Blob), Some(11));
+        assert_eq!(handles.get(1, Kind::Blob, blob), Err(Error::State));
+        assert_eq!(handles.check_insert(1, Kind::Blob), Ok(()));
+        assert_eq!(handles.take_owner_kind(1, Kind::Blob), Some(13));
+        assert_eq!(handles.take_owner_kind(1, Kind::Blob), None);
+        assert_eq!(handles.get(1, Kind::Font, font), Ok(&7));
+        assert_eq!(handles.get(2, Kind::Blob, other), Ok(&17));
     }
 }

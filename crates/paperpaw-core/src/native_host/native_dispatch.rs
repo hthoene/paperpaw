@@ -1,6 +1,6 @@
 //! Retained native owners behind the screen router's synchronous dispatch API.
 use super::{
-    Error, FlatDepth, FlatHost, native_screen::Dispatch, registrations::DrawFrame,
+    Error, FlatHost, flat::FlatDepth, native_screen::Dispatch, registrations::DrawFrame,
     retained::Retained, shell,
 };
 use crate::abi7::core_frame::CoreFrame;

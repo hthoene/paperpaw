@@ -163,6 +163,7 @@ fn hosted(short: bool) -> Hosted<Heap, ()> {
             (0, 0),
             |_, _, _, _| {},
             super::super::HostResources::try_new().unwrap(),
+            DeclaredServices::none(),
         )
     }
     .unwrap()
@@ -408,7 +409,7 @@ fn shared_native_dispatch_scopes_all_screen_callbacks_and_retains_owner() {
     let instance = Retained::make(hosted(false)).unwrap();
     let dispatch = Shared::try_new(NativeDispatch::new(
         instance,
-        super::super::FlatDepth::try_new().unwrap(),
+        super::super::flat::FlatDepth::try_new().unwrap(),
         super::super::FlatHost {
             meter: alloc::rc::Rc::clone(&kernel.shared.meter),
             font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),

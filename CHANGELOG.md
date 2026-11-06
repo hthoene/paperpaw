@@ -19,6 +19,9 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 host usage/name/note services and callback-scoped blobs, with checked
+  metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).
+
 - Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
   device usage, translated plugin names and work-note readers. Includes a deterministic fake-host
   fixture for Battery port tests; helpers use bounded buffers and allocate nothing (#228).

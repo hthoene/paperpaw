@@ -26,8 +26,12 @@ pub use resources::HostResources;
 #[path = "native_host/fonts.rs"]
 mod fonts;
 
+#[path = "native_host/data_services.rs"]
+mod data_services;
+mod declared_services;
 #[path = "native_host/formatting.rs"]
 mod formatting;
+mod service_slots;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 

@@ -29,6 +29,7 @@ use paperpaw_native::host_glue::{
 use paperpaw_platform::Rect;
 
 use super::canvas::CanvasScope;
+pub use super::declared_services::{DeclaredServices, Error as DeclaredServicesError};
 use super::environment::EnvironmentScope;
 use super::registration_scope::RegistrationScope;
 use super::registrations::{self, EVENT_TICK_TAG, Registration};
@@ -125,6 +126,7 @@ pub struct Context<S> {
     id: Box<str>,
     report: Report<S>,
     resources: super::resources::OwnerResources,
+    declared_services: DeclaredServices,
     /// The shell's heap and clock.
     pub services: S,
     instance: Cell<Option<PluginOutput>>,
@@ -224,6 +226,9 @@ pub fn host_table<S: Services>() -> PpHost {
     table.storage_rename = storage_rename::<S>;
     table.storage_remove = storage_remove::<S>;
     table.storage_sync = storage_sync::<S>;
+    table.services_query = services_query::<S>;
+    table.blob_read = blob_read::<S>;
+    table.blob_release = blob_release::<S>;
     table.font_acquire = font_acquire::<S>;
     table.handle_release = handle_release::<S>;
     table.text_measure = text_measure::<S>;
@@ -253,6 +258,10 @@ impl<S: Services, M> Hosted<S, M> {
     ///   and stays callable while `module` lives.
     /// - `image` is a read-only mapping of that many bytes which stays mapped
     ///   while `module` lives, or `(0, 0)`.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "admission supplies the owner resources and checked requirements"
+    )]
     pub unsafe fn new(
         services: S,
         module: M,
@@ -261,8 +270,12 @@ impl<S: Services, M> Hosted<S, M> {
         image: (usize, usize),
         report: Report<S>,
         resources: super::HostResources,
+        declared_services: DeclaredServices,
     ) -> Result<Self, Error> {
         let resources = resources.try_owner().map_err(Error::Status)?;
+        let scoped_resources = resources
+            .try_view()
+            .ok_or(Error::Status(host_glue::ERR_NO_MEMORY))?;
         // Fallible, before anything else is built: the X4 has no room to abort.
         let mut owned = String::new();
         owned
@@ -274,11 +287,12 @@ impl<S: Services, M> Hosted<S, M> {
             id: owned.into_boxed_str(),
             report,
             resources,
+            declared_services,
             services,
             instance: Cell::new(None),
             attempted: Cell::new(false),
             registrations: RegistrationScope::new(),
-            environment: EnvironmentScope::new(),
+            environment: EnvironmentScope::with_resources(scoped_resources),
             canvas: CanvasScope::new(),
         };
         let owner = pin_owner(HostOwner::new(context, module))?;
@@ -1202,3 +1216,44 @@ unsafe extern "C" fn text_draw<S>(
 #[cfg(test)]
 #[path = "shell_token_tests.rs"]
 mod token_tests;
+unsafe extern "C" fn services_query<S>(
+    ctx: *mut c_void,
+    key: PpBytes,
+    major: u16,
+    minor: u16,
+    out: *mut u32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: slot contracts supply live, disjoint input and output storage.
+    unsafe {
+        super::service_slots::query(
+            &context.environment,
+            &context.resources,
+            &context.declared_services,
+            key,
+            major,
+            minor,
+            out,
+        )
+    }
+}
+unsafe extern "C" fn blob_read<S>(ctx: *mut c_void, blob: u32, offset: u64, out: PpBuffer) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: slot contracts supply live, disjoint output storage.
+    unsafe {
+        super::service_slots::read(&context.environment, &context.resources, blob, offset, out)
+    }
+}
+unsafe extern "C" fn blob_release<S>(ctx: *mut c_void, blob: u32) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    super::service_slots::release(&context.environment, &context.resources, blob)
+}
