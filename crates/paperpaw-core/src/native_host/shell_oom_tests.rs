@@ -111,6 +111,7 @@ fn private_shared_refusal_drops_input_once_and_cloning_does_not_allocate() {
 }
 
 struct Routed {
+    registry_oom: bool,
     made: Made,
     passes: Cell<u8>,
     calls: Rc<Cell<u32>>,
@@ -120,10 +121,11 @@ impl FlatInstance for Routed {
         let pass = self.passes.get();
         self.passes.set(pass + 1);
         for index in 0..2 {
-            if pass > 0 && index == 1 {
-                // Construction already checked both tags. Fail the actual
-                // second handler allocation, after the first subscribe's Vec.
-                arm_failure(1);
+            let failure_index = if self.registry_oom { 0 } else { 1 };
+            if pass > 0 && index == failure_index {
+                // Handler allocation comes first, then registrar capacity.
+                // Both event ids are static and need no allocation.
+                arm_failure(if self.registry_oom { 2 } else { 1 });
             }
             visit(FlatRegistration::Event {
                 event_tag: 32 + index as u32,
@@ -151,6 +153,7 @@ impl FlatInstance for Routed {
 
 struct RegistrationProbe<'a> {
     plugin: &'a FlatPlugin,
+    registry_oom: bool,
     refused: Cell<bool>,
 }
 impl paperpaw_sdk::Plugin for RegistrationProbe<'_> {
@@ -163,18 +166,32 @@ impl paperpaw_sdk::Plugin for RegistrationProbe<'_> {
     ) -> Result<(), paperpaw_sdk::RegisterError> {
         let result = self.plugin.register(registrar);
         arm_failure(0);
-        self.refused.set(
-            matches!(&result, Err(paperpaw_sdk::RegisterError::Invalid { message })
-            if message == "flat handler allocation failed"),
-        );
-        // The first subscription still owns its handles until kernel rollback.
-        assert_eq!(self.plugin.reference_counts(), (2, 2));
+        let expected = if self.registry_oom {
+            "contribution allocation failed"
+        } else {
+            "flat handler allocation failed"
+        };
+        self.refused.set(matches!(&result,
+            Err(paperpaw_sdk::RegisterError::Invalid { message }) if message == expected));
+        // A handler refused by registrar drops immediately; an admitted first
+        // subscription retains handles until the kernel rolls back the stage.
+        let count = if self.registry_oom { 1 } else { 2 };
+        assert_eq!(self.plugin.reference_counts(), (count, count));
         result
     }
 }
 
 #[test]
 fn second_handler_oom_rolls_back_first_subscription_and_restores_shared_counts() {
+    registration_rollback(false);
+}
+
+#[test]
+fn registrar_capacity_oom_refuses_and_releases_the_handler_without_abort() {
+    registration_rollback(true);
+}
+
+fn registration_rollback(registry_oom: bool) {
     use paperpaw_sdk::{Params, Plugin, PluginState, builtin::events};
     reset(NORMAL);
     let host = FlatHost {
@@ -185,6 +202,7 @@ fn second_handler_oom_rolls_back_first_subscription_and_restores_shared_counts()
     let plugin = FlatPlugin::new(
         Manifest::new(Id::new_static("flat"), "Flat", Version::new(1, 0, 0)),
         Box::new(Routed {
+            registry_oom,
             made: Made {
                 scope: EnvironmentScope::new(),
                 destroyed: Rc::clone(&destroyed),
@@ -198,6 +216,7 @@ fn second_handler_oom_rolls_back_first_subscription_and_restores_shared_counts()
     .unwrap();
     let probe = RegistrationProbe {
         plugin: &plugin,
+        registry_oom,
         refused: Cell::new(false),
     };
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -206,7 +225,7 @@ fn second_handler_oom_rolls_back_first_subscription_and_restores_shared_counts()
     kernel.register_plugin(&probe, probe.manifest());
     assert!(
         probe.refused.get(),
-        "register returned the second-handler OOM"
+        "register returned the precise allocation refusal"
     );
     assert_eq!(
         kernel.plugins().get("flat").unwrap().state,
