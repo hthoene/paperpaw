@@ -28,6 +28,7 @@ use paperpaw_native::host_glue::{
     self, PpBuffer, PpBytes, PpHost, PpPlugin, Services, ShellCtx, read_plugin_dispatch_event,
     read_plugin_draw, read_plugin_drop, read_plugin_size, read_plugin_state,
 };
+use paperpaw_platform::Rect;
 
 use super::canvas::CanvasScope;
 use super::environment::EnvironmentScope;
@@ -691,6 +692,25 @@ pub fn dispatch_with_env<S, M>(
     })?
 }
 
+/// The screen frame (N2) of a canvas's visible region, encoded into `out`;
+/// `None` when the region is empty, which is never sent.
+fn screen_frame(clip: Rect, out: &mut [u8; 64]) -> Result<Option<usize>, Error> {
+    if clip.width == 0 || clip.height == 0 {
+        return Ok(None);
+    }
+    let (top, height) = (i32::from(clip.y), i32::from(clip.height));
+    let frame = super::frames::screen(
+        i32::from(clip.x),
+        top,
+        u32::from(clip.width),
+        u32::from(clip.height),
+        (top, top + height),
+    );
+    super::frames::encode(&frame, out)
+        .map(Some)
+        .map_err(Error::Status)
+}
+
 /// Draw dispatch with a frame: the Env (slots 4/5) and the Canvas (slot 9)
 /// are both lent for this one synchronous callback and cleared on every exit,
 /// including unwind. Nested installation is refused by the scopes.
@@ -704,20 +724,11 @@ pub fn dispatch_draw<S, M>(
     env: &Env<'_>,
     canvas: &mut Canvas<'_>,
 ) -> Result<i32, Error> {
-    // The screen frame (N2): the canvas's visible region, drawn in one pass.
-    let clip = canvas.clip();
-    let frame = super::frames::screen(
-        i32::from(clip.x),
-        i32::from(clip.y),
-        u32::from(clip.width),
-        u32::from(clip.height),
-        (
-            i32::from(clip.y),
-            i32::from(clip.y) + i32::from(clip.height),
-        ),
-    );
     let mut bytes = [0; 64];
-    let len = super::frames::encode(&frame, &mut bytes).map_err(Error::Status)?;
+    // An empty clip is never sent (section 6): nothing visible, no call.
+    let Some(len) = screen_frame(canvas.clip(), &mut bytes)? else {
+        return Ok(host_glue::OK);
+    };
     let frame = &bytes[..len];
     batch.dispatch(index, depth, |context, record| {
         // SAFETY: the owner structurally pins these fields; no API moves them.

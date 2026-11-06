@@ -5,6 +5,8 @@
 //! about 300 bytes) as a batch of exactly one record, like events. Nothing here
 //! allocates, keeps the buffer or calls plugin code.
 
+use paperpaw_native::host_glue::ERR_INVALID;
+
 use super::registrations::{DrawFrame, Record, records_encode};
 
 /// `draw.frame.purpose`: what the drawing is for.
@@ -63,9 +65,17 @@ pub const fn screen(
 /// Encode `frame` as a one-record batch; returns the bytes written.
 ///
 /// # Errors
+/// `ERR_INVALID` when the clip is empty or leaves the rectangle: the host
+/// promises `y <= clip_top < clip_bottom <= y + height` (section 6).
 /// `ERR_NO_SPACE` when the payload is over its 256-byte cap or `out` is too
-/// small; the output is then unchanged.
+/// small. The output is unchanged on every error.
 pub fn encode(frame: &DrawFrame<'_>, out: &mut [u8]) -> Result<usize, i32> {
+    let top = i64::from(frame.y);
+    let bottom = top + i64::from(frame.height);
+    let (clip_top, clip_bottom) = (i64::from(frame.clip_top), i64::from(frame.clip_bottom));
+    if !(top <= clip_top && clip_top < clip_bottom && clip_bottom <= bottom) {
+        return Err(ERR_INVALID);
+    }
     records_encode(&[Record::DrawFrame(*frame)], out)
 }
 
@@ -132,6 +142,18 @@ mod tests {
         };
         let mut out = [0; 300];
         assert!(encode(&frame, &mut out).unwrap() <= 300);
+    }
+
+    #[test]
+    fn an_empty_or_outside_clip_is_invalid_and_writes_nothing() {
+        let mut out = [0x5a; 64];
+        for clip in [(16, 16), (17, 16), (3, 16), (16, 805), (-1, 4)] {
+            let frame = screen(0, 4, 480, 800, clip);
+            assert_eq!(encode(&frame, &mut out), Err(ERR_INVALID), "{clip:?}");
+            assert!(out.iter().all(|&b| b == 0x5a));
+        }
+        // The edges themselves are inside: [y, y + height).
+        assert!(encode(&screen(0, 4, 480, 800, (4, 804)), &mut out).is_ok());
     }
 
     #[test]

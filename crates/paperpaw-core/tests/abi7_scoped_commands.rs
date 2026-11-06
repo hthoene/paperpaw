@@ -80,7 +80,13 @@ fn read(env: &Env<'_>, key: &str) -> Vec<u8> {
 fn refusals(scope: &CommandScope) {
     let flag = set("probe.flag", SettingValueRef::Bool(true));
     let long = "t".repeat(BYTES);
-    let cases: [(Vec<u8>, i32); 12] = [
+    let cases: [(Vec<u8>, i32); 13] = [
+        // Commands 56-59 decode but this host does not run them yet: the
+        // whole batch is refused, the flag before it included.
+        (
+            batch(&[flag, WireCommand::Redraw { mode: 3 }]),
+            ERR_UNSUPPORTED,
+        ),
         (
             batch(&[flag, set("other.guarded", SettingValueRef::Bool(true))]),
             ERR_INVALID,

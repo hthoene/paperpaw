@@ -49,10 +49,11 @@ def outputs():
             ('feature-required-unknown', newer, 'test.unknown', True, False),
             ('feature-optional-newer-revision', newer, 'test.feature', False, True),
             ('feature-required-newer-revision', newer, 'test.feature', True, False),
+            ('feature-optional-older-revision', older, 'test.feature', False, True),
             ('feature-required-older-revision', older, 'test.feature', True, True)]:
         cases.append((name, encode(source, dict(build, features=[
             dict(key=key, required=required)])), accept))
-    flagged = bytearray(cases[-6][1])
+    flagged = bytearray(dict((name, data) for name, data, _ in cases)['feature-known'])
     flagged[-len('test.feature') - 2] |= 2  # flags (u16) precede the key
     cases.append(('feature-unknown-flag-bit', bytes(flagged), False))
     for field, value in [('magic', b'NOPE'), ('flags', 1), ('exports', 3), ('total_bytes', 0)]:
