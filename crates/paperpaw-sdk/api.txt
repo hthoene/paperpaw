@@ -2995,106 +2995,8 @@ pub use paperpaw_sdk::native::Problem
 pub use paperpaw_sdk::native::Signature
 pub use paperpaw_sdk::native::compiler
 pub use paperpaw_sdk::native::signature
-pub mod paperpaw_sdk::native::callbacks
-#[non_exhaustive] pub enum paperpaw_sdk::native::callbacks::DrawPurpose
-pub paperpaw_sdk::native::callbacks::DrawPurpose::InsertedBlock
-pub paperpaw_sdk::native::callbacks::DrawPurpose::Other(u32)
-pub paperpaw_sdk::native::callbacks::DrawPurpose::PageLayer
-pub paperpaw_sdk::native::callbacks::DrawPurpose::Screen
-pub paperpaw_sdk::native::callbacks::DrawPurpose::StatusItem
-pub paperpaw_sdk::native::callbacks::DrawPurpose::Widget
-#[non_exhaustive] pub enum paperpaw_sdk::native::callbacks::Input<'a>
-pub paperpaw_sdk::native::callbacks::Input::Action
-pub paperpaw_sdk::native::callbacks::Input::Action::action: &'a str
-pub paperpaw_sdk::native::callbacks::Input::Action::now_ms: u64
-pub paperpaw_sdk::native::callbacks::Input::Gesture
-pub paperpaw_sdk::native::callbacks::Input::Gesture::kind: paperpaw_sdk::native::callbacks::InputGestureKind
-pub paperpaw_sdk::native::callbacks::Input::Gesture::now_ms: u64
-pub paperpaw_sdk::native::callbacks::Input::Gesture::position: paperpaw_platform::geometry::Point
-pub paperpaw_sdk::native::callbacks::Input::Key
-pub paperpaw_sdk::native::callbacks::Input::Key::key: &'a str
-pub paperpaw_sdk::native::callbacks::Input::Key::now_ms: u64
-pub paperpaw_sdk::native::callbacks::Input::Key::state: paperpaw_sdk::native::callbacks::KeyState
-pub paperpaw_sdk::native::callbacks::Input::Pointer
-pub paperpaw_sdk::native::callbacks::Input::Pointer::now_ms: u64
-pub paperpaw_sdk::native::callbacks::Input::Pointer::phase: paperpaw_sdk::native::callbacks::PointerPhase
-pub paperpaw_sdk::native::callbacks::Input::Pointer::position: paperpaw_platform::geometry::Point
-impl<'a> paperpaw_sdk::native::callbacks::Input<'a>
-pub fn paperpaw_sdk::native::callbacks::Input<'a>::decode(&'a [u8]) -> core::result::Result<Self, paperpaw_sdk::native::Error>
-#[non_exhaustive] pub enum paperpaw_sdk::native::callbacks::InputGestureKind
-pub paperpaw_sdk::native::callbacks::InputGestureKind::LongPress
-pub paperpaw_sdk::native::callbacks::InputGestureKind::SwipeDown
-pub paperpaw_sdk::native::callbacks::InputGestureKind::SwipeLeft
-pub paperpaw_sdk::native::callbacks::InputGestureKind::SwipeRight
-pub paperpaw_sdk::native::callbacks::InputGestureKind::SwipeUp
-pub paperpaw_sdk::native::callbacks::InputGestureKind::Tap
-#[non_exhaustive] pub enum paperpaw_sdk::native::callbacks::KeyState
-pub paperpaw_sdk::native::callbacks::KeyState::Press
-pub paperpaw_sdk::native::callbacks::KeyState::Release
-pub paperpaw_sdk::native::callbacks::KeyState::Repeat
-#[non_exhaustive] pub enum paperpaw_sdk::native::callbacks::PointerPhase
-pub paperpaw_sdk::native::callbacks::PointerPhase::Cancel
-pub paperpaw_sdk::native::callbacks::PointerPhase::Down
-pub paperpaw_sdk::native::callbacks::PointerPhase::Move
-pub paperpaw_sdk::native::callbacks::PointerPhase::Up
-#[non_exhaustive] pub struct paperpaw_sdk::native::callbacks::DrawFrame<'a>
-pub paperpaw_sdk::native::callbacks::DrawFrame::clip_bottom: i32
-pub paperpaw_sdk::native::callbacks::DrawFrame::clip_top: i32
-pub paperpaw_sdk::native::callbacks::DrawFrame::id: u32
-pub paperpaw_sdk::native::callbacks::DrawFrame::payload: &'a [u8]
-pub paperpaw_sdk::native::callbacks::DrawFrame::purpose: paperpaw_sdk::native::callbacks::DrawPurpose
-pub paperpaw_sdk::native::callbacks::DrawFrame::rect: paperpaw_sdk::native::callbacks::FrameRect
-impl<'a> paperpaw_sdk::native::callbacks::DrawFrame<'a>
-pub fn paperpaw_sdk::native::callbacks::DrawFrame<'a>::decode(&'a [u8]) -> core::result::Result<Self, paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::callbacks::DrawFrame<'a>::draw_canvas(&mut self) -> core::result::Result<paperpaw_sdk::native::canvas::Canvas<'_>, paperpaw_sdk::native::Error>
-impl core::cmp::Eq for paperpaw_sdk::native::callbacks::DrawFrame<'_>
-impl core::cmp::PartialEq for paperpaw_sdk::native::callbacks::DrawFrame<'_>
-pub fn paperpaw_sdk::native::callbacks::DrawFrame<'_>::eq(&self, &Self) -> bool
-#[non_exhaustive] pub struct paperpaw_sdk::native::callbacks::FrameRect
-pub paperpaw_sdk::native::callbacks::FrameRect::height: u32
-pub paperpaw_sdk::native::callbacks::FrameRect::width: u32
-pub paperpaw_sdk::native::callbacks::FrameRect::x: i32
-pub paperpaw_sdk::native::callbacks::FrameRect::y: i32
-impl paperpaw_sdk::native::callbacks::FrameRect
-pub const fn paperpaw_sdk::native::callbacks::FrameRect::new(i32, i32, u32, u32) -> Self
-pub mod paperpaw_sdk::native::canvas
-pub struct paperpaw_sdk::native::canvas::Canvas<'cb>
-impl<'cb> paperpaw_sdk::native::canvas::Canvas<'cb>
-pub fn paperpaw_sdk::native::canvas::Canvas<'cb>::clip_region(&mut self, paperpaw_sdk::native::callbacks::FrameRect) -> core::result::Result<paperpaw_sdk::native::canvas::ClipGuard<'_, 'cb>, paperpaw_sdk::native::Error>
-impl<'cb> paperpaw_sdk::native::canvas::Canvas<'cb>
-pub fn paperpaw_sdk::native::canvas::Canvas<'cb>::draw_segment(&self, paperpaw_platform::geometry::Point, paperpaw_platform::geometry::Point, u32, paperpaw_platform::pixel::Color) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::canvas::Canvas<'cb>::fill_rectangle(&self, paperpaw_sdk::native::callbacks::FrameRect, paperpaw_platform::pixel::Color) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::canvas::Canvas<'cb>::fill_rounded_rectangle(&self, paperpaw_sdk::native::callbacks::FrameRect, u32, paperpaw_platform::pixel::Color) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub const fn paperpaw_sdk::native::canvas::Canvas<'cb>::frame_rect(&self) -> paperpaw_sdk::native::callbacks::FrameRect
-pub fn paperpaw_sdk::native::canvas::Canvas<'cb>::stroke_rounded_rectangle(&self, paperpaw_sdk::native::callbacks::FrameRect, u32, u32, paperpaw_platform::pixel::Color) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub struct paperpaw_sdk::native::canvas::ClipGuard<'a, 'cb>
-impl paperpaw_sdk::native::canvas::ClipGuard<'_, '_>
-pub fn paperpaw_sdk::native::canvas::ClipGuard<'_, '_>::restore(self) -> core::result::Result<(), paperpaw_sdk::native::Error>
-impl core::ops::deref::DerefMut for paperpaw_sdk::native::canvas::ClipGuard<'_, '_>
-pub fn paperpaw_sdk::native::canvas::ClipGuard<'_, '_>::deref_mut(&mut self) -> &mut Self::Target
-impl core::ops::drop::Drop for paperpaw_sdk::native::canvas::ClipGuard<'_, '_>
-pub fn paperpaw_sdk::native::canvas::ClipGuard<'_, '_>::drop(&mut self)
-impl<'cb> core::ops::deref::Deref for paperpaw_sdk::native::canvas::ClipGuard<'_, 'cb>
-pub type paperpaw_sdk::native::canvas::ClipGuard<'_, 'cb>::Target = paperpaw_sdk::native::canvas::Canvas<'cb>
-pub fn paperpaw_sdk::native::canvas::ClipGuard<'_, 'cb>::deref(&self) -> &Self::Target
 pub mod paperpaw_sdk::native::clock
 pub fn paperpaw_sdk::native::clock::micros(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<u64, paperpaw_sdk::native::Error>
-pub mod paperpaw_sdk::native::commands
-#[non_exhaustive] pub enum paperpaw_sdk::native::commands::RedrawMode
-pub paperpaw_sdk::native::commands::RedrawMode::Fast
-pub paperpaw_sdk::native::commands::RedrawMode::Full
-pub paperpaw_sdk::native::commands::RedrawMode::Partial
-pub paperpaw_sdk::native::commands::RedrawMode::RedrawOnly
-pub struct paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>
-impl<'cb, 'buf> paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>
-pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::close_screen(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::new(&'cb paperpaw_sdk::native::Host<'cb>, &'buf mut [u8]) -> Self
-pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::open_screen(&mut self, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::queue_redraw(&mut self, paperpaw_sdk::native::commands::RedrawMode) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::run_action(&mut self, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::set_setting(&mut self, impl core::convert::AsRef<str>, paperpaw_sdk::native::settings::SettingValue<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
-impl core::fmt::Debug for paperpaw_sdk::native::commands::CommandSender<'_, '_>
-pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub mod paperpaw_sdk::native::declare
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::DeclareError
 pub paperpaw_sdk::native::declare::DeclareError::Choices
@@ -3123,16 +3025,8 @@ pub paperpaw_sdk::native::declare::Kind::Int::min: i32
 pub paperpaw_sdk::native::declare::Kind::Language(&'a str)
 pub paperpaw_sdk::native::declare::Kind::List(&'a str)
 pub paperpaw_sdk::native::declare::Kind::Text(&'a str)
-#[non_exhaustive] pub struct paperpaw_sdk::native::declare::ActionDecl<'a>
-pub paperpaw_sdk::native::declare::ActionDecl::name: &'a str
-pub paperpaw_sdk::native::declare::ActionDecl::needs_screen: bool
-pub paperpaw_sdk::native::declare::ActionDecl::title: &'a str
-pub paperpaw_sdk::native::declare::ActionDecl::token: u32
-impl<'a> paperpaw_sdk::native::declare::ActionDecl<'a>
-pub fn paperpaw_sdk::native::declare::ActionDecl<'a>::new(&'a str, &'a str, u32) -> Self
 pub struct paperpaw_sdk::native::declare::Declarations<F>
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
-pub fn paperpaw_sdk::native::declare::Declarations<F>::action(&mut self, paperpaw_sdk::native::declare::ActionDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::extra(&mut self, paperpaw_sdk::native::declare::ExtraDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::font_extension(&mut self, paperpaw_sdk::native::declare::FontExtensionDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::font_face(&mut self, paperpaw_sdk::native::declare::FontFaceDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
@@ -3141,7 +3035,6 @@ pub fn paperpaw_sdk::native::declare::Declarations<F>::hyphenation(&mut self, &s
 pub fn paperpaw_sdk::native::declare::Declarations<F>::is_empty(&self) -> bool
 pub fn paperpaw_sdk::native::declare::Declarations<F>::len(&self) -> usize
 pub fn paperpaw_sdk::native::declare::Declarations<F>::new(F) -> Self
-pub fn paperpaw_sdk::native::declare::Declarations<F>::screen(&mut self, paperpaw_sdk::native::declare::ScreenDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::spec(&mut self, paperpaw_sdk::native::declare::SpecDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::submit(&mut self) -> core::result::Result<(), paperpaw_sdk::native::declare::DeclareError>
 impl<F> core::fmt::Debug for paperpaw_sdk::native::declare::Declarations<F>
@@ -3185,13 +3078,6 @@ pub paperpaw_sdk::native::declare::GroupDecl::parent: &'a str
 pub paperpaw_sdk::native::declare::GroupDecl::title: &'a str
 impl<'a> paperpaw_sdk::native::declare::GroupDecl<'a>
 pub fn paperpaw_sdk::native::declare::GroupDecl<'a>::new(&'a str, &'a str) -> Self
-#[non_exhaustive] pub struct paperpaw_sdk::native::declare::ScreenDecl<'a>
-pub paperpaw_sdk::native::declare::ScreenDecl::full_refresh_on_open: bool
-pub paperpaw_sdk::native::declare::ScreenDecl::name: &'a str
-pub paperpaw_sdk::native::declare::ScreenDecl::title: &'a str
-pub paperpaw_sdk::native::declare::ScreenDecl::token: u32
-impl<'a> paperpaw_sdk::native::declare::ScreenDecl<'a>
-pub fn paperpaw_sdk::native::declare::ScreenDecl<'a>::new(&'a str, &'a str, u32) -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::declare::SpecDecl<'a>
 pub paperpaw_sdk::native::declare::SpecDecl::advanced: bool
 pub paperpaw_sdk::native::declare::SpecDecl::group: &'a str
@@ -3211,32 +3097,19 @@ pub const paperpaw_sdk::native::declare::CHOICES_MAX_VALUES: usize
 pub const paperpaw_sdk::native::declare::CHOICE_MAX_BYTES: usize
 pub mod paperpaw_sdk::native::events
 #[non_exhaustive] pub enum paperpaw_sdk::native::events::Event<'a>
-pub paperpaw_sdk::native::events::Event::ActionRun
-pub paperpaw_sdk::native::events::Event::ActionRun::action: &'a str
-pub paperpaw_sdk::native::events::Event::ActionRun::now_ms: u64
 pub paperpaw_sdk::native::events::Event::BatteryMeasured
 pub paperpaw_sdk::native::events::Event::BatteryMeasured::now_ms: u64
 pub paperpaw_sdk::native::events::Event::PageTurned(paperpaw_sdk::native::events::PageTurn<'a>)
 pub paperpaw_sdk::native::events::Event::Resume
 pub paperpaw_sdk::native::events::Event::Resume::now_ms: u64
-pub paperpaw_sdk::native::events::Event::ScreenShown
-pub paperpaw_sdk::native::events::Event::ScreenShown::height: u32
-pub paperpaw_sdk::native::events::Event::ScreenShown::now_ms: u64
-pub paperpaw_sdk::native::events::Event::ScreenShown::screen: &'a str
-pub paperpaw_sdk::native::events::Event::ScreenShown::width: u32
 pub paperpaw_sdk::native::events::Event::Started
 pub paperpaw_sdk::native::events::Event::Started::now_ms: u64
 pub paperpaw_sdk::native::events::Event::Stopping
 pub paperpaw_sdk::native::events::Event::Stopping::now_ms: u64
 pub paperpaw_sdk::native::events::Event::Suspend
 pub paperpaw_sdk::native::events::Event::Suspend::now_ms: u64
-pub paperpaw_sdk::native::events::Event::Tick
-pub paperpaw_sdk::native::events::Event::Tick::now_ms: u64
-impl<'a> paperpaw_sdk::native::events::Event<'a>
-pub fn paperpaw_sdk::native::events::Event<'a>::decode(&'a [u8]) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 #[non_exhaustive] pub struct paperpaw_sdk::native::events::PageTurn<'a>
 pub paperpaw_sdk::native::events::PageTurn::chapter: &'a str
-pub paperpaw_sdk::native::events::PageTurn::insert: u32
 pub paperpaw_sdk::native::events::PageTurn::now_ms: u64
 pub paperpaw_sdk::native::events::PageTurn::offset: u32
 pub paperpaw_sdk::native::events::PageTurn::page: core::option::Option<u32>
@@ -3245,57 +3118,7 @@ pub paperpaw_sdk::native::events::PageTurn::path: &'a str
 pub paperpaw_sdk::native::events::PageTurn::progress_ppm: u32
 pub paperpaw_sdk::native::events::PageTurn::section: u32
 pub paperpaw_sdk::native::events::PageTurn::title: &'a str
-pub mod paperpaw_sdk::native::fonts
-#[non_exhaustive] pub enum paperpaw_sdk::native::fonts::FontRole
-pub paperpaw_sdk::native::fonts::FontRole::Mono
-pub paperpaw_sdk::native::fonts::FontRole::Reading
-pub paperpaw_sdk::native::fonts::FontRole::Ui
-pub paperpaw_sdk::native::fonts::FontRole::UiBold
-pub struct paperpaw_sdk::native::fonts::Font<'cb>
-impl paperpaw_sdk::native::fonts::Font<'_>
-pub fn paperpaw_sdk::native::fonts::Font<'_>::ink(&self, f32, impl core::convert::AsRef<str>) -> core::result::Result<core::option::Option<paperpaw_sdk::native::fonts::InkBounds>, paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::fonts::Font<'_>::read_line_metrics(&self, f32) -> core::result::Result<paperpaw_text::font::LineMetrics, paperpaw_sdk::native::Error>
-impl<'cb> paperpaw_sdk::native::fonts::Font<'cb>
-pub fn paperpaw_sdk::native::fonts::Font<'cb>::acquire(&'cb paperpaw_sdk::native::Host<'cb>, impl core::convert::AsRef<str>) -> core::result::Result<Self, paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::fonts::Font<'cb>::acquire_role(&'cb paperpaw_sdk::native::Host<'cb>, paperpaw_sdk::native::fonts::FontRole) -> core::result::Result<Self, paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::fonts::Font<'cb>::measure_text(&self, f32, impl core::convert::AsRef<str>) -> core::result::Result<f32, paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::fonts::Font<'cb>::release(self) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::fonts::Font<'cb>::render_text(&self, &paperpaw_sdk::native::canvas::Canvas<'_>, f32, paperpaw_sdk::native::fonts::TextOrigin, paperpaw_platform::pixel::Color, impl core::convert::AsRef<str>) -> core::result::Result<f32, paperpaw_sdk::native::Error>
-impl core::ops::drop::Drop for paperpaw_sdk::native::fonts::Font<'_>
-pub fn paperpaw_sdk::native::fonts::Font<'_>::drop(&mut self)
-#[non_exhaustive] pub struct paperpaw_sdk::native::fonts::InkBounds
-pub paperpaw_sdk::native::fonts::InkBounds::bottom: i32
-pub paperpaw_sdk::native::fonts::InkBounds::left: i32
-pub paperpaw_sdk::native::fonts::InkBounds::right: i32
-pub paperpaw_sdk::native::fonts::InkBounds::top: i32
-impl paperpaw_sdk::native::fonts::InkBounds
-pub const fn paperpaw_sdk::native::fonts::InkBounds::new(i32, i32, i32, i32) -> Self
-#[non_exhaustive] pub struct paperpaw_sdk::native::fonts::TextOrigin
-pub paperpaw_sdk::native::fonts::TextOrigin::baseline: i32
-pub paperpaw_sdk::native::fonts::TextOrigin::x: f32
-impl paperpaw_sdk::native::fonts::TextOrigin
-pub const fn paperpaw_sdk::native::fonts::TextOrigin::new(f32, i32) -> Self
-pub mod paperpaw_sdk::native::formatting
-#[non_exhaustive] pub enum paperpaw_sdk::native::formatting::Arg<'a>
-pub paperpaw_sdk::native::formatting::Arg::Count(i64)
-pub paperpaw_sdk::native::formatting::Arg::Int
-pub paperpaw_sdk::native::formatting::Arg::Int::name: &'a str
-pub paperpaw_sdk::native::formatting::Arg::Int::value: i64
-pub paperpaw_sdk::native::formatting::Arg::Text
-pub paperpaw_sdk::native::formatting::Arg::Text::name: &'a str
-pub paperpaw_sdk::native::formatting::Arg::Text::value: &'a str
-#[non_exhaustive] pub struct paperpaw_sdk::native::formatting::FormatBuffers<'scratch, 'out>
-pub paperpaw_sdk::native::formatting::FormatBuffers::out: &'out mut [u8]
-pub paperpaw_sdk::native::formatting::FormatBuffers::scratch: &'scratch mut [u8]
-impl<'scratch, 'out> paperpaw_sdk::native::formatting::FormatBuffers<'scratch, 'out>
-pub fn paperpaw_sdk::native::formatting::FormatBuffers<'scratch, 'out>::new(&'scratch mut [u8], &'out mut [u8]) -> Self
-pub const paperpaw_sdk::native::formatting::MAX_ARGUMENT_BYTES: usize
-pub const paperpaw_sdk::native::formatting::MAX_DIGIT_BYTES: usize
-pub const paperpaw_sdk::native::formatting::MAX_KEY_BYTES: usize
-pub const paperpaw_sdk::native::formatting::MAX_MESSAGE_BYTES: usize
-pub fn paperpaw_sdk::native::formatting::copy_message<'a>(&paperpaw_sdk::native::Host<'_>, impl core::convert::AsRef<str>, &'a mut [u8]) -> core::result::Result<&'a str, paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::formatting::digits(&paperpaw_sdk::native::Host<'_>, impl core::convert::AsRef<str>, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::formatting::format_message(&paperpaw_sdk::native::Host<'_>, impl core::convert::AsRef<str>, &[paperpaw_sdk::native::formatting::Arg<'_>], &mut paperpaw_sdk::native::formatting::FormatBuffers<'_, '_>) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::events::decode(&[u8]) -> core::result::Result<paperpaw_sdk::native::events::Event<'_>, paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::keys
 #[non_exhaustive] pub enum paperpaw_sdk::native::keys::RevokedError
 pub paperpaw_sdk::native::keys::RevokedError::Full
@@ -3323,37 +3146,52 @@ pub fn paperpaw_sdk::native::keys::revoked(&dyn paperpaw_platform::storage::Stor
 pub fn paperpaw_sdk::native::keys::rotation_message(&str, &[u8; 32], &[u8; 32]) -> alloc::string::String
 pub mod paperpaw_sdk::native::registrations
 pub fn paperpaw_sdk::native::registrations::submit(&paperpaw_sdk::native::Host<'_>, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub mod paperpaw_sdk::native::reply
-pub struct paperpaw_sdk::native::reply::Reply<'cb>
-impl<'cb> paperpaw_sdk::native::reply::Reply<'cb>
-pub fn paperpaw_sdk::native::reply::Reply<'cb>::is_empty(&self) -> bool
-pub fn paperpaw_sdk::native::reply::Reply<'cb>::len(&self) -> usize
-pub fn paperpaw_sdk::native::reply::Reply<'cb>::remaining(&self) -> usize
-pub fn paperpaw_sdk::native::reply::Reply<'cb>::write(&mut self, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub mod paperpaw_sdk::native::settings
-#[non_exhaustive] pub enum paperpaw_sdk::native::settings::GrantKind
-pub paperpaw_sdk::native::settings::GrantKind::Install
-pub paperpaw_sdk::native::settings::GrantKind::Style
-#[non_exhaustive] pub enum paperpaw_sdk::native::settings::SettingValue<'a>
-pub paperpaw_sdk::native::settings::SettingValue::Absent
-pub paperpaw_sdk::native::settings::SettingValue::Bool(bool)
-pub paperpaw_sdk::native::settings::SettingValue::Int(i64)
-pub paperpaw_sdk::native::settings::SettingValue::Text(&'a str)
-pub fn paperpaw_sdk::native::settings::own_grant(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::settings::GrantKind) -> core::result::Result<bool, paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::settings::read_setting<'a>(&paperpaw_sdk::native::Host<'_>, impl core::convert::AsRef<str>, &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::settings::SettingValue<'a>, paperpaw_sdk::native::Error>
-pub mod paperpaw_sdk::native::snapshot
-#[non_exhaustive] pub struct paperpaw_sdk::native::snapshot::Snapshot
-impl paperpaw_sdk::native::snapshot::Snapshot
-pub const fn paperpaw_sdk::native::snapshot::Snapshot::battery_millivolts(&self) -> core::option::Option<u16>
-pub const fn paperpaw_sdk::native::snapshot::Snapshot::battery_percent(&self) -> core::option::Option<u8>
-pub const fn paperpaw_sdk::native::snapshot::Snapshot::display_dpi(&self) -> u16
-pub const fn paperpaw_sdk::native::snapshot::Snapshot::display_height(&self) -> u16
-pub const fn paperpaw_sdk::native::snapshot::Snapshot::display_width(&self) -> u16
-pub const fn paperpaw_sdk::native::snapshot::Snapshot::has_touch(&self) -> bool
-pub const fn paperpaw_sdk::native::snapshot::Snapshot::instant(&self) -> paperpaw_platform::input::Instant
-pub const fn paperpaw_sdk::native::snapshot::Snapshot::is_charging(&self) -> bool
-pub const fn paperpaw_sdk::native::snapshot::Snapshot::unix_seconds(&self) -> core::option::Option<i64>
-pub fn paperpaw_sdk::native::snapshot::capture_snapshot(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<paperpaw_sdk::native::snapshot::Snapshot, paperpaw_sdk::native::Error>
+pub mod paperpaw_sdk::native::services
+pub struct paperpaw_sdk::native::services::Blob<'cb>
+impl paperpaw_sdk::native::services::Blob<'_>
+pub fn paperpaw_sdk::native::services::Blob<'_>::read(&self, u64, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::services::Blob<'_>::release(self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+impl core::fmt::Debug for paperpaw_sdk::native::services::Blob<'_>
+pub fn paperpaw_sdk::native::services::Blob<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::ops::drop::Drop for paperpaw_sdk::native::services::Blob<'_>
+pub fn paperpaw_sdk::native::services::Blob<'_>::drop(&mut self)
+#[non_exhaustive] pub struct paperpaw_sdk::native::services::PageEnd
+pub paperpaw_sdk::native::services::PageEnd::generation: u32
+pub paperpaw_sdk::native::services::PageEnd::left_out: bool
+pub paperpaw_sdk::native::services::PageEnd::next: u32
+pub paperpaw_sdk::native::services::PageEnd::total: u32
+pub paperpaw_sdk::native::services::PageEnd::truncated: bool
+#[non_exhaustive] pub struct paperpaw_sdk::native::services::ServicePluginUsage<'a>
+pub paperpaw_sdk::native::services::ServicePluginUsage::awake_ms: u64
+pub paperpaw_sdk::native::services::ServicePluginUsage::awake_reason: &'a str
+pub paperpaw_sdk::native::services::ServicePluginUsage::busy_us: u64
+pub paperpaw_sdk::native::services::ServicePluginUsage::calls: u32
+pub paperpaw_sdk::native::services::ServicePluginUsage::fast: u32
+pub paperpaw_sdk::native::services::ServicePluginUsage::full: u32
+pub paperpaw_sdk::native::services::ServicePluginUsage::partial: u32
+pub paperpaw_sdk::native::services::ServicePluginUsage::pixels: u64
+pub paperpaw_sdk::native::services::ServicePluginUsage::plugin: &'a str
+pub paperpaw_sdk::native::services::ServicePluginUsage::read: u64
+pub paperpaw_sdk::native::services::ServicePluginUsage::refused: u32
+pub paperpaw_sdk::native::services::ServicePluginUsage::requests: u32
+pub paperpaw_sdk::native::services::ServicePluginUsage::shown_ms: u64
+pub paperpaw_sdk::native::services::ServicePluginUsage::syncs: u32
+pub paperpaw_sdk::native::services::ServicePluginUsage::written: u64
+#[non_exhaustive] pub struct paperpaw_sdk::native::services::ServiceUsage
+pub paperpaw_sdk::native::services::ServiceUsage::bluetooth_ms: u64
+pub paperpaw_sdk::native::services::ServiceUsage::fast: u32
+pub paperpaw_sdk::native::services::ServiceUsage::full: u32
+pub paperpaw_sdk::native::services::ServiceUsage::inputs: u32
+pub paperpaw_sdk::native::services::ServiceUsage::panel_ms: u64
+pub paperpaw_sdk::native::services::ServiceUsage::partial: u32
+pub paperpaw_sdk::native::services::ServiceUsage::pixels: u64
+pub paperpaw_sdk::native::services::ServiceUsage::sleeps: u32
+pub fn paperpaw_sdk::native::services::device_usage(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<paperpaw_sdk::native::services::ServiceUsage, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::services::for_each_plugin_usage(&paperpaw_sdk::native::Host<'_>, &mut dyn core::ops::function::FnMut(&paperpaw_sdk::native::services::ServicePluginUsage<'_>)) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::services::plugin_name(&paperpaw_sdk::native::Host<'_>, &str, impl core::ops::function::FnOnce(&str)) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::services::plugin_usage_page(&paperpaw_sdk::native::Host<'_>, u32, &mut dyn core::ops::function::FnMut(&paperpaw_sdk::native::services::ServicePluginUsage<'_>)) -> core::result::Result<paperpaw_sdk::native::services::PageEnd, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::services::query<'cb>(&'cb paperpaw_sdk::native::Host<'cb>, &str, u16, u16) -> core::result::Result<paperpaw_sdk::native::services::Blob<'cb>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::services::work_note(&paperpaw_sdk::native::Host<'_>, &str, impl core::ops::function::FnOnce(u64, &str)) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::storage
 #[non_exhaustive] pub enum paperpaw_sdk::native::storage::Root
 pub paperpaw_sdk::native::storage::Root::Data
@@ -3375,7 +3213,6 @@ pub paperpaw_sdk::native::Author::Other
 #[non_exhaustive] pub enum paperpaw_sdk::native::Error
 pub paperpaw_sdk::native::Error::Busy
 pub paperpaw_sdk::native::Error::Cancelled
-pub paperpaw_sdk::native::Error::Denied
 pub paperpaw_sdk::native::Error::Full
 pub paperpaw_sdk::native::Error::Invalid
 pub paperpaw_sdk::native::Error::Io
@@ -3384,7 +3221,6 @@ pub paperpaw_sdk::native::Error::NoSpace
 pub paperpaw_sdk::native::Error::NotFound
 pub paperpaw_sdk::native::Error::Other(i32)
 pub paperpaw_sdk::native::Error::State
-pub paperpaw_sdk::native::Error::Timeout
 pub paperpaw_sdk::native::Error::Unsupported
 pub paperpaw_sdk::native::Error::Utf8
 impl core::convert::From<paperpaw_sdk::native::Error> for i32
@@ -3456,9 +3292,8 @@ pub const paperpaw_sdk::native::INTERFACE: u16
 pub const paperpaw_sdk::native::LAYOUT: u64
 pub const paperpaw_sdk::native::TOOLCHAIN: &str
 pub trait paperpaw_sdk::native::Plugin: core::marker::Sized + 'static
-pub fn paperpaw_sdk::native::Plugin::draw(&mut self, &paperpaw_sdk::native::Host<'_>, u32, paperpaw_sdk::native::callbacks::DrawFrame<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::Plugin::event(&mut self, &paperpaw_sdk::native::Host<'_>, u32, paperpaw_sdk::native::events::Event<'_>, &mut paperpaw_sdk::native::reply::Reply<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
-pub fn paperpaw_sdk::native::Plugin::input(&mut self, &paperpaw_sdk::native::Host<'_>, u32, paperpaw_sdk::native::callbacks::Input<'_>) -> core::result::Result<paperpaw_sdk::Handled, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::Plugin::draw(&mut self, &paperpaw_sdk::native::Host<'_>, u32) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::Plugin::event(&mut self, &paperpaw_sdk::native::Host<'_>, u32, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::Plugin::make(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::author(&dyn paperpaw_platform::storage::Storage, &str, &[u8; 32]) -> paperpaw_sdk::native::Author
 pub fn paperpaw_sdk::native::code_room(&dyn paperpaw_platform::storage::Storage) -> core::option::Option<paperpaw_sdk::native::CodeRoom>
