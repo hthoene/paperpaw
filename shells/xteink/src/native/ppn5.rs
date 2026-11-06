@@ -148,7 +148,7 @@ mod x4 {
 
     /// Why the file's entry, checked in RAM before the flash was touched, is
     /// refused: a damaged file.
-    pub(super) fn entry_check_failed(path: &str, why: EntryCheck) -> PluginProblem {
+    pub(in crate::native) fn entry_check_failed(path: &str, why: EntryCheck) -> PluginProblem {
         warn!("native: {path}: format 5: refused before writing: {why:?}");
         PluginProblem::Damaged
     }
