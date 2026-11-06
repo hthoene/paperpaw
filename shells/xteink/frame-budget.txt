@@ -18,4 +18,6 @@ frame 1024 rust_begin_unwind
 frame 320 crash::panic
 frame 128 ExceptionHandler
 frame 96 core::fmt::write
-chain 1792 rust_begin_unwind crash::panic ExceptionHandler core::fmt::write esp_println::logger
+# The logger's `Log::log` has the path `esp_println::logger::12Es::log::Log::log` (the packer's reading of a mangled
+# `impl` name is rough; a whole path is matched, so this is that function and no other).
+chain 1792 rust_begin_unwind crash::panic ExceptionHandler core::fmt::write esp_println::logger::12Es::log::Log::log
