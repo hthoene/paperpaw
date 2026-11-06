@@ -1,5 +1,9 @@
 //! The check of a pattern table that is read from untrusted storage: one
-//! function, used by the kernel's reader and by `paperpaw-dev package`.
+//! implementation, read positionally through a bounded buffer so that a table
+//! on a card needs no copy in memory ([`check_source`]). The kernel's card
+//! reader and `paperpaw-dev package` ([`check_table`], the slice form) share it.
+
+use crate::MAGIC;
 
 use core::fmt;
 
@@ -53,7 +57,7 @@ impl fmt::Display for TableError {
     }
 }
 
-/// What [`check_table`] found in a table it accepts, so that a reader or a tool
+/// What [`check_source`] found in a table it accepts, so that a reader or a tool
 /// does not parse the header again. All offsets and lengths are in bytes.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,13 +75,75 @@ pub struct Layout {
     pub exceptions_len: u32,
 }
 
-fn u32_at(table: &[u8], at: usize) -> Option<u32> {
-    let bytes: [u8; 4] = table.get(at..at.checked_add(4)?)?.try_into().ok()?;
-    Some(u32::from_le_bytes(bytes))
+impl core::error::Error for TableError {}
+
+impl Layout {
+    /// Where the first pattern is: after the header and the index.
+    pub fn entries_at(&self) -> u64 {
+        HEADER as u64 + 4 * u64::from(self.blocks)
+    }
+
+    /// The size of the whole table in bytes.
+    pub fn table_len(&self) -> u64 {
+        u64::from(self.exceptions_at) + u64::from(self.exceptions_len)
+    }
 }
 
-/// Checks that `table` is a PPHP version 1 table a reader can use, reading it
-/// only through bounds-checked access and allocating nothing.
+/// The fewest bytes of buffer [`check_source`] works with: one exception entry
+/// (a length byte and up to 255 bytes) fits. 512 or more reads less often.
+pub const MIN_SCRATCH: usize = 256;
+
+/// Bytes of a table, read at a position: a file on a card, or a slice.
+pub trait Source {
+    /// Why a read failed.
+    type Error;
+
+    /// The size in bytes, as it was when the source was opened.
+    fn len(&self) -> u64;
+
+    /// Whether the source has no bytes.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Fills `buf` with the bytes from `at`. A read that cannot fill `buf`
+    /// completely is an error.
+    ///
+    /// # Errors
+    ///
+    /// The source's own error when the bytes cannot be read.
+    fn read_at(&mut self, at: u64, buf: &mut [u8]) -> Result<(), Self::Error>;
+}
+
+/// Why [`check_source`] could not say that a table is sound.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CheckError<E> {
+    /// Reading failed.
+    Source(E),
+    /// The table is refused.
+    Table(TableError),
+    /// The buffer is shorter than [`MIN_SCRATCH`].
+    Scratch,
+}
+
+impl<E> From<TableError> for CheckError<E> {
+    fn from(error: TableError) -> Self {
+        Self::Table(error)
+    }
+}
+
+/// The little-endian word at `at`; `bytes` holds the whole header.
+fn word(bytes: &[u8], at: usize) -> u32 {
+    let mut word = [0u8; 4];
+    if let Some(from) = bytes.get(at..at + 4) {
+        word.copy_from_slice(from);
+    }
+    u32::from_le_bytes(word)
+}
+
+/// Checks that the table in `src` is a PPHP version 1 table a reader can use,
+/// and says where its parts are.
 ///
 /// - The magic is `PPHP\x01`; `QIHP`, which [`Patterns::new`](crate::Patterns::new)
 ///   still reads, is refused.
@@ -85,10 +151,11 @@ fn u32_at(table: &[u8], at: usize) -> Option<u32> {
 ///   count. The index (4 bytes a block, after the 24-byte header) must end at or
 ///   before the exceptions offset, which must lie in the file; if the header's
 ///   numbers do not fit together or the file, the error is [`TableError::Header`].
-/// - The limits [`MAX_BLOCKS`] and [`MAX_EXCEPTION_BYTES`] are checked before the
-///   index is walked, and [`MAX_BLOCK_BYTES`] as it is walked: [`TableError::TooLarge`].
-///   A reader that enforces the same constants never meets a table this refuses
-///   for size.
+/// - [`MAX_BLOCKS`] and [`MAX_EXCEPTION_BYTES`] are checked before the index is
+///   walked, [`MAX_BLOCK_BYTES`] once the walk has ended, so an
+///   [`TableError::Index`] anywhere in the index wins over a block that is too
+///   long: [`TableError::TooLarge`]. A reader that enforces the same constants
+///   never meets a table this refuses for size.
 /// - Index offsets, read from the start of the entries, are strictly ascending
 ///   and each points before the exceptions; otherwise [`TableError::Index`],
 ///   which is only about the index's contents.
@@ -97,82 +164,177 @@ fn u32_at(table: &[u8], at: usize) -> Option<u32> {
 ///   truncated or padded table is refused. An entry of length 0 is accepted
 ///   (an empty word hyphenates nothing); `compile` never writes one.
 ///
-/// The size limit of a plugin kind (2 MiB a table) is not checked here; the
-/// caller does that.
+/// `scratch` (at least [`MIN_SCRATCH`] bytes) is the only memory used, so
+/// nothing grows with the table; the index and the exceptions are read once,
+/// in order. The size limit of a plugin kind (2 MiB a table) is not checked
+/// here; the caller does that.
+///
+/// # Errors
+///
+/// [`CheckError::Table`] naming the first part of the table that is wrong,
+/// [`CheckError::Source`] when a read fails, [`CheckError::Scratch`] when
+/// `scratch` is too short.
+pub fn check_source<S: Source>(
+    src: &mut S,
+    scratch: &mut [u8],
+) -> Result<Layout, CheckError<S::Error>> {
+    if scratch.len() < MIN_SCRATCH {
+        return Err(CheckError::Scratch);
+    }
+    let len = src.len();
+    // At most the 24 header bytes: fits any `usize`.
+    let head = len.min(HEADER as u64) as usize;
+    src.read_at(0, &mut scratch[..head])
+        .map_err(CheckError::Source)?;
+    if head < MAGIC.len() || scratch[..MAGIC.len()] != MAGIC[..] {
+        return Err(TableError::Magic.into());
+    }
+    if head < HEADER {
+        return Err(TableError::Header.into());
+    }
+    let blocks = word(scratch, 12);
+    let exceptions_at = word(scratch, 16);
+    let exceptions = word(scratch, 20);
+    let entries = HEADER as u64 + 4 * u64::from(blocks);
+    if u64::from(exceptions_at) > len || entries > u64::from(exceptions_at) {
+        return Err(TableError::Header.into());
+    }
+    if blocks > MAX_BLOCKS {
+        return Err(TableError::TooLarge.into());
+    }
+    let exceptions_len = len - u64::from(exceptions_at);
+    if exceptions_len > u64::from(MAX_EXCEPTION_BYTES) {
+        return Err(TableError::TooLarge.into());
+    }
+    let largest_block = check_index(src, scratch, blocks, entries, exceptions_at)?;
+    if largest_block > MAX_BLOCK_BYTES {
+        return Err(TableError::TooLarge.into());
+    }
+    check_exceptions(src, scratch, u64::from(exceptions_at), exceptions)?;
+    Ok(Layout {
+        blocks,
+        largest_block,
+        exceptions_at,
+        exceptions,
+        // At most MAX_EXCEPTION_BYTES, checked above.
+        exceptions_len: exceptions_len as u32,
+    })
+}
+
+/// The index: strictly ascending offsets that point into the patterns.
+/// Returns the size of the largest block.
+fn check_index<S: Source>(
+    src: &mut S,
+    scratch: &mut [u8],
+    blocks: u32,
+    entries: u64,
+    exceptions_at: u32,
+) -> Result<u32, CheckError<S::Error>> {
+    // The patterns run from the end of the index to the exceptions offset.
+    let patterns = u64::from(exceptions_at) - entries;
+    let window = scratch.len() & !3;
+    let (mut pos, mut left) = (HEADER as u64, 4 * u64::from(blocks));
+    let mut last: Option<u32> = None;
+    let mut largest = 0;
+    while left > 0 {
+        // At most `window`, which is a `usize`.
+        let n = left.min(window as u64) as usize;
+        src.read_at(pos, &mut scratch[..n])
+            .map_err(CheckError::Source)?;
+        for chunk in scratch[..n].as_chunks::<4>().0 {
+            let offset = u32::from_le_bytes(*chunk);
+            if last.is_some_and(|before| offset <= before) || u64::from(offset) >= patterns {
+                return Err(TableError::Index.into());
+            }
+            if let Some(before) = last {
+                largest = largest.max(offset - before);
+            }
+            last = Some(offset);
+        }
+        pos += n as u64;
+        left -= n as u64;
+    }
+    if let Some(offset) = last {
+        // `patterns` is below the u32 exceptions offset.
+        largest = largest.max((patterns - u64::from(offset)) as u32);
+    }
+    Ok(largest)
+}
+
+/// `count` entries from `pos` that end exactly at the end of `src`.
+fn check_exceptions<S: Source>(
+    src: &mut S,
+    scratch: &mut [u8],
+    mut pos: u64,
+    mut count: u32,
+) -> Result<(), CheckError<S::Error>> {
+    let len = src.len();
+    while count > 0 {
+        // At most the scratch length, which is a `usize`.
+        let n = (len - pos).min(scratch.len() as u64) as usize;
+        src.read_at(pos, &mut scratch[..n])
+            .map_err(CheckError::Source)?;
+        let window = &scratch[..n];
+        let mut at = 0;
+        while count > 0 {
+            let Some(&length) = window.get(at) else { break };
+            let Some(word) = window.get(at + 1..at + 1 + usize::from(length)) else {
+                break;
+            };
+            if core::str::from_utf8(word).is_err() {
+                return Err(TableError::Exceptions.into());
+            }
+            at += 1 + word.len();
+            count -= 1;
+        }
+        // A window of MIN_SCRATCH holds a whole entry, unless the table ends.
+        if at == 0 {
+            return Err(TableError::Exceptions.into());
+        }
+        pos += at as u64;
+    }
+    if pos == len {
+        Ok(())
+    } else {
+        Err(TableError::Trailing.into())
+    }
+}
+
+/// A slice as a [`Source`].
+struct Bytes<'a>(&'a [u8]);
+
+/// A read outside the slice (not possible while checking).
+struct OutOfRange;
+
+impl Source for Bytes<'_> {
+    type Error = OutOfRange;
+
+    fn len(&self) -> u64 {
+        self.0.len() as u64
+    }
+
+    fn read_at(&mut self, at: u64, buf: &mut [u8]) -> Result<(), OutOfRange> {
+        let from = usize::try_from(at).map_err(|_| OutOfRange)?;
+        let end = from.checked_add(buf.len()).ok_or(OutOfRange)?;
+        buf.copy_from_slice(self.0.get(from..end).ok_or(OutOfRange)?);
+        Ok(())
+    }
+}
+
+/// [`check_source`] on a table in memory, for the host tools: accepts exactly
+/// the tables the kernel's activation check accepts. It allocates nothing.
 ///
 /// # Errors
 ///
 /// A [`TableError`] naming the first part of the table that is wrong.
 pub fn check_table(table: &[u8]) -> Result<Layout, TableError> {
-    if table.get(..5) != Some(b"PPHP\x01".as_slice()) {
-        return Err(TableError::Magic);
+    let mut scratch = [0u8; 2 * MIN_SCRATCH];
+    match check_source(&mut Bytes(table), &mut scratch) {
+        Ok(layout) => Ok(layout),
+        Err(CheckError::Table(why)) => Err(why),
+        // Not possible: the buffer is long enough and every read lies inside.
+        Err(CheckError::Source(OutOfRange) | CheckError::Scratch) => Err(TableError::Header),
     }
-    let blocks = u32_at(table, 12).ok_or(TableError::Header)?;
-    let exceptions_at = u32_at(table, 16).ok_or(TableError::Header)?;
-    let exceptions = u32_at(table, 20).ok_or(TableError::Header)?;
-    let (at, count) = (
-        usize::try_from(exceptions_at).map_err(|_| TableError::Header)?,
-        usize::try_from(blocks).map_err(|_| TableError::Header)?,
-    );
-    let entries = count
-        .checked_mul(4)
-        .and_then(|index| index.checked_add(HEADER))
-        .ok_or(TableError::Header)?;
-    if at > table.len() || entries > at {
-        return Err(TableError::Header);
-    }
-    if blocks > MAX_BLOCKS {
-        return Err(TableError::TooLarge);
-    }
-    let exceptions_len = table.len() - at;
-    if exceptions_len > MAX_EXCEPTION_BYTES as usize {
-        return Err(TableError::TooLarge);
-    }
-    // The patterns run from the end of the index to the exceptions offset. A
-    // block is the bytes from one index offset to the next, the last to that end.
-    let patterns = at - entries;
-    let mut largest_block = 0usize;
-    let mut last: Option<usize> = None;
-    for block in 0..count {
-        let offset = u32_at(table, HEADER + 4 * block).ok_or(TableError::Index)?;
-        let offset = usize::try_from(offset).map_err(|_| TableError::Index)?;
-        if last.is_some_and(|before| offset <= before) || offset >= patterns {
-            return Err(TableError::Index);
-        }
-        if let Some(before) = last {
-            largest_block = largest_block.max(offset - before);
-        }
-        last = Some(offset);
-    }
-    if let Some(offset) = last {
-        largest_block = largest_block.max(patterns - offset);
-    }
-    if largest_block > MAX_BLOCK_BYTES as usize {
-        return Err(TableError::TooLarge);
-    }
-    let mut cursor = at;
-    for _ in 0..exceptions {
-        let length = usize::from(*table.get(cursor).ok_or(TableError::Exceptions)?);
-        let end = cursor
-            .checked_add(1 + length)
-            .ok_or(TableError::Exceptions)?;
-        let word = table.get(cursor + 1..end).ok_or(TableError::Exceptions)?;
-        if core::str::from_utf8(word).is_err() {
-            return Err(TableError::Exceptions);
-        }
-        cursor = end;
-    }
-    if cursor != table.len() {
-        return Err(TableError::Trailing);
-    }
-    // Every value is bounded by a limit above, so these cannot truncate.
-    Ok(Layout {
-        blocks,
-        largest_block: largest_block as u32,
-        exceptions_at,
-        exceptions,
-        exceptions_len: exceptions_len as u32,
-    })
 }
 
 #[cfg(test)]
@@ -181,6 +343,11 @@ mod tests {
 
     use super::*;
     use crate::compile;
+
+    fn u32_at(table: &[u8], at: usize) -> Option<u32> {
+        let bytes: [u8; 4] = table.get(at..at.checked_add(4)?)?.try_into().ok()?;
+        Some(u32::from_le_bytes(bytes))
+    }
 
     fn header(blocks: u32, exceptions: u32, count: u32) -> Vec<u8> {
         let mut t = b"PPHP\x01\x02\x02\x05\0\0\0\0".to_vec();

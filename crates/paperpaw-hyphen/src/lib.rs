@@ -34,7 +34,8 @@ use core::fmt;
 
 #[cfg(feature = "kernel")]
 pub use check::{
-    Layout, MAX_BLOCK_BYTES, MAX_BLOCKS, MAX_EXCEPTION_BYTES, TableError, check_table,
+    CheckError, Layout, MAX_BLOCK_BYTES, MAX_BLOCKS, MAX_EXCEPTION_BYTES, MIN_SCRATCH, Source,
+    TableError, check_source, check_table,
 };
 pub use compile::compile;
 
@@ -220,7 +221,9 @@ impl Access for Patterns<'_> {
 
     fn exception(&mut self, word: &[char]) -> Option<Vec<usize>> {
         let section = self.data.get(self.exceptions.0..)?;
-        exception_in(section, self.exceptions.1, word).ok().flatten()
+        exception_in(section, self.exceptions.1, word)
+            .ok()
+            .flatten()
     }
 }
 
@@ -307,7 +310,11 @@ pub(crate) fn hyphenate_with<A: Access>(
     word: &str,
     out: &mut dyn FnMut(usize),
 ) {
-    let Rules { left_min, right_min, max_len } = rules;
+    let Rules {
+        left_min,
+        right_min,
+        max_len,
+    } = rules;
     // A character takes at most 4 bytes.
     if word.len() > 4 * MAX_WORD {
         return;
