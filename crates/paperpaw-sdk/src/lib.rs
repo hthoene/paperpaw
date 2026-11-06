@@ -173,7 +173,7 @@ pub use gesture::{Direction, Gesture, GestureKind};
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use hyphenation::CardTable;
 pub use hyphenation::{Hyphenation, HyphenationSpec, Hyphenator};
-pub use id::{Id, InvalidId};
+pub use id::{Id, IdError, InvalidId};
 pub use memory_storage::{MemoryStorage, read_file};
 pub use menus::{
     ItemState, ItemStateFn, MenuEntry, MenuItem, MenuNeed, MenuPlace, MenuSection, MenuView, Menus,

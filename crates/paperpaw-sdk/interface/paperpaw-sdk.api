@@ -6441,6 +6441,12 @@ pub fn paperpaw_sdk::replies::HttpError::as_str(self) -> &'static str
 pub fn paperpaw_sdk::replies::HttpError::parse(&str) -> core::option::Option<Self>
 impl core::fmt::Display for paperpaw_sdk::replies::HttpError
 pub fn paperpaw_sdk::replies::HttpError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub enum paperpaw_sdk::IdError
+pub paperpaw_sdk::IdError::Invalid
+pub paperpaw_sdk::IdError::NoMemory
+impl core::error::Error for paperpaw_sdk::IdError
+impl core::fmt::Display for paperpaw_sdk::IdError
+pub fn paperpaw_sdk::IdError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub enum paperpaw_sdk::Level
 pub paperpaw_sdk::Level::Advanced
 pub paperpaw_sdk::Level::Basic
@@ -7138,6 +7144,7 @@ pub fn paperpaw_sdk::Id::parse(&str) -> core::result::Result<paperpaw_sdk::Id, p
 pub fn paperpaw_sdk::Id::placement(&self, u32) -> paperpaw_sdk::Id
 pub const fn paperpaw_sdk::Id::static_str(self) -> &'static str
 pub fn paperpaw_sdk::Id::try_clone(&self) -> core::option::Option<paperpaw_sdk::Id>
+pub fn paperpaw_sdk::Id::try_parse(&str) -> core::result::Result<paperpaw_sdk::Id, paperpaw_sdk::IdError>
 pub fn paperpaw_sdk::Id::unplaced(&self) -> core::option::Option<paperpaw_sdk::Id>
 impl core::borrow::Borrow<str> for paperpaw_sdk::Id
 pub fn paperpaw_sdk::Id::borrow(&self) -> &str
