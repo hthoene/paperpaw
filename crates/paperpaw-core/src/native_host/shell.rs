@@ -384,7 +384,12 @@ impl<S: Services, M> Hosted<S, M> {
 }
 
 /// Fallible placement of a value on the heap: the X4 has no room to abort.
-pub(super) fn try_box<T>(value: T) -> Result<Box<T>, Error> {
+/// Boxes `value` or says `Allocation`; the host is never aborted by a plugin's
+/// memory use.
+///
+/// # Errors
+/// `Allocation` when the heap has no room.
+pub fn try_box<T>(value: T) -> Result<Box<T>, Error> {
     let layout = Layout::new::<T>();
     if layout.size() == 0 {
         return Ok(Box::new(value));
@@ -721,3 +726,7 @@ pub mod instance;
 #[cfg(test)]
 #[path = "shell_tests.rs"]
 mod tests;
+
+/// Which plugin's code runs now, kept where a reset leaves it.
+#[path = "shell_inflight.rs"]
+pub mod inflight;

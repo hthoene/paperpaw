@@ -19,6 +19,8 @@ std::thread_local! {
     /// Calls announced to the shell, and how many are open now.
     static CALLS: Cell<u32> = const { Cell::new(0) };
     static OPEN: Cell<i32> = const { Cell::new(0) };
+    /// Destructor runs that were outside any announced call.
+    static UNCOVERED: Cell<u32> = const { Cell::new(0) };
     /// The nth allocation of this thread fails (1-based; 0: none).
     static FAIL_NTH: Cell<u32> = const { Cell::new(0) };
 }
@@ -77,6 +79,7 @@ fn reset(mode: u8) {
     MAKES.with(|m| m.set(0));
     CALLS.with(|c| c.set(0));
     OPEN.with(|o| o.set(0));
+    UNCOVERED.with(|u| u.set(0));
 }
 
 /// The shell's heap and clock.
@@ -214,6 +217,9 @@ unsafe extern "C" fn destroy(state: *mut c_void) {
         "the plugin is destroyed while its module is alive"
     );
     log("destroy");
+    if OPEN.with(Cell::get) <= 0 {
+        UNCOVERED.with(|u| u.set(u.get() + 1));
+    }
     let fake = state.cast::<Fake>();
     // SAFETY: the block `make` wrote, destroyed once.
     let (host, ctx) = unsafe { ((*fake).host, (*fake).ctx) };
@@ -625,15 +631,21 @@ mod instance_tests {
     #[test]
     fn an_allocation_that_fails_anywhere_in_a_load_leaves_nothing_behind() {
         let mut loaded = 0;
+        let mut destroyed_in_a_refusal = 0;
         for nth in 1..=12 {
             reset(NORMAL);
             arm_failure(nth);
             let result = load();
             arm_failure(0);
+            // Every destructor run of the load, a refused one included, was
+            // inside an announced call (attributed, stack checked after it).
+            assert_eq!(UNCOVERED.with(Cell::get), 0, "allocation {nth}");
+            assert_eq!(OPEN.with(Cell::get), 0, "allocation {nth}");
             match result {
                 Ok(instance) => {
                     loaded += 1;
                     drop(instance);
+                    assert_eq!(UNCOVERED.with(Cell::get), 0, "allocation {nth}: drop");
                     assert_eq!(logged(), ["destroy", "module"], "allocation {nth}");
                 }
                 Err(_) => {
@@ -643,9 +655,14 @@ mod instance_tests {
                         log.iter().filter(|e| **e == "destroy").count() <= 1,
                         "allocation {nth}: {log:?}"
                     );
+                    destroyed_in_a_refusal += log.contains(&"destroy") as u32;
                 }
             }
         }
+        assert!(
+            destroyed_in_a_refusal > 0,
+            "a refusal after make destroyed the plugin inside the announced call"
+        );
         assert!(loaded > 0, "past the last allocation it loads");
     }
 }

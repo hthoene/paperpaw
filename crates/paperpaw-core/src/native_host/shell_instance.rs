@@ -96,15 +96,18 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
         image: (usize, usize),
         hooks: Hooks,
     ) -> Result<Self, Error> {
+        // One announced call over the whole load, declared first so that it
+        // ends last: whatever this function drops on a refusal, the plugin's
+        // destructor included, runs inside it (attributed, and the shell's
+        // stack check follows it), also when an allocation after `commit`
+        // fails.
+        let _call = Call::new(&hooks, id);
         // SAFETY: the caller's contract.
         let hosted = try_box(unsafe { Hosted::new(services, module, make, id, image) }?)?;
         let mut transaction = hosted.begin::<Registration>()?;
         let image = hosted.image().unwrap_or(&[]);
         transaction.set_image(image)?;
-        let mut batch = {
-            let _call = Call::new(&hooks, id);
-            hosted.make_registered(transaction)?.commit()?
-        };
+        let mut batch = hosted.make_registered(transaction)?.commit()?;
         let declarations = batch.take_declarations();
         let depth = DispatchDepth::new();
         let mut records = Vec::new();

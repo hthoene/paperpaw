@@ -360,9 +360,16 @@ mod x4 {
         let heap = esp_alloc::HEAP.used();
         let internal = crate::native::internal_free();
         let made = crate::micros();
-        critical_section::with(|cs| {
-            crate::native::IMAGES.borrow_ref_mut(cs).push(crate::native::Image {
-                id: alloc::string::String::from(id),
+        // Every allocation here is fallible: a full heap is `NoRoom`, never an
+        // abort of the reader.
+        let name = try_string(id)?;
+        let listed = critical_section::with(|cs| {
+            let mut images = crate::native::IMAGES.borrow_ref_mut(cs);
+            if images.try_reserve(1).is_err() {
+                return false;
+            }
+            images.push(crate::native::Image {
+                id: name,
                 code_base: placed.base + paperpaw_native::CODE_OFFSET,
                 len: header.image_len,
                 hot: placed.hot,
@@ -370,7 +377,12 @@ mod x4 {
                 hot_len: header.hot_len,
                 took: None,
             });
+            true
         });
+        if !listed {
+            warn!("native: {id}: no room to list the image");
+            return Err(PluginProblem::NoRoom);
+        }
         // SAFETY: `make` was read from the image just written to flash and
         // checked there (inside its code, even), so it is the plugin's
         // entry, callable for as long as the image stays placed: all session.
@@ -410,14 +422,16 @@ mod x4 {
         }
         let manifest = paperpaw_sdk::Manifest::new(
             code.id.clone(),
-            alloc::string::String::from(id),
+            try_string(id)?,
             paperpaw_sdk::Version::new(0, 0, 0),
         );
-        let plugin = FlatPlugin::new(manifest, Box::new(instance), Rc::clone(depth), code.host)
-            .map_err(|why| {
+        let instance = shell::try_box(instance).map_err(no_room)?;
+        let plugin = FlatPlugin::new(manifest, instance, Rc::clone(depth), code.host).map_err(
+            |why| {
                 warn!("native: {id}: format 5: {why:?}");
                 PluginProblem::Unsupported
-            })?;
+            },
+        )?;
         let took = crate::native::Took {
             place_us: made - started,
             make_us: crate::micros() - made,
@@ -434,6 +448,19 @@ mod x4 {
                 image.took = Some(took);
             }
         });
-        Ok(Box::new(plugin))
+        Ok(shell::try_box(plugin).map_err(no_room)?)
+    }
+
+    /// `text` copied, or `NoRoom`.
+    fn try_string(text: &str) -> Result<alloc::string::String, PluginProblem> {
+        let mut copy = alloc::string::String::new();
+        copy.try_reserve_exact(text.len())
+            .map_err(|_| PluginProblem::NoRoom)?;
+        copy.push_str(text);
+        Ok(copy)
+    }
+
+    fn no_room(_: shell::Error) -> PluginProblem {
+        PluginProblem::NoRoom
     }
 }
