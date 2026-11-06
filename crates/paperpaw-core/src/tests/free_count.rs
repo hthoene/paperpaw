@@ -123,7 +123,7 @@ fn no_part_is_counted_just_before_sleep() {
     let effects = kernel.tick(Instant(58_100));
     assert_eq!(storage.asks.get(), before);
     assert!(effects.wake_at().is_some());
-    assert_eq!(kernel.free_count.due(), kernel.sleep_due());
+    assert_eq!(kernel.free_count.due(), Some(Instant(60_100)));
 }
 
 #[test]
@@ -174,13 +174,28 @@ fn a_waiting_press_does_not_defer_to_a_ten_minute_sleep_timeout() {
 }
 
 #[test]
-fn sleeping_stops_counting_until_wake() {
+fn aborted_sleep_resumes_counting_within_two_seconds() {
     let storage = Counting::new(5, true);
     let mut kernel = kernel(&storage);
     kernel.sleep = true;
     kernel.count_free(Instant(1_000));
     assert_eq!(storage.asks.get(), 0);
-    assert_eq!(kernel.free_count.due(), None);
+    assert_eq!(kernel.free_count.due(), Some(Instant(3_000)));
+    kernel.sleep = false;
+    kernel.count_free(Instant(3_000));
+    assert_eq!(storage.asks.get(), 1);
+}
+
+#[test]
+fn a_past_sleep_deadline_defers_forward_and_a_postponed_sleep_resumes() {
+    let storage = Counting::new(5, true);
+    let mut kernel = kernel(&storage);
+    kernel.count_free(Instant(61_000));
+    assert_eq!(storage.asks.get(), 0);
+    assert_eq!(kernel.free_count.due(), Some(Instant(63_000)));
+    kernel.last_activity = Instant(61_000);
+    kernel.count_free(Instant(63_000));
+    assert_eq!(storage.asks.get(), 1);
 }
 
 #[test]

@@ -75,11 +75,11 @@ impl Kernel {
         let sleep_due = self.sleep_due();
         let sleeps_soon = sleep_due.is_some_and(|due| due <= now.add_millis(BEFORE_SLEEP_MS));
         if self.sleep {
-            self.free_count.next = None;
+            self.free_count.next = Some(now.add_millis(BEFORE_SLEEP_MS));
             return;
         }
         if sleeps_soon {
-            self.free_count.next = sleep_due;
+            self.free_count.next = sleep_due.map(|due| due.max(now.add_millis(BEFORE_SLEEP_MS)));
             return;
         }
         if let Some((_, until, _)) = &self.input.pending {
