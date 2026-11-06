@@ -129,8 +129,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             }
             // Nothing to clear.
             Err(StorageError::NotFound) if record == [0; 4] => Ok(()),
-            found @ (Ok(_) | Err(StorageError::NotFound)) => {
-                let before = found.map_or(0, |(_, len)| len);
+            Ok(_) | Err(StorageError::NotFound) => {
                 let len = record.len().max(BLOCK);
                 let mut whole = Vec::new();
                 whole
@@ -138,9 +137,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
                     .map_err(|_| StorageError::TooLarge)?;
                 whole.extend_from_slice(record);
                 whole.resize(len, 0);
-                self.write_whole(JOURNAL, &whole)?;
-                self.follow(len as u64, before);
-                Ok(())
+                self.write_whole(JOURNAL, &whole)
             }
             Err(e) => Err(e),
         }

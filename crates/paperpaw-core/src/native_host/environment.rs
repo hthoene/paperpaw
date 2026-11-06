@@ -9,6 +9,7 @@ pub use crate::abi7::snapshot_wire::{
 };
 use crate::abi7::{
     context::{Error as FrameError, FrameSlot},
+    core_frame::CoreFrame,
     queries, snapshot,
 };
 use core::{fmt, pin::Pin};
@@ -39,6 +40,21 @@ impl EnvironmentScope {
         // EnvironmentScope has no destructor that moves the field.
         let slot = unsafe { self.map_unchecked(|this| &this.slot) };
         slot.scope(env, call).map_err(|error| match error {
+            FrameError::Busy => Error::Busy,
+            FrameError::NoFrame => Error::State,
+        })
+    }
+
+    /// Core dispatch supplies separate shared field borrows for one callback.
+    /// Usage-table borrows exist only inside individual host visitor calls.
+    pub(crate) fn scope_core<R>(
+        self: Pin<&Self>,
+        frame: &CoreFrame<'_>,
+        call: impl FnOnce() -> R,
+    ) -> Result<R, Error> {
+        // SAFETY: the slot is structurally pinned and never moved by this scope.
+        let slot = unsafe { self.map_unchecked(|this| &this.slot) };
+        slot.scope(frame, call).map_err(|error| match error {
             FrameError::Busy => Error::Busy,
             FrameError::NoFrame => Error::State,
         })
@@ -115,3 +131,7 @@ impl fmt::Debug for EnvironmentScope {
         f.debug_struct("EnvironmentScope").finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+#[path = "flat/event_tests.rs"]
+mod event_tests;

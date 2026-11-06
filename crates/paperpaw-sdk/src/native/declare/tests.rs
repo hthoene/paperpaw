@@ -167,15 +167,13 @@ fn nothing_is_added_when_an_item_is_refused() {
     let mut d = collecting(&mut batches);
     assert!(d.group(GroupDecl::new("g", "")).is_err());
     assert!(d.is_empty());
-    d.submit().unwrap();
+    assert!(d.submit().is_err());
     drop(d);
-    assert!(batches.is_empty());
+    assert_eq!(batches, [Vec::<u8>::new()]);
 }
 
 #[test]
 fn invalid_setting_fields_are_refused() {
-    let mut batches = Vec::new();
-    let mut d = collecting(&mut batches);
     let long = |n| "a".repeat(n);
     let mut empty_group = bool_spec("n");
     empty_group.group = "";
@@ -193,80 +191,91 @@ fn invalid_setting_fields_are_refused() {
         // (error, result)
         (
             DeclareError::Empty("setting group"),
-            d.spec(empty_group).map(|_| ()),
+            Declarations::new(|_| Ok(())).spec(empty_group).map(|_| ()),
         ),
         (
             DeclareError::Empty("setting title"),
-            d.spec(empty_title).map(|_| ()),
+            Declarations::new(|_| Ok(())).spec(empty_title).map(|_| ()),
         ),
         (
             DeclareError::TooLong("setting name"),
-            d.spec(long_name).map(|_| ()),
+            Declarations::new(|_| Ok(())).spec(long_name).map(|_| ()),
         ),
         (
             DeclareError::TooLong("setting help"),
-            d.spec(long_help).map(|_| ()),
+            Declarations::new(|_| Ok(())).spec(long_help).map(|_| ()),
         ),
         (
             DeclareError::SecretScoped,
-            d.spec(secret_scoped).map(|_| ()),
+            Declarations::new(|_| Ok(()))
+                .spec(secret_scoped)
+                .map(|_| ()),
         ),
     ];
     for (expected, result) in cases {
         assert_eq!(result, Err(expected));
     }
-    assert!(d.is_empty());
 }
 
 #[test]
 fn invalid_setting_kinds_are_refused() {
-    let mut d = Declarations::new(|_| Ok(()));
     let spec = |kind| SpecDecl::new("n", kind, GROUP, "t");
     let long = |n| "a".repeat(n);
     let cases = [
         (
             DeclareError::Range,
-            d.spec(spec(Kind::Int {
-                default: 0,
-                min: 5,
-                max: 1,
-            }))
-            .map(|_| ()),
+            Declarations::new(|_| Ok(()))
+                .spec(spec(Kind::Int {
+                    default: 0,
+                    min: 5,
+                    max: 1,
+                }))
+                .map(|_| ()),
         ),
         (
             DeclareError::Default,
-            d.spec(spec(Kind::Int {
-                default: 9,
-                min: 0,
-                max: 5,
-            }))
-            .map(|_| ()),
+            Declarations::new(|_| Ok(()))
+                .spec(spec(Kind::Int {
+                    default: 9,
+                    min: 0,
+                    max: 5,
+                }))
+                .map(|_| ()),
         ),
         (
             DeclareError::Default,
-            d.spec(spec(choice("c", &["a", "b"]))).map(|_| ()),
+            Declarations::new(|_| Ok(()))
+                .spec(spec(choice("c", &["a", "b"])))
+                .map(|_| ()),
         ),
         (
             DeclareError::Choices,
-            d.spec(spec(choice("a", &[]))).map(|_| ()),
+            Declarations::new(|_| Ok(()))
+                .spec(spec(choice("a", &[])))
+                .map(|_| ()),
         ),
         (
             DeclareError::Choices,
-            d.spec(spec(choice("a", &["a", ""]))).map(|_| ()),
+            Declarations::new(|_| Ok(()))
+                .spec(spec(choice("a", &["a", ""])))
+                .map(|_| ()),
         ),
         (
             DeclareError::Choices,
-            d.spec(spec(choice("a", &["a", "a"]))).map(|_| ()),
+            Declarations::new(|_| Ok(()))
+                .spec(spec(choice("a", &["a", "a"])))
+                .map(|_| ()),
         ),
         (
             DeclareError::Choices,
-            d.spec(spec(choice("a", &[&long(97)]))).map(|_| ()),
+            Declarations::new(|_| Ok(()))
+                .spec(spec(choice("a", &[&long(97)])))
+                .map(|_| ()),
         ),
     ];
     for (expected, result) in cases {
         assert_eq!(result, Err(expected));
     }
-    assert!(d.is_empty());
 }
 
 #[test]
@@ -280,6 +289,7 @@ fn choice_count_limit_is_inclusive() {
         Err(DeclareError::Choices)
     );
     assert!(d.is_empty());
+    let mut d = Declarations::new(|_| Ok(()));
     d.spec(SpecDecl::new(
         "n",
         choice(choices[0], &choices[..32]),
@@ -293,51 +303,58 @@ fn choice_count_limit_is_inclusive() {
 
 #[test]
 fn each_rule_of_the_other_records_is_violated_once() {
-    let mut batches = Vec::new();
-    let mut d = collecting(&mut batches);
     let long = |n| "a".repeat(n);
     let cases = [
         (
             DeclareError::Empty("group title"),
-            d.group(GroupDecl::new("g", "")).map(|_| ()),
+            Declarations::new(|_| Ok(()))
+                .group(GroupDecl::new("g", ""))
+                .map(|_| ()),
         ),
         (DeclareError::TooLong("group parent"), {
             let mut g = GroupDecl::new("g", "t");
             let parent = long(129);
             g.parent = &parent;
-            d.group(g).map(|_| ())
+            Declarations::new(|_| Ok(())).group(g).map(|_| ())
         }),
         (DeclareError::Range, {
             let mut e = ExtraDecl::new("n");
             e.step = -1;
-            d.extra(e).map(|_| ())
+            Declarations::new(|_| Ok(())).extra(e).map(|_| ())
         }),
         (DeclareError::Empty("shown_if id"), {
             let mut e = ExtraDecl::new("n");
             e.shown_if = Some(("", "1"));
-            d.extra(e).map(|_| ())
+            Declarations::new(|_| Ok(())).extra(e).map(|_| ())
         }),
         (
             DeclareError::Empty("language"),
-            d.hyphenation("", "a.pphp").map(|_| ()),
+            Declarations::new(|_| Ok(()))
+                .hyphenation("", "a.pphp")
+                .map(|_| ()),
         ),
         (
             DeclareError::Empty("path"),
-            d.hyphenation("de", "").map(|_| ()),
+            Declarations::new(|_| Ok(()))
+                .hyphenation("de", "")
+                .map(|_| ()),
         ),
         (
             DeclareError::TooLong("language"),
-            d.hyphenation(&long(36), "a.pphp").map(|_| ()),
+            Declarations::new(|_| Ok(()))
+                .hyphenation(&long(36), "a.pphp")
+                .map(|_| ()),
         ),
         (
             DeclareError::TooLong("path"),
-            d.hyphenation("de", &long(101)).map(|_| ()),
+            Declarations::new(|_| Ok(()))
+                .hyphenation("de", &long(101))
+                .map(|_| ()),
         ),
     ];
     for (expected, result) in cases {
         assert_eq!(result, Err(expected));
     }
-    assert!(d.is_empty());
 }
 
 #[test]
@@ -350,6 +367,8 @@ fn a_default_over_the_wire_cap_is_refused() {
         d.spec(text).map(|_| ()),
         Err(DeclareError::TooLong("default"))
     );
+    drop(d);
+    let mut d = collecting(&mut batches);
     // 500 text bytes plus the 12-byte header is the most a default holds.
     let longest = "a".repeat(500);
     let text = SpecDecl::new("n", Kind::Text(&longest), GROUP, "t");
@@ -409,6 +428,7 @@ fn integer_defaults_stay_inside_the_i32_wire_range() {
         );
     }
     assert!(d.is_empty());
+    let mut d = Declarations::new(|_| Ok(()));
     for default in [i64::from(i32::MIN), i64::from(i32::MAX)] {
         d.spec(SpecDecl::new(
             "n",
@@ -445,12 +465,14 @@ fn choice_text_limit_includes_separators() {
         Err(DeclareError::TooLong("choices"))
     );
     assert_eq!(d.len(), 1);
+    assert_eq!(d.submit(), Err(DeclareError::TooLong("choices")));
+    let mut d = Declarations::new(|_| Ok(()));
     assert_eq!(
         d.spec(SpecDecl::new("n", choice("a", &["a", "b\nc"]), GROUP, "t"))
             .map(|_| ()),
         Err(DeclareError::Choices)
     );
-    d.submit().unwrap();
+    assert_eq!(d.submit(), Err(DeclareError::Choices));
 }
 
 #[test]
@@ -604,4 +626,36 @@ fn dropping_a_pending_builder_does_not_submit() {
     }));
     assert_eq!(result.is_err(), cfg!(debug_assertions));
     assert_eq!(calls.get(), 0);
+}
+
+#[test]
+fn local_refusals_abort_once_and_never_send_pending_records() {
+    for error in [
+        DeclareError::Empty("title"),
+        DeclareError::TooLong("name"),
+        DeclareError::Default,
+        DeclareError::Range,
+        DeclareError::Choices,
+        DeclareError::SecretScoped,
+        DeclareError::NoMemory,
+        DeclareError::Encode(-1),
+    ] {
+        let mut calls = Vec::new();
+        let mut d = Declarations::new(|batch: &[u8]| {
+            calls.push(batch.to_vec());
+            Err(-2)
+        });
+        d.group(GroupDecl::new("g", "g.title")).unwrap();
+        // Exercise the common terminal state, including encoder failures which
+        // are otherwise precluded by the public field bounds.
+        d.failed = Some(super::Latched::Refused(error));
+        assert_eq!(
+            d.group(GroupDecl::new("h", "h.title")).map(|_| ()),
+            Err(error)
+        );
+        assert_eq!(d.submit(), Err(error));
+        assert_eq!(d.submit(), Err(error));
+        drop(d);
+        assert_eq!(calls, [Vec::<u8>::new()]);
+    }
 }
