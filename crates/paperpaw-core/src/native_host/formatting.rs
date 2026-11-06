@@ -160,9 +160,8 @@ fn format_message(
     args: &Arguments<'_>,
     out: &mut [MaybeUninit<u8>],
 ) -> i32 {
-    let mut candidate = [0; wire::I18N_FORMAT_MAX_KEY_BYTES + 6];
     let message = match args.count {
-        Some(count) => translator.get_plural(key, count, &mut candidate),
+        Some(count) => translator.get_plural(key, count),
         None => translator.get(key),
     };
     let Some(message) = message else {

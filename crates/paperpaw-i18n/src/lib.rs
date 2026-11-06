@@ -28,6 +28,12 @@
 
 extern crate alloc;
 
+#[cfg(test)]
+extern crate std;
+
+#[cfg(test)]
+mod allocation_tests;
+
 mod built;
 mod card;
 mod catalog;
@@ -280,12 +286,16 @@ impl Translator {
     ///
     /// Looks up `key.<category>` using each catalog's own plural rule,
     /// then `key.other` in that same catalog, in normal fallback order.
-    /// `scratch` must hold at least `key.len() + 6` bytes for the lookup key.
-    /// Returns `None` if the scratch is too small or no catalog has a message.
-    /// The message borrows this translator, independently of the scratch.
+    /// Returns `None` if `key` exceeds 128 bytes or no catalog has a message.
+    /// The message borrows this translator's catalog storage.
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn get_plural<'s>(&'s self, key: &str, count: i64, scratch: &mut [u8]) -> Option<&'s str> {
+    pub fn get_plural(&self, key: &str, count: i64) -> Option<&str> {
+        // Reserve six extra bytes for the dot and longest category suffix.
+        self.lookup_plural(key, count, &mut [0; 128 + 6])
+    }
+
+    fn lookup_plural(&self, key: &str, count: i64, scratch: &mut [u8]) -> Option<&str> {
         let required = key.len().checked_add(6)?;
         let scratch = scratch.get_mut(..required)?;
         scratch[..key.len()].copy_from_slice(key.as_bytes());
@@ -317,24 +327,22 @@ impl Translator {
     /// catalog's own plural rule, falling back to `key.other`. `{count}` is
     /// always available as an argument.
     pub fn plural(&self, key: &str, count: i64, args: &[(&str, Arg<'_>)]) -> String {
-        let mut candidate = String::with_capacity(key.len() + 6);
-        for catalog in self.ordered() {
-            for category in [catalog.plural_rule().category(count), PluralCategory::Other] {
-                candidate.clear();
-                candidate.push_str(key);
-                candidate.push('.');
-                candidate.push_str(category.id());
-                if let Some(message) = catalog.get(&candidate) {
-                    return format::interpolate_with_count(
-                        message,
-                        count,
-                        args,
-                        self.digits.as_ref(),
-                    );
-                }
+        let mut scratch = [0; 128];
+        // Preserve the existing unbounded SDK lookup for long keys. The host
+        // lookup above always uses the fixed stack buffer instead.
+        let mut long_key;
+        let buffer = if key.len() > scratch.len() - 6 {
+            long_key = alloc::vec![0; key.len().saturating_add(6)];
+            long_key.as_mut_slice()
+        } else {
+            &mut scratch
+        };
+        match self.lookup_plural(key, count, buffer) {
+            Some(message) => {
+                format::interpolate_with_count(message, count, args, self.digits.as_ref())
             }
+            None => String::from(key),
         }
-        String::from(key)
     } @ data::I18N_PLURAL
     }
 
@@ -747,44 +755,52 @@ mod tests {
             t.add(Catalog::parse(source).unwrap());
         }
         t.set_language("fr");
-        let mut scratch = [0; 64];
-        let message = t.get_plural("books", 1, &mut scratch).unwrap();
-        scratch.fill(0);
+        let message = t.get_plural("books", 1).unwrap();
         assert_eq!(
             message, "Override other",
             "same-catalog other precedes older one"
         );
-        assert_eq!(
-            t.get_plural("only-en", 0, &mut scratch),
-            Some("Fallback other")
-        );
-        assert_eq!(
-            t.get_plural("only-en", 1, &mut scratch),
-            Some("Fallback one")
-        );
-        assert_eq!(t.get_plural("missing", 1, &mut scratch), None);
-        for count in [i64::MIN, -2, -1, 0, 1, 2, i64::MAX] {
+        assert_eq!(t.get_plural("only-en", 0), Some("Fallback other"));
+        assert_eq!(t.get_plural("only-en", 1), Some("Fallback one"));
+        assert_eq!(t.get_plural("missing", 1), None);
+        for count in [i64::MIN, -2, -1, 0, 1, 2, 5, i64::MAX] {
             for key in ["books", "only-en"] {
-                assert_eq!(
-                    t.get_plural(key, count, &mut scratch).unwrap(),
-                    t.plural(key, count, &[])
-                );
+                assert_eq!(t.get_plural(key, count).unwrap(), t.plural(key, count, &[]));
             }
         }
     }
 
     #[test]
-    fn borrowed_plural_requires_bounded_scratch_and_uses_each_catalog_rule() {
+    fn borrowed_plural_accepts_the_full_host_key_limit() {
+        let key = "x".repeat(128);
+        let mut t = Translator::new();
+        t.add(
+            Catalog::parse(alloc::format!(
+                "[meta]\nlanguage = en\nplural = one-other\n[messages]\n{key}.other = Found\n"
+            ))
+            .unwrap(),
+        );
+        assert_eq!(t.get_plural(&key, 5), Some("Found"));
+        assert_eq!(t.get_plural(&"x".repeat(129), 5), None);
+    }
+
+    #[test]
+    fn borrowed_plural_bounds_keys_and_uses_each_catalog_rule() {
         let mut t = Translator::new();
         t.add(Catalog::parse("[meta]\nlanguage = en\nplural = one-other\n[messages]\nbooks.one = English one\nbooks.other = English other\n").unwrap());
         t.add(Catalog::parse("[meta]\nlanguage = fr\nplural = zero-one-other\n[messages]\nbooks.one = French one\n").unwrap());
         t.set_language("fr");
-        assert_eq!(t.get_plural("books", 0, &mut [0; 11]), Some("French one"));
-        assert_eq!(
-            t.get_plural("books", 2, &mut [0; 11]),
-            Some("English other")
-        );
-        assert_eq!(t.get_plural("books", 0, &mut [0; 10]), None);
-        assert_eq!(t.get_plural("books", 0, &mut []), None);
+        assert_eq!(t.get_plural("books", 0), Some("French one"));
+        assert_eq!(t.get_plural("books", 2), Some("English other"));
+        assert_eq!(t.get_plural(&"x".repeat(129), 0), None);
+        for language in ["en", "fr"] {
+            t.set_language(language);
+            for count in [0, 1, 2, 5] {
+                assert_eq!(
+                    t.get_plural("books", count).unwrap(),
+                    t.plural("books", count, &[])
+                );
+            }
+        }
     }
 }
