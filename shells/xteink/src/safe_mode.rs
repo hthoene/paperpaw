@@ -26,7 +26,7 @@ pub const KEY: &str = paperpaw_platform::buttons::HOME;
 /// The longest plugin id kept (the catalogue's ids have at most 48 bytes).
 const ID_LEN: usize = 48;
 /// Says the record was written by this firmware, not left by chance.
-const MAGIC: u32 = 0x5050_5346;
+const MAGIC: u32 = 0x5050_5347;
 
 /// What safe mode keeps through a reset.
 #[derive(Clone, Copy)]
@@ -40,6 +40,11 @@ struct Record {
     /// The code plugin loaded last, and the one a panic was in.
     loaded: [u8; ID_LEN],
     crashed: [u8; ID_LEN],
+    /// The interface-7 plugin whose code is running now (set before each
+    /// call into it, cleared after): left set by a reset, it is the plugin
+    /// the reset happened in, a panic, a watchdog or a fault, whenever in
+    /// the session it was.
+    inflight: [u8; ID_LEN],
 }
 
 // SAFETY: numbers and bytes only, any pattern of bits one of them (a
@@ -52,6 +57,7 @@ const EMPTY: Record = Record {
     counted: 0,
     loaded: [0; ID_LEN],
     crashed: [0; ID_LEN],
+    inflight: [0; ID_LEN],
 };
 
 #[esp_hal::ram(unstable(rtc_fast, persistent))]
@@ -92,9 +98,15 @@ fn set(field: &mut [u8; ID_LEN], id: &str) {
 pub fn check(key_held: bool) -> Option<SafeMode> {
     let mut record = read();
     record.counted = 0;
+    // A reset in the middle of a call into a plugin (cutting the power clears
+    // this record, so it was not that): that plugin is switched off now, not
+    // only after the starts that did not reach the first frame, because a
+    // plugin that crashes on its first event after the first frame is shown
+    // would otherwise crash every start.
+    let inflight = text(&record.inflight);
     let reason = if key_held {
         SafeModeReason::KeyHeld
-    } else if record.failed >= FAILED_STARTS {
+    } else if record.failed >= FAILED_STARTS || inflight.is_some() {
         SafeModeReason::FailedStarts
     } else {
         write(record);
@@ -102,7 +114,7 @@ pub fn check(key_held: bool) -> Option<SafeMode> {
     };
     let mut safe_mode = SafeMode::new(reason);
     safe_mode.last_loaded = text(&record.loaded);
-    safe_mode.crashed = text(&record.crashed);
+    safe_mode.crashed = text(&record.crashed).or(inflight);
     write(EMPTY);
     Some(safe_mode)
 }
@@ -130,5 +142,20 @@ pub fn started() {
 pub fn crashed_in(id: &str) {
     let mut record = read();
     set(&mut record.crashed, id);
+    write(record);
+}
+
+/// Plugin `id`'s code is about to run (`make`, a callback, its destructor):
+/// the id is kept where a reset leaves it until [`returned`].
+pub fn calling(id: &str) {
+    let mut record = read();
+    set(&mut record.inflight, id);
+    write(record);
+}
+
+/// The plugin's code returned.
+pub fn returned() {
+    let mut record = read();
+    record.inflight = [0; ID_LEN];
     write(record);
 }

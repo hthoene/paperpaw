@@ -218,11 +218,18 @@ pub type Place = flash::Flash;
 /// Loads code plugins for the kernel (see the [module documentation](self)).
 pub struct Loader {
     place: Place,
+    /// The nesting budget every interface-7 plugin of this device shares.
+    #[cfg(feature = "ppn5")]
+    depth: alloc::rc::Rc<paperpaw_core::native_host::DispatchDepth>,
 }
 
 impl Loader {
     pub fn new(place: Place) -> Self {
-        Self { place }
+        Self {
+            place,
+            #[cfg(feature = "ppn5")]
+            depth: alloc::rc::Rc::new(paperpaw_core::native_host::DispatchDepth::new()),
+        }
     }
 
     fn load_file(
@@ -239,7 +246,7 @@ impl Loader {
         // Interface 7's files (format 5) are read by their own loader.
         #[cfg(feature = "ppn5")]
         if ppn5::is_format5(&head) {
-            return ppn5::load(&mut self.place, storage, code);
+            return ppn5::load(&mut self.place, &self.depth, storage, code);
         }
         let header = Header::read(&head).map_err(|p| problem_of(&head, p))?;
         if header.chip != CHIP {
