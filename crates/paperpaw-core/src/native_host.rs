@@ -23,6 +23,9 @@ mod shared;
 pub mod resources;
 pub use resources::HostResources;
 
+#[path = "native_host/fonts.rs"]
+mod fonts;
+
 #[path = "native_host/formatting.rs"]
 mod formatting;
 #[path = "native_host/storage_slots.rs"]
