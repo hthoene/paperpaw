@@ -1,4 +1,4 @@
-//! Requested allocator bytes while S1 decoded data and raw snapshots coexist.
+//! Requested allocator bytes, including old and new buffers during growth.
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 #![allow(unsafe_code, reason = "test-only allocator counts the current thread")]
 use paperpaw_core::native_host::{
@@ -17,6 +17,7 @@ thread_local! {
     static ACTIVE: Cell<bool> = const { Cell::new(false) };
     static LIVE: Cell<usize> = const { Cell::new(0) };
     static PEAK: Cell<usize> = const { Cell::new(0) };
+    static REALLOCS: Cell<usize> = const { Cell::new(0) };
     static FAIL_AFTER: Cell<Option<usize>> = const { Cell::new(None) };
 }
 fn change(add: usize, remove: usize) {
@@ -62,10 +63,22 @@ unsafe impl GlobalAlloc for Counting {
         if refuse_allocation() {
             return std::ptr::null_mut();
         }
-        // SAFETY: forwarded allocation and requested replacement size.
-        let replacement = unsafe { System.realloc(pointer, layout, size) };
+        if ACTIVE.get() {
+            REALLOCS.set(REALLOCS.get() + 1);
+        }
+        // Force a moving reallocation so the peak includes both buffers,
+        // even when the system allocator could have grown the old one in place.
+        let new_layout = Layout::from_size_align(size, layout.align()).unwrap();
+        // SAFETY: the new layout preserves the requested alignment.
+        let replacement = unsafe { System.alloc(new_layout) };
         if !replacement.is_null() {
-            change(size, layout.size());
+            change(size, 0);
+            // SAFETY: allocations are disjoint; copy only the shared extent.
+            unsafe {
+                std::ptr::copy_nonoverlapping(pointer, replacement, layout.size().min(size));
+                System.dealloc(pointer, layout);
+            }
+            change(0, layout.size());
         }
         replacement
     }
@@ -78,6 +91,7 @@ fn measure(plugin: &str, golden: &[u8], image: bool) {
     let scope = pin!(RegistrationScope::<Registration>::new());
     LIVE.set(0);
     PEAK.set(0);
+    REALLOCS.set(0);
     let started = std::time::Instant::now();
     ACTIVE.set(true);
     let mut construction = owner.as_ref().begin::<Registration>(plugin).unwrap();
@@ -120,7 +134,7 @@ fn measure(plugin: &str, golden: &[u8], image: bool) {
     }
     let decoded = construction.declarations().bytes();
     let resident = LIVE.get();
-    // A failure drops both representations; success transfers and then drops them.
+    // Both validation and the activation gate release all retained data.
     let committed = construction.commit(paperpaw_core::native_host::Teardown {
         report: |_, _, _| {},
         cancel: |_| Ok(()),
@@ -134,11 +148,16 @@ fn measure(plugin: &str, golden: &[u8], image: bool) {
     drop(committed);
     let elapsed = started.elapsed();
     let peak = PEAK.get();
+    let reallocs = REALLOCS.get();
     let remaining = LIVE.get();
     ACTIVE.set(false);
     assert_eq!(remaining, 0);
-    assert_eq!(unavailable, image);
+    assert_eq!(unavailable, status == OK);
+    assert_eq!(decoded, 0);
     assert!(peak <= 256 * 1024);
+    if image {
+        assert!(reallocs < 20);
+    }
     if plugin == "battery" || image {
         assert_eq!(status, OK);
     } else {
@@ -146,7 +165,7 @@ fn measure(plugin: &str, golden: &[u8], image: bool) {
         assert_eq!((batches, specs), (50, 330));
     }
     println!(
-        "{plugin} image={image} elapsed_us={}: requested={batches} batches/{specs} specs/{wire_bytes} wire bytes; admitted={accepted} batches/{accepted_specs} specs; status={status}; S1 logical={decoded}; resident={resident}; peak={peak}; full-wire two-copies baseline={}",
+        "{plugin} image={image} elapsed_us={}: requested={batches} batches/{specs} specs/{wire_bytes} wire bytes; admitted={accepted} batches/{accepted_specs} specs; status={status}; S1 logical={decoded}; resident={resident}; peak={peak}; moving_reallocs={reallocs}; full-wire two-copies baseline={}",
         elapsed.as_micros(),
         wire_bytes * 2
     );
@@ -171,7 +190,7 @@ fn battery_and_widgets_snapshot_peak() {
 }
 
 #[test]
-fn every_construction_allocation_refusal_poisons_and_rolls_back_raw_and_decoded_data() {
+fn every_construction_allocation_refusal_poisons_and_rolls_back_retained_data() {
     let golden = include_bytes!("../../../plugins/battery/testdata/declarations.bin.v1");
     let len = u32::from_le_bytes(golden[..4].try_into().unwrap()) as usize;
     let bytes = &golden[4..4 + len];
@@ -198,7 +217,10 @@ fn every_construction_allocation_refusal_poisons_and_rolls_back_raw_and_decoded_
             release: |_| Ok(()),
             destroy: |_| {},
         });
-        let success = committed.is_ok();
+        let success = matches!(
+            committed,
+            Err(paperpaw_core::native_host::Error::DeclarationViewsUnavailable)
+        );
         drop(committed);
         let remaining = LIVE.get();
         ACTIVE.set(false);

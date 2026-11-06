@@ -18,6 +18,7 @@ pub(crate) enum Kind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Error {
     State,
+    Busy,
     Capacity,
 }
 
@@ -39,7 +40,7 @@ pub(crate) fn cancel_owner<R: Release>(
 ) -> Result<(), Error> {
     registry
         .try_borrow_mut()
-        .map_err(|_| Error::State)?
+        .map_err(|_| Error::Busy)?
         .each_owner_mut(owner, Release::cancel);
     Ok(())
 }
@@ -52,7 +53,7 @@ pub(crate) fn release_owner<R: Release>(
     loop {
         let resource = registry
             .try_borrow_mut()
-            .map_err(|_| Error::State)?
+            .map_err(|_| Error::Busy)?
             .take_owner(owner);
         let Some(resource) = resource else {
             return Ok(());
@@ -71,7 +72,7 @@ pub(crate) fn release<R: Release>(
 ) -> Result<(), Error> {
     let mut resource = registry
         .try_borrow_mut()
-        .map_err(|_| Error::State)?
+        .map_err(|_| Error::Busy)?
         .remove(owner, kind, handle)?;
     resource.cancel();
     resource.release();
@@ -82,6 +83,7 @@ impl Error {
     pub(crate) fn status(self) -> i32 {
         match self {
             Self::State => paperpaw_native::host_glue::ERR_STATE,
+            Self::Busy => paperpaw_native::host_glue::ERR_BUSY,
             Self::Capacity => paperpaw_native::host_glue::ERR_FULL,
         }
     }
@@ -246,6 +248,13 @@ mod tests {
             );
         }
         let registry = RefCell::new(handles);
+        let borrowed = registry.borrow_mut();
+        assert_eq!(cancel_owner(&registry, 1), Err(Error::Busy));
+        assert_eq!(release_owner(&registry, 1), Err(Error::Busy));
+        assert_eq!(release(&registry, 1, Kind::Blob, 0), Err(Error::Busy));
+        assert_eq!(Error::Busy.status(), paperpaw_native::host_glue::ERR_BUSY);
+        assert!(events.borrow().is_empty());
+        drop(borrowed);
         cancel_owner(&registry, 1).unwrap();
         release_owner(&registry, 1).unwrap();
         assert_eq!(

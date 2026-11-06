@@ -325,10 +325,9 @@ fn mixed_decoded_and_owned_wire_duplicates_are_rejected_in_both_orders() {
                         assert_eq!(submit(&scope, &first_bytes), OK)
                     })
                     .unwrap();
-                assert_eq!(
-                    construction.stage_batch(&records_decode(&second_bytes).unwrap(), |r| r),
-                    Err(ERR_INVALID)
-                );
+                construction
+                    .stage_batch(&records_decode(&second_bytes).unwrap(), |r| r)
+                    .unwrap();
             } else {
                 construction
                     .stage_batch(&records_decode(&first_bytes).unwrap(), |r| r)
@@ -379,17 +378,17 @@ fn mixed_decoded_and_owned_wire_distinct_names_remain_valid() {
                 .scope(&mut construction, || assert_eq!(submit(&scope, &wire), OK))
                 .unwrap();
         }
-        assert_eq!(construction.declarations().groups().len(), 2);
-        assert!(
-            construction
-                .commit(crate::native_host::Teardown {
-                    report: |_, _, _| {},
-                    cancel: |_| Ok(()),
-                    release: |_| Ok(()),
-                    destroy: |_| {}
-                })
-                .is_ok()
-        );
+        assert_eq!(construction.declarations().groups().len(), 1);
+        construction.finish_declarations().unwrap();
+        assert!(matches!(
+            construction.commit(crate::native_host::Teardown {
+                report: |_, _, _| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
+                destroy: |_| {}
+            }),
+            Err(Error::DeclarationViewsUnavailable)
+        ));
     }
 }
 
@@ -462,7 +461,7 @@ fn forward_extras_resolve_across_every_submission_path_and_mixed_pair() {
                     release: |_| Ok(()),
                     destroy: |_| {},
                 });
-                if extra_mode == Submission::Image || spec_mode == Submission::Image {
+                if extra_mode != Submission::Decoded || spec_mode != Submission::Decoded {
                     assert!(matches!(result, Err(Error::DeclarationViewsUnavailable)));
                 } else {
                     assert!(result.is_ok());
@@ -496,7 +495,7 @@ fn forward_extra_in_the_same_batch_is_valid_on_every_path() {
             release: |_| Ok(()),
             destroy: |_| {},
         });
-        if mode == Submission::Image {
+        if mode != Submission::Decoded {
             assert!(matches!(result, Err(Error::DeclarationViewsUnavailable)));
         } else {
             assert!(result.is_ok());
@@ -599,5 +598,68 @@ fn screens_and_actions_are_indexed_and_never_declared_twice() {
     assert_eq!(
         screens_and_actions(&[action("go"), action("go")]),
         Err(ERR_INVALID)
+    );
+}
+
+fn padded_group(name: &str, total: usize) -> Vec<u8> {
+    let wire = encode(&[group(name, "")]);
+    assert!(wire[2] < 128);
+    let body = &wire[3..];
+    // A known record may carry appended fields, skipped by the decoder.
+    let body_len = total - 4;
+    assert!((128..16384).contains(&body_len));
+    let mut padded = vec![
+        1,
+        wire[1],
+        (body_len as u8 & 127) | 128,
+        (body_len >> 7) as u8,
+    ];
+    padded.extend_from_slice(body);
+    padded.resize(total, 0);
+    padded
+}
+
+#[test]
+fn owned_wire_uses_one_form_at_exact_32_kib_boundary() {
+    let owner = pin!(HostOwner::new((), ()));
+    let scope = pin!(RegistrationScope::<Registration>::new());
+    let mut construction = owner.as_ref().begin::<Registration>("fixture").unwrap();
+    let cost = size_of::<raw_declarations::RawBatch>() + size_of::<declaration_index::NameEntry>();
+    for n in 0..8 {
+        let remaining =
+            staged::DECLARATIONS_MAX_BYTES - n * (registrations::REGISTRATION_MAX_BYTES + cost);
+        let total = registrations::REGISTRATION_MAX_BYTES.min(remaining - cost);
+        let wire = padded_group(&format!("g{n}"), total);
+        scope
+            .as_ref()
+            .scope(&mut construction, || assert_eq!(submit(&scope, &wire), OK))
+            .unwrap();
+        assert!(construction.declarations().is_empty());
+    }
+    assert_eq!(
+        construction.raw.retained(None),
+        staged::DECLARATIONS_MAX_BYTES
+    );
+    construction.finish_declarations().unwrap();
+    let wire = encode(&[group("overflow", "")]);
+    scope
+        .as_ref()
+        .scope(&mut construction, || {
+            assert_eq!(submit(&scope, &wire), ERR_NO_SPACE)
+        })
+        .unwrap();
+    assert_eq!(
+        construction.raw.retained(None),
+        staged::DECLARATIONS_MAX_BYTES
+    );
+    assert!(
+        construction
+            .commit(crate::native_host::Teardown {
+                report: |_, _, _| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
+                destroy: |_| {}
+            })
+            .is_err()
     );
 }

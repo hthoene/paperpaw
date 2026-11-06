@@ -33,23 +33,27 @@ def outputs():
     cases = [('valid-empty-requirements', good, True), ('truncated-prefix', good[:3], False),
              ('truncated-tail', good[:-1], False), ('trailing-byte', good + b'\0', False)]
     # D1 features (#890), decoded against the fixture catalog (test.feature at
-    # revision 1): encoded by a host whose catalog differs, as a newer plugin is.
-    schema['metadata']['features'] = [dict(key='test.feature', revision=1, since=1)]
+    # revision 2): encoded by hosts whose catalogs differ, as older and newer
+    # plugins are. Revisions only add: an older request is served.
+    schema['metadata']['features'] = [dict(key='test.feature', revision=2, since=1)]
     GEN.validate(schema)
     newer = copy.deepcopy(schema)
-    newer['metadata']['features'] = [dict(key='test.feature', revision=2, since=1),
+    newer['metadata']['features'] = [dict(key='test.feature', revision=3, since=1),
                                      dict(key='test.unknown', revision=1, since=1)]
+    older = copy.deepcopy(schema)
+    older['metadata']['features'] = [dict(key='test.feature', revision=1, since=1)]
     good = encode(schema, build)
-    for name, key, required, accept in [
-            ('feature-known', 'test.feature', True, True),
-            ('feature-optional-unknown', 'test.unknown', False, True),
-            ('feature-required-unknown', 'test.unknown', True, False),
-            ('feature-optional-other-revision', 'test.feature', False, True),
-            ('feature-required-other-revision', 'test.feature', True, False)]:
-        source = schema if name == 'feature-known' else newer
+    for name, source, key, required, accept in [
+            ('feature-known', schema, 'test.feature', True, True),
+            ('feature-optional-unknown', newer, 'test.unknown', False, True),
+            ('feature-required-unknown', newer, 'test.unknown', True, False),
+            ('feature-optional-newer-revision', newer, 'test.feature', False, True),
+            ('feature-required-newer-revision', newer, 'test.feature', True, False),
+            ('feature-optional-older-revision', older, 'test.feature', False, True),
+            ('feature-required-older-revision', older, 'test.feature', True, True)]:
         cases.append((name, encode(source, dict(build, features=[
             dict(key=key, required=required)])), accept))
-    flagged = bytearray(cases[-5][1])
+    flagged = bytearray(dict((name, data) for name, data, _ in cases)['feature-known'])
     flagged[-len('test.feature') - 2] |= 2  # flags (u16) precede the key
     cases.append(('feature-unknown-flag-bit', bytes(flagged), False))
     for field, value in [('magic', b'NOPE'), ('flags', 1), ('exports', 3), ('total_bytes', 0)]:

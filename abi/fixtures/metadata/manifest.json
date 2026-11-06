@@ -92,8 +92,8 @@
         "metadata": "accept",
         "signature": "not_run"
       },
-      "hex": "feature-optional-other-revision.hex",
-      "name": "feature-optional-other-revision"
+      "hex": "feature-optional-newer-revision.hex",
+      "name": "feature-optional-newer-revision"
     },
     {
       "expected": {
@@ -103,8 +103,36 @@
         "metadata": "reject",
         "signature": "not_run"
       },
-      "hex": "feature-required-other-revision.hex",
-      "name": "feature-required-other-revision"
+      "hex": "feature-required-newer-revision.hex",
+      "name": "feature-required-newer-revision"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "features": [
+          "test.feature"
+        ],
+        "metadata": "accept",
+        "signature": "not_run"
+      },
+      "hex": "feature-optional-older-revision.hex",
+      "name": "feature-optional-older-revision"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "features": [
+          "test.feature"
+        ],
+        "metadata": "accept",
+        "signature": "not_run"
+      },
+      "hex": "feature-required-older-revision.hex",
+      "name": "feature-required-older-revision"
     },
     {
       "expected": {

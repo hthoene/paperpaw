@@ -8,6 +8,10 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 SDK callback host binding and `native_plugin!` entry glue, with checked table admission
+  and fallible host allocation. Storage slots 20-26 use caller-owned buffers; event tags 32-37 decode
+  into borrowed payloads. These facades do not activate any shell loader (#228).
+
 - Core adapter for shell-owned interface-7 plugins: deliver registered lifecycle, battery and page-turn
   events through the kernel subscription pipeline with bounded encoding and callback-scoped environment
   access. Shells supply the owner bridge and failure logging; loader wiring follows separately (#228).
@@ -104,8 +108,8 @@ change the plugin SDK.
     plugin can change.
   - Plugins must be rebuilt for draft 5. A host cannot tell drafts apart (the metadata carries no
     draft), so a plugin built for an earlier draft must not be installed; none was distributed.
-  - A feature a plugin marks optional that the host lacks, or has at another revision, is left out;
-    only a required one refuses the load.
+  - A feature a plugin marks optional that the host lacks, or has only at an older revision, is left
+    out; only a required one refuses the load. A host serves every older revision of a feature.
 - **The Wi-Fi page: the networks have a page of their own** (#161). The Wi-Fi page is short whatever is in the air:
   the switch with where it is, a row *Networks ›* (the network the device is in and how many are in reach; it opens
   the list), the setup with a phone and the three settings. While no network is kept, *Set up with a phone* comes

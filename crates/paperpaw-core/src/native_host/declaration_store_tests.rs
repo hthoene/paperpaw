@@ -272,11 +272,12 @@ fn corrupted_image_is_revalidated_each_time_and_never_cached() {
         .commit();
     let key = keys(&store)[0];
     assert!(store.with_record(key, &mut |_| {}));
-    let first = source.bytes.borrow()[0];
-    source.bytes.borrow_mut()[0] = 0xff;
+    let offset = usize::from(key.record);
+    let first = source.bytes.borrow()[offset];
+    source.bytes.borrow_mut()[offset] = 0xff;
     assert!(!store.with_record(key, &mut |_| panic!("corrupt image")));
     assert_eq!(source.errors.get(), 1);
-    source.bytes.borrow_mut()[0] = first;
+    source.bytes.borrow_mut()[offset] = first;
     assert!(store.with_record(key, &mut |_| {}));
 }
 
@@ -362,20 +363,23 @@ fn construction_retains_a_snapshot_and_record_offsets_after_input_is_gone() {
         .unwrap();
     input.fill(0);
     drop(input);
-    let mut committed = construction
-        .commit(crate::native_host::Teardown {
-            report: |_, _, _| {},
-            cancel: |_| Ok(()),
-            release: |_| Ok(()),
-            destroy: |_| {},
-        })
-        .unwrap();
-    let raw = committed.take_raw_declarations();
+    construction.finish_declarations().unwrap();
+    let raw = &construction.raw;
     assert_eq!(raw.batches.len(), 1);
     let batch = &raw.batches[0];
     assert_eq!(&*batch.bytes, expected);
     assert_eq!(batch.entries, 6);
     assert!(batch.offsets[..6].windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(construction.declarations().is_empty());
+    assert!(matches!(
+        construction.commit(crate::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| {}
+        }),
+        Err(super::super::Error::DeclarationViewsUnavailable)
+    ));
 }
 
 #[test]
@@ -578,4 +582,398 @@ fn image_staging_and_lookup_acquire_a_non_reentrant_guard_only_once() {
     assert!(!store.find("fixture", Kind::Spec, "flag", &mut |_| panic!("busy guard")));
     assert_eq!(source.denied.get(), 1);
     source.active.set(false);
+}
+
+#[test]
+fn changed_image_bytes_cannot_create_duplicate_names_inside_a_hash_collision_run() {
+    use super::super::declaration_index::name_hash;
+    const FIRST: &str = "entryboludzyf";
+    const SECOND: &str = "entryoxzxketp";
+    assert_eq!(name_hash(0, FIRST), name_hash(0, SECOND));
+    let mut bytes = vec![0; REGISTRATION_MAX_BYTES];
+    let records = [FIRST, SECOND].map(|name| {
+        Record::SettingGroup(SettingGroup {
+            name,
+            title: "Group",
+            order: 0,
+            page: "",
+            parent: "",
+        })
+    });
+    let len = records_encode(&records, &mut bytes).unwrap();
+    bytes.truncate(len);
+    let source = Rc::new(Image {
+        bytes: RefCell::new(bytes),
+        generation: Cell::new(1),
+        live: Cell::new(true),
+        errors: Cell::new(0),
+        active: Cell::new(false),
+        denied: Cell::new(0),
+    });
+    let mut allocations = Allocations::default();
+    let mut store = DeclarationStore::default();
+    store
+        .prepare(
+            pending(&source, false, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    assert!(store.find("fixture", Kind::Group, FIRST, &mut |_| {}));
+    assert!(store.find("fixture", Kind::Group, SECOND, &mut |_| {}));
+    let at = source
+        .bytes
+        .borrow()
+        .windows(FIRST.len())
+        .position(|bytes| bytes == FIRST.as_bytes())
+        .unwrap();
+    source.bytes.borrow_mut()[at..at + FIRST.len()].copy_from_slice(SECOND.as_bytes());
+    assert!(!store.find("fixture", Kind::Group, SECOND, &mut |_| panic!(
+        "mutated duplicate"
+    )));
+    for key in keys(&store) {
+        assert!(!store.with_record(key, &mut |_| panic!("duplicate key")));
+    }
+    assert!(source.errors.get() > 0);
+    source.bytes.borrow_mut()[at..at + FIRST.len()].copy_from_slice(FIRST.as_bytes());
+    assert!(store.find("fixture", Kind::Group, FIRST, &mut |_| {}));
+    assert!(store.find("fixture", Kind::Group, SECOND, &mut |_| {}));
+}
+
+#[test]
+fn removing_owner_releases_module_immediately_and_invalidates_keys() {
+    let mut store = DeclarationStore::default();
+    let mut allocations = Allocations::default();
+    let source = image();
+    let module = Rc::downgrade(&source);
+    store
+        .prepare(
+            pending(&source, false, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    let key = keys(&store)[0];
+    drop(source);
+    assert!(module.upgrade().is_some());
+    store.remove_owner(&Id::new_static("fixture"), 1);
+    assert!(module.upgrade().is_none());
+    assert!(keys(&store).is_empty());
+    assert!(!store.with_record(key, &mut |_| panic!("removed module")));
+}
+
+#[test]
+fn lookup_does_not_decode_an_unrelated_record_in_the_same_batch() {
+    let mut store = DeclarationStore::default();
+    let mut allocations = Allocations::default();
+    let source = image();
+    store
+        .prepare(
+            pending(&source, false, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    // The extra follows the group and spec in this batch.
+    let extra = keys(&store)
+        .into_iter()
+        .find(|key| {
+            let mut extra = false;
+            store.with_record(*key, &mut |r| extra = matches!(r, Record::SettingExtra(_)));
+            extra
+        })
+        .unwrap();
+    source.bytes.borrow_mut()[1] = 0xff;
+    assert!(store.with_record(extra, &mut |r| assert!(matches!(
+        r,
+        Record::SettingExtra(_)
+    ))));
+    assert!(
+        !store.find("fixture", Kind::Group, "group", &mut |_| panic!(
+            "corrupt group"
+        ))
+    );
+}
+
+#[test]
+#[ignore = "host timing evidence; run explicitly with --nocapture"]
+fn host_lookup_timing() {
+    let mut store = DeclarationStore::default();
+    let mut allocations = Allocations::default();
+    let source = image();
+    store
+        .prepare(
+            pending(&source, false, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    let start = std::time::Instant::now();
+    for _ in 0..100_000 {
+        assert!(store.find(
+            "fixture",
+            Kind::Extra,
+            core::hint::black_box("flag"),
+            &mut |r| {
+                core::hint::black_box(r);
+            }
+        ));
+    }
+    std::println!("100000 guarded name lookups: {:?}", start.elapsed());
+}
+
+#[test]
+fn raw_lookup_uses_stored_offset_and_budget_overflow_fails_before_reserve() {
+    use super::super::raw_declarations::RawDeclarations;
+    let source = image();
+    let mut raw = RawDeclarations::default();
+    {
+        let bytes = source.bytes.borrow();
+        assert!(matches!(
+            raw.prepare_retaining(
+                None,
+                Some(&bytes),
+                &records_decode(&bytes).unwrap(),
+                usize::MAX
+            ),
+            Err(ERR_NO_SPACE)
+        ));
+        assert_eq!((raw.batches.capacity(), raw.index.capacity()), (0, 0));
+        let prepared = raw
+            .prepare(Some(&bytes), Some(&bytes), &records_decode(&bytes).unwrap())
+            .unwrap();
+        raw.commit(prepared);
+    }
+    raw.sort_index();
+    source.bytes.borrow_mut()[1] = 0xff;
+    let bytes = source.bytes.borrow();
+    assert!(matches!(
+        raw.find(Some(&bytes), 2, "flag"),
+        Ok(Some(Record::SettingExtra(_)))
+    ));
+    assert!(raw.find(Some(&bytes), 0, "group").is_err());
+}
+
+#[test]
+fn shifted_image_bytes_fail_at_still_in_bounds_offsets() {
+    use super::super::raw_declarations::RawDeclarations;
+    let source = image();
+    let mut allocations = Allocations::default();
+    let mut store = DeclarationStore::default();
+    store
+        .prepare(
+            pending(&source, false, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    let mut raw = RawDeclarations::default();
+    {
+        let bytes = source.bytes.borrow();
+        let prepared = raw
+            .prepare(Some(&bytes), Some(&bytes), &records_decode(&bytes).unwrap())
+            .unwrap();
+        raw.commit(prepared);
+    }
+    raw.sort_index();
+    {
+        let mut bytes = source.bytes.borrow_mut();
+        let end = bytes.len() - 1;
+        bytes.copy_within(..end, 1);
+    }
+    let bytes = source.bytes.borrow();
+    for key in keys(&store) {
+        assert!(usize::from(key.record) < bytes.len());
+        assert!(!store.with_record(key, &mut |_| panic!("shifted frame")));
+    }
+    for entry in &raw.index {
+        assert!(usize::from(raw.batches[0].offsets[entry.record()]) < bytes.len());
+        assert!(raw.record(Some(&bytes), *entry).is_err());
+    }
+    assert!(
+        raw.visit("fixture", Some(&bytes), &mut |_| panic!("shifted visit"))
+            .is_err()
+    );
+}
+
+#[test]
+fn changed_image_font_names_are_unique_across_face_and_extension_runs() {
+    const FACE: &str = "entryboludzyf";
+    const EXTENSION: &str = "entryoxzxketp";
+    assert_eq!(
+        super::super::declaration_index::name_hash(4, FACE),
+        super::super::declaration_index::name_hash(4, EXTENSION)
+    );
+    for change_face in [false, true] {
+        let records = [
+            Record::ResourceFontFace(ResourceFontFace {
+                name: FACE,
+                path: "fonts/a.ttf",
+                family: "Fixture",
+                style: 0,
+                weight: 400,
+                role: "",
+                priority: 0,
+            }),
+            Record::ResourceFontExtension(ResourceFontExtension {
+                name: EXTENSION,
+                path: "fonts/a.ppfp",
+                extends: "core.face",
+            }),
+        ];
+        let mut bytes = vec![0; REGISTRATION_MAX_BYTES];
+        let len = records_encode(&records, &mut bytes).unwrap();
+        bytes.truncate(len);
+        let source = Rc::new(Image {
+            bytes: RefCell::new(bytes),
+            generation: Cell::new(1),
+            live: Cell::new(true),
+            errors: Cell::new(0),
+            active: Cell::new(false),
+            denied: Cell::new(0),
+        });
+        let mut allocations = Allocations::default();
+        let mut store = DeclarationStore::default();
+        store
+            .prepare(
+                pending(&source, false, &mut allocations).unwrap(),
+                &mut allocations,
+            )
+            .unwrap()
+            .commit();
+        assert!(store.find("fixture", Kind::Face, FACE, &mut |_| {}));
+        assert!(store.find("fixture", Kind::Extension, EXTENSION, &mut |_| {}));
+        let (old, new) = if change_face {
+            (FACE, EXTENSION)
+        } else {
+            (EXTENSION, FACE)
+        };
+        let at = source
+            .bytes
+            .borrow()
+            .windows(old.len())
+            .position(|bytes| bytes == old.as_bytes())
+            .unwrap();
+        source.bytes.borrow_mut()[at..at + old.len()].copy_from_slice(new.as_bytes());
+        for kind in [Kind::Face, Kind::Extension] {
+            assert!(!store.find("fixture", kind, new, &mut |_| panic!(
+                "cross-kind duplicate"
+            )));
+        }
+        for key in keys(&store) {
+            assert!(!store.with_record(key, &mut |_| panic!("duplicate key")));
+        }
+        assert!(source.errors.get() > 0);
+        source.bytes.borrow_mut()[at..at + old.len()].copy_from_slice(old.as_bytes());
+        assert!(store.find("fixture", Kind::Face, FACE, &mut |_| {}));
+        assert!(store.find("fixture", Kind::Extension, EXTENSION, &mut |_| {}));
+    }
+}
+
+#[test]
+fn busy_cleanup_releases_declarations_and_batch_before_module_unmap() {
+    use super::super::{Error, HostOwner, Teardown};
+    struct Context {
+        store: Rc<RefCell<DeclarationStore>>,
+        busy: Cell<bool>,
+        destroyed: Rc<Cell<bool>>,
+    }
+    struct Module {
+        store: Rc<RefCell<DeclarationStore>>,
+        batch_live: Rc<Cell<bool>>,
+        destroyed: Rc<Cell<bool>>,
+        unmapped: Rc<Cell<bool>>,
+    }
+    impl Drop for Module {
+        fn drop(&mut self) {
+            assert!(
+                keys(&self.store.borrow()).is_empty(),
+                "declarations must be removed first"
+            );
+            assert!(!self.batch_live.get(), "batch must be dropped first");
+            assert!(self.destroyed.get());
+            self.unmapped.set(true);
+        }
+    }
+    struct BatchRecord(Rc<Cell<bool>>);
+    impl Drop for BatchRecord {
+        fn drop(&mut self) {
+            self.0.set(false);
+        }
+    }
+    let store = Rc::new(RefCell::new(DeclarationStore::default()));
+    let batch_live = Rc::new(Cell::new(true));
+    let destroyed = Rc::new(Cell::new(false));
+    let unmapped = Rc::new(Cell::new(false));
+    let source = image();
+    let source_guard = Rc::downgrade(&source);
+    let mut allocations = Allocations::default();
+    store
+        .borrow_mut()
+        .prepare(
+            pending(&source, false, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    drop(source);
+    let owner = Box::pin(HostOwner::new(
+        Context {
+            store: Rc::clone(&store),
+            busy: Cell::new(true),
+            destroyed: Rc::clone(&destroyed),
+        },
+        Module {
+            store: Rc::clone(&store),
+            batch_live: Rc::clone(&batch_live),
+            destroyed: Rc::clone(&destroyed),
+            unmapped: Rc::clone(&unmapped),
+        },
+    ));
+    let mut construction = owner.as_ref().begin("fixture").unwrap();
+    assert!(
+        construction
+            .stage(BatchRecord(Rc::clone(&batch_live)))
+            .is_ok()
+    );
+    let batch = construction
+        .commit(Teardown {
+            report: |_, _, _| panic!("explicit cleanup must not use fallback diagnostics"),
+            cancel: |context| {
+                if context.busy.replace(false) {
+                    Err(Error::Busy)
+                } else {
+                    Ok(())
+                }
+            },
+            release: |context| {
+                context
+                    .store
+                    .try_borrow_mut()
+                    .map_err(|_| Error::Busy)?
+                    .remove_owner(&Id::new_static("fixture"), 1);
+                Ok(())
+            },
+            destroy: |context| context.destroyed.set(true),
+        })
+        .unwrap();
+    assert_eq!(owner.as_ref().prepare_teardown(), Err(Error::Busy));
+    assert!(!keys(&store.borrow()).is_empty());
+    assert!(batch_live.get() && !unmapped.get());
+    owner.as_ref().prepare_teardown().unwrap();
+    assert!(keys(&store.borrow()).is_empty());
+    assert!(
+        source_guard.upgrade().is_none(),
+        "store's module guard released immediately"
+    );
+    assert_eq!(owner.as_ref().finish(), Err(Error::Busy));
+    drop(batch);
+    assert!(!batch_live.get());
+    owner.as_ref().finish().unwrap();
+    assert!(destroyed.get() && !unmapped.get());
+    drop(owner);
+    assert!(
+        unmapped.get(),
+        "module actually unmapped after both releases"
+    );
 }

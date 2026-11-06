@@ -1,0 +1,92 @@
+//! Borrowed interface-7 event payloads (tags 32-37). All strings borrow the
+//! callback input; decoding allocates nothing and copies no strings.
+use super::{
+    Error,
+    declare::records_wire::{self as wire, Record},
+};
+
+/// A page location borrowed from the event bytes. Counters are absent until
+/// counted; a present counter is 1-based. Progress is in millionths.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PageTurn<'a> {
+    /// Emission time on the snapshot's monotonic millisecond clock.
+    pub now_ms: u64,
+    /// Start section.
+    pub section: u32,
+    /// Offset within the section.
+    pub offset: u32,
+    /// Progress from 0 to 1,000,000.
+    pub progress_ppm: u32,
+    /// Book path.
+    pub path: &'a str,
+    /// Book title.
+    pub title: &'a str,
+    /// Chapter title, empty when unknown.
+    pub chapter: &'a str,
+    /// Page number, if counted.
+    pub page: Option<u32>,
+    /// Page count, if counted.
+    pub pages: Option<u32>,
+}
+
+/// One event, borrowing its callback's bytes. The scalar variants carry the
+/// emission time on the snapshot's monotonic millisecond clock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Event<'a> {
+    /// PaperPaw started.
+    Started { now_ms: u64 },
+    /// PaperPaw resumed.
+    Resume { now_ms: u64 },
+    /// PaperPaw is suspending; save synchronously before returning.
+    Suspend { now_ms: u64 },
+    /// PaperPaw is stopping; save synchronously before returning.
+    Stopping { now_ms: u64 },
+    /// A fresh battery measurement is available through the snapshot.
+    BatteryMeasured { now_ms: u64 },
+    /// The displayed page changed.
+    PageTurned(PageTurn<'a>),
+}
+
+/// Decode exactly one event record. Unknown appended optional fields are
+/// accepted; strings remain borrowed from `bytes`.
+///
+/// # Errors
+/// Returns framing/UTF-8/cap errors from the generated codec; Invalid for a
+/// non-singleton batch or unsound counters/progress; Unsupported for other tags.
+pub fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
+    let record = wire::records_decode_single(bytes).map_err(Error::from_status)?;
+    Ok(match record {
+        Record::EventStarted(r) => Event::Started { now_ms: r.now_ms },
+        Record::EventResume(r) => Event::Resume { now_ms: r.now_ms },
+        Record::EventSuspend(r) => Event::Suspend { now_ms: r.now_ms },
+        Record::EventStopping(r) => Event::Stopping { now_ms: r.now_ms },
+        Record::EventBatteryMeasured(r) => Event::BatteryMeasured { now_ms: r.now_ms },
+        Record::EventPageTurned(r) => {
+            if r.progress_ppm > 1_000_000
+                || r.page == Some(0)
+                || r.pages == Some(0)
+                || matches!((r.page, r.pages), (Some(p), Some(n)) if p > n)
+            {
+                return Err(Error::Invalid);
+            }
+            Event::PageTurned(PageTurn {
+                now_ms: r.now_ms,
+                section: r.section,
+                offset: r.offset,
+                progress_ppm: r.progress_ppm,
+                path: r.path,
+                title: r.title,
+                chapter: r.chapter,
+                page: r.page,
+                pages: r.pages,
+            })
+        }
+        _ => return Err(Error::Unsupported),
+    })
+}
+
+#[cfg(test)]
+#[path = "events_tests.rs"]
+mod tests;

@@ -29,8 +29,9 @@ batch lies in the image, owned otherwise; refused at activation until the SDK vi
 - [D] `screen.spec.flags`: bit 0 `full_refresh_on_open`; other bits must be 0 (`ERR_UNSUPPORTED`).
   `action.spec.flags`: bit 0 `needs_screen` (the action only runs while one of this plugin's
   screens is on top); other bits 0.
-- [D] Names follow the declaration name rules (`records.md`); full id = `<plugin>.<name>`. Unique
-  per plugin across screens and actions of the same kind; checked at commit, order-independent.
+- [D] Names follow the declaration name rules (`records.md`); full id = `<plugin>.<name>`. A
+  screen's name is unique among the plugin's screens and an action's among its actions (a screen
+  and an action may share a name); checked at commit, order-independent.
 - [D] Running an action delivers `event.action_run` (tag 39) to its token through
   `dispatch_event`; the plugin answers with commands.
 
@@ -61,6 +62,10 @@ input(state: pointer, token: u32, input: bytes) -> i32
 | 43 | `input.action` | `now_ms: u64`, `action: str 128` (the kernel action the reader's key or touch mapped to, e.g. `core.page-next`) |
 
 - [D] Tag families: `event` 32-39 and `input` 40-43, each with a growth block (section 8).
+- [D] `event.screen_shown` (38) and `event.action_run` (39) cannot be registered for with
+  `registration.event`: they go to the token of the screen or action declaration they name. A
+  registration naming 38 or 39 refuses the batch (`ERR_UNSUPPORTED`, like every event tag the
+  host has no encoder for).
 - [D] Key names are the kernel's keymap names (`docs/keymaps.md`); an unknown name is passed
   through, plugins ignore keys they do not know. Coordinates are screen pixels of the
   screen's own pane, origin top left.
@@ -159,8 +164,10 @@ draw(state: pointer, token: u32, input: bytes) -> i32
 | 192 | `draw.frame` | `purpose: u32`, `x: i32`, `y: i32`, `width: u32`, `height: u32`, `clip_top: i32`, `clip_bottom: i32`, `id: u32`, `payload: bytes 256` |
 
 - [D] `x`, `y`, `width` and `height` give the target rectangle in screen pixels. `clip_top` and
-  `clip_bottom` give the rows this call may change: on the X4 these are the band being rendered,
-  elsewhere the whole rectangle.
+  `clip_bottom` give the rows this call may change, half-open `[clip_top, clip_bottom)` and always
+  within the rectangle (`y <= clip_top <= clip_bottom <= y + height`): on the X4 these are the band
+  being rendered, elsewhere the whole rectangle. An empty clip (`clip_top == clip_bottom`) is
+  never sent.
 - [D] `purpose`: 0 screen, 1 page layer, 2 inserted block, 3 status item, 4 widget. Other values
   are reserved: a plugin that does not know the purpose draws nothing and returns 0.
 - [D] `id` and `payload` are defined by the owner of the purpose, for example the reader's insert
@@ -173,10 +180,11 @@ This rule binds every handle and every asynchronous operation of interface 7, pr
 font handles, blobs, images, format and document handles, work, HTTP, sockets and stage
 subscriptions. Families added later refer to it instead of defining their own.
 
-- [D] **Handles are never reused (S3).** A handle value carries its slot and a generation that
-  advances on every release; a slot whose generation is exhausted is retired, never wrapped. A
-  stale or doubled release therefore can never name a newer handle: it is `ERR_STATE` and changes
-  nothing. (`abi7::handles`: 5 slot bits, 27 generation bits, generation 0 invalid.)
+- [D] **Handles are opaque and never reused (S3).** A handle is an opaque `u32`; 0 is never a
+  valid handle, and its layout is the host's, never part of the contract. The host never hands
+  out a released value again for the same plugin, so a stale or doubled release can never name a
+  newer handle: it is `ERR_STATE` and changes nothing. (Today's host keeps a slot and a
+  generation in the value and retires exhausted slots; hosts may change that freely.)
 - [D] Every handle is released exactly once: by the plugin, or by the host when the plugin stops
   or its construction is torn down. A second release, or a release of a handle the plugin does not
   own, is `ERR_STATE` and changes nothing.
@@ -186,6 +194,13 @@ subscriptions. Families added later refer to it instead of defining their own.
   the host drops it unread.
 - [D] Stop order: the host cancels open operations, then releases handles, then drops the state.
   No callback runs after `drop`.
+- [D] **Teardown bug path.** The shell always finishes teardown (cancel, release, `drop`) before it
+  frees an owner. If it does not, and a cancel or release step fails then, the host reports it
+  once, skips the step, still calls `drop` exactly once and unmaps the plugin. That is safe only
+  because no host resource borrows the plugin's image or memory past a call: what a skipped step
+  leaves behind is host-owned, bounded per plugin and unreachable under a never-reused owner id.
+  A future family whose host resource does borrow the plugin's image or memory must make its
+  release non-skippable and say so in its own spec.
 - [D] **Async operations (D3, #890).** Every asynchronous operation is a handle. Its completion
   event is a level-triggered hint: it may be coalesced and never carries the only copy of the
   result. The result stays readable through the handle until `handle.release`. Stop or unload
@@ -258,8 +273,23 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
 - [D] **Guarded grants.** User grants are host-held guarded settings under
   `core.grant.<kind>.<plugin id>` (`kind`: `style`, `install`). No plugin can ever write them:
   `command.set_setting`, a preview or a preset touching `core.grant.*` is `ERR_DENIED` and refuses
-  the whole batch, for every plugin including the one the grant names. A plugin may read only its
-  own grants, as yes/no; reading another plugin's grant is `ERR_DENIED`.
+  the whole batch, for every plugin including the one the grant names.
+- [D] **Own-grant reads (identity route).** A plugin reads its own grant with `settings.read` on the
+  short key `core.grant.<kind>`, without a plugin id. The host takes the caller from `ctx`, the
+  owner of the current dispatch frame, and answers a boolean: true only when the user granted that
+  kind to this plugin. The plugin never names itself, so it cannot name another plugin either; there
+  is no plugin id in the snapshot and no extra slot. Rules:
+  - A read of any `core.grant.<kind>.<id>` key, the caller's own id included, is `ERR_DENIED`, so
+    there is exactly one spelling.
+  - An unknown `<kind>` is `ERR_UNSUPPORTED` (a newer plugin on an older host).
+  - The value is a plain yes or no. A grant change, revoke included, shows on the next read; no
+    event announces it, and nothing may be cached on the plugin side.
+  - A read outside a dispatch frame (no callback running) is `ERR_STATE`, like every
+    `settings.read`.
+  - Another plugin's grant reaches a plugin only where the host stamps it into a host-built record
+    (N4: `style_granted` in each stage reply).
+  - The SDK offers one typed read, `settings::own_grant(host, GrantKind) -> Result<bool, Error>`,
+    with a `#[non_exhaustive]` `GrantKind` (`Style`, `Install`).
 
 ## 13. Statuses, features and service families (D1, D2, D4, D5)
 
@@ -269,11 +299,12 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
   `ERR_CANCELLED` (dismissed, stopped). SDK status types name both from 1.0 on.
 - [D] **Feature records (D1).** A plugin states the families it uses as metadata feature records,
   `uses.<family>` (`uses.net`, `uses.secrets`, `uses.sockets`, `uses.library`, `uses.registry`,
-  `uses.device`). Bit 0 of the record's `flags` means required. A feature the host does not
-  have at exactly the record's revision (an unknown key or another revision) is unavailable: an
-  optional one is left out and the plugin learns it is missing at run time, a required one refuses
-  the load and names the key. So an optional feature can move to a new revision without breaking
-  older hosts. Other bits are refused. See `abi/metadata.md`.
+  `uses.device`). Bit 0 of the record's `flags` means required. Feature revisions only add: a host
+  at revision N serves every request for revision N or lower. A feature the host lacks, or has
+  only at a lower revision than the record asks for, is unavailable: an optional one is left out
+  and the plugin learns it is missing at run time, a required one refuses the load and names the
+  key. So a feature can move to a new revision without breaking plugins built for an older one.
+  Other bits are refused. See `abi/metadata.md`.
 - [D] **Service families (D4).** Every later family (NET, LIB, REG, FS, SEC, DEV and the rest) is a
   versioned service schema behind `services.query`, not a set of one-off slots. Calls go through
   one generic slot, `service.call(ctx, service, op: u32, input, out) -> count` (synchronous and
