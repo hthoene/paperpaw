@@ -107,7 +107,7 @@ pub(crate) unsafe fn size(
 }
 
 /// Slot 21: read a bounded chunk into possibly uninitialized caller storage.
-/// A fixed, fallibly allocated host-heap buffer keeps the caller's output
+/// A fallibly allocated host-heap buffer sized to output keeps the caller's output
 /// unchanged on every error, without a result-sized stack frame. Only the
 /// successful read prefix is copied; the remaining caller bytes are untouched.
 ///
@@ -129,8 +129,8 @@ pub(crate) unsafe fn read_at(
         // SAFETY: validated bounds and the caller's exclusive output contract.
         let out = unsafe { buffers::buffer_out(out, MAX_DATA) }?;
         with_adapter(scope, owner, |adapter| {
-            let mut scratch = read_scratch()?;
-            let count = adapter.read_at(root, path, offset, &mut scratch[..out.len()])?;
+            let mut scratch = read_scratch(out.len())?;
+            let count = adapter.read_at(root, path, offset, &mut scratch)?;
             let bytes = scratch
                 .get(..count)
                 .filter(|bytes| bytes.len() <= out.len())
@@ -141,22 +141,25 @@ pub(crate) unsafe fn read_at(
     result.unwrap_or_else(|error| error)
 }
 
-// Allocation is the actual fixed-size scratch, never a probe followed by an
-// infallible allocation. Zeroing occurs in heap storage, not a stack array.
-fn read_scratch() -> Result<Box<[u8; MAX_DATA]>, i32> {
+// Request exactly the caller's capacity, never a maximum-sized stack array.
+// The empty case owns no allocation and never calls the allocator with size 0.
+fn read_scratch(len: usize) -> Result<Box<[u8]>, i32> {
+    if len == 0 {
+        return Ok(Box::default());
+    }
+    let layout = Layout::array::<u8>(len).map_err(|_| ERR_NO_MEMORY)?;
     #[cfg(test)]
     if scratch_fault::take() {
         return Err(ERR_NO_MEMORY);
     }
-    let layout = Layout::new::<[u8; MAX_DATA]>();
-    // SAFETY: MAX_DATA is nonzero and the array layout is valid.
-    let pointer = unsafe { alloc_zeroed(layout) }.cast::<[u8; MAX_DATA]>();
+    // SAFETY: the nonzero byte-array layout is valid; zeroing happens in heap.
+    let pointer = unsafe { alloc_zeroed(layout) };
     if pointer.is_null() {
         return Err(ERR_NO_MEMORY);
     }
-    // SAFETY: exclusive heap storage has exactly this layout and every u8 was
-    // initialized by alloc_zeroed. Box owns and frees that same allocation.
-    Ok(unsafe { Box::from_raw(pointer) })
+    // SAFETY: exclusive heap storage has exactly this slice layout and every
+    // byte was initialized by alloc_zeroed. Box frees the same allocation.
+    Ok(unsafe { Box::from_raw(core::ptr::slice_from_raw_parts_mut(pointer, len)) })
 }
 
 #[cfg(test)]
