@@ -173,6 +173,12 @@ typedef struct PpHeap {
   the word is missing, the panic handler has nowhere to report: it executes the profile's trap
   instruction (`unimp` on RISC-V, `ud2` on x86_64). The X4's crash slot then blames the frame owner as
   for any fault. A test builds a plugin whose word is 0 and shows the trap path is taken.
+- [D] **No re-entry by formatting.** The handler copies a literal message (`as_str`) without
+  formatting; only a message with arguments is formatted, which runs the plugin's own `Display`
+  code. A panic inside that code re-enters the handler and recurses until the stack overflows (no
+  writable static can guard it). That remaining case must end as a plugin fault: Firmware confirms
+  that the X4's stack overflow detection fires inside the frame and the crash slot blames the frame
+  owner, as for any fault; hosted targets end the process on the overflow.
 - [D] Codes: 1 panic, 2 allocation failure (`handle_alloc_error`), 3 bad free detected by the host;
   others reserved. A block grown by `realloc` is never reported as a bad free.
 

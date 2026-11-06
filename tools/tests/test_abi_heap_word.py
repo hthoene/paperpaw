@@ -1,6 +1,7 @@
 """The heap word and PpHeap in the entry contract (`abi/heap-word.md`)."""
 import copy
 import json
+import os
 from pathlib import Path
 import sys
 import unittest
@@ -101,6 +102,8 @@ class HeapWordTests(unittest.TestCase):
                        'visibility("hidden")',
                        'static inline const PpHeap *pp_heap(void)',
                        'offsetof(PpHeap, abort) + sizeof(heap->abort)',
+                       '(uintptr_t)heap % _Alignof(PpHeap) != 0',
+                       'heap->major != PP_ABI_MAJOR',
                        '/* Does not return. */'):
             self.assertIn(needle, c)
         self.assertIn('pub const HEAP_SYMBOL: &str = "PAPERPAW_HEAP";', rust)
@@ -108,6 +111,38 @@ class HeapWordTests(unittest.TestCase):
                       'msg_len: usize) -> !>,', rust)
         self.assertIn('pub alloc: Option<unsafe extern "C" fn(size: usize, align: usize) -> '
                       '*mut core::ffi::c_void>,', rust)
+
+    def test_c_reader_refuses_what_the_rust_readers_refuse(self):
+        """Null, misaligned, another major and a short table give null in C too."""
+        import shutil, subprocess, tempfile
+        cc = shutil.which(os.environ.get('CC', 'cc'))
+        if cc is None:
+            self.skipTest('no C compiler')
+        root = Path(__file__).resolve().parents[2]
+        program = r"""
+#include "abi/generated/paperpaw-abi.h"
+#include <string.h>
+static _Alignas(PpHeap) unsigned char raw[sizeof(PpHeap) + 8];
+int main(void) {
+    PpHeap good; memset(&good, 0, sizeof good);
+    good.size = sizeof(PpHeap); good.major = PP_ABI_MAJOR;
+    if (pp_heap_checked(&good) != &good) return 1;
+    if (pp_heap_checked((const PpHeap *)0)) return 2;
+    PpHeap other = good; other.major = PP_ABI_MAJOR - 1;
+    if (pp_heap_checked(&other)) return 3;
+    PpHeap short_ = good; short_.size = (uint32_t)offsetof(PpHeap, abort);
+    if (pp_heap_checked(&short_)) return 4;
+    memcpy(raw + 1, &good, sizeof good);
+    if (pp_heap_checked((const PpHeap *)(const void *)(raw + 1))) return 5;
+    return 0;
+}
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            source, binary = Path(tmp, 'heap.c'), Path(tmp, 'heap')
+            source.write_text(program)
+            subprocess.run([cc, '-std=c11', '-Wall', '-Werror', '-I', str(root), str(source),
+                            '-o', str(binary)], check=True)
+            self.assertEqual(subprocess.run([str(binary)]).returncode, 0)
 
 
 if __name__ == '__main__':

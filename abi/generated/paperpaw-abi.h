@@ -136,15 +136,20 @@ struct PpHeap {
     ".balign " PP_HEAP_STR(__SIZEOF_POINTER__) "\n" \
     "PAPERPAW_HEAP:\npaperpaw_heap_local:\n" PP_HEAP_WORD_ZERO "\n.popsection\n")
 extern const PpHeap *const paperpaw_heap_local __attribute__((visibility("hidden")));
-/* The heap table, or null where the loader gave none or it is too short
-   for the entries up to `abort`. */
-static inline const PpHeap *pp_heap(void) {
-    const PpHeap *heap = paperpaw_heap_local;
+/* The heap table, or null where the loader gave none, it is misaligned,
+   of another major, or too short for the entries up to `abort` (the same
+   checks as the Rust readers, in this order). */
+static inline const PpHeap *pp_heap_checked(const PpHeap *heap) {
     if (heap == (const PpHeap *)0 ||
+        (uintptr_t)heap % _Alignof(PpHeap) != 0 ||
+        heap->major != PP_ABI_MAJOR ||
         heap->size < offsetof(PpHeap, abort) + sizeof(heap->abort)) {
         return (const PpHeap *)0;
     }
     return heap;
+}
+static inline const PpHeap *pp_heap(void) {
+    return pp_heap_checked(paperpaw_heap_local);
 }
 
 #endif

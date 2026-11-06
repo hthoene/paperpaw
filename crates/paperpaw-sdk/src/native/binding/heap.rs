@@ -164,8 +164,14 @@ impl Write for Message {
 /// `table` as for the heap word: the value read from `PAPERPAW_HEAP`.
 pub unsafe fn panic(table: *const PpHeap, info: &PanicInfo<'_>) -> ! {
     let mut message = Message::new();
-    // A cut message is still worth sending.
-    let _ = write!(message, "{}", info.message());
+    // A literal message is copied, never formatted: formatting runs the
+    // plugin's own `Display` code, and a panic in it would re-enter this
+    // handler (no writable static can guard it). Only a message with
+    // arguments is formatted. A cut message is still worth sending.
+    let _ = match info.message().as_str() {
+        Some(text) => message.write_str(text),
+        None => write!(message, "{}", info.message()),
+    };
     // SAFETY: as documented.
     match unsafe { abort_entry(table) } {
         // SAFETY: the host's abort; the message stays readable for the call.
