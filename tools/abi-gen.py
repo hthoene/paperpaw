@@ -7,6 +7,7 @@ A checked-in lock is independent of normal generation; updating it is explicit.
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -327,74 +328,109 @@ def lock_record(schema, released_minor=0):
             'emitted_streams': rust_streams(schema)}
 
 
-def check_lock(prior, schema):
+# The emitted sections of a lock: key, renderer name (looked up when used, so
+# a patched renderer counts), first lock format with it, what a mismatch says.
+EMITTED = (('emitted_c', 'header', 1, 'emitted C contract changed from prior lock'),
+           ('emitted_rust', 'rust_module', 2, 'emitted Rust contract changed from prior lock'),
+           ('emitted_metadata', 'resolved_metadata', 3,
+            'emitted metadata layout changed from prior lock'),
+           ('emitted_records', 'rust_records', 4, 'emitted records contract changed from prior lock'),
+           ('emitted_snapshot', 'rust_snapshot', 5,
+            'emitted snapshot contract changed from prior lock'),
+           ('emitted_color', 'rust_color', 6, 'emitted color contract changed from prior lock'),
+           ('emitted_commands', 'rust_commands', 7,
+            'emitted commands contract changed from prior lock'),
+           ('emitted_streams', 'rust_streams', 8, 'emitted streams contract changed from prior lock'))
+# What a reviewed baseline replacement may waive, and nothing else: the lock's
+# shape, its format and major, and every check not named stay enforced.
+WAIVABLE = frozenset(['schema', 'compatible'] + [key for key, *_ in EMITTED])
+
+
+def lock_shape(prior, schema):
+    """The lock's structure and line (format, major), never waived."""
     require(type(prior) is dict, 'lock must be an object')
     version = prior.get('lock_format')
     require(type(version) is int and version in (1, 2, 3, 4, 5, 6, 7, 8), 'unsupported lock format')
-    keys(prior, 'lock_format released_minor schema emitted_c' +
-         (' emitted_rust' if version >= 2 else '') +
-         (' emitted_metadata' if version >= 3 else '') +
-         (' emitted_records' if version >= 4 else '') +
-         (' emitted_snapshot' if version >= 5 else '') +
-         (' emitted_color' if version >= 6 else '') +
-         (' emitted_commands' if version >= 7 else '') +
-         (' emitted_streams' if version >= 8 else ''))
-    validate(prior['schema'])
-    integer(prior['released_minor'], prior['schema']['minor'])
+    keys(prior, ' '.join(['lock_format released_minor schema'] +
+                         [key for key, _, since, _ in EMITTED if version >= since]))
+    old = prior['schema']
+    require(type(old) is dict and all(type(old.get(key)) is int
+                                      for key in ('format', 'major', 'minor')),
+            'lock schema needs integer format, major and minor')
+    require(type(prior['released_minor']) is int, 'lock released_minor must be an integer')
+    require(old['format'] == schema['format'] and old['major'] == schema['major'],
+            'format/major change needs separate reviewed baseline')
+    return version
+
+
+def lock_checks(prior, schema, version):
+    """The waivable checks of a prior lock, by name, in order."""
+    def valid():
+        validate(prior['schema'])
+        integer(prior['released_minor'], prior['schema']['minor'])
+    yield 'schema', valid
     # Re-render the OLD schema using THIS generator. This detects changes in
     # type mappings, prefix/view structs, result types and any header template,
     # even when both candidate schema and candidate lock were regenerated.
-    require(prior['emitted_c'] == header(prior['schema']),
-            'emitted C contract changed from prior lock')
-    if version >= 2:
-        require(prior['emitted_rust'] == rust_module(prior['schema']),
-                'emitted Rust contract changed from prior lock')
-    if version >= 3:
-        require(prior['emitted_metadata'] == resolved_metadata(prior['schema']),
-                'emitted metadata layout changed from prior lock')
-    if version >= 4:
-        require(prior['emitted_records'] == rust_records(prior['schema']),
-                'emitted records contract changed from prior lock')
-    if version >= 5:
-        require(prior['emitted_snapshot'] == rust_snapshot(prior['schema']),
-                'emitted snapshot contract changed from prior lock')
-    if version >= 6:
-        require(prior['emitted_color'] == rust_color(prior['schema']),
-                'emitted color contract changed from prior lock')
-    if version >= 7:
-        require(prior['emitted_commands'] == rust_commands(prior['schema']),
-                'emitted commands contract changed from prior lock')
-    if version >= 8:
-        require(prior['emitted_streams'] == rust_streams(prior['schema']),
-                'emitted streams contract changed from prior lock')
-    compatible(prior['schema'], schema, prior['released_minor'])
+    for key, render, since, message in EMITTED:
+        if version >= since:
+            def same(key=key, render=render, message=message):
+                require(prior[key] == globals()[render](prior['schema']), message)
+            yield key, same
+    yield 'compatible', lambda: compatible(prior['schema'], schema, prior['released_minor'])
 
 
-def baseline_replaced(folder, baseline_path, baseline, schema):
-    """Whether a reviewed replacement names exactly this trusted baseline.
+def check_lock(prior, schema, waives=frozenset()):
+    """Every check of the prior lock; `waives` names checks a reviewed baseline
+    replacement lets fail. A waived check that passes is refused: the waiver
+    must be exactly what the replacement needs."""
+    version = lock_shape(prior, schema)
+    for name, run_check in lock_checks(prior, schema, version):
+        if name not in waives:
+            run_check()
+            continue
+        try:
+            run_check()
+        except (ValueError, KeyError, TypeError, IndexError):
+            continue
+        raise ValueError(f'baseline replacement waives {name}, which passes: drop it from waives')
+
+
+def baseline_replaced(folder, baseline_path, baseline):
+    """The checks a reviewed replacement waives for exactly this baseline.
 
     `abi/baseline-replacement.json` lets one reviewed pull request replace the
     trusted lock while nothing is released: it names the SHA-256 of the exact
-    baseline lock it replaces and why. It never applies once a minor is released,
-    and it matches no other baseline, so it is single-use by construction.
+    baseline lock it replaces, why, and the checks it waives (`waives`, from
+    WAIVABLE). The lock's shape, format and major are never waived. A marker
+    naming another baseline is an error: it must be removed once it was used,
+    so it is single-use. Empty when there is no marker.
     """
     path = folder / 'baseline-replacement.json'
     if not path.exists():
-        return False
+        return frozenset()
     marker = load(path)
-    require(type(marker) is dict and set(marker) == {'replaces_sha256', 'reason', 'ticket'}
-            and all(type(marker[key]) is str and marker[key] for key in marker),
-            'baseline replacement needs replaces_sha256, reason and ticket')
+    require(type(marker) is dict
+            and set(marker) == {'replaces_sha256', 'reason', 'ticket', 'waives'}
+            and all(type(marker[key]) is str and marker[key]
+                    for key in ('replaces_sha256', 'reason', 'ticket')),
+            'baseline replacement needs replaces_sha256, reason, ticket and waives')
+    waives = marker['waives']
+    require(type(waives) is list and waives and all(type(item) is str for item in waives)
+            and len(set(waives)) == len(waives) and set(waives) <= WAIVABLE,
+            'baseline replacement waives a non-empty list of distinct checks from ' +
+            ', '.join(sorted(WAIVABLE)))
     digest = hashlib.sha256(baseline_path.read_bytes()).hexdigest()
-    if marker['replaces_sha256'] != digest:
-        print('abi-gen: stale baseline replacement ignored; remove abi/baseline-replacement.json',
-              file=sys.stderr)
-        return False
-    require(baseline['released_minor'] == 0 and schema['minor'] == baseline['schema']['minor'],
+    require(marker['replaces_sha256'] == digest,
+            'stale baseline replacement: it names another baseline; remove '
+            'abi/baseline-replacement.json')
+    require(type(baseline) is dict and baseline.get('released_minor') == 0,
             'a baseline replacement is only allowed before any minor is released')
-    print(f"abi-gen: reviewed baseline replacement ({marker['ticket']}): {marker['reason']}",
+    note = (f"reviewed baseline replacement ({marker['ticket']}) waives "
+            f"{', '.join(waives)}: {marker['reason']}")
+    print(('::warning::abi-gen: ' if os.environ.get('GITHUB_ACTIONS') else 'abi-gen: ') + note,
           file=sys.stderr)
-    return True
+    return frozenset(waives)
 
 
 def run(argv=None):
@@ -411,11 +447,12 @@ def run(argv=None):
     release_floor = 0
     if args.baseline:
         baseline = load(args.baseline)
-        try:
-            check_lock(baseline, schema)
-        except ValueError:
-            if not baseline_replaced(folder, args.baseline, baseline, schema):
-                raise
+        waives = baseline_replaced(folder, args.baseline, baseline)
+        if waives:
+            lock_shape(baseline, schema)
+            require(schema['minor'] == baseline['schema']['minor'],
+                    'a baseline replacement keeps the minor')
+        check_lock(baseline, schema, waives)
         release_floor = baseline['released_minor']
     released_minor = release_floor
     if lock.exists():

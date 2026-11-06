@@ -236,23 +236,82 @@ class SchemaTests(unittest.TestCase):
                 ABI.run(check)
             marker = root / 'abi/baseline-replacement.json'
             digest = ABI.hashlib.sha256(trusted.read_bytes()).hexdigest()
-            for bad in [dict(replaces_sha256=digest, reason='r'),
-                        dict(replaces_sha256=digest, reason='', ticket='#1')]:
+
+            def write(**fields):
+                marker.write_text(json.dumps(dict(dict(
+                    replaces_sha256=digest, reason='r', ticket='#1', waives=['compatible']),
+                    **fields)))
+            for bad in [dict(replaces_sha256=digest, reason='r', ticket='#1'),
+                        dict(replaces_sha256=digest, reason='', ticket='#1', waives=['compatible']),
+                        dict(replaces_sha256=digest, reason='r', ticket='#1', waives=[]),
+                        dict(replaces_sha256=digest, reason='r', ticket='#1',
+                             waives=['compatible', 'compatible']),
+                        dict(replaces_sha256=digest, reason='r', ticket='#1',
+                             waives=['lock_format'])]:
                 with self.subTest(bad=bad):
                     marker.write_text(json.dumps(bad))
-                    with self.assertRaisesRegex(ValueError, 'needs replaces_sha256'):
+                    with self.assertRaisesRegex(ValueError, 'needs replaces_sha256|waives a non'):
                         ABI.run(check)
-            # A marker for another baseline is stale and replaces nothing.
-            marker.write_text(json.dumps(dict(replaces_sha256='0' * 64, reason='r', ticket='#1')))
-            with self.assertRaisesRegex(ValueError, 'entry field'):
+            # A marker for another baseline is an error, never silently ignored.
+            write(replaces_sha256='0' * 64)
+            with self.assertRaisesRegex(ValueError, 'stale baseline replacement'):
                 ABI.run(check)
-            marker.write_text(json.dumps(dict(replaces_sha256=digest, reason='r', ticket='#1')))
+            write()
             ABI.run(check)
+            # A waiver must be exactly what is needed.
+            write(waives=['compatible', 'emitted_c'])
+            with self.assertRaisesRegex(ValueError, 'waives emitted_c, which passes'):
+                ABI.run(check)
             # Never once a minor is released.
             trusted.write_text(ABI.canonical(ABI.lock_record(self.base, 1)))
             digest = ABI.hashlib.sha256(trusted.read_bytes()).hexdigest()
-            marker.write_text(json.dumps(dict(replaces_sha256=digest, reason='r', ticket='#1')))
+            write()
             with self.assertRaisesRegex(ValueError, 'before any minor is released'):
+                ABI.run(check)
+
+    def test_baseline_replacement_never_waives_shape_format_major_or_minor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'abi').mkdir()
+            definition = root / 'abi/abi.def'
+            definition.write_text(ABI.canonical(self.base))
+            ABI.run(['--root', str(root), '--write-lock'])
+            trusted = root / 'trusted.lock'
+            trusted.write_bytes((root / 'abi/abi.lock').read_bytes())
+            marker = root / 'abi/baseline-replacement.json'
+            digest = ABI.hashlib.sha256(trusted.read_bytes()).hexdigest()
+            marker.write_text(json.dumps(dict(replaces_sha256=digest, reason='r', ticket='#1',
+                                              waives=sorted(ABI.WAIVABLE))))
+            check = ['--root', str(root), '--baseline', str(trusted), '--check']
+            reached = []
+            for key, value, message in [('major', self.base['major'] + 1, 'format/major'),
+                                        ('format', self.base['format'] + 1, 'format/major'),
+                                        ('minor', self.base['minor'] + 1, 'keeps the minor')]:
+                with self.subTest(key=key):
+                    changed = dict(copy.deepcopy(self.base), **{key: value})
+                    definition.write_text(ABI.canonical(changed))
+                    (root / 'abi/abi.lock').unlink(missing_ok=True)
+                    try:
+                        ABI.run(['--root', str(root), '--write-lock'])
+                    except ValueError:
+                        # The generator itself refuses this schema; never the major.
+                        self.assertNotEqual(key, 'major')
+                        continue
+                    with self.assertRaisesRegex(ValueError, message):
+                        ABI.run(check)
+                    reached.append(key)
+            self.assertIn('major', reached)
+            # A broken lock shape is never waived either.
+            definition.write_text(ABI.canonical(self.base))
+            (root / 'abi/abi.lock').unlink(missing_ok=True)
+            ABI.run(['--root', str(root), '--write-lock'])
+            broken = json.loads(trusted.read_text())
+            del broken['emitted_c']
+            trusted.write_text(ABI.canonical(broken))
+            digest = ABI.hashlib.sha256(trusted.read_bytes()).hexdigest()
+            marker.write_text(json.dumps(dict(replaces_sha256=digest, reason='r', ticket='#1',
+                                              waives=sorted(ABI.WAIVABLE))))
+            with self.assertRaises(ValueError):
                 ABI.run(check)
 
     def test_trusted_release_floor_survives_two_steps_in_all_modes(self):

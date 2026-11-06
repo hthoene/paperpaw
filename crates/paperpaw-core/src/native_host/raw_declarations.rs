@@ -234,16 +234,9 @@ impl RawDeclarations {
         Ok(())
     }
 }
+/// A record the name index holds: exactly those `key` names, so the two never drift.
 pub(crate) fn is_declaration(record: &Record<'_>) -> bool {
-    matches!(
-        record,
-        Record::SettingGroup(_)
-            | Record::SettingSpec(_)
-            | Record::SettingExtra(_)
-            | Record::ResourceHyphenation(_)
-            | Record::ResourceFontFace(_)
-            | Record::ResourceFontExtension(_)
-    )
+    key(*record).is_some()
 }
 fn index_cost(entries: usize) -> usize {
     size_of::<RawBatch>() + entries * size_of::<NameEntry>()

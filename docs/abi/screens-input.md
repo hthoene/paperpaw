@@ -88,6 +88,12 @@ input(state: pointer, token: u32, input: bytes) -> i32
 - [D] Order: a batch is validated whole, then queued; queued commands run after the callback
   returns, in submit order, batches in order. Several `redraw` in one callback merge to the
   strongest mode.
+- [D] **Chains are bounded (S6).** A callback the host runs because of a queued `open_screen` or
+  `run_action` is one hop further in a chain than the callback that queued it; a user input or a
+  host event starts a new chain at hop 0. A batch submitted at hop 8 that contains `open_screen` or
+  `run_action` is `ERR_BUSY`, the whole batch is refused and the host logs it against the
+  submitting plugin. Two plugins opening each other's screens therefore stop after 8 hops instead
+  of looping, and no chain outlives the next user input.
 
 ## 4. Fonts and text
 
@@ -134,6 +140,12 @@ draw(state: pointer, token: u32, input: bytes) -> i32
   the number of reply bytes written; a result < 0 is a status. A result greater than `out.cap` is
   a plugin fault: the host treats it as `ERR_INVALID` and reads no reply. The plugin may write
   only the first `out.cap` bytes. It must not keep `out` after returning.
+- [D] **What `out` is (S2).** `out.ptr` is never null, also when `cap = 0` (then it is a dangling,
+  aligned, non-null pointer), and its `cap` bytes are initialised (the host zeroes them before the
+  first call), so the SDK may view it as `&mut [u8]`. `out` never overlaps `input`, any host scratch
+  that a slot uses during the call, or the `out` of a nested call: the host keeps one reply buffer
+  per nesting depth (on the X4 two depths, each sized for the largest reply of the families that
+  can dispatch at that depth), never one shared buffer.
 - [D] Each dispatched record family defines its reply. Families without a reply get `cap = 0`,
   so their only valid results are 0 and a negative status. All tags 32-39 are such families.
   Stages (N4) are the first families with replies.
@@ -161,6 +173,10 @@ This rule binds every handle and every asynchronous operation of interface 7, pr
 font handles, blobs, images, format and document handles, work, HTTP, sockets and stage
 subscriptions. Families added later refer to it instead of defining their own.
 
+- [D] **Handles are never reused (S3).** A handle value carries its slot and a generation that
+  advances on every release; a slot whose generation is exhausted is retired, never wrapped. A
+  stale or doubled release therefore can never name a newer handle: it is `ERR_STATE` and changes
+  nothing. (`abi7::handles`: 5 slot bits, 27 generation bits, generation 0 invalid.)
 - [D] Every handle is released exactly once: by the plugin, or by the host when the plugin stops
   or its construction is torn down. A second release, or a release of a handle the plugin does not
   own, is `ERR_STATE` and changes nothing.
@@ -253,9 +269,11 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
   `ERR_CANCELLED` (dismissed, stopped). SDK status types name both from 1.0 on.
 - [D] **Feature records (D1).** A plugin states the families it uses as metadata feature records,
   `uses.<family>` (`uses.net`, `uses.secrets`, `uses.sockets`, `uses.library`, `uses.registry`,
-  `uses.device`). Bit 0 of the record's `flags` means required: a host that does not know a
-  required key refuses the load and names the key; a host ignores an unknown key without the bit.
-  Other bits are refused. See `abi/metadata.md`.
+  `uses.device`). Bit 0 of the record's `flags` means required. A feature the host does not
+  have at exactly the record's revision (an unknown key or another revision) is unavailable: an
+  optional one is left out and the plugin learns it is missing at run time, a required one refuses
+  the load and names the key. So an optional feature can move to a new revision without breaking
+  older hosts. Other bits are refused. See `abi/metadata.md`.
 - [D] **Service families (D4).** Every later family (NET, LIB, REG, FS, SEC, DEV and the rest) is a
   versioned service schema behind `services.query`, not a set of one-off slots. Calls go through
   one generic slot, `service.call(ctx, service, op: u32, input, out) -> count` (synchronous and

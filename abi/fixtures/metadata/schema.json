@@ -1020,7 +1020,13 @@
         "size_source": "entry_bytes"
       }
     ],
-    "features": [],
+    "features": [
+      {
+        "key": "test.feature",
+        "revision": 1,
+        "since": 1
+      }
+    ],
     "format": 2,
     "magic": "PPAM",
     "max_bytes": 2048,
@@ -1388,6 +1394,11 @@
         },
         {
           "default": null,
+          "list": {
+            "item_max_bytes": 96,
+            "max_items": 32,
+            "separator": "\n"
+          },
           "max_bytes": 1024,
           "name": "choices",
           "optional": false,
