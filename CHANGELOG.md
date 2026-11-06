@@ -19,6 +19,9 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 host usage/name/note services and callback-scoped blobs, with checked
+  metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).
+
 - Native `read_at` preserves output on validation and file-preflight failures; after
   reading starts, errors zero output without a 4 KiB stack or heap scratch (#228).
 

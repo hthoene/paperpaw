@@ -257,6 +257,7 @@ impl Loaded {
         let table = shared_shell::host_table::<DesktopServices>();
         // SAFETY: authorized private immutable copy, as above.
         let CheckedLibrary {
+            declared_services,
             library,
             make,
             image,
@@ -271,6 +272,7 @@ impl Loaded {
                 image,
                 report_shared,
                 resources,
+                declared_services,
             )
         }?)?;
         let mut transaction = plugin.begin::<Registration>()?;
