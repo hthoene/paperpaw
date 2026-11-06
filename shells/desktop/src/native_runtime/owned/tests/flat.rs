@@ -36,7 +36,7 @@ fn started_library() -> Vec<u8> {
     }]);
     let library = fixture_custom(valid, &[], false, "", "");
     let bytes = std::fs::read(&library.path).unwrap();
-    std::fs::remove_dir_all(&library.root).unwrap();
+    drop(library);
     bytes
 }
 
@@ -62,7 +62,7 @@ fn registrations_are_visited_in_batch_order_with_events_apart_from_other_kinds()
     ]);
     let library = fixture_custom(valid, &[], false, "", "");
     let bytes = std::fs::read(&library.path).unwrap();
-    std::fs::remove_dir_all(&library.root).unwrap();
+    drop(library);
     let instance = load_flat("flatvisit", &bytes).unwrap();
     let mut seen = Vec::new();
     instance.registrations(&mut |r| seen.push(r));
@@ -207,7 +207,7 @@ fn declarations_are_refused_not_dropped_and_the_library_is_released() {
     valid.truncate(len);
     let library = fixture_custom(valid, &[], false, "", "");
     let bytes = std::fs::read(&library.path).unwrap();
-    std::fs::remove_dir_all(&library.root).unwrap();
+    drop(library);
     // The group is not declared by the library, so the folder's id decides:
     // a library that stages cleanly under its own group is refused at the apply
     // step instead. Either way, a declaring library is never loaded without them.
