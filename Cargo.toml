@@ -110,6 +110,7 @@ members = [
     "shells/web",
     "shells/android",
     "tools/fontgen",
+    "tools/hyphenation-packs",
     "tools/sign",
     "tools/publish",
     "tools/dev",

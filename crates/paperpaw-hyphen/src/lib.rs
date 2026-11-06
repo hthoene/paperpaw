@@ -27,6 +27,8 @@ extern crate alloc;
 #[cfg(feature = "kernel")]
 mod check;
 mod compile;
+#[cfg(feature = "kernel")]
+mod stored;
 
 use alloc::vec::Vec;
 use core::cmp::Ordering;
@@ -34,9 +36,12 @@ use core::fmt;
 
 #[cfg(feature = "kernel")]
 pub use check::{
-    Layout, MAX_BLOCK_BYTES, MAX_BLOCKS, MAX_EXCEPTION_BYTES, TableError, check_table,
+    CheckError, Layout, MAX_BLOCK_BYTES, MAX_BLOCKS, MAX_EXCEPTION_BYTES, MIN_SCRATCH, Source,
+    TableError, check_source, check_table,
 };
 pub use compile::compile;
+#[cfg(feature = "kernel")]
+pub use stored::{CACHE_BLOCKS, MAX_CACHE_BLOCKS, OpenError, StoredPatterns};
 
 /// Patterns per index entry.
 pub const BLOCK: usize = 16;
@@ -140,14 +145,7 @@ impl<'a> Patterns<'a> {
     /// The pattern at `at` (relative to the entries): key, points and the
     /// offset of the next pattern.
     fn entry(&self, at: usize) -> Option<(&'a [u8], &'a [u8], usize)> {
-        // Offsets come from the table: checked, as `usize` may be 32 bits.
-        let key_at = self.entries().checked_add(at)?.checked_add(1)?;
-        let len = usize::from(*self.data.get(key_at - 1)?);
-        let key = self.data.get(key_at..key_at + len)?;
-        let chars = key.iter().filter(|&&b| b & 0xc0 != 0x80).count();
-        let points_len = (chars + 2) / 2;
-        let points = self.data.get(key_at + len..key_at + len + points_len)?;
-        Some((key, points, at + 1 + len + points_len))
+        entry_at(self.data.get(self.entries()..)?, at)
     }
 
     /// The points of the pattern `key`, if there is one, and whether a
@@ -202,98 +200,191 @@ impl<'a> Patterns<'a> {
     /// it may be hyphenated, in ascending order. `word` should consist of
     /// letters only; it is matched without regard to case.
     pub fn hyphenate(&self, word: &str, out: &mut dyn FnMut(usize)) {
-        // A character takes at most 4 bytes.
-        if word.len() > 4 * MAX_WORD {
-            return;
-        }
-        // Too short for the minimums or too long: known before lowercasing.
-        let n = word.chars().count();
-        if n < self.left_min + self.right_min || n > MAX_WORD {
-            return;
-        }
-        let mut chars = ['.'; MAX_WORD + 2];
-        // Where each letter starts in `word`, at most `4 * MAX_WORD` bytes in.
-        let mut offsets = [0u8; MAX_WORD];
-        for (i, (at, c)) in word.char_indices().enumerate() {
-            let mut lower = c.to_lowercase();
-            match (lower.next(), lower.next(), u8::try_from(at)) {
-                (Some(l), None, Ok(at)) => (chars[i + 1], offsets[i]) = (l, at),
-                // Characters that change length when lowercased are rare;
-                // such words are left alone.
-                _ => return,
-            }
-        }
-        let chars = &chars[..n + 2];
-        let allowed = self.left_min..=n - self.right_min;
-        if let Some(found) = self.exception(&chars[1..=n]) {
-            // Exceptions keep the minimums too, as in TeX.
-            for p in found.into_iter().filter(|p| allowed.contains(p)) {
-                out(usize::from(offsets[p]));
-            }
-            return;
-        }
+        let mut table = *self;
+        let rules = Rules {
+            left_min: self.left_min,
+            right_min: self.right_min,
+            max_len: self.max_len,
+        };
+        hyphenate_with(&mut table, rules, word, out);
+    }
+}
 
-        // values[k]: the highest point between chars[k - 1] and chars[k].
-        let mut values = [0u8; MAX_WORD + 3];
-        let mut key = [0u8; 4 * 16];
-        for start in 0..chars.len() {
-            let mut len = 0;
-            for (count, &c) in chars[start..].iter().enumerate().take(self.max_len) {
-                if len + c.len_utf8() > key.len() {
-                    break;
-                }
-                len += c.encode_utf8(&mut key[len..]).len();
-                let (found, longer) = self.lookup(&key[..len]);
-                if let Some(points) = found {
-                    for k in 0..=count + 1 {
-                        let byte = points.get(k / 2).copied().unwrap_or(0);
-                        let point = if k % 2 == 0 { byte >> 4 } else { byte & 0x0f };
-                        let slot = &mut values[start + k];
-                        *slot = (*slot).max(point);
-                    }
-                }
-                // No pattern starts with this key: none with a longer one.
-                if !longer {
-                    break;
-                }
+impl Access for Patterns<'_> {
+    fn lookup(&mut self, key: &[u8], points: &mut Points) -> (bool, bool) {
+        let (found, longer) = Patterns::lookup(self, key);
+        match found {
+            Some(found) => {
+                let n = found.len().min(points.len());
+                points[..n].copy_from_slice(&found[..n]);
+                (true, longer)
             }
-        }
-        // A hyphen before letter p (0-based) sits at values[p + 1].
-        for p in allowed {
-            if values[p + 1] % 2 == 1 {
-                out(usize::from(offsets[p]));
-            }
+            None => (false, longer),
         }
     }
 
-    /// Positions (letter indices) from the exception list, if `word` is in
-    /// it: ascending, and only between two letters.
-    fn exception(&self, word: &[char]) -> Option<Vec<usize>> {
-        let (mut at, count) = self.exceptions;
-        for _ in 0..count {
-            let len = usize::from(*self.data.get(at)?);
-            let entry = core::str::from_utf8(self.data.get(at + 1..at + 1 + len)?).ok()?;
-            at += 1 + len;
-            // Most differ in the first letter: no need to count them.
-            if !entry.chars().filter(|&c| c != '-').eq(word.iter().copied()) {
-                continue;
+    fn exception(&mut self, word: &[char]) -> Option<Vec<usize>> {
+        let section = self.data.get(self.exceptions.0..)?;
+        exception_in(section, self.exceptions.1, word)
+            .ok()
+            .flatten()
+    }
+}
+
+/// The pattern at `at` in `entries` (the data from the first pattern on):
+/// key, points and the offset of the next pattern.
+pub(crate) fn entry_at(entries: &[u8], at: usize) -> Option<(&[u8], &[u8], usize)> {
+    // Offsets come from the table: checked, as `usize` may be 32 bits.
+    let key_at = at.checked_add(1)?;
+    let len = usize::from(*entries.get(at)?);
+    let key = entries.get(key_at..key_at.checked_add(len)?)?;
+    let chars = key.iter().filter(|&&b| b & 0xc0 != 0x80).count();
+    let points_len = (chars + 2) / 2;
+    let points = entries.get(key_at + len..key_at + len + points_len)?;
+    Some((key, points, at + 1 + len + points_len))
+}
+
+/// The exceptions section was damaged.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Damaged;
+
+/// Positions (letter indices) from the exception list `section` (of `count`
+/// entries), if `word` is in it: ascending, and only between two letters.
+pub(crate) fn exception_in(
+    section: &[u8],
+    count: usize,
+    word: &[char],
+) -> Result<Option<Vec<usize>>, Damaged> {
+    let mut at = 0;
+    for _ in 0..count {
+        let len = usize::from(*section.get(at).ok_or(Damaged)?);
+        let bytes = section.get(at + 1..at + 1 + len).ok_or(Damaged)?;
+        let entry = core::str::from_utf8(bytes).map_err(|_| Damaged)?;
+        at += 1 + len;
+        // Most differ in the first letter: no need to count them.
+        if !entry.chars().filter(|&c| c != '-').eq(word.iter().copied()) {
+            continue;
+        }
+        let mut positions = Vec::new();
+        let mut index = 0;
+        for c in entry.chars() {
+            if c == '-' {
+                // Not before the first letter or after the last, and
+                // once for `--`.
+                if index > 0 && index < word.len() && positions.last() != Some(&index) {
+                    positions.push(index);
+                }
+            } else {
+                index += 1;
             }
-            let mut positions = Vec::new();
-            let mut index = 0;
-            for c in entry.chars() {
-                if c == '-' {
-                    // Not before the first letter or after the last, and
-                    // once for `--`.
-                    if index > 0 && index < word.len() && positions.last() != Some(&index) {
-                        positions.push(index);
-                    }
-                } else {
-                    index += 1;
+        }
+        return Ok(Some(positions));
+    }
+    Ok(None)
+}
+
+/// The points of a pattern: one per gap of a key of at most 64 bytes.
+pub(crate) type Points = [u8; 40];
+
+/// What the algorithm needs of a table, wherever its bytes are.
+pub(crate) trait Access {
+    /// Whether there is a pattern `key` (then its points are in `points`),
+    /// and whether a longer pattern may start with `key`.
+    fn lookup(&mut self, key: &[u8], points: &mut Points) -> (bool, bool);
+    /// Positions from the exception list, if `word` is in it.
+    fn exception(&mut self, word: &[char]) -> Option<Vec<usize>>;
+    /// The table cannot be read any more: nothing is hyphenated.
+    fn failed(&self) -> bool {
+        false
+    }
+}
+
+/// The table's numbers that the algorithm uses.
+#[derive(Clone, Copy)]
+pub(crate) struct Rules {
+    pub(crate) left_min: usize,
+    pub(crate) right_min: usize,
+    pub(crate) max_len: usize,
+}
+
+/// Liang's algorithm on any table.
+pub(crate) fn hyphenate_with<A: Access>(
+    table: &mut A,
+    rules: Rules,
+    word: &str,
+    out: &mut dyn FnMut(usize),
+) {
+    let Rules {
+        left_min,
+        right_min,
+        max_len,
+    } = rules;
+    // A character takes at most 4 bytes.
+    if word.len() > 4 * MAX_WORD {
+        return;
+    }
+    // Too short for the minimums or too long: known before lowercasing.
+    let n = word.chars().count();
+    if n < left_min + right_min || n > MAX_WORD {
+        return;
+    }
+    let mut chars = ['.'; MAX_WORD + 2];
+    // Where each letter starts in `word`, at most `4 * MAX_WORD` bytes in.
+    let mut offsets = [0u8; MAX_WORD];
+    for (i, (at, c)) in word.char_indices().enumerate() {
+        let mut lower = c.to_lowercase();
+        match (lower.next(), lower.next(), u8::try_from(at)) {
+            (Some(l), None, Ok(at)) => (chars[i + 1], offsets[i]) = (l, at),
+            // Characters that change length when lowercased are rare;
+            // such words are left alone.
+            _ => return,
+        }
+    }
+    let chars = &chars[..n + 2];
+    let allowed = left_min..=n - right_min;
+    if let Some(found) = table.exception(&chars[1..=n]) {
+        // Exceptions keep the minimums too, as in TeX.
+        for p in found.into_iter().filter(|p| allowed.contains(p)) {
+            out(usize::from(offsets[p]));
+        }
+        return;
+    }
+
+    // values[k]: the highest point between chars[k - 1] and chars[k].
+    let mut values = [0u8; MAX_WORD + 3];
+    let mut key = [0u8; 4 * 16];
+    let mut points: Points = [0; 40];
+    for start in 0..chars.len() {
+        let mut len = 0;
+        for (count, &c) in chars[start..].iter().enumerate().take(max_len) {
+            if len + c.len_utf8() > key.len() {
+                break;
+            }
+            len += c.encode_utf8(&mut key[len..]).len();
+            points.fill(0);
+            let (found, longer) = table.lookup(&key[..len], &mut points);
+            if table.failed() {
+                return;
+            }
+            if found {
+                for k in 0..=count + 1 {
+                    let byte = points.get(k / 2).copied().unwrap_or(0);
+                    let point = if k % 2 == 0 { byte >> 4 } else { byte & 0x0f };
+                    let slot = &mut values[start + k];
+                    *slot = (*slot).max(point);
                 }
             }
-            return Some(positions);
+            // No pattern starts with this key: none with a longer one.
+            if !longer {
+                break;
+            }
         }
-        None
+    }
+    // A hyphen before letter p (0-based) sits at values[p + 1].
+    for p in allowed {
+        if values[p + 1] % 2 == 1 {
+            out(usize::from(offsets[p]));
+        }
     }
 }
 
