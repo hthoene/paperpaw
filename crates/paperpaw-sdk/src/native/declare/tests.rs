@@ -288,6 +288,7 @@ fn choice_count_limit_is_inclusive() {
     ))
     .unwrap();
     assert_eq!(d.len(), 1);
+    d.submit().unwrap();
 }
 
 #[test]
@@ -353,6 +354,7 @@ fn a_default_over_the_wire_cap_is_refused() {
     let longest = "a".repeat(500);
     let text = SpecDecl::new("n", Kind::Text(&longest), GROUP, "t");
     assert!(d.spec(text).is_ok());
+    d.submit().unwrap();
 }
 
 #[test]
@@ -448,6 +450,7 @@ fn choice_text_limit_includes_separators() {
             .map(|_| ()),
         Err(DeclareError::Choices)
     );
+    d.submit().unwrap();
 }
 
 #[test]
@@ -589,14 +592,16 @@ fn byte_limit_flush_refusal_stops_before_accepting_the_next_record() {
 
 #[test]
 fn dropping_a_pending_builder_does_not_submit() {
+    extern crate std;
     use core::cell::Cell;
     let calls = Cell::new(0);
-    {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut d = Declarations::new(|_: &[u8]| {
             calls.set(calls.get() + 1);
             Ok(())
         });
         d.spec(bool_spec("pending")).unwrap();
-    }
+    }));
+    assert_eq!(result.is_err(), cfg!(debug_assertions));
     assert_eq!(calls.get(), 0);
 }
