@@ -233,6 +233,9 @@ fn panic(_: &core::panic::PanicInfo<'_>) -> ! {
     loop {}
 }
 
+#[cfg(not(test))]
+mod freestanding;
+
 #[cfg(test)]
 extern crate std;
 #[cfg(test)]
