@@ -1,4 +1,5 @@
 use super::*;
+use crate::frames::path;
 
 fn frame(path: &str, bytes: Option<u32>) -> Frame {
     Frame {

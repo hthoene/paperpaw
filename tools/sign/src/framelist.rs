@@ -20,7 +20,7 @@
 use std::fmt::Write as _;
 
 use crate::elf::{Elf, SHF_EXECINSTR, Symbol};
-use crate::frames::frame_sizes;
+use crate::frames::{Env, frame_sizes_in, function_ranges, noreturn_functions, path};
 
 /// `STT_FUNC`.
 const STT_FUNC: u8 = 2;
@@ -35,66 +35,12 @@ pub struct Frame {
     pub path: String,
 }
 
-/// The names in a mangled symbol (legacy `_ZN…E` or v0 `_R…`) joined with
-/// `::`: the length-prefixed identifiers, without the crate's disambiguator
-/// and the hash. Not a demangler: enough to match `crash::panic`.
-pub fn path(mangled: &str) -> String {
-    let b = mangled.as_bytes();
-    let v0 = mangled.starts_with("_R");
-    let mut i = if v0 {
-        2
-    } else if mangled.starts_with("_ZN") {
-        3
-    } else {
-        return mangled.to_string();
-    };
-    let mut parts: Vec<&str> = Vec::new();
-    while i < b.len() {
-        // A crate's disambiguator, `s<base62>_`, after its `C`.
-        if b[i] == b'C' && b.get(i + 1) == Some(&b's') {
-            i += 2;
-            while i < b.len() && b[i] != b'_' {
-                i += 1;
-            }
-            i += 1;
-            continue;
-        }
-        if b[i].is_ascii_digit() {
-            let start = i;
-            while i < b.len() && b[i].is_ascii_digit() {
-                i += 1;
-            }
-            let n: usize = mangled[start..i].parse().unwrap_or(0);
-            // In v0 a name that starts with an underscore or a digit follows
-            // the number after an underscore of its own.
-            if v0 && n > 0 && b.get(i) == Some(&b'_') {
-                i += 1;
-            }
-            let ident = mangled
-                .get(i..i + n)
-                .filter(|id| n > 0 && id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_'));
-            if let Some(ident) = ident {
-                // The legacy hash, `h` and sixteen hex digits.
-                let hash = ident.len() == 17
-                    && ident.starts_with('h')
-                    && ident[1..].bytes().all(|c| c.is_ascii_hexdigit());
-                if !hash {
-                    parts.push(ident);
-                }
-                i += n;
-            }
-            continue;
-        }
-        i += 1;
-    }
-    parts.join("::")
-}
-
 /// Every function of the executable sections of `elf`, with its frame.
 pub fn frames(elf: &Elf<'_>) -> Result<Vec<Frame>, String> {
     let (_, symbols) = elf
         .symbols()?
         .ok_or("no symbol table: the firmware is stripped")?;
+    let noreturn = noreturn_functions(&symbols);
     let mut out = Vec::new();
     for (index, section) in elf.sections.iter().enumerate() {
         if section.flags & SHF_EXECINSTR == 0 || section.size == 0 || section.kind == 8 {
@@ -107,17 +53,25 @@ pub fn frames(elf: &Elf<'_>) -> Result<Vec<Frame>, String> {
             .collect();
         funcs.sort_by_key(|s| s.value);
         funcs.dedup_by_key(|s| s.value);
-        let starts: Vec<usize> = funcs
+        // Each function within its symbol's size and no further than the next
+        // function's start, as the pack-time scan reads it.
+        let sized: Vec<(usize, usize)> = funcs
             .iter()
-            .map(|s| s.value.wrapping_sub(section.addr) as usize)
-            .filter(|&a| a < code.len())
+            .map(|s| (s.value.wrapping_sub(section.addr) as usize, s.size as usize))
             .collect();
-        let sizes = frame_sizes(code, &starts);
-        for (&at, bytes) in starts.iter().zip(sizes) {
-            let symbol = funcs
-                .iter()
-                .find(|s| s.value.wrapping_sub(section.addr) as usize == at);
-            let Some(symbol) = symbol else { continue };
+        let ranges = function_ranges(&sized, code.len());
+        // One symbol per range: the first at that start.
+        let mut funcs: Vec<&Symbol> = funcs
+            .into_iter()
+            .filter(|s| (s.value.wrapping_sub(section.addr) as usize) < code.len())
+            .collect();
+        funcs.sort_by_key(|s| s.value);
+        funcs.dedup_by_key(|s| s.value);
+        let env = Env {
+            base: section.addr,
+            noreturn: &noreturn,
+        };
+        for (symbol, bytes) in funcs.iter().zip(frame_sizes_in(code, &ranges, env)) {
             out.push(Frame {
                 address: symbol.value,
                 bytes,
