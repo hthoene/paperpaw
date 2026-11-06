@@ -138,11 +138,19 @@ fn copies() -> std::io::Result<&'static Path> {
     Ok(COPIES.get_or_init(|| dir))
 }
 
+/// The folder of the private copies (for the tests).
+#[cfg(test)]
+pub(super) fn copies_dir() -> std::io::Result<&'static Path> {
+    copies()
+}
+
 /// One loaded plugin. Field order is the order of release: the batch (the
 /// borrow of the owner) goes first, in `Drop`, then the owner with its
 /// library.
 struct Loaded {
     id: String,
+    /// The private copy that is mapped; removed after the unmap.
+    copy: std::path::PathBuf,
     /// What it registered, in order (the batch's records).
     records: Vec<Registration>,
     /// Staged by `make` and moved out of the batch at commit; kept, not applied.
@@ -192,6 +200,7 @@ impl Loaded {
         };
         Ok(Self {
             id: id.to_owned(),
+            copy,
             records,
             declarations,
             batch: Some(batch),
@@ -236,6 +245,8 @@ impl Drop for Loaded {
             // SAFETY: dropped exactly once, here; nothing borrows the owner
             // any longer (the batch is gone and `finish` saw no lease).
             unsafe { ManuallyDrop::drop(&mut self.plugin) };
+            // Unmapped: the copy has done its work (a later load writes it anew).
+            let _ = std::fs::remove_file(&self.copy);
         } else {
             // Not reachable while no lease is held. If it ever is, whatever
             // holds the library must outlive it: kept mapped, never unmapped.
@@ -262,14 +273,28 @@ fn private_copy(id: &str, bytes: &[u8], digest: &[u8; 32]) -> std::io::Result<st
         std::env::consts::DLL_SUFFIX
     ));
     if !copy.exists() {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&copy)?;
-        std::io::Write::write_all(&mut file, bytes)?;
-        let mut permissions = file.metadata()?.permissions();
-        permissions.set_readonly(true);
-        file.set_permissions(permissions)?;
+        // Written under a name of its own, then renamed into place: a copy cut
+        // short is never found under the name that is trusted, and is removed.
+        static COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let temp = copy.with_extension(format!(
+            "part{}",
+            COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let written = (|| {
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temp)?;
+            std::io::Write::write_all(&mut file, bytes)?;
+            let mut permissions = file.metadata()?.permissions();
+            permissions.set_readonly(true);
+            file.set_permissions(permissions)?;
+            std::fs::rename(&temp, &copy)
+        })();
+        if let Err(e) = written {
+            let _ = std::fs::remove_file(&temp);
+            return Err(e);
+        }
     }
     Ok(copy)
 }

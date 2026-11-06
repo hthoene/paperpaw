@@ -8,6 +8,9 @@ change the plugin SDK.
 
 ### Added
 
+- Desktop emulator: a developer switch, `--abi7-dev-loader` or `PAPERPAW_ABI7_DEV_LOADER=1` (Linux x86-64, off by
+  default), loads interface-7 plugin libraries (`plugins/<id>/code-host.so`, told from their bytes) for loader work. What a
+  plugin declares is staged but not applied yet, and nothing is drawn; interface-6 plugins are unchanged (#228, #772).
 - `tools/hyphenation-packs`: builds and checks the thirteen hyphenation plugins as data plugins
   (`[hyphenation]` file kind, PPHP version 1 tables); the interface-6 plugins stay until the
   card-backed reader lands (#228).

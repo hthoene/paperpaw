@@ -286,6 +286,8 @@ fn a_declaration_under_another_plugins_id_is_decided_by_the_folders_id() {
 /// released with the device.
 #[test]
 fn the_device_loads_at_start_and_again_at_restart_only_with_the_switch() {
+    // The switch is the process's: no other device meanwhile.
+    let _one = crate::one_device_at_a_time();
     let root = card(&[("devplug", sample_bytes())]);
     let profile = crate::profiles::find("boox-go-7").unwrap();
     let open = || crate::device::library(&root).unwrap();
@@ -304,5 +306,52 @@ fn the_device_loads_at_start_and_again_at_restart_only_with_the_switch() {
     assert!(on.abi7_plugins().ids().is_empty());
     assert!(!mapped_copy("devplug"));
     drop(on);
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+/// With the switch on the interface-6 loader takes interface-6 libraries
+/// only: one exporting both kinds, neither, or interface 7 is not its to take.
+/// With the switch off it decides as before (no classification at all).
+#[test]
+fn the_interface_6_loader_takes_only_interface_6_with_the_switch_on() {
+    use crate::native::interface6_only;
+    let (six, both, neither) = (interface6_like(), both(), neither());
+    assert!(interface6_only(&six, true));
+    for refused in [sample_bytes(), &both, &neither, b"junk"] {
+        assert!(!interface6_only(refused, true));
+    }
+    for any in [&six[..], sample_bytes(), &both, &neither, b"junk"] {
+        assert!(interface6_only(any, false), "off: as before");
+    }
+}
+
+/// The private copy is written under a name of its own and renamed, so no
+/// cut-short copy is ever found under the trusted name, and it is removed
+/// with the plugin; loading again writes it anew.
+#[test]
+fn the_private_copy_is_renamed_into_place_and_removed_at_unload() {
+    let copies = |id: &str| -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(super::super::dev::copies_dir().unwrap())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with(&format!("{id}-")))
+            .collect();
+        names.sort();
+        names
+    };
+    let root = card(&[("copied", sample_bytes())]);
+    let mut found = DevPlugins::load_folder_if(&root, true);
+    assert_eq!(found.ids(), ["copied"]);
+    let names = copies("copied");
+    assert_eq!(names.len(), 1, "{names:?}");
+    assert!(!names[0].contains(".part"), "{names:?}");
+    found.unload();
+    assert!(copies("copied").is_empty(), "removed after the unmap");
+    let found = DevPlugins::load_folder_if(&root, true);
+    assert_eq!(found.ids(), ["copied"], "{:?}", found.refused());
+    assert_eq!(copies("copied").len(), 1);
+    drop(found);
+    assert!(copies("copied").is_empty());
     std::fs::remove_dir_all(&root).unwrap();
 }
