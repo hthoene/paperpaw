@@ -96,7 +96,7 @@ fn check_table_never_panics_and_what_it_accepts_hyphenates() {
         2,
         2,
     );
-    assert_eq!(check_table(&table), Ok(()));
+    assert!(check_table(&table).is_ok());
     for seed in 1..=3000u64 {
         let mut rng = Rng(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15));
         let mut data = table.clone();
