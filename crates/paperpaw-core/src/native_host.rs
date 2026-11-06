@@ -213,6 +213,10 @@ pub struct Construction<'a, C, M, T> {
 impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// Supply the module's immutable read-only image before make submits data.
     /// The borrow remains live through the committed registration batch.
+    /// The shell must keep the mapping alive until the batch and owner leases
+    /// are dropped, including when it extends a mapped image's lifetime.
+    /// Post-construction access must use the live owner's image visitor and
+    /// generation checks. A stopped owner supplies no image.
     ///
     /// # Errors
     /// Returns State after any submission or a previous image installation.
