@@ -19,6 +19,11 @@ change the plugin SDK.
 
 ### Added
 
+- Interface 7: `native_plugin!(P, metadata = M, linked = NAME)` and `native::Linked` for plugins
+  linked into the program that hosts them (firmware built-ins): the same entry and metadata under
+  a Rust name of their own, without exported symbols, heap word, allocator or panic handler, so
+  several link into one program; the host reads the entry with `Linked::entry` (`kernel`) and
+  admits it as a loaded plugin (`abi/entry.md`, linked built-ins) (#228).
 - Interface 7: command 60 `command.set_item_state` in the generated command codec: a plugin says
   what menus show of its own actions and settings (label and badge as catalog keys with arguments,
   hidden, faint, a switch) when it changes, instead of interface 6's callback asked on every menu;

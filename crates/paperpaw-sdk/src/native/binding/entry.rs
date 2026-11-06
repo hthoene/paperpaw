@@ -28,6 +28,38 @@ impl Entry {
     }
 }
 
+/// A plugin linked into the firmware or the app instead of loaded from a
+/// file: the same entry and metadata a loaded plugin exports, under a Rust
+/// name of its own (`native_plugin!(P, metadata = M, linked = NAME)`), so
+/// that several plugins link into one program. It brings no heap word,
+/// allocator or panic handler: the program's own serve it. The host admits
+/// it with the same checks as a loaded plugin (`abi/entry.md`, linked
+/// built-ins).
+#[repr(transparent)]
+pub struct Linked(Entry);
+
+impl Linked {
+    /// The entry record, exactly as a loaded plugin exports it, for the
+    /// host's admission.
+    #[cfg(any(test, feature = "kernel"))]
+    #[must_use]
+    pub const fn entry(&'static self) -> &'static PpEntry {
+        &self.0.0
+    }
+}
+
+impl core::fmt::Debug for Linked {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Linked").finish_non_exhaustive()
+    }
+}
+
+/// Wrap a checked entry as a linked plugin (for `native_plugin!`).
+#[must_use]
+pub const fn linked(entry: Entry) -> Linked {
+    Linked(entry)
+}
+
 /// Validate the generated layout-2 prefix for the export macro. The metadata's
 /// declared minor, not the SDK's current minor, controls host admission.
 #[must_use]
@@ -288,6 +320,13 @@ unsafe fn free<T>(host: *const PpHost, ctx: *mut c_void, block: *mut c_void) {
 /// that brings its own allocator and panic handler, or allocates nothing,
 /// writes `heap = none`: then neither the word nor those two are emitted.
 ///
+/// A plugin linked into a program (the firmware's built-ins, an app's)
+/// writes `linked = NAME`: the macro then defines only `pub static NAME:
+/// native::Linked`, with the same entry, `make` and metadata, and no exported
+/// symbol, heap word, allocator or panic handler, so several plugins link
+/// into one program and the program's allocator serves them. A plugin built
+/// both ways chooses the form with a `cfg`.
+///
 /// ```compile_fail
 /// use paperpaw_sdk::native::{Plugin, Host, Error};
 /// struct P;
@@ -308,6 +347,20 @@ unsafe fn free<T>(host: *const PpHost, ctx: *mut c_void, block: *mut c_void) {
 /// ```
 #[macro_export]
 macro_rules! native_plugin {
+    ($ty:ty, metadata = $metadata:expr, linked = $name:ident) => {
+        /// This plugin, linked into the program (see `native::Linked`).
+        pub static $name: $crate::native::Linked = {
+            static METADATA: [u8; ($metadata).len()] = $crate::native_plugin!(@bytes $metadata);
+            const MINOR: u16 = match $crate::native::__entry::metadata_minor($metadata) {
+                Some(minor) => minor,
+                None => panic!("invalid interface-7 metadata prefix"),
+            };
+            match $crate::native::__entry::Entry::new::<$ty, MINOR>(&METADATA) {
+                Some(entry) => $crate::native::__entry::linked(entry),
+                None => panic!("invalid interface-7 entry metadata"),
+            }
+        };
+    };
     ($ty:ty, metadata = $metadata:expr, heap = none) => {
         $crate::native_plugin!(@entry $ty, $metadata);
     };
@@ -319,16 +372,8 @@ macro_rules! native_plugin {
         #[used]
         #[unsafe(no_mangle)]
         #[unsafe(link_section = ".rodata.paperpaw_metadata")]
-        pub static PAPERPAW_METADATA: [u8; ($metadata).len()] = {
-            let source: &[u8] = $metadata;
-            let mut bytes = [0; ($metadata).len()];
-            let mut i = 0;
-            while i < source.len() {
-                bytes[i] = source[i];
-                i += 1;
-            }
-            bytes
-        };
+        pub static PAPERPAW_METADATA: [u8; ($metadata).len()] =
+            $crate::native_plugin!(@bytes $metadata);
         #[used]
         #[unsafe(no_mangle)]
         #[unsafe(link_section = ".rodata.paperpaw_entry")]
@@ -343,6 +388,16 @@ macro_rules! native_plugin {
             }
         };
     };
+    (@bytes $metadata:expr) => {{
+        let source: &[u8] = $metadata;
+        let mut bytes = [0; ($metadata).len()];
+        let mut i = 0;
+        while i < source.len() {
+            bytes[i] = source[i];
+            i += 1;
+        }
+        bytes
+    }};
     (@heap) => {
         // The heap word: zero in the file, written by the loader before
         // `make`, never by the plugin. Defined in assembly so that Rust never

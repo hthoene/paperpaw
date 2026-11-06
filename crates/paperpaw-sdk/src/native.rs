@@ -322,6 +322,7 @@ const INSTALLED: &str = crate::data_path!("plugin-code.txt");
 mod binding;
 #[doc(hidden)]
 pub use binding::entry as __entry;
+pub use binding::entry::Linked;
 pub use binding::heap as __heap;
 pub use binding::{Error, Host, Plugin};
 pub mod callbacks;
