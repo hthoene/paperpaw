@@ -50,6 +50,8 @@ pub struct Teardown<C> {
     /// Cancel this owner's open operations without calling the provider.
     pub cancel: fn(Pin<&C>) -> Result<(), HostError>,
     /// Release this owner's handles outside their registry borrow.
+    /// Fallback Drop calls this even if cancellation failed. It must safely
+    /// release an uncancelled operation without delivering into plugin memory.
     pub release: fn(Pin<&C>) -> Result<(), HostError>,
     /// Destroy the validated plugin state, after every lease has gone.
     pub destroy: fn(Pin<&C>),

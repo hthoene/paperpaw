@@ -27,7 +27,8 @@ pub(crate) enum Error {
 /// plugin buffer/image. A skipped fallback release may leave an entry under a
 /// dead owner until restart; it must never deliver into that plugin. Completion
 /// paths check owner lifetime and cancellation before reading any payload.
-/// Release runs after the value leaves the registry borrow.
+/// Release runs after the value leaves the registry borrow and must be safe
+/// even if cancellation failed or never ran.
 pub(crate) trait Release {
     fn cancel(&mut self) {}
     fn release(self);
