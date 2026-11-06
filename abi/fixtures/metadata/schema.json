@@ -736,6 +736,190 @@
       "reentry": "deny",
       "result": "status",
       "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "root",
+          "type": "u32"
+        },
+        {
+          "name": "path",
+          "type": "bytes"
+        },
+        {
+          "name": "out",
+          "type": "out_u64"
+        }
+      ],
+      "effect": "query",
+      "id": 20,
+      "max_bytes": 512,
+      "name": "storage.size",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "root",
+          "type": "u32"
+        },
+        {
+          "name": "path",
+          "type": "bytes"
+        },
+        {
+          "name": "offset",
+          "type": "u64"
+        },
+        {
+          "name": "out",
+          "type": "buffer"
+        }
+      ],
+      "effect": "query",
+      "id": 21,
+      "max_bytes": 4096,
+      "name": "storage.read_at",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "count",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "root",
+          "type": "u32"
+        },
+        {
+          "name": "path",
+          "type": "bytes"
+        },
+        {
+          "name": "data",
+          "type": "bytes"
+        }
+      ],
+      "effect": "mutate",
+      "id": 22,
+      "max_bytes": 4096,
+      "name": "storage.write",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "root",
+          "type": "u32"
+        },
+        {
+          "name": "path",
+          "type": "bytes"
+        },
+        {
+          "name": "data",
+          "type": "bytes"
+        }
+      ],
+      "effect": "mutate",
+      "id": 23,
+      "max_bytes": 4096,
+      "name": "storage.append",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "root",
+          "type": "u32"
+        },
+        {
+          "name": "from",
+          "type": "bytes"
+        },
+        {
+          "name": "to",
+          "type": "bytes"
+        }
+      ],
+      "effect": "mutate",
+      "id": 24,
+      "max_bytes": 512,
+      "name": "storage.rename",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "root",
+          "type": "u32"
+        },
+        {
+          "name": "path",
+          "type": "bytes"
+        }
+      ],
+      "effect": "mutate",
+      "id": 25,
+      "max_bytes": 512,
+      "name": "storage.remove",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        }
+      ],
+      "effect": "mutate",
+      "id": 26,
+      "max_bytes": 0,
+      "name": "storage.sync",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
     }
   ],
   "major": 7,
