@@ -780,7 +780,7 @@ fit the budget on X4 (not measured).
 
 - [P] `font.acquire(key)`: `key` = the registered font id as `Fonts::get` takes it
   (<= 128 B, id grammar of section 3.2); returns a persistent handle, per-owner limit 4
-  (registry). Battery needs one or two (regular, bold if headings use bold). **[Q21]** the
+  (registry). *(Superseded: handle caps are per family, fonts 8; `screens-input.md` sections 4 and 7.)* Battery needs one or two (regular, bold if headings use bold). **[Q21]** the
   key for "the user's UI font" and the reading font: reserved role keys
   (`role:ui`) versus ids; not defined in `abi.def`.
 - [P] `handle.release(h)` for fonts; stale -> `ERR_STATE`; teardown frees all.

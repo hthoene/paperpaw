@@ -122,8 +122,11 @@ input(state: pointer, token: u32, input: bytes) -> i32
 
   A role is resolved again at each text call, so it follows the user's choice and never goes
   stale. Bolder or monospaced text is a font the plugin acquires by id (a font pack), not a role.
-- [D] Handles: at most 8 per plugin, roles and font ids together (`ERR_FULL` beyond; a reading
-  plugin holds five roles); `handle.release` frees; teardown frees
+- [D] Handles: at most 8 font handles per plugin, roles and font ids together (`ERR_FULL`
+  beyond; a reading plugin holds five roles). This cap is the font family's own: blobs and
+  operations count against their families' caps, not against it (section 7). X4 cost: a role
+  handle is a few bytes; a handle by id keeps its id (<= 128 B) and its counter, so up to about
+  1 KiB per plugin for 8; `handle.release` frees; teardown frees
   all. A handle acquired by font id answers `ERR_STATE` on `text.*` once that id is gone: the
   pack that provides it was removed or replaced (updated) after the acquire, even if the same
   id is registered again, or the id no longer resolves. The plugin acquires again (on
@@ -229,7 +232,10 @@ subscriptions. Families added later refer to it instead of defining their own.
   result. The result stays readable through the handle until `handle.release`. Stop or unload
   cancels every open operation, and nothing is called back afterwards; a late completion is
   refused (`ERR_STATE`). Releasing the handle of a running operation cancels it first. Live
-  handles and operations per plugin are capped; one past the cap is `ERR_FULL`. SDK glue builds on
+  handles and operations per plugin are capped **per family** (fonts: section 4; each later family
+  states its own); there is no cap shared across families. One past a cap is `ERR_FULL`. This
+  replaces ADR 0034's X4 profile line "four persistent handles per plugin" (and its use in the
+  proposals as a cap shared with fonts). SDK glue builds on
   exactly this.
 - [D] **Dropped events (D6).** `event_dropped` applies only to families whose contract says they
   may drop (today: the lifecycle events of section 1.5 in the events proposal). Other families
