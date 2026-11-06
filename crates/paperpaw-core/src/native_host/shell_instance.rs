@@ -34,6 +34,32 @@ pub struct Hooks {
     /// The owner of this plugin id was still in use at the drop and is kept
     /// (leaked on purpose: whatever holds the module must outlive it).
     pub leaked: fn(id: &str),
+    /// Plugin code of this plugin id is about to run (`make`, a callback or
+    /// the plugin's destructor). Always followed by `call_end`, also when the
+    /// call failed. The X4 uses the pair to keep the id in memory a reset
+    /// survives while the plugin runs, so a crash is told afterwards.
+    pub call_begin: fn(id: &str),
+    /// The plugin code returned (the shell checks its stack here).
+    pub call_end: fn(id: &str),
+}
+
+/// Plugin code runs between `new` and the drop, announced to the shell.
+struct Call<'a> {
+    hooks: &'a Hooks,
+    id: &'a str,
+}
+
+impl<'a> Call<'a> {
+    fn new(hooks: &'a Hooks, id: &'a str) -> Self {
+        (hooks.call_begin)(id);
+        Self { hooks, id }
+    }
+}
+
+impl Drop for Call<'_> {
+    fn drop(&mut self) {
+        (self.hooks.call_end)(self.id);
+    }
 }
 
 /// One plugin, hosted, made and committed.
@@ -75,7 +101,10 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
         let mut transaction = hosted.begin::<Registration>()?;
         let image = hosted.image().unwrap_or(&[]);
         transaction.set_image(image)?;
-        let mut batch = hosted.make_registered(transaction)?.commit()?;
+        let mut batch = {
+            let _call = Call::new(&hooks, id);
+            hosted.make_registered(transaction)?.commit()?
+        };
         let declarations = batch.take_declarations();
         let depth = DispatchDepth::new();
         let mut records = Vec::new();
@@ -154,7 +183,10 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
         invocation: Invocation<'_>,
     ) -> Result<i32, Error> {
         match (&self.batch, self.hosted.is_stopped()) {
-            (Some(batch), false) => dispatch_registration(batch, index, depth, invocation),
+            (Some(batch), false) => {
+                let _call = Call::new(&self.hooks, &self.id);
+                dispatch_registration(batch, index, depth, invocation)
+            }
             _ => Err(Error::Lifecycle(native_host::Error::State)),
         }
     }
@@ -184,6 +216,8 @@ impl<S: Services + 'static, M: 'static> Drop for Instance<S, M> {
     fn drop(&mut self) {
         self.hosted.stop();
         drop(self.batch.take());
+        // The plugin's destructor runs in `finish` or in the owner's drop.
+        let _call = Call::new(&self.hooks, &self.id);
         if self.hosted.owner().finish().is_ok() {
             // SAFETY: dropped exactly once, here; nothing borrows the owner
             // any longer (the batch is gone and `finish` saw no lease).

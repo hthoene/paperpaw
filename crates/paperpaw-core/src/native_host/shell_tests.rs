@@ -16,6 +16,9 @@ std::thread_local! {
     static MODULE_ALIVE: Cell<bool> = const { Cell::new(false) };
     static EVENTS: Cell<u32> = const { Cell::new(0) };
     static MAKES: Cell<u32> = const { Cell::new(0) };
+    /// Calls announced to the shell, and how many are open now.
+    static CALLS: Cell<u32> = const { Cell::new(0) };
+    static OPEN: Cell<i32> = const { Cell::new(0) };
     /// The nth allocation of this thread fails (1-based; 0: none).
     static FAIL_NTH: Cell<u32> = const { Cell::new(0) };
 }
@@ -72,6 +75,8 @@ fn reset(mode: u8) {
     MODE.with(|m| m.set(mode));
     EVENTS.with(|e| e.set(0));
     MAKES.with(|m| m.set(0));
+    CALLS.with(|c| c.set(0));
+    OPEN.with(|o| o.set(0));
 }
 
 /// The shell's heap and clock.
@@ -518,10 +523,19 @@ mod instance_tests {
     fn leaked(_: &str) {
         log("leaked");
     }
+    fn begin(_: &str) {
+        CALLS.with(|c| c.set(c.get() + 1));
+        OPEN.with(|o| o.set(o.get() + 1));
+    }
+    fn end(_: &str) {
+        OPEN.with(|o| o.set(o.get() - 1));
+    }
     fn hooks() -> Hooks {
         Hooks {
             event_dropped: dropped,
             leaked,
+            call_begin: begin,
+            call_end: end,
         }
     }
     fn load() -> Result<Instance<Heap, Module>, Error> {
@@ -576,6 +590,21 @@ mod instance_tests {
         assert_eq!(logged(), ["dropped"], "nothing destroyed while it is held");
         drop(instance);
         assert_eq!(logged(), ["dropped", "destroy", "module"]);
+        // make (1), the dispatches that reached the plugin (3: two before the
+        // stop, none after, the unknown index fails before any plugin code
+        // but is announced), the drop (1): every announced call was ended.
+        assert_eq!(OPEN.with(Cell::get), 0, "every call ended");
+        assert!(CALLS.with(Cell::get) >= 5);
+    }
+
+    #[test]
+    fn every_announced_call_is_ended_also_when_make_fails_or_a_load_is_refused() {
+        for mode in [FAILS, IGNORES_REFUSAL, BAD_TABLE] {
+            reset(mode);
+            assert!(load().is_err());
+            assert_eq!(OPEN.with(Cell::get), 0, "mode {mode}");
+            assert!(CALLS.with(Cell::get) >= 1, "make was announced");
+        }
     }
 
     #[test]
