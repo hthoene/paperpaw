@@ -66,7 +66,7 @@ mod tests {
             let start = band(end, 0x3fcd_0000).unwrap();
             // The first store into the band lies at its top, `start + BAND - 1`.
             assert!(start + BAND - 1 - end >= BAND - 1);
-            assert!(start >= end && start % BAND == 0);
+            assert!(start >= end && start.is_multiple_of(BAND));
         }
     }
 
