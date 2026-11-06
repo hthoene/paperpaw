@@ -40,6 +40,8 @@ ABI_CODE = re.compile(r'records_decode|commands_decode|_TAG\b|paperpaw_abi|host_
 COPIES = {
     'abi/generated/records_wire.rs': ['crates/paperpaw-core/src/abi7/records_wire.rs',
                                       'crates/paperpaw-sdk/src/native/declare/records_wire.rs'],
+    'abi/generated/commands_wire.rs': ['crates/paperpaw-core/src/abi7/commands_wire.rs',
+                                       'crates/paperpaw-sdk/src/native/wire/commands_wire.rs'],
 }
 
 
@@ -64,6 +66,8 @@ def rust_files():
         if path.is_dir():
             yield from sorted(p for p in path.rglob('*.rs')
                               if 'target' not in p.relative_to(ROOT).parts
+                              # Tests iterate tag ranges on purpose; they classify nothing.
+                              and 'test' not in p.name and 'tests' not in p.parts
                               and (source != 'shells' or ABI_CODE.search(p.read_text())))
         elif path.exists():
             yield path

@@ -196,15 +196,20 @@ class MetadataTests(unittest.TestCase):
         self.assertTrue(ABI.decode(self.schema, data)['features'][1]['required'])
         with self.assertRaisesRegex(ValueError, 'required feature unavailable on this host: test.echo'):
             ABI.decode(older, data)
-        # Another revision is unavailable the same way: optional left out, required refused.
-        other = copy.deepcopy(self.schema)
-        next(f for f in other['metadata']['features'] if f['key'] == 'test.echo')['revision'] += 1
+        # Revisions only add. A request above the host's revision is unavailable the
+        # same way (optional left out, required refused); one below it is served.
+        newer = copy.deepcopy(self.schema)
+        next(f for f in newer['metadata']['features'] if f['key'] == 'test.echo')['revision'] += 1
+        ahead = ABI.encode(newer, build)
         with self.assertRaisesRegex(ValueError, 'required feature unavailable on this host: test.echo'):
-            ABI.decode(other, data)
-        optional = ABI.encode(self.schema, dict(
+            ABI.decode(self.schema, ahead)
+        optional = ABI.encode(newer, dict(
             self.build, features=['test.delta', dict(key='test.echo', required=False)]))
-        self.assertEqual([f['key'] for f in ABI.decode(other, optional)['features']],
+        self.assertEqual([f['key'] for f in ABI.decode(self.schema, optional)['features']],
                          ['test.delta'])
+        served = ABI.decode(newer, data)['features']
+        self.assertEqual([(f['key'], f['revision']) for f in served],
+                         [('test.delta', 2), ('test.echo', 1)])
         for bad in [dict(key='test.echo'), dict(key='test.echo', required=1),
                     dict(key='test.echo', required=True, extra=0)]:
             with self.subTest(bad=bad), self.assertRaises(ValueError):

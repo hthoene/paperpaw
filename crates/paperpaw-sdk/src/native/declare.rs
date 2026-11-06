@@ -41,21 +41,12 @@ use core::mem::MaybeUninit;
     reason = "generated declaration record codec (abi/generated/records_wire.rs, byte for byte)"
 )]
 pub(crate) mod records_wire;
-#[rustfmt::skip]
-#[allow(
-    clippy::all,
-    clippy::pedantic,
-    missing_docs,
-    dead_code,
-    reason = "generated settings value codec (abi/generated/settings_value.rs, byte for byte)"
-)]
-pub(super) mod settings_value;
 
 use records_wire::{
     ActionSpec, Record, ResourceFontExtension, ResourceFontFace, ResourceHyphenation, ScreenSpec,
     SettingExtra, SettingGroup, SettingSpec, records_encode,
 };
-use settings_value::{SettingValueRef, settings_encode};
+use super::wire::settings_wire::{SettingValueRef, settings_encode};
 
 /// Most records in one batch.
 pub const BATCH_MAX_RECORDS: usize = records_wire::REGISTRATION_MAX_RECORDS;
@@ -587,7 +578,8 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// are borrowed only while adding each item; no declaration is retained.
     /// Call [`Self::submit`] to send the final batch. Dropping does not submit.
     /// If allocation fails, every addition and submission returns
-    /// [`DeclareError::NoMemory`] without calling the sink.
+    /// [`DeclareError::NoMemory`]. The sink then sees only the one empty abort
+    /// batch of the next [`Self::submit`], which poisons the host construction.
     pub fn new(sink: F) -> Self {
         let mut bytes = Vec::new();
         let failed = match bytes.try_reserve_exact(BATCH_MAX_BYTES) {

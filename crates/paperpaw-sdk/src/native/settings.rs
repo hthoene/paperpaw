@@ -1,9 +1,9 @@
 //! Borrowed settings values decoded in caller-owned scratch space.
-use super::{Error, Host, declare::settings_value::settings_decode};
+use super::{Error, Host, wire::settings_wire::settings_decode};
 use paperpaw_native::host_glue::{PpBuffer, PpBytes};
 
 /// A decoded settings value. Text borrows the scratch buffer supplied to [`read`].
-pub use super::declare::settings_value::SettingValueRef as Value;
+pub use super::wire::settings_wire::SettingValueRef as Value;
 
 /// Read a setting without allocating. `scratch` must fit the complete wire value,
 /// including its header; a truncated value is never decoded.

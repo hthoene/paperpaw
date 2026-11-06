@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail tests")]
-use super::super::declare::settings_value::{SETTINGS_HEADER_BYTES, settings_encode};
+use super::super::wire::settings_wire::{SETTINGS_HEADER_BYTES, settings_encode};
 use super::*;
 use alloc::{string::String, vec::Vec};
 use core::{

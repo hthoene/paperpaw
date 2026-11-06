@@ -3,6 +3,8 @@
 //! Only committed construction batches may enter this store. Registry adapters
 //! will add cross-plugin reference checks before prepare. No decoded view lives
 //! beyond its visitor, and the retained owner supplies every image lookup.
+//! Consumers must not rely on uniqueness or valid references after admission:
+//! native plugins can change image bytes without a sandbox.
 
 use super::{
     declarations,
@@ -208,15 +210,7 @@ impl PendingDeclarations {
         let bytes = input.bytes();
         let decoded = records_decode(bytes)?;
         declarations::validate_batch(self.id.as_str(), &decoded)?;
-        if let Input::Committed(raw) = &input
-            && raw
-                .offsets
-                .iter()
-                .take(decoded.len())
-                .any(|offset| usize::from(*offset) >= bytes.len())
-        {
-            return Err(ERR_INVALID);
-        }
+        let offsets = super::raw_declarations::offsets(bytes, decoded.len())?;
         let mut counts = [0usize; 6];
         let mut kinds = [None; super::registrations::REGISTRATION_MAX_RECORDS];
         for (index, record) in decoded.iter().enumerate() {
@@ -266,7 +260,7 @@ impl PendingDeclarations {
                 self.kinds[kind as usize].push(Slot {
                     hash,
                     batch,
-                    record: u16::try_from(record).unwrap_or(u16::MAX),
+                    record: offsets[record],
                 });
             }
         }
@@ -506,9 +500,6 @@ impl DeclarationStore {
         {
             return false;
         }
-        let Some(reference) = owner.batches.get(usize::from(key.batch)) else {
-            return false;
-        };
         let mut found = false;
         // Even Owned batches require a live owner. The bridge returns None after
         // unloading, and holds the module guard throughout decode and the visit.
@@ -516,37 +507,8 @@ impl DeclarationStore {
             let Some(image) = image else {
                 return;
             };
-            let bytes = match reference {
-                DeclRef::Image { offset, len } => {
-                    usize::try_from(*offset).ok().and_then(|offset| {
-                        offset
-                            .checked_add(*len as usize)
-                            .and_then(|end| image.get(offset..end))
-                    })
-                }
-                DeclRef::Owned(bytes) => Some(bytes.as_ref()),
-            };
-            let result = bytes.ok_or(ERR_INVALID).and_then(|bytes| {
-                let batch = records_decode(bytes)?;
-                declarations::validate_batch(owner.id.as_str(), &batch)?;
-                let record = batch
-                    .iter()
-                    .nth(usize::from(key.record))
-                    .ok_or(ERR_INVALID)?;
-                // Kind changes after admission must not expose a different kind
-                // through an index prepared for the original declaration.
-                let kind = Kind::of(&record).ok_or(ERR_INVALID)?;
-                let (category, name) = super::declaration_index::key(record).ok_or(ERR_INVALID)?;
-                let hash = super::declaration_index::name_hash(category, name);
-                let slots = &owner.kinds[kind as usize];
-                let from = slots.partition_point(|slot| slot.hash < hash);
-                if !slots[from..]
-                    .iter()
-                    .take_while(|slot| slot.hash == hash)
-                    .any(|slot| slot.batch == key.batch && slot.record == key.record)
-                {
-                    return Err(ERR_INVALID);
-                }
+            let result = decode_entry(owner, image, key.batch, key.record).and_then(|record| {
+                check_indexed_name(owner, image, key, record)?;
                 visit(record);
                 Ok(())
             });
@@ -557,6 +519,79 @@ impl DeclarationStore {
         });
         found
     }
+}
+
+fn decode_entry<'a>(
+    owner: &'a PendingDeclarations,
+    image: &'a [u8],
+    batch: u16,
+    record: u16,
+) -> Result<Record<'a>, i32> {
+    let reference = owner.batches.get(usize::from(batch)).ok_or(ERR_INVALID)?;
+    let bytes = match reference {
+        DeclRef::Image { offset, len } => {
+            let start = usize::try_from(*offset).map_err(|_| ERR_INVALID)?;
+            start
+                .checked_add(*len as usize)
+                .and_then(|end| image.get(start..end))
+                .ok_or(ERR_INVALID)?
+        }
+        DeclRef::Owned(bytes) => bytes,
+    };
+    let (record, _) = super::registrations::record_decode_prefix(
+        bytes.get(usize::from(record)..).ok_or(ERR_INVALID)?,
+    )?;
+    declarations::validate_record(owner.id.as_str(), &record)?;
+    Ok(record)
+}
+
+fn check_indexed_name(
+    owner: &PendingDeclarations,
+    image: &[u8],
+    key: DeclKey,
+    record: Record<'_>,
+) -> Result<(), i32> {
+    use super::declaration_index::{key as name_key, name_hash, same_name};
+    let kind = Kind::of(&record).ok_or(ERR_INVALID)?;
+    let (category, name) = name_key(record).ok_or(ERR_INVALID)?;
+    let hash = name_hash(category, name);
+    let slots = &owner.kinds[kind as usize];
+    let from = slots.partition_point(|slot| slot.hash < hash);
+    let run = slots[from..].iter().take_while(|slot| slot.hash == hash);
+    if !run
+        .clone()
+        .any(|slot| slot.batch == key.batch && slot.record == key.record)
+    {
+        return Err(ERR_INVALID);
+    }
+    // Revalidate collisions under the same guard. Valid changed bytes must
+    // not turn distinct admitted names into duplicate keys at lookup time.
+    let peer_kinds = if category == 4 {
+        &[Kind::Face, Kind::Extension][..]
+    } else {
+        core::slice::from_ref(&kind)
+    };
+    for peer_kind in peer_kinds {
+        let peers = &owner.kinds[*peer_kind as usize];
+        let from = peers.partition_point(|slot| slot.hash < hash);
+        for peer in peers[from..]
+            .iter()
+            .take_while(|slot| slot.hash == hash)
+            .filter(|slot| slot.batch != key.batch || slot.record != key.record)
+        {
+            let Ok(other) = decode_entry(owner, image, peer.batch, peer.record) else {
+                continue;
+            };
+            if name_key(other).is_some_and(|(other_kind, other_name)| {
+                other_kind == category
+                    && name_hash(category, other_name) == hash
+                    && same_name(category, name, other_name)
+            }) {
+                return Err(ERR_INVALID);
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -293,7 +293,8 @@ class SnapshotTests(unittest.TestCase):
     def test_owned_generated_files_and_stale_detection(self):
         source = rust_snapshot(self.schema)
         paths = ['abi/generated/snapshot_wire.rs',
-                 'crates/paperpaw-core/src/abi7/snapshot_wire.rs']
+                 'crates/paperpaw-core/src/abi7/snapshot_wire.rs',
+                 'crates/paperpaw-sdk/src/native/wire/snapshot_wire.rs']
         for path in paths:
             self.assertEqual((ROOT / path).read_text(), source)
         with tempfile.TemporaryDirectory() as directory:

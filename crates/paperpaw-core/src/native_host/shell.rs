@@ -1,0 +1,736 @@
+//! The shell's side of one interface-7 plugin, shared by the desktop emulator
+//! and the X4 firmware: the owner with its host table, the transactional
+//! `make`, the plugin's output, and the scoped dispatch of its callbacks.
+//!
+//! What differs between shells is only small and stays in the shell: the
+//! [`Services`](paperpaw_native::host_glue::Services) (heap, clock), the *module* `M` the owner keeps alive (a
+//! loaded library on the desktop, the placed image on the X4), the `make`
+//! function, and the read-only range of the image. Everything that touches
+//! the plugin's table and the lifetime rules is here once, so it is reviewed
+//! and tested once.
+//!
+//! Rules (ADR 0034, `abi/`): the owner is pinned on the heap and outlives
+//! every batch and lease; `make` runs inside the registration scope and its
+//! records stay non-dispatchable until the output validates and commits; the
+//! plugin's destructor runs exactly once, while the context, services and
+//! module are alive; Env and Canvas are lent for one synchronous callback.
+use alloc::alloc::{alloc, handle_alloc_error};
+use alloc::boxed::Box;
+use alloc::string::String;
+use core::alloc::Layout;
+use core::cell::Cell;
+use core::ffi::c_void;
+use core::pin::Pin;
+use core::ptr;
+
+use paperpaw_graphics::Canvas;
+use paperpaw_native::host_glue::{
+    self, PpBuffer, PpBytes, PpHost, PpPlugin, Services, ShellCtx, read_plugin_dispatch_event,
+    read_plugin_draw, read_plugin_drop, read_plugin_size, read_plugin_state,
+};
+
+use super::canvas::CanvasScope;
+use super::environment::EnvironmentScope;
+use super::registration_scope::RegistrationScope;
+use super::registrations::{self, EVENT_TICK_TAG, Registration};
+use super::{Construction, DispatchDepth, HostOwner, RegistrationBatch};
+use crate::sdk::Env;
+
+/// Why a step of the plugin's life was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Error {
+    /// The owner's lifecycle said so.
+    Lifecycle(super::Error),
+    /// No room for the owner.
+    Allocation,
+    /// A second `make`, a transaction of another owner, or no instance.
+    Attempt,
+    /// A status the plugin or the registration decode returned.
+    Status(i32),
+    /// `make` returned this status.
+    Factory(i32),
+    /// The plugin's output table is not one this host accepts.
+    Plugin,
+}
+
+impl From<super::Error> for Error {
+    fn from(value: super::Error) -> Self {
+        Self::Lifecycle(value)
+    }
+}
+
+/// The plugin's factory: `make(host, ctx, out)`.
+pub type Make = unsafe extern "C" fn(*const PpHost, *mut c_void, *mut *const PpPlugin) -> i32;
+
+type Event = unsafe extern "C" fn(*mut c_void, u32, PpBytes, PpBuffer) -> i32;
+type Draw = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
+
+/// What `make` returned, copied from its table: only generated, bounded
+/// fields, and never a reference to the whole table.
+#[derive(Clone, Copy)]
+struct PluginOutput {
+    state: *mut c_void,
+    destroy: unsafe extern "C" fn(*mut c_void),
+    event: Option<Event>,
+    draw: Option<Draw>,
+}
+
+fn optional<T>(callback: Result<T, i32>) -> Result<Option<T>, Error> {
+    match callback {
+        Ok(callback) => Ok(Some(callback)),
+        Err(host_glue::ERR_UNSUPPORTED) => Ok(None),
+        Err(_) => Err(Error::Plugin),
+    }
+}
+
+/// Reads the output of a successful `make`.
+///
+/// # Safety
+///
+/// The factory promises an aligned, readable size word and a stable readable
+/// allocation covering its declared size. Numeric checks cannot establish
+/// those memory guarantees.
+unsafe fn read_output(out: *const PpPlugin) -> Result<PluginOutput, Error> {
+    if out.is_null() || !(out as usize).is_multiple_of(align_of::<PpPlugin>()) {
+        return Err(Error::Plugin);
+    }
+    // SAFETY: the successful factory promises a readable size prefix.
+    let accessible = unsafe { out.cast::<u32>().read() } as usize;
+    let table = out.cast::<u8>();
+    // SAFETY: the factory guarantees this live, initialized span; the
+    // generated readers check numeric bounds before copying single fields.
+    unsafe {
+        read_plugin_size(table, accessible).map_err(|_| Error::Plugin)?;
+        Ok(PluginOutput {
+            state: read_plugin_state(table, accessible).map_err(|_| Error::Plugin)?,
+            destroy: read_plugin_drop(table, accessible).map_err(|_| Error::Plugin)?,
+            event: optional(read_plugin_dispatch_event(table, accessible))?,
+            draw: optional(read_plugin_draw(table, accessible))?,
+        })
+    }
+}
+
+/// The host table's `ctx`: what the shell's entries reach. Pinned inside the
+/// owner; the plugin keeps only its address.
+#[allow(missing_debug_implementations, reason = "holds the generated table")]
+pub struct Context<S> {
+    table: PpHost,
+    /// The shell's heap and clock.
+    pub services: S,
+    instance: Cell<Option<PluginOutput>>,
+    attempted: Cell<bool>,
+    /// The scope in which `make`'s registrations are staged.
+    pub registrations: RegistrationScope<Registration>,
+    /// The scope in which a callback may query the environment.
+    pub environment: EnvironmentScope,
+    /// The scope in which a draw callback may paint.
+    pub canvas: CanvasScope,
+}
+
+/// The pinned owner of one plugin.
+pub type Owner<S, M> = HostOwner<Context<S>, M>;
+/// Staging of one `make`.
+pub type Staging<'a, S, M, T> = Construction<'a, Context<S>, M, T>;
+/// The records a `make` registered, dispatchable.
+pub type Batch<'a, S, M, T> = RegistrationBatch<'a, Context<S>, M, T>;
+type MakeOutput = (i32, *const PpPlugin);
+
+/// A started `make`: the context it belongs to and its staging.
+#[allow(missing_debug_implementations, reason = "holds the generated table")]
+pub struct Transaction<'a, S, M, T> {
+    context: Pin<&'a Context<S>>,
+    staging: Staging<'a, S, M, T>,
+}
+
+impl<'a, S, M, T> Transaction<'a, S, M, T> {
+    /// Stages one record.
+    ///
+    /// # Errors
+    /// The owner's refusal, with the record given back.
+    pub fn stage(&mut self, record: T) -> Result<(), (super::Error, T)> {
+        self.staging.stage(record)
+    }
+
+    /// Gives staging the read-only data of the plugin's image before `make`:
+    /// a batch lying wholly inside it is kept as offsets, not copied.
+    ///
+    /// # Errors
+    /// `State` on a second or late call.
+    pub fn set_image(&mut self, image: &'a [u8]) -> Result<(), super::Error> {
+        self.staging.set_image(image)
+    }
+
+    /// The staging itself, for what the shell reads before `make`.
+    pub const fn staging(&self) -> &Staging<'a, S, M, T> {
+        &self.staging
+    }
+}
+
+/// One plugin, hosted: its pinned owner, its factory and the host-known id.
+///
+/// The owner is private: replacing or swapping it would unload the module
+/// while `make` and the image still point into it.
+///
+/// ```compile_fail,E0616
+/// use paperpaw_core::native_host::shell::Hosted;
+/// fn swap<S, M>(a: &mut Hosted<S, M>, b: &mut Hosted<S, M>) {
+///     core::mem::swap(&mut a.owner, &mut b.owner);
+/// }
+/// ```
+#[allow(missing_debug_implementations, reason = "holds the generated table")]
+pub struct Hosted<S, M> {
+    owner: Pin<Box<Owner<S, M>>>,
+    make: Make,
+    /// Host-known plugin id (from the folder, never from the library) that
+    /// staged declaration names are checked against.
+    id: Box<str>,
+    /// The plugin's read-only data as mapped: address and length.
+    image: (usize, usize),
+    /// Admission was stopped ([`Hosted::stop`]): no image is given any more.
+    stopped: Cell<bool>,
+}
+
+/// The host table with this shell's entries in it, as a plugin of `S` sees it.
+/// The shell's preflight may read it before anything is hosted.
+#[must_use]
+pub fn host_table<S: Services>() -> PpHost {
+    let mut table = host_glue::host_table();
+    table.heap_alloc = heap_alloc::<S>;
+    table.heap_dealloc = heap_dealloc::<S>;
+    table.heap_realloc = heap_realloc::<S>;
+    table.clock_micros = clock_micros::<S>;
+    table.registrations_submit = registrations_submit::<S>;
+    table.env_snapshot = env_snapshot::<S>;
+    table.settings_read = settings_read::<S>;
+    table.canvas_fill_rect = canvas_fill_rect::<S>;
+    table
+}
+
+impl<S: Services, M> Hosted<S, M> {
+    /// Hosts the plugin `id` whose factory is `make`, kept alive by `module`.
+    /// `image` is the address and length of the plugin's read-only data
+    /// (`(0, 0)` for none).
+    ///
+    /// # Errors
+    /// `Allocation` when the id or the owner cannot be placed; `services` and
+    /// `module` are then dropped, `make` was not called.
+    ///
+    /// # Safety
+    ///
+    /// - `make` is the validated entry of the code that `module` keeps loaded,
+    ///   and stays callable while `module` lives.
+    /// - `image` is a read-only mapping of that many bytes which stays mapped
+    ///   while `module` lives, or `(0, 0)`.
+    pub unsafe fn new(
+        services: S,
+        module: M,
+        make: Make,
+        id: &str,
+        image: (usize, usize),
+    ) -> Result<Self, Error> {
+        // Fallible, before anything else is built: the X4 has no room to abort.
+        let mut owned = String::new();
+        owned
+            .try_reserve_exact(id.len())
+            .map_err(|_| Error::Allocation)?;
+        owned.push_str(id);
+        let context = Context {
+            table: host_table::<S>(),
+            services,
+            instance: Cell::new(None),
+            attempted: Cell::new(false),
+            registrations: RegistrationScope::new(),
+            environment: EnvironmentScope::new(),
+            canvas: CanvasScope::new(),
+        };
+        let owner = pin_owner(HostOwner::new(context, module))?;
+        Ok(Self {
+            owner,
+            make,
+            id: owned.into_boxed_str(),
+            image,
+            stopped: Cell::new(false),
+        })
+    }
+
+    /// The pinned owner; callers lease, revoke and finish through it.
+    #[must_use]
+    pub fn owner(&self) -> Pin<&Owner<S, M>> {
+        self.owner.as_ref()
+    }
+
+    /// Stops callback admission: from here a dispatch answers the owner's
+    /// error and [`image`](Self::image) gives none. The module stays alive
+    /// until the drop.
+    pub fn stop(&self) {
+        self.stopped.set(true);
+        self.owner.as_ref().revoke();
+    }
+
+    /// The plugin's read-only data, as mapped; `None` once stopped. The bytes
+    /// are read-only mappings; a plugin without a sandbox can remap them, so
+    /// every reader decodes with checks and never trusts them to stay as
+    /// they were.
+    #[must_use]
+    pub fn image(&self) -> Option<&[u8]> {
+        if self.stopped.get() {
+            return None;
+        }
+        let (start, len) = self.image;
+        if len == 0 {
+            return Some(&[]);
+        }
+        // SAFETY: `new`'s contract: a read-only mapping of `len` bytes at
+        // `start`, held by the owner's module for as long as `self` lives.
+        Some(unsafe { core::slice::from_raw_parts(start as *const u8, len) })
+    }
+
+    /// Starts the transaction `make` registers in.
+    ///
+    /// # Errors
+    /// The owner's refusal.
+    pub fn begin<T>(&self) -> Result<Transaction<'_, S, M, T>, Error> {
+        Ok(Transaction {
+            context: self.owner.as_ref().context(),
+            staging: self.owner.as_ref().begin(&self.id)?,
+        })
+    }
+
+    /// Runs `make` with its `registrations.submit` staging into the
+    /// transaction. The scope borrows staging only while `make` runs, and
+    /// resets before the output is validated or the pending instance can take
+    /// over its destruction.
+    ///
+    /// # Errors
+    /// `Attempt`, `Factory`, `Plugin`, or the scope's refusal.
+    pub fn make_registered<'a>(
+        &'a self,
+        transaction: Transaction<'a, S, M, Registration>,
+    ) -> Result<PendingInstance<'a, S, M, Registration>, Error> {
+        self.make_with(transaction, |context, staging| {
+            // SAFETY: the owner structurally pins this field; no API moves it.
+            let scope = unsafe { context.map_unchecked(|value| &value.registrations) };
+            scope
+                .scope(staging, || self.invoke_make(context))
+                .map_err(Into::into)
+        })
+    }
+
+    fn invoke_make(&self, context: Pin<&Context<S>>) -> MakeOutput {
+        let mut out = ptr::null();
+        let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast();
+        // SAFETY: the owner is pinned, owns services and module, and `out` is writable.
+        let status = unsafe { (self.make)(&context.table, ctx, &mut out) };
+        (status, out)
+    }
+
+    /// The output stays loader-owned until commit succeeds. A failed factory
+    /// returns no live output; no unvalidated partial-output destructor runs.
+    /// A table that does not validate (`Error::Plugin`) leaves the state the
+    /// plugin made behind: nothing may call a destructor it did not prove.
+    /// The shell logs that refusal. A `make` whose own submit was refused
+    /// returns a valid table, and the latched refusal is reported at commit,
+    /// where the output is destroyed once.
+    fn make_with<'a, T>(
+        &'a self,
+        mut transaction: Transaction<'a, S, M, T>,
+        invoke: impl FnOnce(Pin<&Context<S>>, &mut Staging<'a, S, M, T>) -> Result<MakeOutput, Error>,
+    ) -> Result<PendingInstance<'a, S, M, T>, Error> {
+        let context = self.owner.as_ref().context();
+        if !ptr::eq(context.get_ref(), transaction.context.get_ref()) {
+            return Err(Error::Attempt);
+        }
+        if context.attempted.replace(true) {
+            return Err(Error::Attempt);
+        }
+        let (status, out) = invoke(context, &mut transaction.staging)?;
+        if status != host_glue::OK {
+            return Err(Error::Factory(status));
+        }
+        // SAFETY: a successful authorized `make` supplies a stable declared
+        // span; this pinned owner keeps its module and services alive.
+        context.instance.set(Some(unsafe { read_output(out) }?));
+        Ok(PendingInstance {
+            transaction: Some(transaction),
+            context,
+            armed: true,
+        })
+    }
+
+    /// `make_registered` and commit in one step. The only way to run `make`
+    /// for registrations: without the scope a plugin's submits are refused
+    /// without poisoning construction, and it could activate with none.
+    ///
+    /// # Errors
+    /// As [`make_registered`](Self::make_registered) and
+    /// [`PendingInstance::commit`].
+    pub fn construct_registered<'a>(
+        &'a self,
+        transaction: Transaction<'a, S, M, Registration>,
+    ) -> Result<Batch<'a, S, M, Registration>, Error> {
+        // On a refusal the transaction drops before returning. No unvalidated
+        // partial output is used; a failed `make` has no live output.
+        self.make_registered(transaction)?.commit()
+    }
+}
+
+/// Fallible placement of the owner: it holds a context and a module, so its
+/// allocation is never zero-sized.
+fn pin_owner<S, M>(value: Owner<S, M>) -> Result<Pin<Box<Owner<S, M>>>, Error> {
+    let layout = Layout::new::<Owner<S, M>>();
+    if layout.size() == 0 {
+        handle_alloc_error(layout);
+    }
+    // SAFETY: the layout is nonzero and valid for this exact owner type.
+    let allocation = unsafe { alloc(layout) }.cast::<Owner<S, M>>();
+    if allocation.is_null() {
+        return Err(Error::Allocation);
+    }
+    // SAFETY: a uniquely owned allocation of the exact `Box` layout,
+    // initialized before the `Box` exists. Nothing has seen the unpinned owner.
+    unsafe {
+        allocation.write(value);
+        Ok(Box::into_pin(Box::from_raw(allocation)))
+    }
+}
+
+/// A made plugin whose records are not yet dispatchable. Dropped before
+/// [`commit`](Self::commit), it drains the staged records and then destroys
+/// the plugin's output, exactly once.
+#[allow(missing_debug_implementations, reason = "holds the generated table")]
+pub struct PendingInstance<'a, S, M, T> {
+    transaction: Option<Transaction<'a, S, M, T>>,
+    context: Pin<&'a Context<S>>,
+    armed: bool,
+}
+
+impl<'a, S, M, T> PendingInstance<'a, S, M, T> {
+    /// Makes the records dispatchable; the owner then holds the destruction.
+    ///
+    /// # Errors
+    /// `Attempt` after a first commit, or the owner's refusal (the plugin is
+    /// then destroyed by the drop).
+    pub fn commit(mut self) -> Result<Batch<'a, S, M, T>, Error> {
+        // The pending guard owns staging so a panic or cancellation also
+        // drains the records before the foreign output is destroyed.
+        let transaction = self.transaction.take().ok_or(Error::Attempt)?;
+        let batch = transaction.staging.commit(destroy_context::<S>)?;
+        self.armed = false;
+        Ok(batch)
+    }
+}
+
+// A separate local guard survives unwinding from a staged host record's Drop.
+// The foreign destructor must not unwind, including during host cleanup.
+struct ForeignCleanup<'a, S> {
+    context: Pin<&'a Context<S>>,
+    armed: bool,
+}
+
+impl<S> Drop for ForeignCleanup<'_, S> {
+    fn drop(&mut self) {
+        if self.armed {
+            destroy_context(self.context);
+        }
+    }
+}
+
+impl<S, M, T> Drop for PendingInstance<'_, S, M, T> {
+    fn drop(&mut self) {
+        let _cleanup = ForeignCleanup {
+            context: self.context,
+            armed: self.armed,
+        };
+        self.armed = false;
+        // Remaining record fields drain through the drop glue before the
+        // local foreign-cleanup guard runs. A second panic aborts.
+        drop(self.transaction.take());
+    }
+}
+
+fn destroy_context<S>(context: Pin<&Context<S>>) {
+    if let Some(instance) = context.instance.take() {
+        // SAFETY: validated successful output has exactly one drop obligation;
+        // its pinned context, table, services and module are all still alive.
+        unsafe { (instance.destroy)(instance.state) };
+    }
+}
+
+/// Decodes the typed context and forwards through a temporary `ShellCtx`.
+/// The plugin keeps only the pinned `Context<S>` address; no `ShellCtx`
+/// pointer escapes this call.
+unsafe fn with_shell<S: Services>(ctx: *mut c_void, call: impl FnOnce(*mut c_void) -> i32) -> i32 {
+    // SAFETY: every nonnull ctx is the pinned Context<S> supplied by make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    let mut shell = ShellCtx::new(&context.services);
+    call(ptr::from_mut(&mut shell).cast())
+}
+
+unsafe extern "C" fn heap_alloc<S: Services>(
+    ctx: *mut c_void,
+    size: usize,
+    align: usize,
+    out: *mut *mut c_void,
+) -> i32 {
+    // SAFETY: typed context and the generated heap.alloc pointer contract.
+    unsafe { with_shell::<S>(ctx, |shell| host_glue::heap_alloc(shell, size, align, out)) }
+}
+
+unsafe extern "C" fn heap_dealloc<S: Services>(
+    ctx: *mut c_void,
+    block: *mut c_void,
+    size: usize,
+    align: usize,
+) -> i32 {
+    // SAFETY: typed context and the generated heap.dealloc allocation contract.
+    unsafe {
+        with_shell::<S>(ctx, |shell| {
+            host_glue::heap_dealloc(shell, block, size, align)
+        })
+    }
+}
+
+unsafe extern "C" fn heap_realloc<S: Services>(
+    ctx: *mut c_void,
+    block: *mut c_void,
+    old_size: usize,
+    align: usize,
+    new_size: usize,
+    out: *mut *mut c_void,
+) -> i32 {
+    // SAFETY: typed context and the generated heap.realloc allocation contract.
+    unsafe {
+        with_shell::<S>(ctx, |shell| {
+            host_glue::heap_realloc(shell, block, old_size, align, new_size, out)
+        })
+    }
+}
+
+unsafe extern "C" fn clock_micros<S: Services>(ctx: *mut c_void, out: *mut u64) -> i32 {
+    // SAFETY: typed context and the generated clock.micros output contract.
+    unsafe { with_shell::<S>(ctx, |shell| host_glue::clock_micros(shell, out)) }
+}
+
+unsafe extern "C" fn registrations_submit<S: Services>(ctx: *mut c_void, batch: PpBytes) -> i32 {
+    // SAFETY: a nonnull context is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: the foreign caller supplies stable readable batch bytes for this
+    // synchronous call. Core copies callback records, owns its snapshots of
+    // declarations, and borrows image storage only through the image range
+    // given to `set_image`; it never keeps the input pointer itself.
+    unsafe { registrations::submit(&context.registrations, batch.ptr, batch.len) }
+}
+
+unsafe extern "C" fn env_snapshot<S>(ctx: *mut c_void, out: PpBuffer) -> i32 {
+    // SAFETY: a nonnull context is exactly the pinned Context<S> given to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot 4 requires exclusive writable output, disjoint
+    // from host state and borrowed inputs. The scope keeps no output pointer.
+    unsafe { context.environment.copy(out.ptr, out.cap) }
+}
+
+unsafe extern "C" fn settings_read<S>(ctx: *mut c_void, key: PpBytes, out: PpBuffer) -> i32 {
+    // SAFETY: a nonnull context is exactly the pinned Context<S> given to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: generated slot 5 requires initialized immutable readable key
+    // bytes and exclusive output, disjoint from key and host state. No pointer
+    // is kept. The backend's required-length and prefix semantics are kept.
+    unsafe {
+        context
+            .environment
+            .settings_read(key.ptr, key.len, out.ptr, out.cap)
+    }
+}
+
+/// Slot 9 (`canvas.fill_rect`): the foreign callback reaches [`CanvasScope`]
+/// only inside one synchronous draw dispatch. Colour is generated
+/// `0x00RRGGBB`; the scalars are forwarded unchanged.
+unsafe extern "C" fn canvas_fill_rect<S>(
+    ctx: *mut c_void,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    color: u32,
+) -> i32 {
+    // SAFETY: a nonnull context is exactly the pinned Context<S> given to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    context.canvas.fill_rect_raw(x, y, width, height, color)
+}
+
+/// What a dispatch hands to the callback.
+#[derive(Debug, Clone, Copy)]
+pub enum Invocation<'a> {
+    /// The tick event, its payload encoded by core.
+    Tick(&'a [u8]),
+    /// An event of interface 7's list, its payload encoded by core
+    /// (`native_host::events`): handed to the callback as it is.
+    Event(&'a [u8]),
+    /// The draw callback with its encoded `draw.frame` record (N2).
+    Draw(&'a [u8]),
+}
+
+fn borrowed(bytes: &[u8]) -> PpBytes {
+    PpBytes {
+        ptr: bytes.as_ptr(),
+        len: bytes.len(),
+    }
+}
+
+/// Events 32-39 and tick have no reply family: an empty, non-null reply
+/// buffer (cap 0, `docs/abi/screens-input.md` section 6).
+fn no_reply() -> PpBuffer {
+    PpBuffer {
+        ptr: ptr::NonNull::dangling().as_ptr(),
+        cap: 0,
+    }
+}
+
+/// Callbacks without a reply family return a status: a positive result is a
+/// plugin fault, never a length (`docs/abi/screens-input.md` section 6).
+fn status_only(result: i32) -> i32 {
+    if result > 0 {
+        host_glue::ERR_INVALID
+    } else {
+        result
+    }
+}
+
+/// Called only inside a batch admission closure that retains its owner.
+fn invoke_registration<S>(
+    context: Pin<&Context<S>>,
+    record: Registration,
+    invocation: Invocation<'_>,
+) -> Result<i32, Error> {
+    let instance = context.instance.get().ok_or(Error::Attempt)?;
+    match (record, invocation) {
+        (
+            Registration::Event {
+                event_tag: EVENT_TICK_TAG,
+                token,
+            },
+            Invocation::Tick(bytes),
+        ) => {
+            registrations::tick_decode(bytes).map_err(Error::Status)?;
+            let callback = instance
+                .event
+                .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
+            // SAFETY: the admitted owner retains state, context and module. The
+            // callback is present, the bytes live for this call and do not
+            // alias host state.
+            Ok(status_only(unsafe {
+                callback(instance.state, token, borrowed(bytes), no_reply())
+            }))
+        }
+        (Registration::Event { token, .. }, Invocation::Event(bytes)) => {
+            let callback = instance
+                .event
+                .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
+            // SAFETY: the same admitted owner lifetime; the payload is
+            // borrowed for this call only and does not alias host state.
+            Ok(status_only(unsafe {
+                callback(instance.state, token, borrowed(bytes), no_reply())
+            }))
+        }
+        (Registration::Draw { token }, Invocation::Draw(frame)) => {
+            let callback = instance
+                .draw
+                .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
+            // SAFETY: the same admitted owner lifetime; the frame is borrowed
+            // for this call only and does not alias host state.
+            Ok(status_only(unsafe {
+                callback(instance.state, token, borrowed(frame))
+            }))
+        }
+        _ => Err(Error::Status(host_glue::ERR_UNSUPPORTED)),
+    }
+}
+
+/// Dispatches record `index` without a frame.
+///
+/// # Errors
+/// The owner's refusal, or the callback's absence.
+pub fn dispatch_registration<S, M>(
+    batch: &Batch<'_, S, M, Registration>,
+    index: usize,
+    depth: &DispatchDepth,
+    invocation: Invocation<'_>,
+) -> Result<i32, Error> {
+    batch.dispatch(index, depth, |context, record| {
+        invoke_registration(context, *record, invocation)
+    })?
+}
+
+/// Dispatches record `index` with `env` lent for this one call; cleared on
+/// every exit, including unwind.
+///
+/// # Errors
+/// The owner's or the scope's refusal, or the callback's absence.
+pub fn dispatch_with_env<S, M>(
+    batch: &Batch<'_, S, M, Registration>,
+    index: usize,
+    depth: &DispatchDepth,
+    invocation: Invocation<'_>,
+    env: &Env<'_>,
+) -> Result<i32, Error> {
+    batch.dispatch(index, depth, |context, record| {
+        // SAFETY: the owner structurally pins this field; no API moves it.
+        let scope = unsafe { context.map_unchecked(|value| &value.environment) };
+        scope.scope(env, || invoke_registration(context, *record, invocation))?
+    })?
+}
+
+/// Draw dispatch with a frame: the Env (slots 4/5) and the Canvas (slot 9)
+/// are both lent for this one synchronous callback and cleared on every exit,
+/// including unwind. Nested installation is refused by the scopes.
+///
+/// # Errors
+/// The owner's or the scopes' refusal, or the callback's absence.
+pub fn dispatch_draw<S, M>(
+    batch: &Batch<'_, S, M, Registration>,
+    index: usize,
+    depth: &DispatchDepth,
+    env: &Env<'_>,
+    canvas: &mut Canvas<'_>,
+) -> Result<i32, Error> {
+    // The screen frame (N2): the canvas's visible region, drawn in one pass.
+    let clip = canvas.clip();
+    let frame = super::frames::screen(
+        i32::from(clip.x),
+        i32::from(clip.y),
+        u32::from(clip.width),
+        u32::from(clip.height),
+        (
+            i32::from(clip.y),
+            i32::from(clip.y) + i32::from(clip.height),
+        ),
+    );
+    let mut bytes = [0; 64];
+    let len = super::frames::encode(&frame, &mut bytes).map_err(Error::Status)?;
+    let frame = &bytes[..len];
+    batch.dispatch(index, depth, |context, record| {
+        // SAFETY: the owner structurally pins these fields; no API moves them.
+        let env_scope = unsafe { context.map_unchecked(|value| &value.environment) };
+        let canvas_scope = unsafe { context.map_unchecked(|value| &value.canvas) };
+        env_scope.scope(env, || {
+            canvas_scope.scope(canvas, || {
+                invoke_registration(context, *record, Invocation::Draw(frame))
+            })
+        })??
+    })?
+}
+
+#[cfg(test)]
+#[path = "shell_tests.rs"]
+mod tests;

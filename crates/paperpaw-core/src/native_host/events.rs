@@ -20,6 +20,8 @@ use super::registrations::{
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
 
 /// Whether `tag` names an event a plugin can register for: tick (3) and 32-37.
+/// Never 38 or 39: those go to the token of the screen or action declaration
+/// they name (`docs/abi/screens-input.md` section 2).
 #[must_use]
 pub const fn is_event_tag(tag: u32) -> bool {
     matches!(

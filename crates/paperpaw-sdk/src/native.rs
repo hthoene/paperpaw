@@ -334,6 +334,7 @@ pub mod registrations;
 pub mod reply;
 pub mod settings;
 pub mod storage;
+mod wire;
 
 #[cfg(feature = "kernel")]
 mod installed;

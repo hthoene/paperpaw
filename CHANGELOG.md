@@ -113,8 +113,8 @@ change the plugin SDK.
     plugin can change.
   - Plugins must be rebuilt for draft 5. A host cannot tell drafts apart (the metadata carries no
     draft), so a plugin built for an earlier draft must not be installed; none was distributed.
-  - A feature a plugin marks optional that the host lacks, or has at another revision, is left out;
-    only a required one refuses the load.
+  - A feature a plugin marks optional that the host lacks, or has only at an older revision, is left
+    out; only a required one refuses the load. A host serves every older revision of a feature.
 - **The Wi-Fi page: the networks have a page of their own** (#161). The Wi-Fi page is short whatever is in the air:
   the switch with where it is, a row *Networks ›* (the network the device is in and how many are in reach; it opens
   the list), the setup with a phone and the three settings. While no network is kept, *Set up with a phone* comes
