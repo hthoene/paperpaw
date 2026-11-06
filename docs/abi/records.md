@@ -30,7 +30,7 @@ Overlong, overflowing or truncated varints are malformed.
 | 34 | `event.suspend` | `now_ms: u64` |
 | 35 | `event.stopping` | `now_ms: u64` |
 | 36 | `event.battery_measured` | `now_ms: u64` |
-| 37 | `event.page_turned` | `now_ms: u64`, `section: u32`, `offset: u32`, `progress_ppm: u32`, `path: str 512`, `title: str 256`, `chapter: str 256`; optional (appended, bits 0 and 1): `page: u32`, `pages: u32` (0 = not counted) |
+| 37 | `event.page_turned` | `now_ms: u64`, `section: u32`, `offset: u32`, `progress_ppm: u32`, `path: str 512`, `title: str 256`, `chapter: str 256`; optional (appended, bits 0 and 1): `page: u32`, `pages: u32` (absent until the reader counted the pages; pages count from 1, so 0 is never sent) |
 
 Tags 32-37 are events the host sends with `dispatch_event`, as a batch of exactly one
 record; they are named in `registration.event` like tick, and a registration or
