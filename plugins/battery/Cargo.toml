@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-battery"
 description = "PaperPaw battery use: records the battery while the device is awake, with what it did, and shows how long it lasts"
-version = "1.0.6"
+version = "1.0.7"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -18,6 +18,8 @@ paperpaw-core.workspace = true
 paperpaw-platform.workspace = true
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
 proptest.workspace = true
+# The pictures the screen goldens are kept as.
+png = "0.18"
 paperpaw-i18n.workspace = true
 
 [lints]

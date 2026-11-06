@@ -36,7 +36,7 @@ fn sample_dir() -> std::path::PathBuf {
 /// the build (exactly as the sample's `verify.sh` does, into a private target
 /// directory that is removed again), every test then writes its own copy into
 /// its own fixture root, which its `Fixture` removes.
-fn sample_bytes() -> &'static [u8] {
+pub(super) fn sample_bytes() -> &'static [u8] {
     static BYTES: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
     BYTES.get_or_init(|| {
         let root = RemoveOnDrop(crate::private::dir("paperpaw-e2e747-build").unwrap());

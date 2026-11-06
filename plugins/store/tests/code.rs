@@ -26,13 +26,16 @@ use paperpaw_sdk::native::keys::{
 };
 use paperpaw_sdk::native::{Fingerprint, Native, installed_code, known_author};
 use paperpaw_sdk::{PluginKind, Storage, Version};
+use std::sync::LazyLock;
 
 /// The addresses of a device that loads code plugins of [`BUILD`]: they
 /// name it (`abi`), so that the library gives the builds for it (#148).
-const PAGE: &str =
-    "https://paperpaw.org/api/v1/plugins/clock.json?device=x4&lang=en&abi=0006456789abcdef";
-const LIST: &str =
-    "https://paperpaw.org/api/v1/plugins.json?device=x4&lang=en&abi=0006456789abcdef&order=fair";
+static PAGE: LazyLock<String> = LazyLock::new(|| {
+    format!("https://paperpaw.org/api/v1/plugins/clock.json?device=x4&lang=en&abi={BUILD}")
+});
+static LIST: LazyLock<String> = LazyLock::new(|| {
+    format!("https://paperpaw.org/api/v1/plugins.json?device=x4&lang=en&abi={BUILD}&order=fair")
+});
 const FILES: &str = "https://paperpaw.org/api/v1/plugins/clock";
 /// The build of this PaperPaw.
 const BUILD: Fingerprint = Fingerprint::of(paperpaw_sdk::native::INTERFACE, 0x4567_89ab_cdef);
@@ -139,7 +142,7 @@ fn store(version: &str) -> Shopping {
 fn open_clock(shopping: &mut Shopping, version: &str, code: &[u8]) {
     shopping.choose("Reading");
     shopping.choose("Clock");
-    shopping.serve(PAGE, page(version, code).as_bytes());
+    shopping.serve(&PAGE, page(version, code).as_bytes());
 }
 
 /// The clock's files answered: its plugin.ini, then `code`.
@@ -190,7 +193,7 @@ fn a_code_plugin_is_installed_and_starts_after_a_restart() {
     shopping.run(actions::BACK);
     shopping.run(actions::BACK);
     shopping.run(OPEN);
-    shopping.serve(LIST, list("1.0.0").as_bytes());
+    shopping.serve(&LIST, list("1.0.0").as_bytes());
     first_install(&mut shopping, "1.0.0", &code);
     let clock = shopping.kernel.plugins().get("clock").unwrap();
     assert_eq!(clock.kind, PluginKind::Code);
@@ -222,7 +225,7 @@ fn install_naming(shopping: &mut Shopping, version: &str, code: &[u8], recovery:
     shopping.choose("Reading");
     shopping.choose("Clock");
     let text = with_recovery(&page(version, code), recovery);
-    shopping.serve(PAGE, text.as_bytes());
+    shopping.serve(&PAGE, text.as_bytes());
     // *Install*; what code plugins are, said once, then taken.
     shopping.run(actions::CONFIRM);
     shopping.run(actions::CONFIRM);
@@ -253,11 +256,11 @@ fn a_recovery_key_named_by_an_update_is_not_pinned() {
     shopping.run(actions::BACK);
     shopping.run(actions::BACK);
     shopping.run(OPEN);
-    shopping.serve(LIST, list("1.1.0").as_bytes());
+    shopping.serve(&LIST, list("1.1.0").as_bytes());
     shopping.choose("Reading");
     shopping.choose("Clock");
     let text = with_recovery(&page("1.1.0", &newer), &RECOVERY);
-    shopping.serve(PAGE, text.as_bytes());
+    shopping.serve(&PAGE, text.as_bytes());
     shopping.run(actions::DOWN);
     shopping.run(actions::CONFIRM);
     download(&mut shopping, "1.1.0", &newer);
@@ -323,11 +326,11 @@ fn update_signed_by(
     shopping.run(actions::BACK);
     shopping.run(actions::BACK);
     shopping.run(OPEN);
-    shopping.serve(LIST, list("1.1.0").as_bytes());
+    shopping.serve(&LIST, list("1.1.0").as_bytes());
     shopping.choose("Reading");
     shopping.choose("Clock");
     let text = rotated_page("1.1.0", &signed, signer, steps);
-    shopping.serve(PAGE, text.as_bytes());
+    shopping.serve(&PAGE, text.as_bytes());
     shopping.run(actions::DOWN);
     shopping.run(actions::CONFIRM);
     download(&mut shopping, "1.1.0", &signed);
@@ -352,7 +355,7 @@ fn after_an_update_the_store_lists_the_builds_once_the_trial_is_kept_without_a_r
     shopping.kernel.trial_kept();
     shopping.run(actions::BACK);
     shopping.run(OPEN);
-    let call = shopping.request(LIST);
+    let call = shopping.request(&LIST);
     shopping.answer(&call, 200, list("1.0.0").as_bytes());
     shopping.choose("Reading");
     shopping.choose("Clock");
@@ -471,7 +474,7 @@ fn list_revoking(entries: &[String]) -> Shopping {
     let text = list("1.0.0");
     let text = text.strip_suffix('}').unwrap();
     let text = format!("{text}, \"revoked_keys\": [{}]}}", entries.join(", "));
-    shopping.serve(LIST, text.as_bytes());
+    shopping.serve(&LIST, text.as_bytes());
     shopping
 }
 
@@ -582,7 +585,7 @@ fn a_stopped_plugin_says_so_on_its_page_and_offers_removal() {
     let mut shopping = Shopping::with(Some("x4"), Some(native()), &list("1.0.0"), storage);
     shopping.choose("Reading");
     shopping.choose("Clock");
-    shopping.serve(PAGE, page("1.0.0", &code).as_bytes());
+    shopping.serve(&PAGE, page("1.0.0", &code).as_bytes());
     let shown = shopping.shown().replace(" | ", " ");
     assert!(
         shown.contains("Stopped: the key its author signed it with"),
@@ -600,7 +603,7 @@ fn an_update_by_another_key_is_refused() {
     shopping.run(actions::BACK);
     shopping.run(actions::BACK);
     shopping.run(OPEN);
-    shopping.serve(LIST, list("1.1.0").as_bytes());
+    shopping.serve(&LIST, list("1.1.0").as_bytes());
     open_clock(&mut shopping, "1.1.0", &other);
     let shown = shopping.shown();
     assert!(
@@ -640,7 +643,7 @@ fn a_new_install_after_a_removal_keeps_the_first_key() {
     shopping.choose("Reading");
     shopping.choose("Clock");
     let page = page("1.0.0", &code).replace(&hex(&public_key(&AUTHOR)), &hex(&public_key(&OTHER)));
-    shopping.serve(PAGE, page.as_bytes());
+    shopping.serve(&PAGE, page.as_bytes());
     shopping.run(actions::CONFIRM);
     shopping.run(actions::CONFIRM);
     download(&mut shopping, "1.0.0", &code);
@@ -743,7 +746,7 @@ fn the_web_flasher_is_named_only_where_the_shell_says_it_gives_more() {
             r#""device": "x4", "abi""#,
             r#""device": "x4", "image_len": 8192, "abi""#,
         );
-        shopping.serve(PAGE, body.as_bytes());
+        shopping.serve(&PAGE, body.as_bytes());
         let shown = shopping.shown();
         assert!(shown.contains("Not enough room"), "{shown}");
         assert_eq!(shown.contains("web flasher"), named, "{room}: {shown}");
@@ -761,7 +764,7 @@ fn code_that_does_not_fit_is_not_offered() {
         r#""device": "x4", "abi""#,
         r#""device": "x4", "image_len": 8192, "abi""#,
     );
-    shopping.serve(PAGE, body.as_bytes());
+    shopping.serve(&PAGE, body.as_bytes());
     let shown = shopping.shown();
     assert!(
         shown.contains("Needs 8.0 KB for its code, only 4.0 KB left."),
@@ -772,7 +775,7 @@ fn code_that_does_not_fit_is_not_offered() {
     // Where the library does not say, it is offered with what is left.
     shopping.run(actions::BACK);
     shopping.choose("Clock");
-    shopping.serve(PAGE, page("1.0.0", &code).as_bytes());
+    shopping.serve(&PAGE, page("1.0.0", &code).as_bytes());
     let shown = shopping.shown();
     assert!(shown.contains("4.0 KB left for code plugins"), "{shown}");
     assert!(shown.contains("Install"), "{shown}");
@@ -806,7 +809,7 @@ fn the_installed_list_names_the_bigger_room_of_a_full_install_on_the_stock_layou
         shopping.run(actions::BACK);
         shopping.run(actions::BACK);
         shopping.run(OPEN);
-        shopping.serve(LIST, list("1.0.0").as_bytes());
+        shopping.serve(&LIST, list("1.0.0").as_bytes());
         shopping.choose("Installed");
         let shown = shopping.shown();
         assert!(shown.contains("code plugins:"), "{shown}");
@@ -837,7 +840,7 @@ fn code_that_just_fits_is_installed() {
     shopping.run(actions::BACK);
     shopping.run(actions::BACK);
     shopping.run(OPEN);
-    shopping.serve(LIST, list("1.0.0").as_bytes());
+    shopping.serve(&LIST, list("1.0.0").as_bytes());
     shopping.choose("Installed");
     let shown = shopping.shown();
     assert!(
@@ -873,7 +876,7 @@ fn paperpaws_own_plugins_say_so() {
     );
     shopping.choose("Clock");
     let ours = claimed(page("1.0.0", &code)).replace(&author, OURS);
-    shopping.serve(PAGE, ours.as_bytes());
+    shopping.serve(&PAGE, ours.as_bytes());
     let shown = shopping.shown();
     assert!(shown.contains("By PaperPaw"), "{shown}");
     assert!(!shown.contains("By Someone"), "{shown}");
@@ -884,7 +887,7 @@ fn paperpaws_own_plugins_say_so() {
     let shown = shopping.shown();
     assert!(!shown.contains("By PaperPaw"), "{shown}");
     shopping.choose("Clock");
-    shopping.serve(PAGE, claimed(page("1.0.0", &code)).as_bytes());
+    shopping.serve(&PAGE, claimed(page("1.0.0", &code)).as_bytes());
     let shown = shopping.shown();
     assert!(shown.contains("By Someone"), "{shown}");
     assert!(!shown.contains("By PaperPaw"), "{shown}");
@@ -908,7 +911,7 @@ fn a_community_plugin_is_marked_and_its_key_may_not_change() {
     assert!(shown.contains("Unreviewed · A clock"), "{shown}");
     let code = ppn(BUILD, Some(&AUTHOR));
     shopping.choose("Clock");
-    shopping.serve(PAGE, unreviewed(&page("1.0.0", &code)).as_bytes());
+    shopping.serve(&PAGE, unreviewed(&page("1.0.0", &code)).as_bytes());
     let shown = shopping.shown();
     assert!(
         shown.contains("Unreviewed, from github.com/someone/clock"),
@@ -934,10 +937,10 @@ fn a_community_plugin_is_marked_and_its_key_may_not_change() {
     shopping.run(actions::BACK);
     shopping.run(actions::BACK);
     shopping.run(OPEN);
-    shopping.serve(LIST, unreviewed(&list("1.1.0")).as_bytes());
+    shopping.serve(&LIST, unreviewed(&list("1.1.0")).as_bytes());
     shopping.choose("Reading");
     shopping.choose("Clock");
-    shopping.serve(PAGE, unreviewed(&page("1.1.0", &other)).as_bytes());
+    shopping.serve(&PAGE, unreviewed(&page("1.1.0", &other)).as_bytes());
     shopping.run(actions::DOWN);
     shopping.run(actions::CONFIRM);
     download(&mut shopping, "1.1.0", &other);
@@ -982,7 +985,7 @@ fn a_plugin_made_for_a_newer_paperpaw_is_not_offered_to_install() {
     let code = ppn(BUILD, Some(&AUTHOR));
     shopping.choose("Reading");
     shopping.choose("Clock");
-    shopping.serve(PAGE, needing(&page("1.0.0", &code), needs).as_bytes());
+    shopping.serve(&PAGE, needing(&page("1.0.0", &code), needs).as_bytes());
     let shown = shopping.shown();
     assert!(shown.contains("Needs a newer PaperPaw"), "{shown}");
     assert!(!shown.contains("Install"), "{shown}");
@@ -1009,10 +1012,10 @@ fn an_update_made_for_a_newer_paperpaw_is_not_offered_and_the_old_version_stays(
     shopping.run(actions::BACK);
     shopping.run(actions::BACK);
     shopping.run(OPEN);
-    shopping.serve(LIST, needing(&list("1.1.0"), needs).as_bytes());
+    shopping.serve(&LIST, needing(&list("1.1.0"), needs).as_bytes());
     shopping.choose("Reading");
     shopping.choose("Clock");
-    shopping.serve(PAGE, needing(&page("1.1.0", &newer), needs).as_bytes());
+    shopping.serve(&PAGE, needing(&page("1.1.0", &newer), needs).as_bytes());
     let shown = shopping.shown();
     assert!(shown.contains("Needs a newer PaperPaw"), "{shown}");
     assert!(!shown.contains("Update"), "{shown}");
@@ -1026,10 +1029,10 @@ fn an_update_made_for_a_newer_paperpaw_is_not_offered_and_the_old_version_stays(
     shopping.run(actions::BACK);
     shopping.run(actions::BACK);
     shopping.run(OPEN);
-    shopping.serve(LIST, needing(&list("1.1.0"), needs).as_bytes());
+    shopping.serve(&LIST, needing(&list("1.1.0"), needs).as_bytes());
     shopping.choose("Reading");
     shopping.choose("Clock");
-    shopping.serve(PAGE, needing(&page("1.1.0", &newer), needs).as_bytes());
+    shopping.serve(&PAGE, needing(&page("1.1.0", &newer), needs).as_bytes());
     let shown = shopping.shown();
     assert!(
         shown.contains("Update") && !shown.contains("Needs a newer"),
@@ -1048,7 +1051,7 @@ fn families_do_not_hold_back_a_build_on_a_chip_that_does_not_read_them() {
     let code = ppn(BUILD, Some(&AUTHOR));
     shopping.choose("Reading");
     shopping.choose("Clock");
-    shopping.serve(PAGE, needing(&page("1.0.0", &code), needs).as_bytes());
+    shopping.serve(&PAGE, needing(&page("1.0.0", &code), needs).as_bytes());
     let shown = shopping.shown();
     assert!(!shown.contains("Needs a newer"), "{shown}");
     assert!(shown.contains("Install"), "{shown}");
@@ -1083,7 +1086,7 @@ fn clock_page_needing_two_pages(storage: Shared) -> Shopping {
         r#""device": "x4", "abi""#,
         r#""device": "x4", "image_len": 8192, "abi""#,
     );
-    shopping.serve(PAGE, body.as_bytes());
+    shopping.serve(&PAGE, body.as_bytes());
     shopping
 }
 
@@ -1154,12 +1157,12 @@ fn room_not_enough_even_without_the_one_that_is_off_is_refused() {
 
 #[test]
 fn the_library_is_asked_for_the_builds_of_the_paperpaw_that_runs() {
-    assert!(PAGE.ends_with(&format!("abi={BUILD}")), "{PAGE}");
-    assert!(LIST.contains(&format!("&abi={BUILD}")), "{LIST}");
+    assert!(PAGE.ends_with(&format!("abi={BUILD}")), "{}", *PAGE);
+    assert!(LIST.contains(&format!("&abi={BUILD}")), "{}", *LIST);
     // The list was asked for with it (the helper that opens the store
     // answers that address only), and so is the plugin's page.
     let mut shopping = store("1.0.0");
     shopping.choose("Reading");
     shopping.choose("Clock");
-    shopping.request(PAGE);
+    shopping.request(&PAGE);
 }

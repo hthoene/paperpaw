@@ -190,13 +190,15 @@ pub struct Target {
     pub data: Vec<DataPlugin>,
     /// Code plugins built for a device, looked at as files.
     pub ppn: Vec<PathBuf>,
+    /// Code plugins as libraries (`.so`, interface 7), looked at as files.
+    pub libraries: Vec<PathBuf>,
     /// Adds a plugin with code to the app.
     pub add: Option<AddPlugins>,
 }
 
 impl Target {
     /// Takes a path from the command line: a data plugin folder (it has
-    /// a `plugin.ini`) or a `.ppn` file.
+    /// a `plugin.ini`), a `.ppn` file or a `.so` library.
     pub fn take_path(&mut self, path: &Path) -> Result<(), String> {
         if path
             .extension()
@@ -206,6 +208,16 @@ impl Target {
                 return Err(format!("{}: no such file", path.display()));
             }
             self.ppn.push(path.to_path_buf());
+            return Ok(());
+        }
+        if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("so"))
+        {
+            if !path.is_file() {
+                return Err(format!("{}: no such file", path.display()));
+            }
+            self.libraries.push(path.to_path_buf());
             return Ok(());
         }
         if path.join("plugin.ini").is_file() {
@@ -221,7 +233,7 @@ impl Target {
             return Ok(());
         }
         Err(format!(
-            "{}: neither a data plugin folder (with plugin.ini) nor a .ppn file",
+            "{}: neither a data plugin folder (with plugin.ini), a .ppn file nor a .so library",
             path.display()
         ))
     }
@@ -255,7 +267,7 @@ impl Target {
     pub fn runs(&self) -> bool {
         !self.plugins.is_empty()
             || !self.data.is_empty()
-            || (self.ppn.is_empty() && self.sources.is_empty())
+            || (self.ppn.is_empty() && self.libraries.is_empty() && self.sources.is_empty())
     }
 }
 

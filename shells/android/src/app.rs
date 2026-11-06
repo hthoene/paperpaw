@@ -515,6 +515,9 @@ fn start_kernel(
     if let Some(language) = app.config().language() {
         builder = builder.setting_default(&settings::LANGUAGE, language.into());
     }
+    // No code plugins here (ADR 0024, amended): they are listed as
+    // unsupported, never opened.
+    let builder = crate::code::policy(builder);
     let builder = paperpaw_app::install_with(
         builder,
         paperpaw_app::Fonts::Outline,

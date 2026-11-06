@@ -83,7 +83,8 @@ pub fn run(context: &Context, report: &mut Report) -> Result<(), String> {
     for source in &context.target.sources {
         source::check(source, report);
     }
-    crate::ppn::check(context, report)
+    crate::ppn::check(context, report)?;
+    crate::library::check(context, report)
 }
 
 /// A PaperPaw release asked for with `--release`.

@@ -277,3 +277,33 @@ loaded and called the wrong functions. So:
 - Items appended to a growing trait and anything new stay free: they
   change neither the shapes kept nor the fingerprint.
 
+
+## Amendment: drafts of an interface (2026-11-06, #228)
+
+Interface 7 (ADR 0034) is raised early, as a baseline the ports build on
+before the owner freezes it, and its rows still change what plugins rely
+on (`abi/interface-7/raise.md`). Raising the interface for each would
+spend a number per change; keeping the number with a bless of a change
+plugins rely on is what the amendment above refuses. So an interface has
+drafts:
+
+- `native::DRAFT` (a `u16`, from 1) is the draft of `native::INTERFACE`.
+  It is hashed into `native::FINGERPRINT` like the layouts: a plugin
+  built for another draft does not fit and is refused, never loaded
+  (`Fingerprint::misfit` says so). `interface.txt` keeps it as `draft`.
+- Freezing deletes `native::DRAFT` and the `draft` line without a trace.
+  It is hashed only while it is not 0, so the frozen fingerprint is the
+  one the interface would have without drafts, and differs from every
+  draft's: their builds are refused.
+- At the interface kept, a bless of a change plugins rely on is refused
+  unless a draft is kept and `DRAFT` is a higher draft, or gone
+  (frozen). A frozen interface never becomes a draft again: only a raise
+  changes it. A raise may start at a draft or frozen.
+- Every raise, re-bless of a draft and freeze is named in
+  `abi/interface-<N>/blessings.txt`, a line `<draft> <what changed>
+  (#<ticket>)`, only appended. CI (`tools/abi-reference-check.py`)
+  compares the reference files and both constants with the PR's base:
+  the interface never moves back or skips, a frozen interface's files
+  stay byte for byte, a draft never moves back, and a change without a
+  new line naming the candidate's draft is refused.
+- Freezing is the owner's decision, named with draft 0.

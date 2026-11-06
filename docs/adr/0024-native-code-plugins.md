@@ -4,8 +4,8 @@
   modules of [ADR 0004](0004-everything-is-a-plugin.md); its fingerprint
   refined by [ADR 0026](0026-plugin-interface-version.md), a plugin
   interface version in place of the SDK's version. The X4s and the
-  desktop emulator load code plugins; Android does not load `code.so`
-  yet.
+  desktop emulator load code plugins; Android loads none and will not
+  (see the amendment of 2026-11 at the end).
 - Date: 2026-10-19
 
 ## Context
@@ -54,7 +54,7 @@ survive minor releases.
   |---|---|---|---|
   | X4 | `riscv32imc-unknown-none-elf` | `.ppn` | written once into flash, mapped through the MMU |
   | X4 Pro | `xtensa-esp32s3-none-elf` | `.ppn` | read into PSRAM, run there |
-  | Android (Boox and others) | `aarch64-linux-android` | `.so` | `dlopen` from the app's own storage |
+  | Android (Boox and others) | `aarch64-linux-android` | `.so` | ~~`dlopen` from the app's own storage~~ not loaded (amendment 2026-11) |
 
   The author's template repository and its CI job build all three; the
   catalogue lists one file per platform, and each device's store takes
@@ -307,3 +307,33 @@ What the spike left open, as the implementation found it (2026-10-20):
   author than the version installed is not installed and the plugin
   manager says so (`Native::not_installed`). The store refuses it too
   (`Refusal::KeyChanged`): nowhere can the reader accept a new key.
+
+## Amendment: Android loads no code plugins (2026-11, #228)
+
+Android loads no code plugins: no `code.so`, of any plugin interface, is ever
+opened, mapped or run there. This settles the text above, which spoke of an
+Android `.so` as planned and "untried" and elsewhere said Android "does not load
+`code.so` yet". The decision, taken with the interface-7 raise:
+
+- **Superseded** are the Android row of the platform table, the passages on
+  Android `.so` files, `dlopen`, and the Android store builds, the Android
+  launcher's start without code plugins, the Android share of the room
+  argument in the consequences, and the open point on Android's `.so`. Where
+  they stand, they are history, not plan. A Play build had no code plugins
+  already; now no Android build has.
+- **Why.** The project decided it with the interface-7 raise; the open point
+  below already noted that apps for API level 29 and later may not run files
+  they wrote as programs and that loading them as libraries was untried. The
+  interface-7 boundary (ADR 0034) is checked with the loaders that exist: the
+  desktop's and the X4's.
+- **What a user sees.** A plugin folder with a code file (`code.so`,
+  `code.ppn`, `code-host.so`, ...) is listed in the plugin manager as not
+  running (`PluginProblem::Unsupported`: this PaperPaw loads no code plugins);
+  its data (translations, settings) is listed like a switched-off plugin's.
+  Data plugins load as on every device. An `android` code build in the store
+  tools or the catalogue has nothing to load it; removing that platform there
+  is follow-up work of the store's owners, not part of this amendment.
+- **How it is kept.** The shell installs no code loader
+  (`shells/android/src/code.rs`); tests there fail if it does, and show a
+  code plugin of each file name refused cleanly with a data plugin loading
+  beside it.
