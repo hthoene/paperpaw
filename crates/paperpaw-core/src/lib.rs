@@ -1328,6 +1328,8 @@ struct Shared {
     font_dirs: Vec<String>,
     /// The folders of data plugins, by plugin, for removing them.
     data_folders: Vec<(Id, String)>,
+    /// Hyphenation tables of data plugins, by language (formats 5).
+    hyphenation_tables: data_plugin::hyphenation::Tables,
     /// The folders data plugins are found in.
     plugin_dirs: Vec<String>,
     /// What plugin libraries call this kind of device (see

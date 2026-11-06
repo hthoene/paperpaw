@@ -109,6 +109,16 @@ class SettingsSchemaTests(unittest.TestCase):
                             self.schema, 1)
         before = copy.deepcopy(self.schema)
         del before['settings_value']
+        # Slot-15 command values depend on this contract and are removed with it.
+        del before['command_codec']
+        # Declaration records are removed with the command record before them.
+        before['records'] = [item for item in before['records'] if item['id'] < 4]
+        later['command_codec']['since'] = 2
+        for record in later['records']:
+            if record['id'] >= 4:
+                record['since'] = 2
+                for field in record['fields']:
+                    field['since'] = 2
         ABI.compatible(before, later, released_minor=1)
         with self.assertRaisesRegex(ValueError, 'backdated'):
             ABI.compatible(before, self.schema, released_minor=1)

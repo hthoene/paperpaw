@@ -21,6 +21,20 @@ mod abi {
 )]
 mod wire;
 
+#[rustfmt::skip]
+#[path = "../../../abi/generated/snapshot_wire.rs"]
+#[allow(dead_code, reason = "sample consumes the published snapshot decoder")]
+mod snapshot;
+#[rustfmt::skip]
+#[path = "../../../abi/generated/settings_value.rs"]
+#[allow(dead_code, reason = "sample consumes the published typed settings decoder")]
+mod settings;
+#[rustfmt::skip]
+#[path = "../../../abi/generated/color_wire.rs"]
+#[allow(dead_code, reason = "sample consumes only the colour encoder")]
+mod color;
+mod observations;
+
 use abi::*;
 use core::{ffi::c_void, mem, ptr};
 use wire::{EVENT_TICK_TAG, Registration, registrations_encode, tick_decode};
@@ -28,6 +42,8 @@ use wire::{EVENT_TICK_TAG, Registration, registrations_encode, tick_decode};
 include!(concat!(env!("OUT_DIR"), "/metadata.rs"));
 const EVENT_TOKEN: u32 = 1;
 const DRAW_TOKEN: u32 = 2;
+/// The rectangle every draw paints through `canvas.fill_rect` (slot 9).
+const RECT: (i32, i32, u32, u32) = (8, 8, 64, 32);
 
 /// Immutable export wrapping a raw-pointer-containing generated record.
 #[repr(transparent)]
@@ -54,7 +70,9 @@ struct State {
     last_tick_ms: Option<u64>,
     ticks: u64,
     draws: u64,
+    fills: u64,
     draw_clock_us: u64,
+    observations: Option<observations::Observations>,
 }
 
 /// The host guarantees valid, disjoint table/context/output storage and lifetime.
@@ -138,7 +156,9 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
             last_tick_ms: None,
             ticks: 0,
             draws: 0,
+            fills: 0,
             draw_clock_us: 0,
+            observations: None,
         });
         out.write(&raw const (*state).plugin);
     }
@@ -171,21 +191,39 @@ unsafe extern "C" fn event(state: *mut c_void, token: u32, input: PpBytes) -> i3
     OK
 }
 
-/// This callback records draw admission. No Canvas/Env service is wired yet.
+/// Copies current observations and paints one black rectangle through slot 9.
+/// Nothing is committed unless every host call succeeded, so a refused fill
+/// leaves the counters and observations as they were.
 unsafe extern "C" fn draw(state: *mut c_void, token: u32) -> i32 {
     if state.is_null() || token != DRAW_TOKEN {
         return ERR_INVALID;
     }
     // SAFETY: the host admits exclusive access and retains table/context leases.
     let s = unsafe { &mut *state.cast::<State>() };
+    // SAFETY: admission keeps the retained table/context and call-local outputs live.
+    let observations = match unsafe { observations::read(&*s.host, s.ctx) } {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
     let mut now = 0;
     // SAFETY: retained host/context and the local output remain valid for the call.
     let status = unsafe { ((*s.host).clock_micros)(s.ctx, &mut now) };
     if status != OK {
         return status;
     }
+    let (x, y, width, height) = RECT;
+    // SAFETY: retained host/context are live; the call takes only scalars and the
+    // host refuses it outside a draw scope.
+    let status = unsafe {
+        ((*s.host).canvas_fill_rect)(s.ctx, x, y, width, height, color::color_encode(0, 0, 0))
+    };
+    if status != OK {
+        return status;
+    }
+    s.observations = Some(observations);
     s.draw_clock_us = now;
     s.draws = s.draws.saturating_add(1);
+    s.fills = s.fills.saturating_add(1);
     OK
 }
 
@@ -214,6 +252,9 @@ unsafe extern "C" fn destroy(state: *mut c_void) {
 fn panic(_: &core::panic::PanicInfo<'_>) -> ! {
     loop {}
 }
+
+#[cfg(not(test))]
+mod freestanding;
 
 #[cfg(test)]
 extern crate std;
