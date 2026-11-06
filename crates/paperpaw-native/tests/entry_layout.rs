@@ -86,13 +86,15 @@ fn entry_and_lifecycle_layouts_keep_the_reviewed_offsets() {
     assert_eq!(offset_of!(PpEntry, metadata), 8);
     assert_eq!(offset_of!(PpEntry, make), 8 + 2 * pointer);
     assert_eq!(align_of::<PpPlugin>(), pointer);
-    assert_eq!(size_of::<PpPlugin>(), 5 * pointer);
+    // Draft 5 appended `input` (screens).
+    assert_eq!(size_of::<PpPlugin>(), 6 * pointer);
     assert_eq!(raw::PLUGIN_PREFIX_BYTES, 3 * pointer);
     assert_eq!(offset_of!(PpPlugin, size), 0);
     assert_eq!(offset_of!(PpPlugin, state), pointer);
     assert_eq!(offset_of!(PpPlugin, drop), 2 * pointer);
     assert_eq!(offset_of!(PpPlugin, dispatch_event), 3 * pointer);
     assert_eq!(offset_of!(PpPlugin, draw), 4 * pointer);
+    assert_eq!(offset_of!(PpPlugin, input), 5 * pointer);
     assert_eq!(size_of::<Option<Make>>(), pointer);
     assert_eq!(size_of::<Option<Drop>>(), pointer);
 }
