@@ -23,6 +23,9 @@ std::thread_local! {
     static UNCOVERED: Cell<u32> = const { Cell::new(0) };
     /// The nth allocation of this thread fails (1-based; 0: none).
     static FAIL_NTH: Cell<u32> = const { Cell::new(0) };
+    /// An address to watch (0: none) and whether a block holding it was freed.
+    static WATCH: Cell<usize> = const { Cell::new(0) };
+    static WATCH_FREED: Cell<bool> = const { Cell::new(false) };
     /// `make` registers the one event only (the flat adapter routes no draw).
     static EVENT_ONLY: Cell<bool> = const { Cell::new(false) };
 }
@@ -50,6 +53,13 @@ unsafe impl core::alloc::GlobalAlloc for Failing {
         unsafe { std::alloc::System.alloc(layout) }
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        let _ = WATCH.try_with(|watch| {
+            let at = watch.get();
+            let start = ptr as usize;
+            if at != 0 && at >= start && at < start + layout.size() {
+                let _ = WATCH_FREED.try_with(|freed| freed.set(true));
+            }
+        });
         // SAFETY: allocated by `alloc` above.
         unsafe { std::alloc::System.dealloc(ptr, layout) }
     }
@@ -707,15 +717,24 @@ mod instance_tests {
                 "fake",
                 paperpaw_sdk::Version::new(0, 0, 0),
             );
+            let instance = load().unwrap();
+            // Control for the kept-owner test: here the owner is freed.
+            WATCH_FREED.with(|f| f.set(false));
+            WATCH.with(|w| w.set(core::ptr::from_ref(&*instance.environment()) as usize));
             let plugin = FlatPlugin::new(
                 manifest,
-                alloc::boxed::Box::new(load().unwrap()),
+                alloc::boxed::Box::new(instance),
                 crate::native_host::flat::FlatDepth::try_new().unwrap(),
                 &host,
             )
             .unwrap();
             teardown_fault::arm(step, error);
             drop(plugin);
+            assert!(
+                WATCH_FREED.with(Cell::get),
+                "{step:?} {error:?}: owner freed"
+            );
+            WATCH.with(|w| w.set(0));
             assert_eq!(
                 logged(),
                 ["teardown_failed", "destroy", "module"],
@@ -732,13 +751,23 @@ mod instance_tests {
         EVENT_ONLY.with(|e| e.set(true));
         let host = flat_host();
         let mut depth = None;
-        let plugin = load()
-            .unwrap()
-            .into_plugin(manifest(), &mut depth, &host)
-            .unwrap();
+        let instance = load().unwrap();
+        // An address inside the owner's allocation (its environment scope).
+        let watched = core::ptr::from_ref(&*instance.environment()) as usize;
+        WATCH_FREED.with(|f| f.set(false));
+        WATCH.with(|w| w.set(watched));
+        let plugin = instance.into_plugin(manifest(), &mut depth, &host).unwrap();
         teardown_fault::arm_persistent(TeardownStep::Release, HostError::Busy);
         drop(plugin);
         teardown_fault::disarm();
+        assert!(
+            !WATCH_FREED.with(Cell::get),
+            "the kept owner's memory was not freed: it stays readable"
+        );
+        // SAFETY: the owner was kept (never freed), so the scope inside it is
+        // still allocated; reading one byte of it only checks that.
+        let _ = unsafe { core::ptr::read_volatile(watched as *const u8) };
+        WATCH.with(|w| w.set(0));
         // Told once (the first attempt), refused again by `finish`: the owner
         // is kept, so the destructor never ran and the module was not freed.
         assert_eq!(logged(), ["teardown_failed", "leaked"]);
