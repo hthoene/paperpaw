@@ -62,6 +62,76 @@ These override the sections below wherever they differ.
   (-11) from the storage proposal go into the interface-7 batch together, in one change to `abi.def`, the generated
   files, the lock and the draft-7 gate. No frozen interface-6 file is touched.
 
+## Decided (Manager, 2026-11-06 05:27)
+
+Recorded after Senior review; these supersede the corresponding open questions below. Caps that depend on a
+measurement stay provisional until the X4 gate.
+
+- **Q1:** the hyphenation languages and the base become data plugins through a `[hyphenation]` file kind;
+  `fonts-default` stays registered in the firmware (Manager, 05:19). The card-backed hyphenation reader is the
+  first kernel item; its X4 measurement (Q13) waits for the owner's return.
+- **Q2:** the code-versus-`plugin.ini` version check is dropped at run time and done by `paperpaw-dev package`.
+- **Q3:** `uses` is declared as signed metadata features, not in `plugin.ini`.
+- **Q4:** a compiled `.ppcat` catalog is required above 2 KiB.
+- **Q6:** inline batches keep the 4,096-byte cap.
+- **Q7:** setting specs are retained eagerly (S1) first, measured on the X4 (D3); per-plugin caps 128 specs,
+  32 groups and 128 extras, provisional.
+- **Q8:** the `choices` cap stays 1,024 bytes if the longest real list fits; provisional until measured.
+- **Q9:** slot 5 returns absent for a secret setting.
+- **Q10:** value-check callbacks and `Extended` kinds stay out of interface 7 and can be appended later.
+- **Q11:** no derived titles; every title key is explicit.
+- **Q14:** file caps of 2 MiB for hyphenation tables and 64 MiB for font files, provisional until the X4 gate.
+- **Q16:** the action routing table is designed together with actions and screens.
+- **Owner decisions (on #228, open):** whether slot 15 may write other plugins' unguarded settings
+  (recommendation: own settings only, as implemented).
+
+## The `[hyphenation]` data-plugin kind (Kernel Engineer, 2026-11-06)
+
+This specifies Q1's data-plugin kind. Hyphenation data plugins use it instead of `resource.hyphenation`
+records.
+
+- **Format level.** A `plugin.ini` with a `[hyphenation]` section declares `formats = 5`. The kernel raises
+  `DATA_FORMATS` to 5 in the interface-7 batch, with the SDK interface files and CHANGELOG. A loader below 5
+  refuses the plugin as it refuses any newer format.
+- **Grammar.** One line per language: `<tag> = <path>`, for example `de = hyphenation/de.pphp`.
+  - `<tag>` is a BCP 47 tag of `[A-Za-z0-9-]`, 1 to 35 bytes, compared case-insensitively and kept in
+    lowercase.
+  - `<path>` follows Part 4's reference rule: relative to the plugin's install folder, `[A-Za-z0-9._-]` and `/`,
+    at most 3 segments and 100 bytes, no empty, `.`, `..` or dot-leading segment.
+  - At most 8 lines per plugin. Several tags may name the same file (`nb` and `no` on one table).
+- **Registry.** The key is the language tag alone; there is no per-table id. If several plugins provide one tag,
+  the plugin with the greatest id wins (D4): ids are compared byte-wise in lowercase, with no exception for
+  any plugin. A collision gives one warning naming the losing entry. Warnings name an entry as
+  `<plugin>:<tag>`.
+- **Lookup and fallback.** The book's language tag is put in lowercase, with `_` read as `-`. The exact tag
+  is looked up first; then the last subtag is removed, repeatedly, so `de-ch-1996` tries `de-ch`, then `de`.
+  There is no fallback to a longer tag (`de` never finds `de-ch`) or to another primary language (`no` finds
+  only what a plugin registers as `no`). No match means no hyphenation for the book, without a warning.
+- **Errors at load.** A line with a bad tag, a bad path, a tag repeated in the same plugin, or beyond the eighth
+  is skipped with one warning. The plugin stays loaded.
+- **Errors at activation.** A missing file, a file over 2 MiB, or a file that fails the table check below makes
+  that language missing, with one warning. The plugin stays loaded, and the reader treats the file as
+  untrusted for its whole lifetime (D2).
+- **Table check at activation.** The header is 24 bytes: magic `PPHP\x01` (the older `QIHP` magic is not
+  accepted for this kind), the block count at 12, the exceptions offset at 16 and the exception count at 20
+  (little-endian `u32`). The entries start after the index, at `24 + 4 * blocks`, which must be at most the
+  exceptions offset. Every index offset, read relative to the entries, must be ascending, and the pattern it
+  points at must start before the exceptions offset. The exceptions section is walked: `count` entries of a
+  length byte and that many bytes of UTF-8, and the walk must end exactly at the end of the file. So a truncated or padded
+  table is refused before it is used. The check reads the index and the exceptions once, through the reader's
+  bounded buffer (D2), and allocates nothing in proportion to the file.
+- **Installation.** The installer writes each table so that a reader sees either the old file or the new one
+  in full: `Storage::write` (which replaces atomically) or a staging file plus rename. A table open while it is
+  replaced is noticed by D2's file identity check and reopened.
+- **Packaging.** `paperpaw-dev package` checks all of the above on the host and refuses to package on any
+  failure: syntax, line count, that each file exists, the 2 MiB cap, and the table check above. The table
+  check is one function in `paperpaw-hyphen`, used by both the kernel and the tool. The tool's folder check
+  accepts the `[hyphenation]` section and a `hyphenation/` folder.
+- **English.** The base plugin `hyphenation` provides `en` and gets no special rank. Another plugin providing
+  `en` overrides it only if its id sorts after `hyphenation` (D4); every id that starts with `hyphenation-`,
+  the naming used for hyphenation plugins, does. An id that sorts before it (for example `en-patterns`)
+  loses to the base.
+
 ## 0. Summary of the proposal
 
 1. Registration is split over **three transports that share one record grammar**:
