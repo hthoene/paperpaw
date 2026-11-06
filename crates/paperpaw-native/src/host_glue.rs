@@ -27,7 +27,7 @@ mod generated {
 pub use generated::{ENTRY_SYMBOL, METADATA_SYMBOL, PpBuffer, PpBytes, PpEntry, PpHost, PpPlugin};
 pub use generated::{
     PLUGIN_PREFIX_BYTES, read_plugin_dispatch_event, read_plugin_draw, read_plugin_drop,
-    read_plugin_size, read_plugin_state,
+    read_plugin_input, read_plugin_size, read_plugin_state,
 };
 
 pub use generated::{

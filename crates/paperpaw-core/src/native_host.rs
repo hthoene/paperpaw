@@ -585,6 +585,16 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
         core::mem::take(&mut self.declarations)
     }
 
+    /// Dispatch a declared contribution's token through this batch's owner.
+    /// The host resolves and validates the declaration before calling this.
+    pub(crate) fn dispatch_owner<R>(
+        &self,
+        depth: &DispatchDepth,
+        callback: impl FnOnce(Pin<&C>) -> R,
+    ) -> Result<R, Error> {
+        self.lease.dispatch(depth, callback)
+    }
+
     /// Dispatch one registered record after owner and shared-state admission.
     /// The supplied host wrapper performs scoped frame setup and foreign ABI
     /// validation. This method alone does not execute a foreign function table.

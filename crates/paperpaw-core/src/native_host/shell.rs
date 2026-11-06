@@ -24,7 +24,7 @@ use core::ptr;
 use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{
     self, PpBuffer, PpBytes, PpHost, PpPlugin, Services, ShellCtx, read_plugin_dispatch_event,
-    read_plugin_draw, read_plugin_drop, read_plugin_size, read_plugin_state,
+    read_plugin_draw, read_plugin_drop, read_plugin_input, read_plugin_size, read_plugin_state,
 };
 use paperpaw_platform::Rect;
 
@@ -64,6 +64,7 @@ pub type Make = unsafe extern "C" fn(*const PpHost, *mut c_void, *mut *const PpP
 
 type Event = unsafe extern "C" fn(*mut c_void, u32, PpBytes, PpBuffer) -> i32;
 type Draw = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
+type Input = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
 
 /// What `make` returned, copied from its table: only generated, bounded
 /// fields, and never a reference to the whole table.
@@ -73,6 +74,7 @@ struct PluginOutput {
     destroy: unsafe extern "C" fn(*mut c_void),
     event: Option<Event>,
     draw: Option<Draw>,
+    input: Option<Input>,
 }
 
 fn optional<T>(callback: Result<T, i32>) -> Result<Option<T>, Error> {
@@ -106,6 +108,7 @@ unsafe fn read_output(out: *const PpPlugin) -> Result<PluginOutput, Error> {
             destroy: read_plugin_drop(table, accessible).map_err(|_| Error::Plugin)?,
             event: optional(read_plugin_dispatch_event(table, accessible))?,
             draw: optional(read_plugin_draw(table, accessible))?,
+            input: optional(read_plugin_input(table, accessible))?,
         })
     }
 }
@@ -754,6 +757,14 @@ fn invoke_registration<S>(
     }
 }
 
+#[path = "shell_tokens.rs"]
+mod tokens;
+#[allow(
+    unused_imports,
+    reason = "native built-in adapter follows this prerequisite"
+)]
+pub(crate) use tokens::{TokenInvocation, dispatch_token, dispatch_token_draw};
+
 /// Dispatches record `index` without a frame.
 ///
 /// # Errors
@@ -1161,3 +1172,7 @@ unsafe extern "C" fn text_draw<S>(
         )
     }
 }
+
+#[cfg(test)]
+#[path = "shell_token_tests.rs"]
+mod token_tests;
