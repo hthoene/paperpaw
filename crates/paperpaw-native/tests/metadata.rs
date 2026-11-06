@@ -212,3 +212,40 @@ fn services_match_exactly_and_requirement_keys_are_unique_and_sorted() {
         );
     });
 }
+
+#[test]
+fn declared_services_borrow_validated_records_in_canonical_order() {
+    with_host(|host| {
+        let mut bytes = bytes("valid-empty-requirements.hex");
+        assert_eq!(metadata::check(&bytes, host).unwrap().services().count(), 0);
+        let mut wanted: Vec<_> = host.services.iter().collect();
+        wanted.sort_unstable_by_key(|service| service.key);
+        for wanted in &wanted {
+            service(
+                &mut bytes,
+                wanted.key,
+                wanted.major,
+                wanted.semantic_revision,
+                wanted.min_table_bytes,
+            );
+        }
+        finish(&mut bytes, wanted.len() as u16, 0);
+        let checked = metadata::check(&bytes, host).unwrap();
+        let expected: Vec<_> = wanted
+            .iter()
+            .map(|service| metadata::Declared {
+                key: service.key,
+                major: service.major,
+                semantic_revision: service.semantic_revision,
+            })
+            .collect();
+        assert_eq!(checked.services().collect::<Vec<_>>(), expected);
+        assert_eq!(checked.services().collect::<Vec<_>>(), expected);
+        for service in checked.services() {
+            let start = bytes.as_ptr() as usize;
+            let key = service.key.as_ptr() as usize;
+            assert!((start..start + bytes.len()).contains(&key));
+            assert!(key + service.key.len() <= start + bytes.len());
+        }
+    });
+}

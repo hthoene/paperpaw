@@ -61,6 +61,14 @@ pub enum Refusal<'a> {
     RequiredFeature { key: &'a str, revision: u16 },
 }
 
+/// A service requirement from validated admission metadata.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Declared<'a> {
+    pub key: &'a str,
+    pub major: u16,
+    pub semantic_revision: u16,
+}
+
 /// Validated metadata. Optional unavailable features are absent from the result.
 #[derive(Debug)]
 pub struct Checked<'a> {
@@ -68,9 +76,33 @@ pub struct Checked<'a> {
     pub needs_minor: u16,
     pub entry_bytes: u16,
     available: [Option<&'a str>; MAX_FEATURES],
+    service_bytes: &'a [u8],
 }
 
 impl Checked<'_> {
+    /// Declared services in canonical order, borrowing the validated bytes.
+    /// Repeated iteration allocates nothing and retains no per-service array.
+    pub fn services(&self) -> impl Iterator<Item = Declared<'_>> {
+        let mut cursor = Cursor {
+            bytes: self.service_bytes,
+            at: 0,
+        };
+        core::iter::from_fn(move || {
+            // check validated every record before retaining this exact span.
+            // Fallible reads also keep this visitor safe if framing changes.
+            let len = cursor.key(SERVICE_SIZE).ok()?;
+            let major = cursor.u16().ok()?;
+            let semantic_revision = cursor.u16().ok()?;
+            cursor.u32().ok()?;
+            let key = cursor.text(len).ok()?;
+            Some(Declared {
+                key,
+                major,
+                semantic_revision,
+            })
+        })
+    }
+
     /// Available requested feature keys in canonical order, without allocation.
     pub fn available_features(&self) -> impl Iterator<Item = &str> {
         self.available.iter().flatten().copied()
@@ -203,7 +235,9 @@ pub fn check<'a>(bytes: &'a [u8], host: &Host<'_>) -> Result<Checked<'a>, Refusa
         return Err(Refusal::Incompatible);
     }
     export(&mut cursor, prefix.entry_bytes)?;
+    let services_start = cursor.at;
     services(&mut cursor, prefix.services, host)?;
+    let service_bytes = &bytes[services_start..cursor.at];
     let mut available = [None; MAX_FEATURES];
     let mut previous = None;
     for slot in available.iter_mut().take(prefix.features) {
@@ -229,6 +263,7 @@ pub fn check<'a>(bytes: &'a [u8], host: &Host<'_>) -> Result<Checked<'a>, Refusa
         needs_minor: prefix.minor,
         entry_bytes: prefix.entry_bytes,
         available,
+        service_bytes,
     })
 }
 
