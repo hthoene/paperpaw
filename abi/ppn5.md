@@ -76,7 +76,8 @@ before any other field is read.
    - `code_at <= image_len`, and `code_at`, `meta_at` and `base` are aligned (`code_at` and `meta_at`
      to 4, `base` to `align`); `align` is a power of two in 4..4096;
    - `meta_at + meta_len <= code_at`, `meta_len <= 2,048`; `entry + entry_bytes <= code_at`;
-   - `relocs <= image_len / 4`, `patches` at most half the code's words, hot code as format 4.
+   - `relocs <= image_len / 4`, `patches` at most the code's 2-byte instruction slots, `(image_len − code_at) / 2`, hot code as
+     format 4.
    Else malformed.
 8. Digest over header and file; signature; installed hash; placement (ADR 0024, unchanged).
 9. Before relocation, every relocation word (the value in the image at a listed offset) is an
@@ -85,11 +86,14 @@ before any other field is read.
    included (a slice may point there). Function pointers such as `make` are code addresses. The metadata
    record at `meta_at` is read with the generated bounded reader and must agree with the header
    (`abi_major`, `needs_minor`, target profile). After relocation and before `make`:
-   - `entry.metadata.ptr == base + meta_at` and `entry.metadata.len == meta_len`, and the view is
+   - `entry.metadata.ptr == placed_base + meta_at` (the base the image was placed and relocated to,
+     `placement.base`, not the linked `base`) and `entry.metadata.len == meta_len`, and the view is
      equal to the record byte for byte (`abi/entry.md`);
    - `entry.size` equals the entry length of the target profile, and the entry's `abi_major` and
      `needs_minor` equal the header's;
-   - `make` lies in `[code_at, image_len)` and is 2-byte aligned (RISC-V compressed instructions).
+   - `make`, as an offset into the image, lies in `[code_at, image_len)` and is 2-byte aligned (RISC-V
+     compressed instructions). A `make` in hot code is mapped back to its image offset first
+     (`hot_at + (make - placement.hot)`).
    A mismatch is damaged. No plugin code has run until here.
 
 A refused file stays installed and switched off with its data.
@@ -112,7 +116,7 @@ loader's first call into the plugin is `make`. So the rule splits in two:
 
 `image_len` at most 4 MiB (`MAX_IMAGE_LEN`, above the X4's room; the real limit is the flash room,
 2,273,280 bytes for all plugins); `meta_len` at most 2,048; `relocs` at most `image_len / 4`;
-`patches` at most half the code's words; `align` 4..4096; signature 112 bytes; `hot_len` at most the
+`patches` at most the code's 2-byte instruction slots, `(image_len − code_at) / 2`; `align` 4..4096; signature 112 bytes; `hot_len` at most the
 X4's IRAM arena (`HOT_MAX`, 16 KiB, as in format 4). The digest, the relocation words and the patches are
 **streamed through a fixed buffer**: nothing is allocated in proportion to the file, the image,
 `relocs` or `patches`, on the 256 KiB heap or elsewhere.

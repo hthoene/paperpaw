@@ -53,6 +53,11 @@ ASSET_FOLDERS = ("samples/library/books/",)
 # Design proposals still in draft: working papers for the team, replaced by
 # the ADR and the docs they become, not what a plugin author reads.
 DRAFT_FOLDERS = ("docs/abi/proposals/",)
+# Kernel-side code of the SDK's crates that no plugin calls (behind the
+# `kernel` feature): how the firmware reads and relocates the interface-7 file
+# of the X4. Working code for the loaders, not what a plugin author reads.
+KERNEL_ONLY = ("crates/paperpaw-native/src/header5.rs", "crates/paperpaw-native/src/stream5.rs")
+
 # Generated tables of data with nothing to read in them: the names of all
 # of Tabler's icons in one string (172 KB, 53 KB zipped; `tools/icons/subset.py`
 # makes it). The names are public and `icons.rs` says how they are used.
@@ -86,7 +91,8 @@ def files(folder: Path):
         if (path.is_file() and not any(p.startswith(".") for p in parts)
                 and not SKIP.intersection(parts) and not test
                 and path.suffix.lower() not in ASSETS
-                and not name.startswith(ASSET_FOLDERS + DRAFT_FOLDERS + GENERATED_FOLDERS)):
+                and not name.startswith(ASSET_FOLDERS + DRAFT_FOLDERS + GENERATED_FOLDERS)
+                and name not in KERNEL_ONLY):
             yield path
 
 
