@@ -108,4 +108,8 @@ fn a_chain_of_frames_that_would_overflow_is_over_its_budget_not_a_panic() {
     let all = [frame("a::f", Some(u32::MAX)), frame("b::g", Some(10))];
     let p = check(&all, "chain 100 a::f b::g").unwrap();
     assert_eq!(p.len(), 1);
+    // Not even a budget of u32::MAX lets a sum that wrapped through.
+    let p = check(&all, "chain 4294967295 a::f b::g").unwrap();
+    assert_eq!(p.len(), 1);
+    assert!(p[0].contains("more than"), "{p:?}");
 }

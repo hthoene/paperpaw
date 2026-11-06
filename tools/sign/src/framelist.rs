@@ -167,7 +167,7 @@ pub fn check(all: &[Frame], budget: &str) -> Result<Vec<String>, String> {
                 Ok(Some(_)) => {}
             },
             Rule::Chain { max, names } => {
-                let mut sum = 0u32;
+                let mut sum = Some(0u32);
                 let mut bad = false;
                 for name in &names {
                     match largest(all, name) {
@@ -179,14 +179,23 @@ pub fn check(all: &[Frame], budget: &str) -> Result<Vec<String>, String> {
                             problems.push(format!("`{name}` has a frame the code does not size"));
                             bad = true;
                         }
-                        Ok(Some(b)) => sum = sum.saturating_add(b),
+                        Ok(Some(b)) => sum = sum.and_then(|s| s.checked_add(b)),
                     }
                 }
-                if !bad && sum > max {
-                    problems.push(format!(
-                        "chain {}: frames add up to {sum} bytes, over its {max}",
-                        names.join(" > ")
-                    ));
+                if !bad {
+                    // A sum beyond u32 is over any budget.
+                    match sum {
+                        Some(sum) if sum <= max => {}
+                        Some(sum) => problems.push(format!(
+                            "chain {}: frames add up to {sum} bytes, over its {max}",
+                            names.join(" > ")
+                        )),
+                        None => problems.push(format!(
+                            "chain {}: frames add up to more than {} bytes, over its {max}",
+                            names.join(" > "),
+                            u32::MAX
+                        )),
+                    }
                 }
             }
         }
