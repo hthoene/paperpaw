@@ -47,7 +47,7 @@ fn decoded_records_are_admitted_only_after_successful_commit() {
         Registration::Draw { token: 42 },
     ];
     let bytes = encode(&records).unwrap();
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     slot.scope(&mut construction, || {
         assert_eq!(submit(&slot, &bytes), OK);
         assert!(matches!(owner.as_ref().lease(), Err(Error::State)));
@@ -82,7 +82,7 @@ fn ignored_malformed_or_unsupported_batch_refuses_all_publication() {
             (),
         ));
         let slot = scope(owner.as_ref().context());
-        let mut construction = owner.as_ref().begin().unwrap();
+        let mut construction = owner.as_ref().begin("weather").unwrap();
         slot.scope(&mut construction, || {
             assert_eq!(
                 submit(&slot, &encode(&[Registration::Draw { token: 3 }]).unwrap()),
@@ -109,7 +109,7 @@ fn repeated_batches_cannot_exceed_the_transaction_capacity() {
     let dropped = Rc::new(Cell::new(0));
     let owner = Box::pin(HostOwner::new((RegistrationScope::new(), dropped), ()));
     let slot = scope(owner.as_ref().context());
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     let bytes = encode(&[Registration::Draw { token: 1 }; 8]).unwrap();
     slot.scope(&mut construction, || {
         assert_eq!(submit(&slot, &bytes), OK);
@@ -129,7 +129,7 @@ fn empty_batch_checks_decoder_latch_even_without_staged_records() {
     let dropped = Rc::new(Cell::new(0));
     let owner = Box::pin(HostOwner::new((RegistrationScope::new(), dropped), ()));
     let slot = scope(owner.as_ref().context());
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     slot.scope(&mut construction, || {
         assert_eq!(submit(&slot, &encode(&[]).unwrap()), OK);
         slot.reject().unwrap();
@@ -146,7 +146,7 @@ fn null_oversized_and_empty_inputs_obey_scope_and_refusal_rules() {
     let slot = scope(owner.as_ref().context());
     assert_eq!(submit(&slot, &encode(&[]).unwrap()), ERR_STATE);
     for length in [0, 1, registrations::REGISTRATION_MAX_BYTES + 1] {
-        let mut construction = owner.as_ref().begin().unwrap();
+        let mut construction = owner.as_ref().begin("weather").unwrap();
         slot.scope(&mut construction, || {
             // SAFETY: null is rejected or treated as an empty slice before reads.
             let status = unsafe { registrations::submit(&slot, ptr::null(), length) };
@@ -172,7 +172,7 @@ fn revoked_queued_and_registered_work_is_refused_before_the_body_runs() {
         (),
     ));
     let slot = scope(owner.as_ref().context());
-    let mut construction = owner.as_ref().begin().unwrap();
+    let mut construction = owner.as_ref().begin("weather").unwrap();
     slot.scope(&mut construction, || {
         assert_eq!(
             submit(&slot, &encode(&[Registration::Draw { token: 8 }]).unwrap()),
