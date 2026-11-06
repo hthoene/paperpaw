@@ -206,7 +206,8 @@ class RecordsTests(unittest.TestCase):
     def test_initial_descriptors_and_tags(self):
         ABI.validate(self.schema)
         self.assertEqual([(r['name'], r['id']) for r in self.schema['records']],
-                         [('registration.event', 1), ('registration.draw', 2), ('event.tick', 3)])
+                         [('registration.event', 1), ('registration.draw', 2), ('event.tick', 3),
+                          ('command.set_setting', 4)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             record['id'] += 127
@@ -217,6 +218,7 @@ class RecordsTests(unittest.TestCase):
         before = copy.deepcopy(self.schema)
         before['records'] = []
         del before['record_codec']
+        del before['command_codec']
         self.assertEqual(rust_records(before), '')
         ABI.compatible(before, self.schema, 0)
         with self.assertRaisesRegex(ValueError, 'backdated'):
@@ -224,6 +226,7 @@ class RecordsTests(unittest.TestCase):
         later = copy.deepcopy(self.schema)
         later['minor'] = 2
         later['record_codec']['since'] = 2
+        later['command_codec']['since'] = 2
         for record in later['records']:
             record['since'] = 2
             for field in record['fields']:

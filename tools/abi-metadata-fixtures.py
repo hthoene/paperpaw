@@ -19,6 +19,10 @@ def outputs():
     schema = copy.deepcopy(GEN.load(ROOT / 'abi/abi.def'))
     # Metadata-only fixtures exclude the unrelated settings codec descriptor.
     schema.pop('settings_value', None)
+    # Slot-15 command values depend on that codec and are excluded with it.
+    schema.pop('command_codec', None)
+    schema['records'] = [item for item in schema['records']
+                         if item['name'] != 'command.set_setting']
     schema['metadata']['profiles'] = [dict(name='test-only-le64', pointer_bits=64,
         byte_order='little', calling_convention='synthetic-not-loadable',
         entry_layout=65535, entry_bytes=64, entry_align=8)]

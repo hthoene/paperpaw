@@ -17,6 +17,10 @@ const REGISTRATIONS: usize = 8;
 #[path = "native_host/canvas.rs"]
 pub mod canvas;
 
+/// Callback-scoped slot-15 command staging for host-owned plugin contexts.
+#[path = "native_host/commands.rs"]
+pub mod commands;
+
 /// Scoped environment copy-out for host-owned plugin contexts.
 #[path = "native_host/environment.rs"]
 pub mod environment;
