@@ -349,7 +349,12 @@ unsafe extern "C" fn unsupported_storage_two(
 unsafe extern "C" fn unsupported_storage_sync(_: *mut c_void) -> i32 {
     ERR_UNSUPPORTED
 }
-unsafe extern "C" fn unsupported_format(_: *mut c_void, _: PpBytes, _: PpBytes, _: PpBuffer) -> i32 {
+unsafe extern "C" fn unsupported_format(
+    _: *mut c_void,
+    _: PpBytes,
+    _: PpBytes,
+    _: PpBuffer,
+) -> i32 {
     ERR_UNSUPPORTED
 }
 
