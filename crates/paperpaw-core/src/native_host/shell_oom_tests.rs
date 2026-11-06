@@ -43,12 +43,13 @@ fn construct(
     made: Box<dyn FlatInstance>,
     device: Option<&FlatDepth>,
     host: &FlatHost,
+    id: &Id,
 ) -> Result<Box<FlatPlugin>, FlatError> {
     let depth = match device {
         Some(depth) => depth.try_clone().ok_or(FlatError::Allocation)?,
         None => FlatDepth::try_new()?,
     };
-    let manifest = Manifest::new(Id::new_static("flat"), "Flat", Version::new(1, 0, 0));
+    let manifest = FlatPlugin::try_manifest(id, id.as_str(), Version::new(1, 0, 0))?;
     let plugin = FlatPlugin::new(manifest, made, depth, host)?;
     shared::try_box(plugin).ok_or(FlatError::Allocation)
 }
@@ -59,30 +60,43 @@ fn first_and_later_plugin_refuse_each_post_make_allocation_and_destroy_once() {
     let host = FlatHost {
         meter: crate::meter::Meter::new(None),
     };
-    for existing in [false, true] {
-        let device = existing.then(|| FlatDepth::try_new().unwrap());
-        let steps = if existing { 2 } else { 3 };
-        for nth in 1..=steps + 1 {
-            let destroyed = Rc::new(Cell::new(0));
-            let made = Box::new(Made {
-                scope: EnvironmentScope::new(),
-                destroyed: Rc::clone(&destroyed),
-            });
-            // The fake make succeeded. No test setup allocation occurs in the
-            // checked construction window; its destructors only update cells.
-            arm_failure(nth);
-            let result = construct(made, device.as_ref(), &host);
-            arm_failure(0);
-            assert_eq!(
-                result.is_err(),
-                nth <= steps,
-                "existing={existing}, nth={nth}"
-            );
-            if let Err(error) = &result {
-                assert_eq!(*error, FlatError::Allocation);
+    for owned in [false, true] {
+        let text = alloc::string::String::from("a").repeat(96);
+        let id = if owned {
+            Id::parse(&text).unwrap()
+        } else {
+            Id::new_static("flat")
+        };
+        for existing in [false, true] {
+            let device = existing.then(|| FlatDepth::try_new().unwrap());
+            let steps = if existing { 3 } else { 4 } + u32::from(owned);
+            for nth in 1..=steps + 1 {
+                let destroyed = Rc::new(Cell::new(0));
+                let made = Box::new(Made {
+                    scope: EnvironmentScope::new(),
+                    destroyed: Rc::clone(&destroyed),
+                });
+                // Fake make succeeded. ID setup and tracking cells already exist.
+                // Refuse each actual depth/id/name/shared/final-box allocation.
+                arm_failure(nth);
+                let result = construct(made, device.as_ref(), &host, &id);
+                arm_failure(0);
+                assert_eq!(
+                    result.is_err(),
+                    nth <= steps,
+                    "owned={owned}, existing={existing}, nth={nth}"
+                );
+                if let Err(error) = &result {
+                    assert_eq!(*error, FlatError::Allocation);
+                }
+                drop(result);
+                assert_eq!(
+                    destroyed.get(),
+                    1,
+                    "owned={owned}, existing={existing}, nth={nth}"
+                );
+                assert_eq!(id.as_str(), if owned { text.as_str() } else { "flat" });
             }
-            drop(result);
-            assert_eq!(destroyed.get(), 1, "existing={existing}, nth={nth}");
         }
     }
 }
