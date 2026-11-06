@@ -11,6 +11,14 @@ use super::Firmware;
 use crate::now;
 
 impl Firmware {
+    /// Writes back what the storage kept back; a failure is said, not retried.
+    pub(super) fn write_back(&mut self) {
+        self.state.unsynced = None;
+        if self.kernel.storage().sync().is_err() {
+            warn!("card: not all written back");
+        }
+    }
+
     /// Between the kernel's steps: where the card is lost, starts it again
     /// and mounts it anew (every few seconds while it is out), and tells
     /// the kernel once it is.
