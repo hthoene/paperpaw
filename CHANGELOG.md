@@ -6,10 +6,29 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+- Interface 7 draft 7 SDK: typed callbacks and frame-owned drawing, font metrics
+  and ink, nested clipping, exact snapshot views, complete message copies,
+  settings/grant reads, typed callback subscriptions and
+  screen/action/redraw/setting commands.
+
+
+- Interface 7 draft 5 SDK: bounded callback replies, typed draw frames and input,
+  screen/action declarations and events, catalog formatting and digit conversion,
+  and distinct permission/timeout errors. Callback input has no fixed glue cap.
+
+
 ### Added
 
 - Checked native admission metadata exposes declared service revisions through a
   borrowing iterator, so host query admission uses the validated requirements (#228).
+- Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
+  device usage, translated plugin names and work-note readers. Includes a deterministic fake-host
+  fixture for Battery port tests; helpers use bounded buffers and allocate nothing (#228).
+- Interface 7: host slots 29-31 (`text.metrics`, `text.ink`, `canvas.clip`) for text placed by its
+  line and ink and for nested clipping, commands 56-59 (open screen, run action, redraw, close
+  screen) in the generated command codec, and generated i18n format/digits limits. Hosts answer
+  `ERR_UNSUPPORTED` until they wire them; the SDK keeps private generated copies of the snapshot,
+  settings, colour and command codecs (#228).
 
 - Interface-7 SDK callback host binding and `native_plugin!` entry glue, with checked table admission
   and fallible host allocation. Storage slots 20-26 use caller-owned buffers; event tags 32-37 decode
@@ -91,6 +110,13 @@ change the plugin SDK.
   data plugins' tables in the SDK's `Hyphenation` (the greatest plugin id has a language).
   `paperpaw-hyphen` (kernel): `StoredPatterns::open_within` refuses a table over a heap budget
   (`OpenError::OverBudget`), `StoredPatterns::heap_bound` bounds it from its header.
+
+### Fixed
+
+- *Discover fonts* in the reading settings, where *More fonts* does not run, says why and offers the one thing to
+  do (it is not installed: open its page; it is switched off: switch it on; it waits for a restart: restart),
+  instead of only opening the store's page of the plugin. A plugin's page opened without a connection says
+  "No connection", not "Plugin not found", and carries the plugin's name (#240).
 
 ## [0.6.0-beta.3] - 2026-11-05
 

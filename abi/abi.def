@@ -818,6 +818,118 @@
       "ownership": "call",
       "reentry": "deny",
       "max_bytes": 4096
+    },
+    {
+      "id": 29,
+      "name": "text.metrics",
+      "since": 1,
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "font",
+          "type": "handle"
+        },
+        {
+          "name": "size",
+          "type": "f32"
+        },
+        {
+          "name": "ascent",
+          "type": "out_f32"
+        },
+        {
+          "name": "descent",
+          "type": "out_f32"
+        },
+        {
+          "name": "line_height",
+          "type": "out_f32"
+        }
+      ],
+      "result": "status",
+      "effect": "query",
+      "ownership": "call",
+      "reentry": "deny",
+      "max_bytes": 0
+    },
+    {
+      "id": 30,
+      "name": "text.ink",
+      "since": 1,
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "font",
+          "type": "handle"
+        },
+        {
+          "name": "size",
+          "type": "f32"
+        },
+        {
+          "name": "text",
+          "type": "bytes"
+        },
+        {
+          "name": "top",
+          "type": "out_i32"
+        },
+        {
+          "name": "bottom",
+          "type": "out_i32"
+        },
+        {
+          "name": "left",
+          "type": "out_i32"
+        },
+        {
+          "name": "right",
+          "type": "out_i32"
+        }
+      ],
+      "result": "status",
+      "effect": "query",
+      "ownership": "call",
+      "reentry": "deny",
+      "max_bytes": 4096
+    },
+    {
+      "id": 31,
+      "name": "canvas.clip",
+      "since": 1,
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "x",
+          "type": "i32"
+        },
+        {
+          "name": "y",
+          "type": "i32"
+        },
+        {
+          "name": "width",
+          "type": "u32"
+        },
+        {
+          "name": "height",
+          "type": "u32"
+        }
+      ],
+      "result": "status",
+      "effect": "mutate",
+      "ownership": "call",
+      "reentry": "deny",
+      "max_bytes": 0
     }
   ],
   "records": [
@@ -2226,6 +2338,60 @@
           "max_bytes": 256
         }
       ]
+    },
+    {
+      "id": 56,
+      "name": "command.open_screen",
+      "since": 1,
+      "fields": [
+        {
+          "name": "screen",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        }
+      ]
+    },
+    {
+      "id": 57,
+      "name": "command.run_action",
+      "since": 1,
+      "fields": [
+        {
+          "name": "action",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        }
+      ]
+    },
+    {
+      "id": 58,
+      "name": "command.redraw",
+      "since": 1,
+      "fields": [
+        {
+          "name": "mode",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 59,
+      "name": "command.close_screen",
+      "since": 1,
+      "fields": []
     }
   ],
   "statuses": [
@@ -2864,5 +3030,11 @@
     "reserved_mask": 4278190080,
     "alpha": "none",
     "invalid_status": "ERR_INVALID"
+  },
+  "i18n_limits": {
+    "since": 1,
+    "max_key_bytes": 128,
+    "max_args_bytes": 1024,
+    "max_args_records": 8
   }
 }

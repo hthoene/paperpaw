@@ -2,14 +2,17 @@
 use super::{Error, Host, binding::status};
 use paperpaw_native::host_glue::PpBytes;
 
-/// Submit a record batch to the construction scope. For a declaration
-/// builder, use `|b| submit(host, b).map_err(i32::from)` as its submission sink.
-/// The host validates the entire batch before committing any registration.
+/// Submit exactly one canonical batch produced by the generated record encoder.
+/// Most plugins should use [`super::declare::Declarations`] to construct and
+/// submit declarations. Static declaration images can submit their encoded batch
+/// here. For a builder sink, use `|b| submit(host, b).map_err(i32::from)`.
+/// The host validates the entire batch before committing any registration and
+/// refuses noncanonical framing, invalid records and data beyond its limits.
 ///
 /// # Errors
-/// Returns the host's refusal. Every batch, including an oversized or malformed
-/// one, reaches the host so it can poison construction if its error is ignored.
-/// Use the builder/encoder to produce canonical input within the host's limits.
+/// Returns the host's refusal. Every submitted buffer, including malformed or
+/// oversized input, reaches the host so it can latch a construction failure
+/// even when the caller ignores the returned error.
 pub fn submit(host: &Host<'_>, batch: &[u8]) -> Result<(), Error> {
     // SAFETY: callback binding and borrowed batch remain live for this call.
     status(unsafe {

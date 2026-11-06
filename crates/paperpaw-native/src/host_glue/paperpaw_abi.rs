@@ -85,6 +85,12 @@ pub struct PpHost {
     pub i18n_format: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, key: PpBytes, args: PpBytes, out: PpBuffer) -> i32,
     /// i18n.digits: query, length, since 1.
     pub i18n_digits: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, text: PpBytes, out: PpBuffer) -> i32,
+    /// text.metrics: query, status, since 1.
+    pub text_metrics: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, font: u32, size: f32, ascent: *mut f32, descent: *mut f32, line_height: *mut f32) -> i32,
+    /// text.ink: query, status, since 1.
+    pub text_ink: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, font: u32, size: f32, text: PpBytes, top: *mut i32, bottom: *mut i32, left: *mut i32, right: *mut i32) -> i32,
+    /// canvas.clip: mutate, status, since 1.
+    pub canvas_clip: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, x: i32, y: i32, width: u32, height: u32) -> i32,
 }
 /// Generated ABI major.
 pub const MAJOR: u16 = 7;
