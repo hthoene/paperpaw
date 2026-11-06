@@ -20,7 +20,8 @@ change the plugin SDK.
 ### Added
 
 - Graphics: `Framebuffer::probe`, a framebuffer that keeps no pixels but where masks put ink
-  (pixels at least half covered, unclipped), and `InkBounds`; host-only `FontHandle::ink_drawn`
+  (pixels at or above the frame's ink threshold, `Framebuffer::ink_threshold`, unclipped), and
+  `InkBounds`; host-only `FontHandle::ink_drawn`
   measures text ink by the drawing path itself (shaping, joining, marks, jamo), for slot 30
   `text.ink` (#228).
 - Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
