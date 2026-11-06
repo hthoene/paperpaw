@@ -52,6 +52,7 @@ mod core_plugin;
 mod data_plugin;
 mod drawing;
 mod effects;
+mod free_count;
 mod gestures;
 mod hints;
 mod input;
@@ -246,6 +247,8 @@ pub struct Kernel {
     /// When the device went to sleep ([`Kernel::suspend`]): how long it
     /// slept is told on waking.
     suspended_at: Option<Instant>,
+    /// The card's free space counted in ticks (see [`free_count`]).
+    free_count: free_count::FreeCount,
     /// The row of hints over the buttons below the screen.
     hint: hints::HintRow,
     /// See [`KernelBuilder::busy_mark`].
@@ -415,6 +418,7 @@ impl Kernel {
         self.invalidate(self.framebuffer.bounds());
         self.output.commands.push(Command::open_slot(slots::HOME));
         self.output.commands.push(events::STARTED.emit(()));
+        self.count_free_again(now);
         // The device slept and restarted: it wakes as it would elsewhere.
         if mem::take(&mut self.after_sleep) {
             self.output.commands.push(events::RESUME.emit(()));
@@ -852,6 +856,7 @@ impl Kernel {
         if self.notice.as_ref().is_some_and(|(_, until)| *until <= now) {
             self.end_notice();
         }
+        self.count_free(now);
         // Times and deadlines come due here; jobs step only here, never
         // while input waits.
         self.works.ticking();
@@ -1195,6 +1200,7 @@ impl Kernel {
         // The time asleep is no screen's.
         self.shown_since = now;
         self.close_shut_out();
+        self.count_free_again(now);
         self.output.commands.push(events::RESUME.emit(()));
     }
 

@@ -235,6 +235,7 @@ impl Kernel {
             timer,
             notice,
             work,
+            self.free_count.due(),
             self.sleep_due(),
             shot,
             self.network_deadline(),

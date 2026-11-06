@@ -1,0 +1,135 @@
+//! The card's free space counted in the kernel's idle ticks (Senior's
+//! remark 1 on PR #188, `free_count`): from the start until known, a part
+//! at each tick with a pause between, again on waking; never while a
+//! press waits, nor just before sleep; not on a storage that counts
+//! nothing.
+
+use core::cell::Cell;
+
+use super::*;
+use paperpaw_platform::{DirEntry, Storage, StorageError};
+use paperpaw_sdk::MemoryStorage;
+
+/// A storage whose free space is known after `parts` asks, as a FAT
+/// storage's once its FAT is counted; `asks` counts them.
+#[derive(Clone)]
+struct Counting {
+    inner: alloc::rc::Rc<MemoryStorage>,
+    parts: alloc::rc::Rc<Cell<u32>>,
+    asks: alloc::rc::Rc<Cell<u32>>,
+    sized: bool,
+}
+
+impl Counting {
+    fn new(parts: u32, sized: bool) -> Self {
+        Self {
+            inner: alloc::rc::Rc::default(),
+            parts: alloc::rc::Rc::new(Cell::new(parts)),
+            asks: alloc::rc::Rc::default(),
+            sized,
+        }
+    }
+}
+
+impl Storage for Counting {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        self.inner.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        self.inner.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.inner.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.inner.append(path, data)
+    }
+    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.inner.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        self.inner.remove(path)
+    }
+    fn free_space(&self) -> Option<u64> {
+        self.asks.set(self.asks.get() + 1);
+        let left = self.parts.get();
+        self.parts.set(left.saturating_sub(1));
+        (left <= 1).then_some(1 << 20)
+    }
+    fn total_space(&self) -> Option<u64> {
+        self.sized.then_some(1 << 30)
+    }
+}
+
+fn kernel(storage: &Counting) -> Kernel {
+    let mut kernel = Kernel::builder(DEVICE)
+        .sleep(true)
+        .setting_default(&settings::SLEEP_AFTER, 1)
+        .storage(storage.clone())
+        .build()
+        .unwrap();
+    kernel.start(Instant(0));
+    kernel
+}
+
+/// Ticks at every wake-up the kernel asks for, up to `until`.
+fn tick_through(kernel: &mut Kernel, from: crate::Effects, until: u64) {
+    let mut wake = from.wake_at();
+    while let Some(at) = wake.filter(|at| at.0 <= until) {
+        wake = kernel.tick(at).wake_at();
+    }
+}
+
+#[test]
+fn the_count_is_driven_in_ticks_until_known() {
+    let storage = Counting::new(5, true);
+    let mut kernel = kernel(&storage);
+    // Not in the start itself: a second later, its first frames shown.
+    assert_eq!(storage.asks.get(), 0);
+    let effects = kernel.tick(Instant(500));
+    assert_eq!(storage.asks.get(), 0);
+    assert!(effects.wake_at().is_some_and(|at| at.0 <= 1_000));
+    tick_through(&mut kernel, effects, 5_000);
+    // A part at each tick, a pause between: 5 asks, then no more.
+    assert_eq!(storage.asks.get(), 5);
+    kernel.tick(Instant(10_000));
+    assert_eq!(storage.asks.get(), 5);
+}
+
+#[test]
+fn waking_starts_the_count_again() {
+    let storage = Counting::new(1, true);
+    let mut kernel = kernel(&storage);
+    let effects = kernel.tick(Instant(1_000));
+    tick_through(&mut kernel, effects, 5_000);
+    assert_eq!(storage.asks.get(), 1);
+    // Asleep, and another card in when it wakes: counted from its start.
+    kernel.suspend(Instant(20_000));
+    storage.parts.set(3);
+    let effects = kernel.resume(Instant(60_000));
+    tick_through(&mut kernel, effects, 65_000);
+    assert_eq!(storage.asks.get(), 4);
+}
+
+#[test]
+fn no_part_is_counted_just_before_sleep() {
+    let storage = Counting::new(100_000, true);
+    let mut kernel = kernel(&storage);
+    // Sleep after a minute: from 58 s on nothing is counted.
+    let effects = kernel.tick(Instant(1_000));
+    tick_through(&mut kernel, effects, 57_900);
+    let before = storage.asks.get();
+    assert!(before > 100, "{before}");
+    let effects = kernel.tick(Instant(58_100));
+    assert_eq!(storage.asks.get(), before);
+    assert!(effects.wake_at().is_some());
+}
+
+#[test]
+fn a_storage_that_cannot_tell_its_size_is_not_asked() {
+    let storage = Counting::new(5, false);
+    let mut kernel = kernel(&storage);
+    let effects = kernel.tick(Instant(1_000));
+    tick_through(&mut kernel, effects, 5_000);
+    assert_eq!(storage.asks.get(), 0);
+}
