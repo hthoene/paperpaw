@@ -21,6 +21,23 @@ fn sub(rd: u32, rs1: u32, rs2: u32) -> u32 {
 fn beq(rs1: u32, rs2: u32) -> u32 {
     (rs2 << 20) | (rs1 << 15) | 0x63
 }
+/// `beq rs1, rs2, +offset` (offset even, -4096..4094).
+fn beq_to(rs1: u32, rs2: u32, offset: i32) -> u32 {
+    let o = offset as u32;
+    ((o >> 12 & 1) << 31)
+        | ((o >> 5 & 0x3f) << 25)
+        | (rs2 << 20)
+        | (rs1 << 15)
+        | ((o >> 1 & 0xf) << 8)
+        | ((o >> 11 & 1) << 7)
+        | 0x63
+}
+/// `jalr x0, rs1, 0`: a jump through a register (`ret` when it is `ra`).
+fn jr(rs1: u32) -> u32 {
+    (rs1 << 15) | 0x67
+}
+const A0: u32 = 10;
+const S0: u32 = 8;
 fn sw(rs2: u32, rs1: u32) -> u32 {
     (rs2 << 20) | (rs1 << 15) | (2 << 12) | 0x23
 }
@@ -179,7 +196,7 @@ fn compressed_instructions_do_not_throw_the_walk_off() {
     );
     assert_eq!(
         found(&[N(c_addi16sp(-512)), N(C_NOP), W(addi(SP, SP, -2032))]),
-        Some(Finding::Large { at: 4, bytes: 2032 })
+        Some(Finding::Large { at: 4, bytes: 2544 })
     );
     // An odd number of 16-bit instructions before a 32-bit one.
     assert_eq!(
@@ -216,4 +233,125 @@ fn compressed_forms_build_a_size_too() {
 fn code_that_ends_in_the_middle_of_an_instruction_is_not_a_frame() {
     assert_eq!(scan(&[0x13, 0x01], &[0]), None);
     assert_eq!(scan(&[], &[]), None);
+}
+
+#[test]
+fn a_dynamic_alloca_is_refused_whatever_form_it_takes() {
+    // clang: sub a0, sp, a0; mv sp, a0 (addi sp, a0, 0).
+    assert_eq!(
+        found(&[W(sub(A0, SP, A0)), W(addi(SP, A0, 0))]),
+        Some(Finding::Unknown { at: 4 })
+    );
+    // The compressed move, c.mv sp, a0.
+    assert_eq!(
+        found(&[W(sub(A0, SP, A0)), N(c_mv(SP, A0))]),
+        Some(Finding::Unknown { at: 4 })
+    );
+    // c.li sp, 1 and an add into sp from other registers.
+    assert_eq!(found(&[N(c_li(SP, 1))]), Some(Finding::Unknown { at: 0 }));
+    assert_eq!(
+        found(&[W(add(SP, A0, T0))]),
+        Some(Finding::Unknown { at: 0 })
+    );
+    // A load into sp, and a lui into it.
+    let lw = (SP << 7) | (2 << 12) | (A0 << 15) | 0x03;
+    assert_eq!(found(&[W(lw)]), Some(Finding::Unknown { at: 0 }));
+    assert_eq!(found(&[W(lui(SP, 1))]), Some(Finding::Unknown { at: 0 }));
+    // The frame pointer's restore is the frame given back, not an alloca.
+    assert_eq!(found(&[W(addi(SP, S0, -16))]), None);
+    assert_eq!(found(&[N(c_mv(SP, S0))]), None);
+}
+
+#[test]
+fn a_constant_set_on_one_path_is_not_trusted_where_another_path_arrives() {
+    // beq a1, zero, +8 jumps over `li a0, 16` to the `sub sp, sp, a0`: a0 is
+    // not 16 there.
+    assert_eq!(
+        found(&[W(beq_to(11, 0, 8)), W(addi(A0, 0, 16)), W(sub(SP, SP, A0))]),
+        Some(Finding::Unknown { at: 8 })
+    );
+    // A backward branch to the `sub` as well.
+    assert_eq!(
+        found(&[W(addi(A0, 0, 16)), W(sub(SP, SP, A0)), W(beq_to(11, 0, -4))]),
+        Some(Finding::Unknown { at: 4 })
+    );
+    // The same without a branch to it stays known and small.
+    assert_eq!(
+        found(&[
+            W(beq_to(11, 0, 12)),
+            W(addi(A0, 0, 16)),
+            W(sub(SP, SP, A0)),
+            W(RET)
+        ]),
+        None
+    );
+    // An indirect jump (a switch) loosens the function: a size built after
+    // it is not trusted.
+    assert_eq!(
+        found(&[W(jr(T1)), W(addi(A0, 0, 16)), W(sub(SP, SP, A0))]),
+        Some(Finding::Unknown { at: 8 })
+    );
+    // A return is not such a jump.
+    assert_eq!(
+        found(&[W(RET), W(addi(A0, 0, 16)), W(sub(SP, SP, A0))]),
+        None
+    );
+}
+
+#[test]
+fn a_frame_taken_in_steps_counts_in_total() {
+    // -1024 and -1024: 2048.
+    assert_eq!(
+        found(&[W(addi(SP, SP, -1024)), W(addi(SP, SP, -1024))]),
+        Some(Finding::Large { at: 4, bytes: 2048 })
+    );
+    // -1024, back, -1024: 1024 at most.
+    assert_eq!(
+        found(&[
+            W(addi(SP, SP, -1024)),
+            W(addi(SP, SP, 1024)),
+            W(addi(SP, SP, -1024))
+        ]),
+        None
+    );
+    // Each function by itself.
+    let f = code(&[
+        W(addi(SP, SP, -1024)),
+        W(RET),
+        W(addi(SP, SP, -1024)),
+        W(RET),
+    ]);
+    assert_eq!(scan(&f, &[0, 8]), None);
+}
+
+#[test]
+fn data_before_a_function_does_not_hide_its_start() {
+    // Two bytes `03 00` (which look like the start of a 32-bit instruction)
+    // and then a function at offset 2 with a large frame.
+    let mut f = vec![0x03, 0x00];
+    f.extend(code(&[W(addi(SP, SP, -1600)), W(RET)]));
+    assert_eq!(scan(&f, &[2]), Some(Finding::Large { at: 2, bytes: 1600 }));
+    assert_eq!(frame_sizes(&f, &[2]), vec![Some(1600)]);
+}
+
+#[test]
+fn a_functions_frame_is_how_deep_sp_goes_below_its_start() {
+    // Prologue -48, an early epilogue (+48, ret), the rest of the body, the
+    // last epilogue: the frame is 48, not 0 and not 96.
+    let f = code(&[
+        W(addi(SP, SP, -48)),
+        W(sw(1, SP)),
+        W(addi(SP, SP, 48)),
+        W(RET),
+        W(sw(1, SP)),
+        W(addi(SP, SP, 48)),
+        W(RET),
+    ]);
+    assert_eq!(frame_sizes(&f, &[0]), vec![Some(48)]);
+    // A frame pointer's restore leaves the frame as it was.
+    let f = code(&[W(addi(SP, SP, -64)), W(addi(SP, S0, -16)), W(RET)]);
+    assert_eq!(frame_sizes(&f, &[0]), vec![Some(64)]);
+    // A dynamic one: unknown, for that function only.
+    let f = code(&[W(sub(SP, SP, T1)), W(RET), W(addi(SP, SP, -32))]);
+    assert_eq!(frame_sizes(&f, &[0, 8]), vec![None, Some(32)]);
 }
