@@ -1,7 +1,8 @@
 //! Declaration records for native plugins (interface 7): a builder that writes
 //! the records `setting.group`, `setting.spec`, `setting.extra`,
-//! `resource.hyphenation`, `resource.font_face` and `resource.font_extension`
-//! (tags 5-10) with the generated encoder, as the batches a plugin submits
+//! `resource.hyphenation`, `resource.font_face`, `resource.font_extension`,
+//! `screen.spec` and `action.spec` (tags 5-12), and event/draw callback
+//! registrations (tags 1-2) with the generated encoder, as the batches a plugin submits
 //! through `registrations.submit` while it is made.
 //!
 //! A plugin creates [`Declarations`] with a submission sink, adds borrowed
@@ -52,10 +53,13 @@ pub(crate) mod records_wire;
 pub(crate) mod settings_value;
 
 use records_wire::{
-    Record, ResourceFontExtension, ResourceFontFace, ResourceHyphenation, SettingExtra,
-    SettingGroup, SettingSpec, records_encode,
+    ActionSpec, Record, ResourceFontExtension, ResourceFontFace, ResourceHyphenation, ScreenSpec,
+    SettingExtra, SettingGroup, SettingSpec, records_encode,
 };
 use settings_value::{SettingValueRef, settings_encode};
+
+mod callbacks;
+pub use callbacks::EventKind;
 
 /// Most records in one batch.
 pub const BATCH_MAX_RECORDS: usize = records_wire::REGISTRATION_MAX_RECORDS;
@@ -347,14 +351,69 @@ impl<'a> FontExtensionDecl<'a> {
     }
 }
 
+/// A `screen.spec` declaration with a plugin-owned callback token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ScreenDecl<'a> {
+    /// The screen's id, relative to the plugin.
+    pub name: &'a str,
+    /// The translation key of its title.
+    pub title: &'a str,
+    /// Token passed to the screen's callbacks.
+    pub token: u32,
+    /// Request a full refresh when the screen opens.
+    pub full_refresh_on_open: bool,
+}
+
+impl<'a> ScreenDecl<'a> {
+    /// A screen with no refresh flag set.
+    pub fn new(name: &'a str, title: &'a str, token: u32) -> Self {
+        Self {
+            name,
+            title,
+            token,
+            full_refresh_on_open: false,
+        }
+    }
+}
+
+/// An `action.spec` declaration with a plugin-owned callback token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ActionDecl<'a> {
+    /// The action's id, relative to the plugin.
+    pub name: &'a str,
+    /// The translation key of its title.
+    pub title: &'a str,
+    /// Token passed to the action's event callback.
+    pub token: u32,
+    /// Run only while one of this plugin's screens is on top.
+    pub needs_screen: bool,
+}
+
+impl<'a> ActionDecl<'a> {
+    /// An action which can run without a screen.
+    pub fn new(name: &'a str, title: &'a str, token: u32) -> Self {
+        Self {
+            name,
+            title,
+            token,
+            needs_screen: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Item<'a> {
+    Registration(records_wire::Registration),
     Group(GroupDecl<'a>),
     Spec(SpecDecl<'a>, SpecParts),
     Extra(ExtraDecl<'a>),
     Hyphenation { language: &'a str, path: &'a str },
     FontFace(FontFaceDecl<'a>),
     FontExtension(FontExtensionDecl<'a>),
+    Screen(ScreenDecl<'a>),
+    Action(ActionDecl<'a>),
 }
 
 /// The items a plugin declares, in the order it declares them.
@@ -840,6 +899,66 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
         Ok(self)
     }
 
+    /// Adds a `screen.spec` declaration.
+    ///
+    /// # Errors
+    /// An empty name or title, a field over its generated cap, or a sink refusal.
+    pub fn screen(&mut self, screen: ScreenDecl<'_>) -> Result<&mut Self, DeclareError> {
+        self.check_sink()?;
+        let result = (|| {
+            filled(screen.name, "screen name")?;
+            filled(screen.title, "screen title")?;
+            within(
+                screen.name,
+                records_wire::SCREEN_SPEC_NAME_MAX_BYTES,
+                "screen name",
+            )?;
+            within(
+                screen.title,
+                records_wire::SCREEN_SPEC_TITLE_MAX_BYTES,
+                "screen title",
+            )?;
+            self.push(Item::Screen(screen))
+        })();
+        if let Err(error) = result {
+            if self.failed.is_none() {
+                self.failed = Some(Latched::Refused(error));
+            }
+            return Err(error);
+        }
+        Ok(self)
+    }
+
+    /// Adds an `action.spec` declaration.
+    ///
+    /// # Errors
+    /// An empty name or title, a field over its generated cap, or a sink refusal.
+    pub fn action(&mut self, action: ActionDecl<'_>) -> Result<&mut Self, DeclareError> {
+        self.check_sink()?;
+        let result = (|| {
+            filled(action.name, "action name")?;
+            filled(action.title, "action title")?;
+            within(
+                action.name,
+                records_wire::ACTION_SPEC_NAME_MAX_BYTES,
+                "action name",
+            )?;
+            within(
+                action.title,
+                records_wire::ACTION_SPEC_TITLE_MAX_BYTES,
+                "action title",
+            )?;
+            self.push(Item::Action(action))
+        })();
+        if let Err(error) = result {
+            if self.failed.is_none() {
+                self.failed = Some(Latched::Refused(error));
+            }
+            return Err(error);
+        }
+        Ok(self)
+    }
+
     /// Submits the pending batch. Earlier full batches were submitted as items
     /// were added. The sink borrows each batch only for the duration of its call.
     ///
@@ -901,6 +1020,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
 impl<'a> Item<'a> {
     fn record(&self) -> Record<'_> {
         match self {
+            Item::Registration(registration) => Record::Registration(*registration),
             Item::Group(g) => Record::SettingGroup(SettingGroup {
                 name: g.name,
                 title: g.title,
@@ -926,6 +1046,18 @@ impl<'a> Item<'a> {
                 name: e.name,
                 path: e.path,
                 extends: e.extends,
+            }),
+            Item::Screen(s) => Record::ScreenSpec(ScreenSpec {
+                name: s.name,
+                title: s.title,
+                token: s.token,
+                flags: u32::from(s.full_refresh_on_open),
+            }),
+            Item::Action(a) => Record::ActionSpec(ActionSpec {
+                name: a.name,
+                title: a.title,
+                token: a.token,
+                flags: u32::from(a.needs_screen),
             }),
         }
     }

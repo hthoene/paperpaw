@@ -3,7 +3,7 @@ pub(crate) mod calls;
 pub(crate) mod context;
 pub(crate) mod core_frame;
 pub(crate) mod graphics;
-mod handles;
+pub(crate) mod handles;
 pub(crate) mod lifecycle;
 pub(crate) mod queries;
 #[allow(

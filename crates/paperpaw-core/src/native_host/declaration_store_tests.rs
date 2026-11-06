@@ -372,7 +372,12 @@ fn construction_retains_a_snapshot_and_record_offsets_after_input_is_gone() {
     assert!(batch.offsets[..6].windows(2).all(|pair| pair[0] < pair[1]));
     assert!(construction.declarations().is_empty());
     assert!(matches!(
-        construction.commit(|_| {}),
+        construction.commit(crate::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| {}
+        }),
         Err(super::super::Error::DeclarationViewsUnavailable)
     ));
 }
@@ -863,4 +868,140 @@ fn changed_image_font_names_are_unique_across_face_and_extension_runs() {
         assert!(store.find("fixture", Kind::Face, FACE, &mut |_| {}));
         assert!(store.find("fixture", Kind::Extension, EXTENSION, &mut |_| {}));
     }
+}
+
+struct CleanupContext {
+    store: Rc<RefCell<DeclarationStore>>,
+    busy: Cell<bool>,
+    destroyed: Rc<Cell<bool>>,
+    reports: Rc<Cell<usize>>,
+}
+impl CleanupContext {
+    fn teardown() -> super::super::Teardown<Self> {
+        use super::super::{Error, Teardown};
+        Teardown {
+            report: |context, step, error| {
+                assert_eq!(step, super::super::TeardownStep::Cancel);
+                assert_eq!(error, Error::Busy);
+                context.reports.set(context.reports.get() + 1);
+            },
+            cancel: |context| {
+                if context.busy.replace(false) {
+                    Err(Error::Busy)
+                } else {
+                    Ok(())
+                }
+            },
+            release: |context| {
+                context
+                    .store
+                    .try_borrow_mut()
+                    .map_err(|_| Error::Busy)?
+                    .remove_owner(&Id::new_static("fixture"), 1);
+                Ok(())
+            },
+            destroy: |context| context.destroyed.set(true),
+        }
+    }
+}
+struct CleanupModule {
+    store: Rc<RefCell<DeclarationStore>>,
+    batch_live: Rc<Cell<bool>>,
+    destroyed: Rc<Cell<bool>>,
+    unmapped: Rc<Cell<bool>>,
+}
+impl Drop for CleanupModule {
+    fn drop(&mut self) {
+        assert!(
+            keys(&self.store.borrow()).is_empty(),
+            "declarations must be removed first"
+        );
+        assert!(!self.batch_live.get(), "batch must be dropped first");
+        assert!(self.destroyed.get());
+        self.unmapped.set(true);
+    }
+}
+struct CleanupBatchRecord(Rc<Cell<bool>>);
+impl Drop for CleanupBatchRecord {
+    fn drop(&mut self) {
+        self.0.set(false);
+    }
+}
+
+#[test]
+fn busy_cleanup_releases_declarations_and_batch_before_module_unmap() {
+    check_busy_cleanup(false);
+}
+
+#[test]
+fn busy_fallback_releases_declarations_and_batch_before_module_unmap() {
+    check_busy_cleanup(true);
+}
+
+fn check_busy_cleanup(fallback: bool) {
+    use super::super::{Error, HostOwner};
+    let store = Rc::new(RefCell::new(DeclarationStore::default()));
+    let batch_live = Rc::new(Cell::new(true));
+    let destroyed = Rc::new(Cell::new(false));
+    let reports = Rc::new(Cell::new(0));
+    let unmapped = Rc::new(Cell::new(false));
+    let source = image();
+    let source_guard = Rc::downgrade(&source);
+    let mut allocations = Allocations::default();
+    store
+        .borrow_mut()
+        .prepare(
+            pending(&source, false, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    drop(source);
+    let owner = Box::pin(HostOwner::new(
+        CleanupContext {
+            store: Rc::clone(&store),
+            busy: Cell::new(true),
+            reports: Rc::clone(&reports),
+            destroyed: Rc::clone(&destroyed),
+        },
+        CleanupModule {
+            store: Rc::clone(&store),
+            batch_live: Rc::clone(&batch_live),
+            destroyed: Rc::clone(&destroyed),
+            unmapped: Rc::clone(&unmapped),
+        },
+    ));
+    let mut construction = owner.as_ref().begin("fixture").unwrap();
+    assert!(
+        construction
+            .stage(CleanupBatchRecord(Rc::clone(&batch_live)))
+            .is_ok()
+    );
+    let batch = construction.commit(CleanupContext::teardown()).unwrap();
+    if fallback {
+        drop(batch);
+        assert!(!batch_live.get());
+    } else {
+        assert_eq!(owner.as_ref().prepare_teardown(), Err(Error::Busy));
+        assert!(!keys(&store.borrow()).is_empty());
+        assert!(batch_live.get() && !unmapped.get());
+        owner.as_ref().prepare_teardown().unwrap();
+        assert!(keys(&store.borrow()).is_empty());
+        assert!(
+            source_guard.upgrade().is_none(),
+            "store's module guard released immediately"
+        );
+        assert_eq!(owner.as_ref().finish(), Err(Error::Busy));
+        drop(batch);
+        assert!(!batch_live.get());
+        owner.as_ref().finish().unwrap();
+        assert!(destroyed.get() && !unmapped.get());
+    }
+    drop(owner);
+    assert_eq!(reports.get(), usize::from(fallback));
+    assert!(source_guard.upgrade().is_none());
+    assert!(
+        unmapped.get(),
+        "module actually unmapped after both releases"
+    );
 }

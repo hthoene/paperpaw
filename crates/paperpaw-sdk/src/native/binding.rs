@@ -29,6 +29,10 @@ pub enum Error {
     NotFound,
     /// Storage is full or its reserve would be consumed.
     Full,
+    /// The plugin lacks permission or user consent.
+    Denied,
+    /// The operation exceeded its deadline.
+    Timeout,
     /// A status unknown to this SDK, including an invalid positive status.
     Other(i32),
 }
@@ -47,6 +51,8 @@ impl Error {
             abi::ERR_BUSY => Self::Busy,
             abi::ERR_NOT_FOUND => Self::NotFound,
             abi::ERR_FULL => Self::Full,
+            abi::ERR_DENIED => Self::Denied,
+            abi::ERR_TIMEOUT => Self::Timeout,
             other => Self::Other(other),
         }
     }
@@ -64,6 +70,8 @@ impl Error {
             Self::Busy => abi::ERR_BUSY,
             Self::NotFound => abi::ERR_NOT_FOUND,
             Self::Full => abi::ERR_FULL,
+            Self::Denied => abi::ERR_DENIED,
+            Self::Timeout => abi::ERR_TIMEOUT,
             Self::Other(other) if other < 0 => other,
             Self::Other(_) => abi::ERR_INVALID,
         }
@@ -134,20 +142,47 @@ pub trait Plugin: Sized + 'static {
     /// Returns a host refusal; a failed instance is never activated.
     fn make(host: &Host<'_>) -> Result<Self, Error>;
 
-    /// Handle one borrowed event batch for a committed callback token.
+    /// Handle one decoded event for a committed callback token.
+    /// The default implementation returns Unsupported.
     ///
     /// # Errors
     /// Returns a refusal; the host logs it and applies its delivery policy.
-    fn event(&mut self, _host: &Host<'_>, _token: u32, _input: &[u8]) -> Result<(), Error> {
+    fn event(
+        &mut self,
+        _host: &Host<'_>,
+        _token: u32,
+        _event: super::events::Event<'_>,
+        _reply: &mut super::reply::Reply<'_>,
+    ) -> Result<(), Error> {
         Err(Error::Unsupported)
     }
 
     /// Draw using the canvas installed for this callback.
+    /// The default implementation returns Unsupported.
     ///
     /// # Errors
     /// Returns a refusal when drawing cannot complete.
-    fn draw(&mut self, _host: &Host<'_>, _token: u32) -> Result<(), Error> {
+    fn draw(
+        &mut self,
+        _host: &Host<'_>,
+        _token: u32,
+        _frame: super::callbacks::DrawFrame<'_>,
+    ) -> Result<(), Error> {
         Err(Error::Unsupported)
+    }
+
+    /// Handle the top screen's decoded input.
+    /// The default implementation returns Handled::No.
+    ///
+    /// # Errors
+    /// Returns a refusal, which the host treats as not handled.
+    fn input(
+        &mut self,
+        _host: &Host<'_>,
+        _token: u32,
+        _input: super::callbacks::Input<'_>,
+    ) -> Result<crate::Handled, Error> {
+        Ok(crate::Handled::No)
     }
 }
 
