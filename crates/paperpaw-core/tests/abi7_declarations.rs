@@ -1174,28 +1174,26 @@ fn font_extension_rules() {
 
 type Context = RegistrationScope<paperpaw_core::native_host::registrations::Registration>;
 
-fn run(bytes: &[u8]) -> (Result<usize, i32>, bool) {
+fn run(bytes: &[u8]) -> (Result<(), i32>, bool) {
     let owner: Pin<Box<HostOwner<Context, ()>>> =
         Box::pin(HostOwner::new(RegistrationScope::new(), ()));
     // SAFETY: projecting the pinned context without moving it.
     let slot: Pin<&Context> = owner.as_ref().context();
-    let mut construction = owner.as_ref().begin().unwrap();
-    let result = slot
+    let mut construction = owner.as_ref().begin(PLUGIN).unwrap();
+    let status = slot
         .scope(&mut construction, || {
             // SAFETY: the slice stays readable and unmodified for the call.
             unsafe {
-                paperpaw_core::native_host::registrations::validate_records(
+                paperpaw_core::native_host::registrations::submit(
                     &slot,
-                    PLUGIN,
                     bytes.as_ptr(),
                     bytes.len(),
                 )
             }
-            .map(|batch| batch.len())
         })
         .unwrap();
     let committed = construction.commit(|_| ()).is_ok();
-    (result, committed)
+    (if status == OK { Ok(()) } else { Err(status) }, committed)
 }
 
 #[test]
@@ -1206,8 +1204,7 @@ fn a_valid_batch_passes_and_leaves_construction_committable() {
         record(6, &spec_fields(&default)),
         record(2, &[u(7)]),
     ]);
-    assert_eq!(run(&bytes), (Ok(3), true));
-    assert_eq!(OK, 0);
+    assert_eq!(run(&bytes), (Ok(()), true));
 }
 
 #[test]
@@ -1240,7 +1237,7 @@ fn one_bad_record_refuses_the_whole_batch_and_poisons_construction() {
     ];
     for (bytes, status) in cases {
         let (result, committed) = run(&bytes);
-        assert_eq!(result.map(|_| ()), Err(status));
+        assert_eq!(result, Err(status));
         assert!(!committed, "refusal must poison construction");
     }
 }
