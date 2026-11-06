@@ -198,7 +198,8 @@ unsafe extern "C" fn destroy(state: *mut core::ffi::c_void) {{
         };
         // SAFETY: locally compiled fixture has no initializers and follows the
         // factory contract. Its private inode stays immutable through unload.
-        let plugin = unsafe { PinnedPlugin::open(&self.path, &self.digest, services) }.unwrap();
+        let plugin =
+            unsafe { PinnedPlugin::open(&self.path, &self.digest, "fixture", services) }.unwrap();
         assert!(mapped(&self.path));
         (plugin, evidence)
     }

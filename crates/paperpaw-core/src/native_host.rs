@@ -30,6 +30,13 @@ pub mod environment;
 /// Bounded decoded registration submission during plugin construction.
 #[path = "native_host/registrations.rs"]
 pub mod registrations;
+/// Host-owned copies of declaration records staged during construction.
+#[path = "native_host/staged.rs"]
+pub mod staged;
+
+use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NO_SPACE};
+use registrations::{Record, RecordBatch, Registration};
+use staged::Declarations;
 
 /// Host admission or construction failure.
 #[non_exhaustive]
@@ -45,6 +52,8 @@ pub enum Error {
     Capacity,
     /// The device-wide callback nesting limit is exhausted.
     Depth,
+    /// Host memory for the staged records ran out.
+    Memory,
 }
 
 impl From<lifecycle::Error> for Error {
@@ -107,10 +116,15 @@ impl<C, M> HostOwner<C, M> {
 
     /// Begin a bounded host-side transaction before invoking make.
     /// No staged record can dispatch until commit after result validation.
+    /// `plugin_id` is the host-known id that declaration names are checked
+    /// against; it must outlive the transaction.
     ///
     /// # Errors
     /// Returns State outside construction, or Busy for an existing transaction.
-    pub fn begin<T>(self: Pin<&Self>) -> Result<Construction<'_, C, M, T>, Error> {
+    pub fn begin<'a, T>(
+        self: Pin<&'a Self>,
+        plugin_id: &'a str,
+    ) -> Result<Construction<'a, C, M, T>, Error> {
         if !self.inner.is_constructing() {
             return Err(Error::State);
         }
@@ -119,8 +133,10 @@ impl<C, M> HostOwner<C, M> {
         }
         Ok(Construction {
             owner: self,
+            plugin_id,
             records: core::array::from_fn(|_| None),
             len: 0,
+            declarations: Declarations::default(),
             failure: None,
         })
     }
@@ -157,8 +173,10 @@ impl<C, M> HostOwner<C, M> {
 #[non_exhaustive]
 pub struct Construction<'a, C, M, T> {
     owner: Pin<&'a HostOwner<C, M>>,
+    plugin_id: &'a str,
     records: [Option<T>; REGISTRATIONS],
     len: usize,
+    declarations: Declarations,
     failure: Option<Error>,
 }
 
@@ -197,8 +215,10 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// destruction to this owner. The destructor must not unwind or reenter.
     ///
     /// # Errors
-    /// Returns Invalid after validation refusal, Capacity if staging overflowed,
-    /// or State if revoked before commit.
+    /// Returns Invalid after validation refusal or when the staged declarations
+    /// fail their cross-record checks ([`Declarations::finish`]), Capacity if staging overflowed
+    /// a slot, count or byte limit, Memory if staging ran out of memory, or State if revoked
+    /// before commit.
     /// Every Err drops staged records before returning and leaves destruction
     /// unarmed. The loader still owns its validated successful output and must
     /// destroy it exactly once while context and module remain alive. This is
@@ -207,12 +227,69 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         if let Some(error) = self.failure {
             return Err(error);
         }
+        // Cross-record checks come first: a refusal leaves destruction unarmed.
+        self.declarations
+            .finish(self.plugin_id)
+            .map_err(|_| Error::Invalid)?;
         let lease = CallbackLease(self.owner.inner().activate_leased(destroy)?);
         Ok(RegistrationBatch {
             records: core::mem::replace(&mut self.records, core::array::from_fn(|_| None)),
             len: self.len,
+            declarations: core::mem::take(&mut self.declarations),
             lease,
         })
+    }
+
+    /// The declarations staged so far.
+    #[must_use]
+    pub const fn declarations(&self) -> &Declarations {
+        &self.declarations
+    }
+
+    /// Stage a decoded, mixed batch: its callback registrations (converted by
+    /// `convert`) and its declarations, all or nothing for the batch.
+    /// Capacity for both is checked before either is changed. A refusal latches
+    /// the transaction: Capacity when the eight callback slots, a declaration
+    /// count or the byte budget would overflow, Memory when an allocation fails,
+    /// Invalid for any other declaration refusal.
+    ///
+    /// # Errors
+    /// The `ERR_*` status of the refusal, or of the earlier latched failure.
+    pub fn stage_batch(
+        &mut self,
+        batch: &RecordBatch<'_>,
+        convert: fn(Registration) -> T,
+    ) -> Result<(), i32> {
+        if let Some(error) = self.failure {
+            return Err(registrations::status(error));
+        }
+        let tokens = batch
+            .iter()
+            .filter(|record| matches!(record, Record::Registration(_)))
+            .count();
+        if self.len + tokens > REGISTRATIONS {
+            self.failure = Some(Error::Capacity);
+            return Err(ERR_NO_SPACE);
+        }
+        if let Err(code) = self.declarations.stage(self.plugin_id, batch) {
+            // Latch the cause, so that a warning can tell a limit or low memory
+            // from a broken rule.
+            self.failure = Some(match code {
+                ERR_NO_SPACE => Error::Capacity,
+                ERR_NO_MEMORY => Error::Memory,
+                _ => Error::Invalid,
+            });
+            return Err(code);
+        }
+        for record in batch.iter() {
+            if let (Record::Registration(registration), Some(slot)) =
+                (record, self.records.get_mut(self.len))
+            {
+                *slot = Some(convert(registration));
+                self.len += 1;
+            }
+        }
+        Ok(())
     }
 
     /// Discard staged records while context and code remain alive.
@@ -243,6 +320,7 @@ impl<C, M, T> Drop for Construction<'_, C, M, T> {
 pub struct RegistrationBatch<'a, C, M, T> {
     records: [Option<T>; REGISTRATIONS],
     len: usize,
+    declarations: Declarations,
     lease: CallbackLease<'a, C, M>,
 }
 
@@ -257,6 +335,12 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.len == 0
+    }
+
+    /// Move the staged declarations out, leaving an empty set behind. They are
+    /// moved, never copied; the kernel's apply step owns them from here.
+    pub fn take_declarations(&mut self) -> Declarations {
+        core::mem::take(&mut self.declarations)
     }
 
     /// Dispatch one registered record after owner and shared-state admission.
@@ -319,6 +403,7 @@ impl<C, M, T> fmt::Debug for Construction<'_, C, M, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Construction")
             .field("len", &self.len)
+            .field("declarations", &self.declarations)
             .field("failure", &self.failure)
             .finish_non_exhaustive()
     }
