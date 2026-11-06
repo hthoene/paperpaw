@@ -122,8 +122,27 @@ impl OwnerResources {
     }
 }
 
+impl Drop for OwnerResources {
+    fn drop(&mut self) {
+        loop {
+            // A conflicting borrow means teardown could not finish. Entries
+            // are host-owned and cannot call the dead plugin; leave them put.
+            let Ok(mut handles) = self.table.handles.try_borrow_mut() else {
+                return;
+            };
+            let resource = handles.take_owner(self.owner);
+            drop(handles);
+            let Some(resource) = resource else {
+                return;
+            };
+            resource.release();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    extern crate std;
     use super::*;
     use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_STATE};
 
@@ -155,6 +174,90 @@ mod tests {
             .insert_font(FontKey::Role(FontRole::Ui))
             .unwrap();
         assert_ne!(fresh, first);
+    }
+
+    #[test]
+    fn worst_case_named_fonts_are_bounded_but_slots_do_not_shrink() {
+        let resources = HostResources::try_new().unwrap();
+        let owners: alloc::vec::Vec<_> = (0..128).map(|_| resources.try_owner().unwrap()).collect();
+        let key = alloc::format!("fonts.{}", "x".repeat(122));
+        assert_eq!(key.len(), 128);
+        for owner in &owners {
+            for _ in 0..8 {
+                let id = Id::parse(&key).unwrap();
+                owner
+                    .insert_font(FontKey::Named { id, acquired: 0 })
+                    .unwrap();
+            }
+        }
+        let slot_bytes = crate::abi7::handles::slot_bytes::<FontKey>();
+        // Exact per-target slot layout is counted, not estimated from a key.
+        assert!(slot_bytes >= core::mem::size_of::<FontKey>());
+        std::println!(
+            "font slots: {slot_bytes} B each, {} B device-wide, {} B per-owner; names: 131072 B device-wide, 1024 B per-owner",
+            slot_bytes * 1024,
+            slot_bytes * 8
+        );
+        let capacity = resources.0.handles.borrow().capacity();
+        assert!(capacity >= 1024);
+        drop(owners);
+        let mut handles = resources.0.handles.borrow_mut();
+        assert_eq!(handles.capacity(), capacity);
+        let successor = resources.try_owner().unwrap();
+        // The pool remains usable at maximum capacity after all owners drop.
+        for _ in 0..8 {
+            handles
+                .insert(successor.owner, Kind::Font, FontKey::Role(FontRole::Ui))
+                .map_err(|(error, _)| error)
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn dropping_an_owner_frees_its_slots_without_explicit_teardown() {
+        let resources = HostResources::try_new().unwrap();
+        let owner = resources.try_owner().unwrap();
+        let survivor = resources.try_owner().unwrap();
+        let dead_id = owner.owner;
+        let old = owner.insert_font(FontKey::Role(FontRole::Ui)).unwrap();
+        let live = survivor.insert_font(FontKey::Role(FontRole::Ui)).unwrap();
+        drop(owner);
+        assert!(
+            resources
+                .0
+                .handles
+                .borrow_mut()
+                .take_owner(dead_id)
+                .is_none()
+        );
+        assert_eq!(survivor.with_font(live, |_| Ok(())), Ok(()));
+        let replacement = resources.try_owner().unwrap();
+        let fresh = replacement
+            .insert_font(FontKey::Role(FontRole::Ui))
+            .unwrap();
+        assert_ne!(fresh, old);
+        assert_eq!(replacement.with_font(old, |_| Ok(())), Err(ERR_STATE));
+    }
+
+    #[test]
+    fn dropping_an_owner_during_a_table_borrow_does_not_panic() {
+        let resources = HostResources::try_new().unwrap();
+        let owner = resources.try_owner().unwrap();
+        let dead_id = owner.owner;
+        owner.insert_font(FontKey::Role(FontRole::Ui)).unwrap();
+        let borrowed = resources.0.handles.borrow();
+        drop(owner);
+        drop(borrowed);
+        // Best effort deliberately leaves this host-only entry under a dead
+        // owner. A later successful explicit cleanup can still reclaim it.
+        assert!(
+            resources
+                .0
+                .handles
+                .borrow_mut()
+                .take_owner(dead_id)
+                .is_some()
+        );
     }
 
     #[test]

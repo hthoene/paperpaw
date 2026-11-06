@@ -39,6 +39,10 @@ use crate::pack::{Image, Place};
 /// The symbols the linker script defines for the hot code, which `hot.rs`
 /// reads: defined by `paperpaw-plugin7.x`, not by the plugin.
 const SCRIPT_SYMBOLS: [&str; 2] = ["PAPERPAW_HOT", "PAPERPAW_HOT_END"];
+/// The host heap word (`abi/heap-word.md`): the one object a plugin may
+/// export besides the entry and the metadata, and the only word the loader
+/// writes into a placed image besides the relocated ones.
+const HEAP_SYMBOL: &str = "PAPERPAW_HEAP";
 /// `STT_FILE`, a symbol that names a source file.
 const STT_FILE: u8 = 4;
 /// Where the packer tries the file placed: as linked, and elsewhere.
@@ -106,6 +110,7 @@ pub fn pack5(elf: &[u8]) -> Result<Packed5, String> {
     let image = Image::of(&elf, &symbols)?;
     exports(&image, &symbols)?;
     let (entry, meta_at, record) = locate(&image, &symbols)?;
+    let heap_at = heap_word(&image, &symbols)?;
     let facts = RecordFacts::read(record).ok_or_else(|| {
         format!(
             "`{METADATA_SYMBOL}` is not a metadata record this PaperPaw reads (abi/metadata.md)"
@@ -149,6 +154,7 @@ pub fn pack5(elf: &[u8]) -> Result<Packed5, String> {
         hot_at: hot.at,
         hot_len: hot.len,
         patches: patches.len() as u32,
+        heap_at,
         sha256: [0; 32],
         signed: false,
     };
@@ -272,7 +278,9 @@ fn exports(image: &Image<'_>, symbols: &[Symbol]) -> Result<(), String> {
         .filter(|s| s.info >> 4 != 0 && s.kind() != STT_SECTION && s.kind() != STT_FILE)
         .filter(|s| image.place(Some(s)) == Place::Image)
         .map(|s| s.name.as_str())
-        .filter(|name| !PLUGIN_EXPORTS.contains(name) && !SCRIPT_SYMBOLS.contains(name))
+        .filter(|name| {
+            !PLUGIN_EXPORTS.contains(name) && !SCRIPT_SYMBOLS.contains(name) && *name != HEAP_SYMBOL
+        })
         .collect();
     extra.sort_unstable();
     extra.dedup();
@@ -289,6 +297,38 @@ fn exports(image: &Image<'_>, symbols: &[Symbol]) -> Result<(), String> {
             .collect::<Vec<_>>()
             .join(", ")
     ))
+}
+
+/// Where `PAPERPAW_HEAP` lies in the image, if the plugin has one: four
+/// bytes of read-only data, 4-aligned, holding 0 (the loader writes the
+/// address of the host's heap table into the placed image). Anything else
+/// is refused, so a plugin cannot ship a value the loader would overwrite
+/// or a word the loader reads as a relocation.
+fn heap_word(image: &Image<'_>, symbols: &[Symbol]) -> Result<Option<u32>, String> {
+    let Some(symbol) = symbols
+        .iter()
+        .find(|s| s.name == HEAP_SYMBOL && s.shndx != crate::elf::SHN_UNDEF)
+    else {
+        return Ok(None);
+    };
+    if symbol.size != 4 {
+        return Err(format!(
+            "`{HEAP_SYMBOL}` is {} bytes, not the one word of the host heap",
+            symbol.size
+        ));
+    }
+    let at = image.in_rodata(symbols, HEAP_SYMBOL, 4).map_err(|why| {
+        format!("{why}: the heap word is read-only data the loader fills, never writable data")
+    })?;
+    if !at.is_multiple_of(4) {
+        return Err(format!("`{HEAP_SYMBOL}` is not 4-aligned"));
+    }
+    if image.bytes[at as usize..at as usize + 4] != [0; 4] {
+        return Err(format!(
+            "`{HEAP_SYMBOL}` holds a value in the file: it holds 0, the loader writes it"
+        ));
+    }
+    Ok(Some(at))
 }
 
 /// Where the entry and the metadata record lie in the image, and the record.
