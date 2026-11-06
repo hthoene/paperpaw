@@ -40,11 +40,13 @@ pub use wire::{
     ServiceWorkNote, record_decode_one, record_encode_one, record_framed_len,
 };
 // Screen/action declarations (11/12), screen events (38/39), input records
-// (40-43) and i18n format arguments (44-46): `docs/abi/screens-input.md`.
+// (40-43), i18n format arguments (44-46) and the draw frame (192):
+// `docs/abi/screens-input.md`.
 pub use wire::{
-    ACTION_SPEC_TAG, ActionSpec, EVENT_ACTION_RUN_TAG, EVENT_SCREEN_SHOWN_TAG, EventActionRun,
-    EventScreenShown, I18N_ARG_INT_TAG, I18N_ARG_STR_TAG, I18N_COUNT_TAG, I18nArgInt, I18nArgStr,
-    I18nCount, INPUT_ACTION_TAG, INPUT_GESTURE_TAG, INPUT_KEY_TAG, INPUT_POINTER_TAG, InputAction,
+    ACTION_SPEC_TAG, ActionSpec, DRAW_FRAME_PAYLOAD_MAX_BYTES, DRAW_FRAME_TAG, DrawFrame,
+    EVENT_ACTION_RUN_TAG, EVENT_SCREEN_SHOWN_TAG, EventActionRun, EventScreenShown,
+    I18N_ARG_INT_TAG, I18N_ARG_STR_TAG, I18N_COUNT_TAG, I18nArgInt, I18nArgStr, I18nCount,
+    INPUT_ACTION_TAG, INPUT_GESTURE_TAG, INPUT_KEY_TAG, INPUT_POINTER_TAG, InputAction,
     InputGesture, InputKey, InputPointer, SCREEN_SPEC_TAG, ScreenSpec,
 };
 // Single-record and streaming decoders for plugin-side readers (lock format 8).

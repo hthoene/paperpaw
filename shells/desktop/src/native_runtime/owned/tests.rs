@@ -21,6 +21,14 @@ struct ServicesProbe {
     path: std::path::PathBuf,
 }
 
+/// One encoded screen `draw.frame` batch, as the host passes it to `draw`.
+fn screen_frame() -> Vec<u8> {
+    let frame = paperpaw_core::native_host::frames::screen(0, 0, 480, 800, (0, 800));
+    let mut bytes = [0; 64];
+    let len = paperpaw_core::native_host::frames::encode(&frame, &mut bytes).unwrap();
+    bytes[..len].to_vec()
+}
+
 fn mapped(path: &Path) -> bool {
     std::fs::read_to_string("/proc/self/maps")
         .unwrap()

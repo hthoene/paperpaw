@@ -62,7 +62,11 @@ unsafe extern "C" fn make(
     OK
 }
 
-unsafe extern "C" fn event(state: *mut core::ffi::c_void, token: u32, input: PpBytes) -> i32 {
+unsafe extern "C" fn event(
+    state: *mut core::ffi::c_void, token: u32, input: PpBytes, out: PpBuffer,
+) -> i32 {
+    // Tick has no reply: the host lends an empty, non-null buffer (N1).
+    if out.cap != 0 || out.ptr.is_null() { return ERR_INVALID; }
     if token != TOKEN || input.len != EXPECTED_EVENT.len()
         || (input.len != 0 && input.ptr.is_null()) { return ERR_INVALID; }
     let input = if input.len == 0 { &[] } else {
@@ -72,8 +76,11 @@ unsafe extern "C" fn event(state: *mut core::ffi::c_void, token: u32, input: PpB
     unsafe { effect(state) }
 }
 
-unsafe extern "C" fn draw(state: *mut core::ffi::c_void, token: u32) -> i32 {
-    if token != TOKEN { return ERR_INVALID; }
+unsafe extern "C" fn draw(state: *mut core::ffi::c_void, token: u32, frame: PpBytes) -> i32 {
+    // The host passes one draw.frame batch (N2): count 1, then tag 192.
+    if token != TOKEN || frame.len < 3 || frame.ptr.is_null() { return ERR_INVALID; }
+    let frame = unsafe { core::slice::from_raw_parts(frame.ptr, frame.len) };
+    if frame[..3] != [1, 0xc0, 0x01] { return ERR_INVALID; }
     unsafe { effect(state) }
 }
 
