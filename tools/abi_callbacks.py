@@ -94,7 +94,7 @@ unsafe fn plugin_callback_size(table: *const u8, accessible: usize) -> Result<us
     let size_offset = core::mem::offset_of!(PpPlugin, size);
     let size_end = size_offset + core::mem::size_of::<u32>();
     if table.is_null()
-        || table.addr() % core::mem::align_of::<PpPlugin>() != 0
+        || !table.addr().is_multiple_of(core::mem::align_of::<PpPlugin>())
         || accessible < size_end
         || accessible > isize::MAX as usize
         || table.addr().checked_add(accessible).is_none()
