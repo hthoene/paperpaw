@@ -40,8 +40,9 @@ pub unsafe fn copy(scope: &EnvironmentScope, key: PpBytes, out: PpBuffer) -> i32
 
 /// Format a translated message using the generated argument record codec.
 /// All argument validation finishes before the first catalog lookup.
-/// The complete result must fit the 4 KiB scratch; only its fitting byte prefix
-/// is copied to output, and the full required length is returned.
+/// The complete result must fit 4 KiB. A counting pass checks that bound
+/// before a second pass writes the fitting prefix directly to output.
+/// The full required length is returned.
 ///
 /// # Safety
 /// Same pointer validity and exclusion requirements as [`copy`], including
@@ -92,18 +93,17 @@ pub unsafe fn digits(scope: &EnvironmentScope, text: PpBytes, out: PpBuffer) -> 
     scope
         .with_frame(|frame| {
             let digits = frame.translator().digits();
-            let mut scratch = Scratch::new();
-            for character in text.chars() {
-                let character = if character.is_ascii_digit() {
-                    digits[character as usize - '0' as usize]
-                } else {
-                    character
-                };
-                if let Err(error) = scratch.character(character) {
-                    return error;
+            render(out, |sink| {
+                for character in text.chars() {
+                    let character = if character.is_ascii_digit() {
+                        digits[character as usize - '0' as usize]
+                    } else {
+                        character
+                    };
+                    sink.character(character)?;
                 }
-            }
-            scratch.copy(out)
+                Ok(())
+            })
         })
         .unwrap_or_else(|error| error)
 }
@@ -167,11 +167,9 @@ fn format_message(
     let Some(message) = message else {
         return ERR_NOT_FOUND;
     };
-    let mut scratch = Scratch::new();
-    match interpolate(message, args, &translator.digits(), &mut scratch) {
-        Ok(()) => scratch.copy(out),
-        Err(error) => error,
-    }
+    render(out, |sink| {
+        interpolate(message, args, &translator.digits(), sink)
+    })
 }
 
 // Match Translator's interpolation rules without its allocating String result.
@@ -179,7 +177,7 @@ fn interpolate(
     mut rest: &str,
     args: &Arguments<'_>,
     digits: &[char; 10],
-    out: &mut Scratch,
+    out: &mut Output<'_>,
 ) -> Result<(), i32> {
     while let Some(open) = rest.find(['{', '}']) {
         out.text(&rest[..open])?;
@@ -217,23 +215,54 @@ fn interpolate(
     out.text(rest)
 }
 
-struct Scratch {
-    bytes: [u8; buffers::TEXT_MAX],
+// The counting and writing passes use only a borrowed output and a counter.
+// No result-sized storage is allocated on the stack or heap.
+fn render(
+    out: &mut [MaybeUninit<u8>],
+    operation: impl Fn(&mut Output<'_>) -> Result<(), i32>,
+) -> i32 {
+    let mut count = Output::new(&mut []);
+    if let Err(error) = operation(&mut count) {
+        return error;
+    }
+    let required = count.len;
+    let mut writer = Output::new(out);
+    if let Err(error) = operation(&mut writer) {
+        writer.bytes.fill(MaybeUninit::new(0));
+        return error;
+    }
+    if writer.len != required {
+        writer.bytes.fill(MaybeUninit::new(0));
+        return ERR_INVALID;
+    }
+    // Both passes bound the result to TEXT_MAX, which fits i32.
+    required as i32
+}
+
+struct Output<'a> {
+    bytes: &'a mut [MaybeUninit<u8>],
     len: usize,
 }
 
-impl Scratch {
-    fn new() -> Self {
-        Self {
-            bytes: [0; buffers::TEXT_MAX],
-            len: 0,
-        }
+impl<'a> Output<'a> {
+    fn new(bytes: &'a mut [MaybeUninit<u8>]) -> Self {
+        Self { bytes, len: 0 }
     }
 
     fn text(&mut self, text: &str) -> Result<(), i32> {
         let end = self.len.checked_add(text.len()).ok_or(ERR_NO_SPACE)?;
-        let destination = self.bytes.get_mut(self.len..end).ok_or(ERR_NO_SPACE)?;
-        destination.copy_from_slice(text.as_bytes());
+        if end > buffers::TEXT_MAX {
+            return Err(ERR_NO_SPACE);
+        }
+        let written = text.len().min(self.bytes.len().saturating_sub(self.len));
+        if written != 0 {
+            for (out, byte) in self.bytes[self.len..self.len + written]
+                .iter_mut()
+                .zip(text.as_bytes())
+            {
+                out.write(*byte);
+            }
+        }
         self.len = end;
         Ok(())
     }
@@ -261,10 +290,6 @@ impl Scratch {
             self.character(digits[usize::from(place)])?;
         }
         Ok(())
-    }
-
-    fn copy(&self, out: &mut [MaybeUninit<u8>]) -> i32 {
-        buffers::copy_required(&self.bytes[..self.len], out, buffers::TEXT_MAX)
     }
 }
 

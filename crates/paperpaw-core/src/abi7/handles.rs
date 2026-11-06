@@ -20,6 +20,14 @@ pub(crate) enum Kind {
     Blob,
 }
 
+const fn limit(kind: Kind) -> usize {
+    match kind {
+        Kind::Font => 8,
+        Kind::Blob => 2,
+        Kind::Service => SLOTS,
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Error {
     State,
@@ -119,15 +127,15 @@ impl<T> Handles<T> {
         Self { slots: Vec::new() }
     }
 
+    #[cfg(test)]
+    pub(crate) fn capacity(&self) -> usize {
+        self.slots.capacity()
+    }
+
     /// On refusal the value returns to its caller; no resource is lost.
     /// Service callers further restrict admission to declared, distinct keys.
     pub(crate) fn insert(&mut self, owner: u64, kind: Kind, value: T) -> Result<u32, (Error, T)> {
-        let limit = match kind {
-            Kind::Font => 8,
-            Kind::Blob => 2,
-            Kind::Service => SLOTS,
-        };
-        self.insert_limited(owner, kind, value, limit)
+        self.insert_limited(owner, kind, value, limit(kind))
     }
 
     pub(crate) fn insert_limited(
@@ -135,16 +143,12 @@ impl<T> Handles<T> {
         owner: u64,
         kind: Kind,
         value: T,
-        limit: usize,
+        requested_limit: usize,
     ) -> Result<u32, (Error, T)> {
         if owner == 0 {
             return Err((Error::State, value));
         }
-        let limit = limit.min(match kind {
-            Kind::Font => 8,
-            Kind::Blob => 2,
-            Kind::Service => SLOTS,
-        });
+        let limit = requested_limit.min(limit(kind));
         let owned = self
             .slots
             .iter()
@@ -252,6 +256,11 @@ fn advance<T>(slot: &mut Slot<T>) {
 }
 
 #[cfg(test)]
+pub(crate) const fn slot_bytes<T>() -> usize {
+    core::mem::size_of::<Slot<T>>()
+}
+
+#[cfg(test)]
 mod tests {
     extern crate alloc;
     use super::*;
@@ -331,7 +340,8 @@ mod tests {
     fn repeated_acquire_release_and_teardown_keep_slot_memory_flat() {
         let mut handles = Handles::new();
         let first = handles.insert(1, Kind::Font, 7).unwrap();
-        let capacity = handles.slots.capacity();
+        let capacity = handles.capacity();
+        let retained_bytes = capacity * slot_bytes::<i32>();
         assert_eq!(capacity, GROWTH);
         assert_eq!(handles.remove(1, Kind::Font, first), Ok(7));
         let mut previous = first;
@@ -343,7 +353,7 @@ mod tests {
             assert_eq!(handles.take_owner(owner), Some(8));
             assert!(handles.take_owner(owner).is_none());
             assert_eq!(handles.slots.len(), 1);
-            assert_eq!(handles.slots.capacity(), capacity);
+            assert_eq!(handles.capacity() * slot_bytes::<i32>(), retained_bytes);
             previous = handle;
         }
     }

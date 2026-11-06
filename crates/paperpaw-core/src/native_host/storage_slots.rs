@@ -6,8 +6,11 @@ use super::{
     environment::EnvironmentScope,
     storage::{self, MAX_DATA, MAX_FOLDER, MAX_PATH, PREFIX, ROOT_PLUGIN, StorageAdapter},
 };
+use alloc::{alloc::alloc_zeroed, boxed::Box};
+use core::alloc::Layout;
 use paperpaw_native::host_glue::{
-    ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes, buffers,
+    ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes,
+    buffers,
 };
 
 fn with_adapter<R>(
@@ -104,6 +107,9 @@ pub(crate) unsafe fn size(
 }
 
 /// Slot 21: read a bounded chunk into possibly uninitialized caller storage.
+/// A fixed, fallibly allocated host-heap buffer keeps the caller's output
+/// unchanged on every error, without a result-sized stack frame. Only the
+/// successful read prefix is copied; the remaining caller bytes are untouched.
 ///
 /// # Safety
 /// Nonempty input must be live and readable; nonempty output must be live,
@@ -122,18 +128,50 @@ pub(crate) unsafe fn read_at(
         pair(out.ptr, out.cap, MAX_DATA)?;
         // SAFETY: validated bounds and the caller's exclusive output contract.
         let out = unsafe { buffers::buffer_out(out, MAX_DATA) }?;
-        // Storage takes initialized bytes, while raw output need not be initialized.
-        let mut scratch = [0; MAX_DATA];
-        let count = with_adapter(scope, owner, |adapter| {
-            adapter.read_at(root, path, offset, &mut scratch[..out.len()])
-        })?;
-        let bytes = scratch
-            .get(..count)
-            .filter(|bytes| bytes.len() <= out.len())
-            .ok_or(ERR_INVALID)?;
-        Ok(buffers::copy_count(bytes, out))
+        with_adapter(scope, owner, |adapter| {
+            let mut scratch = read_scratch()?;
+            let count = adapter.read_at(root, path, offset, &mut scratch[..out.len()])?;
+            let bytes = scratch
+                .get(..count)
+                .filter(|bytes| bytes.len() <= out.len())
+                .ok_or(ERR_INVALID)?;
+            Ok(buffers::copy_count(bytes, out))
+        })
     })();
     result.unwrap_or_else(|error| error)
+}
+
+// Allocation is the actual fixed-size scratch, never a probe followed by an
+// infallible allocation. Zeroing occurs in heap storage, not a stack array.
+fn read_scratch() -> Result<Box<[u8; MAX_DATA]>, i32> {
+    #[cfg(test)]
+    if scratch_fault::take() {
+        return Err(ERR_NO_MEMORY);
+    }
+    let layout = Layout::new::<[u8; MAX_DATA]>();
+    // SAFETY: MAX_DATA is nonzero and the array layout is valid.
+    let pointer = unsafe { alloc_zeroed(layout) }.cast::<[u8; MAX_DATA]>();
+    if pointer.is_null() {
+        return Err(ERR_NO_MEMORY);
+    }
+    // SAFETY: exclusive heap storage has exactly this layout and every u8 was
+    // initialized by alloc_zeroed. Box owns and frees that same allocation.
+    Ok(unsafe { Box::from_raw(pointer) })
+}
+
+#[cfg(test)]
+mod scratch_fault {
+    extern crate std;
+    use core::cell::Cell;
+    std::thread_local! {
+        static REFUSE: Cell<bool> = const { Cell::new(false) };
+    }
+    pub(super) fn refuse_next() {
+        REFUSE.with(|refuse| refuse.set(true));
+    }
+    pub(super) fn take() -> bool {
+        REFUSE.with(|refuse| refuse.replace(false))
+    }
 }
 
 /// Slot 22: replace a file, preserving the reserve and path rules.

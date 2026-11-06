@@ -34,6 +34,24 @@ extern crate std;
 #[cfg(test)]
 mod allocation_tests;
 
+const MAX_KEY_BYTES: usize = 128;
+const PLURAL_SCRATCH: usize = 128 + 1 + 5;
+const _: () = {
+    let categories = [
+        PluralCategory::Zero,
+        PluralCategory::One,
+        PluralCategory::Two,
+        PluralCategory::Few,
+        PluralCategory::Many,
+        PluralCategory::Other,
+    ];
+    let mut index = 0;
+    while index < categories.len() {
+        assert!(PLURAL_SCRATCH >= MAX_KEY_BYTES + 1 + categories[index].id().len());
+        index += 1;
+    }
+};
+
 mod built;
 mod card;
 mod catalog;
@@ -292,11 +310,11 @@ impl Translator {
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn get_plural(&self, key: &str, count: i64) -> Option<&str> {
         // Reserve six extra bytes for the dot and longest category suffix.
-        self.lookup_plural(key, count, &mut [0; 128 + 6])
+        self.lookup_plural(key, count, &mut [0; PLURAL_SCRATCH])
     }
 
     fn lookup_plural(&self, key: &str, count: i64, scratch: &mut [u8]) -> Option<&str> {
-        let required = key.len().checked_add(6)?;
+        let required = key.len().checked_add(PLURAL_SCRATCH - MAX_KEY_BYTES)?;
         let scratch = scratch.get_mut(..required)?;
         scratch[..key.len()].copy_from_slice(key.as_bytes());
         scratch[key.len()] = b'.';
@@ -327,12 +345,12 @@ impl Translator {
     /// catalog's own plural rule, falling back to `key.other`. `{count}` is
     /// always available as an argument.
     pub fn plural(&self, key: &str, count: i64, args: &[(&str, Arg<'_>)]) -> String {
-        let mut scratch = [0; 128];
+        let mut scratch = [0; PLURAL_SCRATCH];
         // Preserve the existing unbounded SDK lookup for long keys. The host
         // lookup above always uses the fixed stack buffer instead.
         let mut long_key;
-        let buffer = if key.len() > scratch.len() - 6 {
-            long_key = alloc::vec![0; key.len().saturating_add(6)];
+        let buffer = if key.len() > MAX_KEY_BYTES {
+            long_key = alloc::vec![0; key.len().saturating_add(PLURAL_SCRATCH - MAX_KEY_BYTES)];
             long_key.as_mut_slice()
         } else {
             &mut scratch
@@ -781,7 +799,10 @@ mod tests {
             .unwrap(),
         );
         assert_eq!(t.get_plural(&key, 5), Some("Found"));
-        assert_eq!(t.get_plural(&"x".repeat(129), 5), None);
+        assert_eq!(t.plural(&key, 5, &[]), "Found");
+        let missing = "x".repeat(129);
+        assert_eq!(t.get_plural(&missing, 5), None);
+        assert_eq!(t.plural(&missing, 5, &[]), missing);
     }
 
     #[test]

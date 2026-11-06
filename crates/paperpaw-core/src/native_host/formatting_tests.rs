@@ -241,6 +241,50 @@ fn framing_utf8_and_foreign_records_are_validated_before_lookup_or_output() {
 }
 
 #[test]
+fn two_pass_output_initializes_only_the_fitting_prefix() {
+    with_catalog("fa", None, |scope| {
+        let mut out = [MaybeUninit::<u8>::uninit(); 3];
+        // SAFETY: output is writable and disjoint from the static input.
+        let length = unsafe {
+            digits(
+                scope,
+                bytes(b"12"),
+                PpBuffer {
+                    ptr: out.as_mut_ptr().cast(),
+                    cap: out.len(),
+                },
+            )
+        };
+        let expected = "۱۲".as_bytes();
+        assert_eq!(length, expected.len() as i32);
+        for (actual, expected) in out.iter().zip(expected) {
+            // SAFETY: success writes the complete fitting prefix, all 3 bytes.
+            assert_eq!(unsafe { actual.assume_init() }, *expected);
+        }
+    });
+    with_catalog("en", None, |scope| {
+        let mut out = [MaybeUninit::<u8>::uninit(); 3];
+        // SAFETY: disjoint valid key, empty argument batch and writable output.
+        let length = unsafe {
+            format(
+                scope,
+                bytes(b"host.message"),
+                bytes(&[0]),
+                PpBuffer {
+                    ptr: out.as_mut_ptr().cast(),
+                    cap: out.len(),
+                },
+            )
+        };
+        assert!(length > out.len() as i32);
+        for (actual, expected) in out.iter().zip(b"{Hi") {
+            // SAFETY: success wrote the entire fitting prefix.
+            assert_eq!(unsafe { actual.assume_init() }, *expected);
+        }
+    });
+}
+
+#[test]
 fn complete_output_is_bounded_before_any_prefix_is_written() {
     let exact = "x".repeat(buffers::TEXT_MAX);
     let too_long = "x".repeat(buffers::TEXT_MAX + 1);

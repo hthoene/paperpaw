@@ -15,6 +15,7 @@ struct Backend {
     free: Rc<Cell<Option<u64>>>,
     fail: Rc<Cell<Option<StorageError>>>,
     bad_count: Rc<Cell<bool>>,
+    partial_error: Rc<Cell<bool>>,
 }
 
 impl Backend {
@@ -27,7 +28,14 @@ impl Storage for Backend {
     fn read_at(&self, path: &str, offset: u64, out: &mut [u8]) -> Result<usize, StorageError> {
         self.check()?;
         if self.bad_count.get() {
+            out.fill(0xee);
             return Ok(out.len() + 1);
+        }
+        if self.partial_error.get() {
+            if let Some(first) = out.first_mut() {
+                *first = 0xee;
+            }
+            return Err(StorageError::Io);
         }
         self.files.read_at(path, offset, out)
     }
@@ -307,7 +315,7 @@ fn bad_pairs_and_bounds_are_rejected_before_storage_or_output() {
 }
 
 #[test]
-fn reserve_backend_errors_and_invalid_read_counts_preserve_output() {
+fn reserve_errors_preserve_files_and_read_errors_zero_output() {
     let backend = Backend::default();
     // Stay above the 4096-byte recall limit so an invalid backend count
     // reaches the raw adapter instead of being consumed by the file cache.
@@ -353,13 +361,13 @@ fn reserve_backend_errors_and_invalid_read_counts_preserve_output() {
 }
 
 #[test]
-fn raw_read_initializes_only_the_counted_prefix() {
+fn raw_read_initializes_only_the_successful_prefix() {
     let backend = Backend::default();
     backend.files.write(FILE, b"ok").unwrap();
     scoped(&backend, |scope, _| {
         let mut out = [MaybeUninit::<u8>::uninit(); 4];
-        // SAFETY: caller storage is writable and exclusive. Only the returned
-        // initialized prefix is read after the callback.
+        // SAFETY: caller storage is writable and exclusive. Only the reported
+        // successful prefix is read after the adapter has initialized it.
         unsafe {
             assert_eq!(
                 read_at(
@@ -377,6 +385,44 @@ fn raw_read_initializes_only_the_counted_prefix() {
             );
             assert_eq!([out[0].assume_init(), out[1].assume_init()], *b"ok");
         }
+    });
+}
+
+#[test]
+fn a_backend_that_partly_writes_then_fails_preserves_the_caller_output() {
+    let backend = Backend::default();
+    // Bypass the small-file cache so this reaches the failing backend.
+    backend
+        .files
+        .write(FILE, &alloc::vec![0x5a; MAX_DATA + 1])
+        .unwrap();
+    backend.partial_error.set(true);
+    scoped(&backend, |scope, _| {
+        let mut out = [0xa5; 4];
+        // SAFETY: caller output is live, exclusive and disjoint from inputs.
+        unsafe {
+            assert_eq!(
+                read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut out)),
+                ERR_IO
+            );
+            assert_eq!(out, [0xa5; 4]);
+        }
+    });
+}
+
+#[test]
+fn scratch_allocation_refusal_preserves_the_output() {
+    let backend = Backend::default();
+    backend.files.write(FILE, b"keep").unwrap();
+    scoped(&backend, |scope, _| {
+        let mut out = [0xa5; 4];
+        scratch_fault::refuse_next();
+        // SAFETY: valid disjoint input and exclusive initialized output.
+        assert_eq!(
+            unsafe { read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut out)) },
+            ERR_NO_MEMORY
+        );
+        assert_eq!(out, [0xa5; 4]);
     });
 }
 
