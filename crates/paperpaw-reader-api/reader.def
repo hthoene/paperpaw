@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "version": 1,
+  "max_bytes": 4096,
+  "max_records": 8,
+  "schemas": [
+    "schemas/insert.def",
+    "schemas/style.def",
+    "schemas/decor.def",
+    "schemas/layer.def",
+    "schemas/status.def",
+    "schemas/draw.def",
+    "schemas/tap.def"
+  ]
+}
