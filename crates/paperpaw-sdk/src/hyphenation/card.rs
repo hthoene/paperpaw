@@ -26,10 +26,12 @@
 //! for [`HOT`] words is closed (the least recently used first). A book in
 //! two languages, a book's language and the UI's: each stays open while it
 //! is in use and both fit; where they do not, the words of the one that
-//! came second are left whole until the other has been idle a while,
-//! instead of each closing the other at every word (708 reads each time
-//! for `de`). The kernel closes them all when a book is closed and before
-//! the device sleeps (`Hyphenation::close_tables`), a plugin's as it
+//! came second are left whole until the other has been idle for [`HOT`]
+//! words (about a page), instead of each closing the other at every word
+//! (708 reads each time for `de`): accepted behaviour (Senior #816). The
+//! kernel closes them all when a book is closed, before the device sleeps
+//! and before Wi-Fi, network, store and firmware work that needs the heap
+//! (`Hyphenation::close_tables`), a plugin's as it
 //! removes or updates the plugin, and all of them when the card was
 //! mounted anew or written by a computer: a file is never read with what
 //! was kept of another.
@@ -316,11 +318,18 @@ mod kernel_opener {
             CheckError::Source(_) => Unopened::Failed,
             _ => Unopened::GiveUp,
         })?;
-        let room = room(needed).ok_or(Unopened::NoRoom)?;
+        // Less room than its header's bound: not now, nothing counted.
+        let room = room(needed)
+            .filter(|&room| room >= needed)
+            .ok_or(Unopened::NoRoom)?;
         let len = file.len;
         match StoredPatterns::open_within(file, len, CACHE, room) {
             Ok(reader) => Ok(Box::new(reader)),
-            Err(OpenError::OverBudget { .. }) => Err(Unopened::NoRoom),
+            // There is room for what its header says it takes (above): over
+            // budget all the same, its header lied (or the file changed since).
+            // Not sound: given up until the card or the plugin changes, with no
+            // second eviction for it and no read again at a later word.
+            Err(OpenError::OverBudget { .. }) => Err(Unopened::GiveUp),
             Err(OpenError::Check(CheckError::Source(_)) | OpenError::NoMemory) => {
                 Err(Unopened::Failed)
             }
@@ -677,6 +686,166 @@ mod tests {
     }
 
     /// At most OPEN tables, however small: the idle one is closed.
+    /// Patterns that break before every `b`, and exceptions of about 4 KB:
+    /// a sound table that needs more heap than a header saying "no blocks,
+    /// no exceptions" bounds.
+    #[cfg(feature = "kernel")]
+    fn sound_table() -> Vec<u8> {
+        let mut exceptions = String::new();
+        for first in 'a'..='z' {
+            for second in 'a'..='z' {
+                exceptions.push_str(&alloc::format!("q{first}{second}-x "));
+            }
+        }
+        crate::hyphen::compile("1b", &exceptions, 1, 1)
+    }
+
+    /// A card whose first read of a table's header says it has no blocks
+    /// and no exceptions: a header that understates the table.
+    #[cfg(feature = "kernel")]
+    struct Lying {
+        files: crate::MemoryStorage,
+        lied: Cell<bool>,
+        /// Reads and sizes asked of the card.
+        reads: Cell<u32>,
+    }
+
+    #[cfg(feature = "kernel")]
+    impl Storage for Lying {
+        fn read_at(
+            &self,
+            path: &str,
+            offset: u64,
+            buf: &mut [u8],
+        ) -> Result<usize, paperpaw_platform::StorageError> {
+            self.reads.set(self.reads.get() + 1);
+            let read = self.files.read_at(path, offset, buf)?;
+            if offset == 0 && read >= 20 && !self.lied.replace(true) {
+                let len = self.files.size(path)? as u32;
+                buf[12..16].copy_from_slice(&0u32.to_le_bytes());
+                buf[16..20].copy_from_slice(&len.to_le_bytes());
+            }
+            Ok(read)
+        }
+        fn size(&self, path: &str) -> Result<u64, paperpaw_platform::StorageError> {
+            self.reads.set(self.reads.get() + 1);
+            self.files.size(path)
+        }
+        fn write(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+            self.files.write(path, data)
+        }
+        fn append(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+            self.files.append(path, data)
+        }
+        fn list(
+            &self,
+            dir: &str,
+            visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+        ) -> Result<(), paperpaw_platform::StorageError> {
+            self.files.list(dir, visit)
+        }
+        fn remove(&self, path: &str) -> Result<(), paperpaw_platform::StorageError> {
+            self.files.remove(path)
+        }
+    }
+
+    /// A header that understates its table, with all the room its bound
+    /// asks for: given up (Senior #816, remark 3), never `NoRoom`, which
+    /// would close more tables for it and read the card at every word.
+    #[cfg(feature = "kernel")]
+    #[test]
+    fn a_header_that_understates_its_table_is_given_up() {
+        let files = crate::MemoryStorage::new();
+        files.write("t.pph", &sound_table()).expect("in memory");
+        let storage: Rc<dyn Storage> = Rc::new(Lying {
+            files,
+            lied: Cell::new(false),
+            reads: Cell::new(0),
+        });
+        let mut asked = 0;
+        let mut room = |needed: usize| {
+            asked = needed;
+            Some(needed)
+        };
+        let opened = kernel_opener::open(&storage, "t.pph", &mut room);
+        assert!(asked > 0);
+        assert!(matches!(opened, Err(Unopened::GiveUp)));
+        // Its header read truly, the same table opens with its bound.
+        let mut room = |needed: usize| Some(needed);
+        assert!(kernel_opener::open(&storage, "t.pph", &mut room).is_ok());
+    }
+
+    /// The kernel's opener with room for exactly what the header bounds:
+    /// as when the other tables open leave no more.
+    #[cfg(feature = "kernel")]
+    fn open_at_bound(storage: &Rc<dyn Storage>, path: &str, room: &mut Room<'_>) -> Opened {
+        kernel_opener::open(storage, path, &mut |needed| room(needed).map(|_| needed))
+    }
+
+    /// A table given up for its header reads nothing more at the next words,
+    /// until the card changes; then it is opened again.
+    #[cfg(feature = "kernel")]
+    #[test]
+    fn a_table_given_up_for_its_header_is_not_read_again() {
+        let files = crate::MemoryStorage::new();
+        files.write("t.pph", &sound_table()).expect("in memory");
+        let card = Rc::new(Lying {
+            files,
+            lied: Cell::new(false),
+            reads: Cell::new(0),
+        });
+        let tables = CardTables {
+            storage: Some(card.clone() as Rc<dyn Storage>),
+            opener: Some(Opener {
+                open: open_at_bound,
+            }),
+            entries: alloc::vec![Entry {
+                plugin: String::from("p"),
+                tag: String::from("t"),
+                path: String::from("t.pph"),
+                serial: 0,
+                failures: Cell::new(0),
+                needed: Cell::new(0),
+            }],
+            ..CardTables::default()
+        };
+        let hyphenate = |word: &str| {
+            let mut n = 0;
+            tables.hyphenate(0, (1, 1), word, &mut |_| n += 1);
+            n
+        };
+        assert_eq!(hyphenate("abba"), 0);
+        assert!(tables.entries[0].given_up());
+        let reads = card.reads.get();
+        assert!(reads > 0);
+        for word in ["abba", "cabbage", "ebb"] {
+            assert_eq!(hyphenate(word), 0);
+        }
+        assert_eq!(card.reads.get(), reads, "a table given up is not read");
+        // The card changed (mounted anew): its header now reads truly.
+        tables.changed();
+        assert!(hyphenate("abba") > 0);
+        assert!(card.reads.get() > reads);
+    }
+
+    /// A sound table with less room than its bound: `NoRoom`, nothing
+    /// counted; it opens once the room is there.
+    #[cfg(feature = "kernel")]
+    #[test]
+    fn a_sound_table_without_room_is_not_a_failure() {
+        let files = crate::MemoryStorage::new();
+        files.write("t.pph", &sound_table()).expect("in memory");
+        let storage: Rc<dyn Storage> = Rc::new(files);
+        let mut short = |needed: usize| Some(needed - 1);
+        let opened = kernel_opener::open(&storage, "t.pph", &mut short);
+        assert!(matches!(opened, Err(Unopened::NoRoom)));
+        let mut none = |_: usize| None;
+        let opened = kernel_opener::open(&storage, "t.pph", &mut none);
+        assert!(matches!(opened, Err(Unopened::NoRoom)));
+        let mut room = |needed: usize| Some(needed);
+        assert!(kernel_opener::open(&storage, "t.pph", &mut room).is_ok());
+    }
+
     #[test]
     fn at_most_two_are_open() {
         opened();

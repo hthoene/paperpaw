@@ -149,3 +149,46 @@ fn open_tables_are_closed_when_a_book_closes_and_before_sleep() {
     kernel.resume(Instant(2_000));
     assert_eq!(breaks(&kernel), [1, 3]);
 }
+
+/// Network, store and firmware work want the heap: the tables open give
+/// theirs back as it begins; the radio switched off keeps them.
+#[test]
+fn open_tables_are_closed_for_network_store_and_firmware_work() {
+    use paperpaw_sdk::firmware::FirmwareCommand;
+    use paperpaw_sdk::wifi::WifiCommand;
+    let table = paperpaw_sdk::hyphen::compile("1b", "", 1, 1);
+    let inner = MemoryStorage::new()
+        .with(
+            "plugins/hyphenation-en/plugin.ini",
+            manifest("hyphenation-en", "en = en.pphp\n"),
+        )
+        .with("plugins/hyphenation-en/en.pphp", table);
+    let mut kernel = Kernel::builder(DEVICE).storage(inner).build().unwrap();
+    kernel.start(Instant(0));
+    let open = |kernel: &Kernel| kernel.shared.hyphenation.open_tables().0;
+    let hyphenate = |kernel: &Kernel| {
+        let hyphenation = &kernel.shared.hyphenation;
+        hyphenation
+            .get("en")
+            .unwrap()
+            .hyphenate("abab", &mut |_| {});
+    };
+    let closing = [
+        Command::Wifi(WifiCommand::On),
+        Command::Wifi(WifiCommand::Join {
+            ssid: String::from("home"),
+            password: String::new(),
+        }),
+        Command::Firmware(FirmwareCommand::install("update.bin", None, false)),
+        Command::InstallPlugin(Id::new_static("absent"), String::from("plugins/absent")),
+    ];
+    for command in closing {
+        hyphenate(&kernel);
+        assert_eq!(open(&kernel), 1);
+        kernel.apply(command);
+        assert_eq!(open(&kernel), 0);
+    }
+    hyphenate(&kernel);
+    kernel.apply(Command::Wifi(WifiCommand::Off));
+    assert_eq!(open(&kernel), 1, "the radio off wants no heap");
+}

@@ -51,9 +51,9 @@ change the plugin SDK.
   before anything is taken (about 20 KB for `de`, the largest); only a table idle for about a page of words
   is closed for another, so two languages in use never close each other at every word. The kernel opens
   them (an opener it sets with the storage), so plugins built without the `kernel` feature hyphenate with
-  them too, and closes them when a book is closed and before sleep (`Hyphenation::close_tables`). A read
-  that fails closes the table and the next word opens it once more, a second failure gives the language
-  up until the card is mounted anew. `PageType::patterns` returns the `Hyphenator`. The kernel keeps the
+  them too, and closes them when a book is closed, before sleep and before Wi-Fi, network, store-install
+  and firmware work (`Hyphenation::close_tables`). A read that fails closes the table and the next word
+  opens it once more, a second failure gives the language up until the card is mounted anew. `PageType::patterns` returns the `Hyphenator`. The kernel keeps the
   data plugins' tables in the SDK's `Hyphenation` (the greatest plugin id has a language).
   `paperpaw-hyphen` (kernel): `StoredPatterns::open_within` refuses a table over a heap budget
   (`OpenError::OverBudget`), `StoredPatterns::heap_bound` bounds it from its header.
