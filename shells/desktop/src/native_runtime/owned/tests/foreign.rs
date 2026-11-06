@@ -51,6 +51,19 @@ pub(super) fn fixture_custom(
     query: &str,
     prelude: &str,
 ) -> Fixture {
+    fixture_linked(valid, invalid, ignore_invalid, query, prelude, &[])
+}
+
+/// [`fixture_custom`] linked with `link` as extra rustc arguments (e.g. the
+/// linker to use).
+pub(super) fn fixture_linked(
+    valid: Vec<u8>,
+    invalid: &[u8],
+    ignore_invalid: bool,
+    query: &str,
+    prelude: &str,
+    link: &[String],
+) -> Fixture {
     let root = crate::private::dir("paperpaw-foreign726").unwrap();
     let path = root.join("fixture.so");
     let abi = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -85,6 +98,7 @@ pub(super) fn fixture_custom(
             "-Copt-level=2",
             "-Clink-arg=-nostartfiles",
         ])
+        .args(link)
         .arg(&input)
         .arg("-o")
         .arg(&path)
