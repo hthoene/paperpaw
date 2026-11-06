@@ -19,12 +19,27 @@ struct Image {
     generation: Cell<u32>,
     live: Cell<bool>,
     errors: Cell<usize>,
+    active: Cell<bool>,
+    denied: Cell<usize>,
 }
 impl ImageOwner for Image {
     fn generation(&self) -> u32 {
         self.generation.get()
     }
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
+        if self.active.get() {
+            self.denied.set(self.denied.get() + 1);
+            visit(None);
+            return;
+        }
+        self.active.set(true);
+        struct Reset<'a>(&'a Cell<bool>);
+        impl Drop for Reset<'_> {
+            fn drop(&mut self) {
+                self.0.set(false);
+            }
+        }
+        let _reset = Reset(&self.active);
         let bytes = self.bytes.borrow();
         visit(self.live.get().then_some(bytes.as_slice()));
     }
@@ -93,6 +108,8 @@ fn image() -> Rc<Image> {
         generation: Cell::new(1),
         live: Cell::new(true),
         errors: Cell::new(0),
+        active: Cell::new(false),
+        denied: Cell::new(0),
     })
 }
 fn pending(
@@ -321,7 +338,7 @@ fn layout_is_measured_instead_of_assuming_a_twelve_byte_entry() {
         size_of::<Slot>(),
         size_of::<PendingDeclarations>()
     );
-    assert_eq!(size_of::<Slot>(), 4);
+    assert_eq!(size_of::<Slot>(), 8);
 }
 
 #[test]
@@ -333,7 +350,6 @@ fn construction_retains_a_snapshot_and_record_offsets_after_input_is_gone() {
     let source = image();
     let mut input = source.bytes.borrow().clone();
     let expected = input.clone();
-    let address = input.as_ptr() as usize;
     scope
         .as_ref()
         .scope(&mut construction, || {
@@ -350,9 +366,8 @@ fn construction_retains_a_snapshot_and_record_offsets_after_input_is_gone() {
     let raw = committed.take_raw_declarations();
     assert_eq!(raw.batches.len(), 1);
     let batch = &raw.batches[0];
-    assert_eq!(batch.submitted, address);
     assert_eq!(&*batch.bytes, expected);
-    assert_eq!(batch.count, 6);
+    assert_eq!(batch.entries, 6);
     assert!(batch.offsets[..6].windows(2).all(|pair| pair[0] < pair[1]));
 }
 
@@ -371,6 +386,7 @@ fn known_image_batches_have_no_snapshot_and_owned_snapshots_never_promote() {
             )
             .unwrap()
             .unwrap()
+            .batch
         };
         assert_eq!(batch.bytes.is_empty(), known_image);
         let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source.clone());
@@ -394,6 +410,7 @@ fn committed_runtime_copy_moves_into_owned_storage_without_copying_again() {
         raw.prepare(None, Some(&temporary), &records_decode(&temporary).unwrap())
             .unwrap()
             .unwrap()
+            .batch
     };
     let address = batch.bytes.as_ptr();
     let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source.clone());
@@ -444,6 +461,8 @@ fn full_widgets_image_moves_into_the_guarded_store_without_owned_bytes() {
         generation: Cell::new(1),
         live: Cell::new(true),
         errors: Cell::new(0),
+        active: Cell::new(false),
+        denied: Cell::new(0),
     });
     let owner = core::pin::pin!(HostOwner::new((), ()));
     let scope = core::pin::pin!(RegistrationScope::<Registration>::new());
@@ -467,7 +486,7 @@ fn full_widgets_image_moves_into_the_guarded_store_without_owned_bytes() {
             .unwrap();
         cursor += len;
     }
-    construction.declaration_view().finish().unwrap();
+    construction.finish_declarations().unwrap();
     assert_eq!(construction.raw.image_entries, 400);
     assert!(construction.declarations().is_empty());
     let raw = core::mem::take(&mut construction.raw);
@@ -498,4 +517,58 @@ fn full_widgets_image_moves_into_the_guarded_store_without_owned_bytes() {
     for key in entries {
         assert!(store.with_record(key, &mut |_| {}));
     }
+}
+
+#[test]
+fn sorted_name_lookup_finds_only_the_requested_live_record() {
+    let source = image();
+    let mut allocations = Allocations::default();
+    let mut store = DeclarationStore::default();
+    store
+        .prepare(
+            pending(&source, false, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    assert!(
+        store.find("fixture", Kind::Spec, "flag", &mut |record| assert!(
+            matches!(record, Record::SettingSpec(spec) if spec.name == "flag")
+        ))
+    );
+    assert!(!store.find("fixture", Kind::Spec, "missing", &mut |_| panic!("missing")));
+    assert!(
+        store.find("fixture", Kind::Extension, "extra", &mut |record| assert!(
+            matches!(record, Record::ResourceFontExtension(_))
+        ))
+    );
+    source.live.set(false);
+    assert!(!store.find("fixture", Kind::Spec, "flag", &mut |_| panic!("stopped")));
+}
+
+#[test]
+fn image_staging_and_lookup_acquire_a_non_reentrant_guard_only_once() {
+    use super::super::raw_declarations::RawDeclarations;
+    let source = image();
+    let mut raw = RawDeclarations::default();
+    let batch = {
+        let bytes = source.bytes.borrow();
+        raw.prepare(Some(&bytes), Some(&bytes), &records_decode(&bytes).unwrap())
+            .unwrap()
+            .unwrap()
+            .batch
+    };
+    let mut allocations = Allocations::default();
+    let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source.clone());
+    pending.stage_committed(batch, &mut allocations).unwrap();
+    assert!(matches!(pending.batches[0], DeclRef::Image { .. }));
+    assert_eq!(source.denied.get(), 0);
+    let mut store = DeclarationStore::default();
+    store.prepare(pending, &mut allocations).unwrap().commit();
+    assert!(store.find("fixture", Kind::Spec, "flag", &mut |_| {}));
+    assert_eq!(source.denied.get(), 0);
+    source.active.set(true);
+    assert!(!store.find("fixture", Kind::Spec, "flag", &mut |_| panic!("busy guard")));
+    assert_eq!(source.denied.get(), 1);
+    source.active.set(false);
 }

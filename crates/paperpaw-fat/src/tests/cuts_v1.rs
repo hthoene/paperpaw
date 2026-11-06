@@ -171,9 +171,9 @@ fn cuts_of(image: Vec<u8>, op: impl FnOnce(&FatStorage<SharedDisk<Cut>>)) -> Cut
     let card = Cut::new(image);
     let s = card.storage();
     let base = Rc::new(card.image());
-    card.writes.borrow_mut().clear();
+    card.record_writes();
     op(&s);
-    let writes = card.writes.borrow().clone();
+    let writes = core::mem::take(&mut *card.writes.borrow_mut());
     Cuts { base, writes }
 }
 

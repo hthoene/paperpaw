@@ -7,11 +7,14 @@ use alloc::vec::Vec;
 use fatfs::{FormatVolumeOptions, FsOptions, StdIoWrapper};
 use std::io::Cursor;
 
-type Disk = StdIoWrapper<Cursor<Vec<u8>>>;
+mod sparse;
+use sparse::SparseDisk;
+
+type Disk = StdIoWrapper<SparseDisk>;
 
 /// A fresh FAT disk of 4 MB, formatted.
 fn storage() -> FatStorage<Disk> {
-    let mut disk = StdIoWrapper::from(Cursor::new(vec![0u8; 4 << 20]));
+    let mut disk = StdIoWrapper::from(SparseDisk::empty(4 << 20));
     fatfs::format_volume(&mut disk, FormatVolumeOptions::new()).unwrap();
     disk.seek(SeekFrom::Start(0)).unwrap();
     let fs = FileSystem::new(disk, FsOptions::new()).unwrap();
@@ -33,8 +36,9 @@ fn names<IO: ReadWriteSeek>(storage: &FatStorage<IO>, dir: &str) -> Vec<(String,
 /// with every block written to it in order.
 #[derive(Clone)]
 struct Cut {
-    data: alloc::rc::Rc<RefCell<Vec<u8>>>,
+    data: alloc::rc::Rc<RefCell<SparseDisk>>,
     writes: alloc::rc::Rc<RefCell<Vec<Written>>>,
+    recording: alloc::rc::Rc<core::cell::Cell<bool>>,
     /// Blocks read so far.
     reads: alloc::rc::Rc<core::cell::Cell<usize>>,
 }
@@ -44,11 +48,22 @@ type Written = (u32, [u8; BLOCK]);
 
 impl Cut {
     fn new(data: Vec<u8>) -> Self {
+        Self::from_sparse(SparseDisk::from_bytes(&data))
+    }
+
+    fn from_sparse(data: SparseDisk) -> Self {
         Self {
             data: alloc::rc::Rc::new(RefCell::new(data)),
             writes: alloc::rc::Rc::default(),
+            recording: alloc::rc::Rc::default(),
             reads: alloc::rc::Rc::default(),
         }
+    }
+
+    /// Keep only the writes a power-loss or block-order test will replay.
+    fn record_writes(&self) {
+        self.writes.borrow_mut().clear();
+        self.recording.set(true);
     }
 
     /// A card of 4 MB, formatted with `options`.
@@ -58,14 +73,14 @@ impl Cut {
 
     /// A card of `size` bytes, formatted with `options`.
     fn formatted_of(size: usize, options: FormatVolumeOptions) -> Self {
-        let mut formatted = StdIoWrapper::from(Cursor::new(vec![0u8; size]));
+        let mut formatted = StdIoWrapper::from(SparseDisk::empty(size));
         fatfs::format_volume(&mut formatted, options).unwrap();
-        Self::new(formatted.into_inner().into_inner())
+        Self::from_sparse(formatted.into_inner())
     }
 
     /// What it holds now.
     fn image(&self) -> Vec<u8> {
-        self.data.borrow().clone()
+        self.data.borrow().image()
     }
 
     /// The storage on it as on the X4: the disk shared, its changed
@@ -80,15 +95,26 @@ impl Cut {
 impl Blocks for Cut {
     fn read_block(&mut self, index: u32, block: &mut [u8; BLOCK]) -> Result<(), DiskError> {
         let at = index as usize * BLOCK;
-        block.copy_from_slice(&self.data.borrow()[at..at + BLOCK]);
+        let mut data = self.data.borrow_mut();
+        std::io::Seek::seek(&mut *data, std::io::SeekFrom::Start(at as u64))
+            .map_err(|_| DiskError)?;
+        std::io::Read::read_exact(&mut *data, block).map_err(|_| DiskError)?;
         self.reads.set(self.reads.get() + 1);
         Ok(())
     }
 
     fn write_block(&mut self, index: u32, block: &[u8; BLOCK]) -> Result<(), DiskError> {
         let at = index as usize * BLOCK;
-        self.data.borrow_mut()[at..at + BLOCK].copy_from_slice(block);
-        self.writes.borrow_mut().push((index, *block));
+        let mut data = self.data.borrow_mut();
+        if at + BLOCK > data.len() {
+            return Err(DiskError);
+        }
+        std::io::Seek::seek(&mut *data, std::io::SeekFrom::Start(at as u64))
+            .map_err(|_| DiskError)?;
+        std::io::Write::write_all(&mut *data, block).map_err(|_| DiskError)?;
+        if self.recording.get() {
+            self.writes.borrow_mut().push((index, *block));
+        }
         Ok(())
     }
 
@@ -99,7 +125,11 @@ impl Blocks for Cut {
 
 /// The storage on the card `bytes`.
 fn mounted(bytes: Vec<u8>) -> FatStorage<Disk> {
-    let fs = FileSystem::new(StdIoWrapper::from(Cursor::new(bytes)), FsOptions::new()).unwrap();
+    let fs = FileSystem::new(
+        StdIoWrapper::from(SparseDisk::from_bytes(&bytes)),
+        FsOptions::new(),
+    )
+    .unwrap();
     FatStorage::new(Box::leak(Box::new(fs)))
 }
 
@@ -226,12 +256,12 @@ fn cuts(
     }
     s.sync().unwrap();
     let mut image = card.image();
-    card.writes.borrow_mut().clear();
+    card.record_writes();
     op(&s);
     let mut cuts = vec![contents(&mounted(image.clone()), "")];
-    for (index, block) in card.writes.borrow().iter() {
-        let at = *index as usize * BLOCK;
-        image[at..at + BLOCK].copy_from_slice(block);
+    for (index, block) in core::mem::take(&mut *card.writes.borrow_mut()) {
+        let at = index as usize * BLOCK;
+        image[at..at + BLOCK].copy_from_slice(&block);
         cuts.push(contents(&mounted(image.clone()), ""));
     }
     cuts
@@ -311,12 +341,12 @@ fn cut_images(image: Vec<u8>, op: impl FnOnce(&FatStorage<SharedDisk<Cut>>)) -> 
     let card = Cut::new(image);
     let s = card.storage();
     let mut image = card.image();
-    card.writes.borrow_mut().clear();
+    card.record_writes();
     op(&s);
     let mut cuts = vec![image.clone()];
-    for (index, block) in card.writes.borrow().iter() {
-        let at = *index as usize * BLOCK;
-        image[at..at + BLOCK].copy_from_slice(block);
+    for (index, block) in core::mem::take(&mut *card.writes.borrow_mut()) {
+        let at = index as usize * BLOCK;
+        image[at..at + BLOCK].copy_from_slice(&block);
         cuts.push(image.clone());
     }
     cuts
@@ -564,6 +594,7 @@ fn blocks_reach_the_card_in_the_order_changed() {
     // whole, read between.
     let blocks = 2 * disk::SLOTS;
     let card = Cut::new(vec![0; blocks * BLOCK]);
+    card.record_writes();
     let mut disk = BlockDisk::new(card.clone()).unwrap();
     let mut model = vec![0u8; blocks * BLOCK];
     // The disk after each change.
@@ -1328,4 +1359,14 @@ fn files_tell_when_they_were_changed() {
     };
     assert_eq!(at(1980, 1, 1, 0, 0, 0), 315_532_800);
     assert_eq!(at(2026, 10, 24, 12, 30, 5), 1_792_845_005);
+}
+
+#[test]
+fn unrecorded_fixture_writes_do_not_accumulate() {
+    let mut card = Cut::new(vec![0; BLOCK]);
+    card.write_block(0, &[1; BLOCK]).unwrap();
+    assert!(card.writes.borrow().is_empty());
+    card.record_writes();
+    card.write_block(0, &[2; BLOCK]).unwrap();
+    assert_eq!(&*card.writes.borrow(), &[(0, [2; BLOCK])]);
 }
