@@ -114,3 +114,11 @@ screen/action registration and application; key/touch/action/gesture callbacks;
 open/action/redraw commands; font roles and lifetimes; text and i18n formatting.
 These remain explicit tasks until Kernel's contracts and the SDK APIs land.
 The logging implementation and all acceptance goldens remain unchanged here.
+
+Preparation now builds against the checked #213 facade and #215 static-batch
+sample. Event fixtures decode through the public SDK `native::events` API;
+page locations retain optional counters and borrow their path from callback
+bytes. Production remains unchanged pending row-4 integration and the remaining
+screen/font/command runtime pieces. Use the macro's metadata export (no second
+`PAPERPAW_METADATA` symbol), typed storage `Root::{Data, Files}`, and B4's
+last-row-per-plugin-ID rule across generation changes when implementing the port.
