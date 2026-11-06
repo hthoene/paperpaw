@@ -42,3 +42,4 @@ ef3be8ec641bfc36c338793b922dad5580748f7a language-ar, language-es  # paperpaw-si
 7c697ef039d23dbeca8df4305c7cd33c5ee55b33 language-ar, language-es  # paperpaw-sign pack frame scan (#228): pack only, catalog unchanged
 492648f5a0011c95353f0b5cbe61fa1966705d10 language-ar, language-es  # paperpaw-sign pack frame scan (#228): pack only, catalog unchanged
 ad5fb82ecb5f218c07c37c153c33d154cb2b1e1e language-ar, language-es  # paperpaw-sign pack frame scan (#228): pack only, catalog unchanged
+350af9b96b4a146a152a87ce3bf446cb9c86d1d5 language-ar, language-es  # paperpaw-sign pack frame scan (#228): the frame limit only, catalog unchanged
