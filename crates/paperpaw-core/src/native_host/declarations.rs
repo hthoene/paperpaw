@@ -98,6 +98,14 @@ fn optional_full_id(id: &str) -> Check {
 }
 
 fn group_check(plugin_id: &str, group: &SettingGroup<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let SettingGroup {
+        name: _,
+        title: _,
+        order: _,
+        page: _,
+        parent: _,
+    } = group;
     relative(plugin_id, group.name)?;
     ensure(!group.title.is_empty())?;
     if !group.page.is_empty() {
@@ -107,6 +115,19 @@ fn group_check(plugin_id: &str, group: &SettingGroup<'_>) -> Check {
 }
 
 fn spec_check(plugin_id: &str, spec: &SettingSpec<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let SettingSpec {
+        name: _,
+        kind: _,
+        flags: _,
+        group: _,
+        title: _,
+        help: _,
+        default: _,
+        min: _,
+        max: _,
+        choices: _,
+    } = spec;
     relative(plugin_id, spec.name)?;
     if spec.kind > KIND_MAX || spec.flags & !SPEC_FLAGS != 0 {
         return Err(ERR_UNSUPPORTED);
@@ -164,6 +185,20 @@ fn language_tag(tag: &str, allow_empty: bool) -> bool {
 }
 
 fn extra_check(plugin_id: &str, extra: &SettingExtra<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let SettingExtra {
+        name: _,
+        unit: _,
+        section: _,
+        follows: _,
+        shown_id: _,
+        shown_value: _,
+        editor_kind: _,
+        editor: _,
+        step: _,
+        flags: _,
+        check: _,
+    } = extra;
     relative(plugin_id, extra.name)?;
     if extra.check != 0 || extra.editor_kind > 2 || extra.flags & !EXTRA_FLAGS != 0 {
         return Err(ERR_UNSUPPORTED);
@@ -208,11 +243,26 @@ fn has_extension(path: &str, extension: &str) -> bool {
 }
 
 fn hyphenation_check(record: &ResourceHyphenation<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let ResourceHyphenation {
+        language: _,
+        path: _,
+    } = record;
     ensure(language_tag(record.language, false))?;
     path_reference(record.path)
 }
 
 fn face_check(plugin_id: &str, face: &ResourceFontFace<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let ResourceFontFace {
+        name: _,
+        path: _,
+        family: _,
+        style: _,
+        weight: _,
+        role: _,
+        priority: _,
+    } = face;
     relative(plugin_id, face.name)?;
     path_reference(face.path)?;
     ensure(FONT_EXTENSIONS.iter().any(|e| has_extension(face.path, e)))?;
@@ -228,6 +278,12 @@ fn face_check(plugin_id: &str, face: &ResourceFontFace<'_>) -> Check {
 }
 
 fn extension_check(plugin_id: &str, extension: &ResourceFontExtension<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let ResourceFontExtension {
+        name: _,
+        path: _,
+        extends: _,
+    } = extension;
     relative(plugin_id, extension.name)?;
     path_reference(extension.path)?;
     // An extension adds glyphs to a face: only a PaperPaw pack can (PR #158).

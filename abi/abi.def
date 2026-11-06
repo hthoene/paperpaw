@@ -1102,6 +1102,16 @@
       "name": "ERR_BUSY",
       "value": -9,
       "since": 1
+    },
+    {
+      "name": "ERR_NOT_FOUND",
+      "value": -10,
+      "since": 1
+    },
+    {
+      "name": "ERR_FULL",
+      "value": -11,
+      "since": 1
     }
   ],
   "metadata": {
