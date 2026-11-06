@@ -56,7 +56,7 @@ pub use paperpaw_native::{Chip, HEADER_LEN, Header, Problem, Signature};
 /// against (see the [module documentation](self)). Raised by hand, and
 /// only when what plugins see changes; `crates/paperpaw-sdk/interface.txt`
 /// keeps what it was, and CI fails while they differ (ADR 0026).
-pub const INTERFACE: u16 = 6;
+pub const INTERFACE: u16 = 7;
 
 /// The draft of [`INTERFACE`] this build is, while the owner has not frozen
 /// it; 0 once frozen. A draft may change what plugins see without a new
