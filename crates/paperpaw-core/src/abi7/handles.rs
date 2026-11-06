@@ -21,6 +21,13 @@ pub(crate) enum Error {
     Capacity,
 }
 
+/// Host resources cancel without plugin callbacks or allocation. Release runs
+/// after the value leaves the registry borrow.
+pub(crate) trait Release {
+    fn cancel(&mut self) {}
+    fn release(self);
+}
+
 struct Entry<T> {
     owner: u64,
     kind: Kind,
@@ -106,6 +113,18 @@ impl<T> Handles<T> {
         Ok(entry.value)
     }
 
+    /// Visit this owner's live resources without allocating a temporary list.
+    /// The visitor must not call plugin code or reenter this registry.
+    pub(crate) fn each_owner_mut(&mut self, owner: u64, mut visit: impl FnMut(&mut T)) {
+        for slot in &mut self.slots {
+            if let Some(entry) = &mut slot.entry
+                && entry.owner == owner
+            {
+                visit(&mut entry.value);
+            }
+        }
+    }
+
     /// Invalidate first, then let the caller release the resource outside its
     /// registry borrow. Repeating this drains an owner without a temporary Vec.
     pub(crate) fn take_owner(&mut self, owner: u64) -> Option<T> {
@@ -131,6 +150,50 @@ fn advance<T>(slot: &mut Slot<T>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancellation_visits_only_the_owner_before_resources_are_taken_and_released() {
+        use alloc::{rc::Rc, vec::Vec};
+        use core::cell::RefCell;
+        struct Resource {
+            id: u8,
+            events: Rc<RefCell<Vec<(u8, bool)>>>,
+        }
+        impl Release for Resource {
+            fn cancel(&mut self) {
+                self.events.borrow_mut().push((self.id, false));
+            }
+            fn release(self) {
+                self.events.borrow_mut().push((self.id, true));
+            }
+        }
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let mut handles = Handles::new();
+        for (owner, id) in [(1, 1), (2, 2), (1, 3)] {
+            assert!(
+                handles
+                    .insert(
+                        owner,
+                        Kind::Blob,
+                        Resource {
+                            id,
+                            events: Rc::clone(&events)
+                        }
+                    )
+                    .is_ok()
+            );
+        }
+        handles.each_owner_mut(1, Release::cancel);
+        while let Some(resource) = handles.take_owner(1) {
+            resource.release();
+        }
+        assert_eq!(
+            &*events.borrow(),
+            &[(1, false), (3, false), (1, true), (3, true)]
+        );
+        handles.each_owner_mut(1, |_| panic!("removed owner"));
+        assert!(handles.take_owner(2).is_some());
+    }
 
     #[test]
     fn generation_exhaustion_retires_the_slot_even_after_owner_teardown() {
