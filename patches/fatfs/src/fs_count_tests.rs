@@ -80,10 +80,12 @@ impl std::io::Write for FailMirror {
 fn a_failed_mirror_allocation_keeps_the_count_on_the_low_side() {
     let mut disk = StdIoWrapper::new(FailMirror(Cursor::new(vec![0u8; 128])));
     let mut fat = DiskSlice::<_, StdIoWrapper<FailMirror>>::new(0, 64, 2, &mut disk);
-    let before = crate::table::count_free_clusters(&mut fat, FatType::Fat16, 30).unwrap();
+    let before = crate::table::count_free_clusters::<_, std::io::Error>(&mut fat, FatType::Fat16, 30).unwrap();
     let taken = Cell::new(0);
-    assert!(crate::table::alloc_cluster(&mut fat, FatType::Fat16, None, None, 30, &taken).is_err());
-    let actual = crate::table::count_free_clusters(&mut fat, FatType::Fat16, 30).unwrap();
+    assert!(
+        crate::table::alloc_cluster::<_, std::io::Error>(&mut fat, FatType::Fat16, None, None, 30, &taken).is_err()
+    );
+    let actual = crate::table::count_free_clusters::<_, std::io::Error>(&mut fat, FatType::Fat16, 30).unwrap();
     assert_eq!(actual, before - 1);
     assert_eq!(taken.get(), 1);
     assert!(u64::from(before).saturating_sub(taken.get()) <= u64::from(actual));
