@@ -19,6 +19,12 @@ def source(interface, draft=None):
     return text if draft is None else text + f'pub const DRAFT: u16 = {draft};\n'
 
 
+def summary(interface, draft=None, fingerprint='kept'):
+    """interface.txt: `draft` is a line only while there is one."""
+    text = f'interface = {interface}\n'
+    return text + (f'draft = {draft}\n' if draft is not None else '') + f'fingerprint = {fingerprint}\n'
+
+
 class Fixture(unittest.TestCase):
     """A repository whose base commit has `files`."""
     files = {}
@@ -136,8 +142,12 @@ class RaiseTests(Fixture):
     """The base is from before drafts: interface 6, no `DRAFT`."""
     files = {reference.SOURCE: source(6)}
 
+    def raise_to(self, interface=7, draft=1, stated=None):
+        self.write(reference.SOURCE, source(interface, draft))
+        self.write(reference.SUMMARY, summary(interface, draft if stated is None else stated))
+
     def test_a_raise_must_be_named(self):
-        self.write(reference.SOURCE, source(7, 1))
+        self.raise_to()
         self.write(API, 'pub struct Api7\n')
         with self.assertRaisesRegex(ValueError, 'must name the change'):
             self.check()
@@ -153,56 +163,181 @@ class RaiseTests(Fixture):
         self.write(SEVEN, '# Blessings of interface 7.\n\n1 early raise, draft baseline (#228)\n')
         self.assertIn('interface 6 raised to 7 draft 1, named (1)', self.check())
 
+    def test_a_raise_lands_at_draft_1_never_later_or_frozen(self):
+        self.write(SEVEN, '2 early raise (#228)\n')
+        self.raise_to(draft=2)
+        with self.assertRaisesRegex(ValueError, 'lands at draft 1, not 2'):
+            self.check()
+        self.write(SEVEN, '0 raise and freeze (#228)\n')
+        self.write(reference.SOURCE, source(7))
+        self.write(reference.SUMMARY, summary(7))
+        with self.assertRaisesRegex(ValueError, 'lands at draft 1, not frozen'):
+            self.check()
+
+    def test_interface_txt_must_say_what_the_source_says(self):
+        self.write(SEVEN, '1 early raise (#228)\n')
+        for stated, text in [(2, 'a draft that is not the source\'s'), (None, 'no draft line')]:
+            with self.subTest(text=text):
+                self.write(reference.SOURCE, source(7, 1))
+                self.write(reference.SUMMARY, summary(7, stated))
+                with self.assertRaisesRegex(ValueError, 'says interface 7 draft'):
+                    self.check()
+        self.write(reference.SUMMARY, summary(6, 1))
+        with self.assertRaisesRegex(ValueError, 'says interface 6 draft 1'):
+            self.check()
+        self.write(reference.SUMMARY, 'interface = 7\ninterface = 7\ndraft = 1\n')
+        with self.assertRaisesRegex(ValueError, 'cannot establish'):
+            self.check()
+        self.write(reference.SUMMARY, summary(7, 0))
+        with self.assertRaisesRegex(ValueError, 'freezing deletes the line'):
+            self.check()
+        self.write(reference.SUMMARY, summary(7, 1))
+        self.assertIn('raised to 7 draft 1', self.check())
+
+
+class StaleHistoryTests(Fixture):
+    """The base has a history of interface 7 already, before its raise."""
+    files = {reference.SOURCE: source(6), SEVEN: '1 stale (#1)\n'}
+
+    def test_a_raise_refuses_an_existing_history(self):
+        self.write(reference.SOURCE, source(7, 1))
+        self.write(reference.SUMMARY, summary(7, 1))
+        self.write(SEVEN, '1 stale (#1)\n1 early raise (#228)\n')
+        with self.assertRaisesRegex(ValueError, 'exists in the base already'):
+            self.check()
+
 
 class DraftTests(Fixture):
     files = {reference.SOURCE: source(7, 1),
+             reference.SUMMARY: summary(7, 1),
+             API: 'pub struct Api\npub struct Other\n',
              SEVEN: '1 early raise, draft baseline (#228)\n'}
+
+    def named(self, *lines):
+        self.write(SEVEN, '1 early raise, draft baseline (#228)\n' + ''.join(line + '\n' for line in lines))
 
     def test_an_unchanged_draft_passes(self):
         self.assertIn('draft-1 reference files match', self.check())
 
-    def test_a_changed_draft_must_be_named_by_an_appended_line(self):
-        self.write(API, 'pub struct Api2\n')
+    def test_an_addition_passes_when_named(self):
+        self.write(API, 'pub struct Api\npub struct Added\npub struct Other\n')
         with self.assertRaisesRegex(ValueError, 'gains no line'):
             self.check()
-        self.write(SEVEN, '1 hyphenation from the card (#228)\n')
-        with self.assertRaisesRegex(ValueError, 'only appended'):
+        self.named('1 declare module (#180)')
+        self.assertIn('draft 1: additions named (1)', self.check())
+        # A new file and a line appended to another file are additions too.
+        self.write(reference.DIRECTORY + '/new.api', 'pub struct New\n')
+        self.write(reference.DIRECTORY + '/sample.shape', 'size=24\nsize=32\n')
+        self.assertIn('additions named (1)', self.check())
+
+    def test_a_removed_line_is_refused_whatever_is_named(self):
+        self.write(API, 'pub struct Api\n')
+        self.named('1 trim (#1)')
+        with self.assertRaisesRegex(ValueError, 'lost or changed a line.*next draft'):
             self.check()
-        self.write(SEVEN, '1 early raise, draft baseline (#228)\n1 declare module (#180)\n')
-        self.assertIn('draft 1 blessed as draft 1, named (1)', self.check())
-        self.write(SEVEN, '1 early raise, draft baseline (#228)\n1 declare module (#180)\n'
-                   '2 hyphenation from the card (#228)\n')
+
+    def test_a_changed_or_reordered_line_is_refused(self):
+        for text in ['pub struct Api2\npub struct Other\n', 'pub struct Other\npub struct Api\n',
+                     'pub struct Api\npub struct Other \n']:
+            with self.subTest(text=text):
+                self.write(API, text)
+                self.named('1 change (#1)')
+                with self.assertRaisesRegex(ValueError, 'lost or changed a line.*next draft'):
+                    self.check()
+
+    def test_a_removed_file_is_refused(self):
+        (self.root / API).unlink()
+        self.named('1 drop a crate (#1)')
+        with self.assertRaisesRegex(ValueError, 'is gone.*next draft'):
+            self.check()
+
+    def test_interface_txt_stays_byte_equal_at_the_same_draft(self):
+        self.write(reference.SUMMARY, summary(7, 1, fingerprint='other'))
+        self.named('1 new fingerprint (#1)')
+        with self.assertRaisesRegex(ValueError, 'interface.txt must stay as it is.*next draft'):
+            self.check()
+
+    def test_the_senior_experiment_fails(self):
+        """A removed `.api` line, another fingerprint and a line in blessings.txt."""
+        self.write(API, 'pub struct Other\n')
+        self.write(reference.SUMMARY, summary(7, 1, fingerprint='laundered'))
+        self.named('1 laundered (#228)')
+        with self.assertRaisesRegex(ValueError, 'next draft'):
+            self.check()
+
+    def test_a_history_rewrite_is_refused_even_where_nothing_else_changed(self):
+        original = (self.root / SEVEN).read_text()
+        for text in ['1 early raise, rewritten (#228)\n', '', '1 early raise, draft baseline (#228)\n'
+                     '1 first (#1)\n']:
+            with self.subTest(text=text):
+                self.write(SEVEN, text)
+                if text.startswith('1 early raise, draft baseline'):
+                    # Only an appended line, with nothing else changed: harmless.
+                    self.assertIn('draft-1 reference files match', self.check())
+                else:
+                    with self.assertRaisesRegex(ValueError, 'only appended'):
+                        self.check()
+        (self.root / SEVEN).unlink()
+        with self.assertRaisesRegex(ValueError, 'is gone'):
+            self.check()
+        self.write(SEVEN, original)
+        self.assertIn('draft-1 reference files match', self.check())
+
+    def test_the_next_draft_may_change_anything_when_named(self):
+        self.write(reference.SOURCE, source(7, 2))
+        self.write(reference.SUMMARY, summary(7, 2, fingerprint='moved'))
+        with self.assertRaisesRegex(ValueError, 'gains no line'):
+            self.check()
+        self.write(API, 'pub struct Api2\n')
+        self.named('2 a signature changes (#1)')
+        self.assertIn('moved to the next draft 2, named (1)', self.check())
+        self.named('1 old draft (#1)')
         with self.assertRaisesRegex(ValueError, 'another draft'):
             self.check()
-        self.write(reference.SOURCE, source(7, 2))
-        self.assertIn('draft 1 blessed as draft 2, named (2)', self.check())
 
-    def test_a_draft_only_moves_on_or_freezes(self):
+    def test_a_draft_cannot_skip_one_or_be_stated_wrongly(self):
+        self.write(reference.SOURCE, source(7, 3))
+        self.write(reference.SUMMARY, summary(7, 3))
+        self.named('3 skipped (#1)')
+        with self.assertRaisesRegex(ValueError, 'one draft at a time'):
+            self.check()
         self.write(reference.SOURCE, source(7, 2))
-        with self.assertRaisesRegex(ValueError, 'gains no line'):
+        with self.assertRaisesRegex(ValueError, 'says interface 7 draft 3'):
             self.check()
-        # Freezing deletes DRAFT, and is named with draft 0.
+
+    def test_a_raise_needs_a_frozen_interface(self):
+        self.write(reference.SOURCE, source(8, 1))
+        self.write(reference.SUMMARY, summary(8, 1))
+        self.write(reference.blessings_path(8), '1 raise (#1)\n')
+        with self.assertRaisesRegex(ValueError, 'still a draft'):
+            self.check()
+
+    def test_freezing_is_its_own_named_step(self):
         self.write(reference.SOURCE, source(7))
+        self.write(reference.SUMMARY, summary(7))
         with self.assertRaisesRegex(ValueError, 'gains no line'):
             self.check()
-        self.write(SEVEN, '1 early raise, draft baseline (#228)\n0 frozen by the owner (#228)\n')
-        self.assertIn('blessed as draft 0', self.check())
+        self.named('0 frozen by the owner (#228)')
+        self.assertIn('moved to frozen, named (1)', self.check())
         self.commit('frozen')
         self.base = self.run_git('rev-parse', 'HEAD').decode().strip()
         self.assertIn('frozen interface-7 reference files match', self.check())
         self.write(API, 'pub struct Api3\n')
-        self.write(SEVEN, '1 early raise, draft baseline (#228)\n0 frozen by the owner (#228)\n'
-                   '0 after the freeze (#1)\n')
+        self.named('0 frozen by the owner (#228)', '0 after the freeze (#1)')
         with self.assertRaisesRegex(ValueError, 'frozen interface-7 reference changed'):
+            self.check()
+        self.write(reference.SOURCE, source(7, 1))
+        with self.assertRaisesRegex(ValueError, 'cannot become a draft'):
             self.check()
 
 
 class LaterDraftTests(Fixture):
-    files = {reference.SOURCE: source(7, 3),
+    files = {reference.SOURCE: source(7, 3), reference.SUMMARY: summary(7, 3),
              SEVEN: '1 early raise (#228)\n2 a (#1)\n3 b (#2)\n'}
 
     def test_a_draft_never_moves_back(self):
         self.write(reference.SOURCE, source(7, 2))
+        self.write(reference.SUMMARY, summary(7, 2))
         self.write(SEVEN, '1 early raise (#228)\n2 a (#1)\n3 b (#2)\n2 back (#3)\n')
         with self.assertRaisesRegex(ValueError, 'only moves on'):
             self.check()
