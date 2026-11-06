@@ -1,4 +1,5 @@
 use core::borrow::BorrowMut;
+use core::cell::Cell;
 use core::marker::PhantomData;
 
 use crate::error::{Error, IoError};
@@ -119,12 +120,15 @@ where
     }
 }
 
+// Modified for PaperPaw: `taken` added, counted as soon as the cluster is marked taken (see
+// `FileSystem::cluster_changes`), so one left taken by a failed link is counted too.
 pub(crate) fn alloc_cluster<S, E>(
     fat: &mut S,
     fat_type: FatType,
     prev_cluster: Option<u32>,
     hint: Option<u32>,
     total_clusters: u32,
+    taken: &Cell<u64>,
 ) -> Result<u32, Error<E>>
 where
     S: Read + Write + Seek,
@@ -144,6 +148,7 @@ where
         Err(e) => return Err(e),
     };
     write_fat(fat, fat_type, new_cluster, FatValue::EndOfChain)?;
+    taken.set(taken.get().wrapping_add(1));
     if let Some(n) = prev_cluster {
         write_fat(fat, fat_type, n, FatValue::Data(new_cluster))?;
     }
@@ -582,6 +587,8 @@ pub(crate) struct ClusterIterator<B, E, S = B> {
     fat_type: FatType,
     cluster: Option<u32>,
     err: bool,
+    // Modified for PaperPaw: clusters `free` marked free, a chain freed in part too.
+    freed: u32,
     // phantom is needed to add type bounds on the storage type
     phantom_s: PhantomData<S>,
     phantom_e: PhantomData<E>,
@@ -600,6 +607,7 @@ where
             fat_type,
             cluster: Some(cluster),
             err: false,
+            freed: 0,
             phantom_s: PhantomData,
             phantom_e: PhantomData,
         }
@@ -624,8 +632,15 @@ where
             self.next();
             write_fat(self.fat.borrow_mut(), self.fat_type, n, FatValue::Free)?;
             num_free += 1;
+            self.freed += 1;
         }
         Ok(num_free)
+    }
+
+    // Modified for PaperPaw: added.
+    /// The clusters `free` and `truncate` marked free so far, also where they failed on.
+    pub(crate) fn freed(&self) -> u32 {
+        self.freed
     }
 }
 
@@ -684,12 +699,12 @@ mod tests {
 
         // test allocation
         assert_eq!(
-            alloc_cluster(&mut cur, fat_type, None, Some(0x13), 0x1E).ok(),
+            alloc_cluster(&mut cur, fat_type, None, Some(0x13), 0x1E, &Cell::new(0)).ok(),
             Some(0x1B)
         );
         assert_eq!(read_fat(&mut cur, fat_type, 0x1B).ok(), Some(FatValue::EndOfChain));
         assert_eq!(
-            alloc_cluster(&mut cur, fat_type, Some(0x1B), None, 0x1E).ok(),
+            alloc_cluster(&mut cur, fat_type, Some(0x1B), None, 0x1E, &Cell::new(0)).ok(),
             Some(0x12)
         );
         assert_eq!(read_fat(&mut cur, fat_type, 0x1B).ok(), Some(FatValue::Data(0x12)));
