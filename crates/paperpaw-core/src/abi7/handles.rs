@@ -149,6 +149,7 @@ fn advance<T>(slot: &mut Slot<T>) {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
     use super::*;
 
     #[test]
