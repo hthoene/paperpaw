@@ -3,7 +3,7 @@
 //! start-up or waking), has a `sample` line each time the battery is
 //! measured (about once a minute) and ends with an `end` line (going to
 //! sleep or restarting). Besides the battery, each line has what the device did since
-//! PaperPaw started ([`Usage`]) and the pages turned, so the battery's use
+//! PaperPaw started (usage counters) and the pages turned, so the battery's use
 //! can be put down to what used it.
 //!
 //! What each plugin took goes into [`PLUGINS`], every ten minutes awake
@@ -17,8 +17,10 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+#[cfg(test)]
 use paperpaw_sdk::Storage;
-use paperpaw_sdk::usage::{PluginUsage, Usage};
+#[cfg(test)]
+use paperpaw_sdk::usage::PluginUsage;
 
 /// The log, in the plugin's folder.
 pub(crate) const FILE: &str = "log.csv";
@@ -58,7 +60,7 @@ impl Kind {
     }
 }
 
-/// What the device did since start-up, of its [`Usage`].
+/// What the device did since start-up, from native usage counters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct Counts {
     pub refreshes: [u32; 3],
@@ -68,19 +70,6 @@ pub(crate) struct Counts {
 }
 
 impl Counts {
-    pub fn of(usage: &Usage) -> Self {
-        Self {
-            refreshes: [
-                usage.refreshes.fast,
-                usage.refreshes.partial,
-                usage.refreshes.full,
-            ],
-            pixels: usage.pixels,
-            inputs: usage.inputs,
-            panel_ms: usage.panel_ms,
-        }
-    }
-
     pub fn total_refreshes(&self) -> u32 {
         self.refreshes
             .iter()
@@ -161,6 +150,7 @@ pub(crate) fn parse(line: &str) -> Option<(Kind, Reading)> {
 
 /// The lines of what each plugin took by `ms`, for those that took
 /// anything.
+#[cfg(test)]
 pub(crate) fn plugin_lines(ms: u64, plugins: &[PluginUsage]) -> String {
     let mut text = String::new();
     for p in plugins {
@@ -295,6 +285,7 @@ impl Sessions {
     }
 
     /// Reads the old log, then the log, from `dir`, a piece at a time.
+    #[cfg(test)]
     pub fn read(storage: &dyn Storage, dir: &str) -> Self {
         let mut sessions = Self::default();
         for name in [OLD, FILE] {
