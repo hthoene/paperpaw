@@ -182,20 +182,24 @@ typedef struct PpHeap {
   panic handler has no re-entrancy guard. Activation gate for interface-7 plugins on the X4 (the
   heap word and every allocating port included): the shell arms a CPU store trigger on a 2 KiB
   aligned band at the main stack's end, which fires in the overflowing store (so the faulting code
-  is blamed) and leaves at least about 2 KiB for the exception handler and the crash slot; a
+  is blamed) and keeps `RESERVE` (below) for the exception handler and the crash slot; a
   re-entrancy flag in its panic handler (a second entry writes a fixed "panic in panic" slot
   blaming the frame owner and resets, without formatting again); and an owner-approved device test
   that recurses until overflow shows the crash slot blames the plugin. (A stack-pointer monitor is
   not usable: the radio tasks run on other stacks.)
-  **Frame limit.** The band fires only on a store. One frame can move the stack pointer into the
-  band without storing, and the next frame then stores up to its size F lower, so the exception
-  handler and the crash slot have only the reserve (the band, `RESERVE`) minus F left. Rule: the
-  largest frame allowed (F, refused at pack time by `paperpaw-sign`, #252) is at most `RESERVE` -
-  the handler's measured depth - a margin; otherwise the reserve grows by F. Until the handler's
-  depth is measured on the device, the pack-time limit stays 1.5 KiB (#252) and this gate stays
-  open. Firmware functions that plugins call on the plugin's stack (shared-table entries, host
-  services, the dispatch entries after #235) are frames under the same limit; their budget is
-  checked in #254.
+  **Frame limit (decision #953).** The band fires only on a store. One frame of size F can move
+  the stack pointer into the band without storing, and the next frame then stores up to F lower,
+  so the exception handler and the crash slot have only `RESERVE + 4 - F` left. Rules, with `BAND`
+  the armed band, `H` the handler's measured depth and `M` a margin of 256 bytes:
+  - `LIMIT <= BAND`: no frame is larger than the band, so a frame that starts above it cannot skip
+    it. On the X4 `LIMIT` is 2,048 bytes, equal to `BAND`.
+  - `RESERVE = H + M + LIMIT`: the stack kept below the band's top for the handler, so the
+    two-frame case still leaves the handler its depth. Until `H` is measured on the device the X4
+    keeps 4,096 bytes, and this gate stays open.
+  - The pack-time check (`paperpaw-sign`, #252) refuses any plugin frame above `LIMIT`. Firmware
+    functions that plugins call on the plugin's stack (shared-table entries, host services, the
+    dispatch entries after #235) count against `LIMIT` too; their budget is checked in #254.
+  - Firmware sets the constants in #250 and #252.
   Hosted targets end the process on the overflow.
 - [D] Codes: 1 panic, 2 allocation failure (`handle_alloc_error`), 3 bad free detected by the host;
   others reserved. A block grown by `realloc` is never reported as a bad free.
