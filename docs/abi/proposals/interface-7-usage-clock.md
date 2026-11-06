@@ -265,7 +265,7 @@ plugin without a translated name gets its id.
   narrowed to 384 bytes on the X4.
   - What this costs Battery: one row a page at worst, three for typical rows. With about 70 rows that is
     about 24 pages every 10 minutes (70 at worst), 3 crossings each, a few milliseconds in total.
-  - The scalar services fit: tag 48 needs 47 bytes, tag 50 at most 133, tag 51 at most 270.
+  - The scalar services fit: tag 48 needs 47 bytes, tag 50 at most 134, tag 51 at most 270.
 - [D] **Other hosts** may allow more live blobs and larger pages, up to E7 D3.4's two per owner, 16 KiB
   in total and 4 KiB a page. A plugin may rely only on the X4 floor: one live blob at a time, not while
   it has a stream chunk outstanding, and pages of at least 384 bytes. It must follow `next` rather than

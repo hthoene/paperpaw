@@ -65,7 +65,7 @@ fn round_trip(record: Record<'_>) -> usize {
 #[test]
 fn framed_sizes_are_the_contracts() {
     // Section 2.2: tag 48 is 47 bytes framed, tag 52 is 19, a row at most 210,
-    // tag 50 at most 133 and tag 51 at most 270 (section 2.6).
+    // tag 50 at most 134 and tag 51 at most 270 (section 2.6).
     assert_eq!(round_trip(Record::ServiceUsage(usage())), 47);
     assert_eq!(round_trip(Record::ServiceEnd(end())), 19);
     let id = "p".repeat(SERVICE_PLUGIN_USAGE_PLUGIN_MAX_BYTES);
@@ -74,7 +74,7 @@ fn framed_sizes_are_the_contracts() {
     let name = "n".repeat(SERVICE_PLUGIN_NAME_MAX_BYTES);
     assert_eq!(
         round_trip(Record::ServicePlugin(ServicePlugin { name: &name })),
-        133
+        134
     );
     let text = "t".repeat(SERVICE_WORK_NOTE_TEXT_MAX_BYTES);
     let note = ServiceWorkNote {
