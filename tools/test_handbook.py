@@ -49,6 +49,9 @@ class Handbook(unittest.TestCase):
             self.assertFalse({"tests", "testdata", "snapshots", "target"} & set(parts), name)
             self.assertNotIn(pathlib.PurePosixPath(name).suffix, handbook.ASSETS, name)
             self.assertFalse(name.endswith(("tests.rs", "_tests.rs")), name)
+        # No design proposal in draft; the docs they become are in (docs/abi/*.md).
+        self.assertFalse(any(n.startswith(top + "docs/abi/proposals/") for n in names))
+        self.assertIn(top + "docs/abi/records.md", names)
         # Neither the kernel nor a shell.
         self.assertFalse(any(n.startswith((top + "src/paperpaw-core/", top + "shells/")) for n in names))
         self.assertNotIn("#[cfg(test)]\nmod tests {", battery)
@@ -58,6 +61,9 @@ class Handbook(unittest.TestCase):
         # and by 0.1 MB with the Mail plugin's sources (3.2 to 3.3 MB), and by
         # 0.1 MB with the sorted library and the TLS sockets (3.4 to 3.5 MB), and
         # past 3.5 MB with the picture home (#205) and the widget colours (#206).
+        # The interface-7 draft proposals (0.11 MB of text, 45 KB zipped) are left
+        # out: working papers, not for plugin authors. Without them the handbook
+        # of abi7/integration is 3.57 MB.
         # The Workshop takes no whole handbook into a prompt (it hands out topics of
         # at most MAX_TOPIC_TOKENS, src/handbook/handbook.ts), so its size has no
         # hard limit there: this keeps growth seen, a step at a time.

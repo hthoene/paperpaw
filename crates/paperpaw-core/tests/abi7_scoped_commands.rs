@@ -1,0 +1,250 @@
+//! Slot-15 SetSetting: whole-batch validation, owner authority before any
+//! staging, and readback of the applied value in the next real callback.
+#![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
+use paperpaw_core::native_host::commands::{
+    COMMAND_MAX_BYTES, CommandScope, CommandStage, WireCommand, commands_encode,
+};
+use paperpaw_core::native_host::environment::{EnvironmentScope, SettingValueRef, settings_decode};
+use paperpaw_native::host_glue::{
+    ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, ERR_UTF8, OK,
+};
+use paperpaw_platform::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat, Rotation};
+use paperpaw_sdk::{
+    Command, Commands, Env, Id, Manifest, Plugin, RegisterError, Registrar, SettingExtra,
+    SettingSpec, SettingValue, builtin,
+};
+use std::{cell::RefCell, pin::pin, rc::Rc};
+
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "commands-test",
+    "Commands fixture",
+    DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
+    InputCaps::new(true, false, false, &[]),
+    MemoryClass::Small,
+);
+
+static SECRET: SettingExtra = SettingExtra::new().secret();
+static SETTINGS: [SettingSpec; 5] = [
+    SettingSpec::choice(
+        "probe.mode",
+        "mode",
+        &["a", "b"],
+        "a",
+        builtin::groups::OTHER,
+    ),
+    SettingSpec::switch("probe.flag", "flag", false, builtin::groups::OTHER),
+    SettingSpec::number("probe.number", "number", -1, 1, 0, builtin::groups::OTHER),
+    SettingSpec::text("probe.text", "text", "", builtin::groups::OTHER),
+    SettingSpec::text("probe.secret", "secret", "", builtin::groups::OTHER).with_extra(&SECRET),
+];
+static FOREIGN: [SettingSpec; 1] = [SettingSpec::switch(
+    "other.flag",
+    "flag",
+    false,
+    builtin::groups::OTHER,
+)];
+
+fn set<'a>(key: &'a str, value: SettingValueRef<'a>) -> WireCommand<'a> {
+    WireCommand::SetSetting { key, value }
+}
+
+fn batch(commands: &[WireCommand<'_>]) -> Vec<u8> {
+    let mut out = vec![0; COMMAND_MAX_BYTES];
+    let len = commands_encode(commands, &mut out).unwrap();
+    out.truncate(len);
+    out
+}
+
+fn submit(scope: &CommandScope, bytes: &[u8]) -> i32 {
+    // SAFETY: the borrowed slice is live, unmodified and disjoint from host state.
+    unsafe { scope.submit(bytes.as_ptr(), bytes.len()) }
+}
+
+fn read(env: &Env<'_>, key: &str) -> Vec<u8> {
+    let scope = pin!(EnvironmentScope::new());
+    let mut out = [0; 64];
+    let len = scope
+        .as_ref()
+        .scope(env, || {
+            // SAFETY: both slices are live, exclusive and disjoint from host state.
+            unsafe { scope.settings_read(key.as_ptr(), key.len(), out.as_mut_ptr(), out.len()) }
+        })
+        .unwrap();
+    out[..usize::try_from(len).unwrap()].to_vec()
+}
+
+/// Every refusal stages nothing; the final staged list proves it.
+fn refusals(scope: &CommandScope) {
+    let flag = set("probe.flag", SettingValueRef::Bool(true));
+    let long = "t".repeat(BYTES);
+    let cases: [(Vec<u8>, i32); 11] = [
+        // Second-pass refusal: the flag is converted first, then rolled back.
+        (
+            batch(&[flag, set("probe.mode", SettingValueRef::Text("z"))]),
+            ERR_INVALID,
+        ),
+        (
+            batch(&[set("probe.text", SettingValueRef::Text(&long))]),
+            ERR_NO_SPACE,
+        ),
+        (
+            batch(&[flag, set("other.flag", SettingValueRef::Bool(true))]),
+            ERR_INVALID,
+        ),
+        (
+            batch(&[flag, set("probe.none", SettingValueRef::Bool(true))]),
+            ERR_INVALID,
+        ),
+        (
+            batch(&[flag, set("probe.flag", SettingValueRef::Int(1))]),
+            ERR_INVALID,
+        ),
+        (
+            batch(&[flag, set("probe.number", SettingValueRef::Int(5))]),
+            ERR_INVALID,
+        ),
+        (
+            batch(&[flag, set("probe.number", SettingValueRef::Text("1"))]),
+            ERR_INVALID,
+        ),
+        (
+            batch(&[flag, set("probe.secret", SettingValueRef::Text("x"))]),
+            ERR_UNSUPPORTED,
+        ),
+        (batch(&[flag, flag, flag]), ERR_NO_SPACE),
+        (vec![1, 4, 2, 0, 1], ERR_INVALID),
+        (vec![1, 4, 3, 0, 1, 0xff], ERR_UTF8),
+    ];
+    for (bytes, error) in cases {
+        assert_eq!(submit(scope, &bytes), error, "{bytes:?}");
+    }
+    // SAFETY: a null pointer with nonzero length is refused before any read.
+    assert_eq!(unsafe { scope.submit(core::ptr::null(), 1) }, ERR_INVALID);
+    assert_eq!(submit(scope, &vec![0; COMMAND_MAX_BYTES + 1]), ERR_NO_SPACE);
+}
+
+/// Stage byte budget used by the fixture: keys plus text of staged commands.
+/// Tight enough that a byte count wrongly kept after a refused batch would
+/// make the later text batch fail.
+const BYTES: usize = 40;
+
+/// A panic in the callback clears the slot; afterwards a new scope works.
+fn unwinding(owner: &Id, env: &Env<'_>) {
+    let scope = pin!(CommandScope::new());
+    let mut stage = CommandStage::new(owner, env.settings(), 1, BYTES);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        scope
+            .as_ref()
+            .scope(&mut stage, || panic!("fixture unwind"))
+            .unwrap();
+    }));
+    assert!(result.is_err());
+    let flag = batch(&[set("probe.flag", SettingValueRef::Bool(true))]);
+    assert_eq!(submit(&scope, &flag), ERR_STATE);
+    let status = scope
+        .as_ref()
+        .scope(&mut stage, || submit(&scope, &flag))
+        .unwrap();
+    assert_eq!(status, OK);
+    assert_eq!(stage.staged().len(), 1);
+}
+
+fn started(env: &Env<'_>, out: &mut Commands) {
+    let owner = Id::new_static("probe");
+    let mut stage = CommandStage::new(&owner, env.settings(), 3, BYTES);
+    let scope = pin!(CommandScope::new());
+    let flag = batch(&[set("probe.flag", SettingValueRef::Bool(true))]);
+    assert_eq!(submit(&scope, &flag), ERR_STATE);
+    scope
+        .as_ref()
+        .scope(&mut stage, || {
+            assert_eq!(submit(&scope, &flag), OK);
+            refusals(&scope);
+            let text = batch(&[set("probe.text", SettingValueRef::Text("Grüße"))]);
+            assert_eq!(submit(&scope, &text), OK);
+            let two = batch(&[set("probe.flag", SettingValueRef::Bool(true)); 2]);
+            assert_eq!(submit(&scope, &two), ERR_NO_SPACE);
+            let mut nested = CommandStage::new(&owner, env.settings(), 1, BYTES);
+            assert!(scope.as_ref().scope(&mut nested, || ()).is_err());
+        })
+        .unwrap();
+    assert_eq!(submit(&scope, &flag), ERR_STATE);
+    assert_eq!(
+        stage.staged(),
+        [
+            Command::SetSetting(Id::new_static("probe.flag"), SettingValue::Bool(true)),
+            Command::SetSetting(
+                Id::new_static("probe.text"),
+                SettingValue::Text("Grüße".into())
+            ),
+        ]
+    );
+    // Nothing is applied before the host drains the stage after the callback.
+    assert_eq!(
+        settings_decode(&read(env, "probe.flag")),
+        Ok(SettingValueRef::Bool(false))
+    );
+    unwinding(&owner, env);
+    out.extend(stage.into_commands());
+}
+
+struct Probe(Rc<RefCell<Vec<String>>>);
+impl Plugin for Probe {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(
+            Id::new_static("probe"),
+            "Probe",
+            paperpaw_sdk::Version::new(1, 0, 0),
+        )
+    }
+    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        r.add_settings(&SETTINGS)?;
+        r.subscribe(
+            builtin::events::STARTED,
+            Box::new(|env, _, out| started(env, out)),
+        )?;
+        let log = self.0.clone();
+        r.subscribe(
+            builtin::events::SETTING_CHANGED,
+            Box::new(move |env, _, _| {
+                let flag = read(env, "probe.flag");
+                let flag = settings_decode(&flag).unwrap();
+                let text = read(env, "probe.text");
+                log.borrow_mut()
+                    .push(format!("{flag:?} {:?}", settings_decode(&text)));
+            }),
+        )
+    }
+}
+
+struct Other;
+impl Plugin for Other {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(
+            Id::new_static("other"),
+            "Other",
+            paperpaw_sdk::Version::new(1, 0, 0),
+        )
+    }
+    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        r.add_settings(&FOREIGN)
+    }
+}
+
+#[test]
+fn staged_set_setting_is_read_back_in_the_next_callback() {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let mut kernel = paperpaw_core::Kernel::builder(DEVICE)
+        .plugin(Probe(log.clone()))
+        .plugin(Other)
+        .build()
+        .unwrap();
+    kernel.start(paperpaw_platform::Instant(0));
+    let log = log.borrow();
+    assert!(!log.is_empty(), "no SETTING_CHANGED callback ran");
+    assert_eq!(
+        log.last().unwrap(),
+        "Bool(true) Ok(Text(\"Grüße\"))",
+        "{log:?}"
+    );
+}

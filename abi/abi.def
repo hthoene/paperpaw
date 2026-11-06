@@ -641,6 +641,31 @@
           "max_bytes": 0
         }
       ]
+    },
+    {
+      "id": 4,
+      "name": "command.set_setting",
+      "since": 1,
+      "fields": [
+        {
+          "name": "key",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "value",
+          "type": "bytes",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 4096
+        }
+      ]
     }
   ],
   "statuses": [
@@ -1039,6 +1064,10 @@
     "since": 1,
     "max_records": 8
   },
+  "command_codec": {
+    "since": 1,
+    "max_records": 8
+  },
   "snapshot_value": {
     "since": 1,
     "version": 1,
@@ -1171,5 +1200,30 @@
         "bits": 0
       }
     ]
+  },
+  "color_value": {
+    "since": 1,
+    "type": "u32",
+    "color_space": "srgb",
+    "channels": [
+      {
+        "name": "red",
+        "shift": 16,
+        "bits": 8
+      },
+      {
+        "name": "green",
+        "shift": 8,
+        "bits": 8
+      },
+      {
+        "name": "blue",
+        "shift": 0,
+        "bits": 8
+      }
+    ],
+    "reserved_mask": 4278190080,
+    "alpha": "none",
+    "invalid_status": "ERR_INVALID"
   }
 }
