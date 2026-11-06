@@ -16,8 +16,11 @@ use paperpaw_native::host_glue::{self, Services};
 
 use super::{Batch, Error, Hosted, Invocation, Make, Report, dispatch_registration, try_box};
 use crate::native_host::Declarations;
+use crate::native_host::FlatHost;
 use crate::native_host::environment::EnvironmentScope;
-use crate::native_host::flat::{DropReason, FlatInstance, FlatRegistration};
+use crate::native_host::flat::{
+    DropReason, FlatDepth, FlatError, FlatInstance, FlatPlugin, FlatRegistration,
+};
 use crate::native_host::registrations::{self, Registration};
 use crate::native_host::{self, DispatchDepth};
 
@@ -217,6 +220,38 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
                 },
             )
             .collect()
+    }
+}
+
+impl<S: Services + 'static, M: 'static> Instance<S, M> {
+    /// Hands this instance to the kernel as a flat plugin. Every allocation
+    /// is fallible: the instance box, the device's shared dispatch depth
+    /// (made with the first plugin and kept for the session), the adapter's
+    /// shared node and the adapter's box. On any refusal the instance is
+    /// dropped exactly once, whole (stop, lease, cancel, release, destroy,
+    /// module), and the depth keeps no extra share.
+    ///
+    /// # Errors
+    /// `FlatError::Allocation` when the heap has no room, or the adapter's
+    /// refusal of an unrouted registration.
+    pub fn into_plugin(
+        self,
+        manifest: paperpaw_sdk::Manifest,
+        depth: &mut Option<FlatDepth>,
+        host: &FlatHost,
+    ) -> Result<Box<FlatPlugin>, FlatError> {
+        let instance: Box<dyn FlatInstance> = try_box(self).map_err(|_| FlatError::Allocation)?;
+        let shared = match depth.as_ref() {
+            Some(depth) => depth.try_clone(),
+            None => FlatDepth::try_new().ok().and_then(|made| {
+                let share = made.try_clone();
+                *depth = Some(made);
+                share
+            }),
+        }
+        .ok_or(FlatError::Allocation)?;
+        let plugin = FlatPlugin::new(manifest, instance, shared, host)?;
+        try_box(plugin).map_err(|_| FlatError::Allocation)
     }
 }
 

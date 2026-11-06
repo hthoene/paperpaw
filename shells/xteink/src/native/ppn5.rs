@@ -440,28 +440,19 @@ mod x4 {
             try_string(id)?,
             paperpaw_sdk::Version::new(0, 0, 0),
         );
-        let instance = shell::try_box(instance).map_err(no_room)?;
-        // The device-wide depth is made with the first plugin; each plugin
-        // holds a counted share of it, none of this can abort (`NoRoom`).
-        let shared = match depth {
-            Some(depth) => depth.try_clone(),
-            None => FlatDepth::try_new().ok().and_then(|made| {
-                let share = made.try_clone();
-                *depth = Some(made);
-                share
-            }),
-        }
-        .ok_or_else(|| {
-            warn!("native: {id}: no room for the shared dispatch depth");
-            PluginProblem::NoRoom
-        })?;
-        let plugin = FlatPlugin::new(manifest, instance, shared, code.host).map_err(|why| {
-            warn!("native: {id}: format 5: {why:?}");
-            match why {
-                FlatError::Allocation => PluginProblem::NoRoom,
-                _ => PluginProblem::Unsupported,
-            }
-        })?;
+        // The instance box, the device-wide depth (made with the first plugin,
+        // each plugin holds a counted share), the adapter and its box: all
+        // fallible, a full heap is `NoRoom`, never an abort. A refusal drops
+        // the instance exactly once.
+        let plugin = instance
+            .into_plugin(manifest, depth, code.host)
+            .map_err(|why| {
+                warn!("native: {id}: format 5: {why:?}");
+                match why {
+                    FlatError::Allocation => PluginProblem::NoRoom,
+                    _ => PluginProblem::Unsupported,
+                }
+            })?;
         let took = crate::native::Took {
             place_us: made - started,
             make_us: crate::micros() - made,
@@ -478,7 +469,7 @@ mod x4 {
                 image.took = Some(took);
             }
         });
-        Ok(shell::try_box(plugin).map_err(no_room)?)
+        Ok(plugin)
     }
 
     /// `text` copied, or `NoRoom`.

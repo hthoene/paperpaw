@@ -725,6 +725,79 @@ mod instance_tests {
         }
     }
 
+    fn flat_host() -> crate::native_host::FlatHost {
+        crate::native_host::FlatHost {
+            meter: crate::meter::Meter::new(None),
+        }
+    }
+
+    fn manifest() -> paperpaw_sdk::Manifest {
+        paperpaw_sdk::Manifest::new(
+            paperpaw_sdk::Id::parse("fake.plugin").unwrap(),
+            "fake",
+            paperpaw_sdk::Version::new(0, 0, 0),
+        )
+    }
+
+    /// An allocation that fails at any step after `make` (the instance box,
+    /// the device's depth, the adapter's node and box) is a refusal that
+    /// unloads the plugin exactly once, inside an announced call; the first
+    /// plugin and a later one (sharing the depth) alike.
+    #[test]
+    fn an_allocation_failing_after_make_unloads_the_plugin_once_for_the_first_and_a_later_plugin() {
+        use crate::native_host::flat::FlatError;
+        let host = flat_host();
+        let mut refused = 0;
+        let mut made = 0;
+        for later in [false, true] {
+            for nth in 1..=8 {
+                reset(NORMAL);
+                EVENT_ONLY.with(|e| e.set(true));
+                let mut depth = None;
+                let first = later.then(|| {
+                    let plugin = load()
+                        .unwrap()
+                        .into_plugin(manifest(), &mut depth, &host)
+                        .unwrap();
+                    LOG.with(|l| l.borrow_mut().clear());
+                    plugin
+                });
+                let held = first.as_ref().map(|p| p.reference_counts());
+                // The next plugin's module is alive from here on.
+                let instance = load().unwrap();
+                let manifest = manifest();
+                arm_failure(nth);
+                let result = instance.into_plugin(manifest, &mut depth, &host);
+                arm_failure(0);
+                let context = alloc::format!("later {later}, allocation {nth}");
+                assert_eq!(UNCOVERED.with(Cell::get), 0, "{context}");
+                assert_eq!(OPEN.with(Cell::get), 0, "{context}");
+                match result {
+                    Err(why) => {
+                        refused += 1;
+                        assert_eq!(why, FlatError::Allocation, "{context}");
+                        assert_eq!(logged(), ["destroy", "module"], "{context}: once");
+                        if let (Some(first), Some(held)) = (first.as_ref(), held) {
+                            assert_eq!(first.reference_counts(), held, "{context}: shares");
+                        }
+                    }
+                    Ok(plugin) => {
+                        made += 1;
+                        drop(plugin);
+                        assert_eq!(logged(), ["destroy", "module"], "{context}");
+                    }
+                }
+                // The other module died first; the first plugin's destructor
+                // checks its own is alive.
+                MODULE_ALIVE.with(|a| a.set(true));
+                drop(first);
+                assert_eq!(UNCOVERED.with(Cell::get), 0, "{context}: first");
+            }
+        }
+        assert!(refused > 0, "some step refused");
+        assert!(made > 0, "past the last allocation it is made");
+    }
+
     #[test]
     fn every_announced_call_is_ended_also_when_make_fails_or_a_load_is_refused() {
         for mode in [FAILS, IGNORES_REFUSAL, BAD_TABLE] {
