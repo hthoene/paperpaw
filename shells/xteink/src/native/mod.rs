@@ -23,6 +23,8 @@ mod flash;
 #[cfg(feature = "esp32c3")]
 mod hot;
 pub mod partition;
+#[cfg(feature = "ppn5")]
+mod ppn5;
 #[cfg(feature = "esp32s3")]
 mod psram;
 
@@ -234,6 +236,11 @@ impl Loader {
         let started = crate::micros();
         let mut head = [0; HEADER_LEN];
         read_exact(storage, path, 0, &mut head).map_err(|_| PluginProblem::Damaged)?;
+        // Interface 7's files (format 5) are read by their own loader.
+        #[cfg(feature = "ppn5")]
+        if ppn5::is_format5(&head) {
+            return ppn5::load(&mut self.place, storage, code);
+        }
         let header = Header::read(&head).map_err(|p| problem_of(&head, p))?;
         if header.chip != CHIP {
             warn!(

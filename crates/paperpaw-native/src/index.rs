@@ -206,6 +206,8 @@ pub struct Placement {
 pub struct Mark {
     placed: usize,
     hot_used: u32,
+    same: bool,
+    written: bool,
 }
 
 /// The plugins placed at a start, one after the other, and how that
@@ -349,6 +351,8 @@ impl Layout {
         Mark {
             placed: self.placed.len(),
             hot_used: self.hot_used,
+            same: self.same,
+            written: self.written,
         }
     }
 
@@ -356,11 +360,32 @@ impl Layout {
     /// code's part of the arena are free again. The index is written anew
     /// at the end (an image may have been written, or the index erased),
     /// so it says only what was kept.
+    ///
+    /// For a plugin whose image or whose index may have been written; the
+    /// index then differs from the old one (what the refused plugin
+    /// overwrote may be the next one's old image). If nothing was written
+    /// or erased since the mark, [`Layout::forget`] is the way back.
     #[cfg(feature = "kernel")]
     pub fn rewind(&mut self, mark: Mark) {
+        debug_assert!(mark.placed <= self.placed.len());
         self.placed.truncate(mark.placed);
         self.hot_used = mark.hot_used;
         self.same = false;
+    }
+
+    /// [`Layout::rewind`] for a plugin refused **before** any flash was
+    /// erased or written for it: the layout is exactly as it was at `mark`,
+    /// as is its comparison with the old index, so the plugins placed
+    /// after it are found where they were, and neither they nor the index
+    /// are written again for the refused plugin's sake, at this start or at
+    /// any later one.
+    #[cfg(feature = "kernel")]
+    pub fn forget(&mut self, mark: Mark) {
+        debug_assert!(mark.placed <= self.placed.len());
+        self.placed.truncate(mark.placed);
+        self.hot_used = mark.hot_used;
+        self.same = mark.same;
+        self.written = mark.written;
     }
 
     /// The arena's bytes given to hot code.
@@ -666,5 +691,45 @@ mod tests {
                 .unwrap()
         );
         assert_eq!(by_header.index(), by_parts.index());
+    }
+
+    /// A plugin refused before anything was written is forgotten: the plugins
+    /// placed after it are found in the old index as before, so neither they
+    /// nor the index are written again. A plugin refused after a write is
+    /// rewound: the index is written anew.
+    #[cfg(feature = "kernel")]
+    #[test]
+    fn a_plugin_refused_before_writing_costs_the_others_nothing() {
+        let a = hot(5000, 400, 1);
+        let b = hot(1000, 0, 2);
+        let refused = hot(3000, 0, 9);
+        // A first start wrote a and b.
+        let mut first = Layout::new(region(), FIRMWARE, API, ARENA, None);
+        first.place(&a).unwrap();
+        first.place(&b).unwrap();
+        let old = first.index().unwrap();
+        // The next start places a, tries a refused plugin, then b.
+        let mut next = Layout::new(region(), FIRMWARE, API, ARENA, Some(old.clone()));
+        assert!(next.place(&a).unwrap().present);
+        let mark = next.mark();
+        assert!(
+            !next
+                .place_parts(refused.sha256, 3000, 16, 0)
+                .unwrap()
+                .present
+        );
+        next.forget(mark);
+        let placement = next.place(&b).unwrap();
+        assert!(placement.present, "b is where the index says");
+        assert!(!placement.erase_index);
+        assert_eq!(next.index(), None, "nothing changed: no index to write");
+        // Had the refused plugin written something, b would move.
+        let mut worse = Layout::new(region(), FIRMWARE, API, ARENA, Some(old));
+        worse.place(&a).unwrap();
+        let mark = worse.mark();
+        worse.place_parts(refused.sha256, 3000, 16, 0).unwrap();
+        worse.rewind(mark);
+        assert!(!worse.place(&b).unwrap().present);
+        assert!(worse.index().is_some());
     }
 }
