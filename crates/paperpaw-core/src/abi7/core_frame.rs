@@ -23,6 +23,13 @@ impl Frame for CoreFrame<'_> {
     fn translator(&self) -> &Translator {
         self.env.i18n()
     }
+    fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
+        Some(self.env.fonts())
+    }
+    fn storage(&self) -> Option<&dyn paperpaw_platform::Storage> {
+        Some(self.env.storage())
+    }
+
     fn snapshot(&self) -> Result<Snapshot, i32> {
         Frame::snapshot(self.env)
     }

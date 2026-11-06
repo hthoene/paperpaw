@@ -31,6 +31,12 @@ pub(crate) struct RowsEnd {
 pub(crate) trait Frame {
     fn settings(&self) -> &Settings;
     fn translator(&self) -> &Translator;
+    fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
+        None
+    }
+    fn storage(&self) -> Option<&dyn paperpaw_platform::Storage> {
+        None
+    }
     fn device_usage(&self) -> Result<DeviceUsageView, i32> {
         Err(ERR_STATE)
     }
