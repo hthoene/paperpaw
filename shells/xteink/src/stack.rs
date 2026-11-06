@@ -111,6 +111,7 @@ static NATIVE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::
 
 /// Notes that a plugin with native code is loaded, which needs the band for
 /// as long as it runs (`check` ends the run if the band is lost).
+#[cfg(feature = "ppn5")]
 pub fn native_loaded() {
     NATIVE.store(true, core::sync::atomic::Ordering::Relaxed);
 }
