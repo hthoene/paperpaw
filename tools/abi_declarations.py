@@ -180,6 +180,11 @@ def _decode_value(field, prefix):
     return _call('', f'body.opt_{"string" if kind == "str" else "blob"}', f'{bits}, {cap}', '?')
 
 
+def _lifetime(record):
+    """`<'a>` when a field borrows from the batch; scalar-only records carry none."""
+    return "<'a>" if any(f['kind'] in ('str', 'bytes') for f in record['fields']) else ''
+
+
 def _record_source(record):
     """One borrowed record struct with decode, length and write steps."""
     name, tag, fields = record['name'], record['id'], record['fields']
@@ -192,7 +197,7 @@ def _record_source(record):
                     f'pub const {prefix}_{field["name"].upper()}_MAX_BYTES: usize = '
                     f'{field["cap"]};']
     out += ['', f'/// The `{name}` record, borrowed from its batch.',
-            '#[derive(Clone, Copy, Debug, PartialEq, Eq)]', f"pub struct {title}<'a> {{"]
+            '#[derive(Clone, Copy, Debug, PartialEq, Eq)]', f"pub struct {title}{_lifetime(record)} {{"]
     for field in fields:
         kind, cap = field['kind'], field['cap']
         text = {'str': f'UTF-8 text of at most {cap} bytes.',
@@ -201,8 +206,10 @@ def _record_source(record):
             absent = field['default'] if kind in SCALAR_BYTES else 'empty'
             text += f' Appended and optional; {absent} when absent.'
         out += [f'    /// {text}', f'    pub {field["name"]}: {RUST_TYPES[kind]},']
-    out += ['}', '', f"impl<'a> {title}<'a> {{",
-            "    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {",
+    borrows = _lifetime(record)
+    out += ['}', '', f"impl<'a> {title}<'a> {{" if borrows else f'impl {title} {{',
+            "    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {" if borrows
+            else "    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {",
             '        let bits = body.bitmap_bits()?;' if optional else '        body.bitmap()?;',
             f'        Ok(Record::{title}(Self {{']
     for field in fields:
@@ -339,7 +346,8 @@ def _record_extra(declared):
 def declaration_source(declared, statuses):
     """Mixed-batch API: registrations plus capped, borrowed wire records."""
     arms = lambda text: ''.join(text.replace('@T@', _camel(r['name']))
-                                .replace('@C@', _const(r['name'])) + '\n' for r in declared)
+                                .replace('@L@', _lifetime(r)).replace('@C@', _const(r['name']))
+                                + '\n' for r in declared)
     has_optional = any(f['optional'] for r in declared for f in r['fields'])
     source = '\n// Declaration records and the mixed-batch API.\n'
     source += ''.join(_record_source(record) for record in declared)
@@ -348,7 +356,7 @@ def declaration_source(declared, statuses):
                .replace('@RECORD_EXTRA@', _record_extra(declared))
                .replace('@BITMAP@', 'record.write_bitmap(out, &mut offset);' if has_optional
                         else 'write_varint(0, out, &mut offset);')
-               .replace('@VARIANTS@', arms("    /// A `@T@` record.\n    @T@(@T@<'a>),").rstrip('\n'))
+               .replace('@VARIANTS@', arms("    /// A `@T@` record.\n    @T@(@T@@L@),").rstrip('\n'))
                .replace('@DECODE@', arms('        @C@_TAG => @T@::decode(body)?,').rstrip('\n'))
                .replace('@TAGS@', arms('            Record::@T@(_) => @C@_TAG,').rstrip('\n'))
                .replace('@LENS@', arms('            Record::@T@(record) => record.body_len(),')

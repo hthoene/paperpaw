@@ -131,7 +131,11 @@ class WireRecordTests(unittest.TestCase):
 
     def test_without_optional_fields_the_codec_has_no_bitmap_code(self):
         plain = synthetic(fields=[field('a', 'u32'), field('d', 'str', 16)])
-        source = rust_records(self.with_record(plain))
+        schema = self.with_record(plain)
+        # The shipped schema declares optional fields (event.page_turned); leave it out.
+        schema['records'] = [r for r in schema['records']
+                             if not any(f['optional'] for f in r['fields'])]
+        source = rust_records(schema)
         self.assertNotIn('write_bitmap', source)
         self.assertNotIn('bitmap_bits', source)
         self.assertIn('write_varint(0, out, &mut offset);', source)
@@ -161,8 +165,9 @@ class WireRecordTests(unittest.TestCase):
                   'i18n.x': (44, 47), 'service.x': (48, 55), 'command.x': (56, 62)}
         small = [field('a', 'u32')]
         for name, (low, high) in ranges.items():
-            # Tags 5-10 are taken by the declaration records.
-            for tag in sorted({max(low, 11), high}):
+            # Tags 5-10 and 32-37 are taken by declared records.
+            first = 38 if name == 'event.x' else max(low, 11)
+            for tag in sorted({first, high}):
                 with self.subTest(name=name, tag=tag):
                     validate_records(self.with_record(synthetic(name, tag, small)))
             for tag in (low - 1, high + 1, 0, 63, 64, 65536):
