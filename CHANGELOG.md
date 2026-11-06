@@ -19,6 +19,10 @@ change the plugin SDK.
 
 ### Added
 
+- Graphics: `Framebuffer::probe`, a framebuffer that keeps no pixels but where masks put ink
+  (pixels at least half covered, unclipped), and `InkBounds`; host-only `FontHandle::ink_drawn`
+  measures text ink by the drawing path itself (shaping, joining, marks, jamo), for slot 30
+  `text.ink` (#228).
 - Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
   device usage, translated plugin names and work-note readers. Includes a deterministic fake-host
   fixture for Battery port tests; helpers use bounded buffers and allocate nothing (#228).

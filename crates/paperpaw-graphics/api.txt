@@ -209,6 +209,15 @@ pub fn paperpaw_graphics::Framebuffer::view(&self) -> paperpaw_platform::display
 pub fn paperpaw_graphics::Framebuffer::view_rows(&self, paperpaw_platform::geometry::Rect) -> paperpaw_platform::display::FrameView<'_>
 pub fn paperpaw_graphics::Framebuffer::width(&self) -> u16
 pub fn paperpaw_graphics::Framebuffer::write_rows(&mut self, u16, paperpaw_platform::display::FrameView<'_>)
+impl paperpaw_graphics::Framebuffer
+pub fn paperpaw_graphics::Framebuffer::is_probe(&self) -> bool
+pub fn paperpaw_graphics::Framebuffer::probe() -> Self
+pub fn paperpaw_graphics::Framebuffer::probed(&self) -> core::option::Option<paperpaw_graphics::InkBounds>
+#[non_exhaustive] pub struct paperpaw_graphics::InkBounds
+pub paperpaw_graphics::InkBounds::bottom: i32
+pub paperpaw_graphics::InkBounds::left: i32
+pub paperpaw_graphics::InkBounds::right: i32
+pub paperpaw_graphics::InkBounds::top: i32
 pub struct paperpaw_graphics::Region
 impl paperpaw_graphics::Region
 pub const fn paperpaw_graphics::Region::kind(&self) -> paperpaw_graphics::RegionKind
