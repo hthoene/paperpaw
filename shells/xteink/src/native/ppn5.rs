@@ -36,7 +36,6 @@ use log::warn;
 use paperpaw_core::CodeFile;
 use paperpaw_native::MAGIC;
 use paperpaw_native::header5::{HEADER_LEN, Header5, Host, Refusal};
-use paperpaw_native::stream5::{EntryCheck, ReadError, Source};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::{Plugin, PluginProblem};
 
@@ -55,26 +54,6 @@ pub fn is_format5(head: &[u8]) -> bool {
     head.len() >= 6 && head[..4] == MAGIC && u16::from_le_bytes([head[4], head[5]]) >= FIRST_FORMAT
 }
 
-/// A file of the card read at offsets, for `stream5`. Every read tells the
-/// watchdogs the work goes on: the digest of a whole file takes seconds.
-pub struct StorageSource<'a> {
-    storage: &'a dyn Storage,
-    path: &'a str,
-}
-
-impl<'a> StorageSource<'a> {
-    pub fn new(storage: &'a dyn Storage, path: &'a str) -> Self {
-        Self { storage, path }
-    }
-}
-
-impl Source for StorageSource<'_> {
-    fn read_at(&self, at: u64, buf: &mut [u8]) -> Result<(), ReadError> {
-        crate::power::feed();
-        super::read_exact(self.storage, self.path, at, buf).map_err(|()| ReadError)
-    }
-}
-
 /// What the plugin manager says for a header this firmware refuses.
 fn refused(path: &str, head: &[u8], why: Refusal) -> PluginProblem {
     warn!("native: {path}: format 5: {why:?}");
@@ -91,13 +70,6 @@ fn refused(path: &str, head: &[u8], why: Refusal) -> PluginProblem {
         Refusal::UnknownChip | Refusal::OtherChip | Refusal::NoProfile => PluginProblem::OtherBuild,
         _ => PluginProblem::Damaged,
     }
-}
-
-/// Why the file's entry, checked in RAM before the flash was touched, is
-/// refused: a damaged file.
-pub(super) fn entry_check_failed(path: &str, why: EntryCheck) -> PluginProblem {
-    warn!("native: {path}: format 5: refused before writing: {why:?}");
-    PluginProblem::Damaged
 }
 
 /// Loads the format-5 file `code` as far as the core takes it (see the
@@ -134,6 +106,9 @@ pub fn load(
     }
 }
 
+#[cfg(feature = "esp32c3")]
+pub(super) use x4::{StorageSource, entry_check_failed};
+
 /// The ESP32-C3's part: the image is placed in flash and its entry read.
 #[cfg(feature = "esp32c3")]
 mod x4 {
@@ -147,7 +122,36 @@ mod x4 {
     use paperpaw_platform::Storage;
     use paperpaw_sdk::PluginProblem;
 
+    use paperpaw_native::stream5::{EntryCheck, ReadError, Source};
+
     use super::HOST;
+
+    /// A file of the card read at offsets, for `stream5`. Every read tells the
+    /// watchdogs the work goes on: the digest of a whole file takes seconds.
+    pub struct StorageSource<'a> {
+        storage: &'a dyn Storage,
+        path: &'a str,
+    }
+
+    impl<'a> StorageSource<'a> {
+        pub fn new(storage: &'a dyn Storage, path: &'a str) -> Self {
+            Self { storage, path }
+        }
+    }
+
+    impl Source for StorageSource<'_> {
+        fn read_at(&self, at: u64, buf: &mut [u8]) -> Result<(), ReadError> {
+            crate::power::feed();
+            crate::native::read_exact(self.storage, self.path, at, buf).map_err(|()| ReadError)
+        }
+    }
+
+    /// Why the file's entry, checked in RAM before the flash was touched, is
+    /// refused: a damaged file.
+    pub(super) fn entry_check_failed(path: &str, why: EntryCheck) -> PluginProblem {
+        warn!("native: {path}: format 5: refused before writing: {why:?}");
+        PluginProblem::Damaged
+    }
 
     /// An entry the image holds that is not right: a damaged file.
     fn entry_refused(path: &str, why: EntryRefusal) -> PluginProblem {
