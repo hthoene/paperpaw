@@ -81,8 +81,10 @@ impl FlatInstance for Instance {
         &self,
         index: usize,
         payload: &[u8],
+        out: &mut [u8],
         _: &DispatchDepth,
     ) -> Result<i32, Error> {
+        assert!(out.is_empty());
         let mut snapshot = [0; 128];
         // SAFETY: initialized local output is exclusive and disjoint from host state.
         assert_eq!(
@@ -262,7 +264,8 @@ fn admission_and_plugin_refusals_are_reported_once_without_retry_or_blocking_lif
         (Err(Error::State), DropReason::State),
         (Ok(ERR_UNSUPPORTED), DropReason::Plugin(ERR_UNSUPPORTED)),
         (Ok(ERR_INVALID), DropReason::Plugin(ERR_INVALID)),
-        (Ok(1), DropReason::Plugin(1)),
+        (Ok(1), DropReason::Plugin(ERR_INVALID)),
+        (Ok(i32::MAX), DropReason::Plugin(ERR_INVALID)),
     ] {
         let seen = Observed::new();
         seen.response.set(response);

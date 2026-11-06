@@ -22,7 +22,7 @@ pub enum DropReason {
     State,
     /// Event parameters were missing, malformed or could not be encoded.
     Producer,
-    /// The callback returned something other than OK, including invalid positives.
+    /// The callback returned an error or a reply length beyond its output buffer.
     Plugin(i32),
 }
 
@@ -65,7 +65,10 @@ pub trait FlatInstance {
     fn environment(&self) -> Pin<&EnvironmentScope>;
 
     /// Invoke the validated event callback under RegistrationBatch admission.
-    /// The payload remains borrowed only until this call returns.
+    /// Payload and output remain borrowed only until this call returns.
+    /// The shell forwards the exclusive output slice as a PpBuffer, including
+    /// its non-null dangling pointer when empty. A nonnegative result is the
+    /// reply length; it must not exceed the output length.
     ///
     /// # Errors
     /// Returns the owner/admission error without accessing foreign state.
@@ -73,6 +76,7 @@ pub trait FlatInstance {
         &self,
         index: usize,
         payload: &[u8],
+        out: &mut [u8],
         depth: &DispatchDepth,
     ) -> Result<i32, Error>;
 
@@ -253,14 +257,21 @@ fn invoke(
     };
     let status = instance
         .environment()
-        .scope_core(&frame, || instance.dispatch_event(index, bytes, depth))
+        .scope_core(&frame, || {
+            instance.dispatch_event(index, bytes, &mut [], depth)
+        })
         .map_err(admission)?
         .map_err(admission)?;
-    if status == paperpaw_native::host_glue::OK {
-        Ok(())
-    } else {
-        Err(DropReason::Plugin(status))
+    reply_length(status, 0).map(|_| ())
+}
+
+// The caller checks the length before framing or reading any reply bytes.
+fn reply_length(status: i32, capacity: usize) -> Result<usize, DropReason> {
+    let length = usize::try_from(status).map_err(|_| DropReason::Plugin(status))?;
+    if length > capacity {
+        return Err(DropReason::Plugin(paperpaw_native::host_glue::ERR_INVALID));
     }
+    Ok(length)
 }
 
 #[cfg(test)]
