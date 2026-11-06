@@ -37,6 +37,17 @@ block the first ports, for Senior review and the owner:
 - **Part 3:** S1 (eager owned specs) first, measured. `check` callbacks and `Extended` stay out of interface 7
   until a plugin needs them; unknown kinds are refused.
 
+## Amendments after Senior review (2026-11-06)
+
+These override the sections below wherever they differ.
+
+- **D1 All-or-nothing commit across registries (amends 2.2).** Commit touches several kernel registries
+  (settings, fonts, hyphenation). The apply phase first reserves capacity in **every** target registry
+  (`try_reserve` on each container and fallible copies of every owned string), and only then inserts with
+  operations that cannot fail. If any reservation fails, nothing has changed, the construction fails with
+  `ERR_NO_MEMORY` and the plugin is not loaded. Tests inject an allocation failure at each step of the apply
+  phase and show that no registry holds any part of the plugin afterwards.
+
 ## 0. Summary of the proposal
 
 1. Registration is split over **three transports that share one record grammar**:
