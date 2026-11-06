@@ -17,7 +17,10 @@
 //! relocations show it), no symbol exported besides the two, no writable
 //! data and nothing that would run before `make` (any section but `.rodata`
 //! and `.text` that takes memory is refused), and no relocation kind outside
-//! the short list. The loader sees none of that, only what the file shows.
+//! the short list, and no stack frame of 1.5 KiB or more nor one of a size the
+//! code does not tell ([`crate::frames`]: the X4 watches the stack's end with a
+//! band a bigger frame could step over). The loader sees none of that, only
+//! what the file shows.
 //!
 //! Before it returns, the packer reads the file as the loader will, at two
 //! places: the header, the digest, every word to relocate and the entry and
@@ -104,6 +107,7 @@ pub fn pack5(elf: &[u8]) -> Result<Packed5, String> {
         .symbols()?
         .ok_or("no symbol table: do not strip the plugin")?;
     let image = Image::of(&elf, &symbols)?;
+    crate::frames::check(&elf, image.text, image.text_index, &symbols)?;
     exports(&image, &symbols)?;
     let (entry, meta_at, record) = locate(&image, &symbols)?;
     let facts = RecordFacts::read(record).ok_or_else(|| {
