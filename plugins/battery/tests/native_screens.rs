@@ -100,7 +100,7 @@ impl native::Plugin for ScreenProbe {
 }
 paperpaw_sdk::native_plugin!(
     ScreenProbe,
-    metadata = include_bytes!("../native/metadata.bin"),
+    metadata = include_bytes!("../native/metadata.host.bin"),
     linked = SCREEN_ENTRY
 );
 struct Heap;
@@ -147,6 +147,35 @@ impl Plugin for Capture {
         )
     }
 }
+fn declared_services() -> shell::DeclaredServices {
+    use paperpaw_native::metadata::{self, Host as AdmissionHost, Profile, Service};
+    let services = [
+        "core.plugin",
+        "core.plugin-usage",
+        "core.usage",
+        "core.work-note",
+    ]
+    .map(|key| Service {
+        key,
+        major: 1,
+        semantic_revision: 0,
+        min_table_bytes: 0,
+    });
+    let host = AdmissionHost {
+        abi_major: 7,
+        minor: 1,
+        profile: Profile {
+            target: "linux-x86_64-sysv64-le",
+            entry_layout: 1,
+            entry_bytes: 32,
+        },
+        services: &services,
+        features: &[],
+    };
+    let checked = metadata::check(include_bytes!("../native/metadata.host.bin"), &host).unwrap();
+    shell::DeclaredServices::try_from_iter(checked.services()).unwrap()
+}
+
 fn render(env: &Env<'_>) -> (i32, Vec<u8>) {
     // SAFETY: statically linked code and metadata live for the whole test; no image range.
     let hosted = unsafe {
@@ -158,6 +187,7 @@ fn render(env: &Env<'_>) -> (i32, Vec<u8>) {
             (0, 0),
             report,
             HostResources::try_new().unwrap(),
+            declared_services(),
         )
     }
     .unwrap();

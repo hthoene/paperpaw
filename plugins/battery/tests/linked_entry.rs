@@ -4,6 +4,9 @@
 #[test]
 fn linked_entry_preserves_generated_metadata_and_native_factory() {
     let entry = paperpaw_plugin_battery::NATIVE_ENTRY.entry();
+    #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+    let expected = include_bytes!("../native/metadata.host.bin");
+    #[cfg(all(target_arch = "riscv32", target_os = "none"))]
     let expected = include_bytes!("../native/metadata.bin");
     assert!(entry.make.is_some());
     assert_eq!(entry.abi_major, 7);
