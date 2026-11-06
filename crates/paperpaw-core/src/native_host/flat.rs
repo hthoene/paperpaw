@@ -32,7 +32,8 @@ pub enum DropReason {
 pub enum FlatRegistration {
     /// An event subscription and its index in the committed batch.
     Event { event_tag: u32, index: usize },
-    /// Another registration kind, identified by its wire record tag.
+    /// Another callback kind, identified by its wire record tag.
+    /// Declarations are applied separately and never passed as Other.
     Other { record_tag: u32 },
 }
 
@@ -56,9 +57,12 @@ impl core::error::Error for FlatError {}
 /// Shell-owned flat plugin instance, retained until all subscriptions are gone.
 /// Implementations must keep the owner and its module alive during callbacks.
 pub trait FlatInstance {
-    /// Visit EVERY committed registration record, in batch order, on every call.
-    /// Events include tick; draw and later kinds are Other with their record tag.
-    /// The committed registrations and indices must remain unchanged after make.
+    /// Visit every committed callback registration (events, tick, draw and any
+    /// later callback kind), in batch order, on every call. Declarations taken
+    /// with `take_declarations` (setting specs and other data) are not visited:
+    /// the shell applies them before activation, and a declaration it cannot
+    /// apply refuses the plugin at load; it is never dropped. The committed
+    /// registrations and their indices must not change after `FlatPlugin::new`.
     fn registrations(&self, visit: &mut dyn FnMut(FlatRegistration));
 
     /// The real pinned environment scope used by this instance's host table.
@@ -145,6 +149,9 @@ impl Plugin for FlatPlugin {
         self.manifest.clone()
     }
 
+    /// The kernel discards the entire registrar on error, including subscriptions
+    /// added before a later subscription failed. Contributions are staged only
+    /// after registration succeeds.
     fn register(&self, registrar: &mut Registrar) -> Result<(), RegisterError> {
         let mut result = Ok(());
         self.instance.registrations(&mut |registration| {

@@ -54,9 +54,15 @@ struct Transaction<'a, S, T> {
     staging: Staging<'a, S, T>,
 }
 
-impl<S, T> Transaction<'_, S, T> {
+impl<'a, S, T> Transaction<'a, S, T> {
     fn stage(&mut self, record: T) -> Result<(), (native_host::Error, T)> {
         self.staging.stage(record)
+    }
+
+    /// Gives staging the library's read-only data before `make`: a batch
+    /// lying wholly inside it is kept as offsets, not copied.
+    fn set_image(&mut self, image: &'a [u8]) -> Result<(), native_host::Error> {
+        self.staging.set_image(image)
     }
 }
 type Batch<'a, S, T> = RegistrationBatch<'a, Context<S>, HeldLibrary, T>;
@@ -67,6 +73,9 @@ struct PinnedPlugin<S> {
     /// Host-known plugin id (from the folder, never from the library) that
     /// staged declaration names are checked against.
     id: Box<str>,
+    /// The library's read-only data as mapped: address and length. Valid
+    /// while the owner holds the library; see [`PinnedPlugin::image`].
+    image: (usize, usize),
 }
 
 impl<S: Services> PinnedPlugin<S> {
@@ -83,7 +92,11 @@ impl<S: Services> PinnedPlugin<S> {
         table.settings_read = environment::settings_read::<S>;
         table.canvas_fill_rect = canvas::fill_rect::<S>;
         // SAFETY: the caller supplies authorization and inode immutability.
-        let CheckedLibrary { library, make } = unsafe { checked_library(path, digest, &table) }?;
+        let CheckedLibrary {
+            library,
+            make,
+            image,
+        } = unsafe { checked_library(path, digest, &table) }?;
         let context = Context {
             table,
             services,
@@ -98,7 +111,27 @@ impl<S: Services> PinnedPlugin<S> {
             owner,
             make,
             id: id.into(),
+            image,
         })
+    }
+
+    /// The library's read-only data, as mapped.
+    ///
+    /// # Safety
+    ///
+    /// The returned slice must not outlive the owner's library: the caller
+    /// ties it to a borrow of the plugin that holds the owner, and gives no
+    /// slice once the plugin is stopped. The bytes are read-only mappings; a
+    /// plugin without a sandbox can remap them, so every reader decodes with
+    /// checks and never trusts them to stay as they were.
+    unsafe fn image(&self) -> &[u8] {
+        let (start, len) = self.image;
+        if len == 0 {
+            return &[];
+        }
+        // SAFETY: a read-only mapping of `len` bytes at `start`, held by the
+        // owner's library for as long as `self` lives (the caller's contract).
+        unsafe { std::slice::from_raw_parts(start as *const u8, len) }
     }
 
     fn begin<T>(&self) -> Result<Transaction<'_, S, T>, Error> {
@@ -317,6 +350,8 @@ unsafe extern "C" fn registrations_submit<S: Services>(ctx: *mut c_void, batch: 
 
 enum Invocation<'a> {
     Tick(&'a [u8]),
+    /// An encoded event and the caller's exclusive borrowed reply buffer.
+    Event(&'a [u8], &'a mut [u8]),
     /// One encoded `draw.frame` batch (N2).
     Draw(&'a [u8]),
 }
@@ -328,8 +363,7 @@ fn borrowed(bytes: &[u8]) -> PpBytes {
     }
 }
 
-/// Callbacks without a reply family return a status: a positive result is a
-/// plugin fault, never a length (`docs/abi/screens-input.md` section 6).
+/// Callbacks without a reply family return a status; positives are faults.
 fn status_only(result: i32) -> i32 {
     if result > 0 {
         host_glue::ERR_INVALID
@@ -367,6 +401,25 @@ fn invoke_registration<S>(
             Ok(status_only(unsafe {
                 callback(instance.state, token, borrowed(bytes), out)
             }))
+        }
+        (Registration::Event { token, .. }, Invocation::Event(bytes, out)) => {
+            let callback = instance
+                .event
+                .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
+            let reply = PpBuffer {
+                ptr: out.as_mut_ptr(),
+                cap: out.len(),
+            };
+            // SAFETY: admission retains the owner; input/output are disjoint
+            // borrowed slices, exclusively writable for the lent output span.
+            let status = unsafe { callback(instance.state, token, borrowed(bytes), reply) };
+            Ok(
+                if status >= 0 && usize::try_from(status).is_ok_and(|len| len > out.len()) {
+                    host_glue::ERR_INVALID
+                } else {
+                    status
+                },
+            )
         }
         (Registration::Draw { token }, Invocation::Draw(frame)) => {
             let callback = instance
