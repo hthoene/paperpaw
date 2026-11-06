@@ -12,7 +12,9 @@
 mod common;
 
 use common::{Mem, Rng, Shipped, shipped};
-use paperpaw_hyphen::{MAX_BLOCK_BYTES, MAX_EXCEPTION_BYTES, StoredPatterns, check_source};
+use paperpaw_hyphen::{
+    MAX_BLOCK_BYTES, MAX_EXCEPTION_BYTES, OpenError, StoredPatterns, check_source,
+};
 
 /// Short words (one or two pattern keys, 4 to 14 letters): a stand-in for
 /// running text, which has no shipped sample in every language.
@@ -99,4 +101,28 @@ fn budget_table() {
             cells[1].2
         );
     }
+}
+
+/// The bound from the header is never below what a table takes opened,
+/// every shipped table fits the SDK's budget of 48 KiB for open tables
+/// (two of the largest, `de`, together), and a budget below what it needs
+/// refuses it before anything is kept.
+#[test]
+fn the_heap_bound_holds_for_every_shipped_table() {
+    let mut largest = 0;
+    for set in shipped() {
+        let bound = StoredPatterns::heap_bound(&mut Mem::new(set.table.clone()), 4).unwrap();
+        let reader = StoredPatterns::open(Mem::new(set.table.clone()), 0, 4).unwrap();
+        let heap = reader.heap_bytes();
+        println!("{:>3} heap {heap:>6} bound {bound:>6}", set.name);
+        assert!(heap <= bound, "{}: {heap} > {bound}", set.name);
+        largest = largest.max(bound);
+        let refused = StoredPatterns::open_within(Mem::new(set.table.clone()), 0, 4, heap);
+        assert!(
+            matches!(refused, Err(OpenError::OverBudget { needed }) if needed > heap),
+            "{}",
+            set.name
+        );
+    }
+    assert!(2 * largest <= 48 * 1024, "{largest}");
 }

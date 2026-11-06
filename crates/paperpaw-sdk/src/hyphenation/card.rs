@@ -3,19 +3,36 @@
 //! declarative-registration.md`, "The `[hyphenation]` data-plugin kind"),
 //! read with `paperpaw-hyphen`'s card-backed reader.
 //!
-//! A table is opened when a word of its language is first hyphenated, and
-//! at most [`OPEN`] are open at once (the least recently used is closed
-//! first): about 20 KB of heap for the largest shipped table (`de`), the
-//! patterns staying on the card. A table is untrusted for as long as it is
-//! read (contract D2): the reader checks it as it opens and bounds every
-//! read. A read that fails closes it; it is opened once more at the next
-//! word (B3: a card read may fail once and work again), and after a second
-//! failure, or a table that is not sound, the language is given up until
-//! the card changes (`Hyphenation::card_changed`). Nothing panics.
+//! A table is opened when a word of its language is first hyphenated: its
+//! index and exceptions are kept, its patterns stay on the card and are
+//! read a few blocks at a time (about 26 reads a word for `de`; opening it
+//! reads it once, 708 reads). At most [`OPEN`] are open at once, together
+//! within [`BUDGET`] bytes of heap, checked before anything is taken: about
+//! 20 KB for the largest shipped table (`de`), at most about 42 KiB for any
+//! table the shared check lets through. A table is untrusted for as long as
+//! it is read (contract D2): the reader checks it as it opens and bounds
+//! every read. A read that fails closes it; it is opened once more at the
+//! next word (B3: a card read may fail once and work again), and after a
+//! second failure, or a table that is not sound, the language is given up
+//! until the card changes (`Hyphenation::card_changed`). Nothing panics.
 //!
-//! A file is never read with what was kept of another: the kernel closes a
-//! plugin's tables as it removes or updates the plugin, and all of them
-//! when the card was mounted anew or written by a computer.
+//! The kernel's build opens tables: the opener is the kernel's functions,
+//! set with the storage (`set_storage`), not code compiled into each
+//! plugin. A plugin built without the `kernel` feature hyphenates with the
+//! same tables, opened by the kernel's code, as the kernel does; where no
+//! storage was set nothing is opened and nothing open is closed.
+//!
+//! Which tables stay open: to make room for another, only a table not used
+//! for [`HOT`] words is closed (the least recently used first). A book in
+//! two languages, a book's language and the UI's: each stays open while it
+//! is in use and both fit; where they do not, the words of the one that
+//! came second are left whole until the other has been idle a while,
+//! instead of each closing the other at every word (708 reads each time
+//! for `de`). The kernel closes them all when a book is closed and before
+//! the device sleeps (`Hyphenation::close_tables`), a plugin's as it
+//! removes or updates the plugin, and all of them when the card was
+//! mounted anew or written by a computer: a file is never read with what
+//! was kept of another.
 
 use alloc::boxed::Box;
 use alloc::rc::Rc;
@@ -28,6 +45,14 @@ use paperpaw_platform::Storage;
 
 /// Most tables open at once: a book's language and the UI's.
 pub(super) const OPEN: usize = 2;
+/// Bytes of heap all open tables take at most, together, while one is
+/// opened too (the X4 has about 256 KiB): two of the largest shipped (`de`,
+/// about 20 KB) fit, two of the largest the check lets through (about
+/// 42 KiB each) do not.
+pub(super) const BUDGET: usize = 48 * 1024;
+/// Words a table must have been idle (others hyphenated meanwhile) before
+/// it is closed to make room for another: about a page.
+pub(super) const HOT: u64 = 256;
 /// Blocks of patterns each open table keeps (`paperpaw-hyphen`'s
 /// measurements: 4 instead of 8 costs `de` 2 % more reads and saves 1 KB).
 #[cfg(feature = "kernel")]
@@ -67,7 +92,36 @@ impl Entry {
 trait Reader {
     fn hyphenate(&mut self, left: usize, right: usize, word: &str, out: &mut dyn FnMut(usize));
     fn is_failed(&self) -> bool;
+    /// Bytes of heap it holds.
+    fn heap(&self) -> usize;
 }
+
+/// Why a table was not opened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Unopened {
+    /// A read failed, or memory: counted, tried again at a later word.
+    Failed,
+    /// Not there or not sound: given up until the card changes.
+    GiveUp,
+    /// More than the room left in [`BUDGET`]: nothing counted.
+    NoRoom,
+}
+
+/// How tables are opened: the kernel's functions (see the [module
+/// documentation](self)), called by every build of this code.
+#[derive(Clone, Copy)]
+struct Opener {
+    /// Opens the table at the path: asks `room` for the bytes it may take,
+    /// with at most what it takes (from its header), before it takes any;
+    /// `room` makes room and says how much there is, `None` for too little.
+    open: fn(&Rc<dyn Storage>, &str, &mut Room<'_>) -> Opened,
+}
+
+/// A table opened, or why not.
+type Opened = Result<Box<dyn Reader>, Unopened>;
+
+/// What makes room for a table to be opened (see [`Opener`]).
+type Room<'a> = dyn FnMut(usize) -> Option<usize> + 'a;
 
 struct Open {
     serial: u32,
@@ -80,6 +134,8 @@ struct Open {
 #[derive(Default)]
 pub(super) struct CardTables {
     storage: Option<Rc<dyn Storage>>,
+    /// Set with the storage, by the kernel's build.
+    opener: Option<Opener>,
     entries: Vec<Entry>,
     next_serial: u32,
     open: RefCell<Vec<Open>>,
@@ -121,7 +177,8 @@ impl CardTables {
     }
 
     /// Hyphenates `word` with table `serial`, opening it where it is not
-    /// open; the minimums `left` and `right` where they are not 0.
+    /// open and there is room; the minimums `left` and `right` where they
+    /// are not 0. A word is left whole where the table is not open.
     pub(super) fn hyphenate(
         &self,
         serial: u32,
@@ -136,34 +193,14 @@ impl CardTables {
         let Ok(mut open) = self.open.try_borrow_mut() else {
             return;
         };
+        self.clock.set(self.clock.get() + 1);
         let at = match open.iter().position(|o| o.serial == serial) {
             Some(at) => at,
-            None => {
-                if entry.given_up() {
-                    return;
-                }
-                // The least recently used is closed first: its memory is
-                // free before the next is opened.
-                if open.len() >= OPEN
-                    && let Some(oldest) = (0..open.len()).min_by_key(|&i| open[i].stamp)
-                {
-                    open.swap_remove(oldest);
-                }
-                if open.try_reserve(1).is_err() {
-                    return;
-                }
-                let Some(reader) = self.open_reader(entry) else {
-                    return;
-                };
-                open.push(Open {
-                    serial,
-                    stamp: 0,
-                    reader,
-                });
-                open.len() - 1
-            }
+            None => match self.open_one(&mut open, entry) {
+                Some(at) => at,
+                None => return,
+            },
         };
-        self.clock.set(self.clock.get() + 1);
         let table = &mut open[at];
         table.stamp = self.clock.get();
         table.reader.hyphenate(left, right, word, out);
@@ -173,50 +210,113 @@ impl CardTables {
         }
     }
 
-    /// Opens `entry`'s file; a failure is counted (or the table given up,
-    /// where it is not sound or not there).
-    #[cfg(feature = "kernel")]
-    fn open_reader(&self, entry: &Entry) -> Option<Box<dyn Reader>> {
-        use paperpaw_hyphen::{CheckError, OpenError, StoredPatterns};
-        use paperpaw_platform::StorageError;
-
-        let storage = self.storage.clone()?;
-        let len = match storage.size(&entry.path) {
-            Ok(len) => len,
-            Err(StorageError::NotFound | StorageError::InvalidPath) => {
-                entry.give_up();
-                return None;
-            }
-            Err(_) => {
-                entry.failed();
-                return None;
-            }
+    /// Opens `entry`'s table with the kernel's opener, after closing what
+    /// must be closed for room (only tables idle for [`HOT`] words); where
+    /// it is in `open`. A failure is counted, or the table given up.
+    fn open_one(&self, open: &mut Vec<Open>, entry: &Entry) -> Option<usize> {
+        let (Some(storage), Some(opener)) = (&self.storage, self.opener) else {
+            return None;
         };
-        let mut path = String::new();
-        if path.try_reserve_exact(entry.path.len()).is_err() {
-            entry.failed();
+        if entry.given_up() {
             return None;
         }
-        path.push_str(&entry.path);
-        let file = CardFile { storage, path, len };
-        match StoredPatterns::open(file, len, CACHE) {
-            Ok(reader) => Some(Box::new(reader)),
-            Err(OpenError::Check(CheckError::Source(_))) | Err(OpenError::NoMemory) => {
-                entry.failed();
-                None
+        let unopened = |why: Unopened| match why {
+            Unopened::Failed => entry.failed(),
+            Unopened::GiveUp => entry.give_up(),
+            Unopened::NoRoom => {}
+        };
+        let used = |open: &Vec<Open>| open.iter().map(|o| o.reader.heap()).sum::<usize>();
+        let clock = self.clock.get();
+        let mut room = |needed: usize| {
+            if needed > BUDGET {
+                return None;
             }
-            // Not sound: it stays so until the file changes.
-            Err(_) => {
-                entry.give_up();
-                None
+            while open.len() >= OPEN || used(open) + needed > BUDGET {
+                // The least recently used of those idle long enough.
+                let idle = clock.saturating_sub(HOT);
+                let oldest = (0..open.len())
+                    .filter(|&i| open[i].stamp <= idle)
+                    .min_by_key(|&i| open[i].stamp)?;
+                // Its memory is free before the next is opened.
+                open.swap_remove(oldest);
             }
-        }
+            open.try_reserve(1).ok()?;
+            Some(BUDGET - used(open))
+        };
+        let reader = (opener.open)(storage, &entry.path, &mut room)
+            .map_err(unopened)
+            .ok()?;
+        open.push(Open {
+            serial: entry.serial,
+            stamp: 0,
+            reader,
+        });
+        Some(open.len() - 1)
     }
 
-    #[cfg(not(feature = "kernel"))]
-    fn open_reader(&self, _: &Entry) -> Option<Box<dyn Reader>> {
-        // Only the kernel adds tables of the card.
-        None
+    /// How many tables are open, and their heap.
+    #[cfg(feature = "kernel")]
+    pub(super) fn open_heap(&self) -> (usize, usize) {
+        self.open.try_borrow().map_or((0, 0), |open| {
+            (open.len(), open.iter().map(|o| o.reader.heap()).sum())
+        })
+    }
+
+    /// Closes every table open; none is given up.
+    pub(super) fn close_all(&self) {
+        if let Ok(mut open) = self.open.try_borrow_mut() {
+            open.clear();
+        }
+    }
+}
+
+/// The kernel's opener: `paperpaw-hyphen`'s card-backed reader.
+#[cfg(feature = "kernel")]
+mod kernel_opener {
+    use super::{CACHE, CardFile, Opened, Room, Unopened};
+    use alloc::boxed::Box;
+    use alloc::rc::Rc;
+    use alloc::string::String;
+    use paperpaw_hyphen::{CheckError, OpenError, StoredPatterns};
+    use paperpaw_platform::{Storage, StorageError};
+
+    /// The file at `path`, its size taken now.
+    fn file(storage: &Rc<dyn Storage>, path: &str) -> Result<CardFile, Unopened> {
+        let len = match storage.size(path) {
+            Ok(len) => len,
+            Err(StorageError::NotFound | StorageError::InvalidPath) => {
+                return Err(Unopened::GiveUp);
+            }
+            Err(_) => return Err(Unopened::Failed),
+        };
+        let mut copy = String::new();
+        copy.try_reserve_exact(path.len())
+            .map_err(|_| Unopened::Failed)?;
+        copy.push_str(path);
+        Ok(CardFile {
+            storage: storage.clone(),
+            path: copy,
+            len,
+        })
+    }
+
+    pub(super) fn open(storage: &Rc<dyn Storage>, path: &str, room: &mut Room<'_>) -> Opened {
+        let mut file = file(storage, path)?;
+        let needed = StoredPatterns::heap_bound(&mut file, CACHE).map_err(|e| match e {
+            CheckError::Source(_) => Unopened::Failed,
+            _ => Unopened::GiveUp,
+        })?;
+        let room = room(needed).ok_or(Unopened::NoRoom)?;
+        let len = file.len;
+        match StoredPatterns::open_within(file, len, CACHE, room) {
+            Ok(reader) => Ok(Box::new(reader)),
+            Err(OpenError::OverBudget { .. }) => Err(Unopened::NoRoom),
+            Err(OpenError::Check(CheckError::Source(_)) | OpenError::NoMemory) => {
+                Err(Unopened::Failed)
+            }
+            // Not sound: it stays so until the file changes.
+            Err(_) => Err(Unopened::GiveUp),
+        }
     }
 }
 
@@ -224,6 +324,9 @@ impl CardTables {
 impl CardTables {
     pub(super) fn set_storage(&mut self, storage: Rc<dyn Storage>) {
         self.storage = Some(storage);
+        self.opener = Some(Opener {
+            open: kernel_opener::open,
+        });
         self.open.get_mut().clear();
     }
 
@@ -379,6 +482,10 @@ impl Reader for paperpaw_hyphen::StoredPatterns<CardFile> {
     fn is_failed(&self) -> bool {
         paperpaw_hyphen::StoredPatterns::is_failed(self)
     }
+
+    fn heap(&self) -> usize {
+        self.heap_bytes()
+    }
 }
 
 /// Whether a table's `tag` (lowercase) is a book's `wanted`, in any case
@@ -411,4 +518,154 @@ fn copy(parts: &[&str]) -> Result<String, alloc::collections::TryReserveError> {
     out.try_reserve_exact(parts.iter().map(|p| p.len()).sum())?;
     parts.iter().for_each(|p| out.push_str(p));
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    //! The opener and the budget, with made-up tables: what the kernel's
+    //! opener is called for, what is closed for room and what is not.
+
+    extern crate std;
+
+    use super::*;
+    use core::cell::Cell;
+
+    /// A table of `heap` bytes that marks every word at 1.
+    struct Fake {
+        heap: usize,
+    }
+
+    impl Reader for Fake {
+        fn hyphenate(&mut self, _: usize, _: usize, _: &str, out: &mut dyn FnMut(usize)) {
+            out(1);
+        }
+        fn is_failed(&self) -> bool {
+            false
+        }
+        fn heap(&self) -> usize {
+            self.heap
+        }
+    }
+
+    std::thread_local! {
+        static OPENED: Cell<u32> = const { Cell::new(0) };
+    }
+
+    /// Tables are as large as their path says (`big` 30 KiB, else 10 KiB).
+    fn size(path: &str) -> usize {
+        if path.starts_with("big") {
+            30 * 1024
+        } else {
+            10 * 1024
+        }
+    }
+
+    fn open(
+        _: &Rc<dyn Storage>,
+        path: &str,
+        room: &mut Room<'_>,
+    ) -> Result<Box<dyn Reader>, Unopened> {
+        if room(size(path)).is_none_or(|room| size(path) > room) {
+            return Err(Unopened::NoRoom);
+        }
+        OPENED.with(|o| o.set(o.get() + 1));
+        Ok(Box::new(Fake { heap: size(path) }))
+    }
+
+    /// Tables `paths`, by serial number 0, 1, …; with the made-up opener
+    /// where `opener`.
+    fn tables(paths: &[&str], opener: bool) -> CardTables {
+        let mut card = CardTables {
+            storage: Some(Rc::new(crate::MemoryStorage::new())),
+            opener: opener.then_some(Opener { open }),
+            ..CardTables::default()
+        };
+        for (n, path) in paths.iter().enumerate() {
+            card.entries.push(Entry {
+                plugin: String::from("p"),
+                tag: alloc::format!("t{n}"),
+                path: String::from(*path),
+                serial: n as u32,
+                failures: Cell::new(0),
+            });
+        }
+        card
+    }
+
+    fn marks(card: &CardTables, serial: u32) -> usize {
+        let mut n = 0;
+        card.hyphenate(serial, (0, 0), "word", &mut |_| n += 1);
+        n
+    }
+
+    fn opened() -> u32 {
+        OPENED.with(|o| o.replace(0))
+    }
+
+    #[test]
+    fn tables_are_opened_by_the_opener_set_once_each() {
+        opened();
+        let card = tables(&["a", "b"], true);
+        for _ in 0..10 {
+            assert_eq!((marks(&card, 0), marks(&card, 1)), (1, 1));
+        }
+        assert_eq!(opened(), 2);
+        card.close_all();
+        assert_eq!(marks(&card, 0), 1);
+        assert_eq!(opened(), 1);
+    }
+
+    /// Without the kernel's opener (no storage set) nothing is opened, and
+    /// nothing open is closed for a table that cannot be.
+    #[test]
+    fn without_an_opener_nothing_open_is_closed() {
+        opened();
+        let card = tables(&["a", "b", "c"], true);
+        marks(&card, 0);
+        marks(&card, 1);
+        let mut without = tables(&["a", "b", "c"], false);
+        without.open = core::mem::take(&mut *card.open.borrow_mut()).into();
+        for _ in 0..(HOT as usize * 2) {
+            assert_eq!(marks(&without, 2), 0);
+        }
+        assert_eq!(without.open.borrow().len(), 2);
+        assert_eq!(opened(), 2);
+    }
+
+    /// Two tables in use that do not fit together: the second's words are
+    /// left whole, the first is not closed at every word; once the first
+    /// is idle for HOT words, it is closed for the second.
+    #[test]
+    fn tables_in_use_are_not_closed_for_each_other() {
+        opened();
+        let card = tables(&["big-1", "big-2"], true);
+        for _ in 0..20 {
+            assert_eq!(marks(&card, 0), 1);
+            assert_eq!(marks(&card, 1), 0);
+        }
+        assert_eq!(opened(), 1, "the second never opened past the budget");
+        for _ in 0..HOT {
+            marks(&card, 1);
+        }
+        assert_eq!(marks(&card, 1), 1);
+        assert_eq!(opened(), 1);
+        let heap: usize = card.open.borrow().iter().map(|o| o.reader.heap()).sum();
+        assert!(heap <= BUDGET);
+    }
+
+    /// At most OPEN tables, however small: the idle one is closed.
+    #[test]
+    fn at_most_two_are_open() {
+        opened();
+        let card = tables(&["a", "b", "c"], true);
+        marks(&card, 0);
+        marks(&card, 1);
+        for _ in 0..HOT {
+            marks(&card, 1);
+        }
+        assert_eq!(marks(&card, 2), 1);
+        assert_eq!(card.open.borrow().len(), OPEN);
+        assert!(card.open.borrow().iter().all(|o| o.serial != 0));
+        assert_eq!(opened(), 3);
+    }
 }

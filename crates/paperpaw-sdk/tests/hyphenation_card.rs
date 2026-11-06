@@ -341,11 +341,21 @@ fn two_tables_are_open_at_most() {
         assert_eq!(breaks(&h, language, "abab").unwrap(), [1, 3]);
     }
     assert_eq!(card.opens.get(), 2);
-    // `fr` closes `en`, used longest ago; `de` stays open.
+    // Both in use: `fr`'s word is left whole, neither is closed for it
+    // (each would close the other at every word).
+    assert!(breaks(&h, "fr", "abab").unwrap().is_empty());
+    assert_eq!(card.opens.get(), 2);
+    // `en` idle for a page of `de`'s words (256): closed for `fr`, used
+    // longest ago; `de` stays open.
+    for _ in 0..256 {
+        breaks(&h, "de", "abab");
+    }
     assert_eq!(breaks(&h, "fr", "abab").unwrap(), [1, 3]);
     assert_eq!(breaks(&h, "de", "abab").unwrap(), [1, 3]);
     assert_eq!(card.opens.get(), 3);
-    assert_eq!(breaks(&h, "en", "abab").unwrap(), [1, 3]);
+    // Closing them all (a book closed, sleep): each opens again.
+    h.close_tables();
+    assert_eq!(breaks(&h, "de", "abab").unwrap(), [1, 3]);
     assert_eq!(card.opens.get(), 4);
 }
 

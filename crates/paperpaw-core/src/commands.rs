@@ -560,6 +560,11 @@ impl Kernel {
         if *event == events::PAGE_TURNED {
             self.last_activity = self.now;
         }
+        // A book closed: the hyphenation tables open for it give their heap
+        // back (opened again at the next word).
+        if *event == events::BOOK_CLOSED {
+            self.shared.hyphenation.close_tables();
+        }
         self.tasks_follow_books(event, params);
         let guarded = self.guarded_screens();
         if let Some(screens) = guarded {

@@ -109,3 +109,43 @@ fn installed_plugins_add_their_tables_and_removed_ones_give_them_back() {
     kernel.finish();
     assert_eq!(found(&kernel, "sv"), None);
 }
+
+/// The tables open give their heap back when a book is closed and before
+/// the device sleeps (Senior's remark 2 on PR #195): each is opened again
+/// at its next word.
+#[test]
+fn open_tables_are_closed_when_a_book_closes_and_before_sleep() {
+    let table = paperpaw_sdk::hyphen::compile("1b", "", 1, 1);
+    let inner = MemoryStorage::new()
+        .with(
+            "plugins/hyphenation-en/plugin.ini",
+            manifest("hyphenation-en", "en = en.pphp\n"),
+        )
+        .with("plugins/hyphenation-en/en.pphp", table);
+    let mut kernel = Kernel::builder(DEVICE).storage(inner).build().unwrap();
+    let open = |kernel: &Kernel| kernel.shared.hyphenation.open_tables().0;
+    kernel.start(Instant(0));
+    let breaks = |kernel: &Kernel| {
+        let mut at = Vec::new();
+        let hyphenation = &kernel.shared.hyphenation;
+        hyphenation
+            .get("en")
+            .unwrap()
+            .hyphenate("abab", &mut |n| at.push(n));
+        at
+    };
+    assert_eq!(open(&kernel), 0);
+    assert_eq!(breaks(&kernel), [1, 3]);
+    assert_eq!(open(&kernel), 1);
+    kernel.emit(
+        paperpaw_sdk::builtin::events::BOOK_CLOSED.id(),
+        &paperpaw_sdk::Params::new(),
+    );
+    assert_eq!(open(&kernel), 0);
+    assert_eq!(breaks(&kernel), [1, 3]);
+    assert_eq!(open(&kernel), 1);
+    kernel.suspend(Instant(1_000));
+    assert_eq!(open(&kernel), 0);
+    kernel.resume(Instant(2_000));
+    assert_eq!(breaks(&kernel), [1, 3]);
+}

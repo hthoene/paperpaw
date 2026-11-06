@@ -1154,6 +1154,9 @@ impl Kernel {
         self.output.commands.push(events::SUSPEND.emit(()));
         self.bluetooth_suspend();
         let effects = self.finish();
+        // Asleep, no word is hyphenated: the tables open give their heap
+        // back (and the card may be another on waking).
+        self.shared.hyphenation.close_tables();
         self.keep_timing();
         // What plugins saved, and what storage kept back, written.
         let _ = self.shared.storage.sync();

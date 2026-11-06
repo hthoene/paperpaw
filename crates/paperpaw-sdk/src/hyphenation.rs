@@ -184,6 +184,18 @@ impl Hyphenation {
     pub fn card_changed(&self) {
         self.card.changed();
     }
+
+    /// Closes every table open, giving its heap back (a book was closed,
+    /// the device goes to sleep): each is opened again at its next word.
+    pub fn close_tables(&self) {
+        self.card.close_all();
+    }
+
+    /// How many tables of data plugins are open, and the bytes of heap
+    /// they hold together (at most 48 KiB).
+    pub fn open_tables(&self) -> (usize, usize) {
+        self.card.open_heap()
+    }
 }
 
 /// A language's hyphenation table, as [`Hyphenation::get`] finds it.
