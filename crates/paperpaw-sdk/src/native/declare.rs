@@ -53,6 +53,8 @@ use settings_value::{SettingValueRef, settings_encode};
 
 /// Most records in one batch.
 pub const BATCH_MAX_RECORDS: usize = records_wire::REGISTRATION_MAX_RECORDS;
+// In-place appends replace and restore a single-byte batch-count prefix.
+const _: () = assert!(BATCH_MAX_RECORDS < 128);
 /// Most bytes in one encoded batch.
 pub const BATCH_MAX_BYTES: usize = records_wire::REGISTRATION_MAX_BYTES;
 /// Most values in a choice list.
@@ -345,6 +347,7 @@ enum Item<'a> {
 }
 
 /// The items a plugin declares, in the order it declares them.
+#[must_use = "call submit() to send the final batch; dropping does not submit"]
 pub struct Declarations<F> {
     sink: F,
     bytes: Vec<u8>,
@@ -406,6 +409,10 @@ fn choices_text(choices: &[&str], default: &str) -> Result<String, DeclareError>
     }
     if !choices.contains(&default) {
         return Err(DeclareError::Default);
+    }
+    let length = choices.iter().map(|choice| choice.len()).sum::<usize>() + choices.len() - 1;
+    if length > records_wire::SETTING_SPEC_CHOICES_MAX_BYTES {
+        return Err(DeclareError::TooLong("choices"));
     }
     Ok(choices.join("\n"))
 }
