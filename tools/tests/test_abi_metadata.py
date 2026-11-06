@@ -145,7 +145,15 @@ class MetadataTests(unittest.TestCase):
             kind = location[0]
             fields = ('major', 'semantic_revision', 'min_table_bytes') if kind == 'service' else ('revision',)
             for field in fields:
-                self.reject(self.record_change(location, field, 99))
+                changed = self.record_change(location, field, 99)
+                if kind == 'service':
+                    self.reject(changed)
+                    continue
+                # An optional feature at another revision is unavailable, never
+                # taken at the plugin's revision (D1; required ones: D1 test).
+                before = [f['key'] for f in ABI.decode(self.schema, self.data)['features']]
+                after = [f['key'] for f in ABI.decode(self.schema, changed)['features']]
+                self.assertEqual(len(after), len(before) - 1)
         self.reject(self.prefix(self.data, needs_minor=3))
 
     def test_excessive_minor_is_structurally_valid(self):
@@ -171,7 +179,7 @@ class MetadataTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ABI.encode(self.schema, self.build)
 
-    def test_unknown_features_are_ignored_unless_required(self):
+    def test_unavailable_features_are_left_out_unless_required(self):
         # D1 (#890): a host that does not know a feature ignores it, unless the
         # plugin marked it required; then the load is refused and the key named.
         build = dict(self.build, features=['test.delta', dict(key='test.echo', required=False)])
@@ -186,8 +194,17 @@ class MetadataTests(unittest.TestCase):
         build = dict(self.build, features=['test.delta', dict(key='test.echo', required=True)])
         data = ABI.encode(self.schema, build)
         self.assertTrue(ABI.decode(self.schema, data)['features'][1]['required'])
-        with self.assertRaisesRegex(ValueError, 'required feature unknown to this host: test.echo'):
+        with self.assertRaisesRegex(ValueError, 'required feature unavailable on this host: test.echo'):
             ABI.decode(older, data)
+        # Another revision is unavailable the same way: optional left out, required refused.
+        other = copy.deepcopy(self.schema)
+        next(f for f in other['metadata']['features'] if f['key'] == 'test.echo')['revision'] += 1
+        with self.assertRaisesRegex(ValueError, 'required feature unavailable on this host: test.echo'):
+            ABI.decode(other, data)
+        optional = ABI.encode(self.schema, dict(
+            self.build, features=['test.delta', dict(key='test.echo', required=False)]))
+        self.assertEqual([f['key'] for f in ABI.decode(other, optional)['features']],
+                         ['test.delta'])
         for bad in [dict(key='test.echo'), dict(key='test.echo', required=1),
                     dict(key='test.echo', required=True, extra=0)]:
             with self.subTest(bad=bad), self.assertRaises(ValueError):

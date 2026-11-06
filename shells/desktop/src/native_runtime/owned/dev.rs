@@ -27,6 +27,7 @@
 //! declares is visible to the app.
 use super::*;
 use crate::host_services::DesktopServices;
+use paperpaw_core::native_host::flat::{DropReason, FlatInstance, FlatRegistration};
 use paperpaw_core::native_host::registrations::tick_encode;
 use paperpaw_core::native_host::staged::Declarations;
 use paperpaw_native::preflight::data_export;
@@ -89,6 +90,9 @@ pub enum Refusal {
     Runtime(RuntimeError),
     /// Refused while staging or committing what it declared.
     Lifecycle(String),
+    /// It declared records (settings, fonts, hyphenation) and this loader has
+    /// no apply step for them yet: refused visibly, never loaded without them.
+    Declared(usize),
 }
 
 impl std::fmt::Display for Refusal {
@@ -102,6 +106,10 @@ impl std::fmt::Display for Refusal {
             Self::Kind(_) => f.write_str("not an interface-7 library (or not one this reads)"),
             Self::Runtime(why) => write!(f, "refused: {why:?}"),
             Self::Lifecycle(why) => write!(f, "refused while staging: {why}"),
+            Self::Declared(n) => write!(
+                f,
+                "declares {n} records, which this loader cannot apply yet: not loaded"
+            ),
         }
     }
 }
@@ -147,7 +155,7 @@ pub(super) fn copies_dir() -> std::io::Result<&'static Path> {
 /// One loaded plugin. Field order is the order of release: the batch (the
 /// borrow of the owner) goes first, in `Drop`, then the owner with its
 /// library.
-struct Loaded {
+pub(super) struct Loaded {
     id: String,
     /// The private copy that is mapped; removed after the unmap.
     copy: std::path::PathBuf,
@@ -157,31 +165,46 @@ struct Loaded {
     declarations: Declarations,
     batch: Option<Batch<'static, DesktopServices, Registration>>,
     plugin: ManuallyDrop<Box<PinnedPlugin<DesktopServices>>>,
+    /// Admission was stopped ([`Loaded::stop`]): nothing of the library is
+    /// read or called any more.
+    stopped: std::cell::Cell<bool>,
 }
 
 impl Loaded {
     fn open(id: &str, source: &Path) -> Result<Self, Refusal> {
+        let bytes = read_bounded(source)?;
+        Self::from_bytes(id, &bytes)
+    }
+
+    /// Loads the library `bytes` (the file as read and checked by the caller)
+    /// for the plugin `id`, known to the host: never one the library gives.
+    pub(super) fn from_bytes(id: &str, bytes: &[u8]) -> Result<Self, Refusal> {
         if !is_id(id) {
             return Err(Refusal::Id);
         }
-        let bytes = read_bounded(source)?;
         // From the bytes: the kind decides whether this loader is the one.
-        match classify(&bytes) {
+        match classify(bytes) {
             Kind::Interface7 => {}
             other => return Err(Refusal::Kind(other)),
         }
-        let digest = paperpaw_core::sdk::digest::sha256::digest(&bytes);
+        let digest = paperpaw_core::sdk::digest::sha256::digest(bytes);
         // A read-only copy of its own (the build may change the file
         // meanwhile): what is checked and loaded is this one file.
-        let copy = private_copy(id, &bytes, &digest).map_err(|_| Refusal::File)?;
+        let copy = private_copy(id, bytes, &digest).map_err(|_| Refusal::File)?;
         // SAFETY: the one who started the emulator authorized native code with
         // the developer switch; the copy is read-only and private to this
         // process, and the owner keeps it open until after unload.
         let plugin =
             Box::new(unsafe { PinnedPlugin::open(&copy, &digest, id, DesktopServices::new()) }?);
-        let mut batch = plugin
-            .make_registered(plugin.begin::<Registration>()?)?
-            .commit()?;
+        let mut transaction = plugin.begin::<Registration>()?;
+        // SAFETY: the slice borrows `plugin`, whose owner keeps the library
+        // mapped until the batch is gone (the batch is released first, see
+        // `Loaded`); declarations are read through `Loaded::image`, which
+        // gives none once stopped, never through this borrow.
+        transaction
+            .set_image(unsafe { plugin.image() })
+            .map_err(|e| Refusal::Lifecycle(format!("{e:?}")))?;
+        let mut batch = plugin.make_registered(transaction)?.commit()?;
         let declarations = batch.take_declarations();
         let depth = DispatchDepth::new();
         let records = (0..batch.len())
@@ -205,7 +228,38 @@ impl Loaded {
             declarations,
             batch: Some(batch),
             plugin: ManuallyDrop::new(plugin),
+            stopped: std::cell::Cell::new(false),
         })
+    }
+
+    /// Stops callback admission: from here a dispatch answers the owner's
+    /// error without reaching the library, and [`Loaded::image`] gives none.
+    /// The library stays mapped, with its owner, until the drop.
+    pub(super) fn stop(&self) {
+        self.stopped.set(true);
+        self.plugin.owner.as_ref().revoke();
+    }
+
+    /// The library's read-only data (`DeclRef::Image` offsets index it);
+    /// `None` once stopped. Decoders re-validate: a plugin has no sandbox.
+    pub(super) fn image(&self) -> Option<&[u8]> {
+        if self.stopped.get() {
+            return None;
+        }
+        // SAFETY: borrowed from `self`, which holds the owner and its mapped
+        // library until the drop; none after `stop`.
+        Some(unsafe { self.plugin.image() })
+    }
+
+    /// What it declared and nobody applied yet (kept in the bundle, never
+    /// dropped): the count of declaration records.
+    pub(super) fn declared_records(&self) -> usize {
+        self.declarations.specs().len()
+            + self.declarations.groups().len()
+            + self.declarations.extras().len()
+            + self.declarations.hyphenations().len()
+            + self.declarations.font_faces().len()
+            + self.declarations.font_extensions().len()
     }
 
     /// The tick registrations, each called with `now_ms`; their statuses.
@@ -238,6 +292,7 @@ impl Drop for Loaded {
     /// revoked and finished, then the owner drops (the plugin's destructor,
     /// then the services, then the library is unmapped).
     fn drop(&mut self) {
+        self.stopped.set(true);
         drop(self.batch.take());
         let owner = self.plugin.owner.as_ref();
         owner.revoke();
@@ -253,6 +308,70 @@ impl Drop for Loaded {
             eprintln!("abi7 dev loader: {}: still in use at unload, kept", self.id);
         }
     }
+}
+
+/// The wire tag of a draw registration (`abi/`, registration records).
+const DRAW_RECORD_TAG: u32 = 2;
+
+impl FlatInstance for Loaded {
+    fn registrations(&self, visit: &mut dyn FnMut(FlatRegistration)) {
+        for (index, record) in self.records.iter().enumerate() {
+            visit(match *record {
+                Registration::Event { event_tag, .. } => {
+                    FlatRegistration::Event { event_tag, index }
+                }
+                Registration::Draw { .. } => FlatRegistration::Other {
+                    record_tag: DRAW_RECORD_TAG,
+                },
+                // A kind this build does not know is no event: it is told by
+                // the tag 0, which `FlatPlugin::new` refuses as unrouted.
+                _ => FlatRegistration::Other { record_tag: 0 },
+            });
+        }
+    }
+
+    fn environment(&self) -> Pin<&EnvironmentScope> {
+        let context = self.plugin.owner.as_ref().context();
+        // SAFETY: the owner structurally pins its context; this projects one
+        // field and never moves it.
+        unsafe { context.map_unchecked(|value| &value.environment) }
+    }
+
+    fn dispatch_event(
+        &self,
+        index: usize,
+        payload: &[u8],
+        depth: &DispatchDepth,
+    ) -> Result<i32, native_host::Error> {
+        // Stopped: the owner's error, before anything of the library is read.
+        let batch = match (&self.batch, self.stopped.get()) {
+            (Some(batch), false) => batch,
+            _ => return Err(native_host::Error::State),
+        };
+        match dispatch_registration(batch, index, depth, Invocation::Event(payload)) {
+            Ok(status) => Ok(status),
+            Err(Error::Status(status)) => Ok(status),
+            Err(Error::Lifecycle(why)) => Err(why),
+            Err(_) => Err(native_host::Error::State),
+        }
+    }
+
+    fn event_dropped(&self, tag: u32, why: DropReason) {
+        eprintln!("abi7 code plugin {}: event {tag} dropped: {why:?}", self.id);
+    }
+}
+
+/// Loads the interface-7 library `bytes` of the installed plugin `id` as a
+/// flat instance the core adapter can run, or says why not. Nothing it declared
+/// is applied by this loader yet: a library that declares anything is refused
+/// (`Refusal::Declared`) rather than losing it.
+pub(crate) fn load_flat(id: &str, bytes: &[u8]) -> Result<Box<dyn FlatInstance>, Refusal> {
+    let loaded = Loaded::from_bytes(id, bytes)?;
+    let declared = loaded.declared_records();
+    if declared != 0 {
+        return Err(Refusal::Declared(declared));
+    }
+    Ok(Box::new(loaded))
 }
 
 fn read_bounded(path: &Path) -> Result<Vec<u8>, Refusal> {

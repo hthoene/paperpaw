@@ -347,8 +347,12 @@ impl Device {
     /// Loads the interface-7 plugins of the card's folder, if the developer
     /// switch is on (none otherwise, and none for a card in memory).
     fn load_abi7(&mut self) {
+        // With code plugins trusted the kernel's code loader takes the
+        // interface-7 libraries (as flat plugins): not loaded twice.
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-        if let Library::Dir(root) = &self.library {
+        if !CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed)
+            && let Library::Dir(root) = &self.library
+        {
             self.abi7 = crate::native_runtime::DevPlugins::load_folder(root);
         }
     }
@@ -1043,8 +1047,10 @@ fn build_kernel(
         // Code plugins built for this computer, from the card.
         #[cfg(not(target_arch = "wasm32"))]
         if CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed) {
-            builder =
-                builder.code_plugins(crate::native::native(), Box::new(crate::native::HostLoader));
+            builder = builder.code_plugins(
+                crate::native::native(),
+                Box::new(crate::native::HostLoader::default()),
+            );
         }
         if let Some(add) = add {
             builder = add(builder);

@@ -438,4 +438,5 @@ mod canvas;
 mod dev;
 mod e2e;
 mod environment;
+mod flat;
 mod foreign;
