@@ -34,7 +34,6 @@ pub mod events;
 /// Production event adapter for a shell-owned flat plugin instance.
 #[path = "native_host/flat.rs"]
 pub mod flat;
-
 /// Bounded decoded registration submission during plugin construction.
 #[path = "native_host/registrations.rs"]
 pub mod registrations;
