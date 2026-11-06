@@ -456,3 +456,195 @@ fn requires_needs_formats_4_and_plugin_ids_the_kernel_reads() {
     );
     assert_eq!(own, [("plugin.ini".to_string(), Level::Error)]);
 }
+
+/// The interface-7 sample library, built as its `verify.sh` does (into a
+/// folder of its own, with nothing of the test run's cargo settings).
+fn built_sample(dir: &Path) -> PathBuf {
+    let sample = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../samples/abi7-tick-draw")
+        .canonicalize()
+        .unwrap();
+    let target = dir.join("target");
+    let mut build = std::process::Command::new("cargo");
+    build.env_clear();
+    for name in [
+        "PATH",
+        "HOME",
+        "RUSTUP_HOME",
+        "CARGO_HOME",
+        "RUSTUP_TOOLCHAIN",
+    ] {
+        if let Some(value) = std::env::var_os(name) {
+            build.env(name, value);
+        }
+    }
+    let output = build
+        .current_dir(sample)
+        .env("CARGO_TARGET_DIR", &target)
+        .args([
+            "rustc",
+            "--release",
+            "--lib",
+            "--locked",
+            "--offline",
+            "-j4",
+            "--",
+            "--crate-type=cdylib",
+            "-Cpanic=abort",
+            "-Clink-arg=-nostartfiles",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::read_dir(target.join("release/deps"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| {
+                    name.starts_with("libpaperpaw_sample_abi7_tick_draw-") && name.ends_with(".so")
+                })
+        })
+        .expect("the sample's cdylib")
+}
+
+/// A freestanding library passes with the loader's rule; the same file cut
+/// short, and a file that is no library, are refused (the loader's refusals
+/// themselves are tested in `paperpaw-native`).
+#[test]
+fn so_libraries_are_checked_with_the_loaders_freestanding_rule() {
+    let dir = std::env::temp_dir().join(format!("paperpaw-dev-so-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let built = built_sample(&dir);
+    let good = dir.join("good.so");
+    std::fs::copy(&built, &good).unwrap();
+    let cut = dir.join("cut.so");
+    let bytes = std::fs::read(&good).unwrap();
+    std::fs::write(&cut, &bytes[..bytes.len() / 2]).unwrap();
+    let junk = dir.join("junk.so");
+    std::fs::write(&junk, b"not a library").unwrap();
+    let report = run(&context("so", &[good.clone(), cut.clone(), junk.clone()]));
+    let text = report.text(Level::Info);
+    assert!(
+        has(
+            &report,
+            "package.library",
+            &good.display().to_string(),
+            Level::Info
+        ),
+        "{text}"
+    );
+    for refused in [&cut, &junk] {
+        assert!(
+            has(
+                &report,
+                "package.library",
+                &refused.display().to_string(),
+                Level::Error
+            ),
+            "{text}"
+        );
+    }
+    assert_eq!(report.findings.len(), 3, "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Builds a tiny `no_std` library from `source` with `rustc` alone (no
+/// cargo, no C library), linked with `extra` more arguments.
+fn tiny_library(dir: &Path, name: &str, source: &str, extra: &[&str]) -> PathBuf {
+    let prelude =
+        "#![no_std]\n#[panic_handler]\nfn panic(_: &core::panic::PanicInfo) -> ! { loop {} }\n";
+    let file = dir.join(format!("{name}.rs"));
+    std::fs::write(&file, format!("{prelude}{source}")).unwrap();
+    let out = dir.join(format!("{name}.so"));
+    let output = std::process::Command::new("rustc")
+        .args([
+            "--edition",
+            "2024",
+            "--crate-type",
+            "cdylib",
+            "-Cpanic=abort",
+            "-Clink-arg=-nostartfiles",
+            "-Clink-arg=-nostdlib",
+        ])
+        .args(extra)
+        .arg("-o")
+        .arg(&out)
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    out
+}
+
+/// One library per way the loader refuses a freestanding plugin, each said
+/// with what to look at (`nm -D`, `readelf -d`), and a machine it does not
+/// read.
+#[test]
+fn so_libraries_are_refused_for_imports_exports_and_needed_libraries() {
+    let dir = std::env::temp_dir().join(format!("paperpaw-dev-so-refused-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let entry = "#[unsafe(no_mangle)]\npub extern \"C\" fn PAPERPAW_ENTRY() {}\n";
+    let export = tiny_library(
+        &dir,
+        "export",
+        &format!("{entry}#[unsafe(no_mangle)]\npub extern \"C\" fn extra() {{}}\n"),
+        &[],
+    );
+    let import = tiny_library(
+        &dir,
+        "import",
+        "unsafe extern \"C\" { fn host_missing() -> i32; }\n\
+         #[unsafe(no_mangle)]\npub extern \"C\" fn PAPERPAW_ENTRY() -> i32 { unsafe { host_missing() } }\n",
+        &[],
+    );
+    let needed = tiny_library(
+        &dir,
+        "needed",
+        entry,
+        &["-Clink-arg=-Wl,--no-as-needed", "-Clink-arg=-lm"],
+    );
+    let other = dir.join("other.so");
+    let mut bytes = std::fs::read(&export).unwrap();
+    // e_machine: the 32-bit x86 (3), a machine the loaders do not read.
+    bytes[18] = 3;
+    bytes[19] = 0;
+    std::fs::write(&other, bytes).unwrap();
+    let all = [&export, &import, &needed, &other];
+    let paths: Vec<PathBuf> = all.iter().map(|p| (*p).clone()).collect();
+    let report = run(&context("so-refused", &paths));
+    let text = report.text(Level::Info);
+    assert_eq!(report.findings.len(), 4, "{text}");
+    for (path, hint) in [
+        (&export, "nm -D --defined-only"),
+        (&import, "nm -D --undefined-only"),
+        (&needed, "readelf -d"),
+        (&other, "machine 3"),
+    ] {
+        let place = path.display().to_string();
+        let finding = report
+            .findings
+            .iter()
+            .find(|f| f.place == place)
+            .unwrap_or_else(|| panic!("no finding for {place}: {text}"));
+        assert_eq!(finding.check, "package.library", "{text}");
+        assert_eq!(finding.level, Level::Error, "{text}");
+        assert!(
+            finding.message.contains(hint),
+            "{place}: {}",
+            finding.message
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

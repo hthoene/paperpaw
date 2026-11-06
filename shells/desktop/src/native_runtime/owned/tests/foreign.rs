@@ -33,6 +33,24 @@ fn fixture(invalid: &[u8], ignore_invalid: bool) -> Fixture {
 }
 
 pub(super) fn fixture_query(invalid: &[u8], ignore_invalid: bool, query: &str) -> Fixture {
+    fixture_custom(
+        records_bytes(&records()),
+        invalid,
+        ignore_invalid,
+        query,
+        "",
+    )
+}
+
+/// The same library with its valid batch given (wire bytes) and `prelude`
+/// source added at its top (e.g. an extra export).
+pub(super) fn fixture_custom(
+    valid: Vec<u8>,
+    invalid: &[u8],
+    ignore_invalid: bool,
+    query: &str,
+    prelude: &str,
+) -> Fixture {
     let root = crate::private::dir("paperpaw-foreign726").unwrap();
     let path = root.join("fixture.so");
     let abi = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -46,7 +64,7 @@ pub(super) fn fixture_query(invalid: &[u8], ignore_invalid: bool, query: &str) -
         ("METADATA_LEN", metadata.len().to_string()),
         ("METADATA_BYTES", format!("{metadata:?}")),
         ("NEEDS_MINOR", "1".to_owned()),
-        ("VALID_BATCH", format!("{:?}", records_bytes(&records()))),
+        ("VALID_BATCH", format!("{valid:?}")),
         ("INVALID_BATCH", format!("{invalid:?}")),
         ("EXPECTED_EVENT", format!("{:?}", tick_bytes())),
         ("TOKEN", TOKEN.to_string()),
@@ -56,6 +74,7 @@ pub(super) fn fixture_query(invalid: &[u8], ignore_invalid: bool, query: &str) -
         source = source.replace(&format!("@{name}@"), &value);
     }
     assert!(!source.contains('@'));
+    let source = source.replacen("#![no_std]", &format!("#![no_std]\n{prelude}"), 1);
     let input = root.join("fixture.rs");
     std::fs::write(&input, source).unwrap();
     let result = Command::new("rustc")

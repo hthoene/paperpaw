@@ -18,6 +18,8 @@ paperpaw-core.workspace = true
 paperpaw-platform.workspace = true
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
 proptest.workspace = true
+# The pictures the screen goldens are kept as.
+png = "0.18"
 paperpaw-i18n.workspace = true
 
 [lints]

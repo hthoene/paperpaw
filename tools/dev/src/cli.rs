@@ -36,7 +36,8 @@ COMMANDS:
     perf        Time per frame, heap per screen, storage reads while drawing,
                 against the X4's budgets
     package     A data plugin as the installer and the website take it, a .ppn
-                file's header, fingerprint, signature and sizes, compatibility
+                file's header, fingerprint, signature and sizes, compatibility;
+                a .so library (interface 7) is checked to be freestanding
     snapshots   Compares screens with the pictures in --snapshots (--bless writes them)
     check-publish [repo] [--release-dir <dir>] [--tag <tag>] [--rules <file>]
                 A plugin's own repository (and its release's files) checked by the
@@ -51,7 +52,8 @@ COMMANDS:
                 checks; a label shortened to fit is an error
 
 PATHS:
-    A data plugin folder (with plugin.ini) or a .ppn file. A plugin with code
+    A data plugin folder (with plugin.ini), a .ppn file or a .so library
+    (interface 7). A plugin with code
     is added from its own repository (see docs/plugins.md, \"Checking your plugin\").
 
 OPTIONS:
@@ -298,6 +300,7 @@ fn applies(command: &str, context: &Context) -> bool {
         "package" => {
             !context.target.data.is_empty()
                 || !context.target.ppn.is_empty()
+                || !context.target.libraries.is_empty()
                 || !context.target.sources.is_empty()
         }
         "flows" => !context.flows.is_empty(),

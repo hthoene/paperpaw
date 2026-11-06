@@ -1,9 +1,9 @@
 //! Code plugins in the emulator (ADR 0024): a plugin's crate built for
 //! this computer (`cargo build --release`, a `cdylib` with `plugin!`) is
 //! `code-host.dll`, `code-host.so` or `code-host.dylib` in its folder of
-//! the emulated card (`plugins/<id>/`), beside its `plugin.ini`; the emulator loads it as
-//! Android loads `code.so`, with the same entry and table as `.ppn` files
-//! on the X4. It must be built by the same compiler, for this computer,
+//! the emulated card (`plugins/<id>/`), beside its `plugin.ini`; the emulator loads it
+//! with the same entry and table as `.ppn` files on the X4 (Android loads no
+//! code plugins). It must be built by the same compiler, for this computer,
 //! against the same SDK as this emulator ([`FINGERPRINT`], which
 //! `--stdio` says; `built_here` checks the compiler), and installed: only a file whose SHA-256 the card
 //! has (`native::remember_code`) runs, as on the devices, which
@@ -137,6 +137,30 @@ impl CodeLoader for HostLoader {
     }
 }
 
+/// Whether the interface-7 developer switch is on (never where that loader is
+/// not built).
+fn dev_switch() -> bool {
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    return crate::native_runtime::enabled();
+    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+    false
+}
+
+/// Whether this (interface-6) loader may take the library: always with the
+/// developer switch off, else only one told from its bytes to be interface 6.
+pub(crate) fn interface6_only(bytes: &[u8], switch_on: bool) -> bool {
+    if !switch_on {
+        return true;
+    }
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    return crate::native_runtime::classify(bytes) == crate::native_runtime::Kind::Interface6;
+    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+    {
+        let _ = bytes;
+        true
+    }
+}
+
 /// [`HostLoader::load`], its memory not counted against the budget.
 fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, PluginProblem> {
     let bytes = paperpaw_core::sdk::read_file(storage, code.path, MAX_FILE)
@@ -183,6 +207,16 @@ fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, P
     if let Err(why) = preflight(&copied) {
         eprintln!(
             "code plugin {}: refused before loading ({why:?})",
+            code.id.as_str()
+        );
+        return Err(PluginProblem::Damaged);
+    }
+    // With the interface-7 developer switch on, this loader takes interface-6
+    // libraries only: one that also exports interface 7's metadata (or neither
+    // kind) is refused, and an interface-7 library is left to the other loader.
+    if !interface6_only(&copied, dev_switch()) {
+        eprintln!(
+            "code plugin {}: not an interface-6 library (the interface-7 developer switch is on)",
             code.id.as_str()
         );
         return Err(PluginProblem::Damaged);

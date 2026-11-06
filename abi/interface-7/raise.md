@@ -54,6 +54,13 @@ These are not rows of their own, but the raise is not complete without them (all
 5. Retarget the trusted-base ABI CI (#147/#150) to the draft-7 baseline: `tools/abi-frozen6-check.py` becomes
    `tools/abi-reference-check.py` (rules in `README.md`), still against the PR's base.
 6. Record the raise in `CHANGELOG.md`.
+7. Retarget the old-plugin check (`tools/table-compat.sh`, CI job "Old plugins, new firmware"): a baseline of an
+   older interface or an older draft (`interface`/`draft` of its `interface.txt`) builds a plugin this firmware
+   must refuse at load (fingerprint, `Native::problem`), before anything of it runs; only a baseline of this
+   interface and draft must still run and agree. `crates/paperpaw-table/table-baseline.txt` stays at the
+   interface-6 commit while interface 7 is a draft (draft builds are never released), so the job asserts the
+   refusal; the first PR after the freeze sets it to the frozen commit (tag `interface-7`), and from then on the
+   job asserts again that old builds run. `tools/ci-local.sh` runs the job from `table-baseline.txt` as CI does.
 
 Items behind the `kernel` cargo feature (ADR 0020), such as `paperpaw-hyphen`'s table check and card-backed
 reader, are not part of the plugin interface and need no row.
