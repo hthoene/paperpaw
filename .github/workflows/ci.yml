@@ -178,6 +178,36 @@ jobs:
         # (ADR 0026): any change raises it, a new item alone does not.
         run: cargo test -p paperpaw-sdk --test interface
 
+  abi7:
+    name: Stable ABI against trusted base
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    env:
+      # Event metadata selects the reviewed parent, never the candidate lock.
+      ABI_BASE_REV: ${{ github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Extract the trusted lock without executing base code
+        env:
+          ABI_BASELINE: ${{ runner.temp }}/paperpaw-abi-baseline.lock
+        shell: bash
+        run: |
+          if [[ ! "$ABI_BASE_REV" =~ ^[0-9a-f]{40}$ || "$ABI_BASE_REV" == 0000000000000000000000000000000000000000 ]]; then
+            echo "::error::A trusted PR base or previous push commit is required"
+            exit 1
+          fi
+          test "$(git rev-parse "${ABI_BASE_REV}^{commit}")" = "$ABI_BASE_REV"
+          git show "${ABI_BASE_REV}:abi/abi.lock" > "$ABI_BASELINE"
+          test -s "$ABI_BASELINE"
+          sha256sum "$ABI_BASELINE"
+      - name: Check generated ABI and append-only compatibility
+        env:
+          ABI_BASELINE: ${{ runner.temp }}/paperpaw-abi-baseline.lock
+        run: bash tools/abi-check.sh --ci
+
   embedded:
     name: no_std targets
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
