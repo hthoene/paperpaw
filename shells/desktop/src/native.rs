@@ -130,6 +130,7 @@ unsafe extern "C" fn alloc_in(size: usize, align: usize, _placement: u32) -> *mu
 #[derive(Debug, Default)]
 pub struct HostLoader {
     depth: Option<paperpaw_core::native_host::flat::FlatDepth>,
+    resources: Option<paperpaw_core::native_host::HostResources>,
 }
 
 impl CodeLoader for HostLoader {
@@ -172,13 +173,25 @@ impl HostLoader {
             .as_ref()
             .and_then(FlatDepth::try_clone)
             .ok_or(PluginProblem::NoRoom)?;
-        let instance = crate::native_runtime::load_flat(id, bytes).map_err(|why| {
-            eprintln!("code plugin {id}: {why}");
-            match why {
-                Refusal::Declared(_) => PluginProblem::Unsupported,
-                _ => PluginProblem::Damaged,
-            }
-        })?;
+        if self.resources.is_none() {
+            self.resources = Some(
+                paperpaw_core::native_host::HostResources::try_new()
+                    .map_err(|_| PluginProblem::NoRoom)?,
+            );
+        }
+        let resources = self
+            .resources
+            .as_ref()
+            .and_then(paperpaw_core::native_host::HostResources::try_clone)
+            .ok_or(PluginProblem::NoRoom)?;
+        let instance = crate::native_runtime::load_flat_with_resources(id, bytes, resources)
+            .map_err(|why| {
+                eprintln!("code plugin {id}: {why}");
+                match why {
+                    Refusal::Declared(_) => PluginProblem::Unsupported,
+                    _ => PluginProblem::Damaged,
+                }
+            })?;
         // The folder's data names and versions it (`plugin.ini`); this is the
         // code's own, which the kernel replaces by that version.
         let manifest =
