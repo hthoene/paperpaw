@@ -22,6 +22,20 @@ impl SparseDisk {
         }
     }
 
+    pub(super) fn len(&self) -> usize {
+        usize::try_from(self.len).expect("test images fit in host memory")
+    }
+
+    pub(super) fn image(&self) -> std::vec::Vec<u8> {
+        let mut image = std::vec![0; self.len()];
+        for (&index, block) in &self.blocks {
+            let at = index as usize * BLOCK;
+            let count = BLOCK.min(image.len() - at);
+            image[at..at + count].copy_from_slice(&block[..count]);
+        }
+        image
+    }
+
     pub(super) fn from_bytes(bytes: &[u8]) -> Self {
         let mut disk = Self::empty(bytes.len());
         for (index, bytes) in bytes.chunks(BLOCK).enumerate() {

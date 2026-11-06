@@ -36,7 +36,7 @@ fn names<IO: ReadWriteSeek>(storage: &FatStorage<IO>, dir: &str) -> Vec<(String,
 /// with every block written to it in order.
 #[derive(Clone)]
 struct Cut {
-    data: alloc::rc::Rc<RefCell<Vec<u8>>>,
+    data: alloc::rc::Rc<RefCell<SparseDisk>>,
     writes: alloc::rc::Rc<RefCell<Vec<Written>>>,
     recording: alloc::rc::Rc<core::cell::Cell<bool>>,
     /// Blocks read so far.
@@ -48,6 +48,10 @@ type Written = (u32, [u8; BLOCK]);
 
 impl Cut {
     fn new(data: Vec<u8>) -> Self {
+        Self::from_sparse(SparseDisk::from_bytes(&data))
+    }
+
+    fn from_sparse(data: SparseDisk) -> Self {
         Self {
             data: alloc::rc::Rc::new(RefCell::new(data)),
             writes: alloc::rc::Rc::default(),
@@ -69,14 +73,14 @@ impl Cut {
 
     /// A card of `size` bytes, formatted with `options`.
     fn formatted_of(size: usize, options: FormatVolumeOptions) -> Self {
-        let mut formatted = StdIoWrapper::from(Cursor::new(vec![0u8; size]));
+        let mut formatted = StdIoWrapper::from(SparseDisk::empty(size));
         fatfs::format_volume(&mut formatted, options).unwrap();
-        Self::new(formatted.into_inner().into_inner())
+        Self::from_sparse(formatted.into_inner())
     }
 
     /// What it holds now.
     fn image(&self) -> Vec<u8> {
-        self.data.borrow().clone()
+        self.data.borrow().image()
     }
 
     /// The storage on it as on the X4: the disk shared, its changed
@@ -91,14 +95,23 @@ impl Cut {
 impl Blocks for Cut {
     fn read_block(&mut self, index: u32, block: &mut [u8; BLOCK]) -> Result<(), DiskError> {
         let at = index as usize * BLOCK;
-        block.copy_from_slice(&self.data.borrow()[at..at + BLOCK]);
+        let mut data = self.data.borrow_mut();
+        std::io::Seek::seek(&mut *data, std::io::SeekFrom::Start(at as u64))
+            .map_err(|_| DiskError)?;
+        std::io::Read::read_exact(&mut *data, block).map_err(|_| DiskError)?;
         self.reads.set(self.reads.get() + 1);
         Ok(())
     }
 
     fn write_block(&mut self, index: u32, block: &[u8; BLOCK]) -> Result<(), DiskError> {
         let at = index as usize * BLOCK;
-        self.data.borrow_mut()[at..at + BLOCK].copy_from_slice(block);
+        let mut data = self.data.borrow_mut();
+        if at + BLOCK > data.len() {
+            return Err(DiskError);
+        }
+        std::io::Seek::seek(&mut *data, std::io::SeekFrom::Start(at as u64))
+            .map_err(|_| DiskError)?;
+        std::io::Write::write_all(&mut *data, block).map_err(|_| DiskError)?;
         if self.recording.get() {
             self.writes.borrow_mut().push((index, *block));
         }
