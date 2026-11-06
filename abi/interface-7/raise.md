@@ -15,6 +15,7 @@ merge into `main` need the owner's approval.
 | # | File(s) | Change | Why | Source | Who waits |
 |---|---|---|---|---|---|
 | 1 | `crates/paperpaw-sdk/src/version.rs` (`DATA_FORMATS`), `crates/paperpaw-sdk/shape.txt`, `crates/paperpaw-sdk/interface/paperpaw-sdk.shape`, `CHANGELOG.md` | `DATA_FORMATS` 4 → 5 | The `[hyphenation]` data-plugin kind declares `formats = 5`; the installer (`paperpaw-sdk/src/install.rs`) and the kernel's data-plugin loader (`paperpaw-core/src/data_plugin.rs`, `FORMATS`) both read this constant | `docs/abi/proposals/declarative-registration.md`, "The `[hyphenation]` data-plugin kind" | The 13 hyphenation data plugins (PR #164) become installable |
+| 2 | `crates/paperpaw-sdk/src/hyphenation.rs` (`Hyphenation`, `Hyphenation::get`), `crates/paperpaw-sdk/src/env.rs` (`Env::hyphenation`), their `api.txt`/`shape.txt` | `Hyphenation::get` returns a table the kernel may read from the card (the card-backed reader in `paperpaw-hyphen`), not only `&Patterns<'static>`; the typesetter (`reading/typeset.rs`) and `widgets/grid.rs` follow | The tables of `[hyphenation]` data plugins are files on the card, which the frozen `get` cannot return; the kernel keeps them by language (`paperpaw-core/src/data_plugin/hyphenation.rs`, `Tables::find`) until then | Contract D2 and the `[hyphenation]` section | Hyphenation from data plugins on a page (the 13 plugins of PR #164 load, but their languages are not used before this row) |
 
 ## Steps of the raise itself
 
