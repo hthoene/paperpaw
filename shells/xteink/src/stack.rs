@@ -146,10 +146,7 @@ pub fn arm_band() {
         return;
     };
     let address = paperpaw_x4::stack_band::napot(start);
-    // Trigger type 2 (match): machine mode (bit 6), store (bit 1), NAPOT
-    // (match 1, bit 7), the breakpoint exception (action 0). As esp-hal
-    // sets its own.
-    let control = (1u32 << 6) | (1 << 1) | (1 << 7);
+    let control = paperpaw_x4::stack_band::CONTROL;
     // Machine mode triggers on (bit 3).
     let enable = 1u32 << 3;
     // Interrupts off: a task switch (esp-rtos) selects its trigger in
@@ -168,15 +165,15 @@ pub fn arm_band() {
                 options(nomem, nostack),
             );
         }
-        // Load, store or execute set (bits 0 to 2): in use. Ours, set
-        // before, is no other's.
-        let in_use = have_control & 0b111 != 0;
-        let ours = (have_control & 0xffff) == control && have_address == address;
-        if in_use && !ours {
+        // Another's (a debugger's): nothing is written.
+        if paperpaw_x4::stack_band::trigger(have_control, have_address, address)
+            == paperpaw_x4::stack_band::Trigger::Taken
+        {
             return false;
         }
         // SAFETY: as above. The trigger is written disabled, then its
-        // address, then enabled.
+        // address, then enabled; then read back.
+        let (set_control, set_address): (u32, u32);
         unsafe {
             core::arch::asm!(
                 "csrw 0x7a0, {id}",
@@ -184,14 +181,19 @@ pub fn arm_band() {
                 "csrw 0x7a1, zero",
                 "csrw 0x7a2, {address}",
                 "csrw 0x7a1, {control}",
+                "csrr {c}, 0x7a1",
+                "csrr {a}, 0x7a2",
                 id = in(reg) TRIGGER,
                 enable = in(reg) enable,
                 address = in(reg) address,
                 control = in(reg) control,
+                c = out(reg) set_control,
+                a = out(reg) set_address,
                 options(nomem, nostack),
             );
         }
-        true
+        // Armed is what the chip holds, not what was meant.
+        paperpaw_x4::stack_band::holds(set_control, set_address, address)
     });
     if !armed && band_armed() {
         log::warn!("stack: trigger {TRIGGER} was taken: the band is no longer armed");

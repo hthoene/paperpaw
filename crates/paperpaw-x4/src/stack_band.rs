@@ -61,6 +61,46 @@ pub fn room_at_trap(end: u32, start: u32, frame: u32) -> u32 {
     (start + BAND).saturating_sub(frame).saturating_sub(end)
 }
 
+/// The trigger's control word (`tdata1`) for the band: type match, machine
+/// mode (bit 6), store (bit 1), NAPOT (match 1, bit 7), the breakpoint
+/// exception (action 0), as esp-hal sets its own.
+pub const CONTROL: u32 = (1 << 6) | (1 << 1) | (1 << 7);
+
+/// The bits of `tdata1` that say what the trigger watches (load, store,
+/// execute, machine mode, the match and the action): compared, the rest
+/// (the hit flag, the type, what the chip reads back its own way) is not.
+const WATCH_BITS: u32 = 0b111 | 1 << 6 | 0xf << 7 | 0xf << 12;
+
+/// What a trigger holds, read from the chip: another's, ours, or nothing.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Trigger {
+    /// Nothing watched: free to take.
+    Free,
+    /// The band's, as written before.
+    Ours,
+    /// Something else's (a debugger's, a newer esp-hal's): not to touch.
+    Taken,
+}
+
+/// What the trigger that reads `control` and `address` is, for the band at
+/// `address` (the [`napot`] value).
+pub fn trigger(control: u32, address: u32, band: u32) -> Trigger {
+    if control & 0b111 == 0 {
+        Trigger::Free
+    } else if holds(control, address, band) {
+        Trigger::Ours
+    } else {
+        Trigger::Taken
+    }
+}
+
+/// Whether the trigger that reads `control` and `address` is the band's:
+/// what the firmware checks after writing it, and says the band is armed
+/// only if so (what the chip holds, not what was meant).
+pub fn holds(control: u32, address: u32, band: u32) -> bool {
+    control & WATCH_BITS == CONTROL && address == band
+}
+
 /// The value for the trigger's address register (`tdata2`) that makes it
 /// match the naturally aligned region `[start, start + BAND)`: the
 /// encoding esp-hal uses for its own watchpoints on the ESP32-C3 (the
@@ -148,6 +188,32 @@ mod tests {
             "0.4.0",
             "esp-rtos changed: check which CPU triggers it uses (stack_band.rs)"
         );
+    }
+
+    #[test]
+    fn a_trigger_is_free_ours_or_taken() {
+        let a = napot(0x3fcc_5000);
+        assert_eq!(trigger(0, 0, a), Trigger::Free);
+        // The hit flag and the type bits are not what it watches.
+        assert_eq!(trigger(CONTROL | 1 << 20 | 2 << 28, a, a), Trigger::Ours);
+        // Store only on another address, a load trigger, execute: taken.
+        assert_eq!(trigger(CONTROL, a ^ 0x100, a), Trigger::Taken);
+        assert_eq!(trigger(1 << 6 | 1, a, a), Trigger::Taken);
+        assert_eq!(trigger(1 << 6 | 1 << 2, a, a), Trigger::Taken);
+        // The same bits but another action (enter debug mode): taken.
+        assert_eq!(trigger(CONTROL | 1 << 12, a, a), Trigger::Taken);
+    }
+
+    #[test]
+    fn the_band_counts_as_armed_only_where_the_chip_holds_it() {
+        let a = napot(0x3fcc_5000);
+        // After the writes: read back as meant.
+        assert!(holds(CONTROL, a, a));
+        // A write that did not take (another's lock, a debugger's `dmode`,
+        // the chip clipping a field), or the address changed: not armed.
+        assert!(!holds(0, a, a));
+        assert!(!holds(CONTROL & !(1 << 1), a, a));
+        assert!(!holds(CONTROL, 0, a));
     }
 
     #[test]
