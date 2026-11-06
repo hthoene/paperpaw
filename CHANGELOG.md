@@ -11,6 +11,8 @@ change the plugin SDK.
 - `tools/hyphenation-packs`: builds and checks the thirteen hyphenation plugins as data plugins
   (`[hyphenation]` file kind, PPHP version 1 tables); the interface-6 plugins stay until the
   card-backed reader lands (#228).
+- `paperpaw-hyphen`: `check_table` and `TableError` behind the `kernel` feature (not seen by plugins), the one check of a pattern table that the
+  kernel's reader and `paperpaw-dev package` share (#228).
 - Interface-7 groundwork: generated typed settings values and scoped settings/translation
   copy-out adapters, with bounded handle and callback admission checks (#228).
   The new host table is not yet activated.

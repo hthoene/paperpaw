@@ -11,6 +11,12 @@ authors.workspace = true
 categories = ["no-std", "text-processing"]
 keywords = ["hyphenation", "liang", "no-std"]
 
+[features]
+# What only the kernel and the tools use, never a plugin (ADR 0020): `check_table`,
+# the check of a table read from storage. It adds functions and types alone, and
+# `tools/interface.py` leaves it out of what plugins see.
+kernel = []
+
 [dev-dependencies]
 proptest.workspace = true
 
