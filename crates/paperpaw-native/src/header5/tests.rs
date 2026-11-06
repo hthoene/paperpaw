@@ -384,8 +384,43 @@ fn a_matching_entry_is_taken() {
     let h = good();
     let record = record_bytes(h.meta_len as usize);
     assert_eq!(
-        h.check_entry(&HOST, &RECORD, &record, &entry(&h, &record)),
+        h.check_entry(h.base, &HOST, &RECORD, &record, &entry(&h, &record)),
         Ok(())
+    );
+}
+
+/// An image placed somewhere else than it was linked: the relocated
+/// pointer is the placed base's, not the linked base's.
+#[test]
+fn the_metadata_view_is_checked_against_the_placed_base() {
+    let h = good();
+    let record = record_bytes(h.meta_len as usize);
+    let placed = h.base + 0x1_0000;
+    let moved = EntryFacts {
+        metadata_ptr: placed + h.meta_at,
+        ..entry(&h, &record)
+    };
+    // Placed elsewhere and relocated: taken.
+    assert_eq!(
+        h.check_entry(placed, &HOST, &RECORD, &record, &moved),
+        Ok(())
+    );
+    // The same facts against the linked base: the pointer is not there.
+    assert_eq!(
+        h.check_entry(h.base, &HOST, &RECORD, &record, &moved),
+        Err(EntryRefusal::MetadataView)
+    );
+    // An unrelocated pointer (still the linked address) in a moved image.
+    let unrelocated = entry(&h, &record);
+    assert_eq!(unrelocated.metadata_ptr, h.base + h.meta_at);
+    assert_eq!(
+        h.check_entry(placed, &HOST, &RECORD, &record, &unrelocated),
+        Err(EntryRefusal::MetadataView)
+    );
+    // A placed base that cannot hold the offset is no view either.
+    assert_eq!(
+        h.check_entry(u32::MAX, &HOST, &RECORD, &record, &moved),
+        Err(EntryRefusal::MetadataView)
     );
 }
 
@@ -395,7 +430,7 @@ fn every_entry_check_refuses_on_its_own() {
     let record = record_bytes(h.meta_len as usize);
     let ok = entry(&h, &record);
     let check = |record_facts: &RecordFacts, bytes: &[u8], facts: &EntryFacts<'_>| {
-        h.check_entry(&HOST, record_facts, bytes, facts)
+        h.check_entry(h.base, &HOST, record_facts, bytes, facts)
     };
     // The record against the header.
     for facts in [
@@ -474,7 +509,7 @@ fn the_entry_itself_is_checked_for_size_versions_and_make() {
     let record = record_bytes(h.meta_len as usize);
     let ok = entry(&h, &record);
     let check = |record_facts: &RecordFacts, bytes: &[u8], facts: &EntryFacts<'_>| {
-        h.check_entry(&HOST, record_facts, bytes, facts)
+        h.check_entry(h.base, &HOST, record_facts, bytes, facts)
     };
     // The entry's own size and versions.
     for size in [0, 16, 24, 32, u32::MAX] {

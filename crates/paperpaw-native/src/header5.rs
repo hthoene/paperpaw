@@ -137,14 +137,23 @@ pub struct EntryFacts<'a> {
     pub size: u32,
     pub abi_major: u16,
     pub needs_minor: u16,
-    /// The data address `entry.metadata.ptr` holds after relocation.
+    /// The data address `entry.metadata.ptr` holds after relocation. A
+    /// relocated pointer is `placed_base + meta_at`, with the base the
+    /// image was placed at, not the base it was linked at.
     pub metadata_ptr: u32,
     /// `entry.metadata.len`.
     pub metadata_len: u32,
     /// The bytes that view shows.
     pub metadata: &'a [u8],
-    /// Where `entry.make` points, as an offset into the image (the
-    /// loader takes `CODE_OFFSET` and the image's address away).
+    /// Where `entry.make` points, as an offset into the image. After
+    /// relocation `entry.make` is a code address: in the flash image it
+    /// is `placed_base + CODE_OFFSET + offset`, and the loader takes both
+    /// away. If `make` lies in the hot code (copied to the IRAM arena at
+    /// `placement.hot`), the loader maps it back first:
+    /// `offset = hot_at + (make - placement.hot)`, an offset in the
+    /// image like any other. An address that fits neither view is no
+    /// offset: the loader passes a value outside `[code_at, image_len)`
+    /// (for example `u32::MAX`) and the check refuses it.
     pub make_at: u32,
 }
 
@@ -405,9 +414,13 @@ impl Header5 {
     }
 
     /// Step 9 once the image is relocated and before `make`: the record
-    /// agrees with the header, and the entry with both.
+    /// agrees with the header, and the entry with both. `placed_base` is
+    /// the data address the image was relocated to (`placement.base`),
+    /// which may differ from the linked `self.base`: a relocated
+    /// `metadata.ptr` is `placed_base + meta_at`.
     pub fn check_entry(
         &self,
+        placed_base: u32,
         host: &Host,
         record: &RecordFacts,
         record_bytes: &[u8],
@@ -422,7 +435,7 @@ impl Header5 {
         if record_bytes.len() != self.meta_len as usize {
             return Err(EntryRefusal::RecordLength);
         }
-        if self.base.checked_add(self.meta_at) != Some(entry.metadata_ptr)
+        if placed_base.checked_add(self.meta_at) != Some(entry.metadata_ptr)
             || entry.metadata_len != self.meta_len
             || entry.metadata.len() != self.meta_len as usize
         {
