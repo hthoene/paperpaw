@@ -21,19 +21,31 @@ pub struct EnvironmentScope {
     slot: FrameSlot,
     resources: Option<super::resources::OwnerResourceView>,
     callback: Cell<u64>,
+    cleanup_reporter: Cell<Option<CleanupReporter>>,
+    cleanup_failure: Cell<Option<i32>>,
 }
 
-struct ExpireBlobs<'a> {
-    resources: Option<&'a super::resources::OwnerResourceView>,
-    error: &'a Cell<Option<i32>>,
+#[derive(Clone, Copy)]
+struct CleanupReporter {
+    context: *const core::ffi::c_void,
+    report: unsafe fn(*const core::ffi::c_void, i32),
 }
+
+struct ExpireBlobs<'a>(&'a EnvironmentScope);
 
 impl Drop for ExpireBlobs<'_> {
     fn drop(&mut self) {
-        if let Some(resources) = self.resources
+        if let Some(resources) = &self.0.resources
             && let Err(error) = resources.expire_blobs()
         {
-            self.error.set(Some(error));
+            self.0.cleanup_failure.set(Some(error));
+            if let Some(reporter) = self.0.cleanup_reporter.get() {
+                self.0.cleanup_failure.set(None);
+                // SAFETY: installation ties the sink to the pinned host lifetime.
+                unsafe {
+                    (reporter.report)(reporter.context, error);
+                }
+            }
         }
     }
 }
@@ -46,6 +58,8 @@ impl EnvironmentScope {
             slot: FrameSlot::new(),
             resources: None,
             callback: Cell::new(0),
+            cleanup_reporter: Cell::new(None),
+            cleanup_failure: Cell::new(None),
         }
     }
 
@@ -60,24 +74,27 @@ impl EnvironmentScope {
         self.callback.get()
     }
 
+    /// Install the host diagnostic sink after its containing context is pinned.
+    ///
+    /// # Safety
+    /// Context must remain live and immovable while this scope can run. The
+    /// report function must use that context's type and never panic or reenter.
+    pub(crate) unsafe fn set_cleanup_reporter(
+        &self,
+        context: *const core::ffi::c_void,
+        report: unsafe fn(*const core::ffi::c_void, i32),
+    ) {
+        self.cleanup_reporter
+            .set(Some(CleanupReporter { context, report }));
+    }
+
     fn run_callback<R>(&self, call: impl FnOnce() -> R) -> Result<R, Error> {
+        // This cannot wrap in a device lifetime. Refusal preserves stale-handle checks.
         let next = self.callback.get().checked_add(1).ok_or(Error::Capacity)?;
         self.callback.set(next);
-        let error = Cell::new(None);
-        let result = {
-            let _expire = ExpireBlobs {
-                resources: self.resources.as_ref(),
-                error: &error,
-            };
-            call()
-        };
-        error.get().map_or(Ok(result), |error| {
-            Err(if error == paperpaw_native::host_glue::ERR_BUSY {
-                Error::Busy
-            } else {
-                Error::State
-            })
-        })
+        let _expire = ExpireBlobs(self);
+        // Cleanup reports separately: the callback ran, even if reclamation fails.
+        Ok(call())
     }
 
     /// Supply the event's environment only for this synchronous dispatch.

@@ -52,6 +52,9 @@ struct Table {
 
 /// Device-wide handle pool, shared by every hosted plugin on that device.
 /// Construction is fallible; retaining the pool allocates nothing.
+/// The X4 admits one live blob device-wide. A nested plugin's service query
+/// returns ERR_BUSY while an outer callback holds a blob. Release it before
+/// calling another plugin, or retry after the outer callback ends.
 #[derive(Debug)]
 pub struct HostResources(Shared<Table>);
 
