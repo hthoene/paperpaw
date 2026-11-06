@@ -241,7 +241,7 @@ jobs:
           cargo build --release --target ${{ matrix.target }}
           -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics
           -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict
-          -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat
+          -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat -p paperpaw-reader-api
       - name: Lint the web emulator
         # The emulator's device model and paperpaw-dev's checks, with std,
         # in a browser (shells/web); its exports exist on wasm32 only.
