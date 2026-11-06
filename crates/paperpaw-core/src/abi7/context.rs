@@ -34,6 +34,9 @@ pub(crate) trait Frame {
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
         None
     }
+    fn font_removals(&self) -> Option<&crate::native_host::font_removals::FontRemovals> {
+        None
+    }
     fn storage(&self) -> Option<&dyn paperpaw_platform::Storage> {
         None
     }

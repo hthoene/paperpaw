@@ -199,6 +199,7 @@ impl FlatPlugin {
             depth,
             host: FlatHost {
                 meter: Rc::clone(&host.meter),
+                font_removals: Rc::clone(&host.font_removals),
             },
         })
     }
@@ -248,6 +249,7 @@ impl Plugin for FlatPlugin {
             };
             let host = FlatHost {
                 meter: Rc::clone(&self.host.meter),
+                font_removals: Rc::clone(&self.host.font_removals),
             };
             let handler: Option<paperpaw_sdk::EventHandler> = shared::try_box(
                 move |env: &Env<'_>, params: &Params, _: &mut paperpaw_sdk::Commands| {
@@ -343,6 +345,7 @@ fn invoke(
     let frame = crate::abi7::core_frame::CoreFrame {
         env,
         meter: &host.meter,
+        font_removals: &host.font_removals,
         usage: env.usage(),
         plugins: env.plugins(),
         work: env.work(),

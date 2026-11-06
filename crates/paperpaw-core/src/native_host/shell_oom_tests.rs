@@ -59,6 +59,7 @@ fn first_and_later_plugin_refuse_each_post_make_allocation_and_destroy_once() {
     reset(NORMAL);
     let host = FlatHost {
         meter: crate::meter::Meter::new(None),
+        font_removals: Rc::new(super::super::font_removals::FontRemovals::new()),
     };
     for owned in [false, true] {
         let text = alloc::string::String::from("a").repeat(96);
@@ -210,6 +211,7 @@ fn registration_rollback(registry_oom: bool) {
     reset(NORMAL);
     let host = FlatHost {
         meter: crate::meter::Meter::new(None),
+        font_removals: Rc::new(super::super::font_removals::FontRemovals::new()),
     };
     let destroyed = Rc::new(Cell::new(0));
     let calls = Rc::new(Cell::new(0));
@@ -278,4 +280,22 @@ fn resource_slot_growth_oom_creates_no_handle_and_can_retry() {
     assert_eq!(handle, 1 << 10);
     owner.release_all().unwrap();
     assert_eq!(owner.with_font(handle, |_| Ok(())), Err(ERR_STATE));
+}
+
+#[test]
+fn font_removal_map_or_id_oom_invalidates_older_handles_without_panicking() {
+    use crate::native_host::font_removals::FontRemovals;
+    let provider = Id::parse("owned-pack").unwrap();
+    for allocation in [1, 2] {
+        let tracker = FontRemovals::new();
+        tracker.removed(&Id::new_static("existing"), 1);
+        let before = tracker.generation().unwrap();
+        arm_failure(allocation);
+        tracker.removed(&provider, 1);
+        arm_failure(0);
+        assert!(!tracker.valid("existing", before));
+        assert!(!tracker.valid("owned-pack", before));
+        let after = tracker.generation().unwrap();
+        assert!(tracker.valid("owned-pack", after));
+    }
 }

@@ -11,6 +11,7 @@ use paperpaw_sdk::{Env, Plugins, Settings, usage::Usage, work::WorkStates};
 pub(crate) struct CoreFrame<'a> {
     pub(crate) env: &'a Env<'a>,
     pub(crate) meter: &'a crate::meter::Meter,
+    pub(crate) font_removals: &'a crate::native_host::font_removals::FontRemovals,
     pub(crate) usage: &'a Usage,
     pub(crate) plugins: &'a Plugins,
     pub(crate) work: &'a WorkStates,
@@ -25,6 +26,9 @@ impl Frame for CoreFrame<'_> {
     }
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
         Some(self.env.fonts())
+    }
+    fn font_removals(&self) -> Option<&crate::native_host::font_removals::FontRemovals> {
+        Some(self.font_removals)
     }
     fn storage(&self) -> Option<&dyn paperpaw_platform::Storage> {
         Some(self.env.storage())

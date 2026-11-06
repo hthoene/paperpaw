@@ -190,6 +190,7 @@ impl Plugin for ReentryDriver {
         let calls = Rc::clone(&self.calls);
         let drops = Rc::clone(&self.drops);
         let meter = Rc::clone(&self.host.meter);
+        let font_removals = Rc::clone(&self.host.font_removals);
         r.subscribe(
             builtin::STARTED,
             Box::new(move |env, _, _| {
@@ -200,6 +201,7 @@ impl Plugin for ReentryDriver {
                     drops: Rc::clone(&drops),
                     host: FlatHost {
                         meter: Rc::clone(&meter),
+                        font_removals: Rc::clone(&font_removals),
                     },
                 };
                 deliver(
@@ -230,6 +232,7 @@ fn callback_reentry_is_busy_before_plugin_callback_runs_twice() {
                 drops: Rc::clone(&observed_drops),
                 host: FlatHost {
                     meter: Rc::clone(&code.host.meter),
+                    font_removals: Rc::clone(&code.host.font_removals),
                 },
             }))
         },
