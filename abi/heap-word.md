@@ -176,9 +176,15 @@ typedef struct PpHeap {
 - [D] **No re-entry by formatting.** The handler copies a literal message (`as_str`) without
   formatting; only a message with arguments is formatted, which runs the plugin's own `Display`
   code. A panic inside that code re-enters the handler and recurses until the stack overflows (no
-  writable static can guard it). That remaining case must end as a plugin fault: Firmware confirms
-  that the X4's stack overflow detection fires inside the frame and the crash slot blames the frame
-  owner, as for any fault; hosted targets end the process on the overflow.
+  writable static can guard it). That remaining case must end as a plugin fault. **On the X4 this is
+  not proven today** (Firmware, from code): plugin frames run on the shell's main stack, whose only
+  hardware net is one 4-byte watchpoint word that a sparse frame can step over, and the shell's
+  panic handler has no re-entrancy guard. Activation gate for the X4 heap word: the shell enables
+  the stack-pointer monitor (lower bound about 1 KiB above the stack end, so the handler can still
+  write the crash slot) and a re-entrancy flag in its panic handler (a second entry writes a fixed
+  "panic in panic" slot blaming the frame owner and resets, without formatting again), and an
+  owner-approved device test that recurses until overflow shows the crash slot blames the plugin.
+  Hosted targets end the process on the overflow.
 - [D] Codes: 1 panic, 2 allocation failure (`handle_alloc_error`), 3 bad free detected by the host;
   others reserved. A block grown by `realloc` is never reported as a bad free.
 
