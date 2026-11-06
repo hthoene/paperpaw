@@ -13,7 +13,7 @@
 #           target/ci-local/<step>.log, and the end of a failed step's is shown)
 #
 # Full and --only abi require ABI_BASELINE pointing to an independently trusted
-# abi.lock (for example git show origin/abi7/integration:abi/abi.lock > /tmp/base.lock
+# abi.lock and ABI_BASE_REV naming its exact reviewed base commit (for example git show origin/abi7/integration:abi/abi.lock > /tmp/base.lock
 # before local edits). No baseline is inferred from the candidate checkout.
 #
 # Each step is a real command with its real exit code: a failing step is
@@ -205,6 +205,7 @@ g_sdk() {
 # Keep the baseline supplied independently by the caller. Missing input fails
 # through abi-check --ci; a candidate checkout is never its own reference.
 g_abi() {
+    run "abi: frozen interface-6 reference bytes" 'python3 tools/abi-frozen6-check.py --base "${ABI_BASE_REV:?set the exact independently trusted PR-base commit}"'
     run "abi: generated declarations and trusted baseline" "bash tools/abi-check.sh --ci"
 }
 
