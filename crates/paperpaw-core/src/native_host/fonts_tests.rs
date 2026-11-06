@@ -1,7 +1,7 @@
 use super::*;
 use crate::native_host::HostResources;
 use core::pin::pin;
-use paperpaw_native::host_glue::{ERR_FULL, ERR_UNSUPPORTED, ERR_UTF8};
+use paperpaw_native::host_glue::{ERR_FULL, ERR_UTF8};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{Font, FontSpec, Id};
 
@@ -233,7 +233,7 @@ fn env_only_named_access_fails_closed_while_roles_work_and_release_needs_no_fram
 }
 
 #[test]
-fn ink_checks_all_outputs_and_staleness_before_the_pending_probe() {
+fn ink_without_drawn_pixels_and_refusals_preserve_all_outputs() {
     let kernel = kernel();
     let resources = HostResources::try_new().unwrap();
     let owner = resources.try_owner().unwrap();
@@ -255,7 +255,7 @@ fn ink_checks_all_outputs_and_staleness_before_the_pending_probe() {
                     out.add(2),
                     out.add(3)
                 ),
-                ERR_UNSUPPORTED
+                ERR_NOT_FOUND
             );
             assert_eq!(values, [91; 4]);
             assert_eq!(

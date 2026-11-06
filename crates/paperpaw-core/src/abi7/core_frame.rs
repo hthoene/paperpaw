@@ -27,6 +27,9 @@ impl Frame for CoreFrame<'_> {
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
         Some(self.env.fonts())
     }
+    fn ink_threshold(&self) -> Result<u8, i32> {
+        Frame::ink_threshold(self.env)
+    }
     fn font_generation(&self) -> Option<u64> {
         self.font_removals.generation()
     }

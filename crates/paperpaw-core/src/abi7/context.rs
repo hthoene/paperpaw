@@ -34,6 +34,9 @@ pub(crate) trait Frame {
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
         None
     }
+    fn ink_threshold(&self) -> Result<u8, i32> {
+        Err(ERR_STATE)
+    }
     fn font_generation(&self) -> Option<u64> {
         None
     }

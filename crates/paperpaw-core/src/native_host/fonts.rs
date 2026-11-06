@@ -204,9 +204,9 @@ pub(crate) unsafe fn metrics(
 }
 
 #[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
-fn ink_of(_font: &FontHandle<'_>, _size: f32, _text: &str) -> Result<[i32; 4], i32> {
-    // Kernel supplies ink_drawn, sharing the shaped raster path with draw.
-    Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+fn ink_of(font: &FontHandle<'_>, size: f32, text: &str, threshold: u8) -> Result<[i32; 4], i32> {
+    let bounds = font.ink_drawn(size, text, threshold).ok_or(ERR_NOT_FOUND)?;
+    Ok([bounds.top, bounds.bottom, bounds.left, bounds.right])
 }
 
 /// Slot 30: validate and resolve before probing the exact shaped raster path.
@@ -232,7 +232,12 @@ pub(crate) unsafe fn ink(
         size_check(size)?;
         // SAFETY: the caller provides live readable input.
         let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
-        let values = with_font(scope, owner, handle, |font| ink_of(font, size, text))?;
+        let values = scope.with_frame(|frame| {
+            owner.with_font(handle, |key| {
+                let font = resolve(frame, key)?;
+                ink_of(&font, size, text, frame.ink_threshold()?)
+            })
+        })??;
         // SAFETY: all outputs were checked before any write.
         unsafe {
             top.write(values[0]);

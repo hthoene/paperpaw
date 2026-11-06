@@ -19,6 +19,9 @@ change the plugin SDK.
 
 ### Added
 
+- Native host text ink probes the shaped raster path with the target frame's
+  coverage threshold; inkless text reports not found. X4 timing remains gated (#228).
+
 - Interface 7: `native_plugin!(P, metadata = M, linked = NAME)` and `native::Linked` for plugins
   linked into the program that hosts them (firmware built-ins): the same entry and metadata under
   a Rust name of their own, without exported symbols, heap word, allocator or panic handler, so
