@@ -20,7 +20,8 @@ While it is a draft:
   else changed. CI (`tools/abi-reference-check.py`, job "Stable ABI against trusted base") compares the
   reference files with the PR's base. **At the same draft only additions pass:** `interface.txt` stays
   byte-equal, every reference file of the base keeps all its lines in their order, and files or lines may be
-  added, with a new line in `blessings.txt`. Anything else (a removed, changed or reordered line, another
+  added, with a new line in `blessings.txt`. Lines of `shared.list` and `table.sig` (and, within each kind, of
+  `lang.list` and `i18n.list`) are only appended at the end: an index must not shift. Anything else (a removed, changed or reordered line, another
   fingerprint) takes the next draft. The draft moves by exactly one (no skipping, never back), `interface.txt`
   states the same interface and draft as `native::INTERFACE` and `native::DRAFT`, and a line that names
   another draft than `native::DRAFT` is refused.

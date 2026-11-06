@@ -18,7 +18,10 @@ trusted base (the PR's base, or the commit before a push):
   is frozen, never back and never skipping one. At the same draft only
   additions pass: `interface.txt` stays byte-equal to the base, every
   reference file of the base is still there with all its lines in their order,
-  and files and lines may be added. A change plugins rely on takes the next draft;
+  and files and lines may be added. A line in `shared.list` and `table.sig` (and,
+  within each kind, in `lang.list` and `i18n.list`) is added at the end only: a
+  line slipped in before shifts the slots plugins were built against. A change
+  plugins rely on takes the next draft;
 - every raise, every step to another draft and every addition is named:
   `abi/interface-<N>/blessings.txt` keeps the base's lines as they were
   (checked every time, also where nothing else changed) and gains at least one,
@@ -114,8 +117,36 @@ def summary_values(text):
     return int(found[0]), draft
 
 
-def kept(old, new):
-    """Whether `new` holds every line of `old`, in the same order."""
+# Lists whose line order is an index plugins were built against (the table
+# of shared functions and its signatures: a line's place is its slot): at the
+# same draft they only grow at the end. The language and message lists are
+# indexed within each kind, the first word of the line.
+ORDERED = {DIRECTORY + '/shared.list', DIRECTORY + '/table.sig'}
+ORDERED_BY_KIND = {DIRECTORY + '/lang.list', DIRECTORY + '/i18n.list'}
+
+
+def kind(line):
+    words = line.split(None, 1)
+    return words[0] if words else b''
+
+
+def by_kind(lines):
+    groups = {}
+    for line in lines:
+        groups.setdefault(kind(line), []).append(line)
+    return groups
+
+
+def kept(name, old, new):
+    """Whether `new` holds every line of `old` and nothing slipped in before
+    the end of it. In an ordered list `old` is a prefix of `new`, in a list
+    indexed by kind it is within each kind; elsewhere the lines of `old`
+    are all there, in the same order."""
+    if name in ORDERED:
+        return new[:len(old)] == old
+    if name in ORDERED_BY_KIND:
+        now = by_kind(new)
+        return all(now.get(one, [])[:len(lines)] == lines for one, lines in by_kind(old).items())
     lines = iter(new)
     return all(line in lines for line in old)
 
@@ -133,9 +164,10 @@ def additions_only(root, base, trusted, current):
             raise ValueError(f'{name} is gone; a removal takes the next draft')
         old = git(root, 'show', base + ':' + name).splitlines()
         new = (root / name).read_bytes().splitlines()
-        if not kept(old, new):
-            raise ValueError(f'{name} lost or changed a line; at the same draft only additions '
-                             'pass, a change takes the next draft')
+        if not kept(name, old, new):
+            raise ValueError(f'{name} lost or changed a line, or a line slipped in before the end of '
+                             'a list plugins index into; at the same draft only additions at the '
+                             'end pass, a change takes the next draft')
         added = added or len(new) > len(old)
     return added
 

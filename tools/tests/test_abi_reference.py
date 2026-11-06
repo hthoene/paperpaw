@@ -331,6 +331,72 @@ class DraftTests(Fixture):
             self.check()
 
 
+class OrderedListTests(Fixture):
+    """Lists plugins index into only grow at their end at the same draft (#777 B1)."""
+    LISTS = {
+        'shared.list': 'text 1 A paperpaw_text::a\ntext 1 B paperpaw_text::b\nimage 1 C paperpaw_image::c\n',
+        'table.sig': 'text 1 A: fn a()\ntext 1 B: fn b()\nimage 1 C: fn c()\n',
+        'lang.list': 'script Adlm\nscript Afak\nregion AD\nregion AE\n',
+        'i18n.list': 'plural arabic\nplural hebrew\ndigits latn\ndigits arab\n',
+    }
+    FIRST = {'shared.list': 'text 1 NEW paperpaw_text::new\n', 'table.sig': 'text 1 NEW: fn new()\n',
+             'lang.list': 'script Aaaa\n', 'i18n.list': 'plural zzz\n'}
+    files = {reference.SOURCE: source(7, 1), reference.SUMMARY: summary(7, 1),
+             SEVEN: '1 early raise, draft baseline (#228)\n',
+             **{reference.DIRECTORY + '/' + name: text for name, text in LISTS.items()}}
+
+    def path(self, name):
+        return reference.DIRECTORY + '/' + name
+
+    def named(self):
+        self.write(SEVEN, '1 early raise, draft baseline (#228)\n1 more (#1)\n')
+
+    def test_an_insertion_at_the_start_or_in_the_middle_is_refused_in_each_list(self):
+        for name, text in self.LISTS.items():
+            lines = text.splitlines(keepends=True)
+            first = self.FIRST[name]
+            for where in (0, 1):
+                with self.subTest(name=name, where=where):
+                    self.write(self.path(name), ''.join(lines[:where]) + first + ''.join(lines[where:]))
+                    self.named()
+                    with self.assertRaisesRegex(ValueError, 'slipped in.*next draft'):
+                        self.check()
+            self.write(self.path(name), text)
+
+    def test_an_append_at_the_end_passes_in_each_list(self):
+        for name, text in self.LISTS.items():
+            with self.subTest(name=name):
+                self.write(self.path(name), text + self.FIRST[name])
+                self.named()
+                self.assertIn('additions named (1)', self.check())
+                self.write(self.path(name), text)
+
+    def test_an_append_to_one_kind_with_other_kinds_after_it_passes(self):
+        """lang.list and i18n.list are indexed within each kind."""
+        for name, new in (('lang.list', 'script Aaaa\n'), ('i18n.list', 'plural zzz\n')):
+            with self.subTest(name=name):
+                lines = self.LISTS[name].splitlines(keepends=True)
+                self.write(self.path(name), ''.join(lines[:2]) + new + ''.join(lines[2:]))
+                self.named()
+                self.assertIn('additions named (1)', self.check())
+                # A new line of the kind slipped in before an old one is not.
+                self.write(self.path(name), new + self.LISTS[name])
+                with self.assertRaisesRegex(ValueError, 'slipped in'):
+                    self.check()
+                self.write(self.path(name), self.LISTS[name])
+
+    def test_a_removed_or_changed_line_is_refused_in_each_list(self):
+        for name, text in self.LISTS.items():
+            lines = text.splitlines(keepends=True)
+            for edited in (lines[1:], [lines[0].rstrip('\n') + 'x\n'] + lines[1:], [lines[1], lines[0]] + lines[2:]):
+                with self.subTest(name=name, edited=edited):
+                    self.write(self.path(name), ''.join(edited))
+                    self.named()
+                    with self.assertRaisesRegex(ValueError, 'lost or changed a line'):
+                        self.check()
+            self.write(self.path(name), text)
+
+
 class LaterDraftTests(Fixture):
     files = {reference.SOURCE: source(7, 3), reference.SUMMARY: summary(7, 3),
              SEVEN: '1 early raise (#228)\n2 a (#1)\n3 b (#2)\n'}
