@@ -35,6 +35,7 @@ pub mod explore;
 pub mod flows;
 pub mod gallery;
 pub mod image;
+pub mod library;
 pub mod lint;
 pub mod package;
 pub mod perf;
