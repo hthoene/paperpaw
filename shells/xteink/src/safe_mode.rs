@@ -147,6 +147,7 @@ pub fn crashed_in(id: &str) {
 
 /// Plugin `id`'s code is about to run (`make`, a callback, its destructor):
 /// the id is kept where a reset leaves it until [`returned`].
+#[cfg(feature = "ppn5")]
 pub fn calling(id: &str) {
     let mut record = read();
     set(&mut record.inflight, id);
@@ -154,6 +155,7 @@ pub fn calling(id: &str) {
 }
 
 /// The plugin's code returned.
+#[cfg(feature = "ppn5")]
 pub fn returned() {
     let mut record = read();
     record.inflight = [0; ID_LEN];

@@ -418,7 +418,7 @@ mod x4 {
                 warn!("native: {id}: format 5: {why:?}");
                 PluginProblem::Unsupported
             })?;
-        let took = super::Took {
+        let took = crate::native::Took {
             place_us: made - started,
             make_us: crate::micros() - made,
             heap: esp_alloc::HEAP.used() as isize - heap as isize,
