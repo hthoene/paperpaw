@@ -14,6 +14,7 @@ ABI = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ABI)
 from abi_records import rust_records, validate_records
 from abi_declarations import rust_streams
+from abi_i18n import rust_i18n
 
 
 RUST_TESTS = r'''
@@ -226,7 +227,9 @@ class RecordsTests(unittest.TestCase):
                           ('event.screen_shown', 38), ('event.action_run', 39),
                           ('input.key', 40), ('input.pointer', 41), ('input.gesture', 42),
                           ('input.action', 43), ('i18n.arg_str', 44), ('i18n.arg_int', 45),
-                          ('i18n.count', 46), ('draw.frame', 192)])
+                          ('i18n.count', 46), ('draw.frame', 192),
+                          ('command.open_screen', 56), ('command.run_action', 57),
+                          ('command.redraw', 58), ('command.close_screen', 59)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             if record['id'] <= 3:
@@ -340,7 +343,7 @@ class RecordsTests(unittest.TestCase):
             rust_records(candidate)
 
     def test_standalone_copies_generated_and_checked(self):
-        source = rust_records(self.schema) + rust_streams(self.schema)
+        source = rust_records(self.schema) + rust_streams(self.schema) + rust_i18n(self.schema)
         for path in COPIES:
             self.assertEqual((ROOT / path).read_text(), source)
         with tempfile.TemporaryDirectory() as directory:

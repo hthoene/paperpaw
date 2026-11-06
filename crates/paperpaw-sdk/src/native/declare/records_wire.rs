@@ -2255,3 +2255,12 @@ impl RecordStream {
         if self.len == 0 { Ok(()) } else { Err(-2) }
     }
 }
+
+/// Maximum UTF-8 bytes of an `i18n.format` key (slot 27).
+pub const I18N_FORMAT_MAX_KEY_BYTES: usize = 128;
+/// Maximum bytes of an encoded `i18n.format` argument batch (slot 27).
+pub const I18N_FORMAT_MAX_ARGUMENT_BYTES: usize = 1024;
+/// Maximum argument records in one `i18n.format` batch (slot 27).
+pub const I18N_FORMAT_MAX_RECORDS: usize = 8;
+/// Maximum UTF-8 bytes of the text `i18n.digits` maps (slot 28).
+pub const I18N_DIGITS_MAX_BYTES: usize = 4096;

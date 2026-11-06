@@ -12,6 +12,7 @@ ABI = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ABI)
 from abi_declarations import rust_streams
 from abi_records import rust_records
+from abi_i18n import rust_i18n
 
 
 class Streams(unittest.TestCase):
@@ -24,7 +25,7 @@ class Streams(unittest.TestCase):
                      'pub struct RecordStream', 'pub const RECORD_CARRY_MAX_BYTES: usize = 256;'):
             self.assertIn(name, source)
         generated = (ROOT / 'abi/generated/records_wire.rs').read_text()
-        self.assertEqual(generated, rust_records(self.schema) + source)
+        self.assertEqual(generated, rust_records(self.schema) + source + rust_i18n(self.schema))
         without = copy.deepcopy(self.schema)
         without['records'] = [r for r in without['records']
                               if not r['name'].startswith('service.')]
