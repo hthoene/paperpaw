@@ -6675,7 +6675,7 @@ pub fn paperpaw_sdk::HttpRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> c
 pub struct paperpaw_sdk::Hyphenation
 impl paperpaw_sdk::Hyphenation
 pub fn paperpaw_sdk::Hyphenation::contains(&self, &str) -> bool
-pub fn paperpaw_sdk::Hyphenation::get(&self, &str) -> core::option::Option<&paperpaw_hyphen::Patterns<'static>>
+pub fn paperpaw_sdk::Hyphenation::get(&self, &str) -> core::option::Option<paperpaw_sdk::Hyphenator<'_>>
 pub fn paperpaw_sdk::Hyphenation::new() -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::HyphenationSpec
 pub paperpaw_sdk::HyphenationSpec::id: paperpaw_sdk::Id
@@ -6685,6 +6685,12 @@ impl paperpaw_sdk::HyphenationSpec
 pub fn paperpaw_sdk::HyphenationSpec::new(paperpaw_sdk::Id, impl core::convert::Into<alloc::borrow::Cow<'static, str>>, &'static [u8]) -> Self
 impl core::fmt::Debug for paperpaw_sdk::HyphenationSpec
 pub fn paperpaw_sdk::HyphenationSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct paperpaw_sdk::Hyphenator<'a>
+impl<'a> paperpaw_sdk::Hyphenator<'a>
+pub fn paperpaw_sdk::Hyphenator<'a>::hyphenate(&self, &str, &mut dyn core::ops::function::FnMut(usize))
+pub fn paperpaw_sdk::Hyphenator<'a>::with_minimums(self, usize, usize) -> Self
+impl core::fmt::Debug for paperpaw_sdk::Hyphenator<'_>
+pub fn paperpaw_sdk::Hyphenator<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct paperpaw_sdk::Id(_)
 impl paperpaw_sdk::Id
 pub fn paperpaw_sdk::Id::as_str(&self) -> &str

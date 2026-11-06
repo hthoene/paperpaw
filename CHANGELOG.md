@@ -38,8 +38,14 @@ change the plugin SDK.
   refuses an unnamed one against the PR's base. The temporary partition of the interface-7 host table
   from the frozen interface-6 files is retired.
 - `DATA_FORMATS` is 5: data plugins may name hyphenation tables in `[hyphenation]` (`hyphenation/*.pphp`),
-  so the 13 hyphenation plugins install. Their languages are used on a page once the SDK's
-  `Hyphenation::get` reads tables from the card (`abi/interface-7/raise.md`, row 2).
+  so the 13 hyphenation plugins install.
+- **Plugin interface 7, draft 2** (#228, `abi/interface-7/raise.md` row 2): hyphenation from data plugins is
+  used on a page. `Hyphenation::get` returns a `Hyphenator` (`with_minimums`, `hyphenate`) instead of
+  `&Patterns`: a table compiled into a plugin, or a data plugin's table read from the card a few blocks at a
+  time, which comes first. At most two card tables are open (about 20 KB of heap for `de`, the largest); a
+  read that fails closes the table and the next word opens it once more, a second failure gives the language
+  up until the card is mounted anew. `PageType::patterns` returns the `Hyphenator`. The kernel keeps the
+  data plugins' tables in the SDK's `Hyphenation` (the greatest plugin id has a language).
 
 ## [0.6.0-beta.3] - 2026-11-05
 
