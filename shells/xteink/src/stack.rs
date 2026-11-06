@@ -4,6 +4,10 @@
 //! later, somewhere else. So the stack is filled with a pattern at start,
 //! which shows how deep it went ([`left`]), and the lowest part is checked
 //! now and then ([`check`]): overwritten, the X4 starts again saying why.
+//! That is after the fact: a band above the end is watched by the CPU's
+//! own data trigger as well ([`arm_band`]), which fires in the store that
+//! reaches it, in the code that overflowed, and ends in the crash slot
+//! blaming it (`crash.rs`).
 
 /// What the unused stack holds.
 const PAINT: u32 = 0xA5A5_5A5A;
@@ -80,3 +84,58 @@ pub fn check() {
         panic!("the stack ran over");
     }
 }
+
+/// The CPU's trigger the band uses. esp-hal's (and esp-rtos', on every
+/// task switch) is 0, the guard word's; its vector table check, off in
+/// this firmware, takes 1.
+#[cfg(target_arch = "riscv32")]
+const TRIGGER: u32 = 2;
+
+/// Sets the CPU's data trigger to fire before any store into the band
+/// at the stack's end (`paperpaw_x4::stack_band`), from now on: the
+/// stack must be painted already ([`paint`] stores into it) and nothing
+/// stores there after, but a call that runs over the stack's end. The
+/// trigger raises a breakpoint exception, which esp-hal turns into a
+/// panic at the faulting store (`crash.rs` blames the plugin whose code
+/// it is, or the one that called the firmware's code it was in).
+///
+/// The ESP32-C3's only: the Xtensa chips have no native plugins.
+#[cfg(target_arch = "riscv32")]
+pub fn arm_band() {
+    let end = core::ptr::addr_of!(_stack_end) as u32;
+    let top = core::ptr::addr_of!(_stack_start) as u32;
+    let Some(start) = paperpaw_x4::stack_band::band(end, top) else {
+        return;
+    };
+    let address = paperpaw_x4::stack_band::napot(start);
+    // Trigger type 2 (match): machine mode (bit 6), store (bit 1), NAPOT
+    // (match 1, bit 7), the breakpoint exception (action 0). As esp-hal
+    // sets its own.
+    let control = (1u32 << 6) | (1 << 1) | (1 << 7);
+    // Machine mode triggers on (bit 3).
+    let enable = 1u32 << 3;
+    // Interrupts off: a task switch (esp-rtos) selects its trigger in
+    // between and the writes would land in that one.
+    critical_section::with(|_| {
+        // SAFETY: the trigger CSRs of the chip; they touch no memory. The
+        // trigger is written disabled, then its address, then enabled.
+        unsafe {
+            core::arch::asm!(
+                "csrw 0x7a0, {id}",
+                "csrw 0x7a5, {enable}",
+                "csrw 0x7a1, zero",
+                "csrw 0x7a2, {address}",
+                "csrw 0x7a1, {control}",
+                id = in(reg) TRIGGER,
+                enable = in(reg) enable,
+                address = in(reg) address,
+                control = in(reg) control,
+                options(nomem, nostack),
+            );
+        }
+    });
+}
+
+/// No band on the Xtensa chips.
+#[cfg(not(target_arch = "riscv32"))]
+pub fn arm_band() {}

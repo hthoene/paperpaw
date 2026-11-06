@@ -337,6 +337,7 @@ fn now() -> Instant {
 #[main]
 fn main() -> ! {
     stack::paint();
+    stack::arm_band();
     start().run()
 }
 

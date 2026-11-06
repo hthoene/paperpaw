@@ -52,16 +52,34 @@ impl Write for Cut<'_> {
     }
 }
 
+/// Whether this handler runs already: a panic inside it (a message whose
+/// formatting panics, the plugin's `Display` that does) comes back here,
+/// and formatting it again would panic again, one frame deeper each time,
+/// until the stack is gone. A second entry names no message: it keeps the
+/// place and the plugin to blame, and starts the X4 again. Plain loads
+/// and stores (the X4's RISC-V has no atomic swap): one core, and a
+/// panic's own interrupts do not panic.
+static ENTERED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo<'_>) -> ! {
-    esp_println::println!("PANIC: {info}");
+    use core::sync::atomic::Ordering;
+    let again = ENTERED.load(Ordering::Relaxed);
+    ENTERED.store(true, Ordering::Relaxed);
+    if !again {
+        esp_println::println!("PANIC: {info}");
+    }
     let mut buf = [0u8; paperpaw_x4::rtc_guard::MESSAGE_LEN];
     let mut cut = Cut {
         buf: &mut buf[paperpaw_x4::rtc_guard::BODY],
         len: 0,
     };
     // The message first: the location's path is long.
-    let _ = write!(cut, "{}", info.message());
+    if again {
+        let _ = write!(cut, "{}", paperpaw_x4::blame::PANIC_IN_PANIC);
+    } else {
+        let _ = write!(cut, "{}", info.message());
+    }
     if let Some(at) = info.location() {
         let file = at.file().rsplit(['/', '\\']).next().unwrap_or(at.file());
         let _ = write!(cut, " ({file}:{})", at.line());
