@@ -84,6 +84,7 @@ interface-7 builder directly.
 Slot 6 `i18n.copy` answers `ERR_NOT_FOUND` for a missing key instead of copying the key
 (D5, decided 2026-11-06 05:27 before the raise; PR #201). This is the one recorded
 exception to "existing entries only gain meaning". No re-bless is needed.
+It is effective from draft 3; no draft-2 build calls slot 6 through an SDK wrapper.
 
 ## Steps of the raise itself
 
