@@ -61,6 +61,9 @@ These are not rows of their own, but the raise is not complete without them (all
    interface-6 commit while interface 7 is a draft (draft builds are never released), so the job asserts the
    refusal; the first PR after the freeze sets it to the frozen commit (tag `interface-7`), and from then on the
    job asserts again that old builds run. `tools/ci-local.sh` runs the job from `table-baseline.txt` as CI does.
+   Meanwhile a second step runs `tools/table-compat.sh HEAD` (CI and `ci-local`): this tree's own plugin, built with
+   its own copies and in host table mode, must run and agree, so the "runs" path is exercised too. The script runs
+   its one test by exact name and fails unless exactly one test ran.
 
 Items behind the `kernel` cargo feature (ADR 0020), such as `paperpaw-hyphen`'s table check and card-backed
 reader, are not part of the plugin interface and need no row.

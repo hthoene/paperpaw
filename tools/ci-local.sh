@@ -201,6 +201,9 @@ g_sdk() {
         else
             run "sdk: table-compat against table-baseline.txt" "tools/table-compat.sh"
         fi
+        # As CI's second step: this tree's own plugin, so that the "runs"
+        # path is exercised while the baseline is of an older draft.
+        run "sdk: table-compat against HEAD (the plugin runs)" "tools/table-compat.sh HEAD"
     fi
 }
 
