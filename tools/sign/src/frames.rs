@@ -713,10 +713,7 @@ impl Walk<'_> {
             return None;
         }
         let mut out = Vec::new();
-        loop {
-            let Some(word) = at.checked_add(4).and_then(|end| tables.bytes.get(at..end)) else {
-                break;
-            };
+        while let Some(word) = at.checked_add(4).and_then(|end| tables.bytes.get(at..end)) {
             if !u32::try_from(at).is_ok_and(|o| tables.relocated.contains(&o)) {
                 break;
             }
