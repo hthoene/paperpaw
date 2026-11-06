@@ -61,6 +61,7 @@ fn context() -> Context {
     let mut battery = wire::Battery::new(87);
     battery.millivolts = Some(4102);
     battery.charging = true;
+    battery.saver = true;
     snapshot.battery = Some(battery);
     Context {
         snapshot,
@@ -89,6 +90,7 @@ fn generated_snapshot_fields_are_converted_to_owned_sdk_values() {
     assert_eq!(got.battery_percent(), Some(87));
     assert_eq!(got.battery_millivolts(), Some(4102));
     assert!(got.is_charging());
+    assert!(got.is_power_saving());
     assert_eq!(
         (got.display_width(), got.display_height(), got.display_dpi()),
         (480, 800, 220)
@@ -119,6 +121,7 @@ fn absent_values_stay_distinct_from_present_zeroes() {
     );
     assert_eq!(absent.instant(), Instant(0));
     assert!(!absent.is_charging());
+    assert!(!absent.is_power_saving());
     assert!(!absent.has_touch());
     ctx.snapshot.battery = Some(wire::Battery::new(0));
     ctx.snapshot.unix_seconds = Some(0);
@@ -126,6 +129,7 @@ fn absent_values_stay_distinct_from_present_zeroes() {
     assert_eq!(zero_percent.battery_percent(), Some(0));
     assert_eq!(zero_percent.battery_millivolts(), None);
     assert_eq!(zero_percent.unix_seconds(), Some(0));
+    assert!(!zero_percent.is_power_saving());
     let mut battery = wire::Battery::new(0);
     battery.millivolts = Some(0);
     ctx.snapshot.battery = Some(battery);
