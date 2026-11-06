@@ -810,28 +810,29 @@ impl Walk<'_> {
             Ctl::NoReturn | Ctl::Trap => [None, None],
             Ctl::Indirect | Ctl::Table(_) => {
                 self.out.returns = true;
-                if self.env.lenient {
-                    // The cases are entered from the jump, with the frame
-                    // pointer it had, and no register known. That reads the
-                    // cases the jump may reach, not every target: the frame is
-                    // a lower bound, and the function counts as not sized.
-                    if state.sp != 0 {
-                        self.out.table.get_or_insert(at);
-                    }
-                    let mut s = state.clone();
-                    s.forget_regs();
-                    self.indirect = Some(match self.indirect.take() {
-                        Some(old) => old.join(&s),
-                        None => s,
-                    });
-                } else if state.sp != 0 {
+                if state.sp != 0 {
                     // Inside a frame: where it goes is not known (a jump
-                    // table's case, or the start, to grow the frame again).
+                    // table's case, or the start, to grow the frame again). A
+                    // plugin's pack is refused here. The firmware's listing
+                    // reads the cases the jump may reach from the jump, with
+                    // the frame pointer it had and no register known: the
+                    // frame is a lower bound, and the function counts as not
+                    // sized.
                     self.out.table.get_or_insert(at);
+                    if self.env.lenient {
+                        let mut s = state.clone();
+                        s.forget_regs();
+                        self.indirect = Some(match self.indirect.take() {
+                            Some(old) => old.join(&s),
+                            None => s,
+                        });
+                    }
                 } else {
                     // With no frame: a tail call out of the function, or a
-                    // jump anywhere in it. `sp` there is at most this (the
-                    // walk keeps the lowest); the rest is not known.
+                    // jump anywhere in it, in the listing too (a jump that
+                    // cannot be read may enter code already walked, with a
+                    // register it had constant there). `sp` there is at most
+                    // this (the walk keeps the lowest); the rest is not known.
                     let mut s = state.clone();
                     s.forget_regs();
                     s.fp = None;

@@ -978,3 +978,31 @@ fn a_linked_table_ends_at_the_first_word_that_is_not_in_the_function() {
     let s = linked_sizes(&f, &[TEXT + 24, TEXT + 34]);
     assert_eq!(s.bytes, None);
 }
+
+#[test]
+fn an_unreadable_jump_at_sp_zero_may_enter_code_already_walked_in_the_listing_too() {
+    // Code Reviewer's probe (#254): one path sets t0 = 16 and lowers sp by
+    // it; another jumps through a register that cannot be read, at sp 0, and
+    // may land on the `sub` with any t0. The listing joined that state into
+    // nothing already walked and sized the function 16; it must not.
+    let f = code(&[
+        W(beq_to(A0, 0, 12)),
+        W(jr(A1)),
+        W(RET),
+        W(addi(T0, 0, 16)),
+        W(sub(SP, SP, T0)),
+        W(addi(SP, SP, 16)),
+        W(RET),
+    ]);
+    for lenient in [false, true] {
+        let env = Env {
+            lenient,
+            ..Env::none()
+        };
+        assert_eq!(
+            sizes_in(&f, &[(0, f.len())], env)[0].bytes,
+            None,
+            "lenient {lenient}"
+        );
+    }
+}
