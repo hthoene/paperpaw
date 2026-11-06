@@ -150,7 +150,7 @@ fn face(name: &str) -> Record<'_> {
 fn extension(name: &str) -> Record<'_> {
     Record::ResourceFontExtension(ResourceFontExtension {
         name,
-        path: "fonts/a.ttf",
+        path: "fonts/a.ppfp",
         extends: "weather.f0",
     })
 }
