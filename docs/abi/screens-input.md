@@ -193,6 +193,9 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
   resolves them again, in the reader's language at that time, each time it shows the item. So a
   language change needs no new command. If a later resolution fails (catalogs changed), the item
   shows its title and no badge, never a raw key.
+  A host may cache the resolved texts within the same budget, so a menu does not format every
+  label and badge on each draw (16 items are up to 32 formattings, against the menu timing gate);
+  it drops the cache on a language or catalog change and on the item's next state.
 - [D] A record replaces the item's whole state; the default state (flags 0 or only `keep`, no
   label, no badge) removes it, the kept copy included. At most one record per item in a batch
   (`ERR_INVALID`); across batches the last one wins.
