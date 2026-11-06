@@ -29,12 +29,19 @@
 //! shipped is 346, `uk`) and [`MAX_EXCEPTION_BYTES`] (8 KiB, the largest shipped
 //! is 3,192, `ru`); larger tables are refused at open with
 //! [`TableError::TooLarge`], before anything grows with them. With them the
-//! retained heap of any table is at most about 41 KB (index and fences 32 KiB,
-//! exceptions 8 KiB) plus the cache.
+//! retained heap of any table is at most: index and fences 32 KiB, exceptions
+//! 8 KiB, and the cache, one [`MAX_BLOCK_BYTES`] slot per cached block. That is
+//! about 44 KiB with [`CACHE_BLOCKS`] (8) and about 72 KiB with
+//! [`MAX_CACHE_BLOCKS`] (64). On the X4 (about 256 KiB of heap) the caller
+//! passes [`CACHE_BLOCKS`] or fewer: the worst case is then 44 KiB, against
+//! about 20 KB measured for `de`, the largest shipped table.
 //!
-//! Reads: opening makes one read per block (the fence), a few for the
-//! index, one for the exceptions and a few for the check (about
-//! `blocks + 10`, so ~2,300 for `de`, of 5 bytes each, in file order).
+//! Reads: opening reads the fences in sector-aligned 512-byte windows, so
+//! each sector of the patterns about once, plus a few reads for the check,
+//! the index and the exceptions, all in file order: 708 reads for `de` (686
+//! sectors; one 5-byte read per block made it 2,305), 10 for `it`
+//! (`tests/stored.rs`, `opening_reads_each_sector_of_the_patterns_about_once`).
+//! The card reads whole sectors either way; what this saves is calls.
 //! Hyphenating a word looks up every substring of it: pseudo-words of 4 to
 //! 14 letters made from pattern keys (not running text: a worst case, as
 //! real words repeat and share blocks) cost, with cache 4, about 26 reads a
@@ -64,10 +71,11 @@ use crate::{
 #[cfg(doc)]
 use crate::{MAX_BLOCK_BYTES, MAX_BLOCKS, MAX_EXCEPTION_BYTES};
 
-/// Blocks kept in memory when the caller has no better number.
+/// Blocks kept in memory when the caller has no better number, and the most
+/// an X4 caller should pass: the reader's worst case is then about 44 KiB.
 pub const CACHE_BLOCKS: usize = 8;
 
-/// The most blocks that can be kept.
+/// The most blocks that can be kept (a worst case of about 72 KiB).
 pub const MAX_CACHE_BLOCKS: usize = 64;
 
 /// Bytes of buffer for the check and for copying; freed after opening.
@@ -283,7 +291,10 @@ impl<S: Source> StoredPatterns<S> {
         Ok(index)
     }
 
-    /// The start of each block's first key, one small read per block.
+    /// The start of each block's first key. The keys are read in windows of
+    /// `scratch` aligned to its length (a card sector for 512): one read holds
+    /// the starts of all blocks that begin in it, so opening reads each sector
+    /// of the patterns about once instead of making one small read per block.
     fn read_fences(
         src: &mut S,
         layout: &Layout,
@@ -291,17 +302,32 @@ impl<S: Source> StoredPatterns<S> {
         scratch: &mut [u8],
     ) -> Result<Vec<[u8; 4]>, Unread<S::Error>> {
         let mut fences = reserved::<[u8; 4]>(index.len()).map_err(|_| Unread::NoMemory)?;
-        let patterns = u64::from(layout.exceptions_at) - layout.entries_at();
+        let entries_at = layout.entries_at();
+        let patterns_end = u64::from(layout.exceptions_at);
+        let patterns = patterns_end - entries_at;
+        let size = scratch.len() as u64;
+        let (mut window_at, mut window_len) = (0u64, 0u64);
         for (b, &start) in index.iter().enumerate() {
             let end = index.get(b + 1).map_or(patterns, |&next| u64::from(next));
-            let n = usize::try_from(end - u64::from(start)).unwrap_or(0).min(5);
-            let buf = &mut scratch[..n];
-            raw_read(
-                src,
-                layout.table_len(),
-                layout.entries_at() + u64::from(start),
-                buf,
-            )?;
+            let n = (end - u64::from(start)).min(5);
+            let at = entries_at + u64::from(start);
+            if at < window_at || at + n > window_at + window_len {
+                let aligned = at - at % size;
+                window_at = if aligned + size >= at + n {
+                    aligned
+                } else {
+                    at
+                };
+                // The patterns end at or after `at + n`, so the window holds it.
+                window_len = (patterns_end - window_at).min(size);
+                let window = scratch
+                    .get_mut(..usize::try_from(window_len).map_err(|_| Unread::Bounds)?)
+                    .ok_or(Unread::Bounds)?;
+                raw_read(src, layout.table_len(), window_at, window)?;
+            }
+            // Both below `size`, which is a `usize`.
+            let from = (at - window_at) as usize;
+            let buf = scratch.get(from..from + n as usize).ok_or(Unread::Bounds)?;
             let key = buf.get(1..1 + usize::from(*buf.first().ok_or(Unread::Bounds)?).min(4));
             let key = key.ok_or(Unread::Bounds)?;
             // Zero is the padding: a key with it would not compare right.

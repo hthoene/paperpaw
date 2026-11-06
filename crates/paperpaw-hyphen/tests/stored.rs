@@ -375,3 +375,47 @@ fn the_reader_refuses_what_the_shared_limits_refuse() {
         Err(TableError::TooLarge)
     );
 }
+
+/// A [`Mem`] that counts its reads where the test can see them.
+struct Counted(Mem, std::rc::Rc<std::cell::Cell<u64>>);
+
+impl paperpaw_hyphen::Source for Counted {
+    type Error = Failed;
+
+    fn len(&self) -> u64 {
+        paperpaw_hyphen::Source::len(&self.0)
+    }
+
+    fn read_at(&mut self, at: u64, buf: &mut [u8]) -> Result<(), Failed> {
+        self.1.set(self.1.get() + 1);
+        paperpaw_hyphen::Source::read_at(&mut self.0, at, buf)
+    }
+}
+
+#[test]
+fn opening_reads_each_sector_of_the_patterns_about_once() {
+    for set in shipped() {
+        let count = std::rc::Rc::new(std::cell::Cell::new(0));
+        let src = Counted(Mem::new(set.table.clone()), count.clone());
+        let blocks = paperpaw_hyphen::check_table(&set.table).unwrap().blocks;
+        StoredPatterns::open(src, 7, 1).unwrap();
+        let sectors = (set.table.len() as u64).div_ceil(512);
+        let reads = count.get();
+        println!(
+            "{}: {reads} reads to open, {blocks} blocks, {sectors} sectors",
+            set.name
+        );
+        // Not one read per block: at most about one per sector, plus the
+        // check, the index and the exceptions.
+        assert!(
+            reads <= sectors + sectors / 8 + 16,
+            "{}: {reads} reads",
+            set.name
+        );
+        assert!(
+            reads < u64::from(blocks.max(1)) + 16,
+            "{}: {reads} reads",
+            set.name
+        );
+    }
+}
