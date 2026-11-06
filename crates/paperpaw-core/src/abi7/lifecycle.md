@@ -77,3 +77,27 @@ until Ok transfers it; disarm that guard only on Ok.
 
 A failed make or invalid output is a different case: abort staging, then follow
 the entry contract for partial output. Never call an unvalidated destructor.
+
+### Scoped access during make
+
+The pinned context may contain `native_host::registration_scope::RegistrationScope<T>`
+for owned, validated host records. The loader installs its external construction
+transaction only around the synchronous make call. Host submission borrows the
+transaction for the submission itself; no registry borrow is retained across a
+foreign call. Nested installation is refused. The scope clears on return and
+unwind, before the transaction borrow ends. Submission outside that scope returns
+the refused record unchanged.
+
+`RegistrationScope::reject` records a refusal without borrowing the staging
+transaction. Later submissions are refused. On every scope exit, including
+unwind, reset clears access before the target propagates its refusal through
+`Construction::reject`. Commit then returns Invalid, preserving any earlier
+capacity failure instead. Ignoring the original host status cannot publish the
+partial registration set. Only aborting and starting a new transaction clears
+the latch; validated foreign output remains loader-owned on commit rejection.
+
+This bridge does not decode bytes, validate callback pointers, or publish a
+registration. The future slot-16 adapter must validate the complete generated
+batch and account for retained storage before staging, and call `reject` on
+every decoding, validation or resource refusal. That adapter and actual foreign
+invocation still require tests and review before raw registration is wired.
