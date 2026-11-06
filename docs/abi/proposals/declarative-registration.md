@@ -62,6 +62,29 @@ These override the sections below wherever they differ.
   (-11) from the storage proposal go into the interface-7 batch together, in one change to `abi.def`, the generated
   files, the lock and the draft-7 gate. No frozen interface-6 file is touched.
 
+## Decided (Manager, 2026-11-06 05:27)
+
+Recorded after Senior review; these supersede the corresponding open questions below. Caps that depend on a
+measurement stay provisional until the X4 gate.
+
+- **Q1:** the hyphenation languages and the base become data plugins through a `[hyphenation]` file kind;
+  `fonts-default` stays registered in the firmware (Manager, 05:19). The card-backed hyphenation reader is the
+  first kernel item; its X4 measurement (Q13) waits for the owner's return.
+- **Q2:** the code-versus-`plugin.ini` version check is dropped at run time and done by `paperpaw-dev package`.
+- **Q3:** `uses` is declared as signed metadata features, not in `plugin.ini`.
+- **Q4:** a compiled `.ppcat` catalog is required above 2 KiB.
+- **Q6:** inline batches keep the 4,096-byte cap.
+- **Q7:** setting specs are retained eagerly (S1) first, measured on the X4 (D3); per-plugin caps 128 specs,
+  32 groups and 128 extras, provisional.
+- **Q8:** the `choices` cap stays 1,024 bytes if the longest real list fits; provisional until measured.
+- **Q9:** slot 5 returns absent for a secret setting.
+- **Q10:** value-check callbacks and `Extended` kinds stay out of interface 7 and can be appended later.
+- **Q11:** no derived titles; every title key is explicit.
+- **Q14:** file caps of 2 MiB for hyphenation tables and 64 MiB for font files, provisional until the X4 gate.
+- **Q16:** the action routing table is designed together with actions and screens.
+- **Owner decisions (on #228, open):** whether slot 15 may write other plugins' unguarded settings
+  (recommendation: own settings only, as implemented).
+
 ## 0. Summary of the proposal
 
 1. Registration is split over **three transports that share one record grammar**:
