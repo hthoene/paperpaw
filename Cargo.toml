@@ -14,6 +14,7 @@ members = [
     "crates/paperpaw-table",
     "crates/paperpaw-text",
     "crates/paperpaw-document",
+    "crates/paperpaw-reader-api",
     "crates/paperpaw-layout",
     "crates/paperpaw-hyphen",
     "crates/paperpaw-image",

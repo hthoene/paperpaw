@@ -1,6 +1,6 @@
 // Generated stage codec; do not edit.
-pub const REGISTRATION_MAX_BYTES: usize = 4096;
-pub const REGISTRATION_MAX_RECORDS: usize = 8;
+pub const RECORD_MAX_BYTES: usize = 4096;
+pub const RECORD_MAX_RECORDS: usize = 8;
 struct Reader<'a> {
     remaining: &'a [u8],
 }
@@ -1162,7 +1162,7 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
 /// what is staged is exactly what was validated, and iteration cannot fail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RecordBatch<'a> {
-    records: [Option<Record<'a>>; REGISTRATION_MAX_RECORDS],
+    records: [Option<Record<'a>>; RECORD_MAX_RECORDS],
     len: usize,
 }
 
@@ -1208,15 +1208,15 @@ impl<'a> Iterator for RecordIter<'_, 'a> {
 /// ERR_UTF8; byte, count and per-field cap violations return ERR_NO_SPACE.
 /// Unknown trailing fields and extended presence bitmaps are accepted.
 pub fn records_decode(bytes: &[u8]) -> Result<RecordBatch<'_>, i32> {
-    if bytes.len() > REGISTRATION_MAX_BYTES {
+    if bytes.len() > RECORD_MAX_BYTES {
         return Err(-3);
     }
     let mut reader = Reader { remaining: bytes };
     let len = reader.varint()? as usize;
-    if len > REGISTRATION_MAX_RECORDS {
+    if len > RECORD_MAX_RECORDS {
         return Err(-3);
     }
-    let mut records = [None; REGISTRATION_MAX_RECORDS];
+    let mut records = [None; RECORD_MAX_RECORDS];
     for place in records.iter_mut().take(len) {
         let (tag, mut body) = reader.record()?;
         *place = Some(record_decode(tag, &mut body)?);
@@ -1323,14 +1323,14 @@ impl Record<'_> {
 /// are checked before any write. Failure returns ERR_NO_SPACE and leaves the
 /// entire output unchanged.
 pub fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
-    if records.len() > REGISTRATION_MAX_RECORDS {
+    if records.len() > RECORD_MAX_RECORDS {
         return Err(-3);
     }
     let mut required = varint_len(records.len() as u32);
     for record in records {
         let body = record.body_len()?;
         required += varint_len(record.tag()) + varint_len(body as u32) + body;
-        if required > REGISTRATION_MAX_BYTES {
+        if required > RECORD_MAX_BYTES {
             return Err(-3);
         }
     }

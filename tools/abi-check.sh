@@ -9,6 +9,7 @@ elif [[ $# -ne 0 ]]; then
     exit 2
 fi
 python3 tools/abi-gen.py --check
+python3 tools/reader-api-gen.py --check
 python3 -m unittest discover -s tools/tests -p 'test_abi_*.py'
 python3 tools/abi-metadata-fixtures.py --check
 printf '#include "abi/generated/paperpaw-abi.h"\n' | "${CC:-cc}" -x c -std=c11 -Wall -Werror -fsyntax-only -I. -

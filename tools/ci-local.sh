@@ -221,8 +221,8 @@ g_abi() {
 }
 
 g_embedded() {
-    run "embedded: kernel and plugins, riscv32imc" "cargo build --release --target riscv32imc-unknown-none-elf -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat"
-    run "embedded: kernel and plugins, wasm32" "cargo build --release --target wasm32-unknown-unknown -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat"
+    run "embedded: kernel and plugins, riscv32imc" "cargo build --release --target riscv32imc-unknown-none-elf -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat -p paperpaw-reader-api"
+    run "embedded: kernel and plugins, wasm32" "cargo build --release --target wasm32-unknown-unknown -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat -p paperpaw-reader-api"
     run "embedded: lint the web emulator" "cargo clippy --target wasm32-unknown-unknown -p paperpaw-web -- -D warnings"
     # 16.4 MB: 16 held until the Mail plugin (about 0.25 MB of code and
     # texts, with what its generics pull in) came, 16.3 with it; 0.6.0-beta.1's

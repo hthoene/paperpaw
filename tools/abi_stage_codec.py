@@ -1,5 +1,7 @@
 """Canonical bounded codecs for owner-local stage schemas (no global tags)."""
 import re
+import json
+from pathlib import Path
 
 from abi_records import record_codec_source
 from abi_declarations import wire_records
@@ -28,5 +30,6 @@ def stage_codec_source(schema):
     declared = wire_records(schema)
     if len(declared) != len(records):
         raise ValueError("global registration/command names are not stage records")
-    statuses = dict(ERR_INVALID=-2, ERR_UNSUPPORTED=-1, ERR_NO_SPACE=-3, ERR_UTF8=-5)
+    abi = json.loads((Path(__file__).resolve().parents[1] / 'abi/abi.def').read_text())
+    statuses = {item['name']: item['value'] for item in abi['statuses']}
     return record_codec_source(declared, count, cap, statuses=statuses)

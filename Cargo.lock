@@ -2676,6 +2676,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-reader-api"
+version = "0.1.0"
+
+[[package]]
 name = "paperpaw-sample-frame-test"
 version = "0.6.0-beta.3"
 dependencies = [
