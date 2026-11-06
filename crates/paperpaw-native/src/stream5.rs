@@ -92,6 +92,14 @@ impl<'a, S: Source + ?Sized> Cached<'a, S> {
     }
 }
 
+impl<S: Source + ?Sized> core::fmt::Debug for Cached<'_, S> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Cached")
+            .field("len", &self.len)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<S: Source + ?Sized> Source for Cached<'_, S> {
     fn read_at(&self, mut at: u64, mut buf: &mut [u8]) -> Result<(), ReadError> {
         let mut state = self.state.borrow_mut();

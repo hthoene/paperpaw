@@ -510,6 +510,10 @@ fn check_entry_of(
     hot: u32,
 ) -> Result<(), EntryCheck> {
     let file = file(image, words);
+    let h = &Header5 {
+        relocs: words.len() as u32,
+        ..*h
+    };
     let mut relocator = Relocator5::new(h, file.as_slice(), base).map_err(EntryCheck::File)?;
     if hot != 0 {
         relocator = relocator.hot_at(hot).map_err(EntryCheck::File)?;
@@ -540,32 +544,33 @@ fn the_entry_is_checked_as_it_will_be_once_placed_before_anything_is_written() {
     }
     let (h, image, words) = entry_image(false);
     let placed = 0x3C81_0000;
-    // Each field of the entry and of the record, broken on its own.
-    for (at, value, expected) in [
-        (64, 24, EntryRefusal::EntrySize),
-        (68, 6, EntryRefusal::EntryVersion),
-        (70, 2, EntryRefusal::EntryVersion),
-        (76, 87, EntryRefusal::MetadataView),
+    // Each field of the entry, broken on its own.
+    for (at, bytes, expected) in [
+        (64, 24u32.to_le_bytes().to_vec(), EntryRefusal::EntrySize),
+        (68, 6u16.to_le_bytes().to_vec(), EntryRefusal::EntryVersion),
+        (70, 2u16.to_le_bytes().to_vec(), EntryRefusal::EntryVersion),
+        (76, 87u32.to_le_bytes().to_vec(), EntryRefusal::MetadataView),
     ] {
         let mut broken = image.clone();
-        broken[at..at + 4].copy_from_slice(&(value as u32).to_le_bytes()[..4]);
-        if at == 68 {
-            broken[68..72].copy_from_slice(&(value as u32 | 1 << 16).to_le_bytes());
-        }
-        if at == 70 {
-            broken[68..72].copy_from_slice(&(7u32 | (value as u32) << 16).to_le_bytes());
-        }
+        broken[at..at + bytes.len()].copy_from_slice(&bytes);
         assert_eq!(
             check_entry_of(&h, &broken, &words, placed, 0),
             Err(EntryCheck::Entry(expected)),
             "byte {at}"
         );
     }
-    // The record: a word to relocate inside it makes the view differ from the
-    // record the header describes.
+    // The record: a word to relocate inside it (an address in the record's
+    // body) makes the view differ from the record the header describes.
+    let mut with_address = image.clone();
+    with_address[192..196].copy_from_slice(&(LINK_BASE + 8).to_le_bytes());
     assert_eq!(
-        check_entry_of(&h, &image, &[72, 80, 140], placed, 0),
+        check_entry_of(&h, &with_address, &[72, 80, 192], placed, 0),
         Err(EntryCheck::Entry(EntryRefusal::MetadataBytes))
+    );
+    // And a word there that is no address is no relocation at all.
+    assert_eq!(
+        check_entry_of(&h, &image, &[72, 80, 192], placed, 0),
+        Err(EntryCheck::File(Problem::Relocation))
     );
     // A record this host does not read.
     let mut broken = image.clone();
