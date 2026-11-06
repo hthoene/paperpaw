@@ -3,8 +3,8 @@
 Run `cargo run --manifest-path samples/abi7-static-declarations/Cargo.toml`.
 The build script runs the SDK declaration builder (and therefore its generated
 encoders) on the host. It writes Rust `static` arrays into `OUT_DIR`; the
-`no_std` library includes them in the plugin image. No target-side SDK or
-allocator dependency is needed for these bytes.
+`no_std` library includes them in the plugin image. The bytes need no runtime
+encoding or allocation; `register_widgets` uses the SDK registration facade.
 
 The Battery and widgets fixtures use a local test-only conversion of their
 current settings. A ported plugin should instead share its borrowed declaration
@@ -26,3 +26,8 @@ Build the target library with `cargo build --release --lib --target
 riscv32imc-unknown-none-elf --manifest-path samples/abi7-static-declarations/Cargo.toml`.
 Inspect its object sections to verify the bytes reside in read-only data.
 The desktop executable is a reporting harness, not a native plugin loader.
+
+Run `python3 samples/abi7-static-declarations/check_rodata.py <desktop-binary>
+<riscv32-rlib>` to verify all 51 batch symbols (61,815 bytes) are in read-only
+`.rodata`. Widgets accounts for 50 batches and 61,585 bytes. Host submission
+tests measure zero peak and resident heap; Core registration costs are separate.

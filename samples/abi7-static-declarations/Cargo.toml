@@ -6,6 +6,9 @@ publish = false
 
 [workspace]
 
+[dependencies]
+paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
+
 [build-dependencies]
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk", features = ["kernel"] }
 paperpaw-plugin-battery = { path = "../../plugins/battery" }

@@ -14,7 +14,12 @@ fn emit(id: &'static str, plugin: &impl Plugin) {
     let mut framed = Vec::new();
     let mut builder = Declarations::new(|batch: &[u8]| {
         // These are the canonical encoder's bytes, not a second wire codec.
-        writeln!(source, "pub static BATCH_{batch_count}: [u8; {}] = {batch:?};", batch.len()).unwrap();
+        writeln!(
+            source,
+            "pub static BATCH_{batch_count}: [u8; {}] = {batch:?};",
+            batch.len()
+        )
+        .unwrap();
         batch_count += 1;
         framed.extend_from_slice(&u32::try_from(batch.len()).unwrap().to_le_bytes());
         framed.extend_from_slice(batch);
