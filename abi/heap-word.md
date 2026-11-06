@@ -36,6 +36,12 @@ the loader fills before `make`.
   section, which the packer refuses; a Rust `static X: usize = 0` is folded to 0 on plain reads. The
   assembly definition gives flags `A` and real loads on riscv32imc and x86_64.) C plugins use the
   generated header's `PP_DEFINE_HEAP_WORD()` macro and the `pp_heap()` accessor, which do the same.
+- [D] **The plugin reads a hidden alias.** The assembly also defines a local `.hidden` alias at the
+  same address, and the plugin's code reads only that alias; the default-visibility name exists for
+  the loader and the packer. On hosted targets a default-visibility symbol read from inside a shared
+  object goes through the GOT and could be interposed by a host process that exports the same name;
+  the alias cannot be. The linker scripts (`paperpaw-plugin7.x` and the hosted one) `KEEP` the
+  section, so a plugin that defines the word never loses it to section garbage collection.
 
 ## 3. The heap table `PpHeap`
 
@@ -75,10 +81,16 @@ typedef struct PpHeap {
 
 - [D] **Every entry from host code into plugin code pushes that plugin as the frame owner**, and
   restores the previous owner on every return path, errors and nested dispatch included (a guard
-  value, not paired calls). That covers `make`, every `PpPlugin` callback (`drop`, draw, input,
-  `dispatch_event` and those appended later), the teardown hooks (cancel, release, destroy), and every
-  host-to-plugin callback a host slot runs (visitors, sinks). Core keeps the list of these call sites
-  with a test for each kind; a new kind of entry is not accepted without its frame.
+  value, not paired calls). The entry kinds of interface 7:
+  1. `make` (the entry's factory);
+  2. `PpPlugin.drop`;
+  3. `PpPlugin.draw`, `PpPlugin.input`, `PpPlugin.dispatch_event`, and every callback appended to
+     `PpPlugin` later;
+  4. the teardown hooks `cancel`, `release` and `destroy` (the host's `report` runs no plugin code);
+  5. every host-to-plugin callback a host slot runs while it serves the plugin (visitors, sinks).
+  All of them go through one host function in `native_host` that pushes the frame (Core's); a test
+  per kind shows the owner inside the call and the previous owner after it, after an error return
+  and after nested dispatch. A new kind of entry is not accepted without its frame and its test.
 - [D] `alloc` and `realloc` charge the **frame owner**. Outside any frame they return null; they never
   charge "nobody" or the kernel.
 - [D] `dealloc` and the owner kept by `realloc` follow the **block's owner**, recorded by the host
@@ -114,8 +126,14 @@ typedef struct PpHeap {
   firmware image ends with, and a different firmware ignores the index and erases, relocates and
   writes every plugin again (needed today for the build-specific addresses relocation writes). The
   loader writes the `PpHeap` address while it places the image, as it relocates, so a firmware
-  change re-places the word with everything else. No fixed address joins the target profile. A
+  change re-places the word with everything else. No fixed address joins the target profile: the
+  re-placement after a firmware change is already required by the other build-specific relocations,
+  so a fixed address would save no flash write or start time and would add a frozen promise. A
   loader that keeps placed images must key them by firmware build id in the same way.
+- [D] **Checked before every run.** On every start, before `make`, the loader compares the placed
+  word with the address of its current `PpHeap` table. On a mismatch it re-places the plugin or
+  refuses it, and never runs it. Any later check of placed bytes treats the word like a relocated
+  word.
 - [D] `paperpaw-sign pack` finds `PAPERPAW_HEAP` by symbol, checks it is in `.rodata`, 4 bytes,
   4-aligned, 0, not relocated, and writes `heap_at` and bit 0; any other writable or loader-patched
   object stays refused. `PAPERPAW_HEAP` joins `PLUGIN_EXPORTS` as an optional export.
@@ -137,8 +155,12 @@ typedef struct PpHeap {
   frame owner as the faulting plugin, switches it off for the next start (the X2 crash path), and
   resets the device. Outside any frame it is recorded without a plugin. On hosted targets the host logs
   the owner and ends the process. Never unwinds into the host.
+- [D] **No usable heap word.** Where the word is 0, the table's `size` does not cover `abort`, or
+  the word is missing, the panic handler has nowhere to report: it executes the profile's trap
+  instruction (`unimp` on RISC-V, `ud2` on x86_64). The X4's crash slot then blames the frame owner as
+  for any fault. A test builds a plugin whose word is 0 and shows the trap path is taken.
 - [D] Codes: 1 panic, 2 allocation failure (`handle_alloc_error`), 3 bad free detected by the host;
-  others reserved.
+  others reserved. A block grown by `realloc` is never reported as a bad free.
 
 ## 7. Bookkeeping
 
