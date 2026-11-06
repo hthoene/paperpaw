@@ -455,3 +455,161 @@ not measured). Nothing is retained in the callback registry.
 - Q10: `Extended` kinds and `check` callbacks: defer until a plugin needs them (none uses Extended today).
 - Q11: should `title` default derivation exist at all, or should every title be explicit (about 25 B more per
   spec, but no hidden convention)?
+
+## 6. Part 4: resource records for data plugins (R-DATA)
+
+### Decision (Proposal)
+
+Resources are **files in the plugin folder, named by a record, read by the kernel service that consumes
+them through the host's own storage.** Three records: `resource.hyphenation` (tag 8), `resource.font_face`
+(tag 9), `resource.font_extension` (tag 10). The plugin never reads these bytes, so **slot 18 is not
+used** and no handle is spent.
+
+### Rationale
+
+1. *Slot 18 points the wrong way.* `blob.read` copies host data into the plugin through a host-issued
+   handle (Fact 1.1). Here the consumer is a kernel service, not the plugin.
+2. *Rodata does not fit and wastes the scarce resource.* Fact 1.5: on the X4 the `.ppn` lives in a write-once
+   flash region of about 640 KB after an SD install, shared by all plugins. The 13 hyphenation tables total
+   1,026,250 B (de 351,145 and nb 251,949 alone are 603,094 B); the default font packs total 3,617,342 B.
+   Nothing but the smallest tables fits, and every install would write megabytes of flash. On the X4 Pro
+   and the desktop rodata is not scarce, but one mechanism for all targets is simpler. A record also cannot
+   carry a pointer (types are u32/u64/i32/str/bytes; `bytes` is inline and capped at 4096 per batch).
+3. *Files match what exists.* `FontFace`, `FontExtension` and `add_translation_file` already name storage
+   paths and load on demand (`contribution.rs:403-441`, `fonts.rs:62-80`), data plugins already ship
+   `.ppfp` and `.ttf` (`data_plugin.rs:12-18`), and the store already distributes data plugins
+   (`tools/plugin-files/README.md`, `data.toml`).
+4. *Pull-reader callback (fallback, not proposed).* If a plugin must keep bytes in rodata, an appended
+   `PpPlugin` callback `resource_read(state, token, offset, out)` would let the host pull chunks; it keeps
+   zero RAM and today's speed but adds a callback, a lease per read and flash consumption. Only if Q13's
+   measurement fails.
+
+### Records
+
+`resource.hyphenation` (tag 8)
+
+| # | Field | Type | Cap | Meaning |
+|---|---|---|---|---|
+| 1 | `name` | str | 96 | id relative to the plugin (`de` becomes `hyphenation-de.de`) |
+| 2 | `language` | str | 35 | BCP 47 tag, `[A-Za-z0-9-]`, not empty |
+| 3 | `path` | str | 100 | file in the plugin folder, e.g. `hyphenation/de.pphp` |
+
+`resource.font_face` (tag 9), mirrors `FontFace` plus the optional role binding of `bind_font`
+
+| # | Field | Type | Cap | Meaning |
+|---|---|---|---|---|
+| 1 | `name` | str | 96 | relative id (`literata-bold` becomes `fonts-default.literata-bold`) |
+| 2 | `path` | str | 100 | `.ppfp` pack or `.ttf`/`.otf`/`.ttc`; the extension selects the reader |
+| 3 | `family` | str | 64 | empty means outside any family (the icons) |
+| 4 | `style` | u32 | | bit0 bold, bit1 italic; unknown bits `ERR_UNSUPPORTED` |
+| 5 | `weight` | u32 | | 0 style default (400/700); 1 to 1000 for a variable font (`wght`); must be 0 for `.ppfp` |
+| 6 | `role` | str | 96 | full id of a font role (`builtin::fonts::*`) to bind; empty none |
+| 7 | `priority` | i32 | | -100 to 100 (interface 6 `Priority(i16)`, `plugin.rs:135-144`); used only with `role` |
+
+`resource.font_extension` (tag 10), mirrors `add_font_extension`
+
+| # | Field | Type | Cap | Meaning |
+|---|---|---|---|---|
+| 1 | `name` | str | 96 | relative id |
+| 2 | `path` | str | 100 | a `.ppfp` with characters the extended font lacks |
+| 3 | `extends` | str | 128 | full id of the font it extends |
+
+The 100-byte path cap is the existing "whole path at most 100 bytes" rule (`plugin-conventions.md:126`).
+
+### Reference rule for `path`
+
+Relative to `plugins/<id>/`; characters `[A-Za-z0-9._-]` and `/`; no empty, `.`, `..` or dot-leading
+segment; at most 3 segments; no leading or trailing `/`. The host joins it to the folder it loaded `make`
+from (a host-known path, never one the plugin supplies), so a record cannot name another plugin's file.
+Case: `.ppfp`/`.ttf` extension compared case-insensitively, as `has_extension` does for `.ini`
+(`data_plugin.rs:665-676`).
+
+### Validation (before effects, then at activation)
+
+At submit (whole batch before staging): UTF-8, caps, tags, path syntax, `language` charset, style/weight
+rules, `role` is a syntactically valid id, `priority` range. Failures `ERR_UTF8`, `ERR_NO_SPACE`,
+`ERR_UNSUPPORTED` (unknown style bits), otherwise `ERR_INVALID`; **each poisons construction.**
+
+At commit: names unique within the plugin and against registered fonts and hyphenation ids
+(`plugins.rs:205-225` already refuses duplicate ids); `font_extension.extends` must name a font that is
+registered by now or by this plugin; `role` bindings go through the same priority resolution as today.
+Several plugins may register the same `language`; as today (`hyphenation/src/lib.rs:5-6`, "a later
+registration for a language replaces an earlier one") the later one wins, which depends on load order (Q15).
+
+At **activation**, by the consuming service, not at `make`: the file exists and its size is within the cap
+(**guesses:** 2 MiB for a hyphenation table, 64 MiB for a font file; the largest real pack on a test card is
+39,828,925 B); the **format check**: hyphenation magic `PPHP` version 1 (`paperpaw-hyphen/src/lib.rs:37`)
+and header offsets inside the file; fonts by their own readers (`.ppfp` pack header, sfnt tables). A failure
+here **does not poison anything**: the resource stays inactive, the language or family is treated as
+missing, one warning is raised, and the next candidate in the chain is used. Reason: at `make` the card may
+not be mounted yet or may be swapped later (ADR 0033 uses the same stance for catalogs), and a flaky read
+must not unload a plugin.
+
+The new storage-backed reader accepts **only** `PPHP\x01`. The old `QIHP` magic that `Patterns` still reads
+(`lib.rs:39`) is a migration layer, which ADR 0034 forbids for interface 7; tables are rebuilt anyway.
+
+### Memory
+
+- Per record retained by the kernel (**Estimate**): three short strings and a struct, about 80-100 B for a
+  hyphenation entry, about 100-120 B for a face (the interface-6 `FontFace` is the same shape). fonts-default
+  needs 6 face records (4 Literata faces, Source Sans, icons), so about 700 B; the 13 hyphenation plugins
+  about 1.2 KB if all installed.
+- Nothing is read at registration. At activation a hyphenation reader needs the header and the sparse
+  index: 4 bytes per 16 patterns, **measured from the tables**: de 9,180 B, nb 6,864, nl 3,184, ru 1,756,
+  en 1,236, others under 1.2 KB (Fact 1.5). Only the book's language is active, so one index at a time
+  (assumption: books are monolingual for hyphenation). Pattern blocks average about 153 B for de
+  (351,145 B / 2,295 blocks) and are read on demand through a small cache (size to be set by measurement).
+- Fonts: unchanged, `.ppfp` packs are read a glyph at a time and loaded only while their family is chosen
+  (`fonts.rs:62-71`); no heap proportional to file size.
+- **Gap (Fact 1.5):** `Patterns` takes `&[u8]`; **a storage-backed `Patterns` (positional reads, an index
+  copy and a block cache) does not exist** and is a kernel work item outside "codecs + host staging". Loading
+  the whole table is only possible for the small ones (en 41 KB, es 49, uk 48, sv 38, pl 37, fr 12, da 8, pt 3,
+  it 2) and not for ru (75 KB, marginal), nl 109 KB, nb 252 KB, de 351 KB, whose size exceeds or approaches
+  the free heap after a book is open.
+
+### Open questions (Part 4)
+
+- **Q1** Should G0 be ported at all as flat code? The 12 language plugins and the base contain no logic: their
+  `register` adds two catalogs and one table (`plugins/hyphenation-de/src/lib.rs:36-42`). As **data plugins**
+  (`plugin.ini`, `i18n/*`, `hyphenation/<lang>.pphp` built by a `data.toml` builder) they need no flat
+  boundary, no `.ppn` signature, and no flash write; the data-plugin loader would gain one file kind (a
+  `[hyphenation]` section, formats 5) that fills the same staged item as `resource.hyphenation`. That makes
+  Part 4's records needed only by **code** plugins that also carry resources. I recommend the owner decides
+  this before the plugin engineer starts G0.
+- **Q12** `fonts-default` is built into the firmware image today (lean packs; `fonts-default/src/lib.rs:90-130`),
+  so its bytes are in firmware flash, not in a card folder. A `path` record cannot name them. Either the
+  built-in plugin keeps a Rust-side registrar (outside the flat boundary) or the firmware exposes its
+  embedded faces under reserved names (a `builtin:` path scheme). Not decided here.
+- **Q13** Measure a storage-backed `Patterns` on the X4 (page-turn hyphenation cost with a cold and a warm
+  block cache, de and nb as worst cases) before committing to files for hyphenation; fall back to the
+  pull-reader callback of rationale 4 if the cost is unacceptable. I have no such measurement.
+- **Q14** Caps for hyphenation (2 MiB) and font files (64 MiB) are guesses.
+- **Q15** Language collisions between plugins: last-registered wins by load order. Should there be an explicit
+  priority (a field like fonts' `priority`)? Not added, because interface 6 has none.
+
+## 7. Part 5: actions, menus, screens, icons (outline only)
+
+Not specified in detail; this only shows that the tag plan and record shapes fit.
+
+- **Tokens.** A record that carries a callback has a `token: u32`, 0 meaning none; the plugin owns the
+  token-to-closure table and the host calls `dispatch_event(state, token, input)` (`abi/callbacks.md:3-12`).
+  **Static token functions need no dynamic token slot** (`ADR34:941-943`), so 83 first-party `FixedAction`
+  tables do not hit `REGISTRATIONS = 8`; only dynamic tokens do, and those stay in the retained array (2.2).
+  Unresolved: the host needs a routing table `(plugin, token)` per action, bytes the 8-slot array was not sized
+  for (Q16).
+- `action.spec` (tag 12): `name` str(96), `title` str(96 key), `description` str(96 key, empty none),
+  `keywords` str(96 key, empty none), `hint` u32 (interface 6 `ActionHint`), `flags` u32 (bit0 sealed),
+  `token` u32. Declarative-with-token, so the record lands in `Declarations` and a routing entry.
+- `menu.entry` (tag 13): `menu` str(128 full id), `action` str(128 full id), `order` i32, `flags` u32. Static
+  cases are already expressible without code in `menus.ini` (`data_plugin.rs:25-27`); a record is needed only
+  for entries a plugin computes. Candidate to leave unassigned.
+- `screen.spec` (tag 14): `name` str(96), `title` str(96 key), `token` u32 (screen factory token, not 0),
+  `refresh_on_open` u32 (0 default, then the `RefreshMode` order Mono, Fast, Partial, and the stronger
+  ones, `crates/paperpaw-platform/src/display.rs:23-31`), `instances` u32 (interface 6 `Instances`).
+  Screen callbacks (draw, keys, gestures) are separate callback-table work, not registration.
+- `icon.binding` (tag 15): `item` str(128 full id of an action or setting), `icon` str(64 name). Equivalent to
+  `icons.ini` (`data_plugin.rs:33`); candidate to leave to the file.
+- Titles are translation keys everywhere (as `SettingSpec::title`); no raw display text crosses.
+- Not outlined and held in reserve: widgets, status items/places, setup steps, keymap presets, input filters,
+  slots, choices, subscriptions, formats, readers, lookups (EXT/DOC in `notes:`). Tags 16-23 reserved for
+  them; 24-31 spare.
