@@ -276,7 +276,7 @@ impl<'a, S: Source + ?Sized> Tail<'a, S> {
     /// Checks the words as [`check_relocations`](crate::check_relocations)
     /// does, reading them once: the words to relocate increasing, each a
     /// whole word of the image outside the hot code; the patches with
-    /// increasing sites, each a patch of this image ([`Patch::read`]); no
+    /// increasing sites, each a patch of this image (`Patch::read`); no
     /// more than [`MAX_PATCHES`].
     pub fn check(&self, header: &Header5) -> Result<(), Problem> {
         if self.patches > MAX_PATCHES {
