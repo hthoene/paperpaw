@@ -20,14 +20,6 @@ impl Frame for Env<'_> {
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
         Some(self.fonts())
     }
-    fn ink_threshold(&self) -> Result<u8, i32> {
-        Ok(match self.device().display.format {
-            paperpaw_platform::PixelFormat::Mono1 => {
-                crate::config::mono_coverage(self.settings()).max(1)
-            }
-            _ => 128,
-        })
-    }
     fn storage(&self) -> Option<&dyn paperpaw_platform::Storage> {
         Some(self.storage())
     }
