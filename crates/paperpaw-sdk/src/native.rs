@@ -336,6 +336,7 @@ pub mod registrations;
 pub mod reply;
 pub mod settings;
 pub mod snapshot;
+pub mod services;
 pub mod storage;
 mod wire;
 

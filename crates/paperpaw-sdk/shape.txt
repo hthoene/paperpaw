@@ -1229,6 +1229,10 @@ struct paperpaw_sdk::native::fonts::metrics::InkBounds { top: i32, bottom: i32, 
 struct paperpaw_sdk::native::formatting::FormatBuffers<'scratch, 'out> { scratch: &'scratch mut [u8], out: &'out mut [u8] }
 struct paperpaw_sdk::native::keys::Revocation { plugin: alloc::string::String, key: [u8; 32], signature: [u8; 64] }
 struct paperpaw_sdk::native::reply::Reply<'cb> { bytes: &'cb mut [core::mem::maybe_uninit::MaybeUninit<u8>], written: usize }
+struct paperpaw_sdk::native::services::Blob<'cb> { host: &'cb paperpaw_sdk::native::binding::Host<'cb>, handle: core::option::Option<u32> }
+struct paperpaw_sdk::native::services::usage::PageEnd { total: u32, generation: u32, next: u32, truncated: bool, left_out: bool }
+struct paperpaw_sdk::native::services::usage::ServicePluginUsage<'a> { plugin: &'a str, busy_us: u64, calls: u32, shown_ms: u64, fast: u32, partial: u32, full: u32, pixels: u64, read: u64, written: u64, syncs: u32, requests: u32, refused: u32, awake_ms: u64, awake_reason: &'a str }
+struct paperpaw_sdk::native::services::usage::ServiceUsage { fast: u32, partial: u32, full: u32, pixels: u64, inputs: u32, sleeps: u32, panel_ms: u64, bluetooth_ms: u64 }
 struct paperpaw_sdk::native::snapshot::Snapshot { now: paperpaw_platform::input::Instant, unix_seconds: core::option::Option<i64>, percent: core::option::Option<u8>, millivolts: core::option::Option<u16>, charging: bool, width: u16, height: u16, dpi: u16, touch: bool }
 struct paperpaw_sdk::native::wire::commands_wire::CommandBatch<'a> { records: [core::option::Option<paperpaw_sdk::native::wire::commands_wire::Command<'a>>; 8], len: usize }
 struct paperpaw_sdk::native::wire::snapshot_wire::Battery { percent: u8, charging: bool, saver: bool, millivolts: core::option::Option<u16> }
