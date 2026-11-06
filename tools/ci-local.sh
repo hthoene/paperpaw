@@ -164,6 +164,7 @@ g_screens() {
 }
 
 g_sdk() {
+    run "sdk: interface tooling tests (isolated Python)" "python3 -I tools/test_interface.py"
     if have_cmd cargo-semver-checks && have_toolchain "${nightly:-nightly}"; then
         run "sdk: semver-checks against crates.io" '
             packages=()

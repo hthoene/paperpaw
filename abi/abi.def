@@ -584,7 +584,65 @@
       "max_bytes": 0
     }
   ],
-  "records": [],
+  "records": [
+    {
+      "id": 1,
+      "name": "registration.event",
+      "since": 1,
+      "fields": [
+        {
+          "name": "event_tag",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "token",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "registration.draw",
+      "since": 1,
+      "fields": [
+        {
+          "name": "token",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "event.tick",
+      "since": 1,
+      "fields": [
+        {
+          "name": "now_ms",
+          "type": "u64",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    }
+  ],
   "statuses": [
     {
       "name": "OK",
@@ -838,6 +896,46 @@
               "result": "void",
               "nullable": true
             }
+          },
+          {
+            "name": "dispatch_event",
+            "since": 1,
+            "callback": {
+              "args": [
+                {
+                  "name": "state",
+                  "type": "pointer"
+                },
+                {
+                  "name": "token",
+                  "type": "u32"
+                },
+                {
+                  "name": "input",
+                  "type": "bytes"
+                }
+              ],
+              "result": "i32",
+              "nullable": true
+            }
+          },
+          {
+            "name": "draw",
+            "since": 1,
+            "callback": {
+              "args": [
+                {
+                  "name": "state",
+                  "type": "pointer"
+                },
+                {
+                  "name": "token",
+                  "type": "u32"
+                }
+              ],
+              "result": "i32",
+              "nullable": true
+            }
           }
         ]
       },
@@ -936,5 +1034,9 @@
         "max_bytes": 4084
       }
     ]
+  },
+  "record_codec": {
+    "since": 1,
+    "max_records": 8
   }
 }

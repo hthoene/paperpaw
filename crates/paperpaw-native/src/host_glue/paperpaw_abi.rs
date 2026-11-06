@@ -106,6 +106,10 @@ pub struct PpPlugin {
     pub state: *mut core::ffi::c_void,
     /// drop: since minor 1.
     pub drop: Option<unsafe extern "C" fn(state: *mut core::ffi::c_void) -> ()>,
+    /// dispatch_event: since minor 1.
+    pub dispatch_event: Option<unsafe extern "C" fn(state: *mut core::ffi::c_void, token: u32, input: PpBytes) -> i32>,
+    /// draw: since minor 1.
+    pub draw: Option<unsafe extern "C" fn(state: *mut core::ffi::c_void, token: u32) -> i32>,
 }
 /// Raw PpEntry table since minor 1.
 /// Check accessible bytes before reading fields.
@@ -227,4 +231,134 @@ pub fn settings_decode(bytes: &[u8]) -> Result<SettingValueRef<'_>, i32> {
             .map_err(|_| -5),
         _ => Err(-2),
     }
+}
+/// Minimum plugin table allocation ending at the mandatory drop field.
+pub const PLUGIN_PREFIX_BYTES: usize = core::mem::offset_of!(PpPlugin, drop)
+    + core::mem::size_of::<Option<unsafe extern "C" fn(*mut core::ffi::c_void)>>();
+
+// Check the size word before reading any plugin field.
+unsafe fn plugin_callback_size(table: *const u8, accessible: usize) -> Result<usize, i32> {
+    let size_offset = core::mem::offset_of!(PpPlugin, size);
+    let size_end = size_offset + core::mem::size_of::<u32>();
+    if table.is_null()
+        || !table.addr().is_multiple_of(core::mem::align_of::<PpPlugin>())
+        || accessible < size_end
+        || accessible > isize::MAX as usize
+        || table.addr().checked_add(accessible).is_none()
+    {
+        return Err(ERR_INVALID);
+    }
+    // SAFETY: The checked span covers the aligned size word in caller-owned storage.
+    let declared = unsafe { table.add(size_offset).cast::<u32>().read() } as usize;
+    if declared < PLUGIN_PREFIX_BYTES || declared > accessible {
+        return Err(ERR_INVALID);
+    }
+    Ok(declared)
+}
+/// Read the declared plugin size after validating the accessible prefix.
+///
+/// # Safety
+/// A non-null aligned table must designate accessible readable bytes in one
+/// allocation, with initialized size and no concurrent mutation. Only the size
+/// word is read after numeric span checks pass.
+pub unsafe fn read_plugin_size(table: *const u8, accessible: usize) -> Result<usize, i32> {
+    // SAFETY: The caller supplies stable readable storage for the checked span.
+    unsafe { plugin_callback_size(table, accessible) }
+}
+
+/// Copy the opaque state pointer without reading or validating its pointee.
+///
+/// # Safety
+/// All [`read_plugin_size`] preconditions apply: a non-null aligned table must
+/// designate `accessible` readable bytes in one live allocation, with an
+/// initialized size word and no concurrent mutation throughout this call.
+/// The checked prefix must contain an initialized valid raw state pointer.
+/// Storage stays live and unchanged for this call; pointee lifetime is external.
+pub unsafe fn read_plugin_state(
+    table: *const u8,
+    accessible: usize,
+) -> Result<*mut core::ffi::c_void, i32> {
+    // SAFETY: The caller supplies a stable initialized prefix.
+    unsafe { plugin_callback_size(table, accessible)?; }
+    let offset = core::mem::offset_of!(PpPlugin, state);
+    // SAFETY: The validated prefix covers the aligned raw state pointer.
+    Ok(unsafe { table.add(offset).cast::<*mut core::ffi::c_void>().read() })
+}
+
+/// Copy the mandatory destruction callback; null is malformed, not optional.
+///
+/// # Safety
+/// All [`read_plugin_size`] preconditions apply: a non-null aligned table must
+/// designate `accessible` readable bytes in one live allocation, with an
+/// initialized size word and no concurrent mutation throughout this call.
+/// The checked prefix must contain an initialized valid nullable function pointer.
+/// The caller keeps code and state alive and owns exactly-once destruction.
+pub unsafe fn read_plugin_drop(
+    table: *const u8,
+    accessible: usize,
+) -> Result<unsafe extern "C" fn(*mut core::ffi::c_void), i32> {
+    // SAFETY: The caller supplies a stable initialized prefix.
+    unsafe { plugin_callback_size(table, accessible)?; }
+    let offset = core::mem::offset_of!(PpPlugin, drop);
+    // SAFETY: The validated prefix covers the aligned destruction callback.
+    let drop = unsafe {
+        table.add(offset).cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void)>>().read()
+    };
+    drop.ok_or(ERR_INVALID)
+}
+
+/// Retrieve the declared `dispatch_event` callback without calling it.
+///
+/// A missing tail field or null callback returns `ERR_UNSUPPORTED`. Malformed
+/// alignment or byte counts return `ERR_INVALID`. Plugin state is not read.
+///
+/// # Safety
+/// When non-null, aligned and within the checked length limits, `table` must
+/// designate `accessible` readable bytes in one live allocation. The size and
+/// callback fields read must be initialized, and the callback must have a valid
+/// nullable function-pointer representation. Storage must not change during
+/// this read. The caller must keep the callback's module loaded while using
+/// the returned pointer and satisfy its call contract before invoking it.
+pub unsafe fn read_plugin_dispatch_event(
+    table: *const u8,
+    accessible: usize,
+) -> Result<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32, i32> {
+    // SAFETY: The caller supplies readable stable storage and valid field values.
+    let declared = unsafe { plugin_callback_size(table, accessible)? };
+    let offset = core::mem::offset_of!(PpPlugin, dispatch_event);
+    let end = offset + core::mem::size_of::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32>>();
+    if declared < end {
+        return Err(ERR_UNSUPPORTED);
+    }
+    // SAFETY: Both lengths cover this aligned field; its representation is valid.
+    let callback = unsafe { table.add(offset).cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32, PpBytes) -> i32>>().read() };
+    callback.ok_or(ERR_UNSUPPORTED)
+}
+
+/// Retrieve the declared `draw` callback without calling it.
+///
+/// A missing tail field or null callback returns `ERR_UNSUPPORTED`. Malformed
+/// alignment or byte counts return `ERR_INVALID`. Plugin state is not read.
+///
+/// # Safety
+/// When non-null, aligned and within the checked length limits, `table` must
+/// designate `accessible` readable bytes in one live allocation. The size and
+/// callback fields read must be initialized, and the callback must have a valid
+/// nullable function-pointer representation. Storage must not change during
+/// this read. The caller must keep the callback's module loaded while using
+/// the returned pointer and satisfy its call contract before invoking it.
+pub unsafe fn read_plugin_draw(
+    table: *const u8,
+    accessible: usize,
+) -> Result<unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> i32, i32> {
+    // SAFETY: The caller supplies readable stable storage and valid field values.
+    let declared = unsafe { plugin_callback_size(table, accessible)? };
+    let offset = core::mem::offset_of!(PpPlugin, draw);
+    let end = offset + core::mem::size_of::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> i32>>();
+    if declared < end {
+        return Err(ERR_UNSUPPORTED);
+    }
+    // SAFETY: Both lengths cover this aligned field; its representation is valid.
+    let callback = unsafe { table.add(offset).cast::<Option<unsafe extern "C" fn(*mut core::ffi::c_void, u32) -> i32>>().read() };
+    callback.ok_or(ERR_UNSUPPORTED)
 }
