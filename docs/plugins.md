@@ -2646,6 +2646,14 @@ so retry when the result exceeds the output capacity.
 
 ### Native host wrappers for the Battery pilot
 
+`native::declare::Declarations::subscribe_event(EventKind::Started, token)`
+registers a typed event subscription; `register_draw(token)` registers a draw
+callback. `EventKind` lives in `native::declare` and covers tick, lifecycle,
+battery, page, screen and action events. These methods use the same ordered,
+bounded batches and failure latching as settings, screen and action declarations.
+They also work in build scripts that emit static registration batches; a plugin
+never needs to write callback record bytes or import private generated codecs.
+
 `native::snapshot::capture_snapshot(host)` returns an owned snapshot with battery,
 display and time getters. `native::settings::read_setting(host, key, scratch)`
 returns a borrowed `SettingValue`; `Absent`, false, zero and empty text remain
