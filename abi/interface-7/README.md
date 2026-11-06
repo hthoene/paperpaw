@@ -16,9 +16,17 @@ While it is a draft:
   `native::DRAFT` + 1. The draft is part of `native::FINGERPRINT`, so plugin files built for an earlier draft are
   refused, never loaded.
 - **Every bless is named.** `blessings.txt` gains a line `<draft> <what changed> (#<ticket or PR>)` in the same PR;
-  lines are only appended. CI (`tools/abi-reference-check.py`, job "Stable ABI against trusted base") compares
-  the reference files with the PR's base and refuses a change without a new line, a line that names another
-  draft than `native::DRAFT`, an edited line, a draft that moves back, and an interface that moves back or skips.
+  lines are only appended, and the check compares the file with the PR's base every time, also where nothing
+  else changed. CI (`tools/abi-reference-check.py`, job "Stable ABI against trusted base") compares the
+  reference files with the PR's base. **At the same draft only additions pass:** `interface.txt` stays
+  byte-equal, every reference file of the base keeps all its lines in their order, and files or lines may be
+  added, with a new line in `blessings.txt`. Lines of `shared.list` and `table.sig` (and, within each kind, of
+  `lang.list` and `i18n.list`) are only appended at the end: an index must not shift. Anything else (a removed, changed or reordered line, another
+  fingerprint) takes the next draft. The draft moves by exactly one (no skipping, never back), `interface.txt`
+  states the same interface and draft as `native::INTERFACE` and `native::DRAFT`, and a line that names
+  another draft than `native::DRAFT` is refused.
+- **A raise** (interface N+1) is only allowed from a frozen interface N and lands at draft 1, never later and
+  never straight at the freeze; its `blessings.txt` must not exist in the base yet.
 - **Freezing** is the owner's decision. The freeze PR deletes `native::DRAFT` and the line `draft = N` of
   `interface.txt` without a trace (nothing stays behind as 0), and appends `0 frozen ... (#...)` here. `DRAFT`
   is hashed into the fingerprint only while it exists, so the frozen interface-7 fingerprint is byte for byte

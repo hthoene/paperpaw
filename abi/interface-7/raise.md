@@ -58,6 +58,9 @@ These are not rows of their own, but the raise is not complete without them (all
 Items behind the `kernel` cargo feature (ADR 0020), such as `paperpaw-hyphen`'s table check and card-backed
 reader, are not part of the plugin interface and need no row.
 
+TODO (follow-up after the raise lands, Kernel): CI runs `tools/abi-reference-check.py` from `ABI_BASE_REV`'s
+copy of the checker, not from the candidate's own, so a candidate cannot change the rules it is checked by.
+
 ## Gates before the event records are active
 
 Recorded with PR #187 (Senior's review, Manager 2026-11-06), to hold before any plugin is dispatched events

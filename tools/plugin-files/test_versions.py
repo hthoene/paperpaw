@@ -69,6 +69,29 @@ class Versions(unittest.TestCase):
         self.assertIsNone(raised(draft(2), draft(2)))
         self.assertIsNone(raised(seven, seven))
 
+    def test_the_interface_constants_must_stand_alone_on_their_line(self):
+        for text in ['// pub const INTERFACE: u16 = 9;\n', '    pub const INTERFACE: u16 = 9;\n',
+                     'pub const INTERFACE: u16 = 9; // x\n', 'const X: &str = "pub const INTERFACE: u16 = 9;";\n',
+                     'pub(crate) const INTERFACE: u16 = 9;\n']:
+            self.assertIsNone(versions.interface_at(text), text)
+            self.assertIsNone(versions.draft_at(text.replace("INTERFACE", "DRAFT")), text)
+        self.assertEqual(versions.interface_at("//\npub const INTERFACE: u16 = 7;\n"), 7)
+
+    def test_a_plugin_s_raise_is_counted_from_the_build_that_carries_its_version(self):
+        def raised(**tags):
+            """`interface_raised` answers by the tag it is asked about."""
+            with unittest.mock.patch.object(versions, "interface_raised", side_effect=tags.get) as asked:
+                found = versions.raised_for({"v1": "1.0.0", "p-v1.0.1": "1.0.1"}, "1.0.1", "v1")
+                return found, asked.call_args
+        # Its own release carries the version: asked from there, the draft counted.
+        self.assertEqual(raised(**{"v1": "7 (draft 1)"})[0], None)
+        self.assertEqual(raised(**{"p-v1.0.1": "7 (draft 2)"})[0], "7 (draft 2)")
+        self.assertEqual(raised(**{"p-v1.0.1": "8 (draft 1)"})[1].args, ("p-v1.0.1",))
+        # The release itself carries it.
+        with unittest.mock.patch.object(versions, "interface_raised", return_value="7 (draft 1)") as asked:
+            self.assertEqual(versions.raised_for({"v1": "1.0.0"}, "1.0.0", "v1"), "7 (draft 1)")
+            self.assertEqual(asked.call_args.args, ("v1",))
+
     def test_a_change_no_reader_sees_keeps_it(self):
         quiet = "test(stats): one more case\n\nPlugin-unchanged: stats, widgets"
         everything = "chore: rustfmt\n\nplugin-unchanged: all"
@@ -156,6 +179,7 @@ class Repository(unittest.TestCase):
         self.write("Cargo.toml", '[workspace.package]\nversion = "0.5.0-beta.2"\n')
         self.version("1.0.0")
         self.write("plugins/vocabulary/src/lib.rs", "// one\n")
+        self.write(versions.NATIVE, "pub const INTERFACE: u16 = 6;\n")
         self.commit("release: 0.5.0-beta.2")
         self.git("tag", "v0.5.0-beta.2")
         # The fix alone, from the release's tag, merged back.
@@ -285,6 +309,57 @@ class Repository(unittest.TestCase):
         # A change after it still needs a newer version.
         self.write("plugins/vocabulary/src/lib.rs", "// three\n")
         self.commit("fix(vocabulary): another")
+        self.assertFalse(self.check())
+
+    def raise_to(self, interface, draft=None):
+        self.write(versions.NATIVE, f"pub const INTERFACE: u16 = {interface};\n"
+                   + ("" if draft is None else f"pub const DRAFT: u16 = {draft};\n"))
+
+    def test_one_bump_after_a_raise_and_none_for_a_draft_after_it(self):
+        # The raise: vocabulary (1.0.1, its own release) needs a bump, and the trailer is no excuse.
+        self.raise_to(7, 1)
+        self.commit("interface: raise to 7, draft 1\n\nPlugin-unchanged: all")
+        self.assertFalse(self.check())
+        self.version("1.0.2")
+        self.commit("vocabulary 1.0.2 for interface 7")
+        self.assertTrue(self.check())
+        # A draft re-bless between releases asks for no further bump.
+        self.raise_to(7, 2)
+        self.commit("interface: draft 2")
+        self.assertTrue(self.check())
+        # Still unreleased, the one bump covers a further raise as well: versions are
+        # held to the release, not to each raise.
+        self.raise_to(8, 1)
+        self.commit("interface: raise to 8")
+        self.assertTrue(self.check())
+
+    def test_a_plugin_released_alone_at_the_current_draft_is_not_asked_again(self):
+        self.raise_to(7, 1)
+        self.version("1.0.2")
+        self.commit("interface: raise to 7, draft 1; vocabulary 1.0.2")
+        self.git("tag", "vocabulary-v1.0.2")
+        # Its newest release is built at interface 7 draft 1: nothing is owed, though the
+        # PaperPaw release before it was at 6.
+        self.assertTrue(self.check())
+
+    def test_a_plugin_released_alone_at_an_older_draft_owes_one_bump(self):
+        self.raise_to(7, 1)
+        self.version("1.0.2")
+        self.commit("interface: raise to 7, draft 1; vocabulary 1.0.2")
+        self.git("tag", "vocabulary-v1.0.2")
+        self.assertTrue(self.check())
+        # Draft 2: beta drafts can reach devices, so the draft 1 build is stale.
+        self.raise_to(7, 2)
+        self.commit("interface: draft 2\n\nPlugin-unchanged: all")
+        self.assertFalse(self.check())
+        self.version("1.0.3")
+        self.commit("vocabulary 1.0.3 for draft 2")
+        self.assertTrue(self.check())
+        # Released at draft 2, it owes nothing more until the interface moves again.
+        self.git("tag", "vocabulary-v1.0.3")
+        self.assertTrue(self.check())
+        self.raise_to(8, 1)
+        self.commit("interface: raise to 8")
         self.assertFalse(self.check())
 
     def test_a_version_older_than_one_published_fails(self):
