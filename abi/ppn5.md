@@ -204,6 +204,12 @@ is merged.
 
 ## The packer (slice 3)
 
+Plugins are built with `-C jump-tables=no` (set in the `rustflags` of the sample's `.cargo/config.toml`, the
+template of an interface-7 plugin build): the packer's stack frame scan refuses a jump through a register inside
+a frame, which is how a `match` compiled to a jump table looks, because where it goes is not known. The scan
+bounds each function's frame, not the depth of a call path; the band at the stack's end and the device's
+high-water test cover that.
+
 `paperpaw-sign pack <plugin.elf> <plugin.ppn> [--key <file>]` writes format 5 for a plugin linked with
 `paperpaw-plugin7.x` and `--emit-relocs` that defines `PAPERPAW_METADATA`; a plugin that defines `PAPERPAW_API` is
 interface 6 and gets format 4, and one that defines both or neither is refused. The file is made as above:
