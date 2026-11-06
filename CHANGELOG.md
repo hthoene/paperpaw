@@ -19,6 +19,10 @@ change the plugin SDK.
 
 ### Added
 
+- Native `read_at` preserves output on validation and file-preflight failures; after
+  reading starts, errors zero output without a 4 KiB stack or heap scratch (#228).
+
+
 - Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
   device usage, translated plugin names and work-note readers. Includes a deterministic fake-host
   fixture for Battery port tests; helpers use bounded buffers and allocate nothing (#228).
