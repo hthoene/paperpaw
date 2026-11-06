@@ -1015,6 +1015,11 @@ pub(crate) struct Reserved<'a> {
 }
 
 impl<'a> Reserved<'a> {
+    /// The single authority rule for guarded settings and reserved commands.
+    pub(crate) fn guarded_exempt(&self, owner: &str) -> bool {
+        self.editor == Some(owner) || owner == crate::meter::CORE
+    }
+
     pub(crate) fn of(
         settings: &'a paperpaw_sdk::Settings,
         registry: &'a crate::registry::Registry,
@@ -1090,7 +1095,7 @@ pub(crate) fn vet_reserved(
             request.set_from(plugin);
         }
     }
-    let editor = reserved.editor == Some(owner) || owner == crate::meter::CORE;
+    let editor = reserved.guarded_exempt(owner);
     let foreign = |id: &str, kept: fn(&paperpaw_sdk::SettingSpec) -> bool| {
         id.split('.').next() != Some(owner) && reserved.settings.spec(id).is_some_and(kept)
     };
