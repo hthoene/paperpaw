@@ -496,7 +496,7 @@ fn host_cleanup(_step: super::TeardownStep) -> Result<(), super::Error> {
     Ok(())
 }
 
-/// Test-only one-shot host failures. Never present in device builds.
+/// Test-only host failures. Never present in device builds.
 #[cfg(test)]
 pub(crate) mod teardown_fault {
     extern crate std as test_std;
@@ -504,17 +504,27 @@ pub(crate) mod teardown_fault {
     use core::cell::Cell;
 
     test_std::thread_local! {
-        static FAILURE: Cell<Option<(TeardownStep, Error)>> = const { Cell::new(None) };
+        static FAILURE: Cell<Option<(TeardownStep, Error, bool)>> = const { Cell::new(None) };
     }
 
     pub(crate) fn arm(step: TeardownStep, error: Error) {
-        FAILURE.with(|failure| failure.set(Some((step, error))));
+        FAILURE.with(|failure| failure.set(Some((step, error, false))));
+    }
+
+    pub(crate) fn arm_persistent(step: TeardownStep, error: Error) {
+        FAILURE.with(|failure| failure.set(Some((step, error, true))));
+    }
+
+    pub(crate) fn disarm() {
+        FAILURE.with(|failure| failure.set(None));
     }
 
     pub(super) fn run(step: TeardownStep) -> Result<(), Error> {
         FAILURE.with(|failure| match failure.get() {
-            Some((wanted, error)) if wanted == step => {
-                failure.set(None);
+            Some((wanted, error, persistent)) if wanted == step => {
+                if !persistent {
+                    failure.set(None);
+                }
                 Err(error)
             }
             _ => Ok(()),
