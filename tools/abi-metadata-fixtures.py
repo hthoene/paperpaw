@@ -32,6 +32,26 @@ def outputs():
     fields = {x['name']: x for x in resolved_metadata(schema)['prefix']['fields']}
     cases = [('valid-empty-requirements', good, True), ('truncated-prefix', good[:3], False),
              ('truncated-tail', good[:-1], False), ('trailing-byte', good + b'\0', False)]
+    # D1 features (#890), decoded against the fixture catalog (test.feature at
+    # revision 1): encoded by a host whose catalog differs, as a newer plugin is.
+    schema['metadata']['features'] = [dict(key='test.feature', revision=1, since=1)]
+    GEN.validate(schema)
+    newer = copy.deepcopy(schema)
+    newer['metadata']['features'] = [dict(key='test.feature', revision=2, since=1),
+                                     dict(key='test.unknown', revision=1, since=1)]
+    good = encode(schema, build)
+    for name, key, required, accept in [
+            ('feature-known', 'test.feature', True, True),
+            ('feature-optional-unknown', 'test.unknown', False, True),
+            ('feature-required-unknown', 'test.unknown', True, False),
+            ('feature-optional-other-revision', 'test.feature', False, True),
+            ('feature-required-other-revision', 'test.feature', True, False)]:
+        source = schema if name == 'feature-known' else newer
+        cases.append((name, encode(source, dict(build, features=[
+            dict(key=key, required=required)])), accept))
+    flagged = bytearray(cases[-5][1])
+    flagged[-len('test.feature') - 2] |= 2  # flags (u16) precede the key
+    cases.append(('feature-unknown-flag-bit', bytes(flagged), False))
     for field, value in [('magic', b'NOPE'), ('flags', 1), ('exports', 3), ('total_bytes', 0)]:
         changed = bytearray(good)
         at, width = fields[field]['offset'], fields[field]['width']
@@ -44,7 +64,7 @@ def outputs():
                     scope='metadata bytes only; synthetic target is never executable', cases=[])
     for name, data, expected in cases:
         try:
-            decode(schema, data)
+            available = [item['key'] for item in decode(schema, data)['features']]
             actual = True
         except ValueError:
             actual = False
@@ -52,9 +72,12 @@ def outputs():
             raise ValueError('fixture verdict changed: ' + name)
         path = name + '.hex'
         result[folder / path] = data.hex() + '\n'
-        manifest['cases'].append(dict(name=name, hex=path, expected=dict(
-            metadata='accept' if expected else 'reject', compatibility='not_run',
-            container='not_run', signature='not_run', execution='not_run')))
+        verdict = dict(metadata='accept' if expected else 'reject', compatibility='not_run',
+                       container='not_run', signature='not_run', execution='not_run')
+        if expected:
+            # The features the host makes available; the rest are left out (D1).
+            verdict['features'] = available
+        manifest['cases'].append(dict(name=name, hex=path, expected=verdict))
     result[folder / 'manifest.json'] = GEN.canonical(manifest)
     actual_schema = GEN.validate(GEN.load(ROOT / 'abi/abi.def'))
     if 'entry_contract' in actual_schema:

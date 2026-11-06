@@ -203,10 +203,11 @@ class _Reader:
 def _decode_catalog(reader, wire, count, catalog, metadata, kind):
     """Decode service or feature requirements in canonical order.
 
-    A feature's flags bit 0 means required (D1, #890). An unknown feature key
-    is ignored unless it is required; a required unknown key refuses the load
-    and names the key. Other flag bits are refused. Services stay closed: an
-    unknown service key is always refused.
+    A feature's flags bit 0 means required (D1, #890). A feature this host does
+    not have at exactly the requested revision (unknown key, or another
+    revision) is unavailable: an optional one is left out of the result, a
+    required one refuses the load and names the key. Other flag bits are
+    refused. Services stay closed: an unknown service key is always refused.
     """
     result, seen, previous = [], set(), None
     for _ in range(count):
@@ -217,9 +218,9 @@ def _decode_catalog(reader, wire, count, catalog, metadata, kind):
         previous = key
         if kind == 'feature':
             _require(values['flags'] & ~FEATURE_REQUIRED == 0, 'unknown feature flag bits')
-            if key not in catalog:
+            if key not in catalog or values['revision'] != catalog[key]['revision']:
                 _require(not values['flags'] & FEATURE_REQUIRED,
-                         f'required feature unknown to this host: {key}')
+                         f'required feature unavailable on this host: {key}')
                 continue
         _require(key in catalog, f'unknown {kind} key: {key!r}')
         fields = ('major', 'semantic_revision', 'min_table_bytes') if kind == 'service' else ('revision',)

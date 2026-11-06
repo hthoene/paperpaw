@@ -241,7 +241,8 @@ fn a_library_exporting_more_than_its_entry_symbols_is_refused_before_it_runs() {
 /// setting in the group `weather.main` without declaring the group. Under the
 /// folder `weather` that group is its own and missing, so it is refused at
 /// commit; under the folder `other` the group is another plugin's and the
-/// declaration stands.
+/// declaration stands (the kernel then refuses it for now, as declarations in
+/// the image cannot be read back until the draft-4 views are wired).
 #[test]
 fn a_declaration_under_another_plugins_id_is_decided_by_the_folders_id() {
     let mut valid = vec![0; REGISTRATION_MAX_BYTES];
@@ -266,16 +267,29 @@ fn a_declaration_under_another_plugins_id_is_decided_by_the_folders_id() {
     let bytes = std::fs::read(&library.path).unwrap();
     let root = card(&[("weather", bytes.as_slice()), ("other", bytes.as_slice())]);
     let found = DevPlugins::load_folder_if(&root, true);
-    assert_eq!(found.ids(), ["other"], "{:?}", found.refused());
-    assert_eq!(found.declared("other"), Some(1));
+    // Under `other` the declaration stands, and the kernel refuses it only
+    // because declarations in the image cannot be read back yet (temporary,
+    // until the draft-4 views are wired): visibly, not loaded without them.
+    assert!(found.ids().is_empty(), "{:?}", found.refused());
     assert!(
-        matches!(
-            found.refused(),
-            [(id, Refusal::Lifecycle(_) | Refusal::Runtime(_))] if id == "weather"
-        ),
+        found
+            .refused()
+            .iter()
+            .any(|(id, why)| id == "other"
+                && format!("{why}").contains("DeclarationViewsUnavailable")),
+        "{:?}",
+        found.refused()
+    );
+    // Under its own id the group is missing: refused at the cross-record
+    // check, before the image question comes up.
+    assert!(
+        found.refused().iter().any(|(id, why)| id == "weather"
+            && matches!(why, Refusal::Lifecycle(_) | Refusal::Runtime(_))
+            && !format!("{why}").contains("DeclarationViewsUnavailable")),
         "refused under its own id: {:?}",
         found.refused()
     );
+    assert_eq!(found.refused().len(), 2, "{:?}", found.refused());
     assert!(!mapped_copy("weather"), "released after the refusal");
     drop(found);
     std::fs::remove_dir_all(&root).unwrap();

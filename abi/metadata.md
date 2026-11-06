@@ -34,10 +34,13 @@ A selected service contributes the interface minor that introduced it, never its
 Metadata is limited to 2,048 bytes, keys to 128 bytes, exports to one, services to
 32 and features to 32.
 
-A feature record carries `flags` (u16). Bit 0 means required (D1, #890): a host that
-does not know a required feature key refuses the load and names the key, while an
-unknown key without the bit is ignored. Other bits are refused. Known keys must
-match the catalog revision. Service keys stay closed: an unknown one is refused. The codec rejects unknown identifiers, invalid lengths,
+A feature record carries `flags` (u16). Bit 0 means required (D1, #890). A feature
+the host does not have at exactly the record's revision (an unknown key or another
+revision) is unavailable: an optional one is left out, a required one refuses the
+load and names the key. Other bits are refused. Service keys stay closed: an unknown
+one, or one at another major, revision or table size, is refused. The `feature-*`
+fixtures in `abi/fixtures/metadata` pin these rules, with the features each accepted
+case makes available; every metadata reader (Python reference, shells) passes them. The codec rejects unknown identifiers, invalid lengths,
 reserved fields, duplicates, invalid UTF-8, noncanonical requirements and trailing
 bytes. A higher required minor is structurally valid; the loader must separately
 refuse an unsupported requirement before invoking plugin code. These are host-tool
