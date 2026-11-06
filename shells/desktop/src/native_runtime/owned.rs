@@ -3,10 +3,10 @@
 //! The library is private to the pinned owner. Batches and queues borrow it from
 //! outside; no self-reference, lifetime extension or process-owned service leak.
 
-use super::{CheckedLibrary, Make, RuntimeError, checked_library};
+use super::{CheckedLibrary, Make, RuntimeError, checked_library, plugin_output};
 use crate::native::HeldLibrary;
 use paperpaw_core::native_host::{self, Construction, HostOwner, RegistrationBatch};
-use paperpaw_native::host_glue::{self, PpHost, PpPlugin, Services, ShellCtx};
+use paperpaw_native::host_glue::{self, PpHost, Services, ShellCtx};
 use std::{alloc::Layout, cell::Cell, ffi::c_void, path::Path, pin::Pin, ptr};
 
 #[derive(Debug)]
@@ -29,11 +29,7 @@ impl From<native_host::Error> for Error {
     }
 }
 
-#[derive(Clone, Copy)]
-struct Instance {
-    state: *mut c_void,
-    destroy: unsafe extern "C" fn(*mut c_void),
-}
+type Instance = plugin_output::PluginOutput;
 
 struct Context<S> {
     table: PpHost,
@@ -109,19 +105,11 @@ impl<S: Services> PinnedPlugin<S> {
         if status != host_glue::OK {
             return Err(RuntimeError::Factory(status).into());
         }
-        if out.is_null() || !(out as usize).is_multiple_of(align_of::<PpPlugin>()) {
-            return Err(RuntimeError::Plugin.into());
-        }
-        // SAFETY: successful make promises a readable size prefix.
-        if unsafe { out.cast::<u32>().read() } < size_of::<PpPlugin>() as u32 {
-            return Err(RuntimeError::Plugin.into());
-        }
-        // SAFETY: the validated prefix declares the entire current table.
-        let plugin = unsafe { &*out };
-        context.instance.set(Some(Instance {
-            state: plugin.state,
-            destroy: plugin.drop.ok_or(RuntimeError::Plugin)?,
-        }));
+        // SAFETY: successful authorized make supplies a stable declared span;
+        // this pinned owner keeps its module and service dependencies alive.
+        context
+            .instance
+            .set(Some(unsafe { plugin_output::read(out) }?));
         Ok(PendingInstance {
             transaction: Some(transaction),
             context,

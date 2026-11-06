@@ -100,6 +100,12 @@ impl Fixture {
             .canonicalize()
             .unwrap();
         let bytes = super::super::tests::metadata_bytes();
+        let plugin_table = if mode == 3 { "Prefix" } else { "PpPlugin" };
+        let callback_fields = if mode == 3 {
+            ""
+        } else {
+            ", dispatch_event: None, draw: None"
+        };
         let source = format!(
             r#"
 #![no_std]
@@ -113,7 +119,9 @@ unsafe impl Sync for Entry {{}}
  size: core::mem::size_of::<PpEntry>() as u32, abi_major: 7, needs_minor: 1,
  metadata: PpBytes {{ ptr: PAPERPAW_METADATA.as_ptr(), len: {len} }}, make: Some(make),
 }});
-#[repr(C)] struct State {{ host: *const PpHost, ctx: *mut core::ffi::c_void, plugin: PpPlugin }}
+#[repr(C)] struct Prefix {{ size: u32, state: *mut core::ffi::c_void, drop: Option<unsafe extern "C" fn(*mut core::ffi::c_void)> }}
+const _: () = assert!(core::mem::size_of::<Prefix>() == PLUGIN_PREFIX_BYTES);
+#[repr(C)] struct State {{ host: *const PpHost, ctx: *mut core::ffi::c_void, plugin: {plugin_table} }}
 unsafe extern "C" fn make(host: *const PpHost, ctx: *mut core::ffi::c_void, out: *mut *const PpPlugin) -> i32 {{
  let h = unsafe {{ &*host }};
  let mut stamp = 0;
@@ -124,8 +132,8 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut core::ffi::c_void, out:
  let status = unsafe {{ (h.heap_alloc)(ctx, core::mem::size_of::<State>(), core::mem::align_of::<State>(), &mut block) }};
  if status != OK {{ return status; }}
  let state = block.cast::<State>();
- unsafe {{ state.write(State {{ host, ctx, plugin: PpPlugin {{ size: core::mem::size_of::<PpPlugin>() as u32, state: block, drop: Some(destroy) }} }});
- out.write(&raw const (*state).plugin); }}
+ unsafe {{ state.write(State {{ host, ctx, plugin: {plugin_table} {{ size: core::mem::size_of::<{plugin_table}>() as u32, state: block, drop: Some(destroy){callback_fields} }} }});
+ out.write((&raw const (*state).plugin).cast()); }}
  OK
 }}
 unsafe extern "C" fn destroy(state: *mut core::ffi::c_void) {{
@@ -319,4 +327,23 @@ fn real_library_abandoned_pending_guard_drains_records_before_foreign_drop() {
         &["make", "allocate", "record", "destroy", "free", "context"]
     );
     assert!(!mapped(&fixture.path));
+}
+
+#[test]
+fn real_short_prefix_and_null_full_tail_construct_without_optional_callbacks() {
+    for mode in [0, 3] {
+        let fixture = Fixture::build(mode);
+        let (plugin, evidence) = fixture.open();
+        let transaction = plugin.begin::<()>().unwrap();
+        let batch = plugin.construct(transaction).unwrap();
+        let instance = plugin.owner.as_ref().context().instance.get().unwrap();
+        assert!(instance.event.is_none());
+        assert!(instance.draw.is_none());
+        drop(batch);
+        drop(plugin);
+        assert_eq!(evidence.clocks.get(), 2);
+        assert_eq!(evidence.allocations.get(), 1);
+        assert_eq!(evidence.frees.get(), 1);
+        assert!(!mapped(&fixture.path));
+    }
 }
