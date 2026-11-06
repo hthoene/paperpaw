@@ -3,7 +3,8 @@
 Status: contract for review (#228, assignment #808). It answers the Services Engineer's questions 1-11 of
 section 2 in `assignment-788-plan.md` (attachment 774 on #228) and refines section 3 of
 `interface-7-events-storage-services.md` (cited as **E7** below). Where the two differ, this document wins
-for usage, plugin names, work notes and the clock. Base: `origin/abi7/integration` 5733ac47d.
+for usage, plugin names, work notes and the clock. Base: `origin/abi7/integration` 96c9317b0 (with #188).
+Revision 2 applies Senior's review #811.
 
 Conventions as in E7: **[V]** is a verified fact with a `path:line` citation on the base, **[D]** is a
 decision of this contract, **[Q]** is left open. Nothing here is implemented yet; slots 17-19 still answer
@@ -14,11 +15,19 @@ decision of this contract, **[Q]** is left open. Nothing here is implemented yet
 - [D] Everything here is an **addition inside the open interface-7 draft**: four service keys, the record
   tags 48-52 from the `service.*` family (`docs/abi/records.md`, tag table), and a first meaning for slots
   17-19, which so far only answer `ERR_UNSUPPORTED`. No existing slot, record, field or status changes
-  meaning, so the meaning rule (row 2's `docs/abi/raise.md`, PR #195) is kept: during a draft, existing
-  entries only gain meaning. This document itself changes no generated file and needs no re-bless.
+  meaning, so the meaning rule (`abi/interface-7/raise.md`, Manager decision 2026-11-06 11:21, arriving
+  with PR #195) is kept: during a draft, existing entries only gain meaning. This document itself changes no generated file and needs no re-bless.
 - [D] The `abi.def` rows for tags 48-52 and their codecs land with the generator work (row 4: singleton
   `records_decode_one`, plus the stream reader of section 2.4), re-blessed inside the draft that is open
   then. Slot 3 and the snapshot are not touched.
+- [D] **The interface minor is 1.** Slots 17-19 are declared since minor 1 (`abi/abi.def`), and tags 48-52
+  are declared since minor 1 as well, as every interface-7 declaration is while 7 is a draft
+  (`docs/abi/records.md`: "All declarations and fields start at minor 1"). A plugin that uses them has
+  `needs_minor` of at least 1. The **service's own version** (1.0 for all four services) is a separate number:
+  it is carried in the service record and in slot 17's arguments, and it never feeds `needs_minor` (2.1).
+- [D] **Slot 17 is a data-service snapshot query** (settles E7 Q13). This follows the Manager's decision in E7
+  ("Decided", 2026-11-06 05:27: slot 17 is for snapshot queries over blobs only). Interface services with
+  call tables, such as `core.library`, get their own slot later. They do not reuse slot 17.
 
 ## 1. Facts this contract builds on
 
@@ -40,10 +49,10 @@ decision of this contract, **[Q]** is left open. Nothing here is implemented yet
   refreshes and pixels (`commands.rs:193`, `usage.rs:132-137`), and Bluetooth time
   (`bluetooth.rs:160`). All of them saturate except `bluetooth_ms`, which uses `+=`.
 - [V] Per-plugin counters: `PluginUsage` (`usage.rs:69-100`), one row per plugin with `core` first
-  (`crates/paperpaw-core/src/meter.rs:21-27`). Rows are only ever appended (`meter.rs:77-86`), and every
-  counter saturates (`meter.rs:112-175`). PR #188 adds a per-plugin `storage.sync` count, attempts included,
-  kept beside the table in the same order (`syncs`, branch `kernel/abi7-storage-adapter-228`,
-  `meter.rs:31-33,91-99`).
+  (`crates/paperpaw-core/src/meter.rs:21-27`). Rows are only ever appended (`meter.rs:81-90`), and every
+  counter saturates (`meter.rs:140-203`). The kernel keeps `shown_ms`, `read`, `written` and `awake_ms` as
+  `u32` (`usage.rs:69-100`). The per-plugin `storage.sync` count from #188, attempts included, is kept beside
+  the table in the same order (`syncs`, `meter.rs:31-33,92-99,106`).
 - [V] Plugin ids are at most 40 bytes by the package rule (`tools/dev/src/package/folder.rs:623`); the
   `Id` type itself has no length limit (`crates/paperpaw-sdk/src/id.rs`).
 - [V] What Battery uses today:
@@ -74,10 +83,18 @@ decision of this contract, **[Q]** is left open. Nothing here is implemented yet
 - [D] The version is slot 17's `major`/`minor`, never part of the key. `major` must be 1 and `minor` at most
   0, otherwise the result is `ERR_UNSUPPORTED`.
 - [D] A plugin's metadata declares the **base key** only (`core.usage`, never `core.plugin-usage/from.3`),
-  as a service requirement with `major` 1 and the minor it needs (`abi/metadata.md`, service record:
-  `key_bytes`, `major`, `semantic_revision`, `min_table_bytes`).
-  - For a data service, `semantic_revision` is the required minor and `min_table_bytes` is 0: a data
-    service has no call table.
+  as a service requirement (`abi/metadata.md`, service record: `record_bytes`, `key_bytes`, `major`,
+  `semantic_revision`, `min_table_bytes`).
+  - `major` is the **service's** major (1).
+  - **New meaning, stated here for the first time:** for a data service, `semantic_revision` is the
+    **service minor** the plugin needs (0 for all four services). The loader refuses a plugin whose required
+    service minor is above the host's, before any plugin code runs, as for any unsupported requirement
+    (`metadata.md`).
+  - `min_table_bytes` is 0 for a data service, which has no call table; any other value is refused.
+  - A service requirement contributes to `needs_minor` only the **interface minor that introduced the
+    service** (1 for these four, the minor of slots 17-19). It never contributes its `semantic_revision`.
+    `metadata.md`'s "selected services ... contribute their minor" means that interface minor, and this
+    revision adds the same sentence there.
   - A query for a key that is not declared returns `ERR_UNSUPPORTED`, so `needs_minor` and the store's
     admission see every service a plugin reads.
 - [D] `core.plugin` gives only the name, in the UI language at the time of the query. `enabled` is
@@ -92,17 +109,22 @@ in little-endian. All fields are required, in this order. Strings are UTF-8.
 | Tag | Record | Fields in order |
 | --- | --- | --- |
 | 48 | `service.usage` | `fast: u32`, `partial: u32`, `full: u32`, `pixels: u64`, `inputs: u32`, `sleeps: u32`, `panel_ms: u64`, `bluetooth_ms: u64` |
-| 49 | `service.plugin_usage` | `plugin: str 64`, `busy_us: u64`, `calls: u32`, `shown_ms: u32`, `fast: u32`, `partial: u32`, `full: u32`, `pixels: u64`, `read: u32`, `written: u32`, `syncs: u32`, `requests: u32`, `refused: u32`, `awake_ms: u32`, `awake_reason: str 64` |
+| 49 | `service.plugin_usage` | `plugin: str 64`, `busy_us: u64`, `calls: u32`, `shown_ms: u64`, `fast: u32`, `partial: u32`, `full: u32`, `pixels: u64`, `read: u64`, `written: u64`, `syncs: u32`, `requests: u32`, `refused: u32`, `awake_ms: u64`, `awake_reason: str 64` |
 | 50 | `service.plugin` | `name: str 128` |
 | 51 | `service.work_note` | `at_ms: u64`, `text: str 256` |
-| 52 | `service.end` | `flags: u32`, `total: u32`, `generation: u32` |
+| 52 | `service.end` | `flags: u32`, `total: u32`, `generation: u32`, `next: u32` |
 
 Sizes:
 - A tag 48 record is 44 bytes of fields, 47 bytes with its framing (E7's "52 B body" overcounted).
-- A tag 49 row is 60 bytes of numbers plus two strings of at most 65 bytes each (framed), plus framing:
-  at most 194 bytes, so always below the 256 bytes of E7. A typical row (a short id, no hold) is about
-  80 bytes.
-- A tag 52 record is at most 15 bytes.
+- A tag 49 row is 76 bytes of numbers plus two strings of at most 65 bytes each (framed), plus framing:
+  at most 210 bytes, so always below the 256 bytes of E7. A typical row (a short id, no hold) is about
+  96 bytes.
+- A tag 52 record is 16 bytes of fields, 19 bytes with its framing.
+- [D] `shown_ms`, `read`, `written` and `awake_ms` are **`u64` on the wire** (Senior #811 item 5), so the
+  interface never fixes the kernel's narrow `u32` for good. That costs 16 bytes a row. The kernel's tables stay
+  `u32` to save memory, and the host widens when it encodes. While the kernel saturates at `u32::MAX`, a
+  value of exactly 4,294,967,295 in these fields means "at least this much". A later kernel may count wider
+  with no change to the interface.
 
 ### 2.3 Meaning, units and overflow of every field
 
@@ -133,13 +155,13 @@ kernel table's order. The counters count while that plugin's code runs or while 
 | `plugin` | the plugin's id (never cut, see below) | - |
 | `busy_us` | time its code ran; code it calls into (for example a nested plugin) pauses the count; 0 on a host without a clock for it | µs |
 | `calls` | times its code was entered | calls |
-| `shown_ms` | time one of its screens was on top (`u32`: saturates after about 49.7 days) | ms |
+| `shown_ms` | time one of its screens was on top (the kernel's `u32` saturates after about 49.7 days) | ms |
 | `fast`, `partial`, `full`, `pixels` | as in tag 48, but only refreshes while its screen was on top | refreshes, pixels |
-| `read`, `written` | bytes of storage its code read and wrote (`u32`: saturates at 4 GiB) | bytes |
+| `read`, `written` | bytes of storage its code read and wrote (the kernel's `u32` saturates at 4 GiB) | bytes |
 | `syncs` | `storage.sync` calls of its code, **failed ones included** (S7; PR #188's per-plugin count) | calls |
 | `requests` | network requests, servers and connections it opened | count |
 | `refused` | those refused (offline, its network setting off, not declared) | count |
-| `awake_ms` | time its holds kept the device from sleeping on its own (`u32`) | ms |
+| `awake_ms` | time its holds kept the device from sleeping on its own (the kernel counts in `u32`) | ms |
 | `awake_reason` | the reason given with its last hold; empty if it never held | - |
 
 Strings (answers Q8):
@@ -150,7 +172,8 @@ Strings (answers Q8):
   rule) never hit this.
 - [D] A work note's text is bounded **where it is stored**: the kernel cuts it to 256 bytes at a character
   boundary when it records the note. The record then carries what the kernel holds, with no second
-  rule. This settles E7 Q14.
+  rule. This settles E7 Q14. Interface-6 readers of `env.work().note()` see the shorter text too, so the
+  change that cuts it adds a CHANGELOG line saying so.
 
 **Tag 50:** `name` is the plugin's display name, translated in the UI language at the time of the query. A
 plugin without a translated name gets its id.
@@ -164,11 +187,13 @@ plugin without a translated name gets its id.
 
 **Tag 52, the end of a table page:**
 - `flags`:
-  - bit 0: the page is **truncated** (more rows follow; ask again from `from.<n + rows read>`).
+  - bit 0: the page is **truncated**. It is set exactly when `next < total`; ask again from `from.<next>`.
   - bit 1: at least one row was **left out** (an over-long id).
   - Other bits are 0; a reader ignores bits it does not know.
 - `total`: the number of rows in the table, `core` included, when the page was built.
 - `generation`: see 2.5.
+- `next`: the row index to ask from for the next page. It counts left-out rows as read. It equals `total` when
+  the page reached the end, including a page asked for at or past the end (`from.<n>` with `n >= total`).
 
 ### 2.4 Blob grammar and codecs (answers Q4)
 
@@ -197,9 +222,9 @@ plugin without a translated name gets its id.
 
 - [D] `from.<n>` starts at row index `n` of the kernel table, counted from 0 (`core`). The host fills the
   page with whole rows and **reserves the end record's bytes first**.
-  - Every page whose `n` is below `total` holds at least one row: a row is at most 194 bytes, and the
-    smallest page is 512 bytes (2.6).
-  - If `n` is at or past `total`, the page holds only the end record, with `flags` 0.
+  - Every page whose `n` is below `total` holds at least one row (or leaves out an over-long one): a row is
+    at most 210 bytes, the end record 19, and the smallest page 384 bytes (2.6).
+  - If `n` is at or past `total`, the page holds only the end record, with `flags` 0 and `next` = `total`.
 - [D] `generation` changes whenever the table's **rows** change, that is when a row is added, removed or
   reordered: exactly the changes that shift offsets. Counters change all the time; the reader's own
   `busy_us` grows while it reads, so a generation that followed counters would differ on every page and
@@ -227,17 +252,22 @@ plugin without a translated name gets its id.
   path per kind.
 
 **X4 budget:**
-- [D] On the X4 there is **one live blob per device, and a page is at most 512 bytes**. The blob is
-  charged to the "stream chunk storage" row (512 bytes, one outstanding chunk) of ADR 0034's experimental
-  M1 X4 resource profile (`origin/fw/adr-flat-boundary-228:docs/adr/0034-stable-plugin-boundary.md`,
-  profile table). It is no second budget beside the 4,096-byte aggregate, so S6's "at most 4 KiB" is
-  narrowed to 512 bytes on the X4.
-  - What this costs Battery: 2 to 6 rows a page. With about 70 rows that is 12 to 35 pages every
-    10 minutes, 3 crossings each, a few milliseconds in total.
-  - The scalar services fit easily: tag 48 needs 47 bytes, tag 50 at most 133, tag 51 at most 270.
+- [D] On the X4 a live blob **shares the "stream chunk storage" row** of ADR 0034's experimental M1 X4
+  resource profile (`origin/fw/adr-flat-boundary-228:docs/adr/0034-stable-plugin-boundary.md`, profile
+  table, 512 charged bytes). That row then reads "one outstanding stream chunk **or** one live blob,
+  device-wide". A blob is what a chunk is: a bounded positional read under an owner lease.
+  - No other row has room to give, and the blob is no second budget beside the 4,096-byte total.
+  - A query while a chunk is outstanding gets `ERR_BUSY`, and so does a chunk while a blob is live.
+- [D] **An X4 page is at most 384 bytes**, the profile's chunk payload maximum. The 512 charged bytes include
+  allocator overhead and bookkeeping, so a 512-byte page would not fit them. S6's "at most 4 KiB" is
+  narrowed to 384 bytes on the X4.
+  - What this costs Battery: one row a page at worst, three for typical rows. With about 70 rows that is
+    about 24 pages every 10 minutes (70 at worst), 3 crossings each, a few milliseconds in total.
+  - The scalar services fit: tag 48 needs 47 bytes, tag 50 at most 133, tag 51 at most 270.
 - [D] **Other hosts** may allow more live blobs and larger pages, up to E7 D3.4's two per owner, 16 KiB
-  in total and 4 KiB a page. A plugin may rely only on the X4 floor: one live blob at a time and pages
-  of at least 512 bytes. It must follow `flags` bit 0 rather than assume a page size. The desktop and
+  in total and 4 KiB a page. A plugin may rely only on the X4 floor: one live blob at a time, not while
+  it has a stream chunk outstanding, and pages of at least 384 bytes. It must follow `next` rather than
+  assume a page size. The desktop and
   emulator hosts use the X4 figures by default, so host tests show the X4's behaviour.
 - [D] The plugin's carry buffer of one record (at most 256 bytes) is the plugin's own memory, read with
   `blob.read` into its own buffer. It is neither boundary storage nor the decoder workspace. Reconciling
@@ -249,19 +279,22 @@ plugin without a translated name gets its id.
 
 | Check | Status |
 | --- | --- |
+| null `ctx` | `ERR_INVALID` |
 | no live frame for the caller, or the wrong owner | `ERR_STATE` |
-| null or bad pointers, length over 128 | `ERR_INVALID` |
+| null or bad key or `out_handle` pointers, key length over 128 | `ERR_INVALID` |
 | key not UTF-8 | `ERR_UTF8` |
 | key not in the grammar (2.1), including a bad `from.<n>` | `ERR_INVALID` |
 | unknown service | `ERR_NOT_FOUND` |
 | key not declared in the metadata, wrong major, or minor too high | `ERR_UNSUPPORTED` |
 | unknown plugin id in `core.plugin` or `core.work-note`, or no note | `ERR_NOT_FOUND` |
-| a live blob already exists (X4: device-wide), or no free handle (per owner or in the registry) | `ERR_BUSY` |
+| a live blob already exists, or a stream chunk is outstanding (X4: device-wide), or no free handle (per owner or in the registry) | `ERR_BUSY` |
 | allocation failed (everything allocated so far is freed) | `ERR_NO_MEMORY` |
 | otherwise: build the blob, insert the handle, write `out_handle` | `OK` |
 
-- [D] `ERR_BUSY` means a limit that frees itself when handles are released or the callback ends; it is
-  never a quota failure. `ERR_NO_SPACE` stays reserved for "buffer or batch too small", as elsewhere.
+- [D] `ERR_BUSY` means a single-slot resource or a limit that frees itself when handles are released, a
+  chunk is consumed or the callback ends. This **refines** ADR 0034's "quota failure returns NoSpace" for
+  such resources. `ERR_NO_SPACE` stays as the ADR says for capacity: an output buffer or batch too small,
+  or a request larger than the profile can ever admit.
 - [D] **`blob.read` (slot 18):** a stale, foreign or wrong-kind handle gives `ERR_STATE`. An offset at or
   past the end returns 0, and a zero-capacity read copies nothing (`abi/README.md`). A read never
   returns more than the capacity or 4,096 bytes.
@@ -311,7 +344,7 @@ plugin without a translated name gets its id.
 | `env.now().millis()` per reading (`lib.rs:57`) | `now_ms` of `event.battery_measured` (or `monotonic_ms` of the snapshot in a view) |
 | `env.usage()` per sample (`lib.rs:61`) | `core.usage`: query, read, release in the same callback |
 | `unix_seconds(env)` (`lib.rs:63`) | snapshot `unix_seconds` if bit 4 is set, else an empty `unix` column, as today |
-| `env.plugin_usage()` every 10 minutes and in the view (`lib.rs:116-127`, `view.rs:226-300`) | `core.plugin-usage` pages until `flags` bit 0 is clear, one blob at a time |
+| `env.plugin_usage()` every 10 minutes and in the view (`lib.rs:116-127`, `view.rs:226-300`) | `core.plugin-usage` pages from `next` until `next` equals `total`, one blob at a time |
 | `plugin_name(env, id)` (`view.rs:89-96`) | `core.plugin/<id>`, only for the 5-10 rows the view shows |
 | `env.work().note(&owner)` (`view.rs:303`) | `core.work-note/<id>`; `ERR_NOT_FOUND` means no note |
 
@@ -322,8 +355,8 @@ plugin without a translated name gets its id.
   its own change, with a format note in Battery's CHANGELOG.
 - [D] Port note: Battery adds `p.requests + p.refused` with `+` (`view.rs:274-275`). With counters that
   saturate at `u32::MAX` that sum can overflow, so the port uses `saturating_add`.
-- Per sample this costs 3 crossings and a 47-byte blob. Every 10 minutes it costs 12-35 pages, with no
-  `Vec<PluginUsage>` held by the plugin and no clone of the table on the host.
+- Per sample this costs 3 crossings and a 47-byte blob. Every 10 minutes it costs about 24 pages (70 at
+  worst), with no `Vec<PluginUsage>` held by the plugin and no clone of the table on the host.
 
 ## 5. Tests the implementation must bring
 
@@ -333,16 +366,20 @@ plugin without a translated name gets its id.
 - Streams: no end record, bytes after the end, two ends, a foreign tag before the end, an empty table
   (only the end), and a carry buffer split at every byte of a row.
 - Paging:
-  - `from.0` up to the end, with every page ≤ 512 bytes and each holding at least one row;
-  - `from.<total>` and `from.<total + 1>`, each giving only the end record;
+  - `from.0` up to the end by `next`, with every page ≤ 384 bytes, each holding at least one row, and bit 0
+    set exactly when `next < total`;
+  - `from.<total>` and `from.<total + 1>`, each giving only the end record with `next` = `total`;
+  - a page holding a left-out row: `next` passes it;
   - `from.` with a leading zero, a sign, or a value above `u32::MAX`, each refused;
   - the generation stays equal while only counters change, and changes when a row is added;
   - an over-long id is left out and sets bit 1.
 - Saturation: every counter at its largest value plus one stays there, `bluetooth_ms` included.
-- Statuses: each row of the slot 17 table, with `out_handle` unchanged on every failure.
+- Statuses: each row of the slot 17 table in its order (a null `ctx` first, before the frame), with
+  `out_handle` unchanged on every failure.
 - Lifetime: release, callback end and teardown each free the blob exactly once. `handle.release` of a blob
   gives `ERR_STATE`. Stale, foreign and wrong-kind handles on slots 18 and 19 give `ERR_STATE`. A second
-  live blob on the X4 gives `ERR_BUSY`, and so does a query from another owner.
+  live blob on the X4 gives `ERR_BUSY`, and so does a query from another owner. A query while a stream chunk
+  is outstanding gives `ERR_BUSY`, and so does a chunk while a blob is live.
 - Allocation failure at each step frees everything and creates no handle.
 - Clock:
   - slot 3 gives `OK` and does not go back across calls;
