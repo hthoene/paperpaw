@@ -18,6 +18,28 @@ Kernel's commands branch; its `docs/abi/commands.md` was not reachable from this
 worktree (`origin/kernel/abi7-scoped-commands-228` does not exist on origin when
 checked), so its content is taken from the coordinator's message only.
 
+## Kernel Engineer position (review of this draft, 2026-11-06)
+
+The draft was prepared with a helper and reviewed by the Kernel Engineer. Declarative registration
+(manifest, translations, setting specs, resources) is in `declarative-registration.md` (PR #158) and takes
+priority. It blocks every port; this document blocks Battery and the UI groups.
+
+- **Events (1):** agreed. Keep `event.battery_measured` as its own event: tick has no fixed rate, and the
+  host already gates sampling on a battery being present. Lifecycle and page turn are event kinds. Input
+  stays with the screen callback, which must return whether it handled the input.
+- **Storage (2):** agreed in shape: path-based slots 20–26, root 0 (the plugin folder, stamped by the host)
+  only, other roots reserved. **No power-loss claim is final until cut tests exist.** These are: `write`
+  old-or-new, rename over a file written by `append`, and the torn tail after `append` without `sync`.
+  They are the first implementation item, before any slot is wired. A host-framed `append_record` stays out
+  of interface 7. No hard quota; a free-space reserve.
+- **Statuses:** one new `ERR_NOT_FOUND` (-10), shared with slot 6's missing key (registration proposal Q5).
+  `ERR_FULL` (-11) stays distinct from `ERR_NO_SPACE`, which means a buffer or limit.
+- **services.query (3):** snapshot-over-blob is my preference. Whether slot 17 is also the path to interface
+  services with call tables is an owner/Senior question; it is not decided here.
+- **Text, font, i18n, commands (4):** the facts are correct: only heap and clock are installed in a host table.
+  The slot 13/14 adapters, font acquire/release and the i18n format/digits slots are the next text items
+  after registration.
+
 ## 0. Shared rules used by all four sections
 
 Verified starting point:
