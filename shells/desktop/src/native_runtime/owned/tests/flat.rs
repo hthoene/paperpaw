@@ -239,7 +239,10 @@ fn declarations_are_refused_not_dropped_and_the_library_is_released() {
     // cannot apply them.
     let own = load_flat("other", &bytes).err().unwrap();
     assert!(
-        matches!(&own, Refusal::Lifecycle(why) if why.contains("DeclarationViewsUnavailable")),
+        matches!(
+            &own,
+            Refusal::Lifecycle(paperpaw_core::native_host::Error::DeclarationViewsUnavailable)
+        ),
         "{own:?}"
     );
     assert!(!mapped_copy("other"));
