@@ -99,6 +99,13 @@ mod native_screen;
 #[path = "native_host/native_values.rs"]
 mod native_values;
 
+#[allow(
+    dead_code,
+    reason = "native registry publication follows this dispatcher"
+)]
+#[path = "native_host/native_dispatch.rs"]
+mod native_dispatch;
+
 // Static-entry activation uses the shared D1 reader; registry wiring follows.
 #[allow(
     dead_code,

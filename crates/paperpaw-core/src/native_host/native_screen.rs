@@ -44,6 +44,27 @@ impl<T: Dispatch + ?Sized> Dispatch for Rc<T> {
     }
 }
 
+impl<T: Dispatch> Dispatch for super::shared::Shared<T> {
+    fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
+        (**self).event(token, bytes, env)
+    }
+    fn input(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
+        (**self).input(token, bytes, env)
+    }
+    fn draw(
+        &self,
+        token: u32,
+        frame: &wire::DrawFrame<'_>,
+        env: &Env<'_>,
+        canvas: &mut Canvas<'_>,
+    ) -> Result<i32, i32> {
+        (**self).draw(token, frame, env, canvas)
+    }
+    fn dropped(&self, token: u32, status: i32) {
+        (**self).dropped(token, status);
+    }
+}
+
 pub(crate) struct NativeScreen<D> {
     id: Id,
     token: u32,

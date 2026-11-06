@@ -394,3 +394,45 @@ fn native_mapping_finishes_before_callbacks_activate() {
     drop(instance);
     assert_eq!(DESTROYS.with(Cell::get), 1);
 }
+
+#[test]
+fn shared_native_dispatch_scopes_all_screen_callbacks_and_retains_owner() {
+    use super::super::{
+        native_dispatch::NativeDispatch, native_screen::Dispatch, retained::Retained,
+        shared::Shared,
+    };
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    DESTROYS.with(|count| count.set(0));
+    let instance = Retained::make(hosted(false)).unwrap();
+    let dispatch = Shared::try_new(NativeDispatch::new(
+        instance,
+        super::super::FlatDepth::try_new().unwrap(),
+        super::super::FlatHost {
+            meter: alloc::rc::Rc::clone(&kernel.shared.meter),
+            font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
+        },
+        |_, _, _| {},
+    ))
+    .unwrap();
+    let retained = dispatch.try_clone().unwrap();
+    let env = kernel.shared.env(Instant(12));
+    assert_eq!(dispatch.event(TOKEN, &[], &env), Ok(0));
+    assert_eq!(dispatch.input(TOKEN, &[], &env), Ok(0));
+    RESULT.with(|result| result.set(1));
+    assert_eq!(dispatch.input(TOKEN, &[], &env), Ok(1));
+    assert_eq!(dispatch.event(TOKEN, &[], &env), Ok(ERR_INVALID));
+    RESULT.with(|result| result.set(0));
+    let mut framebuffer = paperpaw_graphics::Framebuffer::new(20, 80, PixelFormat::Gray8).unwrap();
+    let mut canvas = framebuffer.canvas();
+    let mut clip = canvas.clipped(Rect::new(0, 5, 20, 4));
+    let frame = super::super::frames::screen(0, 0, 20, 80, (5, 9));
+    assert_eq!(dispatch.draw(TOKEN, &frame, &env, &mut clip), Ok(0));
+    assert_eq!(CALLS.with(Cell::get), 5);
+    drop(dispatch);
+    assert_eq!(DESTROYS.with(Cell::get), 0);
+    assert_eq!(retained.input(TOKEN, &[], &env), Ok(0));
+    drop(retained);
+    assert_eq!(DESTROYS.with(Cell::get), 1);
+}
