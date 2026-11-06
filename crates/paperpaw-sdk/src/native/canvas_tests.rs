@@ -295,11 +295,13 @@ fn dropping_canvas_allows_another_borrow_of_the_same_frame() {
     let bytes = draw_bytes();
     let mut frame = DrawFrame::decode(&bytes).unwrap().bind(&host);
     let rect = frame.rect;
-    let first = frame.draw_canvas().unwrap();
-    assert_eq!(first.frame_rect(), rect);
-    drop(first);
-    let second = frame.draw_canvas().unwrap();
-    assert_eq!(second.frame_rect(), rect);
-    drop(second);
+    {
+        let first = frame.draw_canvas().unwrap();
+        assert_eq!(first.frame_rect(), rect);
+    }
+    {
+        let second = frame.draw_canvas().unwrap();
+        assert_eq!(second.frame_rect(), rect);
+    }
     assert!(frame.draw_canvas().is_ok());
 }
