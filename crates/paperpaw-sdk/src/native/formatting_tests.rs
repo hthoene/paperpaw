@@ -82,7 +82,12 @@ fn format_encodes_signed_arguments_and_plural_count_with_generated_codec() {
     ctx.result.set(12);
     let mut out = [0; 3];
     assert_eq!(
-        format(&host, "books", &args, &mut [0; 128], &mut out),
+        format_message(
+            &host,
+            "books",
+            &args,
+            &mut FormatBuffers::new(&mut [0; 128], &mut out)
+        ),
         Ok(12)
     );
     assert_eq!(out, *b"xxx");
@@ -106,7 +111,7 @@ fn format_encodes_signed_arguments_and_plural_count_with_generated_codec() {
 }
 
 #[test]
-fn invalid_arguments_never_reach_host_or_modify_output() {
+fn duplicate_arguments_never_reach_host_or_modify_output() {
     let table = table();
     let mut ctx = Context::default();
     let host = Host {
@@ -136,34 +141,56 @@ fn invalid_arguments_never_reach_host_or_modify_output() {
         ],
     ] {
         assert_eq!(
-            format(&host, "books", &args, &mut scratch, &mut out),
+            format_message(
+                &host,
+                "books",
+                &args,
+                &mut FormatBuffers::new(&mut scratch, &mut out)
+            ),
             Err(Error::Invalid)
         );
     }
+    assert!(ctx.inputs.borrow().is_empty());
+    assert_eq!(out, [77; 4]);
+}
+
+#[test]
+fn argument_limits_never_reach_host_or_modify_output() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut out = [77; 4];
+    let mut scratch = [0; MAX_ARGUMENT_BYTES];
     assert_eq!(
-        format(
+        format_message(
             &host,
             "x".repeat(MAX_KEY_BYTES + 1),
             &[],
-            &mut scratch,
-            &mut out
+            &mut FormatBuffers::new(&mut scratch, &mut out)
         ),
         Err(Error::NoSpace)
     );
     assert_eq!(
-        format(&host, "books", &[], &mut [], &mut out),
+        format_message(
+            &host,
+            "books",
+            &[],
+            &mut FormatBuffers::new(&mut [], &mut out)
+        ),
         Err(Error::NoSpace)
     );
     assert_eq!(
-        format(
+        format_message(
             &host,
             "books",
             &[Arg::Text {
                 name: "n",
                 value: &"x".repeat(wire::I18N_ARG_STR_VALUE_MAX_BYTES + 1)
             }],
-            &mut scratch,
-            &mut out
+            &mut FormatBuffers::new(&mut scratch, &mut out)
         ),
         Err(Error::NoSpace)
     );
@@ -181,16 +208,20 @@ fn invalid_arguments_never_reach_host_or_modify_output() {
         })
         .collect();
     assert_eq!(
-        format(&host, "books", &oversized, &mut scratch, &mut out),
+        format_message(
+            &host,
+            "books",
+            &oversized,
+            &mut FormatBuffers::new(&mut scratch, &mut out)
+        ),
         Err(Error::NoSpace)
     );
     assert_eq!(
-        format(
+        format_message(
             &host,
             "books",
             &[Arg::Count(1); wire::REGISTRATION_MAX_RECORDS + 1],
-            &mut scratch,
-            &mut out
+            &mut FormatBuffers::new(&mut scratch, &mut out)
         ),
         Err(Error::NoSpace)
     );
@@ -209,7 +240,12 @@ fn missing_keys_preserve_output_and_digits_return_required_length() {
     let mut out = [77; 4];
     ctx.result.set(abi::ERR_NOT_FOUND);
     assert_eq!(
-        format(&host, "missing", &[], &mut [0; 1], &mut out),
+        format_message(
+            &host,
+            "missing",
+            &[],
+            &mut FormatBuffers::new(&mut [0; 1], &mut out)
+        ),
         Err(Error::NotFound)
     );
     assert_eq!(out, [77; 4]);

@@ -142,7 +142,8 @@ pub trait Plugin: Sized + 'static {
     /// Returns a host refusal; a failed instance is never activated.
     fn make(host: &Host<'_>) -> Result<Self, Error>;
 
-    /// Handle one borrowed event batch for a committed callback token.
+    /// Handle one decoded event for a committed callback token.
+    /// The default implementation returns Unsupported.
     ///
     /// # Errors
     /// Returns a refusal; the host logs it and applies its delivery policy.
@@ -157,6 +158,7 @@ pub trait Plugin: Sized + 'static {
     }
 
     /// Draw using the canvas installed for this callback.
+    /// The default implementation returns Unsupported.
     ///
     /// # Errors
     /// Returns a refusal when drawing cannot complete.
@@ -170,6 +172,7 @@ pub trait Plugin: Sized + 'static {
     }
 
     /// Handle the top screen's decoded input.
+    /// The default implementation returns Handled::No.
     ///
     /// # Errors
     /// Returns a refusal, which the host treats as not handled.

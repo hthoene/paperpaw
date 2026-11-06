@@ -99,12 +99,13 @@ impl Plugin for TestPlugin {
         &mut self,
         host: &Host<'_>,
         token: u32,
-        frame: super::super::callbacks::DrawFrame<'_>,
+        mut frame: super::super::callbacks::DrawFrame<'_>,
     ) -> Result<(), Error> {
         assert_eq!(token, 43);
         assert_eq!(frame.id, 7);
+        let rect = frame.rect;
         let canvas = frame.canvas()?;
-        assert_eq!(canvas.frame_rect(), frame.rect);
+        assert_eq!(canvas.frame_rect(), rect);
         super::super::clock::micros(host)?;
         Err(Error::Busy)
     }

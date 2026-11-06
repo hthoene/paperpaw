@@ -180,21 +180,6 @@ impl FrameRect {
     }
 }
 
-/// One stack-owned drawing lease shared by every copy of a callback frame.
-#[derive(Debug)]
-pub(super) struct DrawAccess<'cb> {
-    pub(super) host: &'cb super::Host<'cb>,
-    pub(super) canvas: core::cell::RefCell<()>,
-}
-impl<'cb> DrawAccess<'cb> {
-    pub(super) fn new(host: &'cb super::Host<'cb>) -> Self {
-        Self {
-            host,
-            canvas: core::cell::RefCell::new(()),
-        }
-    }
-}
-
 /// One draw request, borrowing purpose-specific bytes from the callback.
 /// The host's canvas clips every draw call to the permitted rows.
 ///
@@ -202,10 +187,20 @@ impl<'cb> DrawAccess<'cb> {
 /// use paperpaw_sdk::native::callbacks::DrawFrame;
 /// fn escape(bytes: &[u8]) -> DrawFrame<'static> { DrawFrame::decode(bytes).unwrap() }
 /// ```
-#[derive(Clone, Copy, Debug)]
+/// ```compile_fail
+/// use paperpaw_sdk::native::callbacks::DrawFrame;
+/// fn requires_copy<T: Copy>() {}
+/// requires_copy::<DrawFrame<'static>>();
+/// ```
+/// ```compile_fail
+/// use paperpaw_sdk::native::callbacks::DrawFrame;
+/// fn requires_clone<T: Clone>() {}
+/// requires_clone::<DrawFrame<'static>>();
+/// ```
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct DrawFrame<'a> {
-    access: Option<&'a DrawAccess<'a>>,
+    host: Option<&'a super::Host<'a>>,
     /// What is being drawn.
     pub purpose: DrawPurpose,
     /// Target rectangle in screen pixels.
@@ -242,12 +237,12 @@ impl PartialEq for DrawFrame<'_> {
 impl Eq for DrawFrame<'_> {}
 
 impl<'a> DrawFrame<'a> {
-    pub(super) fn bind<'cb>(self, access: &'cb DrawAccess<'cb>) -> DrawFrame<'cb>
+    pub(super) fn bind<'cb>(self, host: &'cb super::Host<'cb>) -> DrawFrame<'cb>
     where
         'a: 'cb,
     {
         let mut frame: DrawFrame<'cb> = self;
-        frame.access = Some(access);
+        frame.host = Some(host);
         frame
     }
 
@@ -256,17 +251,25 @@ impl<'a> DrawFrame<'a> {
     ///
     /// ```compile_fail
     /// use paperpaw_sdk::native::{callbacks::DrawFrame, canvas::Canvas};
-    /// fn escape<'a>(frame: &'a DrawFrame<'a>) -> Canvas<'static> {
+    /// fn escape<'a>(frame: &'a mut DrawFrame<'a>) -> Canvas<'static> {
     ///     frame.canvas().unwrap()
     /// }
     /// ```
     ///
+    /// ```compile_fail
+    /// use paperpaw_sdk::native::callbacks::DrawFrame;
+    /// fn borrow_twice(frame: &mut DrawFrame<'_>) {
+    ///     let first = frame.canvas().unwrap();
+    ///     let second = frame.canvas().unwrap();
+    ///     let _ = first.frame_rect();
+    /// }
+    /// ```
+    ///
     /// # Errors
-    /// Returns State for a frame without a callback drawing lease, Invalid
-    /// for a malformed clip, or Busy while another canvas for this callback
-    /// is still borrowed, including a canvas obtained from a copied frame.
-    pub fn canvas(&self) -> Result<super::canvas::Canvas<'_>, Error> {
-        let access = self.access.ok_or(Error::State)?;
+    /// Returns State for a frame without a callback drawing lease, or Invalid
+    /// for a malformed clip.
+    pub fn canvas(&mut self) -> Result<super::canvas::Canvas<'_>, Error> {
+        let host = self.host.ok_or(Error::State)?;
         let frame_bottom = i64::from(self.rect.y)
             .checked_add(i64::from(self.rect.height))
             .ok_or(Error::Invalid)?;
@@ -287,7 +290,7 @@ impl<'a> DrawFrame<'a> {
             self.rect.width,
             u32::try_from(height).map_err(|_| Error::Invalid)?,
         );
-        super::canvas::Canvas::from(access, self.rect, clip)
+        Ok(super::canvas::Canvas::from(host, self.rect, clip))
     }
 
     /// Decode exactly one draw.frame record without allocating.
@@ -303,7 +306,7 @@ impl<'a> DrawFrame<'a> {
             return Err(Error::Unsupported);
         };
         Ok(Self {
-            access: None,
+            host: None,
             purpose: match r.purpose {
                 0 => DrawPurpose::Screen,
                 1 => DrawPurpose::PageLayer,

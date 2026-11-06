@@ -1,10 +1,5 @@
 //! Callback-bound drawing over the host's installed canvas.
-use super::{
-    Error, Host,
-    binding::status,
-    callbacks::{DrawAccess, FrameRect},
-    wire::color_wire::color_encode,
-};
+use super::{Error, Host, binding::status, callbacks::FrameRect, wire::color_wire::color_encode};
 use crate::{Color, Point};
 
 /// Drawing access for one native draw callback. The host owns the canvas and
@@ -23,29 +18,22 @@ use crate::{Color, Point};
 /// ```
 #[derive(Debug)]
 pub struct Canvas<'cb> {
-    access: &'cb DrawAccess<'cb>,
-    _controller: core::cell::RefMut<'cb, ()>,
+    host: &'cb Host<'cb>,
     frame: FrameRect,
     _clip: FrameRect,
 }
 
 impl<'cb> Canvas<'cb> {
-    pub(super) fn from(
-        access: &'cb DrawAccess<'cb>,
-        frame: FrameRect,
-        clip: FrameRect,
-    ) -> Result<Self, Error> {
-        let controller = access.canvas.try_borrow_mut().map_err(|_| Error::Busy)?;
-        Ok(Self {
-            access,
-            _controller: controller,
+    pub(super) fn from(host: &'cb Host<'cb>, frame: FrameRect, clip: FrameRect) -> Self {
+        Self {
+            host,
             frame,
             _clip: clip,
-        })
+        }
     }
 
     pub(super) const fn host(&self) -> &'cb Host<'cb> {
-        self.access.host
+        self.host
     }
 
     /// The target rectangle supplied with this draw callback.
@@ -61,8 +49,8 @@ impl<'cb> Canvas<'cb> {
     pub fn fill_rectangle(&self, rect: FrameRect, color: Color) -> Result<(), Error> {
         // SAFETY: the callback host outlives this canvas and all scalar inputs.
         status(unsafe {
-            (self.access.host.table.canvas_fill_rect)(
-                self.access.host.ctx,
+            (self.host.table.canvas_fill_rect)(
+                self.host.ctx,
                 rect.x,
                 rect.y,
                 rect.width,
@@ -85,8 +73,8 @@ impl<'cb> Canvas<'cb> {
     ) -> Result<(), Error> {
         // SAFETY: the callback host outlives this canvas and all scalar inputs.
         status(unsafe {
-            (self.access.host.table.canvas_draw_line)(
-                self.access.host.ctx,
+            (self.host.table.canvas_draw_line)(
+                self.host.ctx,
                 start.x,
                 start.y,
                 end.x,
@@ -109,8 +97,8 @@ impl<'cb> Canvas<'cb> {
     ) -> Result<(), Error> {
         // SAFETY: the callback host outlives this canvas and all scalar inputs.
         status(unsafe {
-            (self.access.host.table.canvas_fill_round)(
-                self.access.host.ctx,
+            (self.host.table.canvas_fill_round)(
+                self.host.ctx,
                 rect.x,
                 rect.y,
                 rect.width,
@@ -134,8 +122,8 @@ impl<'cb> Canvas<'cb> {
     ) -> Result<(), Error> {
         // SAFETY: the callback host outlives this canvas and all scalar inputs.
         status(unsafe {
-            (self.access.host.table.canvas_stroke_round)(
-                self.access.host.ctx,
+            (self.host.table.canvas_stroke_round)(
+                self.host.ctx,
                 rect.x,
                 rect.y,
                 rect.width,

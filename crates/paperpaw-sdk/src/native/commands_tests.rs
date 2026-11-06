@@ -201,3 +201,195 @@ fn default_table_reports_unsupported() {
         Err(Error::Unsupported)
     );
 }
+
+#[test]
+fn screen_commands_and_refresh_modes_use_the_generated_tags_and_scalars() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 256];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    sender.open_screen("foreign.main").unwrap();
+    sender.run_action("foreign.refresh").unwrap();
+    for mode in [
+        RedrawMode::RedrawOnly,
+        RedrawMode::Fast,
+        RedrawMode::Partial,
+        RedrawMode::Full,
+    ] {
+        sender.queue_redraw(mode).unwrap();
+    }
+    sender.close_screen().unwrap();
+    let expected = [
+        (
+            56,
+            wire::Command::OpenScreen {
+                screen: "foreign.main",
+            },
+        ),
+        (
+            57,
+            wire::Command::RunAction {
+                action: "foreign.refresh",
+            },
+        ),
+        (58, wire::Command::Redraw { mode: 0 }),
+        (58, wire::Command::Redraw { mode: 1 }),
+        (58, wire::Command::Redraw { mode: 2 }),
+        (58, wire::Command::Redraw { mode: 3 }),
+        (59, wire::Command::CloseScreen),
+    ];
+    let batches = ctx.batches.borrow();
+    assert_eq!(batches.len(), expected.len());
+    for (bytes, (tag, command)) in batches.iter().zip(expected) {
+        assert_eq!(bytes[1], tag);
+        assert_eq!(
+            wire::commands_decode(bytes)
+                .unwrap()
+                .iter()
+                .collect::<Vec<_>>(),
+            [command]
+        );
+    }
+}
+
+#[test]
+fn empty_and_overlong_screen_action_ids_are_invalid_without_effects() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [77; 256];
+    let long = "x".repeat(COMMAND_ID_MAX_BYTES + 1);
+    for id in ["", long.as_str()] {
+        let mut sender = CommandSender::new(&host, &mut scratch);
+        assert_eq!(sender.open_screen(id), Err(Error::Invalid));
+        assert_eq!(sender.run_action(id), Err(Error::Invalid));
+        assert_eq!(scratch, [77; 256]);
+    }
+    assert!(ctx.batches.borrow().is_empty());
+}
+
+#[test]
+fn short_screen_command_buffers_are_unchanged_and_never_submitted() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [77; 1];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    assert_eq!(sender.open_screen("battery.main"), Err(Error::NoSpace));
+    assert_eq!(sender.run_action("battery.refresh"), Err(Error::NoSpace));
+    assert_eq!(
+        sender.queue_redraw(RedrawMode::Partial),
+        Err(Error::NoSpace)
+    );
+    assert_eq!(sender.close_screen(), Err(Error::NoSpace));
+    assert_eq!(scratch, [77; 1]);
+    assert!(ctx.batches.borrow().is_empty());
+}
+
+#[test]
+fn screen_command_host_errors_are_preserved_and_default_table_is_unsupported() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 128];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    for (code, error) in [
+        (abi::ERR_NOT_FOUND, Error::NotFound),
+        (abi::ERR_BUSY, Error::Busy),
+        (abi::ERR_STATE, Error::State),
+        (-901, Error::Other(-901)),
+    ] {
+        ctx.result.set(code);
+        assert_eq!(sender.open_screen("battery.main"), Err(error));
+        assert_eq!(sender.run_action("battery.refresh"), Err(error));
+        assert_eq!(sender.queue_redraw(RedrawMode::Full), Err(error));
+        assert_eq!(sender.close_screen(), Err(error));
+    }
+    let table = abi::host_table();
+    let host = Host {
+        table: &table,
+        ctx: ptr::null_mut(),
+    };
+    let mut scratch = [0; 128];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    assert_eq!(sender.open_screen("battery.main"), Err(Error::Unsupported));
+    assert_eq!(
+        sender.run_action("battery.refresh"),
+        Err(Error::Unsupported)
+    );
+    assert_eq!(
+        sender.queue_redraw(RedrawMode::Partial),
+        Err(Error::Unsupported)
+    );
+    assert_eq!(sender.close_screen(), Err(Error::Unsupported));
+}
+
+#[test]
+fn similar_setting_prefixes_are_not_mistaken_for_user_grants() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 128];
+    CommandSender::new(&host, &mut scratch)
+        .set_setting("core.granted", SettingValue::Bool(true))
+        .unwrap();
+    let batches = ctx.batches.borrow();
+    assert_eq!(batches.len(), 1);
+    assert_eq!(
+        wire::commands_decode(&batches[0])
+            .unwrap()
+            .iter()
+            .collect::<Vec<_>>(),
+        [wire::Command::SetSetting {
+            key: "core.granted",
+            value: SettingValueRef::Bool(true)
+        }]
+    );
+}
+
+#[test]
+fn full_length_screen_and_action_ids_remain_accepted() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let id = alloc::format!("battery.{}", "a".repeat(COMMAND_ID_MAX_BYTES - 8));
+    let mut scratch = [0; 256];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    sender.open_screen(&id).unwrap();
+    sender.run_action(&id).unwrap();
+    let batches = ctx.batches.borrow();
+    assert_eq!(batches.len(), 2);
+    assert_eq!(
+        wire::commands_decode(&batches[0])
+            .unwrap()
+            .iter()
+            .collect::<Vec<_>>(),
+        [wire::Command::OpenScreen { screen: &id }]
+    );
+    assert_eq!(
+        wire::commands_decode(&batches[1])
+            .unwrap()
+            .iter()
+            .collect::<Vec<_>>(),
+        [wire::Command::RunAction { action: &id }]
+    );
+}

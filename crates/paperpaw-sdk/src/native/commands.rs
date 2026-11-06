@@ -8,6 +8,34 @@ use super::{
 use core::fmt;
 use paperpaw_native::host_glue::PpBytes;
 
+/// Largest screen or action id accepted by the command contract.
+const COMMAND_ID_MAX_BYTES: usize = 128;
+
+/// Refresh requested after redrawing the submitting plugin's top screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RedrawMode {
+    /// Redraw without requesting a display refresh.
+    RedrawOnly,
+    /// Request the fastest refresh.
+    Fast,
+    /// Request a partial refresh.
+    Partial,
+    /// Request a full refresh.
+    Full,
+}
+
+impl RedrawMode {
+    const fn wire(self) -> u32 {
+        match self {
+            Self::RedrawOnly => 0,
+            Self::Fast => 1,
+            Self::Partial => 2,
+            Self::Full => 3,
+        }
+    }
+}
+
 /// Submit typed commands during one callback without allocating.
 /// Each method stages its batch immediately. Dropping sends nothing, and an
 /// error does not prevent later calls. The host applies accepted commands after
@@ -64,9 +92,51 @@ impl<'cb, 'buf> CommandSender<'cb, 'buf> {
             SettingValue::Int(value) => SettingValueRef::Int(value),
             SettingValue::Text(value) => SettingValueRef::Text(value),
         };
-        let length =
-            wire::commands_encode(&[wire::Command::SetSetting { key, value }], self.scratch)
-                .map_err(Error::from_status)?;
+        self.submit(wire::Command::SetSetting { key, value })
+    }
+
+    /// Stage opening a registered screen, including another plugin's screen.
+    ///
+    /// # Errors
+    /// Returns Invalid for an empty or overlong id, NoSpace for short scratch,
+    /// or the host's refusal, including NotFound for an unregistered screen.
+    pub fn open_screen(&mut self, screen: impl AsRef<str>) -> Result<(), Error> {
+        let screen = screen.as_ref();
+        check_id(screen)?;
+        self.submit(wire::Command::OpenScreen { screen })
+    }
+
+    /// Stage running a registered action, including another plugin's action.
+    ///
+    /// # Errors
+    /// Returns Invalid for an empty or overlong id, NoSpace for short scratch,
+    /// or the host's refusal, including NotFound for an unregistered action.
+    pub fn run_action(&mut self, action: impl AsRef<str>) -> Result<(), Error> {
+        let action = action.as_ref();
+        check_id(action)?;
+        self.submit(wire::Command::RunAction { action })
+    }
+
+    /// Stage a redraw and refresh request for this plugin's top screen.
+    ///
+    /// # Errors
+    /// Returns NoSpace for short scratch or the host's refusal, including State
+    /// when the submitting plugin does not own the screen on top.
+    pub fn queue_redraw(&mut self, mode: RedrawMode) -> Result<(), Error> {
+        self.submit(wire::Command::Redraw { mode: mode.wire() })
+    }
+
+    /// Stage closing this plugin's screen on top.
+    ///
+    /// # Errors
+    /// Returns NoSpace for short scratch or the host's refusal, including State
+    /// when the submitting plugin does not own the screen on top.
+    pub fn close_screen(&mut self) -> Result<(), Error> {
+        self.submit(wire::Command::CloseScreen)
+    }
+
+    fn submit(&mut self, command: wire::Command<'_>) -> Result<(), Error> {
+        let length = wire::commands_encode(&[command], self.scratch).map_err(Error::from_status)?;
         // SAFETY: the host binding and initialized scratch prefix live for this
         // synchronous call; the host copies any command data it retains.
         status(unsafe {
@@ -78,6 +148,14 @@ impl<'cb, 'buf> CommandSender<'cb, 'buf> {
                 },
             )
         })
+    }
+}
+
+fn check_id(id: &str) -> Result<(), Error> {
+    if id.is_empty() || id.len() > COMMAND_ID_MAX_BYTES {
+        Err(Error::Invalid)
+    } else {
+        Ok(())
     }
 }
 

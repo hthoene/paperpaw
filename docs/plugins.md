@@ -2638,9 +2638,11 @@ callback. Decoders reject unknown exact tags and invalid input enum values.
 
 Declare screens and actions with `native::declare::ScreenDecl` and `ActionDecl`.
 Decode their shown/run events with `native::events::Event::decode`. Format catalog strings
-with `native::formatting::format` using caller-owned argument scratch and output;
-`digits` maps ASCII digits. Both return the full required byte length, so retry
-when the result exceeds the output capacity.
+with `native::formatting::format_message(host, key, args, &mut buffers)`.
+Create `FormatBuffers::new(scratch, out)` to name the temporary argument encoding
+storage and translated output separately; neither buffer is allocated by the SDK.
+`digits` maps ASCII digits. Both functions return the full required byte length,
+so retry when the result exceeds the output capacity.
 
 ### Native host wrappers for the Battery pilot
 

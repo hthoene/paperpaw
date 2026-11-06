@@ -207,6 +207,6 @@ fn callback_decoders_require_exact_single_records_and_complete_framing() {
 #[test]
 fn directly_decoded_frame_has_no_callback_canvas_lease() {
     let bytes = encode(&[Record::DrawFrame(frame(0))]);
-    let decoded = DrawFrame::decode(&bytes).unwrap();
+    let mut decoded = DrawFrame::decode(&bytes).unwrap();
     assert_eq!(decoded.canvas().unwrap_err(), Error::State);
 }

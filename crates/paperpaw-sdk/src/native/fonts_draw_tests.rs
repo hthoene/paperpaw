@@ -1,9 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail tests")]
 use super::*;
-use crate::native::{
-    callbacks::{DrawAccess, DrawFrame},
-    declare::records_wire as wire,
-};
+use crate::native::{callbacks::DrawFrame, declare::records_wire as wire};
 use alloc::string::String;
 use core::{
     cell::{Cell, RefCell},
@@ -69,7 +66,7 @@ fn drawing_table() -> PpHost {
     table.text_draw = font_drawing_slot;
     table
 }
-fn bound_frame<'a>(access: &'a DrawAccess<'a>, out: &'a mut [u8]) -> DrawFrame<'a> {
+fn bound_frame<'a>(host: &'a Host<'a>, out: &'a mut [u8]) -> DrawFrame<'a> {
     let len = wire::records_encode(
         &[wire::Record::DrawFrame(wire::DrawFrame {
             purpose: 0,
@@ -85,7 +82,7 @@ fn bound_frame<'a>(access: &'a DrawAccess<'a>, out: &'a mut [u8]) -> DrawFrame<'
         out,
     )
     .unwrap();
-    DrawFrame::decode(&out[..len]).unwrap().bind(access)
+    DrawFrame::decode(&out[..len]).unwrap().bind(host)
 }
 #[test]
 fn text_draw_preserves_every_scalar_color_and_status() {
@@ -96,9 +93,8 @@ fn text_draw_preserves_every_scalar_color_and_status() {
         ctx: ptr::from_mut(&mut ctx).cast(),
     };
     let font = Font::acquire_role(&host, FontRole::Ui).unwrap();
-    let access = DrawAccess::new(&host);
     let mut bytes = [0; 256];
-    let frame = bound_frame(&access, &mut bytes);
+    let mut frame = bound_frame(&host, &mut bytes);
     let canvas = frame.canvas().unwrap();
     let origin = TextOrigin::new(-12.25, i32::MIN);
     assert_eq!(
@@ -139,9 +135,8 @@ fn invalid_text_inputs_do_not_reach_the_host() {
         ctx: ptr::from_mut(&mut ctx).cast(),
     };
     let font = Font::acquire(&host, "role:ui").unwrap();
-    let access = DrawAccess::new(&host);
     let mut bytes = [0; 256];
-    let frame = bound_frame(&access, &mut bytes);
+    let mut frame = bound_frame(&host, &mut bytes);
     let canvas = frame.canvas().unwrap();
     for size in [0.0, -1.0, f32::NAN, f32::INFINITY] {
         assert_eq!(
@@ -180,9 +175,8 @@ fn font_cannot_be_drawn_through_another_host_binding() {
         ctx: ptr::from_mut(&mut second).cast(),
     };
     let font = Font::acquire(&owner, "role:ui").unwrap();
-    let access = DrawAccess::new(&other);
     let mut bytes = [0; 256];
-    let frame = bound_frame(&access, &mut bytes);
+    let mut frame = bound_frame(&other, &mut bytes);
     let canvas = frame.canvas().unwrap();
     assert_eq!(
         font.render_text(&canvas, 12.0, TextOrigin::new(0.0, 0), Color::BLACK, "x"),

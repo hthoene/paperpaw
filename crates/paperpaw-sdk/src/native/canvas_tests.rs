@@ -101,8 +101,7 @@ fn canvas_preserves_full_width_scalars_and_rgb_in_every_slot() {
         ctx: ptr::from_mut(&mut ctx).cast(),
     };
     let frame = FrameRect::new(-7, 13, 70_000, 90_000);
-    let access = DrawAccess::new(&host);
-    let canvas = Canvas::from(&access, frame, frame).unwrap();
+    let canvas = Canvas::from(&host, frame, frame);
     assert_eq!(canvas.frame_rect(), frame);
     let bounds = FrameRect::new(i32::MIN, i32::MAX, u32::MAX, 70_001);
     let color = Color::rgb(0x12, 0x34, 0x56);
@@ -163,13 +162,11 @@ fn host_drawing_admission_and_errors_are_preserved() {
         table: &table,
         ctx: ptr::from_mut(&mut ctx).cast(),
     };
-    let access = DrawAccess::new(&host);
     let canvas = Canvas::from(
-        &access,
+        &host,
         FrameRect::new(0, 0, 600, 800),
         FrameRect::new(0, 0, 600, 800),
-    )
-    .unwrap();
+    );
     assert_operations(&canvas, Err(Error::State));
     assert!(ctx.calls.borrow().is_empty());
     ctx.drawing.set(true);
@@ -194,13 +191,11 @@ fn default_host_table_refuses_every_canvas_operation() {
         table: &table,
         ctx: ptr::from_mut(&mut ctx).cast(),
     };
-    let access = DrawAccess::new(&host);
     let canvas = Canvas::from(
-        &access,
+        &host,
         FrameRect::new(0, 0, 600, 800),
         FrameRect::new(0, 0, 600, 800),
-    )
-    .unwrap();
+    );
     assert_operations(&canvas, Err(Error::Unsupported));
 }
 
@@ -234,9 +229,8 @@ fn bound_draw_frame_exposes_exact_callback_canvas_and_clip() {
     };
     let bytes = draw_bytes();
     let decoded = DrawFrame::decode(&bytes).unwrap();
-    let access = DrawAccess::new(&host);
-    let bound = decoded.bind(&access);
-    assert_eq!(decoded, bound);
+    let mut bound = decoded.bind(&host);
+    assert_eq!(DrawFrame::decode(&bytes).unwrap(), bound);
     let canvas = bound.canvas().unwrap();
     assert_eq!(
         canvas.frame_rect(),
@@ -264,21 +258,20 @@ fn callback_canvas_refuses_mutated_invalid_frames_before_drawing() {
         ctx: ptr::from_mut(&mut ctx).cast(),
     };
     let bytes = draw_bytes();
-    let access = DrawAccess::new(&host);
-    let original = DrawFrame::decode(&bytes).unwrap().bind(&access);
+    let original = || DrawFrame::decode(&bytes).unwrap().bind(&host);
     for (top, bottom) in [(-21, 0), (0, 80_000), (9, 9), (10, 9)] {
-        let mut frame = original;
+        let mut frame = original();
         frame.clip_top = top;
         frame.clip_bottom = bottom;
         assert_eq!(frame.canvas().unwrap_err(), Error::Invalid);
     }
-    let mut empty_width = original;
+    let mut empty_width = original();
     empty_width.rect.width = 0;
     assert_eq!(empty_width.canvas().unwrap_err(), Error::Invalid);
-    let mut empty_height = original;
+    let mut empty_height = original();
     empty_height.rect.height = 0;
     assert_eq!(empty_height.canvas().unwrap_err(), Error::Invalid);
-    let mut frame = original;
+    let mut frame = original();
     frame.rect.y = i32::MIN;
     frame.rect.height = u32::MAX;
     frame.clip_top = i32::MIN;
@@ -291,7 +284,7 @@ fn callback_canvas_refuses_mutated_invalid_frames_before_drawing() {
 }
 
 #[test]
-fn copied_frames_share_one_exclusive_canvas_controller() {
+fn dropping_canvas_allows_another_borrow_of_the_same_frame() {
     use super::super::callbacks::DrawFrame;
     let table = table();
     let mut ctx = Context::default();
@@ -299,17 +292,14 @@ fn copied_frames_share_one_exclusive_canvas_controller() {
         table: &table,
         ctx: ptr::from_mut(&mut ctx).cast(),
     };
-    let access = DrawAccess::new(&host);
     let bytes = draw_bytes();
-    let frame = DrawFrame::decode(&bytes).unwrap().bind(&access);
-    let copied = frame;
+    let mut frame = DrawFrame::decode(&bytes).unwrap().bind(&host);
+    let rect = frame.rect;
     let first = frame.canvas().unwrap();
-    assert_eq!(copied.canvas().unwrap_err(), Error::Busy);
-    assert_eq!(frame.canvas().unwrap_err(), Error::Busy);
+    assert_eq!(first.frame_rect(), rect);
     drop(first);
-    let second = copied.canvas().unwrap();
-    assert_eq!(second.frame_rect(), frame.rect);
-    assert_eq!(frame.canvas().unwrap_err(), Error::Busy);
+    let second = frame.canvas().unwrap();
+    assert_eq!(second.frame_rect(), rect);
     drop(second);
     assert!(frame.canvas().is_ok());
 }

@@ -25,6 +25,26 @@ pub enum Arg<'a> {
     /// The plural selector, also bound to the name `count`.
     Count(i64),
 }
+
+/// Caller-owned storage for formatting a catalog message without allocating.
+/// `scratch` contains only the encoded arguments; `out` receives the message.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct FormatBuffers<'scratch, 'out> {
+    /// Temporary argument encoding storage, bounded by [`MAX_ARGUMENT_BYTES`].
+    pub scratch: &'scratch mut [u8],
+    /// Destination for the translated message's byte prefix.
+    pub out: &'out mut [u8],
+}
+impl<'scratch, 'out> FormatBuffers<'scratch, 'out> {
+    /// Assign separate buffers to argument encoding and translated output.
+    /// The buffers can be reused after the formatter's mutable borrow ends.
+    #[must_use]
+    pub fn new(scratch: &'scratch mut [u8], out: &'out mut [u8]) -> Self {
+        Self { scratch, out }
+    }
+}
+
 impl Arg<'_> {
     fn name(&self) -> &str {
         match self {
@@ -100,21 +120,23 @@ pub fn copy_message<'a>(
 }
 
 /// Format a catalog key, optionally selecting its plural form with [`Arg::Count`].
-/// `scratch` holds only the encoded arguments and can be reused after the call.
-/// Returns the full UTF-8 byte length, even when only `out.len()` bytes fit.
+/// [`FormatBuffers::scratch`] holds only encoded arguments;
+/// [`FormatBuffers::out`] receives the translated message. Returns the full
+/// UTF-8 byte length, even when only the output buffer's byte prefix fits.
 /// Retry with a larger output buffer when the returned length exceeds its capacity.
 /// A partial output can end inside a UTF-8 character.
 ///
 /// # Errors
 /// Returns NoSpace for field, argument or scratch limits; Invalid for duplicate
 /// names or plural selectors; or the host refusal. A missing key leaves `out` unchanged.
-pub fn format(
+pub fn format_message(
     host: &Host<'_>,
     key: impl AsRef<str>,
     args: &[Arg<'_>],
-    scratch: &mut [u8],
-    out: &mut [u8],
+    buffers: &mut FormatBuffers<'_, '_>,
 ) -> Result<usize, Error> {
+    let scratch = &mut *buffers.scratch;
+    let out = &mut *buffers.out;
     let key = key.as_ref();
     if key.len() > MAX_KEY_BYTES || args.len() > wire::REGISTRATION_MAX_RECORDS {
         return Err(Error::NoSpace);
