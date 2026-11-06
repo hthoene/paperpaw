@@ -1,4 +1,4 @@
-//! One hosted plugin, made and committed, as the kernel's [`FlatInstance`]:
+//! One hosted plugin, made and committed, as the kernel's [`FlatInstance`](crate::native_host::flat::FlatInstance):
 //! what the desktop and the X4 both need around [`Hosted`], once.
 //!
 //! The instance owns the pinned [`Hosted`] and the batch that borrows it
