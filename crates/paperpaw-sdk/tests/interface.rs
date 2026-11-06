@@ -208,6 +208,13 @@ fn bless_refused(
     if !breaking && !layouts_changed(kept, now, arch) {
         return None;
     }
+    if interface == kept_interface && kept_draft != 0 {
+        return Some(format!(
+            "what plugins see changed at draft {kept_draft} of interface {interface}: take the \
+             next draft first (native::DRAFT {}), or 0 to freeze",
+            kept_draft + 1
+        ));
+    }
     if interface <= kept_interface {
         return Some(format!(
             "what plugins see changed: raise native::INTERFACE (now {interface}) first"
@@ -1161,11 +1168,14 @@ fn what_plugins_see_changes_only_with_the_interface() {
     );
     assert!(
         !breaking,
-        "what plugins built before rely on changed, so they would not run: raise \
-         native::INTERFACE to {} and write the files anew (PAPERPAW_BLESS=1 cargo test -p \
-         paperpaw-sdk --test interface). The linker script, the compilers and the crates of \
-         others {}. Changed:\n{}",
-        INTERFACE + 1,
+        "what plugins built before rely on changed, so they would not run: {} and write the \
+         files anew (PAPERPAW_BLESS=1 cargo test -p paperpaw-sdk --test interface). The linker \
+         script, the compilers and the crates of others {}. Changed:\n{}",
+        if DRAFT != 0 {
+            format!("take the next draft (native::DRAFT {})", DRAFT + 1)
+        } else {
+            format!("raise native::INTERFACE to {}", INTERFACE + 1)
+        },
         if rest_same {
             "are as they were"
         } else {

@@ -83,6 +83,18 @@ fn a_draft_changes_only_with_the_next_draft_and_a_frozen_one_never() {
     assert!(bless_refused(&at_one, true, Fingerprint(one), 1, "x86_64").is_some());
     assert!(bless_refused(&at_one, false, now, 1, "x86_64").is_some());
     assert!(bless_refused(&kept_draft(7, 3, one), true, now, 2, "x86_64").is_some());
+    // The message at a draft names the next draft, at a frozen interface the raise.
+    let at_draft = bless_refused(&at_one, false, now, 1, "x86_64").unwrap();
+    assert!(
+        at_draft.contains("next draft first (native::DRAFT 2)"),
+        "{at_draft}"
+    );
+    assert!(!at_draft.contains("raise native::INTERFACE"), "{at_draft}");
+    let frozen = bless_refused(&kept_draft(7, 0, one), true, now, 0, "x86_64").unwrap();
+    assert!(
+        frozen.contains("raise native::INTERFACE (now 7)"),
+        "{frozen}"
+    );
     // What plugins do not see changes at the draft kept, as at any interface.
     assert_eq!(
         bless_refused(&at_one, false, Fingerprint(one), 1, "x86_64"),
