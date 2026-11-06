@@ -1,0 +1,21 @@
+# The stack frames of the X4's panic path, checked in CI against the
+# firmware as built (`paperpaw-sign frames <elf> --budget shells/xteink/
+# frame-budget.txt`). The band at the stack's end keeps 2 KiB below it for
+# the panic handler (`paperpaw_x4::stack_band::RESERVE`), counted from the
+# stack pointer; the handler's real depth is measured on the device. This is
+# the build-time half: a change that makes these functions' frames larger
+# fails the build instead of the reserve.
+#
+# frame <bytes> <name>      the largest frame of a function whose path holds <name>
+# chain <bytes> <name>...   the frames of each name, summed
+#
+# Frames today (riscv32imc, release): the panic handler with its 400-byte
+# message 896, `crash::panic`'s closures 272, ExceptionHandler 96,
+# core::fmt::write 64. The trap frame (esp-hal's assembly, no function of
+# its own, about 144 bytes) and what the handler's callees add come out of
+# the chain's allowance.
+frame 1024 rust_begin_unwind
+frame 320 crash::panic
+frame 128 ExceptionHandler
+frame 96 core::fmt::write
+chain 1792 rust_begin_unwind crash::panic ExceptionHandler core::fmt::write esp_println::logger

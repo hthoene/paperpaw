@@ -319,6 +319,14 @@ jobs:
       - name: The sample code plugin fits the firmware
         id: native
         uses: ./.github/actions/native-sample
+      # The panic handler's frames stay within what the stack band keeps
+      # for it (`shells/xteink/frame-budget.txt`).
+      - name: The panic path's stack frames fit the reserve
+        if: matrix.device == 'x4' || matrix.device == 'x3'
+        run: |
+          cargo run -q --release -p paperpaw-sign -- frames \
+            shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink \
+            --budget shells/xteink/frame-budget.txt
       # A code plugin's file is the same wherever it is built, as the
       # plugin library's rebuild needs: the sample, as its author's
       # repository has it (the SDK from a registry), built in two folders

@@ -16,6 +16,8 @@ pub const SHT_NOBITS: u32 = 8;
 pub const SHT_REL: u32 = 9;
 pub const SHF_WRITE: u32 = 1;
 pub const SHF_ALLOC: u32 = 2;
+/// A section with machine instructions.
+pub const SHF_EXECINSTR: u32 = 4;
 pub const SHN_UNDEF: u16 = 0;
 /// The first of the section indices with a meaning of their own.
 pub const SHN_LORESERVE: u16 = 0xff00;
