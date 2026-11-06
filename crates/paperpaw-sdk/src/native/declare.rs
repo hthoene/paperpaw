@@ -62,10 +62,10 @@ pub const CHOICES_MAX_VALUES: usize = 32;
 /// Longest choice value in bytes.
 pub const CHOICE_MAX_BYTES: usize = 96;
 
-/// Setting flags of a `setting.spec` record.
 /// The encoder's status for "does not fit".
 const ERR_NO_SPACE: i32 = paperpaw_native::host_glue::ERR_NO_SPACE;
 
+/// Setting flags of a `setting.spec` record.
 const SPEC_SCOPED: u32 = 1;
 const SPEC_GUARDED: u32 = 1 << 1;
 const SPEC_KEPT_ON_RESET: u32 = 1 << 2;
