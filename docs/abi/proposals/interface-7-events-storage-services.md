@@ -203,7 +203,181 @@ and `progress` precision. Q4 queue/drop policy. Q5 shell cadence and power-cut o
 
 ## 2. Storage slots
 
-(placeholder)
+### 2.1 Facts
+
+- [V] **No storage slot exists** in slots 0-19, and the default table answers
+  `ERR_UNSUPPORTED` for everything but heap and clock
+  (`crates/paperpaw-native/src/host_glue.rs:325-353`). Storage must be new slots.
+  ADR34 section 3 says `Storage` becomes a plugin-side proxy over host entries
+  ("open, read, write, list with a visitor callback, rename, sync, atomic replace",
+  ADR34:216).
+- [V] Battery uses six operations: `size`, `read_at`, `append`, `rename`, `remove`,
+  `sync` (`plugins/battery/src/lib.rs:76-96,131`; `log.rs:159-190` on the 734 ref). It
+  never lists, opens, truncates or overwrites in place. Its files are in
+  `.paperpaw/plugins/battery/` (`Env::plugin_dir`,
+  `crates/paperpaw-sdk/src/env.rs:1042`): `log.csv`, `log.old.csv`, `plugins.csv`,
+  `plugins.old.csv`, each rotated at 128 KiB (`log.rs:37`), so at most about 512 KiB.
+- [V] The SDK `Storage` trait is path based and stateless (`platform/storage.rs:118-`):
+  `write` "atomically where the medium allows", `append` "may keep what is appended back
+  until `sync`", `rename` replaces a file, `remove` of a missing file is fine, `sync` writes
+  back everything.
+- [V] `Env::storage()` hands a plugin the **whole device storage** (`env.rs:680-684`).
+  Nothing confines a plugin to its folder today. ADR 0024 accepts this: "No sandbox", and
+  manifests "say, they do not confine" (`docs/adr/0024-native-code-plugins.md:48,215-229`).
+  `plain_path` only guards paths from outside (transfer servers) (`sdk/src/files.rs:120`).
+- [V] Path grammar: `is_valid_path` refuses empty, `.`, `..`, empty segments, `\`, `:`,
+  control chars, trailing dot/space and Windows device names
+  (`platform/storage.rs:451-465`); `FatStorage` also refuses its own temp names and journal
+  (`paperpaw-fat/src/lib.rs:198-205`).
+- [V] Metering already exists: `Metered` counts bytes read/written for the plugin that is
+  running (`paperpaw-core/src/meter.rs:180-`, `io` at `:119-`), shown by Battery itself.
+- [V] **Power loss on FAT32 (paperpaw-fat).**
+  - `write` goes through a temp file written whole and synced, then renamed/replaced:
+    "Cut off at any point, a file reads its old content or its new one, whole"
+    (`paperpaw-fat/src/lib.rs:55-62`; code `:935-985`; tests `tests.rs` `cut_images`,
+    `a_file_written_anew_is_found_after_any_cut` etc.).
+  - `rename` adds the new entry before removing the old: cut between, the entry is at both
+    places, never neither (`lib.rs:~64-72`); rename-over-existing is tested
+    (`tests.rs:~591`).
+  - `append` is **not atomic and not durable**: "kept in the open file until it is written
+    back" and "written back when a call that changes the card returns (but
+    `Storage::append`) and on `sync`" (`lib.rs:6-16,22-27,1226-1247`; `tests.rs:295-322`).
+    So an unsynced appended tail can be lost by a cut. Up to `OPEN_FILES = 16` files are
+    kept open (`lib.rs:120`).
+  - On a full card an append applies "as far as it came" (`lib.rs:~1239`, comment "As far
+    as it came, where the card is full"), i.e. **a failed append can leave a partial
+    record**. `FatStorage` implements neither `truncate` nor `write_at` (default
+    `Unsupported`), so the host cannot roll it back.
+  - Block write order: changed blocks reach the card "in the order they were changed, and
+    before whole blocks written past them: cut off at any point, the disk holds the changes
+    up to one of them" (`paperpaw-fat/src/disk.rs:14-18`).
+  - **Not verified:** no existing cut test targets an append or a `sync` in flight (the
+    cut tests cover write, remove, rename, move; `after_cuts.rs:169` appends only *after*
+    a cut). What a cut mid-append leaves in the last cluster (short tail, or stale bytes
+    inside a size that already covers them) is therefore an inference, not a measured
+    result.
+- [V] `write_whole` needs room for a temp copy of the file before the old one is
+  replaced (`lib.rs:955-985`), so a full card also stops the kernel's own atomic saves
+  (settings use the same pattern).
+
+### 2.2 Decisions (proposed)
+
+**D2.1 New slots, path based, no handles.** [P] Append seven entries at the end of
+the table (ids 20-26), all `since 1`, `reentry deny`:
+
+| Id | Entry | Arguments (after `ctx`) | Result | Effect |
+| --- | --- | --- | --- | --- |
+| 20 | `storage.size` | `root: u32`, `path: bytes`, `out: out_u64` | status | query |
+| 21 | `storage.read_at` | `root: u32`, `path: bytes`, `offset: u64`, `out: buffer` | count | query |
+| 22 | `storage.write` | `root: u32`, `path: bytes`, `data: bytes` | status | mutate |
+| 23 | `storage.append` | `root: u32`, `path: bytes`, `data: bytes` | status | mutate |
+| 24 | `storage.rename` | `root: u32`, `from: bytes`, `to: bytes` | status | mutate |
+| 25 | `storage.remove` | `root: u32`, `path: bytes` | status | mutate |
+| 26 | `storage.sync` | (none) | status | mutate |
+
+Why path based: it mirrors the SDK trait and Battery's six calls one to one, `FatStorage`
+already caches open files by path (`lib.rs:849-890`), a handle would add lifetimes, a
+per-plugin handle cap (the registry allows only 4 live handles per owner,
+`abi7/handles.rs:8`, shared with fonts and blobs) and leak cleanup on unload, and no
+existing consumer needs one. A handle-based open/read/write set can be appended later
+without touching these. Why one entry per operation rather than a multiplexed
+`storage.op`: per-entry `since` and `needs_minor` (`abi/metadata.md`), typed generated
+stubs, per-entry `max_bytes`.
+**[Q]** the generator accepts two `bytes` arguments but has one `max_bytes` per entry
+(`abi-gen.py:123,133`); `rename`'s two paths share the cap (not verified that codegen
+handles two `bytes` arguments; needs a test).
+
+**D2.2 `root` selects the namespace; M1 implements root 0 only.** [P]
+- `root = 0` (PLUGIN): the host prefixes `.paperpaw/plugins/<id>/` where `<id>` is
+  stamped from the plugin's owner identity, never read from the call (ADR34:339
+  "Namespaces are stamped, not claimed"). The plugin passes a relative path.
+- `root = 1` (CARD, user files such as books, excluding `.paperpaw`) and later roots are
+  **reserved**: `ERR_UNSUPPORTED` until the owner decides how `Uses`/metadata gate them
+  (ADR 0024 lists "storage, other plugins' data" as declared uses). The argument is in the
+  signature now because slot signatures cannot change after release.
+- This confinement is **hygiene and accounting, not a security boundary**: a native plugin
+  can still write anywhere through the CPU (ADR 0024:48, 226-229). It gives a contract
+  that works for emulator, wasm and Android hosts, per-plugin metering and clean uninstall.
+  **[Q]** whether the owner wants this at all, given "plugins should have as much room as
+  possible" (ADR 0024:36-39).
+
+**D2.3 Path rules.** [P] Relative, UTF-8, at most 512 bytes total and 255 per segment;
+valid per `is_valid_path` (so `..`, absolute, `\`, `:` are `ERR_INVALID`), plus the FAT
+temp-name/journal refusal (`fat lib.rs:198`). Validation happens on the plugin-relative
+string **before** the prefix is added; the joined path is built in a 640-byte stack buffer
+and re-checked. FAT ignores case, so `Log.csv` and `log.csv` name one file (document it).
+Hidden names (`.x`) are allowed inside the plugin root (plugins keep hidden files).
+
+**D2.4 Sizes.** [P] `path` <= 512; `data` for `write` and `append` <= 4096 per call;
+`read_at` buffer <= 4096 per call (the entry's `max_bytes`); a longer write is chunked by
+the plugin. Zero-length `append` creates the file; zero-length `write` creates an empty file.
+`read_at` returns bytes copied, 0 at end of file, like `blob.read` (`abi.def` entry 18).
+
+**D2.5 Atomicity and durability contract (what the doc must promise).** [P]
+- `storage.write` (<= 4096 B): atomic replace; after a cut the file is old or new, whole
+  (verified for FAT above). Parent folders under the plugin root are created.
+- Atomic replace of **more** than 4096 B is composed by the plugin: `append` chunks to
+  `name.tmp`, `storage.sync`, `storage.rename(name.tmp, name)`. This is power-safe given
+  the rename property above. **Verify** rename-over-existing of a file written by
+  `append` (not `write`) with a cut test before relying on it.
+- `storage.append`: appended bytes are **in the file for reads at once but durable only
+  after `storage.sync`**; one call is not atomic. After a cut the file holds a prefix of
+  the appended stream, possibly with a torn last record (see the unverified item). The
+  contract for plugin authors: records are newline- or length-framed, readers discard an
+  unterminated or unparsable tail, and anything after the last `sync` may be lost.
+- Battery fits: its log is CSV, line framed, and the reader already drops damaged lines
+  one by one (`log.rs:159-190`; `src/log/hostile_tests.rs`). Syncs every 10 minutes and at
+  sleep/stop are its data-loss bound (`lib.rs:128-131`: "an empty battery ends it all
+  without warning"). The plugin facade should chunk `plugins.csv` appends **on line
+  boundaries** (a full `plugin_lines` string can reach ~5 KB, over the 4096 cap).
+- Framing for binary logs is not provided by the host. **[Q]** whether to offer a
+  host-framed `storage.append_record` (length + CRC, torn-tail detection by the host).
+- `storage.sync` flushes all kept-back data of the device (that is what `FatStorage::sync`
+  does, `lib.rs:1249-1263`), not only the caller's. **[Q]** rate limit or accounting per
+  plugin, since a plugin can force frequent card writes (Battery's comment on card wear,
+  `lib.rs:128-130`).
+
+**D2.6 Quota: accounting plus a free-space reserve, no hard per-plugin quota in M1.** [P]
+`Metered` already counts bytes per plugin (`meter.rs:119-129`). Add a **reserve**: `append`
+and `write` fail with `ERR_FULL` when `free_space()` would drop under a reserve (proposal
+256 KiB or 1 % of the card, whichever is larger) so the kernel's own temp-and-replace saves
+still succeed (`lib.rs:955`). Reason: otherwise one plugin can make settings saves fail.
+A hard per-plugin byte quota would need a directory walk (FAT has no cheap folder size)
+and contradicts ADR 0024's "as much room as possible"; offered as **[Q]** with default
+off. `free_space()` is a progressive estimate on the X4 (`lib.rs:1325-1345`), so the
+check is best effort.
+
+### 2.3 Failure semantics
+
+| Condition | Status | State left |
+| --- | --- | --- |
+| Bad pointer/length, path invalid, over caps | `ERR_INVALID` / `ERR_NO_SPACE` (too large) | nothing touched |
+| Non-UTF-8 path | `ERR_UTF8` | nothing touched |
+| Root unknown or unimplemented | `ERR_UNSUPPORTED` | nothing touched |
+| No frame/owner (call outside a callback) | `ERR_STATE` | nothing touched |
+| Missing file (`size`, `read_at`, `rename` source) | `ERR_NOT_FOUND` | nothing touched |
+| `remove` of a missing file | `OK` (trait semantics) | - |
+| Card full or reserve hit | `ERR_FULL` | `write`: old content intact (temp removed, `lib.rs:962-971`). `append`: **a partial tail may remain** (documented) |
+| I/O error, card removed | `ERR_IO` | as the medium left it; `write` old-or-new |
+| Re-entry from inside the same plugin's dispatch | `ERR_BUSY` before any effect | nothing touched |
+
+### 2.4 Memory (256 KiB heap)
+
+Host: no heap per call (stack path buffer <= 640 B, caller buffers). `FatStorage` open-file
+cache is the existing ~100 B per open file x 16 (`lib.rs:117-125`) and is shared. A
+`write` makes one temp copy on the card, not in RAM. Plugin: Battery's read loop uses a
+2048 B buffer plus a carry `Vec` (`log.rs:164-185`); with a 4096 cap the stack buffer
+should stay at 1-2 KiB on the X4.
+
+### 2.5 Open questions
+
+Q6 root/confinement policy (D2.2). Q7 reserve size and per-plugin quota. Q8 host-framed
+append record. Q9 `sync` fairness. Q10 `ERR_NOT_FOUND`/`ERR_FULL` numbering and a media-gone
+status. Q11 listing (`storage.list`) with the `list_from` cursor
+(`platform/storage.rs` `list_from`) is not needed by Battery and is deferred; its
+records would need the grammar of section 3.3 (stream). Q12 a cut test for append/sync
+and for rename-over-an-appended-file must exist before the contract text is final (see
+section 5, item V1).
 
 ## 3. services.query, plugin names, usage and work notes
 
