@@ -31,6 +31,11 @@ pub use wire::{
     SETTING_SPEC_CHOICES_SEPARATOR, SettingExtra, SettingGroup, SettingSpec, records_decode,
     records_encode,
 };
+// Menu entries, icons and needs (13-15, `docs/abi/screens-input.md` section 1).
+pub use wire::{
+    ICON_SPEC_ICON_MAX_BYTES, ICON_SPEC_TAG, IconSpec, MENU_ENTRY_TAG, MENU_NEED_TAG, MenuEntry,
+    MenuNeed,
+};
 // The i18n formatting limits (slots 27 and 28, `docs/abi/screens-input.md`
 // section 5): the host's format and digits entries bound their input by these.
 pub use wire::{
