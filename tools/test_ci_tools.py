@@ -128,8 +128,8 @@ case " $* " in
       /bin/chmod +x "$FAKE_BIN/$tool"
     done
     # apt puts what it downloaded in its archive folder.
-    printf 'downloaded' > "$ARCHIVES/$DEB";;
-  *' cp '*) /bin/cp "$@" 2>/dev/null || true;;
+    [ -e "$ARCHIVES/$DEB" ] || printf 'downloaded' > "$ARCHIVES/$DEB";;
+  *' cp '*) shift; /bin/cp "$@";;
 esac
 """)
 
@@ -216,7 +216,8 @@ esac
         (cache / self.DEB).write_bytes(self.good)
         result = self.run_setup(APT_DEB_CACHE=self.shell_path(cache))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual((self.archives / self.DEB).read_bytes().decode(), "downloaded")
+        # The kept file itself is what apt found in its archive folder.
+        self.assertEqual((self.archives / self.DEB).read_bytes(), self.good)
         self.assertTrue(any(call.startswith("cp -n ") for call in self.calls()), self.calls())
 
     def test_a_tampered_kept_package_is_not_given_to_apt_and_is_dropped(self):
