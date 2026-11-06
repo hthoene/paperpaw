@@ -8,6 +8,10 @@ change the plugin SDK.
 
 ### Added
 
+- Core adapter for shell-owned interface-7 plugins: deliver registered lifecycle, battery and page-turn
+  events through the kernel subscription pipeline with bounded encoding and callback-scoped environment
+  access. Shells supply the owner bridge and failure logging; loader wiring follows separately (#228).
+
 - Host-side storage adapter for interface-7 slots 20–26 (path rules, free-space reserve, per-plugin
   read/write/sync counting), not wired (#228).
 - Desktop emulator: a developer switch, `--abi7-dev-loader` or `PAPERPAW_ABI7_DEV_LOADER=1` (Linux x86-64, off by
