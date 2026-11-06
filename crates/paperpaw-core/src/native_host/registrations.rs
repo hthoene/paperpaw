@@ -37,8 +37,8 @@ use paperpaw_native::host_glue::{
 /// Host state cannot be mutated through an alias to the input during this call.
 #[must_use]
 pub unsafe fn submit(scope: &RegistrationScope<Registration>, bytes: *const u8, len: usize) -> i32 {
-    if !scope.is_active() {
-        return ERR_STATE;
+    if let Err(error) = scope.admission() {
+        return refuse(scope, status(error));
     }
     let result = if len > REGISTRATION_MAX_BYTES {
         Err(ERR_NO_SPACE)

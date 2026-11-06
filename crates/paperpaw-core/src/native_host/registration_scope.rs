@@ -14,6 +14,7 @@ use core::{
 };
 
 trait Target<T> {
+    fn admission(&self) -> Result<(), Error>;
     fn submit(&self, record: T) -> Result<(), (Error, T)>;
     fn reject(&self);
 }
@@ -43,9 +44,23 @@ impl<C, M, T> Drop for Staging<'_, '_, C, M, T> {
 }
 
 impl<C, M, T> Target<T> for Staging<'_, '_, C, M, T> {
-    fn submit(&self, record: T) -> Result<(), (Error, T)> {
+    fn admission(&self) -> Result<(), Error> {
+        let Ok(construction) = self.construction.try_borrow() else {
+            self.reject();
+            return Err(Error::Busy);
+        };
+        if let Some(error) = construction.failure {
+            return Err(error);
+        }
         if self.rejected.get() {
-            return Err((Error::Invalid, record));
+            return Err(Error::Invalid);
+        }
+        Ok(())
+    }
+
+    fn submit(&self, record: T) -> Result<(), (Error, T)> {
+        if let Err(error) = self.admission() {
+            return Err((error, record));
         }
         if let Ok(mut construction) = self.construction.try_borrow_mut() {
             construction.stage(record)
@@ -91,6 +106,19 @@ impl<T: 'static> RegistrationScope<T> {
     #[must_use]
     pub fn is_active(&self) -> bool {
         self.current.get().is_some()
+    }
+
+    /// Check admission even when a submitted batch contains no records.
+    /// An earlier construction failure takes precedence over decoder rejection.
+    ///
+    /// # Errors
+    /// Returns State outside a scope, Busy during a conflicting borrow, or the
+    /// transaction's first failure. Decoder rejection returns Invalid.
+    pub fn admission(&self) -> Result<(), Error> {
+        let pointer = self.current.get().ok_or(Error::State)?;
+        // SAFETY: scope keeps the target alive until its reset guard runs.
+        // Admission reads only through a checked, temporary shared borrow.
+        unsafe { pointer.as_ref() }.admission()
     }
 
     /// Admit submissions only while the synchronous make closure runs.

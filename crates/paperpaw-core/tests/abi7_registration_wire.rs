@@ -92,6 +92,7 @@ fn ignored_malformed_or_unsupported_batch_refuses_all_publication() {
                 submit(&slot, &bytes),
                 ERR_INVALID | ERR_UNSUPPORTED
             ));
+            assert_eq!(submit(&slot, &encode(&[]).unwrap()), ERR_INVALID);
         })
         .unwrap();
         assert!(matches!(construction.commit(destroy), Err(Error::Invalid)));
@@ -116,9 +117,26 @@ fn repeated_batches_cannot_exceed_the_transaction_capacity() {
             submit(&slot, &encode(&[Registration::Draw { token: 2 }]).unwrap()),
             ERR_NO_SPACE
         );
+        assert_eq!(submit(&slot, &encode(&[]).unwrap()), ERR_NO_SPACE);
+        assert_eq!(slot.admission(), Err(Error::Capacity));
     })
     .unwrap();
     assert!(matches!(construction.commit(destroy), Err(Error::Capacity)));
+}
+
+#[test]
+fn empty_batch_checks_decoder_latch_even_without_staged_records() {
+    let dropped = Rc::new(Cell::new(0));
+    let owner = Box::pin(HostOwner::new((RegistrationScope::new(), dropped), ()));
+    let slot = scope(owner.as_ref().context());
+    let mut construction = owner.as_ref().begin().unwrap();
+    slot.scope(&mut construction, || {
+        assert_eq!(submit(&slot, &encode(&[]).unwrap()), OK);
+        slot.reject().unwrap();
+        assert_eq!(submit(&slot, &encode(&[]).unwrap()), ERR_INVALID);
+    })
+    .unwrap();
+    assert!(matches!(construction.commit(destroy), Err(Error::Invalid)));
 }
 
 #[test]

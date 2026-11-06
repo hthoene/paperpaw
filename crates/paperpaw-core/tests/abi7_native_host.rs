@@ -9,7 +9,7 @@ mod abi7 {
 }
 
 #[path = "../src/native_host.rs"]
-mod native_host;
+pub mod native_host;
 
 use native_host::{DispatchDepth, Error, HostOwner};
 use std::{
