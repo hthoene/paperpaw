@@ -6,8 +6,11 @@ use super::{
     environment::EnvironmentScope,
     storage::{self, MAX_DATA, MAX_FOLDER, MAX_PATH, PREFIX, ROOT_PLUGIN, StorageAdapter},
 };
+use alloc::{alloc::alloc_zeroed, boxed::Box};
+use core::alloc::Layout;
 use paperpaw_native::host_glue::{
-    ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes, buffers,
+    ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes,
+    buffers,
 };
 
 fn with_adapter<R>(
@@ -104,9 +107,9 @@ pub(crate) unsafe fn size(
 }
 
 /// Slot 21: read a bounded chunk into possibly uninitialized caller storage.
-/// Validation and file preflight failures preserve caller output. After the
-/// file preflight succeeds, output is initialized in place. A subsequent read
-/// failure or invalid count leaves its whole capacity zeroed.
+/// A fallibly allocated host-heap buffer sized to output keeps the caller's output
+/// unchanged on every error, without a result-sized stack frame. Only the
+/// successful read prefix is copied; the remaining caller bytes are untouched.
 ///
 /// # Safety
 /// Nonempty input must be live and readable; nonempty output must be live,
@@ -126,35 +129,52 @@ pub(crate) unsafe fn read_at(
         // SAFETY: validated bounds and the caller's exclusive output contract.
         let out = unsafe { buffers::buffer_out(out, MAX_DATA) }?;
         with_adapter(scope, owner, |adapter| {
-            // Check existence and read-path validation before touching output.
-            // A later media failure is covered by read_at's zero-output rule.
-            adapter.size(root, path)?;
-            // Storage takes initialized bytes. Initialize the caller's output
-            // in place so no maximum-sized host scratch is needed on the stack.
-            for byte in out.iter_mut() {
-                byte.write(0);
-            }
-            // SAFETY: every byte was initialized above; buffer_out established
-            // a live exclusive slice, including its non-null empty-slice pointer.
-            let initialized = unsafe {
-                core::slice::from_raw_parts_mut(out.as_mut_ptr().cast::<u8>(), out.len())
-            };
-            match adapter.read_at(root, path, offset, initialized) {
-                Ok(count) if count <= initialized.len() => {
-                    i32::try_from(count).map_err(|_| ERR_INVALID)
-                }
-                Ok(_) => {
-                    initialized.fill(0);
-                    Err(ERR_INVALID)
-                }
-                Err(error) => {
-                    initialized.fill(0);
-                    Err(error)
-                }
-            }
+            let mut scratch = read_scratch(out.len())?;
+            let count = adapter.read_at(root, path, offset, &mut scratch)?;
+            let bytes = scratch
+                .get(..count)
+                .filter(|bytes| bytes.len() <= out.len())
+                .ok_or(ERR_INVALID)?;
+            Ok(buffers::copy_count(bytes, out))
         })
     })();
     result.unwrap_or_else(|error| error)
+}
+
+// Request exactly the caller's capacity, never a maximum-sized stack array.
+// The empty case owns no allocation and never calls the allocator with size 0.
+fn read_scratch(len: usize) -> Result<Box<[u8]>, i32> {
+    if len == 0 {
+        return Ok(Box::default());
+    }
+    let layout = Layout::array::<u8>(len).map_err(|_| ERR_NO_MEMORY)?;
+    #[cfg(test)]
+    if scratch_fault::take() {
+        return Err(ERR_NO_MEMORY);
+    }
+    // SAFETY: the nonzero byte-array layout is valid; zeroing happens in heap.
+    let pointer = unsafe { alloc_zeroed(layout) };
+    if pointer.is_null() {
+        return Err(ERR_NO_MEMORY);
+    }
+    // SAFETY: exclusive heap storage has exactly this slice layout and every
+    // byte was initialized by alloc_zeroed. Box frees the same allocation.
+    Ok(unsafe { Box::from_raw(core::ptr::slice_from_raw_parts_mut(pointer, len)) })
+}
+
+#[cfg(test)]
+mod scratch_fault {
+    extern crate std;
+    use core::cell::Cell;
+    std::thread_local! {
+        static REFUSE: Cell<bool> = const { Cell::new(false) };
+    }
+    pub(super) fn refuse_next() {
+        REFUSE.with(|refuse| refuse.set(true));
+    }
+    pub(super) fn take() -> bool {
+        REFUSE.with(|refuse| refuse.replace(false))
+    }
 }
 
 /// Slot 22: replace a file, preserving the reserve and path rules.
