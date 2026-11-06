@@ -15,10 +15,48 @@ std::thread_local! {
     static MODE: Cell<u8> = const { Cell::new(0) };
     static MODULE_ALIVE: Cell<bool> = const { Cell::new(false) };
     static EVENTS: Cell<u32> = const { Cell::new(0) };
+    static MAKES: Cell<u32> = const { Cell::new(0) };
+    /// The nth allocation of this thread fails (1-based; 0: none).
+    static FAIL_NTH: Cell<u32> = const { Cell::new(0) };
 }
+
+/// The test binary's allocator: the system's, failing on request so the
+/// refusals of a fallible construction can be tried.
+struct Failing;
+
+// SAFETY: forwards to the system allocator; failing returns null, which the
+// trait allows.
+unsafe impl core::alloc::GlobalAlloc for Failing {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let fail = FAIL_NTH.try_with(|n| {
+            let left = n.get();
+            if left == 0 {
+                return false;
+            }
+            n.set(left - 1);
+            left == 1
+        });
+        if fail == Ok(true) {
+            return ptr::null_mut();
+        }
+        // SAFETY: the caller's layout, forwarded.
+        unsafe { std::alloc::System.alloc(layout) }
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // SAFETY: allocated by `alloc` above.
+        unsafe { std::alloc::System.dealloc(ptr, layout) }
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: Failing = Failing;
 
 const NORMAL: u8 = 0;
 const FAILS: u8 = 1;
+/// `make` returns OK with an output table that does not validate.
+const BAD_TABLE: u8 = 2;
+/// `make` submits garbage, ignores the refusal and returns OK.
+const IGNORES_REFUSAL: u8 = 3;
 const TOKEN: u32 = 9;
 
 fn log(what: &'static str) {
@@ -33,6 +71,7 @@ fn reset(mode: u8) {
     LOG.with(|log| log.borrow_mut().clear());
     MODE.with(|m| m.set(mode));
     EVENTS.with(|e| e.set(0));
+    MAKES.with(|m| m.set(0));
 }
 
 /// The shell's heap and clock.
@@ -82,8 +121,17 @@ struct Fake {
 }
 
 unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *const PpPlugin) -> i32 {
-    if MODE.with(Cell::get) == FAILS {
+    MAKES.with(|m| m.set(m.get() + 1));
+    let mode = MODE.with(Cell::get);
+    if mode == FAILS {
         return ERR_INVALID;
+    }
+    if mode == BAD_TABLE {
+        // A table that says it is 4 bytes long: a size word and nothing else.
+        static SHORT: [u32; 1] = [4];
+        // SAFETY: `out` is writable; the static is aligned for the table.
+        unsafe { out.write(SHORT.as_ptr().cast()) };
+        return OK;
     }
     // SAFETY: the host table is valid for this call.
     let table = unsafe { &*host };
@@ -93,6 +141,18 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
         unsafe { (table.heap_alloc)(ctx, size_of::<Fake>(), align_of::<Fake>(), &mut block) };
     if status != OK {
         return status;
+    }
+    if mode == IGNORES_REFUSAL {
+        // SAFETY: readable bytes for this synchronous call.
+        let _ = unsafe {
+            (table.registrations_submit)(
+                ctx,
+                PpBytes {
+                    ptr: [0xff_u8; 8].as_ptr(),
+                    len: 8,
+                },
+            )
+        };
     }
     let mut bytes = vec![0; registrations::REGISTRATION_MAX_BYTES];
     let len = registrations::registrations_encode(
@@ -168,7 +228,8 @@ unsafe extern "C" fn draw(_: *mut c_void, token: u32) -> i32 {
 }
 
 fn fake() -> Hosted<Heap, Module> {
-    Hosted::new(Heap, Module::new(), make, "fake", (0, 0)).unwrap()
+    // SAFETY: `make` is this file's plugin, always callable; no image.
+    unsafe { Hosted::new(Heap, Module::new(), make, "fake", (0, 0)) }.unwrap()
 }
 
 fn finish<S: Services, M>(hosted: &Hosted<S, M>) {
@@ -281,16 +342,18 @@ fn a_refused_commit_destroys_the_output_once() {
 fn the_image_is_given_before_make_once_and_read_back_as_given() {
     reset(NORMAL);
     static IMAGE: [u8; 4] = [1, 2, 3, 4];
-    let hosted = Hosted::new(
-        Heap,
-        Module::new(),
-        make,
-        "fake",
-        (IMAGE.as_ptr() as usize, IMAGE.len()),
-    )
+    // SAFETY: `make` is this file's plugin; the image is a static.
+    let hosted = unsafe {
+        Hosted::new(
+            Heap,
+            Module::new(),
+            make,
+            "fake",
+            (IMAGE.as_ptr() as usize, IMAGE.len()),
+        )
+    }
     .unwrap();
-    // SAFETY: a static, which outlives everything.
-    assert_eq!(unsafe { hosted.image() }, &IMAGE);
+    assert_eq!(hosted.image(), Some(&IMAGE[..]));
     let mut transaction = hosted.begin::<Registration>().unwrap();
     transaction.set_image(&IMAGE).unwrap();
     assert_eq!(
@@ -310,6 +373,121 @@ fn the_image_is_given_before_make_once_and_read_back_as_given() {
     // No image: empty, not a pointer at zero.
     reset(NORMAL);
     let none = fake();
-    // SAFETY: an empty range reads nothing.
-    assert!(unsafe { none.image() }.is_empty());
+    assert_eq!(none.image(), Some(&[][..]));
+    // Stopped: none at all, and the owner's error from then on.
+    none.stop();
+    assert_eq!(none.image(), None);
+    none.stop();
+    assert_eq!(none.image(), None, "stopping twice is the same");
+}
+
+#[test]
+fn an_output_table_that_does_not_validate_is_refused_without_a_destructor() {
+    reset(BAD_TABLE);
+    let hosted = fake();
+    let refused = hosted.make_registered(hosted.begin().unwrap()).err();
+    assert_eq!(refused, Some(Error::Plugin));
+    assert_eq!(MAKES.with(Cell::get), 1);
+    let again = hosted.make_registered(hosted.begin().unwrap()).err();
+    assert_eq!(again, Some(Error::Attempt), "make is tried once");
+    assert_eq!(MAKES.with(Cell::get), 1, "and not called again");
+    drop(hosted);
+    assert_eq!(
+        logged(),
+        ["module"],
+        "nothing to destroy, nothing dispatched"
+    );
+}
+
+#[test]
+fn a_plugin_that_ignores_a_refused_submit_cannot_activate() {
+    reset(IGNORES_REFUSAL);
+    let hosted = fake();
+    // The bad batch poisons the construction, whatever `make` returned.
+    let refused = hosted.construct_registered(hosted.begin().unwrap()).err();
+    assert!(refused.is_some(), "{refused:?}");
+    drop(hosted);
+    // Refused at `make`, before its output is read: no destructor can be
+    // called for a table never validated (what the plugin made is left, and
+    // the shell logs the refusal), and nothing was dispatched.
+    assert_eq!(logged(), ["module"]);
+    assert_eq!(EVENTS.with(Cell::get), 0);
+}
+
+#[test]
+fn a_hosted_plugin_dropped_after_commit_without_finish_is_destroyed_once_before_its_module() {
+    reset(NORMAL);
+    let hosted = fake();
+    let batch = hosted
+        .construct_registered(hosted.begin().unwrap())
+        .unwrap();
+    drop(batch);
+    assert!(logged().is_empty());
+    drop(hosted);
+    assert_eq!(logged(), ["destroy", "module"]);
+}
+
+#[test]
+fn host_entries_outside_their_scope_are_refused() {
+    reset(NORMAL);
+    let hosted = fake();
+    let batch = hosted
+        .construct_registered(hosted.begin().unwrap())
+        .unwrap();
+    let context = hosted.owner.as_ref().context();
+    let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast::<c_void>();
+    // SAFETY: the pinned context of a live owner, valid byte buffers.
+    unsafe {
+        // A canvas call outside a draw dispatch.
+        assert_ne!((context.table.canvas_fill_rect)(ctx, 0, 0, 1, 1, 0), OK);
+        // An environment query outside a dispatch.
+        let mut out = [0u8; 8];
+        assert_ne!(
+            (context.table.env_snapshot)(
+                ctx,
+                PpBuffer {
+                    ptr: out.as_mut_ptr(),
+                    cap: out.len(),
+                }
+            ),
+            OK
+        );
+        // A registrations submit after `make` returned (as from a destructor).
+        let mut bytes = vec![0; registrations::REGISTRATION_MAX_BYTES];
+        let len =
+            registrations::registrations_encode(&[Registration::Draw { token: TOKEN }], &mut bytes)
+                .unwrap();
+        assert_ne!(
+            (context.table.registrations_submit)(
+                ctx,
+                PpBytes {
+                    ptr: bytes.as_ptr(),
+                    len,
+                }
+            ),
+            OK
+        );
+    }
+    drop(batch);
+    drop(hosted);
+}
+
+fn arm_failure(nth: u32) {
+    FAIL_NTH.with(|n| n.set(nth));
+}
+
+#[test]
+fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_calls_make() {
+    // The 1st allocation is the id, the 2nd the owner.
+    for nth in [1, 2] {
+        reset(NORMAL);
+        let module = Module::new();
+        arm_failure(nth);
+        // SAFETY: `make` is this file's plugin; no image.
+        let refused = unsafe { Hosted::new(Heap, module, make, "fake", (0, 0)) };
+        arm_failure(0);
+        assert_eq!(refused.err(), Some(Error::Allocation), "allocation {nth}");
+        assert_eq!(logged(), ["module"], "the module is dropped, once");
+        assert_eq!(MAKES.with(Cell::get), 0, "make was never called");
+    }
 }

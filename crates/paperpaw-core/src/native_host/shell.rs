@@ -16,6 +16,7 @@
 //! module are alive; Env and Canvas are lent for one synchronous callback.
 use alloc::alloc::{alloc, handle_alloc_error};
 use alloc::boxed::Box;
+use alloc::string::String;
 use core::alloc::Layout;
 use core::cell::Cell;
 use core::ffi::c_void;
@@ -177,10 +178,14 @@ pub struct Hosted<S, M> {
     id: Box<str>,
     /// The plugin's read-only data as mapped: address and length.
     image: (usize, usize),
+    /// Admission was stopped ([`Hosted::stop`]): no image is given any more.
+    stopped: Cell<bool>,
 }
 
-/// The host table with this shell's entries in it.
-fn table<S: Services>() -> PpHost {
+/// The host table with this shell's entries in it, as a plugin of `S` sees it.
+/// The shell's preflight may read it before anything is hosted.
+#[must_use]
+pub fn host_table<S: Services>() -> PpHost {
     let mut table = host_glue::host_table();
     table.heap_alloc = heap_alloc::<S>;
     table.heap_dealloc = heap_dealloc::<S>;
@@ -196,19 +201,33 @@ fn table<S: Services>() -> PpHost {
 impl<S: Services, M> Hosted<S, M> {
     /// Hosts the plugin `id` whose factory is `make`, kept alive by `module`.
     /// `image` is the address and length of the plugin's read-only data
-    /// (`(0, 0)` for none); it must stay mapped while `module` lives.
+    /// (`(0, 0)` for none).
     ///
     /// # Errors
-    /// `Allocation` when the owner cannot be placed.
-    pub fn new(
+    /// `Allocation` when the id or the owner cannot be placed; `services` and
+    /// `module` are then dropped, `make` was not called.
+    ///
+    /// # Safety
+    ///
+    /// - `make` is the validated entry of the code that `module` keeps loaded,
+    ///   and stays callable while `module` lives.
+    /// - `image` is a read-only mapping of that many bytes which stays mapped
+    ///   while `module` lives, or `(0, 0)`.
+    pub unsafe fn new(
         services: S,
         module: M,
         make: Make,
         id: &str,
         image: (usize, usize),
     ) -> Result<Self, Error> {
+        // Fallible, before anything else is built: the X4 has no room to abort.
+        let mut owned = String::new();
+        owned
+            .try_reserve_exact(id.len())
+            .map_err(|_| Error::Allocation)?;
+        owned.push_str(id);
         let context = Context {
-            table: table::<S>(),
+            table: host_table::<S>(),
             services,
             instance: Cell::new(None),
             attempted: Cell::new(false),
@@ -220,28 +239,36 @@ impl<S: Services, M> Hosted<S, M> {
         Ok(Self {
             owner,
             make,
-            id: id.into(),
+            id: owned.into_boxed_str(),
             image,
+            stopped: Cell::new(false),
         })
     }
 
-    /// The plugin's read-only data, as mapped.
-    ///
-    /// # Safety
-    ///
-    /// The returned slice must not outlive the owner's module: the caller
-    /// ties it to a borrow of this value, and gives no slice once the plugin
-    /// is stopped. The bytes are read-only mappings; a plugin without a
-    /// sandbox can remap them, so every reader decodes with checks and never
-    /// trusts them to stay as they were.
-    pub unsafe fn image(&self) -> &[u8] {
+    /// Stops callback admission: from here a dispatch answers the owner's
+    /// error and [`image`](Self::image) gives none. The module stays alive
+    /// until the drop.
+    pub fn stop(&self) {
+        self.stopped.set(true);
+        self.owner.as_ref().revoke();
+    }
+
+    /// The plugin's read-only data, as mapped; `None` once stopped. The bytes
+    /// are read-only mappings; a plugin without a sandbox can remap them, so
+    /// every reader decodes with checks and never trusts them to stay as
+    /// they were.
+    #[must_use]
+    pub fn image(&self) -> Option<&[u8]> {
+        if self.stopped.get() {
+            return None;
+        }
         let (start, len) = self.image;
         if len == 0 {
-            return &[];
+            return Some(&[]);
         }
-        // SAFETY: a read-only mapping of `len` bytes at `start`, held by the
-        // owner's module for as long as `self` lives (the caller's contract).
-        unsafe { core::slice::from_raw_parts(start as *const u8, len) }
+        // SAFETY: `new`'s contract: a read-only mapping of `len` bytes at
+        // `start`, held by the owner's module for as long as `self` lives.
+        Some(unsafe { core::slice::from_raw_parts(start as *const u8, len) })
     }
 
     /// Starts the transaction `make` registers in.
@@ -253,17 +280,6 @@ impl<S: Services, M> Hosted<S, M> {
             context: self.owner.as_ref().context(),
             staging: self.owner.as_ref().begin(&self.id)?,
         })
-    }
-
-    /// Runs `make` without a registration scope.
-    ///
-    /// # Errors
-    /// `Attempt`, `Factory` or `Plugin`.
-    pub fn make<'a, T>(
-        &'a self,
-        transaction: Transaction<'a, S, M, T>,
-    ) -> Result<PendingInstance<'a, S, M, T>, Error> {
-        self.make_with(transaction, |context, _| Ok(self.invoke_make(context)))
     }
 
     /// Runs `make` with its `registrations.submit` staging into the
@@ -296,6 +312,11 @@ impl<S: Services, M> Hosted<S, M> {
 
     /// The output stays loader-owned until commit succeeds. A failed factory
     /// returns no live output; no unvalidated partial-output destructor runs.
+    /// A table that does not validate (`Error::Plugin`), and a `make` whose
+    /// own submit was refused (the scope poisons the construction and reports
+    /// it before the output is read), leave the state the plugin made behind:
+    /// nothing may call a destructor it did not prove. The shell logs that
+    /// refusal.
     fn make_with<'a, T>(
         &'a self,
         mut transaction: Transaction<'a, S, M, T>,
@@ -322,17 +343,20 @@ impl<S: Services, M> Hosted<S, M> {
         })
     }
 
-    /// `make` and commit in one step.
+    /// `make_registered` and commit in one step. The only way to run `make`
+    /// for registrations: without the scope a plugin's submits are refused
+    /// without poisoning construction, and it could activate with none.
     ///
     /// # Errors
-    /// As [`make`](Self::make) and [`PendingInstance::commit`].
-    pub fn construct<'a, T>(
+    /// As [`make_registered`](Self::make_registered) and
+    /// [`PendingInstance::commit`].
+    pub fn construct_registered<'a>(
         &'a self,
-        transaction: Transaction<'a, S, M, T>,
-    ) -> Result<Batch<'a, S, M, T>, Error> {
+        transaction: Transaction<'a, S, M, Registration>,
+    ) -> Result<Batch<'a, S, M, Registration>, Error> {
         // On a refusal the transaction drops before returning. No unvalidated
         // partial output is used; a failed `make` has no live output.
-        self.make(transaction)?.commit()
+        self.make_registered(transaction)?.commit()
     }
 }
 
@@ -481,7 +505,9 @@ unsafe extern "C" fn registrations_submit<S: Services>(ctx: *mut c_void, batch: 
         return host_glue::ERR_INVALID;
     };
     // SAFETY: the foreign caller supplies stable readable batch bytes for this
-    // synchronous call. Core keeps only decoded scalar records, never input.
+    // synchronous call. Core copies callback records, owns its snapshots of
+    // declarations, and borrows image storage only through the image range
+    // given to `set_image`; it never keeps the input pointer itself.
     unsafe { registrations::submit(&context.registrations, batch.ptr, batch.len) }
 }
 
