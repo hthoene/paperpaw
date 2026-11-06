@@ -8,6 +8,10 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 SDK callback host binding and `native_plugin!` entry glue, with checked table admission
+  and fallible host allocation. Storage slots 20-26 use caller-owned buffers; event tags 32-37 decode
+  into borrowed payloads. These facades do not activate any shell loader (#228).
+
 - Host-side storage adapter for interface-7 slots 20–26 (path rules, free-space reserve, per-plugin
   read/write/sync counting), not wired (#228).
 - Interface-7 draft: host-table slots 20–26 (`storage.size`, `read_at`, `write`, `append`, `rename`, `remove`,
