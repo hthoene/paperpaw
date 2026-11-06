@@ -4,7 +4,11 @@ Every existing check still runs. Setup reuses tools already present on
 GitHub's Ubuntu runner instead of reinstalling duplicate apt packages.
 Missing CMake, Ninja or the release's named clang still goes through apt;
 their versions are printed and the firmware builds remain the checks of
-their suitability. `CLANG_PATH`, Ninja and the firmware compiler settings
+their suitability. Each apt call has retries, a timeout per request and a
+ceiling per attempt (three attempts), and the `.deb` files are kept between
+runs (`~/apt-debs`, about 150 MB, saved by pushes to `main` and
+`abi7/integration` only): a stalled Ubuntu mirror once held a firmware job
+for 30–49 minutes (#876). `CLANG_PATH`, Ninja and the firmware compiler settings
 are unchanged.
 
 `tools/ci/espflash.py` first checks the actual cached executable's exact

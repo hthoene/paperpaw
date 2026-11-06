@@ -100,6 +100,9 @@ class BuildPrerequisites(unittest.TestCase):
         self.template.write_text("#!/bin/sh\nprintf 'fixture tool\\n'\n", encoding="utf-8")
         for tool in ["cmake", "ninja", "clang-18"]:
             self.write(tool, self.template.read_text())
+        # The only commands besides the fixtures on the isolated PATH (the sudo mock uses wc).
+        for tool in ["mkdir", "cp", "sleep", "wc"]:
+            (self.bin / tool).symlink_to(shutil.which(tool))
         self.write("sudo", """#!/bin/sh
 printf '%s\n' "$*" >> "$CALLS"
 # apt-get takes its -o options before the verb: look for `install` anywhere.
@@ -126,13 +129,14 @@ fi
         return subprocess.check_output([self.bash, "--noprofile", "--norc", "-c",
                                         'cygpath -u "$1"', "-", str(path)], text=True).strip()
 
-    def run_setup(self):
+    def run_setup(self, **extra):
         env = os.environ | {
             "PATH": self.shell_path(self.bin), "MBEDTLS_CLANG_PACKAGE": "clang-18",
             "GITHUB_ENV": self.shell_path(self.root / "env"),
             "CALLS": self.shell_path(self.root / "calls"),
             "FAKE_BIN": self.shell_path(self.bin), "TOOL_TEMPLATE": self.shell_path(self.template),
-        }
+            "APT_RETRY_PAUSE": "0", "APT_ARCHIVES": self.shell_path(self.root / "archives"),
+        } | extra
         return subprocess.run([self.bash, "--noprofile", "--norc", str(HERE / "ci/build-prerequisites.sh")],
                               env=env, capture_output=True, text=True)
 
@@ -152,7 +156,46 @@ fi
         # step), and only the missing package is installed.
         options = "-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
         self.assertEqual((self.root / "calls").read_text().splitlines(),
-                         [f"apt-get {options} update", f"apt-get {options} install -y ninja-build"])
+                         [f"timeout 120 apt-get {options} update",
+                          f"timeout 240 apt-get {options} install -y ninja-build"])
+
+    def test_a_stalled_attempt_is_retried_and_ends_after_three(self):
+        (self.bin / "ninja").unlink()
+        # Fails (as `timeout` does, 124) until the third call, then installs.
+        self.write("sudo", """#!/bin/sh
+printf '%s\\n' "$*" >> "$CALLS"
+n=$(wc -l < "$CALLS")
+if [ "$n" -lt 3 ]; then exit 124; fi
+case " $* " in *' install '*) /bin/cp "$TOOL_TEMPLATE" "$FAKE_BIN/ninja"; /bin/chmod +x "$FAKE_BIN/ninja";; esac
+""")
+        result = self.run_setup()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = (self.root / "calls").read_text().splitlines()
+        self.assertEqual(len(calls), 4)  # update twice (fail, fail), update ok, install
+        self.assertEqual(sum("update" in call for call in calls), 3)
+        self.write("sudo", "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$CALLS\"\nexit 124\n")
+        (self.bin / "ninja").unlink()
+        (self.root / "calls").unlink()
+        result = self.run_setup()
+        self.assertEqual(result.returncode, 124)
+        self.assertEqual(len((self.root / "calls").read_text().splitlines()), 3)
+
+    def test_downloaded_packages_are_kept_and_reused(self):
+        (self.bin / "ninja").unlink()
+        archives = self.root / "archives"
+        archives.mkdir()
+        cache = self.root / "debs"
+        # A cache holding a package gives it to apt first (through sudo: the
+        # archives belong to root); what apt downloaded is kept afterwards.
+        cache.mkdir()
+        (cache / "old.deb").write_text("old")
+        (archives / "ninja-build.deb").write_text("new")
+        result = self.run_setup(APT_DEB_CACHE=self.shell_path(cache))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = (self.root / "calls").read_text().splitlines()
+        self.assertEqual(calls[0], f"cp -n {self.shell_path(cache)}/old.deb {self.shell_path(archives)}/")
+        self.assertTrue((cache / "ninja-build.deb").is_file())
+        self.assertTrue((cache / "old.deb").is_file())
 
     def test_failed_install_does_not_publish_an_environment(self):
         (self.bin / "cmake").unlink()

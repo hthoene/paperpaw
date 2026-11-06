@@ -21,12 +21,30 @@ runs:
     - name: The versions
       shell: bash
       run: grep -E '^[A-Z_]+=' shells/xteink/versions.env >> "$GITHUB_ENV"
+    # The runner image has no clang-18, and Ubuntu's Azure mirror has stalled
+    # for most of an hour (#876): the packages' .deb files are kept here, so a
+    # run that finds them downloads nothing. Only pushes to main and
+    # abi7/integration save the entry (about 150 MB); the others only read it.
+    # apt checks every .deb against the signed package index, so a cached file
+    # can only be the one the mirror offers.
+    - name: The apt packages for mbedTLS, kept between runs
+      id: apt-debs
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/apt-debs
+        key: apt-debs-${{ runner.os }}-${{ env.MBEDTLS_CLANG_PACKAGE }}-${{ hashFiles('tools/ci/build-prerequisites.sh', 'shells/xteink/versions.env') }}
     - name: What builds mbedTLS
       shell: bash
       run: |
         # CMake and Ninja for every device; clang compiles it for the X4
         # (the ESP32-S3's with espup's Xtensa GCC).
-        bash tools/ci/build-prerequisites.sh
+        APT_DEB_CACHE="$HOME/apt-debs" bash tools/ci/build-prerequisites.sh
+    - name: Keep the apt packages
+      if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/abi7/integration') && steps.apt-debs.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ~/apt-debs
+        key: ${{ steps.apt-debs.outputs.cache-primary-key }}
     # The X4's and the X3's (their chip, the ESP32-C3).
     - name: The X4's Rust
       if: inputs.device == 'x4' || inputs.device == 'x3'
