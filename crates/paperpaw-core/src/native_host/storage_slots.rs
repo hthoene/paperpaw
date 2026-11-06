@@ -1,0 +1,240 @@
+//! Raw storage slots over the current callback's metered storage view.
+//! Inputs are checked before any storage effect. A callback borrows its folder
+//! from the stack, so constructing an adapter never allocates.
+
+use super::{
+    environment::EnvironmentScope,
+    storage::{self, MAX_DATA, MAX_FOLDER, MAX_PATH, PREFIX, ROOT_PLUGIN, StorageAdapter},
+};
+use paperpaw_native::host_glue::{
+    ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes, buffers,
+};
+
+fn with_adapter<R>(
+    scope: &EnvironmentScope,
+    owner: &str,
+    call: impl FnOnce(&StorageAdapter<'_>) -> Result<R, i32>,
+) -> Result<R, i32> {
+    let length = PREFIX
+        .len()
+        .checked_add(owner.len())
+        .and_then(|n| n.checked_add(1))
+        .ok_or(ERR_INVALID)?;
+    let mut folder = [0; MAX_FOLDER];
+    let folder = folder.get_mut(..length).ok_or(ERR_INVALID)?;
+    folder[..PREFIX.len()].copy_from_slice(PREFIX.as_bytes());
+    folder[PREFIX.len()..length - 1].copy_from_slice(owner.as_bytes());
+    folder[length - 1] = b'/';
+    let folder = core::str::from_utf8(folder).map_err(|_| ERR_INVALID)?;
+    scope.with_frame(|frame| {
+        let storage = frame.storage().ok_or(ERR_STATE)?;
+        let adapter = StorageAdapter::borrowed_folder(storage, folder).ok_or(ERR_INVALID)?;
+        call(&adapter)
+    })?
+}
+
+/// Check bounds before forming raw slices. Oversized storage inputs retain
+/// StorageAdapter's ERR_NO_SPACE rule; malformed pointer pairs are ERR_INVALID.
+fn pair(ptr: *const u8, len: usize, max: usize) -> Result<(), i32> {
+    if len != 0
+        && (ptr.is_null() || len > isize::MAX as usize || (ptr as usize).checked_add(len).is_none())
+    {
+        return Err(ERR_INVALID);
+    }
+    if len > max {
+        return Err(ERR_NO_SPACE);
+    }
+    Ok(())
+}
+
+unsafe fn input<'a>(bytes: PpBytes, max: usize) -> Result<&'a [u8], i32> {
+    pair(bytes.ptr, bytes.len, max)?;
+    // SAFETY: pair bounds were checked and the caller guarantees live input.
+    unsafe { buffers::bytes_in(bytes, max) }
+}
+
+unsafe fn path<'a>(root: u32, bytes: PpBytes) -> Result<&'a [u8], i32> {
+    if root != ROOT_PLUGIN {
+        return Err(ERR_UNSUPPORTED);
+    }
+    // SAFETY: the caller guarantees readable input.
+    let bytes = unsafe { input(bytes, MAX_PATH) }?;
+    storage::relative_path(bytes)?;
+    Ok(bytes)
+}
+
+fn status(result: Result<(), i32>) -> i32 {
+    result.map_or_else(|error| error, |()| OK)
+}
+
+/// Slot 20: copy the file size only on success.
+///
+/// # Safety
+/// Nonempty path storage must be live and readable. A non-null aligned output
+/// must be writable for one u64, exclusive and disjoint from input and host state.
+/// Pointers are borrowed only for this call; output may be uninitialized.
+pub(crate) unsafe fn size(
+    scope: &EnvironmentScope,
+    owner: &str,
+    root: u32,
+    bytes: PpBytes,
+    out: *mut u64,
+) -> i32 {
+    let result = (|| {
+        if out.is_null()
+            || !(out as usize).is_multiple_of(core::mem::align_of::<u64>())
+            || (out as usize)
+                .checked_add(core::mem::size_of::<u64>())
+                .is_none()
+        {
+            return Err(ERR_INVALID);
+        }
+        // SAFETY: the caller guarantees live input storage.
+        let path = unsafe { path(root, bytes) }?;
+        with_adapter(scope, owner, |adapter| adapter.size(root, path))
+    })();
+    match result {
+        Ok(value) => {
+            // SAFETY: non-null and aligned above, writable and exclusive by contract.
+            unsafe { out.write(value) };
+            OK
+        }
+        Err(error) => error,
+    }
+}
+
+/// Slot 21: read a bounded chunk into possibly uninitialized caller storage.
+///
+/// # Safety
+/// Nonempty input must be live and readable; nonempty output must be live,
+/// writable, exclusive and disjoint from all input and host state for this call.
+pub(crate) unsafe fn read_at(
+    scope: &EnvironmentScope,
+    owner: &str,
+    root: u32,
+    bytes: PpBytes,
+    offset: u64,
+    out: PpBuffer,
+) -> i32 {
+    let result = (|| {
+        // SAFETY: the caller guarantees live input storage.
+        let path = unsafe { path(root, bytes) }?;
+        pair(out.ptr, out.cap, MAX_DATA)?;
+        // SAFETY: validated bounds and the caller's exclusive output contract.
+        let out = unsafe { buffers::buffer_out(out, MAX_DATA) }?;
+        // Storage takes initialized bytes, while raw output need not be initialized.
+        let mut scratch = [0; MAX_DATA];
+        let count = with_adapter(scope, owner, |adapter| {
+            adapter.read_at(root, path, offset, &mut scratch[..out.len()])
+        })?;
+        let bytes = scratch
+            .get(..count)
+            .filter(|bytes| bytes.len() <= out.len())
+            .ok_or(ERR_INVALID)?;
+        Ok(buffers::copy_count(bytes, out))
+    })();
+    result.unwrap_or_else(|error| error)
+}
+
+/// Slot 22: replace a file, preserving the reserve and path rules.
+///
+/// # Safety
+/// Nonempty input regions must be live, readable and unchanged for this call,
+/// and must not overlap mutable host state. No pointer is retained.
+pub(crate) unsafe fn write(
+    scope: &EnvironmentScope,
+    owner: &str,
+    root: u32,
+    bytes: PpBytes,
+    data: PpBytes,
+) -> i32 {
+    // SAFETY: both operations use the same caller-owned readable inputs.
+    unsafe { put(scope, owner, root, bytes, data, false) }
+}
+
+/// Slot 23: append a chunk, preserving the reserve and path rules.
+///
+/// # Safety
+/// Nonempty input regions must be live, readable and unchanged for this call,
+/// and must not overlap mutable host state. No pointer is retained.
+pub(crate) unsafe fn append(
+    scope: &EnvironmentScope,
+    owner: &str,
+    root: u32,
+    bytes: PpBytes,
+    data: PpBytes,
+) -> i32 {
+    // SAFETY: both operations use the same caller-owned readable inputs.
+    unsafe { put(scope, owner, root, bytes, data, true) }
+}
+
+unsafe fn put(
+    scope: &EnvironmentScope,
+    owner: &str,
+    root: u32,
+    bytes: PpBytes,
+    data: PpBytes,
+    append: bool,
+) -> i32 {
+    status((|| {
+        // SAFETY: the caller guarantees live readable inputs.
+        let path = unsafe { path(root, bytes) }?;
+        // SAFETY: the caller guarantees live readable inputs.
+        let data = unsafe { input(data, MAX_DATA) }?;
+        with_adapter(scope, owner, |adapter| {
+            if append {
+                adapter.append(root, path, data)
+            } else {
+                adapter.write(root, path, data)
+            }
+        })
+    })())
+}
+
+/// Slot 24: rename within the owner's data folder.
+///
+/// # Safety
+/// Nonempty input regions must be live, readable and unchanged for this call,
+/// and must not overlap mutable host state. No pointer is retained.
+pub(crate) unsafe fn rename(
+    scope: &EnvironmentScope,
+    owner: &str,
+    root: u32,
+    from: PpBytes,
+    to: PpBytes,
+) -> i32 {
+    status((|| {
+        // SAFETY: the caller guarantees live readable inputs.
+        let from = unsafe { path(root, from) }?;
+        // SAFETY: the caller guarantees live readable inputs.
+        let to = unsafe { path(root, to) }?;
+        with_adapter(scope, owner, |adapter| adapter.rename(root, from, to))
+    })())
+}
+
+/// Slot 25: remove a file, accepting an absent file.
+///
+/// # Safety
+/// Nonempty path storage must be live, readable and unchanged for this call,
+/// and must not overlap mutable host state. No pointer is retained.
+pub(crate) unsafe fn remove(
+    scope: &EnvironmentScope,
+    owner: &str,
+    root: u32,
+    bytes: PpBytes,
+) -> i32 {
+    status((|| {
+        // SAFETY: the caller guarantees live readable input.
+        let path = unsafe { path(root, bytes) }?;
+        with_adapter(scope, owner, |adapter| adapter.remove(root, path))
+    })())
+}
+
+/// Slot 26: flush the current callback's storage view.
+pub(crate) fn sync(scope: &EnvironmentScope, owner: &str) -> i32 {
+    status(with_adapter(scope, owner, |adapter| adapter.sync()))
+}
+
+#[cfg(test)]
+#[path = "storage_slots_tests.rs"]
+mod tests;
