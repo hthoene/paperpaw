@@ -56,7 +56,17 @@ pub use paperpaw_native::{Chip, HEADER_LEN, Header, Problem, Signature};
 /// against (see the [module documentation](self)). Raised by hand, and
 /// only when what plugins see changes; `crates/paperpaw-sdk/interface.txt`
 /// keeps what it was, and CI fails while they differ (ADR 0026).
-pub const INTERFACE: u16 = 6;
+pub const INTERFACE: u16 = 7;
+
+/// The draft of [`INTERFACE`] this build is, while the owner has not frozen
+/// it. A draft may change what plugins see without a new interface, but
+/// each such change takes the next draft, and the draft is part of
+/// [`FINGERPRINT`]: a plugin built for an earlier draft is refused, never
+/// loaded. `crates/paperpaw-sdk/interface.txt` keeps it as `draft`.
+/// Freezing deletes this constant and that line: the fingerprint is then
+/// made as if there had never been drafts, and refuses every draft's
+/// builds too.
+pub const DRAFT: u16 = 1;
 
 /// The crates whose types cross between a plugin and PaperPaw, by the
 /// names their paths begin with: the SDK and every crate of PaperPaw it
@@ -111,6 +121,11 @@ pub const FINGERPRINT: Fingerprint = Fingerprint::of(INTERFACE, {
     // in colour, and plugins built without it run there.
     hash = hash.number(paperpaw_text::OUTLINES as u64);
     hash = hash.number(layout::DIGEST);
+    // Only while a draft: a frozen interface's fingerprint is made as if
+    // there had never been drafts (freezing deletes `DRAFT`).
+    if DRAFT != 0 {
+        hash = hash.number(DRAFT as u64);
+    }
     hash.0
 });
 
@@ -129,9 +144,11 @@ pub const TOOLCHAIN: &str = if cfg!(target_arch = "riscv32") {
 };
 
 /// The names a plugin folder's code has: `code.ppn` on the X4 and the X4
-/// Pro, `code.so` on Android, `code-host.dll`, `.so` or `.dylib` built for
-/// a computer (the desktop emulator). A folder with one is a code plugin's,
-/// also where PaperPaw loads none.
+/// Pro, `code-host.dll`, `.so` or `.dylib` built for a computer (the
+/// desktop emulator), and `code.so`, which no shipped loader reads
+/// (Android loads no code plugins, ADR 0024). A folder with one is a code
+/// plugin's, also where PaperPaw loads none: it is then listed as
+/// unsupported.
 pub const CODE_FILES: &[&str] = &[
     "code.ppn",
     "code.so",
@@ -626,7 +643,7 @@ impl Fingerprint {
             ))
         } else {
             Some(String::from(
-                "built for another chip, or with other features, of the same plugin interface",
+                "built for another chip, with other features or for another draft, of the same plugin interface",
             ))
         }
     }
@@ -846,7 +863,7 @@ pub unsafe fn take(made: *mut core::ffi::c_void) -> Option<alloc::boxed::Box<dyn
 /// The crate is `#![no_std]`; for the X4 (`riscv32imc-unknown-none-elf`)
 /// and the X4 Pro (`xtensa-esp32s3-none-elf`) a `#![no_main]` binary,
 /// linked with `paperpaw-plugin.x` and packed by `paperpaw-sign pack`;
-/// where a system loads libraries (a computer, Android) a `cdylib` with
+/// where a system loads libraries (a computer) a `cdylib` with
 /// the same entry. See the [module documentation](crate::native).
 #[macro_export]
 macro_rules! plugin {

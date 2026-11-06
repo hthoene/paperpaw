@@ -1398,7 +1398,8 @@ kind = Not An Id
         assert_eq!(parse_manifest(&ini(""), "large").unwrap().1, 1);
         assert!(parse_manifest(&ini("formats = 3\n"), "large").is_ok());
         assert!(parse_manifest(&ini("formats = 4\n"), "large").is_ok());
-        let later = parse_manifest(&ini("formats = 5\n"), "large").unwrap_err();
+        assert!(parse_manifest(&ini("formats = 5\n"), "large").is_ok());
+        let later = parse_manifest(&ini("formats = 6\n"), "large").unwrap_err();
         assert!(later.contains("later PaperPaw"), "{later}");
         assert!(parse_manifest(&ini("formats = new\n"), "large").is_err());
     }

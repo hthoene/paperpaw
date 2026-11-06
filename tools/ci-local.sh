@@ -194,18 +194,23 @@ g_sdk() {
         skip "sdk: shared-table" "tools/shared-table.py is not in this tree (interface 5)"
     fi
     if [[ -f tools/table-compat.sh ]]; then
+        # As CI: the baseline table-baseline.txt names, unless the caller
+        # names another in TABLE_BASELINE.
         if [[ -n "${TABLE_BASELINE:-}" ]]; then
             run "sdk: table-compat against $TABLE_BASELINE" "tools/table-compat.sh '$TABLE_BASELINE'"
         else
-            skip "sdk: table-compat" "set TABLE_BASELINE=<tag or commit of the last interface raise>"
+            run "sdk: table-compat against table-baseline.txt" "tools/table-compat.sh"
         fi
+        # As CI's second step: this tree's own plugin, so that the "runs"
+        # path is exercised while the baseline is of an older draft.
+        run "sdk: table-compat against HEAD (the plugin runs)" "tools/table-compat.sh HEAD"
     fi
 }
 
 # Keep the baseline supplied independently by the caller. Missing input fails
 # through abi-check --ci; a candidate checkout is never its own reference.
 g_abi() {
-    run "abi: frozen interface-6 reference bytes" 'python3 tools/abi-frozen6-check.py --base "${ABI_BASE_REV:?set the exact independently trusted PR-base commit}"'
+    run "abi: interface reference files against the trusted base" 'python3 tools/abi-reference-check.py --base "${ABI_BASE_REV:?set the exact independently trusted PR-base commit}"'
     run "abi: generated declarations and trusted baseline" "bash tools/abi-check.sh --ci"
 }
 

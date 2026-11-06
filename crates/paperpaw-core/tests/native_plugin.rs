@@ -14,7 +14,11 @@
 //!
 //! A library built apart (`PAPERPAW_TEST_PLUGIN`, as `tools/table-compat.sh`
 //! does) says in `PAPERPAW_TEST_TABLES` whether it was built in table mode
-//! (1) or with its own copies (0); the test checks it is so.
+//! (1) or with its own copies (0); the test checks it is so. One built
+//! for an older plugin interface or an older draft of this one says so in
+//! `PAPERPAW_TEST_EXPECT=refused`, with the interface it was built for in
+//! `PAPERPAW_TEST_BUILT_FOR`: then it must be refused, before anything of
+//! it runs, as the shells refuse it.
 
 use std::alloc::Layout;
 use std::cell::{Cell, RefCell};
@@ -29,8 +33,10 @@ use paperpaw_platform::{
 };
 use paperpaw_sdk::builtin::events;
 use paperpaw_sdk::native::support::{Api, ApiSlot, Entry};
-use paperpaw_sdk::native::{FINGERPRINT, take};
-use paperpaw_sdk::{Env, Id, Manifest, Params, Plugin, RegisterError, Registrar, Version};
+use paperpaw_sdk::native::{Chip, FINGERPRINT, Fingerprint, Header, INTERFACE, Native, take};
+use paperpaw_sdk::{
+    Env, Id, Manifest, Params, Plugin, PluginProblem, RegisterError, Registrar, Version,
+};
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
     "test",
@@ -235,6 +241,83 @@ fn differences(got: &ui_probe::UiCalls, here: &ui_probe::UiCalls) -> Result<(), 
     Err(said.join("\n"))
 }
 
+/// A plugin built for an older plugin interface, or an older draft of
+/// this one (`PAPERPAW_TEST_BUILT_FOR`: the interface), is refused, and
+/// nothing of it runs: not its entry's other fields, nor its `make`.
+fn refused(fingerprint: Fingerprint) {
+    let built_for: u16 = match std::env::var("PAPERPAW_TEST_BUILT_FOR").map(|n| n.parse()) {
+        Ok(Ok(n)) => n,
+        other => {
+            panic!("PAPERPAW_TEST_BUILT_FOR: the interface the plugin was built for, not {other:?}")
+        }
+    };
+    assert!(
+        built_for <= INTERFACE,
+        "a plugin of a later interface ({built_for}) is no old plugin"
+    );
+    assert_eq!(
+        fingerprint.interface(),
+        built_for,
+        "its fingerprint names its interface"
+    );
+    // The emulator's and Android's loader compare the fingerprint alone,
+    // the X4's asks why it differs: both refuse it.
+    assert_ne!(fingerprint, FINGERPRINT, "an older build, refused");
+    assert!(fingerprint.misfit().is_some());
+    // And installing or placing its file: of an older interface it waits
+    // for a build for this one, of an older draft it is of another build.
+    let header = Header {
+        chip: Chip::Esp32S3,
+        fingerprint: fingerprint.0,
+        base: 0,
+        image_len: 0,
+        code_at: 0,
+        entry: 0,
+        api: 0,
+        relocs: 0,
+        align: 0,
+        compiler: 0,
+        hot_at: 0,
+        hot_len: 0,
+        patches: 0,
+        needs_api: 0,
+        families: [0; 8],
+        interface: built_for,
+        sha256: [0; 32],
+    };
+    let expected = if built_for < INTERFACE {
+        PluginProblem::OlderInterface { built_for }
+    } else {
+        PluginProblem::OtherBuild
+    };
+    assert_eq!(Native::new("code.ppn").problem(&header), Some(expected));
+}
+
+/// The library's entry, where it is to run (`PAPERPAW_TEST_EXPECT` runs,
+/// or not set); `None` where it is to be refused, and was.
+fn expected_entry(_library: &libloading::Library, entry: *const Entry) -> Option<&Entry> {
+    // The fingerprint first, through a pointer, as the shells read it: an
+    // entry of another interface may be shorter than this one's `Entry`.
+    // SAFETY: the static `plugin!` exports, which every interface's entry
+    // begins with its fingerprint, aligned to 8.
+    let fingerprint = unsafe { Entry::fingerprint_at(entry) };
+    match std::env::var("PAPERPAW_TEST_EXPECT").as_deref() {
+        Ok("refused") => {
+            refused(Fingerprint(fingerprint));
+            return None;
+        }
+        Ok("runs") | Err(std::env::VarError::NotPresent) => {}
+        other => panic!("PAPERPAW_TEST_EXPECT is runs or refused, not {other:?}"),
+    }
+    assert_eq!(
+        fingerprint, FINGERPRINT.0,
+        "built by another compiler or SDK"
+    );
+    // SAFETY: an entry of this build's interface, as its fingerprint says,
+    // in `_library`, loaded as long as the borrow.
+    Some(unsafe { &*entry })
+}
+
 #[test]
 #[ignore = "needs the plugin built apart first: see the module's documentation"]
 fn a_plugin_built_apart_runs_in_the_kernel() {
@@ -246,12 +329,11 @@ fn a_plugin_built_apart_runs_in_the_kernel() {
     let (slot, entry) = unsafe {
         let slot = library.get::<*const ApiSlot>(b"PAPERPAW_API\0").unwrap();
         let entry = library.get::<*const Entry>(b"PAPERPAW_ENTRY\0").unwrap();
-        (&**slot, &**entry)
+        (&**slot, *entry)
     };
-    assert_eq!(
-        entry.fingerprint, FINGERPRINT.0,
-        "built by another compiler or SDK"
-    );
+    let Some(entry) = expected_entry(&library, entry) else {
+        return;
+    };
     // What the plugin calls of the shared functions fits this shell's.
     assert_eq!(
         paperpaw_table::misfit(&entry.families, &API.family_min, &API.family_revs),
