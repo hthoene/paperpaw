@@ -448,6 +448,30 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         if !self.raw.batches.is_empty() {
             return Err(Error::DeclarationViewsUnavailable);
         }
+        self.publish(teardown)
+    }
+
+    /// Validate and map every native declaration before callback activation.
+    /// Mapping returns only host-owned staging; nothing is visible on failure.
+    #[allow(
+        dead_code,
+        reason = "native built-in registry adapter follows this transaction"
+    )]
+    pub(crate) fn commit_native<R>(
+        mut self,
+        teardown: Teardown<C>,
+        map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
+    ) -> Result<(RegistrationBatch<'a, C, M, T>, R), i32> {
+        if let Some(error) = self.failure {
+            return Err(registrations::status(error));
+        }
+        self.finish_declarations()?;
+        let staging = map(&self.declaration_view())?;
+        let batch = self.publish(teardown).map_err(registrations::status)?;
+        Ok((batch, staging))
+    }
+
+    fn publish(mut self, teardown: Teardown<C>) -> Result<RegistrationBatch<'a, C, M, T>, Error> {
         let lease = CallbackLease(self.owner.inner().activate_leased(teardown)?);
         Ok(RegistrationBatch {
             records: core::mem::replace(&mut self.records, core::array::from_fn(|_| None)),

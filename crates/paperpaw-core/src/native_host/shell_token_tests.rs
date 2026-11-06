@@ -8,6 +8,7 @@ use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_platform::{Instant, PixelFormat};
 
 std::thread_local! {
+    static DECLARES: Cell<bool> = const { Cell::new(false) };
     static DESTROYS: Cell<u32> = const { Cell::new(0) };
     static RESULT: Cell<i32> = const { Cell::new(0) };
     static CALLS: Cell<u32> = const { Cell::new(0) };
@@ -54,7 +55,7 @@ struct State {
 }
 
 unsafe extern "C" fn make(
-    _: *const PpHost,
+    host: *const PpHost,
     context: *mut c_void,
     out: *mut *const PpPlugin,
 ) -> i32 {
@@ -63,6 +64,22 @@ unsafe extern "C" fn make(
     } else {
         size_of::<PpPlugin>()
     };
+    if DECLARES.with(Cell::get) {
+        let record = registrations::Record::ScreenSpec(registrations::ScreenSpec {
+            name: "screen",
+            title: "tokens.title",
+            token: TOKEN,
+            flags: 0,
+        });
+        let mut bytes = [0; 192];
+        let length = registrations::records_encode(&[record], &mut bytes).unwrap();
+        // SAFETY: the host supplies its stable table and context, and the
+        // initialized encoded batch lives through this synchronous submit.
+        let status = unsafe { ((*host).registrations_submit)(context, borrowed(&bytes[..length])) };
+        if status != OK {
+            return status;
+        }
+    }
     let state = Box::into_raw(Box::new(State {
         table: PpPlugin {
             size: u32::try_from(size).unwrap(),
@@ -132,6 +149,7 @@ unsafe extern "C" fn draw(state: *mut c_void, token: u32, bytes: PpBytes) -> i32
 }
 
 fn hosted(short: bool) -> Hosted<Heap, ()> {
+    DECLARES.with(|value| value.set(false));
     SHORT.with(|value| value.set(short));
     CALLS.with(|count| count.set(0));
     RESULT.with(|result| result.set(0));
@@ -329,6 +347,50 @@ fn retained_instance_keeps_callbacks_live_and_destroys_state_once() {
             .with_frame(|_| ()),
         Err(host_glue::ERR_STATE)
     );
+    drop(instance);
+    assert_eq!(DESTROYS.with(Cell::get), 1);
+}
+
+#[test]
+fn native_mapping_refusal_destroys_output_before_it_can_dispatch() {
+    use super::super::retained::Retained;
+    for status in [host_glue::ERR_UNSUPPORTED, host_glue::ERR_NO_MEMORY] {
+        let host = hosted(false);
+        DECLARES.with(|value| value.set(true));
+        DESTROYS.with(|count| count.set(0));
+        let result = Retained::make_native(host, |view| -> Result<(), i32> {
+            let mut count = 0;
+            view.visit(&mut |record| {
+                assert!(matches!(record, registrations::Record::ScreenSpec(_)));
+                count += 1;
+            })?;
+            assert_eq!(count, 1);
+            Err(status)
+        });
+        assert_eq!(result.err(), Some(Error::Status(status)));
+        assert_eq!(CALLS.with(Cell::get), 0);
+        assert_eq!(DESTROYS.with(Cell::get), 1);
+    }
+}
+
+#[test]
+fn native_mapping_finishes_before_callbacks_activate() {
+    use super::super::retained::Retained;
+    let host = hosted(false);
+    DECLARES.with(|value| value.set(true));
+    DESTROYS.with(|count| count.set(0));
+    let (instance, count) = Retained::make_native(host, |view| {
+        let mut count = 0;
+        view.visit(&mut |record| {
+            assert!(matches!(record, registrations::Record::ScreenSpec(_)));
+            count += 1;
+        })?;
+        assert_eq!(CALLS.with(Cell::get), 0);
+        assert_eq!(DESTROYS.with(Cell::get), 0);
+        Ok(count)
+    })
+    .unwrap();
+    assert_eq!(count, 1);
     drop(instance);
     assert_eq!(DESTROYS.with(Cell::get), 1);
 }

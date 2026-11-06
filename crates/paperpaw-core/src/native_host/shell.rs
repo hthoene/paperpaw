@@ -449,6 +449,32 @@ impl<'a, S, M, T> PendingInstance<'a, S, M, T> {
         self.armed = false;
         Ok(batch)
     }
+
+    /// Keep native output pending until all declaration mapping succeeds.
+    #[allow(
+        dead_code,
+        reason = "native built-in registry adapter follows this transaction"
+    )]
+    pub(crate) fn commit_native<R>(
+        mut self,
+        map: impl FnOnce(&super::declaration_checks::View<'_>) -> Result<R, i32>,
+    ) -> Result<(Batch<'a, S, M, T>, R), Error> {
+        let transaction = self.transaction.take().ok_or(Error::Attempt)?;
+        let result = transaction
+            .staging
+            .commit_native(
+                crate::native_host::Teardown {
+                    report: report_context::<S>,
+                    cancel: cancel_context::<S>,
+                    release: release_context::<S>,
+                    destroy: destroy_context::<S>,
+                },
+                map,
+            )
+            .map_err(Error::Status)?;
+        self.armed = false;
+        Ok(result)
+    }
 }
 
 // A separate local guard survives unwinding from a staged host record's Drop.

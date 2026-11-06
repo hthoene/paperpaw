@@ -30,6 +30,29 @@ impl<S: Services + 'static, M: 'static> Retained<S, M> {
         })
     }
 
+    pub(crate) fn make_native<R>(
+        host: shell::Hosted<S, M>,
+        map: impl FnOnce(&super::declaration_checks::View<'_>) -> Result<R, i32>,
+    ) -> Result<(Self, R), shell::Error> {
+        let transaction = host.begin()?;
+        let (batch, staging) = host.make_registered(transaction)?.commit_native(map)?;
+        // SAFETY: as in make: the private holder retains the pinned allocation
+        // and releases this lease before freeing it. Staging owns its values.
+        let batch = unsafe {
+            core::mem::transmute::<
+                shell::Batch<'_, S, M, Registration>,
+                shell::Batch<'static, S, M, Registration>,
+            >(batch)
+        };
+        Ok((
+            Self {
+                batch: Some(batch),
+                host: ManuallyDrop::new(host),
+            },
+            staging,
+        ))
+    }
+
     pub(crate) fn batch(&self) -> Result<&shell::Batch<'_, S, M, Registration>, Error> {
         self.batch.as_ref().ok_or(Error::State)
     }
