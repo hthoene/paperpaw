@@ -154,8 +154,8 @@ fn invalid_sizes_overlong_text_and_released_handles_never_reach_host() {
         assert_eq!(font.ink(size, "text"), Err(Error::Invalid));
     }
     assert_eq!(
-        font.ink(12.0, "x".repeat(super::super::TEXT_MAX_BYTES + 1)),
-        Err(Error::NoSpace)
+        font.ink(12.0, "x".repeat(super::super::TEXT_INK_MAX_BYTES + 1)),
+        Err(Error::Invalid)
     );
     font.handle = None;
     assert_eq!(font.read_line_metrics(12.0), Err(Error::State));

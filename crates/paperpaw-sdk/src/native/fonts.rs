@@ -2,8 +2,14 @@
 use super::{Error, Host, binding::status, canvas::Canvas, wire::color_wire::color_encode};
 use crate::Color;
 
-const FONT_KEY_MAX_BYTES: usize = 128;
-const TEXT_MAX_BYTES: usize = 4096;
+/// Maximum UTF-8 key size accepted by the font.acquire slot.
+pub(super) const FONT_ACQUIRE_MAX_BYTES: usize = 128;
+/// Maximum UTF-8 text size accepted by the text.measure slot.
+pub(super) const TEXT_MEASURE_MAX_BYTES: usize = 4096;
+/// Maximum UTF-8 text size accepted by the text.draw slot.
+pub(super) const TEXT_DRAW_MAX_BYTES: usize = 4096;
+/// Maximum UTF-8 text size accepted by the text.ink slot.
+pub(super) const TEXT_INK_MAX_BYTES: usize = 4096;
 
 /// Horizontal text position and baseline in screen pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -72,11 +78,11 @@ impl<'cb> Font<'cb> {
     /// The host allows at most four live font handles per plugin.
     ///
     /// # Errors
-    /// Returns NoSpace for a key over 128 UTF-8 bytes, or the host refusal.
+    /// Returns Invalid for a key over 128 UTF-8 bytes, or the host refusal.
     pub fn acquire(host: &'cb Host<'cb>, key: impl AsRef<str>) -> Result<Self, Error> {
         let key = key.as_ref();
-        if key.len() > FONT_KEY_MAX_BYTES {
-            return Err(Error::NoSpace);
+        if key.len() > FONT_ACQUIRE_MAX_BYTES {
+            return Err(Error::Invalid);
         }
         let mut handle = 0;
         // SAFETY: the callback retains the host; key and output are call-local.
@@ -99,11 +105,11 @@ impl<'cb> Font<'cb> {
     /// No temporary text or output buffer is allocated.
     ///
     /// # Errors
-    /// Returns Invalid for a nonpositive or nonfinite size, NoSpace for text
-    /// over 4096 UTF-8 bytes, or the host refusal, including a stale handle.
+    /// Returns Invalid for a nonpositive or nonfinite size or text over 4096
+    /// UTF-8 bytes, or the host refusal, including a stale handle.
     pub fn measure_text(&self, size: f32, text: impl AsRef<str>) -> Result<f32, Error> {
         let text = text.as_ref();
-        validate_text(size, text)?;
+        validate_text(size, text, TEXT_MEASURE_MAX_BYTES)?;
         let handle = self.handle.ok_or(Error::State)?;
         let mut out = 0.0;
         // SAFETY: this font retains the callback host and its live opaque handle;
@@ -118,8 +124,8 @@ impl<'cb> Font<'cb> {
     /// An error after drawing begins can leave pixels changed.
     ///
     /// # Errors
-    /// Returns Invalid for an invalid size/position or a foreign canvas,
-    /// NoSpace for overlong text, or the host's refusal.
+    /// Returns Invalid for an invalid size/position, a foreign canvas or
+    /// overlong text, or the host's refusal.
     pub fn render_text(
         &self,
         canvas: &Canvas<'_>,
@@ -129,7 +135,7 @@ impl<'cb> Font<'cb> {
         text: impl AsRef<str>,
     ) -> Result<f32, Error> {
         let text = text.as_ref();
-        validate_text(size, text)?;
+        validate_text(size, text, TEXT_DRAW_MAX_BYTES)?;
         if !origin.x.is_finite() {
             return Err(Error::Invalid);
         }
@@ -182,12 +188,17 @@ impl Drop for Font<'_> {
     }
 }
 
-fn validate_text(size: f32, text: &str) -> Result<(), Error> {
-    if !size.is_finite() || size <= 0.0 {
+fn validate_text(size: f32, text: &str, max_bytes: usize) -> Result<(), Error> {
+    validate_font_size(size)?;
+    if text.len() > max_bytes {
         return Err(Error::Invalid);
     }
-    if text.len() > TEXT_MAX_BYTES {
-        return Err(Error::NoSpace);
+    Ok(())
+}
+
+fn validate_font_size(size: f32) -> Result<(), Error> {
+    if !size.is_finite() || size <= 0.0 {
+        return Err(Error::Invalid);
     }
     Ok(())
 }

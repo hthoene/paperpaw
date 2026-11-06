@@ -339,6 +339,10 @@ pub mod snapshot;
 pub mod storage;
 mod wire;
 
+#[cfg(test)]
+#[path = "native/slot_limits_tests.rs"]
+mod slot_limits_tests;
+
 #[cfg(feature = "kernel")]
 mod installed;
 #[cfg(feature = "kernel")]

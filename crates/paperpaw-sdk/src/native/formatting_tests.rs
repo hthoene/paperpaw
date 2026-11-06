@@ -355,3 +355,20 @@ fn message_capacity_is_bounded_even_with_larger_caller_storage() {
     );
     assert_eq!(&out[MAX_MESSAGE_BYTES..], &[77, 77]);
 }
+
+#[test]
+fn oversized_translation_key_is_refused_without_host_call_or_output_change() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut out = [77; 8];
+    assert_eq!(
+        copy_message(&host, "x".repeat(MAX_MESSAGE_BYTES + 1), &mut out),
+        Err(Error::Invalid)
+    );
+    assert_eq!(out, [77; 8]);
+    assert!(ctx.inputs.borrow().is_empty());
+}
