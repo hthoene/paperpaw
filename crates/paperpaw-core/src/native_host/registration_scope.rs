@@ -24,6 +24,7 @@ trait Target<T> {
         &self,
         batch: &RecordBatch<'_>,
         convert: fn(Registration) -> T,
+        wire: Option<&[u8]>,
     ) -> Result<(), i32>;
     fn reject(&self);
 }
@@ -83,12 +84,13 @@ impl<C, M, T> Target<T> for Staging<'_, '_, C, M, T> {
         &self,
         batch: &RecordBatch<'_>,
         convert: fn(Registration) -> T,
+        wire: Option<&[u8]>,
     ) -> Result<(), i32> {
         if let Err(error) = self.admission() {
             return Err(registrations::status(error));
         }
         if let Ok(mut construction) = self.construction.try_borrow_mut() {
-            construction.stage_batch(batch, convert)
+            construction.stage_with_raw(batch, convert, wire)
         } else {
             self.reject();
             Err(ERR_BUSY)
@@ -205,7 +207,20 @@ impl<T: 'static> RegistrationScope<T> {
             return Err(ERR_STATE);
         };
         // SAFETY: same scoped target lifetime as `submit`.
-        unsafe { pointer.as_ref() }.submit_batch(batch, convert)
+        unsafe { pointer.as_ref() }.submit_batch(batch, convert, None)
+    }
+
+    pub(crate) fn submit_wire(
+        &self,
+        batch: &RecordBatch<'_>,
+        convert: fn(Registration) -> T,
+        wire: &[u8],
+    ) -> Result<(), i32> {
+        let Some(pointer) = self.current.get() else {
+            return Err(ERR_STATE);
+        };
+        // SAFETY: the scope keeps the target live; the target copies wire bytes.
+        unsafe { pointer.as_ref() }.submit_batch(batch, convert, Some(wire))
     }
 
     /// Stage one validated host-owned record through the active scope.

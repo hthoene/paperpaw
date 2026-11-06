@@ -21,6 +21,17 @@ pub mod canvas;
 #[path = "native_host/commands.rs"]
 pub mod commands;
 
+#[path = "native_host/raw_declarations.rs"]
+mod raw_declarations;
+
+// Kept crate-private until Kernel's draft-4 SDK source contract lands.
+#[allow(
+    dead_code,
+    reason = "draft-4 SDK registry wiring follows the tested substrate"
+)]
+#[path = "native_host/declaration_store.rs"]
+pub(crate) mod declaration_store;
+
 /// Registry-free syntactic validation of declaration records.
 #[path = "native_host/declarations.rs"]
 pub mod declarations;
@@ -144,6 +155,7 @@ impl<C, M> HostOwner<C, M> {
             records: core::array::from_fn(|_| None),
             len: 0,
             declarations: Declarations::default(),
+            raw: raw_declarations::RawDeclarations::default(),
             failure: None,
         })
     }
@@ -184,6 +196,7 @@ pub struct Construction<'a, C, M, T> {
     records: [Option<T>; REGISTRATIONS],
     len: usize,
     declarations: Declarations,
+    raw: raw_declarations::RawDeclarations,
     failure: Option<Error>,
 }
 
@@ -243,6 +256,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
             records: core::mem::replace(&mut self.records, core::array::from_fn(|_| None)),
             len: self.len,
             declarations: core::mem::take(&mut self.declarations),
+            raw: core::mem::take(&mut self.raw),
             lease,
         })
     }
@@ -267,27 +281,49 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         batch: &RecordBatch<'_>,
         convert: fn(Registration) -> T,
     ) -> Result<(), i32> {
+        self.stage_with_raw(batch, convert, None)
+    }
+
+    fn stage_with_raw(
+        &mut self,
+        batch: &RecordBatch<'_>,
+        convert: fn(Registration) -> T,
+        wire: Option<&[u8]>,
+    ) -> Result<(), i32> {
         if let Some(error) = self.failure {
             return Err(registrations::status(error));
         }
-        let tokens = batch
-            .iter()
-            .filter(|record| matches!(record, Record::Registration(_)))
-            .count();
-        if self.len + tokens > REGISTRATIONS {
-            self.failure = Some(Error::Capacity);
-            return Err(ERR_NO_SPACE);
-        }
-        if let Err(code) = self.declarations.stage(self.plugin_id, batch) {
-            // Latch the cause, so that a warning can tell a limit or low memory
-            // from a broken rule.
+        let result = self.stage_inner(batch, convert, wire);
+        if let Err(code) = result {
             self.failure = Some(match code {
                 ERR_NO_SPACE => Error::Capacity,
                 ERR_NO_MEMORY => Error::Memory,
                 _ => Error::Invalid,
             });
-            return Err(code);
         }
+        result
+    }
+
+    fn stage_inner(
+        &mut self,
+        batch: &RecordBatch<'_>,
+        convert: fn(Registration) -> T,
+        wire: Option<&[u8]>,
+    ) -> Result<(), i32> {
+        let tokens = batch
+            .iter()
+            .filter(|record| matches!(record, Record::Registration(_)))
+            .count();
+        if self.len + tokens > REGISTRATIONS {
+            return Err(ERR_NO_SPACE);
+        }
+        let raw = self.raw.prepare(wire, batch)?;
+        self.declarations.stage_retaining(
+            self.plugin_id,
+            batch,
+            self.raw.retained(raw.as_ref()),
+        )?;
+        self.raw.commit(raw);
         for record in batch.iter() {
             if let (Record::Registration(registration), Some(slot)) =
                 (record, self.records.get_mut(self.len))
@@ -328,6 +364,7 @@ pub struct RegistrationBatch<'a, C, M, T> {
     records: [Option<T>; REGISTRATIONS],
     len: usize,
     declarations: Declarations,
+    raw: raw_declarations::RawDeclarations,
     lease: CallbackLease<'a, C, M>,
 }
 
@@ -342,6 +379,12 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.len == 0
+    }
+
+    // The draft-4 bridge consumes these snapshots together with Declarations.
+    #[allow(dead_code, reason = "draft-4 registry bridge follows the substrate")]
+    pub(crate) fn take_raw_declarations(&mut self) -> raw_declarations::RawDeclarations {
+        core::mem::take(&mut self.raw)
     }
 
     /// Move the staged declarations out, leaving an empty set behind. They are

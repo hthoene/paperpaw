@@ -510,7 +510,24 @@ impl Declarations {
     /// name or an extra without its spec or beside another extra for the same
     /// spec; `ERR_NO_MEMORY` when an allocation fails. `self` is unchanged.
     pub fn stage(&mut self, plugin_id: &str, batch: &RecordBatch<'_>) -> Result<(), i32> {
+        self.stage_retaining(plugin_id, batch, 0)
+    }
+
+    pub(crate) fn stage_retaining(
+        &mut self,
+        plugin_id: &str,
+        batch: &RecordBatch<'_>,
+        retained: usize,
+    ) -> Result<(), i32> {
         let counts = self.check(plugin_id, batch)?;
+        if self
+            .bytes
+            .checked_add(counts.bytes)
+            .and_then(|n| n.checked_add(retained))
+            .is_none_or(|n| n > DECLARATIONS_MAX_BYTES)
+        {
+            return Err(ERR_NO_SPACE);
+        }
         let mut pending = Pending::build(batch, &counts)?;
         grow(&mut self.groups, counts.groups)?;
         grow(&mut self.specs, counts.specs)?;
