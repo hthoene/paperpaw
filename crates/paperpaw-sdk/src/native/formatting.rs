@@ -1,0 +1,126 @@
+//! Allocation-free catalog formatting with caller-owned argument and output buffers.
+use super::{
+    Error, Host,
+    declare::records_wire::{self as wire, Record},
+};
+use paperpaw_native::host_glue::{PpBuffer, PpBytes};
+
+/// Maximum UTF-8 bytes in a catalog key.
+pub const MAX_KEY_BYTES: usize = 128;
+/// Maximum encoded formatting argument batch size.
+pub const MAX_ARGUMENT_BYTES: usize = 1024;
+/// Maximum UTF-8 bytes passed to digit conversion.
+pub const MAX_DIGIT_BYTES: usize = 4096;
+
+/// One formatting argument. Signed integers use the wire's two's complement encoding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Arg<'a> {
+    /// A named string substitution.
+    Text { name: &'a str, value: &'a str },
+    /// A named integer substitution.
+    Int { name: &'a str, value: i64 },
+    /// The plural selector, also bound to the name `count`.
+    Count(i64),
+}
+impl Arg<'_> {
+    fn name(&self) -> &str {
+        match self {
+            Self::Text { name, .. } | Self::Int { name, .. } => name,
+            Self::Count(_) => "count",
+        }
+    }
+    fn record(&self) -> Record<'_> {
+        match self {
+            Self::Text { name, value } => Record::I18nArgStr(wire::I18nArgStr { name, value }),
+            Self::Int { name, value } => Record::I18nArgInt(wire::I18nArgInt {
+                name,
+                value: *value as u64,
+            }),
+            Self::Count(value) => Record::I18nCount(wire::I18nCount {
+                value: *value as u64,
+            }),
+        }
+    }
+}
+fn bytes(input: &[u8]) -> PpBytes {
+    PpBytes {
+        ptr: input.as_ptr(),
+        len: input.len(),
+    }
+}
+fn buffer(output: &mut [u8]) -> PpBuffer {
+    PpBuffer {
+        ptr: output.as_mut_ptr(),
+        cap: output.len(),
+    }
+}
+fn length(result: i32) -> Result<usize, Error> {
+    usize::try_from(result).map_err(|_| Error::from_status(result))
+}
+
+/// Format a catalog key, optionally selecting its plural form with [`Arg::Count`].
+/// `scratch` holds only the encoded arguments and can be reused after the call.
+/// Returns the full UTF-8 byte length, even when only `out.len()` bytes fit.
+/// Retry with a larger output buffer when the returned length exceeds its capacity.
+/// A partial output can end inside a UTF-8 character.
+///
+/// # Errors
+/// Returns NoSpace for field, argument or scratch limits; Invalid for duplicate
+/// names or plural selectors; or the host refusal. A missing key leaves `out` unchanged.
+pub fn format(
+    host: &Host<'_>,
+    key: impl AsRef<str>,
+    args: &[Arg<'_>],
+    scratch: &mut [u8],
+    out: &mut [u8],
+) -> Result<usize, Error> {
+    let key = key.as_ref();
+    if key.len() > MAX_KEY_BYTES || args.len() > wire::REGISTRATION_MAX_RECORDS {
+        return Err(Error::NoSpace);
+    }
+    for (index, arg) in args.iter().enumerate() {
+        if args[..index]
+            .iter()
+            .any(|previous| previous.name() == arg.name())
+        {
+            return Err(Error::Invalid);
+        }
+    }
+    let mut records =
+        [Record::I18nCount(wire::I18nCount { value: 0 }); wire::REGISTRATION_MAX_RECORDS];
+    for (record, arg) in records.iter_mut().zip(args) {
+        *record = arg.record();
+    }
+    let capacity = scratch.len().min(MAX_ARGUMENT_BYTES);
+    let count = wire::records_encode(&records[..args.len()], &mut scratch[..capacity])
+        .map_err(Error::from_status)?;
+    // SAFETY: all inputs and the exclusively borrowed output live through this call.
+    length(unsafe {
+        (host.table.i18n_format)(
+            host.ctx,
+            bytes(key.as_bytes()),
+            bytes(&scratch[..count]),
+            buffer(out),
+        )
+    })
+}
+
+/// Convert ASCII digits to the UI language's digits without allocating.
+/// Returns the full byte length; an output shorter than that holds a byte prefix,
+/// which can end inside a UTF-8 character. Retry with a larger buffer if needed.
+///
+/// # Errors
+/// Returns NoSpace for overlong input or the host's refusal.
+pub fn digits(host: &Host<'_>, text: impl AsRef<str>, out: &mut [u8]) -> Result<usize, Error> {
+    let text = text.as_ref();
+    if text.len() > MAX_DIGIT_BYTES {
+        return Err(Error::NoSpace);
+    }
+    // SAFETY: callback binding, input and exclusively borrowed output remain live.
+    length(unsafe { (host.table.i18n_digits)(host.ctx, bytes(text.as_bytes()), buffer(out)) })
+}
+
+#[cfg(test)]
+#[path = "formatting_tests.rs"]
+mod tests;

@@ -535,6 +535,10 @@ fn assert_poisoned<F: FnMut(&[u8]) -> Result<(), i32>>(d: &mut Declarations<F>, 
             error
         );
     }
+    for title in ["screen.title", ""] {
+        assert_eq!(d.screen(ScreenDecl::new("s", title, 1)).map(|_| ()), error);
+        assert_eq!(d.action(ActionDecl::new("a", title, 2)).map(|_| ()), error);
+    }
     assert_eq!(d.submit(), error);
     assert_eq!(d.submit(), error);
     assert_eq!(d.len(), count);
@@ -657,5 +661,134 @@ fn local_refusals_abort_once_and_never_send_pending_records() {
         assert_eq!(d.submit(), Err(error));
         drop(d);
         assert_eq!(calls, [Vec::<u8>::new()]);
+    }
+}
+
+#[test]
+fn screen_and_action_tokens_and_flags_round_trip() {
+    let mut batches = Vec::new();
+    let mut d = collecting(&mut batches);
+    let mut screen = ScreenDecl::new("main", "demo.screen.title", 0x7654_3210);
+    screen.full_refresh_on_open = true;
+    let mut action = ActionDecl::new("refresh", "demo.action.title", 0xfedc_ba98);
+    action.needs_screen = true;
+    d.screen(screen).unwrap();
+    d.action(action).unwrap();
+    d.screen(ScreenDecl::new("other", "demo.other.title", 0))
+        .unwrap();
+    d.action(ActionDecl::new("global", "demo.global.title", u32::MAX))
+        .unwrap();
+    d.submit().unwrap();
+    drop(d);
+    let batch = records_decode(&batches[0]).unwrap();
+    let records: Vec<_> = batch.iter().collect();
+    match records.as_slice() {
+        [
+            Record::ScreenSpec(screen),
+            Record::ActionSpec(action),
+            Record::ScreenSpec(other),
+            Record::ActionSpec(global),
+        ] => {
+            assert_eq!(
+                (screen.name, screen.title, screen.token, screen.flags),
+                ("main", "demo.screen.title", 0x7654_3210, 1)
+            );
+            assert_eq!(
+                (action.name, action.title, action.token, action.flags),
+                ("refresh", "demo.action.title", 0xfedc_ba98, 1)
+            );
+            assert_eq!((other.token, other.flags), (0, 0));
+            assert_eq!((global.token, global.flags), (u32::MAX, 0));
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn screen_and_action_generated_caps_are_inclusive() {
+    let screen_name = "n".repeat(records_wire::SCREEN_SPEC_NAME_MAX_BYTES);
+    let screen_title = "t".repeat(records_wire::SCREEN_SPEC_TITLE_MAX_BYTES);
+    let action_name = "a".repeat(records_wire::ACTION_SPEC_NAME_MAX_BYTES);
+    let action_title = "k".repeat(records_wire::ACTION_SPEC_TITLE_MAX_BYTES);
+    let mut batches = Vec::new();
+    let mut d = collecting(&mut batches);
+    d.screen(ScreenDecl::new(&screen_name, &screen_title, 3))
+        .unwrap();
+    d.action(ActionDecl::new(&action_name, &action_title, 4))
+        .unwrap();
+    d.submit().unwrap();
+    drop(d);
+    let batch = records_decode(&batches[0]).unwrap();
+    let records: Vec<_> = batch.iter().collect();
+    match records.as_slice() {
+        [Record::ScreenSpec(screen), Record::ActionSpec(action)] => {
+            assert_eq!(
+                (screen.name, screen.title),
+                (screen_name.as_str(), screen_title.as_str())
+            );
+            assert_eq!(
+                (action.name, action.title),
+                (action_name.as_str(), action_title.as_str())
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn screen_and_action_field_refusals_abort_pending_construction() {
+    for is_screen in [true, false] {
+        let (name_cap, title_cap, name_field, title_field) = if is_screen {
+            (
+                records_wire::SCREEN_SPEC_NAME_MAX_BYTES,
+                records_wire::SCREEN_SPEC_TITLE_MAX_BYTES,
+                "screen name",
+                "screen title",
+            )
+        } else {
+            (
+                records_wire::ACTION_SPEC_NAME_MAX_BYTES,
+                records_wire::ACTION_SPEC_TITLE_MAX_BYTES,
+                "action name",
+                "action title",
+            )
+        };
+        for (name, title, error) in [
+            (
+                String::new(),
+                "title".to_string(),
+                DeclareError::Empty(name_field),
+            ),
+            (
+                "name".to_string(),
+                String::new(),
+                DeclareError::Empty(title_field),
+            ),
+            (
+                "n".repeat(name_cap + 1),
+                "title".to_string(),
+                DeclareError::TooLong(name_field),
+            ),
+            (
+                "name".to_string(),
+                "t".repeat(title_cap + 1),
+                DeclareError::TooLong(title_field),
+            ),
+        ] {
+            let mut batches = Vec::new();
+            let mut d = collecting(&mut batches);
+            d.group(GroupDecl::new("pending", "group.title")).unwrap();
+            let result = if is_screen {
+                d.screen(ScreenDecl::new(&name, &title, 5))
+            } else {
+                d.action(ActionDecl::new(&name, &title, 6))
+            };
+            assert_eq!(result.map(|_| ()), Err(error));
+            assert_eq!(d.len(), 1);
+            assert_eq!(d.submit(), Err(error));
+            assert_eq!(d.submit(), Err(error));
+            drop(d);
+            assert_eq!(batches, [Vec::<u8>::new()]);
+        }
     }
 }

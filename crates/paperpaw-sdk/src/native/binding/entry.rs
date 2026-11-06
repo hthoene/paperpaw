@@ -2,7 +2,7 @@
 use super::{Error, Host, Plugin, status};
 use core::{ffi::c_void, mem, ptr};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED, MAX_ALIGN, OK};
-use paperpaw_native::host_glue::{MAJOR, MINOR, PpBytes, PpEntry, PpHost, PpPlugin};
+use paperpaw_native::host_glue::{MAJOR, MINOR, PpBuffer, PpBytes, PpEntry, PpHost, PpPlugin};
 
 /// Immutable entry export; metadata and function addresses live with the module.
 #[repr(transparent)]
@@ -127,6 +127,7 @@ pub(super) unsafe extern "C" fn make<T: Plugin, const NEEDS_MINOR: u16>(
                 drop: Some(destroy::<T>),
                 dispatch_event: Some(event::<T>),
                 draw: Some(draw::<T>),
+                input: Some(input::<T>),
             },
             value,
         });
@@ -137,46 +138,114 @@ pub(super) unsafe extern "C" fn make<T: Plugin, const NEEDS_MINOR: u16>(
 
 /// # Safety
 /// The host enforces reentry deny: no callback re-enters this same instance.
-unsafe extern "C" fn event<T: Plugin>(state: *mut c_void, token: u32, input: PpBytes) -> i32 {
-    if state.is_null() || input.len > 4096 || (input.len != 0 && input.ptr.is_null()) {
+unsafe extern "C" fn event<T: Plugin>(
+    state: *mut c_void,
+    token: u32,
+    input: PpBytes,
+    out: PpBuffer,
+) -> i32 {
+    if state.is_null() {
         return ERR_INVALID;
     }
-    let input = if input.len == 0 {
-        &[]
-    } else {
-        // SAFETY: admitted host input is readable and disjoint from plugin state.
-        unsafe { core::slice::from_raw_parts(input.ptr, input.len) }
+    // SAFETY: host lends disjoint input/output for this callback only.
+    let input = match unsafe {
+        paperpaw_native::host_glue::buffers::bytes_in(input, isize::MAX as usize)
+    } {
+        Ok(input) => input,
+        Err(e) => return e,
     };
-    // SAFETY: the host retains and exclusively admits this live instance.
+    // SAFETY: host output is writable and does not overlap state or input.
+    let out = match unsafe {
+        paperpaw_native::host_glue::buffers::buffer_out(out, isize::MAX as usize)
+    } {
+        Ok(out) => out,
+        Err(e) => return e,
+    };
+    let event = match super::super::events::Event::decode(input) {
+        Ok(event) => event,
+        Err(e) => return e.status(),
+    };
+    let mut reply = super::super::reply::Reply::new(out);
+    // SAFETY: host retains and exclusively admits this live instance.
     let state = unsafe { &mut *state.cast::<State<T>>() };
-    // SAFETY: make retained the table lease until destroy.
     let host = Host {
+        // SAFETY: make retained the table lease until destroy.
+        table: unsafe { &*state.host },
+        ctx: state.ctx,
+    };
+    match state.value.event(&host, token, event, &mut reply) {
+        Ok(()) => i32::try_from(reply.len()).unwrap_or(ERR_INVALID),
+        Err(e) => e.status(),
+    }
+}
+
+/// # Safety
+/// Host exclusively admits the live state and lends readable input bytes.
+unsafe extern "C" fn draw<T: Plugin>(state: *mut c_void, token: u32, input: PpBytes) -> i32 {
+    if state.is_null() {
+        return ERR_INVALID;
+    }
+    // SAFETY: admitted input is readable and disjoint from plugin state.
+    let bytes = match unsafe {
+        paperpaw_native::host_glue::buffers::bytes_in(input, isize::MAX as usize)
+    } {
+        Ok(bytes) => bytes,
+        Err(e) => return e,
+    };
+    let frame = match super::super::callbacks::DrawFrame::decode(bytes) {
+        Ok(frame) => frame,
+        Err(e) => return e.status(),
+    };
+    if matches!(
+        frame.purpose,
+        super::super::callbacks::DrawPurpose::Other(_)
+    ) {
+        return OK;
+    }
+    // SAFETY: host retains and exclusively admits this live instance.
+    let state = unsafe { &mut *state.cast::<State<T>>() };
+    let host = Host {
+        // SAFETY: make retained the table lease until destroy.
         table: unsafe { &*state.host },
         ctx: state.ctx,
     };
     state
         .value
-        .event(&host, token, input)
+        .draw(&host, token, frame)
         .map_or_else(Error::status, |()| OK)
 }
 
 /// # Safety
-/// The host enforces reentry deny: no callback re-enters this same instance.
-unsafe extern "C" fn draw<T: Plugin>(state: *mut c_void, token: u32) -> i32 {
+/// Host exclusively admits the live state and lends readable input bytes.
+unsafe extern "C" fn input<T: Plugin>(state: *mut c_void, token: u32, input: PpBytes) -> i32 {
     if state.is_null() {
         return ERR_INVALID;
     }
-    // SAFETY: the host retains and exclusively admits this live instance.
+    // SAFETY: admitted input is readable and disjoint from plugin state.
+    let bytes = match unsafe {
+        paperpaw_native::host_glue::buffers::bytes_in(input, isize::MAX as usize)
+    } {
+        Ok(bytes) => bytes,
+        Err(e) => return e,
+    };
+    let input = match super::super::callbacks::Input::decode(bytes) {
+        Ok(input) => input,
+        Err(e) => return e.status(),
+    };
+    // SAFETY: host retains and exclusively admits this live instance.
     let state = unsafe { &mut *state.cast::<State<T>>() };
-    // SAFETY: make retained the table lease until destroy.
     let host = Host {
+        // SAFETY: make retained the table lease until destroy.
         table: unsafe { &*state.host },
         ctx: state.ctx,
     };
     state
         .value
-        .draw(&host, token)
-        .map_or_else(Error::status, |()| OK)
+        .input(&host, token, input)
+        .map_or_else(Error::status, |handled| match handled {
+            crate::Handled::Yes => 1,
+            crate::Handled::No => 0,
+        })
 }
 
 unsafe extern "C" fn destroy<T: Plugin>(state: *mut c_void) {

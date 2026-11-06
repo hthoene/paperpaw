@@ -6,6 +6,11 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+- Interface 7 draft 5 SDK: bounded callback replies, typed draw frames and input,
+  screen/action declarations and events, catalog formatting and digit conversion,
+  and distinct permission/timeout errors. Callback input has no fixed glue cap.
+
+
 ### Added
 
 - Interface-7 SDK callback host binding and `native_plugin!` entry glue, with checked table admission

@@ -2622,3 +2622,22 @@ has the steps.
 [`Screen`]: ../crates/paperpaw-sdk/src/screen.rs
 [`Widget`]: ../crates/paperpaw-sdk/src/widgets.rs
 
+
+### Flat callbacks in interface 7 draft 5
+
+The flat `native::Plugin` facade borrows all callback input from the host.
+`event` receives a decoded `native::events::Event` and a `native::reply::Reply` writer: append the family's encoded
+reply with `write`, and return `Ok(())`. The glue returns only the written length.
+A full writer returns `Error::NoSpace` without appending a partial write.
+Events without replies receive an empty writer.
+
+`draw` receives a decoded `native::callbacks::DrawFrame` with its target rectangle,
+clip rows and borrowed payload. `input` receives a typed `Input` and returns
+`Handled::Yes` or `Handled::No`. Neither input nor reply storage can escape the
+callback. Decoders reject unknown exact tags and invalid input enum values.
+
+Declare screens and actions with `native::declare::ScreenDecl` and `ActionDecl`.
+Decode their shown/run events with `native::events::decode`. Format catalog strings
+with `native::formatting::format` using caller-owned argument scratch and output;
+`digits` maps ASCII digits. Both return the full required byte length, so retry
+when the result exceeds the output capacity.
