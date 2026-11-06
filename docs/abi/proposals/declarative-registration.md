@@ -41,13 +41,13 @@ question Q1.
 
 - A batch is a LEB128 count, then records of `tag, body length, bitmap length, bitmap, fields`;
   at most 8 records and 4096 bytes; unknown registration tags give `ERR_UNSUPPORTED`
-  (`docs/abi/records.md:10-19`, `:41-47`). Field types are u32/u64/i32/str/bytes
-  (`abi/README.md:23-25`). Only tags 1-3 exist (`docs/abi/records.md:21-25`); tag 4 is
+  (`docs/abi/records.md:7-17`, `:27-28`, `:39-41`). Field types are u32/u64/i32/str/bytes
+  (`abi/README.md:21-22`). Only tags 1-3 exist (`docs/abi/records.md:17-21`); tag 4 is
   `command.set_setting` on the commands branch (`wt-abi7-commands/docs/abi/commands.md:19`, local
   worktree at `d96b26cf`, not pushed to `origin` when I looked).
 - Initial records have no optional fields: "All declarations and fields start at minor 1. There are no
-  optional fields yet." (`docs/abi/records.md:27-28`). Appending optional fields with defaults is
-  allowed only in a later minor (`abi/README.md:28-30`). Hence every record below uses required
+  optional fields yet." (`docs/abi/records.md:23`). Appending optional fields with defaults is
+  allowed only in a later minor (`abi/README.md:21-25`). Hence every record below uses required
   fields with documented sentinels (empty string, zero), not optional ones.
 - Statuses: OK 0, UNSUPPORTED -1, INVALID -2, NO_SPACE -3, NO_MEMORY -4, UTF8 -5, STATE -6,
   CANCELLED -7, IO -8, BUSY -9 (`abi/abi.def`, `statuses`).
@@ -93,7 +93,7 @@ question Q1.
 - Slot 15 `SetSetting`: key namespace (first dot segment) must be the submitting plugin; the setting must
   be registered; bool/int must satisfy its spec; a secret setting returns `ERR_UNSUPPORTED`
   (`wt-abi7-commands/docs/abi/commands.md:49-54`). Slot 5 returns absent/bool/int/text and keeps
-  defaults by going through `Settings::get` (`abi/settings.md:5-22`, `:23-27`;
+  defaults by going through `Settings::get` (`abi/settings.md:3-6`, `:21-24`;
   `crates/paperpaw-core/src/abi7/queries.rs:28-37`).
 
 ### 1.4 Translations
@@ -126,7 +126,7 @@ question Q1.
   read-only data as one block", is "written once into flash" in "the free end of the app partition ...
   about 640 KB after an install by CrossPoint's SD installer", mapped through the MMU, so "its code runs
   from flash and only its data takes RAM"; the X4 Pro reads it into PSRAM; unloading is a restart
-  (`docs/adr/0024-native-code-plugins.md:55-56`, `:63-66`, `:80-92`; `docs/plugins.md:1853-1866`).
+  (`docs/adr/0024-native-code-plugins.md:53-57`, `:63-66`, `:80-92`; `docs/plugins.md:1853-1866`).
   So rodata costs no heap on any platform, but it consumes the **scarce, write-once flash region**.
 - Sizes. Hyphenation tables (`.pphp`, **measured** from build outputs in
   `scratch/k228snapshot/target/release/build/*/out`, an older snapshot, rebuild to confirm), bytes:
@@ -140,13 +140,13 @@ question Q1.
   Per-plugin `how/` 325-650 bytes, `i18n/` 203-243 bytes per language for the G0 plugins.
 - Read in place: a hyphenation table is looked up by binary search over a sparse index without loading
   it (`paperpaw-hyphen/src/lib.rs:1-9`), but `Patterns::new` takes `&[u8]` only (`lib.rs:84`); a font pack
-  on storage is read a glyph at a time (`StoredPack`, `crates/paperpaw-sdk/src/fonts.rs:57-80`,
-  `FontFace` doc). **There is no storage-backed `Patterns` today.**
+  on storage is read a glyph at a time (`StoredPack`, `crates/paperpaw-sdk/src/fonts.rs:62-80`,
+  the `FontFace` doc). **There is no storage-backed `Patterns` today.**
 - Boundary rules (ADR34): one interface-7 batch before 1.0, closures never cross, tokens are `u32`
   (`ADR34:257-264`); batches at most 4 KiB, "larger records require a bounded chunk/stream protocol"
-  (`ADR34:312-320`); proposed X4 profile of 4,096 B total additional boundary storage with "one
+  (`ADR34:312-321`); proposed X4 profile of 4,096 B total additional boundary storage with "one
   384-byte inline batch", eight dynamic tokens and four persistent handles per plugin
-  (`ADR34:929-945`). The 384 B inline figure is a proposal in the ADR and conflicts with the 4096 cap in
+  (`ADR34:924-945`). The 384 B inline figure is a proposal in the ADR and conflicts with the 4096 cap in
   `abi.def`; see Q6.
 - G0 classification: 14 data plugins (12 hyphenation languages, hyphenation base, fonts-default), "blocked
   only by R-DECL and R-DATA"; none of the 14 registers settings (`notes:` Result table; `grep add_settings`
@@ -202,3 +202,104 @@ Trust: the file is plain data beside the signed `.ppn`; the code is unsandboxed 
 file grants nothing the code could not already do (`ADR34:` "No sandbox"; `ADR 0024` Decision, "No
 sandbox"). It is nevertheless fully validated, because a corrupt card must not poison the kernel's
 registries.
+
+## 3. Part 1: manifest and identity
+
+### Decision (Proposal)
+
+**No manifest record and no new metadata field for identity.** Identity, name, description and version are
+the folder's `plugin.ini`. What a plugin may do (`uses`) is declared as signed metadata features.
+
+- *Identity.* The plugin id is the folder name and `plugin.ini` `id` (`docs/plugin-conventions.md:104`,
+  `data_plugin.rs:617-650` check it). It is **never a claim in registration bytes**; the host knows the
+  submitting plugin, as slot 15 already assumes ("never a claim in the bytes",
+  `wt-abi7-commands/docs/abi/commands.md:41-43`).
+- *Name, description.* English in `plugin.ini` (`[plugin] name, description`); translated by the keys
+  `<id>.plugin.name` / `<id>.plugin.description`, which sit in `i18n/*` (`plugins/hyphenation-de/i18n/en.ini`).
+  *How it works* is `how/<lang>.txt`, which the kernel does not read (`plugin-conventions.md:106`).
+- *Version.* `plugin.ini` `version`. Interface 6 requires the code's manifest to repeat it
+  (`docs/plugins.md:2039-2041`); with a flat entry that duplicate disappears, so the check goes (Q2).
+- *Target, ABI, services, features.* Already in `PAPERPAW_METADATA`, which "already contains target
+  identity, services, features and entry/export requirements" (`abi/entry.md:20-24`,
+  `abi/metadata.md:12-22`). Nothing to duplicate.
+- *`uses`* (network, bluetooth, developer; `crates/paperpaw-sdk/src/plugin.rs:76-109`). Proposal: three
+  semantic feature keys in the metadata `features` list, `uses.network`, `uses.bluetooth`,
+  `uses.developer`, revision 1, minor 1. Reasons: the loader can show and enforce them **before** `make`
+  runs and without running code, they are inside the signed envelope (`metadata.md:23-25`), and the
+  metadata already limits features to 32 entries of 128-byte keys. The alternative, plugin.ini
+  `uses = network`, is unsigned and editable on the card; it would be acceptable only if `uses` stays a
+  consent device rather than a guard (unsandboxed code, ADR 0024), which is the current interface-6
+  position ("shown before it is installed, and the kernel refuses what is not declared",
+  `plugin.rs:21-23`). Q3.
+
+### Rationale
+
+A manifest record would duplicate `plugin.ini` (which the store, installer and plugin manager read without
+loading code: `docs/plugin-conventions.md:67-73`) and would spend one of eight record slots and part of the
+transient batch on text that is already on the card. Metadata is the right home for permissions because
+it is the only signed, pre-`make` channel.
+
+### Schema, validation, failure, memory
+
+- Records: **none**. Tag 5 is not consumed by this part.
+- Metadata: add three feature descriptors to `abi.def.metadata.features` (currently `[]`); the generator
+  and lock tooling already own that list (`abi/metadata.md:3-9`). Encoder rejects duplicates; loader refuses
+  an unknown feature key before `make` (`metadata.md:25-27`).
+- Validation: folder id equals `plugin.ini` id (existing, `plugins.rs:981-987`); `plugin.ini` at most 4 KiB
+  (`data_plugin.rs:68`). Failure: plugin not loaded, a warning naming the folder; not an ABI status.
+- Memory: unchanged from a data plugin today: `plugin.ini` is read transiently (at most 4 KiB), the
+  retained manifest is a few strings (**Estimate** under 200 B).
+
+### Open questions (Part 1)
+
+- Q2: drop the code-vs-`plugin.ini` version cross-check, or add `plugin_version` to the metadata prefix
+  (format 3, a lock-format change)? I propose dropping it and checking in `paperpaw-dev package`, which
+  can read both files at build time.
+- Q3: `uses` as signed metadata features (proposed) or unsigned `plugin.ini`?
+
+## 4. Part 2: translations
+
+### Decision (Proposal)
+
+**No translation records. Catalogs are resources of the plugin folder**, loaded by the existing data loader,
+compiled to `.ppcat` and read on demand (ADR 0033). A plugin ships `i18n/en.ppcat` (or `.ini`) and
+`i18n/de.ppcat`, with `formats = 4` in `plugin.ini`; the `en` catalog is mandatory, `de` is required by the
+repository's own check (`docs/plugin-conventions.md:205-207`, `:272`).
+
+### Rationale
+
+- Per-string records cannot work: 3,590 first-party English messages (Fact 1.4) against 8 records and 4096 B
+  per batch; the largest plugin alone has 404 keys (`grep -c = plugins/widgets/i18n/en.ini`).
+- Even a **per-catalog** record is unnecessary: the loader already discovers every `i18n/*.ini|ppcat` in the
+  folder (`data_plugin.rs:662-712`), picks `.ppcat` over `.ini` of the same stem (`:692-696`) and refuses
+  files over budget (`:703-707`).
+- Heap: a text catalog is held whole (ADR 0033, Context); all first-party text for one language is about
+  191 KB, more than the X4 could hold. A `.ppcat` costs about 8 B per block of at most 32 messages plus a
+  bounded read cache (at most 16 KiB, emptied when the screen changes). For the G0 plugins a text catalog is
+  203-243 bytes per language (14 plugins x 2 languages is about 6 KB on disk, parsed text roughly the same
+  in heap while the language is active), so `.ini` is acceptable there and `.ppcat` is **required** above a
+  threshold (Q4; I suggest 2 KiB, which matches no existing rule and is a guess).
+- Key lookup stays as it is: `i18n.copy(key)` copies `translator().tr(key)` for the **UI language chain**
+  (UI language, then English), across all registered catalogs, first match wins
+  (`queries.rs:44-65`). Keys follow `<id>.<what>`; there is no per-plugin enforcement on read, and none is
+  proposed (a plugin may read `core.*` keys). Writing catalogs is namespace-checked by the loader's
+  existing rules, not by the ABI.
+
+### Schema, validation, failure, memory
+
+- Records: **none**.
+- Validation (existing): file size at most 64 KiB for `.ini` (`MAX_FILE`), 512 KiB of text catalogs per
+  plugin (`data_plugin.rs:66`, `:79`); `.ppcat` is checked whole at open (places in order, blocks at most
+  2 KiB, hashes ascending), a bad one is dropped and the language falls back (ADR 0033).
+- Failure: never a `make` failure. A missing or corrupt catalog is a warning and a fallback to English;
+  `i18n.copy` returns the key itself for an absent message (`queries.rs:62`).
+- Memory per plugin per active language: the open `.ppcat` (block table, about 1 KB for 3,400 messages), plus
+  shared read cache. Inactive languages keep file name and meta only (ADR 0033).
+
+### Open questions (Part 2)
+
+- Q4: threshold above which `.ppcat` is mandatory.
+- Q5: slot 6 cannot tell "missing" from "message equals its key". Interface 6 has the same property
+  through `tr`. Should slot 6 return a distinct status for a missing key (an interface-7 change that I would
+  prefer to batch now, since the batch is open) or stay as is?
+- Verify (Unverified in 1.4) that `code.ppn` folders pass through `load_folder`.
