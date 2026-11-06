@@ -435,6 +435,7 @@ fn prepare() -> Ready {
     // Plugins choose internal RAM or PSRAM for their data (ADR 0030).
     paperpaw_sdk::memory::set_placer(native::api::alloc_in);
     esp_println::logger::init_logger_from_env();
+    stack::report_band();
     // What hot code in internal RAM gains on this chip (test builds).
     #[cfg(feature = "remote")]
     bench::run();

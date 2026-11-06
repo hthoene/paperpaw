@@ -87,9 +87,22 @@ pub fn check() {
 
 /// The CPU's trigger the band uses. esp-hal's (and esp-rtos', on every
 /// task switch) is 0, the guard word's; its vector table check, off in
-/// this firmware, takes 1.
+/// this firmware, takes 1. A later esp-hal that takes 2 as well is found
+/// at start ([`arm_band`] finds it busy) and by the lock-file test in
+/// `paperpaw-x4`'s `stack_band`.
 #[cfg(target_arch = "riscv32")]
 const TRIGGER: u32 = 2;
+
+/// Whether the band is armed now: the plugins of interface 7 run only
+/// where it is (`native::load_file` refuses them otherwise).
+static ARMED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// Whether the band at the stack's end is armed. Where it is not (the
+/// chip has none, or trigger 2 was taken by something else), the plugins
+/// that run native code do not run: they would have no net.
+pub fn band_armed() -> bool {
+    ARMED.load(core::sync::atomic::Ordering::Relaxed)
+}
 
 /// Sets the CPU's data trigger to fire before any store into the band
 /// at the stack's end (`paperpaw_x4::stack_band`), from now on: the
@@ -99,12 +112,19 @@ const TRIGGER: u32 = 2;
 /// panic at the faulting store (`crash.rs` blames the plugin whose code
 /// it is, or the one that called the firmware's code it was in).
 ///
+/// Called at start and again after every light sleep (the trigger is
+/// the CPU's: a sleep may not keep it). Where the trigger is busy with
+/// something else, nothing is written and [`band_armed`] says no. Never
+/// a panic: a firmware that panicked at start for this would restart
+/// for ever.
+///
 /// The ESP32-C3's only: the Xtensa chips have no native plugins.
 #[cfg(target_arch = "riscv32")]
 pub fn arm_band() {
     let end = core::ptr::addr_of!(_stack_end) as u32;
     let top = core::ptr::addr_of!(_stack_start) as u32;
     let Some(start) = paperpaw_x4::stack_band::band(end, top) else {
+        ARMED.store(false, core::sync::atomic::Ordering::Relaxed);
         return;
     };
     let address = paperpaw_x4::stack_band::napot(start);
@@ -116,9 +136,29 @@ pub fn arm_band() {
     let enable = 1u32 << 3;
     // Interrupts off: a task switch (esp-rtos) selects its trigger in
     // between and the writes would land in that one.
-    critical_section::with(|_| {
-        // SAFETY: the trigger CSRs of the chip; they touch no memory. The
-        // trigger is written disabled, then its address, then enabled.
+    let armed = critical_section::with(|_| {
+        let (have_control, have_address): (u32, u32);
+        // SAFETY: the trigger CSRs of the chip; they touch no memory.
+        unsafe {
+            core::arch::asm!(
+                "csrw 0x7a0, {id}",
+                "csrr {c}, 0x7a1",
+                "csrr {a}, 0x7a2",
+                id = in(reg) TRIGGER,
+                c = out(reg) have_control,
+                a = out(reg) have_address,
+                options(nomem, nostack),
+            );
+        }
+        // Load, store or execute set (bits 0 to 2): in use. Ours, set
+        // before, is no other's.
+        let in_use = have_control & 0b111 != 0;
+        let ours = (have_control & 0xffff) == control && have_address == address;
+        if in_use && !ours {
+            return false;
+        }
+        // SAFETY: as above. The trigger is written disabled, then its
+        // address, then enabled.
         unsafe {
             core::arch::asm!(
                 "csrw 0x7a0, {id}",
@@ -133,9 +173,29 @@ pub fn arm_band() {
                 options(nomem, nostack),
             );
         }
+        true
     });
+    if !armed && band_armed() {
+        log::warn!("stack: trigger {TRIGGER} was taken: the band is no longer armed");
+    }
+    ARMED.store(armed, core::sync::atomic::Ordering::Relaxed);
 }
 
 /// No band on the Xtensa chips.
 #[cfg(not(target_arch = "riscv32"))]
 pub fn arm_band() {}
+
+/// Says in the log, once the log runs, whether the band is armed: the
+/// start arms it before the log exists. The Xtensa chips have no band
+/// and no native plugins: nothing to say.
+pub fn report_band() {
+    #[cfg(target_arch = "riscv32")]
+    if band_armed() {
+        log::info!("stack: the band at the stack's end is armed");
+    } else {
+        log::warn!(
+            "stack: the band at the stack's end is NOT armed (trigger {TRIGGER} busy or no \
+             room): plugins with native code are not run"
+        );
+    }
+}

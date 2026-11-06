@@ -81,6 +81,41 @@ mod tests {
         assert_eq!(band(u32::MAX - 100, u32::MAX), None);
     }
 
+    /// The band takes the CPU's data trigger 2. That is free in the
+    /// versions below: esp-hal's stack guard (and esp-rtos', moved on each
+    /// task switch) takes 0, its vector-table check 1 (off here). A new
+    /// esp-hal or esp-rtos may take more: read what they do with
+    /// `set_watchpoint`/`set_stack_watchpoint` (`debugger.rs`), then update
+    /// the versions here. The firmware also finds a busy trigger at start
+    /// (`stack::arm_band`) and then refuses interface-7 plugins.
+    #[test]
+    fn the_triggers_are_free_in_the_versions_checked() {
+        let lock = include_str!("../../../shells/xteink/Cargo.lock");
+        let version = |name: &str| {
+            let mut lines = lock.lines();
+            while let Some(line) = lines.next() {
+                if line == format!("name = \"{name}\"") {
+                    let v = lines.next().unwrap_or_default();
+                    return v
+                        .trim_start_matches("version = ")
+                        .trim_matches('"')
+                        .to_string();
+                }
+            }
+            panic!("{name} is not in the lock file");
+        };
+        assert_eq!(
+            version("esp-hal"),
+            "1.2.2",
+            "esp-hal changed: check which CPU triggers it uses (stack_band.rs)"
+        );
+        assert_eq!(
+            version("esp-rtos"),
+            "0.4.0",
+            "esp-rtos changed: check which CPU triggers it uses (stack_band.rs)"
+        );
+    }
+
     #[test]
     fn the_trigger_value_is_esp_hals_napot_encoding() {
         // esp-hal's `set_watchpoint(id, addr, len)` for len = 2048.

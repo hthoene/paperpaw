@@ -239,6 +239,12 @@ impl Loader {
         // Interface 7's files (format 5) are read by their own loader.
         #[cfg(feature = "ppn5")]
         if ppn5::is_format5(&head) {
+            // Without the net at the stack's end (`stack::arm_band`) a
+            // frame that overflows is not caught: refused, for this start.
+            if !crate::stack::band_armed() {
+                warn!("native: {path} not run: the stack's band is not armed");
+                return Err(PluginProblem::Unsupported);
+            }
             return ppn5::load(&mut self.place, storage, code);
         }
         let header = Header::read(&head).map_err(|p| problem_of(&head, p))?;
