@@ -539,7 +539,7 @@ fn decode_entry<'a>(
         DeclRef::Owned(bytes) => bytes,
     };
     let (record, _) = super::registrations::record_decode_prefix(
-        bytes.get(usize::from(record)..).ok_or(ERR_INVALID)?
+        bytes.get(usize::from(record)..).ok_or(ERR_INVALID)?,
     )?;
     declarations::validate_record(owner.id.as_str(), &record)?;
     Ok(record)

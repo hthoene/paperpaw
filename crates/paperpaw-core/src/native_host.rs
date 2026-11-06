@@ -313,7 +313,8 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         })
     }
 
-    /// The declarations staged so far.
+    /// Decoded-only host declarations staged so far. Wire submissions are kept
+    /// separately as raw bytes or image ranges and do not appear here.
     #[must_use]
     pub const fn declarations(&self) -> &Declarations {
         &self.declarations
@@ -451,8 +452,9 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
         core::mem::take(&mut self.raw)
     }
 
-    /// Move the staged declarations out, leaving an empty set behind. They are
-    /// moved, never copied; the kernel's apply step owns them from here.
+    /// Move decoded-only host declarations out, leaving an empty set behind.
+    /// Wire submissions are stored separately and do not appear here. They
+    /// currently refuse commit until the SDK declaration views are wired.
     pub fn take_declarations(&mut self) -> Declarations {
         core::mem::take(&mut self.declarations)
     }

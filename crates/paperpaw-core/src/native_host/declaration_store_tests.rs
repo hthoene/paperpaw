@@ -363,13 +363,15 @@ fn construction_retains_a_snapshot_and_record_offsets_after_input_is_gone() {
         .unwrap();
     input.fill(0);
     drop(input);
-    let mut committed = construction.commit(|_| {}).unwrap();
-    let raw = committed.take_raw_declarations();
+    construction.finish_declarations().unwrap();
+    let raw = &construction.raw;
     assert_eq!(raw.batches.len(), 1);
     let batch = &raw.batches[0];
     assert_eq!(&*batch.bytes, expected);
     assert_eq!(batch.entries, 6);
     assert!(batch.offsets[..6].windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(construction.declarations().is_empty());
+    assert!(matches!(construction.commit(|_| {}), Err(super::super::Error::DeclarationViewsUnavailable)));
 }
 
 #[test]
@@ -628,4 +630,86 @@ fn changed_image_bytes_cannot_create_duplicate_names_inside_a_hash_collision_run
     source.bytes.borrow_mut()[at..at + FIRST.len()].copy_from_slice(FIRST.as_bytes());
     assert!(store.find("fixture", Kind::Group, FIRST, &mut |_| {}));
     assert!(store.find("fixture", Kind::Group, SECOND, &mut |_| {}));
+}
+
+#[test]
+fn removing_owner_releases_module_immediately_and_invalidates_keys() {
+    let mut store = DeclarationStore::default();
+    let mut allocations = Allocations::default();
+    let source = image();
+    let module = Rc::downgrade(&source);
+    store
+        .prepare(
+            pending(&source, false, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    let key = keys(&store)[0];
+    drop(source);
+    assert!(module.upgrade().is_some());
+    store.remove_owner(&Id::new_static("fixture"), 1);
+    assert!(module.upgrade().is_none());
+    assert!(keys(&store).is_empty());
+    assert!(!store.with_record(key, &mut |_| panic!("removed module")));
+}
+
+#[test]
+fn lookup_does_not_decode_an_unrelated_record_in_the_same_batch() {
+    let mut store = DeclarationStore::default();
+    let mut allocations = Allocations::default();
+    let source = image();
+    store
+        .prepare(
+            pending(&source, false, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    // The extra follows the group and spec in this batch.
+    let extra = keys(&store)
+        .into_iter()
+        .find(|key| {
+            let mut extra = false;
+            store.with_record(*key, &mut |r| extra = matches!(r, Record::SettingExtra(_)));
+            extra
+        })
+        .unwrap();
+    source.bytes.borrow_mut()[1] = 0xff;
+    assert!(store.with_record(extra, &mut |r| assert!(matches!(
+        r,
+        Record::SettingExtra(_)
+    ))));
+    assert!(
+        !store.find("fixture", Kind::Group, "group", &mut |_| panic!(
+            "corrupt group"
+        ))
+    );
+}
+
+#[test]
+#[ignore = "host timing evidence; run explicitly with --nocapture"]
+fn host_lookup_timing() {
+    let mut store = DeclarationStore::default();
+    let mut allocations = Allocations::default();
+    let source = image();
+    store
+        .prepare(
+            pending(&source, false, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    let start = std::time::Instant::now();
+    for _ in 0..100_000 {
+        assert!(store.find(
+            "fixture",
+            Kind::Extra,
+            core::hint::black_box("flag"),
+            &mut |r| {
+                core::hint::black_box(r);
+            }
+        ));
+    }
+    std::println!("100000 guarded name lookups: {:?}", start.elapsed());
 }
