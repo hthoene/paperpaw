@@ -81,6 +81,13 @@ change the plugin SDK.
   `paperpaw-hyphen` (kernel): `StoredPatterns::open_within` refuses a table over a heap budget
   (`OpenError::OverBudget`), `StoredPatterns::heap_bound` bounds it from its header.
 
+### Fixed
+
+- *Discover fonts* in the reading settings, where *More fonts* does not run, says why and offers the one thing to
+  do (it is not installed: open its page; it is switched off: switch it on; it waits for a restart: restart),
+  instead of only opening the store's page of the plugin. A plugin's page opened without a connection says
+  "No connection", not "Plugin not found", and carries the plugin's name (#240).
+
 ## [0.6.0-beta.3] - 2026-11-05
 
 ### Added

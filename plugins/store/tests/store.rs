@@ -430,8 +430,140 @@ fn larger_sizes_are_discovered_from_the_reading_settings() {
         .unwrap();
     kernel.start(Instant(0));
     kernel.run_action(Instant(100), DISCOVER_FONTS);
+    // Not installed: said so, and its page is one answer away.
+    let top = kernel.screens().last().map(Id::as_str);
+    assert_eq!(top, Some("core.confirm-dialog"));
+    kernel.run_action(Instant(200), actions::CONFIRM);
     let top = kernel.screens().last().map(Id::as_str);
     assert_eq!(top, Some("store.plugin"));
+}
+
+/// The kernel of the X4 with the store and, if given, the fonts browser
+/// built in (switched off or on); no menu plugin, the dialogs are the
+/// kernel's own.
+fn discovering(fonts: Option<bool>, network: bool) -> Kernel {
+    let mut builder = Kernel::builder(common::DEVICE)
+        .storage(Shared::default())
+        .network(network)
+        .catalog_device("x4")
+        // The fonts the dialogs and pages are drawn in.
+        .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+        .plugin(Store);
+    builder = match fonts {
+        Some(true) => builder.plugin(paperpaw_plugin_fonts_browser::FontsBrowser),
+        Some(false) => builder.plugin_off(paperpaw_plugin_fonts_browser::FontsBrowser),
+        None => builder,
+    };
+    let mut kernel = builder.build().unwrap();
+    kernel.start(Instant(0));
+    kernel
+}
+
+/// What the screen on top shows, label by label.
+fn shown(kernel: &mut Kernel) -> String {
+    kernel.render(&mut |_, _| {});
+    kernel
+        .describe()
+        .into_iter()
+        .map(|p| p.label)
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+/// *Discover fonts* where the fonts browser is not installed says so
+/// (it does not just open the store's page of it); *Open its page* then
+/// opens the page, titled while its files are fetched.
+#[test]
+fn discover_fonts_says_that_the_fonts_browser_is_not_installed() {
+    let mut kernel = discovering(None, true);
+    kernel.run_action(Instant(100), DISCOVER_FONTS);
+    let text = shown(&mut kernel);
+    assert!(text.contains("Install “More fonts” first"), "{text}");
+    assert!(text.contains("Open its page"), "{text}");
+    kernel.run_action(Instant(200), actions::CONFIRM);
+    assert_eq!(
+        kernel.screens().last().map(Id::as_str),
+        Some("store.plugin")
+    );
+    let text = shown(&mut kernel);
+    assert!(text.contains("More fonts"), "{text}");
+    // "Not now" opens nothing.
+    let mut kernel = discovering(None, true);
+    kernel.run_action(Instant(100), DISCOVER_FONTS);
+    kernel.run_action(Instant(200), actions::DOWN);
+    kernel.run_action(Instant(300), actions::CONFIRM);
+    assert_ne!(
+        kernel.screens().last().map(Id::as_str),
+        Some("store.plugin")
+    );
+}
+
+/// Installed but switched off: the reader may switch it on (and PaperPaw
+/// restarts for it), not be sent to the store.
+#[test]
+fn discover_fonts_offers_to_switch_a_switched_off_fonts_browser_on() {
+    let mut kernel = discovering(Some(false), true);
+    kernel.run_action(Instant(100), DISCOVER_FONTS);
+    let text = shown(&mut kernel);
+    assert!(text.contains("“More fonts” is switched off"), "{text}");
+    assert!(text.contains("Switch on and restart"), "{text}");
+    let effects = kernel.run_action(Instant(200), actions::CONFIRM);
+    let info = kernel.plugins().get("fonts-browser").unwrap();
+    assert!(info.enabled);
+    assert!(effects.restart());
+    assert_ne!(
+        kernel.screens().last().map(Id::as_str),
+        Some("store.plugin")
+    );
+}
+
+/// Installed (or switched on) and waiting for the restart, which a code
+/// plugin from the store does until it starts: that is said, with
+/// *Restart now*.
+#[test]
+fn discover_fonts_asks_for_the_restart_a_fonts_browser_waits_for() {
+    let mut kernel = discovering(Some(false), true);
+    // Switched on (by the first question), which takes a restart: the
+    // state of a code plugin the store has just installed.
+    kernel.run_action(Instant(50), DISCOVER_FONTS);
+    kernel.run_action(Instant(100), actions::CONFIRM);
+    assert!(
+        kernel
+            .plugins()
+            .get("fonts-browser")
+            .unwrap()
+            .restart_needed()
+    );
+    kernel.run_action(Instant(200), DISCOVER_FONTS);
+    let text = shown(&mut kernel);
+    assert!(text.contains("“More fonts” is installed"), "{text}");
+    assert!(text.contains("Restart now"), "{text}");
+    let effects = kernel.run_action(Instant(300), actions::CONFIRM);
+    assert!(effects.restart());
+}
+
+/// Where the fonts browser runs, *Discover fonts* opens its list.
+#[test]
+fn discover_fonts_opens_the_list_where_the_fonts_browser_runs() {
+    let mut kernel = discovering(Some(true), true);
+    kernel.run_action(Instant(100), DISCOVER_FONTS);
+    assert_eq!(
+        kernel.screens().last().map(Id::as_str),
+        Some("fonts-browser.list")
+    );
+}
+
+/// Offline, the page of a plugin says there is no connection, not that
+/// the library no longer offers the plugin; its title is its name.
+#[test]
+fn a_page_opened_offline_says_no_connection() {
+    let mut kernel = discovering(None, false);
+    kernel.run_action(Instant(100), DISCOVER_FONTS);
+    kernel.run_action(Instant(200), actions::CONFIRM);
+    let text = shown(&mut kernel);
+    assert!(text.contains("No connection"), "{text}");
+    assert!(text.contains("More fonts"), "{text}");
+    assert!(!text.contains("not found"), "{text}");
 }
 
 #[test]
