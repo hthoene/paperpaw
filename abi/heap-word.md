@@ -186,8 +186,16 @@ typedef struct PpHeap {
   re-entrancy flag in its panic handler (a second entry writes a fixed "panic in panic" slot
   blaming the frame owner and resets, without formatting again); and an owner-approved device test
   that recurses until overflow shows the crash slot blames the plugin. (A stack-pointer monitor is
-  not usable: the radio tasks run on other stacks.) Residual: a single frame larger than the band
-  that never stores into it.
+  not usable: the radio tasks run on other stacks.)
+  **Frame limit.** The band fires only on a store. One frame can move the stack pointer into the
+  band without storing, and the next frame then stores up to its size F lower, so the exception
+  handler and the crash slot have only the reserve (the band, `RESERVE`) minus F left. Rule: the
+  largest frame allowed (F, refused at pack time by `paperpaw-sign`, #252) is at most `RESERVE` -
+  the handler's measured depth - a margin; otherwise the reserve grows by F. Until the handler's
+  depth is measured on the device, the pack-time limit stays 1.5 KiB (#252) and this gate stays
+  open. Firmware functions that plugins call on the plugin's stack (shared-table entries, host
+  services, the dispatch entries after #235) are frames under the same limit; their budget is
+  checked in #254.
   Hosted targets end the process on the overflow.
 - [D] Codes: 1 panic, 2 allocation failure (`handle_alloc_error`), 3 bad free detected by the host;
   others reserved. A block grown by `realloc` is never reported as a bad free.
