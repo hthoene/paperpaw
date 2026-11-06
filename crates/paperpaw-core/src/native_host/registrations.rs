@@ -1,7 +1,8 @@
 //! Registration wire bridge for a loader's explicitly typed context.
 //!
 //! The loader installs its construction scope only around `make`. This module
-//! never casts a foreign context, retains input bytes, or invokes plugin code.
+//! never casts a foreign context or invokes plugin code. Committed declaration
+//! bytes are retained as fallible host copies; submitted addresses are metadata.
 //! A refused submission poisons construction even if the plugin ignores it.
 
 #[path = "../abi7/records_wire.rs"]
@@ -51,7 +52,8 @@ use paperpaw_native::host_glue::{
 /// Every decode, validation, unsupported-event or staging refusal poisons that
 /// transaction; the loader must abort it even when the foreign caller ignores
 /// this status. The plugin id for name checks is the one given to `begin`.
-/// Only the bounded staging copies are allocated and no input pointer is kept.
+/// Bounded staging copies include raw declaration bytes. The submitted address
+/// is retained only as metadata for later image admission, never for reading.
 ///
 /// # Safety
 /// When non-null with nonzero length, `bytes` must designate initialized storage
@@ -63,15 +65,18 @@ pub unsafe fn submit(scope: &RegistrationScope<Registration>, bytes: *const u8, 
     if let Err(error) = scope.admission() {
         return refuse(scope, status(error));
     }
-    let result = if len > REGISTRATION_MAX_BYTES {
+    let wire = if len > REGISTRATION_MAX_BYTES {
         Err(ERR_NO_SPACE)
     } else {
         // SAFETY: caller guarantees readable, stable storage; the helper also
         // checks null and size bounds before constructing any nonempty slice.
         unsafe { buffers::bytes_in(PpBytes { ptr: bytes, len }, REGISTRATION_MAX_BYTES) }
-            .and_then(wire::records_decode)
     };
-    let batch = match result {
+    let wire = match wire {
+        Ok(wire) => wire,
+        Err(error) => return refuse(scope, error),
+    };
+    let batch = match wire::records_decode(wire) {
         Ok(batch) => batch,
         Err(error) => return refuse(scope, error),
     };
@@ -85,7 +90,7 @@ pub unsafe fn submit(scope: &RegistrationScope<Registration>, bytes: *const u8, 
     if !supported {
         return refuse(scope, ERR_UNSUPPORTED);
     }
-    match scope.submit_batch(&batch, |registration| registration) {
+    match scope.submit_wire(&batch, |registration| registration, wire) {
         Ok(()) => OK,
         // The construction latched itself; this also covers an overlapping call.
         Err(error) => refuse(scope, error),
@@ -108,5 +113,6 @@ pub(super) fn status(error: Error) -> i32 {
         Error::Capacity => ERR_NO_SPACE,
         Error::Invalid => ERR_INVALID,
         Error::Memory => ERR_NO_MEMORY,
+        Error::DeclarationViewsUnavailable => ERR_UNSUPPORTED,
     }
 }
