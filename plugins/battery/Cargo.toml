@@ -13,6 +13,9 @@ categories = ["no-std"]
 [dependencies]
 paperpaw-sdk.workspace = true
 
+[build-dependencies]
+paperpaw-sdk.workspace = true
+
 [dev-dependencies]
 paperpaw-core.workspace = true
 paperpaw-platform.workspace = true

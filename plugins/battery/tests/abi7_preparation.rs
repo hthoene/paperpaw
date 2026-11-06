@@ -6,7 +6,7 @@
 mod fixture;
 
 use paperpaw_core::native_host::declarations::validate_batch;
-use paperpaw_sdk::native::events::{self, Event};
+use paperpaw_sdk::native::events::Event;
 
 #[test]
 fn borrowed_settings_match_the_existing_golden_without_registrar_conversion() {
@@ -42,7 +42,7 @@ fn lifecycle_fixtures_keep_all_five_edges_distinct() {
         let fixtures = fixture::lifecycle(now_ms).unwrap();
         assert_eq!(fixtures.len(), 5);
         for fixture in fixtures {
-            let (name, now) = match events::decode(&fixture.bytes).unwrap() {
+            let (name, now) = match Event::decode(&fixture.bytes).unwrap() {
                 Event::Started { now_ms } => ("started", now_ms),
                 Event::Resume { now_ms } => ("resume", now_ms),
                 Event::Suspend { now_ms } => ("suspend", now_ms),
@@ -64,7 +64,7 @@ fn page_turn_fixtures_preserve_unknown_and_known_counters() {
         (Some(12), Some(300)),
     ] {
         let bytes = fixture::page_turn(60_000, page, pages).unwrap();
-        let Event::PageTurned(event) = events::decode(&bytes).unwrap() else {
+        let Event::PageTurned(event) = Event::decode(&bytes).unwrap() else {
             panic!("expected a page-turn event");
         };
         assert_eq!((event.page, event.pages), (page, pages));
@@ -74,4 +74,20 @@ fn page_turn_fixtures_preserve_unknown_and_known_counters() {
         let path_start = event.path.as_ptr() as usize;
         assert!(path_start >= start && path_start + event.path.len() <= start + bytes.len());
     }
+}
+
+mod image {
+    include!(concat!(env!("OUT_DIR"), "/battery_declarations.rs"));
+}
+
+#[test]
+fn image_settings_match_runtime_and_golden() {
+    let mut index = 0;
+    fixture::settings(|batch| {
+        assert_eq!(batch, image::SETTINGS[index]);
+        index += 1;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(index, image::SETTINGS.len());
 }
