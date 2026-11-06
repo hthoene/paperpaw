@@ -553,8 +553,9 @@ settings registry before `commit`.
   never absent (rule 3).
 - **Slot 15** finds the spec in the same registry: kind and range via the same `accepts`, `secret`
   refused with `ERR_UNSUPPORTED`. Other plugins' unguarded settings may be changed (owner decision 126,
-  2026-11-06). The normal plugin command path refuses foreign guarded settings using the host-known
-  submitter, with the interface-6 settings-editor and kernel exceptions. The wire is unchanged.
+  2026-11-06). Slot 15 refuses foreign guarded settings with `ERR_INVALID`, using the host-known
+  submitter and settings-editor identity, with the interface-6 editor and kernel exceptions.
+  The normal plugin command path also vets them. The wire is unchanged.
 - **Secrets.** Slot 5 on a secret key should return `absent`, since secrets live in the secret store
   (`settings.rs:258-263`); the current slot-5 code does not special-case this (`queries.rs:28-37`) and I did
   not check what `Settings::get` returns for one (Q9).

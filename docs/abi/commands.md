@@ -49,7 +49,8 @@ settings registry, and a limit on accepted commands.
 4. For every command, without allocating: the setting must be registered, and
    Boolean and integer values must be accepted by its spec
    (kind and range). An unregistered or unaccepted setting returns
-   `ERR_INVALID`. A secret setting returns `ERR_UNSUPPORTED`; secrets keep
+   `ERR_INVALID`, as does another plugin's guarded setting. The host-resolved
+   settings editor and `core` are exempt from the guarded restriction. A secret setting returns `ERR_UNSUPPORTED`; secrets keep
    their own path. The bytes of keys and text staged in this callback must
    stay within the stage's byte budget, or the batch returns `ERR_NO_SPACE`.
 5. The stage reserves room for the whole batch fallibly (`ERR_NO_MEMORY`), then
@@ -63,7 +64,13 @@ before the host drains the stage after the callback (`into_commands`). The
 kernel then applies them as `Command::SetSetting`. That includes book scopes,
 a setting's own check and the change event. The normal plugin command path
 refuses another plugin's guarded settings, with the same settings-editor and
-kernel exceptions as interface 6. The host-known identity records who submitted;
+kernel exceptions as interface 6, as defence in depth after slot 15's check.
+The host obtains `Kernel::command_settings_authority` for the submitter before
+lending each callback stage and passes it to `CommandStage::new`. The token
+must never survive that callback: binding or uninstall can change the editor.
+It uses the same
+`Reserved` authority rule as `vet_reserved`; `None` exempts nobody.
+The host-known identity records who submitted;
 it does not restrict keys to that plugin's namespace. The next callback reads
 the new value back through slot 5.
 
@@ -79,7 +86,8 @@ about 32 KiB per callback; a profile sets it within its boundary memory budget.
 No other command kinds, and no `Notify`. Slot 15 allows writing another
 plugin's unguarded, non-secret settings, as decided in owner decision 126
 of 2026-11-06. This gains a capability inside the interface-7 draft; no existing
-status changes meaning and the wire is unchanged. The scope is not installed
+status changes meaning and the wire is unchanged. Foreign guarded settings
+still get `ERR_INVALID`; only `OK` gains foreign unguarded settings. The scope is not installed
 in a combined host table yet; activation, loader wiring and device qualification are separate gates.
 
 ```sh

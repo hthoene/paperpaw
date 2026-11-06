@@ -2,7 +2,7 @@
 //! and readback of the applied value in the next real callback.
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
 use paperpaw_core::native_host::commands::{
-    COMMAND_MAX_BYTES, CommandScope, CommandStage, WireCommand, commands_encode,
+    COMMAND_MAX_BYTES, CommandAuthority, CommandScope, CommandStage, WireCommand, commands_encode,
 };
 use paperpaw_core::native_host::environment::{EnvironmentScope, SettingValueRef, settings_decode};
 use paperpaw_native::host_glue::{
@@ -10,10 +10,14 @@ use paperpaw_native::host_glue::{
 };
 use paperpaw_platform::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat, Rotation};
 use paperpaw_sdk::{
-    Command, Commands, Env, Id, Manifest, Plugin, RegisterError, Registrar, SettingExtra,
-    SettingSpec, SettingValue, builtin,
+    Canvas, Command, Commands, Env, Id, Manifest, Plugin, Priority, RegisterError, Registrar,
+    Screen, ScreenSpec, SettingExtra, SettingSpec, SettingValue, builtin,
 };
-use std::{cell::RefCell, pin::pin, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    pin::pin,
+    rc::Rc,
+};
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
     "commands-test",
@@ -76,7 +80,11 @@ fn read(env: &Env<'_>, key: &str) -> Vec<u8> {
 fn refusals(scope: &CommandScope) {
     let flag = set("probe.flag", SettingValueRef::Bool(true));
     let long = "t".repeat(BYTES);
-    let cases: [(Vec<u8>, i32); 11] = [
+    let cases: [(Vec<u8>, i32); 12] = [
+        (
+            batch(&[flag, set("other.guarded", SettingValueRef::Bool(true))]),
+            ERR_INVALID,
+        ),
         // Second-pass refusal: the flag is converted first, then rolled back.
         (
             batch(&[flag, set("probe.mode", SettingValueRef::Text("z"))]),
@@ -130,7 +138,7 @@ const BYTES: usize = 40;
 /// A panic in the callback clears the slot; afterwards a new scope works.
 fn unwinding(owner: &Id, env: &Env<'_>) {
     let scope = pin!(CommandScope::new());
-    let mut stage = CommandStage::new(owner, env.settings(), 1, BYTES);
+    let mut stage = CommandStage::new(owner, env.settings(), None, 1, BYTES);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         scope
             .as_ref()
@@ -150,7 +158,7 @@ fn unwinding(owner: &Id, env: &Env<'_>) {
 
 fn started(env: &Env<'_>, out: &mut Commands) {
     let owner = Id::new_static("probe");
-    let mut stage = CommandStage::new(&owner, env.settings(), 3, BYTES);
+    let mut stage = CommandStage::new(&owner, env.settings(), None, 3, BYTES);
     let scope = pin!(CommandScope::new());
     let flag = batch(&[set("probe.flag", SettingValueRef::Bool(true))]);
     assert_eq!(submit(&scope, &flag), ERR_STATE);
@@ -163,7 +171,7 @@ fn started(env: &Env<'_>, out: &mut Commands) {
             assert_eq!(submit(&scope, &text), OK);
             let two = batch(&[set("probe.flag", SettingValueRef::Bool(true)); 2]);
             assert_eq!(submit(&scope, &two), ERR_NO_SPACE);
-            let mut nested = CommandStage::new(&owner, env.settings(), 1, BYTES);
+            let mut nested = CommandStage::new(&owner, env.settings(), None, 1, BYTES);
             assert!(scope.as_ref().scope(&mut nested, || ()).is_err());
         })
         .unwrap();
@@ -189,18 +197,25 @@ fn started(env: &Env<'_>, out: &mut Commands) {
 }
 
 fn cross_plugin_settings(owner: &Id, env: &Env<'_>, out: &mut Commands) {
-    let mut stage = CommandStage::new(owner, env.settings(), 2, BYTES);
+    let mut stage = CommandStage::new(owner, env.settings(), None, 2, BYTES);
     let scope = pin!(CommandScope::new());
-    let bytes = batch(&[
+    let guarded = batch(&[
         set("other.flag", SettingValueRef::Bool(true)),
         set("other.guarded", SettingValueRef::Bool(true)),
     ]);
     scope
         .as_ref()
+        .scope(&mut stage, || {
+            assert_eq!(submit(&scope, &guarded), ERR_INVALID);
+        })
+        .unwrap();
+    assert!(stage.staged().is_empty());
+    let bytes = batch(&[set("other.flag", SettingValueRef::Bool(true))]);
+    scope
+        .as_ref()
         .scope(&mut stage, || assert_eq!(submit(&scope, &bytes), OK))
         .unwrap();
-    // The normal plugin command path vets the guarded command after draining.
-    assert_eq!(stage.staged().len(), 2);
+    assert_eq!(stage.staged().len(), 1);
     assert!(!env.settings().bool("other.flag"));
     out.extend(stage.into_commands());
 }
@@ -282,4 +297,97 @@ fn staged_set_setting_is_read_back_in_the_next_callback() {
         "Bool(true) Ok(Text(\"Grüße\"))",
         "{log:?}"
     );
+}
+
+struct EmptyEditor;
+impl Screen for EmptyEditor {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+}
+
+struct GuardedWriter {
+    editor: bool,
+    authority: Rc<Cell<Option<CommandAuthority>>>,
+    expected: i32,
+}
+impl Plugin for GuardedWriter {
+    fn manifest(&self) -> Manifest {
+        let id = if self.editor { "editor" } else { "other" };
+        Manifest::new(
+            Id::new_static(id),
+            "Writer",
+            paperpaw_sdk::Version::new(1, 0, 0),
+        )
+    }
+
+    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        let owner = self.manifest().id;
+        if self.editor {
+            let screen = Id::new_static("editor.settings");
+            r.add_screen(ScreenSpec::new(
+                screen.clone(),
+                "Editor",
+                Box::new(|_, _| Box::new(EmptyEditor)),
+            ))?;
+            r.bind_slot(builtin::slots::SETTINGS, screen, Priority::DEFAULT)?;
+        } else {
+            r.add_settings(&FOREIGN)?;
+        }
+        let authority = self.authority.clone();
+        let expected = self.expected;
+        r.subscribe(
+            builtin::events::STARTED,
+            Box::new(move |env, _, out| {
+                let mut stage =
+                    CommandStage::new(&owner, env.settings(), authority.get(), 1, BYTES);
+                let scope = pin!(CommandScope::new());
+                let bytes = batch(&[set("other.guarded", SettingValueRef::Bool(true))]);
+                scope
+                    .as_ref()
+                    .scope(&mut stage, || assert_eq!(submit(&scope, &bytes), expected))
+                    .unwrap();
+                assert_eq!(stage.staged().len(), usize::from(expected == OK));
+                out.extend(stage.into_commands());
+            }),
+        )
+    }
+}
+
+fn run_guarded_writer(editor: bool, resolve_authority: bool) {
+    let authority = Rc::new(Cell::new(None));
+    let expected = if editor && !resolve_authority {
+        ERR_INVALID
+    } else {
+        OK
+    };
+    let writer = GuardedWriter {
+        editor,
+        authority: authority.clone(),
+        expected,
+    };
+    let mut builder = paperpaw_core::Kernel::builder(DEVICE);
+    if editor {
+        builder = builder.plugin(Other);
+    }
+    let owner = writer.manifest().id;
+    let mut kernel = builder.plugin(writer).build().unwrap();
+    if resolve_authority {
+        authority.set(Some(kernel.command_settings_authority(&owner)));
+    }
+    kernel.start(paperpaw_platform::Instant(0));
+    assert_eq!(kernel.settings().bool("other.guarded"), expected == OK);
+}
+
+#[test]
+fn the_host_resolved_settings_editor_can_set_foreign_guarded_settings() {
+    run_guarded_writer(true, true);
+}
+
+#[test]
+fn a_plugins_own_guarded_setting_is_admitted() {
+    run_guarded_writer(false, false);
+}
+
+#[test]
+fn no_host_authority_means_no_foreign_guarded_exemption() {
+    run_guarded_writer(true, false);
 }
