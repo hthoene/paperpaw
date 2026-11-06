@@ -4,6 +4,7 @@
 //! their Rust references. This slot admits a frame only for one synchronous
 //! dispatch, clears it on every exit, and refuses nested installation.
 
+use super::snapshot_wire::Snapshot;
 use core::{cell::Cell, marker::PhantomPinned, pin::Pin, ptr::NonNull};
 use paperpaw_i18n::Translator;
 use paperpaw_sdk::Settings;
@@ -11,6 +12,10 @@ use paperpaw_sdk::Settings;
 pub(crate) trait Frame {
     fn settings(&self) -> &Settings;
     fn translator(&self) -> &Translator;
+    /// Query-only frames need not provide an environment snapshot.
+    fn snapshot(&self) -> Result<Snapshot, i32> {
+        Err(paperpaw_native::host_glue::ERR_STATE)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

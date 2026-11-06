@@ -1,6 +1,14 @@
 //! Scoped frame cleanup while an owner context remains pinned.
 #[path = "../src/abi7/context.rs"]
 mod context;
+#[path = "../src/abi7/snapshot_wire.rs"]
+#[allow(
+    dead_code,
+    clippy::all,
+    clippy::pedantic,
+    reason = "complete generated codec is exercised by snapshot tests"
+)]
+mod snapshot_wire;
 use context::{Error, Frame, FrameSlot};
 use paperpaw_i18n::Translator;
 use paperpaw_sdk::Settings;
@@ -33,6 +41,10 @@ fn scoped_borrows_end_before_a_new_frame_is_installed() {
         slot.as_ref()
             .scope(&view, || {
                 slot.with(|frame| {
+                    assert!(matches!(
+                        frame.snapshot(),
+                        Err(paperpaw_native::host_glue::ERR_STATE)
+                    ));
                     assert!(core::ptr::eq(frame.settings(), &settings));
                     assert_eq!(frame.translator().tr("missing.key"), "missing.key");
                 })
