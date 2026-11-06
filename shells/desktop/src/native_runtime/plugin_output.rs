@@ -2,13 +2,13 @@
 //! formed for a factory returning the original shorter lifecycle prefix.
 use super::RuntimeError;
 use paperpaw_native::host_glue::{
-    self, PpBytes, PpPlugin, read_plugin_dispatch_event, read_plugin_draw, read_plugin_drop,
-    read_plugin_size, read_plugin_state,
+    self, PpBuffer, PpBytes, PpPlugin, read_plugin_dispatch_event, read_plugin_draw,
+    read_plugin_drop, read_plugin_size, read_plugin_state,
 };
 use std::ffi::c_void;
 
-type Event = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
-type Draw = unsafe extern "C" fn(*mut c_void, u32) -> i32;
+type Event = unsafe extern "C" fn(*mut c_void, u32, PpBytes, PpBuffer) -> i32;
+type Draw = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
 
 #[derive(Clone, Copy)]
 pub(super) struct PluginOutput {

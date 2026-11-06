@@ -8,18 +8,19 @@
 //! enforced by the codec (`ERR_UTF8`, `ERR_NO_SPACE`).
 
 use super::registrations::{
-    Record, RecordBatch, ResourceFontExtension, ResourceFontFace, ResourceHyphenation,
-    SettingExtra, SettingGroup, SettingSpec,
+    ActionSpec, Record, RecordBatch, ResourceFontExtension, ResourceFontFace, ResourceHyphenation,
+    SETTING_SPEC_CHOICES_ITEM_MAX_BYTES, SETTING_SPEC_CHOICES_MAX_ITEMS,
+    SETTING_SPEC_CHOICES_SEPARATOR, ScreenSpec, SettingExtra, SettingGroup, SettingSpec,
 };
 use crate::abi7::settings_wire::{SettingValueRef, settings_decode};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
 
 /// Longest full id (plugin id, dot, relative name) in bytes: slot 15's key cap.
 pub const FULL_ID_MAX_BYTES: usize = 128;
-/// Most values in a choice list.
-pub const CHOICES_MAX_VALUES: usize = 32;
-/// Longest single choice value in bytes.
-pub const CHOICE_MAX_BYTES: usize = 96;
+/// Most values in a choice list (generated from `abi.def`).
+pub const CHOICES_MAX_VALUES: usize = SETTING_SPEC_CHOICES_MAX_ITEMS;
+/// Longest single choice value in bytes (generated from `abi.def`).
+pub const CHOICE_MAX_BYTES: usize = SETTING_SPEC_CHOICES_ITEM_MAX_BYTES;
 /// Most segments in a resource path.
 pub const PATH_MAX_SEGMENTS: usize = 3;
 /// Longest resource path in bytes.
@@ -69,6 +70,8 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         Record::ResourceHyphenation(record) => hyphenation_check(record),
         Record::ResourceFontFace(face) => face_check(plugin_id, face),
         Record::ResourceFontExtension(extension) => extension_check(plugin_id, extension),
+        Record::ScreenSpec(screen) => screen_check(plugin_id, screen),
+        Record::ActionSpec(action) => action_check(plugin_id, action),
         Record::Registration(_) => Ok(()),
         // Events flow from the host to the plugin; a batch never carries one.
         Record::EventStarted(_)
@@ -76,7 +79,19 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventSuspend(_)
         | Record::EventStopping(_)
         | Record::EventBatteryMeasured(_)
-        | Record::EventPageTurned(_) => Err(ERR_INVALID),
+        | Record::EventPageTurned(_)
+        | Record::EventScreenShown(_)
+        | Record::EventActionRun(_) => Err(ERR_INVALID),
+        // Input records go to `PpPlugin.input`, frames to `draw`, format
+        // arguments to slot 27.
+        Record::DrawFrame(_)
+        | Record::InputKey(_)
+        | Record::InputPointer(_)
+        | Record::InputGesture(_)
+        | Record::InputAction(_)
+        | Record::I18nArgStr(_)
+        | Record::I18nArgInt(_)
+        | Record::I18nCount(_) => Err(ERR_INVALID),
         // Service records are the host's answers (slots 17-19), never submitted.
         Record::ServiceUsage(_)
         | Record::ServicePluginUsage(_)
@@ -175,12 +190,12 @@ fn spec_check(plugin_id: &str, spec: &SettingSpec<'_>) -> Check {
 fn choices_check(choices: &str, default: &str) -> Check {
     let mut count = 0;
     let mut found = false;
-    for (index, value) in choices.split('\n').enumerate() {
+    for (index, value) in choices.split(SETTING_SPEC_CHOICES_SEPARATOR).enumerate() {
         ensure(index < CHOICES_MAX_VALUES)?;
         ensure(!value.is_empty() && value.len() <= CHOICE_MAX_BYTES)?;
         ensure(
             choices
-                .split('\n')
+                .split(SETTING_SPEC_CHOICES_SEPARATOR)
                 .take(index)
                 .all(|earlier| earlier != value),
         )?;
@@ -302,4 +317,41 @@ fn extension_check(plugin_id: &str, extension: &ResourceFontExtension<'_>) -> Ch
     // An extension adds glyphs to a face: only a PaperPaw pack can (PR #158).
     ensure(has_extension(extension.path, ".ppfp"))?;
     full_id(extension.extends)
+}
+
+/// `screen.spec` flag bit 0: full refresh when the screen opens.
+pub const SCREEN_FULL_REFRESH_ON_OPEN: u32 = 1;
+/// `action.spec` flag bit 0: runs only while one of the plugin's screens is on top.
+pub const ACTION_NEEDS_SCREEN: u32 = 1;
+
+fn screen_check(plugin_id: &str, screen: &ScreenSpec<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let ScreenSpec {
+        name,
+        title,
+        token: _,
+        flags,
+    } = screen;
+    relative(plugin_id, name)?;
+    ensure(!title.is_empty())?;
+    if flags & !SCREEN_FULL_REFRESH_ON_OPEN != 0 {
+        return Err(ERR_UNSUPPORTED);
+    }
+    Ok(())
+}
+
+fn action_check(plugin_id: &str, action: &ActionSpec<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let ActionSpec {
+        name,
+        title,
+        token: _,
+        flags,
+    } = action;
+    relative(plugin_id, name)?;
+    ensure(!title.is_empty())?;
+    if flags & !ACTION_NEEDS_SCREEN != 0 {
+        return Err(ERR_UNSUPPORTED);
+    }
+    Ok(())
 }

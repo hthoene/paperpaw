@@ -59,6 +59,11 @@ const BAD_TABLE: u8 = 2;
 const IGNORES_REFUSAL: u8 = 3;
 const TOKEN: u32 = 9;
 
+fn report(_: &Heap, owner: &str, _: super::super::TeardownStep, _: super::super::Error) {
+    assert!(!owner.is_empty());
+    log("report");
+}
+
 fn log(what: &'static str) {
     LOG.with(|log| log.borrow_mut().push(what));
 }
@@ -193,6 +198,7 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
                 drop: Some(destroy),
                 dispatch_event: Some(event),
                 draw: Some(draw),
+                input: None,
             },
             host,
             ctx,
@@ -217,21 +223,33 @@ unsafe extern "C" fn destroy(state: *mut c_void) {
     }
 }
 
-unsafe extern "C" fn event(_: *mut c_void, token: u32, input: PpBytes) -> i32 {
-    if token != TOKEN || input.len != 3 {
+unsafe extern "C" fn event(_: *mut c_void, token: u32, input: PpBytes, reply: PpBuffer) -> i32 {
+    // Started and the other events 32-39 have no reply family (section 6).
+    if token != TOKEN || input.len != 3 || reply.ptr.is_null() || reply.cap != 0 {
         return ERR_INVALID;
     }
     EVENTS.with(|e| e.set(e.get() + 1));
     OK
 }
 
-unsafe extern "C" fn draw(_: *mut c_void, token: u32) -> i32 {
-    if token == TOKEN { OK } else { ERR_INVALID }
+unsafe extern "C" fn draw(_: *mut c_void, token: u32, frame: PpBytes) -> i32 {
+    if token != TOKEN || frame.len == 0 || frame.ptr.is_null() {
+        return ERR_INVALID;
+    }
+    // A positive result is a fault, never a length: the host maps it.
+    if frame.len == 1 { 1 } else { OK }
+}
+
+fn frame() -> Vec<u8> {
+    let mut bytes = [0; 64];
+    let frame = super::super::frames::screen(0, 0, 8, 8, (0, 8));
+    let len = super::super::frames::encode(&frame, &mut bytes).unwrap();
+    bytes[..len].to_vec()
 }
 
 fn fake() -> Hosted<Heap, Module> {
     // SAFETY: `make` is this file's plugin, always callable; no image.
-    unsafe { Hosted::new(Heap, Module::new(), make, "fake", (0, 0)) }.unwrap()
+    unsafe { Hosted::new(Heap, Module::new(), make, "fake", (0, 0), report) }.unwrap()
 }
 
 fn finish<S: Services, M>(hosted: &Hosted<S, M>) {
@@ -261,12 +279,17 @@ fn a_made_plugin_registers_dispatches_and_is_destroyed_once_before_its_module() 
         Ok(ERR_INVALID)
     );
     assert_eq!(
-        dispatch_registration(&batch, 1, &depth, Invocation::Draw),
+        dispatch_registration(&batch, 1, &depth, Invocation::Draw(&frame())),
         Ok(OK)
+    );
+    // A positive draw result is a plugin fault, never a length.
+    assert_eq!(
+        dispatch_registration(&batch, 1, &depth, Invocation::Draw(&[0])),
+        Ok(ERR_INVALID)
     );
     // A record that was never registered is the owner's error.
     assert_eq!(
-        dispatch_registration(&batch, 7, &depth, Invocation::Draw),
+        dispatch_registration(&batch, 7, &depth, Invocation::Draw(&frame())),
         Err(Error::Lifecycle(super::super::Error::State))
     );
     assert!(logged().is_empty(), "nothing destroyed while in use");
@@ -352,6 +375,7 @@ fn the_image_is_given_before_make_once_and_read_back_as_given() {
             make,
             "fake",
             (IMAGE.as_ptr() as usize, IMAGE.len()),
+            report,
         )
     }
     .unwrap();
@@ -498,10 +522,69 @@ fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_c
         let module = Module::new();
         arm_failure(nth);
         // SAFETY: `make` is this file's plugin; no image.
-        let refused = unsafe { Hosted::new(Heap, module, make, "fake", (0, 0)) };
+        let refused = unsafe { Hosted::new(Heap, module, make, "fake", (0, 0), report) };
         arm_failure(0);
         assert_eq!(refused.err(), Some(Error::Allocation), "allocation {nth}");
         assert_eq!(logged(), ["module"], "the module is dropped, once");
         assert_eq!(MAKES.with(Cell::get), 0, "make was never called");
     }
+}
+
+#[test]
+fn an_empty_visible_region_sends_no_frame_and_a_full_one_its_rows() {
+    let mut out = [0; 64];
+    for empty in [Rect::new(0, 0, 8, 0), Rect::new(0, 4, 0, 8)] {
+        assert_eq!(screen_frame(empty, &mut out), Ok(None), "{empty:?}");
+    }
+    let len = screen_frame(Rect::new(2, 4, 8, 6), &mut out)
+        .unwrap()
+        .unwrap();
+    let batch = registrations::records_decode(&out[..len]).unwrap();
+    let Some(registrations::Record::DrawFrame(frame)) = batch.iter().next() else {
+        panic!("not a frame");
+    };
+    assert_eq!((frame.y, frame.clip_top, frame.clip_bottom), (4, 4, 10));
+}
+
+#[test]
+fn shared_shell_reports_fallback_failure_before_destroying_and_unmapping() {
+    reset(NORMAL);
+    let hosted = fake();
+    {
+        let mut pending = hosted
+            .make_registered(hosted.begin::<Registration>().unwrap())
+            .unwrap();
+        let transaction = pending.transaction.take().unwrap();
+        let batch = transaction
+            .staging
+            .commit(crate::native_host::Teardown {
+                report: report_context::<Heap>,
+                cancel: |_| Err(super::super::Error::Busy),
+                release: |_| Ok(()),
+                destroy: destroy_context::<Heap>,
+            })
+            .unwrap();
+        pending.armed = false;
+        drop(pending);
+        drop(batch);
+    }
+    drop(hosted);
+    assert_eq!(logged(), ["report", "destroy", "module"]);
+}
+
+#[test]
+fn pinned_owner_allocation_failure_drops_unactivated_context_then_module() {
+    struct Probe(&'static str);
+    impl Drop for Probe {
+        fn drop(&mut self) {
+            log(self.0);
+        }
+    }
+    reset(NORMAL);
+    let value = super::super::HostOwner::new(Probe("context"), Probe("module"));
+    arm_failure(1);
+    let refused = super::super::PinnedOwner::try_new(value);
+    arm_failure(0);
+    assert!(refused.is_none());
+    assert_eq!(logged(), ["context", "module"]);
 }

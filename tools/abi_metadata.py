@@ -12,6 +12,9 @@ from abi_metadata_schema import validate_metadata
 from abi_requirements import required_minor
 
 
+# Feature record flags bit 0: the plugin cannot run without the feature (D1).
+FEATURE_REQUIRED = 1
+
 def _require(condition, message):
     if not condition:
         raise ValueError(message)
@@ -98,11 +101,21 @@ def _select(metadata, catalogs, build, kind):
     _require(type(values) is list and len(values) <= metadata['max_' + kind],
              f'{kind} count exceeds cap or is not a list')
     selected, seen = [], set()
-    for key in values:
+    for value in values:
+        # A feature may be selected as required: {'key': ..., 'required': True}.
+        required = False
+        if kind == 'features' and type(value) is dict:
+            _require(set(value) == {'key', 'required'} and type(value['required']) is bool,
+                     'feature selection needs key and required')
+            value, required = value['key'], value['required']
+        key = value
         _require(type(key) is str and key in catalogs[kind], f'unknown {kind} key: {key!r}')
         _require(key not in seen, f'duplicate {kind} key: {key}')
         seen.add(key)
-        selected.append(catalogs[kind][key])
+        item = dict(catalogs[kind][key])
+        if kind == 'features':
+            item['flags'] = FEATURE_REQUIRED if required else 0
+        selected.append(item)
     return sorted(selected, key=lambda item: item['key'])
 
 
@@ -149,7 +162,7 @@ def encode(schema, build):
                             _text(item['name'], metadata['max_key_bytes'], 'export'), 'name_bytes'))
     for kind, items in [('service', services), ('feature', features)]:
         for item in items:
-            body.extend(_record(records[kind], dict(item, reserved=0),
+            body.extend(_record(records[kind], item,
                                 _text(item['key'], metadata['max_key_bytes'], kind), 'key_bytes'))
     values = dict(magic=metadata['magic'].encode('utf-8'), layout=metadata['format'],
                   prefix_bytes=prefix[0].size, total_bytes=total, abi_major=schema['major'],
@@ -188,20 +201,37 @@ class _Reader:
 
 
 def _decode_catalog(reader, wire, count, catalog, metadata, kind):
+    """Decode service or feature requirements in canonical order.
+
+    A feature's flags bit 0 means required (D1, #890). Feature revisions only
+    add, so the host serves any requested revision up to its own. A feature this
+    host lacks, or has only at a lower revision than requested, is unavailable:
+    an optional one is left out of the result, a required one refuses the load
+    and names the key. Other flag bits are
+    refused. Services stay closed: an unknown service key is always refused.
+    """
     result, seen, previous = [], set(), None
     for _ in range(count):
         values, key = reader.record(wire, 'key_bytes', metadata['max_key_bytes'])
-        _require(key in catalog, f'unknown {kind} key: {key!r}')
         _require(key not in seen, f'duplicate {kind} key: {key}')
         _require(previous is None or previous < key, f'noncanonical {kind} order')
         seen.add(key)
         previous = key
-        fields = ('major', 'semantic_revision', 'min_table_bytes') if kind == 'service' else ('revision',)
         if kind == 'feature':
-            _require(values['reserved'] == 0, 'nonzero feature reserved field')
-        _require(all(values[field] == catalog[key][field] for field in fields),
+            _require(values['flags'] & ~FEATURE_REQUIRED == 0, 'unknown feature flag bits')
+            if key not in catalog or values['revision'] > catalog[key]['revision']:
+                _require(not values['flags'] & FEATURE_REQUIRED,
+                         f'required feature unavailable on this host: {key}')
+                continue
+        _require(key in catalog, f'unknown {kind} key: {key!r}')
+        fields = ('major', 'semantic_revision', 'min_table_bytes') if kind == 'service' else ('revision',)
+        # Services match exactly; a feature's revision was checked above (requested <= host).
+        _require(kind == 'feature' or all(values[field] == catalog[key][field] for field in fields),
                  f'{kind} requirement differs from catalog')
-        result.append(dict(key=key, **{field: values[field] for field in fields}))
+        item = dict(key=key, **{field: values[field] for field in fields})
+        if kind == 'feature':
+            item['required'] = bool(values['flags'] & FEATURE_REQUIRED)
+        result.append(item)
     return result
 
 

@@ -6,11 +6,22 @@ validate plugin state, call callbacks or keep their owning modules alive.
 from abi_entry import validate_entry
 
 
+# Accepted signatures per callback name. Draft 5 added the reply buffer to
+# `dispatch_event` (N1) and the frame input to `draw` (N2); the earlier
+# signatures stay accepted so older blessed schemas render unchanged.
 _CALLBACKS = {
-    'dispatch_event': [('state', 'pointer'), ('token', 'u32'), ('input', 'bytes')],
-    'draw': [('state', 'pointer'), ('token', 'u32')],
+    'dispatch_event': (
+        (('state', 'pointer'), ('token', 'u32'), ('input', 'bytes'), ('out', 'buffer')),
+        (('state', 'pointer'), ('token', 'u32'), ('input', 'bytes')),
+    ),
+    'draw': (
+        (('state', 'pointer'), ('token', 'u32'), ('input', 'bytes')),
+        (('state', 'pointer'), ('token', 'u32')),
+    ),
+    'input': ((('state', 'pointer'), ('token', 'u32'), ('input', 'bytes')),),
 }
-_RUST_ARGS = {'pointer': '*mut core::ffi::c_void', 'u32': 'u32', 'bytes': 'PpBytes'}
+_RUST_ARGS = {'pointer': '*mut core::ffi::c_void', 'u32': 'u32', 'bytes': 'PpBytes',
+              'buffer': 'PpBuffer'}
 _DROP = 'Option<unsafe extern "C" fn(*mut core::ffi::c_void)>'
 
 
@@ -24,12 +35,13 @@ def _callbacks(schema):
         name = field['name']
         if name not in _CALLBACKS:
             continue
-        expected = dict(args=[dict(name=name, type=kind)
-                              for name, kind in _CALLBACKS[name]],
-                        result='i32', nullable=True)
-        if field.get('callback') != expected:
+        signature = next((args for args in _CALLBACKS[name]
+                          if field.get('callback') == dict(
+                              args=[dict(name=arg, type=kind) for arg, kind in args],
+                              result='i32', nullable=True)), None)
+        if signature is None:
             raise ValueError(f'unsupported plugin callback signature: {name}')
-        found.append(name)
+        found.append((name, signature))
     if found:
         statuses = schema.get('statuses')
         if type(statuses) is not list or any(type(item) is not dict for item in statuses):
@@ -42,8 +54,8 @@ def _callbacks(schema):
     return found
 
 
-def _reader(name):
-    args = ', '.join(_RUST_ARGS[kind] for _, kind in _CALLBACKS[name])
+def _reader(name, signature):
+    args = ', '.join(_RUST_ARGS[kind] for _, kind in signature)
     callback = f'unsafe extern "C" fn({args}) -> i32'
     return f'''/// Retrieve the declared `{name}` callback without calling it.
 ///
@@ -161,4 +173,4 @@ pub unsafe fn read_plugin_drop(
     drop.ok_or(ERR_INVALID)
 }
 '''
-    return prefix + '\n' + '\n'.join(_reader(name) for name in callbacks)
+    return prefix + '\n' + '\n'.join(_reader(name, signature) for name, signature in callbacks)

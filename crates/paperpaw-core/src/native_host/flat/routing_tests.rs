@@ -22,7 +22,13 @@ impl FlatInstance for Instance {
     fn environment(&self) -> Pin<&EnvironmentScope> {
         self.scope.as_ref()
     }
-    fn dispatch_event(&self, _: usize, _: &[u8], _: &DispatchDepth) -> Result<i32, Error> {
+    fn dispatch_event(
+        &self,
+        _: usize,
+        _: &[u8],
+        _: &mut [u8],
+        _: &DispatchDepth,
+    ) -> Result<i32, Error> {
         self.calls.set(self.calls.get() + 1);
         Ok(0)
     }
@@ -153,7 +159,13 @@ impl FlatInstance for Reentrant<'_, '_> {
     fn environment(&self) -> Pin<&EnvironmentScope> {
         self.scope.as_ref()
     }
-    fn dispatch_event(&self, _: usize, _: &[u8], depth: &DispatchDepth) -> Result<i32, Error> {
+    fn dispatch_event(
+        &self,
+        _: usize,
+        _: &[u8],
+        _: &mut [u8],
+        depth: &DispatchDepth,
+    ) -> Result<i32, Error> {
         self.calls.set(self.calls.get() + 1);
         // Re-enter the exact handler used by FlatPlugin while its scope is live.
         // Admission must fail before dispatch_event can see plugin state again.
@@ -224,4 +236,22 @@ fn callback_reentry_is_busy_before_plugin_callback_runs_twice() {
     );
     kernel.start(paperpaw_platform::Instant(1));
     assert_eq!((calls.get(), drops.get()), (1, 1));
+}
+
+#[test]
+fn reply_lengths_are_checked_before_any_reply_can_be_read() {
+    use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE};
+    assert_eq!(reply_length(0, 0), Ok(0));
+    assert_eq!(reply_length(1, 0), Err(DropReason::Plugin(ERR_INVALID)));
+    assert_eq!(
+        reply_length(i32::MAX, 0),
+        Err(DropReason::Plugin(ERR_INVALID))
+    );
+    assert_eq!(
+        reply_length(ERR_STATE, 8),
+        Err(DropReason::Plugin(ERR_STATE))
+    );
+    assert_eq!(reply_length(0, 8), Ok(0));
+    assert_eq!(reply_length(8, 8), Ok(8));
+    assert_eq!(reply_length(9, 8), Err(DropReason::Plugin(ERR_INVALID)));
 }

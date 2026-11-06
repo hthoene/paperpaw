@@ -58,7 +58,7 @@ class RequirementTests(unittest.TestCase):
     def test_callback_requirements_include_tail_and_contract_floors(self):
         schema = copy.deepcopy(self.schema)
         plugin = schema['entry_contract']['tables'][0]
-        plugin['fields'][-1]['since'] = 3
+        next(f for f in plugin['fields'] if f['name'] == 'draw')['since'] = 3
         used = [{'kind': 'callback', 'name': 'draw'}]
         self.assertEqual(ABI.required_minor(schema, used, 0), 3)
         schema['entry_contract']['since'] = 4

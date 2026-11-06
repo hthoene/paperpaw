@@ -188,6 +188,7 @@ fn raw_encoder_refuses_over_cap_fields_and_non_events() {
         chapter: "",
         page: None,
         pages: None,
+        insert: None,
     });
     let mut out = [0x77; 2048];
     assert_eq!(events::encode(&record, &mut out), Err(ERR_NO_SPACE));
@@ -258,6 +259,7 @@ fn decode_refuses_page_turns_that_cannot_be_said() {
             chapter: "",
             page: page_no,
             pages,
+            insert: None,
         });
         let n = events::encode(&record, &mut out).unwrap();
         assert_eq!(
@@ -352,7 +354,12 @@ fn submit_one(tag: u32) -> (i32, bool) {
         status = unsafe { registrations::submit(&slot, bytes.as_ptr(), n) };
     })
     .unwrap();
-    let batch = construction.commit(|_| {});
+    let batch = construction.commit(paperpaw_core::native_host::Teardown {
+        report: |_, _, _| {},
+        cancel: |_| Ok(()),
+        release: |_| Ok(()),
+        destroy: |_| {},
+    });
     let dispatched = batch.is_ok_and(|batch| {
         batch.dispatch(0, &DispatchDepth::new(), |_, r| *r)
             == Ok(Registration::Event {
@@ -391,5 +398,14 @@ fn a_registration_batch_cannot_carry_an_event_record() {
         assert_eq!(status, ERR_INVALID);
     })
     .unwrap();
-    assert!(construction.commit(|_| {}).is_err());
+    assert!(
+        construction
+            .commit(paperpaw_core::native_host::Teardown {
+                report: |_, _, _| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
+                destroy: |_| {}
+            })
+            .is_err()
+    );
 }

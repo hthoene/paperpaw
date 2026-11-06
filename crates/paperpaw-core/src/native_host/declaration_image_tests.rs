@@ -7,7 +7,8 @@ use core::{mem::size_of, pin::pin};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, OK};
 use registration_scope::RegistrationScope;
 use registrations::{
-    Record, SettingExtra, SettingGroup, SettingSpec, records_decode, records_encode,
+    ActionSpec, Record, ScreenSpec, SettingExtra, SettingGroup, SettingSpec, records_decode,
+    records_encode,
 };
 use staged::{IMAGE_DECLARATIONS_MAX, IMAGE_INDEX_MAX_BYTES};
 
@@ -111,7 +112,12 @@ fn mixed_image_and_owned_declarations_share_reference_and_duplicate_checks() {
         assert!(!construction.raw.batches[1].bytes.is_empty());
         construction.finish_declarations().unwrap();
         assert!(matches!(
-            construction.commit(|_| panic!("never activated")),
+            construction.commit(crate::native_host::Teardown {
+                report: |_, _, _| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
+                destroy: |_| panic!("never activated")
+            }),
             Err(Error::DeclarationViewsUnavailable)
         ));
     }
@@ -128,7 +134,15 @@ fn mixed_image_and_owned_declarations_share_reference_and_duplicate_checks() {
             assert_eq!(submit(&scope, &duplicate), OK);
         })
         .unwrap();
-    assert!(matches!(construction.commit(|_| {}), Err(Error::Invalid)));
+    assert!(matches!(
+        construction.commit(crate::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| {}
+        }),
+        Err(Error::Invalid)
+    ));
 }
 
 #[test]
@@ -146,7 +160,15 @@ fn group_cycle_across_image_and_owned_batches_is_rejected_before_activation() {
             assert_eq!(submit(&scope, &owned), OK);
         })
         .unwrap();
-    assert!(matches!(construction.commit(|_| {}), Err(Error::Invalid)));
+    assert!(matches!(
+        construction.commit(crate::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| {}
+        }),
+        Err(Error::Invalid)
+    ));
 }
 
 fn group_image(count: usize, per_batch: usize) -> (Vec<u8>, Vec<(usize, usize)>) {
@@ -319,7 +341,12 @@ fn mixed_decoded_and_owned_wire_duplicates_are_rejected_in_both_orders() {
             }
             assert_eq!(construction.raw.image_entries, 0);
             assert!(matches!(
-                construction.commit(|_| panic!("duplicate must never activate")),
+                construction.commit(crate::native_host::Teardown {
+                    report: |_, _, _| {},
+                    cancel: |_| Ok(()),
+                    release: |_| Ok(()),
+                    destroy: |_| panic!("duplicate must never activate")
+                }),
                 Err(Error::Invalid)
             ));
         }
@@ -354,7 +381,12 @@ fn mixed_decoded_and_owned_wire_distinct_names_remain_valid() {
         assert_eq!(construction.declarations().groups().len(), 1);
         construction.finish_declarations().unwrap();
         assert!(matches!(
-            construction.commit(|_| {}),
+            construction.commit(crate::native_host::Teardown {
+                report: |_, _, _| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
+                destroy: |_| {}
+            }),
             Err(Error::DeclarationViewsUnavailable)
         ));
     }
@@ -423,7 +455,12 @@ fn forward_extras_resolve_across_every_submission_path_and_mixed_pair() {
                 };
                 stage_submission(&mut construction, scope.as_ref(), spec_mode, bytes);
                 construction.finish_declarations().unwrap();
-                let result = construction.commit(|_| {});
+                let result = construction.commit(crate::native_host::Teardown {
+                    report: |_, _, _| {},
+                    cancel: |_| Ok(()),
+                    release: |_| Ok(()),
+                    destroy: |_| {},
+                });
                 if extra_mode != Submission::Decoded || spec_mode != Submission::Decoded {
                     assert!(matches!(result, Err(Error::DeclarationViewsUnavailable)));
                 } else {
@@ -452,7 +489,12 @@ fn forward_extra_in_the_same_batch_is_valid_on_every_path() {
         };
         stage_submission(&mut construction, scope.as_ref(), mode, bytes);
         construction.finish_declarations().unwrap();
-        let result = construction.commit(|_| {});
+        let result = construction.commit(crate::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| {},
+        });
         if mode != Submission::Decoded {
             assert!(matches!(result, Err(Error::DeclarationViewsUnavailable)));
         } else {
@@ -490,11 +532,73 @@ fn missing_specs_fail_at_commit_on_every_path_even_if_present_in_image_bytes() {
             };
             stage_submission(&mut construction, scope.as_ref(), mode, bytes);
             assert!(matches!(
-                construction.commit(|_| panic!("missing spec must not activate")),
+                construction.commit(crate::native_host::Teardown {
+                    report: |_, _, _| {},
+                    cancel: |_| Ok(()),
+                    release: |_| Ok(()),
+                    destroy: |_| panic!("missing spec must not activate")
+                }),
                 Err(Error::Invalid)
             ));
         }
     }
+}
+
+fn screen(name: &str) -> Record<'_> {
+    Record::ScreenSpec(ScreenSpec {
+        name,
+        title: "Screen",
+        token: 1,
+        flags: 0,
+    })
+}
+fn action(name: &str) -> Record<'_> {
+    Record::ActionSpec(ActionSpec {
+        name,
+        title: "Action",
+        token: 2,
+        flags: 0,
+    })
+}
+
+fn screens_and_actions(records: &[Record<'_>]) -> Result<(), i32> {
+    let image = encode(records);
+    let owner = pin!(HostOwner::new((), ()));
+    let scope = pin!(RegistrationScope::<Registration>::new());
+    let mut construction = owner.as_ref().begin::<Registration>("fixture").unwrap();
+    construction.set_image(&image).unwrap();
+    scope
+        .as_ref()
+        .scope(&mut construction, || assert_eq!(submit(&scope, &image), OK))
+        .unwrap();
+    construction.finish_declarations()?;
+    // Indexed: found by kind and name.
+    for record in records {
+        let (kind, name) = declaration_index::key(*record).unwrap();
+        assert!(kind == 5 || kind == 6);
+        assert!(
+            construction
+                .raw
+                .find(Some(&image), kind, name)
+                .unwrap()
+                .is_some()
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn screens_and_actions_are_indexed_and_never_declared_twice() {
+    // A screen and an action may share a name: they are different kinds.
+    screens_and_actions(&[screen("main"), action("main"), screen("other")]).unwrap();
+    assert_eq!(
+        screens_and_actions(&[screen("main"), action("go"), screen("main")]),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(
+        screens_and_actions(&[action("go"), action("go")]),
+        Err(ERR_INVALID)
+    );
 }
 
 fn padded_group(name: &str, total: usize) -> Vec<u8> {
@@ -548,5 +652,14 @@ fn owned_wire_uses_one_form_at_exact_32_kib_boundary() {
         construction.raw.retained(None),
         staged::DECLARATIONS_MAX_BYTES
     );
-    assert!(construction.commit(|_| {}).is_err());
+    assert!(
+        construction
+            .commit(crate::native_host::Teardown {
+                report: |_, _, _| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
+                destroy: |_| {}
+            })
+            .is_err()
+    );
 }

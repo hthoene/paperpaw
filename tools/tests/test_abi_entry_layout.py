@@ -16,7 +16,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 FIELDS = {
     'PpEntry': ('size', 'abi_major', 'needs_minor', 'metadata', 'make'),
-    'PpPlugin': ('size', 'state', 'drop', 'dispatch_event', 'draw'),
+    'PpPlugin': ('size', 'state', 'drop', 'dispatch_event', 'draw', 'input'),
 }
 MAKE = ('Option<unsafe extern "C" fn(*const PpHost, '
         '*mut core::ffi::c_void, *mut *const PpPlugin) -> i32>')
@@ -85,7 +85,7 @@ class EntryLayoutTests(unittest.TestCase):
                      f'println!("{{}}", core::mem::size_of::<{DROP}>());',
                      f'println!("{{}}", core::mem::size_of::<{DISPATCH_EVENT}>());',
                      f'println!("{{}}", core::mem::size_of::<{DRAW}>());', '}'])
-        expected = [32, 8, 0, 4, 6, 8, 24, 40, 8, 0, 8, 16, 24, 32,
+        expected = [32, 8, 0, 4, 6, 8, 24, 48, 8, 0, 8, 16, 24, 32, 40,
                     8, 8, 8, 8, 8]
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -102,7 +102,7 @@ class EntryLayoutTests(unittest.TestCase):
         assertions = ['#![no_std]', raw_module(), 'const _: () = {']
         for kind, size, align, offsets in (
                 ('PpEntry', 20, 4, (0, 4, 6, 8, 16)),
-                ('PpPlugin', 20, 4, (0, 4, 8, 12, 16))):
+                ('PpPlugin', 24, 4, (0, 4, 8, 12, 16, 20))):
             assertions.append(f'assert!(core::mem::size_of::<{kind}>() == {size});')
             assertions.append(f'assert!(core::mem::align_of::<{kind}>() == {align});')
             for field, offset in zip(FIELDS[kind], offsets):
@@ -127,7 +127,7 @@ class EntryLayoutTests(unittest.TestCase):
         assertions = ['#include "abi/generated/paperpaw-abi.h"']
         for kind, size, align, offsets in (
                 ('PpEntry', 20, 4, (0, 4, 6, 8, 16)),
-                ('PpPlugin', 20, 4, (0, 4, 8, 12, 16))):
+                ('PpPlugin', 24, 4, (0, 4, 8, 12, 16, 20))):
             assertions.extend([
                 f'_Static_assert(sizeof({kind}) == {size}, "{kind} size");',
                 f'_Static_assert(_Alignof({kind}) == {align}, "{kind} alignment");'])

@@ -189,13 +189,26 @@ fn real_sample_registers_and_dispatches_tick_and_draw_with_environment() {
             let mut frame = white_frame();
             // No frame at all: the sample cannot read slots 4/5 and paints nothing.
             assert_eq!(
-                dispatch_registration(&batch, DRAW_INDEX, &depth, Invocation::Draw).unwrap(),
+                dispatch_registration(
+                    &batch,
+                    DRAW_INDEX,
+                    &depth,
+                    Invocation::Draw(&screen_frame())
+                )
+                .unwrap(),
                 host_glue::ERR_STATE
             );
             // A query-only frame (Env, no Canvas): slots 4/5 work, slot 9 answers
             // ERR_STATE, the sample returns that status unchanged, nothing is painted.
             assert_eq!(
-                bridge::dispatch(&batch, DRAW_INDEX, &depth, Invocation::Draw, env).unwrap(),
+                bridge::dispatch(
+                    &batch,
+                    DRAW_INDEX,
+                    &depth,
+                    Invocation::Draw(&screen_frame()),
+                    env
+                )
+                .unwrap(),
                 host_glue::ERR_STATE
             );
             assert_eq!(gray(&frame, 8, 8), 255, "nothing painted without a canvas");

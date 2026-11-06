@@ -119,8 +119,12 @@ class MetadataTests(unittest.TestCase):
                                  (length, 0), (length, self.metadata['max_key_bytes'] + 1)]:
                 with self.subTest(kind=kind, field=field, value=value):
                     self.reject(self.record_change(location, field, value))
-            if kind != 'service':
+            if kind == 'export':
                 self.reject(self.record_change(location, 'reserved', 1))
+            if kind == 'feature':
+                # Bit 0 is `required`; every other flag bit is refused.
+                for bits in (2, 0x8000, 0xfffe):
+                    self.reject(self.record_change(location, 'flags', bits))
             self.assertGreater(layout['size'], 0)
 
     def test_export_name_kind_and_expected_size_are_exact(self):
@@ -141,7 +145,15 @@ class MetadataTests(unittest.TestCase):
             kind = location[0]
             fields = ('major', 'semantic_revision', 'min_table_bytes') if kind == 'service' else ('revision',)
             for field in fields:
-                self.reject(self.record_change(location, field, 99))
+                changed = self.record_change(location, field, 99)
+                if kind == 'service':
+                    self.reject(changed)
+                    continue
+                # An optional feature at another revision is unavailable, never
+                # taken at the plugin's revision (D1; required ones: D1 test).
+                before = [f['key'] for f in ABI.decode(self.schema, self.data)['features']]
+                after = [f['key'] for f in ABI.decode(self.schema, changed)['features']]
+                self.assertEqual(len(after), len(before) - 1)
         self.reject(self.prefix(self.data, needs_minor=3))
 
     def test_excessive_minor_is_structurally_valid(self):
@@ -158,13 +170,50 @@ class MetadataTests(unittest.TestCase):
         data = bytearray(self.data)
         data[position] = ord('X')
         self.reject(bytes(data))
-        for _, position, layout in self.locations()[2:]:
+        # Services stay closed; unknown features are covered by the D1 test.
+        for _, position, layout in [item for item in self.locations()[2:] if item[0] == 'service']:
             data = bytearray(self.data)
             data[position + layout['size']] = ord('X')
             self.reject(bytes(data))
         self.metadata['profiles'] = []
         with self.assertRaises(ValueError):
             ABI.encode(self.schema, self.build)
+
+    def test_unavailable_features_are_left_out_unless_required(self):
+        # D1 (#890): a host that does not know a feature ignores it, unless the
+        # plugin marked it required; then the load is refused and the key named.
+        build = dict(self.build, features=['test.delta', dict(key='test.echo', required=False)])
+        data = ABI.encode(self.schema, build)
+        older = copy.deepcopy(self.schema)
+        older['metadata']['features'] = [f for f in older['metadata']['features']
+                                         if f['key'] != 'test.echo']
+        decoded = ABI.decode(older, data)
+        self.assertEqual([f['key'] for f in decoded['features']], ['test.delta'])
+        self.assertEqual(ABI.decode(self.schema, data)['features'][1],
+                         dict(key='test.echo', revision=1, required=False))
+        build = dict(self.build, features=['test.delta', dict(key='test.echo', required=True)])
+        data = ABI.encode(self.schema, build)
+        self.assertTrue(ABI.decode(self.schema, data)['features'][1]['required'])
+        with self.assertRaisesRegex(ValueError, 'required feature unavailable on this host: test.echo'):
+            ABI.decode(older, data)
+        # Revisions only add. A request above the host's revision is unavailable the
+        # same way (optional left out, required refused); one below it is served.
+        newer = copy.deepcopy(self.schema)
+        next(f for f in newer['metadata']['features'] if f['key'] == 'test.echo')['revision'] += 1
+        ahead = ABI.encode(newer, build)
+        with self.assertRaisesRegex(ValueError, 'required feature unavailable on this host: test.echo'):
+            ABI.decode(self.schema, ahead)
+        optional = ABI.encode(newer, dict(
+            self.build, features=['test.delta', dict(key='test.echo', required=False)]))
+        self.assertEqual([f['key'] for f in ABI.decode(self.schema, optional)['features']],
+                         ['test.delta'])
+        served = ABI.decode(newer, data)['features']
+        self.assertEqual([(f['key'], f['revision']) for f in served],
+                         [('test.delta', 2), ('test.echo', 1)])
+        for bad in [dict(key='test.echo'), dict(key='test.echo', required=1),
+                    dict(key='test.echo', required=True, extra=0)]:
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                ABI.encode(self.schema, dict(self.build, features=[bad]))
 
     def test_invalid_utf8_in_each_text_location(self):
         positions = [field_layout(self.metadata['prefix'])['size']]
