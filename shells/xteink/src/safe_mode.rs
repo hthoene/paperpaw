@@ -71,6 +71,8 @@ const EMPTY: Record = Record {
 #[esp_hal::ram(unstable(rtc_fast, persistent))]
 static mut RECORD: Record = EMPTY;
 
+// The record is copied whole; one copy of that code, not one per caller.
+#[cfg_attr(feature = "ppn5", inline(never))]
 fn read() -> Record {
     // SAFETY: one core; written only by this module, at start, by the
     // loader and in the panic handler, never at once.
@@ -83,6 +85,7 @@ fn read() -> Record {
     }
 }
 
+#[cfg_attr(feature = "ppn5", inline(never))]
 fn write(record: Record) {
     // SAFETY: as in `read`.
     unsafe { core::ptr::addr_of_mut!(RECORD).write_volatile(record) };
