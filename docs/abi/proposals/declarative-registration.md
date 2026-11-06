@@ -1,3 +1,204 @@
-# Declarative registration (interface 7) - design proposal
+# Declarative registration for interface 7 (R-DECL, R-DATA): design proposal
 
-Status: skeleton.
+Status: PROPOSAL for Kernel Engineer review, then Senior review. Nothing here is implemented,
+no schema, codec or host code is changed by this file. Written 2026-11-06 against
+`abi7/integration` at `23086bb9`.
+
+Conventions: **Fact** marks something read from the repository, with `path:line`. **Proposal**
+marks a decision this document recommends; the owner decides. **Estimate** is a number that was
+computed or guessed, not measured on a device. **Unverified** names what I could not check.
+Paths are relative to the repository root unless prefixed `ADR34:` (the file
+`docs/adr/0034-stable-plugin-boundary.md` on `origin/fw/adr-flat-boundary-228`, line numbers of
+that file) or `notes:` (`origin/notes/port-classification-748`, `paperpaw/design/flat-boundary-228/
+port-classification-748/README.md`).
+
+## 0. Summary of the proposal
+
+1. Registration is split over **three transports that share one record grammar**:
+   (a) **folder files** (plugin.ini, `i18n/*`, resource files), which the kernel's data-plugin loader
+   already reads for every plugin folder; (b) the **inline batch** of slot 16 for small declarations
+   and for every record that carries a callback token; (c) **record frames in a file** of the plugin
+   folder for bulk declarations (settings). The wire grammar of `docs/abi/records.md` is unchanged.
+2. **Manifest/identity needs no record.** Identity is the folder's `plugin.ini` (host-known, never a
+   claim in bytes); target, ABI minor, services and `uses` permissions are signed metadata.
+3. **Translations need no record.** They are `i18n/<lang>.ini|.ppcat` in the plugin folder
+   (ADR 0033); slot 6 resolves through the kernel's one translator chain.
+4. **Settings** get three records (`setting.group`, `setting.spec`, `setting.extra`), carried inline
+   when there are few and in a frame file when there are many.
+5. **Data resources** (hyphenation, fonts) are **files in the plugin folder named by a record**,
+   read by kernel services through the host's own storage. They are not read through slot 18 and not
+   embedded in plugin rodata.
+6. The host's `REGISTRATIONS = 8` stays the cap of **retained callback registrations**. Declarative
+   records are applied to the kernel registries at commit and are **not** retained in that array;
+   they get their own bytes budget.
+
+A finding that may make most of Part 4 unnecessary for the G0 plugins is in section 1.5 and open
+question Q1.
+
+## 1. Facts this proposal rests on
+
+### 1.1 The wire today
+
+- A batch is a LEB128 count, then records of `tag, body length, bitmap length, bitmap, fields`;
+  at most 8 records and 4096 bytes; unknown registration tags give `ERR_UNSUPPORTED`
+  (`docs/abi/records.md:10-19`, `:41-47`). Field types are u32/u64/i32/str/bytes
+  (`abi/README.md:23-25`). Only tags 1-3 exist (`docs/abi/records.md:21-25`); tag 4 is
+  `command.set_setting` on the commands branch (`wt-abi7-commands/docs/abi/commands.md:19`, local
+  worktree at `d96b26cf`, not pushed to `origin` when I looked).
+- Initial records have no optional fields: "All declarations and fields start at minor 1. There are no
+  optional fields yet." (`docs/abi/records.md:27-28`). Appending optional fields with defaults is
+  allowed only in a later minor (`abi/README.md:28-30`). Hence every record below uses required
+  fields with documented sentinels (empty string, zero), not optional ones.
+- Statuses: OK 0, UNSUPPORTED -1, INVALID -2, NO_SPACE -3, NO_MEMORY -4, UTF8 -5, STATE -6,
+  CANCELLED -7, IO -8, BUSY -9 (`abi/abi.def`, `statuses`).
+- Slot 16 `registrations.submit(ctx, batch)` cap 4096; slot 18 `blob.read(ctx, blob, offset, out)`
+  returns a copied count, cap 4096; slot 19 `blob.release` (`abi/abi.def` host_entries 16, 18, 19).
+  A `blob` is a host-issued handle (`crates/paperpaw-core/src/abi7/handles.rs:12-16`); handles are
+  32 slots device-wide, 4 per owner (`handles.rs:6-8`). No declared entry lets a plugin hand bytes to
+  the host: slot 18 reads host data into the plugin.
+
+### 1.2 The host staging today
+
+- Registrations are accepted only while a construction scope is active (`make`); a decode, unsupported
+  or staging refusal latches and poisons the construction even if the plugin ignores the status
+  (`crates/paperpaw-core/src/native_host/registrations.rs:1-6`, `:28-31`, `:102-111`).
+- The whole batch is decoded and checked for support before the first record is staged
+  (`registrations.rs:39-67`).
+- `Construction.records: [Option<T>; REGISTRATIONS]` with `REGISTRATIONS = 8`; the ninth `stage` latches
+  `Capacity` (`crates/paperpaw-core/src/native_host.rs:14`, `:149`, `:175-178`). Commit moves that same
+  array into the published `RegistrationBatch`, which is what `dispatch(index)` indexes
+  (`native_host.rs:195-205`, `:233`, `:258-275`). So today the array is both the staging area and the
+  **retained callback registry**; it is sized for token records.
+- Interface 6 already merges a plugin's contributions into a staging area and refuses duplicates before
+  anything is visible (`crates/paperpaw-core/src/plugins.rs:205-225`).
+
+### 1.3 Settings
+
+- A `SettingSpec` has id, title key, kind (Bool, Int{min,max}, Choice, Text, Language, List, Extended),
+  default, group, level, description key, scoped, guarded, kept_on_reset and an optional "extra"
+  (unit, editor, step, slider, section, secret, follows, keeps_unknown, shown_if, check fn)
+  (`crates/paperpaw-sdk/src/settings.rs:172-199`, `:237-300`).
+- Memory: specs from a `static` list "take next to no memory, where each added with `add_setting`
+  takes about 200 bytes" (`crates/paperpaw-sdk/src/contribution.rs:243-246`); the registry keeps a
+  reference to each fixed list and 2 + 2 bytes of index per spec
+  (`crates/paperpaw-sdk/src/settings/specs.rs:5-26`). In the flat boundary a plugin's static list
+  cannot cross, so every spec becomes an owned copy unless something lazier is built.
+- Count (**Estimate**, lexical, tests included, from `grep -c 'SettingSpec::<ctor>('` in
+  `plugins/*/src`): 246 constructor calls in 37 of the 70 plugins: widgets 53, mail 25, picture-home 23,
+  stats 18, home 13, weather 12, reader 12, vocabulary 9, sleep 9, notes-vault 7, then 5 or fewer; median
+  3. Kinds: 100 choice, 53 text, 43 switch, 41 number, 9 `new` (list/language/extended); 94 uses of
+  `with_extra`/`with_owned_extra`; 65 `SettingGroupSpec::new`. 246 x ~200 B is about 49 KB of heap if all
+  were enabled at once; a typical install enables a fraction. The 81 `number` calls contain no literal
+  of 9 or more digits, so an `i32` range holds them (lexical check only).
+- Slot 15 `SetSetting`: key namespace (first dot segment) must be the submitting plugin; the setting must
+  be registered; bool/int must satisfy its spec; a secret setting returns `ERR_UNSUPPORTED`
+  (`wt-abi7-commands/docs/abi/commands.md:49-54`). Slot 5 returns absent/bool/int/text and keeps
+  defaults by going through `Settings::get` (`abi/settings.md:5-22`, `:23-27`;
+  `crates/paperpaw-core/src/abi7/queries.rs:28-37`).
+
+### 1.4 Translations
+
+- `i18n/<lang>.ini` and compiled `i18n/<lang>.ppcat` are "read by the loader for every folder"
+  (`docs/plugin-conventions.md:105`; `crates/paperpaw-core/src/data_plugin.rs:7-9`, `:662-712`);
+  `.ppcat` needs `formats = 4` in plugin.ini (`data_plugin.rs:86`, `:677-682`). A code plugin's folder is
+  "a folder like a data plugin's" with `i18n/*.ini` (`docs/plugins.md:2029-2037`). **Unverified:** whether
+  a folder that holds `code.ppn` is also passed through `data_plugin::load_folder` in the current
+  firmware path; the docs say so, I did not trace `plugins.rs`/`builder.rs` for that case.
+- ADR 0033: a `.ppcat` is opened with a block table of 8 bytes a block (about 1 KB for 3,400 messages),
+  a lookup reads one block of at most 2 KiB, and reads stay under 16 KiB (`MAX_READ`); a corrupt file
+  falls back as if missing (`docs/adr/0033-catalogs-read-as-needed.md`, Decision).
+- Today all first-party English catalogs total 191,272 bytes, 3,590 messages in 70 plugins (German
+  203,991 bytes); the largest are widgets 19,593, vocabulary 16,713, stats 11,744, store 11,447 bytes
+  (`wc -c plugins/*/i18n/en.ini`).
+- Slot 6 `i18n.copy` calls `frame.translator().tr(key)`: one kernel translator, no per-plugin key
+  check, and a missing key yields the key itself (`crates/paperpaw-core/src/abi7/queries.rs:44-65`).
+
+### 1.5 Data plugins and where bytes live
+
+- A **data plugin** is a folder with `plugin.ini` and data files, no code (`docs/plugins.md:10`), and the
+  store already ships such plugins (`tools/plugin-files/README.md`, `data.toml` row: "PaperPaw's own data
+  plugins (no code)", e.g. the Literata packs). Font faces are declared in `plugin.ini`
+  (`[extends]`, `[family]`, `[fonts]`; `data_plugin.rs:12-18`, `:39`). There is **no** hyphenation
+  file kind in the data-plugin loader (`data_plugin.rs:1-45`); the 12 language plugins and the base are
+  code plugins whose table is `include_bytes!` (`plugins/hyphenation-de/src/lib.rs:15-18`).
+- The store ships the 12 hyphenation plugins as code files (`tools/plugin-files/plugins.txt:15-26`).
+- **Placement of native code on the X4** (the deciding fact): the `.ppn` holds "the plugin's code and
+  read-only data as one block", is "written once into flash" in "the free end of the app partition ...
+  about 640 KB after an install by CrossPoint's SD installer", mapped through the MMU, so "its code runs
+  from flash and only its data takes RAM"; the X4 Pro reads it into PSRAM; unloading is a restart
+  (`docs/adr/0024-native-code-plugins.md:55-56`, `:63-66`, `:80-92`; `docs/plugins.md:1853-1866`).
+  So rodata costs no heap on any platform, but it consumes the **scarce, write-once flash region**.
+- Sizes. Hyphenation tables (`.pphp`, **measured** from build outputs in
+  `scratch/k228snapshot/target/release/build/*/out`, an older snapshot, rebuild to confirm), bytes:
+  de 351,145; nb 251,949; nl 108,898; ru 74,905; es 49,109; uk 47,618; en 41,460; sv 38,470; pl 37,441;
+  fr 12,362; da 7,886; pt 2,666; it 2,341; total 1,026,250. Header (`crates/paperpaw-hyphen/src/lib.rs:11-26`):
+  de has 36,709 patterns in 2,295 index blocks (9,180 index bytes), nb 1,716 blocks, en 309.
+  Default font packs (`.ppfp`, same snapshot): literata 643,946; literata-bold 702,764;
+  literata-italic 620,281; literata-bold-italic 691,580; paperpaw-sans 651,736; icons 307,035; total
+  3,617,342. Source TTFs in `plugins/fonts-default/fonts`: Literata 955,132; Literata-Italic 902,728;
+  SourceSans3 646,340; PaperPawIcons 44,344. The Korean full pack on a test card is 39,828,925 bytes.
+  Per-plugin `how/` 325-650 bytes, `i18n/` 203-243 bytes per language for the G0 plugins.
+- Read in place: a hyphenation table is looked up by binary search over a sparse index without loading
+  it (`paperpaw-hyphen/src/lib.rs:1-9`), but `Patterns::new` takes `&[u8]` only (`lib.rs:84`); a font pack
+  on storage is read a glyph at a time (`StoredPack`, `crates/paperpaw-sdk/src/fonts.rs:57-80`,
+  `FontFace` doc). **There is no storage-backed `Patterns` today.**
+- Boundary rules (ADR34): one interface-7 batch before 1.0, closures never cross, tokens are `u32`
+  (`ADR34:257-264`); batches at most 4 KiB, "larger records require a bounded chunk/stream protocol"
+  (`ADR34:312-320`); proposed X4 profile of 4,096 B total additional boundary storage with "one
+  384-byte inline batch", eight dynamic tokens and four persistent handles per plugin
+  (`ADR34:929-945`). The 384 B inline figure is a proposal in the ADR and conflicts with the 4096 cap in
+  `abi.def`; see Q6.
+- G0 classification: 14 data plugins (12 hyphenation languages, hyphenation base, fonts-default), "blocked
+  only by R-DECL and R-DATA"; none of the 14 registers settings (`notes:` Result table; `grep add_settings`
+  in the 14 sources is empty).
+
+## 2. Architecture
+
+### 2.1 Three transports, one grammar (Proposal)
+
+| Transport | Carries | Bounds |
+|---|---|---|
+| Folder files | identity (`plugin.ini`), translations (`i18n/`), resource bytes (`hyphenation/`, `fonts/`) | existing data-plugin budgets (`data_plugin.rs:66-82`); resource files outside the 96 KiB parsed-data budget |
+| Inline batch, slot 16 | token records; the few declarative records; pointers (paths) to resource files | `abi.def`: 8 records, 4096 B per batch, any number of batches during `make` |
+| Frame file | the same records, for bulk declarations | a file `declarations.ppr` in the plugin folder, read by the host in frames (2.3) |
+
+Rationale: records are a good fit for typed, validated, cross-referenced declarations, but a batch is
+8 records / 4096 B (and a profile proposal of 384 B), so bulk data does not fit; folder files are already
+how data plugins ship translations and fonts and cost the plugin no rodata; and keeping one grammar means
+one generated codec to fuzz.
+
+### 2.2 Host staging: split callbacks from declarations (Proposal)
+
+Today `Construction` stages every record into the 8-slot array that later becomes the dispatch registry
+(Fact 1.2). Proposal: keep that array for **token records only** (event, draw, and later action/screen
+tokens); stage declarative records in a second per-construction list `Declarations`, bounded in bytes and
+count, which is **consumed at commit** by the kernel registries (settings, fonts, hyphenation) and
+dropped. Consequences:
+
+- `REGISTRATIONS = 8` is untouched and keeps meaning "callbacks retained per plugin"; ADR34's limit of
+  eight dynamic tokens per plugin (`ADR34:941`) is the same number. This is a coincidence worth keeping.
+- Declarative records cost transient heap during `make` (their decoded form, until commit) and then
+  whatever the receiving registry retains; they never sit in the dispatch registry.
+- Atomicity is as today: whole batch validated before staging; any refusal latches and `commit` fails with
+  `Invalid`; kernel registries are touched only after `make` returned OK and the output validated
+  (`native_host.rs:186-205`). Cross-record rules (below) are checked against `Declarations` plus the
+  already merged registries at commit, reusing the interface-6 duplicate checks
+  (`plugins.rs:205-225`), so a failure leaves no partial plugin visible.
+
+### 2.3 Frame file (Proposal)
+
+`plugins/<id>/declarations.ppr`: a magic `PPRG`, a u32 layout (1), then frames, each `u16 length` + one
+**ordinary registration batch** (count, records) of at most 1024 bytes and 8 records, until EOF. The host
+reads one frame at a time into a single 1 KiB buffer, decodes with the same `registrations_decode`, checks
+the frame, stages its records, and repeats. Properties: no new codec; transient heap is one frame; a
+malformed or oversize frame refuses the whole file (`ERR_INVALID`/`ERR_NO_SPACE`) before commit; the file
+is announced by one inline record or by plugin.ini (`declarations = declarations.ppr`, so a plugin without
+it pays nothing). The 1024-byte frame is my choice to stay well under the 4 KiB boundary profile; the
+alternative of 4096-byte frames costs an extra 3 KiB transient (Q6). The file is produced by the author's
+build (a `paperpaw-dev`/`paperpaw-sign` step, like `paperpaw-sign catalog` for `.ppcat`), from the same
+`SETTINGS` data the SDK macros read.
+
+Trust: the file is plain data beside the signed `.ppn`; the code is unsandboxed native code, so a forged
+file grants nothing the code could not already do (`ADR34:` "No sandbox"; `ADR 0024` Decision, "No
+sandbox"). It is nevertheless fully validated, because a corrupt card must not poison the kernel's
+registries.
