@@ -6,3 +6,4 @@
 2 additive: native::declare borrowed streaming builder for declaration records 5-10 (#180)
 3 host-table storage slots 20-26 appended to PpHost, answering ERR_UNSUPPORTED until wired; the one-line PpHost shape changes, so the next draft (raise.md row 5) (#228)
 4 row 4: generated single-record and streaming decoders (lock format 8) and fallible declaration allocation with DeclareError::NoMemory (#839) change blessed SDK shape lines (#228)
+4 additive: SDK callback Host and native_plugin entry, bounded storage slots 20-26 and borrowed event decoding 32-37 (#228)

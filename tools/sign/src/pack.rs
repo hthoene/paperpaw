@@ -212,7 +212,7 @@ pub(crate) enum Place {
 
 impl<'e> Image<'e> {
     /// The image of `elf`, all its sections checked.
-    fn of(elf: &'e Elf<'_>, symbols: &[Symbol]) -> Result<Self, String> {
+    pub(crate) fn of(elf: &'e Elf<'_>, symbols: &[Symbol]) -> Result<Self, String> {
         let (rodata_index, rodata) = elf
             .section(".rodata")
             .ok_or("no .rodata: link the plugin with paperpaw-plugin.x")?;
@@ -267,7 +267,12 @@ impl<'e> Image<'e> {
 
     /// The offset of the symbol called `name` in `.rodata`, for something
     /// of `len` bytes.
-    fn in_rodata(&self, symbols: &[Symbol], name: &str, len: u32) -> Result<u32, String> {
+    pub(crate) fn in_rodata(
+        &self,
+        symbols: &[Symbol],
+        name: &str,
+        len: u32,
+    ) -> Result<u32, String> {
         let symbol = symbols
             .iter()
             .find(|s| s.name == name && s.shndx != SHN_UNDEF)
@@ -315,7 +320,7 @@ impl<'e> Image<'e> {
         Ok(at)
     }
 
-    fn word(&self, at: u32) -> u32 {
+    pub(crate) fn word(&self, at: u32) -> u32 {
         le32(&self.bytes, at as usize)
     }
 
@@ -371,7 +376,7 @@ impl<'e> Image<'e> {
         clippy::too_many_lines,
         reason = "longer than the limit from before it was set; split it when it is next changed"
     )]
-    fn words(
+    pub(crate) fn words(
         &self,
         elf: &Elf<'_>,
         chip: Chip,

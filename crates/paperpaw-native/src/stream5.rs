@@ -3,10 +3,12 @@
 //! A format-4 file's words (those to relocate, then the patches) are read
 //! whole into a `Vec` before the image is placed. Format 5 forbids it
 //! (`abi/ppn5.md`, "Size caps and memory"): the words are read where they lie
-//! in the file, through a buffer of fixed size, at the offsets the header
-//! gives. Both lists are sorted, so a piece of the image is served by a binary
-//! search for its first word and a short run of sequential reads; no part of
-//! the file is read twice in proportion to its size.
+//! in the file, through buffers of fixed size, at the offsets the header
+//! gives. Both lists are sorted by the image offset they act on, and every
+//! patch record holds all it needs, so the write path reads each list **in
+//! order, once**, and hashes what it read; [`Relocator5::write_image`]
+//! compares those digests with the file's own. A binary search is used only to
+//! start in the middle of the lists ([`Relocator5::apply`]).
 //!
 //! [`Tail::check`] is [`check_relocations`](crate::check_relocations) for
 //! such a file; [`Relocator5`] is [`Relocator`](crate::Relocator) for it, minus
@@ -16,9 +18,11 @@
 use core::cell::RefCell;
 
 use crate::header::{CODE_OFFSET, Problem};
+use paperpaw_digest::sha256::Sha256;
+
 use crate::header5::{
-    EntryFacts, EntryRefusal, HEADER_LEN, Header5, Host, META_MAX, RawEntry, RecordFacts,
-    X4_ENTRY_BYTES,
+    EntryFacts, EntryRefusal, HEADER_LEN, Header5, Host, META_MAX, PATCH_BYTES, RawEntry,
+    RecordFacts, X4_ENTRY_BYTES,
 };
 use crate::reloc::PatchKind;
 
@@ -141,23 +145,67 @@ impl<S: Source + ?Sized> Source for Cached<'_, S> {
     }
 }
 
-/// The most patches a format-5 file may list. Patches are the instructions
-/// that reach across the hot code's edge (at most 16 KiB of it); their
-/// lookups read the file, so the count is bounded rather than the time.
+/// The most patches a format-5 file may list. Every patch is read by the
+/// relocation in order, so the count bounds its work.
 pub const MAX_PATCHES: u32 = 8192;
 
 /// How many words (relocations) or patches one buffer holds.
-const RELOCS_PER_READ: u32 = 32;
-const PATCHES_PER_READ: u32 = 16;
+const RELOCS_PER_READ: u32 = 16;
+const PATCHES_PER_READ: u32 = 8;
 
 fn le32(bytes: &[u8], at: usize) -> u32 {
     u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+}
+
+/// A patch of a format-5 file: three words, `kind | site`, `from` and `to`.
+/// It sets the bits of the instruction at `site` for the distance from the
+/// place `from` to the place `to` once the image is placed: `from` is the
+/// site itself for an upper part (an `auipc`), and the `auipc`'s site for a
+/// lower part. The record holds all it needs; nothing is looked up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Patch {
+    kind: PatchKind,
+    site: u32,
+    from: u32,
+    to: u32,
+}
+
+impl Patch {
+    /// The patch in `bytes` ([`PATCH_BYTES`] long), if it is one of this
+    /// image: a known kind, at an instruction in the code, both ends inside
+    /// the image, and an upper part's `from` its own site.
+    fn read(bytes: &[u8], header: &Header5) -> Result<Self, Problem> {
+        let (kind, site) = PatchKind::of(le32(bytes, 0)).ok_or(Problem::Relocation)?;
+        let (from, to) = (le32(bytes, 4), le32(bytes, 8));
+        let in_code = |at: u32| {
+            at >= header.code_at
+                && at.is_multiple_of(2)
+                && at.checked_add(4).is_some_and(|end| end <= header.image_len)
+        };
+        let fits = in_code(site)
+            && to < header.image_len
+            && match kind {
+                PatchKind::Hi20 => from == site,
+                PatchKind::Lo12I | PatchKind::Lo12S => in_code(from),
+            };
+        if fits {
+            Ok(Self {
+                kind,
+                site,
+                from,
+                to,
+            })
+        } else {
+            Err(Problem::Relocation)
+        }
+    }
 }
 
 /// The words after a format-5 image, in the file.
 #[derive(Debug, Clone, Copy)]
 pub struct Tail<'a, S: Source + ?Sized> {
     src: &'a S,
+    header: Header5,
     relocs_at: u64,
     relocs: u32,
     patches_at: u64,
@@ -169,6 +217,7 @@ impl<'a, S: Source + ?Sized> Tail<'a, S> {
     pub fn new(header: &Header5, src: &'a S) -> Self {
         Self {
             src,
+            header: *header,
             relocs_at: header.relocs_at(),
             relocs: header.relocs,
             patches_at: header.patches_at(),
@@ -188,10 +237,11 @@ impl<'a, S: Source + ?Sized> Tail<'a, S> {
         Ok(u32::from_le_bytes(word))
     }
 
-    fn patch(&self, i: u32) -> Result<[u32; 2], Problem> {
-        let mut bytes = [0; 8];
-        self.read(self.patches_at + 8 * u64::from(i), &mut bytes)?;
-        Ok([le32(&bytes, 0), le32(&bytes, 4)])
+    /// The first word of patch `i`: its kind and site.
+    fn patch_record(&self, i: u32) -> Result<u32, Problem> {
+        let mut word = [0; 4];
+        self.read(self.patches_at + PATCH_BYTES * u64::from(i), &mut word)?;
+        Ok(u32::from_le_bytes(word))
     }
 
     /// The first word to relocate that is not below `at`.
@@ -208,18 +258,13 @@ impl<'a, S: Source + ?Sized> Tail<'a, S> {
         Ok(lo)
     }
 
-    /// The first patch in `lo..hi` for which `keep` is false, the patches
-    /// being sorted so that it holds for a prefix.
-    fn patch_partition(
-        &self,
-        lo: u32,
-        hi: u32,
-        keep: impl Fn([u32; 2]) -> bool,
-    ) -> Result<u32, Problem> {
-        let (mut lo, mut hi) = (lo, hi);
+    /// The first patch with an instruction that reaches `at` or beyond (its
+    /// four bytes end after `at`); the patches are sorted by site.
+    fn first_patch_from(&self, at: u32) -> Result<u32, Problem> {
+        let (mut lo, mut hi) = (0, self.patches);
         while lo < hi {
             let mid = lo + (hi - lo) / 2;
-            if keep(self.patch(mid)?) {
+            if (self.patch_record(mid)? & 0x0FFF_FFFF) + 4 <= at {
                 lo = mid + 1;
             } else {
                 hi = mid;
@@ -228,28 +273,11 @@ impl<'a, S: Source + ?Sized> Tail<'a, S> {
         Ok(lo)
     }
 
-    /// How many patches are upper parts: they come first.
-    fn high_parts(&self) -> Result<u32, Problem> {
-        self.patch_partition(0, self.patches, |p| p[0] < PatchKind::Lo12I.record(0))
-    }
-
-    /// What the `auipc` patched at `site` reaches, by the first `hi20`
-    /// patches (the upper parts).
-    fn target(&self, hi20: u32, site: u32) -> Result<Option<u32>, Problem> {
-        let record = PatchKind::Hi20.record(site);
-        let at = self.patch_partition(0, hi20, |p| p[0] < record)?;
-        if at >= hi20 {
-            return Ok(None);
-        }
-        let found = self.patch(at)?;
-        Ok((found[0] == record).then_some(found[1]))
-    }
-
     /// Checks the words as [`check_relocations`](crate::check_relocations)
     /// does, reading them once: the words to relocate increasing, each a
-    /// whole word of the image outside the hot code; the patches in order,
-    /// each at an instruction in the code, a lower part's `auipc` patched
-    /// too; no more than [`MAX_PATCHES`].
+    /// whole word of the image outside the hot code; the patches with
+    /// increasing sites, each a patch of this image (`Patch::read`); no
+    /// more than [`MAX_PATCHES`].
     pub fn check(&self, header: &Header5) -> Result<(), Problem> {
         if self.patches > MAX_PATCHES {
             return Err(Problem::Relocation);
@@ -273,36 +301,167 @@ impl<'a, S: Source + ?Sized> Tail<'a, S> {
             }
             i += n as u32;
         }
-        let hi20 = self.high_parts()?;
-        let mut buf = [0u8; 8 * PATCHES_PER_READ as usize];
+        let mut buf = [0u8; PATCH_BYTES as usize * PATCHES_PER_READ as usize];
         let mut last = None;
         let mut i = 0;
         while i < self.patches {
             let n = (self.patches - i).min(PATCHES_PER_READ) as usize;
-            self.read(self.patches_at + 8 * u64::from(i), &mut buf[..8 * n])?;
-            for k in 0..n {
-                let (record, reference) = (le32(&buf, 8 * k), le32(&buf, 8 * k + 4));
-                let (kind, site) = PatchKind::of(record).ok_or(Problem::Relocation)?;
-                let fits = last.is_none_or(|last| record > last)
-                    && site >= header.code_at
-                    && site.is_multiple_of(2)
-                    && site
-                        .checked_add(4)
-                        .is_some_and(|end| end <= header.image_len)
-                    && match kind {
-                        PatchKind::Hi20 => reference < header.image_len,
-                        PatchKind::Lo12I | PatchKind::Lo12S => {
-                            self.target(hi20, reference)?.is_some()
-                        }
-                    };
-                if !fits {
+            let bytes = &mut buf[..PATCH_BYTES as usize * n];
+            self.read(self.patches_at + PATCH_BYTES * u64::from(i), bytes)?;
+            for item in bytes.as_chunks::<{ PATCH_BYTES as usize }>().0 {
+                let patch = Patch::read(item, header)?;
+                if last.is_some_and(|last| patch.site <= last) {
                     return Err(Problem::Relocation);
                 }
-                last = Some(record);
+                last = Some(patch.site);
             }
             i += n as u32;
         }
         Ok(())
+    }
+}
+
+/// The words to relocate, read in order a short run at a time, each run
+/// also hashed when `hash` says so: the digest of what was read, which
+/// [`Relocator5::write_image`] compares with the file's own words.
+struct Words {
+    buf: [u8; 4 * RELOCS_PER_READ as usize],
+    used: usize,
+    have: usize,
+    loaded: u32,
+    sha: Sha256,
+    hash: bool,
+}
+
+impl Words {
+    fn new(from: u32, hash: bool) -> Self {
+        Self {
+            buf: [0; 4 * RELOCS_PER_READ as usize],
+            used: 0,
+            have: 0,
+            loaded: from,
+            sha: Sha256::new(),
+            hash,
+        }
+    }
+
+    fn load<S: Source + ?Sized>(&mut self, tail: &Tail<'_, S>) -> Result<bool, Problem> {
+        if self.loaded >= tail.relocs {
+            return Ok(false);
+        }
+        let n = (tail.relocs - self.loaded).min(RELOCS_PER_READ) as usize;
+        let bytes = &mut self.buf[..4 * n];
+        tail.read(tail.relocs_at + 4 * u64::from(self.loaded), bytes)?;
+        if self.hash {
+            self.sha.update(bytes);
+        }
+        (self.used, self.have) = (0, n);
+        self.loaded += n as u32;
+        Ok(true)
+    }
+
+    fn peek<S: Source + ?Sized>(&mut self, tail: &Tail<'_, S>) -> Result<Option<u32>, Problem> {
+        if self.used == self.have && !self.load(tail)? {
+            return Ok(None);
+        }
+        Ok(Some(le32(&self.buf, 4 * self.used)))
+    }
+}
+
+/// The patches, read in order like [`Words`].
+struct Patches {
+    buf: [u8; PATCH_BYTES as usize * PATCHES_PER_READ as usize],
+    used: usize,
+    have: usize,
+    loaded: u32,
+    sha: Sha256,
+    hash: bool,
+}
+
+impl Patches {
+    fn new(from: u32, hash: bool) -> Self {
+        Self {
+            buf: [0; PATCH_BYTES as usize * PATCHES_PER_READ as usize],
+            used: 0,
+            have: 0,
+            loaded: from,
+            sha: Sha256::new(),
+            hash,
+        }
+    }
+
+    fn load<S: Source + ?Sized>(&mut self, tail: &Tail<'_, S>) -> Result<bool, Problem> {
+        if self.loaded >= tail.patches {
+            return Ok(false);
+        }
+        let n = (tail.patches - self.loaded).min(PATCHES_PER_READ) as usize;
+        let bytes = &mut self.buf[..PATCH_BYTES as usize * n];
+        tail.read(
+            tail.patches_at + PATCH_BYTES * u64::from(self.loaded),
+            bytes,
+        )?;
+        if self.hash {
+            self.sha.update(bytes);
+        }
+        (self.used, self.have) = (0, n);
+        self.loaded += n as u32;
+        Ok(true)
+    }
+
+    fn peek<S: Source + ?Sized>(&mut self, tail: &Tail<'_, S>) -> Result<Option<Patch>, Problem> {
+        if self.used == self.have && !self.load(tail)? {
+            return Ok(None);
+        }
+        let at = PATCH_BYTES as usize * self.used;
+        let item = &self.buf[at..at + PATCH_BYTES as usize];
+        Patch::read(item, &tail.header).map(Some)
+    }
+}
+
+/// Where a relocation stands in the two lists: both are consumed in the
+/// order of the image, each item read once, so that what was read can be
+/// hashed ([`Walk::finish`]).
+struct Walk {
+    words: Words,
+    patches: Patches,
+    /// The word after the last relocated, and the last patched site.
+    next_word: u32,
+    last_site: Option<u32>,
+    /// A patch whose instruction reaches into the next piece.
+    carry: Option<Patch>,
+}
+
+impl Walk {
+    /// From the start of the image, hashing what it reads.
+    fn start() -> Self {
+        Self {
+            words: Words::new(0, true),
+            patches: Patches::new(0, true),
+            next_word: 0,
+            last_site: None,
+            carry: None,
+        }
+    }
+
+    /// From the piece at `at` (by a binary search; nothing hashed).
+    fn seek<S: Source + ?Sized>(tail: &Tail<'_, S>, at: u32) -> Result<Self, Problem> {
+        Ok(Self {
+            words: Words::new(tail.first_reloc_from(at)?, false),
+            patches: Patches::new(tail.first_patch_from(at)?, false),
+            next_word: at,
+            last_site: None,
+            carry: None,
+        })
+    }
+
+    /// Reads the rest of both lists and gives the digests of all of each.
+    fn finish<S: Source + ?Sized>(
+        mut self,
+        tail: &Tail<'_, S>,
+    ) -> Result<([u8; 32], [u8; 32]), Problem> {
+        while self.words.load(tail)? {}
+        while self.patches.load(tail)? {}
+        Ok((self.words.sha.finish(), self.patches.sha.finish()))
     }
 }
 
@@ -313,10 +472,6 @@ impl<'a, S: Source + ?Sized> Tail<'a, S> {
 pub struct Relocator5<'a, S: Source + ?Sized> {
     header: &'a Header5,
     tail: Tail<'a, S>,
-    /// How many patches are upper parts, and how many are lower parts of
-    /// I-type instructions (the rest are S-type).
-    hi20: u32,
-    lo12i: u32,
     base: u32,
     delta: u32,
     hot: u32,
@@ -337,15 +492,9 @@ impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
         {
             return Err(Problem::Malformed);
         }
-        let hi20 = tail.high_parts()?;
-        let lo12i = tail
-            .patch_partition(hi20, header.patches, |p| p[0] < PatchKind::Lo12S.record(0))?
-            - hi20;
         Ok(Self {
             header,
             tail,
-            hi20,
-            lo12i,
             base,
             delta: base.wrapping_sub(header.base),
             hot: base + CODE_OFFSET + header.hot_at,
@@ -367,58 +516,36 @@ impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
     }
 
     /// Everything that can refuse the file before a byte is written (step 8
-    /// and the relocation's own checks): reads the file once, `buf` at a
-    /// time, feeds the digest with the header and all after it, and runs
-    /// [`Relocator5::apply`] on each piece as the device will, but on the
-    /// piece alone, so a word that cannot be relocated refuses here. Then
-    /// the digest must be the header's ([`Header5::holds`]).
+    /// and the relocation's own checks): the whole of
+    /// [`Relocator5::write_image`] with nothing written. The file is read
+    /// once, `buf` at a time, the image relocated piece by piece as the
+    /// device will, and the digests must hold (the header's, and those of
+    /// the words and of the patches as the relocation read them). A file
+    /// whose bytes were changed is `Damaged` or `Relocation`, whichever its
+    /// changed bytes show first.
     ///
-    /// `buf` is the only memory used, at least 4 bytes (a multiple of 4 is
-    /// used). The device passes one sector. A file whose bytes were changed
-    /// is `Damaged` or `Relocation`, whichever its changed bytes show first.
+    /// `buf` is the only memory of size, at least 4 bytes (a multiple of 4
+    /// is used). The device passes one sector.
     pub fn verify(&self, buf: &mut [u8]) -> Result<(), Problem> {
-        let step = buf.len() & !3;
-        if step == 0 {
-            return Err(Problem::Malformed);
-        }
-        let mut sha = self.header.digest();
-        let mut done = 0u32;
-        while done < self.header.image_len {
-            let len = (self.header.image_len - done).min(step as u32) as usize;
-            let piece = &mut buf[..len];
-            self.tail.read(HEADER_LEN as u64 + u64::from(done), piece)?;
-            sha.update(piece);
-            self.apply(done, piece)?;
-            done += len as u32;
-        }
-        let end = self.header.file_len();
-        let mut at = self.header.relocs_at();
-        while at < end {
-            let len = (end - at).min(step as u64) as usize;
-            self.tail.read(at, &mut buf[..len])?;
-            sha.update(&buf[..len]);
-            at += len as u64;
-        }
-        if self.header.holds(sha) {
-            Ok(())
-        } else {
-            Err(Problem::Damaged)
+        match self.write_image(buf, |_, _| Ok::<(), core::convert::Infallible>(())) {
+            Ok(()) => Ok(()),
+            Err(Written::File(problem)) => Err(problem),
+            Err(Written::Sink(never)) => match never {},
         }
     }
 
     /// The write pass: reads the image once more, `buf` at a time, hashes
-    /// **each piece as read** (before it is relocated), relocates it as
-    /// [`Relocator5::apply`] does and hands it to `sink` with its image
-    /// offset, padded with `0xFF` to whole words. After the image the lists
-    /// are hashed once more, in order, and the digest must be the header's
-    /// ([`Header5::holds`]): the bytes that went to the sink are therefore
-    /// the bytes the header covers, even where the source answers
-    /// otherwise than it did for [`Relocator5::verify`]. A mismatch is
-    /// `Damaged`, and the caller takes back what the sink was given.
-    ///
-    /// The lookups [`Relocator5::apply`] makes into the lists are separate
-    /// reads and not covered by that digest: a source that lies on them
-    /// alone can only move a relocation to another valid word.
+    /// **each piece as read** (before it is relocated), relocates it and
+    /// hands it to `sink` with its image offset, padded with `0xFF` to whole
+    /// words. The words to relocate and the patches are consumed in order,
+    /// each item read once and hashed as it is read, by one digest for the
+    /// words and one for the patches. After the image the file's own words
+    /// and patches are read in order and hashed too: the header's digest
+    /// must hold, and the digests of what the relocation consumed must
+    /// equal those of the file's lists. Every byte that decides what the
+    /// sink was given is therefore a byte the header's digest covers,
+    /// whatever the source answers now. A mismatch is `Damaged`, and the
+    /// caller takes back what the sink was given.
     ///
     /// `buf` is a multiple of 4 bytes, at least 4.
     pub fn write_image<E>(
@@ -431,6 +558,7 @@ impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
             return Err(Written::File(Problem::Malformed));
         }
         let mut sha = self.header.digest();
+        let mut walk = Walk::start();
         let mut done = 0u32;
         while done < self.header.image_len {
             let len = (self.header.image_len - done).min(step as u32) as usize;
@@ -439,20 +567,40 @@ impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
                 .read(HEADER_LEN as u64 + u64::from(done), &mut buf[..len])
                 .map_err(Written::File)?;
             sha.update(&buf[..len]);
-            self.apply(done, &mut buf[..len]).map_err(Written::File)?;
+            self.relocate(&mut walk, done, &mut buf[..len])
+                .map_err(Written::File)?;
             buf[len..words].fill(0xFF);
             sink(done, &buf[..words]).map_err(Written::Sink)?;
             done += len as u32;
         }
-        let end = self.header.file_len();
-        let mut at = self.header.relocs_at();
-        while at < end {
-            let len = (end - at).min(step as u64) as usize;
-            self.tail.read(at, &mut buf[..len]).map_err(Written::File)?;
-            sha.update(&buf[..len]);
-            at += len as u64;
+        let (mut of_words, mut of_patches) = (Sha256::new(), Sha256::new());
+        let regions = [
+            (
+                self.header.relocs_at(),
+                self.header.patches_at(),
+                &mut of_words,
+            ),
+            (
+                self.header.patches_at(),
+                self.header.file_len(),
+                &mut of_patches,
+            ),
+        ];
+        for (from, end, list) in regions {
+            let mut at = from;
+            while at < end {
+                let len = (end - at).min(step as u64) as usize;
+                self.tail.read(at, &mut buf[..len]).map_err(Written::File)?;
+                sha.update(&buf[..len]);
+                list.update(&buf[..len]);
+                at += len as u64;
+            }
         }
-        if self.header.holds(sha) {
+        let (consumed_words, consumed_patches) = walk.finish(&self.tail).map_err(Written::File)?;
+        if self.header.holds(sha)
+            && consumed_words == of_words.finish()
+            && consumed_patches == of_patches.finish()
+        {
             Ok(())
         } else {
             Err(Written::File(Problem::Damaged))
@@ -510,45 +658,61 @@ impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
 
     /// Relocates `piece`, the image's bytes from offset `at` on (a multiple
     /// of 4; every piece but the image's last a whole number of words), as
-    /// [`Relocator::apply`](crate::Relocator::apply) does.
+    /// [`Relocator::apply`](crate::Relocator::apply) does, for any piece in
+    /// any order: the lists are searched for it, and nothing is hashed. The
+    /// write pass ([`Relocator5::write_image`]) does not use this.
     pub fn apply(&self, at: u32, piece: &mut [u8]) -> Result<(), Problem> {
         if !at.is_multiple_of(4) {
             return Err(Problem::Relocation);
         }
-        let end = at.saturating_add(piece.len() as u32);
-        self.words(at, end, piece)?;
-        self.patch(at, end, piece)
+        let mut walk = Walk::seek(&self.tail, at)?;
+        self.relocate(&mut walk, at, piece)
     }
 
-    fn words(&self, at: u32, end: u32, piece: &mut [u8]) -> Result<(), Problem> {
-        let mut buf = [0u8; 4 * RELOCS_PER_READ as usize];
-        let mut next = at;
-        let mut i = self.tail.first_reloc_from(at)?;
-        while i < self.header.relocs {
-            let n = (self.header.relocs - i).min(RELOCS_PER_READ) as usize;
-            self.tail
-                .read(self.tail.relocs_at + 4 * u64::from(i), &mut buf[..4 * n])?;
-            for k in 0..n {
-                let word = le32(&buf, 4 * k);
-                if word >= end {
-                    return Ok(());
-                }
-                // The list was checked by `Tail::check`, but is read again
-                // here: a source that serves other bytes the second time
-                // (a card swapped, a flaky read) is refused, never trusted.
-                if word < next || !word.is_multiple_of(4) {
-                    return Err(Problem::Relocation);
-                }
-                next = word.checked_add(4).ok_or(Problem::Relocation)?;
-                let at_word = (word - at) as usize;
-                let Some(bytes) = piece.get_mut(at_word..at_word + 4) else {
-                    return Err(Problem::Relocation);
-                };
-                let value = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-                let moved = self.moved(value).ok_or(Problem::Relocation)?;
-                bytes.copy_from_slice(&moved.to_le_bytes());
+    /// Relocates `piece` from `at`, taking the words and patches it needs
+    /// from `walk`, which lies at `at`: the next words are at or after `at`,
+    /// in order, and so are the patches' sites.
+    fn relocate(&self, walk: &mut Walk, at: u32, piece: &mut [u8]) -> Result<(), Problem> {
+        if !at.is_multiple_of(4) {
+            return Err(Problem::Relocation);
+        }
+        let end = at.saturating_add(piece.len() as u32);
+        while let Some(word) = walk.words.peek(&self.tail)? {
+            if word >= end {
+                break;
             }
-            i += n as u32;
+            // The list was checked by `Tail::check`, but is read again
+            // here: a source that serves other bytes the second time
+            // (a card swapped, a flaky read) is refused, never trusted.
+            if word < walk.next_word || word < at || !word.is_multiple_of(4) {
+                return Err(Problem::Relocation);
+            }
+            walk.next_word = word.checked_add(4).ok_or(Problem::Relocation)?;
+            let at_word = (word - at) as usize;
+            let Some(bytes) = piece.get_mut(at_word..at_word + 4) else {
+                return Err(Problem::Relocation);
+            };
+            let value = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+            let moved = self.moved(value).ok_or(Problem::Relocation)?;
+            bytes.copy_from_slice(&moved.to_le_bytes());
+            walk.words.used += 1;
+        }
+        if let Some(patch) = walk.carry.take() {
+            self.write_patch(&patch, at, piece);
+        }
+        while let Some(patch) = walk.patches.peek(&self.tail)? {
+            if patch.site >= end {
+                break;
+            }
+            if walk.last_site.is_some_and(|last| patch.site <= last) {
+                return Err(Problem::Relocation);
+            }
+            walk.last_site = Some(patch.site);
+            self.write_patch(&patch, at, piece);
+            if patch.site + 4 > end {
+                walk.carry = Some(patch);
+            }
+            walk.patches.used += 1;
         }
         Ok(())
     }
@@ -583,70 +747,18 @@ impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
         }
     }
 
-    /// Writes the patches whose instructions lie in `piece`, from `at` to
-    /// `end`, a byte at a time.
-    fn patch(&self, at: u32, end: u32, piece: &mut [u8]) -> Result<(), Problem> {
-        let blocks = [
-            (0, self.hi20),
-            (self.hi20, self.hi20 + self.lo12i),
-            (self.hi20 + self.lo12i, self.header.patches),
-        ];
-        let mut buf = [0u8; 8 * PATCHES_PER_READ as usize];
-        for (from, to) in blocks {
-            let mut i = self
-                .tail
-                .patch_partition(from, to, |p| (p[0] & 0x0FFF_FFFF) + 4 <= at)?;
-            while i < to {
-                let n = (to - i).min(PATCHES_PER_READ) as usize;
-                self.tail
-                    .read(self.tail.patches_at + 8 * u64::from(i), &mut buf[..8 * n])?;
-                for k in 0..n {
-                    let (record, reference) = (le32(&buf, 8 * k), le32(&buf, 8 * k + 4));
-                    let (kind, site) = PatchKind::of(record).ok_or(Problem::Relocation)?;
-                    if site >= end {
-                        break;
-                    }
-                    self.write_patch(kind, site, reference, at, piece)?;
-                }
-                // The block's remaining patches lie beyond this piece when
-                // the loop above broke out of it.
-                let last = le32(&buf, 8 * (n - 1));
-                if PatchKind::of(last).is_none_or(|(_, site)| site >= end) {
-                    break;
-                }
-                i += n as u32;
-            }
-        }
-        Ok(())
-    }
-
-    fn write_patch(
-        &self,
-        kind: PatchKind,
-        site: u32,
-        reference: u32,
-        at: u32,
-        piece: &mut [u8],
-    ) -> Result<(), Problem> {
-        let (from, to) = match kind {
-            PatchKind::Hi20 => (site, reference),
-            PatchKind::Lo12I | PatchKind::Lo12S => (
-                reference,
-                self.tail
-                    .target(self.hi20, reference)?
-                    .ok_or(Problem::Relocation)?,
-            ),
-        };
-        // Read again since `Tail::check`: both ends must still be in the image.
-        let image_len = self.header.image_len;
-        if from >= image_len || to >= image_len {
-            return Err(Problem::Relocation);
-        }
-        let distance = self.runs_at(to).wrapping_sub(self.runs_at(from));
-        let bits = kind.bits(distance).to_le_bytes();
-        let kept = kind.kept().to_le_bytes();
+    /// Writes what `patch` sets of the instruction at its site into `piece`
+    /// (the bytes from `at` on), a byte at a time: those of the four that lie
+    /// in it.
+    fn write_patch(&self, patch: &Patch, at: u32, piece: &mut [u8]) {
+        let distance = self
+            .runs_at(patch.to)
+            .wrapping_sub(self.runs_at(patch.from));
+        let bits = patch.kind.bits(distance).to_le_bytes();
+        let kept = patch.kind.kept().to_le_bytes();
         for i in 0..4 {
-            let Some(byte) = site
+            let Some(byte) = patch
+                .site
                 .checked_add(i)
                 .and_then(|byte_at| byte_at.checked_sub(at))
                 .and_then(|j| piece.get_mut(j as usize))
@@ -655,7 +767,6 @@ impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
             };
             *byte = (*byte & kept[i as usize]) | bits[i as usize];
         }
-        Ok(())
     }
 }
 
