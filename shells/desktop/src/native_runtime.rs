@@ -9,7 +9,9 @@ use std::path::Path;
 use std::ptr;
 
 use paperpaw_native::host_glue::{ENTRY_SYMBOL, METADATA_SYMBOL, OK, PpEntry, PpHost, PpPlugin};
-use paperpaw_native::preflight::data_export;
+use paperpaw_native::preflight::{
+    FreestandingRefusal, PLUGIN_EXPORTS, check_freestanding, data_export,
+};
 
 use crate::host_services::DesktopHost;
 use crate::native::HeldLibrary;
@@ -29,6 +31,10 @@ pub enum RuntimeError {
     File,
     /// The ELF structures or exported objects are unsuitable.
     Export,
+    /// The library needs another library or imports a symbol (strong or weak)
+    /// instead of reaching the host through its table: refused from its
+    /// bytes, before any load.
+    Import,
     /// The interface, profile, requirements or metadata structure is unsupported.
     Metadata,
     /// The system loader could not load the checked file.
@@ -170,6 +176,14 @@ unsafe fn checked_library(
     if bytes.len() > 256 << 20 || paperpaw_core::sdk::digest::sha256::digest(&bytes) != *digest {
         return Err(RuntimeError::File);
     }
+    // PR #133: a plugin needs no library, binds no symbol of the process and
+    // exports nothing but its two entry symbols. One rule, shared with the packager.
+    check_freestanding(&bytes, 62, PLUGIN_EXPORTS).map_err(|refusal| match refusal {
+        FreestandingRefusal::UndefinedImport | FreestandingRefusal::NeededLibrary => {
+            RuntimeError::Import
+        }
+        _ => RuntimeError::Export,
+    })?;
     let locator =
         data_export(&bytes, 62, METADATA_SYMBOL, true).map_err(|_| RuntimeError::Export)?;
     let minor = metadata(locator.bytes, host)?;

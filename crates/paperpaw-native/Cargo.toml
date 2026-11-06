@@ -21,5 +21,16 @@ paperpaw-digest.workspace = true
 # between a code plugin and PaperPaw (ADR 0026).
 ed25519-compact = { version = "=2.6.0", default-features = false, features = ["opt_size"] }
 
+[features]
+# What only the kernel and the shells do (ADR 0020): the freestanding check a
+# loader and the packager share (`preflight::check_freestanding`). Off for
+# plugins. Adds only functions, constants and types of its own, never a field
+# or variant of an existing type: a plugin's fingerprint does not change with it.
+kernel = []
+
+[dev-dependencies]
+# The tests build with the kernel's part, as the SDK's do.
+paperpaw-native = { path = ".", features = ["kernel"] }
+
 [lints]
 workspace = true
