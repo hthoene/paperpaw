@@ -92,6 +92,13 @@ mod retained;
 #[path = "native_host/native_screen.rs"]
 mod native_screen;
 
+#[allow(
+    dead_code,
+    reason = "native built-in registry adapter follows these owned values"
+)]
+#[path = "native_host/native_values.rs"]
+mod native_values;
+
 // Static-entry activation uses the shared D1 reader; registry wiring follows.
 #[allow(
     dead_code,
