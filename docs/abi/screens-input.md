@@ -183,7 +183,9 @@ input(state: pointer, token: u32, input: bytes) -> i32
 
   - `text.metrics`: ascent and descent (both positive, from the baseline) and the line height, in
     pixels, of the size the text is drawn at. Works outside `draw`.
-  - `text.ink`: the ink of `text` at `size` as this host draws it at that size, counting pixels at least half covered: `top` and
+  - `text.ink`: the ink of `text` at `size` as this host draws it on its own screen, counting the
+    pixels that screen shows as ink (coverage at or above its black threshold: the panel's
+    `mono_coverage` on 1-bit screens, half on gray and colour): `top` and
     `bottom` relative to the baseline (above negative), `left` and `right` from the pen's start.
     Text without ink (spaces, empty) is `ERR_NOT_FOUND` with the outputs unchanged. Works
     outside `draw`. The numbers come from the host's own rasteriser (hinting, coverage, pack),

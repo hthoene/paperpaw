@@ -22,7 +22,7 @@ pub(crate) struct Probe {
 }
 
 /// Where the ink of what was drawn on a probe lies ([`Framebuffer::probed`]):
-/// the pixels at least half covered, `left` and `top` inclusive, `right` and
+/// the pixels at or above its threshold, `left` and `top` inclusive, `right` and
 /// `bottom` exclusive, in the coordinates it was drawn in (saturated to
 /// `i32`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
