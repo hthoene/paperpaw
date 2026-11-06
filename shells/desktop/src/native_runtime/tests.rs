@@ -1,7 +1,7 @@
 use super::*;
 use std::process::Command;
 
-fn metadata_bytes() -> Vec<u8> {
+pub(super) fn metadata_bytes() -> Vec<u8> {
     use wire::*;
     let mut bytes = vec![0; PREFIX_SIZE];
     bytes[..MAGIC_BYTES.len()].copy_from_slice(MAGIC_BYTES);
