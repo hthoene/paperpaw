@@ -37,7 +37,7 @@ mod settings_wire {
     ));
 }
 
-const KEY: &str = "abi7-tick-draw.enabled";
+pub(super) const KEY: &str = "abi7-tick-draw.enabled";
 const DEVICE: DeviceInfo = DeviceInfo::new(
     "scoped-probe",
     "Scoped probe",
@@ -89,7 +89,7 @@ impl Plugin for Probe {
     }
 }
 
-fn run(
+pub(super) fn run(
     specs: &'static [SettingSpec],
     value: &str,
     status: SystemStatus,

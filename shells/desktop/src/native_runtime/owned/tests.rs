@@ -425,5 +425,6 @@ fn real_library_panicking_staged_drop_still_destroys_validated_foreign_output() 
     assert_eq!(evidence.events.borrow().last(), Some(&"context"));
 }
 
+mod e2e;
 mod environment;
 mod foreign;
