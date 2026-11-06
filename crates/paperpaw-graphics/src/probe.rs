@@ -3,17 +3,22 @@
 //! very code that draws it, so that a measurement can never differ from the
 //! drawing (shaping, joining, marks and ligatures included).
 
+use paperpaw_platform::PixelFormat;
+
 use crate::canvas::Canvas;
 use crate::framebuffer::Framebuffer;
 
-/// From what coverage a pixel counts as inked: at least half covered.
-const INKED: u8 = 128;
+/// From what coverage a pixel of a gray or colour frame counts as inked:
+/// at least half covered.
+const HALF: u8 = 128;
 
 /// The pixels a probe saw inked: left and top inclusive, right and bottom
-/// exclusive, in the coordinates the probe's canvas was drawn in.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// exclusive, in the coordinates the probe's canvas was drawn in; and from
+/// what coverage a pixel counts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Probe {
     ink: Option<[i64; 4]>,
+    inked_from: u8,
 }
 
 /// Where the ink of what was drawn on a probe lies ([`Framebuffer::probed`]):
@@ -31,15 +36,30 @@ pub struct InkBounds {
 
 impl Framebuffer {
     /// A framebuffer that keeps no pixels and costs no memory: drawing on
-    /// its canvas only records where masks (glyphs) put pixels at least half
-    /// covered, unclipped, read back with [`Framebuffer::probed`]. Anything
-    /// else drawn on it is dropped, as on a [`blind`](Framebuffer::blind)
-    /// one; unlike that one, its canvas is not blind, so text is drawn
-    /// glyph by glyph.
-    pub fn probe() -> Self {
+    /// its canvas only records where masks (glyphs) put pixels covered at
+    /// least `inked_from` (out of 255), unclipped, read back with
+    /// [`Framebuffer::probed`]. Pass a frame's
+    /// [`ink_threshold`](Framebuffer::ink_threshold) to see ink as that
+    /// frame shows it. Anything else drawn on it is dropped, as on a
+    /// [`blind`](Framebuffer::blind) one; unlike that one, its canvas is not
+    /// blind, so text is drawn glyph by glyph.
+    pub fn probe(inked_from: u8) -> Self {
         let mut probe = Self::blind(u16::MAX, u16::MAX);
-        probe.set_probe(Some(Probe::default()));
+        probe.set_probe(Some(Probe {
+            ink: None,
+            inked_from: inked_from.max(1),
+        }));
         probe
+    }
+
+    /// From what coverage this frame shows a pixel of a mask inked: in black
+    /// and white, its [`mono_coverage`](Framebuffer::mono_coverage) (the
+    /// pixel turns black); in grays and colour, at least half covered.
+    pub fn ink_threshold(&self) -> u8 {
+        match self.format() {
+            PixelFormat::Mono1 => self.mono_coverage().max(1),
+            _ => HALF,
+        }
     }
 
     /// Whether it is a [`probe`](Framebuffer::probe).
@@ -73,8 +93,9 @@ impl Framebuffer {
 }
 
 impl Canvas<'_> {
-    /// [`draw_mask`](Canvas::draw_mask) on a probe: records the pixels at
-    /// least half covered, unclipped, in this canvas's coordinates.
+    /// [`draw_mask`](Canvas::draw_mask) on a probe: records the pixels
+    /// covered from its threshold on, unclipped, in this canvas's
+    /// coordinates.
     pub(crate) fn probe_mask(
         &mut self,
         x: i32,
@@ -83,9 +104,12 @@ impl Canvas<'_> {
         height: u32,
         coverage: impl Fn(u32, u32) -> u8,
     ) {
+        let Some(inked_from) = self.framebuffer_mut().probe_state().map(|p| p.inked_from) else {
+            return;
+        };
         for py in 0..height {
             for px in 0..width {
-                if coverage(px, py) >= INKED {
+                if coverage(px, py) >= inked_from {
                     let at = (i64::from(x) + i64::from(px), i64::from(y) + i64::from(py));
                     self.framebuffer_mut().probe_ink(at.0, at.1);
                 }
@@ -102,7 +126,7 @@ mod tests {
 
     #[test]
     fn a_probe_records_half_covered_pixels_unclipped() {
-        let mut probe = Framebuffer::probe();
+        let mut probe = Framebuffer::probe(HALF);
         assert!(probe.is_probe());
         {
             let mut canvas = probe.canvas();
@@ -130,11 +154,19 @@ mod tests {
 
     #[test]
     fn nothing_inked_and_other_framebuffers_probe_nothing() {
-        let mut probe = Framebuffer::probe();
+        let mut probe = Framebuffer::probe(HALF);
         probe
             .canvas()
             .draw_mask(0, 0, 4, 4, Color::BLACK, |_, _| 127);
         assert_eq!(probe.probed(), None);
+        let mut low = Framebuffer::probe(96);
+        low.canvas().draw_mask(0, 0, 1, 1, Color::BLACK, |_, _| 96);
+        assert!(low.probed().is_some(), "inked from its own threshold");
+        let mut mono = Framebuffer::new(8, 8, paperpaw_platform::PixelFormat::Mono1).unwrap();
+        mono.set_mono_coverage(96);
+        assert_eq!(mono.ink_threshold(), 96);
+        let gray = Framebuffer::new(8, 8, paperpaw_platform::PixelFormat::Gray8).unwrap();
+        assert_eq!(gray.ink_threshold(), HALF);
         let blind = Framebuffer::blind(10, 10);
         assert!(!blind.is_probe());
         assert_eq!(blind.probed(), None);

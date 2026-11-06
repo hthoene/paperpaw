@@ -34,4 +34,4 @@ struct paperpaw_graphics::canvas::Described { role: paperpaw_graphics::canvas::R
 struct paperpaw_graphics::diffuse::Atkinson { rows: [alloc::vec::Vec<i16>; 2] }
 struct paperpaw_graphics::framebuffer::Framebuffer { width: u16, height: u16, format: paperpaw_platform::pixel::PixelFormat, stride: usize, top: u16, rows: u16, data: alloc::vec::Vec<u8>, dirty: core::option::Option<paperpaw_platform::geometry::Rect>, inverted: bool, pictures_kept: bool, mono_coverage: u8, saturation: u16, pictured: u32, counting: bool, all_pictured: u32, blind: bool, probe: core::option::Option<paperpaw_graphics::probe::Probe>, diffusions: alloc::vec::Vec<(u64, u16, paperpaw_graphics::diffuse::Atkinson)> }
 struct paperpaw_graphics::probe::InkBounds { left: i32, top: i32, right: i32, bottom: i32 }
-struct paperpaw_graphics::probe::Probe { ink: core::option::Option<[i64; 4]> }
+struct paperpaw_graphics::probe::Probe { ink: core::option::Option<[i64; 4]>, inked_from: u8 }

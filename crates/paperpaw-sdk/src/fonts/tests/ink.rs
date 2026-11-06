@@ -47,42 +47,68 @@ fn hangul_fonts() -> (Fonts, Rc<dyn Storage>) {
     (fonts, storage)
 }
 
-/// Where drawing `text` on a white frame left pixels at least half black,
-/// counted from the pen at `(X, BASELINE)`.
-fn ink_on_frame(font: &FontHandle<'_>, size: f32, text: &str) -> Option<[i32; 4]> {
+/// Where drawing `text` on a white frame left ink as `frame` shows it
+/// (black in black and white, at least half black in gray), counted from
+/// the pen at `(X, BASELINE)`.
+fn ink_on_frame(
+    frame: &mut Framebuffer,
+    font: &FontHandle<'_>,
+    size: f32,
+    text: &str,
+) -> Option<[i32; 4]> {
     const X: i32 = 200;
     const BASELINE: i32 = 60;
-    const WIDTH: u16 = 600;
-    let mut frame = Framebuffer::new(WIDTH, 100, PixelFormat::Gray8).unwrap();
-    {
-        let mut canvas = frame.canvas();
-        canvas.clear(Color::WHITE);
-        font.draw(&mut canvas, size, X as f32, BASELINE, text, Color::BLACK);
-    }
-    let view = frame.view();
+    let mut canvas = frame.canvas();
+    canvas.clear(Color::WHITE);
+    font.draw(&mut canvas, size, X as f32, BASELINE, text, Color::BLACK);
     let mut ink: Option<[i32; 4]> = None;
-    for (at, gray) in view.data.iter().enumerate() {
-        if *gray < 128 {
-            let (x, y) = (
-                (at % usize::from(WIDTH)) as i32 - X,
-                (at / usize::from(WIDTH)) as i32 - BASELINE,
-            );
-            ink = Some(ink.map_or([x, y, x + 1, y + 1], |[l, t, r, b]| {
-                [l.min(x), t.min(y), r.max(x + 1), b.max(y + 1)]
-            }));
+    for py in 0..i32::from(frame_height()) {
+        for px in 0..i32::from(frame_width()) {
+            let inked = canvas
+                .gray_at(paperpaw_platform::Point::new(px, py))
+                .is_some_and(|gray| gray < 128);
+            if inked {
+                let (x, y) = (px - X, py - BASELINE);
+                ink = Some(ink.map_or([x, y, x + 1, y + 1], |[l, t, r, b]| {
+                    [l.min(x), t.min(y), r.max(x + 1), b.max(y + 1)]
+                }));
+            }
         }
     }
     ink
+}
+
+fn frame_width() -> u16 {
+    600
+}
+
+fn frame_height() -> u16 {
+    100
+}
+
+fn frame(format: PixelFormat) -> Framebuffer {
+    Framebuffer::new(frame_width(), frame_height(), format).unwrap()
 }
 
 fn sides(ink: InkBounds) -> [i32; 4] {
     [ink.left, ink.top, ink.right, ink.bottom]
 }
 
+/// The same on a gray frame and on a black-and-white one that inks from
+/// less than half covered (the X4's default).
 fn same_as_drawn(font: &FontHandle<'_>, size: f32, text: &str) {
-    let probed = font.ink_drawn(size, text).map(sides);
-    assert!(probed.is_some(), "{text:?} has ink");
-    assert_eq!(probed, ink_on_frame(font, size, text), "{text:?}");
+    let mut mono = frame(PixelFormat::Mono1);
+    mono.set_mono_coverage(96);
+    for mut frame in [frame(PixelFormat::Gray8), mono] {
+        let probed = font.ink_drawn(size, text, frame.ink_threshold()).map(sides);
+        assert!(probed.is_some(), "{text:?} has ink");
+        let format = frame.format();
+        assert_eq!(
+            probed,
+            ink_on_frame(&mut frame, font, size, text),
+            "{text:?} {format:?}"
+        );
+    }
 }
 
 #[test]
@@ -114,18 +140,21 @@ fn hangul_in_jamo_inks_as_its_syllables() {
     let font = fonts.get("a.latin").unwrap();
     let nfd = "a \u{1112}\u{1161}\u{11AB}\u{1100}\u{116E}\u{11A8}";
     same_as_drawn(&font, 10.0, nfd);
-    assert_eq!(font.ink_drawn(10.0, nfd), font.ink_drawn(10.0, "a 한국"));
+    assert_eq!(
+        font.ink_drawn(10.0, nfd, 128),
+        font.ink_drawn(10.0, "a 한국", 128)
+    );
 }
 
 #[test]
 fn text_without_ink_has_none_also_while_describing() {
     let (fonts, _storage) = inked_fonts();
     let font = fonts.get("a.latin").unwrap();
-    assert_eq!(font.ink_drawn(20.0, "  "), None);
-    assert_eq!(font.ink_drawn(20.0, ""), None);
-    let plain = font.ink_drawn(20.0, "a");
+    assert_eq!(font.ink_drawn(20.0, "  ", 128), None);
+    assert_eq!(font.ink_drawn(20.0, "", 128), None);
+    let plain = font.ink_drawn(20.0, "a", 128);
     fonts.set_describing(true);
-    assert_eq!(font.ink_drawn(20.0, "a"), plain);
+    assert_eq!(font.ink_drawn(20.0, "a", 128), plain);
     assert!(
         fonts.drawing.describing.get(),
         "describing is left as it was"
