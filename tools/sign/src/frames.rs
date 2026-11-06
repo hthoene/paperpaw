@@ -416,7 +416,7 @@ pub struct Walked {
 
 /// How often one instruction may be visited before the walk gives up on it
 /// (a loop that moves `sp` never settles).
-const VISITS: u8 = 16;
+const VISITS: u8 = 64;
 
 /// The walk of one function.
 struct Walk<'c> {
@@ -497,10 +497,11 @@ impl Walk<'_> {
             Ctl::Jump(offset) => [self.target(at, offset), None],
             Ctl::Ret => [None, None],
             Ctl::Indirect => {
+                // The cases are entered from the jump, with the frame pointer
+                // it had, and no register known.
                 let mut s = state.clone();
                 s.regs = [None; 32];
                 s.regs[0] = Some(0);
-                s.fp = None;
                 self.indirect = Some(match self.indirect.take() {
                     Some(old) => old.join(&s),
                     None => s,
@@ -561,11 +562,40 @@ pub fn walk(code: &[u8], start: usize, end: usize) -> Walked {
         let mut seed = w.indirect.clone().unwrap_or_else(State::entry);
         seed.regs = [None; 32];
         seed.regs[0] = Some(0);
-        seed.fp = None;
         w.states[j] = Some(seed);
         w.work.push(j);
     }
     w.out
+}
+
+/// The ranges of the functions in `symbols` (their start and `st_size`), each
+/// from its start to the end its size gives, but no further than the next
+/// function's start: a symbol whose size runs into its neighbour is read
+/// only as far as the neighbour begins, which has its own range. Aliases
+/// (the same start) are one, with the larger size.
+pub fn function_ranges(symbols: &[(usize, usize)], code_len: usize) -> Vec<(usize, usize)> {
+    let mut sorted: Vec<(usize, usize)> = symbols
+        .iter()
+        .copied()
+        .filter(|&(start, size)| size > 0 && start < code_len)
+        .collect();
+    sorted.sort_unstable();
+    let mut unique: Vec<(usize, usize)> = Vec::new();
+    for (start, size) in sorted {
+        match unique.last_mut() {
+            Some(last) if last.0 == start => last.1 = last.1.max(size),
+            _ => unique.push((start, size)),
+        }
+    }
+    let starts: Vec<usize> = unique.iter().map(|&(s, _)| s).collect();
+    unique
+        .iter()
+        .enumerate()
+        .map(|(n, &(start, size))| {
+            let end = start.saturating_add(size).min(code_len);
+            (start, starts.get(n + 1).map_or(end, |&next| end.min(next)))
+        })
+        .collect()
 }
 
 /// The function ranges for `starts` (sorted): each runs to the next start,
@@ -712,24 +742,12 @@ pub fn check(
     symbols: &[Symbol],
 ) -> Result<(), String> {
     let code = elf.data(text)?;
-    let mut ranges: Vec<(usize, usize)> = symbols
+    let sized: Vec<(usize, usize)> = symbols
         .iter()
-        .filter(|s| s.kind() == STT_FUNC && s.shndx as usize == text_index && s.size > 0)
-        .map(|s| {
-            let start = s.value.wrapping_sub(text.addr) as usize;
-            (start, start.saturating_add(s.size as usize).min(code.len()))
-        })
-        .filter(|&(start, _)| start < code.len())
+        .filter(|s| s.kind() == STT_FUNC && s.shndx as usize == text_index)
+        .map(|s| (s.value.wrapping_sub(text.addr) as usize, s.size as usize))
         .collect();
-    ranges.sort_unstable();
-    // Aliases (the same start) and a function inside another: one range.
-    let mut merged: Vec<(usize, usize)> = Vec::new();
-    for (s, e) in ranges {
-        match merged.last_mut() {
-            Some(last) if s < last.1 => last.1 = last.1.max(e),
-            _ => merged.push((s, e)),
-        }
-    }
+    let merged = function_ranges(&sized, code.len());
     let found = uncovered(code, &merged)
         .map(|at| Finding::Uncovered { at })
         .or_else(|| scan_ranges(code, &merged));

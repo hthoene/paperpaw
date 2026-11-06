@@ -461,3 +461,28 @@ fn code_that_no_function_covers_is_refused_unless_it_is_padding() {
     let f = code(&[W(RET), W(addi(SP, SP, -1600))]);
     assert_eq!(scan_ranges(&f, &[(0, 4)]), None);
 }
+
+#[test]
+fn a_symbols_size_that_runs_into_its_neighbour_is_cut_at_the_neighbour() {
+    // Two functions whose first symbol claims 100 bytes but the second starts
+    // at 40: the first is read to 40, the second to its own end.
+    assert_eq!(
+        function_ranges(&[(0, 100), (40, 20)], 200),
+        vec![(0, 40), (40, 60)]
+    );
+    // Aliases: one range, the larger size.
+    assert_eq!(function_ranges(&[(8, 16), (8, 24)], 200), vec![(8, 32)]);
+    // A size past the end of the code, a zero size, a start outside.
+    assert_eq!(
+        function_ranges(&[(0, 500), (300, 4), (10, 0)], 100),
+        vec![(0, 100)]
+    );
+    // The bytes a cut leaves of the first symbol's claim belong to nobody
+    // else: a function inside another leaves the rest of the outer one
+    // uncovered, which the pack-time check then refuses unless padding.
+    let r = function_ranges(&[(0, 100), (20, 10)], 200);
+    assert_eq!(r, vec![(0, 20), (20, 30)]);
+    let mut code = vec![0u8; 100];
+    code[40..44].copy_from_slice(&addi(SP, SP, -1600).to_le_bytes());
+    assert_eq!(uncovered(&code, &r), Some(40));
+}
