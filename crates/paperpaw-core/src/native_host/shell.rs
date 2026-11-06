@@ -114,6 +114,9 @@ unsafe fn read_output(out: *const PpPlugin) -> Result<PluginOutput, Error> {
 
 /// Shell diagnostic sink. It must log owner, step and error without allocating,
 /// panicking or reentering the owner. No default or silent sink is supplied.
+/// The same rules apply during callbacks, including no conflicting RefCell
+/// borrows. Release also reports failed callback blob cleanup; it does not
+/// mean the callback was refused or teardown has begun.
 pub type Report<S> = fn(&S, &str, super::TeardownStep, super::Error);
 
 /// The host table's `ctx`: what the shell's entries reach. Pinned inside the

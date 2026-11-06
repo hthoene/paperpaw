@@ -22,7 +22,6 @@ pub struct EnvironmentScope {
     resources: Option<super::resources::OwnerResourceView>,
     callback: Cell<u64>,
     cleanup_reporter: Cell<Option<CleanupReporter>>,
-    cleanup_failure: Cell<Option<i32>>,
 }
 
 #[derive(Clone, Copy)]
@@ -37,14 +36,11 @@ impl Drop for ExpireBlobs<'_> {
     fn drop(&mut self) {
         if let Some(resources) = &self.0.resources
             && let Err(error) = resources.expire_blobs()
+            && let Some(reporter) = self.0.cleanup_reporter.get()
         {
-            self.0.cleanup_failure.set(Some(error));
-            if let Some(reporter) = self.0.cleanup_reporter.get() {
-                self.0.cleanup_failure.set(None);
-                // SAFETY: installation ties the sink to the pinned host lifetime.
-                unsafe {
-                    (reporter.report)(reporter.context, error);
-                }
+            // SAFETY: installation ties the sink to the pinned host lifetime.
+            unsafe {
+                (reporter.report)(reporter.context, error);
             }
         }
     }
@@ -59,7 +55,6 @@ impl EnvironmentScope {
             resources: None,
             callback: Cell::new(0),
             cleanup_reporter: Cell::new(None),
-            cleanup_failure: Cell::new(None),
         }
     }
 
