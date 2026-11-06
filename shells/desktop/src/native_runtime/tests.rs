@@ -388,7 +388,7 @@ fn metadata_omits_optional_features_and_names_unavailable_required_ones() {
     }
 }
 
-fn service_metadata(key: &str, major: u16, revision: u16) -> Vec<u8> {
+pub(super) fn service_metadata(key: &str, major: u16, revision: u16) -> Vec<u8> {
     let mut bytes = metadata_bytes();
     for value in [(12 + key.len()) as u16, key.len() as u16, major, revision] {
         bytes.extend_from_slice(&value.to_le_bytes());

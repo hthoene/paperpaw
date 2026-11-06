@@ -123,3 +123,44 @@ fn dropping_a_callback_resource_view_never_releases_owner_fonts() {
     }
     owner.with_font(font, |_| Ok(())).unwrap();
 }
+
+#[test]
+fn cleanup_failure_reports_once_and_preserves_the_delivered_callback_result() {
+    use core::{cell::Cell, ffi::c_void};
+    unsafe fn report(raw: *const c_void, status: i32) {
+        // SAFETY: the test installs the live log cell with this exact type.
+        let log = unsafe { &*raw.cast::<Cell<(u32, i32)>>() };
+        log.set((log.get().0 + 1, status));
+    }
+    let pool = HostResources::try_new().unwrap();
+    let owner = pool.try_owner().unwrap();
+    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let log = Cell::new((0, 0));
+    // SAFETY: log stays in place until after every callback; sink never reenters.
+    unsafe {
+        scope.set_cleanup_reporter((&raw const log).cast(), report);
+    }
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(Instant(0));
+    let handle = owner.insert_blob(blob(12, 1)).unwrap();
+    let held = owner.table.handles.borrow();
+    assert_eq!(
+        scope.as_ref().scope(&env, || Err::<(), _>(-42)),
+        Ok(Err(-42))
+    );
+    assert_eq!(log.get(), (1, ERR_BUSY));
+    drop(held);
+    scope
+        .as_ref()
+        .scope(&env, || {
+            assert_eq!(
+                owner.with_blob(handle, scope.callback_id(), |_| Ok(())),
+                Err(ERR_STATE)
+            );
+        })
+        .unwrap();
+    assert_eq!(log.get(), (1, ERR_BUSY));
+    assert!(owner.insert_blob(blob(12, 99)).is_ok());
+}

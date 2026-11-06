@@ -117,6 +117,9 @@ unsafe fn read_output(out: *const PpPlugin) -> Result<PluginOutput, Error> {
 
 /// Shell diagnostic sink. It must log owner, step and error without allocating,
 /// panicking or reentering the owner. No default or silent sink is supplied.
+/// The same rules apply during callbacks, including no conflicting RefCell
+/// borrows. Release also reports failed callback blob cleanup; it does not
+/// mean the callback was refused or teardown has begun.
 pub type Report<S> = fn(&S, &str, super::TeardownStep, super::Error);
 
 /// The host table's `ctx`: what the shell's entries reach. Pinned inside the
@@ -297,6 +300,15 @@ impl<S: Services, M> Hosted<S, M> {
             canvas: CanvasScope::new(),
         };
         let owner = pin_owner(HostOwner::new(context, module))?;
+        let context = owner.as_ref().context();
+        // SAFETY: the owner pins Context<S> and keeps it alive through every
+        // callback and cleanup. Report<S> promises no panic or reentry.
+        unsafe {
+            context.environment.set_cleanup_reporter(
+                (context.get_ref() as *const Context<S>).cast(),
+                report_blob_cleanup::<S>,
+            );
+        }
         Ok(Self {
             owner,
             make,
@@ -584,6 +596,22 @@ pub(crate) mod teardown_fault {
             _ => Ok(()),
         })
     }
+}
+
+unsafe fn report_blob_cleanup<S>(raw: *const c_void, status: i32) {
+    // SAFETY: Hosted::new installed the exact pinned Context<S> pointer.
+    let context = unsafe { &*raw.cast::<Context<S>>() };
+    let error = if status == host_glue::ERR_BUSY {
+        super::Error::Busy
+    } else {
+        super::Error::State
+    };
+    (context.report)(
+        &context.services,
+        &context.id,
+        super::TeardownStep::Release,
+        error,
+    );
 }
 
 fn report_context<S>(context: Pin<&Context<S>>, step: super::TeardownStep, error: super::Error) {
