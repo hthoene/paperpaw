@@ -654,6 +654,7 @@ impl BuilderParts {
                 slots: Vec::new(),
                 font_dirs: Vec::new(),
                 data_folders: Vec::new(),
+                hyphenation_tables: Default::default(),
                 plugin_dirs: Vec::new(),
                 catalog_device: self.catalog_device,
                 secrets: Default::default(),
@@ -910,6 +911,7 @@ impl Kernel {
                 if let Some(info) = self.shared.plugins.get_mut(plugin.manifest().id.as_str()) {
                     info.kind = paperpaw_sdk::PluginKind::Data;
                 }
+                self.add_hyphenation_tables(&plugin);
             }
         }
         self.add_code_plugins(with_code, &disabled, code);

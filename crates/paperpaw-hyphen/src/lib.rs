@@ -33,7 +33,9 @@ use core::cmp::Ordering;
 use core::fmt;
 
 #[cfg(feature = "kernel")]
-pub use check::{TableError, check_table};
+pub use check::{
+    Layout, MAX_BLOCK_BYTES, MAX_BLOCKS, MAX_EXCEPTION_BYTES, TableError, check_table,
+};
 pub use compile::compile;
 
 /// Patterns per index entry.

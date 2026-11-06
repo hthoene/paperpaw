@@ -3269,6 +3269,7 @@ mod font_packs;
 mod frames;
 mod guard;
 mod hosting;
+mod hyphenation_tables;
 mod input;
 mod input_kinds;
 mod kernel_calls;

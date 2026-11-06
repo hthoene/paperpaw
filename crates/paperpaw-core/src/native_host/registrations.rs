@@ -18,8 +18,14 @@ pub use wire::{
     RegistrationBatch as DecodedRegistrations, registrations_decode, registrations_encode,
     tick_decode, tick_encode,
 };
+// Mixed registration and declaration batches: borrowed records with capped
+// strings. `registrations_decode` still admits callback registrations only.
+pub use wire::{
+    Record, RecordBatch, RecordIter, ResourceFontExtension, ResourceFontFace, ResourceHyphenation,
+    SettingExtra, SettingGroup, SettingSpec, records_decode, records_encode,
+};
 
-use super::{Error, registration_scope::RegistrationScope};
+use super::{Error, declarations, registration_scope::RegistrationScope};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBytes, buffers,
 };
@@ -69,6 +75,48 @@ pub unsafe fn submit(scope: &RegistrationScope<Registration>, bytes: *const u8, 
         }
     }
     OK
+}
+
+/// Decode and syntactically validate a whole mixed batch for one plugin, without
+/// staging anything. The loader stages the returned records itself.
+///
+/// Every refusal (framing, UTF-8, caps, unknown tag, any validation rule of
+/// [`super::declarations`]) poisons the transaction like [`submit`] does, so the
+/// plugin is not loaded even if it ignores the status. The returned batch
+/// borrows the caller's bytes and must not outlive them.
+///
+/// # Errors
+/// The `ERR_*` status that was latched.
+///
+/// # Safety
+/// Same contract as [`submit`]; the returned `'a` must end before the bytes
+/// are modified or freed.
+pub unsafe fn validate_records<'a, T>(
+    scope: &RegistrationScope<T>,
+    plugin_id: &str,
+    bytes: *const u8,
+    len: usize,
+) -> Result<RecordBatch<'a>, i32> {
+    if let Err(error) = scope.admission() {
+        return Err(refuse_any(scope, status(error)));
+    }
+    let result = if len > REGISTRATION_MAX_BYTES {
+        Err(ERR_NO_SPACE)
+    } else {
+        // SAFETY: caller guarantees readable, stable storage; the helper also
+        // checks null and size bounds before constructing any nonempty slice.
+        unsafe { buffers::bytes_in(PpBytes { ptr: bytes, len }, REGISTRATION_MAX_BYTES) }
+            .and_then(wire::records_decode)
+            .and_then(|batch| declarations::validate_batch(plugin_id, &batch).map(|()| batch))
+    };
+    result.map_err(|error| refuse_any(scope, error))
+}
+
+fn refuse_any<T>(scope: &RegistrationScope<T>, error: i32) -> i32 {
+    match scope.reject() {
+        Ok(()) => error,
+        Err(error) => status(error),
+    }
 }
 
 fn refuse(scope: &RegistrationScope<Registration>, error: i32) -> i32 {

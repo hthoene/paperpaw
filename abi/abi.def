@@ -641,6 +641,415 @@
           "max_bytes": 0
         }
       ]
+    },
+    {
+      "id": 4,
+      "name": "command.set_setting",
+      "since": 1,
+      "fields": [
+        {
+          "name": "key",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "value",
+          "type": "bytes",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 4096
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "setting.group",
+      "since": 1,
+      "fields": [
+        {
+          "name": "name",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "title",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "order",
+          "type": "i32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "page",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "parent",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "setting.spec",
+      "since": 1,
+      "fields": [
+        {
+          "name": "name",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "kind",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "group",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "title",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "help",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "default",
+          "type": "bytes",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 512
+        },
+        {
+          "name": "min",
+          "type": "i32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "max",
+          "type": "i32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "choices",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 1024
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "setting.extra",
+      "since": 1,
+      "fields": [
+        {
+          "name": "name",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "unit",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "section",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "follows",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "shown_id",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "shown_value",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "editor_kind",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "editor",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "step",
+          "type": "i32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "check",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "resource.hyphenation",
+      "since": 1,
+      "fields": [
+        {
+          "name": "language",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 35
+        },
+        {
+          "name": "path",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 100
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "resource.font_face",
+      "since": 1,
+      "fields": [
+        {
+          "name": "name",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "path",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 100
+        },
+        {
+          "name": "family",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 64
+        },
+        {
+          "name": "style",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "weight",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "role",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "priority",
+          "type": "i32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "name": "resource.font_extension",
+      "since": 1,
+      "fields": [
+        {
+          "name": "name",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "path",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 100
+        },
+        {
+          "name": "extends",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        }
+      ]
     }
   ],
   "statuses": [
@@ -1039,6 +1448,10 @@
     "since": 1,
     "max_records": 8
   },
+  "command_codec": {
+    "since": 1,
+    "max_records": 8
+  },
   "snapshot_value": {
     "since": 1,
     "version": 1,
@@ -1171,5 +1584,30 @@
         "bits": 0
       }
     ]
+  },
+  "color_value": {
+    "since": 1,
+    "type": "u32",
+    "color_space": "srgb",
+    "channels": [
+      {
+        "name": "red",
+        "shift": 16,
+        "bits": 8
+      },
+      {
+        "name": "green",
+        "shift": 8,
+        "bits": 8
+      },
+      {
+        "name": "blue",
+        "shift": 0,
+        "bits": 8
+      }
+    ],
+    "reserved_mask": 4278190080,
+    "alpha": "none",
+    "invalid_status": "ERR_INVALID"
   }
 }
