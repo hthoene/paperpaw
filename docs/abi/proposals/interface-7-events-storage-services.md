@@ -293,13 +293,29 @@ registration document's range) plus a `event.named {now_ms, name: str, payload: 
   trailing fields and unknown bitmap bits accepted; a decode error is `ERR_INVALID`
   returned from the plugin's callback, never a panic.
 
-### 1.5 Failure semantics
+### 1.5 Failure semantics (Q4 decided)
 
-A plugin callback that returns a negative status is logged against the plugin and the
-event is not retried; remaining events still arrive. `ERR_BUSY` from the admission guard
-(`abi7/calls.rs`) means the event is deferred by the host until the current dispatch ends
-(**[Q]** drop vs defer when the queue is full; proposal: a queue of 8 events per plugin,
-newest dropped, with a counter in plugin usage).
+- [D] No per-plugin event queue in 7.0 (0 extra bytes). The kernel already holds back
+  events raised during a callback and delivers them after it returns, so a plugin is
+  never re-entered by an event.
+- [D] A plugin callback that returns a negative status is not retried; remaining events
+  still arrive.
+- [D] A non-lifecycle event that cannot be delivered (lease taken or scope busy, no
+  environment, a producer parameter missing or unparsable, or a negative callback status)
+  is reported to the shell through `FlatInstance::event_dropped(tag, why)` and dropped.
+  The shell logs it; core keeps no counter, and the usage row's `refused` (network
+  refusals) is not touched.
+- [D] `suspend` and `stopping` are delivered synchronously when the plugin is not inside
+  a callback. They are never retried, never wait, and never block power-off; a busy
+  instance takes the same `event_dropped` path.
+- [D] Flat plugins reach the kernel as ordinary kernel plugins through the code loader
+  (`native_host::flat::FlatPlugin` over the shell's `FlatInstance`), so the kernel's
+  recipient rules (`only`, password-mode events, guarded screens) apply unchanged. A
+  batch registering anything the adapter cannot route yet (tick 3, draw) is refused at
+  load with the tag named, never ignored.
+- [D] `Reading.progress` (f32 percent) maps to `progress_ppm` as
+  `((p.clamp(0.0, 100.0) * 10_000.0) + 0.5) as u32`, capped at 1,000,000 (NaN and
+  -inf give 0, +inf gives 1,000,000); a bad producer value never drops the event.
 
 ### 1.6 Memory
 
@@ -309,7 +325,7 @@ awake: bool, plugins_noted: Option<u64>}` (`lib.rs:41-49`), 24 B.
 ### 1.7 Open questions
 
 Q1 screen input delivery (above). Q2 plugin-defined events. Q3 tag 37 now or later,
-and `progress` precision. Q4 queue/drop policy. Q5 shell cadence and power-cut ordering
+and `progress` precision. Q4 decided (1.5). Q5 shell cadence and power-cut ordering
 (not verified here).
 
 ## 2. Storage slots
@@ -824,7 +840,7 @@ Decisions the owner should make first:
 5. **Q7** Free-space reserve size and whether any hard per-plugin quota exists.
 
 Also open: Q2 plugin-defined events (string ids); Q3 page-turned payload now or later,
-progress precision; Q4 event queue/drop policy; Q5 shell cadence of
+progress precision; Q4 decided (1.5); Q5 shell cadence of
 `battery_measured` and power-cut ordering after `suspend`/`stopping`; Q8 host-framed append
 record; Q9 `sync` fairness; Q10 status numbers and a media-gone status; Q11 `storage.list`;
 Q14 where a work-note is bounded; Q15 blobs outliving a callback; Q16 handle limit 4 per
