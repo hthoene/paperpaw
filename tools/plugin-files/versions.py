@@ -32,9 +32,16 @@ bump can be made once, when the beta's changes are in; with `--release`
 (the step before the release's version bump) it fails.
 
 Where the plugin interface was raised since the release
-(`native::INTERFACE`), every plugin needs a newer version, changed or
-not: its code built before does not run on the new firmware, and devices
-fetch the new build only as an update.
+(`native::INTERFACE`), or its draft moved on or was frozen
+(`native::DRAFT`, part of the fingerprint like the interface), every
+plugin needs a newer version, changed or not: its code built before does
+not run on the new firmware, and devices fetch the new build only as an
+update. Drafts that come and go between two releases count once, and
+it is counted from the build that carries the plugin's newest version
+(interface and draft compared with now): a plugin released alone at the
+current draft owes nothing, one released at an older draft owes one bump
+(beta drafts can reach devices), and the `Plugin-unchanged` trailer excuses
+none of it.
 
 The data plugins of data.toml are held to the same: one whose builder or
 inputs changed since the release needs a newer version in data.toml (or
@@ -82,7 +89,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 VERSION = re.compile(r"\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?")
 TRAILER = re.compile(r"^Plugin-unchanged:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
-INTERFACE = re.compile(r"pub const INTERFACE: u16 = (\d+);")
+INTERFACE = re.compile(r"^pub const INTERFACE: u16 = (\d+);$", re.MULTILINE)
+DRAFT = re.compile(r"^pub const DRAFT: u16 = (\d+);$", re.MULTILINE)
 NATIVE = "crates/paperpaw-sdk/src/native.rs"
 UNCHANGED = "tools/plugin-files/unchanged.txt"
 
@@ -154,15 +162,41 @@ def interface_at(text):
     return int(found.group(1)) if found else None
 
 
+def draft_at(text):
+    """The draft of the plugin interface `native.rs` (its text) names; None
+    where it names none (frozen, or from before drafts)."""
+    found = DRAFT.search(text)
+    return int(found.group(1)) if found else None
+
+
 def interface_raised(since):
-    """The plugin interface now, where it was raised since `since`; None
-    where it was not (or `native.rs` is not there to say)."""
+    """The plugin interface now (with its draft, if one), where it or its
+    draft changed since `since`; None where neither did (or `native.rs` is
+    not there to say)."""
     try:
-        now = interface_at((ROOT / NATIVE).read_text(encoding="utf-8"))
-        then = interface_at(git("show", f"{since}:{NATIVE}"))
+        now_text = (ROOT / NATIVE).read_text(encoding="utf-8")
+        then_text = git("show", f"{since}:{NATIVE}")
     except (OSError, subprocess.CalledProcessError):
         return None
-    return now if None not in (now, then) and now != then else None
+    now, then = interface_at(now_text), interface_at(then_text)
+    if None in (now, then):
+        return None
+    draft, then_draft = draft_at(now_text), draft_at(then_text)
+    if (now, draft) == (then, then_draft):
+        return None
+    return f"{now}" if draft is None else f"{now} (draft {draft})"
+
+
+def raised_for(versions, before, since):
+    """Whether the plugin interface was raised since the build that carries
+    `before` (see `interface_raised`), the version a plugin has to better:
+    the release `since`'s, or the plugin's own newer one (`versions`, tag ->
+    version). The interface and draft of that build are compared with now:
+    a plugin released alone at the current draft owes nothing, one released
+    at an older draft owes a bump (beta drafts can reach devices), and the
+    drafts that come and go between two releases count once."""
+    tag = next((t for t, v in versions.items() if semver(v) == semver(before)), since)
+    return interface_raised(tag)
 
 
 def problem(plugin, before, now, changes, raised=None):
@@ -474,7 +508,6 @@ def main():
         "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*", "HEAD").strip()
     tags = git("tag", "--list").split()
     workspace_now = (ROOT / "Cargo.toml").read_text(encoding="utf-8")
-    raised = interface_raised(since)
     failed = False
     for plugin in plugins():
         manifest = f"plugins/{plugin}/Cargo.toml"
@@ -497,7 +530,8 @@ def main():
         had = [f"^{tag}" for tag in versions if is_ancestor(tag)]
         log = git("log", "--no-merges", "--format=%B%x00", "HEAD", *had, "--", *paths)
         changes = [m.strip() for m in log.split("\0") if m.strip()]
-        found = problem(plugin, before, now, changes, raised)
+        # The raise is counted from the build that carries `before`.
+        found = problem(plugin, before, now, changes, raised_for(versions, before, since))
         if found:
             print(f"::error file={manifest}::{plugin}: {found}")
             failed = True

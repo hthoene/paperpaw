@@ -29,6 +29,20 @@ change the plugin SDK.
   ignored by the caller; foreign registration decoding remains unwired.
 - Generated optional event/draw callback tails, bounded table readers and callback
   minor requirements for the interface-7 prototype (#228). No live dispatch yet.
+- `native::DRAFT`: the draft of the plugin interface, part of `native::FINGERPRINT`, so a plugin built for
+  an earlier draft is refused. Freezing the interface (the owner's decision) deletes it (#228).
+
+### Changed
+
+- **Plugin interface 7, draft 1** (#228, early raise on `abi7/integration`): `native::INTERFACE` is 7 and
+  every plugin with code needs a build for it; plugins built for interface 6 are refused as built for an
+  earlier interface. Until it is frozen, a change plugins rely on takes the next draft, named in
+  `abi/interface-7/blessings.txt`; CI (`tools/abi-reference-check.py`, replacing `abi-frozen6-check.py`)
+  refuses an unnamed one against the PR's base. The temporary partition of the interface-7 host table
+  from the frozen interface-6 files is retired.
+- `DATA_FORMATS` is 5: data plugins may name hyphenation tables in `[hyphenation]` (`hyphenation/*.pphp`),
+  so the 13 hyphenation plugins install. Their languages are used on a page once the SDK's
+  `Hyphenation::get` reads tables from the card (`abi/interface-7/raise.md`, row 2).
 
 ## [0.6.0-beta.3] - 2026-11-05
 

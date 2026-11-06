@@ -26,6 +26,13 @@
 //! against the interface the kept fingerprint was made at as well, not
 //! only against the number `interface.txt` says, and layouts that changed
 //! while the shapes did not are a raise too ([`bless_refused`]).
+//!
+//! Until the owner freezes it, an interface is a draft (`native::DRAFT`,
+//! `draft` in `interface.txt`): what plugins rely on may then change
+//! without a new interface, but only with the next draft, which is in the
+//! fingerprint, so builds of an earlier draft are refused. Freezing deletes
+//! `native::DRAFT` and the line (this test then takes 0, frozen), and from
+//! then on only a raise changes what plugins rely on.
 
 #![allow(
     clippy::unwrap_used,
@@ -36,10 +43,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use paperpaw_sdk::native::{FINGERPRINT, Fingerprint, INTERFACE, TOOLCHAIN};
+use paperpaw_sdk::native::{DRAFT, FINGERPRINT, Fingerprint, INTERFACE, TOOLCHAIN};
 
-#[path = "interface/abi7_partition.rs"]
-mod abi7_partition;
+#[path = "interface/bless.rs"]
+mod bless;
 
 fn here(path: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(path)
@@ -98,13 +105,25 @@ fn now() -> Option<String> {
          # without native::INTERFACE raised. Written by `PAPERPAW_BLESS=1\n\
          # cargo test -p paperpaw-sdk --test interface`.\n\
          interface = {INTERFACE}\n\
+         {}\
          linker = {:016x}\n\
          x4 = rustc {x4}\n\
          x4-pro = esp {esp}\n\
          android = rustc {android}\n\
          third-party = {third}\n",
+        draft_line(DRAFT),
         fnv(&linker)
     ))
+}
+
+/// The line `interface.txt` keeps of draft `draft`: none once frozen (0),
+/// as before there were drafts.
+fn draft_line(draft: u16) -> String {
+    if draft == 0 {
+        String::new()
+    } else {
+        format!("draft = {draft}\n")
+    }
 }
 
 /// The fingerprint plugins of this build fit, as `interface.txt` keeps it:
@@ -161,12 +180,41 @@ fn layouts_changed(kept: &str, now: Fingerprint, arch: &str) -> bool {
 /// not there: the bless of the interface-6 round at interface 5 (#363)
 /// changed the order of the `Screen` trait's items and kept the
 /// fingerprint, the number in `interface.txt` lowered by hand.
-fn bless_refused(kept: &str, breaking: bool, now: Fingerprint, arch: &str) -> Option<String> {
+///
+/// At the interface kept, such a change is a bless only while it is a
+/// draft (`kept` says a `draft` other than 0) and `draft` is the next
+/// draft, or 0 (frozen: `DRAFT` deleted): both change the fingerprint, so builds of the
+/// draft kept are refused. A frozen interface never goes back to a draft.
+fn bless_refused(
+    kept: &str,
+    breaking: bool,
+    now: Fingerprint,
+    draft: u16,
+    arch: &str,
+) -> Option<String> {
     let kept_interface: u16 = value(kept, "interface").parse().unwrap_or(0);
+    let kept_draft: u16 = value(kept, "draft").parse().unwrap_or(0);
+    let interface = now.interface();
+    if interface == kept_interface && draft != kept_draft {
+        let next = kept_draft != 0 && (draft == 0 || draft > kept_draft);
+        return (!next).then(|| {
+            format!(
+                "native::DRAFT is {draft}, interface.txt keeps draft {kept_draft} of interface \
+                 {interface}: a draft only moves on (or to 0, frozen), and a frozen interface \
+                 changes only with a raise"
+            )
+        });
+    }
     if !breaking && !layouts_changed(kept, now, arch) {
         return None;
     }
-    let interface = now.interface();
+    if interface == kept_interface && kept_draft != 0 {
+        return Some(format!(
+            "what plugins see changed at draft {kept_draft} of interface {interface}: take the \
+             next draft first (native::DRAFT {}), or 0 to freeze",
+            kept_draft + 1
+        ));
+    }
     if interface <= kept_interface {
         return Some(format!(
             "what plugins see changed: raise native::INTERFACE (now {interface}) first"
@@ -1074,14 +1122,11 @@ fn what_plugins_see_changes_only_with_the_interface() {
             read(&format!("{folder}/shape.txt")).expect("shape.txt: python3 tools/interface.py");
         let kept_api = read(&format!("interface/{crate_}.api")).unwrap_or_default();
         let kept_shape = read(&format!("interface/{crate_}.shape")).unwrap_or_default();
-        let (kept_api, api, write_api) = abi7_partition::legacy(&crate_, "api", &kept_api, &api);
-        let (kept_shape, shape, write_shape) =
-            abi7_partition::legacy(&crate_, "shape", &kept_shape, &shape);
         let found = changes(&crate_, (&kept_api, &kept_shape), (&api, &shape));
         all.breaking.extend(found.breaking);
         all.new.extend(found.new);
-        files.push((format!("interface/{crate_}.api"), write_api));
-        files.push((format!("interface/{crate_}.shape"), write_shape));
+        files.push((format!("interface/{crate_}.api"), api));
+        files.push((format!("interface/{crate_}.shape"), shape));
     }
     for (name, now) in pins().unwrap_or_default() {
         let kept = read(&format!("interface/{name}")).unwrap_or_default();
@@ -1103,7 +1148,7 @@ fn what_plugins_see_changes_only_with_the_interface() {
     let breaking = !all.breaking.is_empty() || !rest_same;
     let arch = &made_on();
     if bless {
-        if let Some(refused) = bless_refused(&kept, breaking, FINGERPRINT, arch) {
+        if let Some(refused) = bless_refused(&kept, breaking, FINGERPRINT, DRAFT, arch) {
             panic!("{refused}:\n{}", all.breaking.join("\n"));
         }
         std::fs::write(
@@ -1123,11 +1168,14 @@ fn what_plugins_see_changes_only_with_the_interface() {
     );
     assert!(
         !breaking,
-        "what plugins built before rely on changed, so they would not run: raise \
-         native::INTERFACE to {} and write the files anew (PAPERPAW_BLESS=1 cargo test -p \
-         paperpaw-sdk --test interface). The linker script, the compilers and the crates of \
-         others {}. Changed:\n{}",
-        INTERFACE + 1,
+        "what plugins built before rely on changed, so they would not run: {} and write the \
+         files anew (PAPERPAW_BLESS=1 cargo test -p paperpaw-sdk --test interface). The linker \
+         script, the compilers and the crates of others {}. Changed:\n{}",
+        if DRAFT != 0 {
+            format!("take the next draft (native::DRAFT {})", DRAFT + 1)
+        } else {
+            format!("raise native::INTERFACE to {}", INTERFACE + 1)
+        },
         if rest_same {
             "are as they were"
         } else {
@@ -1151,93 +1199,6 @@ fn what_plugins_see_changes_only_with_the_interface() {
          -p paperpaw-sdk --test interface)"
     );
     assert_eq!(now, without_fingerprint(&kept));
-}
-
-/// What `interface.txt` keeps at interface `n`, its fingerprint made on
-/// `arch` as `fingerprint`.
-fn kept_at(n: u16, fingerprint: Option<(&str, u64)>) -> String {
-    let mut kept = format!("interface = {n}\nlinker = b979ebf89df9ea9f\n");
-    if let Some((arch, value)) = fingerprint {
-        kept.push_str(&format!("fingerprint = {arch} {}\n", Fingerprint(value)));
-    }
-    kept
-}
-
-/// The bless of #363 as it was first made: the shapes changed (the
-/// `Screen` trait's items moved), `interface.txt` lowered from 5 to 4 by
-/// hand so that INTERFACE 5 would pass, and the fingerprint stayed
-/// 00053e32940609b9. Refused now, on the architecture it was kept on and
-/// on any other.
-#[test]
-fn a_breaking_bless_that_keeps_the_fingerprint_is_refused_whatever_interface_txt_says() {
-    let fingerprint = 0x0005_3e32_9406_09b9;
-    for arch in ["riscv32", "x86_64", "aarch64"] {
-        let kept = kept_at(4, Some(("riscv32", fingerprint)));
-        let refused = bless_refused(&kept, true, Fingerprint(fingerprint), arch);
-        assert!(
-            refused.is_some_and(|r| r.contains("made at interface 5")),
-            "{arch}"
-        );
-    }
-    // As the number says, too.
-    let kept = kept_at(5, Some(("x86_64", fingerprint)));
-    assert!(bless_refused(&kept, true, Fingerprint(fingerprint), "x86_64").is_some());
-}
-
-/// The raise that was made instead, 5 to 6, is a bless; so is a change
-/// plugins built before do not see (an item appended to a growing trait,
-/// a new type), at the interface and fingerprint kept.
-#[test]
-fn a_raise_and_what_plugins_built_before_do_not_see_are_blessed() {
-    let five = Some(("x86_64", 0x0005_3e32_9406_09b9));
-    let six = Fingerprint(0x0006_3e32_9406_09b9);
-    assert_eq!(bless_refused(&kept_at(5, five), true, six, "x86_64"), None);
-    assert_eq!(bless_refused(&kept_at(5, five), true, six, "aarch64"), None);
-    let kept = kept_at(6, Some(("x86_64", six.0)));
-    assert_eq!(bless_refused(&kept, false, six, "x86_64"), None);
-    // Kept before the fingerprint was: the number alone, as before.
-    assert_eq!(bless_refused(&kept_at(5, None), true, six, "x86_64"), None);
-    assert!(bless_refused(&kept_at(6, None), true, six, "x86_64").is_some());
-    assert_eq!(bless_refused(&kept_at(6, None), false, six, "x86_64"), None);
-}
-
-/// Layouts of what crosses that changed while the shapes did not (a
-/// size): a raise, where the fingerprint kept was made on this
-/// architecture; on another the two cannot be told apart.
-#[test]
-fn layouts_changed_at_the_interface_kept_are_a_raise() {
-    let kept = kept_at(6, Some(("x86_64", 0x0006_0000_0000_0001)));
-    let now = Fingerprint(0x0006_0000_0000_0002);
-    assert!(bless_refused(&kept, false, now, "x86_64").is_some());
-    assert_eq!(bless_refused(&kept, false, now, "aarch64"), None);
-    assert!(fingerprint_drift(&kept, now, "x86_64").is_some());
-    assert_eq!(fingerprint_drift(&kept, now, "aarch64"), None);
-    // The outline feature adds layouts: a build with it is another kind.
-    assert_eq!(bless_refused(&kept, false, now, "x86_64+outline"), None);
-    assert_eq!(fingerprint_drift(&kept, now, "x86_64+outline"), None);
-    // Another interface than the one kept: on any architecture.
-    assert!(fingerprint_drift(&kept, Fingerprint(0x0007_0000_0000_0001), "aarch64").is_some());
-    assert_eq!(
-        fingerprint_drift(&kept, Fingerprint(0x0006_0000_0000_0001), "x86_64"),
-        None
-    );
-}
-
-/// The fingerprint line is read back as written, and left out where the
-/// rest is compared.
-#[test]
-fn the_fingerprint_kept_is_read_back() {
-    let kept = format!("interface = {INTERFACE}\n{}", fingerprint_line());
-    let (arch, fingerprint) = kept_fingerprint(&kept).unwrap();
-    assert_eq!(
-        (arch.as_str(), fingerprint),
-        (made_on().as_str(), FINGERPRINT)
-    );
-    assert_eq!(
-        without_fingerprint(&kept),
-        format!("interface = {INTERFACE}\n")
-    );
-    assert_eq!(kept_fingerprint("interface = 6\n"), None);
 }
 
 /// Every crate of PaperPaw that a crate of `interface/crates.txt` depends
@@ -1423,34 +1384,6 @@ fn the_firmware_s_table_grows_only_at_its_end() {
         "pub paperpaw_native::Other::more: u8",
         &kept_types
     ));
-}
-
-#[test]
-fn abi7_snapshots_leave_legacy_entry_and_api_changes_guarded() {
-    let abi7 = "struct paperpaw_native::host_glue::generated::PpHost { size: u32 }\n";
-    let ownership = "exclusive-type paperpaw_native::host_glue::generated::PpHost\n\
-        shared-type paperpaw_native::host_glue::PpPlugin\n";
-    for name in ["interface::Entry", "interface::Api", "host_glue::PpPlugin"] {
-        let kept = format!("struct paperpaw_native::{name} {{ size: u32 }}\n");
-        let changed = kept.replace("u32", "u64");
-        let snapshot = if name == "host_glue::PpPlugin" {
-            format!("{changed}{abi7}")
-        } else {
-            abi7.to_string()
-        };
-        let (before, after) = abi7_partition::checked_legacy(
-            &format!("{kept}{abi7}"),
-            &format!("{changed}{abi7}"),
-            Some(&snapshot),
-            ownership,
-        )
-        .unwrap();
-        assert!(
-            !changes("paperpaw-native", ("", &before), ("", &after))
-                .breaking
-                .is_empty()
-        );
-    }
 }
 
 /// The traits behind the handles grow at their end, after their revision;

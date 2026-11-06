@@ -1965,7 +1965,10 @@ show which plugins wait for a build. Interface 4 came with 0.5.0-beta.8
 (reading, settings and real-time screens), interface 6 with 0.6.0-beta.2
 (right-to-left text, shared functions, plugin files of format 4, TLS
 sockets, screens that fit another size; interface 5 was never released): a plugin
-built for an earlier interface is to be built again for it.
+built for an earlier interface is to be built again for it. Interface 7, the
+plugin boundary of 1.0 (ADR 0034), is a draft until it is frozen: a plugin
+built for one draft is refused by a build of the next one (`native::DRAFT`
+is part of the fingerprint) and is built again for it.
 
 ### The file in the emulator
 
