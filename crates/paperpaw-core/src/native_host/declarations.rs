@@ -69,7 +69,14 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         Record::ResourceHyphenation(record) => hyphenation_check(record),
         Record::ResourceFontFace(face) => face_check(plugin_id, face),
         Record::ResourceFontExtension(extension) => extension_check(plugin_id, extension),
-        _ => Ok(()),
+        Record::Registration(_) => Ok(()),
+        // Events flow from the host to the plugin; a batch never carries one.
+        Record::EventStarted(_)
+        | Record::EventResume(_)
+        | Record::EventSuspend(_)
+        | Record::EventStopping(_)
+        | Record::EventBatteryMeasured(_)
+        | Record::EventPageTurned(_) => Err(ERR_INVALID),
     }
 }
 

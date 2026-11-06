@@ -27,6 +27,10 @@ pub mod declarations;
 /// Scoped environment copy-out for host-owned plugin contexts.
 #[path = "native_host/environment.rs"]
 pub mod environment;
+
+/// Interface-7 event records (tags 32-37): host encode, decode and admission.
+#[path = "native_host/events.rs"]
+pub mod events;
 /// Bounded decoded registration submission during plugin construction.
 #[path = "native_host/registrations.rs"]
 pub mod registrations;
