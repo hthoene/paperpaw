@@ -233,8 +233,8 @@ fn fake() -> Hosted<Heap, Module> {
 }
 
 fn finish<S: Services, M>(hosted: &Hosted<S, M>) {
-    hosted.owner.as_ref().revoke();
-    hosted.owner.as_ref().finish().unwrap();
+    hosted.owner().revoke();
+    hosted.owner().finish().unwrap();
 }
 
 #[test]
@@ -286,7 +286,7 @@ fn a_dispatch_after_revoke_is_the_owners_error_and_reaches_no_code() {
         .unwrap()
         .commit()
         .unwrap();
-    hosted.owner.as_ref().revoke();
+    hosted.owner().revoke();
     assert_eq!(
         dispatch_registration(
             &batch,
@@ -298,7 +298,7 @@ fn a_dispatch_after_revoke_is_the_owners_error_and_reaches_no_code() {
     );
     assert_eq!(EVENTS.with(Cell::get), 0);
     drop(batch);
-    hosted.owner.as_ref().finish().unwrap();
+    hosted.owner().finish().unwrap();
     drop(hosted);
     assert_eq!(logged(), ["destroy", "module"]);
 }
@@ -331,7 +331,7 @@ fn a_refused_commit_destroys_the_output_once() {
     reset(NORMAL);
     let hosted = fake();
     let pending = hosted.make_registered(hosted.begin().unwrap()).unwrap();
-    hosted.owner.as_ref().revoke();
+    hosted.owner().revoke();
     assert!(pending.commit().is_err());
     assert_eq!(logged(), ["destroy"], "exactly once, by the drop");
     drop(hosted);
@@ -434,7 +434,7 @@ fn host_entries_outside_their_scope_are_refused() {
     let batch = hosted
         .construct_registered(hosted.begin().unwrap())
         .unwrap();
-    let context = hosted.owner.as_ref().context();
+    let context = hosted.owner().context();
     let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast::<c_void>();
     // SAFETY: the pinned context of a live owner, valid byte buffers.
     unsafe {

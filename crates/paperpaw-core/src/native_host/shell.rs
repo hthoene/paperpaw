@@ -168,10 +168,19 @@ impl<'a, S, M, T> Transaction<'a, S, M, T> {
 }
 
 /// One plugin, hosted: its pinned owner, its factory and the host-known id.
+///
+/// The owner is private: replacing or swapping it would unload the module
+/// while `make` and the image still point into it.
+///
+/// ```compile_fail,E0616
+/// use paperpaw_core::native_host::shell::Hosted;
+/// fn swap<S, M>(a: &mut Hosted<S, M>, b: &mut Hosted<S, M>) {
+///     core::mem::swap(&mut a.owner, &mut b.owner);
+/// }
+/// ```
 #[allow(missing_debug_implementations, reason = "holds the generated table")]
 pub struct Hosted<S, M> {
-    /// The pinned owner; callers lease and finish through it.
-    pub owner: Pin<Box<Owner<S, M>>>,
+    owner: Pin<Box<Owner<S, M>>>,
     make: Make,
     /// Host-known plugin id (from the folder, never from the library) that
     /// staged declaration names are checked against.
@@ -243,6 +252,12 @@ impl<S: Services, M> Hosted<S, M> {
             image,
             stopped: Cell::new(false),
         })
+    }
+
+    /// The pinned owner; callers lease, revoke and finish through it.
+    #[must_use]
+    pub fn owner(&self) -> Pin<&Owner<S, M>> {
+        self.owner.as_ref()
     }
 
     /// Stops callback admission: from here a dispatch answers the owner's
