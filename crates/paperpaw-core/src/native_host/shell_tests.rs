@@ -588,3 +588,6 @@ fn pinned_owner_allocation_failure_drops_unactivated_context_then_module() {
     assert!(refused.is_none());
     assert_eq!(logged(), ["context", "module"]);
 }
+
+#[path = "shell_oom_tests.rs"]
+mod oom;

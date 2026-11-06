@@ -161,7 +161,7 @@ fn plugin_with_host(seen: &Rc<Observed>, tags: &[u32], code: &crate::CodeFile<'_
                 .collect(),
             seen: Rc::clone(seen),
         }),
-        Rc::new(DispatchDepth::new()),
+        crate::native_host::flat::FlatDepth::try_new().unwrap(),
         code.host,
     )
     .unwrap()
@@ -416,7 +416,7 @@ fn unsupported_callbacks_refuse_the_entire_instance_at_construction() {
                         registrations: tags.iter().enumerate().map(|(i, &tag)| (tag, i)).collect(),
                         seen: Rc::clone(&observed),
                     }),
-                    Rc::new(DispatchDepth::new()),
+                    crate::native_host::flat::FlatDepth::try_new().unwrap(),
                     code.host,
                 )
                 .unwrap_err();
@@ -642,7 +642,7 @@ fn mixed_setting_declaration_is_retained_separately_from_callback_registrations(
                     registrations: alloc::vec![(event_tag, 0)],
                     seen: Rc::clone(&observed),
                 }),
-                Rc::new(DispatchDepth::new()),
+                crate::native_host::flat::FlatDepth::try_new().unwrap(),
                 code.host,
             )
             .unwrap();

@@ -13,6 +13,9 @@ pub use lifecycle::{Teardown, TeardownStep};
 #[path = "native_host/registration_scope.rs"]
 pub mod registration_scope;
 
+#[path = "native_host/shared.rs"]
+mod shared;
+
 const REGISTRATIONS: usize = 8;
 
 /// Callback-scoped drawing for host-owned plugin contexts.
@@ -147,6 +150,7 @@ impl<C, M> PinnedOwner<C, M> {
     ///
     /// Returns None if the actual owner allocation fails.
     pub fn try_new(owner: HostOwner<C, M>) -> Option<Self> {
+        const { assert!(core::mem::size_of::<HostOwner<C, M>>() != 0) };
         let layout = core::alloc::Layout::new::<HostOwner<C, M>>();
         // SAFETY: lifecycle flags make the owner nonzero-sized; layout is exact.
         let allocation = unsafe { alloc::alloc::alloc(layout) }.cast::<HostOwner<C, M>>();
@@ -673,6 +677,15 @@ mod pinned_owner_tests {
 
     #[test]
     fn active_pinned_owner_retains_the_allocation_and_reports_once() {
+        active_holder(false);
+    }
+
+    #[test]
+    fn last_shared_owner_retains_the_active_pinned_allocation() {
+        active_holder(true);
+    }
+
+    fn active_holder(shared: bool) {
         let reports = Rc::new(Cell::new(0));
         let context_dropped = Rc::new(Cell::new(false));
         let module_dropped = Rc::new(Cell::new(false));
@@ -702,7 +715,15 @@ mod pinned_owner_tests {
         drop(batch);
         let context = holder.as_ref().context().get_ref() as *const Context;
         holder.as_ref().inner().force_active();
-        drop(holder);
+        if shared {
+            let holder = super::shared::Shared::try_new(holder).unwrap();
+            let retained = holder.try_clone().unwrap();
+            drop(holder);
+            assert_eq!(reports.get(), 0);
+            drop(retained);
+        } else {
+            drop(holder);
+        }
         assert_eq!(reports.get(), 1);
         assert!(!context_dropped.get() && !module_dropped.get());
         // SAFETY: the active holder deliberately retained the entire allocation.
