@@ -524,3 +524,32 @@ fn outside_dispatch_and_invalid_owner_routes_have_no_effect() {
     });
     assert_eq!(backend.files.get(FILE), None);
 }
+
+#[test]
+fn read_validation_refusals_preserve_sentinel_output() {
+    let backend = Backend::default();
+    scoped(&backend, |scope, _| {
+        for (owner, path, expected) in [
+            (OWNER, bytes(&[0xff]), ERR_UTF8),
+            (OWNER, bytes(b"../state"), ERR_INVALID),
+            (
+                OWNER,
+                PpBytes {
+                    ptr: core::ptr::null(),
+                    len: 1,
+                },
+                ERR_INVALID,
+            ),
+            ("../other", bytes(b"state"), ERR_INVALID),
+        ] {
+            let mut out = [0xa5; 7];
+            // SAFETY: output is live and exclusive. Malformed input pairs must
+            // be refused before dereference or output initialization.
+            assert_eq!(
+                unsafe { read_at(scope, owner, 0, path, 0, output(&mut out)) },
+                expected
+            );
+            assert_eq!(out, [0xa5; 7]);
+        }
+    });
+}
