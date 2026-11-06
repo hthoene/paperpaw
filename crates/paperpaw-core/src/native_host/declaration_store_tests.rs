@@ -357,28 +357,30 @@ fn construction_retains_a_snapshot_and_record_offsets_after_input_is_gone() {
 }
 
 #[test]
-fn committed_copies_promote_only_when_the_original_range_still_matches() {
+fn known_image_batches_have_no_snapshot_and_owned_snapshots_never_promote() {
     use super::super::raw_declarations::RawDeclarations;
-    for changed in [false, true] {
+    for known_image in [false, true] {
         let source = image();
         let mut raw = RawDeclarations::default();
         let batch = {
             let bytes = source.bytes.borrow();
-            raw.prepare(Some(&bytes), &records_decode(&bytes).unwrap())
-                .unwrap()
-                .unwrap()
+            raw.prepare(
+                known_image.then_some(bytes.as_slice()),
+                Some(&bytes),
+                &records_decode(&bytes).unwrap(),
+            )
+            .unwrap()
+            .unwrap()
         };
-        if changed {
-            // Keep the exact same allocation/range but change the title bytes.
-            let mut bytes = source.bytes.borrow_mut();
-            let position = bytes.windows(5).position(|part| part == b"Group").unwrap();
-            bytes[position] = b'g';
-        }
+        assert_eq!(batch.bytes.is_empty(), known_image);
         let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source.clone());
         pending
             .stage_committed(batch, &mut Allocations::default())
             .unwrap();
-        assert_eq!(matches!(pending.batches[0], DeclRef::Owned(_)), changed);
+        assert_eq!(
+            matches!(pending.batches[0], DeclRef::Image { .. }),
+            known_image
+        );
     }
 }
 
@@ -389,7 +391,7 @@ fn committed_runtime_copy_moves_into_owned_storage_without_copying_again() {
     let mut raw = RawDeclarations::default();
     let batch = {
         let temporary = source.bytes.borrow().clone();
-        raw.prepare(Some(&temporary), &records_decode(&temporary).unwrap())
+        raw.prepare(None, Some(&temporary), &records_decode(&temporary).unwrap())
             .unwrap()
             .unwrap()
     };
@@ -426,4 +428,74 @@ fn ignored_failure_in_a_later_batch_cannot_publish_a_partial_load() {
         Err(ERR_NO_MEMORY)
     ));
     assert!(keys(&store).is_empty());
+}
+
+#[test]
+fn full_widgets_image_moves_into_the_guarded_store_without_owned_bytes() {
+    use super::super::{HostOwner, registration_scope::RegistrationScope};
+    let source = Rc::new(Image {
+        bytes: RefCell::new(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../plugins/widgets/testdata/declarations.bin.v1"
+            ))
+            .to_vec(),
+        ),
+        generation: Cell::new(1),
+        live: Cell::new(true),
+        errors: Cell::new(0),
+    });
+    let owner = core::pin::pin!(HostOwner::new((), ()));
+    let scope = core::pin::pin!(RegistrationScope::<Registration>::new());
+    let image = source.bytes.borrow();
+    let mut construction = owner.as_ref().begin::<Registration>("widgets").unwrap();
+    construction.set_image(&image).unwrap();
+    let mut cursor = 0;
+    while cursor < image.len() {
+        let len = u32::from_le_bytes(image[cursor..cursor + 4].try_into().unwrap()) as usize;
+        cursor += 4;
+        let bytes = &image[cursor..cursor + len];
+        scope
+            .as_ref()
+            .scope(&mut construction, || {
+                // SAFETY: source image remains borrowed and immutable during make.
+                assert_eq!(
+                    unsafe { submit(&scope, bytes.as_ptr(), bytes.len()) },
+                    paperpaw_native::host_glue::OK
+                );
+            })
+            .unwrap();
+        cursor += len;
+    }
+    construction.declaration_view().finish().unwrap();
+    assert_eq!(construction.raw.image_entries, 400);
+    assert!(construction.declarations().is_empty());
+    let raw = core::mem::take(&mut construction.raw);
+    let construction_index_budget = raw.index_bytes;
+    construction.abort();
+    drop(image);
+    let mut allocations = Allocations::default();
+    let mut pending = PendingDeclarations::new(Id::new_static("widgets"), source.clone());
+    for batch in raw.batches {
+        pending.stage_committed(batch, &mut allocations).unwrap();
+    }
+    assert_eq!((pending.image_entries, pending.resident), (400, 0));
+    assert!(
+        pending
+            .batches
+            .iter()
+            .all(|batch| matches!(batch, DeclRef::Image { .. }))
+    );
+    std::println!(
+        "widgets full image: construction index charged={construction_index_budget}; committed descriptor/index bytes={}; owner header={}",
+        pending.index_bytes,
+        size_of::<PendingDeclarations>()
+    );
+    let mut store = DeclarationStore::default();
+    store.prepare(pending, &mut allocations).unwrap().commit();
+    let entries = keys(&store);
+    assert_eq!(entries.len(), 400);
+    for key in entries {
+        assert!(store.with_record(key, &mut |_| {}));
+    }
 }

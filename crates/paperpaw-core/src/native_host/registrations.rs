@@ -103,5 +103,6 @@ pub(super) fn status(error: Error) -> i32 {
         Error::Capacity => ERR_NO_SPACE,
         Error::Invalid => ERR_INVALID,
         Error::Memory => ERR_NO_MEMORY,
+        Error::DeclarationViewsUnavailable => ERR_UNSUPPORTED,
     }
 }

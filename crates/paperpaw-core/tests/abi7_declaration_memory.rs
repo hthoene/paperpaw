@@ -73,13 +73,17 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
 
-fn measure(plugin: &str, golden: &[u8]) {
+fn measure(plugin: &str, golden: &[u8], image: bool) {
     let owner = pin!(HostOwner::new((), ()));
     let scope = pin!(RegistrationScope::<Registration>::new());
     LIVE.set(0);
     PEAK.set(0);
+    let started = std::time::Instant::now();
     ACTIVE.set(true);
     let mut construction = owner.as_ref().begin::<Registration>(plugin).unwrap();
+    if image {
+        construction.set_image(golden).unwrap();
+    }
     let mut offset = 0;
     let mut batches = 0;
     let mut specs = 0;
@@ -117,20 +121,28 @@ fn measure(plugin: &str, golden: &[u8]) {
     let decoded = construction.declarations().bytes();
     let resident = LIVE.get();
     // A failure drops both representations; success transfers and then drops them.
-    drop(construction.commit(|_| {}));
+    let committed = construction.commit(|_| {});
+    let unavailable = matches!(
+        committed,
+        Err(paperpaw_core::native_host::Error::DeclarationViewsUnavailable)
+    );
+    drop(committed);
+    let elapsed = started.elapsed();
     let peak = PEAK.get();
     let remaining = LIVE.get();
     ACTIVE.set(false);
     assert_eq!(remaining, 0);
+    assert_eq!(unavailable, image);
     assert!(peak <= 256 * 1024);
-    if plugin == "battery" {
+    if plugin == "battery" || image {
         assert_eq!(status, OK);
     } else {
         assert_eq!(status, ERR_NO_SPACE);
         assert_eq!((batches, specs), (50, 330));
     }
     println!(
-        "{plugin}: requested={batches} batches/{specs} specs/{wire_bytes} wire bytes; admitted={accepted} batches/{accepted_specs} specs; status={status}; S1 logical={decoded}; resident={resident}; peak={peak}; full-wire two-copies baseline={}",
+        "{plugin} image={image} elapsed_us={}: requested={batches} batches/{specs} specs/{wire_bytes} wire bytes; admitted={accepted} batches/{accepted_specs} specs; status={status}; S1 logical={decoded}; resident={resident}; peak={peak}; full-wire two-copies baseline={}",
+        elapsed.as_micros(),
         wire_bytes * 2
     );
 }
@@ -139,10 +151,17 @@ fn battery_and_widgets_snapshot_peak() {
     measure(
         "battery",
         include_bytes!("../../../plugins/battery/testdata/declarations.bin.v1"),
+        false,
     );
     measure(
         "widgets",
         include_bytes!("../../../plugins/widgets/testdata/declarations.bin.v1"),
+        false,
+    );
+    measure(
+        "widgets",
+        include_bytes!("../../../plugins/widgets/testdata/declarations.bin.v1"),
+        true,
     );
 }
 

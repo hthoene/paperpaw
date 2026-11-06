@@ -21,6 +21,9 @@ pub mod canvas;
 #[path = "native_host/commands.rs"]
 pub mod commands;
 
+#[path = "native_host/declaration_checks.rs"]
+mod declaration_checks;
+
 #[path = "native_host/raw_declarations.rs"]
 mod raw_declarations;
 
@@ -72,6 +75,8 @@ pub enum Error {
     Depth,
     /// Host memory for the staged records ran out.
     Memory,
+    /// Image declarations cannot activate before draft-4 SDK views are wired.
+    DeclarationViewsUnavailable,
 }
 
 impl From<lifecycle::Error> for Error {
@@ -157,6 +162,8 @@ impl<C, M> HostOwner<C, M> {
             declarations: Declarations::default(),
             raw: raw_declarations::RawDeclarations::default(),
             failure: None,
+            image: None,
+            submitted: false,
         })
     }
 
@@ -198,9 +205,33 @@ pub struct Construction<'a, C, M, T> {
     declarations: Declarations,
     raw: raw_declarations::RawDeclarations,
     failure: Option<Error>,
+    image: Option<&'a [u8]>,
+    submitted: bool,
 }
 
 impl<'a, C, M, T> Construction<'a, C, M, T> {
+    /// Supply the module's immutable read-only image before make submits data.
+    /// The borrow remains live through the committed registration batch.
+    ///
+    /// # Errors
+    /// Returns State after any submission or a previous image installation.
+    pub fn set_image(&mut self, image: &'a [u8]) -> Result<(), Error> {
+        if self.submitted || self.image.is_some() || self.failure.is_some() {
+            return Err(Error::State);
+        }
+        self.image = Some(image);
+        Ok(())
+    }
+
+    fn declaration_view(&self) -> declaration_checks::View<'_> {
+        declaration_checks::View {
+            raw: &self.raw,
+            owned: &self.declarations,
+            image: self.image,
+            plugin: self.plugin_id,
+        }
+    }
+
     /// Poison this transaction after any registration decoding or validation
     /// refusal, even if foreign code ignores the returned status. Preserve an
     /// earlier staging failure. Only a new transaction can clear this latch.
@@ -218,6 +249,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// Returns Capacity with the unchanged record if all eight slots are filled,
     /// or the already latched failure if this transaction was rejected.
     pub fn stage(&mut self, record: T) -> Result<(), (Error, T)> {
+        self.submitted = true;
         if let Some(error) = self.failure {
             return Err((error, record));
         }
@@ -238,7 +270,8 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// Returns Invalid after validation refusal or when the staged declarations
     /// fail their cross-record checks ([`Declarations::finish`]), Capacity if staging overflowed
     /// a slot, count or byte limit, Memory if staging ran out of memory, or State if revoked
-    /// before commit.
+    /// before commit. DeclarationViewsUnavailable refuses image declarations
+    /// until the draft-4 SDK registry views are wired.
     /// Every Err drops staged records before returning and leaves destruction
     /// unarmed. The loader still owns its validated successful output and must
     /// destroy it exactly once while context and module remain alive. This is
@@ -248,15 +281,19 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
             return Err(error);
         }
         // Cross-record checks come first: a refusal leaves destruction unarmed.
-        self.declarations
-            .finish(self.plugin_id)
+        self.declaration_view()
+            .finish()
             .map_err(|_| Error::Invalid)?;
+        if self.raw.image_entries != 0 {
+            return Err(Error::DeclarationViewsUnavailable);
+        }
         let lease = CallbackLease(self.owner.inner().activate_leased(destroy)?);
         Ok(RegistrationBatch {
             records: core::mem::replace(&mut self.records, core::array::from_fn(|_| None)),
             len: self.len,
             declarations: core::mem::take(&mut self.declarations),
             raw: core::mem::take(&mut self.raw),
+            _image: self.image,
             lease,
         })
     }
@@ -293,6 +330,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         if let Some(error) = self.failure {
             return Err(registrations::status(error));
         }
+        self.submitted = true;
         let result = self.stage_inner(batch, convert, wire);
         if let Err(code) = result {
             self.failure = Some(match code {
@@ -317,12 +355,15 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         if self.len + tokens > REGISTRATIONS {
             return Err(ERR_NO_SPACE);
         }
-        let raw = self.raw.prepare(wire, batch)?;
-        self.declarations.stage_retaining(
-            self.plugin_id,
-            batch,
-            self.raw.retained(raw.as_ref()),
-        )?;
+        self.declaration_view().check_batch(batch)?;
+        let raw = self.raw.prepare(self.image, wire, batch)?;
+        if raw.as_ref().is_none_or(|batch| batch.image.is_none()) {
+            self.declarations.stage_verified(
+                self.plugin_id,
+                batch,
+                self.raw.retained(raw.as_ref()),
+            )?;
+        }
         self.raw.commit(raw);
         for record in batch.iter() {
             if let (Record::Registration(registration), Some(slot)) =
@@ -365,6 +406,7 @@ pub struct RegistrationBatch<'a, C, M, T> {
     len: usize,
     declarations: Declarations,
     raw: raw_declarations::RawDeclarations,
+    _image: Option<&'a [u8]>,
     lease: CallbackLease<'a, C, M>,
 }
 
@@ -472,3 +514,7 @@ impl<C, M> fmt::Debug for CallbackLease<'_, C, M> {
         f.debug_struct("CallbackLease").finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+#[path = "native_host/declaration_image_tests.rs"]
+mod declaration_image_tests;

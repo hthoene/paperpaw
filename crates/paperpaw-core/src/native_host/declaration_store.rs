@@ -127,6 +127,9 @@ pub(crate) struct PendingDeclarations {
     resident: usize,
     incarnation: u32,
     failure: Option<i32>,
+    index_bytes: usize,
+    image_entries: usize,
+    owned_counts: [usize; 6],
 }
 impl PendingDeclarations {
     pub(crate) fn new(id: Id, source: Rc<dyn ImageOwner>) -> Self {
@@ -139,6 +142,9 @@ impl PendingDeclarations {
             resident: 0,
             incarnation: 0,
             failure: None,
+            index_bytes: 0,
+            image_entries: 0,
+            owned_counts: [0; 6],
         }
     }
 
@@ -157,7 +163,20 @@ impl PendingDeclarations {
         raw: super::raw_declarations::RawBatch,
         allocations: &mut Allocations,
     ) -> Result<(), i32> {
-        self.stage(Input::Committed(raw), allocations)
+        if raw.image.is_none() {
+            return self.stage(Input::Committed(raw), allocations);
+        }
+        let source = Rc::clone(&self.source);
+        let mut result = Err(ERR_STATE);
+        source.with_image(&mut |image| {
+            result = raw
+                .view(image)
+                .and_then(|bytes| self.stage(Input::Borrowed(bytes), allocations));
+        });
+        if let Err(error) = result {
+            self.failure = Some(error);
+        }
+        result
     }
 
     fn stage(&mut self, input: Input<'_>, allocations: &mut Allocations) -> Result<(), i32> {
@@ -201,16 +220,13 @@ impl PendingDeclarations {
         }
         let batch = u16::try_from(self.batches.len()).map_err(|_| ERR_NO_SPACE)?;
         let mut reference = None;
-        self.source.with_image(&mut |image| {
-            reference = image.and_then(|image| image_ref_at(image, input.address(), bytes));
-        });
-        let owned = if reference.is_none() { bytes.len() } else { 0 };
-        let cost = size_of::<DeclRef>() + counts.iter().sum::<usize>() * size_of::<Slot>() + owned;
-        let resident = self
-            .resident
-            .checked_add(cost)
-            .filter(|n| *n <= DECLARATIONS_MAX_BYTES)
-            .ok_or(ERR_NO_SPACE)?;
+        if matches!(input, Input::Borrowed(_)) {
+            self.source.with_image(&mut |image| {
+                reference = image.and_then(|image| image_ref(image, bytes));
+            });
+        }
+        let image = reference.is_some();
+        let (resident, index_bytes, image_entries) = self.charge(counts, image, bytes.len())?;
         let reference = match reference {
             Some(reference) => reference,
             None => input.own(allocations)?,
@@ -230,19 +246,72 @@ impl PendingDeclarations {
         }
         self.batches.push(reference);
         self.resident = resident;
+        self.index_bytes = index_bytes;
+        self.image_entries = image_entries;
+        if !image {
+            for (total, count) in self.owned_counts.iter_mut().zip(counts) {
+                *total += count;
+            }
+        }
         Ok(())
+    }
+
+    fn charge(
+        &self,
+        counts: [usize; 6],
+        image: bool,
+        bytes: usize,
+    ) -> Result<(usize, usize, usize), i32> {
+        use super::staged::{
+            EXTRAS_MAX, FONT_EXTENSIONS_MAX, FONT_FACES_MAX, GROUPS_MAX, HYPHENATIONS_MAX,
+            IMAGE_DECLARATIONS_MAX, IMAGE_INDEX_MAX_BYTES, SPECS_MAX,
+        };
+        let entries = counts.iter().sum::<usize>();
+        let index = size_of::<DeclRef>() + entries * size_of::<Slot>();
+        if image {
+            let image_entries = self
+                .image_entries
+                .checked_add(entries)
+                .filter(|n| *n <= IMAGE_DECLARATIONS_MAX)
+                .ok_or(ERR_NO_SPACE)?;
+            let index_bytes = self
+                .index_bytes
+                .checked_add(index)
+                .filter(|n| *n <= IMAGE_INDEX_MAX_BYTES)
+                .ok_or(ERR_NO_SPACE)?;
+            Ok((self.resident, index_bytes, image_entries))
+        } else {
+            let limits = [
+                GROUPS_MAX,
+                SPECS_MAX,
+                EXTRAS_MAX,
+                HYPHENATIONS_MAX,
+                FONT_FACES_MAX,
+                FONT_EXTENSIONS_MAX,
+            ];
+            if self
+                .owned_counts
+                .iter()
+                .zip(counts)
+                .zip(limits)
+                .any(|((&old, new), limit)| old + new > limit)
+            {
+                return Err(ERR_NO_SPACE);
+            }
+            let resident = self
+                .resident
+                .checked_add(index)
+                .and_then(|n| n.checked_add(bytes))
+                .filter(|n| *n <= DECLARATIONS_MAX_BYTES)
+                .ok_or(ERR_NO_SPACE)?;
+            Ok((resident, self.index_bytes, self.image_entries))
+        }
     }
 }
 
 fn image_ref(image: &[u8], bytes: &[u8]) -> Option<DeclRef> {
-    image_ref_at(image, bytes.as_ptr() as usize, bytes)
-}
-fn image_ref_at(image: &[u8], submitted: usize, bytes: &[u8]) -> Option<DeclRef> {
-    let offset = submitted.checked_sub(image.as_ptr() as usize)?;
-    let end = offset.checked_add(bytes.len())?;
-    if image.get(offset..end)? != bytes {
-        return None;
-    }
+    let offset = (bytes.as_ptr() as usize).checked_sub(image.as_ptr() as usize)?;
+    image.get(offset..offset.checked_add(bytes.len())?)?;
     Some(DeclRef::Image {
         offset: u32::try_from(offset).ok()?,
         len: u32::try_from(bytes.len()).ok()?,
