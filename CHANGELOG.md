@@ -8,12 +8,20 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 SDK callback host binding and `native_plugin!` entry glue, with checked table admission
+  and fallible host allocation. Storage slots 20-26 use caller-owned buffers; event tags 32-37 decode
+  into borrowed payloads. These facades do not activate any shell loader (#228).
+
 - Core adapter for shell-owned interface-7 plugins: deliver registered lifecycle, battery and page-turn
   events through the kernel subscription pipeline with bounded encoding and callback-scoped environment
   access. Shells supply the owner bridge and failure logging; loader wiring follows separately (#228).
 
 - Host-side storage adapter for interface-7 slots 20–26 (path rules, free-space reserve, per-plugin
   read/write/sync counting), not wired (#228).
+- `paperpaw-sign pack` writes the X4's interface-7 plugin file (format 5, `abi/ppn5.md`) for a plugin linked with
+  `paperpaw-plugin7.x` (it defines `PAPERPAW_METADATA`), reads it back as the loader does, and refuses the X4 Pro (target 9),
+  an exported symbol besides the two, writable data and more than 8,192 patches (a patch record is three words, sorted by site: `abi/ppn5.md` decisions 4 and 5); `plugin`, `sign-plugin` and `check-plugin`
+  read both formats. `samples/abi7-x4-min` is a riscv32imc sample built by it (#228).
 - Interface-7 draft: host-table slots 20–26 (`storage.size`, `read_at`, `write`, `append`, `rename`, `remove`,
   `sync`) declared in `abi/abi.def`; the default table answers `ERR_UNSUPPORTED` until they are wired. The
   storage contract records owner decisions 124 (uninstall asks before deleting the data folder) and 125 (root 1
@@ -150,6 +158,10 @@ change the plugin SDK.
   and the help texts that send you to it.
 
 ### Fixed
+
+- Interface-7 page-turn delivery keeps the location when optional page counters are stale or
+  unparsable, marking unavailable counters absent. Callback enumeration excludes declarations,
+  which shells must apply separately before activation (#228).
 
 - **Dual boot: no false positive on plain devices, and a way out** (#224). The dualbooter's `x4boot` tag counts only
   as a word of its own (not inside `x4bootloader` or a path); the bootloaders PaperPaw ships for X4, X3, X4 Pro and

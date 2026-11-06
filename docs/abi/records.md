@@ -133,6 +133,13 @@ runs its Rust tests. This codec does not qualify the aggregate M1 memory budget.
 | `ERR_UNSUPPORTED` | unknown tag (also the tick tag in a mixed batch); `setting.spec.kind` above 5; unknown flag bits; `setting.extra.editor_kind` above 2 or `check` not 0; font `style` bits above 1 |
 | `ERR_INVALID` | malformed framing or truncated data; every other violated rule below |
 
+An empty batch (zero bytes) is malformed (`ERR_INVALID`) and poisons the
+construction. SDKs use it to abort a construction they cannot complete: the
+declaration builder sends it once after any refused addition, so `make` fails
+even when the plugin ignores the builder's errors. Cross-record references
+(an extra's spec, a group's parent, `follows`) are checked at commit against the
+whole construction, independent of record order.
+
 `native_host::declarations` checks each record without a registry and without
 allocating; `registrations::validate_records` decodes a whole batch, validates
 every record, and on any refusal poisons the construction like `submit` does.

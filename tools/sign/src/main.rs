@@ -19,6 +19,7 @@ mod firmware;
 mod hot;
 mod image;
 mod pack;
+mod pack5;
 mod plugin;
 mod relocation;
 mod statics;
@@ -72,7 +73,14 @@ USAGE:
         paperpaw-plugin.x and --emit-relocs, or says what keeps it from
         moving (writable data, undefined symbols, addresses built into
         instructions, relative reaches out of the plugin). With --key,
-        signs it as sign-plugin does.
+        signs it as sign-plugin does. A plugin linked with
+        paperpaw-plugin7.x (it defines PAPERPAW_METADATA) is an interface-7
+        plugin and gets the file of format 5 (abi/ppn5.md), read back as
+        the X4's loader reads it, with the same refusals for the X4 Pro
+        (target 9, refused until an Xtensa profile exists), a symbol
+        exported besides the entry and the metadata, and more than 8192
+        patches. The plugin, sign-plugin and check-plugin commands read
+        both formats.
     paperpaw-sign catalog <catalog.ini> <catalog.ppcat>
         Compiles a translation catalog to be read from the card as
         needed (ADR 0033): a data plugin's i18n/*.ppcat. Fails where it

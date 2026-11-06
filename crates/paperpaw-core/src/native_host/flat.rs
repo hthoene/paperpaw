@@ -4,7 +4,7 @@
 //! module. Only host-owned Rust objects use this adapter; the foreign callback
 //! still receives one bounded byte batch, never an SDK object.
 
-use super::{DispatchDepth, Error, environment::EnvironmentScope, events};
+use super::{DispatchDepth, Error, FlatHost, environment::EnvironmentScope, events};
 use alloc::{boxed::Box, format, rc::Rc};
 use core::{fmt, pin::Pin};
 use paperpaw_sdk::{Env, Id, Manifest, Params, Plugin, RegisterError, Registrar};
@@ -32,7 +32,8 @@ pub enum DropReason {
 pub enum FlatRegistration {
     /// An event subscription and its index in the committed batch.
     Event { event_tag: u32, index: usize },
-    /// Another registration kind, identified by its wire record tag.
+    /// Another callback kind, identified by its wire record tag.
+    /// Declarations are applied separately and never passed as Other.
     Other { record_tag: u32 },
 }
 
@@ -56,9 +57,12 @@ impl core::error::Error for FlatError {}
 /// Shell-owned flat plugin instance, retained until all subscriptions are gone.
 /// Implementations must keep the owner and its module alive during callbacks.
 pub trait FlatInstance {
-    /// Visit EVERY committed registration record, in batch order, on every call.
-    /// Events include tick; draw and later kinds are Other with their record tag.
-    /// The committed registrations and indices must remain unchanged after make.
+    /// Visit every committed callback registration (events, tick, draw and any
+    /// later callback kind), in batch order, on every call. Declarations taken
+    /// with `take_declarations` (setting specs and other data) are not visited:
+    /// the shell applies them before activation, and a declaration it cannot
+    /// apply refuses the plugin at load; it is never dropped. The committed
+    /// registrations and their indices must not change after `FlatPlugin::new`.
     fn registrations(&self, visit: &mut dyn FnMut(FlatRegistration));
 
     /// The real pinned environment scope used by this instance's host table.
@@ -88,6 +92,7 @@ pub struct FlatPlugin {
     manifest: Manifest,
     instance: Rc<dyn FlatInstance>,
     depth: Rc<DispatchDepth>,
+    host: FlatHost,
 }
 
 impl fmt::Debug for FlatPlugin {
@@ -108,6 +113,7 @@ impl FlatPlugin {
         manifest: Manifest,
         instance: Box<dyn FlatInstance>,
         depth: Rc<DispatchDepth>,
+        host: &FlatHost,
     ) -> Result<Self, FlatError> {
         let mut error = None;
         instance.registrations(&mut |registration| {
@@ -127,6 +133,9 @@ impl FlatPlugin {
             manifest,
             instance: Rc::from(instance),
             depth,
+            host: FlatHost {
+                meter: Rc::clone(&host.meter),
+            },
         })
     }
 }
@@ -136,6 +145,9 @@ impl Plugin for FlatPlugin {
         self.manifest.clone()
     }
 
+    /// The kernel discards the entire registrar on error, including subscriptions
+    /// added before a later subscription failed. Contributions are staged only
+    /// after registration succeeds.
     fn register(&self, registrar: &mut Registrar) -> Result<(), RegisterError> {
         let mut result = Ok(());
         self.instance.registrations(&mut |registration| {
@@ -160,10 +172,13 @@ impl Plugin for FlatPlugin {
             };
             let instance = Rc::clone(&self.instance);
             let depth = Rc::clone(&self.depth);
+            let host = FlatHost {
+                meter: Rc::clone(&self.host.meter),
+            };
             result = registrar.subscribe(
                 event,
                 Box::new(move |env, params, _| {
-                    deliver(&*instance, &depth, tag, index, env, params)
+                    deliver(&*instance, &depth, &host, tag, index, env, params)
                 }),
             );
         });
@@ -188,6 +203,7 @@ fn event_id(tag: u32) -> Option<Id> {
 fn deliver(
     instance: &dyn FlatInstance,
     depth: &DispatchDepth,
+    host: &FlatHost,
     tag: u32,
     index: usize,
     env: &Env<'_>,
@@ -196,12 +212,12 @@ fn deliver(
     // Only the page-turn path needs the larger buffer. Lifecycle events keep
     // their stack usage independent of the page strings' schema caps.
     let result = if tag == super::registrations::EVENT_PAGE_TURNED_TAG {
-        page::deliver(instance, depth, index, env, params)
+        page::deliver(instance, depth, host, index, env, params)
     } else {
         let mut bytes = [0; 12];
         encode_scalar(tag, env.now().millis(), &mut bytes)
             .map_err(|_| DropReason::Producer)
-            .and_then(|len| invoke(instance, depth, index, env, &bytes[..len]))
+            .and_then(|len| invoke(instance, depth, host, index, env, &bytes[..len]))
     };
     if let Err(why) = result {
         instance.event_dropped(tag, why);
@@ -230,14 +246,21 @@ fn admission(error: Error) -> DropReason {
 fn invoke(
     instance: &dyn FlatInstance,
     depth: &DispatchDepth,
+    host: &FlatHost,
     index: usize,
     env: &Env<'_>,
     bytes: &[u8],
 ) -> Result<(), DropReason> {
-    // This is the single scope installation point, ready for CoreFrame wiring.
+    let frame = crate::abi7::core_frame::CoreFrame {
+        env,
+        meter: &host.meter,
+        usage: env.usage(),
+        plugins: env.plugins(),
+        work: env.work(),
+    };
     let status = instance
         .environment()
-        .scope(env, || instance.dispatch_event(index, bytes, depth))
+        .scope_core(&frame, || instance.dispatch_event(index, bytes, depth))
         .map_err(admission)?
         .map_err(admission)?;
     if status == paperpaw_native::host_glue::OK {
@@ -250,3 +273,7 @@ fn invoke(
 #[cfg(test)]
 #[path = "flat/routing_tests.rs"]
 mod routing_tests;
+
+#[cfg(test)]
+#[path = "flat/test_loader.rs"]
+pub(crate) mod test_loader;

@@ -37,6 +37,11 @@ pub const FONT_EXTENSIONS_MAX: usize = 16;
 /// until the X4 heap gate has measured it.
 pub const DECLARATIONS_MAX_BYTES: usize = 32 * 1024;
 
+/// Most declarations one plugin may borrow from its immutable image.
+pub const IMAGE_DECLARATIONS_MAX: usize = 512;
+/// Resident indexes for image-backed declarations, separate from owned copies.
+pub const IMAGE_INDEX_MAX_BYTES: usize = 8 * 1024;
+
 /// An owned setting group.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -507,10 +512,35 @@ impl Declarations {
     /// # Errors
     /// The status of the first violated per-record rule; `ERR_NO_SPACE` when a
     /// count or the byte budget would be exceeded; `ERR_INVALID` for a duplicate
-    /// name or an extra without its spec or beside another extra for the same
-    /// spec; `ERR_NO_MEMORY` when an allocation fails. `self` is unchanged.
+    /// name or a second extra for the same spec; `ERR_NO_MEMORY` when an allocation fails. `self` is unchanged.
     pub fn stage(&mut self, plugin_id: &str, batch: &RecordBatch<'_>) -> Result<(), i32> {
+        self.stage_retaining(plugin_id, batch, 0)
+    }
+
+    pub(crate) fn stage_retaining(
+        &mut self,
+        plugin_id: &str,
+        batch: &RecordBatch<'_>,
+        retained: usize,
+    ) -> Result<(), i32> {
+        self.stage_owned(plugin_id, batch, retained)
+    }
+
+    fn stage_owned(
+        &mut self,
+        plugin_id: &str,
+        batch: &RecordBatch<'_>,
+        retained: usize,
+    ) -> Result<(), i32> {
         let counts = self.check(plugin_id, batch)?;
+        if self
+            .bytes
+            .checked_add(counts.bytes)
+            .and_then(|n| n.checked_add(retained))
+            .is_none_or(|n| n > DECLARATIONS_MAX_BYTES)
+        {
+            return Err(ERR_NO_SPACE);
+        }
         let mut pending = Pending::build(batch, &counts)?;
         grow(&mut self.groups, counts.groups)?;
         grow(&mut self.specs, counts.specs)?;
@@ -530,7 +560,7 @@ impl Declarations {
     }
 
     /// First pass: no allocation, no change.
-    fn check(&self, plugin_id: &str, batch: &RecordBatch<'_>) -> Result<Counts, i32> {
+    fn check_counts(&self, plugin_id: &str, batch: &RecordBatch<'_>) -> Result<Counts, i32> {
         declarations::validate_batch(plugin_id, batch)?;
         let counts = Counts::of(batch);
         if self.groups.len() + counts.groups > GROUPS_MAX
@@ -543,6 +573,11 @@ impl Declarations {
         {
             return Err(ERR_NO_SPACE);
         }
+        Ok(counts)
+    }
+
+    fn check(&self, plugin_id: &str, batch: &RecordBatch<'_>) -> Result<Counts, i32> {
+        let counts = self.check_counts(plugin_id, batch)?;
         for (index, record) in batch.iter().enumerate() {
             let earlier = batch.iter().take(index);
             if !self.is_new(&record, earlier) {
@@ -552,8 +587,8 @@ impl Declarations {
         Ok(counts)
     }
 
-    /// Whether `record` repeats no name of its namespace, and an extra has its
-    /// spec. `earlier` are the records before it in the same batch.
+    /// Whether `record` repeats no name of its namespace.
+    /// `earlier` are the records before it in the same batch.
     fn is_new<'a>(
         &self,
         record: &Record<'_>,
@@ -573,12 +608,7 @@ impl Declarations {
                         .any(|e| matches!(e, Record::SettingSpec(x) if x.name == r.name))
             }
             Record::SettingExtra(r) => {
-                let has_spec = self.specs.iter().any(|x| x.name == r.name)
-                    || earlier
-                        .clone()
-                        .any(|e| matches!(e, Record::SettingSpec(x) if x.name == r.name));
-                has_spec
-                    && !self.extras.iter().any(|x| x.name == r.name)
+                !self.extras.iter().any(|x| x.name == r.name)
                     && !earlier
                         .clone()
                         .any(|e| matches!(e, Record::SettingExtra(x) if x.name == r.name))
@@ -614,7 +644,8 @@ impl Declarations {
     ///
     /// Every spec `group` and group `parent` in the plugin's own namespace
     /// (`<plugin_id>.`) must name a group staged here, and own parents must not
-    /// form a cycle. An extra whose `follows` names a staged spec of this plugin
+    /// form a cycle. Each extra must name a spec in the completed transaction,
+    /// regardless of submission order. An extra whose `follows` names a spec
     /// needs the same kind as its own spec. Ids outside the namespace
     /// (`core.*`, other plugins) and an own `follows` that names no spec are
     /// left to the kernel's apply step. Does not allocate.
@@ -642,11 +673,12 @@ impl Declarations {
             }
         }
         for extra in &self.extras {
+            let kind_of = |name: &str| self.specs.iter().find(|s| s.name == name).map(|s| s.kind);
+            let own_kind = kind_of(&extra.name).ok_or(ERR_INVALID)?;
             let Some(name) = own_name(plugin_id, &extra.follows) else {
                 continue;
             };
-            let kind_of = |name: &str| self.specs.iter().find(|s| s.name == name).map(|s| s.kind);
-            if let (Some(followed), Some(own_kind)) = (kind_of(name), kind_of(&extra.name))
+            if let Some(followed) = kind_of(name)
                 && followed != own_kind
             {
                 return Err(ERR_INVALID);

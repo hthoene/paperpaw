@@ -122,8 +122,15 @@ unsafe extern "C" fn alloc_in(size: usize, align: usize, _placement: u32) -> *mu
 }
 
 /// Loads code plugins built for this computer.
+///
+/// An interface-7 library (only with the developer switch on) is loaded as a
+/// [`FlatPlugin`](paperpaw_core::native_host::flat::FlatPlugin) over its
+/// pinned owner; every such plugin of this loader shares one
+/// [`DispatchDepth`](paperpaw_core::native_host::DispatchDepth), the device-wide nesting budget.
 #[derive(Debug, Default)]
-pub struct HostLoader;
+pub struct HostLoader {
+    depth: std::rc::Rc<paperpaw_core::native_host::DispatchDepth>,
+}
 
 impl CodeLoader for HostLoader {
     fn load(
@@ -131,9 +138,100 @@ impl CodeLoader for HostLoader {
         storage: &dyn Storage,
         code: &CodeFile<'_>,
     ) -> Result<Box<dyn Plugin>, PluginProblem> {
+        let installed = Installed::of(code);
         // Not the device's heap: its code lies in flash (or the PSRAM it
         // runs from), never on the heap a plugin's budget counts.
-        crate::budget::untracked(|| load(storage, code))
+        crate::budget::untracked(|| {
+            let bytes = read_installed(storage, &installed)?;
+            if dev_switch() && is_interface7(&bytes) {
+                return self.flat(&bytes, code);
+            }
+            load_bytes(&bytes, &installed)
+        })
+    }
+}
+
+impl HostLoader {
+    /// The interface-7 library `bytes` of `code`, as a flat plugin over the
+    /// kernel's adapter: nothing of it runs but `make`, and what it declared
+    /// is applied or the plugin is refused here, never loaded without it.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn flat(&self, bytes: &[u8], code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, PluginProblem> {
+        use crate::native_runtime::Refusal;
+        use paperpaw_core::native_host::flat::FlatPlugin;
+        let id = code.id.as_str();
+        let instance = crate::native_runtime::load_flat(id, bytes).map_err(|why| {
+            eprintln!("code plugin {id}: {why}");
+            match why {
+                Refusal::Declared(_) => PluginProblem::Unsupported,
+                _ => PluginProblem::Damaged,
+            }
+        })?;
+        // The folder's data names and versions it (`plugin.ini`); this is the
+        // code's own, which the kernel replaces by that version.
+        let manifest = paperpaw_core::sdk::Manifest::new(
+            code.id.clone(),
+            id.to_owned(),
+            paperpaw_core::sdk::Version::new(0, 0, 0),
+        );
+        FlatPlugin::new(
+            manifest,
+            instance,
+            std::rc::Rc::clone(&self.depth),
+            code.host,
+        )
+        .map(|plugin| Box::new(plugin) as Box<dyn Plugin>)
+        .map_err(|why| {
+            eprintln!("code plugin {id}: {why}");
+            PluginProblem::Unsupported
+        })
+    }
+
+    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+    fn flat(&self, _: &[u8], _: &CodeFile<'_>) -> Result<Box<dyn Plugin>, PluginProblem> {
+        Err(PluginProblem::Unsupported)
+    }
+}
+
+/// Whether `bytes` is an interface-7 library (never where that loader is not
+/// built).
+fn is_interface7(bytes: &[u8]) -> bool {
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    return crate::native_runtime::classify(bytes) == crate::native_runtime::Kind::Interface7;
+    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+    {
+        let _ = bytes;
+        false
+    }
+}
+
+/// [`load`] with its memory not counted against the budget (the file read
+/// here, then loaded as an interface-6 library).
+#[cfg(test)]
+fn load_installed(
+    storage: &dyn Storage,
+    code: &Installed<'_>,
+) -> Result<Box<dyn Plugin>, PluginProblem> {
+    crate::budget::untracked(|| load_bytes(&read_installed(storage, code)?, code))
+}
+
+/// What [`load`] needs of a [`CodeFile`]: the plugin and the file installed.
+/// The kernel's `host` handle is not part of it (it has no public
+/// constructor), so that tests can load a file without a kernel.
+#[derive(Debug, Clone, Copy)]
+struct Installed<'a> {
+    id: &'a paperpaw_core::sdk::Id,
+    path: &'a str,
+    sha256: [u8; 32],
+}
+
+impl<'a> Installed<'a> {
+    fn of(code: &CodeFile<'a>) -> Self {
+        Self {
+            id: code.id,
+            path: code.path,
+            sha256: code.sha256,
+        }
     }
 }
 
@@ -161,14 +259,18 @@ pub(crate) fn interface6_only(bytes: &[u8], switch_on: bool) -> bool {
     }
 }
 
-/// [`HostLoader::load`], its memory not counted against the budget.
-fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, PluginProblem> {
+/// The installed file, read: only the file installed may run.
+fn read_installed(storage: &dyn Storage, code: &Installed<'_>) -> Result<Vec<u8>, PluginProblem> {
     let bytes = paperpaw_core::sdk::read_file(storage, code.path, MAX_FILE)
         .map_err(|_| PluginProblem::Damaged)?;
-    // Only the file installed.
     if paperpaw_core::sdk::digest::sha256::digest(&bytes) != code.sha256 {
         return Err(PluginProblem::Changed);
     }
+    Ok(bytes)
+}
+
+/// Loads the interface-6 library `bytes` of the installed file `code`.
+fn load_bytes(bytes: &[u8], code: &Installed<'_>) -> Result<Box<dyn Plugin>, PluginProblem> {
     // A copy of its own (the build may change the file meanwhile), in a
     // folder this process made for itself, made anew, then read back and
     // checked again: only what was checked is loaded.
@@ -184,7 +286,7 @@ fn load(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, P
             .create_new(true)
             .open(&copy)
             .map_err(|_| PluginProblem::Damaged)?;
-        std::io::Write::write_all(&mut file, &bytes).map_err(|_| PluginProblem::Damaged)?;
+        std::io::Write::write_all(&mut file, bytes).map_err(|_| PluginProblem::Damaged)?;
         // Written once: read-only from here on.
         let mut permissions = file
             .metadata()
@@ -534,21 +636,18 @@ version = 0.1.0
         // Installed but not a library the preflight reads: said, not fatal.
         let id = paperpaw_core::sdk::Id::new_static("hello");
         let path = format!("plugins/hello/{}", file_name());
-        let code = CodeFile {
+        let code = Installed {
             id: &id,
             path: &path,
             sha256: paperpaw_core::sdk::digest::sha256::digest(b"not a library"),
         };
-        assert_eq!(
-            HostLoader.load(&storage, &code).err(),
-            Some(not_a_library())
-        );
-        let changed = CodeFile {
+        assert_eq!(load_installed(&storage, &code).err(), Some(not_a_library()));
+        let changed = Installed {
             sha256: [0; 32],
             ..code
         };
         assert_eq!(
-            HostLoader.load(&storage, &changed).err(),
+            load_installed(&storage, &changed).err(),
             Some(PluginProblem::Changed)
         );
         let _ = std::fs::remove_dir_all(&root);
@@ -744,13 +843,13 @@ pub static TABLE: [extern "C" fn() -> u32; 2] = [f, f];
         let path = format!("plugins/hello/{}", file_name());
         for bad in [&moved, &counted] {
             std::fs::write(&lib, bad).unwrap();
-            let code = CodeFile {
+            let code = Installed {
                 id: &id,
                 path: &path,
                 sha256: paperpaw_core::sdk::digest::sha256::digest(bad),
             };
             assert_eq!(
-                HostLoader.load(&storage, &code).err(),
+                load_installed(&storage, &code).err(),
                 Some(PluginProblem::Damaged)
             );
         }
@@ -851,13 +950,13 @@ static INIT: extern "C" fn() = make_marker;
         let storage = crate::device::library(&root).unwrap();
         let id = paperpaw_core::sdk::Id::new_static("hello");
         let path = format!("plugins/hello/{}", file_name());
-        let code = CodeFile {
+        let code = Installed {
             id: &id,
             path: &path,
             sha256: paperpaw_core::sdk::digest::sha256::digest(&bytes),
         };
         assert_eq!(
-            HostLoader.load(&storage, &code).err(),
+            load_installed(&storage, &code).err(),
             Some(PluginProblem::Damaged)
         );
         assert!(

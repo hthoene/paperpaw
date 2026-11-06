@@ -2995,12 +2995,15 @@ pub use paperpaw_sdk::native::Problem
 pub use paperpaw_sdk::native::Signature
 pub use paperpaw_sdk::native::compiler
 pub use paperpaw_sdk::native::signature
+pub mod paperpaw_sdk::native::clock
+pub fn paperpaw_sdk::native::clock::micros(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<u64, paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::declare
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::DeclareError
 pub paperpaw_sdk::native::declare::DeclareError::Choices
 pub paperpaw_sdk::native::declare::DeclareError::Default
 pub paperpaw_sdk::native::declare::DeclareError::Empty(&'static str)
 pub paperpaw_sdk::native::declare::DeclareError::Encode(i32)
+pub paperpaw_sdk::native::declare::DeclareError::NoMemory
 pub paperpaw_sdk::native::declare::DeclareError::Range
 pub paperpaw_sdk::native::declare::DeclareError::SecretScoped
 pub paperpaw_sdk::native::declare::DeclareError::Sink(i32)
@@ -3036,6 +3039,8 @@ pub fn paperpaw_sdk::native::declare::Declarations<F>::spec(&mut self, paperpaw_
 pub fn paperpaw_sdk::native::declare::Declarations<F>::submit(&mut self) -> core::result::Result<(), paperpaw_sdk::native::declare::DeclareError>
 impl<F> core::fmt::Debug for paperpaw_sdk::native::declare::Declarations<F>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<F> core::ops::drop::Drop for paperpaw_sdk::native::declare::Declarations<F>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::drop(&mut self)
 #[non_exhaustive] pub struct paperpaw_sdk::native::declare::ExtraDecl<'a>
 pub paperpaw_sdk::native::declare::ExtraDecl::editor: core::option::Option<paperpaw_sdk::native::declare::EditorDecl<'a>>
 pub paperpaw_sdk::native::declare::ExtraDecl::follows: &'a str
@@ -3090,6 +3095,30 @@ pub const paperpaw_sdk::native::declare::BATCH_MAX_BYTES: usize
 pub const paperpaw_sdk::native::declare::BATCH_MAX_RECORDS: usize
 pub const paperpaw_sdk::native::declare::CHOICES_MAX_VALUES: usize
 pub const paperpaw_sdk::native::declare::CHOICE_MAX_BYTES: usize
+pub mod paperpaw_sdk::native::events
+#[non_exhaustive] pub enum paperpaw_sdk::native::events::Event<'a>
+pub paperpaw_sdk::native::events::Event::BatteryMeasured
+pub paperpaw_sdk::native::events::Event::BatteryMeasured::now_ms: u64
+pub paperpaw_sdk::native::events::Event::PageTurned(paperpaw_sdk::native::events::PageTurn<'a>)
+pub paperpaw_sdk::native::events::Event::Resume
+pub paperpaw_sdk::native::events::Event::Resume::now_ms: u64
+pub paperpaw_sdk::native::events::Event::Started
+pub paperpaw_sdk::native::events::Event::Started::now_ms: u64
+pub paperpaw_sdk::native::events::Event::Stopping
+pub paperpaw_sdk::native::events::Event::Stopping::now_ms: u64
+pub paperpaw_sdk::native::events::Event::Suspend
+pub paperpaw_sdk::native::events::Event::Suspend::now_ms: u64
+#[non_exhaustive] pub struct paperpaw_sdk::native::events::PageTurn<'a>
+pub paperpaw_sdk::native::events::PageTurn::chapter: &'a str
+pub paperpaw_sdk::native::events::PageTurn::now_ms: u64
+pub paperpaw_sdk::native::events::PageTurn::offset: u32
+pub paperpaw_sdk::native::events::PageTurn::page: core::option::Option<u32>
+pub paperpaw_sdk::native::events::PageTurn::pages: core::option::Option<u32>
+pub paperpaw_sdk::native::events::PageTurn::path: &'a str
+pub paperpaw_sdk::native::events::PageTurn::progress_ppm: u32
+pub paperpaw_sdk::native::events::PageTurn::section: u32
+pub paperpaw_sdk::native::events::PageTurn::title: &'a str
+pub fn paperpaw_sdk::native::events::decode(&[u8]) -> core::result::Result<paperpaw_sdk::native::events::Event<'_>, paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::keys
 #[non_exhaustive] pub enum paperpaw_sdk::native::keys::RevokedError
 pub paperpaw_sdk::native::keys::RevokedError::Full
@@ -3115,10 +3144,44 @@ pub fn paperpaw_sdk::native::keys::known_recovery(&dyn paperpaw_platform::storag
 pub fn paperpaw_sdk::native::keys::revocation_message(&str, &[u8; 32]) -> alloc::string::String
 pub fn paperpaw_sdk::native::keys::revoked(&dyn paperpaw_platform::storage::Storage) -> alloc::vec::Vec<paperpaw_sdk::native::keys::Revocation>
 pub fn paperpaw_sdk::native::keys::rotation_message(&str, &[u8; 32], &[u8; 32]) -> alloc::string::String
+pub mod paperpaw_sdk::native::registrations
+pub fn paperpaw_sdk::native::registrations::submit(&paperpaw_sdk::native::Host<'_>, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub mod paperpaw_sdk::native::storage
+#[non_exhaustive] pub enum paperpaw_sdk::native::storage::Root
+pub paperpaw_sdk::native::storage::Root::Data
+pub paperpaw_sdk::native::storage::Root::Files
+pub const paperpaw_sdk::native::storage::MAX_DATA: usize
+pub const paperpaw_sdk::native::storage::MAX_PATH: usize
+pub const paperpaw_sdk::native::storage::MAX_SEGMENT: usize
+pub fn paperpaw_sdk::native::storage::append(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::storage::read_at(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>, u64, &mut [u8]) -> core::result::Result<usize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::storage::remove(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::storage::rename(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::storage::size(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>) -> core::result::Result<u64, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::storage::sync(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::storage::write(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 #[non_exhaustive] pub enum paperpaw_sdk::native::Author
 pub paperpaw_sdk::native::Author::Known
 pub paperpaw_sdk::native::Author::New
 pub paperpaw_sdk::native::Author::Other
+#[non_exhaustive] pub enum paperpaw_sdk::native::Error
+pub paperpaw_sdk::native::Error::Busy
+pub paperpaw_sdk::native::Error::Cancelled
+pub paperpaw_sdk::native::Error::Full
+pub paperpaw_sdk::native::Error::Invalid
+pub paperpaw_sdk::native::Error::Io
+pub paperpaw_sdk::native::Error::NoMemory
+pub paperpaw_sdk::native::Error::NoSpace
+pub paperpaw_sdk::native::Error::NotFound
+pub paperpaw_sdk::native::Error::Other(i32)
+pub paperpaw_sdk::native::Error::State
+pub paperpaw_sdk::native::Error::Unsupported
+pub paperpaw_sdk::native::Error::Utf8
+impl core::convert::From<paperpaw_sdk::native::Error> for i32
+pub fn i32::from(paperpaw_sdk::native::Error) -> Self
+impl core::error::Error for paperpaw_sdk::native::Error
+impl core::fmt::Display for paperpaw_sdk::native::Error
+pub fn paperpaw_sdk::native::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub enum paperpaw_sdk::native::NotInstalledReason
 pub paperpaw_sdk::native::NotInstalledReason::Damaged
 pub paperpaw_sdk::native::NotInstalledReason::OtherAuthor
@@ -3145,6 +3208,9 @@ pub const fn paperpaw_sdk::native::Fingerprint::of(u16, u64) -> paperpaw_sdk::na
 pub fn paperpaw_sdk::native::Fingerprint::parse(&str) -> core::option::Option<paperpaw_sdk::native::Fingerprint>
 impl core::fmt::Display for paperpaw_sdk::native::Fingerprint
 pub fn paperpaw_sdk::native::Fingerprint::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct paperpaw_sdk::native::Host<'cb>
+impl core::fmt::Debug for paperpaw_sdk::native::Host<'_>
+pub fn paperpaw_sdk::native::Host<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub struct paperpaw_sdk::native::Native
 pub paperpaw_sdk::native::Native::api_size: u32
 pub paperpaw_sdk::native::Native::compiler: u32
@@ -3179,6 +3245,10 @@ pub const paperpaw_sdk::native::FINGERPRINT: paperpaw_sdk::native::Fingerprint
 pub const paperpaw_sdk::native::INTERFACE: u16
 pub const paperpaw_sdk::native::LAYOUT: u64
 pub const paperpaw_sdk::native::TOOLCHAIN: &str
+pub trait paperpaw_sdk::native::Plugin: core::marker::Sized + 'static
+pub fn paperpaw_sdk::native::Plugin::draw(&mut self, &paperpaw_sdk::native::Host<'_>, u32) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::Plugin::event(&mut self, &paperpaw_sdk::native::Host<'_>, u32, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::Plugin::make(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::author(&dyn paperpaw_platform::storage::Storage, &str, &[u8; 32]) -> paperpaw_sdk::native::Author
 pub fn paperpaw_sdk::native::code_room(&dyn paperpaw_platform::storage::Storage) -> core::option::Option<paperpaw_sdk::native::CodeRoom>
 pub fn paperpaw_sdk::native::fetched_code(&dyn paperpaw_platform::storage::Storage, &str) -> core::option::Option<[u8; 32]>
@@ -5886,6 +5956,7 @@ pub macro paperpaw_sdk::data_path!
 pub macro paperpaw_sdk::event_data!
 pub macro paperpaw_sdk::hears!
 pub macro paperpaw_sdk::hot!
+pub macro paperpaw_sdk::native_plugin!
 pub macro paperpaw_sdk::package_version!
 pub macro paperpaw_sdk::plugin!
 pub macro paperpaw_sdk::role_settings!

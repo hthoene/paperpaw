@@ -20,6 +20,12 @@
 //! field. A sink failure is returned as [`DeclareError::Sink`] with its unchanged
 //! status and permanently poisons the builder. Every later addition or submission
 //! returns that same error without calling the sink, even for invalid input.
+//! Every local add refusal also latches permanently. The next `submit` sends
+//! exactly one empty batch to abort host construction, discards pending records,
+//! and returns the original refusal even if the sink returns a different error.
+//! Later adds and submissions return that same refusal without calling the sink.
+//! This includes allocation failure. Dropping never calls the sink; callers must
+//! submit even after an ignored add error to communicate the abort to the host.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -34,7 +40,7 @@ use core::mem::MaybeUninit;
     dead_code,
     reason = "generated declaration record codec (abi/generated/records_wire.rs, byte for byte)"
 )]
-mod records_wire;
+pub(crate) mod records_wire;
 #[rustfmt::skip]
 #[allow(
     clippy::all,
@@ -99,6 +105,8 @@ pub enum DeclareError {
     Encode(i32),
     /// The submission sink refused a batch. This builder cannot submit again.
     Sink(i32),
+    /// The builder could not allocate memory. No further submission is possible.
+    NoMemory,
 }
 
 impl fmt::Display for DeclareError {
@@ -112,6 +120,7 @@ impl fmt::Display for DeclareError {
             DeclareError::SecretScoped => f.write_str("a secret setting cannot be scoped"),
             DeclareError::Encode(status) => write!(f, "the encoder refused it ({status})"),
             DeclareError::Sink(status) => write!(f, "the submission sink refused it ({status})"),
+            DeclareError::NoMemory => f.write_str("not enough memory for declarations"),
         }
     }
 }
@@ -354,7 +363,34 @@ pub struct Declarations<F> {
     used: usize,
     count: usize,
     total: usize,
-    failed: Option<i32>,
+    failed: Option<Latched>,
+    abort_sent: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Latched {
+    Sink(i32),
+    NoMemory,
+    Refused(DeclareError),
+}
+
+impl Latched {
+    fn error(self) -> DeclareError {
+        match self {
+            Self::Sink(status) => DeclareError::Sink(status),
+            Self::NoMemory => DeclareError::NoMemory,
+            Self::Refused(error) => error,
+        }
+    }
+}
+
+impl<F> Drop for Declarations<F> {
+    fn drop(&mut self) {
+        debug_assert!(
+            self.count == 0 || self.failed.is_some(),
+            "declarations dropped without submit()"
+        );
+    }
 }
 
 impl<F> fmt::Debug for Declarations<F> {
@@ -386,12 +422,16 @@ fn filled(text: &str, field: &'static str) -> Result<(), DeclareError> {
 
 /// The wire value of a default: one `settings_value`, header included.
 fn value_bytes(value: SettingValueRef<'_>) -> Result<Vec<u8>, DeclareError> {
-    let mut out =
-        alloc::vec![MaybeUninit::<u8>::uninit(); records_wire::SETTING_SPEC_DEFAULT_MAX_BYTES];
+    let mut out = [MaybeUninit::<u8>::uninit(); records_wire::SETTING_SPEC_DEFAULT_MAX_BYTES];
     let len = settings_encode(value, &mut out).map_err(|_| DeclareError::Default)?;
     let bytes = out.get(..len).ok_or(DeclareError::TooLong("default"))?;
+    let mut encoded = Vec::new();
+    encoded
+        .try_reserve_exact(len)
+        .map_err(|_| DeclareError::NoMemory)?;
     // SAFETY: `settings_encode` initialized the first `len` bytes of `out`.
-    Ok(bytes.iter().map(|b| unsafe { b.assume_init() }).collect())
+    encoded.extend(bytes.iter().map(|byte| unsafe { byte.assume_init() }));
+    Ok(encoded)
 }
 
 fn choices_text(choices: &[&str], default: &str) -> Result<String, DeclareError> {
@@ -414,7 +454,17 @@ fn choices_text(choices: &[&str], default: &str) -> Result<String, DeclareError>
     if length > records_wire::SETTING_SPEC_CHOICES_MAX_BYTES {
         return Err(DeclareError::TooLong("choices"));
     }
-    Ok(choices.join("\n"))
+    let mut joined = String::new();
+    joined
+        .try_reserve_exact(length)
+        .map_err(|_| DeclareError::NoMemory)?;
+    for (index, choice) in choices.iter().enumerate() {
+        if index != 0 {
+            joined.push('\n');
+        }
+        joined.push_str(choice);
+    }
+    Ok(joined)
 }
 
 impl<'a> SpecDecl<'a> {
@@ -480,14 +530,26 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// Starts an empty stream with one reusable 4 KiB buffer. Declaration strings
     /// are borrowed only while adding each item; no declaration is retained.
     /// Call [`Self::submit`] to send the final batch. Dropping does not submit.
+    /// If allocation fails, every addition and submission returns
+    /// [`DeclareError::NoMemory`]. The sink then sees only the one empty abort
+    /// batch of the next [`Self::submit`], which poisons the host construction.
     pub fn new(sink: F) -> Self {
+        let mut bytes = Vec::new();
+        let failed = match bytes.try_reserve_exact(BATCH_MAX_BYTES) {
+            Ok(()) => {
+                bytes.resize(BATCH_MAX_BYTES, 0);
+                None
+            }
+            Err(_) => Some(Latched::NoMemory),
+        };
         Self {
             sink,
-            bytes: alloc::vec![0; BATCH_MAX_BYTES],
+            bytes,
             used: 1,
             count: 0,
             total: 0,
-            failed: None,
+            failed,
+            abort_sent: false,
         }
     }
 
@@ -508,28 +570,37 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// An empty title, or a field over its cap.
     pub fn group(&mut self, group: GroupDecl<'_>) -> Result<&mut Self, DeclareError> {
         self.check_sink()?;
-        within(
-            group.name,
-            records_wire::SETTING_GROUP_NAME_MAX_BYTES,
-            "group name",
-        )?;
-        filled(group.title, "group title")?;
-        within(
-            group.title,
-            records_wire::SETTING_GROUP_TITLE_MAX_BYTES,
-            "group title",
-        )?;
-        within(
-            group.page,
-            records_wire::SETTING_GROUP_PAGE_MAX_BYTES,
-            "group page",
-        )?;
-        within(
-            group.parent,
-            records_wire::SETTING_GROUP_PARENT_MAX_BYTES,
-            "group parent",
-        )?;
-        self.push(Item::Group(group))?;
+        let result = (|| {
+            within(
+                group.name,
+                records_wire::SETTING_GROUP_NAME_MAX_BYTES,
+                "group name",
+            )?;
+            filled(group.title, "group title")?;
+            within(
+                group.title,
+                records_wire::SETTING_GROUP_TITLE_MAX_BYTES,
+                "group title",
+            )?;
+            within(
+                group.page,
+                records_wire::SETTING_GROUP_PAGE_MAX_BYTES,
+                "group page",
+            )?;
+            within(
+                group.parent,
+                records_wire::SETTING_GROUP_PARENT_MAX_BYTES,
+                "group parent",
+            )?;
+            self.push(Item::Group(group))?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            if self.failed.is_none() {
+                self.failed = Some(Latched::Refused(error));
+            }
+            return Err(error);
+        }
         Ok(self)
     }
 
@@ -541,41 +612,54 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// fit the kind, a bad range or choice list, or a secret that is scoped.
     pub fn spec(&mut self, spec: SpecDecl<'_>) -> Result<&mut Self, DeclareError> {
         self.check_sink()?;
-        within(
-            spec.name,
-            records_wire::SETTING_SPEC_NAME_MAX_BYTES,
-            "setting name",
-        )?;
-        filled(spec.group, "setting group")?;
-        within(
-            spec.group,
-            records_wire::SETTING_SPEC_GROUP_MAX_BYTES,
-            "setting group",
-        )?;
-        filled(spec.title, "setting title")?;
-        within(
-            spec.title,
-            records_wire::SETTING_SPEC_TITLE_MAX_BYTES,
-            "setting title",
-        )?;
-        within(
-            spec.help,
-            records_wire::SETTING_SPEC_HELP_MAX_BYTES,
-            "setting help",
-        )?;
-        if spec.secret && spec.scoped {
-            return Err(DeclareError::SecretScoped);
+        let result = (|| {
+            within(
+                spec.name,
+                records_wire::SETTING_SPEC_NAME_MAX_BYTES,
+                "setting name",
+            )?;
+            filled(spec.group, "setting group")?;
+            within(
+                spec.group,
+                records_wire::SETTING_SPEC_GROUP_MAX_BYTES,
+                "setting group",
+            )?;
+            filled(spec.title, "setting title")?;
+            within(
+                spec.title,
+                records_wire::SETTING_SPEC_TITLE_MAX_BYTES,
+                "setting title",
+            )?;
+            within(
+                spec.help,
+                records_wire::SETTING_SPEC_HELP_MAX_BYTES,
+                "setting help",
+            )?;
+            if spec.secret && spec.scoped {
+                return Err(DeclareError::SecretScoped);
+            }
+            let parts = spec.parts().inspect_err(|error| {
+                if *error == DeclareError::NoMemory {
+                    self.failed = Some(Latched::NoMemory);
+                }
+            })?;
+            within(
+                &parts.choices,
+                records_wire::SETTING_SPEC_CHOICES_MAX_BYTES,
+                "choices",
+            )?;
+            if parts.default.len() > records_wire::SETTING_SPEC_DEFAULT_MAX_BYTES {
+                return Err(DeclareError::TooLong("default"));
+            }
+            self.push(Item::Spec(spec, parts))?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            if self.failed.is_none() {
+                self.failed = Some(Latched::Refused(error));
+            }
+            return Err(error);
         }
-        let parts = spec.parts()?;
-        within(
-            &parts.choices,
-            records_wire::SETTING_SPEC_CHOICES_MAX_BYTES,
-            "choices",
-        )?;
-        if parts.default.len() > records_wire::SETTING_SPEC_DEFAULT_MAX_BYTES {
-            return Err(DeclareError::TooLong("default"));
-        }
-        self.push(Item::Spec(spec, parts))?;
         Ok(self)
     }
 
@@ -586,47 +670,56 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// A field over its cap, a negative step, or `shown_if` with an empty id.
     pub fn extra(&mut self, extra: ExtraDecl<'_>) -> Result<&mut Self, DeclareError> {
         self.check_sink()?;
-        within(
-            extra.name,
-            records_wire::SETTING_EXTRA_NAME_MAX_BYTES,
-            "extra name",
-        )?;
-        within(
-            extra.unit,
-            records_wire::SETTING_EXTRA_UNIT_MAX_BYTES,
-            "unit",
-        )?;
-        within(
-            extra.section,
-            records_wire::SETTING_EXTRA_SECTION_MAX_BYTES,
-            "section",
-        )?;
-        within(
-            extra.follows,
-            records_wire::SETTING_EXTRA_FOLLOWS_MAX_BYTES,
-            "follows",
-        )?;
-        if let Some((id, value)) = &extra.shown_if {
-            filled(id, "shown_if id")?;
+        let result = (|| {
             within(
-                id,
-                records_wire::SETTING_EXTRA_SHOWN_ID_MAX_BYTES,
-                "shown_if id",
+                extra.name,
+                records_wire::SETTING_EXTRA_NAME_MAX_BYTES,
+                "extra name",
             )?;
             within(
-                value,
-                records_wire::SETTING_EXTRA_SHOWN_VALUE_MAX_BYTES,
-                "shown_if value",
+                extra.unit,
+                records_wire::SETTING_EXTRA_UNIT_MAX_BYTES,
+                "unit",
             )?;
+            within(
+                extra.section,
+                records_wire::SETTING_EXTRA_SECTION_MAX_BYTES,
+                "section",
+            )?;
+            within(
+                extra.follows,
+                records_wire::SETTING_EXTRA_FOLLOWS_MAX_BYTES,
+                "follows",
+            )?;
+            if let Some((id, value)) = &extra.shown_if {
+                filled(id, "shown_if id")?;
+                within(
+                    id,
+                    records_wire::SETTING_EXTRA_SHOWN_ID_MAX_BYTES,
+                    "shown_if id",
+                )?;
+                within(
+                    value,
+                    records_wire::SETTING_EXTRA_SHOWN_VALUE_MAX_BYTES,
+                    "shown_if value",
+                )?;
+            }
+            if let Some(EditorDecl::Screen(id) | EditorDecl::Slot(id)) = &extra.editor {
+                filled(id, "editor")?;
+                within(id, records_wire::SETTING_EXTRA_EDITOR_MAX_BYTES, "editor")?;
+            }
+            if extra.step < 0 {
+                return Err(DeclareError::Range);
+            }
+            self.push(Item::Extra(extra))?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            if self.failed.is_none() {
+                self.failed = Some(Latched::Refused(error));
+            }
+            return Err(error);
         }
-        if let Some(EditorDecl::Screen(id) | EditorDecl::Slot(id)) = &extra.editor {
-            filled(id, "editor")?;
-            within(id, records_wire::SETTING_EXTRA_EDITOR_MAX_BYTES, "editor")?;
-        }
-        if extra.step < 0 {
-            return Err(DeclareError::Range);
-        }
-        self.push(Item::Extra(extra))?;
         Ok(self)
     }
 
@@ -637,19 +730,28 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// An empty language or path, or one over its cap.
     pub fn hyphenation(&mut self, language: &str, path: &str) -> Result<&mut Self, DeclareError> {
         self.check_sink()?;
-        filled(language, "language")?;
-        filled(path, "path")?;
-        within(
-            language,
-            records_wire::RESOURCE_HYPHENATION_LANGUAGE_MAX_BYTES,
-            "language",
-        )?;
-        within(
-            path,
-            records_wire::RESOURCE_HYPHENATION_PATH_MAX_BYTES,
-            "path",
-        )?;
-        self.push(Item::Hyphenation { language, path })?;
+        let result = (|| {
+            filled(language, "language")?;
+            filled(path, "path")?;
+            within(
+                language,
+                records_wire::RESOURCE_HYPHENATION_LANGUAGE_MAX_BYTES,
+                "language",
+            )?;
+            within(
+                path,
+                records_wire::RESOURCE_HYPHENATION_PATH_MAX_BYTES,
+                "path",
+            )?;
+            self.push(Item::Hyphenation { language, path })?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            if self.failed.is_none() {
+                self.failed = Some(Latched::Refused(error));
+            }
+            return Err(error);
+        }
         Ok(self)
     }
 
@@ -660,29 +762,38 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// An empty name or path, or a field over its cap.
     pub fn font_face(&mut self, face: FontFaceDecl<'_>) -> Result<&mut Self, DeclareError> {
         self.check_sink()?;
-        filled(face.name, "face name")?;
-        filled(face.path, "path")?;
-        within(
-            face.name,
-            records_wire::RESOURCE_FONT_FACE_NAME_MAX_BYTES,
-            "face name",
-        )?;
-        within(
-            face.path,
-            records_wire::RESOURCE_FONT_FACE_PATH_MAX_BYTES,
-            "path",
-        )?;
-        within(
-            face.family,
-            records_wire::RESOURCE_FONT_FACE_FAMILY_MAX_BYTES,
-            "family",
-        )?;
-        within(
-            face.role,
-            records_wire::RESOURCE_FONT_FACE_ROLE_MAX_BYTES,
-            "role",
-        )?;
-        self.push(Item::FontFace(face))?;
+        let result = (|| {
+            filled(face.name, "face name")?;
+            filled(face.path, "path")?;
+            within(
+                face.name,
+                records_wire::RESOURCE_FONT_FACE_NAME_MAX_BYTES,
+                "face name",
+            )?;
+            within(
+                face.path,
+                records_wire::RESOURCE_FONT_FACE_PATH_MAX_BYTES,
+                "path",
+            )?;
+            within(
+                face.family,
+                records_wire::RESOURCE_FONT_FACE_FAMILY_MAX_BYTES,
+                "family",
+            )?;
+            within(
+                face.role,
+                records_wire::RESOURCE_FONT_FACE_ROLE_MAX_BYTES,
+                "role",
+            )?;
+            self.push(Item::FontFace(face))?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            if self.failed.is_none() {
+                self.failed = Some(Latched::Refused(error));
+            }
+            return Err(error);
+        }
         Ok(self)
     }
 
@@ -696,25 +807,34 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
         extension: FontExtensionDecl<'_>,
     ) -> Result<&mut Self, DeclareError> {
         self.check_sink()?;
-        filled(extension.name, "extension name")?;
-        filled(extension.path, "path")?;
-        filled(extension.extends, "extends")?;
-        within(
-            extension.name,
-            records_wire::RESOURCE_FONT_EXTENSION_NAME_MAX_BYTES,
-            "extension name",
-        )?;
-        within(
-            extension.path,
-            records_wire::RESOURCE_FONT_EXTENSION_PATH_MAX_BYTES,
-            "path",
-        )?;
-        within(
-            extension.extends,
-            records_wire::RESOURCE_FONT_EXTENSION_EXTENDS_MAX_BYTES,
-            "extends",
-        )?;
-        self.push(Item::FontExtension(extension))?;
+        let result = (|| {
+            filled(extension.name, "extension name")?;
+            filled(extension.path, "path")?;
+            filled(extension.extends, "extends")?;
+            within(
+                extension.name,
+                records_wire::RESOURCE_FONT_EXTENSION_NAME_MAX_BYTES,
+                "extension name",
+            )?;
+            within(
+                extension.path,
+                records_wire::RESOURCE_FONT_EXTENSION_PATH_MAX_BYTES,
+                "path",
+            )?;
+            within(
+                extension.extends,
+                records_wire::RESOURCE_FONT_EXTENSION_EXTENDS_MAX_BYTES,
+                "extends",
+            )?;
+            self.push(Item::FontExtension(extension))?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            if self.failed.is_none() {
+                self.failed = Some(Latched::Refused(error));
+            }
+            return Err(error);
+        }
         Ok(self)
     }
 
@@ -724,15 +844,20 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// # Errors
     ///
     /// A sink refusal is returned and latched: no further batch is submitted.
+    /// A local refusal sends one empty abort batch and returns the original error.
     pub fn submit(&mut self) -> Result<(), DeclareError> {
-        if let Some(status) = self.failed {
-            return Err(DeclareError::Sink(status));
+        if let Some(failure) = self.failed {
+            if !matches!(failure, Latched::Sink(_)) && !self.abort_sent {
+                self.abort_sent = true;
+                let _ = (self.sink)(&[]);
+            }
+            return Err(failure.error());
         }
         if self.count == 0 {
             return Ok(());
         }
         if let Err(status) = (self.sink)(&self.bytes[..self.used]) {
-            self.failed = Some(status);
+            self.failed = Some(Latched::Sink(status));
             return Err(DeclareError::Sink(status));
         }
         self.used = 1;
@@ -741,14 +866,11 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     }
 
     fn check_sink(&self) -> Result<(), DeclareError> {
-        self.failed
-            .map_or(Ok(()), |status| Err(DeclareError::Sink(status)))
+        self.failed.map_or(Ok(()), |failure| Err(failure.error()))
     }
 
     fn push(&mut self, item: Item<'_>) -> Result<(), DeclareError> {
-        if let Some(status) = self.failed {
-            return Err(DeclareError::Sink(status));
-        }
+        self.check_sink()?;
         if self.count == BATCH_MAX_RECORDS {
             self.submit()?;
         }
