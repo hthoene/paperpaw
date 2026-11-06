@@ -1863,6 +1863,7 @@ name = "paperpaw-plugin-battery"
 version = "1.0.8"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-graphics",
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",

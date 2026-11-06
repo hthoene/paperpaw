@@ -21,6 +21,7 @@ paperpaw-sdk.workspace = true
 paperpaw-sdk.workspace = true
 
 [dev-dependencies]
+paperpaw-graphics.workspace = true
 paperpaw-native.workspace = true
 paperpaw-core.workspace = true
 paperpaw-platform.workspace = true
