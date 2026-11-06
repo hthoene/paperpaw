@@ -336,6 +336,9 @@ pub struct FileSystem<IO: ReadWriteSeek, TP = DefaultTimeProvider, OCC = LossyOe
     // Modified for PaperPaw: notes about directories (see `Dir::note`).
     dir_notes: RefCell<[Option<DirNote>; DIR_NOTES]>,
     entries_written: Cell<u64>,
+    // Modified for PaperPaw: see `cluster_changes`.
+    clusters_taken: Cell<u64>,
+    clusters_freed: Cell<u64>,
     // Modified for PaperPaw: see `check_kept_places`.
     #[cfg(debug_assertions)]
     check_places: Cell<bool>,
@@ -461,6 +464,8 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
             current_status_flags: Cell::new(status_flags),
             dir_notes: RefCell::new([None; DIR_NOTES]),
             entries_written: Cell::new(0),
+            clusters_taken: Cell::new(0),
+            clusters_freed: Cell::new(0),
             #[cfg(debug_assertions)]
             check_places: Cell::new(false),
         })
@@ -615,20 +620,45 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         ClusterIterator::new(disk_slice, self.fat_type, cluster)
     }
 
+    // Modified for PaperPaw: the clusters freed counted (see `cluster_changes`), also of a chain
+    // freed in part.
     pub(crate) fn truncate_cluster_chain(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
         let mut iter = self.cluster_iter(cluster);
-        let num_free = iter.truncate()?;
+        let result = iter.truncate();
+        self.note_freed(iter.freed());
+        self.clusters_taken
+            .set(self.clusters_taken.get().wrapping_add(u64::from(iter.taken())));
+        let num_free = result?;
+        let mut fs_info = self.fs_info.borrow_mut();
+        fs_info.map_free_clusters(|n| n.saturating_sub(iter.taken()).saturating_add(num_free));
+        Ok(())
+    }
+
+    // Modified for PaperPaw: as `truncate_cluster_chain`.
+    pub(crate) fn free_cluster_chain(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
+        let mut iter = self.cluster_iter(cluster);
+        let result = iter.free();
+        self.note_freed(iter.freed());
+        let num_free = result?;
         let mut fs_info = self.fs_info.borrow_mut();
         fs_info.map_free_clusters(|n| n + num_free);
         Ok(())
     }
 
-    pub(crate) fn free_cluster_chain(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
-        let mut iter = self.cluster_iter(cluster);
-        let num_free = iter.free()?;
-        let mut fs_info = self.fs_info.borrow_mut();
-        fs_info.map_free_clusters(|n| n + num_free);
-        Ok(())
+    // Modified for PaperPaw: added.
+    fn note_freed(&self, freed: u32) {
+        self.clusters_freed.set(self.clusters_freed.get().wrapping_add(u64::from(freed)));
+    }
+
+    // Modified for PaperPaw: added.
+    /// How many clusters this file system marked taken and how many it marked free in the FAT
+    /// since it was mounted, counted as each mark is written: by files and directories written,
+    /// grown, truncated and removed, also by one that failed part of the way. Counting the FAT's
+    /// free clusters once and following these keeps the count exact without reading the FAT
+    /// again; the FS information sector's count is not this (it may be wrong after a cut).
+    #[must_use]
+    pub fn cluster_changes(&self) -> (u64, u64) {
+        (self.clusters_taken.get(), self.clusters_freed.get())
     }
 
     pub(crate) fn alloc_cluster(&self, prev_cluster: Option<u32>, zero: bool) -> Result<u32, Error<IO::Error>> {
@@ -636,7 +666,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         let hint = self.fs_info.borrow().next_free_cluster;
         let cluster = {
             let mut fat = self.fat_slice();
-            alloc_cluster(&mut fat, self.fat_type, prev_cluster, hint, self.total_clusters)?
+            alloc_cluster(&mut fat, self.fat_type, prev_cluster, hint, self.total_clusters, &self.clusters_taken)?
         };
         if zero {
             let mut disk = self.disk.borrow_mut();
@@ -1374,7 +1404,7 @@ pub fn format_volume<S: ReadWriteSeek>(storage: &mut S, options: FormatVolumeOpt
     if fat_type == FatType::Fat32 {
         let root_dir_first_cluster = {
             let mut fat_slice = fat_slice::<S, &mut S>(storage, bpb);
-            alloc_cluster(&mut fat_slice, fat_type, None, None, 1)?
+            alloc_cluster(&mut fat_slice, fat_type, None, None, 1, &Cell::new(0))?
         };
         assert_eq!(root_dir_first_cluster, bpb.root_dir_first_cluster);
         let first_data_sector = reserved_sectors + sectors_per_all_fats + root_dir_sectors;
@@ -1406,3 +1436,8 @@ pub fn format_volume<S: ReadWriteSeek>(storage: &mut S, options: FormatVolumeOpt
     trace!("format_volume end");
     Ok(())
 }
+
+// Modified for PaperPaw: corrupt-chain accounting regressions.
+#[cfg(test)]
+#[path = "fs_count_tests.rs"]
+mod count_tests;

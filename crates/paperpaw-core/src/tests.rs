@@ -3267,6 +3267,7 @@ mod declared_work;
 mod developer;
 mod font_packs;
 mod frames;
+mod free_count;
 mod guard;
 mod hosting;
 mod hyphenation_tables;

@@ -8,6 +8,10 @@ change the plugin SDK.
 
 ### Added
 
+- Core adapter for shell-owned interface-7 plugins: deliver registered lifecycle, battery and page-turn
+  events through the kernel subscription pipeline with bounded encoding and callback-scoped environment
+  access. Shells supply the owner bridge and failure logging; loader wiring follows separately (#228).
+
 - Host-side storage adapter for interface-7 slots 20–26 (path rules, free-space reserve, per-plugin
   read/write/sync counting), not wired (#228).
 - Interface-7 draft: host-table slots 20–26 (`storage.size`, `read_at`, `write`, `append`, `rename`, `remove`,
@@ -48,6 +52,12 @@ change the plugin SDK.
   an earlier draft is refused. Freezing the interface (the owner's decision) deletes it (#228).
 
 ### Changed
+
+- Interface-7 slot 6 `i18n.copy` returns `ERR_NOT_FOUND` for a missing translation key,
+  leaving output unchanged, instead of copying the key (D5, #228).
+
+- Background-work notes are cut to 256 UTF-8 bytes at a character boundary when stored;
+  interface-6 `env.work().note()` readers see the same bounded text (#228).
 
 - **Plugin interface 7, draft 1** (#228, early raise on `abi7/integration`): `native::INTERFACE` is 7 and
   every plugin with code needs a build for it; plugins built for interface 6 are refused as built for an
