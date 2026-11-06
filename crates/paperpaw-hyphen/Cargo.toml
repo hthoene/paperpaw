@@ -17,6 +17,18 @@ keywords = ["hyphenation", "liang", "no-std"]
 # `tools/interface.py` leaves it out of what plugins see.
 kernel = []
 
+[[test]]
+name = "stored"
+required-features = ["kernel"]
+
+[[test]]
+name = "stored_budget"
+required-features = ["kernel"]
+
+[[test]]
+name = "stored_alloc"
+required-features = ["kernel"]
+
 [dev-dependencies]
 proptest.workspace = true
 
