@@ -1,0 +1,99 @@
+// Real-library source template. Batch/event bytes must come from the reviewed
+// generated codecs. No codec, tag, slot offset or record layout is defined here.
+#![no_std]
+#![allow(dead_code)]
+include!(@ABI_PATH@);
+
+#[panic_handler]
+fn panic(_: &core::panic::PanicInfo) -> ! { loop {} }
+
+#[unsafe(no_mangle)]
+pub static PAPERPAW_METADATA: [u8; @METADATA_LEN@] = @METADATA_BYTES@;
+#[repr(transparent)]
+pub struct Entry(PpEntry);
+unsafe impl Sync for Entry {}
+#[unsafe(no_mangle)]
+pub static PAPERPAW_ENTRY: Entry = Entry(PpEntry {
+    size: core::mem::size_of::<PpEntry>() as u32,
+    abi_major: MAJOR,
+    needs_minor: @NEEDS_MINOR@,
+    metadata: PpBytes { ptr: PAPERPAW_METADATA.as_ptr(), len: @METADATA_LEN@ },
+    make: Some(make),
+});
+
+const VALID: &[u8] = &@VALID_BATCH@;
+const INVALID: &[u8] = &@INVALID_BATCH@;
+const EXPECTED_EVENT: &[u8] = &@EXPECTED_EVENT@;
+const TOKEN: u32 = @TOKEN@;
+const IGNORE_INVALID: bool = @IGNORE_INVALID@;
+
+#[repr(C)]
+struct State { host: *const PpHost, ctx: *mut core::ffi::c_void, plugin: PpPlugin }
+
+unsafe extern "C" fn make(
+    host: *const PpHost, ctx: *mut core::ffi::c_void, out: *mut *const PpPlugin,
+) -> i32 {
+    let h = unsafe { &*host };
+    let mut stamp = 0;
+    unsafe { (h.clock_micros)(ctx, &mut stamp); }
+    let status = unsafe {
+        (h.registrations_submit)(ctx, PpBytes { ptr: VALID.as_ptr(), len: VALID.len() })
+    };
+    if status != OK { return status; }
+    if IGNORE_INVALID {
+        // H2 deliberately ignores refusal. The HOST must poison the transaction.
+        let _refusal = unsafe {
+            (h.registrations_submit)(ctx, PpBytes { ptr: INVALID.as_ptr(), len: INVALID.len() })
+        };
+    }
+    let mut block = core::ptr::null_mut();
+    let status = unsafe {
+        (h.heap_alloc)(ctx, core::mem::size_of::<State>(), core::mem::align_of::<State>(), &mut block)
+    };
+    if status != OK { return status; }
+    let state = block.cast::<State>();
+    unsafe {
+        state.write(State { host, ctx, plugin: PpPlugin {
+            size: core::mem::size_of::<PpPlugin>() as u32, state: block,
+            drop: Some(destroy), dispatch_event: Some(event), draw: Some(draw),
+        }});
+        out.write(&raw const (*state).plugin);
+    }
+    OK
+}
+
+unsafe extern "C" fn event(state: *mut core::ffi::c_void, token: u32, input: PpBytes) -> i32 {
+    if token != TOKEN || input.len != EXPECTED_EVENT.len()
+        || (input.len != 0 && input.ptr.is_null()) { return ERR_INVALID; }
+    let input = if input.len == 0 { &[] } else {
+        unsafe { core::slice::from_raw_parts(input.ptr, input.len) }
+    };
+    if input != EXPECTED_EVENT { return ERR_INVALID; }
+    unsafe { effect(state) }
+}
+
+unsafe extern "C" fn draw(state: *mut core::ffi::c_void, token: u32) -> i32 {
+    if token != TOKEN { return ERR_INVALID; }
+    unsafe { effect(state) }
+}
+
+// A one-byte allocation/free independently marks an actual foreign callback.
+// State allocations are larger; the host evidence counts these separately.
+unsafe fn effect(state: *mut core::ffi::c_void) -> i32 {
+    let s = unsafe { &*state.cast::<State>() };
+    let h = unsafe { &*s.host };
+    let mut marker = core::ptr::null_mut();
+    let status = unsafe { (h.heap_alloc)(s.ctx, 1, 1, &mut marker) };
+    if status != OK { return status; }
+    unsafe { (h.heap_dealloc)(s.ctx, marker, 1, 1) }
+}
+
+unsafe extern "C" fn destroy(state: *mut core::ffi::c_void) {
+    let s = unsafe { &*state.cast::<State>() };
+    let h = unsafe { &*s.host };
+    let mut stamp = 0;
+    unsafe {
+        (h.clock_micros)(s.ctx, &mut stamp);
+        (h.heap_dealloc)(s.ctx, state, core::mem::size_of::<State>(), core::mem::align_of::<State>());
+    }
+}
