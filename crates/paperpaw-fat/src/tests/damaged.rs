@@ -28,12 +28,13 @@ fn first_cluster(card: &Cut, at: usize) -> u32 {
 
 /// Overwrites the entry at `at`: name, attributes, first cluster, size.
 fn garble(card: &Cut, at: usize, name: &[u8; 11], attributes: u8, first: u32, size: u32) {
-    let mut data = card.data.borrow_mut();
+    let mut data = card.image();
     data[at..at + 11].copy_from_slice(name);
     data[at + 11] = attributes;
     data[at + 20..at + 22].copy_from_slice(&((first >> 16) as u16).to_le_bytes());
     data[at + 26..at + 28].copy_from_slice(&(first as u16).to_le_bytes());
     data[at + 28..at + 32].copy_from_slice(&size.to_le_bytes());
+    *card.data.borrow_mut() = SparseDisk::from_bytes(&data);
 }
 
 /// Fills `card` with files until it is full: none may be given clusters

@@ -107,6 +107,8 @@ pub struct CodeFile<'a> {
     /// The SHA-256 its header carried when it was installed
     /// ([`paperpaw_sdk::native::installed_code`]).
     pub sha256: [u8; 32],
+    /// Kernel dependencies retained by the flat plugin adapter.
+    pub host: &'a crate::native_host::FlatHost,
 }
 
 /// How the kernel loads code plugins at this start.
@@ -186,6 +188,9 @@ impl Kernel {
         // Plugins whose author's key was revoked (stolen): their code does
         // not run.
         let revoked = paperpaw_sdk::native::keys::revoked(storage.as_ref());
+        let host = crate::native_host::FlatHost {
+            meter: alloc::rc::Rc::clone(&self.shared.meter),
+        };
         for plugin in found {
             let manifest = plugin.manifest();
             let id = manifest.id.clone();
@@ -216,6 +221,7 @@ impl Kernel {
                 id: &id,
                 path: &path,
                 sha256,
+                host: &host,
             };
             let loaded = loader.load(storage.as_ref(), &file).and_then(|code| {
                 if code.manifest().id == id {

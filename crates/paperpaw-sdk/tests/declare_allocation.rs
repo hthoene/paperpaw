@@ -106,7 +106,8 @@ fn assert_no_memory<F: FnMut(&[u8]) -> Result<(), i32>>(builder: &mut Declaratio
 fn batch_allocation_failure_is_latched_without_calling_the_sink() {
     let calls = Cell::new(0);
     let mut builder = fail_allocation(1, || {
-        Declarations::new(|_| {
+        Declarations::new(|batch| {
+            assert!(batch.is_empty());
             calls.set(calls.get() + 1);
             Ok(())
         })
@@ -114,14 +115,15 @@ fn batch_allocation_failure_is_latched_without_calling_the_sink() {
     assert_no_memory(&mut builder);
     assert!(builder.is_empty());
     drop(builder);
-    assert_eq!(calls.get(), 0);
+    assert_eq!(calls.get(), 1);
 }
 
 #[test]
 fn default_and_choices_allocation_failures_abandon_pending_batches() {
     for allocation in [1, 2] {
         let calls = Cell::new(0);
-        let mut builder = Declarations::new(|_| {
+        let mut builder = Declarations::new(|batch| {
+            assert!(batch.is_empty());
             calls.set(calls.get() + 1);
             Ok(())
         });
@@ -143,7 +145,7 @@ fn default_and_choices_allocation_failures_abandon_pending_batches() {
         assert_no_memory(&mut builder);
         assert_eq!(builder.len(), 1);
         drop(builder);
-        assert_eq!(calls.get(), 0);
+        assert_eq!(calls.get(), 1);
     }
 }
 
