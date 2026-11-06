@@ -21,6 +21,9 @@ pub mod canvas;
 #[path = "native_host/commands.rs"]
 pub mod commands;
 
+/// Registry-free syntactic validation of declaration records.
+#[path = "native_host/declarations.rs"]
+pub mod declarations;
 /// Scoped environment copy-out for host-owned plugin contexts.
 #[path = "native_host/environment.rs"]
 pub mod environment;
