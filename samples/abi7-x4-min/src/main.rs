@@ -78,7 +78,11 @@ extern "C" fn table_ok(size: u32) -> bool {
 
 /// The factory (`abi/entry.md`): reads the host table's size first, as a
 /// short table must not be read as the full one, and gives the plugin.
-unsafe extern "C" fn make(host: *const PpHost, _ctx: *mut c_void, out: *mut *const PpPlugin) -> i32 {
+unsafe extern "C" fn make(
+    host: *const PpHost,
+    _ctx: *mut c_void,
+    out: *mut *const PpPlugin,
+) -> i32 {
     if out.is_null() {
         return ERR_INVALID;
     }

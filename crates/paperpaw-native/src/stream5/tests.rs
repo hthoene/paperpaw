@@ -889,7 +889,7 @@ fn the_packer_made_file_relocates_its_words_to_the_place_and_its_calls_to_the_ho
     // `make` is a code address in the image placed (not in the arena).
     assert_eq!(word(8), base + h.meta_at);
     let make = word(16);
-    assert_eq!(h.make_offset(make, base, hot) < h.image_len, true);
+    assert!(h.make_offset(make, base, hot) < h.image_len);
     assert!((base + CODE_OFFSET..base + CODE_OFFSET + h.image_len).contains(&make));
     // The plugin table's `drop`, the third word of the table, is in the image too.
     assert!(h.word_in_image(word(h.code_at as usize - 20 + 8) - base + h.base));
