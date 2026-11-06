@@ -207,7 +207,10 @@ class RecordsTests(unittest.TestCase):
         ABI.validate(self.schema)
         self.assertEqual([(r['name'], r['id']) for r in self.schema['records']],
                          [('registration.event', 1), ('registration.draw', 2), ('event.tick', 3),
-                          ('command.set_setting', 4)])
+                          ('command.set_setting', 4), ('setting.group', 5),
+                          ('setting.spec', 6), ('setting.extra', 7),
+                          ('resource.hyphenation', 8), ('resource.font_face', 9),
+                          ('resource.font_extension', 10)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             record['id'] += 127

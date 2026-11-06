@@ -11,6 +11,41 @@ mod elf;
 mod tests;
 
 pub use elf::{DataExport, check_elf64_le, data_export};
+#[cfg(feature = "kernel")]
+pub use elf::{FreestandingRefusal, check_freestanding};
+
+/// The dynamic symbols a host plugin library may define, and no others: the
+/// metadata locator and the entry. The one list for the loader and for the
+/// packager's check ([`check_freestanding`]), so no caller types the two
+/// names a second time; a test ties it to `abi/abi.def`. It lives here, not
+/// in `host_glue`, because it is a rule of the check and not part of the flat
+/// plugin boundary, whose surface it must not widen. Behind the `kernel`
+/// feature (ADR 0020): the frozen interface of this crate does not grow.
+#[cfg(feature = "kernel")]
+pub const PLUGIN_EXPORTS: &[&str] = &[
+    crate::host_glue::METADATA_SYMBOL,
+    crate::host_glue::ENTRY_SYMBOL,
+];
+
+#[cfg(all(test, feature = "kernel"))]
+mod export_list_tests {
+    extern crate std;
+
+    #[test]
+    fn plugin_exports_are_exactly_the_symbols_abi_def_names() {
+        let def = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../abi/abi.def"));
+        for (key, name) in [
+            ("symbol", crate::host_glue::METADATA_SYMBOL),
+            ("entry_symbol", crate::host_glue::ENTRY_SYMBOL),
+        ] {
+            assert!(def.contains(&std::format!("\"{key}\": \"{name}\"")));
+        }
+        assert_eq!(
+            super::PLUGIN_EXPORTS,
+            &["PAPERPAW_METADATA", "PAPERPAW_ENTRY"][..]
+        );
+    }
+}
 
 /// Why a file is refused before it is loaded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

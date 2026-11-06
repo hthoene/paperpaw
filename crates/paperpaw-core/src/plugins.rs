@@ -796,6 +796,7 @@ impl Kernel {
             self.register_off(&plugin, manifest);
         } else {
             self.register_plugin(&plugin, manifest);
+            self.add_hyphenation_tables(&plugin);
             if let Some(info) = self.shared.plugins.get_mut(id.as_str()) {
                 info.kind = paperpaw_sdk::PluginKind::Data;
             }
@@ -805,6 +806,45 @@ impl Kernel {
             .push((id, plugin.folder().to_string()));
         self.apply_defaults(&[]);
         true
+    }
+
+    /// Adds the hyphenation tables of data plugin `plugin`, where it is
+    /// running (registered and not switched off), and tells which languages
+    /// one plugin's table keeps from another's (D4).
+    pub(crate) fn add_hyphenation_tables(&mut self, plugin: &crate::data_plugin::DataPlugin) {
+        let tables = plugin.take_hyphenation();
+        let id = plugin.manifest().id;
+        let running = self
+            .shared
+            .plugins
+            .get(id.as_str())
+            .is_some_and(|info| info.state == PluginState::Running);
+        if tables.is_empty() || !running {
+            return;
+        }
+        let added = self
+            .shared
+            .hyphenation_tables
+            .add(id.as_str(), plugin.folder(), &tables);
+        if added.is_err() {
+            let problem = "hyphenation tables left out, no memory for them".into();
+            return self.warn(WarningSource::Plugin(id), None, problem);
+        }
+        let told: Vec<String> = self
+            .shared
+            .hyphenation_tables
+            .collisions(id.as_str())
+            .map(|(lost, kept)| {
+                format!(
+                    "{}: hyphenation left out, {} has the language",
+                    lost.name(),
+                    kept.plugin
+                )
+            })
+            .collect();
+        for problem in told {
+            self.warn_runtime(problem);
+        }
     }
 
     /// Removes a data plugin while running (see
@@ -840,6 +880,7 @@ impl Kernel {
         self.close_ended_runs();
         self.shared.data_folders.retain(|(p, _)| p != id);
         self.shared.fonts.remove_plugin(id.as_str());
+        self.shared.hyphenation_tables.remove(id.as_str());
         // Its key maps and stylesheets; the key map is built anew once the
         // plugins changed (`plugins_changed`).
         self.keys.plugins.retain(|(p, _)| p != id);
