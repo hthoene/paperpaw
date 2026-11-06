@@ -139,7 +139,7 @@ pub fn pack5(elf: &[u8]) -> Result<Packed5, String> {
     let tables = crate::frames::Tables {
         addr: image.rodata.addr,
         bytes: &image.bytes[..image.code_at as usize],
-        relocated: &words,
+        relocated: Some(&words),
     };
     crate::frames::check(&elf, image.text, image.text_index, &symbols, tables)?;
     let hot = Hot::of(&elf, &image, chip, &symbols, &words)?;

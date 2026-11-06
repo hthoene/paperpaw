@@ -715,7 +715,7 @@ fn random_code_and_ranges_never_panic_the_scan() {
         let tables = Tables {
             addr: base,
             bytes: &table_bytes,
-            relocated: &relocated,
+            relocated: Some(&relocated),
         };
         let proved = noreturn_functions(&bytes, &ranges, base, tables, false);
         for lenient in [false, true] {
@@ -797,7 +797,7 @@ fn with_table(f: &[u8], words: &[u32], relocated: &[u32]) -> Option<Finding> {
         tables: Tables {
             addr: ROD,
             bytes: &bytes,
-            relocated: &relocated,
+            relocated: Some(&relocated),
         },
         ..Env::none()
     };
@@ -933,4 +933,48 @@ fn a_table_longer_than_the_function_is_refused_not_cut() {
     let g = table_function(&case1);
     let words = vec![TEXT + 24; 8];
     assert_eq!(with_table(&g, &words, &relocated[..8]), None);
+}
+
+/// The firmware's walk: the code is linked in place, so no word is relocated
+/// and `relocated` is `None`.
+fn linked_sizes(f: &[u8], words: &[u32]) -> Sized {
+    let bytes = rodata(words);
+    let env = Env {
+        tables: Tables {
+            addr: ROD,
+            bytes: &bytes,
+            relocated: None,
+        },
+        lenient: true,
+        ..Env::none()
+    };
+    sizes_in(f, &[(0, f.len())], env)[0]
+}
+
+#[test]
+fn a_linked_firmwares_table_is_resolved_and_its_function_is_sized() {
+    let big = [W(addi(SP, SP, -1600)), W(addi(SP, SP, 1616)), W(RET)];
+    let f = table_function(&big);
+    // Both entries are addresses in the function: every case is walked from
+    // the jump, the frame is the largest one, and it is not a lower bound.
+    let s = linked_sizes(&f, &[TEXT + 24, TEXT + 32]);
+    assert_eq!(s.bytes, Some(1616));
+    // A table that cannot be read leaves the function not sized, with what
+    // the walk saw as its lower bound.
+    let s = linked_sizes(&f, &[]);
+    assert_eq!(s.bytes, None);
+    let s = linked_sizes(&f, &[0x1234_5678]);
+    assert_eq!(s.bytes, None);
+}
+
+#[test]
+fn a_linked_table_ends_at_the_first_word_that_is_not_in_the_function() {
+    let big = [W(addi(SP, SP, -1600)), W(addi(SP, SP, 1616)), W(RET)];
+    let f = table_function(&big);
+    // Data after the table (a word out of the function) is not an entry.
+    let s = linked_sizes(&f, &[TEXT + 24, TEXT + 32, 0x3c00_1234, TEXT + 32]);
+    assert_eq!(s.bytes, Some(1616));
+    // Into the middle of an instruction: the table is refused (not sized).
+    let s = linked_sizes(&f, &[TEXT + 24, TEXT + 34]);
+    assert_eq!(s.bytes, None);
 }

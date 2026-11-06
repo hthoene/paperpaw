@@ -15,18 +15,68 @@
 //! down the chain takes at most). A name that matches no function fails too,
 //! so a rename cannot make a check pass by matching nothing. A function whose
 //! frame cannot be read counts as unbounded, and fails the budget: a dynamic
-//! `alloca`, and a jump table. The firmware's own code has jump tables (`match`
-//! on many arms), and where a function jumps through a register inside its
-//! frame the walk reads only the cases it can see from the jump, so its frame
-//! is a lower bound: the listing shows it as `?>=<bytes>` and the budget
-//! refuses a budgeted function that has one. That is a gap this check leaves
-//! open, not a bound: a firmware function with a jump table is not proved
-//! small until its table is resolved.  `#` starts a comment.
+//! `alloca`, and a jump table that cannot be read. The firmware's own code
+//! has jump tables (`match` on many arms): the listing reads each from the
+//! firmware's read-only data (as the pack of a plugin does, but the code is
+//! linked in place, so every word of the table is an address and none is
+//! relocated) and walks every case from the jump with the frame it has
+//! there. Where a function jumps through a register inside its frame and the
+//! table cannot be read (none of its words points into the function, or one
+//! points into the middle of an instruction), the walk reads only the cases
+//! it can see from the jump, so its frame is a lower bound: the listing
+//! shows it as `?>=<bytes>` and the budget refuses a budgeted function that
+//! has one. A function of no size in the symbol table (the Wi-Fi blob's
+//! assembly) is `unknown` and is not read at all. `#` starts a comment.
 
 use std::fmt::Write as _;
 
-use crate::elf::{Elf, SHF_EXECINSTR, Symbol};
-use crate::frames::{Env, function_ranges, noreturn_functions, path, sizes_in};
+use crate::elf::{Elf, SHF_ALLOC, SHF_EXECINSTR, SHF_WRITE, Symbol};
+use crate::frames::{Env, Tables, function_ranges, noreturn_functions, path, sizes_in};
+
+/// The most the read-only data of a firmware may span (its first section to
+/// its last, in address): the listing reads it as one run of bytes.
+const RODATA_SPAN_MAX: u32 = 64 << 20;
+
+/// The firmware's read-only data (its alloc sections that are neither
+/// executable nor writable) as one run of bytes from the first section's
+/// address, a gap between sections zero: the compiler's jump tables lie
+/// there. Returns the address of the first byte and the bytes.
+fn rodata(elf: &Elf<'_>) -> Result<(u32, Vec<u8>), String> {
+    let parts: Vec<_> = elf
+        .sections
+        .iter()
+        .filter(|s| {
+            s.kind == 1 // SHT_PROGBITS
+                && s.flags & SHF_ALLOC != 0
+                && s.flags & (SHF_EXECINSTR | SHF_WRITE) == 0
+                && s.size > 0
+        })
+        .collect();
+    let Some(first) = parts.iter().map(|s| s.addr).min() else {
+        return Ok((0, Vec::new()));
+    };
+    let mut end = first;
+    for s in &parts {
+        end = end.max(
+            s.addr
+                .checked_add(s.size)
+                .ok_or_else(|| format!("section {} wraps the address space", s.name))?,
+        );
+    }
+    if end - first > RODATA_SPAN_MAX {
+        return Err(format!(
+            "the read-only data spans {} bytes: more than the listing reads",
+            end - first
+        ));
+    }
+    let mut bytes = vec![0u8; (end - first) as usize];
+    for s in parts {
+        let at = (s.addr - first) as usize;
+        let data = elf.data(s)?;
+        bytes[at..at + data.len()].copy_from_slice(data);
+    }
+    Ok((first, bytes))
+}
 
 /// `STT_FUNC`.
 const STT_FUNC: u8 = 2;
@@ -52,6 +102,12 @@ pub fn frames(elf: &Elf<'_>) -> Result<Vec<Frame>, String> {
     let (_, symbols) = elf
         .symbols()?
         .ok_or("no symbol table: the firmware is stripped")?;
+    let (rodata_at, rodata_bytes) = rodata(elf)?;
+    let tables = Tables {
+        addr: rodata_at,
+        bytes: &rodata_bytes,
+        relocated: None,
+    };
     let mut out = Vec::new();
     for (index, section) in elf.sections.iter().enumerate() {
         if section.flags & SHF_EXECINSTR == 0 || section.size == 0 || section.kind == 8 {
@@ -70,10 +126,11 @@ pub fn frames(elf: &Elf<'_>) -> Result<Vec<Frame>, String> {
             .map(|s| (s.value.wrapping_sub(section.addr) as usize, s.size as usize))
             .collect();
         let ranges = function_ranges(&sized, code.len());
-        let noreturn = noreturn_functions(code, &ranges, section.addr, true);
+        let noreturn = noreturn_functions(code, &ranges, section.addr, tables, true);
         let env = Env {
             base: section.addr,
             noreturn: &noreturn,
+            tables,
             lenient: true,
         };
         let sizes = sizes_in(code, &ranges, env);

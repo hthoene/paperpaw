@@ -18,6 +18,7 @@ frame 1024 rust_begin_unwind
 frame 320 crash::panic
 frame 128 ExceptionHandler
 frame 96 core::fmt::write
-# The logger's `Log::log` has the path `esp_println::logger::12Es::log::Log::log` (the packer's reading of a mangled
-# `impl` name is rough; a whole path is matched, so this is that function and no other).
-chain 1792 rust_begin_unwind crash::panic ExceptionHandler core::fmt::write esp_println::logger::12Es::log::Log::log
+# The packer's reading of a mangled `impl` name is rough (the logger's `log` is
+# `esp_println::logger::_12E::log::Log::log` in one build and another path in the next), so the
+# chain names the tail `log::Log::log`: every `Log::log` of the firmware, and the largest counts.
+chain 1792 rust_begin_unwind crash::panic ExceptionHandler core::fmt::write log::Log::log

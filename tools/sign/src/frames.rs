@@ -563,8 +563,11 @@ pub struct Tables<'a> {
     pub addr: u32,
     /// The bytes of `.rodata`.
     pub bytes: &'a [u8],
-    /// The offsets in `bytes` of the words to relocate.
-    pub relocated: &'a std::collections::BTreeSet<u32>,
+    /// The offsets in `bytes` of the words to relocate. `None`: the code is
+    /// linked at its place (a firmware), no word moves, and the words of a
+    /// table are final addresses; the run of them still ends at the first
+    /// word that is not an address in the function.
+    pub relocated: Option<&'a std::collections::BTreeSet<u32>>,
 }
 
 static NO_WORDS: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
@@ -579,7 +582,7 @@ impl Tables<'static> {
         Tables {
             addr: 0,
             bytes: &[],
-            relocated: &NO_WORDS,
+            relocated: Some(&NO_WORDS),
         }
     }
 }
@@ -714,7 +717,9 @@ impl Walk<'_> {
         }
         let mut out = Vec::new();
         while let Some(word) = at.checked_add(4).and_then(|end| tables.bytes.get(at..end)) {
-            if !u32::try_from(at).is_ok_and(|o| tables.relocated.contains(&o)) {
+            if let Some(relocated) = tables.relocated
+                && !u32::try_from(at).is_ok_and(|o| relocated.contains(&o))
+            {
                 break;
             }
             let to = u32::from_le_bytes([word[0], word[1], word[2], word[3]]);
