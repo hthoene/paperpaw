@@ -298,6 +298,25 @@ fn writes_rd(opcode: u32) -> bool {
     )
 }
 
+/// `jalr x0, imm(rs1)`: a return, a jump through a table's word, a tail call
+/// by `auipc` and `jr` (the compilers' `tail`: where it goes is known, a jump
+/// like `jal`'s, out of the function or into it), or a jump through a register
+/// the scan does not know.
+fn jump_through(state: &State, rs1: usize, imm_i: i32, pc: u32) -> Ctl {
+    match (rs1, imm_i, state.tab[rs1]) {
+        (1, 0, _) => Ctl::Ret,
+        (_, 0, Tab::Entry(at)) => Ctl::Table(at),
+        _ => match state.regs[rs1] {
+            Some(v) => Ctl::Jump(
+                i64::from(v as u32)
+                    .wrapping_add(i64::from(imm_i))
+                    .wrapping_sub(i64::from(pc)),
+            ),
+            None => Ctl::Indirect,
+        },
+    }
+}
+
 /// A 32-bit instruction.
 fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
     let opcode = w & 0x7f;
@@ -386,21 +405,7 @@ fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
         // jalr: a return, a call (falls through), or a jump through a register.
         0x67 => {
             if rd == 0 {
-                effect.ctl = match (rs1, imm_i, state.tab[rs1]) {
-                    (1, 0, _) => Ctl::Ret,
-                    (_, 0, Tab::Entry(at)) => Ctl::Table(at),
-                    // A tail call, `auipc` and `jr` (the compilers' `tail`):
-                    // where it goes is known, a jump like `jal`'s, out of the
-                    // function or into it.
-                    _ => match state.regs[rs1] {
-                        Some(v) => Ctl::Jump(
-                            i64::from(v as u32)
-                                .wrapping_add(i64::from(imm_i))
-                                .wrapping_sub(i64::from(pc)),
-                        ),
-                        None => Ctl::Indirect,
-                    },
-                };
+                effect.ctl = jump_through(state, rs1, imm_i, pc);
             } else {
                 // A call through a register, an `auipc` pair's: where to?
                 let target = state.regs[rs1].map(|v| (v as u32).wrapping_add(imm_i as u32));
