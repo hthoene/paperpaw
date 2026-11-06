@@ -29,7 +29,7 @@ unsafe fn text_in<'a>(bytes: PpBytes) -> &'a str {
     unsafe { core::str::from_utf8(core::slice::from_raw_parts(bytes.ptr, bytes.len)).unwrap() }
 }
 
-unsafe extern "C" fn acquire(ctx: *mut c_void, key: PpBytes, out: *mut u32) -> i32 {
+unsafe extern "C" fn font_acquire_slot(ctx: *mut c_void, key: PpBytes, out: *mut u32) -> i32 {
     // SAFETY: test host/context/output live throughout each wrapper call.
     unsafe {
         let ctx = &*ctx.cast::<Context>();
@@ -40,7 +40,7 @@ unsafe extern "C" fn acquire(ctx: *mut c_void, key: PpBytes, out: *mut u32) -> i
     }
 }
 
-unsafe extern "C" fn measure(
+unsafe extern "C" fn font_measure_slot(
     ctx: *mut c_void,
     font: u32,
     size: f32,
@@ -59,7 +59,7 @@ unsafe extern "C" fn measure(
     }
 }
 
-unsafe extern "C" fn release(ctx: *mut c_void, handle: u32) -> i32 {
+unsafe extern "C" fn font_release_slot(ctx: *mut c_void, handle: u32) -> i32 {
     // SAFETY: test font retains this context until it is released or dropped.
     let ctx = unsafe { &*ctx.cast::<Context>() };
     ctx.released.borrow_mut().push(handle);
@@ -68,9 +68,9 @@ unsafe extern "C" fn release(ctx: *mut c_void, handle: u32) -> i32 {
 
 fn table() -> PpHost {
     let mut table = abi::host_table();
-    table.font_acquire = acquire;
-    table.text_measure = measure;
-    table.handle_release = release;
+    table.font_acquire = font_acquire_slot;
+    table.text_measure = font_measure_slot;
+    table.handle_release = font_release_slot;
     table
 }
 
@@ -87,7 +87,7 @@ fn opaque_handles_including_zero_are_measured_and_released_once() {
     for handle in [0, 1, u32::MAX] {
         ctx.handle.set(handle);
         let font = Font::acquire(&host, "fonts-default.ui").unwrap();
-        assert_eq!(font.measure(17.25, "Grüße"), Ok(123.5));
+        assert_eq!(font.measure_text(17.25, "Grüße"), Ok(123.5));
         assert_eq!(ctx.key.borrow().as_str(), "fonts-default.ui");
         assert_eq!(ctx.text.borrow().as_str(), "Grüße");
         assert_eq!(ctx.measured_handle.get(), handle);
@@ -140,7 +140,7 @@ fn host_errors_are_preserved_and_failed_release_is_not_retried() {
     let font = Font::acquire(&host, "role:ui").unwrap();
     for code in [abi::ERR_STATE, abi::ERR_UNSUPPORTED, -901] {
         ctx.measure_status.set(code);
-        assert_eq!(font.measure(18.0, "A"), Err(Error::from_status(code)));
+        assert_eq!(font.measure_text(18.0, "A"), Err(Error::from_status(code)));
     }
     ctx.release_status.set(abi::ERR_STATE);
     assert_eq!(font.release(), Err(Error::State));
@@ -162,11 +162,14 @@ fn invalid_sizes_and_oversized_utf8_are_refused_before_host_calls() {
     assert_eq!(ctx.acquired.get(), 0);
     let font = Font::acquire(&host, "a".repeat(128)).unwrap();
     for size in [0.0, -0.0, -1.0, f32::INFINITY, f32::NEG_INFINITY, f32::NAN] {
-        assert_eq!(font.measure(size, "A"), Err(Error::Invalid));
+        assert_eq!(font.measure_text(size, "A"), Err(Error::Invalid));
     }
-    assert_eq!(font.measure(18.0, "é".repeat(2049)), Err(Error::NoSpace));
+    assert_eq!(
+        font.measure_text(18.0, "é".repeat(2049)),
+        Err(Error::NoSpace)
+    );
     assert_eq!(ctx.measured.get(), 0);
-    assert_eq!(font.measure(18.0, "é".repeat(2048)), Ok(0.0));
+    assert_eq!(font.measure_text(18.0, "é".repeat(2048)), Ok(0.0));
     assert_eq!(ctx.measured.get(), 1);
 }
 
@@ -182,4 +185,61 @@ fn default_host_table_reports_unsupported() {
         Font::acquire_role(&host, FontRole::Ui).unwrap_err(),
         Error::Unsupported
     );
+}
+
+#[test]
+fn host_cap_of_four_live_fonts_recovers_after_release() {
+    #[derive(Default)]
+    struct Capped {
+        next: Cell<u32>,
+        live: RefCell<Vec<u32>>,
+    }
+    unsafe extern "C" fn capped_acquire(ctx: *mut c_void, _: PpBytes, out: *mut u32) -> i32 {
+        // SAFETY: this test retains Capped and supplies a writable output.
+        let ctx = unsafe { &*ctx.cast::<Capped>() };
+        let mut live = ctx.live.borrow_mut();
+        if live.len() == 4 {
+            return abi::ERR_FULL;
+        }
+        let handle = ctx.next.get();
+        ctx.next.set(handle + 1);
+        live.push(handle);
+        // SAFETY: font acquisition supplies disjoint scalar output storage.
+        unsafe { out.write(handle) };
+        abi::OK
+    }
+    unsafe extern "C" fn capped_release(ctx: *mut c_void, handle: u32) -> i32 {
+        // SAFETY: every font retains this test's Capped context until drop.
+        let ctx = unsafe { &*ctx.cast::<Capped>() };
+        let mut live = ctx.live.borrow_mut();
+        let Some(index) = live.iter().position(|item| *item == handle) else {
+            return abi::ERR_STATE;
+        };
+        live.swap_remove(index);
+        abi::OK
+    }
+    let mut table = abi::host_table();
+    table.font_acquire = capped_acquire;
+    table.handle_release = capped_release;
+    let mut ctx = Capped::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut fonts = Vec::new();
+    for _ in 0..4 {
+        fonts.push(Font::acquire_role(&host, FontRole::Ui).unwrap());
+    }
+    assert_eq!(ctx.live.borrow().len(), 4);
+    assert_eq!(
+        Font::acquire_role(&host, FontRole::Reading).unwrap_err(),
+        Error::Full
+    );
+    fonts.remove(1).release().unwrap();
+    assert_eq!(ctx.live.borrow().len(), 3);
+    let replacement = Font::acquire_role(&host, FontRole::Reading).unwrap();
+    assert_eq!(ctx.live.borrow().len(), 4);
+    drop(fonts);
+    drop(replacement);
+    assert!(ctx.live.borrow().is_empty());
 }

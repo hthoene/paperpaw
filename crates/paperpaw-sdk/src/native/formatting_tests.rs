@@ -12,6 +12,7 @@ use paperpaw_native::host_glue::{self as abi, PpHost};
 struct Context {
     inputs: RefCell<Vec<(String, Vec<u8>)>>,
     result: Cell<i32>,
+    copy_reply: RefCell<Option<Vec<u8>>>,
 }
 unsafe fn call(ctx: *mut c_void, key: PpBytes, args: PpBytes, out: PpBuffer) -> i32 {
     // SAFETY: tests provide a live context, readable inputs and writable output.
@@ -40,9 +41,20 @@ unsafe extern "C" fn digits_slot(ctx: *mut c_void, text: PpBytes, out: PpBuffer)
     // SAFETY: forwarded unchanged; empty arguments are readable at zero length.
     unsafe { call(ctx, text, bytes(b""), out) }
 }
+unsafe extern "C" fn copy_slot(ctx: *mut c_void, key: PpBytes, out: PpBuffer) -> i32 {
+    // SAFETY: the wrapper supplies a live context and exclusively borrowed output.
+    unsafe {
+        let context = &*ctx.cast::<Context>();
+        if let Some(reply) = context.copy_reply.borrow().as_ref() {
+            ptr::copy_nonoverlapping(reply.as_ptr(), out.ptr, reply.len().min(out.cap));
+            return reply.len() as i32;
+        }
+        digits_slot(ctx, key, out)
+    }
+}
 fn table() -> PpHost {
     let mut table = abi::host_table();
-    table.i18n_copy = digits_slot;
+    table.i18n_copy = copy_slot;
     table.i18n_format = format_slot;
     table.i18n_digits = digits_slot;
     table
@@ -210,7 +222,7 @@ fn missing_keys_preserve_output_and_digits_return_required_length() {
 }
 
 #[test]
-fn copy_forwards_keys_and_returns_full_length_without_a_local_cap() {
+fn copy_message_forwards_keys_and_borrows_complete_output_without_a_local_key_cap() {
     let table = table();
     let mut ctx = Context::default();
     let host = Host {
@@ -218,33 +230,69 @@ fn copy_forwards_keys_and_returns_full_length_without_a_local_cap() {
         ctx: ptr::from_mut(&mut ctx).cast(),
     };
     ctx.result.set(9);
-    assert_eq!(copy(&host, "battery.title", &mut []), Ok(9));
+    assert_eq!(
+        copy_message(&host, "battery.title", &mut []),
+        Err(Error::NoSpace)
+    );
     let mut out = [0; 4];
-    assert_eq!(copy(&host, "battery.title", &mut out), Ok(9));
+    assert_eq!(
+        copy_message(&host, "battery.title", &mut out),
+        Err(Error::NoSpace)
+    );
     assert_eq!(out, *b"xxxx");
+    let mut complete = [0; 9];
+    let start = complete.as_ptr();
+    let message = copy_message(&host, "battery.title", &mut complete).unwrap();
+    assert_eq!(message, "xxxxxxxxx");
+    assert_eq!(message.as_ptr(), start);
     let key = "x".repeat(MAX_KEY_BYTES + 1);
-    assert_eq!(copy(&host, &key, &mut out), Ok(9));
-    assert_eq!(ctx.inputs.borrow()[2].0, key);
+    assert_eq!(copy_message(&host, &key, &mut complete), Ok("xxxxxxxxx"));
+    assert_eq!(ctx.inputs.borrow()[3].0, key);
+    ctx.result.set(0);
+    assert_eq!(copy_message(&host, "empty", &mut []), Ok(""));
     ctx.result.set(abi::ERR_NOT_FOUND);
     out = [77; 4];
-    assert_eq!(copy(&host, "missing", &mut out), Err(Error::NotFound));
+    assert_eq!(
+        copy_message(&host, "missing", &mut out),
+        Err(Error::NotFound)
+    );
     assert_eq!(out, [77; 4]);
     ctx.result.set(-125);
     assert_eq!(
-        copy(&host, "battery.title", &mut out),
+        copy_message(&host, "battery.title", &mut out),
         Err(Error::Other(-125))
     );
 }
 
 #[test]
-fn copy_default_table_is_unsupported() {
+fn copy_message_refuses_multibyte_truncation_before_decoding_and_invalid_utf8() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    *ctx.copy_reply.borrow_mut() = Some("é".as_bytes().to_vec());
+    let mut short = [0; 1];
+    assert_eq!(
+        copy_message(&host, "accent", &mut short),
+        Err(Error::NoSpace)
+    );
+    assert_eq!(short, [0xc3]);
+    assert_eq!(copy_message(&host, "accent", &mut [0; 2]), Ok("é"));
+    *ctx.copy_reply.borrow_mut() = Some(vec![0xff]);
+    assert_eq!(copy_message(&host, "broken", &mut [0; 1]), Err(Error::Utf8));
+}
+
+#[test]
+fn copy_message_default_table_is_unsupported() {
     let table = abi::host_table();
     let host = Host {
         table: &table,
         ctx: ptr::null_mut(),
     };
     assert_eq!(
-        copy(&host, "battery.title", &mut [0; 4]),
+        copy_message(&host, "battery.title", &mut [0; 4]),
         Err(Error::Unsupported)
     );
 }

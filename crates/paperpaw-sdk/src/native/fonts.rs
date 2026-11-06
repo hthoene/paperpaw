@@ -17,7 +17,7 @@ pub enum FontRole {
 }
 
 impl FontRole {
-    const fn key(self) -> &'static str {
+    const fn font_role_key(self) -> &'static str {
         match self {
             Self::Ui => "role:ui",
             Self::UiBold => "role:ui-bold",
@@ -71,7 +71,7 @@ impl<'cb> Font<'cb> {
     /// # Errors
     /// Returns the host refusal, including Full and NotFound.
     pub fn acquire_role(host: &'cb Host<'cb>, role: FontRole) -> Result<Self, Error> {
-        Self::acquire(host, role.key())
+        Self::acquire(host, role.font_role_key())
     }
 
     /// Measure text advance in pixels at a finite, positive font size.
@@ -80,7 +80,7 @@ impl<'cb> Font<'cb> {
     /// # Errors
     /// Returns Invalid for a nonpositive or nonfinite size, NoSpace for text
     /// over 4096 UTF-8 bytes, or the host refusal, including a stale handle.
-    pub fn measure(&self, size: f32, text: impl AsRef<str>) -> Result<f32, Error> {
+    pub fn measure_text(&self, size: f32, text: impl AsRef<str>) -> Result<f32, Error> {
         let text = text.as_ref();
         if !size.is_finite() || size <= 0.0 {
             return Err(Error::Invalid);

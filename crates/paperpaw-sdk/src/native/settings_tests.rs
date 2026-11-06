@@ -17,9 +17,15 @@ struct Context {
     result: Cell<Option<i32>>,
 }
 impl Context {
-    fn set(&self, value: Value<'_>) {
+    fn set(&self, value: SettingValue<'_>) {
         let mut scratch = [MaybeUninit::uninit(); 128];
-        let length = settings_encode(value, &mut scratch).unwrap();
+        let wire = match value {
+            SettingValue::Absent => wire::SettingValueRef::Absent,
+            SettingValue::Bool(value) => wire::SettingValueRef::Bool(value),
+            SettingValue::Int(value) => wire::SettingValueRef::Int(value),
+            SettingValue::Text(value) => wire::SettingValueRef::Text(value),
+        };
+        let length = settings_encode(wire, &mut scratch).unwrap();
         *self.reply.borrow_mut() = scratch[..length]
             .iter()
             .map(|byte| {
@@ -59,18 +65,18 @@ fn values_round_trip_and_text_borrows_the_callers_scratch() {
     };
     let mut scratch = [0; 128];
     for value in [
-        Value::Absent,
-        Value::Bool(false),
-        Value::Bool(true),
-        Value::Int(i64::MIN),
-        Value::Int(i64::MAX),
-        Value::Text("Grüße"),
+        SettingValue::Absent,
+        SettingValue::Bool(false),
+        SettingValue::Bool(true),
+        SettingValue::Int(i64::MIN),
+        SettingValue::Int(i64::MAX),
+        SettingValue::Text("Grüße"),
     ] {
         ctx.set(value);
         let start = scratch.as_ptr();
-        let got = read(&host, "battery.show-percent", &mut scratch).unwrap();
+        let got = read_setting(&host, "battery.show-percent", &mut scratch).unwrap();
         assert_eq!(got, value);
-        if let Value::Text(text) = got {
+        if let SettingValue::Text(text) = got {
             assert_eq!(text.as_ptr(), start.wrapping_add(SETTINGS_HEADER_BYTES));
         }
     }
@@ -90,13 +96,13 @@ fn truncated_values_are_not_decoded_and_exact_capacity_succeeds() {
         table: &table,
         ctx: ptr::from_mut(&mut ctx).cast(),
     };
-    ctx.set(Value::Bool(true));
+    ctx.set(SettingValue::Bool(true));
     assert_eq!(
-        read(&host, "battery.show-percent", &mut []),
+        read_setting(&host, "battery.show-percent", &mut []),
         Err(Error::NoSpace)
     );
     assert_eq!(
-        read(
+        read_setting(
             &host,
             "battery.show-percent",
             &mut [0; SETTINGS_HEADER_BYTES]
@@ -104,16 +110,16 @@ fn truncated_values_are_not_decoded_and_exact_capacity_succeeds() {
         Err(Error::NoSpace)
     );
     assert_eq!(
-        read(
+        read_setting(
             &host,
             "battery.show-percent",
             &mut [0; SETTINGS_HEADER_BYTES + 1]
         ),
-        Ok(Value::Bool(true))
+        Ok(SettingValue::Bool(true))
     );
     ctx.result.set(Some(i32::MAX));
     assert_eq!(
-        read(&host, "battery.show-percent", &mut [0; 16]),
+        read_setting(&host, "battery.show-percent", &mut [0; 16]),
         Err(Error::NoSpace)
     );
 }
@@ -128,25 +134,25 @@ fn malformed_host_values_and_status_errors_remain_distinct() {
     };
     let mut scratch = [0; 128];
     assert_eq!(
-        read(&host, "battery.show-percent", &mut scratch),
+        read_setting(&host, "battery.show-percent", &mut scratch),
         Err(Error::Invalid)
     );
-    ctx.set(Value::Bool(true));
+    ctx.set(SettingValue::Bool(true));
     ctx.reply.borrow_mut()[SETTINGS_HEADER_BYTES] = 2;
     assert_eq!(
-        read(&host, "battery.show-percent", &mut scratch),
+        read_setting(&host, "battery.show-percent", &mut scratch),
         Err(Error::Invalid)
     );
-    ctx.set(Value::Bool(true));
+    ctx.set(SettingValue::Bool(true));
     ctx.reply.borrow_mut()[0] = 99;
     assert_eq!(
-        read(&host, "battery.show-percent", &mut scratch),
+        read_setting(&host, "battery.show-percent", &mut scratch),
         Err(Error::Unsupported)
     );
-    ctx.set(Value::Text("x"));
+    ctx.set(SettingValue::Text("x"));
     ctx.reply.borrow_mut()[SETTINGS_HEADER_BYTES] = 0xff;
     assert_eq!(
-        read(&host, "battery.show-percent", &mut scratch),
+        read_setting(&host, "battery.show-percent", &mut scratch),
         Err(Error::Utf8)
     );
     for (code, expected) in [
@@ -156,7 +162,7 @@ fn malformed_host_values_and_status_errors_remain_distinct() {
     ] {
         ctx.result.set(Some(code));
         assert_eq!(
-            read(&host, "battery.show-percent", &mut scratch),
+            read_setting(&host, "battery.show-percent", &mut scratch),
             Err(expected)
         );
     }
@@ -170,7 +176,63 @@ fn default_table_is_unsupported() {
         ctx: ptr::null_mut(),
     };
     assert_eq!(
-        read(&host, "battery.show-percent", &mut [0; 32]),
+        read_setting(&host, "battery.show-percent", &mut [0; 32]),
         Err(Error::Unsupported)
     );
+}
+
+#[test]
+fn own_grant_uses_relative_keys_and_decodes_only_boolean_replies() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    ctx.set(SettingValue::Bool(true));
+    assert_eq!(own_grant(&host, GrantKind::Style), Ok(true));
+    ctx.set(SettingValue::Bool(false));
+    assert_eq!(own_grant(&host, GrantKind::Install), Ok(false));
+    assert_eq!(
+        *ctx.keys.borrow(),
+        ["core.grant.style", "core.grant.install"]
+    );
+    for value in [
+        SettingValue::Absent,
+        SettingValue::Int(1),
+        SettingValue::Text("x"),
+    ] {
+        ctx.set(value);
+        assert_eq!(own_grant(&host, GrantKind::Style), Err(Error::Invalid));
+    }
+    ctx.set(SettingValue::Bool(true));
+    ctx.reply.borrow_mut()[SETTINGS_HEADER_BYTES] = 2;
+    assert_eq!(own_grant(&host, GrantKind::Style), Err(Error::Invalid));
+    ctx.result.set(Some(1));
+    assert_eq!(own_grant(&host, GrantKind::Style), Err(Error::Invalid));
+    for (code, expected) in [(abi::ERR_DENIED, Error::Denied), (-125, Error::Other(-125))] {
+        ctx.result.set(Some(code));
+        assert_eq!(own_grant(&host, GrantKind::Install), Err(expected));
+    }
+}
+
+#[test]
+fn generic_settings_read_refuses_grant_keys_before_calling_the_host() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [77; 32];
+    for key in [
+        "core.grant.style",
+        "core.grant.install",
+        "core.grant.style.foreign-plugin",
+        "core.grant.",
+    ] {
+        assert_eq!(read_setting(&host, key, &mut scratch), Err(Error::Denied));
+    }
+    assert!(ctx.keys.borrow().is_empty());
+    assert_eq!(scratch, [77; 32]);
 }
