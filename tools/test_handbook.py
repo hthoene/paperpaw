@@ -55,6 +55,10 @@ class Handbook(unittest.TestCase):
         # Nor the generated table of icon names: data with nothing to read, 53 KB zipped.
         self.assertNotIn(top + "src/paperpaw-sdk/icon_table.rs", names)
         self.assertIn(top + "src/paperpaw-sdk/icons.rs", names)
+        # Nor the SDK's private copies of the generated wire codecs.
+        self.assertFalse(any(n.startswith(top + "src/paperpaw-sdk/native/wire/") for n in names))
+        self.assertNotIn(top + "src/paperpaw-sdk/native/declare/records_wire.rs", names)
+        self.assertNotIn(top + "src/paperpaw-sdk/native/declare/settings_value.rs", names)
         # Neither the kernel nor a shell.
         self.assertFalse(any(n.startswith((top + "src/paperpaw-core/", top + "shells/")) for n in names))
         self.assertNotIn("#[cfg(test)]\nmod tests {", battery)

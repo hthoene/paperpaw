@@ -473,6 +473,8 @@ def run(argv=None):
         codec = rust_settings(schema)
         outputs[folder / 'generated' / 'settings_value.rs'] = codec
         outputs[args.root / 'crates/paperpaw-core/src/abi7/settings_wire.rs'] = codec
+        # The SDK's private copy (#228): byte for byte the same codec.
+        outputs[args.root / 'crates/paperpaw-sdk/src/native/declare/settings_value.rs'] = codec
     codec = rust_records(schema) + rust_streams(schema)
     if codec:
         outputs[folder / 'generated' / 'records_wire.rs'] = codec
@@ -483,14 +485,20 @@ def run(argv=None):
     if codec:
         outputs[folder / 'generated' / 'snapshot_wire.rs'] = codec
         outputs[args.root / 'crates/paperpaw-core/src/abi7/snapshot_wire.rs'] = codec
+        # The SDK's private copy (#228): byte for byte the same codec.
+        outputs[args.root / 'crates/paperpaw-sdk/src/native/wire/snapshot_wire.rs'] = codec
     codec = rust_color(schema)
     if codec:
         outputs[folder / 'generated' / 'color_wire.rs'] = codec
         outputs[args.root / 'crates/paperpaw-core/src/abi7/color_wire.rs'] = codec
+        # The SDK's private copy (#228): byte for byte the same codec.
+        outputs[args.root / 'crates/paperpaw-sdk/src/native/wire/color_wire.rs'] = codec
     codec = rust_commands(schema)
     if codec:
         outputs[folder / 'generated' / 'commands_wire.rs'] = codec
         outputs[args.root / 'crates/paperpaw-core/src/abi7/commands_wire.rs'] = codec
+        # The SDK's private copy (#228): byte for byte the same codec.
+        outputs[args.root / 'crates/paperpaw-sdk/src/native/wire/commands_wire.rs'] = codec
     if args.check:
         require(load(lock) == lock_record(schema, released_minor), 'lock stale; explicitly review/update it')
         for path, wanted in outputs.items():
