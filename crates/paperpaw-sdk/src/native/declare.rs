@@ -252,6 +252,7 @@ pub struct ExtraDecl {
 
 /// Where a setting is edited instead of on the settings page.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum EditorDecl {
     /// A screen of the plugin, relative to it.
     Screen(String),

@@ -500,6 +500,49 @@ const paperpaw_sdk::native::FINGERPRINT: paperpaw_sdk::native::Fingerprint = Fin
 const paperpaw_sdk::native::INTERFACE: u16 = 7u16
 const paperpaw_sdk::native::LAYOUT: u64 = 10_966_988_515_060_024_239u64
 const paperpaw_sdk::native::TOOLCHAIN: &str = if cfg!(target_arch = "riscv32") { "rustc 1.99.0, riscv32imc-unknown-none-elf" } else if cfg!(target_arch = "xtensa") { "esp 1.97.0.0, xtensa-esp32s3-none-elf" } else { "the compiler of PaperPaw's release, for this computer" }
+const paperpaw_sdk::native::declare::BATCH_MAX_BYTES: usize = 4_096usize
+const paperpaw_sdk::native::declare::BATCH_MAX_RECORDS: usize = 8usize
+const paperpaw_sdk::native::declare::CHOICES_MAX_VALUES: usize = 32usize
+const paperpaw_sdk::native::declare::CHOICE_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::EVENT_TICK_TAG: u32 = 3u32
+const paperpaw_sdk::native::declare::records_wire::REGISTRATION_MAX_BYTES: usize = 4_096usize
+const paperpaw_sdk::native::declare::records_wire::REGISTRATION_MAX_RECORDS: usize = 8usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_EXTENSION_EXTENDS_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_EXTENSION_NAME_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_EXTENSION_PATH_MAX_BYTES: usize = 100usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_EXTENSION_TAG: u32 = 10u32
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_FACE_FAMILY_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_FACE_NAME_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_FACE_PATH_MAX_BYTES: usize = 100usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_FACE_ROLE_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_FACE_TAG: u32 = 9u32
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_HYPHENATION_LANGUAGE_MAX_BYTES: usize = 35usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_HYPHENATION_PATH_MAX_BYTES: usize = 100usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_HYPHENATION_TAG: u32 = 8u32
+const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_EDITOR_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_FOLLOWS_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_NAME_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_SECTION_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_SHOWN_ID_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_SHOWN_VALUE_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_TAG: u32 = 7u32
+const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_UNIT_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_GROUP_NAME_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_GROUP_PAGE_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_GROUP_PARENT_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_GROUP_TAG: u32 = 5u32
+const paperpaw_sdk::native::declare::records_wire::SETTING_GROUP_TITLE_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_CHOICES_MAX_BYTES: usize = 1_024usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_DEFAULT_MAX_BYTES: usize = 512usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_GROUP_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_HELP_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_NAME_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_TAG: u32 = 6u32
+const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_TITLE_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::settings_value::SETTINGS_HEADER_BYTES: usize = 12usize
+const paperpaw_sdk::native::declare::settings_value::SETTINGS_LAYOUT: u32 = 1u32
+const paperpaw_sdk::native::declare::settings_value::SETTINGS_MAX_BYTES: usize = 4_096usize
+const paperpaw_sdk::native::declare::settings_value::SETTINGS_MAX_TEXT_BYTES: usize = 4_084usize
 const paperpaw_sdk::native::keys::MAX_REVOKED: usize = 256usize
 const paperpaw_sdk::numbers::DECIMAL_MARK: &str = "core.decimal"
 const paperpaw_sdk::pattern::MAX_PATTERN: usize = 256usize
@@ -766,6 +809,13 @@ enum paperpaw_sdk::menus::MenuPlace { Order(0: i16), After(0: paperpaw_sdk::id::
 enum paperpaw_sdk::native::Author { Known, New, Other }
 enum paperpaw_sdk::native::NotInstalledReason { OtherAuthor, Damaged }
 enum paperpaw_sdk::native::SafeModeReason { FailedStarts, KeyHeld }
+enum paperpaw_sdk::native::declare::DeclareError { Empty(0: &'static str), TooLong(0: &'static str), Default, Range, Choices, SecretScoped, Unsupported(0: &'static str), Encode(0: i32) }
+enum paperpaw_sdk::native::declare::EditorDecl { Screen(0: alloc::string::String), Slot(0: alloc::string::String) }
+enum paperpaw_sdk::native::declare::Item { Group(0: paperpaw_sdk::native::declare::GroupDecl), Spec(0: paperpaw_sdk::native::declare::SpecDecl, 1: paperpaw_sdk::native::declare::SpecParts), Extra(0: paperpaw_sdk::native::declare::ExtraDecl), Hyphenation { language: alloc::string::String, path: alloc::string::String }, FontFace(0: paperpaw_sdk::native::declare::FontFaceDecl), FontExtension(0: paperpaw_sdk::native::declare::FontExtensionDecl) }
+enum paperpaw_sdk::native::declare::Kind { Bool(0: bool), Int { default: i64, min: i32, max: i32 }, Choice { default: alloc::string::String, choices: alloc::vec::Vec<alloc::string::String> }, Text(0: alloc::string::String), Language(0: alloc::string::String), List(0: alloc::string::String) }
+enum paperpaw_sdk::native::declare::records_wire::Record<'a> { Registration(0: paperpaw_sdk::native::declare::records_wire::Registration), SettingGroup(0: paperpaw_sdk::native::declare::records_wire::SettingGroup<'a>), SettingSpec(0: paperpaw_sdk::native::declare::records_wire::SettingSpec<'a>), SettingExtra(0: paperpaw_sdk::native::declare::records_wire::SettingExtra<'a>), ResourceHyphenation(0: paperpaw_sdk::native::declare::records_wire::ResourceHyphenation<'a>), ResourceFontFace(0: paperpaw_sdk::native::declare::records_wire::ResourceFontFace<'a>), ResourceFontExtension(0: paperpaw_sdk::native::declare::records_wire::ResourceFontExtension<'a>) }
+enum paperpaw_sdk::native::declare::records_wire::Registration { Event { event_tag: u32, token: u32 }, Draw { token: u32 } }
+enum paperpaw_sdk::native::declare::settings_value::SettingValueRef<'a> { Absent, Bool(0: bool), Int(0: i64), Text(0: &'a str) }
 enum paperpaw_sdk::native::keys::RevokedError { Full, NotKept }
 enum paperpaw_sdk::native::keys::RotationError { NoAuthor, NoRecoveryKey, BadSignature, Refused, NotKept }
 enum paperpaw_sdk::pattern::Item { Range(0: char, 1: char), Digit(0: bool), Word(0: bool), Space(0: bool) }
@@ -1038,6 +1088,22 @@ struct paperpaw_sdk::native::Fingerprint(0: u64)
 struct paperpaw_sdk::native::Native { fingerprint: paperpaw_sdk::native::Fingerprint, toolchain: alloc::borrow::Cow<'static, str>, compiler: u32, file: alloc::borrow::Cow<'static, str>, safe_mode: core::option::Option<paperpaw_sdk::native::SafeMode>, not_installed: alloc::vec::Vec<paperpaw_sdk::native::NotInstalled>, api_size: u32, family_revs: paperpaw_table::Revisions, family_min: paperpaw_table::Revisions }
 struct paperpaw_sdk::native::NotInstalled { plugin: paperpaw_sdk::id::Id, reason: paperpaw_sdk::native::NotInstalledReason }
 struct paperpaw_sdk::native::SafeMode { reason: paperpaw_sdk::native::SafeModeReason, last_loaded: core::option::Option<alloc::string::String>, crashed: core::option::Option<alloc::string::String>, switched_off: alloc::vec::Vec<paperpaw_sdk::id::Id> }
+struct paperpaw_sdk::native::declare::Declarations { items: alloc::vec::Vec<paperpaw_sdk::native::declare::Item> }
+struct paperpaw_sdk::native::declare::ExtraDecl { name: alloc::string::String, unit: alloc::string::String, section: alloc::string::String, follows: alloc::string::String, shown_if: core::option::Option<(alloc::string::String, alloc::string::String)>, editor: core::option::Option<paperpaw_sdk::native::declare::EditorDecl>, step: i32, slider: bool, section_of_plugin: bool, keeps_unknown: bool }
+struct paperpaw_sdk::native::declare::FontExtensionDecl { name: alloc::string::String, path: alloc::string::String, extends: alloc::string::String }
+struct paperpaw_sdk::native::declare::FontFaceDecl { name: alloc::string::String, path: alloc::string::String, family: alloc::string::String, style: u32, weight: u32, role: alloc::string::String, priority: i32 }
+struct paperpaw_sdk::native::declare::GroupDecl { name: alloc::string::String, title: alloc::string::String, order: i32, page: alloc::string::String, parent: alloc::string::String }
+struct paperpaw_sdk::native::declare::SpecDecl { name: alloc::string::String, kind: paperpaw_sdk::native::declare::Kind, group: alloc::string::String, title: alloc::string::String, help: alloc::string::String, scoped: bool, guarded: bool, kept_on_reset: bool, secret: bool, advanced: bool }
+struct paperpaw_sdk::native::declare::SpecParts { kind: u32, flags: u32, min: i32, max: i32, choices: alloc::string::String, default: alloc::vec::Vec<u8> }
+struct paperpaw_sdk::native::declare::records_wire::RecordBatch<'a> { records: [core::option::Option<paperpaw_sdk::native::declare::records_wire::Record<'a>>; 8], len: usize }
+struct paperpaw_sdk::native::declare::records_wire::RecordIter<'b, 'a> { records: core::slice::iter::Iter<'b, core::option::Option<paperpaw_sdk::native::declare::records_wire::Record<'a>>> }
+struct paperpaw_sdk::native::declare::records_wire::RegistrationBatch { records: [core::option::Option<paperpaw_sdk::native::declare::records_wire::Registration>; 8], len: usize }
+struct paperpaw_sdk::native::declare::records_wire::ResourceFontExtension<'a> { name: &'a str, path: &'a str, extends: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::ResourceFontFace<'a> { name: &'a str, path: &'a str, family: &'a str, style: u32, weight: u32, role: &'a str, priority: i32 }
+struct paperpaw_sdk::native::declare::records_wire::ResourceHyphenation<'a> { language: &'a str, path: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::SettingExtra<'a> { name: &'a str, unit: &'a str, section: &'a str, follows: &'a str, shown_id: &'a str, shown_value: &'a str, editor_kind: u32, editor: &'a str, step: i32, flags: u32, check: u32 }
+struct paperpaw_sdk::native::declare::records_wire::SettingGroup<'a> { name: &'a str, title: &'a str, order: i32, page: &'a str, parent: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::SettingSpec<'a> { name: &'a str, kind: u32, flags: u32, group: &'a str, title: &'a str, help: &'a str, default: &'a [u8], min: i32, max: i32, choices: &'a str }
 struct paperpaw_sdk::native::keys::Revocation { plugin: alloc::string::String, key: [u8; 32], signature: [u8; 64] }
 struct paperpaw_sdk::params::Params { values: alloc::vec::Vec<(alloc::borrow::Cow<'static, str>, alloc::string::String)>, carried: core::option::Option<alloc::rcs::rc::Rc<dyn core::any::Any>> }
 struct paperpaw_sdk::pattern::Class { negated: bool, items: alloc::vec::Vec<paperpaw_sdk::pattern::Item> }
