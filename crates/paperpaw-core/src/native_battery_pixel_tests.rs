@@ -405,7 +405,7 @@ fn native_battery_pixel_acceptance() {
             .history
             .as_ref()
             .map_or_else(MemoryStorage::new, |text| {
-                MemoryStorage::new().with(".paperpaw/plugins/battery/log.csv", text)
+                MemoryStorage::new().with(".paperpaw/plugins/battery/log.csv", text.as_str())
             });
         let mut kernel = Kernel::builder(DEVICE)
             .storage(storage)
