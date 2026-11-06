@@ -89,10 +89,30 @@ when each of them is in the implementation and closed by its test.
 - **Two folders (terminology).** The **install folder** `plugins/<id>/` holds the plugin's code, `plugin.ini`,
   catalogs and resource files (registration proposal, PR #158); it is replaced by an update and removed by
   uninstall. The **data folder** `.paperpaw/plugins/<id>/` is storage root 0, where the plugin's own files live.
-  An update keeps the data folder. Proposal: uninstall keeps it too, and the user removes it explicitly (in
-  *Clean up storage* or when confirming the uninstall). This is **[Q]**: today `remove_plugin` removes only the
-  install folder of a data plugin (`crates/paperpaw-core/src/plugins.rs:812-820`); a rule for code plugins'
-  data folders is not written down. In this document "plugin folder" means the data folder.
+  An update keeps the data folder. In this document "plugin folder" means the data folder.
+- **Uninstall and the data folder (owner decision 124, 2026-11-06).** On uninstall the user is **asked** whether
+  the plugin's data folder is deleted as well. The default is **keep**. The prompt is a later UI task
+  (Plugin Engineer). The kernel's part is the deletion, when the user chose it. It is a data-loss path, and the
+  owner requires each of these points as a contract requirement with its own test (Senior reviews the
+  implementation):
+  1. Only the uninstalled plugin's own data folder is deleted, `.paperpaw/plugins/<id>/`, built by the kernel
+     from the plugin's **validated id** (`Id`, non-empty, never `.` or `..`, no `/`). A path the plugin or
+     any caller supplies is never used.
+  2. The match is **exact**, never a prefix: removing `battery` leaves `battery-plus/` and `batteryx/`
+     untouched.
+  3. An empty, invalid or unresolvable id is a **refusal** that deletes nothing. It is never a deletion of
+     `.paperpaw/plugins/` or of any other folder.
+  4. A **power cut** in the middle leaves every other folder intact. The kernel first renames the folder
+     into a kernel-owned folder for removals in progress, then deletes it there, and it finishes a removal
+     found there at the next start. Nothing outside that folder is touched by the deletion. The test cuts
+     power after every single write.
+  - The user's choice reaches the kernel as an explicit "delete the data" request on the uninstall command.
+    Its record shape belongs to the command vocabulary (section 4.4, tags 56-62), not to the storage slots.
+  - Today `remove_plugin` removes only a data plugin's install folder and never a data folder
+    (`crates/paperpaw-core/src/plugins.rs:852-861`).
+  - On a card whose FAT is already damaged (two chains sharing clusters, the #238 class), deleting one file
+    could free clusters another file uses. The implementation names this and checks whether the deletion
+    should refuse when it finds such clusters.
 - **S5 Root 0 cannot reach the install folder.** A root-0 path is validated as a relative path first and then
   joined under `.paperpaw/plugins/<id>/` by the host, so it can never name a file in the install folder
   `plugins/<id>/` (or anywhere outside the data folder).
@@ -273,13 +293,29 @@ registration document's range) plus a `event.named {now_ms, name: str, payload: 
   trailing fields and unknown bitmap bits accepted; a decode error is `ERR_INVALID`
   returned from the plugin's callback, never a panic.
 
-### 1.5 Failure semantics
+### 1.5 Failure semantics (Q4 decided)
 
-A plugin callback that returns a negative status is logged against the plugin and the
-event is not retried; remaining events still arrive. `ERR_BUSY` from the admission guard
-(`abi7/calls.rs`) means the event is deferred by the host until the current dispatch ends
-(**[Q]** drop vs defer when the queue is full; proposal: a queue of 8 events per plugin,
-newest dropped, with a counter in plugin usage).
+- [D] No per-plugin event queue in 7.0 (0 extra bytes). The kernel already holds back
+  events raised during a callback and delivers them after it returns, so a plugin is
+  never re-entered by an event.
+- [D] A plugin callback that returns a negative status is not retried; remaining events
+  still arrive.
+- [D] A non-lifecycle event that cannot be delivered (lease taken or scope busy, no
+  environment, a producer parameter missing or unparsable, or a negative callback status)
+  is reported to the shell through `FlatInstance::event_dropped(tag, why)` and dropped.
+  The shell logs it; core keeps no counter, and the usage row's `refused` (network
+  refusals) is not touched.
+- [D] `suspend` and `stopping` are delivered synchronously when the plugin is not inside
+  a callback. They are never retried, never wait, and never block power-off; a busy
+  instance takes the same `event_dropped` path.
+- [D] Flat plugins reach the kernel as ordinary kernel plugins through the code loader
+  (`native_host::flat::FlatPlugin` over the shell's `FlatInstance`), so the kernel's
+  recipient rules (`only`, password-mode events, guarded screens) apply unchanged. A
+  batch registering anything the adapter cannot route yet (tick 3, draw) is refused at
+  load with the tag named, never ignored.
+- [D] `Reading.progress` (f32 percent) maps to `progress_ppm` as
+  `((p.clamp(0.0, 100.0) * 10_000.0) + 0.5) as u32`, capped at 1,000,000 (NaN and
+  -inf give 0, +inf gives 1,000,000); a bad producer value never drops the event.
 
 ### 1.6 Memory
 
@@ -289,7 +325,7 @@ awake: bool, plugins_noted: Option<u64>}` (`lib.rs:41-49`), 24 B.
 ### 1.7 Open questions
 
 Q1 screen input delivery (above). Q2 plugin-defined events. Q3 tag 37 now or later,
-and `progress` precision. Q4 queue/drop policy. Q5 shell cadence and power-cut ordering
+and `progress` precision. Q4 decided (1.5). Q5 shell cadence and power-cut ordering
 (not verified here).
 
 ## 2. Storage slots
@@ -353,7 +389,8 @@ and `progress` precision. Q4 queue/drop policy. Q5 shell cadence and power-cut o
 
 ### 2.2 Decisions (proposed)
 
-**D2.1 New slots, path based, no handles.** [P] Append seven entries at the end of
+**D2.1 New slots, path based, no handles.** [D] (declared in `abi/abi.def` by the slots PR, all answering
+`ERR_UNSUPPORTED` in the default table until they are wired). Append seven entries at the end of
 the table (ids 20-26), all `since 1`, `reentry deny`:
 
 | Id | Entry | Arguments (after `ctx`) | Result | Effect |
@@ -374,23 +411,44 @@ existing consumer needs one. A handle-based open/read/write set can be appended 
 without touching these. Why one entry per operation rather than a multiplexed
 `storage.op`: per-entry `since` and `needs_minor` (`abi/metadata.md`), typed generated
 stubs, per-entry `max_bytes`.
-**[Q]** the generator accepts two `bytes` arguments but has one `max_bytes` per entry
-(`abi-gen.py:123,133`); `rename`'s two paths share the cap (not verified that codegen
-handles two `bytes` arguments; needs a test).
+[D] An entry's `max_bytes` is its **largest** `bytes` or `buffer` argument: 4096 for `read_at`, `write` and
+`append` (the data), and 512 for `size`, `rename` and `remove` (the paths). Every path argument is at most 512
+bytes on every entry (`MAX_PATH`, `crates/paperpaw-core/src/native_host/storage.rs`), and the host checks it
+before anything else; for `rename` that holds for each of the two paths. The generator emits two `bytes`
+arguments correctly; the C and Rust layout tests (`tools/tests/test_abi_layout.py`) compile and compare
+them. A cap per argument in `abi.def` would change the lock format, so it is not done in interface 7.
 
-**D2.2 `root` selects the namespace; M1 implements root 0 only.** [P]
+**D2.2 `root` selects the namespace.** [D] Root 0 is implemented first; root 1 is decided (owner decision 125).
 - `root = 0` (PLUGIN): the host prefixes `.paperpaw/plugins/<id>/` where `<id>` is
   stamped from the plugin's owner identity, never read from the call (ADR34:339
   "Namespaces are stamped, not claimed"). The plugin passes a relative path.
-- `root = 1` (CARD, user files such as books, excluding `.paperpaw`) and later roots are
-  **reserved**: `ERR_UNSUPPORTED` until the owner decides how `Uses`/metadata gate them
-  (ADR 0024 lists "storage, other plugins' data" as declared uses). The argument is in the
-  signature now because slot signatures cannot change after release.
+- `root = 1` (CARD, the user's files such as books and notes): **owner decision 125 (2026-11-06)**.
+  - **The gate.** Root 1 is open only to a plugin whose **signed** metadata declares the semantic feature
+    `uses.storage`. The kernel reads it when it loads the plugin and keeps it with the plugin's owner
+    identity; it never trusts a runtime argument for it. A plugin without the declaration gets
+    `ERR_UNSUPPORTED` for root 1 on every slot, and keeps root 0. The feature's entry in `abi.def` lands
+    with the root-1 admission PR.
+  - **What root 1 is.** Paths relative to the card's root, with the rules of D2.3.
+  - **What it excludes.** The first path segment may not name `plugins` (the install folders) or `.paperpaw`
+    (the kernel's settings, catalog and data, and every plugin's data folder, other plugins' included). Both
+    are refused with `ERR_INVALID`, for both paths of `rename`.
+    - The comparison is by **identity, not spelling**. FAT ignores case and can find an entry by its 8.3
+      short name, so `Plugins`, `.PAPERPAW` and a short alias such as `PAPERP~1` must all be refused. The host
+      compares the resolved first segment with the two folders (`paperpaw_sdk::files::same_path`), not the
+      bytes of the path.
+    - A plugin reaches its own data folder through root 0 only.
+  - **Why other plugins' folders stay out**, although plugins may change other plugins' settings (owner
+    decision 126): settings are changed through slot 15 (`command.set_setting`), which validates the value,
+    keeps guarded and secret settings protected and announces the change. They are never changed by writing
+    files, so decision 126 does not widen root 1.
+  - **The same rules as root 0.** Root 1 has the same free-space reserve (D2.6), the same per-plugin
+    counting (S7) and the same atomicity contract (D2.5).
+  - Roots 2 and above stay reserved: `ERR_UNSUPPORTED`. The argument is in the signature now because slot
+    signatures cannot change after release.
 - This confinement is **hygiene and accounting, not a security boundary**: a native plugin
   can still write anywhere through the CPU (ADR 0024:48, 226-229). It gives a contract
   that works for emulator, wasm and Android hosts, per-plugin metering and clean uninstall.
-  **[Q]** whether the owner wants this at all, given "plugins should have as much room as
-  possible" (ADR 0024:36-39).
+  The owner wants it, with root 1 for the user's files (decision 125).
 
 **D2.3 Path rules.** [P] Relative, UTF-8, at most 512 bytes total and 255 per segment;
 valid per `is_valid_path` (so `..`, absolute, `\`, `:` are `ERR_INVALID`), plus the FAT
@@ -484,7 +542,7 @@ should stay at 1-2 KiB on the X4.
 
 ### 2.5 Open questions
 
-Q6 root/confinement policy (D2.2). Q7 reserve size and per-plugin quota. Q8 host-framed
+Q6 root/confinement policy (D2.2): settled by owner decision 125. Q7 reserve size and per-plugin quota. Q8 host-framed
 append record. Q9 `sync` fairness. Q10 `ERR_NOT_FOUND`/`ERR_FULL` numbering and a media-gone
 status. Q11 listing (`storage.list`) with the `list_from` cursor
 (`platform/storage.rs` `list_from`) is not needed by Battery and is deferred; its
@@ -804,7 +862,7 @@ Decisions the owner should make first:
 5. **Q7** Free-space reserve size and whether any hard per-plugin quota exists.
 
 Also open: Q2 plugin-defined events (string ids); Q3 page-turned payload now or later,
-progress precision; Q4 event queue/drop policy; Q5 shell cadence of
+progress precision; Q4 decided (1.5); Q5 shell cadence of
 `battery_measured` and power-cut ordering after `suspend`/`stopping`; Q8 host-framed append
 record; Q9 `sync` fairness; Q10 status numbers and a media-gone status; Q11 `storage.list`;
 Q14 where a work-note is bounded; Q15 blobs outliving a callback; Q16 handle limit 4 per

@@ -67,6 +67,20 @@ pub struct PpHost {
     pub blob_read: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, blob: u32, offset: u64, out: PpBuffer) -> i32,
     /// blob.release: mutate, status, since 1.
     pub blob_release: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, blob: u32) -> i32,
+    /// storage.size: query, status, since 1.
+    pub storage_size: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, root: u32, path: PpBytes, out: *mut u64) -> i32,
+    /// storage.read_at: query, count, since 1.
+    pub storage_read_at: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, root: u32, path: PpBytes, offset: u64, out: PpBuffer) -> i32,
+    /// storage.write: mutate, status, since 1.
+    pub storage_write: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, root: u32, path: PpBytes, data: PpBytes) -> i32,
+    /// storage.append: mutate, status, since 1.
+    pub storage_append: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, root: u32, path: PpBytes, data: PpBytes) -> i32,
+    /// storage.rename: mutate, status, since 1.
+    pub storage_rename: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, root: u32, from: PpBytes, to: PpBytes) -> i32,
+    /// storage.remove: mutate, status, since 1.
+    pub storage_remove: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, root: u32, path: PpBytes) -> i32,
+    /// storage.sync: mutate, status, since 1.
+    pub storage_sync: unsafe extern "C" fn(ctx: *mut core::ffi::c_void) -> i32,
 }
 /// Generated ABI major.
 pub const MAJOR: u16 = 7;

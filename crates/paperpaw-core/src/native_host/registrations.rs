@@ -28,6 +28,16 @@ pub use wire::{
     Record, RecordBatch, RecordIter, ResourceFontExtension, ResourceFontFace, ResourceHyphenation,
     SettingExtra, SettingGroup, SettingSpec, records_decode, records_encode,
 };
+// Service records 48-52 and the bare framing of service blobs (slots 17-19,
+// `docs/abi/proposals/interface-7-usage-clock.md`): built by the host, never
+// submitted by a plugin.
+pub use wire::{
+    SERVICE_END_TAG, SERVICE_PLUGIN_NAME_MAX_BYTES, SERVICE_PLUGIN_TAG,
+    SERVICE_PLUGIN_USAGE_AWAKE_REASON_MAX_BYTES, SERVICE_PLUGIN_USAGE_PLUGIN_MAX_BYTES,
+    SERVICE_PLUGIN_USAGE_TAG, SERVICE_USAGE_TAG, SERVICE_WORK_NOTE_TAG,
+    SERVICE_WORK_NOTE_TEXT_MAX_BYTES, ServiceEnd, ServicePlugin, ServicePluginUsage, ServiceUsage,
+    ServiceWorkNote, record_decode_one, record_encode_one, record_framed_len,
+};
 
 use super::{Error, registration_scope::RegistrationScope};
 use paperpaw_native::host_glue::{

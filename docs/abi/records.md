@@ -77,6 +77,12 @@ unknown family or a tag declared twice is refused; tags are never reused):
 | 56-62 | `command.*` |
 | 63 | reserved |
 
+Tags 48-52 are the service records of `docs/abi/proposals/interface-7-usage-clock.md`. The host writes
+them into service blobs, framed **bare**: tag, body length and body, with no count
+(`record_framed_len`, `record_encode_one`; a reader decodes one with `record_decode_one`, which refuses
+any byte after it). These three functions are emitted only for a schema with service records. A batch a
+plugin submits never carries an event or service record (`ERR_INVALID`).
+
 All declarations and fields start at minor 1. Tags 1-10 have no optional fields.
 Unknown bitmap bits, extra bitmap bytes and trailing fields inside a known
 record are accepted for forward compatibility. Known required fields must still

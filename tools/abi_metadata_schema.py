@@ -91,8 +91,13 @@ def validate_metadata(schema):
             integer(item['since'], 1, schema['minor'])
             if kind == 'services':
                 integer(item['major'], 1, 65535)
-                integer(item['semantic_revision'], 1, 65535)
-                integer(item['min_table_bytes'], 4, 2**32 - 1)
+                # The service minor, 0 for a service's first version (PR #198).
+                integer(item['semantic_revision'], 0, 65535)
+                # 0 for a data service, which has no call table; else a table of
+                # at least its size word.
+                integer(item['min_table_bytes'], 0, 2**32 - 1)
+                require(item['min_table_bytes'] == 0 or item['min_table_bytes'] >= 4,
+                        'a service table has at least its 4-byte size word')
             else:
                 integer(item['revision'], 1, 65535)
 

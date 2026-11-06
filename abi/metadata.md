@@ -26,6 +26,11 @@ see `docs/abi/proposals/interface-7-usage-clock.md`). Empty `used` requires the 
 This does not discover actual code usage: generated stubs and build provenance
 must supply an honest complete dependency set before runtime qualification.
 
+The service catalog holds the four data services of slot 17 (`core.usage`, `core.plugin-usage`,
+`core.plugin`, `core.work-note`): major 1, semantic revision 0 (the service minor), no call table
+(`min_table_bytes` 0; a service with a call table declares at least its 4-byte size word), since minor 1.
+A selected service contributes the interface minor that introduced it, never its semantic revision.
+
 Metadata is limited to 2,048 bytes, keys to 128 bytes, exports to one, services to
 16 and features to 32. The codec rejects unknown identifiers, invalid lengths,
 reserved fields, duplicates, invalid UTF-8, noncanonical requirements and trailing

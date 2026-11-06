@@ -40,7 +40,7 @@ class SchemaTests(unittest.TestCase):
         ABI.compatible(self.base, copy.deepcopy(self.base))
         reordered = dict(reversed(list(self.base.items())))
         self.assertEqual(ABI.canonical(self.base), ABI.canonical(reordered))
-        self.assertEqual(len(self.base['host_entries']), 20)
+        self.assertEqual(len(self.base['host_entries']), 27)
 
     def test_each_existing_contract_is_frozen(self):
         changes = {'id': 400, 'name': 'renamed', 'since': 2,
@@ -64,7 +64,7 @@ class SchemaTests(unittest.TestCase):
     def test_new_entry_requires_new_minor_and_fresh_identity(self):
         new = copy.deepcopy(self.base)
         item = copy.deepcopy(new['host_entries'][3])
-        item.update(id=20, name='clock.new_query', since=2)
+        item.update(id=len(new['host_entries']), name='clock.new_query', since=2)
         new['host_entries'].append(item)
         self.reject(new)
         new['minor'] = 2
@@ -202,11 +202,12 @@ class SchemaTests(unittest.TestCase):
         trusted = ABI.lock_record(copy.deepcopy(self.base), released_minor=0)
         candidate = copy.deepcopy(self.base)
         extra = copy.deepcopy(candidate['host_entries'][3])
-        extra.update(id=20, name='clock.first', since=1)
+        first = len(candidate['host_entries'])
+        extra.update(id=first, name='clock.first', since=1)
         candidate['host_entries'].append(extra)
         ABI.check_lock(trusted, candidate)
         checkpoint = ABI.lock_record(copy.deepcopy(candidate), released_minor=0)
-        candidate['host_entries'].append(dict(extra, id=21, name='clock.second'))
+        candidate['host_entries'].append(dict(extra, id=first + 1, name='clock.second'))
         ABI.check_lock(checkpoint, candidate)
         released = ABI.lock_record(copy.deepcopy(self.base), released_minor=1)
         with self.assertRaises(ValueError):
@@ -238,7 +239,7 @@ class SchemaTests(unittest.TestCase):
             # change must not sneak a since=1 entry into released minor 1.
             trusted.write_bytes(lock.read_bytes())
             new = copy.deepcopy(self.base)
-            extra = dict(new['host_entries'][3], id=20, name='clock.late')
+            extra = dict(new['host_entries'][3], id=len(new['host_entries']), name='clock.late')
             new['host_entries'].append(extra)
             definition.write_text(ABI.canonical(new))
             for mode in ([], ['--check'], ['--write-lock']):

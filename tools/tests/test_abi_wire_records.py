@@ -194,8 +194,8 @@ class WireRecordTests(unittest.TestCase):
                   'i18n.x': (44, 47), 'service.x': (48, 55), 'command.x': (56, 62)}
         small = [field('a', 'u32')]
         for name, (low, high) in ranges.items():
-            # Tags 5-10 and 32-37 are taken by declared records.
-            first = 38 if name == 'event.x' else max(low, 11)
+            # Tags 5-10, 32-37 and 48-52 are taken by declared records.
+            first = {'event.x': 38, 'service.x': 53}.get(name, max(low, 11))
             for tag in sorted({first, high}):
                 with self.subTest(name=name, tag=tag):
                     validate_records(self.with_record(synthetic(name, tag, small)))
