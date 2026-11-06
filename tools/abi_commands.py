@@ -27,7 +27,20 @@ EXTRA_COMMANDS = {
     'command.run_action': ('RunAction', 'action'),
     'command.redraw': ('Redraw', 'mode'),
     'command.close_screen': ('CloseScreen', None),
+    'command.set_item_state': ('SetItemState', 'item'),
 }
+
+# Fields of command.set_item_state, in order: a relative item id, flag bits,
+# then a label and a badge, each a catalog key and an i18n argument batch.
+# Label and badge share their caps.
+ITEM_STATE_FIELDS = (('item', 'str'), ('flags', 'u32'), ('label', 'str'),
+                     ('label_args', 'bytes'), ('badge', 'str'), ('badge_args', 'bytes'))
+# Flag bits of command.set_item_state (docs/abi/screens-input.md section 3.1).
+ITEM_FLAGS = (('HIDDEN', 'Not shown in menus.'),
+              ('FAINT', 'Shown faint; it cannot be chosen.'),
+              ('SWITCH', 'Shown with a switch; ON sets it on.'),
+              ('ON', 'The switch is on; needs SWITCH.'),
+              ('KEEP', 'The host keeps this state across restarts until the plugin changes.'))
 
 
 def _extras(schema):
@@ -48,6 +61,15 @@ def _validate_extra(record, descriptor, schema):
     name, (_, field) = record['name'], EXTRA_COMMANDS[record['name']]
     if name == 'command.close_screen':
         expected = []
+    elif name == 'command.set_item_state':
+        _require(len(fields) == len(ITEM_STATE_FIELDS) and
+                 all(type(item) is dict and type(item.get('max_bytes')) is int
+                     for item in fields), 'item state command fields')
+        caps = [item['max_bytes'] for item in fields]
+        _require(1 <= caps[0] <= 255 and 1 <= caps[2] <= 255 and caps[2] == caps[4] and
+                 1 <= caps[3] <= 1024 and caps[3] == caps[5], 'item state command caps')
+        expected = [_field(field, kind, since, 0 if kind == 'u32' else cap)
+                    for (field, kind), cap in zip(ITEM_STATE_FIELDS, caps)]
     elif name == 'command.redraw':
         expected = [_field(field, 'u32', since, 0)]
     else:
@@ -444,6 +466,8 @@ def _extended(source, extras, statuses):
             writes.append(f"            Command::{variant} {{ mode }} => {{\n"
                           f"                out[offset..offset + 4].copy_from_slice(&mode.to_le_bytes());\n"
                           f"                offset += 4;\n            }}\n")
+        elif field == 'item':
+            _item_state(item, tag, consts, variants, arms, lens, writes)
         else:
             variants.append(f"    /// Close the submitting plugin's own screen on top.\n    {variant},\n")
             arms.append(f"            {tag} => {{\n                body.bitmap()?;\n"
@@ -455,7 +479,7 @@ def _extended(source, extras, statuses):
     source = _swap(source, "        value: SettingValueRef<'a>,\n    },\n}\n",
                    "        value: SettingValueRef<'a>,\n    },\n" + "".join(variants) + "}\n")
     helpers = ''
-    if any(EXTRA_COMMANDS[n][1] in ('screen', 'action') for n in names):
+    if any(EXTRA_COMMANDS[n][1] in ('screen', 'action', 'item') for n in names):
         helpers += f"""
 fn id(bytes: &[u8], cap: usize) -> Result<&str, i32> {{
     if bytes.is_empty() {{
@@ -467,14 +491,16 @@ fn id(bytes: &[u8], cap: usize) -> Result<&str, i32> {{
     }}
 }}
 """
-    if 'command.redraw' in names:
-        helpers += f"""
-fn u32_le(bytes: &[u8]) -> u32 {{
+    if 'command.redraw' in names or 'command.set_item_state' in names:
+        helpers += """
+fn u32_le(bytes: &[u8]) -> u32 {
     let mut value = [0; 4];
     value.copy_from_slice(bytes);
     u32::from_le_bytes(value)
-}}
-
+}
+"""
+    if 'command.redraw' in names:
+        helpers += f"""
 fn mode(mode: u32) -> Result<u32, i32> {{
     if mode > COMMAND_REDRAW_MAX_MODE {{
         Err({invalid})
@@ -483,6 +509,9 @@ fn mode(mode: u32) -> Result<u32, i32> {{
     }}
 }}
 """
+    if 'command.set_item_state' in names:
+        helpers += _ITEM_STATE_HELPERS.replace('@INVALID@', str(invalid)).replace(
+            '@NO_SPACE@', str(no_space)).replace('@UTF8@', str(utf8))
     source = _swap(source, "\n/// Decode an entire batch before exposing any command.",
                    helpers + "\n/// Decode an entire batch before exposing any command.")
     source = _swap(source, f"""        if tag != COMMAND_SET_SETTING_TAG {{
@@ -532,3 +561,115 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
         let (_, value_len) = set_setting_len(key, value)?;
         write_varint(key.len() as u32, out, &mut offset);""")
     return source
+
+
+_ITEM_STATE_HELPERS = """
+fn item_flags(flags: u32) -> Result<u32, i32> {
+    if flags & !COMMAND_ITEM_FLAGS != 0
+        || (flags & COMMAND_ITEM_ON != 0 && flags & COMMAND_ITEM_SWITCH == 0)
+    {
+        Err(@INVALID@)
+    } else {
+        Ok(flags)
+    }
+}
+
+/// A label or badge: a catalog key, or empty for none; arguments need a key.
+fn message<'a>(key: &'a [u8], args: &[u8]) -> Result<&'a str, i32> {
+    if key.len() > COMMAND_MAX_ITEM_KEY_BYTES || args.len() > COMMAND_MAX_ITEM_ARGS_BYTES {
+        Err(@NO_SPACE@)
+    } else if key.is_empty() && !args.is_empty() {
+        Err(@INVALID@)
+    } else {
+        core::str::from_utf8(key).map_err(|_| @UTF8@)
+    }
+}
+
+fn item_state<'a>(body: &mut Reader<'a>) -> Result<Command<'a>, i32> {
+    body.bitmap()?;
+    let item = id(body.bytes()?, COMMAND_MAX_ITEM_BYTES)?;
+    let flags = item_flags(u32_le(body.take(4)?))?;
+    let (label, label_args) = (body.bytes()?, body.bytes()?);
+    let label = message(label, label_args)?;
+    let (badge, badge_args) = (body.bytes()?, body.bytes()?);
+    let badge = message(badge, badge_args)?;
+    Ok(Command::SetItemState {
+        item,
+        flags,
+        label,
+        label_args,
+        badge,
+        badge_args,
+    })
+}
+
+fn field_len(len: usize) -> usize {
+    varint_len(len as u32) + len
+}
+
+fn write_field(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+    write_varint(bytes.len() as u32, out, offset);
+    out[*offset..*offset + bytes.len()].copy_from_slice(bytes);
+    *offset += bytes.len();
+}
+"""
+
+
+def _item_state(item, tag, consts, variants, arms, lens, writes):
+    """The SetItemState pieces of the extended codec."""
+    caps = [field['max_bytes'] for field in item['fields']]
+    consts.append(f"/// Maximum UTF-8 bytes of the relative item id of SetItemState.\n"
+                  f"pub const COMMAND_MAX_ITEM_BYTES: usize = {caps[0]};\n"
+                  f"/// Maximum UTF-8 bytes of the label or badge catalog key of SetItemState.\n"
+                  f"pub const COMMAND_MAX_ITEM_KEY_BYTES: usize = {caps[2]};\n"
+                  f"/// Maximum bytes of the label or badge argument batch of SetItemState.\n"
+                  f"pub const COMMAND_MAX_ITEM_ARGS_BYTES: usize = {caps[3]};\n")
+    for bit, (flag, doc) in enumerate(ITEM_FLAGS):
+        consts.append(f"/// SetItemState flag: {doc}\npub const COMMAND_ITEM_{flag}: u32 = {1 << bit};\n")
+    consts.append(f"/// Every SetItemState flag; other bits are refused.\n"
+                  f"pub const COMMAND_ITEM_FLAGS: u32 = {(1 << len(ITEM_FLAGS)) - 1};\n")
+    variants.append(
+        "    /// Set what menus show of one of the submitting plugin's own actions or\n"
+        "    /// settings; the host resolves the keys in its catalogs when it shows them.\n"
+        "    SetItemState {\n"
+        "        /// Nonempty UTF-8 item id, relative to the submitting plugin.\n"
+        "        item: &'a str,\n"
+        "        /// `COMMAND_ITEM_*` bits; `COMMAND_ITEM_ON` needs `COMMAND_ITEM_SWITCH`.\n"
+        "        flags: u32,\n"
+        "        /// Catalog key shown in place of the title, or empty for the title.\n"
+        "        label: &'a str,\n"
+        "        /// Encoded i18n argument batch for `label`, or empty.\n"
+        "        label_args: &'a [u8],\n"
+        "        /// Catalog key of a short text at the item's right, or empty for none.\n"
+        "        badge: &'a str,\n"
+        "        /// Encoded i18n argument batch for `badge`, or empty.\n"
+        "        badge_args: &'a [u8],\n"
+        "    },\n")
+    arms.append(f"            {tag} => item_state(&mut body)?,\n")
+    lens.append(
+        "        Command::SetItemState {\n"
+        "            item,\n            flags,\n            label,\n            label_args,\n"
+        "            badge,\n            badge_args,\n"
+        "        } => {\n"
+        "            id(item.as_bytes(), COMMAND_MAX_ITEM_BYTES)?;\n"
+        "            item_flags(flags)?;\n"
+        "            message(label.as_bytes(), label_args)?;\n"
+        "            message(badge.as_bytes(), badge_args)?;\n"
+        "            let fields = [\n"
+        "                item.as_bytes(),\n                label.as_bytes(),\n                label_args,\n"
+        "                badge.as_bytes(),\n                badge_args,\n            ];\n"
+        "            let body = fields.iter().map(|field| field_len(field.len()));\n"
+        f"            Ok(({tag}, 1 + 4 + body.sum::<usize>()))\n"
+        "        }\n")
+    writes.append(
+        "            Command::SetItemState {\n"
+        "                item,\n                flags,\n                label,\n"
+        "                label_args,\n                badge,\n                badge_args,\n"
+        "            } => {\n"
+        "                write_field(item.as_bytes(), out, &mut offset);\n"
+        "                out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());\n"
+        "                offset += 4;\n"
+        "                for field in [label.as_bytes(), label_args, badge.as_bytes(), badge_args] {\n"
+        "                    write_field(field, out, &mut offset);\n"
+        "                }\n"
+        "            }\n")

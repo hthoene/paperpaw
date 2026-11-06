@@ -22,6 +22,12 @@ batch lies in the image, owned otherwise; refused at activation until the SDK vi
 | --- | --- | --- | --- |
 | 11 | `screen.spec` | `name: str` (relative), `title: str` (i18n key), `token: u32`, `flags: u32` | 96, 128 |
 | 12 | `action.spec` | `name: str` (relative), `title: str` (i18n key), `token: u32`, `flags: u32` | 96, 128 |
+| 13 | `menu.entry` | `menu: str` (full id), `item: str` (full id), `order: i32`, `place: u32`, `anchor: str` (full id or empty) | 128, 128, 128 |
+| 14 | `icon.spec` | `item: str` (full id), `icon: str` (icon name) | 128, 64 |
+| 15 | `menu.need` | `item: str` (full id), `need: u32`, `capability: u64` | 128 |
+| 16 | `menu.section` | `name: str` (relative), `title: str` (i18n key), `menu: str` (full id), `order: i32` | 96, 128, 128 |
+| 17 | `menu.hide` | `menu: str` (full id), `item: str` (full id) | 128, 128 |
+| 18 | `menu.describe` | `item: str` (relative), `key: str` (i18n key) | 96, 128 |
 
 - [D] `token` names the plugin callback state the host passes to `draw`, `input` and
   `dispatch_event` for this screen or action. Tokens are the plugin's own numbers; one token may
@@ -34,6 +40,61 @@ batch lies in the image, owned otherwise; refused at activation until the SDK vi
   and an action may share a name); checked at commit, order-independent.
 - [D] Running an action delivers `event.action_run` (tag 39) to its token through
   `dispatch_event`; the plugin answers with commands.
+- [D] **Menu items are full ids** (`<plugin>.<name>`) in `menu.entry`, `icon.spec`, `menu.need` and
+  `menu.hide`, as interface 6's `MenuEntry.item` is any `Id`: a plugin may put a core setting or
+  another plugin's action into a menu (the reader puts `NIGHT_MODE` into its own menu). The first
+  segment names the owner. An item of the calling plugin must resolve at commit to one of its
+  actions, settings, setting groups or screens (`ERR_INVALID` otherwise); another plugin's item, or a
+  menu or anchor that does not exist yet, is accepted and takes effect once it exists (plugins load
+  in any order). `menu.section` and `menu.describe` only name the plugin's own (relative) items.
+- [D] `menu.entry` puts `item` into `menu` (any plugin's menu, such as `core.tools` or `core.main`).
+  The label is the item's title. `order` must fit an `i16` (lower comes first). `place`: 0 by
+  `order`, 1 after the entry `anchor`, 2 before it, 3 last in the section `anchor` (a
+  `menu.section`), 4 first, 5 last; `anchor` is a full id for 1-3 and empty for 0, 4 and 5
+  (`ERR_INVALID`). **A place this host does not know is accepted and the entry is not shown** (a
+  plugin built for a later host still loads; interface 6 did the same); its `anchor` is empty or a
+  full id. An anchor that is not, or no longer, there places the entry by `order`. The same `menu`
+  and `item` twice in one batch is `ERR_INVALID`. Where two plugins put the same item into the same
+  menu, a placed entry (1-5) wins over one by order (it moves it), and between two of the same kind
+  the plugin loaded later wins.
+- [D] `icon.spec` gives an item an icon: one `[a-z0-9-]` segment naming an icon of the host's icon
+  set (the SDK's icon names). **Any item may get one** (an icon theme); at most one per item in a
+  batch (`ERR_INVALID`), and across plugins the one loaded later wins. A name the host's set lacks
+  is accepted and shows no icon, so hosts may carry smaller sets.
+- [D] `menu.need` offers an item only on devices that have what it needs; elsewhere it is left out
+  of menus and settings pages, also where the user listed it (except `no-touch`, which only leaves
+  it out of the menus plugins define). `need`: 0 `speech`, 1 `sleep` (the device shows the sleep
+  screen), 2 `rotation`, 3 `no-touch`, 4 `touch`, 5 `button-row` (buttons below the screen with a
+  row of hints), 6 `colors` (shows colours other than black and white), 7 `wifi`, 8 `firmware` (the
+  device can update its firmware), 9 `black-and-white`, 10 `frontlight`, 11 `bluetooth`, 12 `has`.
+  **A need this host does not know is accepted and not met** (the item is left out), so a later
+  need needs no new record. For a known need `capability` is 0 except for `has`, where it is a
+  nonzero set of capability bits the device must all have (`ERR_INVALID` otherwise): bit 0
+  `audio`, 1 `warmth`, 2 `charge-limit`, 3 `keyboard`, 4 `hot-code`, 5 `page-keys`, 6 `buttons`,
+  7 `usb-link`, 8 `render-hook`, 9 `render-regions`, 10 `look-extras`, 11 `usb-drive`, 12
+  `chords`, 13 `page-turner`, 14 `hotspot`, 15 `pen-tilt`, 16 `pen-hover`, as the SDK's
+  `Capability` (a test keeps this list, the SDK and the host's equal); a bit the host does not know
+  is not met. At most one need per item in a batch (`ERR_INVALID`).
+- [D] `menu.section` adds a heading `name` (the plugin's own; also usable in the user's menu
+  definitions as `<plugin>.<name>`) with the translated `title` to `menu` at `order` (an `i16`);
+  the entries ordered after it, up to the next heading, belong to it, and place 3 puts an entry last
+  in it. Names are unique among the plugin's sections (`ERR_INVALID`).
+- [D] `menu.hide` takes `item` out of `menu` as plugins contribute it, another plugin's entry
+  included (an entry a plugin replaces with its own); a user who lists the item in their own menu
+  keeps it, and the menu editor tells which plugin took it out. The same pair twice in a batch is
+  `ERR_INVALID`.
+- [D] `menu.describe` puts a line under one of the plugin's own items (`item`, relative) in menus,
+  by its translation key `key`. At most one per item in a batch (`ERR_INVALID`).
+- [D] An item whose label, switch, badge or availability changes while it is shown is not a
+  declaration: the command `command.set_item_state` (section 3.1) sets it.
+- [D] Until a host's menus and icon set take them, a host refuses these six records with
+  `ERR_UNSUPPORTED` (after the syntax checks above, so a malformed record still says
+  `ERR_INVALID`); it never accepts and drops one.
+- [D] Translations need no record. A card plugin's catalogs are the files
+  `plugins/<id>/i18n/<language>.ini` beside its `code.ppn` (the same folder layout as interface 6);
+  a plugin built into the firmware brings them built in. `title` keys, `i18n.copy` (6),
+  `i18n.format` (27) and plurals resolve in the calling plugin's catalogs through the host's language
+  fallback chain, which ends in English; a key in none gives `ERR_NOT_FOUND`.
 
 ## 2. Input and screen events
 
@@ -104,6 +165,58 @@ input(state: pointer, token: u32, input: bytes) -> i32
   submitting plugin. Two plugins opening each other's screens therefore stop after 8 hops instead
   of looping, and no chain outlives the next user input.
 
+### 3.1 Item state
+
+| Tag | Record | Fields |
+| --- | --- | --- |
+| 60 | `command.set_item_state` | `item: str 96` (relative), `flags: u32`, `label: str 128`, `label_args: bytes 256`, `badge: str 128`, `badge_args: bytes 256` |
+
+What a menu shows of an item now, where that changes while the plugin runs (interface 6
+`set_item_state`): another label, a switch, faint, hidden or a badge. In interface 6 the host asked
+a callback each time a menu showed the item; in interface 7 the plugin says it when it changes and
+the host shows it from memory, so a menu never runs plugin code and a plugin that is not started
+(lazy start) still shows its last kept state.
+
+- [D] `item` is one of the submitting plugin's own actions or settings, relative to the plugin (the
+  host prefixes the owner it knows, never a claim in the bytes). Another plugin's item cannot be
+  named. A malformed id is `ERR_INVALID`; an id the plugin has not declared, `ERR_NOT_FOUND`.
+- [D] `flags`, a closed set (other bits `ERR_INVALID`): bit 0 `hidden` (not shown in menus), bit 1
+  `faint` (shown, cannot be chosen), bit 2 `switch` (shown with a switch), bit 3 `on` (the switch is
+  on; without `switch` it is `ERR_INVALID`), bit 4 `keep` (below). `switch` on a setting is
+  `ERR_INVALID`: a Boolean setting shows its own value, changed with `command.set_setting`.
+- [D] `label` and `badge` are catalog keys of the plugin, empty for none: `label` is shown in place
+  of the declared title, `badge` as a short text at the item's right (a count, "new"). Each key has
+  its own argument batch, exactly the `args` of slot 27 (section 5: `i18n.arg_str`,
+  `i18n.arg_int`, at most one `i18n.count`, which selects the plural form and binds `{count}`),
+  empty for none; arguments without a key are `ERR_INVALID`. The host checks at submit that each
+  key resolves with its arguments (statuses as slot 27, a missing key `ERR_NOT_FOUND`) and
+  resolves them again, in the reader's language at that time, each time it shows the item. So a
+  language change needs no new command. If a later resolution fails (catalogs changed), the item
+  shows its title and no badge, never a raw key.
+- [D] A record replaces the item's whole state; the default state (flags 0 or only `keep`, no
+  label, no badge) removes it, the kept copy included. At most one record per item in a batch
+  (`ERR_INVALID`); across batches the last one wins.
+- [D] Rendering and the user's control are those of interface 6 `ItemState`: the user's menu
+  edits decide where an item is listed; the state only changes how it is shown. An item whose
+  `menu.need` is not met stays left out whatever its state.
+- [D] Like the other commands it is validated with its whole batch and applied after the callback
+  returns, in submit order. It runs no plugin callback, so it is accepted at any hop. A menu on
+  screen that lists the item is redrawn once per drain, however many states changed.
+- [D] Lifetime: without `keep`, a state ends at the plugin's teardown (section 7). With `keep`,
+  the host also writes it to a host-owned file (atomically, only when the kept set changed) and
+  restores it at boot before any menu shows, without starting the plugin. Kept states are dropped
+  when the plugin is updated or uninstalled (its keys may be gone) and when it sends the default
+  state.
+- [D] Limits per plugin: at most 16 items with a state, and at most 2,048 bytes of item ids, keys
+  and arguments together (X4; a profile may allow more). Device-wide the host holds at most
+  6,144 bytes of item state (X4) in the shared `HostResources`. A batch that would exceed a limit
+  is `ERR_FULL`, whole. Storage is reserved fallibly (`ERR_NO_MEMORY`).
+- [D] Until a host shows item states, it refuses a batch containing this record with
+  `ERR_UNSUPPORTED`, whole (after the codec's checks).
+- [D] The command codec checks the item (nonempty, at most 96 bytes, UTF-8), the flags (closed set,
+  `on` needs `switch`), the keys (at most 128 bytes, UTF-8) and the argument batches (at most 256
+  bytes, none without a key); the host decodes the argument batches with the records codec.
+
 ## 4. Fonts and text
 
 - [D] `font.acquire(key)` keys: a registered font id (`Fonts::get` grammar) or a **role key**:
@@ -122,7 +235,9 @@ input(state: pointer, token: u32, input: bytes) -> i32
 
   - `text.metrics`: ascent and descent (both positive, from the baseline) and the line height, in
     pixels, of the size the text is drawn at. Works outside `draw`.
-  - `text.ink`: the ink of `text` at `size` as this host draws it at that size, counting pixels at least half covered: `top` and
+  - `text.ink`: the ink of `text` at `size` as this host draws it on its own screen, counting the
+    pixels that screen shows as ink (coverage at or above its black threshold: the panel's
+    `mono_coverage` on 1-bit screens, half on gray and colour): `top` and
     `bottom` relative to the baseline (above negative), `left` and `right` from the pen's start.
     Text without ink (spaces, empty) is `ERR_NOT_FOUND` with the outputs unchanged. Works
     outside `draw`. The numbers come from the host's own rasteriser (hinting, coverage, pack),
@@ -353,6 +468,9 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
 - Screens/actions: S2 index entries only (image path); about 16 bytes resident each.
 - i18n: one 4 KiB host scratch per call, none retained.
 - Reply buffers are lent from the existing host scratch, nothing per plugin.
+- Item state (section 3.1): at most 2,048 bytes of ids, keys and arguments per plugin plus about
+  24 bytes of index per item (16 items: about 2.4 KiB); at most 6 KiB device-wide. Kept states
+  live in one small host file per plugin, read at boot into the same budget.
 
 ## 15. Work after this contract
 
@@ -360,13 +478,14 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
   - screen/action apply (S2);
   - `input` dispatch and handled routing;
   - `dispatch_event` with the lent `out` and `draw` with `draw.frame`;
-  - command execution for 56-59;
+  - command execution for 56-60 (60: the item state store, its kept file and menu rendering);
   - font role resolution;
   - slots 27/28;
   - section 7 teardown order.
 - SDK (Services/Plugin):
   - screen/action declaration builder entries;
   - `native::Plugin::input`;
+  - `CommandSender::set_item_state` (section 3.1: flags, keys and `formatting::Arg` batches);
   - reply writing and `draw.frame` decoding;
   - input/event decoding;
   - i18n/fonts wrappers;

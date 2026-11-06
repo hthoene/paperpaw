@@ -2995,6 +2995,26 @@ pub use paperpaw_sdk::native::Problem
 pub use paperpaw_sdk::native::Signature
 pub use paperpaw_sdk::native::compiler
 pub use paperpaw_sdk::native::signature
+pub mod paperpaw_sdk::native::__heap
+pub use paperpaw_sdk::native::__heap::PpHeap
+pub struct paperpaw_sdk::native::__heap::Message
+impl paperpaw_sdk::native::__heap::Message
+pub fn paperpaw_sdk::native::__heap::Message::as_str(&self) -> &str
+pub fn paperpaw_sdk::native::__heap::Message::code(&self) -> i32
+pub const fn paperpaw_sdk::native::__heap::Message::new() -> Self
+impl core::default::Default for paperpaw_sdk::native::__heap::Message
+pub fn paperpaw_sdk::native::__heap::Message::default() -> Self
+impl core::fmt::Write for paperpaw_sdk::native::__heap::Message
+pub fn paperpaw_sdk::native::__heap::Message::write_str(&mut self, &str) -> core::fmt::Result
+pub const paperpaw_sdk::native::__heap::ABORT_ALLOCATION: i32
+pub const paperpaw_sdk::native::__heap::ABORT_MESSAGE_BYTES: usize
+pub const paperpaw_sdk::native::__heap::ABORT_PANIC: i32
+pub const paperpaw_sdk::native::__heap::NAMES: (&str, &str, &str)
+pub unsafe fn paperpaw_sdk::native::__heap::alloc(*const paperpaw_native::host_glue::generated::PpHeap, core::alloc::layout::Layout) -> *mut u8
+pub unsafe fn paperpaw_sdk::native::__heap::dealloc(*const paperpaw_native::host_glue::generated::PpHeap, *mut u8, core::alloc::layout::Layout)
+pub unsafe fn paperpaw_sdk::native::__heap::panic(*const paperpaw_native::host_glue::generated::PpHeap, &core::panic::panic_info::PanicInfo<'_>) -> never
+pub unsafe fn paperpaw_sdk::native::__heap::realloc(*const paperpaw_native::host_glue::generated::PpHeap, *mut u8, core::alloc::layout::Layout, usize) -> *mut u8
+pub fn paperpaw_sdk::native::__heap::trap() -> never
 pub mod paperpaw_sdk::native::callbacks
 #[non_exhaustive] pub enum paperpaw_sdk::native::callbacks::DrawPurpose
 pub paperpaw_sdk::native::callbacks::DrawPurpose::InsertedBlock
@@ -3481,6 +3501,9 @@ pub fn paperpaw_sdk::native::Fingerprint::fmt(&self, &mut core::fmt::Formatter<'
 pub struct paperpaw_sdk::native::Host<'cb>
 impl core::fmt::Debug for paperpaw_sdk::native::Host<'_>
 pub fn paperpaw_sdk::native::Host<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[repr(transparent)] pub struct paperpaw_sdk::native::Linked(_)
+impl core::fmt::Debug for paperpaw_sdk::native::Linked
+pub fn paperpaw_sdk::native::Linked::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub struct paperpaw_sdk::native::Native
 pub paperpaw_sdk::native::Native::api_size: u32
 pub paperpaw_sdk::native::Native::compiler: u32

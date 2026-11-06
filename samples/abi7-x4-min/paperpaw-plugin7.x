@@ -24,6 +24,9 @@ SECTIONS
         KEEP(*(.rodata.paperpaw_entry))
         . = ALIGN(4);
         KEEP(*(.rodata.paperpaw_metadata))
+        /* The optional heap word the loader fills (`abi/heap-word.md`). */
+        . = ALIGN(4);
+        KEEP(*(.rodata.paperpaw_heap))
         . = ALIGN(4);
         *(.rodata .rodata.* .srodata .srodata.*)
         . = ALIGN(16);

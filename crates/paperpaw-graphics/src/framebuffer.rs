@@ -5,6 +5,7 @@ use paperpaw_platform::{Color, FrameView, PixelFormat, Point, Rect};
 use crate::GraphicsError;
 use crate::canvas::Canvas;
 use crate::diffuse::Atkinson;
+use crate::probe::Probe;
 
 /// From what coverage (of 255) a pixel at an edge takes the colour drawn
 /// in black and white, at first: three eighths (see
@@ -48,6 +49,8 @@ pub struct Framebuffer {
     /// Holds no pixels: what is drawn is only described (see
     /// [`Framebuffer::blind`]).
     blind: bool,
+    /// Keeps where ink lands instead of pixels (see [`Framebuffer::probe`]).
+    probe: Option<Probe>,
     /// Pictures diffused across the end of the band: each one's key, the
     /// screen row where the next band takes it up, and its error there
     /// (see [`Canvas::keep_diffusion`](crate::Canvas::keep_diffusion)).
@@ -104,6 +107,7 @@ impl Framebuffer {
             all_pictured: 0,
             counting: true,
             blind: false,
+            probe: None,
             diffusions: Vec::new(),
         })
     }
@@ -131,6 +135,7 @@ impl Framebuffer {
             all_pictured: 0,
             counting: true,
             blind: true,
+            probe: None,
             diffusions: Vec::new(),
         }
     }
@@ -142,6 +147,18 @@ impl Framebuffer {
     /// Whether it holds no pixels ([`Framebuffer::blind`]).
     pub fn is_blind(&self) -> bool {
         self.blind
+    }
+
+    pub(crate) fn probe_state(&self) -> Option<&Probe> {
+        self.probe.as_ref()
+    }
+
+    pub(crate) fn probe_state_mut(&mut self) -> Option<&mut Probe> {
+        self.probe.as_mut()
+    }
+
+    pub(crate) fn set_probe(&mut self, probe: Option<Probe>) {
+        self.probe = probe;
     }
 
     pub fn height(&self) -> u16 {
