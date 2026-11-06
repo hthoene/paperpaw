@@ -715,10 +715,7 @@ impl Walk<'_> {
             return None;
         }
         let mut out = Vec::new();
-        while out.len() < self.insns.len() {
-            let Some(word) = at.checked_add(4).and_then(|end| tables.bytes.get(at..end)) else {
-                break;
-            };
+        while let Some(word) = at.checked_add(4).and_then(|end| tables.bytes.get(at..end)) {
             if !u32::try_from(at).is_ok_and(|o| tables.relocated.contains(&o)) {
                 break;
             }
@@ -730,9 +727,17 @@ impl Walk<'_> {
             else {
                 break;
             };
+            if out.len() >= self.insns.len() {
+                // More entries than the function has instructions, and the
+                // next still points into it: a table no compiler makes, and
+                // reading only its first words would miss where the rest go.
+                return None;
+            }
             out.push(self.insns.binary_search_by_key(&offset, |&(a, _)| a).ok()?);
             at += 4;
         }
+        out.sort_unstable();
+        out.dedup();
         (!out.is_empty()).then_some(out)
     }
 
