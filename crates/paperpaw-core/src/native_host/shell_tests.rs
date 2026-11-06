@@ -589,6 +589,8 @@ fn pinned_owner_allocation_failure_drops_unactivated_context_then_module() {
     assert_eq!(logged(), ["context", "module"]);
 }
 
+#[path = "shell_oom_tests.rs"]
+mod oom;
 #[test]
 fn teardown_faults_are_one_shot_and_propagate_through_production_commit() {
     use crate::native_host::{Error as HostError, TeardownStep};

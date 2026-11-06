@@ -43,7 +43,7 @@ fn flat(calls: &Rc<Cell<usize>>, host: &FlatHost) -> FlatPlugin {
             scope: Box::pin(EnvironmentScope::new()),
             calls: Rc::clone(calls),
         }),
-        Rc::new(DispatchDepth::new()),
+        crate::native_host::flat::FlatDepth::try_new().unwrap(),
         host,
     )
     .unwrap()

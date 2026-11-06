@@ -4,6 +4,7 @@
 //! module. Only host-owned Rust objects use this adapter; the foreign callback
 //! still receives one bounded byte batch, never an SDK object.
 
+use super::shared::{self, Shared};
 use super::{DispatchDepth, Error, FlatHost, environment::EnvironmentScope, events};
 use alloc::{boxed::Box, format, rc::Rc};
 use core::{fmt, pin::Pin};
@@ -43,11 +44,14 @@ pub enum FlatRegistration {
 pub enum FlatError {
     /// An event tag or other registration record tag cannot be routed.
     Unrouted { tag: u32 },
+    /// Actual host allocation failed; no instance is retained.
+    Allocation,
 }
 
 impl fmt::Display for FlatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Allocation => f.write_str("flat host allocation failed"),
             Self::Unrouted { tag } => write!(f, "flat callback tag {tag} has no live dispatcher"),
         }
     }
@@ -89,13 +93,43 @@ pub trait FlatInstance {
     fn event_dropped(&self, tag: u32, why: DropReason);
 }
 
+/// Single-threaded dispatch budget shared by all flat plugins on a device.
+/// Construction and reference-count growth refuse without panic.
+#[derive(Debug)]
+#[must_use]
+pub struct FlatDepth(Shared<DispatchDepth>);
+
+impl FlatDepth {
+    /// Allocate the device's actual shared depth counter.
+    ///
+    /// # Errors
+    /// Returns Allocation if the actual allocation fails.
+    pub fn try_new() -> Result<Self, FlatError> {
+        Shared::try_new(DispatchDepth::new())
+            .map(Self)
+            .map_err(|_| FlatError::Allocation)
+    }
+
+    /// Borrow the same device-wide budget for direct host dispatch.
+    #[must_use]
+    pub fn as_depth(&self) -> &DispatchDepth {
+        &self.0
+    }
+
+    /// Retain the budget without allocating; None means count overflow.
+    #[must_use]
+    pub fn try_clone(&self) -> Option<Self> {
+        self.0.try_clone().map(Self)
+    }
+}
+
 /// Host adapter for events 32–37. Shells return this through CodeLoader.
 /// The shared depth must be the same for every flat instance on this device.
 #[non_exhaustive]
 pub struct FlatPlugin {
     manifest: Manifest,
-    instance: Rc<dyn FlatInstance>,
-    depth: Rc<DispatchDepth>,
+    instance: Shared<Box<dyn FlatInstance>>,
+    depth: FlatDepth,
     host: FlatHost,
 }
 
@@ -108,15 +142,22 @@ impl fmt::Debug for FlatPlugin {
 }
 
 impl FlatPlugin {
+    #[cfg(test)]
+    pub(crate) fn reference_counts(&self) -> (u32, u32) {
+        (self.instance.strong_count(), self.depth.0.strong_count())
+    }
+
     /// Retain a shell-owned instance. Allocations occur only during construction
     /// and subscription registration, never during event encoding or dispatch.
+    /// The instance Box and its private shared node cost two allocations per
+    /// plugin. The device depth uses one shared allocation for all plugins.
     ///
     /// # Errors
     /// Refuses the entire instance when a committed callback cannot be routed.
     pub fn new(
         manifest: Manifest,
         instance: Box<dyn FlatInstance>,
-        depth: Rc<DispatchDepth>,
+        depth: FlatDepth,
         host: &FlatHost,
     ) -> Result<Self, FlatError> {
         let mut error = None;
@@ -135,7 +176,7 @@ impl FlatPlugin {
         }
         Ok(Self {
             manifest,
-            instance: Rc::from(instance),
+            instance: Shared::try_new(instance).map_err(|_| FlatError::Allocation)?,
             depth,
             host: FlatHost {
                 meter: Rc::clone(&host.meter),
@@ -174,17 +215,42 @@ impl Plugin for FlatPlugin {
                 });
                 return;
             };
-            let instance = Rc::clone(&self.instance);
-            let depth = Rc::clone(&self.depth);
+            let Some(instance) = self.instance.try_clone() else {
+                result = Err(RegisterError::Invalid {
+                    message: "flat instance reference limit".into(),
+                });
+                return;
+            };
+            let Some(depth) = self.depth.try_clone() else {
+                result = Err(RegisterError::Invalid {
+                    message: "flat depth reference limit".into(),
+                });
+                return;
+            };
             let host = FlatHost {
                 meter: Rc::clone(&self.host.meter),
             };
-            result = registrar.subscribe(
-                event,
-                Box::new(move |env, params, _| {
-                    deliver(&*instance, &depth, &host, tag, index, env, params)
-                }),
-            );
+            let handler: Option<paperpaw_sdk::EventHandler> = shared::try_box(
+                move |env: &Env<'_>, params: &Params, _: &mut paperpaw_sdk::Commands| {
+                    deliver(
+                        &**instance,
+                        depth.as_depth(),
+                        &host,
+                        tag,
+                        index,
+                        env,
+                        params,
+                    )
+                },
+            )
+            .map(|handler| handler as paperpaw_sdk::EventHandler);
+            let Some(handler) = handler else {
+                result = Err(RegisterError::Invalid {
+                    message: "flat handler allocation failed".into(),
+                });
+                return;
+            };
+            result = registrar.subscribe(event, handler);
         });
         result
     }
