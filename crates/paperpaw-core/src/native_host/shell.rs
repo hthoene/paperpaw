@@ -137,6 +137,7 @@ pub struct Context<S> {
     attempted: Cell<bool>,
     /// The scope in which `make`'s registrations are staged.
     pub registrations: RegistrationScope<Registration>,
+    pub(crate) commands: super::commands::CommandScope,
     /// The scope in which a callback may query the environment.
     pub environment: EnvironmentScope,
     /// The scope in which a draw callback may paint.
@@ -213,6 +214,7 @@ pub fn host_table<S: Services>() -> PpHost {
     table.heap_realloc = heap_realloc::<S>;
     table.clock_micros = clock_micros::<S>;
     table.registrations_submit = registrations_submit::<S>;
+    table.commands_submit = commands_submit::<S>;
     table.env_snapshot = env_snapshot::<S>;
     table.settings_read = settings_read::<S>;
     table.canvas_fill_rect = canvas_fill_rect::<S>;
@@ -296,6 +298,7 @@ impl<S: Services, M> Hosted<S, M> {
             instance: Cell::new(None),
             attempted: Cell::new(false),
             registrations: RegistrationScope::new(),
+            commands: super::commands::CommandScope::new(),
             environment: EnvironmentScope::with_resources(scoped_resources),
             canvas: CanvasScope::new(),
         };
@@ -1290,3 +1293,12 @@ unsafe extern "C" fn blob_release<S>(ctx: *mut c_void, blob: u32) -> i32 {
 #[cfg(test)]
 #[path = "shell_core.rs"]
 mod core_dispatch;
+
+unsafe extern "C" fn commands_submit<S>(ctx: *mut c_void, batch: PpBytes) -> i32 {
+    // SAFETY: nonnull ctx is the pinned host context supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: the slot contract supplies stable, readable batch bytes.
+    unsafe { context.commands.submit(batch.ptr, batch.len) }
+}
