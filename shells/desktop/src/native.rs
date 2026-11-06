@@ -567,10 +567,7 @@ version = 0.1.0
             path: &path,
             sha256: paperpaw_core::sdk::digest::sha256::digest(b"not a library"),
         };
-        assert_eq!(
-            load_installed(&storage, &code).err(),
-            Some(not_a_library())
-        );
+        assert_eq!(load_installed(&storage, &code).err(), Some(not_a_library()));
         let changed = Installed {
             sha256: [0; 32],
             ..code
