@@ -252,3 +252,80 @@ fn a_piece_reads_only_the_words_it_needs_in_a_fixed_buffer() {
     );
     assert!(counting.largest.get() <= 128, "a fixed buffer");
 }
+
+/// The header sealed over its file as the packer does: the digest of the
+/// header's first 64 bytes and everything after the header.
+fn sealed(mut header: Header5, file: &[u8]) -> Header5 {
+    let mut sha = header.digest();
+    sha.update(&file[HEADER5_LEN..]);
+    header.sha256 = sha.finish();
+    header
+}
+
+fn verified(h: &Header5, file: &[u8], base: u32, hot: u32, buf: usize) -> Result<(), Problem> {
+    let mut relocator = Relocator5::new(h, file, base)?;
+    if hot != 0 {
+        relocator = relocator.hot_at(hot)?;
+    }
+    relocator.verify(&mut alloc::vec![0u8; buf])
+}
+
+#[test]
+fn a_file_is_verified_whole_in_any_buffer_and_changed_in_no_byte() {
+    let (h4, image, words) = hot_image();
+    let file = file(&image, &words);
+    let h5 = sealed(as_five(&h4), &file);
+    for base in [LINK_BASE, 0x3C81_0000] {
+        for hot in [0, 0x4039_0100] {
+            for buf in [4, 12, 64, 100, 4096] {
+                assert_eq!(verified(&h5, &file, base, hot, buf), Ok(()), "{buf}");
+            }
+        }
+    }
+    // Any byte after the header changed: the digest refuses it, or the
+    // relocation does where the byte is one it reads.
+    for at in HEADER5_LEN..file.len() {
+        let mut changed = file.clone();
+        changed[at] ^= 0x01;
+        let got = verified(&h5, &changed, LINK_BASE, 0, 64);
+        assert!(
+            matches!(got, Err(Problem::Damaged | Problem::Relocation)),
+            "byte {at}: {got:?}"
+        );
+    }
+    // A header changed after sealing: its other digest.
+    let other = Header5 {
+        needs_minor: 2,
+        ..h5
+    };
+    assert_eq!(
+        verified(&other, &file, LINK_BASE, 0, 64),
+        Err(Problem::Damaged)
+    );
+    // A buffer that holds no word.
+    assert_eq!(
+        verified(&h5, &file, LINK_BASE, 0, 3),
+        Err(Problem::Malformed)
+    );
+    // A file shorter than its header says: a read that fails.
+    assert_eq!(
+        verified(&h5, &file[..file.len() - 1], LINK_BASE, 0, 64),
+        Err(Problem::Damaged)
+    );
+}
+
+#[test]
+fn verifying_reads_the_file_once_in_a_fixed_buffer() {
+    let (h4, image, words) = hot_image();
+    let file = file(&image, &words);
+    let h5 = sealed(as_five(&h4), &file);
+    let counting = Counting {
+        bytes: file.as_slice(),
+        reads: Cell::new(0),
+        largest: Cell::new(0),
+    };
+    let relocator = Relocator5::new(&h5, &counting, LINK_BASE).unwrap();
+    counting.largest.set(0);
+    relocator.verify(&mut [0u8; 64]).unwrap();
+    assert!(counting.largest.get() <= 64, "no read past the buffer");
+}

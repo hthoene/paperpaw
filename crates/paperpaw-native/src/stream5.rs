@@ -14,7 +14,7 @@
 //! Nothing here writes flash or runs code.
 
 use crate::header::{CODE_OFFSET, Problem};
-use crate::header5::Header5;
+use crate::header5::{HEADER_LEN, Header5};
 use crate::reloc::PatchKind;
 
 /// A read that did not deliver all its bytes: past the end of the file, or
@@ -261,6 +261,46 @@ impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
         }
         self.hot = hot;
         Ok(self)
+    }
+
+    /// Everything that can refuse the file before a byte is written (step 8
+    /// and the relocation's own checks): reads the file once, `buf` at a
+    /// time, feeds the digest with the header and all after it, and runs
+    /// [`Relocator5::apply`] on each piece as the device will, but on the
+    /// piece alone, so a word that cannot be relocated refuses here. Then
+    /// the digest must be the header's ([`Header5::holds`]).
+    ///
+    /// `buf` is the only memory used, at least 4 bytes (a multiple of 4 is
+    /// used). The device passes one sector. A file whose bytes were changed
+    /// is `Damaged` or `Relocation`, whichever its changed bytes show first.
+    pub fn verify(&self, buf: &mut [u8]) -> Result<(), Problem> {
+        let step = buf.len() & !3;
+        if step == 0 {
+            return Err(Problem::Malformed);
+        }
+        let mut sha = self.header.digest();
+        let mut done = 0u32;
+        while done < self.header.image_len {
+            let len = (self.header.image_len - done).min(step as u32) as usize;
+            let piece = &mut buf[..len];
+            self.tail.read(HEADER_LEN as u64 + u64::from(done), piece)?;
+            sha.update(piece);
+            self.apply(done, piece)?;
+            done += len as u32;
+        }
+        let end = self.header.file_len();
+        let mut at = self.header.relocs_at();
+        while at < end {
+            let len = (end - at).min(step as u64) as usize;
+            self.tail.read(at, &mut buf[..len])?;
+            sha.update(&buf[..len]);
+            at += len as u64;
+        }
+        if self.header.holds(sha) {
+            Ok(())
+        } else {
+            Err(Problem::Damaged)
+        }
     }
 
     fn hot_moved(&self) -> bool {

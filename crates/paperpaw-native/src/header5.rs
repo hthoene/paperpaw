@@ -130,6 +130,71 @@ pub struct RecordFacts {
     pub entry_bytes: u32,
 }
 
+impl RecordFacts {
+    /// The facts of the metadata record `record` (the bytes at `meta_at`),
+    /// read from its fixed prefix with every bound checked: `None` if it is
+    /// not a record this host reads (wrong magic or layout, a prefix or a
+    /// total that is not the record's, reserved flags set, an entry layout
+    /// that is not the first).
+    ///
+    /// This reads the prefix only, the part step 9 compares with the header.
+    /// The body (target, exports, services, features) is checked by the
+    /// generated bounded reader once Kernel's lands (`abi/metadata.md`,
+    /// "Remaining qualification"); the offsets are the descriptor's
+    /// (`abi/generated/metadata-layout.json`, `prefix`), pinned by a test
+    /// against the generated fixture, and nothing else is read from here.
+    pub fn read(record: &[u8]) -> Option<RecordFacts> {
+        const MAGIC: [u8; 4] = *b"PPAM";
+        const LAYOUT: u16 = 2;
+        const PREFIX_BYTES: u16 = 32;
+        const ENTRY_LAYOUT: u16 = 1;
+        if record.len() < PREFIX_BYTES as usize || record.len() > META_MAX as usize {
+            return None;
+        }
+        let ok = record[..4] == MAGIC
+            && le16(record, 4) == LAYOUT
+            && le16(record, 6) == PREFIX_BYTES
+            && le32(record, 8) as usize == record.len()
+            && le16(record, 16) == ENTRY_LAYOUT
+            && le32(record, 20) == 0;
+        ok.then(|| RecordFacts {
+            abi_major: le16(record, 12),
+            needs_minor: le16(record, 14),
+            entry_bytes: u32::from(le16(record, 18)),
+        })
+    }
+}
+
+/// The entry as the relocated image holds it, before anything is checked:
+/// the fields of `PpEntry` on the ESP32-C3 (`abi/generated/paperpaw_abi.rs`,
+/// profile `esp32c3-riscv32imc-ilp32-soft-le`, [`X4_ENTRY_BYTES`] long).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RawEntry {
+    pub size: u32,
+    pub abi_major: u16,
+    pub needs_minor: u16,
+    pub metadata_ptr: u32,
+    pub metadata_len: u32,
+    /// `make`, an instruction address.
+    pub make: u32,
+}
+
+impl RawEntry {
+    /// The entry in `bytes` (little-endian fields in declaration order),
+    /// or `None` if it is shorter than the profile's entry.
+    pub fn read(bytes: &[u8]) -> Option<RawEntry> {
+        let bytes = bytes.get(..X4_ENTRY_BYTES as usize)?;
+        Some(RawEntry {
+            size: le32(bytes, 0),
+            abi_major: le16(bytes, 4),
+            needs_minor: le16(bytes, 6),
+            metadata_ptr: le32(bytes, 8),
+            metadata_len: le32(bytes, 12),
+            make: le32(bytes, 16),
+        })
+    }
+}
+
 /// What the loader found in the entry once the image is relocated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EntryFacts<'a> {
@@ -427,6 +492,27 @@ impl Header5 {
             .all(|word| self.word_in_image(word))
             .then_some(())
             .ok_or(EntryRefusal::RelocOutside)
+    }
+
+    /// Where `make` lies in the image, for [`EntryFacts::make_at`]: an
+    /// offset into the image for `make` an instruction address in the
+    /// image placed at `placed_base` (`placed_base + CODE_OFFSET + offset`),
+    /// or in the hot code copied to `hot` (`hot_at + (make - hot)`; `hot` 0:
+    /// not copied). Any other address gives `u32::MAX`, which
+    /// [`Header5::check_entry`] refuses.
+    pub fn make_offset(&self, make: u32, placed_base: u32, hot: u32) -> u32 {
+        if hot != 0 {
+            let in_hot = make.wrapping_sub(hot);
+            if in_hot < self.hot_len {
+                return self.hot_at + in_hot;
+            }
+        }
+        let in_image = make.wrapping_sub(placed_base.wrapping_add(CODE_OFFSET));
+        if in_image < self.image_len {
+            in_image
+        } else {
+            u32::MAX
+        }
     }
 
     /// Step 9 once the image is relocated and before `make`: the record

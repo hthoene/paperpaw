@@ -556,3 +556,142 @@ fn the_entry_itself_is_checked_for_size_versions_and_make() {
         );
     }
 }
+
+/// The generated metadata record of the X4 profile
+/// (`abi/fixtures/entry`), the bytes the prefix offsets are pinned by.
+fn x4_record() -> Vec<u8> {
+    let hex = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../abi/fixtures/entry/esp32c3-riscv32imc-ilp32-soft-le.hex"
+    ))
+    .trim();
+    (0..hex.len() / 2)
+        .map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap())
+        .collect()
+}
+
+#[test]
+fn the_record_prefix_reads_as_the_generated_fixture_says() {
+    let record = x4_record();
+    assert_eq!(
+        RecordFacts::read(&record),
+        Some(RecordFacts {
+            abi_major: generated_major(),
+            needs_minor: 1,
+            entry_bytes: X4_ENTRY_BYTES,
+        })
+    );
+}
+
+fn generated_major() -> u16 {
+    let abi = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../abi/generated/paperpaw_abi.rs"
+    ));
+    let line = abi
+        .lines()
+        .find(|l| l.starts_with("pub const MAJOR: u16 = "))
+        .unwrap();
+    line.trim_end_matches(';')
+        .rsplit(' ')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+
+#[test]
+fn a_record_that_is_not_the_first_layout_is_not_read() {
+    let record = x4_record();
+    assert_eq!(record.len(), 0x58);
+    // Short, long, or a total that is not its length.
+    for bad in [&record[..31], &record[..record.len() - 1], &[][..]] {
+        assert_eq!(RecordFacts::read(bad), None);
+    }
+    let mut long = record.clone();
+    long.push(0);
+    assert_eq!(RecordFacts::read(&long), None, "trailing byte");
+    let too_big = alloc::vec![0u8; META_MAX as usize + 1];
+    assert_eq!(RecordFacts::read(&too_big), None);
+    // Each prefix field broken on its own: magic, layout, prefix length,
+    // total, entry layout, flags.
+    for (at, value) in [(0, 0x4E), (4, 3), (6, 33), (8, 0x59), (16, 2), (20, 1)] {
+        let mut changed = record.clone();
+        changed[at] = value;
+        assert_eq!(RecordFacts::read(&changed), None, "byte {at}");
+    }
+    // The version fields are facts, not checks: step 9 compares them.
+    let mut other = record.clone();
+    other[12] = 8;
+    other[14] = 9;
+    other[18] = 24;
+    assert_eq!(
+        RecordFacts::read(&other),
+        Some(RecordFacts {
+            abi_major: 8,
+            needs_minor: 9,
+            entry_bytes: 24
+        })
+    );
+}
+
+#[test]
+fn the_raw_entry_reads_in_the_order_of_the_generated_struct() {
+    let mut bytes = Vec::new();
+    for word in [20u32, 7 | 1 << 16, 0x3C00_0080, 96, 0x4200_0410] {
+        bytes.extend_from_slice(&word.to_le_bytes());
+    }
+    assert_eq!(bytes.len() as u32, X4_ENTRY_BYTES);
+    assert_eq!(
+        RawEntry::read(&bytes),
+        Some(RawEntry {
+            size: 20,
+            abi_major: 7,
+            needs_minor: 1,
+            metadata_ptr: 0x3C00_0080,
+            metadata_len: 96,
+            make: 0x4200_0410,
+        })
+    );
+    assert_eq!(RawEntry::read(&bytes[..19]), None);
+    bytes.push(0xEE);
+    assert!(RawEntry::read(&bytes).is_some(), "more is not read");
+}
+
+#[test]
+fn make_maps_back_to_its_image_offset_in_flash_or_in_the_hot_arena() {
+    let h = Header5 {
+        hot_at: 2048,
+        hot_len: 512,
+        ..good()
+    };
+    let placed = h.base + 0x1_0000;
+    let flash = placed + CODE_OFFSET;
+    // In the image: its offset, wherever it was linked.
+    assert_eq!(h.make_offset(flash + 1030, placed, 0), 1030);
+    assert_eq!(h.make_offset(flash + 4095, placed, 0), 4095);
+    for outside in [flash - 1, flash + 4096, 0, u32::MAX, placed + 1030] {
+        assert_eq!(h.make_offset(outside, placed, 0), u32::MAX, "{outside:#x}");
+    }
+    // In hot code, copied to the arena: the offset of its place in the image.
+    let hot = 0x4038_1000;
+    assert_eq!(h.make_offset(hot + 6, placed, hot), 2048 + 6);
+    assert_eq!(h.make_offset(hot + 511, placed, hot), 2048 + 511);
+    // Past the hot code, the flash address still counts; the arena's does not.
+    assert_eq!(h.make_offset(hot + 512, placed, hot), u32::MAX);
+    assert_eq!(h.make_offset(flash + 1030, placed, hot), 1030);
+    // Without hot code copied, the arena's addresses mean nothing.
+    assert_eq!(h.make_offset(hot + 6, placed, 0), u32::MAX);
+    // The offset is what check_entry takes.
+    let record = record_bytes(h.meta_len as usize);
+    let entry = EntryFacts {
+        make_at: h.make_offset(hot + 6, placed, hot),
+        metadata_ptr: placed + h.meta_at,
+        ..entry(&h, &record)
+    };
+    assert_eq!(
+        h.check_entry(placed, &HOST, &RECORD, &record, &entry),
+        // Hot code lies in the image's code, so it is a `make`.
+        Ok(())
+    );
+}
