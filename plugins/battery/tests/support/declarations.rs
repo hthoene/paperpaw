@@ -2,9 +2,7 @@ use paperpaw_sdk::Contribution;
 use paperpaw_sdk::native::declare::{
     Declarations, DeclareError, EditorDecl, ExtraDecl, GroupDecl, Kind, SpecDecl,
 };
-use paperpaw_sdk::settings::{
-    Editor, Level, SettingGroupSpec, SettingKind, SettingSpec, SettingValue,
-};
+use paperpaw_sdk::{Editor, Level, SettingGroupSpec, SettingKind, SettingSpec, SettingValue};
 
 #[derive(Debug)]
 pub enum ConversionError {
@@ -62,6 +60,7 @@ fn extra<'a>(
         Some(Editor::Screen(id)) => Some(EditorDecl::Screen(relative(plugin, id.as_str())?)),
         Some(Editor::Slot(id)) => Some(EditorDecl::Slot(id.as_str())),
         None => None,
+        Some(_) => return Err(ConversionError::Unsupported),
     };
     result.step = i32::try_from(source.step).map_err(|_| DeclareError::Range)?;
     result.slider = source.slider;
