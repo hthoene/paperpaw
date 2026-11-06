@@ -191,6 +191,7 @@ class SchemaTests(unittest.TestCase):
         del prior['emitted_metadata']
         del prior['emitted_records']
         del prior['emitted_snapshot']
+        del prior['emitted_color']
         ABI.check_lock(prior, self.base)
         with patch.dict(ABI.TYPES, {'handle': 'uint64_t'}):
             with self.assertRaisesRegex(ValueError, 'emitted C contract'):

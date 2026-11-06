@@ -13,6 +13,10 @@ pub mod registration_scope;
 
 const REGISTRATIONS: usize = 8;
 
+/// Callback-scoped drawing for host-owned plugin contexts.
+#[path = "native_host/canvas.rs"]
+pub mod canvas;
+
 /// Scoped environment copy-out for host-owned plugin contexts.
 #[path = "native_host/environment.rs"]
 pub mod environment;
