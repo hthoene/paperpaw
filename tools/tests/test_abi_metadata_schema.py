@@ -100,7 +100,8 @@ class MetadataSchemaTests(unittest.TestCase):
         # has no call table (min_table_bytes 0); a table has its size word.
         services = self.schema['metadata']['services']
         self.assertEqual(sorted(item['key'] for item in services),
-                         ['core.plugin', 'core.plugin-usage', 'core.usage', 'core.work-note'])
+                         ['core.plugin', 'core.plugin-usage', 'core.test-echo', 'core.usage',
+                          'core.work-note'])
         for item in services:
             self.assertEqual((item['major'], item['semantic_revision'],
                               item['min_table_bytes'], item['since']), (1, 0, 0, 1))

@@ -188,6 +188,13 @@
         "min_table_bytes": 0,
         "semantic_revision": 0,
         "since": 1
+      },
+      {
+        "key": "core.test-echo",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
       }
     ]
   },

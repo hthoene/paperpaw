@@ -368,7 +368,7 @@ subscriptions. Families added later refer to it instead of defining their own.
 | --- | --- |
 | registration, tick | 1-3 |
 | `command.set_setting` | 4 |
-| declarations (`setting`, `resource`, `action`, `menu`, `screen`, `icon`, `format`, `registration`) | 5-31, 224-511 |
+| declarations (`setting`, `resource`, `action`, `menu`, `screen`, `icon`, `format`, `registration`, `stage.spec`) | 5-31, 224-511 |
 | `event` | 32-39, 64-191 |
 | `input` | 40-43, 192-223 (`draw` shares the block) |
 | `i18n` | 44-47 |
@@ -456,10 +456,11 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
   key. So a feature can move to a new revision without breaking plugins built for an older one.
   Other bits are refused. See `abi/metadata.md`.
 - [D] **Service families (D4).** Every later family (NET, LIB, REG, FS, SEC, DEV and the rest) is a
-  versioned service schema behind `services.query`, not a set of one-off slots. Calls go through
+  versioned service schema, not a set of one-off slots. Slot 17 (`services.query`) stays the
+  snapshot query over blobs; calls go through
   one generic slot, `service.call(ctx, service, op: u32, input, out) -> count` (synchronous and
-  bounded); asynchronous work returns an operation handle under section 7. The slot and its
-  generator path come in the additive follow-up to this draft.
+  bounded); asynchronous work returns an operation handle under section 7. The slots
+  (`service.open` 33, `service.call` 34) and the schema generator are in `stages-services.md`.
 - [D] **Limits (D5).** A plugin may require up to 32 services (was 16) and 32 features.
 
 ## 14. Memory (X4)

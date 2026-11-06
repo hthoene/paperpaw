@@ -9,9 +9,10 @@
 
 use super::registrations::{
     ActionSpec, ICON_SPEC_ICON_MAX_BYTES, IconSpec, MenuDescribe, MenuEntry, MenuHide, MenuNeed,
-    MenuSection, Record, RecordBatch, ResourceFontExtension, ResourceFontFace, ResourceHyphenation,
-    SETTING_SPEC_CHOICES_ITEM_MAX_BYTES, SETTING_SPEC_CHOICES_MAX_ITEMS,
-    SETTING_SPEC_CHOICES_SEPARATOR, ScreenSpec, SettingExtra, SettingGroup, SettingSpec,
+    MenuSection, Record, RecordBatch, RegistrationStage, ResourceFontExtension, ResourceFontFace,
+    ResourceHyphenation, SETTING_SPEC_CHOICES_ITEM_MAX_BYTES, SETTING_SPEC_CHOICES_MAX_ITEMS,
+    SETTING_SPEC_CHOICES_SEPARATOR, STAGE_CALL_PAYLOAD_MAX_BYTES, ScreenSpec, SettingExtra,
+    SettingGroup, SettingSpec, StageSpec,
 };
 use crate::abi7::settings_wire::{SettingValueRef, settings_decode};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
@@ -83,6 +84,12 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         Record::MenuDescribe(describe) => {
             describe_check(plugin_id, describe).and(Err(ERR_UNSUPPORTED))
         }
+        // Checked, then refused until the host runs stages
+        // (`docs/abi/stages-services.md` section 1).
+        Record::StageSpec(spec) => stage_spec_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
+        Record::RegistrationStage(registration) => {
+            stage_registration_check(registration).and(Err(ERR_UNSUPPORTED))
+        }
         Record::Registration(_) => Ok(()),
         // Events flow from the host to the plugin; a batch never carries one.
         Record::EventStarted(_)
@@ -108,7 +115,11 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::ServicePluginUsage(_)
         | Record::ServicePlugin(_)
         | Record::ServiceWorkNote(_)
-        | Record::ServiceEnd(_) => Err(ERR_INVALID),
+        | Record::ServiceEnd(_)
+        | Record::ServiceEcho(_) => Err(ERR_INVALID),
+        // A stage call is the host's input to a subscriber, a reply its
+        // answer to `stage.run`: never declared.
+        Record::StageCall(_) | Record::StageReply(_) => Err(ERR_INVALID),
     }
 }
 
@@ -522,6 +533,50 @@ pub(crate) fn describe_check(plugin_id: &str, describe: &MenuDescribe<'_>) -> Ch
     ensure(!key.is_empty())
 }
 
+/// Stage flag bits a host knows: `changes_layout`, `draws`, `takes_taps`.
+const STAGE_FLAGS: u32 = 0b111;
+/// Most records a subscriber's stage reply may hold.
+const STAGE_MAX_RECORDS: u32 = 64;
+
+/// The syntax of one `stage.spec`. Unknown flag bits are `ERR_UNSUPPORTED`
+/// (a later host may know them), every other violation `ERR_INVALID`.
+pub(crate) fn stage_spec_check(plugin_id: &str, spec: &StageSpec<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let StageSpec {
+        name,
+        schema: _,
+        flags,
+        max_input,
+        max_reply,
+        max_records,
+    } = spec;
+    relative(plugin_id, name)?;
+    let payload = 1..=STAGE_CALL_PAYLOAD_MAX_BYTES as u32;
+    ensure(payload.contains(max_input) && payload.contains(max_reply))?;
+    ensure((1..=STAGE_MAX_RECORDS).contains(max_records))?;
+    if flags & !STAGE_FLAGS != 0 {
+        return Err(ERR_UNSUPPORTED);
+    }
+    Ok(())
+}
+
+/// The syntax of one `registration.stage`: any plugin's stage, by full id.
+pub(crate) fn stage_registration_check(registration: &RegistrationStage<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let RegistrationStage {
+        stage,
+        token: _,
+        order,
+        signature: _,
+    } = registration;
+    full_id(stage)?;
+    ensure(i16::try_from(*order).is_ok())
+}
+
 #[cfg(test)]
 #[path = "declarations_menu_tests.rs"]
 mod menu_tests;
+
+#[cfg(test)]
+#[path = "declarations_stage_tests.rs"]
+mod stage_tests;

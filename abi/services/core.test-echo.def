@@ -1,0 +1,20 @@
+{
+  "key": "core.test-echo",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "ops": [
+    {
+      "id": 1,
+      "name": "echo",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": ["service.echo"],
+      "reply": ["service.echo"],
+      "max_input": 512,
+      "max_reply": 512,
+      "bound": "none"
+    }
+  ]
+}
