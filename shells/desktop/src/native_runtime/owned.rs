@@ -68,7 +68,7 @@ impl<'a, S, T> Transaction<'a, S, T> {
 type Batch<'a, S, T> = RegistrationBatch<'a, Context<S>, HeldLibrary, T>;
 
 struct PinnedPlugin<S> {
-    owner: Pin<Box<Owner<S>>>,
+    owner: native_host::PinnedOwner<Context<S>, HeldLibrary>,
     make: Make,
     /// Host-known plugin id (from the folder, never from the library) that
     /// staged declaration names are checked against.
@@ -213,7 +213,9 @@ impl<S: Services> PinnedPlugin<S> {
 
 /// Fallible allocation uses the emulator's global budget allocator. The owner
 /// includes a module and context, so its allocation is never zero-sized.
-fn pin_owner<S>(value: Owner<S>) -> Result<Pin<Box<Owner<S>>>, Error> {
+fn pin_owner<S>(
+    value: Owner<S>,
+) -> Result<native_host::PinnedOwner<Context<S>, HeldLibrary>, Error> {
     let layout = Layout::new::<Owner<S>>();
     // SAFETY: layout is nonzero and valid for this exact owner type.
     let allocation = unsafe { std::alloc::alloc(layout) }.cast::<Owner<S>>();
@@ -224,7 +226,9 @@ fn pin_owner<S>(value: Owner<S>) -> Result<Pin<Box<Owner<S>>>, Error> {
     // before creating its Box. Nothing has observed the unpinned owner yet.
     unsafe {
         allocation.write(value);
-        Ok(Box::into_pin(Box::from_raw(allocation)))
+        Ok(native_host::PinnedOwner::new(Box::into_pin(Box::from_raw(
+            allocation,
+        ))))
     }
 }
 

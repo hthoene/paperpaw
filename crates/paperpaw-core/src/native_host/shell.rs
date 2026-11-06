@@ -187,7 +187,7 @@ impl<'a, S, M, T> Transaction<'a, S, M, T> {
 /// ```
 #[allow(missing_debug_implementations, reason = "holds the generated table")]
 pub struct Hosted<S, M> {
-    owner: Pin<Box<Owner<S, M>>>,
+    owner: super::PinnedOwner<Context<S>, M>,
     make: Make,
     /// The plugin's read-only data as mapped: address and length.
     image: (usize, usize),
@@ -387,7 +387,7 @@ impl<S: Services, M> Hosted<S, M> {
 
 /// Fallible placement of the owner: it holds a context and a module, so its
 /// allocation is never zero-sized.
-fn pin_owner<S, M>(value: Owner<S, M>) -> Result<Pin<Box<Owner<S, M>>>, Error> {
+fn pin_owner<S, M>(value: Owner<S, M>) -> Result<super::PinnedOwner<Context<S>, M>, Error> {
     let layout = Layout::new::<Owner<S, M>>();
     if layout.size() == 0 {
         handle_alloc_error(layout);
@@ -401,7 +401,9 @@ fn pin_owner<S, M>(value: Owner<S, M>) -> Result<Pin<Box<Owner<S, M>>>, Error> {
     // initialized before the `Box` exists. Nothing has seen the unpinned owner.
     unsafe {
         allocation.write(value);
-        Ok(Box::into_pin(Box::from_raw(allocation)))
+        Ok(super::PinnedOwner::new(Box::into_pin(Box::from_raw(
+            allocation,
+        ))))
     }
 }
 

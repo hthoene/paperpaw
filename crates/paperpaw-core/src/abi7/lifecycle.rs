@@ -8,7 +8,7 @@
 
 use super::calls::{Depth, Instance};
 use crate::native_host::Error as HostError;
-use core::{cell::Cell, marker::PhantomPinned, pin::Pin};
+use core::{cell::Cell, marker::PhantomPinned, mem::ManuallyDrop, pin::Pin};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Host lifecycle or teardown-hook refusal. Busy is retryable without effects.
@@ -69,9 +69,9 @@ impl<C> Clone for Teardown<C> {
 }
 
 pub(crate) struct Owner<C, M> {
-    // Field order keeps the module alive while the context itself is dropped.
-    context: C,
-    _module: M,
+    // Drop explicitly keeps the module alive through context destruction.
+    context: ManuallyDrop<C>,
+    module: ManuallyDrop<M>,
     state: Cell<State>,
     leases: Cell<u8>,
     instance: Instance,
@@ -91,8 +91,8 @@ pub(crate) struct Lease<'a, C, M> {
 impl<C, M> Owner<C, M> {
     pub(crate) const fn new(context: C, module: M) -> Self {
         Self {
-            context,
-            _module: module,
+            context: ManuallyDrop::new(context),
+            module: ManuallyDrop::new(module),
             state: Cell::new(State::Constructing),
             leases: Cell::new(0),
             instance: Instance::new(),
@@ -104,6 +104,26 @@ impl<C, M> Owner<C, M> {
         }
     }
 
+    /// Fault injection for active-owner Drop without violating a live borrow.
+    #[cfg(test)]
+    pub(crate) fn force_active(&self) {
+        let depth = Depth::new();
+        // Forget only the test guard: its active flag then survives the borrow.
+        core::mem::forget(self.instance.enter(&depth).unwrap());
+    }
+
+    /// The allocation owner must retain the whole Box when this returns true.
+    pub(crate) fn abandon_if_active(self: Pin<&Self>) -> bool {
+        if !self.instance.is_active() {
+            return false;
+        }
+        self.state.set(State::Dead);
+        if let Some(teardown) = self.teardown.take() {
+            (teardown.report)(self.context(), TeardownStep::Release, HostError::Busy);
+        }
+        true
+    }
+
     pub(crate) fn is_constructing(&self) -> bool {
         self.state.get() == State::Constructing
     }
@@ -111,7 +131,7 @@ impl<C, M> Owner<C, M> {
     pub(crate) fn context(self: Pin<&Self>) -> Pin<&C> {
         // SAFETY: context is structurally pinned. No method moves it, and Drop
         // leaves it in place. The module outlives its destructor.
-        unsafe { self.map_unchecked(|owner| &owner.context) }
+        unsafe { self.map_unchecked(|owner| &*owner.context) }
     }
 
     /// Arm exactly-once destruction after successful `make`. The loader owns
@@ -274,14 +294,39 @@ impl<C> Drop for DestroyOnDrop<'_, C> {
     }
 }
 
+// Local guards keep context-before-module field cleanup even if a host hook
+// violates its no-unwind contract. The active-call guard creates neither.
+struct DropField<'a, T>(&'a mut ManuallyDrop<T>);
+impl<T> Drop for DropField<'_, T> {
+    fn drop(&mut self) {
+        // SAFETY: this guard alone owns field cleanup, exactly once in place.
+        unsafe { ManuallyDrop::drop(self.0) };
+    }
+}
+
 impl<C, M> Drop for Owner<C, M> {
     fn drop(&mut self) {
         self.state.set(State::Dead);
-        let Some(teardown) = self.teardown.take() else {
+        let teardown = self.teardown.take();
+        if self.instance.is_active() {
+            if let Some(teardown) = teardown {
+                // SAFETY: the context remains pinned and deliberately retained.
+                let context = unsafe { Pin::new_unchecked(&*self.context) };
+                (teardown.report)(context, TeardownStep::Release, HostError::Busy);
+            }
+            // Plugin code may still be running. Retain both fields, including
+            // executable code, rather than destroying or unmapping either.
+            return;
+        }
+        // Reverse local drop order preserves context before module, including
+        // an unactivated owner and a panic in a host cleanup hook.
+        let _module = DropField(&mut self.module);
+        let context_field = DropField(&mut self.context);
+        let Some(teardown) = teardown else {
             return;
         };
-        // SAFETY: activation pins context through cleanup and module release.
-        let context = unsafe { Pin::new_unchecked(&self.context) };
+        // SAFETY: the field guard drops this pinned context only after destroy.
+        let context = unsafe { Pin::new_unchecked(&**context_field.0) };
         let _destroy = DestroyOnDrop {
             context,
             destroy: teardown.destroy,
@@ -304,5 +349,100 @@ impl<C, M> Drop for Owner<C, M> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate alloc;
+    use super::*;
+    use alloc::{boxed::Box, rc::Rc, vec::Vec};
+    use core::cell::RefCell;
+
+    struct Probe {
+        log: Rc<RefCell<Vec<&'static str>>>,
+        name: &'static str,
+    }
+    impl Drop for Probe {
+        fn drop(&mut self) {
+            self.log.borrow_mut().push(self.name);
+        }
+    }
+
+    fn owner(log: &Rc<RefCell<Vec<&'static str>>>) -> Pin<Box<Owner<Probe, Probe>>> {
+        Box::pin(Owner::new(
+            Probe {
+                log: Rc::clone(log),
+                name: "context",
+            },
+            Probe {
+                log: Rc::clone(log),
+                name: "module",
+            },
+        ))
+    }
+
+    fn hooks() -> Teardown<Probe> {
+        Teardown {
+            report: |context, step, error| {
+                assert_eq!(step, TeardownStep::Release);
+                assert_eq!(error, HostError::Busy);
+                context.log.borrow_mut().push("report");
+            },
+            cancel: |context| {
+                context.log.borrow_mut().push("cancel");
+                Ok(())
+            },
+            release: |context| {
+                context.log.borrow_mut().push("release");
+                Ok(())
+            },
+            destroy: |context| context.log.borrow_mut().push("destroy"),
+        }
+    }
+
+    #[test]
+    fn active_owner_requires_retaining_the_whole_allocation() {
+        let log = Rc::new(RefCell::new(Vec::new()));
+        let owner = owner(&log);
+        owner.as_ref().activate(hooks()).unwrap();
+        owner.force_active();
+        assert!(owner.as_ref().abandon_if_active());
+        assert!(owner.as_ref().abandon_if_active());
+        core::mem::forget(owner);
+        assert_eq!(&*log.borrow(), &["report"]);
+    }
+
+    #[test]
+    fn hook_unwind_still_destroys_then_drops_context_then_module() {
+        extern crate std as test_std;
+        let log = Rc::new(RefCell::new(Vec::new()));
+        let owner = owner(&log);
+        let mut hooks = hooks();
+        hooks.cancel = |_| panic!("host hook contract violation");
+        owner.as_ref().activate(hooks).unwrap();
+        let result =
+            test_std::panic::catch_unwind(test_std::panic::AssertUnwindSafe(|| drop(owner)));
+        assert!(result.is_err());
+        assert_eq!(&*log.borrow(), &["destroy", "context", "module"]);
+    }
+
+    #[test]
+    fn inactive_owner_drop_destroys_then_drops_context_then_module() {
+        let log = Rc::new(RefCell::new(Vec::new()));
+        let owner = owner(&log);
+        owner.as_ref().activate(hooks()).unwrap();
+        drop(owner);
+        assert_eq!(
+            &*log.borrow(),
+            &["cancel", "release", "destroy", "context", "module"]
+        );
+    }
+
+    #[test]
+    fn unactivated_owner_drops_context_before_module_without_hooks() {
+        let log = Rc::new(RefCell::new(Vec::new()));
+        drop(owner(&log));
+        assert_eq!(&*log.borrow(), &["context", "module"]);
     }
 }
