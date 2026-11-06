@@ -4,8 +4,9 @@
 //! (tags 5-10) with the generated encoder, as the batches a plugin submits
 //! through `registrations.submit` while it is made.
 //!
-//! A plugin fills a [`Declarations`] with typed items and calls
-//! [`Declarations::batches`]: the items come out in order, split into as few
+//! A plugin creates [`Declarations`] with a submission sink, adds borrowed
+//! typed items, then calls [`Declarations::submit`]. Items are encoded immediately
+//! into one reusable buffer and sent in order, split into as few
 //! batches as the wire allows (at most [`BATCH_MAX_RECORDS`] records and
 //! [`BATCH_MAX_BYTES`] bytes each), every one encoded by the generated codec.
 //! The builder checks what it can without a registry: a field longer than its
@@ -16,9 +17,10 @@
 //! do not drift apart.
 //!
 //! Nothing here panics on any input: a refusal is a [`DeclareError`] naming the
-//! field.
+//! field. A sink failure is returned as [`DeclareError::Sink`] with its unchanged
+//! status and permanently poisons the builder. Every later addition or submission
+//! returns that same error without calling the sink, even for invalid input.
 
-use alloc::borrow::ToOwned;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
@@ -47,11 +49,7 @@ use records_wire::{
     Record, ResourceFontExtension, ResourceFontFace, ResourceHyphenation, SettingExtra,
     SettingGroup, SettingSpec, records_encode,
 };
-use settings_value::{SETTINGS_MAX_BYTES, SettingValueRef, settings_encode};
-
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-mod interface6;
+use settings_value::{SettingValueRef, settings_encode};
 
 /// Most records in one batch.
 pub const BATCH_MAX_RECORDS: usize = records_wire::REGISTRATION_MAX_RECORDS;
@@ -94,13 +92,11 @@ pub enum DeclareError {
     Choices,
     /// A secret setting that is also scoped (a secret has no scopes).
     SecretScoped,
-    /// A setting that cannot be written as a record: it is of a kind the wire
-    /// does not know, it has a value check (a callback), or its id is not in the
-    /// plugin's own namespace.
-    Unsupported(&'static str),
     /// One item does not fit a batch by itself, or the encoder refused it with
     /// this status.
     Encode(i32),
+    /// The submission sink refused a batch. This builder cannot submit again.
+    Sink(i32),
 }
 
 impl fmt::Display for DeclareError {
@@ -112,8 +108,8 @@ impl fmt::Display for DeclareError {
             DeclareError::Range => f.write_str("the range is empty or outside 32 bits"),
             DeclareError::Choices => f.write_str("the choices are not 1 to 32 distinct values"),
             DeclareError::SecretScoped => f.write_str("a secret setting cannot be scoped"),
-            DeclareError::Unsupported(what) => write!(f, "cannot be declared: {what}"),
             DeclareError::Encode(status) => write!(f, "the encoder refused it ({status})"),
+            DeclareError::Sink(status) => write!(f, "the submission sink refused it ({status})"),
         }
     }
 }
@@ -121,7 +117,7 @@ impl fmt::Display for DeclareError {
 /// The kind of a setting and what belongs to it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum Kind {
+pub enum Kind<'a> {
     /// A switch, with its default.
     Bool(bool),
     /// A number in `min..=max`, with its default.
@@ -136,44 +132,44 @@ pub enum Kind {
     /// One of `choices` (translation keys), with the default one of them.
     Choice {
         /// The default, one of `choices`.
-        default: String,
+        default: &'a str,
         /// The values in their order.
-        choices: Vec<String>,
+        choices: &'a [&'a str],
     },
     /// Free text, with its default.
-    Text(String),
+    Text(&'a str),
     /// A UI language tag, with its default (may be empty).
-    Language(String),
+    Language(&'a str),
     /// Ids separated by commas, with their default.
-    List(String),
+    List(&'a str),
 }
 
 /// A `setting.group` record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct GroupDecl {
+pub struct GroupDecl<'a> {
     /// The group's id, relative to the plugin.
-    pub name: String,
+    pub name: &'a str,
     /// The translation key of its name; not empty.
-    pub title: String,
+    pub title: &'a str,
     /// By order, smallest first; 0 names none.
     pub order: i32,
     /// A screen of the plugin shown instead of the generated page, relative;
     /// empty for none.
-    pub page: String,
+    pub page: &'a str,
     /// The full id of the parent group; empty for none.
-    pub parent: String,
+    pub parent: &'a str,
 }
 
-impl GroupDecl {
+impl<'a> GroupDecl<'a> {
     /// A group `name` (relative to the plugin) called `title` (a translation key).
-    pub fn new(name: &str, title: &str) -> Self {
+    pub fn new(name: &'a str, title: &'a str) -> Self {
         Self {
-            name: name.to_owned(),
-            title: title.to_owned(),
+            name,
+            title,
             order: 0,
-            page: String::new(),
-            parent: String::new(),
+            page: "",
+            parent: "",
         }
     }
 }
@@ -181,17 +177,17 @@ impl GroupDecl {
 /// A `setting.spec` record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct SpecDecl {
+pub struct SpecDecl<'a> {
     /// The setting's id, relative to the plugin.
-    pub name: String,
+    pub name: &'a str,
     /// Its kind and default.
-    pub kind: Kind,
+    pub kind: Kind<'a>,
     /// The full id of its group; not empty.
-    pub group: String,
+    pub group: &'a str,
     /// The translation key of its name; not empty.
-    pub title: String,
+    pub title: &'a str,
     /// The translation key of its help; empty for none.
-    pub help: String,
+    pub help: &'a str,
     /// May differ per scope, such as per book.
     pub scoped: bool,
     /// Changed by its own plugin and the settings editor alone.
@@ -204,16 +200,16 @@ pub struct SpecDecl {
     pub advanced: bool,
 }
 
-impl SpecDecl {
+impl<'a> SpecDecl<'a> {
     /// A setting `name` (relative to the plugin) of `kind`, in `group` (a full
     /// id), called `title` (a translation key); the rest as set with the fields.
-    pub fn new(name: &str, kind: Kind, group: &str, title: &str) -> Self {
+    pub fn new(name: &'a str, kind: Kind<'a>, group: &'a str, title: &'a str) -> Self {
         Self {
-            name: name.to_owned(),
+            name,
             kind,
-            group: group.to_owned(),
-            title: title.to_owned(),
-            help: String::new(),
+            group,
+            title,
+            help: "",
             scoped: false,
             guarded: false,
             kept_on_reset: false,
@@ -226,19 +222,19 @@ impl SpecDecl {
 /// A `setting.extra` record: what few settings have, for the setting `name`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct ExtraDecl {
+pub struct ExtraDecl<'a> {
     /// The setting's relative name.
-    pub name: String,
+    pub name: &'a str,
     /// The translation key of its unit; empty for none.
-    pub unit: String,
+    pub unit: &'a str,
     /// The translation key of its part of the group; empty for none.
-    pub section: String,
+    pub section: &'a str,
     /// The full id of the setting whose value it has until set; empty for none.
-    pub follows: String,
+    pub follows: &'a str,
     /// The setting it is shown for, and the value, as written in `paperpaw.ini`.
-    pub shown_if: Option<(String, String)>,
+    pub shown_if: Option<(&'a str, &'a str)>,
     /// Where it is edited.
-    pub editor: Option<EditorDecl>,
+    pub editor: Option<EditorDecl<'a>>,
     /// How much one step changes a number. 0 and 1 both mean one step and are
     /// written to the wire as 0.
     pub step: i32,
@@ -253,21 +249,21 @@ pub struct ExtraDecl {
 /// Where a setting is edited instead of on the settings page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum EditorDecl {
+pub enum EditorDecl<'a> {
     /// A screen of the plugin, relative to it.
-    Screen(String),
+    Screen(&'a str),
     /// Whatever screen fills the slot (a full id).
-    Slot(String),
+    Slot(&'a str),
 }
 
-impl ExtraDecl {
+impl<'a> ExtraDecl<'a> {
     /// The extra of setting `name` (relative to the plugin), with nothing set.
-    pub fn new(name: &str) -> Self {
+    pub fn new(name: &'a str) -> Self {
         Self {
-            name: name.to_owned(),
-            unit: String::new(),
-            section: String::new(),
-            follows: String::new(),
+            name,
+            unit: "",
+            section: "",
+            follows: "",
             shown_if: None,
             editor: None,
             step: 1,
@@ -281,34 +277,34 @@ impl ExtraDecl {
 /// A `resource.font_face` record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct FontFaceDecl {
+pub struct FontFaceDecl<'a> {
     /// The face's id, relative to the plugin.
-    pub name: String,
+    pub name: &'a str,
     /// Its file, relative to the plugin's folder.
-    pub path: String,
+    pub path: &'a str,
     /// The family name; empty to take the file's.
-    pub family: String,
+    pub family: &'a str,
     /// Bit 0 italic, bit 1 oblique; others are refused by the host.
     pub style: u32,
     /// 1 to 1000, or 0 for the file's (and always 0 for a `.ppfp` pack).
     pub weight: u32,
     /// The role it is bound to (a full id); empty for none.
-    pub role: String,
+    pub role: &'a str,
     /// Ranks a role binding, -100 to 100; 0 without a role.
     pub priority: i32,
 }
 
-impl FontFaceDecl {
+impl<'a> FontFaceDecl<'a> {
     /// A face `name` (relative to the plugin) from the file `path`; the rest as
     /// set with the fields.
-    pub fn new(name: &str, path: &str) -> Self {
+    pub fn new(name: &'a str, path: &'a str) -> Self {
         Self {
-            name: name.to_owned(),
-            path: path.to_owned(),
-            family: String::new(),
+            name,
+            path,
+            family: "",
             style: 0,
             weight: 0,
-            role: String::new(),
+            role: "",
             priority: 0,
         }
     }
@@ -317,41 +313,56 @@ impl FontFaceDecl {
 /// A `resource.font_extension` record: glyphs a `.ppfp` pack adds to a face.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct FontExtensionDecl {
+pub struct FontExtensionDecl<'a> {
     /// The extension's id, relative to the plugin.
-    pub name: String,
+    pub name: &'a str,
     /// Its `.ppfp` file.
-    pub path: String,
+    pub path: &'a str,
     /// The full id of the face it extends.
-    pub extends: String,
+    pub extends: &'a str,
 }
 
-impl FontExtensionDecl {
+impl<'a> FontExtensionDecl<'a> {
     /// An extension `name` (relative to the plugin) from the `.ppfp` file
     /// `path`, adding glyphs to the face `extends` (a full id).
-    pub fn new(name: &str, path: &str, extends: &str) -> Self {
+    pub fn new(name: &'a str, path: &'a str, extends: &'a str) -> Self {
         Self {
-            name: name.to_owned(),
-            path: path.to_owned(),
-            extends: extends.to_owned(),
+            name,
+            path,
+            extends,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Item {
-    Group(GroupDecl),
-    Spec(SpecDecl, SpecParts),
-    Extra(ExtraDecl),
-    Hyphenation { language: String, path: String },
-    FontFace(FontFaceDecl),
-    FontExtension(FontExtensionDecl),
+enum Item<'a> {
+    Group(GroupDecl<'a>),
+    Spec(SpecDecl<'a>, SpecParts),
+    Extra(ExtraDecl<'a>),
+    Hyphenation { language: &'a str, path: &'a str },
+    FontFace(FontFaceDecl<'a>),
+    FontExtension(FontExtensionDecl<'a>),
 }
 
 /// The items a plugin declares, in the order it declares them.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Declarations {
-    items: Vec<Item>,
+pub struct Declarations<F> {
+    sink: F,
+    bytes: Vec<u8>,
+    used: usize,
+    count: usize,
+    total: usize,
+    failed: Option<i32>,
+}
+
+impl<F> fmt::Debug for Declarations<F> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Declarations")
+            .field("pending", &self.count)
+            .field("total", &self.total)
+            .field("failed", &self.failed)
+            .finish_non_exhaustive()
+    }
 }
 
 fn within(text: &str, cap: usize, field: &'static str) -> Result<(), DeclareError> {
@@ -372,14 +383,15 @@ fn filled(text: &str, field: &'static str) -> Result<(), DeclareError> {
 
 /// The wire value of a default: one `settings_value`, header included.
 fn value_bytes(value: SettingValueRef<'_>) -> Result<Vec<u8>, DeclareError> {
-    let mut out = alloc::vec![MaybeUninit::<u8>::uninit(); SETTINGS_MAX_BYTES];
+    let mut out =
+        alloc::vec![MaybeUninit::<u8>::uninit(); records_wire::SETTING_SPEC_DEFAULT_MAX_BYTES];
     let len = settings_encode(value, &mut out).map_err(|_| DeclareError::Default)?;
-    let bytes = out.get(..len).ok_or(DeclareError::Default)?;
+    let bytes = out.get(..len).ok_or(DeclareError::TooLong("default"))?;
     // SAFETY: `settings_encode` initialized the first `len` bytes of `out`.
     Ok(bytes.iter().map(|b| unsafe { b.assume_init() }).collect())
 }
 
-fn choices_text(choices: &[String], default: &str) -> Result<String, DeclareError> {
+fn choices_text(choices: &[&str], default: &str) -> Result<String, DeclareError> {
     let ok = !choices.is_empty()
         && choices.len() <= CHOICES_MAX_VALUES
         && choices
@@ -392,13 +404,13 @@ fn choices_text(choices: &[String], default: &str) -> Result<String, DeclareErro
     if !ok {
         return Err(DeclareError::Choices);
     }
-    if !choices.iter().any(|v| v == default) {
+    if !choices.contains(&default) {
         return Err(DeclareError::Default);
     }
     Ok(choices.join("\n"))
 }
 
-impl SpecDecl {
+impl<'a> SpecDecl<'a> {
     /// The record's scalars and the default as wire bytes.
     fn parts(&self) -> Result<SpecParts, DeclareError> {
         let (default, min, max, choices) = match &self.kind {
@@ -457,20 +469,29 @@ struct SpecParts {
     default: Vec<u8>,
 }
 
-impl Declarations {
-    /// No items yet.
-    pub const fn new() -> Self {
-        Self { items: Vec::new() }
+impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
+    /// Starts an empty stream with one reusable 4 KiB buffer. Declaration strings
+    /// are borrowed only while adding each item; no declaration is retained.
+    /// Call [`Self::submit`] to send the final batch. Dropping does not submit.
+    pub fn new(sink: F) -> Self {
+        Self {
+            sink,
+            bytes: alloc::vec![0; BATCH_MAX_BYTES],
+            used: 1,
+            count: 0,
+            total: 0,
+            failed: None,
+        }
     }
 
     /// How many items there are.
     pub fn len(&self) -> usize {
-        self.items.len()
+        self.total
     }
 
     /// Whether there are none.
     pub fn is_empty(&self) -> bool {
-        self.items.is_empty()
+        self.total == 0
     }
 
     /// Adds a `setting.group`.
@@ -478,29 +499,30 @@ impl Declarations {
     /// # Errors
     ///
     /// An empty title, or a field over its cap.
-    pub fn group(&mut self, group: GroupDecl) -> Result<&mut Self, DeclareError> {
+    pub fn group(&mut self, group: GroupDecl<'_>) -> Result<&mut Self, DeclareError> {
+        self.check_sink()?;
         within(
-            &group.name,
+            group.name,
             records_wire::SETTING_GROUP_NAME_MAX_BYTES,
             "group name",
         )?;
-        filled(&group.title, "group title")?;
+        filled(group.title, "group title")?;
         within(
-            &group.title,
+            group.title,
             records_wire::SETTING_GROUP_TITLE_MAX_BYTES,
             "group title",
         )?;
         within(
-            &group.page,
+            group.page,
             records_wire::SETTING_GROUP_PAGE_MAX_BYTES,
             "group page",
         )?;
         within(
-            &group.parent,
+            group.parent,
             records_wire::SETTING_GROUP_PARENT_MAX_BYTES,
             "group parent",
         )?;
-        self.items.push(Item::Group(group));
+        self.push(Item::Group(group))?;
         Ok(self)
     }
 
@@ -510,26 +532,27 @@ impl Declarations {
     ///
     /// An empty title or group, a field over its cap, a default that does not
     /// fit the kind, a bad range or choice list, or a secret that is scoped.
-    pub fn spec(&mut self, spec: SpecDecl) -> Result<&mut Self, DeclareError> {
+    pub fn spec(&mut self, spec: SpecDecl<'_>) -> Result<&mut Self, DeclareError> {
+        self.check_sink()?;
         within(
-            &spec.name,
+            spec.name,
             records_wire::SETTING_SPEC_NAME_MAX_BYTES,
             "setting name",
         )?;
-        filled(&spec.group, "setting group")?;
+        filled(spec.group, "setting group")?;
         within(
-            &spec.group,
+            spec.group,
             records_wire::SETTING_SPEC_GROUP_MAX_BYTES,
             "setting group",
         )?;
-        filled(&spec.title, "setting title")?;
+        filled(spec.title, "setting title")?;
         within(
-            &spec.title,
+            spec.title,
             records_wire::SETTING_SPEC_TITLE_MAX_BYTES,
             "setting title",
         )?;
         within(
-            &spec.help,
+            spec.help,
             records_wire::SETTING_SPEC_HELP_MAX_BYTES,
             "setting help",
         )?;
@@ -545,7 +568,7 @@ impl Declarations {
         if parts.default.len() > records_wire::SETTING_SPEC_DEFAULT_MAX_BYTES {
             return Err(DeclareError::TooLong("default"));
         }
-        self.items.push(Item::Spec(spec, parts));
+        self.push(Item::Spec(spec, parts))?;
         Ok(self)
     }
 
@@ -554,24 +577,25 @@ impl Declarations {
     /// # Errors
     ///
     /// A field over its cap, a negative step, or `shown_if` with an empty id.
-    pub fn extra(&mut self, extra: ExtraDecl) -> Result<&mut Self, DeclareError> {
+    pub fn extra(&mut self, extra: ExtraDecl<'_>) -> Result<&mut Self, DeclareError> {
+        self.check_sink()?;
         within(
-            &extra.name,
+            extra.name,
             records_wire::SETTING_EXTRA_NAME_MAX_BYTES,
             "extra name",
         )?;
         within(
-            &extra.unit,
+            extra.unit,
             records_wire::SETTING_EXTRA_UNIT_MAX_BYTES,
             "unit",
         )?;
         within(
-            &extra.section,
+            extra.section,
             records_wire::SETTING_EXTRA_SECTION_MAX_BYTES,
             "section",
         )?;
         within(
-            &extra.follows,
+            extra.follows,
             records_wire::SETTING_EXTRA_FOLLOWS_MAX_BYTES,
             "follows",
         )?;
@@ -595,7 +619,7 @@ impl Declarations {
         if extra.step < 0 {
             return Err(DeclareError::Range);
         }
-        self.items.push(Item::Extra(extra));
+        self.push(Item::Extra(extra))?;
         Ok(self)
     }
 
@@ -605,6 +629,7 @@ impl Declarations {
     ///
     /// An empty language or path, or one over its cap.
     pub fn hyphenation(&mut self, language: &str, path: &str) -> Result<&mut Self, DeclareError> {
+        self.check_sink()?;
         filled(language, "language")?;
         filled(path, "path")?;
         within(
@@ -617,10 +642,7 @@ impl Declarations {
             records_wire::RESOURCE_HYPHENATION_PATH_MAX_BYTES,
             "path",
         )?;
-        self.items.push(Item::Hyphenation {
-            language: language.to_owned(),
-            path: path.to_owned(),
-        });
+        self.push(Item::Hyphenation { language, path })?;
         Ok(self)
     }
 
@@ -629,30 +651,31 @@ impl Declarations {
     /// # Errors
     ///
     /// An empty name or path, or a field over its cap.
-    pub fn font_face(&mut self, face: FontFaceDecl) -> Result<&mut Self, DeclareError> {
-        filled(&face.name, "face name")?;
-        filled(&face.path, "path")?;
+    pub fn font_face(&mut self, face: FontFaceDecl<'_>) -> Result<&mut Self, DeclareError> {
+        self.check_sink()?;
+        filled(face.name, "face name")?;
+        filled(face.path, "path")?;
         within(
-            &face.name,
+            face.name,
             records_wire::RESOURCE_FONT_FACE_NAME_MAX_BYTES,
             "face name",
         )?;
         within(
-            &face.path,
+            face.path,
             records_wire::RESOURCE_FONT_FACE_PATH_MAX_BYTES,
             "path",
         )?;
         within(
-            &face.family,
+            face.family,
             records_wire::RESOURCE_FONT_FACE_FAMILY_MAX_BYTES,
             "family",
         )?;
         within(
-            &face.role,
+            face.role,
             records_wire::RESOURCE_FONT_FACE_ROLE_MAX_BYTES,
             "role",
         )?;
-        self.items.push(Item::FontFace(face));
+        self.push(Item::FontFace(face))?;
         Ok(self)
     }
 
@@ -663,78 +686,96 @@ impl Declarations {
     /// An empty name, path or `extends`, or a field over its cap.
     pub fn font_extension(
         &mut self,
-        extension: FontExtensionDecl,
+        extension: FontExtensionDecl<'_>,
     ) -> Result<&mut Self, DeclareError> {
-        filled(&extension.name, "extension name")?;
-        filled(&extension.path, "path")?;
-        filled(&extension.extends, "extends")?;
+        self.check_sink()?;
+        filled(extension.name, "extension name")?;
+        filled(extension.path, "path")?;
+        filled(extension.extends, "extends")?;
         within(
-            &extension.name,
+            extension.name,
             records_wire::RESOURCE_FONT_EXTENSION_NAME_MAX_BYTES,
             "extension name",
         )?;
         within(
-            &extension.path,
+            extension.path,
             records_wire::RESOURCE_FONT_EXTENSION_PATH_MAX_BYTES,
             "path",
         )?;
         within(
-            &extension.extends,
+            extension.extends,
             records_wire::RESOURCE_FONT_EXTENSION_EXTENDS_MAX_BYTES,
             "extends",
         )?;
-        self.items.push(Item::FontExtension(extension));
+        self.push(Item::FontExtension(extension))?;
         Ok(self)
     }
 
-    /// The items as encoded batches, in order: each holds at most
-    /// [`BATCH_MAX_RECORDS`] records and [`BATCH_MAX_BYTES`] bytes, and a
-    /// `setting.extra` always follows its setting (a later batch at the latest).
+    /// Submits the pending batch. Earlier full batches were submitted as items
+    /// were added. The sink borrows each batch only for the duration of its call.
     ///
     /// # Errors
     ///
-    /// [`DeclareError::Encode`] when one item alone does not fit a batch.
-    pub fn batches(&self) -> Result<Vec<Vec<u8>>, DeclareError> {
-        let mut batches = Vec::new();
-        let mut start = 0;
-        while start < self.items.len() {
-            let (bytes, taken) = self.fill_batch(start)?;
-            batches.push(bytes);
-            start += taken;
+    /// A sink refusal is returned and latched: no further batch is submitted.
+    pub fn submit(&mut self) -> Result<(), DeclareError> {
+        if let Some(status) = self.failed {
+            return Err(DeclareError::Sink(status));
         }
-        Ok(batches)
+        if self.count == 0 {
+            return Ok(());
+        }
+        if let Err(status) = (self.sink)(&self.bytes[..self.used]) {
+            self.failed = Some(status);
+            return Err(DeclareError::Sink(status));
+        }
+        self.used = 1;
+        self.count = 0;
+        Ok(())
     }
 
-    /// Encodes as many items from `start` as one batch takes (at least one).
-    fn fill_batch(&self, start: usize) -> Result<(Vec<u8>, usize), DeclareError> {
-        let rest = self.items.get(start..).unwrap_or_default();
-        let mut taken = rest.len().min(BATCH_MAX_RECORDS);
-        // A refused encode leaves the output unchanged, so one buffer serves every try.
-        let mut out = alloc::vec![0_u8; BATCH_MAX_BYTES];
-        loop {
-            let records: Vec<Record<'_>> = rest[..taken].iter().map(Item::record).collect();
-            match records_encode(&records, &mut out) {
-                Ok(len) => {
-                    out.truncate(len);
-                    return Ok((out, taken));
-                }
-                // Too many bytes for this many records: try one fewer.
-                Err(ERR_NO_SPACE) if taken > 1 => taken -= 1,
-                Err(status) => return Err(DeclareError::Encode(status)),
-            }
+    fn check_sink(&self) -> Result<(), DeclareError> {
+        self.failed
+            .map_or(Ok(()), |status| Err(DeclareError::Sink(status)))
+    }
+
+    fn push(&mut self, item: Item<'_>) -> Result<(), DeclareError> {
+        if let Some(status) = self.failed {
+            return Err(DeclareError::Sink(status));
         }
+        if self.count == BATCH_MAX_RECORDS {
+            self.submit()?;
+        }
+        let record = item.record();
+        let previous = self.bytes[self.used - 1];
+        let result = records_encode(&[record], &mut self.bytes[self.used - 1..]);
+        let length = match result {
+            Ok(length) => {
+                self.bytes[self.used - 1] = previous;
+                length
+            }
+            Err(ERR_NO_SPACE) if self.count > 0 => {
+                self.submit()?;
+                records_encode(&[item.record()], &mut self.bytes).map_err(DeclareError::Encode)?
+            }
+            Err(status) => return Err(DeclareError::Encode(status)),
+        };
+        self.used += length - 1;
+        self.count += 1;
+        self.bytes[0] = self.count as u8;
+        self.total += 1;
+        Ok(())
     }
 }
 
-impl Item {
+impl<'a> Item<'a> {
     fn record(&self) -> Record<'_> {
         match self {
             Item::Group(g) => Record::SettingGroup(SettingGroup {
-                name: &g.name,
-                title: &g.title,
+                name: g.name,
+                title: g.title,
                 order: g.order,
-                page: &g.page,
-                parent: &g.parent,
+                page: g.page,
+                parent: g.parent,
             }),
             Item::Spec(s, parts) => Record::SettingSpec(spec_record(s, parts)),
             Item::Extra(e) => Record::SettingExtra(extra_record(e)),
@@ -742,31 +783,31 @@ impl Item {
                 Record::ResourceHyphenation(ResourceHyphenation { language, path })
             }
             Item::FontFace(f) => Record::ResourceFontFace(ResourceFontFace {
-                name: &f.name,
-                path: &f.path,
-                family: &f.family,
+                name: f.name,
+                path: f.path,
+                family: f.family,
                 style: f.style,
                 weight: f.weight,
-                role: &f.role,
+                role: f.role,
                 priority: f.priority,
             }),
             Item::FontExtension(e) => Record::ResourceFontExtension(ResourceFontExtension {
-                name: &e.name,
-                path: &e.path,
-                extends: &e.extends,
+                name: e.name,
+                path: e.path,
+                extends: e.extends,
             }),
         }
     }
 }
 
-fn spec_record<'a>(s: &'a SpecDecl, parts: &'a SpecParts) -> SettingSpec<'a> {
+fn spec_record<'a>(s: &'a SpecDecl<'a>, parts: &'a SpecParts) -> SettingSpec<'a> {
     SettingSpec {
-        name: &s.name,
+        name: s.name,
         kind: parts.kind,
         flags: parts.flags,
-        group: &s.group,
-        title: &s.title,
-        help: &s.help,
+        group: s.group,
+        title: s.title,
+        help: s.help,
         default: &parts.default,
         min: parts.min,
         max: parts.max,
@@ -774,7 +815,7 @@ fn spec_record<'a>(s: &'a SpecDecl, parts: &'a SpecParts) -> SettingSpec<'a> {
     }
 }
 
-fn spec_flags(s: &SpecDecl) -> u32 {
+fn spec_flags(s: &SpecDecl<'_>) -> u32 {
     [
         (s.scoped, SPEC_SCOPED),
         (s.guarded, SPEC_GUARDED),
@@ -787,15 +828,15 @@ fn spec_flags(s: &SpecDecl) -> u32 {
     .fold(0, |flags, (_, bit)| flags | bit)
 }
 
-fn extra_record(e: &ExtraDecl) -> SettingExtra<'_> {
+fn extra_record<'a>(e: &ExtraDecl<'a>) -> SettingExtra<'a> {
     let (shown_id, shown_value) = e
         .shown_if
         .as_ref()
-        .map_or(("", ""), |(id, value)| (id.as_str(), value.as_str()));
+        .map_or(("", ""), |(id, value)| (*id, *value));
     let (editor_kind, editor) = match &e.editor {
         None => (0, ""),
-        Some(EditorDecl::Screen(id)) => (1, id.as_str()),
-        Some(EditorDecl::Slot(id)) => (2, id.as_str()),
+        Some(EditorDecl::Screen(id)) => (1, *id),
+        Some(EditorDecl::Slot(id)) => (2, *id),
     };
     let flags = [
         (e.slider, EXTRA_SLIDER),
@@ -806,10 +847,10 @@ fn extra_record(e: &ExtraDecl) -> SettingExtra<'_> {
     .filter(|(on, _)| *on)
     .fold(0, |flags, (_, bit)| flags | bit);
     SettingExtra {
-        name: &e.name,
-        unit: &e.unit,
-        section: &e.section,
-        follows: &e.follows,
+        name: e.name,
+        unit: e.unit,
+        section: e.section,
+        follows: e.follows,
         shown_id,
         shown_value,
         editor_kind,
