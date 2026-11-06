@@ -441,3 +441,5 @@ mod e2e;
 mod environment;
 mod flat;
 mod foreign;
+
+mod shared_render;

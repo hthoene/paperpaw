@@ -338,6 +338,19 @@ impl Loaded {
             + self.declarations.font_extensions().len()
     }
 
+    /// Test fixture entry through the same table used by the production loader.
+    #[cfg(test)]
+    pub(super) fn draw_fixture(
+        &self,
+        index: usize,
+        depth: &DispatchDepth,
+        env: &paperpaw_core::sdk::Env<'_>,
+        canvas: &mut paperpaw_graphics::Canvas<'_>,
+    ) -> Result<i32, shared_shell::Error> {
+        let batch = self.batch.as_ref().ok_or(shared_shell::Error::Attempt)?;
+        shared_shell::dispatch_draw(batch, index, depth, env, canvas)
+    }
+
     /// The tick registrations, each called with `now_ms`; their statuses.
     fn tick(&self, now_ms: u64) -> Vec<i32> {
         let Some(batch) = &self.batch else {
