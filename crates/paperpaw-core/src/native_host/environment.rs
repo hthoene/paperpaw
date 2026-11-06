@@ -50,7 +50,8 @@ impl EnvironmentScope {
     /// A valid call outside dispatch returns ERR_STATE.
     ///
     /// # Safety
-    /// Key storage must be readable for key_len bytes. Output must be writable
+    /// Key storage must contain key_len initialized bytes in one live allocation,
+    /// readable and unchanged for the entire call. Output must be writable
     /// for capacity bytes with exclusive access; it may be uninitialized.
     /// Both regions must be live and nonoverlapping, and output must be disjoint
     /// from host state. Null with zero length/capacity is accepted. No pointer
