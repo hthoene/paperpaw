@@ -216,7 +216,11 @@ plugin without a translated name gets its id.
   - `record_decode_one(&[u8])` for a scalar blob, one bare record with no count and nothing after it
     (with `record_encode_one` and `record_framed_len` for the host);
   - a stream reader that takes one record at a time from a carry buffer of at most 256 bytes and reports
-    the end record.
+    the end record: `RecordStream::{feed, finish}` over `record_decode_prefix`, with
+    `RECORD_CARRY_MAX_BYTES` (lock format 8, its own `emitted_streams` section, so earlier locks
+    re-render unchanged);
+  - `records_decode_single(&[u8])` for an event payload (a batch of exactly one record) without a
+    `RecordBatch` on the stack.
 
   Services builds the SDK facade on top and writes no codec by hand.
 

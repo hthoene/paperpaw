@@ -637,3 +637,167 @@ pub fn record_decode_one(bytes: &[u8]) -> Result<Record<'_>, i32> {
     Ok(record)
 }
 '''
+
+
+def rust_streams(schema):
+    """Single-record and streaming decoders over the records codec (lock format 8).
+
+    A separate section appended to records_wire.rs, so the records section
+    re-renders byte-identical for every earlier lock. Emitted only with service
+    records, whose table pages are the one record stream a plugin reads in chunks.
+    """
+    if not any(r['name'].startswith('service.') for r in wire_records(schema)):
+        return ''
+    statuses = {item['name']: item['value'] for item in schema['statuses']}
+    source = STREAM_TEMPLATE
+    for marker, name in [('@INVALID@', 'ERR_INVALID'), ('@NO_SPACE@', 'ERR_NO_SPACE')]:
+        source = source.replace(marker, str(statuses[name]))
+    return source
+
+
+STREAM_TEMPLATE = '''
+// Single-record and streaming decoders (lock format 8).
+
+/// Bytes a [`RecordStream`] keeps between chunks: every framed table row and
+/// the end record fit (`docs/abi/proposals/interface-7-usage-clock.md` 2.4).
+pub const RECORD_CARRY_MAX_BYTES: usize = 256;
+
+/// Decode the first bare record of `bytes`; returns it and the frame length
+/// it consumed (tag, body length and body).
+///
+/// Unknown trailing fields inside a known record are skipped. An unknown tag,
+/// a truncated or non-canonical frame and an over-cap field are errors, with
+/// the statuses of [`records_decode`].
+pub fn record_decode_prefix(bytes: &[u8]) -> Result<(Record<'_>, usize), i32> {
+    let limit = bytes.len().min(REGISTRATION_MAX_BYTES);
+    let mut reader = Reader {
+        remaining: bytes.get(..limit).unwrap_or(bytes),
+    };
+    let (tag, mut body) = reader.record()?;
+    let record = record_decode(tag, &mut body)?;
+    Ok((record, limit - reader.remaining.len()))
+}
+
+/// Decode a batch that holds exactly one record (count 1, then the record, then
+/// nothing), without a [`RecordBatch`] on the stack. Event payloads are such
+/// batches. Errors are those of [`records_decode`]; any other count is
+/// ERR_INVALID.
+pub fn records_decode_single(bytes: &[u8]) -> Result<Record<'_>, i32> {
+    if bytes.len() > REGISTRATION_MAX_BYTES {
+        return Err(@NO_SPACE@);
+    }
+    let mut reader = Reader { remaining: bytes };
+    if reader.varint()? != 1 {
+        return Err(@INVALID@);
+    }
+    let (tag, mut body) = reader.record()?;
+    let record = record_decode(tag, &mut body)?;
+    reader.finish()?;
+    Ok(record)
+}
+
+/// The frame length of the bare record at the front of `bytes`, `None` while
+/// its header or body is still incomplete; a non-canonical header is ERR_INVALID.
+fn frame_len(bytes: &[u8]) -> Result<Option<usize>, i32> {
+    let mut at = 0;
+    let mut header = [0_u32; 2];
+    for value in &mut header {
+        let mut shift = 0;
+        loop {
+            let Some(&byte) = bytes.get(at) else {
+                return Ok(None);
+            };
+            at += 1;
+            if shift == 28 && byte > 0x0f {
+                return Err(@INVALID@);
+            }
+            *value |= u32::from(byte & 0x7f) << shift;
+            if byte & 0x80 == 0 {
+                if shift > 0 && byte == 0 {
+                    return Err(@INVALID@);
+                }
+                break;
+            }
+            shift += 7;
+        }
+    }
+    let len = at.saturating_add(header[1] as usize);
+    Ok(if len <= bytes.len() { Some(len) } else { None })
+}
+
+/// Reads bare records from a byte stream that arrives in chunks of any size,
+/// carrying at most [`RECORD_CARRY_MAX_BYTES`] of an incomplete record between
+/// chunks. Records are visited in order, borrowed for the visit only.
+#[derive(Clone, Debug)]
+pub struct RecordStream {
+    carry: [u8; RECORD_CARRY_MAX_BYTES],
+    len: usize,
+}
+
+impl Default for RecordStream {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RecordStream {
+    /// An empty stream.
+    pub const fn new() -> Self {
+        Self {
+            carry: [0; RECORD_CARRY_MAX_BYTES],
+            len: 0,
+        }
+    }
+
+    /// Feed the next chunk and visit every record it completes.
+    ///
+    /// A record whose frame is longer than [`RECORD_CARRY_MAX_BYTES`] and does
+    /// not lie whole inside one chunk is ERR_INVALID. Decode errors are those
+    /// of [`record_decode_prefix`]; an error from `visit` stops and is returned.
+    pub fn feed(
+        &mut self,
+        mut chunk: &[u8],
+        visit: &mut dyn FnMut(Record<'_>) -> Result<(), i32>,
+    ) -> Result<(), i32> {
+        if self.len > 0 {
+            let old = self.len;
+            let moved = chunk.len().min(RECORD_CARRY_MAX_BYTES - old);
+            self.carry[old..old + moved].copy_from_slice(&chunk[..moved]);
+            match frame_len(&self.carry[..old + moved])? {
+                Some(len) => {
+                    let (record, _) = record_decode_prefix(&self.carry[..len])?;
+                    self.len = 0;
+                    visit(record)?;
+                    chunk = &chunk[len - old..];
+                }
+                None if old + moved == RECORD_CARRY_MAX_BYTES => return Err(@INVALID@),
+                None => {
+                    self.len = old + moved;
+                    return Ok(());
+                }
+            }
+        }
+        while !chunk.is_empty() {
+            match frame_len(chunk)? {
+                Some(len) => {
+                    let (record, _) = record_decode_prefix(&chunk[..len])?;
+                    visit(record)?;
+                    chunk = &chunk[len..];
+                }
+                None if chunk.len() >= RECORD_CARRY_MAX_BYTES => return Err(@INVALID@),
+                None => {
+                    self.carry[..chunk.len()].copy_from_slice(chunk);
+                    self.len = chunk.len();
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// After the last chunk: ERR_INVALID when an incomplete record is left.
+    pub fn finish(&self) -> Result<(), i32> {
+        if self.len == 0 { Ok(()) } else { Err(@INVALID@) }
+    }
+}
+'''

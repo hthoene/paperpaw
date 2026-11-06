@@ -38,6 +38,8 @@ pub use wire::{
     SERVICE_WORK_NOTE_TEXT_MAX_BYTES, ServiceEnd, ServicePlugin, ServicePluginUsage, ServiceUsage,
     ServiceWorkNote, record_decode_one, record_encode_one, record_framed_len,
 };
+// Single-record and streaming decoders for plugin-side readers (lock format 8).
+pub use wire::{RECORD_CARRY_MAX_BYTES, RecordStream, record_decode_prefix, records_decode_single};
 
 use super::{Error, registration_scope::RegistrationScope};
 use paperpaw_native::host_glue::{
