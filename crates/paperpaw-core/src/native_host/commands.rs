@@ -114,7 +114,12 @@ impl<'a> CommandStage<'a> {
         }
         // Registration, scalar ranges and the byte budget, without allocating.
         let mut bytes = self.bytes;
-        for WireCommand::SetSetting { key, value } in batch.iter() {
+        for command in batch.iter() {
+            // Commands 56-59 are decoded but not yet run by this host: the
+            // whole batch is refused before anything is staged.
+            let WireCommand::SetSetting { key, value } = command else {
+                return ERR_UNSUPPORTED;
+            };
             let text = match value {
                 SettingValueRef::Text(text) => text.len(),
                 _ => 0,
@@ -156,7 +161,9 @@ impl<'a> CommandStage<'a> {
 
     /// Convert one admitted command, copying text fallibly and checking it.
     fn owned(&self, command: WireCommand<'_>) -> Result<Command, i32> {
-        let WireCommand::SetSetting { key, value } = command;
+        let WireCommand::SetSetting { key, value } = command else {
+            return Err(ERR_UNSUPPORTED);
+        };
         let spec = self.admitted(key)?;
         let value = match value {
             SettingValueRef::Bool(value) => SettingValue::Bool(value),

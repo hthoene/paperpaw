@@ -84,6 +84,10 @@ input(state: pointer, token: u32, input: bytes) -> i32
 | 58 | `command.redraw` | `mode: u32` (0 redraw only, 1 fast, 2 partial, 3 full) |
 | 59 | `command.close_screen` | (no fields: closes the plugin's own top screen) |
 
+- [D] The four records are part of the generated command codec (`commands_wire`, slot 15) beside
+  `command.set_setting`: ids are nonempty UTF-8 of at most 128 bytes (`ERR_INVALID` empty,
+  `ERR_NO_SPACE` longer, `ERR_UTF8`), `mode` above 3 is `ERR_INVALID`. A host that does not run
+  them yet refuses a batch containing one with `ERR_UNSUPPORTED`, whole.
 - [D] Authority (plugin freedom, no sandbox): `open_screen` and `run_action` may name any
   registered screen or action, own or foreign. A malformed id is `ERR_INVALID`, an id that is not
   registered `ERR_NOT_FOUND`; the whole batch is refused and nothing is queued. The owner is
@@ -108,6 +112,33 @@ input(state: pointer, token: u32, input: bytes) -> i32
 - [D] Handles: at most 4 per plugin (`ERR_FULL` beyond); `handle.release` frees; teardown frees
   all. A handle whose font id is gone (pack removed or replaced) answers `ERR_STATE` on
   `text.*`; the plugin acquires again (on `event.screen_shown`).
+- [D] Metrics, ink and nested clipping (Battery parity, #914):
+
+  | Id | Entry | Arguments (after `ctx`) | Result |
+  | --- | --- | --- | --- |
+  | 29 | `text.metrics` | `font: handle`, `size: f32`, `ascent`, `descent`, `line_height: out_f32` | status |
+  | 30 | `text.ink` | `font: handle`, `size: f32`, `text: bytes` (<= 4096), `top`, `bottom`, `left`, `right: out_i32` | status |
+  | 31 | `canvas.clip` | `x: i32`, `y: i32`, `width: u32`, `height: u32` | status |
+
+  - `text.metrics`: ascent and descent (both positive, from the baseline) and the line height, in
+    pixels, of the size the text is drawn at. Works outside `draw`.
+  - `text.ink`: the ink of `text` at `size` as this host draws it at that size, counting pixels at least half covered: `top` and
+    `bottom` relative to the baseline (above negative), `left` and `right` from the pen's start.
+    Text without ink (spaces, empty) is `ERR_NOT_FOUND` with the outputs unchanged. Works
+    outside `draw`. The numbers come from the host's own rasteriser (hinting, coverage, pack),
+    so they can differ by a pixel or more between hosts (X4, desktop, Android); a plugin lays out
+    by them on the host it runs on and never compares them with stored values.
+  - Outputs of slots 29 and 30: a null or misaligned output pointer is `ERR_INVALID`. The host
+    writes all outputs together and only on `OK`; on any error every output is unchanged.
+  - `canvas.clip`: the clip of this draw call becomes the frame's clip intersected with the
+    rectangle. Each call replaces the previous one (it can widen again up to the frame's clip,
+    never beyond); an empty rectangle draws nothing. It resets when `draw` returns; outside `draw`
+    it is `ERR_STATE`. Nesting is the SDK's: a nested canvas sets its parent's rectangle
+    intersected with its own and restores the parent's when it ends.
+  - A stale font handle is `ERR_STATE`, `size` must be finite and > 0, as for `text.measure`.
+  - Host implementation notes: `text.ink` over up to 4096 bytes uses a bounded scratch buffer (no
+    allocation per glyph) and is timed on the X4 before it is wired there; `canvas.clip` does
+    its bounds arithmetic in 64 bits (`x + width` cannot overflow).
 - [D] `text.measure`/`text.draw` keep their signatures; `size` finite and > 0, text at most 4096
   bytes UTF-8, `text.draw` needs a canvas (inside `draw`), else `ERR_STATE`. `text.draw` is not
   atomic on an advance error (documented).
@@ -133,6 +164,10 @@ input(state: pointer, token: u32, input: bytes) -> i32
   retries with a bigger buffer. `i18n.digits` maps ASCII digits to the UI language's digits
   (may grow the byte length).
 - [D] Host builds into a bounded scratch; validation is complete before the first lookup.
+- [D] The limits are generated from `abi.def` (`i18n_limits`, records codec): key 128 bytes
+  (`I18N_FORMAT_MAX_KEY_BYTES`), argument batch 1024 bytes (`I18N_FORMAT_MAX_ARGUMENT_BYTES`) of
+  at most 8 records (`I18N_FORMAT_MAX_RECORDS`), digits text 4096 bytes (`I18N_DIGITS_MAX_BYTES`).
+  Host and SDK use these constants, never another family's cap.
 
 ## 6. Callback replies and draw input (N1, N2)
 

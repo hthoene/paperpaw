@@ -1002,8 +1002,126 @@
       "reentry": "deny",
       "result": "length",
       "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "font",
+          "type": "handle"
+        },
+        {
+          "name": "size",
+          "type": "f32"
+        },
+        {
+          "name": "ascent",
+          "type": "out_f32"
+        },
+        {
+          "name": "descent",
+          "type": "out_f32"
+        },
+        {
+          "name": "line_height",
+          "type": "out_f32"
+        }
+      ],
+      "effect": "query",
+      "id": 29,
+      "max_bytes": 0,
+      "name": "text.metrics",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "font",
+          "type": "handle"
+        },
+        {
+          "name": "size",
+          "type": "f32"
+        },
+        {
+          "name": "text",
+          "type": "bytes"
+        },
+        {
+          "name": "top",
+          "type": "out_i32"
+        },
+        {
+          "name": "bottom",
+          "type": "out_i32"
+        },
+        {
+          "name": "left",
+          "type": "out_i32"
+        },
+        {
+          "name": "right",
+          "type": "out_i32"
+        }
+      ],
+      "effect": "query",
+      "id": 30,
+      "max_bytes": 4096,
+      "name": "text.ink",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "x",
+          "type": "i32"
+        },
+        {
+          "name": "y",
+          "type": "i32"
+        },
+        {
+          "name": "width",
+          "type": "u32"
+        },
+        {
+          "name": "height",
+          "type": "u32"
+        }
+      ],
+      "effect": "mutate",
+      "id": 31,
+      "max_bytes": 0,
+      "name": "canvas.clip",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
     }
   ],
+  "i18n_limits": {
+    "max_args_bytes": 1024,
+    "max_args_records": 8,
+    "max_key_bytes": 128,
+    "since": 1
+  },
   "major": 7,
   "metadata": {
     "byte_order": "little",
@@ -2579,6 +2697,60 @@
       ],
       "id": 192,
       "name": "draw.frame",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "screen",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 56,
+      "name": "command.open_screen",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "action",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 57,
+      "name": "command.run_action",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "mode",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 58,
+      "name": "command.redraw",
+      "since": 1
+    },
+    {
+      "fields": [],
+      "id": 59,
+      "name": "command.close_screen",
       "since": 1
     }
   ],
