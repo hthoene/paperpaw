@@ -5,6 +5,7 @@
 
 use super::{CheckedLibrary, Make, RuntimeError, checked_library, plugin_output};
 use crate::native::HeldLibrary;
+use paperpaw_core::native_host::environment::EnvironmentScope;
 use paperpaw_core::native_host::registration_scope::RegistrationScope;
 use paperpaw_core::native_host::registrations::{self, EVENT_TICK_TAG, Registration};
 use paperpaw_core::native_host::{self, Construction, DispatchDepth, HostOwner, RegistrationBatch};
@@ -40,6 +41,7 @@ struct Context<S> {
     instance: Cell<Option<Instance>>,
     attempted: Cell<bool>,
     registrations: RegistrationScope<Registration>,
+    environment: EnvironmentScope,
 }
 
 type Owner<S> = HostOwner<Context<S>, HeldLibrary>;
@@ -72,6 +74,8 @@ impl<S: Services> PinnedPlugin<S> {
         table.heap_realloc = heap_realloc::<S>;
         table.clock_micros = clock_micros::<S>;
         table.registrations_submit = registrations_submit::<S>;
+        table.env_snapshot = environment::snapshot::<S>;
+        table.settings_read = environment::settings_read::<S>;
         // SAFETY: the caller supplies authorization and inode immutability.
         let CheckedLibrary { library, make } = unsafe { checked_library(path, digest, &table) }?;
         let context = Context {
@@ -80,6 +84,7 @@ impl<S: Services> PinnedPlugin<S> {
             instance: Cell::new(None),
             attempted: Cell::new(false),
             registrations: RegistrationScope::new(),
+            environment: EnvironmentScope::new(),
         };
         let owner = pin_owner(HostOwner::new(context, library))?;
         Ok(Self { owner, make })
@@ -360,3 +365,5 @@ fn dispatch_registration<S>(
 
 #[cfg(test)]
 mod tests;
+
+mod environment;
