@@ -5,6 +5,7 @@
 
 use super::{CheckedLibrary, Make, RuntimeError, checked_library, plugin_output};
 use crate::native::HeldLibrary;
+use paperpaw_core::native_host::canvas::CanvasScope;
 use paperpaw_core::native_host::environment::EnvironmentScope;
 use paperpaw_core::native_host::registration_scope::RegistrationScope;
 use paperpaw_core::native_host::registrations::{self, EVENT_TICK_TAG, Registration};
@@ -42,6 +43,7 @@ struct Context<S> {
     attempted: Cell<bool>,
     registrations: RegistrationScope<Registration>,
     environment: EnvironmentScope,
+    canvas: CanvasScope,
 }
 
 type Owner<S> = HostOwner<Context<S>, HeldLibrary>;
@@ -79,6 +81,7 @@ impl<S: Services> PinnedPlugin<S> {
         table.registrations_submit = registrations_submit::<S>;
         table.env_snapshot = environment::snapshot::<S>;
         table.settings_read = environment::settings_read::<S>;
+        table.canvas_fill_rect = canvas::fill_rect::<S>;
         // SAFETY: the caller supplies authorization and inode immutability.
         let CheckedLibrary { library, make } = unsafe { checked_library(path, digest, &table) }?;
         let context = Context {
@@ -88,6 +91,7 @@ impl<S: Services> PinnedPlugin<S> {
             attempted: Cell::new(false),
             registrations: RegistrationScope::new(),
             environment: EnvironmentScope::new(),
+            canvas: CanvasScope::new(),
         };
         let owner = pin_owner(HostOwner::new(context, library))?;
         Ok(Self {
@@ -373,4 +377,5 @@ fn dispatch_registration<S>(
 #[cfg(test)]
 mod tests;
 
+mod canvas;
 mod environment;

@@ -37,7 +37,7 @@ mod settings_wire {
     ));
 }
 
-const KEY: &str = "abi7-tick-draw.enabled";
+pub(super) const KEY: &str = "abi7-tick-draw.enabled";
 const DEVICE: DeviceInfo = DeviceInfo::new(
     "scoped-probe",
     "Scoped probe",
@@ -45,7 +45,7 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
     InputCaps::new(true, true, false, &[]),
     MemoryClass::Small,
 );
-static BOOL: [SettingSpec; 1] = [SettingSpec::switch(
+pub(super) static BOOL: [SettingSpec; 1] = [SettingSpec::switch(
     KEY,
     "enabled",
     false,
@@ -89,7 +89,7 @@ impl Plugin for Probe {
     }
 }
 
-fn run(
+pub(super) fn run(
     specs: &'static [SettingSpec],
     value: &str,
     status: SystemStatus,
