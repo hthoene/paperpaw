@@ -72,6 +72,9 @@ struct Entry {
     serial: u32,
     /// Failed opens or reads since the card last changed.
     failures: Cell<u8>,
+    /// The heap its table takes open, once an open found it (0 before):
+    /// with no room for it, the next words do not read the card again.
+    needed: Cell<usize>,
 }
 
 impl Entry {
@@ -227,13 +230,20 @@ impl CardTables {
         };
         let used = |open: &Vec<Open>| open.iter().map(|o| o.reader.heap()).sum::<usize>();
         let clock = self.clock.get();
+        let idle = clock.saturating_sub(HOT);
+        // No room, and none of the open ones idle long enough to be closed
+        // for it: the card is not read (that would be at every word).
+        let full = open.len() >= OPEN || used(open) + entry.needed.get() > BUDGET;
+        if entry.needed.get() > BUDGET || full && open.iter().all(|o| o.stamp > idle) {
+            return None;
+        }
         let mut room = |needed: usize| {
+            entry.needed.set(needed);
             if needed > BUDGET {
                 return None;
             }
             while open.len() >= OPEN || used(open) + needed > BUDGET {
                 // The least recently used of those idle long enough.
-                let idle = clock.saturating_sub(HOT);
                 let oldest = (0..open.len())
                     .filter(|&i| open[i].stamp <= idle)
                     .min_by_key(|&i| open[i].stamp)?;
@@ -347,6 +357,7 @@ impl CardTables {
                 path: copy(&[folder, "/", path])?,
                 serial: self.next_serial.wrapping_add(new.len() as u32),
                 failures: Cell::new(0),
+                needed: Cell::new(0),
             });
         }
         self.entries.try_reserve(new.len())?;
@@ -394,6 +405,7 @@ impl CardTables {
         }
         for entry in &self.entries {
             entry.failures.set(0);
+            entry.needed.set(0);
         }
     }
 }
@@ -549,6 +561,8 @@ mod tests {
 
     std::thread_local! {
         static OPENED: Cell<u32> = const { Cell::new(0) };
+        /// Calls of the opener (each reads the card), opened or not.
+        static TRIED: Cell<u32> = const { Cell::new(0) };
     }
 
     /// Tables are as large as their path says (`big` 30 KiB, else 10 KiB).
@@ -565,6 +579,7 @@ mod tests {
         path: &str,
         room: &mut Room<'_>,
     ) -> Result<Box<dyn Reader>, Unopened> {
+        TRIED.with(|t| t.set(t.get() + 1));
         if room(size(path)).is_none_or(|room| size(path) > room) {
             return Err(Unopened::NoRoom);
         }
@@ -587,6 +602,7 @@ mod tests {
                 path: String::from(*path),
                 serial: n as u32,
                 failures: Cell::new(0),
+                needed: Cell::new(0),
             });
         }
         card
@@ -600,6 +616,10 @@ mod tests {
 
     fn opened() -> u32 {
         OPENED.with(|o| o.replace(0))
+    }
+
+    fn tried() -> u32 {
+        TRIED.with(|t| t.replace(0))
     }
 
     #[test]
@@ -638,17 +658,20 @@ mod tests {
     #[test]
     fn tables_in_use_are_not_closed_for_each_other() {
         opened();
+        tried();
         let card = tables(&["big-1", "big-2"], true);
         for _ in 0..20 {
             assert_eq!(marks(&card, 0), 1);
             assert_eq!(marks(&card, 1), 0);
         }
         assert_eq!(opened(), 1, "the second never opened past the budget");
+        assert_eq!(tried(), 2, "the second's file read once, not at every word");
         for _ in 0..HOT {
             marks(&card, 1);
         }
         assert_eq!(marks(&card, 1), 1);
         assert_eq!(opened(), 1);
+        assert_eq!(tried(), 1, "read again only once the first was idle");
         let heap: usize = card.open.borrow().iter().map(|o| o.reader.heap()).sum();
         assert!(heap <= BUDGET);
     }

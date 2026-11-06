@@ -201,7 +201,7 @@ impl<S: Source> StoredPatterns<S> {
     }
 
     /// As [`open`](Self::open), within `budget` bytes of heap: where the
-    /// table would take more while it is opened ([`heap_needed`], with the
+    /// table would take more while it is opened (`heap_needed`, with the
     /// table's own sizes as the check finds them), it is refused with
     /// [`OpenError::OverBudget`] before its index, fences, exceptions or
     /// cache are taken.
