@@ -533,8 +533,11 @@ rules, `role` is a syntactically valid id, `priority` range. Failures `ERR_UTF8`
 At commit: names unique within the plugin and against registered fonts and hyphenation ids
 (`plugins.rs:205-225` already refuses duplicate ids); `font_extension.extends` must name a font that is
 registered by now or by this plugin; `role` bindings go through the same priority resolution as today.
-Several plugins may register the same `language`; as today (`hyphenation/src/lib.rs:5-6`, "a later
-registration for a language replaces an earlier one") the later one wins, which depends on load order (Q15).
+Several plugins may register the same `language`; the base plugin documents "a later registration for a
+language replaces an earlier one" (`plugins/hyphenation/src/lib.rs:5-7`; I did not verify the lookup code
+that implements it), so the later one wins and that depends on load order (Q15). Note that interface 6
+validates the table at registration (`crates/paperpaw-sdk/src/hyphenation.rs:55-61`, `Patterns::new` inside
+`add`); moving the check to activation is a deliberate behaviour change, justified below.
 
 At **activation**, by the consuming service, not at `make`: the file exists and its size is within the cap
 (**guesses:** 2 MiB for a hyphenation table, 64 MiB for a font file; the largest real pack on a test card is
@@ -570,13 +573,13 @@ The new storage-backed reader accepts **only** `PPHP\x01`. The old `QIHP` magic 
 ### Open questions (Part 4)
 
 - **Q1** Should G0 be ported at all as flat code? The 12 language plugins and the base contain no logic: their
-  `register` adds two catalogs and one table (`plugins/hyphenation-de/src/lib.rs:36-42`). As **data plugins**
+  `register` adds two catalogs and one table (`plugins/hyphenation-de/src/lib.rs:44-49`). As **data plugins**
   (`plugin.ini`, `i18n/*`, `hyphenation/<lang>.pphp` built by a `data.toml` builder) they need no flat
   boundary, no `.ppn` signature, and no flash write; the data-plugin loader would gain one file kind (a
   `[hyphenation]` section, formats 5) that fills the same staged item as `resource.hyphenation`. That makes
   Part 4's records needed only by **code** plugins that also carry resources. I recommend the owner decides
   this before the plugin engineer starts G0.
-- **Q12** `fonts-default` is built into the firmware image today (lean packs; `fonts-default/src/lib.rs:90-130`),
+- **Q12** `fonts-default` is built into the firmware image today (lean packs; `plugins/fonts-default/src/lib.rs:88-130`),
   so its bytes are in firmware flash, not in a card folder. A `path` record cannot name them. Either the
   built-in plugin keeps a Rust-side registrar (outside the flat boundary) or the firmware exposes its
   embedded faces under reserved names (a `builtin:` path scheme). Not decided here.
@@ -592,7 +595,7 @@ The new storage-backed reader accepts **only** `PPHP\x01`. The old `QIHP` magic 
 Not specified in detail; this only shows that the tag plan and record shapes fit.
 
 - **Tokens.** A record that carries a callback has a `token: u32`, 0 meaning none; the plugin owns the
-  token-to-closure table and the host calls `dispatch_event(state, token, input)` (`abi/callbacks.md:3-12`).
+  token-to-closure table and the host calls `dispatch_event(state, token, input)` (`abi/callbacks.md:3-8`).
   **Static token functions need no dynamic token slot** (`ADR34:941-943`), so 83 first-party `FixedAction`
   tables do not hit `REGISTRATIONS = 8`; only dynamic tokens do, and those stay in the retained array (2.2).
   Unresolved: the host needs a routing table `(plugin, token)` per action, bytes the 8-slot array was not sized
@@ -613,3 +616,109 @@ Not specified in detail; this only shows that the tag plan and record shapes fit
 - Not outlined and held in reserve: widgets, status items/places, setup steps, keymap presets, input filters,
   slots, choices, subscriptions, formats, readers, lookups (EXT/DOC in `notes:`). Tags 16-23 reserved for
   them; 24-31 spare.
+
+## 8. Tag allocation (range 5-31; tag 4 is `command.set_setting`; 32-63 belong to another helper)
+
+| Tag | Record | Part | Status | Transport |
+|---:|---|---|---|---|
+| 5 | `setting.group` | 3 | proposed | inline, or frame file |
+| 6 | `setting.spec` | 3 | proposed | inline, or frame file |
+| 7 | `setting.extra` | 3 | proposed | inline, or frame file |
+| 8 | `resource.hyphenation` | 4 | proposed | inline |
+| 9 | `resource.font_face` | 4 | proposed | inline |
+| 10 | `resource.font_extension` | 4 | proposed | inline |
+| 11 | reserved | | free; first use is whatever Q1 or Q12 produces (for example `resource.catalog` if Q4 needs an explicit list) | |
+| 12 | `action.spec` | 5 | outline | inline |
+| 13 | `menu.entry` | 5 | outline, may stay a file (`menus.ini`) | inline |
+| 14 | `screen.spec` | 5 | outline | inline |
+| 15 | `icon.binding` | 5 | outline, may stay a file (`icons.ini`) | inline |
+| 16-23 | reserved for EXT/DOC (widgets, status items, setup steps, keymaps, formats, readers) | | not designed | |
+| 24-31 | spare | | | |
+
+Parts 1 and 2 consume no tag. Tags are never reused or changed once released (`ADR34:` records rules,
+`abi/README.md:23-25`); the table is therefore a plan, and any tag may still be dropped before the
+interface-7 release.
+
+## 9. Summary of decisions (all proposals)
+
+| Part | Decision |
+|---|---|
+| Architecture | Three transports and one record grammar; callbacks stay in the 8-slot retained array; declarations are staged separately and consumed at commit; frame file reserved for lazy retention. |
+| 1 Manifest | No record. `plugin.ini` is identity (id host-known, never in bytes); `uses` as signed metadata features; version cross-check dropped. |
+| 2 Translations | No record. `i18n/*.ini|ppcat` in the folder, `.ppcat` above a size threshold, read on demand (ADR 0033); slot 6 uses the single translator chain. |
+| 3 Settings | Tags 5-7 (group, spec, extra), relative names, `settings_value` default, closed kinds, secret/scoped/guarded/kept_on_reset/advanced as flags; inline batches, eager owned retention (S1) first, lazy (S2) only if measured necessary. |
+| 4 Resources | Tags 8-10 name files in the plugin folder; read by kernel services through host storage; not slot 18, not rodata; syntactic checks at submit, format checks at activation with fallback instead of poisoning; storage-backed `Patterns` is a separate kernel item. |
+| 5 Outline | Tags 12-15 for actions, menus, screens, icons; menus and icons may remain files; tokens `u32`, 0 means none. |
+
+## 10. Consolidated open questions for the owner and Senior
+
+Decisions with the largest consequence first.
+
+1. **Q1** Port G0 as flat code, or ship the 14 data plugins as real data plugins (new `[hyphenation]` file
+   kind) and skip R-DATA for them? Affects Part 4, the plugin engineer's plan, and X4 flash use.
+2. **Q12** How does `fonts-default`, whose bytes are in the firmware image, register faces? A card `path` cannot
+   name them.
+3. **Q13** Is a storage-backed hyphenation reader acceptable (needs a kernel item and an X4 measurement), or
+   must tables stay in plugin rodata behind a pull-reader callback? No measurement exists.
+4. **Q6** Boundary profile: `ADR34:924-945` proposes one 384-byte inline batch and 4,096 B total boundary
+   storage, while `abi.def` allows 4096-byte batches. One `setting.spec` with a long choice list can exceed 384
+   B (about 1.4 KB at the cap), and a median plugin's three specs are about 420 B. Which number governs
+   declarations? I assumed 4096 for inline batches, 2048 for frames, and counted the transient decode
+   buffer against the 4,096 B profile; this must be reconciled with whoever owns the profile.
+5. **Q7** Settings retention S1 (about 200 B each, 49 KB worst case) versus S2 (lazy, a `Specs` refactor).
+   Recommended: S1 now, measure, decide.
+6. **Q2/Q3** Drop the code-versus-`plugin.ini` version check? `uses` as signed metadata features (proposed) or
+   unsigned `plugin.ini`?
+7. **Q5** Slot 6 cannot distinguish a missing key from one equal to its key. Change now (the batch is open) or
+   leave as interface 6?
+8. **Q9** Slot 5 on a secret setting: return `absent`? Not checked in the current code.
+9. **Q4, Q8, Q14** Thresholds and caps that are guesses: `.ppcat` threshold 2 KiB, `choices` 1024 B and 32
+   values, hyphenation file 2 MiB, font file 64 MiB, per-plugin 128 specs/32 groups/128 extras.
+10. **Q15** Language collisions between hyphenation plugins: load-order wins; add a priority?
+11. **Q10/Q11** Defer `Extended` kinds and `check` callbacks; keep or drop derived default titles.
+12. **Q16** Routing table for static action tokens (`(plugin, token)` per action): who owns its memory and
+    cap, since `REGISTRATIONS = 8` is not sized for it.
+13. **Q17** Generator scope: the registration codec generator (`abi/abi.def` `record_codec`) validates only
+    "supported initial shapes" (`docs/abi/records.md:3-6`); `str` and `bytes` fields exist in the commands
+    codec design (`commands.md`) but I did not check whether `tools/abi-gen.py` accepts them in registration
+    records. If it does not, that is the first implementation item.
+
+### Unverifiable from here
+
+- Whether a folder with `code.ppn` is passed through the data-plugin loader in the current firmware path
+  (documented, not traced).
+- Anything on-device: X4 heap peaks, SD read latency for a storage-backed `Patterns`, flash-mapped read
+  behaviour. All memory figures marked Estimate are arithmetic from struct fields, source comments or counts.
+- The `.pphp` and `.ppfp` sizes come from an older build snapshot (`scratch/k228snapshot`); rebuild before
+  quoting them in an ADR. Source-line counts of settings are lexical and include test modules and macros'
+  expansions only where they appear literally.
+- The slot-15 contract was read from a local worktree (`wt-abi7-commands` at `d96b26cf`); it was not on
+  `origin` when I looked.
+- That `Settings::get` hides secret values, that `secret` and `scoped` conflict, and that `Font::from_data`
+  ignores `wght` for `.ppfp` packs.
+
+## 11. Implementation estimate: codecs and host staging for Parts 1-4
+
+Agent-hours, one agent, including tests and the documentation this file implies; excluding review rounds,
+device qualification and Part 5.
+
+| Item | Hours |
+|---|---:|
+| `abi.def` records 5-10, closed field/caps declarations, generator support for `str`/`bytes` in the registration codec if missing (Q17), lock regeneration | 10-16 |
+| Generated codecs (decode with caps and UTF-8, encode with pre-checks), goldens, malformed and boundary vectors, mutation corpus | 8-12 |
+| Part 1: three metadata features, loader refusal before `make`, tests | 2-4 |
+| Host: `Declarations` list with byte and count budgets, split of callback and declaration staging in `Construction`, poison and rollback paths | 6-10 |
+| Host: per-record validators (ids, kinds, `accepts` reuse for defaults, choices, paths, flags), whole-batch and cross-record checks at commit | 8-12 |
+| Host: commit mapping to `Specs`, font registry and hyphenation registry; duplicate and cross-reference checks; allocation-failure tests | 8-12 |
+| Part 2: confirm and test that code-plugin folders load `i18n/`, `.ppcat` and `formats = 4` rules, doc updates | 2-4 |
+| Part 4 plumbing: activation hooks for font faces (existing `FontFace` path) and a hyphenation entry holding the path | 4-7 |
+| Updates to `docs/abi/records.md`, `abi/settings.md`, fuzz target for the new batch | 3-5 |
+| **Total** | **51-82** |
+
+Not included: storage-backed `Patterns` (12-20 h plus an X4 measurement), lazy settings S2 (12-20 h), the frame
+file (4-6 h), Part 5 records (20-30 h when taken), the data-plugin `[hyphenation]` kind if Q1 is chosen (6-10 h).
+
+Assumptions: the commands branch lands first and its `str`/`bytes` handling can be reused (otherwise add the
+Q17 hours to the high end); `Specs` keeps its current API for S1; `REGISTRATIONS` is not raised; the owner accepts
+the caps above without a measurement round; no change to the metadata lock format other than the new feature
+descriptors; hours follow the band conventions of `notes:` (agent-hours, not calendar time).
