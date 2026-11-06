@@ -268,7 +268,7 @@ g_architecture() {
           fi
         done
         exit $status'
-    run "architecture: store folders and x4-remote tests" "python3 -m unittest discover -s tools/plugin-files && python3 -m unittest discover -s tools -p test_x4_remote.py"
+    run "architecture: store folders and x4-remote tests" "python3 -m unittest discover -s tools/plugin-files && python3 -m unittest discover -s tools -p test_x4_remote.py && python3 -m unittest discover -s tools -p 'test_x4textprobe*.py'"
     if git rev-parse --verify -q origin/main > /dev/null; then
         # CI checks out the whole history; versions.py compares with the last release.
         run "architecture: a changed store plugin has a newer version" "python3 tools/plugin-files/versions.py"
