@@ -38,6 +38,9 @@
 //!                  help
 //!   plugin.ini     also [fonts]: a role = a font, e.g.
 //!                  core.font-ui-strong = my.semibold; formats 3
+//!   hyphenation/*.pphp  hyphenation tables, named in plugin.ini:
+//!                  [hyphenation] de = hyphenation/de.pphp, a language a
+//!                  line (see `hyphenation`); formats 5
 //! ```
 //!
 //! The kernel lists them like every other plugin, so they can be switched
@@ -60,6 +63,7 @@ use paperpaw_sdk::presets::Preset;
 use paperpaw_sdk::{Id, Manifest, Plugin, RegisterError, Registrar, Version};
 
 mod formats;
+pub(crate) mod hyphenation;
 use formats::{actions, menus, setup_steps};
 
 /// Largest data file read (a translation catalog, a key map).
@@ -136,6 +140,8 @@ pub(crate) struct DataPlugin {
     /// Packs loose in a font folder, faces of families their file names
     /// give (see [`pack_face`]): family, key in [`FACES`], path.
     loose_faces: RefCell<Vec<(String, &'static str, String)>>,
+    /// Hyphenation tables `[hyphenation]` names, by language.
+    hyphenation: RefCell<Vec<hyphenation::Table>>,
     /// Its folder holds native code (see `code_plugin`).
     code: bool,
 }
@@ -176,6 +182,11 @@ impl DataPlugin {
     /// not say it is made for, files too large), to tell once.
     pub(crate) fn take_problems(&self) -> Vec<String> {
         self.problems.take()
+    }
+
+    /// The hyphenation tables it names, to add once it is registered.
+    pub(crate) fn take_hyphenation(&self) -> Vec<hyphenation::Table> {
+        self.hyphenation.take()
     }
 
     /// Whether its folder holds native code: it is a code plugin.
@@ -721,6 +732,10 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
         .collect();
     later.extend(point_files(storage, path, &mut budget));
     let roles = fonts_for_roles(&source, path, &mut budget);
+    let code = paperpaw_sdk::native::CODE_FILES
+        .iter()
+        .any(|file| storage.size(&format!("{path}/{file}")).is_ok());
+    let tables = hyphenation_tables(&source, path, code, &mut budget);
     let (family, faces) = family(&source, path);
     let mut fonts = font_files(storage, &format!("{path}/fonts"), false);
     // A family's faces are not fonts of their own as well.
@@ -741,10 +756,27 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
         faces: RefCell::new(faces),
         family,
         loose_faces: RefCell::new(Vec::new()),
-        code: paperpaw_sdk::native::CODE_FILES
-            .iter()
-            .any(|file| storage.size(&format!("{path}/{file}")).is_ok()),
+        hyphenation: RefCell::new(tables),
+        code,
     })
+}
+
+/// The hyphenation tables `[hyphenation]` in `source` names, for a data
+/// plugin: a code plugin's come with its registration, not from plugin.ini.
+fn hyphenation_tables(
+    source: &str,
+    path: &str,
+    code: bool,
+    budget: &mut Budget,
+) -> Vec<hyphenation::Table> {
+    let mut tables = hyphenation::tables(source, path, budget.formats, &mut budget.problems);
+    if code && !tables.is_empty() {
+        budget.problems.push(format!(
+            "{path}/plugin.ini: [hyphenation] left out, read only for data plugins"
+        ));
+        tables.clear();
+    }
+    tables
 }
 
 /// The font files in `dir` and its folders (one level, e.g. a folder per
@@ -837,6 +869,7 @@ pub(crate) fn font_folder(storage: &dyn Storage, dirs: &[String]) -> Option<Data
         faces: RefCell::new(Vec::new()),
         family: None,
         loose_faces: RefCell::new(loose),
+        hyphenation: RefCell::new(Vec::new()),
         code: false,
     })
 }

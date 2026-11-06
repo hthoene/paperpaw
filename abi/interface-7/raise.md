@@ -38,8 +38,10 @@ These are not rows of their own, but the raise is not complete without them:
    snapshots in this folder, as `README.md` requires.
 3. Raise the interface version and its fingerprint by ADR 0026, and regenerate every `api.txt`/`shape.txt` with
    `tools/interface.py`.
-4. Retarget the trusted-base ABI CI (#147/#150) to the draft-7 baseline.
-5. Record the raise in `CHANGELOG.md`.
+4. Turn on the tests that need formats 5: drop the `ignore` of the two tests in
+   `crates/paperpaw-core/src/tests/hyphenation_tables.rs` and delete the test of today's refusal there.
+5. Retarget the trusted-base ABI CI (#147/#150) to the draft-7 baseline.
+6. Record the raise in `CHANGELOG.md`.
 
 Items behind the `kernel` cargo feature (ADR 0020), such as `paperpaw-hyphen`'s table check and card-backed
 reader, are not part of the plugin interface and need no row.
