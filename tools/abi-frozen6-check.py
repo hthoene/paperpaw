@@ -27,11 +27,13 @@ def check(root, base):
     versions = VERSION.findall((root / SOURCE).read_bytes())
     if len(versions) != 1:
         raise ValueError('cannot establish the candidate native::INTERFACE')
-    if int(versions[0]) < 6:
+    version = int(versions[0])
+    if version < 6:
         raise ValueError('legacy interface version cannot move backwards')
-    if versions[0] != b'6':
+    if version != 6:
         return 'native::INTERFACE is not 6; the frozen-v6 rule does not apply'
-    if VERSION.findall(git(root, 'show', base + ':' + SOURCE)) != [b'6']:
+    base_versions = VERSION.findall(git(root, 'show', base + ':' + SOURCE))
+    if len(base_versions) != 1 or int(base_versions[0]) != 6:
         raise ValueError('interface 6 requires a trusted interface-6 base')
     names = git(root, 'ls-tree', '-r', '--name-only', base, '--', DIRECTORY, SUMMARY)
     trusted = set(names.decode().splitlines())

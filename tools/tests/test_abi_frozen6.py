@@ -80,6 +80,18 @@ class Frozen6Tests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'cannot establish'):
             frozen6.check(self.root, self.base)
 
+    def test_leading_zero_version_six_cannot_bypass_reference_immutability(self):
+        reference = self.root / (frozen6.DIRECTORY + '/sample.api')
+        for spelling in ('06', '0006'):
+            with self.subTest(spelling=spelling):
+                (self.root / frozen6.SOURCE).write_text(
+                    f'pub const INTERFACE: u16 = {spelling};\n')
+                reference.write_text(self.files[frozen6.DIRECTORY + '/sample.api'])
+                self.assertIn('reference files match', frozen6.check(self.root, self.base))
+                reference.write_text('candidate changed API\n')
+                with self.assertRaisesRegex(ValueError, 'frozen interface-6 reference changed'):
+                    frozen6.check(self.root, self.base)
+
     def test_coordinated_actual_interface_raise_has_explicit_result(self):
         (self.root / frozen6.SOURCE).write_text('pub const INTERFACE: u16 = 7;\n')
         self.assertIn('rule does not apply', frozen6.check(self.root, self.base))
