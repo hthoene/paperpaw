@@ -112,6 +112,15 @@ fn foreign_draw_fills_the_emulator_framebuffer_through_scoped_slot_9() {
             host_glue::OK
         );
         assert_eq!(gray(&other, 8, 8), 0);
+        // An empty visible region sends no frame and calls nothing.
+        let markers = evidence.callback_markers.get();
+        let empty = paperpaw_platform::Rect::new(0, 0, WIDTH, 0);
+        assert_eq!(
+            bridge::dispatch_draw(&batch, 1, &depth, env, &mut other.canvas().clipped(empty))
+                .unwrap(),
+            host_glue::OK
+        );
+        assert_eq!(evidence.callback_markers.get(), markers);
         drop(batch);
         plugin.owner.as_ref().revoke();
         plugin.owner.as_ref().finish().unwrap();
