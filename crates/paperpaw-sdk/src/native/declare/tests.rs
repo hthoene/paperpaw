@@ -51,7 +51,7 @@ fn the_generated_copies_are_the_generated_files() {
     let here = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     for (generated, copy) in [
         ("records_wire.rs", "src/native/declare/records_wire.rs"),
-        ("settings_value.rs", "src/native/wire/settings_wire.rs"),
+        ("settings_value.rs", "src/native/declare/settings_value.rs"),
         ("snapshot_wire.rs", "src/native/wire/snapshot_wire.rs"),
         ("color_wire.rs", "src/native/wire/color_wire.rs"),
         ("commands_wire.rs", "src/native/wire/commands_wire.rs"),

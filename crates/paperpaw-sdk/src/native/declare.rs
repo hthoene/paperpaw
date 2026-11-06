@@ -41,12 +41,21 @@ use core::mem::MaybeUninit;
     reason = "generated declaration record codec (abi/generated/records_wire.rs, byte for byte)"
 )]
 pub(crate) mod records_wire;
+#[rustfmt::skip]
+#[allow(
+    clippy::all,
+    clippy::pedantic,
+    missing_docs,
+    dead_code,
+    reason = "generated settings value codec (abi/generated/settings_value.rs, byte for byte)"
+)]
+pub(crate) mod settings_value;
 
-use super::wire::settings_wire::{SettingValueRef, settings_encode};
 use records_wire::{
     Record, ResourceFontExtension, ResourceFontFace, ResourceHyphenation, SettingExtra,
     SettingGroup, SettingSpec, records_encode,
 };
+use settings_value::{SettingValueRef, settings_encode};
 
 /// Most records in one batch.
 pub const BATCH_MAX_RECORDS: usize = records_wire::REGISTRATION_MAX_RECORDS;

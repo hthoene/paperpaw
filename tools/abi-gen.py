@@ -474,7 +474,7 @@ def run(argv=None):
         outputs[folder / 'generated' / 'settings_value.rs'] = codec
         outputs[args.root / 'crates/paperpaw-core/src/abi7/settings_wire.rs'] = codec
         # The SDK's private copy (#228): byte for byte the same codec.
-        outputs[args.root / 'crates/paperpaw-sdk/src/native/wire/settings_wire.rs'] = codec
+        outputs[args.root / 'crates/paperpaw-sdk/src/native/declare/settings_value.rs'] = codec
     codec = rust_records(schema) + rust_streams(schema)
     if codec:
         outputs[folder / 'generated' / 'records_wire.rs'] = codec

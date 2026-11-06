@@ -585,6 +585,10 @@ const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_HELP_MAX_BYTES: 
 const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_NAME_MAX_BYTES: usize = 96usize
 const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_TAG: u32 = 6u32
 const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_TITLE_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::settings_value::SETTINGS_HEADER_BYTES: usize = 12usize
+const paperpaw_sdk::native::declare::settings_value::SETTINGS_LAYOUT: u32 = 1u32
+const paperpaw_sdk::native::declare::settings_value::SETTINGS_MAX_BYTES: usize = 4_096usize
+const paperpaw_sdk::native::declare::settings_value::SETTINGS_MAX_TEXT_BYTES: usize = 4_084usize
 const paperpaw_sdk::native::keys::MAX_REVOKED: usize = 256usize
 const paperpaw_sdk::native::storage::MAX_DATA: usize = 4_096usize
 const paperpaw_sdk::native::storage::MAX_PATH: usize = 512usize
@@ -593,10 +597,6 @@ const paperpaw_sdk::native::wire::commands_wire::COMMAND_MAX_BYTES: usize = 4_09
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_MAX_KEY_BYTES: usize = 128usize
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_MAX_RECORDS: usize = 8usize
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_SETTING_TAG: u32 = 4u32
-const paperpaw_sdk::native::wire::settings_wire::SETTINGS_HEADER_BYTES: usize = 12usize
-const paperpaw_sdk::native::wire::settings_wire::SETTINGS_LAYOUT: u32 = 1u32
-const paperpaw_sdk::native::wire::settings_wire::SETTINGS_MAX_BYTES: usize = 4_096usize
-const paperpaw_sdk::native::wire::settings_wire::SETTINGS_MAX_TEXT_BYTES: usize = 4_084usize
 const paperpaw_sdk::native::wire::snapshot_wire::SNAPSHOT_BYTES: usize = 52usize
 const paperpaw_sdk::native::wire::snapshot_wire::SNAPSHOT_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::wire::snapshot_wire::SNAPSHOT_VERSION: u32 = 1u32
@@ -872,12 +872,12 @@ enum paperpaw_sdk::native::declare::Kind<'a> { Bool(0: bool), Int { default: i64
 enum paperpaw_sdk::native::declare::Latched { Sink(0: i32), NoMemory, Refused(0: paperpaw_sdk::native::declare::DeclareError) }
 enum paperpaw_sdk::native::declare::records_wire::Record<'a> { Registration(0: paperpaw_sdk::native::declare::records_wire::Registration), SettingGroup(0: paperpaw_sdk::native::declare::records_wire::SettingGroup<'a>), SettingSpec(0: paperpaw_sdk::native::declare::records_wire::SettingSpec<'a>), SettingExtra(0: paperpaw_sdk::native::declare::records_wire::SettingExtra<'a>), ResourceHyphenation(0: paperpaw_sdk::native::declare::records_wire::ResourceHyphenation<'a>), ResourceFontFace(0: paperpaw_sdk::native::declare::records_wire::ResourceFontFace<'a>), ResourceFontExtension(0: paperpaw_sdk::native::declare::records_wire::ResourceFontExtension<'a>), EventStarted(0: paperpaw_sdk::native::declare::records_wire::EventStarted), EventResume(0: paperpaw_sdk::native::declare::records_wire::EventResume), EventSuspend(0: paperpaw_sdk::native::declare::records_wire::EventSuspend), EventStopping(0: paperpaw_sdk::native::declare::records_wire::EventStopping), EventBatteryMeasured(0: paperpaw_sdk::native::declare::records_wire::EventBatteryMeasured), EventPageTurned(0: paperpaw_sdk::native::declare::records_wire::EventPageTurned<'a>), ServiceUsage(0: paperpaw_sdk::native::declare::records_wire::ServiceUsage), ServicePluginUsage(0: paperpaw_sdk::native::declare::records_wire::ServicePluginUsage<'a>), ServicePlugin(0: paperpaw_sdk::native::declare::records_wire::ServicePlugin<'a>), ServiceWorkNote(0: paperpaw_sdk::native::declare::records_wire::ServiceWorkNote<'a>), ServiceEnd(0: paperpaw_sdk::native::declare::records_wire::ServiceEnd), ScreenSpec(0: paperpaw_sdk::native::declare::records_wire::ScreenSpec<'a>), ActionSpec(0: paperpaw_sdk::native::declare::records_wire::ActionSpec<'a>), EventScreenShown(0: paperpaw_sdk::native::declare::records_wire::EventScreenShown<'a>), EventActionRun(0: paperpaw_sdk::native::declare::records_wire::EventActionRun<'a>), InputKey(0: paperpaw_sdk::native::declare::records_wire::InputKey<'a>), InputPointer(0: paperpaw_sdk::native::declare::records_wire::InputPointer), InputGesture(0: paperpaw_sdk::native::declare::records_wire::InputGesture), InputAction(0: paperpaw_sdk::native::declare::records_wire::InputAction<'a>), I18nArgStr(0: paperpaw_sdk::native::declare::records_wire::I18nArgStr<'a>), I18nArgInt(0: paperpaw_sdk::native::declare::records_wire::I18nArgInt<'a>), I18nCount(0: paperpaw_sdk::native::declare::records_wire::I18nCount), DrawFrame(0: paperpaw_sdk::native::declare::records_wire::DrawFrame<'a>) }
 enum paperpaw_sdk::native::declare::records_wire::Registration { Event { event_tag: u32, token: u32 }, Draw { token: u32 } }
+enum paperpaw_sdk::native::declare::settings_value::SettingValueRef<'a> { Absent, Bool(0: bool), Int(0: i64), Text(0: &'a str) }
 enum paperpaw_sdk::native::events::Event<'a> { Started { now_ms: u64 }, Resume { now_ms: u64 }, Suspend { now_ms: u64 }, Stopping { now_ms: u64 }, BatteryMeasured { now_ms: u64 }, PageTurned(0: paperpaw_sdk::native::events::PageTurn<'a>) }
 enum paperpaw_sdk::native::keys::RevokedError { Full, NotKept }
 enum paperpaw_sdk::native::keys::RotationError { NoAuthor, NoRecoveryKey, BadSignature, Refused, NotKept }
 enum paperpaw_sdk::native::storage::Root { Data, Files }
-enum paperpaw_sdk::native::wire::commands_wire::Command<'a> { SetSetting { key: &'a str, value: paperpaw_sdk::native::wire::settings_wire::SettingValueRef<'a> } }
-enum paperpaw_sdk::native::wire::settings_wire::SettingValueRef<'a> { Absent, Bool(0: bool), Int(0: i64), Text(0: &'a str) }
+enum paperpaw_sdk::native::wire::commands_wire::Command<'a> { SetSetting { key: &'a str, value: paperpaw_sdk::native::declare::settings_value::SettingValueRef<'a> } }
 enum paperpaw_sdk::native::wire::snapshot_wire::PixelFormat { Mono1, Gray2, Gray4, Gray8, Rgb565, Rgb888, Other { code: u16, bits: u8 } }
 enum paperpaw_sdk::pattern::Item { Range(0: char, 1: char), Digit(0: bool), Word(0: bool), Space(0: bool) }
 enum paperpaw_sdk::pattern::Node { Char(0: char), Any, Class(0: paperpaw_sdk::pattern::Class), Start, End, Edge, Group(0: alloc::boxed::Box<alloc::vec::Vec<alloc::vec::Vec<paperpaw_sdk::pattern::Node>>>), Repeat(0: alloc::boxed::Box<paperpaw_sdk::pattern::Node>, 1: u32, 2: u32) }

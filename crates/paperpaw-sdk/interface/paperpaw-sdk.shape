@@ -593,6 +593,13 @@ const paperpaw_sdk::native::keys::MAX_REVOKED: usize = 256usize
 const paperpaw_sdk::native::storage::MAX_DATA: usize = 4_096usize
 const paperpaw_sdk::native::storage::MAX_PATH: usize = 512usize
 const paperpaw_sdk::native::storage::MAX_SEGMENT: usize = 255usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_MAX_BYTES: usize = 4_096usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_MAX_KEY_BYTES: usize = 128usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_MAX_RECORDS: usize = 8usize
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_SETTING_TAG: u32 = 4u32
+const paperpaw_sdk::native::wire::snapshot_wire::SNAPSHOT_BYTES: usize = 52usize
+const paperpaw_sdk::native::wire::snapshot_wire::SNAPSHOT_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::wire::snapshot_wire::SNAPSHOT_VERSION: u32 = 1u32
 const paperpaw_sdk::numbers::DECIMAL_MARK: &str = "core.decimal"
 const paperpaw_sdk::pattern::MAX_PATTERN: usize = 256usize
 const paperpaw_sdk::pattern::MAX_REPEAT: u32 = 100u32
@@ -870,6 +877,8 @@ enum paperpaw_sdk::native::events::Event<'a> { Started { now_ms: u64 }, Resume {
 enum paperpaw_sdk::native::keys::RevokedError { Full, NotKept }
 enum paperpaw_sdk::native::keys::RotationError { NoAuthor, NoRecoveryKey, BadSignature, Refused, NotKept }
 enum paperpaw_sdk::native::storage::Root { Data, Files }
+enum paperpaw_sdk::native::wire::commands_wire::Command<'a> { SetSetting { key: &'a str, value: paperpaw_sdk::native::declare::settings_value::SettingValueRef<'a> } }
+enum paperpaw_sdk::native::wire::snapshot_wire::PixelFormat { Mono1, Gray2, Gray4, Gray8, Rgb565, Rgb888, Other { code: u16, bits: u8 } }
 enum paperpaw_sdk::pattern::Item { Range(0: char, 1: char), Digit(0: bool), Word(0: bool), Space(0: bool) }
 enum paperpaw_sdk::pattern::Node { Char(0: char), Any, Class(0: paperpaw_sdk::pattern::Class), Start, End, Edge, Group(0: alloc::boxed::Box<alloc::vec::Vec<alloc::vec::Vec<paperpaw_sdk::pattern::Node>>>), Repeat(0: alloc::boxed::Box<paperpaw_sdk::pattern::Node>, 1: u32, 2: u32) }
 enum paperpaw_sdk::pattern::PatternError { TooLong, Syntax(0: usize), TooManyRepeats }
@@ -1183,6 +1192,9 @@ struct paperpaw_sdk::native::declare::records_wire::SettingGroup<'a> { name: &'a
 struct paperpaw_sdk::native::declare::records_wire::SettingSpec<'a> { name: &'a str, kind: u32, flags: u32, group: &'a str, title: &'a str, help: &'a str, default: &'a [u8], min: i32, max: i32, choices: &'a str }
 struct paperpaw_sdk::native::events::PageTurn<'a> { now_ms: u64, section: u32, offset: u32, progress_ppm: u32, path: &'a str, title: &'a str, chapter: &'a str, page: core::option::Option<u32>, pages: core::option::Option<u32> }
 struct paperpaw_sdk::native::keys::Revocation { plugin: alloc::string::String, key: [u8; 32], signature: [u8; 64] }
+struct paperpaw_sdk::native::wire::commands_wire::CommandBatch<'a> { records: [core::option::Option<paperpaw_sdk::native::wire::commands_wire::Command<'a>>; 8], len: usize }
+struct paperpaw_sdk::native::wire::snapshot_wire::Battery { percent: u8, charging: bool, saver: bool, millivolts: core::option::Option<u16> }
+struct paperpaw_sdk::native::wire::snapshot_wire::Snapshot { monotonic_ms: u64, unix_seconds: core::option::Option<i64>, battery: core::option::Option<paperpaw_sdk::native::wire::snapshot_wire::Battery>, width: u16, height: u16, dpi: u16, touch: bool, pixel: paperpaw_sdk::native::wire::snapshot_wire::PixelFormat }
 struct paperpaw_sdk::params::Params { values: alloc::vec::Vec<(alloc::borrow::Cow<'static, str>, alloc::string::String)>, carried: core::option::Option<alloc::rcs::rc::Rc<dyn core::any::Any>> }
 struct paperpaw_sdk::pattern::Class { negated: bool, items: alloc::vec::Vec<paperpaw_sdk::pattern::Item> }
 struct paperpaw_sdk::pattern::Matches<'p, 't> { pattern: &'p paperpaw_sdk::pattern::Pattern, text: &'t str, at: usize, budget: u32 }
