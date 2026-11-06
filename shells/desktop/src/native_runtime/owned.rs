@@ -369,7 +369,17 @@ fn borrowed(bytes: &[u8]) -> PpBytes {
     }
 }
 
-/// Callbacks without a reply family return a status; positives are faults.
+/// Events 32-39 and tick have no reply family: an empty, non-null reply
+/// buffer (cap 0, `docs/abi/screens-input.md` section 6).
+fn no_reply() -> PpBuffer {
+    PpBuffer {
+        ptr: ptr::NonNull::dangling().as_ptr(),
+        cap: 0,
+    }
+}
+
+/// Callbacks without a reply family return a status: a positive result is a
+/// plugin fault, never a length (`docs/abi/screens-input.md` section 6).
 fn status_only(result: i32) -> i32 {
     if result > 0 {
         host_glue::ERR_INVALID
@@ -397,15 +407,10 @@ fn invoke_registration<S>(
             let callback = instance
                 .event
                 .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
-            // Tick has no reply: an empty, non-null reply buffer (cap 0).
-            let out = PpBuffer {
-                ptr: ptr::NonNull::dangling().as_ptr(),
-                cap: 0,
-            };
             // SAFETY: admitted owner retains state/context/module. The callback
             // is present, bytes remain live for this call and do not alias host state.
             Ok(status_only(unsafe {
-                callback(instance.state, token, borrowed(bytes), out)
+                callback(instance.state, token, borrowed(bytes), no_reply())
             }))
         }
         (Registration::Event { token, .. }, Invocation::Event(bytes, out)) => {

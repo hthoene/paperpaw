@@ -6,6 +6,7 @@
         "compatibility": "not_run",
         "container": "not_run",
         "execution": "not_run",
+        "features": [],
         "metadata": "accept",
         "signature": "not_run"
       },
@@ -44,6 +45,77 @@
       },
       "hex": "trailing-byte.hex",
       "name": "trailing-byte"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "features": [
+          "test.feature"
+        ],
+        "metadata": "accept",
+        "signature": "not_run"
+      },
+      "hex": "feature-known.hex",
+      "name": "feature-known"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "features": [],
+        "metadata": "accept",
+        "signature": "not_run"
+      },
+      "hex": "feature-optional-unknown.hex",
+      "name": "feature-optional-unknown"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "reject",
+        "signature": "not_run"
+      },
+      "hex": "feature-required-unknown.hex",
+      "name": "feature-required-unknown"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "features": [],
+        "metadata": "accept",
+        "signature": "not_run"
+      },
+      "hex": "feature-optional-other-revision.hex",
+      "name": "feature-optional-other-revision"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "reject",
+        "signature": "not_run"
+      },
+      "hex": "feature-required-other-revision.hex",
+      "name": "feature-required-other-revision"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "reject",
+        "signature": "not_run"
+      },
+      "hex": "feature-unknown-flag-bit.hex",
+      "name": "feature-unknown-flag-bit"
     },
     {
       "expected": {

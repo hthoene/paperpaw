@@ -102,7 +102,10 @@ change the plugin SDK.
   - **Metadata:** a plugin may mark a feature it needs as required, and may require up to 32 services.
   - **User grants:** grants to plugins (style overrides, installs without asking) are guarded settings no
     plugin can change.
-  - Plugins built for an earlier draft are refused.
+  - Plugins must be rebuilt for draft 5. A host cannot tell drafts apart (the metadata carries no
+    draft), so a plugin built for an earlier draft must not be installed; none was distributed.
+  - A feature a plugin marks optional that the host lacks, or has at another revision, is left out;
+    only a required one refuses the load.
 - **The Wi-Fi page: the networks have a page of their own** (#161). The Wi-Fi page is short whatever is in the air:
   the switch with where it is, a row *Networks ›* (the network the device is in and how many are in reach; it opens
   the list), the setup with a phone and the three settings. While no network is kept, *Set up with a phone* comes

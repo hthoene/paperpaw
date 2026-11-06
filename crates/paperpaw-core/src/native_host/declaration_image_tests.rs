@@ -7,7 +7,8 @@ use core::{mem::size_of, pin::pin};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, OK};
 use registration_scope::RegistrationScope;
 use registrations::{
-    Record, SettingExtra, SettingGroup, SettingSpec, records_decode, records_encode,
+    ActionSpec, Record, ScreenSpec, SettingExtra, SettingGroup, SettingSpec, records_decode,
+    records_encode,
 };
 use staged::{IMAGE_DECLARATIONS_MAX, IMAGE_INDEX_MAX_BYTES};
 
@@ -534,4 +535,61 @@ fn missing_specs_fail_at_commit_on_every_path_even_if_present_in_image_bytes() {
             ));
         }
     }
+}
+
+fn screen(name: &str) -> Record<'_> {
+    Record::ScreenSpec(ScreenSpec {
+        name,
+        title: "Screen",
+        token: 1,
+        flags: 0,
+    })
+}
+fn action(name: &str) -> Record<'_> {
+    Record::ActionSpec(ActionSpec {
+        name,
+        title: "Action",
+        token: 2,
+        flags: 0,
+    })
+}
+
+fn screens_and_actions(records: &[Record<'_>]) -> Result<(), i32> {
+    let image = encode(records);
+    let owner = pin!(HostOwner::new((), ()));
+    let scope = pin!(RegistrationScope::<Registration>::new());
+    let mut construction = owner.as_ref().begin::<Registration>("fixture").unwrap();
+    construction.set_image(&image).unwrap();
+    scope
+        .as_ref()
+        .scope(&mut construction, || assert_eq!(submit(&scope, &image), OK))
+        .unwrap();
+    construction.finish_declarations()?;
+    // Indexed: found by kind and name.
+    for record in records {
+        let (kind, name) = declaration_index::key(*record).unwrap();
+        assert!(kind == 5 || kind == 6);
+        assert!(
+            construction
+                .raw
+                .find(Some(&image), kind, name)
+                .unwrap()
+                .is_some()
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn screens_and_actions_are_indexed_and_never_declared_twice() {
+    // A screen and an action may share a name: they are different kinds.
+    screens_and_actions(&[screen("main"), action("main"), screen("other")]).unwrap();
+    assert_eq!(
+        screens_and_actions(&[screen("main"), action("go"), screen("main")]),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(
+        screens_and_actions(&[action("go"), action("go")]),
+        Err(ERR_INVALID)
+    );
 }
