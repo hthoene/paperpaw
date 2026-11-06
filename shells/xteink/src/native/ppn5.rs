@@ -44,10 +44,9 @@
 //! Off by default (`ppn5`); not yet run on a device.
 
 use alloc::boxed::Box;
-use alloc::rc::Rc;
 use log::warn;
 use paperpaw_core::CodeFile;
-use paperpaw_core::native_host::DispatchDepth;
+use paperpaw_core::native_host::flat::FlatDepth;
 use paperpaw_native::MAGIC;
 use paperpaw_native::header5::{HEADER_LEN, Header5, Host, Refusal};
 use paperpaw_platform::Storage;
@@ -90,7 +89,7 @@ fn refused(path: &str, head: &[u8], why: Refusal) -> PluginProblem {
 /// [module documentation](self)). `place` puts the image where it runs.
 pub fn load(
     place: &mut super::Place,
-    depth: &mut Option<Rc<DispatchDepth>>,
+    depth: &mut Option<FlatDepth>,
     storage: &dyn Storage,
     code: &CodeFile<'_>,
 ) -> Result<Box<dyn Plugin>, PluginProblem> {
@@ -128,14 +127,12 @@ pub(super) use x4::{StorageSource, entry_check_failed};
 #[cfg(feature = "esp32c3")]
 mod x4 {
     use alloc::boxed::Box;
-    use alloc::rc::Rc;
     use alloc::vec::Vec;
     use core::alloc::Layout;
 
     use log::{info, warn};
     use paperpaw_core::CodeFile;
-    use paperpaw_core::native_host::DispatchDepth;
-    use paperpaw_core::native_host::flat::{DropReason, FlatPlugin};
+    use paperpaw_core::native_host::flat::{DropReason, FlatDepth, FlatError, FlatPlugin};
     use paperpaw_core::native_host::shell::instance::{Hooks, Instance};
     use paperpaw_core::native_host::shell::{self, Make};
     use paperpaw_native::host_glue::Services;
@@ -369,7 +366,7 @@ mod x4 {
         header: &Header5,
         placed: &crate::native::flash::Placed5,
         make: u32,
-        depth: &mut Option<Rc<DispatchDepth>>,
+        depth: &mut Option<FlatDepth>,
         started: u64,
     ) -> Result<Box<dyn Plugin>, PluginProblem> {
         let id = code.id.as_str();
@@ -410,18 +407,6 @@ mod x4 {
             call_begin,
             call_end,
         };
-        // Room for what comes after `make` and std can only allocate
-        // infallibly: the shared depth's `Rc`, the id's copy in the manifest
-        // and `FlatPlugin`'s `Rc::from`. Taken now, before the plugin runs
-        // (nothing it allocates can take it), given back as soon as the
-        // plugin is made: one core and nothing else allocates in between, so
-        // those calls always find it. If there is no room, the plugin is not
-        // made at all.
-        let mut room: Vec<u8> = Vec::new();
-        room.try_reserve_exact(POST_MAKE_ROOM).map_err(|_| {
-            warn!("native: {id}: no room for the plugin's host objects");
-            PluginProblem::NoRoom
-        })?;
         // SAFETY: as above; the read-only data [0, code_at) of the image is
         // mapped at `placed.base` for the session (nothing erases the region
         // before a restart: it is only written by `put5` into free room).
@@ -436,7 +421,6 @@ mod x4 {
                 hooks,
             )
         };
-        drop(room);
         let instance = loaded.map_err(|why| {
             warn!("native: {id}: format 5: refused while making: {why:?}");
             match why {
@@ -457,13 +441,27 @@ mod x4 {
             paperpaw_sdk::Version::new(0, 0, 0),
         );
         let instance = shell::try_box(instance).map_err(no_room)?;
-        let depth = Rc::clone(depth.get_or_insert_with(|| Rc::new(DispatchDepth::new())));
-        let plugin = FlatPlugin::new(manifest, instance, depth, code.host).map_err(
-            |why| {
-                warn!("native: {id}: format 5: {why:?}");
-                PluginProblem::Unsupported
-            },
-        )?;
+        // The device-wide depth is made with the first plugin; each plugin
+        // holds a counted share of it, none of this can abort (`NoRoom`).
+        let shared = match depth {
+            Some(depth) => depth.try_clone(),
+            None => FlatDepth::try_new().ok().and_then(|made| {
+                let share = made.try_clone();
+                *depth = Some(made);
+                share
+            }),
+        }
+        .ok_or_else(|| {
+            warn!("native: {id}: no room for the shared dispatch depth");
+            PluginProblem::NoRoom
+        })?;
+        let plugin = FlatPlugin::new(manifest, instance, shared, code.host).map_err(|why| {
+            warn!("native: {id}: format 5: {why:?}");
+            match why {
+                FlatError::Allocation => PluginProblem::NoRoom,
+                _ => PluginProblem::Unsupported,
+            }
+        })?;
         let took = crate::native::Took {
             place_us: made - started,
             make_us: crate::micros() - made,
@@ -482,16 +480,6 @@ mod x4 {
         });
         Ok(shell::try_box(plugin).map_err(no_room)?)
     }
-
-    /// What the allocations after `make` that cannot fail softly need at most:
-    /// the plugin's instance twice (boxed, then `Rc::from`), the flat plugin,
-    /// the depth's `Rc`, the id's copy (128 bytes at most) and the allocator's
-    /// headers and padding.
-    const POST_MAKE_ROOM: usize = 2 * core::mem::size_of::<Instance<X4Services, FlashModule>>()
-        + core::mem::size_of::<FlatPlugin>()
-        + core::mem::size_of::<DispatchDepth>()
-        + 128
-        + 512;
 
     /// `text` copied, or `NoRoom`.
     fn try_string(text: &str) -> Result<alloc::string::String, PluginProblem> {

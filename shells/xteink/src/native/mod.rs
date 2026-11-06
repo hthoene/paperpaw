@@ -219,10 +219,9 @@ pub type Place = flash::Flash;
 pub struct Loader {
     place: Place,
     /// The nesting budget every interface-7 plugin of this device shares,
-    /// made with the first one (inside the room `ppn5::x4::run` holds for
-    /// the allocations std has no fallible form of).
+    /// made with the first one (a fallible allocation: `NoRoom`).
     #[cfg(feature = "ppn5")]
-    depth: Option<alloc::rc::Rc<paperpaw_core::native_host::DispatchDepth>>,
+    depth: Option<paperpaw_core::native_host::flat::FlatDepth>,
 }
 
 impl Loader {
