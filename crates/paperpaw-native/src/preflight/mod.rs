@@ -10,7 +10,7 @@ mod elf;
 #[cfg(test)]
 mod tests;
 
-pub use elf::{DataExport, check_elf64_le, data_export};
+pub use elf::{DataExport, check_elf64_le, check_freestanding, data_export};
 
 /// Why a file is refused before it is loaded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,4 +46,13 @@ pub enum Refusal {
     /// The file has a way to run code, or to load more code, while it
     /// loads. The text names the mechanism.
     RunsCodeAtLoad(&'static str),
+    /// The library names a symbol it does not define (an import, strong or
+    /// weak): see [`check_freestanding`] for the policy.
+    UndefinedImport,
+    /// The library names another library it needs (`DT_NEEDED`); a
+    /// freestanding plugin needs none.
+    NeededLibrary,
+    /// The library defines a dynamic symbol that is not one of the entry
+    /// symbols its caller allows.
+    UnexpectedExport,
 }

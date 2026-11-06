@@ -5,8 +5,10 @@ extern crate std;
 
 use alloc::vec::Vec;
 
-use super::{Refusal, check_elf64_le};
+use super::{Refusal, check_elf64_le, check_freestanding};
 
+/// The one name every built file defines (its two symbols are both `sym`).
+const ALLOWED: &[&str] = &["sym"];
 const X86: u16 = 62;
 const ARM: u16 = 183;
 
@@ -48,6 +50,11 @@ struct Spec {
     exec_stack: bool,
     /// `DT_RELACOUNT`: this many entries are claimed to be base-relative.
     relacount: Option<u64>,
+    /// The second symbol is undefined (an import) with this binding:
+    /// 1 `STB_GLOBAL`, 2 `STB_WEAK`.
+    undefined: Option<u8>,
+    /// The second symbol is a defined *weak* global (`STB_WEAK`).
+    weak_defined: bool,
 }
 
 fn put16(v: &mut Vec<u8>, x: u16) {
@@ -111,11 +118,17 @@ fn phdr_at(f: &mut Vec<u8>, kind: u32, off: u64, vaddr: u64, size: u64) {
 /// The dynamic symbols: null, one function, one more (an IFUNC when asked).
 fn symbols(f: &mut Vec<u8>, spec: &Spec, sym_name: u32) {
     f.extend_from_slice(&[0; 24]);
-    for kind in [2u8, if spec.ifunc_symbol { 10 } else { 2 }] {
+    for (i, kind) in [2u8, if spec.ifunc_symbol { 10 } else { 2 }]
+        .into_iter()
+        .enumerate()
+    {
+        let imported = (i == 1).then_some(spec.undefined).flatten();
         put32(f, sym_name);
-        f.push((1 << 4) | kind);
+        let binding = imported.unwrap_or(if i == 1 && spec.weak_defined { 2 } else { 1 });
+        f.push((binding << 4) | kind);
         f.push(0);
-        put16(f, 1);
+        // Section index 0 is SHN_UNDEF: the symbol is imported.
+        put16(f, if imported.is_some() { 0 } else { 1 });
         put64(f, 0x100);
         put64(f, 4);
     }
@@ -317,6 +330,157 @@ fn refused(spec: &Spec, what: &'static str) {
         check_elf64_le(&build(spec), machine),
         Err(Refusal::RunsCodeAtLoad(what))
     );
+}
+
+#[test]
+fn imports_are_refused_strong_or_weak_and_a_clean_file_has_none() {
+    for machine in [X86, ARM] {
+        for gnu_hash in [false, true] {
+            let clean = Spec {
+                gnu_hash,
+                ..plain(machine)
+            };
+            assert_eq!(check_freestanding(&build(&clean), machine, ALLOWED), Ok(()));
+            for binding in [1u8, 2] {
+                let imports = Spec {
+                    gnu_hash,
+                    undefined: Some(binding),
+                    ..plain(machine)
+                };
+                let bytes = build(&imports);
+                // The general preflight is not an import check: it still accepts.
+                assert_eq!(check_elf64_le(&bytes, machine), Ok(()));
+                assert_eq!(
+                    check_freestanding(&bytes, machine, ALLOWED),
+                    Err(Refusal::UndefinedImport),
+                    "machine {machine} gnu_hash={gnu_hash} binding={binding}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn the_import_check_keeps_every_other_refusal_and_never_panics_on_hostile_tables() {
+    // Other refusals are reported as themselves, not as an import.
+    let ifunc = Spec {
+        ifunc_symbol: true,
+        undefined: Some(1),
+        ..plain(X86)
+    };
+    assert_eq!(
+        check_freestanding(&build(&ifunc), X86, ALLOWED),
+        Err(Refusal::RunsCodeAtLoad("an IFUNC symbol")),
+    );
+    let lying = Spec {
+        gnu_hash: true,
+        sysv_too: Some(1),
+        undefined: Some(1),
+        ..plain(X86)
+    };
+    assert_eq!(
+        check_freestanding(&build(&lying), X86, ALLOWED),
+        Err(Refusal::Symbols)
+    );
+    // Cut anywhere or one byte changed anywhere: bounded, no panic, and a cut
+    // file is never accepted.
+    for gnu_hash in [false, true] {
+        for undefined in [None, Some(1), Some(2)] {
+            let good = build(&Spec {
+                gnu_hash,
+                undefined,
+                needed: std::vec!["libc.so.6"],
+                ..plain(X86)
+            });
+            for len in 0..good.len() {
+                assert_ne!(
+                    check_freestanding(&good[..len], X86, ALLOWED),
+                    Ok(()),
+                    "cut at {len}"
+                );
+            }
+            for at in 0..good.len() {
+                for value in [0u8, 0xff, 0x80, 1, 2] {
+                    let mut bad = good.clone();
+                    bad[at] = value;
+                    let _ = check_freestanding(&bad, X86, ALLOWED);
+                    let _ = check_freestanding(&bad, ARM, ALLOWED);
+                }
+            }
+        }
+    }
+    // Not an ELF file, and a wrong machine, are refused before any table is read.
+    assert_eq!(
+        check_freestanding(b"not an elf", X86, ALLOWED),
+        Err(Refusal::NotSupported)
+    );
+    assert_eq!(
+        check_freestanding(&build(&plain(ARM)), X86, ALLOWED),
+        Err(Refusal::OtherMachine)
+    );
+}
+
+#[test]
+fn a_needed_library_or_an_unlisted_export_is_refused_and_exactly_the_listed_ones_pass() {
+    for machine in [X86, ARM] {
+        for gnu_hash in [false, true] {
+            // Not even the C library: the interface-6 preflight allows it, this does not.
+            let needs = Spec {
+                gnu_hash,
+                needed: std::vec!["libc.so.6"],
+                ..plain(machine)
+            };
+            let bytes = build(&needs);
+            assert_eq!(check_elf64_le(&bytes, machine), Ok(()));
+            assert_eq!(
+                check_freestanding(&bytes, machine, ALLOWED),
+                Err(Refusal::NeededLibrary)
+            );
+            // Defined symbols that the caller did not list are exports it refuses.
+            let clean = build(&Spec {
+                gnu_hash,
+                ..plain(machine)
+            });
+            assert_eq!(check_freestanding(&clean, machine, ALLOWED), Ok(()));
+            assert_eq!(
+                check_freestanding(&clean, machine, &[]),
+                Err(Refusal::UnexpectedExport),
+                "an empty list allows nothing"
+            );
+            for other in [&["other"][..], &["sy"], &["syms"], &["", "SYM"]] {
+                assert_eq!(
+                    check_freestanding(&clean, machine, other),
+                    Err(Refusal::UnexpectedExport),
+                    "{other:?}: names compare exactly"
+                );
+            }
+            assert_eq!(
+                check_freestanding(&clean, machine, &["a", "sym", "b"]),
+                Ok(())
+            );
+            // A defined weak global is an export like any other.
+            let weak = build(&Spec {
+                gnu_hash,
+                weak_defined: true,
+                ..plain(machine)
+            });
+            assert_eq!(check_freestanding(&weak, machine, ALLOWED), Ok(()));
+            assert_eq!(
+                check_freestanding(&weak, machine, &[]),
+                Err(Refusal::UnexpectedExport)
+            );
+            // An import is reported as an import, whatever the export list says.
+            let import = build(&Spec {
+                gnu_hash,
+                undefined: Some(1),
+                ..plain(machine)
+            });
+            assert_eq!(
+                check_freestanding(&import, machine, &[]),
+                Err(Refusal::UndefinedImport)
+            );
+        }
+    }
 }
 
 #[test]
@@ -871,7 +1035,10 @@ mod real {
     use std::{format, fs};
 
     use super::{ARM, X86};
-    use crate::preflight::{Refusal, check_elf64_le};
+    use crate::preflight::{Refusal, check_elf64_le, check_freestanding};
+
+    /// The one symbol every fixture library below defines.
+    const ALLOWED: &[&str] = &["plugin_entry"];
 
     const MACHINE: u16 = if cfg!(target_arch = "x86_64") {
         X86
@@ -904,6 +1071,63 @@ static INIT: extern "C" fn() = init_entry;
 #[unsafe(no_mangle)]
 pub extern "C" fn plugin_entry() -> u32 { 7 }
 "#;
+
+    // Imports the toolchain makes without being asked: a call that the optimiser
+    // keeps as `memcpy`, and the unwinding personality of `core`.
+    const IMPORTS_MEMCPY: &str = r#"#![no_std]
+#[panic_handler]
+fn panic(_: &core::panic::PanicInfo) -> ! { loop {} }
+unsafe extern "C" { fn memcpy(d: *mut u8, s: *const u8, n: usize) -> *mut u8; }
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plugin_entry(d: *mut u8, s: *const u8, n: usize) -> *mut u8 {
+    unsafe { memcpy(d, s, n) }
+}
+"#;
+    const IMPORTS_PERSONALITY: &str = r#"#![no_std]
+#[panic_handler]
+fn panic(_: &core::panic::PanicInfo) -> ! { loop {} }
+unsafe extern "C" { fn rust_eh_personality(); }
+#[used]
+static KEEP: unsafe extern "C" fn() = rust_eh_personality;
+#[unsafe(no_mangle)]
+pub extern "C" fn plugin_entry() -> u32 { 7 }
+"#;
+
+    #[test]
+    fn real_libraries_that_import_memcpy_or_the_personality_are_refused_and_a_clean_one_is_not() {
+        let dir = std::env::temp_dir().join(std::format!("pp-imports-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let (Some(plain), Some(memcpy), Some(personality)) = (
+            build(&dir, "plain", PLAIN),
+            build(&dir, "memcpy", IMPORTS_MEMCPY),
+            build(&dir, "personality", IMPORTS_PERSONALITY),
+        ) else {
+            std::eprintln!("preflight: no rustc to build real libraries; skipped");
+            return;
+        };
+        assert_eq!(
+            check_freestanding(&plain, MACHINE, ALLOWED),
+            Ok(()),
+            "clean library"
+        );
+        for (name, lib) in [("memcpy", &memcpy), ("personality", &personality)] {
+            // The loader would resolve these from the process; the general
+            // preflight alone accepts them, the import check refuses.
+            assert_eq!(check_elf64_le(lib, MACHINE), Ok(()), "{name}");
+            assert_eq!(
+                check_freestanding(lib, MACHINE, ALLOWED),
+                Err(Refusal::UndefinedImport),
+                "{name}"
+            );
+            // Hostile edits of a real import table: bounded, no panic.
+            for at in (0..lib.len()).step_by(7) {
+                let mut bad = lib.clone();
+                bad[at] ^= 0xff;
+                let _ = check_freestanding(&bad, MACHINE, ALLOWED);
+            }
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     fn move_dynamic_offset_to_zeros(lib: &[u8]) -> std::vec::Vec<u8> {
         // The recipe: append as many zero bytes as the dynamic segment has and
