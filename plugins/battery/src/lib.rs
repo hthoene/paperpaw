@@ -11,6 +11,8 @@
 extern crate alloc;
 
 mod log;
+pub mod native_plugin;
+mod native_view;
 pub mod recording;
 mod view;
 
