@@ -5,6 +5,7 @@ fn frame(path: &str, bytes: Option<u32>) -> Frame {
     Frame {
         address: 0,
         bytes,
+        at_least: bytes.unwrap_or(0),
         path: path.to_string(),
     }
 }

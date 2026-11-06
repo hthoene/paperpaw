@@ -603,13 +603,21 @@ fn a_jump_through_a_register_inside_a_frame_is_refused() {
         None
     );
     // In a lenient walk (the firmware's own listing) the jump's cases are
-    // read from the state at the jump.
+    // read from the state at the jump, but the function is not sized: the
+    // frame is a lower bound, which the listing says and a budget refuses.
     let f = code(&[W(addi(SP, SP, -1024)), W(jr(A0))]);
     let env = Env {
         lenient: true,
         ..Env::none()
     };
-    assert_eq!(frame_sizes_in(&f, &[(0, 8)], env), vec![Some(1024)]);
+    assert_eq!(frame_sizes_in(&f, &[(0, 8)], env), vec![None]);
+    assert_eq!(
+        sizes_in(&f, &[(0, 8)], env),
+        vec![Sized {
+            bytes: None,
+            at_least: 1024
+        }]
+    );
 }
 
 #[test]

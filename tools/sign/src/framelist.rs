@@ -14,13 +14,19 @@
 //! sum of the largest frame of each name stays within `<bytes>`: what one call
 //! down the chain takes at most). A name that matches no function fails too,
 //! so a rename cannot make a check pass by matching nothing. A function whose
-//! frame cannot be read (a dynamic `alloca`) counts as unbounded. `#` starts a
-//! comment.
+//! frame cannot be read counts as unbounded, and fails the budget: a dynamic
+//! `alloca`, and a jump table. The firmware's own code has jump tables (`match`
+//! on many arms), and where a function jumps through a register inside its
+//! frame the walk reads only the cases it can see from the jump, so its frame
+//! is a lower bound: the listing shows it as `?>=<bytes>` and the budget
+//! refuses a budgeted function that has one. That is a gap this check leaves
+//! open, not a bound: a firmware function with a jump table is not proved
+//! small until its table is resolved.  `#` starts a comment.
 
 use std::fmt::Write as _;
 
 use crate::elf::{Elf, SHF_EXECINSTR, Symbol};
-use crate::frames::{Env, frame_sizes_in, function_ranges, noreturn_functions, path};
+use crate::frames::{Env, function_ranges, noreturn_functions, path, sizes_in};
 
 /// `STT_FUNC`.
 const STT_FUNC: u8 = 2;
@@ -31,6 +37,9 @@ pub struct Frame {
     pub address: u32,
     /// Bytes of the frame; `None` when it cannot be read.
     pub bytes: Option<u32>,
+    /// What the walk saw at least, whether or not `bytes` is known: for a
+    /// function with a jump table the listing's number is a lower bound.
+    pub at_least: u32,
     /// The function's path, as far as its mangled name shows it.
     pub path: String,
 }
@@ -67,16 +76,17 @@ pub fn frames(elf: &Elf<'_>) -> Result<Vec<Frame>, String> {
             noreturn: &noreturn,
             lenient: true,
         };
-        let sizes = frame_sizes_in(code, &ranges, env);
+        let sizes = sizes_in(code, &ranges, env);
         for symbol in funcs {
             let at = symbol.value.wrapping_sub(section.addr) as usize;
-            let bytes = (symbol.size > 0)
+            let sized = (symbol.size > 0)
                 .then(|| ranges.binary_search_by_key(&at, |&(s, _)| s).ok())
                 .flatten()
-                .and_then(|r| sizes[r]);
+                .map(|r| sizes[r]);
             out.push(Frame {
                 address: symbol.value,
-                bytes,
+                bytes: sized.and_then(|s| s.bytes),
+                at_least: sized.map_or(0, |s| s.at_least),
                 path: path(&symbol.name),
             });
         }
@@ -212,7 +222,16 @@ pub fn run(elf: &str, limit: u32, budget: Option<&str>) -> Result<(), String> {
     all.sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.address.cmp(&b.address)));
     let mut out = String::new();
     for f in all.iter().filter(|f| f.bytes.is_none_or(|b| b >= limit)) {
-        let size = f.bytes.map_or("unknown".to_string(), |b| b.to_string());
+        let size = f.bytes.map_or_else(
+            || {
+                if f.at_least > 0 {
+                    format!("?>={}", f.at_least)
+                } else {
+                    "unknown".to_string()
+                }
+            },
+            |b| b.to_string(),
+        );
         let _ = writeln!(out, "{size:>8}  {:08x}  {}", f.address, f.path);
     }
     print!("{out}");

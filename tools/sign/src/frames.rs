@@ -632,7 +632,12 @@ impl Walk<'_> {
                 self.out.returns = true;
                 if self.env.lenient {
                     // The cases are entered from the jump, with the frame
-                    // pointer it had, and no register known.
+                    // pointer it had, and no register known. That reads the
+                    // cases the jump may reach, not every target: the frame is
+                    // a lower bound, and the function counts as not sized.
+                    if state.sp != 0 {
+                        self.out.table.get_or_insert(at);
+                    }
                     let mut s = state.clone();
                     s.regs = [None; 32];
                     s.regs[0] = Some(0);
@@ -856,18 +861,44 @@ pub fn scan(code: &[u8], starts: &[usize]) -> Option<Finding> {
     scan_ranges(code, &ranges(code, starts), Env::none())
 }
 
-/// The frame of each function in `ranges` (`None`: `sp` not bounded).
+/// A function's frame as the walk found it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sized {
+    /// The frame in bytes; `None` where it is not bounded: a change of `sp`
+    /// that cannot be followed, or a jump through a register inside a frame
+    /// (which a lenient walk reads only as far as the cases it can see).
+    pub bytes: Option<u32>,
+    /// What the walk saw at least, whether or not it is the frame.
+    pub at_least: u32,
+}
+
+/// The frame of each function in `ranges`.
+#[allow(
+    dead_code,
+    reason = "the tests and the firmware listing (`paperpaw-sign frames`)"
+)]
+pub fn sizes_in(code: &[u8], ranges: &[(usize, usize)], env: Env<'_>) -> Vec<Sized> {
+    ranges
+        .iter()
+        .map(|&(s, e)| {
+            let w = walk(code, s, e, env);
+            Sized {
+                bytes: (w.unbounded.is_none() && w.table.is_none()).then_some(w.frame),
+                at_least: w.frame,
+            }
+        })
+        .collect()
+}
+
+/// [`sizes_in`], the frames only (`None`: not bounded).
 #[allow(
     dead_code,
     reason = "the tests and the firmware listing (`paperpaw-sign frames`)"
 )]
 pub fn frame_sizes_in(code: &[u8], ranges: &[(usize, usize)], env: Env<'_>) -> Vec<Option<u32>> {
-    ranges
-        .iter()
-        .map(|&(s, e)| {
-            let w = walk(code, s, e, env);
-            (w.unbounded.is_none() && w.table.is_none()).then_some(w.frame)
-        })
+    sizes_in(code, ranges, env)
+        .into_iter()
+        .map(|s| s.bytes)
         .collect()
 }
 
