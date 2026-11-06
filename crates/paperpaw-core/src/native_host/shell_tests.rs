@@ -622,3 +622,32 @@ fn teardown_faults_are_one_shot_and_propagate_through_production_commit() {
         assert_eq!(logged(), ["destroy", "module"]);
     }
 }
+
+#[test]
+fn persistent_teardown_busy_keeps_owner_until_disarmed() {
+    use crate::native_host::{Error as HostError, TeardownStep};
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            teardown_fault::disarm();
+        }
+    }
+    reset(NORMAL);
+    let hosted = fake();
+    let batch = hosted
+        .make_registered(hosted.begin::<Registration>().unwrap())
+        .unwrap()
+        .commit()
+        .unwrap();
+    let _reset = Reset;
+    teardown_fault::arm_persistent(TeardownStep::Release, HostError::Busy);
+    assert_eq!(hosted.owner().prepare_teardown(), Err(HostError::Busy));
+    drop(batch);
+    assert_eq!(hosted.owner().finish(), Err(HostError::Busy));
+    assert!(logged().is_empty());
+    assert!(MODULE_ALIVE.with(Cell::get));
+    teardown_fault::disarm();
+    hosted.owner().finish().unwrap();
+    drop(hosted);
+    assert_eq!(logged(), ["destroy", "module"]);
+}
