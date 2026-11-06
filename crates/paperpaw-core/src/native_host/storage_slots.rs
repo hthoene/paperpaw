@@ -232,7 +232,7 @@ pub(crate) unsafe fn remove(
 
 /// Slot 26: flush the current callback's storage view.
 pub(crate) fn sync(scope: &EnvironmentScope, owner: &str) -> i32 {
-    status(with_adapter(scope, owner, StorageAdapter::sync))
+    status(with_adapter(scope, owner, |adapter| adapter.sync()))
 }
 
 #[cfg(test)]
