@@ -22,7 +22,13 @@ use esp_bootloader_esp_idf::partitions::FlashStorage;
 use esp_hal::peripherals::MMU_TABLE;
 use log::{info, warn};
 use paperpaw_native::bundle::BUNDLE_MAGIC;
+#[cfg(feature = "ppn5")]
+use paperpaw_native::header5::{HEADER_LEN as HEADER5_LEN, Header5};
+#[cfg(feature = "ppn5")]
+use paperpaw_native::index::Mark;
 use paperpaw_native::index::{Index, Layout, Placement, Region, SECTOR};
+#[cfg(feature = "ppn5")]
+use paperpaw_native::stream5::{Relocator5, Source};
 use paperpaw_native::{CODE_OFFSET, HEADER_LEN, Header, LINK_BASE, Relocator};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::PluginProblem;
@@ -47,6 +53,17 @@ unsafe extern "C" {
         fixed: u32,
     ) -> i32;
     fn Cache_Invalidate_Addr(addr: u32, size: u32);
+}
+
+/// A format-5 plugin's image as [`Flash::put5`] placed it.
+#[cfg(feature = "ppn5")]
+#[derive(Debug, Clone, Copy)]
+pub struct Placed5 {
+    /// The data address of the image's first byte.
+    pub base: u32,
+    /// Where its hot code runs (0: in place, from flash).
+    pub hot: u32,
+    mark: Mark,
 }
 
 /// Places images in flash.
@@ -122,7 +139,8 @@ impl Flash {
         self.placed += 1;
         if placement.present {
             info!("native: {path} lies in flash at {:#x}", placement.at);
-            return copy_hot(header, &placement).map(|hot| (placement.base, hot));
+            return copy_hot(header.hot_at, header.hot_len, &placement)
+                .map(|hot| (placement.base, hot));
         }
         // A sector at a time, for checking and for writing; written only
         // once checked whole, so a damaged file never gets into the index.
@@ -189,7 +207,143 @@ impl Flash {
             placement.at,
             header.image_len.div_ceil(SECTOR)
         );
-        copy_hot(header, &placement).map(|hot| (placement.base, hot))
+        copy_hot(header.hot_at, header.hot_len, &placement).map(|hot| (placement.base, hot))
+    }
+
+    /// [`Flash::put`] for a format-5 file (`ppn5.rs`): the same room, the
+    /// same index, written in the same order, but the file is read through
+    /// `paperpaw_native::stream5` (no words held in memory), and every check
+    /// that can refuse it (the digest and each word to relocate) runs
+    /// before the flash is touched. A file refused at any point after it
+    /// was placed is taken back from the layout, so the index never lists
+    /// it and the room and the hot code's part of the arena are free again;
+    /// what was written lies behind the index's end, unreferenced.
+    #[cfg(feature = "ppn5")]
+    pub fn put5(
+        &mut self,
+        storage: &dyn Storage,
+        path: &str,
+        header: &Header5,
+    ) -> Result<Placed5, PluginProblem> {
+        let flash = &self.flash;
+        let layout = self
+            .layout
+            .get_or_insert_with(|| Self::layout(&mut flash.borrow_mut()))
+            .as_mut()
+            .ok_or(PluginProblem::NoRoom)?;
+        let mark = layout.mark();
+        let placement = layout
+            .place_parts(
+                header.sha256,
+                header.image_len,
+                header.align,
+                header.hot_len,
+            )
+            .map_err(|_| PluginProblem::NoRoom)?;
+        self.placed += 1;
+        match Self::write5(
+            flash,
+            &mut self.erased,
+            layout,
+            storage,
+            path,
+            header,
+            &placement,
+        ) {
+            Ok(hot) => Ok(Placed5 {
+                base: placement.base,
+                hot,
+                mark,
+            }),
+            Err(why) => {
+                layout.rewind(mark);
+                self.placed -= 1;
+                Err(why)
+            }
+        }
+    }
+
+    /// Takes back a plugin [`Flash::put5`] placed and the caller refused
+    /// after all (its entry): the layout forgets it.
+    #[cfg(feature = "ppn5")]
+    pub fn take_back(&mut self, placed: Placed5) {
+        if let Some(Some(layout)) = &mut self.layout {
+            layout.rewind(placed.mark);
+            self.placed = self.placed.saturating_sub(1);
+        }
+    }
+
+    #[cfg(feature = "ppn5")]
+    fn write5(
+        flash: &crate::ota::Flash,
+        erased: &mut bool,
+        layout: &Layout,
+        storage: &dyn Storage,
+        path: &str,
+        header: &Header5,
+        placement: &Placement,
+    ) -> Result<u32, PluginProblem> {
+        if placement.present {
+            info!("native: {path} lies in flash at {:#x}", placement.at);
+            return copy_hot(header.hot_at, header.hot_len, placement);
+        }
+        let mut piece = Vec::new();
+        piece
+            .try_reserve_exact(SECTOR as usize)
+            .map_err(|_| PluginProblem::NoRoom)?;
+        piece.resize(SECTOR as usize, 0);
+        let src = super::ppn5::StorageSource::new(storage, path);
+        let mut relocator =
+            Relocator5::new(header, &src, placement.base).map_err(super::problem)?;
+        if placement.hot != 0 {
+            relocator = relocator.hot_at(placement.hot).map_err(super::problem)?;
+        }
+        // The digest and every word to relocate, on the file as read now,
+        // before a sector of the flash is erased.
+        relocator.verify(&mut piece).map_err(super::problem)?;
+        if placement.erase_index && !*erased {
+            let start = layout.region().start;
+            flash
+                .borrow_mut()
+                .erase(start, start + SECTOR)
+                .map_err(|e| written_not(path, e))?;
+            *erased = true;
+        }
+        let end = (placement.at + header.image_len)
+            .next_multiple_of(PAGE)
+            .min(layout.region().end);
+        flash
+            .borrow_mut()
+            .erase(placement.at, end)
+            .map_err(|e| written_not(path, e))?;
+        let mut done = 0;
+        while done < header.image_len {
+            let len = (header.image_len - done).min(SECTOR) as usize;
+            let bytes = &mut piece[..len];
+            src.read_at(HEADER5_LEN as u64 + u64::from(done), bytes)
+                .map_err(|_| PluginProblem::Damaged)?;
+            relocator.apply(done, bytes).map_err(super::problem)?;
+            // Whole words: the last piece filled up as erased flash.
+            let words_len = len.next_multiple_of(4);
+            piece[len..words_len].fill(0xFF);
+            flash
+                .borrow_mut()
+                .write_nor(placement.at + done, &piece[..words_len])
+                .map_err(|e| written_not(path, e))?;
+            done += len as u32;
+        }
+        let len = header.image_len.next_multiple_of(4);
+        // SAFETY: ROM functions on addresses mapped to this region.
+        unsafe {
+            Cache_Invalidate_Addr(placement.base, len);
+            Cache_Invalidate_Addr(placement.base + CODE_OFFSET, len);
+        }
+        info!(
+            "native: {path} written into flash at {:#x} ({} sectors)",
+            placement.at,
+            header.image_len.div_ceil(SECTOR)
+        );
+        copy_hot(header.hot_at, header.hot_len, placement)
     }
 
     /// The room for plugins at this start: the region they were placed
@@ -270,14 +424,14 @@ impl Flash {
 /// Copies the hot code of the image placed as `placement` says, relocated
 /// for its part of the arena, from the image mapped there; where it runs
 /// (0: in place, from flash).
-fn copy_hot(header: &Header, placement: &Placement) -> Result<u32, PluginProblem> {
+fn copy_hot(hot_at: u32, hot_len: u32, placement: &Placement) -> Result<u32, PluginProblem> {
     if placement.hot == 0 {
         return Ok(0);
     }
-    let from = placement.base + header.hot_at;
+    let from = placement.base + hot_at;
     // SAFETY: the image's hot code, in the region mapped (its data
     // address), written and its cache lines invalidated before.
-    if unsafe { super::hot::copy(from, placement.hot, header.hot_len) } {
+    if unsafe { super::hot::copy(from, placement.hot, hot_len) } {
         Ok(placement.hot)
     } else {
         Err(PluginProblem::NoRoom)
