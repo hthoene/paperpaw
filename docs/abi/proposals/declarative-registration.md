@@ -678,10 +678,12 @@ Decisions with the largest consequence first.
 11. **Q10/Q11** Defer `Extended` kinds and `check` callbacks; keep or drop derived default titles.
 12. **Q16** Routing table for static action tokens (`(plugin, token)` per action): who owns its memory and
     cap, since `REGISTRATIONS = 8` is not sized for it.
-13. **Q17** Generator scope: the registration codec generator (`abi/abi.def` `record_codec`) validates only
-    "supported initial shapes" (`docs/abi/records.md:3-6`); `str` and `bytes` fields exist in the commands
-    codec design (`commands.md`) but I did not check whether `tools/abi-gen.py` accepts them in registration
-    records. If it does not, that is the first implementation item.
+13. **Q17** Generator scope. **Fact:** the registration codec generator accepts only the three initial shapes,
+    field lists must equal them exactly (`tools/abi_records.py:34-52`), and `max_records` is capped at 8
+    (`abi_records.py:28-29`). Records 5-10 with `str`/`bytes` fields and caps therefore need generator and
+    template work first; `abi-gen.py` itself already knows `str`/`bytes` and `max_bytes`
+    (`tools/abi-gen.py:27`, `:171`). Reuse the commands codec generator (`tools/abi_commands.py`, on the
+    commands branch) if its template covers variable fields. This is the first implementation item.
 
 ### Unverifiable from here
 
@@ -704,7 +706,7 @@ device qualification and Part 5.
 
 | Item | Hours |
 |---|---:|
-| `abi.def` records 5-10, closed field/caps declarations, generator support for `str`/`bytes` in the registration codec if missing (Q17), lock regeneration | 10-16 |
+| `abi.def` records 5-10, closed field/caps declarations, generator and template support for `str`/`bytes` fields in the registration codec (Q17, confirmed missing), lock regeneration | 10-16 |
 | Generated codecs (decode with caps and UTF-8, encode with pre-checks), goldens, malformed and boundary vectors, mutation corpus | 8-12 |
 | Part 1: three metadata features, loader refusal before `make`, tests | 2-4 |
 | Host: `Declarations` list with byte and count budgets, split of callback and declaration staging in `Construction`, poison and rollback paths | 6-10 |
@@ -718,7 +720,7 @@ device qualification and Part 5.
 Not included: storage-backed `Patterns` (12-20 h plus an X4 measurement), lazy settings S2 (12-20 h), the frame
 file (4-6 h), Part 5 records (20-30 h when taken), the data-plugin `[hyphenation]` kind if Q1 is chosen (6-10 h).
 
-Assumptions: the commands branch lands first and its `str`/`bytes` handling can be reused (otherwise add the
-Q17 hours to the high end); `Specs` keeps its current API for S1; `REGISTRATIONS` is not raised; the owner accepts
+Assumptions: the commands branch lands first and its `str`/`bytes` handling can be reused (otherwise add 6-10 h to the
+high end); `Specs` keeps its current API for S1; `REGISTRATIONS` is not raised; the owner accepts
 the caps above without a measurement round; no change to the metadata lock format other than the new feature
 descriptors; hours follow the band conventions of `notes:` (agent-hours, not calendar time).
