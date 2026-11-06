@@ -40,9 +40,6 @@ change the plugin SDK.
 
 ### Changed
 
-- Interface-7 slot 6 `i18n.copy` returns `ERR_NOT_FOUND` for a missing translation key,
-  leaving output unchanged, instead of copying the key (D5, #228).
-
 - **Plugin interface 7, draft 1** (#228, early raise on `abi7/integration`): `native::INTERFACE` is 7 and
   every plugin with code needs a build for it; plugins built for interface 6 are refused as built for an
   earlier interface. Until it is frozen, a change plugins rely on takes the next draft, named in

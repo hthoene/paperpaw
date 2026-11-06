@@ -231,8 +231,7 @@ question Q1.
   203,991 bytes); the largest are widgets 19,593, vocabulary 16,713, stats 11,744, store 11,447 bytes
   (`wc -c plugins/*/i18n/en.ini`).
 - Slot 6 `i18n.copy` calls `frame.translator().tr(key)`: one kernel translator, no per-plugin key
-  check. The earlier missing-key fallback to the key itself is superseded by D5
-  (2026-11-06 05:27): slot 6 returns `ERR_NOT_FOUND` without writing output.
+  check, and a missing key yields the key itself (`crates/paperpaw-core/src/abi7/queries.rs:44-65`).
 
 ### 1.5 Data plugins and where bytes live
 
@@ -404,9 +403,7 @@ repository's own check (`docs/plugin-conventions.md:205-207`, `:272`).
   203-243 bytes per language (14 plugins x 2 languages is about 6 KB on disk, parsed text roughly the same
   in heap while the language is active), so `.ini` is acceptable there and `.ppcat` is **required** above a
   threshold (Q4; I suggest 2 KiB, which matches no existing rule and is a guess).
-- Key lookup follows the **UI language chain** via `translator().get(key)`. The earlier
-  `translator().tr(key)` key-copy fallback is superseded by D5 (2026-11-06 05:27):
-  `i18n.copy(key)` returns `ERR_NOT_FOUND` for a missing key. The chain is
+- Key lookup stays as it is: `i18n.copy(key)` copies `translator().tr(key)` for the **UI language chain**
   (UI language, then English), across all registered catalogs, first match wins
   (`queries.rs:44-65`). Keys follow `<id>.<what>`; there is no per-plugin enforcement on read, and none is
   proposed (a plugin may read `core.*` keys). Writing catalogs is namespace-checked by the loader's
@@ -419,8 +416,7 @@ repository's own check (`docs/plugin-conventions.md:205-207`, `:272`).
   plugin (`data_plugin.rs:66`, `:79`); `.ppcat` is checked whole at open (places in order, blocks at most
   2 KiB, hashes ascending), a bad one is dropped and the language falls back (ADR 0033).
 - Failure: never a `make` failure. A missing or corrupt catalog is a warning and a fallback to English;
-  the earlier `i18n.copy` fallback to the key itself is superseded by D5 (2026-11-06 05:27).
-  An absent message returns `ERR_NOT_FOUND`, leaving output unchanged.
+  `i18n.copy` returns the key itself for an absent message (`queries.rs:62`).
 - Memory per plugin per active language: the open `.ppcat` (block table, about 1 KB for 3,400 messages), plus
   shared read cache. Inactive languages keep file name and meta only (ADR 0033).
 
