@@ -53,6 +53,16 @@ pub enum EntryCheck {
     Entry(EntryRefusal),
 }
 
+/// Why [`Relocator5::write_image`] stopped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Written<E> {
+    /// The file could not be read or relocated, or its bytes are not the
+    /// ones the digest covers ([`Problem::Damaged`]).
+    File(Problem),
+    /// The sink (the flash) refused a piece.
+    Sink(E),
+}
+
 /// A [`Source`] that serves the small reads of the lookups from one block
 /// of the file held in `block`: a binary search probes a word or a pair at
 /// a time, and a probe in the block read last costs no read of the inner
@@ -393,6 +403,59 @@ impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
             Ok(())
         } else {
             Err(Problem::Damaged)
+        }
+    }
+
+    /// The write pass: reads the image once more, `buf` at a time, hashes
+    /// **each piece as read** (before it is relocated), relocates it as
+    /// [`Relocator5::apply`] does and hands it to `sink` with its image
+    /// offset, padded with `0xFF` to whole words. After the image the lists
+    /// are hashed once more, in order, and the digest must be the header's
+    /// ([`Header5::holds`]): the bytes that went to the sink are therefore
+    /// the bytes the header covers, even where the source answers
+    /// otherwise than it did for [`Relocator5::verify`]. A mismatch is
+    /// `Damaged`, and the caller takes back what the sink was given.
+    ///
+    /// The lookups [`Relocator5::apply`] makes into the lists are separate
+    /// reads and not covered by that digest: a source that lies on them
+    /// alone can only move a relocation to another valid word.
+    ///
+    /// `buf` is a multiple of 4 bytes, at least 4.
+    pub fn write_image<E>(
+        &self,
+        buf: &mut [u8],
+        mut sink: impl FnMut(u32, &[u8]) -> Result<(), E>,
+    ) -> Result<(), Written<E>> {
+        let step = buf.len() & !3;
+        if step == 0 {
+            return Err(Written::File(Problem::Malformed));
+        }
+        let mut sha = self.header.digest();
+        let mut done = 0u32;
+        while done < self.header.image_len {
+            let len = (self.header.image_len - done).min(step as u32) as usize;
+            let words = len.next_multiple_of(4);
+            self.tail
+                .read(HEADER_LEN as u64 + u64::from(done), &mut buf[..len])
+                .map_err(Written::File)?;
+            sha.update(&buf[..len]);
+            self.apply(done, &mut buf[..len]).map_err(Written::File)?;
+            buf[len..words].fill(0xFF);
+            sink(done, &buf[..words]).map_err(Written::Sink)?;
+            done += len as u32;
+        }
+        let end = self.header.file_len();
+        let mut at = self.header.relocs_at();
+        while at < end {
+            let len = (end - at).min(step as u64) as usize;
+            self.tail.read(at, &mut buf[..len]).map_err(Written::File)?;
+            sha.update(&buf[..len]);
+            at += len as u64;
+        }
+        if self.header.holds(sha) {
+            Ok(())
+        } else {
+            Err(Written::File(Problem::Damaged))
         }
     }
 

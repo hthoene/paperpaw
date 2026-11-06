@@ -682,6 +682,13 @@ fn make_maps_back_to_its_image_offset_in_flash_or_in_the_hot_arena() {
     assert_eq!(h.make_offset(flash + 1030, placed, hot), 1030);
     // Without hot code copied, the arena's addresses mean nothing.
     assert_eq!(h.make_offset(hot + 6, placed, 0), u32::MAX);
+    // The flash copy of the hot code is patched for the arena: with the hot
+    // code copied it is no place for `make`; without, it is the code.
+    assert_eq!(h.make_offset(flash + 2048, placed, hot), u32::MAX);
+    assert_eq!(h.make_offset(flash + 2048 + 511, placed, hot), u32::MAX);
+    assert_eq!(h.make_offset(flash + 2048 + 512, placed, hot), 2048 + 512);
+    assert_eq!(h.make_offset(flash + 2048 - 1, placed, hot), 2048 - 1);
+    assert_eq!(h.make_offset(flash + 2048 + 6, placed, 0), 2048 + 6);
     // The offset is what check_entry takes.
     let record = record_bytes(h.meta_len as usize);
     let entry = EntryFacts {

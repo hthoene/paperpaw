@@ -498,7 +498,7 @@ impl Header5 {
     /// offset into the image for `make` an instruction address in the
     /// image placed at `placed_base` (`placed_base + CODE_OFFSET + offset`),
     /// or in the hot code copied to `hot` (`hot_at + (make - hot)`; `hot` 0:
-    /// not copied). Any other address gives `u32::MAX`, which
+    /// not copied; then the flash copy of the hot code is no place either). Any other address gives `u32::MAX`, which
     /// [`Header5::check_entry`] refuses.
     pub fn make_offset(&self, make: u32, placed_base: u32, hot: u32) -> u32 {
         if hot != 0 {
@@ -508,7 +508,10 @@ impl Header5 {
             }
         }
         let in_image = make.wrapping_sub(placed_base.wrapping_add(CODE_OFFSET));
-        if in_image < self.image_len {
+        // Hot code copied to the arena: its flash copy is patched for the
+        // arena, so it is not a place `make` may be.
+        let stale = hot != 0 && in_image.wrapping_sub(self.hot_at) < self.hot_len;
+        if in_image < self.image_len && !stale {
             in_image
         } else {
             u32::MAX

@@ -463,6 +463,100 @@ fn a_tail_that_changes_after_the_check_is_refused_and_never_panics() {
     }
 }
 
+/// What `write_image` hands the sink, joined, or why it stopped.
+fn written<S: Source + ?Sized>(
+    h: &Header5,
+    src: &S,
+    base: u32,
+    hot: u32,
+    buf: usize,
+) -> Result<Vec<u8>, Written<()>> {
+    let mut relocator = Relocator5::new(h, src, base).map_err(Written::File)?;
+    if hot != 0 {
+        relocator = relocator.hot_at(hot).map_err(Written::File)?;
+    }
+    let mut out = Vec::new();
+    relocator.write_image(&mut alloc::vec![0u8; buf], |at, words| {
+        assert_eq!(at as usize, out.len(), "in order, whole");
+        assert_eq!(words.len() % 4, 0, "whole words");
+        out.extend_from_slice(words);
+        Ok(())
+    })?;
+    Ok(out)
+}
+
+#[test]
+fn the_write_pass_gives_the_relocated_image_the_digest_covers() {
+    let (h4, image, words) = hot_image();
+    let file = file(&image, &words);
+    let h5 = sealed(as_five(&h4), &file);
+    for base in [LINK_BASE, 0x3C81_0000] {
+        for hot in [0, 0x4039_0100] {
+            for buf in [4, 12, 64, 100, 4096] {
+                let got = written(&h5, file.as_slice(), base, hot, buf).unwrap();
+                let mut expected = relocated(&h5, &file, &image, base, hot, buf & !3);
+                expected.resize(expected.len().next_multiple_of(4), 0xFF);
+                assert_eq!(got, expected, "base {base:#x}, hot {hot:#x}, buf {buf}");
+            }
+        }
+    }
+    // A buffer that holds no word, and a header that does not match its file.
+    assert_eq!(
+        written(&h5, file.as_slice(), LINK_BASE, 0, 3),
+        Err(Written::File(Problem::Malformed))
+    );
+    let other = Header5 {
+        needs_minor: 2,
+        ..h5
+    };
+    assert_eq!(
+        written(&other, file.as_slice(), LINK_BASE, 0, 64),
+        Err(Written::File(Problem::Damaged))
+    );
+}
+
+/// The card that gave the right bytes to the check and others to the write:
+/// each byte of the image and of the lists, changed in turn on the second
+/// read, must be refused (`Damaged`, or `Relocation` where the byte is one
+/// the relocation reads). The sink may have had its pieces by then: the
+/// caller takes them back.
+#[test]
+fn a_source_that_answers_otherwise_the_second_time_is_refused_in_every_byte() {
+    let (h4, image, words) = hot_image();
+    let good = file(&image, &words);
+    let h5 = sealed(as_five(&h4), &good);
+    for at in HEADER5_LEN..good.len() {
+        let mut changed = good.clone();
+        changed[at] ^= 0x01;
+        let switched = Switched {
+            good: &good,
+            bad: &changed,
+            bad_now: Cell::new(false),
+        };
+        // The check passes on the first read ...
+        let relocator = Relocator5::new(&h5, &switched, LINK_BASE).unwrap();
+        relocator.verify(&mut [0u8; 64]).unwrap();
+        // ... and the write pass sees the changed byte.
+        switched.bad_now.set(true);
+        let got = written(&h5, &switched, LINK_BASE, 0, 64);
+        assert!(
+            matches!(
+                got,
+                Err(Written::File(Problem::Damaged | Problem::Relocation))
+            ),
+            "byte {at}: {got:?}"
+        );
+    }
+    // A sink that refuses stops the pass at once.
+    let mut relocator_pieces = 0;
+    let relocator = Relocator5::new(&h5, good.as_slice(), LINK_BASE).unwrap();
+    let got = relocator.write_image(&mut [0u8; 64], |_, _| {
+        relocator_pieces += 1;
+        Err(7u8)
+    });
+    assert_eq!((got, relocator_pieces), (Err(Written::Sink(7)), 1));
+}
+
 /// An image with an entry and a metadata record in it, linked at
 /// `LINK_BASE`: the record of the generated fixture at 128, the entry at 64.
 fn entry_image(hot: bool) -> (Header5, Vec<u8>, Vec<u32>) {

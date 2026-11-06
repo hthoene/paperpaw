@@ -23,12 +23,12 @@ use esp_hal::peripherals::MMU_TABLE;
 use log::{info, warn};
 use paperpaw_native::bundle::BUNDLE_MAGIC;
 #[cfg(feature = "ppn5")]
-use paperpaw_native::header5::{HEADER_LEN as HEADER5_LEN, Header5};
+use paperpaw_native::header5::Header5;
 #[cfg(feature = "ppn5")]
 use paperpaw_native::index::Mark;
 use paperpaw_native::index::{Index, Layout, Placement, Region, SECTOR};
 #[cfg(feature = "ppn5")]
-use paperpaw_native::stream5::{Cached, Relocator5, Source};
+use paperpaw_native::stream5::{Cached, Relocator5, Written};
 use paperpaw_native::{CODE_OFFSET, HEADER_LEN, Header, LINK_BASE, Relocator};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::PluginProblem;
@@ -346,22 +346,20 @@ impl Flash {
             .borrow_mut()
             .erase(placement.at, end)
             .map_err(|e| written_not(path, e))?;
-        let mut done = 0;
-        while done < header.image_len {
-            let len = (header.image_len - done).min(SECTOR) as usize;
-            let bytes = &mut piece[..len];
-            src.read_at(HEADER5_LEN as u64 + u64::from(done), bytes)
-                .map_err(|_| PluginProblem::Damaged)?;
-            relocator.apply(done, bytes).map_err(super::problem)?;
-            // Whole words: the last piece filled up as erased flash.
-            let words_len = len.next_multiple_of(4);
-            piece[len..words_len].fill(0xFF);
-            flash
-                .borrow_mut()
-                .write_nor(placement.at + done, &piece[..words_len])
-                .map_err(|e| written_not(path, e))?;
-            done += len as u32;
-        }
+        // The write pass hashes each piece as it reads it and the lists
+        // again after the image: what lands in the flash is what the
+        // header's digest covers, whatever the card answers now.
+        relocator
+            .write_image(&mut piece[..], |done, words| {
+                flash
+                    .borrow_mut()
+                    .write_nor(placement.at + done, words)
+                    .map_err(|e| written_not(path, e))
+            })
+            .map_err(|why| match why {
+                Written::File(problem) => super::problem(problem),
+                Written::Sink(problem) => problem,
+            })?;
         let len = header.image_len.next_multiple_of(4);
         // SAFETY: ROM functions on addresses mapped to this region.
         unsafe {
