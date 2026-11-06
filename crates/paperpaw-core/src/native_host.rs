@@ -75,7 +75,8 @@ pub enum Error {
     Depth,
     /// Host memory for the staged records ran out.
     Memory,
-    /// Image declarations cannot activate before draft-4 SDK views are wired.
+    /// Temporary: removed when the draft-4 SDK declaration views land.
+    /// Image declarations cannot activate before those views are wired.
     DeclarationViewsUnavailable,
 }
 
