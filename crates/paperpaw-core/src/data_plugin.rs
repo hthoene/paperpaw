@@ -735,14 +735,7 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
     let code = paperpaw_sdk::native::CODE_FILES
         .iter()
         .any(|file| storage.size(&format!("{path}/{file}")).is_ok());
-    let mut tables = hyphenation::tables(&source, path, budget.formats, &mut budget.problems);
-    // A code plugin's tables come with its registration, not from plugin.ini.
-    if code && !tables.is_empty() {
-        budget.problems.push(format!(
-            "{path}/plugin.ini: [hyphenation] left out, read only for data plugins"
-        ));
-        tables.clear();
-    }
+    let tables = hyphenation_tables(&source, path, code, &mut budget);
     let (family, faces) = family(&source, path);
     let mut fonts = font_files(storage, &format!("{path}/fonts"), false);
     // A family's faces are not fonts of their own as well.
@@ -766,6 +759,24 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
         hyphenation: RefCell::new(tables),
         code,
     })
+}
+
+/// The hyphenation tables `[hyphenation]` in `source` names, for a data
+/// plugin: a code plugin's come with its registration, not from plugin.ini.
+fn hyphenation_tables(
+    source: &str,
+    path: &str,
+    code: bool,
+    budget: &mut Budget,
+) -> Vec<hyphenation::Table> {
+    let mut tables = hyphenation::tables(source, path, budget.formats, &mut budget.problems);
+    if code && !tables.is_empty() {
+        budget.problems.push(format!(
+            "{path}/plugin.ini: [hyphenation] left out, read only for data plugins"
+        ));
+        tables.clear();
+    }
+    tables
 }
 
 /// The font files in `dir` and its folders (one level, e.g. a folder per
