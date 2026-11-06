@@ -109,13 +109,13 @@ typedef struct PpHeap {
   value only into the placed image, like a relocated word. The three digests of the write pass are
   unchanged: the word is not in the relocation list, and the image digest is taken of the bytes read,
   before relocation and before the word is written.
-- [D] **The value must stay valid for every later run of the placed image** (Senior 2). The X4 keeps
-  placed images in flash across starts, so the address it writes must not depend on the firmware
-  build or the OTA slot: the X4 firmware keeps its `PpHeap` table at a **fixed address of the
-  `esp32c3-riscv32imc-ilp32-soft-le` profile** (filled at boot before any plugin runs), and that
-  address is frozen with the profile. *Open, Firmware to confirm: the reserved region and address. The
-  fallback is to re-place every plugin after a firmware change, with placed images keyed by
-  firmware build id.*
+- [D] **The value is written at every placement and never outlives the firmware build** (Senior 2).
+  The X4 already keys its flash layout by firmware build: the flash index stores the SHA-256 the
+  firmware image ends with, and a different firmware ignores the index and erases, relocates and
+  writes every plugin again (needed today for the build-specific addresses relocation writes). The
+  loader writes the `PpHeap` address while it places the image, as it relocates, so a firmware
+  change re-places the word with everything else. No fixed address joins the target profile. A
+  loader that keeps placed images must key them by firmware build id in the same way.
 - [D] `paperpaw-sign pack` finds `PAPERPAW_HEAP` by symbol, checks it is in `.rodata`, 4 bytes,
   4-aligned, 0, not relocated, and writes `heap_at` and bit 0; any other writable or loader-patched
   object stays refused. `PAPERPAW_HEAP` joins `PLUGIN_EXPORTS` as an optional export.
