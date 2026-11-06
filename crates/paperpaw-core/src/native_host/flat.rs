@@ -4,7 +4,7 @@
 //! module. Only host-owned Rust objects use this adapter; the foreign callback
 //! still receives one bounded byte batch, never an SDK object.
 
-use super::{DispatchDepth, Error, environment::EnvironmentScope, events};
+use super::{DispatchDepth, Error, FlatHost, environment::EnvironmentScope, events};
 use alloc::{boxed::Box, format, rc::Rc};
 use core::{fmt, pin::Pin};
 use paperpaw_sdk::{Env, Id, Manifest, Params, Plugin, RegisterError, Registrar};
@@ -88,6 +88,7 @@ pub struct FlatPlugin {
     manifest: Manifest,
     instance: Rc<dyn FlatInstance>,
     depth: Rc<DispatchDepth>,
+    host: FlatHost,
 }
 
 impl fmt::Debug for FlatPlugin {
@@ -108,6 +109,7 @@ impl FlatPlugin {
         manifest: Manifest,
         instance: Box<dyn FlatInstance>,
         depth: Rc<DispatchDepth>,
+        host: &FlatHost,
     ) -> Result<Self, FlatError> {
         let mut error = None;
         instance.registrations(&mut |registration| {
@@ -127,6 +129,9 @@ impl FlatPlugin {
             manifest,
             instance: Rc::from(instance),
             depth,
+            host: FlatHost {
+                meter: Rc::clone(&host.meter),
+            },
         })
     }
 }
@@ -160,10 +165,13 @@ impl Plugin for FlatPlugin {
             };
             let instance = Rc::clone(&self.instance);
             let depth = Rc::clone(&self.depth);
+            let host = FlatHost {
+                meter: Rc::clone(&self.host.meter),
+            };
             result = registrar.subscribe(
                 event,
                 Box::new(move |env, params, _| {
-                    deliver(&*instance, &depth, tag, index, env, params)
+                    deliver(&*instance, &depth, &host, tag, index, env, params)
                 }),
             );
         });
@@ -188,6 +196,7 @@ fn event_id(tag: u32) -> Option<Id> {
 fn deliver(
     instance: &dyn FlatInstance,
     depth: &DispatchDepth,
+    host: &FlatHost,
     tag: u32,
     index: usize,
     env: &Env<'_>,
@@ -196,12 +205,12 @@ fn deliver(
     // Only the page-turn path needs the larger buffer. Lifecycle events keep
     // their stack usage independent of the page strings' schema caps.
     let result = if tag == super::registrations::EVENT_PAGE_TURNED_TAG {
-        page::deliver(instance, depth, index, env, params)
+        page::deliver(instance, depth, host, index, env, params)
     } else {
         let mut bytes = [0; 12];
         encode_scalar(tag, env.now().millis(), &mut bytes)
             .map_err(|_| DropReason::Producer)
-            .and_then(|len| invoke(instance, depth, index, env, &bytes[..len]))
+            .and_then(|len| invoke(instance, depth, host, index, env, &bytes[..len]))
     };
     if let Err(why) = result {
         instance.event_dropped(tag, why);
@@ -230,14 +239,21 @@ fn admission(error: Error) -> DropReason {
 fn invoke(
     instance: &dyn FlatInstance,
     depth: &DispatchDepth,
+    host: &FlatHost,
     index: usize,
     env: &Env<'_>,
     bytes: &[u8],
 ) -> Result<(), DropReason> {
-    // This is the single scope installation point, ready for CoreFrame wiring.
+    let frame = crate::abi7::core_frame::CoreFrame {
+        env,
+        meter: &host.meter,
+        usage: env.usage(),
+        plugins: env.plugins(),
+        work: env.work(),
+    };
     let status = instance
         .environment()
-        .scope(env, || instance.dispatch_event(index, bytes, depth))
+        .scope_core(&frame, || instance.dispatch_event(index, bytes, depth))
         .map_err(admission)?
         .map_err(admission)?;
     if status == paperpaw_native::host_glue::OK {
@@ -250,3 +266,7 @@ fn invoke(
 #[cfg(test)]
 #[path = "flat/routing_tests.rs"]
 mod routing_tests;
+
+#[cfg(test)]
+#[path = "flat/test_loader.rs"]
+pub(crate) mod test_loader;
