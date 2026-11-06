@@ -3,7 +3,7 @@
 //! pinned owner, stopped means the owner's error, declarations refused (not
 //! dropped), the read-only image, and the release order.
 use super::super::dev::{Loaded, Refusal, load_flat};
-use super::foreign::fixture_custom;
+use super::foreign::{fixture_custom, fixture_linked};
 use super::*;
 use paperpaw_core::native_host::Error as HostError;
 use paperpaw_core::native_host::flat::{DropReason, FlatInstance, FlatRegistration};
@@ -38,6 +38,19 @@ fn started_library() -> Vec<u8> {
     let bytes = std::fs::read(&library.path).unwrap();
     drop(library);
     bytes
+}
+
+/// The distinct private copies of plugin `id` mapped now, by path.
+fn mapped_copies(id: &str) -> Vec<String> {
+    let mut paths: Vec<String> = std::fs::read_to_string("/proc/self/maps")
+        .unwrap()
+        .lines()
+        .filter(|line| line.contains("paperpaw-abi7") && line.contains(&format!("/{id}-")))
+        .filter_map(|line| line.split_whitespace().nth(5).map(str::to_owned))
+        .collect();
+    paths.sort();
+    paths.dedup();
+    paths
 }
 
 fn mapped_copy(id: &str) -> bool {
@@ -226,8 +239,10 @@ fn declarations_are_refused_not_dropped_and_the_library_is_released() {
     // cannot apply them.
     let own = load_flat("other", &bytes).err().unwrap();
     assert!(
-        matches!(own, Refusal::Declared(1))
-            || format!("{own}").contains("DeclarationViewsUnavailable"),
+        matches!(
+            &own,
+            Refusal::Lifecycle(paperpaw_core::native_host::Error::DeclarationViewsUnavailable)
+        ),
         "{own:?}"
     );
     assert!(!mapped_copy("other"));
@@ -243,4 +258,143 @@ fn a_library_that_is_no_interface_7_one_or_has_no_id_is_refused_cleanly() {
         load_flat("Not An Id", &started_library()).err(),
         Some(Refusal::Id)
     ));
+}
+
+/// Rustc's own lld, called through the compiler driver (`-fuse-ld=lld`).
+fn lld_args() -> Vec<String> {
+    let out = Command::new("rustc")
+        .args(["--print", "sysroot"])
+        .output()
+        .unwrap();
+    let sysroot = String::from_utf8(out.stdout).unwrap();
+    let rustlib = std::path::Path::new(sysroot.trim()).join("lib/rustlib");
+    let dir = std::fs::read_dir(&rustlib)
+        .unwrap()
+        .map(|entry| entry.unwrap().path().join("bin/gcc-ld"))
+        .find(|dir| dir.join("ld.lld").exists())
+        .unwrap_or_else(|| panic!("rustc ships no ld.lld under {rustlib:?}"));
+    vec![
+        "-Clink-arg=-fuse-ld=lld".to_owned(),
+        format!("-Clink-arg=-B{}", dir.display()),
+    ]
+}
+
+#[test]
+fn the_image_holds_the_metadata_whichever_linker_laid_the_segments_out() {
+    let valid = batch(&[Registration::Event {
+        event_tag: EVENT_STARTED_TAG,
+        token: TOKEN,
+    }]);
+    let metadata = crate::native_runtime::tests::metadata_bytes();
+    for (name, link) in [
+        ("gnu", vec!["-Clink-arg=-fuse-ld=bfd".to_owned()]),
+        ("lld", lld_args()),
+    ] {
+        let library = fixture_linked(valid.clone(), &[], false, "", "", &link);
+        let bytes = std::fs::read(&library.path).unwrap();
+        drop(library);
+        // The linker is the one asked for (it names itself in `.comment`).
+        let lld = bytes.windows(10).any(|window| window == b"Linker: LL");
+        assert_eq!(lld, name == "lld", "{name}: linked by the linker asked for");
+        let id = format!("flat{name}");
+        let loaded = Loaded::from_bytes(&id, &bytes).unwrap();
+        let image = loaded.image().unwrap();
+        assert!(
+            image
+                .windows(metadata.len())
+                .any(|window| window == metadata.as_slice()),
+            "{name}: the metadata record is in the image"
+        );
+        // Read-only: not the segment of the code.
+        assert!(!image.is_empty(), "{name}");
+    }
+}
+
+/// The teardown order on an update and an uninstall: the old copy stays
+/// mapped until its own release, the new one is a library of its own, and the
+/// last release leaves no mapping and no copy behind.
+#[test]
+fn update_and_uninstall_unmap_each_copy_only_after_its_release() {
+    let first = started_library();
+    let second = {
+        let valid = batch(&[
+            Registration::Event {
+                event_tag: EVENT_STARTED_TAG,
+                token: TOKEN,
+            },
+            Registration::Draw { token: TOKEN },
+        ]);
+        let library = fixture_custom(valid, &[], false, "", "");
+        let bytes = std::fs::read(&library.path).unwrap();
+        drop(library);
+        bytes
+    };
+    assert_ne!(first, second);
+    let old = Loaded::from_bytes("flatupdate", &first).unwrap();
+    let old_copy = mapped_copies("flatupdate");
+    assert_eq!(old_copy.len(), 1, "the old library: {old_copy:?}");
+    // The update: the kernel stops the old one and loads the new one; the old
+    // library stays mapped while anything holds its instance.
+    old.stop();
+    let new = Loaded::from_bytes("flatupdate", &second).unwrap();
+    let both = mapped_copies("flatupdate");
+    assert_eq!(both.len(), 2, "two distinct mappings: {both:?}");
+    assert!(both.contains(&old_copy[0]));
+    let new_copy = both.iter().find(|p| **p != old_copy[0]).unwrap().clone();
+    let mut seen = Vec::new();
+    new.registrations(&mut |r| seen.push(r));
+    assert_eq!(seen.len(), 2, "the new library's registrations");
+    drop(old);
+    assert_eq!(
+        mapped_copies("flatupdate"),
+        std::slice::from_ref(&new_copy),
+        "the old copy is unmapped by its own release, the new one stays"
+    );
+    assert_eq!(
+        new.dispatch_event(0, &tick_bytes(), &DispatchDepth::new()),
+        Ok(host_glue::OK),
+        "and runs"
+    );
+    // The uninstall: stopped, then released.
+    new.stop();
+    drop(new);
+    assert!(mapped_copies("flatupdate").is_empty(), "no mapping left");
+    assert!(
+        !std::path::Path::new(&new_copy).exists(),
+        "and no copy file left"
+    );
+}
+
+/// A load that fails after the library ran code (`make` done, commit refused)
+/// releases what it made and unmaps; a retry is a clean load.
+#[test]
+fn a_failed_load_unmaps_and_a_retry_is_a_clean_load() {
+    // Declaring under the folder's own id: refused at commit.
+    let mut valid = vec![0; REGISTRATION_MAX_BYTES];
+    let len = records_encode(
+        &[Record::SettingSpec(SettingSpec {
+            name: "s",
+            kind: 3,
+            flags: 0,
+            group: "flatretry.main",
+            title: "title",
+            help: "",
+            default: &[1, 0, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0, b'x'],
+            min: 0,
+            max: 0,
+            choices: "",
+        })],
+        &mut valid,
+    )
+    .unwrap();
+    valid.truncate(len);
+    let library = fixture_custom(valid, &[], false, "", "");
+    let bad = std::fs::read(&library.path).unwrap();
+    drop(library);
+    assert!(load_flat("flatretry", &bad).is_err());
+    assert!(!mapped_copy("flatretry"), "unmapped after the refusal");
+    let good = load_flat("flatretry", &started_library()).unwrap();
+    assert!(mapped_copy("flatretry"));
+    drop(good);
+    assert!(!mapped_copy("flatretry"));
 }
