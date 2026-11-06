@@ -89,6 +89,16 @@ class BodyHashes(unittest.TestCase):
         # From another file, a name defined more than twice is not followed.
         self.assertEqual(shared.reach(functions, pathlib.Path("c.rs"), "{ common() }"), set())
 
+    def test_generated_codec_copies_are_no_callees(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            crate = pathlib.Path(root)
+            (crate / "src").mkdir()
+            (crate / "src/pixel.rs").write_text("fn gray_levels() { 1 }\n")
+            (crate / "src/wire.rs").write_text(
+                shared.GENERATED + "\nfn gray_levels() { 2 }\n")
+            found = shared.crate_functions(crate)
+            self.assertEqual([body for _, body in found["gray_levels"]], ["{ 1 }"])
 
 if __name__ == "__main__":
     unittest.main()
