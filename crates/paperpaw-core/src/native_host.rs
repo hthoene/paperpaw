@@ -78,6 +78,20 @@ pub mod frames;
 /// Bounded decoded registration submission during plugin construction.
 #[path = "native_host/registrations.rs"]
 pub mod registrations;
+#[allow(
+    dead_code,
+    reason = "native built-in registry adapter follows this owner holder"
+)]
+#[path = "native_host/retained.rs"]
+mod retained;
+
+#[allow(
+    dead_code,
+    reason = "native built-in registry adapter follows this screen router"
+)]
+#[path = "native_host/native_screen.rs"]
+mod native_screen;
+
 // Static-entry activation uses the shared D1 reader; registry wiring follows.
 #[allow(
     dead_code,

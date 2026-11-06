@@ -8,6 +8,7 @@ use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_platform::{Instant, PixelFormat};
 
 std::thread_local! {
+    static DESTROYS: Cell<u32> = const { Cell::new(0) };
     static RESULT: Cell<i32> = const { Cell::new(0) };
     static CALLS: Cell<u32> = const { Cell::new(0) };
     static SHORT: Cell<bool> = const { Cell::new(false) };
@@ -82,6 +83,7 @@ unsafe extern "C" fn make(
 }
 
 unsafe extern "C" fn destroy(state: *mut c_void) {
+    DESTROYS.with(|count| count.set(count.get() + 1));
     // SAFETY: this is exactly the State allocation published by make.
     unsafe { drop(Box::from_raw(state.cast::<State>())) };
 }
@@ -288,4 +290,45 @@ fn declared_draw_keeps_full_pane_separate_from_clip_and_rejects_positive_status(
         );
     });
     assert_eq!(CALLS.with(Cell::get), 2);
+}
+
+#[test]
+fn retained_instance_keeps_callbacks_live_and_destroys_state_once() {
+    use super::super::retained::Retained;
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    DESTROYS.with(|count| count.set(0));
+    let instance = Retained::make(hosted(false)).unwrap();
+    let depth = DispatchDepth::new();
+    let mut records = 0;
+    instance
+        .registrations(&depth, &mut |_, _| records += 1)
+        .unwrap();
+    assert_eq!(records, 0);
+    scoped(&kernel, |frame| {
+        assert_eq!(
+            dispatch_token(
+                instance.batch().unwrap(),
+                TOKEN,
+                &depth,
+                frame,
+                TokenInvocation::Input(&[])
+            ),
+            Ok(0)
+        );
+    });
+    assert_eq!(CALLS.with(Cell::get), 1);
+    assert_eq!(DESTROYS.with(Cell::get), 0);
+    assert_eq!(
+        instance
+            .host()
+            .owner()
+            .context()
+            .environment
+            .with_frame(|_| ()),
+        Err(host_glue::ERR_STATE)
+    );
+    drop(instance);
+    assert_eq!(DESTROYS.with(Cell::get), 1);
 }
