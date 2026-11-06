@@ -8,7 +8,8 @@ pub use crate::abi7::snapshot_wire::{
     snapshot_decode,
 };
 use crate::abi7::{
-    context::{CoreFrame, Error as FrameError, FrameSlot},
+    context::{Error as FrameError, FrameSlot},
+    core_frame::CoreFrame,
     queries, snapshot,
 };
 use core::{fmt, pin::Pin};
