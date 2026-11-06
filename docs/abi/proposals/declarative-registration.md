@@ -12,6 +12,31 @@ Paths are relative to the repository root unless prefixed `ADR34:` (the file
 that file) or `notes:` (`origin/notes/port-classification-748`, `paperpaw/design/flat-boundary-228/
 port-classification-748/README.md`).
 
+## Kernel Engineer position (review of this draft, 2026-11-06)
+
+The draft was prepared with a helper and reviewed by the Kernel Engineer. Positions on the decisions that
+block the first ports, for Senior review and the owner:
+
+- **Q1: yes.** The twelve hyphenation languages and the base become data plugins: `plugin.ini`, `i18n/*`
+  and `hyphenation/<lang>.pphp`. The data-plugin loader gains one `[hyphenation]` file kind. They need no
+  flat code, no `.ppn`, no signature and no flash write. Part 4's records then serve only code plugins that
+  also carry resources, and can follow after the first data batch.
+- **Q12:** `fonts-default` stays a built-in firmware registration outside the flat boundary. Its bytes are
+  in the firmware image, and a built-in plugin is not independently published. No `builtin:` path scheme.
+- **Q13 gates Q1 for the large tables.** A storage-backed `Patterns` (positional reads, index copy, small
+  block cache, `PPHP` version 1 only) is the first kernel implementation item. It is measured on the X4
+  (`de`, `nb`, cold and warm page turns) before G0 ports land. Until then only tables under about 50 KB
+  may be loaded whole.
+- **Parts 1 and 2 (no manifest or translation records), Q2 (drop the version cross-check), Q3 (`uses` as
+  signed metadata features): agreed.**
+- **Q5:** interface 7 is the moment to give slot 6 a distinct status for a missing key. Use the same new
+  status as storage's missing file in the events/storage/services proposal (`ERR_NOT_FOUND`), one status for
+  both.
+- **Q6:** the 4096-byte batch cap in `abi.def` is the wire limit; ADR 0034's 384 B figure is a retained-storage
+  profile, not a batch cap. Keep 4096 inline batches and the 2 KiB frame for the later frame file.
+- **Part 3:** S1 (eager owned specs) first, measured. `check` callbacks and `Extended` stay out of interface 7
+  until a plugin needs them; unknown kinds are refused.
+
 ## 0. Summary of the proposal
 
 1. Registration is split over **three transports that share one record grammar**:
