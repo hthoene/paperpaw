@@ -94,7 +94,7 @@ mod tests {
         let version = |name: &str| {
             let mut lines = lock.lines();
             while let Some(line) = lines.next() {
-                if line == format!("name = \"{name}\"") {
+                if line == alloc::format!("name = \"{name}\"") {
                     let v = lines.next().unwrap_or_default();
                     return v
                         .trim_start_matches("version = ")
