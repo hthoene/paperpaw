@@ -21,6 +21,15 @@ export CARGO_TARGET_DIR="$PWD/target-abi7-tick-draw"
 samples/abi7-tick-draw/verify.sh
 ```
 
+The release artifact is `$CARGO_TARGET_DIR/release/deps/libpaperpaw_sample_abi7_tick_draw-<hash>.so`
+(with the crate type given on the command line cargo uses a hashed name and does not list the
+file among its artifacts; `verify.sh` removes older ones, builds, requires exactly one and prints
+it as `artifact:`). `src/freestanding.rs` defines `rust_eh_personality` and `memcpy`, which the
+linked library would otherwise import, and `verify.sh` fails if `nm -D --undefined-only`
+lists any symbol, because a real `dlopen` of such a library fails. `check_artifact.py` also
+disassembles `memcpy` to make sure it does not call itself (LLVM may turn a copy loop into a
+call to `memcpy`) and copies buffers of up to 65,537 bytes through the library.
+
 The standalone sample workspace does not change root manifests or SDK files.
 `build.rs` invokes the canonical metadata generator and rejects unsupported
 build targets. The release command also emits a Linux cdylib without startup
