@@ -1,5 +1,5 @@
-//! Real dlopen/factory/destruction proof. Staged records are host-only pending
-//! the generated foreign registration schema; no callback ABI claim is made.
+//! Real dlopen/factory/destruction proof. Original cases use typed host records;
+//! the foreign child module exercises reviewed wire submission and callbacks.
 use super::*;
 use paperpaw_core::native_host::DispatchDepth;
 use std::{cell::RefCell, process::Command, rc::Rc};
@@ -12,6 +12,8 @@ struct Evidence {
     frees: Cell<usize>,
     clocks: Cell<usize>,
     records: Cell<usize>,
+    callback_markers: Cell<usize>,
+    callback_frees: Cell<usize>,
 }
 
 struct ServicesProbe {
@@ -29,10 +31,17 @@ impl Services for ServicesProbe {
     fn alloc(&self, size: usize, align: usize) -> *mut u8 {
         assert!(self.evidence.live.get());
         assert!(mapped(&self.path));
-        self.evidence
-            .allocations
-            .set(self.evidence.allocations.get() + 1);
-        self.evidence.events.borrow_mut().push("allocate");
+        if size == 1 && align == 1 {
+            self.evidence
+                .callback_markers
+                .set(self.evidence.callback_markers.get() + 1);
+            self.evidence.events.borrow_mut().push("callback");
+        } else {
+            self.evidence
+                .allocations
+                .set(self.evidence.allocations.get() + 1);
+            self.evidence.events.borrow_mut().push("allocate");
+        }
         // SAFETY: host glue validated this nonzero layout.
         unsafe { std::alloc::alloc(Layout::from_size_align(size, align).unwrap()) }
     }
@@ -40,8 +49,14 @@ impl Services for ServicesProbe {
     unsafe fn dealloc(&self, block: *mut u8, size: usize, align: usize) {
         assert!(self.evidence.live.get());
         assert!(mapped(&self.path));
-        self.evidence.frees.set(self.evidence.frees.get() + 1);
-        self.evidence.events.borrow_mut().push("free");
+        if size == 1 && align == 1 {
+            self.evidence
+                .callback_frees
+                .set(self.evidence.callback_frees.get() + 1);
+        } else {
+            self.evidence.frees.set(self.evidence.frees.get() + 1);
+            self.evidence.events.borrow_mut().push("free");
+        }
         // SAFETY: fixture returns exactly the allocation and layout above.
         unsafe { std::alloc::dealloc(block, Layout::from_size_align(size, align).unwrap()) };
     }
@@ -67,6 +82,10 @@ impl Drop for ServicesProbe {
         assert!(self.evidence.live.replace(false));
         assert!(mapped(&self.path), "context must drop before module unload");
         assert_eq!(self.evidence.allocations.get(), self.evidence.frees.get());
+        assert_eq!(
+            self.evidence.callback_markers.get(),
+            self.evidence.callback_frees.get()
+        );
         self.evidence.events.borrow_mut().push("context");
     }
 }
@@ -405,3 +424,5 @@ fn real_library_panicking_staged_drop_still_destroys_validated_foreign_output() 
     );
     assert_eq!(evidence.events.borrow().last(), Some(&"context"));
 }
+
+mod foreign;
