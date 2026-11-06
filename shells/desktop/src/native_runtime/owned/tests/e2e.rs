@@ -2,12 +2,15 @@
 //! through the inactive owner path: preflight, make with wire registrations,
 //! leased tick/draw dispatch inside a scoped environment (slots 4/5), teardown,
 //! and clean refusals. Nothing here activates the production loader.
+use super::super::canvas as canvas_bridge;
 use super::super::environment as bridge;
+use super::canvas::{gray, save_png};
 use super::environment::{KEY, run};
 use super::*;
 use paperpaw_core::native_host::registrations::{self, Registration};
 use paperpaw_core::sdk::SettingSpec;
-use paperpaw_platform::SystemStatus;
+use paperpaw_graphics::Framebuffer;
+use paperpaw_platform::{Color, PixelFormat, SystemStatus};
 
 /// Registered by the sample during make (see its README): tick token 1, draw token 2.
 const TICK_INDEX: usize = 0;
@@ -86,6 +89,30 @@ impl Services for Refused {
     }
 }
 
+fn white_frame() -> Framebuffer {
+    let mut frame = Framebuffer::new(160, 80, PixelFormat::Gray8).unwrap();
+    frame.canvas().fill_rect(0, 0, 160, 80, Color::WHITE);
+    frame
+}
+
+/// The sample's draw fills one black rectangle: x=8, y=8, 64x32 (plugin-owned
+/// constants, see its README). Everything else stays white.
+fn assert_sample_painting(frame: &Framebuffer) {
+    for (x, y, want) in [
+        (8, 8, 0),
+        (71, 39, 0),
+        (40, 20, 0),
+        (7, 8, 255),
+        (8, 7, 255),
+        (72, 39, 255),
+        (71, 40, 255),
+        (0, 0, 255),
+        (159, 79, 255),
+    ] {
+        assert_eq!(gray(frame, x, y), want, "pixel ({x},{y})");
+    }
+}
+
 fn tick(now: u64) -> Vec<u8> {
     let mut bytes = [0; 64];
     let len = registrations::tick_encode(now, &mut bytes).unwrap();
@@ -124,11 +151,19 @@ fn real_sample_registers_and_dispatches_tick_and_draw_with_environment() {
                 "the sample allocates its state once, from the host heap"
             );
             let depth = DispatchDepth::new();
-            // No frame: the sample refuses to draw without slots 4/5.
+            let mut frame = white_frame();
+            // No frame at all: the sample cannot read slots 4/5 and paints nothing.
             assert_eq!(
                 dispatch_registration(&batch, DRAW_INDEX, &depth, Invocation::Draw).unwrap(),
                 host_glue::ERR_STATE
             );
+            // A query-only frame (Env, no Canvas): slots 4/5 work, slot 9 answers
+            // ERR_STATE, the sample returns that status unchanged, nothing is painted.
+            assert_eq!(
+                bridge::dispatch(&batch, DRAW_INDEX, &depth, Invocation::Draw, env).unwrap(),
+                host_glue::ERR_STATE
+            );
+            assert_eq!(gray(&frame, 8, 8), 255, "nothing painted without a canvas");
             for now in [41, 42] {
                 assert_eq!(
                     bridge::dispatch(
@@ -141,10 +176,24 @@ fn real_sample_registers_and_dispatches_tick_and_draw_with_environment() {
                     .unwrap(),
                     host_glue::OK
                 );
+                // A full draw frame: Env (slots 4/5) and Canvas (slot 9).
                 assert_eq!(
-                    bridge::dispatch(&batch, DRAW_INDEX, &depth, Invocation::Draw, env).unwrap(),
+                    canvas_bridge::dispatch_draw(
+                        &batch,
+                        DRAW_INDEX,
+                        &depth,
+                        env,
+                        &mut frame.canvas()
+                    )
+                    .unwrap(),
                     host_glue::OK
                 );
+                assert_sample_painting(&frame);
+            }
+            if value == "true"
+                && let Some(path) = std::env::var_os("PAPERPAW_E2E_SCREENSHOT")
+            {
+                save_png(&frame, Path::new(&path));
             }
             // A malformed tick is refused before the foreign call.
             let mut bad = tick(43);
@@ -176,9 +225,16 @@ fn real_sample_draw_fails_closed_on_oversized_setting() {
             .commit()
             .unwrap();
         let depth = DispatchDepth::new();
+        let mut frame = white_frame();
         assert_eq!(
-            bridge::dispatch(&batch, DRAW_INDEX, &depth, Invocation::Draw, env).unwrap(),
+            canvas_bridge::dispatch_draw(&batch, DRAW_INDEX, &depth, env, &mut frame.canvas())
+                .unwrap(),
             host_glue::ERR_NO_SPACE
+        );
+        assert_eq!(
+            gray(&frame, 8, 8),
+            255,
+            "the settings failure precedes any painting"
         );
         drop(batch);
         plugin.owner.as_ref().revoke();

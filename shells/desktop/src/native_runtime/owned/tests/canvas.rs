@@ -35,13 +35,13 @@ fn table_fill<S>(context: Pin<&Context<S>>, color: u32) -> i32 {
     }
 }
 
-fn gray(frame: &Framebuffer, x: usize, y: usize) -> u8 {
+pub(super) fn gray(frame: &Framebuffer, x: usize, y: usize) -> u8 {
     let view = frame.view();
     assert_eq!(view.format, PixelFormat::Gray8);
     view.data[y * view.stride + x]
 }
 
-fn save_png(frame: &Framebuffer, path: &Path) {
+pub(super) fn save_png(frame: &Framebuffer, path: &Path) {
     let view = frame.view();
     let file = std::fs::File::create(path).unwrap();
     let mut encoder = png::Encoder::new(
@@ -63,7 +63,7 @@ fn save_png(frame: &Framebuffer, path: &Path) {
 #[test]
 fn foreign_draw_fills_the_emulator_framebuffer_through_scoped_slot_9() {
     let fixture = std::rc::Rc::new(foreign::fixture_query(&[], false, DRAW_BODY));
-    let shot = std::env::var_os("PAPERPAW_E2E_SCREENSHOT").map(std::path::PathBuf::from);
+    let shot = std::env::var_os("PAPERPAW_E2E_SCREENSHOT_SYNTHETIC").map(std::path::PathBuf::from);
     run(&BOOL, "true", SystemStatus::default(), move |env| {
         let (plugin, evidence) = fixture.open();
         let batch = plugin
@@ -74,7 +74,9 @@ fn foreign_draw_fills_the_emulator_framebuffer_through_scoped_slot_9() {
         let context = plugin.owner.as_ref().context();
         let depth = DispatchDepth::new();
         let mut frame = Framebuffer::new(WIDTH, HEIGHT, PixelFormat::Gray8).unwrap();
-        frame.canvas().fill_rect(0, 0, u32::from(WIDTH), u32::from(HEIGHT), Color::WHITE);
+        frame
+            .canvas()
+            .fill_rect(0, 0, u32::from(WIDTH), u32::from(HEIGHT), Color::WHITE);
         // Outside any draw dispatch the slot has no canvas.
         assert_eq!(table_fill(context, 0), host_glue::ERR_STATE);
         assert_eq!(gray(&frame, 8, 8), 255, "nothing painted outside dispatch");
@@ -102,7 +104,9 @@ fn foreign_draw_fills_the_emulator_framebuffer_through_scoped_slot_9() {
         assert_eq!(table_fill(context, 0), host_glue::ERR_STATE);
         // A second frame is drawn independently: the scope kept nothing from the first.
         let mut other = Framebuffer::new(WIDTH, HEIGHT, PixelFormat::Gray8).unwrap();
-        other.canvas().fill_rect(0, 0, u32::from(WIDTH), u32::from(HEIGHT), Color::WHITE);
+        other
+            .canvas()
+            .fill_rect(0, 0, u32::from(WIDTH), u32::from(HEIGHT), Color::WHITE);
         assert_eq!(
             bridge::dispatch_draw(&batch, 1, &depth, env, &mut other.canvas()).unwrap(),
             host_glue::OK
