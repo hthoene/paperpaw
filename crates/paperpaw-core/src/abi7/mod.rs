@@ -28,3 +28,11 @@ pub(crate) mod snapshot_wire;
     reason = "generated packed-color codec"
 )]
 pub(crate) mod color_wire;
+
+#[allow(
+    clippy::all,
+    clippy::pedantic,
+    missing_docs,
+    reason = "generated slot-15 command batch codec"
+)]
+pub(crate) mod commands_wire;

@@ -192,6 +192,7 @@ class SchemaTests(unittest.TestCase):
         del prior['emitted_records']
         del prior['emitted_snapshot']
         del prior['emitted_color']
+        del prior['emitted_commands']
         ABI.check_lock(prior, self.base)
         with patch.dict(ABI.TYPES, {'handle': 'uint64_t'}):
             with self.assertRaisesRegex(ValueError, 'emitted C contract'):
@@ -253,6 +254,7 @@ class SchemaTests(unittest.TestCase):
 
     def test_record_growth_is_per_record_not_global_prefix(self):
         self.base.pop('record_codec', None)
+        self.base.pop('command_codec', None)
         self.base['records'] = [self.record(), dict(self.record(), id=2, name='test.second')]
         new = copy.deepcopy(self.base)
         new['minor'] = 2
@@ -266,6 +268,7 @@ class SchemaTests(unittest.TestCase):
 
     def test_required_fields_and_defaults_cannot_change(self):
         self.base.pop('record_codec', None)
+        self.base.pop('command_codec', None)
         self.base['records'] = [self.record()]
         new = copy.deepcopy(self.base)
         new['records'][0]['fields'].clear()
