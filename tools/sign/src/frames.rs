@@ -1012,7 +1012,8 @@ fn refusal(finding: &Finding, text: &Section, symbols: &[Symbol], text_index: us
         Finding::Table { .. } => format!(
             "{place} jumps through a register inside its stack frame (a jump table, compiled \
              from a `match`): the packer cannot tell where it goes. Build the plugin with \
-             `-C jump-tables=no`"
+             `-C jump-tables=no` (the rustflags of `samples/abi7-x4-min/.cargo/config.toml` \
+             set it)"
         ),
         Finding::Uncovered { .. } => format!(
             ".text+{at:#x} is code that no function symbol covers: the packer reads each \
