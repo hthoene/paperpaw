@@ -235,6 +235,7 @@ impl Kernel {
             timer,
             notice,
             work,
+            self.free_count.due(),
             self.sleep_due(),
             shot,
             self.network_deadline(),
@@ -334,6 +335,34 @@ impl Kernel {
         }
     }
 
+    /// Opens a book in the reading app that takes it (`Command::OpenBook`).
+    fn open_book_command(&mut self, params: Params) {
+        let env = self.shared.env(self.now);
+        match paperpaw_sdk::readers::resolve(&env, &params) {
+            // The slot's own screen, by name: in place of another
+            // reading app the slot may show now. Not where it could
+            // not open the book either (it is a reader too): it
+            // says why itself.
+            Command::OpenSlot(slot, params) => {
+                let screen = self.shared.registry.resolve_slot(slot.as_str()).cloned();
+                let failed = screen.as_ref().is_some_and(|screen| {
+                    paperpaw_sdk::readers::past(&params).any(|past| {
+                        self.shared
+                            .readers
+                            .get(past)
+                            .is_some_and(|r| r.screen == *screen)
+                    })
+                });
+                if failed {
+                    self.warn_runtime("no reading app could open the book");
+                } else {
+                    self.open_slot_command(slot, screen, params);
+                }
+            }
+            command => self.apply(command),
+        }
+    }
+
     /// Carries out a command, by its kind.
     pub(crate) fn apply(&mut self, command: Command) {
         // Network use the plugin's manifest does not declare: refused.
@@ -353,32 +382,7 @@ impl Kernel {
             Command::OpenInSlot(slot, screen, params) => {
                 self.open_slot_command(slot, Some(screen), params);
             }
-            Command::OpenBook(params) => {
-                let env = self.shared.env(self.now);
-                match paperpaw_sdk::readers::resolve(&env, &params) {
-                    // The slot's own screen, by name: in place of another
-                    // reading app the slot may show now. Not where it could
-                    // not open the book either (it is a reader too): it
-                    // says why itself.
-                    Command::OpenSlot(slot, params) => {
-                        let screen = self.shared.registry.resolve_slot(slot.as_str()).cloned();
-                        let failed = screen.as_ref().is_some_and(|screen| {
-                            paperpaw_sdk::readers::past(&params).any(|past| {
-                                self.shared
-                                    .readers
-                                    .get(past)
-                                    .is_some_and(|r| r.screen == *screen)
-                            })
-                        });
-                        if failed {
-                            self.warn_runtime("no reading app could open the book");
-                        } else {
-                            self.open_slot_command(slot, screen, params);
-                        }
-                    }
-                    command => self.apply(command),
-                }
-            }
+            Command::OpenBook(params) => self.open_book_command(params),
             Command::Close(key) => self.close_screen(key),
             Command::Replace(screen, params) => self.replace(screen, &params),
             Command::BackTo(id) => self.back_to(&id),
@@ -421,12 +425,19 @@ impl Kernel {
             Command::Restart => self.restart = true,
             Command::LoadPlugin(folder) => self.load_plugin(&folder),
             Command::RemovePlugin(id) => self.remove_plugin(&id),
-            Command::InstallPlugin(id, folder) => self.install_plugin(&id, &folder),
+            Command::InstallPlugin(id, folder) => {
+                // As for network work (`wants_heap`): installing wants the heap.
+                self.shared.hyphenation.close_tables();
+                self.install_plugin(&id, &folder);
+            }
             Command::RequestPlugins { by, plugins } => self.request_plugins(by, plugins),
             Command::Sleep => self.sleep = self.shared.caps.sleep,
             Command::PowerOff => self.power_off = self.shared.caps.power_off,
             Command::UsbDrive => {
                 self.usb_drive = self.shared.caps.has(paperpaw_sdk::Capability::USB_DRIVE);
+                if self.usb_drive {
+                    self.free_count.pause_for_usb();
+                }
             }
             Command::KeepAwake(hold) => self.keep_awake(hold),
             Command::LetSleep(id) => self.let_sleep(&id),
@@ -559,6 +570,11 @@ impl Kernel {
         // A page turned, also by itself, is use.
         if *event == events::PAGE_TURNED {
             self.last_activity = self.now;
+        }
+        // A book closed: the hyphenation tables open for it give their heap
+        // back (opened again at the next word).
+        if *event == events::BOOK_CLOSED {
+            self.shared.hyphenation.close_tables();
         }
         self.tasks_follow_books(event, params);
         let guarded = self.guarded_screens();
@@ -829,6 +845,11 @@ impl Kernel {
     }
 
     fn apply_io(&mut self, command: Command) {
+        // Network, store and firmware work want the heap: the hyphenation
+        // tables open give theirs back (opened again at the next word).
+        if wants_heap(&command) {
+            self.shared.hyphenation.close_tables();
+        }
         let (network, screens) = (self.shared.caps.network, self.stack.len());
         let out = &mut self.output.commands;
         match command {
@@ -928,6 +949,21 @@ impl Kernel {
             }
             _ => {}
         }
+    }
+}
+
+/// Whether `command` starts work that wants much of the heap: the Wi-Fi
+/// radio on or joining, a request, a connection or a server, or the
+/// firmware's check, download or install.
+fn wants_heap(command: &Command) -> bool {
+    match command {
+        Command::Wifi(wifi) => !matches!(wifi, WifiCommand::Off | WifiCommand::Leave),
+        Command::Firmware(_)
+        | Command::Http(_)
+        | Command::Connect { .. }
+        | Command::StartTls { .. }
+        | Command::Serve { .. } => true,
+        _ => false,
     }
 }
 

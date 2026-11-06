@@ -54,20 +54,20 @@ fn the_page_carries_the_minimums_and_0_is_the_languages_own() {
     let h = harness(true, Some((0, 0)));
     let page = page(&h, "en");
     assert_eq!(page.hyphen_minimums, (0, 0));
-    assert_eq!(page.patterns(&h.env()).unwrap().minimums(), (2, 2));
+    assert_eq!(breaks(&page, &h, "abababa"), [3, 5]);
     // "abab" can take no hyphen with 2 and 2.
     assert!(breaks(&page, &h, "abab").is_empty());
 
     let h = harness(true, Some((1, 1)));
     let page = page_of(&h);
-    assert_eq!(page.patterns(&h.env()).unwrap().minimums(), (1, 1));
+    assert_eq!(breaks(&page, &h, "abababa"), [1, 3, 5]);
     assert_eq!(breaks(&page, &h, "abab"), [1, 3]);
 
     // One given, the other the language's own.
     let h = harness(true, Some((0, 3)));
-    assert_eq!(page_of(&h).patterns(&h.env()).unwrap().minimums(), (2, 3));
+    assert_eq!(breaks(&page_of(&h), &h, "abababa"), [3]);
     let h = harness(true, Some((4, 0)));
-    assert_eq!(page_of(&h).patterns(&h.env()).unwrap().minimums(), (4, 2));
+    assert_eq!(breaks(&page_of(&h), &h, "abababa"), [5]);
 }
 
 fn page_of(h: &Harness) -> PageType {

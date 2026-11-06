@@ -66,7 +66,7 @@ pub const INTERFACE: u16 = 7;
 /// Freezing deletes this constant and that line: the fingerprint is then
 /// made as if there had never been drafts, and refuses every draft's
 /// builds too.
-pub const DRAFT: u16 = 1;
+pub const DRAFT: u16 = 2;
 
 /// The crates whose types cross between a plugin and PaperPaw, by the
 /// names their paths begin with: the SDK and every crate of PaperPaw it
@@ -319,6 +319,7 @@ pub fn remember_author(storage: &dyn Storage, plugin: &str, key: &[u8; 32]) -> b
 /// the Wi-Fi transfer nor plugins' own folders reach.
 const INSTALLED: &str = crate::data_path!("plugin-code.txt");
 
+pub mod declare;
 pub mod keys;
 
 #[cfg(feature = "kernel")]

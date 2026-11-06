@@ -42,6 +42,10 @@ before 1.0.
    Linux computer), `--only <group>` for one group, `--list` for the
    names. Each step's exit code is its own: the summary lists the failed
    steps and the skipped ones (a missing tool is a skip, not a pass).
+   Where `sccache` is installed, `ci-local` builds through it
+   (`tools/sccache-wrap.sh`, `CI_LOCAL_SCCACHE=0` turns it off); for your own
+   `cargo` runs, `export RUSTC_WRAPPER=$PWD/tools/sccache-wrap.sh` does the same,
+   so that crates.io dependencies are compiled once for every build folder.
    Not run there: the Xtensa firmware (X4 Pro, X4 Classic), the Windows and
    macOS emulators, the update path, the Android APK, the reproducible
    build, CodeQL. Run it before pushing a pull request: CI minutes are

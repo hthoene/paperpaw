@@ -52,6 +52,7 @@ mod core_plugin;
 mod data_plugin;
 mod drawing;
 mod effects;
+mod free_count;
 mod gestures;
 mod hints;
 mod input;
@@ -246,6 +247,8 @@ pub struct Kernel {
     /// When the device went to sleep ([`Kernel::suspend`]): how long it
     /// slept is told on waking.
     suspended_at: Option<Instant>,
+    /// The card's free space counted in ticks (see [`free_count`]).
+    free_count: free_count::FreeCount,
     /// The row of hints over the buttons below the screen.
     hint: hints::HintRow,
     /// See [`KernelBuilder::busy_mark`].
@@ -415,6 +418,7 @@ impl Kernel {
         self.invalidate(self.framebuffer.bounds());
         self.output.commands.push(Command::open_slot(slots::HOME));
         self.output.commands.push(events::STARTED.emit(()));
+        self.count_free_again(now);
         // The device slept and restarted: it wakes as it would elsewhere.
         if mem::take(&mut self.after_sleep) {
             self.output.commands.push(events::RESUME.emit(()));
@@ -852,6 +856,7 @@ impl Kernel {
         if self.notice.as_ref().is_some_and(|(_, until)| *until <= now) {
             self.end_notice();
         }
+        self.count_free(now);
         // Times and deadlines come due here; jobs step only here, never
         // while input waits.
         self.works.ticking();
@@ -1154,6 +1159,9 @@ impl Kernel {
         self.output.commands.push(events::SUSPEND.emit(()));
         self.bluetooth_suspend();
         let effects = self.finish();
+        // Asleep, no word is hyphenated: the tables open give their heap
+        // back (and the card may be another on waking).
+        self.shared.hyphenation.close_tables();
         self.keep_timing();
         // What plugins saved, and what storage kept back, written.
         let _ = self.shared.storage.sync();
@@ -1195,6 +1203,7 @@ impl Kernel {
         // The time asleep is no screen's.
         self.shown_since = now;
         self.close_shut_out();
+        self.count_free_again(now);
         self.output.commands.push(events::RESUME.emit(()));
     }
 
@@ -1205,6 +1214,8 @@ impl Kernel {
     pub fn usb_drive_ended(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
         self.woke(now);
+        // A computer may have changed the card, or another card is in.
+        self.shared.hyphenation.card_changed();
         self.output.commands.push(events::USB_DRIVE_ENDED.emit(()));
         self.output.commands.push(events::LIBRARY_CHANGED.emit(()));
         self.finish()
@@ -1328,8 +1339,6 @@ struct Shared {
     font_dirs: Vec<String>,
     /// The folders of data plugins, by plugin, for removing them.
     data_folders: Vec<(Id, String)>,
-    /// Hyphenation tables of data plugins, by language (formats 5).
-    hyphenation_tables: data_plugin::hyphenation::Tables,
     /// The folders data plugins are found in.
     plugin_dirs: Vec<String>,
     /// What plugin libraries call this kind of device (see

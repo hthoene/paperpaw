@@ -495,11 +495,63 @@ const paperpaw_sdk::memory::Memory::NONE: Self = Self { read: None }
 const paperpaw_sdk::memory::Placement::FAST: Self = Self(1)
 const paperpaw_sdk::memory::Placement::LARGE: Self = Self(2)
 const paperpaw_sdk::native::CODE_FILES: &[&str] = &[ "code.ppn", "code.so", "code-host.dll", "code-host.so", "code-host.dylib", ]
-const paperpaw_sdk::native::DRAFT: u16 = 1u16
+const paperpaw_sdk::native::DRAFT: u16 = 2u16
 const paperpaw_sdk::native::FINGERPRINT: paperpaw_sdk::native::Fingerprint = Fingerprint::of(INTERFACE, { let mut hash = layout::Fnv::new()
 const paperpaw_sdk::native::INTERFACE: u16 = 7u16
-const paperpaw_sdk::native::LAYOUT: u64 = 10_440_263_880_052_507_335u64
+const paperpaw_sdk::native::LAYOUT: u64 = 10_966_988_515_060_024_239u64
 const paperpaw_sdk::native::TOOLCHAIN: &str = if cfg!(target_arch = "riscv32") { "rustc 1.99.0, riscv32imc-unknown-none-elf" } else if cfg!(target_arch = "xtensa") { "esp 1.97.0.0, xtensa-esp32s3-none-elf" } else { "the compiler of PaperPaw's release, for this computer" }
+const paperpaw_sdk::native::declare::BATCH_MAX_BYTES: usize = 4_096usize
+const paperpaw_sdk::native::declare::BATCH_MAX_RECORDS: usize = 8usize
+const paperpaw_sdk::native::declare::CHOICES_MAX_VALUES: usize = 32usize
+const paperpaw_sdk::native::declare::CHOICE_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::EVENT_BATTERY_MEASURED_TAG: u32 = 36u32
+const paperpaw_sdk::native::declare::records_wire::EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES: usize = 256usize
+const paperpaw_sdk::native::declare::records_wire::EVENT_PAGE_TURNED_PATH_MAX_BYTES: usize = 512usize
+const paperpaw_sdk::native::declare::records_wire::EVENT_PAGE_TURNED_TAG: u32 = 37u32
+const paperpaw_sdk::native::declare::records_wire::EVENT_PAGE_TURNED_TITLE_MAX_BYTES: usize = 256usize
+const paperpaw_sdk::native::declare::records_wire::EVENT_RESUME_TAG: u32 = 33u32
+const paperpaw_sdk::native::declare::records_wire::EVENT_STARTED_TAG: u32 = 32u32
+const paperpaw_sdk::native::declare::records_wire::EVENT_STOPPING_TAG: u32 = 35u32
+const paperpaw_sdk::native::declare::records_wire::EVENT_SUSPEND_TAG: u32 = 34u32
+const paperpaw_sdk::native::declare::records_wire::EVENT_TICK_TAG: u32 = 3u32
+const paperpaw_sdk::native::declare::records_wire::REGISTRATION_MAX_BYTES: usize = 4_096usize
+const paperpaw_sdk::native::declare::records_wire::REGISTRATION_MAX_RECORDS: usize = 8usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_EXTENSION_EXTENDS_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_EXTENSION_NAME_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_EXTENSION_PATH_MAX_BYTES: usize = 100usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_EXTENSION_TAG: u32 = 10u32
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_FACE_FAMILY_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_FACE_NAME_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_FACE_PATH_MAX_BYTES: usize = 100usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_FACE_ROLE_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_FACE_TAG: u32 = 9u32
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_HYPHENATION_LANGUAGE_MAX_BYTES: usize = 35usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_HYPHENATION_PATH_MAX_BYTES: usize = 100usize
+const paperpaw_sdk::native::declare::records_wire::RESOURCE_HYPHENATION_TAG: u32 = 8u32
+const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_EDITOR_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_FOLLOWS_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_NAME_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_SECTION_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_SHOWN_ID_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_SHOWN_VALUE_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_TAG: u32 = 7u32
+const paperpaw_sdk::native::declare::records_wire::SETTING_EXTRA_UNIT_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_GROUP_NAME_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_GROUP_PAGE_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_GROUP_PARENT_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_GROUP_TAG: u32 = 5u32
+const paperpaw_sdk::native::declare::records_wire::SETTING_GROUP_TITLE_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_CHOICES_MAX_BYTES: usize = 1_024usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_DEFAULT_MAX_BYTES: usize = 512usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_GROUP_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_HELP_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_NAME_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_TAG: u32 = 6u32
+const paperpaw_sdk::native::declare::records_wire::SETTING_SPEC_TITLE_MAX_BYTES: usize = 96usize
+const paperpaw_sdk::native::declare::settings_value::SETTINGS_HEADER_BYTES: usize = 12usize
+const paperpaw_sdk::native::declare::settings_value::SETTINGS_LAYOUT: u32 = 1u32
+const paperpaw_sdk::native::declare::settings_value::SETTINGS_MAX_BYTES: usize = 4_096usize
+const paperpaw_sdk::native::declare::settings_value::SETTINGS_MAX_TEXT_BYTES: usize = 4_084usize
 const paperpaw_sdk::native::keys::MAX_REVOKED: usize = 256usize
 const paperpaw_sdk::numbers::DECIMAL_MARK: &str = "core.decimal"
 const paperpaw_sdk::pattern::MAX_PATTERN: usize = 256usize
@@ -741,6 +793,8 @@ enum paperpaw_sdk::firmware::Signer { PaperPaw, Unknown }
 enum paperpaw_sdk::gesture::Direction { Left, Right, Up, Down }
 enum paperpaw_sdk::gesture::GestureKind { Tap, LongPress, Swipe(0: paperpaw_sdk::gesture::Direction), Pinch { out: bool }, DoubleTap, TwoFingerTap, Other(0: &'static str) }
 enum paperpaw_sdk::help::Input { Any, Touch, Buttons }
+enum paperpaw_sdk::hyphenation::Table<'a> { Compiled(0: paperpaw_hyphen::Patterns<'static>), Card(0: &'a paperpaw_sdk::hyphenation::card::CardTables, 1: u32) }
+enum paperpaw_sdk::hyphenation::card::Unopened { Failed, GiveUp, NoRoom }
 enum paperpaw_sdk::install::Digest { Sha1(0: alloc::string::String), Sha256(0: alloc::string::String) }
 enum paperpaw_sdk::install::Received { Other, Next(0: paperpaw_sdk::install::Progress), Complete(0: paperpaw_sdk::install::Progress), Failed(0: paperpaw_sdk::install::Progress) }
 enum paperpaw_sdk::install::origin::Origin { Store, Local }
@@ -764,6 +818,12 @@ enum paperpaw_sdk::menus::MenuPlace { Order(0: i16), After(0: paperpaw_sdk::id::
 enum paperpaw_sdk::native::Author { Known, New, Other }
 enum paperpaw_sdk::native::NotInstalledReason { OtherAuthor, Damaged }
 enum paperpaw_sdk::native::SafeModeReason { FailedStarts, KeyHeld }
+enum paperpaw_sdk::native::declare::DeclareError { Empty(0: &'static str), TooLong(0: &'static str), Default, Range, Choices, SecretScoped, Encode(0: i32), Sink(0: i32) }
+enum paperpaw_sdk::native::declare::EditorDecl<'a> { Screen(0: &'a str), Slot(0: &'a str) }
+enum paperpaw_sdk::native::declare::Kind<'a> { Bool(0: bool), Int { default: i64, min: i32, max: i32 }, Choice { default: &'a str, choices: &'a [&'a str] }, Text(0: &'a str), Language(0: &'a str), List(0: &'a str) }
+enum paperpaw_sdk::native::declare::records_wire::Record<'a> { Registration(0: paperpaw_sdk::native::declare::records_wire::Registration), SettingGroup(0: paperpaw_sdk::native::declare::records_wire::SettingGroup<'a>), SettingSpec(0: paperpaw_sdk::native::declare::records_wire::SettingSpec<'a>), SettingExtra(0: paperpaw_sdk::native::declare::records_wire::SettingExtra<'a>), ResourceHyphenation(0: paperpaw_sdk::native::declare::records_wire::ResourceHyphenation<'a>), ResourceFontFace(0: paperpaw_sdk::native::declare::records_wire::ResourceFontFace<'a>), ResourceFontExtension(0: paperpaw_sdk::native::declare::records_wire::ResourceFontExtension<'a>), EventStarted(0: paperpaw_sdk::native::declare::records_wire::EventStarted), EventResume(0: paperpaw_sdk::native::declare::records_wire::EventResume), EventSuspend(0: paperpaw_sdk::native::declare::records_wire::EventSuspend), EventStopping(0: paperpaw_sdk::native::declare::records_wire::EventStopping), EventBatteryMeasured(0: paperpaw_sdk::native::declare::records_wire::EventBatteryMeasured), EventPageTurned(0: paperpaw_sdk::native::declare::records_wire::EventPageTurned<'a>) }
+enum paperpaw_sdk::native::declare::records_wire::Registration { Event { event_tag: u32, token: u32 }, Draw { token: u32 } }
+enum paperpaw_sdk::native::declare::settings_value::SettingValueRef<'a> { Absent, Bool(0: bool), Int(0: i64), Text(0: &'a str) }
 enum paperpaw_sdk::native::keys::RevokedError { Full, NotKept }
 enum paperpaw_sdk::native::keys::RotationError { NoAuthor, NoRecoveryKey, BadSignature, Refused, NotKept }
 enum paperpaw_sdk::pattern::Item { Range(0: char, 1: char), Digit(0: bool), Word(0: bool), Space(0: bool) }
@@ -969,8 +1029,13 @@ struct paperpaw_sdk::help::HelpHint { text: alloc::string::String, input: paperp
 struct paperpaw_sdk::help::Zone { x: u16, y: u16, w: u16, h: u16 }
 struct paperpaw_sdk::host::Hosted { id: paperpaw_sdk::id::Id, params: paperpaw_sdk::params::Params, screen: alloc::boxed::Box<dyn paperpaw_sdk::screen::Screen>, area: paperpaw_platform::geometry::Rect }
 struct paperpaw_sdk::host::ScreenHost { hosted: core::option::Option<paperpaw_sdk::host::Hosted> }
-struct paperpaw_sdk::hyphenation::Hyphenation { languages: alloc::vec::Vec<(paperpaw_sdk::id::Id, alloc::borrow::Cow<'static, str>, paperpaw_hyphen::Patterns<'static>)> }
+struct paperpaw_sdk::hyphenation::Hyphenation { languages: alloc::vec::Vec<(paperpaw_sdk::id::Id, alloc::borrow::Cow<'static, str>, paperpaw_hyphen::Patterns<'static>)>, card: paperpaw_sdk::hyphenation::card::CardTables }
 struct paperpaw_sdk::hyphenation::HyphenationSpec { id: paperpaw_sdk::id::Id, language: alloc::borrow::Cow<'static, str>, patterns: &'static [u8] }
+struct paperpaw_sdk::hyphenation::Hyphenator<'a> { table: paperpaw_sdk::hyphenation::Table<'a>, left: usize, right: usize }
+struct paperpaw_sdk::hyphenation::card::CardTables { storage: core::option::Option<alloc::rcs::rc::Rc<dyn paperpaw_platform::storage::Storage>>, opener: core::option::Option<paperpaw_sdk::hyphenation::card::Opener>, entries: alloc::vec::Vec<paperpaw_sdk::hyphenation::card::Entry>, next_serial: u32, open: core::cell::RefCell<alloc::vec::Vec<paperpaw_sdk::hyphenation::card::Open>>, clock: core::cell::Cell<u64> }
+struct paperpaw_sdk::hyphenation::card::Entry { plugin: alloc::string::String, tag: alloc::string::String, path: alloc::string::String, serial: u32, failures: core::cell::Cell<u8>, needed: core::cell::Cell<usize> }
+struct paperpaw_sdk::hyphenation::card::Open { serial: u32, stamp: u64, reader: alloc::boxed::Box<dyn paperpaw_sdk::hyphenation::card::Reader> }
+struct paperpaw_sdk::hyphenation::card::Opener { open: fn(&alloc::rcs::rc::Rc<dyn paperpaw_platform::storage::Storage>, &str, &mut dyn core::ops::function::FnMut(usize) -> core::option::Option<usize> + '_) -> core::result::Result<alloc::boxed::Box<dyn paperpaw_sdk::hyphenation::card::Reader>, paperpaw_sdk::hyphenation::card::Unopened> }
 struct paperpaw_sdk::id::Id(0: paperpaw_sdk::id::Text)
 struct paperpaw_sdk::id::InvalidId
 struct paperpaw_sdk::id::Text { start: core::ptr::non_null::NonNull<u8>, len: usize }
@@ -1031,6 +1096,27 @@ struct paperpaw_sdk::native::Fingerprint(0: u64)
 struct paperpaw_sdk::native::Native { fingerprint: paperpaw_sdk::native::Fingerprint, toolchain: alloc::borrow::Cow<'static, str>, compiler: u32, file: alloc::borrow::Cow<'static, str>, safe_mode: core::option::Option<paperpaw_sdk::native::SafeMode>, not_installed: alloc::vec::Vec<paperpaw_sdk::native::NotInstalled>, api_size: u32, family_revs: paperpaw_table::Revisions, family_min: paperpaw_table::Revisions }
 struct paperpaw_sdk::native::NotInstalled { plugin: paperpaw_sdk::id::Id, reason: paperpaw_sdk::native::NotInstalledReason }
 struct paperpaw_sdk::native::SafeMode { reason: paperpaw_sdk::native::SafeModeReason, last_loaded: core::option::Option<alloc::string::String>, crashed: core::option::Option<alloc::string::String>, switched_off: alloc::vec::Vec<paperpaw_sdk::id::Id> }
+struct paperpaw_sdk::native::declare::Declarations<F> { sink: F, bytes: alloc::vec::Vec<u8>, used: usize, count: usize, total: usize, failed: core::option::Option<i32> }
+struct paperpaw_sdk::native::declare::ExtraDecl<'a> { name: &'a str, unit: &'a str, section: &'a str, follows: &'a str, shown_if: core::option::Option<(&'a str, &'a str)>, editor: core::option::Option<paperpaw_sdk::native::declare::EditorDecl<'a>>, step: i32, slider: bool, section_of_plugin: bool, keeps_unknown: bool }
+struct paperpaw_sdk::native::declare::FontExtensionDecl<'a> { name: &'a str, path: &'a str, extends: &'a str }
+struct paperpaw_sdk::native::declare::FontFaceDecl<'a> { name: &'a str, path: &'a str, family: &'a str, style: u32, weight: u32, role: &'a str, priority: i32 }
+struct paperpaw_sdk::native::declare::GroupDecl<'a> { name: &'a str, title: &'a str, order: i32, page: &'a str, parent: &'a str }
+struct paperpaw_sdk::native::declare::SpecDecl<'a> { name: &'a str, kind: paperpaw_sdk::native::declare::Kind<'a>, group: &'a str, title: &'a str, help: &'a str, scoped: bool, guarded: bool, kept_on_reset: bool, secret: bool, advanced: bool }
+struct paperpaw_sdk::native::declare::records_wire::EventBatteryMeasured { now_ms: u64 }
+struct paperpaw_sdk::native::declare::records_wire::EventPageTurned<'a> { now_ms: u64, section: u32, offset: u32, progress_ppm: u32, path: &'a str, title: &'a str, chapter: &'a str, page: core::option::Option<u32>, pages: core::option::Option<u32> }
+struct paperpaw_sdk::native::declare::records_wire::EventResume { now_ms: u64 }
+struct paperpaw_sdk::native::declare::records_wire::EventStarted { now_ms: u64 }
+struct paperpaw_sdk::native::declare::records_wire::EventStopping { now_ms: u64 }
+struct paperpaw_sdk::native::declare::records_wire::EventSuspend { now_ms: u64 }
+struct paperpaw_sdk::native::declare::records_wire::RecordBatch<'a> { records: [core::option::Option<paperpaw_sdk::native::declare::records_wire::Record<'a>>; 8], len: usize }
+struct paperpaw_sdk::native::declare::records_wire::RecordIter<'b, 'a> { records: core::slice::iter::Iter<'b, core::option::Option<paperpaw_sdk::native::declare::records_wire::Record<'a>>> }
+struct paperpaw_sdk::native::declare::records_wire::RegistrationBatch { records: [core::option::Option<paperpaw_sdk::native::declare::records_wire::Registration>; 8], len: usize }
+struct paperpaw_sdk::native::declare::records_wire::ResourceFontExtension<'a> { name: &'a str, path: &'a str, extends: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::ResourceFontFace<'a> { name: &'a str, path: &'a str, family: &'a str, style: u32, weight: u32, role: &'a str, priority: i32 }
+struct paperpaw_sdk::native::declare::records_wire::ResourceHyphenation<'a> { language: &'a str, path: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::SettingExtra<'a> { name: &'a str, unit: &'a str, section: &'a str, follows: &'a str, shown_id: &'a str, shown_value: &'a str, editor_kind: u32, editor: &'a str, step: i32, flags: u32, check: u32 }
+struct paperpaw_sdk::native::declare::records_wire::SettingGroup<'a> { name: &'a str, title: &'a str, order: i32, page: &'a str, parent: &'a str }
+struct paperpaw_sdk::native::declare::records_wire::SettingSpec<'a> { name: &'a str, kind: u32, flags: u32, group: &'a str, title: &'a str, help: &'a str, default: &'a [u8], min: i32, max: i32, choices: &'a str }
 struct paperpaw_sdk::native::keys::Revocation { plugin: alloc::string::String, key: [u8; 32], signature: [u8; 64] }
 struct paperpaw_sdk::params::Params { values: alloc::vec::Vec<(alloc::borrow::Cow<'static, str>, alloc::string::String)>, carried: core::option::Option<alloc::rcs::rc::Rc<dyn core::any::Any>> }
 struct paperpaw_sdk::pattern::Class { negated: bool, items: alloc::vec::Vec<paperpaw_sdk::pattern::Item> }
@@ -1237,6 +1323,7 @@ struct paperpaw_sdk::work::WorkSpec { id: paperpaw_sdk::id::Id, title: alloc::bo
 struct paperpaw_sdk::work::WorkStates { works: alloc::vec::Vec<(paperpaw_sdk::id::Id, alloc::string::String, paperpaw_sdk::work::WorkState)>, notes: alloc::vec::Vec<(paperpaw_sdk::id::Id, paperpaw_sdk::work::Note)> }
 trait paperpaw_sdk::event::EventData { function to_params(&Self) -> paperpaw_sdk::params::Params, function from_params(&paperpaw_sdk::params::Params) -> core::option::Option<Self>, function into_params(Self) -> paperpaw_sdk::params::Params }
 trait paperpaw_sdk::event::ParamValue { function to_param(&Self) -> alloc::string::String, function from_param(&str) -> core::option::Option<Self>, function missing() -> core::option::Option<Self> }
+trait paperpaw_sdk::hyphenation::card::Reader { function hyphenate(&mut Self, usize, usize, &str, &mut dyn core::ops::function::FnMut(usize)), function is_failed(&Self) -> bool, function heap(&Self) -> usize }
 trait paperpaw_sdk::keys::GestureRecognizer { function pointer(&mut Self, &paperpaw_platform::input::PointerEvent, paperpaw_platform::input::Instant) -> paperpaw_sdk::keys::PointerVerdict, function tick(&mut Self, paperpaw_platform::input::Instant) -> paperpaw_sdk::keys::Recognition, function next_tick(&Self) -> core::option::Option<paperpaw_platform::input::Instant>, function extended(&mut Self, &paperpaw_sdk::id::Id, &paperpaw_sdk::params::Params) -> paperpaw_sdk::screen::Handled }
 trait paperpaw_sdk::keys::KeyBindings { function bound(&Self, &[&str], &str) -> core::option::Option<paperpaw_sdk::id::Id>, function bindings(&Self, &str) -> alloc::vec::Vec<(alloc::string::String, core::option::Option<paperpaw_sdk::id::Id>, paperpaw_sdk::keys::BindingOrigin)>, function extended(&Self, &paperpaw_sdk::id::Id, &paperpaw_sdk::params::Params) -> core::option::Option<paperpaw_sdk::params::Params> }
 trait paperpaw_sdk::library::service::Library { function book(&Self, &paperpaw_sdk::env::Env<'_>, &str) -> core::option::Option<paperpaw_sdk::library::Book>, function catalog_state(&Self, &paperpaw_sdk::env::Env<'_>) -> paperpaw_sdk::library::catalog::State, function each(&Self, &paperpaw_sdk::env::Env<'_>, &mut dyn core::ops::function::FnMut(u64, paperpaw_sdk::library::catalog::Record)), function records(&Self, &paperpaw_sdk::env::Env<'_>, &[u64]) -> alloc::vec::Vec<core::option::Option<paperpaw_sdk::library::catalog::Record>>, function version(&Self, &paperpaw_sdk::env::Env<'_>) -> core::option::Option<u64>, function query(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library::catalog::Query, core::option::Option<&paperpaw_sdk::library::catalog::Record>, usize) -> alloc::vec::Vec<paperpaw_sdk::library::catalog::Record>, function found(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library::catalog::Query) -> usize, function index(&Self, &paperpaw_sdk::env::Env<'_>, usize, &str) -> paperpaw_sdk::library::index::Index, function is_current(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library::index::Index) -> bool, function refresh(&Self, &paperpaw_sdk::env::Env<'_>, &mut paperpaw_sdk::library::index::Index), function keep_index(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library::index::Index, &str, &str) -> bool, function kept_index(&Self, &paperpaw_sdk::env::Env<'_>, &str, &str) -> core::option::Option<paperpaw_sdk::library::index::Index>, function record(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library::index::Index, usize) -> core::option::Option<paperpaw_sdk::library::catalog::Record>, function set_finished(&Self, &paperpaw_sdk::env::Env<'_>, &str, bool) -> paperpaw_sdk::command::Command, function set_favourite(&Self, &paperpaw_sdk::env::Env<'_>, &str, bool) -> paperpaw_sdk::command::Command, function can_delete(&Self, &paperpaw_sdk::env::Env<'_>, &str) -> bool, function delete(&Self, &paperpaw_sdk::env::Env<'_>, &[&str]) -> paperpaw_sdk::library::service::Deleted, function extended(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::id::Id, &paperpaw_sdk::params::Params) -> core::option::Option<paperpaw_sdk::params::Params> }
