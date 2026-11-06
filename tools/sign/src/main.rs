@@ -16,6 +16,7 @@ use std::process::ExitCode;
 mod asset;
 mod elf;
 mod firmware;
+mod frames;
 mod hot;
 mod image;
 mod pack;
