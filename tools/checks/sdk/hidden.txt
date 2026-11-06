@@ -14,3 +14,4 @@ crates/paperpaw-sdk/src/event.rs: pub fn take  # what event_data! expands to
 crates/paperpaw-sdk/src/native.rs: pub mod support  # what plugin! expands to
 crates/paperpaw-sdk/src/version.rs: pub const fn number  # what package_version! expands to
 crates/paperpaw-sdk/src/version.rs: pub const fn of_package  # what package_version! expands to
+crates/paperpaw-sdk/src/native.rs: pub use binding::entry as __entry  # what native_plugin! expands to
