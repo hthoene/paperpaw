@@ -158,3 +158,103 @@ unsafe extern "C" fn destroy(state: *mut core::ffi::c_void) {{
     ));
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// PR #133: a library that is otherwise valid (metadata, entry, factory) but
+/// imports a symbol is refused from its bytes, before it is mapped. The
+/// positive control is the same source without the import.
+#[test]
+fn real_libraries_that_import_symbols_are_refused_before_any_load() {
+    let root = crate::private::dir("paperpaw-abi7-imports").unwrap();
+    let abi = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../abi/generated/paperpaw_abi.rs")
+        .canonicalize()
+        .unwrap();
+    let bytes = metadata_bytes();
+    let source = |imports: &str, call: &str| {
+        format!(
+            r#"
+#![no_std]
+#![allow(dead_code)]
+include!({abi:?});
+#[panic_handler] fn panic(_: &core::panic::PanicInfo) -> ! {{ loop {{}} }}
+{imports}
+#[unsafe(no_mangle)] pub static PAPERPAW_METADATA: [u8; {len}] = {bytes:?};
+#[repr(transparent)] pub struct Entry(PpEntry);
+unsafe impl Sync for Entry {{}}
+#[unsafe(no_mangle)] pub static PAPERPAW_ENTRY: Entry = Entry(PpEntry {{
+    size: core::mem::size_of::<PpEntry>() as u32, abi_major: 7, needs_minor: 1,
+    metadata: PpBytes {{ ptr: PAPERPAW_METADATA.as_ptr(), len: {len} }}, make: Some(make),
+}});
+unsafe extern "C" fn make(_: *const PpHost, _: *mut core::ffi::c_void, out: *mut *const PpPlugin) -> i32 {{
+    {call}
+    unsafe {{ out.write(core::ptr::null()); }}
+    ERR_INVALID
+}}
+"#,
+            len = bytes.len()
+        )
+    };
+    let compile = |name: &str, source: &str| {
+        let input = root.join(format!("{name}.rs"));
+        let output = root.join(format!("{name}.so"));
+        std::fs::write(&input, source).unwrap();
+        let result = Command::new("rustc")
+            .args([
+                "--edition=2024",
+                "--crate-type=cdylib",
+                "-Cpanic=abort",
+                "-Copt-level=2",
+                "-Clink-arg=-nostartfiles",
+            ])
+            .arg(&input)
+            .arg("-o")
+            .arg(&output)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        output
+    };
+    let host = crate::host_services::desktop_host();
+    let refused = |path: &std::path::Path| {
+        let digest = paperpaw_core::sdk::digest::sha256::digest(&std::fs::read(path).unwrap());
+        // SAFETY: refusal is decided on bytes; an accepted library is never run here.
+        let result = unsafe { load(path, &digest, host) };
+        let mapped = std::fs::read_to_string("/proc/self/maps")
+            .unwrap()
+            .contains(path.to_str().unwrap());
+        (result.err(), mapped)
+    };
+    for (name, imports, call) in [
+        (
+            "memcpy",
+            r#"unsafe extern "C" { fn memcpy(d: *mut u8, s: *const u8, n: usize) -> *mut u8; }"#,
+            "let mut a = [0u8; 64]; let n = unsafe { core::ptr::read_volatile(&PAPERPAW_METADATA[0]) } as usize % 64; unsafe { memcpy(a.as_mut_ptr(), PAPERPAW_METADATA.as_ptr(), n); core::ptr::read_volatile(&a[0]); }",
+        ),
+        (
+            "personality",
+            r#"unsafe extern "C" { fn rust_eh_personality(); }
+#[used] static KEEP: unsafe extern "C" fn() = rust_eh_personality;"#,
+            "",
+        ),
+    ] {
+        let path = compile(name, &source(imports, call));
+        let (error, mapped) = refused(&path);
+        assert_eq!(error, Some(RuntimeError::Import), "{name} must be refused");
+        assert!(!mapped, "{name} was never mapped");
+    }
+    // Positive control: no import. It passes the import check and is only then
+    // turned away by its (deliberately failing) factory, after a real load.
+    let path = compile("clean", &source("", ""));
+    let (error, _) = refused(&path);
+    assert_eq!(
+        error,
+        Some(RuntimeError::Factory(
+            paperpaw_native::host_glue::ERR_INVALID
+        ))
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}

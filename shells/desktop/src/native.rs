@@ -260,7 +260,18 @@ impl HeldLibrary {
         path: &std::path::Path,
         file: std::fs::File,
     ) -> Result<Self, libloading::Error> {
+        // SAFETY: as documented. Every symbol is bound while loading (`RTLD_NOW`),
+        // so nothing is resolved lazily later, and none is shared with the process.
+        #[cfg(unix)]
+        let library = unsafe {
+            libloading::os::unix::Library::open(
+                Some(load_path(path, &file)),
+                libloading::os::unix::RTLD_NOW | libloading::os::unix::RTLD_LOCAL,
+            )
+        }?
+        .into();
         // SAFETY: as documented.
+        #[cfg(not(unix))]
         let library = unsafe { libloading::Library::new(load_path(path, &file)) }?;
         Ok(Self { library, file })
     }
