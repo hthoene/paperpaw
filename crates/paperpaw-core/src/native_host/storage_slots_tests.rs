@@ -315,7 +315,7 @@ fn bad_pairs_and_bounds_are_rejected_before_storage_or_output() {
 }
 
 #[test]
-fn reserve_errors_preserve_files_and_read_errors_zero_output() {
+fn reserve_and_read_errors_preserve_files_and_output() {
     let backend = Backend::default();
     // Stay above the 4096-byte recall limit so an invalid backend count
     // reaches the raw adapter instead of being consumed by the file cache.
@@ -470,4 +470,63 @@ fn outside_dispatch_and_invalid_owner_routes_have_no_effect() {
         assert!(StorageAdapter::borrowed_folder(&backend, "plugins/battery/").is_none());
     });
     assert_eq!(backend.files.get(FILE), None);
+}
+
+#[test]
+fn scratch_matches_requested_capacity_and_empty_reads_need_no_allocation() {
+    for capacity in [1, 17, 1024, MAX_DATA] {
+        let scratch = read_scratch(capacity).unwrap();
+        assert_eq!(scratch.len(), capacity);
+        assert!(scratch.iter().all(|byte| *byte == 0));
+    }
+    scratch_fault::refuse_next();
+    assert!(read_scratch(0).unwrap().is_empty());
+    assert_eq!(read_scratch(1), Err(ERR_NO_MEMORY));
+
+    let backend = Backend::default();
+    backend.files.write(FILE, b"keep").unwrap();
+    scoped(&backend, |scope, _| {
+        scratch_fault::refuse_next();
+        // SAFETY: live input and a non-null, exclusive empty output buffer.
+        assert_eq!(
+            unsafe { read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut [])) },
+            0
+        );
+        let mut out = [0xa5; 1];
+        // SAFETY: live, exclusive output. Empty read did not consume the fault.
+        assert_eq!(
+            unsafe { read_at(scope, OWNER, 0, bytes(b"state"), 0, output(&mut out)) },
+            ERR_NO_MEMORY
+        );
+        assert_eq!(out, [0xa5]);
+    });
+}
+
+#[test]
+fn read_validation_refusals_preserve_sentinel_output() {
+    let backend = Backend::default();
+    scoped(&backend, |scope, _| {
+        for (owner, path, expected) in [
+            (OWNER, bytes(&[0xff]), ERR_UTF8),
+            (OWNER, bytes(b"../state"), ERR_INVALID),
+            (
+                OWNER,
+                PpBytes {
+                    ptr: core::ptr::null(),
+                    len: 1,
+                },
+                ERR_INVALID,
+            ),
+            ("../other", bytes(b"state"), ERR_INVALID),
+        ] {
+            let mut out = [0xa5; 7];
+            // SAFETY: output is live and exclusive. Malformed input pairs must
+            // be refused before dereference or output initialization.
+            assert_eq!(
+                unsafe { read_at(scope, owner, 0, path, 0, output(&mut out)) },
+                expected
+            );
+            assert_eq!(out, [0xa5; 7]);
+        }
+    });
 }

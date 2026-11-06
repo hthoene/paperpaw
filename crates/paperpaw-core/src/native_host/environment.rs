@@ -12,13 +12,30 @@ use crate::abi7::{
     core_frame::CoreFrame,
     queries, snapshot,
 };
-use core::{fmt, pin::Pin};
+use core::{cell::Cell, fmt, pin::Pin};
 use paperpaw_sdk::Env;
 
 /// Scoped environment access inside a pinned per-plugin host context.
 #[non_exhaustive]
 pub struct EnvironmentScope {
     slot: FrameSlot,
+    resources: Option<super::resources::OwnerResourceView>,
+    callback: Cell<u64>,
+}
+
+struct ExpireBlobs<'a> {
+    resources: Option<&'a super::resources::OwnerResourceView>,
+    error: &'a Cell<Option<i32>>,
+}
+
+impl Drop for ExpireBlobs<'_> {
+    fn drop(&mut self) {
+        if let Some(resources) = self.resources
+            && let Err(error) = resources.expire_blobs()
+        {
+            self.error.set(Some(error));
+        }
+    }
 }
 
 impl EnvironmentScope {
@@ -27,7 +44,40 @@ impl EnvironmentScope {
     pub const fn new() -> Self {
         Self {
             slot: FrameSlot::new(),
+            resources: None,
+            callback: Cell::new(0),
         }
+    }
+
+    pub(crate) fn with_resources(resources: super::resources::OwnerResourceView) -> Self {
+        Self {
+            resources: Some(resources),
+            ..Self::new()
+        }
+    }
+
+    pub(crate) fn callback_id(&self) -> u64 {
+        self.callback.get()
+    }
+
+    fn run_callback<R>(&self, call: impl FnOnce() -> R) -> Result<R, Error> {
+        let next = self.callback.get().checked_add(1).ok_or(Error::Capacity)?;
+        self.callback.set(next);
+        let error = Cell::new(None);
+        let result = {
+            let _expire = ExpireBlobs {
+                resources: self.resources.as_ref(),
+                error: &error,
+            };
+            call()
+        };
+        error.get().map_or(Ok(result), |error| {
+            Err(if error == paperpaw_native::host_glue::ERR_BUSY {
+                Error::Busy
+            } else {
+                Error::State
+            })
+        })
     }
 
     /// Supply the event's environment only for this synchronous dispatch.
@@ -39,10 +89,11 @@ impl EnvironmentScope {
         // SAFETY: the slot is structurally pinned; no method moves it, and
         // EnvironmentScope has no destructor that moves the field.
         let slot = unsafe { self.map_unchecked(|this| &this.slot) };
-        slot.scope(env, call).map_err(|error| match error {
-            FrameError::Busy => Error::Busy,
-            FrameError::NoFrame => Error::State,
-        })
+        slot.scope(env, || self.run_callback(call))
+            .map_err(|error| match error {
+                FrameError::Busy => Error::Busy,
+                FrameError::NoFrame => Error::State,
+            })?
     }
 
     /// Core dispatch supplies separate shared field borrows for one callback.
@@ -54,10 +105,11 @@ impl EnvironmentScope {
     ) -> Result<R, Error> {
         // SAFETY: the slot is structurally pinned and never moved by this scope.
         let slot = unsafe { self.map_unchecked(|this| &this.slot) };
-        slot.scope(frame, call).map_err(|error| match error {
-            FrameError::Busy => Error::Busy,
-            FrameError::NoFrame => Error::State,
-        })
+        slot.scope(frame, || self.run_callback(call))
+            .map_err(|error| match error {
+                FrameError::Busy => Error::Busy,
+                FrameError::NoFrame => Error::State,
+            })?
     }
 
     /// Internal host operations borrow a frame only for this synchronous call.

@@ -362,3 +362,28 @@ fn a_segment_with_more_file_than_memory_or_past_the_file_gives_no_image() {
     let inside = elf_with_loads(&[(R, 0x100, 0x100, 0x200, 0x400)], 0x300);
     assert_eq!(read_only_segment(&inside, 0x1000, 0x110), (0x1100, 0x200));
 }
+
+#[test]
+fn metadata_omits_optional_features_and_names_unavailable_required_ones() {
+    let host = crate::host_services::desktop_host();
+    let key = "test.unimplemented";
+    for flags in [0_u16, 1, 2] {
+        let mut bytes = metadata_bytes();
+        for value in [(8 + key.len()) as u16, key.len() as u16, 1, flags] {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        bytes.extend_from_slice(key.as_bytes());
+        let total = bytes.len() as u32;
+        bytes[wire::TOTAL_BYTES..wire::TOTAL_BYTES + 4].copy_from_slice(&total.to_le_bytes());
+        bytes[wire::FEATURES..wire::FEATURES + 2].copy_from_slice(&1_u16.to_le_bytes());
+        let expected = match flags {
+            0 => Ok(1),
+            1 => Err(RuntimeError::RequiredFeature {
+                key: key.into(),
+                revision: 1,
+            }),
+            _ => Err(RuntimeError::Metadata),
+        };
+        assert_eq!(metadata(&bytes, host.table()), expected);
+    }
+}
