@@ -5,7 +5,8 @@
 #[path = "support/abi7.rs"]
 mod fixture;
 
-use paperpaw_core::native_host::{declarations::validate_batch, events, registrations::Record};
+use paperpaw_core::native_host::declarations::validate_batch;
+use paperpaw_sdk::native::events::{self, Event};
 
 #[test]
 fn borrowed_settings_match_the_existing_golden_without_registrar_conversion() {
@@ -42,11 +43,11 @@ fn lifecycle_fixtures_keep_all_five_edges_distinct() {
         assert_eq!(fixtures.len(), 5);
         for fixture in fixtures {
             let (name, now) = match events::decode(&fixture.bytes).unwrap() {
-                Record::EventStarted(event) => ("started", event.now_ms),
-                Record::EventResume(event) => ("resume", event.now_ms),
-                Record::EventSuspend(event) => ("suspend", event.now_ms),
-                Record::EventStopping(event) => ("stopping", event.now_ms),
-                Record::EventBatteryMeasured(event) => ("battery-measured", event.now_ms),
+                Event::Started { now_ms } => ("started", now_ms),
+                Event::Resume { now_ms } => ("resume", now_ms),
+                Event::Suspend { now_ms } => ("suspend", now_ms),
+                Event::Stopping { now_ms } => ("stopping", now_ms),
+                Event::BatteryMeasured { now_ms } => ("battery-measured", now_ms),
                 other => panic!("unexpected event: {other:?}"),
             };
             assert_eq!((name, now), (fixture.name, now_ms));
@@ -63,11 +64,14 @@ fn page_turn_fixtures_preserve_unknown_and_known_counters() {
         (Some(12), Some(300)),
     ] {
         let bytes = fixture::page_turn(60_000, page, pages).unwrap();
-        let Record::EventPageTurned(event) = events::decode(&bytes).unwrap() else {
+        let Event::PageTurned(event) = events::decode(&bytes).unwrap() else {
             panic!("expected a page-turn event");
         };
         assert_eq!((event.page, event.pages), (page, pages));
         assert_eq!(event.now_ms, 60_000);
         assert_eq!(event.path, "books/fixture.txt");
+        let start = bytes.as_ptr() as usize;
+        let path_start = event.path.as_ptr() as usize;
+        assert!(path_start >= start && path_start + event.path.len() <= start + bytes.len());
     }
 }
