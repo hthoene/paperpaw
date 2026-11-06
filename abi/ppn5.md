@@ -21,7 +21,7 @@ as an argument of `make`, with no global slot and no writable static. Interface-
 | 6..8 | `target` | chip id as today (5: ESP32-C3, the X4); 9 (X4 Pro) stays refused until an Xtensa profile exists in `abi/entry.md` |
 | 8..10 | `abi_major` = 7 | |
 | 10..12 | `needs_minor` | from the generated metadata; above the host's: needs a newer PaperPaw |
-| 12..16 | `flags` | 0; anything else is refused as a newer format |
+| 12..16 | `flags` | bit 0 `HEAP_WORD` (the plugin has `PAPERPAW_HEAP`, `abi/heap-word.md`); any other bit is refused as a newer format |
 | 16..20 | `base` | data address the image is linked at, as in format 4 |
 | 20..24 | `image_len` | read-only data, then code |
 | 24..28 | `code_at` | |
@@ -33,7 +33,7 @@ as an argument of `make`, with no global slot and no writable static. Interface-
 | 48..52 | `hot_at` | as format 4 (RISC-V only) |
 | 52..56 | `hot_len` | |
 | 56..60 | `patches` | |
-| 60..64 | reserved | 0, else refused as a newer format |
+| 60..64 | `heap_at` | image offset of `PAPERPAW_HEAP` with bit 0 of `flags`; else 0, and nonzero is refused as a newer format |
 | 64..96 | SHA-256 | of bytes 0..64 and everything after the header |
 
 After the header: the image, then `relocs` u32 offsets (increasing, as in format 4), then `patches`
@@ -87,13 +87,15 @@ before any other field is read.
 3. `target`: unknown or other chip: built for another chip; 9 refused.
 4. `abi_major`: below 7 built for an older interface; above: needs a newer PaperPaw.
 5. `needs_minor` above the host's minor: needs a newer PaperPaw.
-6. `flags` / reserved nonzero: newer format.
+6. `flags` with a bit other than 0, or `heap_at` nonzero without bit 0: newer format.
 7. Exact checks of the header and the file, all before anything is read at an extent a field names
    (arithmetic checked, no overflow):
    - the file length is exactly the formula above;
    - `code_at <= image_len`, and `code_at`, `meta_at` and `base` are aligned (`code_at` and `meta_at`
      to 4, `base` to `align`); `align` is a power of two in 4..4096;
    - `meta_at + meta_len <= code_at`, `meta_len <= 2,048`; `entry + entry_bytes <= code_at`;
+   - with `HEAP_WORD`: `heap_at` is 4-aligned, `heap_at + 4 <= code_at`, and the word lies outside
+     `[entry, entry + entry_bytes)` and `[meta_at, meta_at + meta_len)`;
    - `relocs <= image_len / 4`, `patches` at most the code's 2-byte instruction slots, `(image_len − code_at) / 2`, hot code as
      format 4.
    Else malformed.
@@ -112,6 +114,8 @@ before any other field is read.
    - `make`, as an offset into the image, lies in `[code_at, image_len)` and is 2-byte aligned (RISC-V
      compressed instructions). A `make` in hot code is mapped back to its image offset first
      (`hot_at + (make - placement.hot)`).
+   - with `HEAP_WORD`: no relocation word lies at `heap_at`, and the word holds 0 in the file; the
+     loader then writes the `PpHeap` address into the placed image (never into the digest's bytes).
    A mismatch is damaged. No plugin code has run until here.
 
 A refused file stays installed and switched off with its data.
@@ -122,8 +126,8 @@ An X4 image has no dynamic linking: no `DT_NEEDED`, no imports, no loader-run in
 loader's first call into the plugin is `make`. So the rule splits in two:
 
 - **At pack time** (`paperpaw-sign pack`, from the linked ELF it is given, which still has symbols):
-  refuse an undefined symbol, any exported symbol besides `PAPERPAW_ENTRY` and
-  `PAPERPAW_METADATA`, a writable section (`.data`, `.bss`, TLS), `.init*`/`.ctors`/`.fini*`, and a
+  refuse an undefined symbol, any exported symbol besides `PAPERPAW_ENTRY`,
+  `PAPERPAW_METADATA` and the optional `PAPERPAW_HEAP` (`abi/heap-word.md`), a writable section (`.data`, `.bss`, TLS), `.init*`/`.ctors`/`.fini*`, and a
   relocation kind outside the short list. The same names and list as `PLUGIN_EXPORTS`.
 - **At load time**, which sees no symbols: only what the file still shows, that is step 7 and 9
   above, the relocation words (increasing, 4-aligned, inside the image, naming words that hold an
@@ -217,9 +221,11 @@ interface 6 and gets format 4, and one that defines both or neither is refused. 
 - target 9 (**the X4 Pro**: a plugin built for Xtensa) is refused with the reason, until an Xtensa profile exists
   in `abi/entry.md`;
 - the pack-time half of the freestanding rule: an undefined symbol, an exported symbol besides the two
-  (`PAPERPAW_HOT` and `PAPERPAW_HOT_END` are the linker script's), a writable section or any section but
+  and the optional `PAPERPAW_HEAP` (`PAPERPAW_HOT` and `PAPERPAW_HOT_END` are the linker script's), a writable section or any section but
   `.rodata` and `.text` that takes memory (`.data`, `.bss`, TLS, `.init_array`, `.ctors`, `.fini*`), and a
   relocation kind outside the short list, are refused with the symbol or section named;
+- `PAPERPAW_HEAP`, when present, is checked as in `abi/heap-word.md` §5 (in `.rodata`, 4 bytes, 4-aligned, 0, not
+  a relocation word, outside the entry and the metadata) and sets `HEAP_WORD` and `heap_at`;
 - before it returns, the packer reads the file as the loader does, at the base it is linked at and at another,
   with the hot code in the arena: the header, the digest, every word to relocate, and the entry and the
   metadata as they will lie once placed (`Relocator5::verify` and `check_entry`). A file it makes is one the

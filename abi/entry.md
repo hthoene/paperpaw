@@ -28,7 +28,10 @@ status make(const PpHost *host, void *host_ctx, const PpPlugin **out);
 ```
 
 The loader supplies the host table and context only as arguments to `make`, on
-every platform. There is no global host-pointer slot or writable plugin static.
+every platform. There is no global host-pointer slot or writable plugin static,
+with one named exception: the optional read-only heap word `PAPERPAW_HEAP`, which
+the loader fills before `make` with the address of the context-free heap table
+`PpHeap` and nothing else (`abi/heap-word.md`).
 The plugin retains these arguments in its owned instance state. The host table
 and opaque owner context remain valid through instance destruction and
 all associated leases. Only host code casts `host_ctx`; only plugin code casts
@@ -76,3 +79,36 @@ mode-dependent result in raster and describing modes. There is no additional
 operation promises neither atomic rendering nor rollback. It does not add a
 prepared shaping stage or promise recoverable allocator failures. Maximum-input
 shaping memory remains a qualification gate.
+
+## Linked built-ins
+
+A plugin can also be linked into the program that hosts it (the firmware's
+built-ins, an app's) instead of loaded from a file. It is the same plugin: the
+same `PpEntry`, `make` and metadata bytes, made by the same SDK macro
+(`native_plugin!(P, metadata = M, linked = NAME)`). Only how the host finds it
+differs.
+
+- **Form.** The macro defines `pub static NAME: native::Linked` and no
+  exported symbol: no `PAPERPAW_ENTRY`, `PAPERPAW_METADATA` or heap word, and
+  no global allocator or panic handler (the program's own serve the plugin).
+  Several plugins therefore link into one program. The program lists its
+  built-ins as Rust statics; the host reads each entry through
+  `Linked::entry` (`kernel` feature), never through a cast.
+- **Admission is a loaded plugin's.** The host checks the `PpEntry` size, major
+  and minor, reads the metadata through the same bounded D1 metadata reader
+  (within its maximum), requires it to agree with the entry byte for byte and
+  in major/minor, and requires its target identity to equal the running
+  program's. Format 2 metadata and `PpEntry` carry no layout fingerprint, and a
+  linked plugin needs none: it is compiled in the program's own build. Nothing in the bytes is trusted that would not be for a
+  file. Skipped, because they do not apply: the signature, flash placement, the
+  symbol lookup above and the image mapping.
+- **No image range.** A linked plugin has no single loaded image, so the host
+  lends it none (`(0, 0)`): every declaration it keeps is copied, fallibly
+  (`ERR_NO_MEMORY`). A shell-supplied list of the program's read-only ranges,
+  to keep declarations by reference, would be an additive later step, taken
+  only if the retained bytes measured on the X4 ask for it.
+- **Commit.** Declarations map into the host's registry all or nothing, as for a
+  loaded plugin; a record the host cannot take yet refuses the batch with
+  `ERR_UNSUPPORTED`.
+- **X4.** Linked built-ins are interface-7 plugins for the X4 activation gate
+  (`heap-word.md` section 6): their callbacks run on the same main stack.

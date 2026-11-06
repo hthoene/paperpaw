@@ -22,6 +22,26 @@ pub const COMMAND_REDRAW_TAG: u32 = 58;
 pub const COMMAND_REDRAW_MAX_MODE: u32 = 3;
 /// Wire tag of the CloseScreen command.
 pub const COMMAND_CLOSE_SCREEN_TAG: u32 = 59;
+/// Wire tag of the SetItemState command.
+pub const COMMAND_SET_ITEM_STATE_TAG: u32 = 60;
+/// Maximum UTF-8 bytes of the relative item id of SetItemState.
+pub const COMMAND_MAX_ITEM_BYTES: usize = 96;
+/// Maximum UTF-8 bytes of the label or badge catalog key of SetItemState.
+pub const COMMAND_MAX_ITEM_KEY_BYTES: usize = 128;
+/// Maximum bytes of the label or badge argument batch of SetItemState.
+pub const COMMAND_MAX_ITEM_ARGS_BYTES: usize = 256;
+/// SetItemState flag: Not shown in menus.
+pub const COMMAND_ITEM_HIDDEN: u32 = 1;
+/// SetItemState flag: Shown faint; it cannot be chosen.
+pub const COMMAND_ITEM_FAINT: u32 = 2;
+/// SetItemState flag: Shown with a switch; ON sets it on.
+pub const COMMAND_ITEM_SWITCH: u32 = 4;
+/// SetItemState flag: The switch is on; needs SWITCH.
+pub const COMMAND_ITEM_ON: u32 = 8;
+/// SetItemState flag: The host keeps this state across restarts until the plugin changes.
+pub const COMMAND_ITEM_KEEP: u32 = 16;
+/// Every SetItemState flag; other bits are refused.
+pub const COMMAND_ITEM_FLAGS: u32 = 31;
 pub const COMMAND_SET_SETTING_TAG: u32 = 4;
 
 /// A command borrowed from one validated batch. No Rust value crosses the ABI.
@@ -52,6 +72,22 @@ pub enum Command<'a> {
     },
     /// Close the submitting plugin's own screen on top.
     CloseScreen,
+    /// Set what menus show of one of the submitting plugin's own actions or
+    /// settings; the host resolves the keys in its catalogs when it shows them.
+    SetItemState {
+        /// Nonempty UTF-8 item id, relative to the submitting plugin.
+        item: &'a str,
+        /// `COMMAND_ITEM_*` bits; `COMMAND_ITEM_ON` needs `COMMAND_ITEM_SWITCH`.
+        flags: u32,
+        /// Catalog key shown in place of the title, or empty for the title.
+        label: &'a str,
+        /// Encoded i18n argument batch for `label`, or empty.
+        label_args: &'a [u8],
+        /// Catalog key of a short text at the item's right, or empty for none.
+        badge: &'a str,
+        /// Encoded i18n argument batch for `badge`, or empty.
+        badge_args: &'a [u8],
+    },
 }
 
 /// A fully validated, allocation-free command batch.
@@ -183,6 +219,55 @@ fn mode(mode: u32) -> Result<u32, i32> {
     }
 }
 
+fn item_flags(flags: u32) -> Result<u32, i32> {
+    if flags & !COMMAND_ITEM_FLAGS != 0
+        || (flags & COMMAND_ITEM_ON != 0 && flags & COMMAND_ITEM_SWITCH == 0)
+    {
+        Err(-2)
+    } else {
+        Ok(flags)
+    }
+}
+
+/// A label or badge: a catalog key, or empty for none; arguments need a key.
+fn message<'a>(key: &'a [u8], args: &[u8]) -> Result<&'a str, i32> {
+    if key.len() > COMMAND_MAX_ITEM_KEY_BYTES || args.len() > COMMAND_MAX_ITEM_ARGS_BYTES {
+        Err(-3)
+    } else if key.is_empty() && !args.is_empty() {
+        Err(-2)
+    } else {
+        core::str::from_utf8(key).map_err(|_| -5)
+    }
+}
+
+fn item_state<'a>(body: &mut Reader<'a>) -> Result<Command<'a>, i32> {
+    body.bitmap()?;
+    let item = id(body.bytes()?, COMMAND_MAX_ITEM_BYTES)?;
+    let flags = item_flags(u32_le(body.take(4)?))?;
+    let (label, label_args) = (body.bytes()?, body.bytes()?);
+    let label = message(label, label_args)?;
+    let (badge, badge_args) = (body.bytes()?, body.bytes()?);
+    let badge = message(badge, badge_args)?;
+    Ok(Command::SetItemState {
+        item,
+        flags,
+        label,
+        label_args,
+        badge,
+        badge_args,
+    })
+}
+
+fn field_len(len: usize) -> usize {
+    varint_len(len as u32) + len
+}
+
+fn write_field(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+    write_varint(bytes.len() as u32, out, offset);
+    out[*offset..*offset + bytes.len()].copy_from_slice(bytes);
+    *offset += bytes.len();
+}
+
 /// Decode an entire batch before exposing any command.
 ///
 /// Framing must be canonical u32 LEB128. Unknown command tags and unknown
@@ -229,6 +314,7 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                 body.bitmap()?;
                 Command::CloseScreen
             }
+            COMMAND_SET_ITEM_STATE_TAG => item_state(&mut body)?,
             _ => return Err(-1),
         });
     }
@@ -297,6 +383,28 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
             Ok((COMMAND_REDRAW_TAG, 1 + 4))
         }
         Command::CloseScreen => Ok((COMMAND_CLOSE_SCREEN_TAG, 1)),
+        Command::SetItemState {
+            item,
+            flags,
+            label,
+            label_args,
+            badge,
+            badge_args,
+        } => {
+            id(item.as_bytes(), COMMAND_MAX_ITEM_BYTES)?;
+            item_flags(flags)?;
+            message(label.as_bytes(), label_args)?;
+            message(badge.as_bytes(), badge_args)?;
+            let fields = [
+                item.as_bytes(),
+                label.as_bytes(),
+                label_args,
+                badge.as_bytes(),
+                badge_args,
+            ];
+            let body = fields.iter().map(|field| field_len(field.len()));
+            Ok((COMMAND_SET_ITEM_STATE_TAG, 1 + 4 + body.sum::<usize>()))
+        }
     }
 }
 
@@ -344,6 +452,21 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
                     offset += 4;
                 }
                 Command::CloseScreen => {}
+                Command::SetItemState {
+                    item,
+                    flags,
+                    label,
+                    label_args,
+                    badge,
+                    badge_args,
+                } => {
+                    write_field(item.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+                    offset += 4;
+                    for field in [label.as_bytes(), label_args, badge.as_bytes(), badge_args] {
+                        write_field(field, out, &mut offset);
+                    }
+                }
                 Command::SetSetting { .. } => {}
             }
             continue;

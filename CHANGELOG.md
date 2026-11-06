@@ -19,6 +19,21 @@ change the plugin SDK.
 
 ### Added
 
+- Interface 7: `native_plugin!(P, metadata = M, linked = NAME)` and `native::Linked` for plugins
+  linked into the program that hosts them (firmware built-ins): the same entry and metadata under
+  a Rust name of their own, without exported symbols, heap word, allocator or panic handler, so
+  several link into one program; the host reads the entry with `Linked::entry` (`kernel`) and
+  admits it as a loaded plugin (`abi/entry.md`, linked built-ins) (#228).
+- Interface 7: command 60 `command.set_item_state` in the generated command codec: a plugin says
+  what menus show of its own actions and settings (label and badge as catalog keys with arguments,
+  hidden, faint, a switch) when it changes, instead of interface 6's callback asked on every menu;
+  with `keep` the host restores it at boot without starting the plugin. Hosts answer
+  `ERR_UNSUPPORTED` until their menus take it (#228).
+- Graphics: `Framebuffer::probe`, a framebuffer that keeps no pixels but where masks put ink
+  (pixels at or above the frame's ink threshold, `Framebuffer::ink_threshold`, unclipped), and
+  `InkBounds`; host-only `FontHandle::ink_drawn`
+  measures text ink by the drawing path itself (shaping, joining, marks, jamo), for slot 30
+  `text.ink` (#228).
 - Interface-7 host usage/name/note services and callback-scoped blobs, with checked
   metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).
 
@@ -30,6 +45,22 @@ change the plugin SDK.
   from declarations and answer `ERR_NO_MEMORY` (#228).
 - `Id::try_clone`: a copy of an id that gives `None` where the heap refuses instead of aborting
   (kept ids copy without allocating), for hosts that must survive a full heap (#228).
+- Interface 7: the heap word (`abi/heap-word.md`). A plugin's optional read-only word
+  `PAPERPAW_HEAP`, which the loader fills before `make`, points at the host's context-free
+  `PpHeap` table (alloc, dealloc, realloc, abort). `native_plugin!` emits the word, a global
+  allocator over it and a panic handler that reports to the host without allocating, or traps
+  where there is no usable word; `heap = none` leaves all three out. The generated C header has
+  `PP_DEFINE_HEAP_WORD()` and the checked `pp_heap()`; the X4 linker script keeps the section.
+  Hosts and loaders take the word in follow-up work (Core, Firmware) (#228).
+- Interface 7: declaration records 13 `menu.entry` (any action or setting, also another plugin's
+  or a core setting, into a menu, by order or beside another entry), 14 `icon.spec` (an icon for
+  any item, so icon themes work), 15 `menu.need` (offered only on devices with touch, speech,
+  Wi-Fi and the like), 16 `menu.section` (a heading), 17 `menu.hide` (takes an entry out, also
+  another plugin's) and 18 `menu.describe` (a line under an entry), in the generated records
+  codec: interface 6's menu calls as declarations. An unknown place or need is accepted (the entry
+  is not shown), so plugins for a later host still load. Hosts check them and answer
+  `ERR_UNSUPPORTED` until their menus take them; a plugin's translations stay the
+  `i18n/<language>.ini` files of its folder (#228).
 - Interface 7: host slots 29-31 (`text.metrics`, `text.ink`, `canvas.clip`) for text placed by its
   line and ink and for nested clipping, commands 56-59 (open screen, run action, redraw, close
   screen) in the generated command codec, and generated i18n format/digits limits. Hosts answer

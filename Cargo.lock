@@ -1861,10 +1861,12 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-battery"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-graphics",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
