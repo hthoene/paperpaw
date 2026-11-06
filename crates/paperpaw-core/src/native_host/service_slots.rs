@@ -38,9 +38,14 @@ pub(super) unsafe fn query(
             if major != 1 || minor != 0 || major != declared_major || minor > revision {
                 return Err(ERR_UNSUPPORTED);
             }
-            // Encode before checking temporary budget so a missing plugin or note
-            // keeps its specified NOT_FOUND status. Scratch is heap-only and bounded.
+            // Lookup failures precede budget refusal without allocating a page.
+            match query {
+                Query::Plugin(id) => frame.plugin_name(id, &mut |_| {})?,
+                Query::WorkNote(id) => frame.work_note(id, &mut |_, _| {})?,
+                Query::Usage | Query::PluginUsage(_) => {}
+            }
             let page = owner.blob_page_bytes();
+            owner.check_blob_capacity(page)?;
             let mut bytes = Vec::new();
             bytes.try_reserve_exact(page).map_err(|_| ERR_NO_MEMORY)?;
             bytes.resize(page, 0);
