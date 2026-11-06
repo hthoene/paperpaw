@@ -17,6 +17,7 @@ from abi_entry import validate_entry, compatible_entry, c_entry, rust_entry
 from abi_settings import validate_settings, compatible_settings, rust_settings
 from abi_callbacks import rust_callbacks
 from abi_records import validate_records, compatible_records, rust_records
+from abi_declarations import rust_streams
 from abi_snapshot import validate_snapshot, compatible_snapshot, rust_snapshot
 from abi_color import validate_color, compatible_color, rust_color
 from abi_commands import validate_commands, compatible_commands, rust_commands
@@ -312,27 +313,29 @@ def rust_module(schema):
 
 def lock_record(schema, released_minor=0):
     """Keep exact emitted declarations as well as logical schema semantics."""
-    return {'lock_format': 7, 'released_minor': released_minor,
+    return {'lock_format': 8, 'released_minor': released_minor,
             'schema': schema, 'emitted_c': header(schema),
             'emitted_rust': rust_module(schema),
             'emitted_metadata': resolved_metadata(schema),
             'emitted_records': rust_records(schema),
             'emitted_snapshot': rust_snapshot(schema),
             'emitted_color': rust_color(schema),
-            'emitted_commands': rust_commands(schema)}
+            'emitted_commands': rust_commands(schema),
+            'emitted_streams': rust_streams(schema)}
 
 
 def check_lock(prior, schema):
     require(type(prior) is dict, 'lock must be an object')
     version = prior.get('lock_format')
-    require(type(version) is int and version in (1, 2, 3, 4, 5, 6, 7), 'unsupported lock format')
+    require(type(version) is int and version in (1, 2, 3, 4, 5, 6, 7, 8), 'unsupported lock format')
     keys(prior, 'lock_format released_minor schema emitted_c' +
          (' emitted_rust' if version >= 2 else '') +
          (' emitted_metadata' if version >= 3 else '') +
          (' emitted_records' if version >= 4 else '') +
          (' emitted_snapshot' if version >= 5 else '') +
          (' emitted_color' if version >= 6 else '') +
-         (' emitted_commands' if version >= 7 else ''))
+         (' emitted_commands' if version >= 7 else '') +
+         (' emitted_streams' if version >= 8 else ''))
     validate(prior['schema'])
     integer(prior['released_minor'], prior['schema']['minor'])
     # Re-render the OLD schema using THIS generator. This detects changes in
@@ -358,6 +361,9 @@ def check_lock(prior, schema):
     if version >= 7:
         require(prior['emitted_commands'] == rust_commands(prior['schema']),
                 'emitted commands contract changed from prior lock')
+    if version >= 8:
+        require(prior['emitted_streams'] == rust_streams(prior['schema']),
+                'emitted streams contract changed from prior lock')
     compatible(prior['schema'], schema, prior['released_minor'])
 
 
@@ -396,7 +402,7 @@ def run(argv=None):
         codec = rust_settings(schema)
         outputs[folder / 'generated' / 'settings_value.rs'] = codec
         outputs[args.root / 'crates/paperpaw-core/src/abi7/settings_wire.rs'] = codec
-    codec = rust_records(schema)
+    codec = rust_records(schema) + rust_streams(schema)
     if codec:
         outputs[folder / 'generated' / 'records_wire.rs'] = codec
         outputs[args.root / 'crates/paperpaw-core/src/abi7/records_wire.rs'] = codec

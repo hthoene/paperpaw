@@ -30,6 +30,13 @@ typedef struct {
     int32_t (*services_query)(void * ctx, PpBytes key, uint16_t major, uint16_t minor, uint32_t * out);
     int32_t (*blob_read)(void * ctx, uint32_t blob, uint64_t offset, PpBuffer out);
     int32_t (*blob_release)(void * ctx, uint32_t blob);
+    int32_t (*storage_size)(void * ctx, uint32_t root, PpBytes path, uint64_t * out);
+    int32_t (*storage_read_at)(void * ctx, uint32_t root, PpBytes path, uint64_t offset, PpBuffer out);
+    int32_t (*storage_write)(void * ctx, uint32_t root, PpBytes path, PpBytes data);
+    int32_t (*storage_append)(void * ctx, uint32_t root, PpBytes path, PpBytes data);
+    int32_t (*storage_rename)(void * ctx, uint32_t root, PpBytes from, PpBytes to);
+    int32_t (*storage_remove)(void * ctx, uint32_t root, PpBytes path);
+    int32_t (*storage_sync)(void * ctx);
 } PpHost;
 #define PP_ABI_MAJOR 7
 #define PP_ABI_MINOR 1

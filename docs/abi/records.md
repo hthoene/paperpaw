@@ -77,6 +77,12 @@ unknown family or a tag declared twice is refused; tags are never reused):
 | 56-62 | `command.*` |
 | 63 | reserved |
 
+Tags 48-52 are the service records of `docs/abi/proposals/interface-7-usage-clock.md`. The host writes
+them into service blobs, framed **bare**: tag, body length and body, with no count
+(`record_framed_len`, `record_encode_one`; a reader decodes one with `record_decode_one`, which refuses
+any byte after it). These three functions are emitted only for a schema with service records. A batch a
+plugin submits never carries an event or service record (`ERR_INVALID`).
+
 All declarations and fields start at minor 1. Tags 1-10 have no optional fields.
 Unknown bitmap bits, extra bitmap bytes and trailing fields inside a known
 record are accepted for forward compatibility. Known required fields must still
@@ -126,6 +132,13 @@ runs its Rust tests. This codec does not qualify the aggregate M1 memory budget.
 | `ERR_NO_SPACE` | more than 8 records, more than 4096 bytes, or a field over its cap (encoder: output too small) |
 | `ERR_UNSUPPORTED` | unknown tag (also the tick tag in a mixed batch); `setting.spec.kind` above 5; unknown flag bits; `setting.extra.editor_kind` above 2 or `check` not 0; font `style` bits above 1 |
 | `ERR_INVALID` | malformed framing or truncated data; every other violated rule below |
+
+An empty batch (zero bytes) is malformed (`ERR_INVALID`) and poisons the
+construction. SDKs use it to abort a construction they cannot complete: the
+declaration builder sends it once after any refused addition, so `make` fails
+even when the plugin ignores the builder's errors. Cross-record references
+(an extra's spec, a group's parent, `follows`) are checked at commit against the
+whole construction, independent of record order.
 
 `native_host::declarations` checks each record without a registry and without
 allocating; `registrations::validate_records` decodes a whole batch, validates

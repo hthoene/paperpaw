@@ -13,6 +13,7 @@ SPEC = importlib.util.spec_from_file_location('abi_gen_records', ROOT / 'tools/a
 ABI = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ABI)
 from abi_records import rust_records, validate_records
+from abi_declarations import rust_streams
 
 
 RUST_TESTS = r'''
@@ -212,7 +213,10 @@ class RecordsTests(unittest.TestCase):
                           ('resource.hyphenation', 8), ('resource.font_face', 9),
                           ('resource.font_extension', 10), ('event.started', 32),
                           ('event.resume', 33), ('event.suspend', 34), ('event.stopping', 35),
-                          ('event.battery_measured', 36), ('event.page_turned', 37)])
+                          ('event.battery_measured', 36), ('event.page_turned', 37),
+                          ('service.usage', 48), ('service.plugin_usage', 49),
+                          ('service.plugin', 50), ('service.work_note', 51),
+                          ('service.end', 52)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             if record['id'] <= 3:
@@ -293,7 +297,7 @@ class RecordsTests(unittest.TestCase):
         self.assertNotIn('RegistrationBatch', ABI.rust_module(self.schema))
 
     def test_standalone_copies_generated_and_checked(self):
-        source = rust_records(self.schema)
+        source = rust_records(self.schema) + rust_streams(self.schema)
         for path in ['abi/generated/records_wire.rs',
                      'crates/paperpaw-core/src/abi7/records_wire.rs']:
             self.assertEqual((ROOT / path).read_text(), source)
@@ -317,10 +321,10 @@ class RecordsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             source = folder / 'records.rs'
-            source.write_text('#![no_std]\n' + rust_records(self.schema))
+            source.write_text('#![no_std]\n' + rust_records(self.schema) + rust_streams(self.schema))
             subprocess.run([rustc, '--edition=2024', '--crate-type=lib', '-Dwarnings',
                             str(source), '-o', str(folder / 'records.rlib')], check=True)
-            source.write_text(rust_records(self.schema) + RUST_TESTS)
+            source.write_text(rust_records(self.schema) + rust_streams(self.schema) + RUST_TESTS)
             binary = folder / 'records-tests'
             subprocess.run([rustc, '--edition=2024', '--test', '-Dwarnings', str(source),
                             '-o', str(binary)], check=True)

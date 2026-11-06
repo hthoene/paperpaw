@@ -82,6 +82,13 @@ pub paperpaw_native::host_glue::PpHost::registrations_submit: fn(*mut core::ffi:
 pub paperpaw_native::host_glue::PpHost::services_query: fn(*mut core::ffi::c_void, paperpaw_native::host_glue::PpBytes, u16, u16, *mut u32) -> i32
 pub paperpaw_native::host_glue::PpHost::settings_read: fn(*mut core::ffi::c_void, paperpaw_native::host_glue::PpBytes, paperpaw_native::host_glue::PpBuffer) -> i32
 pub paperpaw_native::host_glue::PpHost::size: u32
+pub paperpaw_native::host_glue::PpHost::storage_append: fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes, paperpaw_native::host_glue::PpBytes) -> i32
+pub paperpaw_native::host_glue::PpHost::storage_read_at: fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes, u64, paperpaw_native::host_glue::PpBuffer) -> i32
+pub paperpaw_native::host_glue::PpHost::storage_remove: fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes) -> i32
+pub paperpaw_native::host_glue::PpHost::storage_rename: fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes, paperpaw_native::host_glue::PpBytes) -> i32
+pub paperpaw_native::host_glue::PpHost::storage_size: fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes, *mut u64) -> i32
+pub paperpaw_native::host_glue::PpHost::storage_sync: fn(*mut core::ffi::c_void) -> i32
+pub paperpaw_native::host_glue::PpHost::storage_write: fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes, paperpaw_native::host_glue::PpBytes) -> i32
 pub paperpaw_native::host_glue::PpHost::text_draw: fn(*mut core::ffi::c_void, u32, f32, f32, i32, u32, paperpaw_native::host_glue::PpBytes, *mut f32) -> i32
 pub paperpaw_native::host_glue::PpHost::text_measure: fn(*mut core::ffi::c_void, u32, f32, paperpaw_native::host_glue::PpBytes, *mut f32) -> i32
 #[repr(C)] pub struct paperpaw_native::host_glue::PpPlugin

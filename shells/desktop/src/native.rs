@@ -126,7 +126,7 @@ unsafe extern "C" fn alloc_in(size: usize, align: usize, _placement: u32) -> *mu
 /// An interface-7 library (only with the developer switch on) is loaded as a
 /// [`FlatPlugin`](paperpaw_core::native_host::flat::FlatPlugin) over its
 /// pinned owner; every such plugin of this loader shares one
-/// [`DispatchDepth`], the device-wide nesting budget.
+/// [`DispatchDepth`](paperpaw_core::native_host::DispatchDepth), the device-wide nesting budget.
 #[derive(Debug, Default)]
 pub struct HostLoader {
     depth: std::rc::Rc<paperpaw_core::native_host::DispatchDepth>,

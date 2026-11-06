@@ -62,6 +62,7 @@ impl Kind {
 
 #[derive(Clone, Copy)]
 struct Slot {
+    hash: u32,
     batch: u16,
     record: u16,
 }
@@ -90,23 +91,24 @@ impl Allocations {
 
 enum Input<'a> {
     Borrowed(&'a [u8]),
+    Image {
+        bytes: &'a [u8],
+        offset: u32,
+        len: u32,
+        entries: u16,
+    },
     Committed(super::raw_declarations::RawBatch),
 }
 impl Input<'_> {
     fn bytes(&self) -> &[u8] {
         match self {
-            Self::Borrowed(bytes) => bytes,
+            Self::Borrowed(bytes) | Self::Image { bytes, .. } => bytes,
             Self::Committed(raw) => &raw.bytes,
-        }
-    }
-    fn address(&self) -> usize {
-        match self {
-            Self::Borrowed(bytes) => bytes.as_ptr() as usize,
-            Self::Committed(raw) => raw.submitted,
         }
     }
     fn own(self, allocations: &mut Allocations) -> Result<DeclRef, i32> {
         match self {
+            Self::Image { .. } => Err(ERR_STATE),
             Self::Committed(raw) => Ok(DeclRef::Owned(raw.bytes)),
             Self::Borrowed(bytes) => {
                 let mut copy = Vec::new();
@@ -166,12 +168,21 @@ impl PendingDeclarations {
         if raw.image.is_none() {
             return self.stage(Input::Committed(raw), allocations);
         }
+        let range = raw.image.ok_or(ERR_STATE)?;
         let source = Rc::clone(&self.source);
         let mut result = Err(ERR_STATE);
         source.with_image(&mut |image| {
-            result = raw
-                .view(image)
-                .and_then(|bytes| self.stage(Input::Borrowed(bytes), allocations));
+            result = raw.view(image).and_then(|bytes| {
+                self.stage(
+                    Input::Image {
+                        bytes,
+                        offset: range.offset,
+                        len: range.len,
+                        entries: raw.entries,
+                    },
+                    allocations,
+                )
+            });
         });
         if let Err(error) = result {
             self.failure = Some(error);
@@ -198,28 +209,42 @@ impl PendingDeclarations {
         let decoded = records_decode(bytes)?;
         declarations::validate_batch(self.id.as_str(), &decoded)?;
         if let Input::Committed(raw) = &input
-            && (raw.count != decoded.len()
-                || raw
-                    .offsets
-                    .iter()
-                    .take(raw.count)
-                    .any(|offset| usize::from(*offset) >= bytes.len()))
+            && raw
+                .offsets
+                .iter()
+                .take(decoded.len())
+                .any(|offset| usize::from(*offset) >= bytes.len())
         {
             return Err(ERR_INVALID);
         }
         let mut counts = [0usize; 6];
         let mut kinds = [None; super::registrations::REGISTRATION_MAX_RECORDS];
         for (index, record) in decoded.iter().enumerate() {
-            kinds[index] = Kind::of(&record);
-            if let Some(kind) = kinds[index] {
+            if let Some(kind) = Kind::of(&record) {
+                let (category, name) = super::declaration_index::key(record).ok_or(ERR_INVALID)?;
+                kinds[index] = Some((kind, super::declaration_index::name_hash(category, name)));
                 counts[kind as usize] += 1;
             }
+        }
+        let expected = match &input {
+            Input::Committed(raw) => Some(raw.entries),
+            Input::Image { entries, .. } => Some(*entries),
+            Input::Borrowed(_) => None,
+        };
+        if expected.is_some_and(|expected| usize::from(expected) != counts.iter().sum::<usize>()) {
+            return Err(ERR_INVALID);
         }
         if counts.iter().all(|&n| n == 0) {
             return Ok(());
         }
         let batch = u16::try_from(self.batches.len()).map_err(|_| ERR_NO_SPACE)?;
-        let mut reference = None;
+        let mut reference = match &input {
+            Input::Image { offset, len, .. } => Some(DeclRef::Image {
+                offset: *offset,
+                len: *len,
+            }),
+            _ => None,
+        };
         if matches!(input, Input::Borrowed(_)) {
             self.source.with_image(&mut |image| {
                 reference = image.and_then(|image| image_ref(image, bytes));
@@ -236,9 +261,10 @@ impl PendingDeclarations {
             allocations.reserve(registry, count)?;
         }
         for (record, kind) in kinds.into_iter().enumerate() {
-            if let Some(kind) = kind {
+            if let Some((kind, hash)) = kind {
                 // The decoder bounds each batch to eight records.
                 self.kinds[kind as usize].push(Slot {
+                    hash,
                     batch,
                     record: u16::try_from(record).unwrap_or(u16::MAX),
                 });
@@ -353,6 +379,9 @@ impl DeclarationStore {
         if pending.source.generation() != pending.generation {
             return Err(ERR_STATE);
         }
+        for entries in &mut pending.kinds {
+            entries.sort_unstable_by_key(|entry| entry.hash);
+        }
         let at = self
             .owners
             .iter()
@@ -410,6 +439,54 @@ impl DeclarationStore {
         }
     }
 
+    /// Binary name lookup shares the resident sorted slots with key visitors.
+    pub(crate) fn find(
+        &self,
+        plugin: &str,
+        kind: Kind,
+        name: &str,
+        visit: &mut dyn for<'a> FnMut(Record<'a>),
+    ) -> bool {
+        let Some((index, owner)) = self.owners.iter().enumerate().find_map(|(index, owner)| {
+            owner
+                .as_ref()
+                .filter(|owner| owner.id.as_str() == plugin)
+                .map(|owner| (index, owner))
+        }) else {
+            return false;
+        };
+        let category = if kind == Kind::Extension {
+            4
+        } else {
+            kind as u8
+        };
+        let hash = super::declaration_index::name_hash(category, name);
+        let slots = &owner.kinds[kind as usize];
+        let from = slots.partition_point(|slot| slot.hash < hash);
+        for slot in slots[from..].iter().take_while(|slot| slot.hash == hash) {
+            let key = DeclKey {
+                owner: u16::try_from(index).unwrap_or(u16::MAX),
+                batch: slot.batch,
+                record: slot.record,
+                generation: owner.generation,
+                incarnation: owner.incarnation,
+            };
+            let mut found = false;
+            self.with_record(key, &mut |record| {
+                if super::declaration_index::key(record).is_some_and(|(_, actual)| {
+                    super::declaration_index::same_name(category, actual, name)
+                }) {
+                    found = true;
+                    visit(record);
+                }
+            });
+            if found {
+                return true;
+            }
+        }
+        false
+    }
+
     /// The higher-ranked visitor cannot retain a reference into the module.
     pub(crate) fn with_record(
         &self,
@@ -459,8 +536,13 @@ impl DeclarationStore {
                 // Kind changes after admission must not expose a different kind
                 // through an index prepared for the original declaration.
                 let kind = Kind::of(&record).ok_or(ERR_INVALID)?;
-                if !owner.kinds[kind as usize]
+                let (category, name) = super::declaration_index::key(record).ok_or(ERR_INVALID)?;
+                let hash = super::declaration_index::name_hash(category, name);
+                let slots = &owner.kinds[kind as usize];
+                let from = slots.partition_point(|slot| slot.hash < hash);
+                if !slots[from..]
                     .iter()
+                    .take_while(|slot| slot.hash == hash)
                     .any(|slot| slot.batch == key.batch && slot.record == key.record)
                 {
                     return Err(ERR_INVALID);
@@ -486,5 +568,5 @@ mod tests;
 const _: () = {
     assert!(size_of::<DeclRef>() == 12);
     assert!(size_of::<DeclKey>() == 16);
-    assert!(size_of::<Slot>() == 4);
+    assert!(size_of::<Slot>() == 8);
 };
