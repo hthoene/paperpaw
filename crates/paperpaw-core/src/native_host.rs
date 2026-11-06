@@ -372,7 +372,9 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
             return Err(ERR_NO_SPACE);
         }
         declarations::validate_batch(self.plugin_id, batch)?;
-        let raw = self.raw.prepare(self.image, wire, batch)?;
+        let raw = self
+            .raw
+            .prepare_retaining(self.image, wire, batch, self.declarations.bytes())?;
         self.raw
             .check_counts(&self.declarations, batch, raw.as_ref())?;
         let retained = self.raw.retained(raw.as_ref());

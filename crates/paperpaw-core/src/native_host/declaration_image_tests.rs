@@ -303,7 +303,9 @@ fn mixed_decoded_and_owned_wire_duplicates_are_rejected_in_both_orders() {
                         assert_eq!(submit(&scope, &first_bytes), OK)
                     })
                     .unwrap();
-                construction.stage_batch(&records_decode(&second_bytes).unwrap(), |r| r).unwrap();
+                construction
+                    .stage_batch(&records_decode(&second_bytes).unwrap(), |r| r)
+                    .unwrap();
             } else {
                 construction
                     .stage_batch(&records_decode(&first_bytes).unwrap(), |r| r)
@@ -351,7 +353,10 @@ fn mixed_decoded_and_owned_wire_distinct_names_remain_valid() {
         }
         assert_eq!(construction.declarations().groups().len(), 1);
         construction.finish_declarations().unwrap();
-        assert!(matches!(construction.commit(|_| {}), Err(Error::DeclarationViewsUnavailable)));
+        assert!(matches!(
+            construction.commit(|_| {}),
+            Err(Error::DeclarationViewsUnavailable)
+        ));
     }
 }
 
@@ -517,7 +522,8 @@ fn owned_wire_uses_one_form_at_exact_32_kib_boundary() {
     let mut construction = owner.as_ref().begin::<Registration>("fixture").unwrap();
     let cost = size_of::<raw_declarations::RawBatch>() + size_of::<declaration_index::NameEntry>();
     for n in 0..8 {
-        let remaining = staged::DECLARATIONS_MAX_BYTES - construction.raw.retained(None);
+        let remaining =
+            staged::DECLARATIONS_MAX_BYTES - n * (registrations::REGISTRATION_MAX_BYTES + cost);
         let total = registrations::REGISTRATION_MAX_BYTES.min(remaining - cost);
         let wire = padded_group(&format!("g{n}"), total);
         scope

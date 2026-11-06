@@ -371,7 +371,10 @@ fn construction_retains_a_snapshot_and_record_offsets_after_input_is_gone() {
     assert_eq!(batch.entries, 6);
     assert!(batch.offsets[..6].windows(2).all(|pair| pair[0] < pair[1]));
     assert!(construction.declarations().is_empty());
-    assert!(matches!(construction.commit(|_| {}), Err(super::super::Error::DeclarationViewsUnavailable)));
+    assert!(matches!(
+        construction.commit(|_| {}),
+        Err(super::super::Error::DeclarationViewsUnavailable)
+    ));
 }
 
 #[test]
@@ -712,4 +715,78 @@ fn host_lookup_timing() {
         ));
     }
     std::println!("100000 guarded name lookups: {:?}", start.elapsed());
+}
+
+#[test]
+fn raw_lookup_uses_stored_offset_and_budget_overflow_fails_before_reserve() {
+    use super::super::raw_declarations::RawDeclarations;
+    let source = image();
+    let mut raw = RawDeclarations::default();
+    {
+        let bytes = source.bytes.borrow();
+        assert!(matches!(
+            raw.prepare_retaining(
+                None,
+                Some(&bytes),
+                &records_decode(&bytes).unwrap(),
+                usize::MAX
+            ),
+            Err(ERR_NO_SPACE)
+        ));
+        assert_eq!((raw.batches.capacity(), raw.index.capacity()), (0, 0));
+        let prepared = raw
+            .prepare(Some(&bytes), Some(&bytes), &records_decode(&bytes).unwrap())
+            .unwrap();
+        raw.commit(prepared);
+    }
+    raw.sort_index();
+    source.bytes.borrow_mut()[1] = 0xff;
+    let bytes = source.bytes.borrow();
+    assert!(matches!(
+        raw.find(Some(&bytes), 2, "flag"),
+        Ok(Some(Record::SettingExtra(_)))
+    ));
+    assert!(raw.find(Some(&bytes), 0, "group").is_err());
+}
+
+#[test]
+fn shifted_image_bytes_fail_at_still_in_bounds_offsets() {
+    use super::super::raw_declarations::RawDeclarations;
+    let source = image();
+    let mut allocations = Allocations::default();
+    let mut store = DeclarationStore::default();
+    store
+        .prepare(
+            pending(&source, false, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    let mut raw = RawDeclarations::default();
+    {
+        let bytes = source.bytes.borrow();
+        let prepared = raw
+            .prepare(Some(&bytes), Some(&bytes), &records_decode(&bytes).unwrap())
+            .unwrap();
+        raw.commit(prepared);
+    }
+    raw.sort_index();
+    {
+        let mut bytes = source.bytes.borrow_mut();
+        let end = bytes.len() - 1;
+        bytes.copy_within(..end, 1);
+    }
+    let bytes = source.bytes.borrow();
+    for key in keys(&store) {
+        assert!(usize::from(key.record) < bytes.len());
+        assert!(!store.with_record(key, &mut |_| panic!("shifted frame")));
+    }
+    for entry in &raw.index {
+        assert!(usize::from(raw.batches[0].offsets[entry.record()]) < bytes.len());
+        assert!(raw.record(Some(&bytes), *entry).is_err());
+    }
+    assert!(
+        raw.visit("fixture", Some(&bytes), &mut |_| panic!("shifted visit"))
+            .is_err()
+    );
 }
