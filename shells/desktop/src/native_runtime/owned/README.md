@@ -104,3 +104,8 @@ This remains inactive Linux host integration. Application registry wiring,
 borrowed Canvas slot 9, commands, visible rendering, Battery acceptance and real
 device behavior are separate gates. A draw callback here reads data and emits
 an allocation marker; it paints no pixels.
+
+The loader integration fixture uses Gray4: Kernel construction refuses
+`PixelFormat::Other` before any Env dispatch (`Graphics::UnsupportedFormat`).
+Preservation of Other remains covered by PR #155's core snapshot tests; this
+loader proof does not claim an actual Kernel callback with that format.

@@ -27,14 +27,7 @@ const KEY: &str = "abi7-tick-draw.enabled";
 const DEVICE: DeviceInfo = DeviceInfo::new(
     "scoped-probe",
     "Scoped probe",
-    DisplayInfo::new(
-        480,
-        800,
-        220,
-        PixelFormat::Other { code: 91, bits: 12 },
-        Rotation::Deg0,
-        None,
-    ),
+    DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
     InputCaps::new(true, false, false, &[]),
     MemoryClass::Small,
 );
@@ -105,12 +98,7 @@ fn run(
 }
 
 fn expected_snapshot(battery: Option<Battery>, clock: bool) -> Vec<u8> {
-    let mut value = wire::Snapshot::new(
-        480,
-        800,
-        220,
-        wire::PixelFormat::Other { code: 91, bits: 12 },
-    );
+    let mut value = wire::Snapshot::new(480, 800, 220, wire::PixelFormat::Gray4);
     value.monotonic_ms = 17;
     value.touch = true;
     value.unix_seconds = clock.then_some(0);
