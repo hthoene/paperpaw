@@ -2,13 +2,14 @@
 //! No environment or device pointer crosses the plugin boundary.
 
 use super::Error;
+pub use crate::abi7::settings_wire::{SettingValueRef, settings_decode};
 pub use crate::abi7::snapshot_wire::{
     Battery, PixelFormat, SNAPSHOT_BYTES, SNAPSHOT_MAX_BYTES, SNAPSHOT_VERSION, Snapshot,
     snapshot_decode,
 };
 use crate::abi7::{
     context::{Error as FrameError, FrameSlot},
-    snapshot,
+    queries, snapshot,
 };
 use core::{fmt, pin::Pin};
 use paperpaw_sdk::Env;
@@ -41,6 +42,42 @@ impl EnvironmentScope {
             FrameError::Busy => Error::Busy,
             FrameError::NoFrame => Error::State,
         })
+    }
+
+    /// Read a typed setting from the current dispatch frame.
+    /// Returns the complete required byte count, copying only the fitting prefix.
+    /// Decode only a complete value; absent, false, zero and empty text are distinct.
+    /// A valid call outside dispatch returns ERR_STATE.
+    ///
+    /// # Safety
+    /// Key storage must be readable for key_len bytes. Output must be writable
+    /// for capacity bytes with exclusive access; it may be uninitialized.
+    /// Both regions must be live and nonoverlapping, and output must be disjoint
+    /// from host state. Null with zero length/capacity is accepted. No pointer
+    /// is retained. Limits and UTF-8 are validated before looking up the key.
+    #[must_use]
+    pub unsafe fn settings_read(
+        &self,
+        key: *const u8,
+        key_len: usize,
+        output: *mut u8,
+        capacity: usize,
+    ) -> i32 {
+        // SAFETY: the caller provides the same pair validity and exclusion
+        // guarantees required by the existing reviewed query backend.
+        unsafe {
+            queries::settings_read(
+                &self.slot,
+                paperpaw_native::host_glue::PpBytes {
+                    ptr: key,
+                    len: key_len,
+                },
+                paperpaw_native::host_glue::PpBuffer {
+                    ptr: output,
+                    cap: capacity,
+                },
+            )
+        }
     }
 
     /// Copy the current snapshot, returning OK or a negative error status.
