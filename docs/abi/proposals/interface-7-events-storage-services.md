@@ -133,7 +133,7 @@ top screen and the screen answers `Handled` (`crates/paperpaw-sdk/src/screen.rs:
 the screen callback table (ADR34 section 4: `on_key`, `on_pointer`, gesture recognisers
 as direct callbacks), which is not declared yet (only `dispatch_event` and `draw` exist in
 `PpPlugin`). Battery's view needs `on_action(action id string)` and `on_gesture(kind,
-start point)` (`view.rs:430-466` on the 734 ref). **[Q1]** how an action id (a string) is
+start point)` (`view.rs:434-466` on the 734 ref). **[Q1]** how an action id (a string) is
 delivered; sketch: `on_action(state, token, id: bytes) -> i32` with a handled flag in an
 out value. No key/touch records are proposed here.
 
@@ -381,7 +381,135 @@ section 5, item V1).
 
 ## 3. services.query, plugin names, usage and work notes
 
-(placeholder)
+### 3.1 Facts
+
+- [V] Slot 17 `services.query(ctx, key: bytes, major: u16, minor: u16, out: out_handle)
+  -> status`, effect mutate, ownership owner, `max_bytes` 128; slots 18/19
+  `blob.read(ctx, blob: handle, offset: u64, out: buffer) -> count` (<= 4096) and
+  `blob.release(ctx, blob: handle)` (`abi/abi.def`). Metadata allows up to 16 declared
+  service keys of <= 128 bytes (`abi/metadata.md`).
+- [V] Nothing implements them: the default table answers `ERR_UNSUPPORTED`
+  (`host_glue.rs:309-353`); there is no core adapter. The generic handle registry exists
+  with kinds `Font`, `Service`, `Blob`, 32 slots, **4 live handles per owner** and 27-bit
+  generations (`paperpaw-core/src/abi7/handles.rs:7-8`); teardown drops an owner's handles
+  (`take_owner`).
+- [V] The scoped frame behind slots 4-6 exposes only settings, translator and snapshot
+  (`abi7/context.rs:12-17`); usage, plugin list and work notes are not reachable from it.
+- [V] ADR34:219 replaces `Services::get::<T>()` by "a key, a major.minor and a `#[repr(C)]`
+  table per key (`core.library/1`)". Slot 17 as declared returns a `u32` handle, not a
+  table pointer, and no call-through-handle slot exists. So **interface services such as
+  `core.library` have no invocation path yet** (**[Q13]**, outside Battery).
+- [V] What Battery reads (interface 6): global `Usage` per sample (`lib.rs:61`,
+  `usage.rs:51-67`: 3 refresh counts, pixels u64, inputs, sleeps u32, `panel_ms`,
+  `bluetooth_ms` u64); `plugin_usage()` every 10 minutes and for the developer view
+  (`lib.rs:116-127`, `view.rs:226-300`): rows of `PluginUsage` (`usage.rs:72-100`: id,
+  `busy_us` u64, calls, `shown_ms`, 3 refresh counts, pixels u64, read, written, requests,
+  refused, `awake_ms` u32, `awake_reason` string); plugin display names via
+  `env.plugins().get(id).name(i18n)` (`view.rs:89-96`); background work notes
+  `env.work().note(&owner)` -> `Note {at: Instant, text: String}`
+  (`view.rs:303`; `sdk/src/work.rs:703-706,757`); settings by dynamic key
+  (`core.network.<plugin>`, `core.saving.<plugin>`, `view.rs:100-108`, covered by slot 5).
+- [V] `Env::plugin_usage()` today **clones the whole table** on each call, "as the kernel
+  keeps one table only (memory is short on small devices)" (`env.rs:1036-1039`).
+  With about 70 plugins that is already several KB on the heap per call.
+
+### 3.2 Decisions (proposed)
+
+**D3.1 Slot 17 is a snapshot query; its handle is a Blob.** [P] For the keys below,
+`services.query` builds an immutable byte snapshot in host memory and returns a handle of
+kind `Blob`; the plugin reads it with `blob.read` and frees it with `blob.release`
+(`handle.release`, slot 8, is refused for it with `ERR_STATE` so there is one release
+path per kind). Interface services with call tables (ADR34:219) are a different class,
+appended later with their own slot; this class is named **data services**.
+**[Q13]** whether the owner wants snapshot semantics for slot 17 or reserves it for
+interface services and appends a separate `data.query` slot. The handle registry
+(`Kind::Service` next to `Kind::Blob`) suggests the second was anticipated; the declared
+`blob.*` slots suggest the first.
+
+**D3.2 Key grammar.** [P] `key = service [ "/" arg ]`, ASCII, at most 128 bytes (the
+metadata key limit). `service = segment ("." segment)+`, segment `[a-z][a-z0-9-]*`
+(<= 32 bytes). `arg = [A-Za-z0-9._-]{1,64}` (a plugin id). Anything else is `ERR_INVALID`;
+non-UTF-8 is `ERR_UTF8`. Unknown service: `ERR_NOT_FOUND`. `major` must equal the
+provider's major, `minor` must be <= the provider's, otherwise `ERR_UNSUPPORTED` (ADR34
+compatibility rule: a plugin built at `7.m` runs on `7.n`, `n >= m`). The service key and
+minor go into the plugin's declared service list (`metadata.services`) so `needs_minor`
+accounts for it.
+
+**D3.3 Blob content grammar.** [P] Single small records are one wire record
+(`tag, len, body`, as in `docs/abi/records.md`) and the blob is exactly that record.
+Tables are a **record stream**: records back to back, no count prefix, ending at the
+blob's length. This differs from a batch (count-prefixed, <= 8 records,
+<= 4096 B) on purpose: a 70-row table cannot be one batch. A reader keeps a carry buffer
+of one record (<= 256 B for usage rows) between `blob.read` chunks. Total blob size cap
+**8 KiB**; a table that would exceed it is cut at a row boundary and flagged by a final
+`service.end {flags: u32}` record (bit 0 = truncated).
+
+**D3.4 Blob lifetime and budget.** [P] A snapshot blob expires **at the end of the callback
+that created it** (stale use returns `ERR_STATE`, the host frees it) unless the key class
+declares otherwise; Battery reads and releases within one callback. Limits: at most 2 live
+blobs per owner (the registry's 4 handles are shared with fonts) and **16 KiB of live
+blob bytes across all plugins**; beyond that `services.query` returns `ERR_NO_MEMORY`
+(allocation failure) or `ERR_BUSY` (budget used by another owner), with no handle
+created.
+
+### 3.3 Services and records
+
+| Key | Arg | Response | Used by Battery for |
+| --- | --- | --- | --- |
+| `core.usage/1` | none | one record tag 48 | global counters per sample |
+| `core.plugin-usage/1` | none | stream of tag 49 rows, then tag 52 | 10-minute plugin lines, developer view |
+| `core.plugin/1` | plugin id | one record tag 50 | display name |
+| `core.work-note/1` | plugin id | one record tag 51 (absent = `ERR_NOT_FOUND`) | note under a plugin in the view |
+
+| Tag | Record | Fields in order (all required) | Caps |
+| --- | --- | --- | --- |
+| 48 | `service.usage` | `fast: u32`, `partial: u32`, `full: u32`, `pixels: u64`, `inputs: u32`, `sleeps: u32`, `panel_ms: u64`, `bluetooth_ms: u64` | 52 B body |
+| 49 | `service.plugin_usage` | `plugin: str`, `busy_us: u64`, `calls: u32`, `shown_ms: u32`, `fast: u32`, `partial: u32`, `full: u32`, `pixels: u64`, `read: u32`, `written: u32`, `requests: u32`, `refused: u32`, `awake_ms: u32`, `awake_reason: str` | plugin 64, awake_reason 64; row <= 256 B |
+| 50 | `service.plugin` | `name: str`, `enabled: u32` | name 128 |
+| 51 | `service.work_note` | `at_ms: u64`, `text: str` | text 256 |
+| 52 | `service.end` | `flags: u32` | - |
+
+Notes. Row size estimate: about 52 B of numbers plus two short strings, roughly 80-90 B,
+so 70 plugins is about 6 KB (above one 4096 B read, hence chunking and the 8 KiB cap).
+`Instant` and `Duration` fields are exported as monotonic milliseconds so the semantics of
+`Instant` (an opaque kernel type) never cross. Counters stay `u32` saturating as in the
+SDK (`usage.rs`). `service.work_note.text` is capped at 256 B by the **producer**
+(the kernel, when the note is stored) with a UTF-8-safe cut; today `Note.text` has no
+documented bound (`work.rs:703-706`) (**[Q14]** bound it at the `Command` that sets it
+instead). `enabled` is a placeholder for the plugin manager's state: **[Q]** drop it if no
+consumer needs it.
+
+Alternative considered for `core.usage`: append the counters to the snapshot
+(slot 4). Rejected: the snapshot has 128 B and uses 52 (`abi/abi.def` `snapshot_value`),
+and every callback would pay for counters only Battery reads; that space is the scarce
+extension room.
+Alternative for plugin names: embed the localized name in every usage row. Rejected: 70
+catalog lookups per query for the 5 to 10 names the view shows.
+
+### 3.4 Validation, failure and per-sample cost
+
+Order of checks in `services.query`: frame and owner (`ERR_STATE`), pointers and lengths
+(`ERR_INVALID`), UTF-8 (`ERR_UTF8`), key grammar (`ERR_INVALID`), service known
+(`ERR_NOT_FOUND`), version (`ERR_UNSUPPORTED`), per-owner and global blob budget
+(`ERR_BUSY`), build snapshot (`ERR_NO_MEMORY` on allocation failure with everything freed),
+only then insert the handle and write `out`. `blob.read` of a stale or foreign handle is
+`ERR_STATE`; offset past the end returns 0; a zero-capacity read copies nothing
+(`abi/README.md`). `blob.release` of a stale handle is `ERR_STATE` and releases nothing.
+Teardown of the owner frees its blobs exactly once.
+Per sample Battery adds: `services.query` + `blob.read` + `blob.release` for usage
+(3 crossings, host snapshot 60 B), and every 10 minutes the same for the plugin table
+(host transient about 6 KB, the same order as the clone `Env::plugin_usage()` makes today,
+`env.rs:1036-1039`, while the plugin no longer holds a `Vec<PluginUsage>`).
+
+### 3.5 Open questions
+
+Q13 snapshot vs interface semantics for slot 17 (and an invocation slot for
+`core.library`). Q14 where the note text is bounded. Q15 whether a blob may outlive its
+callback for other consumers (ADR34 section 5 says "retained blobs use owner handles").
+Q16 the per-owner handle limit of 4 is shared by fonts, services and blobs; Battery needs
+at least 1-2 fonts plus up to 2 blobs: confirm the limit or raise it. Q17 `enabled` field.
+Q18 the registry stores a `T` per entry; a `Blob` payload of up to 8 KiB x 2 owners must
+fit the budget on X4 (not measured).
 
 ## 4. Text, font, i18n and command vocabulary
 
