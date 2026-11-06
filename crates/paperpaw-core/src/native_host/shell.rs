@@ -28,6 +28,7 @@ use paperpaw_native::host_glue::{
     self, PpBuffer, PpBytes, PpHost, PpPlugin, Services, ShellCtx, read_plugin_dispatch_event,
     read_plugin_draw, read_plugin_drop, read_plugin_size, read_plugin_state,
 };
+use paperpaw_platform::Rect;
 
 use super::canvas::CanvasScope;
 use super::environment::EnvironmentScope;
@@ -63,8 +64,8 @@ impl From<super::Error> for Error {
 /// The plugin's factory: `make(host, ctx, out)`.
 pub type Make = unsafe extern "C" fn(*const PpHost, *mut c_void, *mut *const PpPlugin) -> i32;
 
-type Event = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
-type Draw = unsafe extern "C" fn(*mut c_void, u32) -> i32;
+type Event = unsafe extern "C" fn(*mut c_void, u32, PpBytes, PpBuffer) -> i32;
+type Draw = unsafe extern "C" fn(*mut c_void, u32, PpBytes) -> i32;
 
 /// What `make` returned, copied from its table: only generated, bounded
 /// fields, and never a reference to the whole table.
@@ -577,8 +578,34 @@ pub enum Invocation<'a> {
     /// An event of interface 7's list, its payload encoded by core
     /// (`native_host::events`): handed to the callback as it is.
     Event(&'a [u8]),
-    /// The draw callback.
-    Draw,
+    /// The draw callback with its encoded `draw.frame` record (N2).
+    Draw(&'a [u8]),
+}
+
+fn borrowed(bytes: &[u8]) -> PpBytes {
+    PpBytes {
+        ptr: bytes.as_ptr(),
+        len: bytes.len(),
+    }
+}
+
+/// Events 32-39 and tick have no reply family: an empty, non-null reply
+/// buffer (cap 0, `docs/abi/screens-input.md` section 6).
+fn no_reply() -> PpBuffer {
+    PpBuffer {
+        ptr: ptr::NonNull::dangling().as_ptr(),
+        cap: 0,
+    }
+}
+
+/// Callbacks without a reply family return a status: a positive result is a
+/// plugin fault, never a length (`docs/abi/screens-input.md` section 6).
+fn status_only(result: i32) -> i32 {
+    if result > 0 {
+        host_glue::ERR_INVALID
+    } else {
+        result
+    }
 }
 
 /// Called only inside a batch admission closure that retains its owner.
@@ -603,16 +630,9 @@ fn invoke_registration<S>(
             // SAFETY: the admitted owner retains state, context and module. The
             // callback is present, the bytes live for this call and do not
             // alias host state.
-            Ok(unsafe {
-                callback(
-                    instance.state,
-                    token,
-                    PpBytes {
-                        ptr: bytes.as_ptr(),
-                        len: bytes.len(),
-                    },
-                )
-            })
+            Ok(status_only(unsafe {
+                callback(instance.state, token, borrowed(bytes), no_reply())
+            }))
         }
         (Registration::Event { token, .. }, Invocation::Event(bytes)) => {
             let callback = instance
@@ -620,23 +640,19 @@ fn invoke_registration<S>(
                 .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
             // SAFETY: the same admitted owner lifetime; the payload is
             // borrowed for this call only and does not alias host state.
-            Ok(unsafe {
-                callback(
-                    instance.state,
-                    token,
-                    PpBytes {
-                        ptr: bytes.as_ptr(),
-                        len: bytes.len(),
-                    },
-                )
-            })
+            Ok(status_only(unsafe {
+                callback(instance.state, token, borrowed(bytes), no_reply())
+            }))
         }
-        (Registration::Draw { token }, Invocation::Draw) => {
+        (Registration::Draw { token }, Invocation::Draw(frame)) => {
             let callback = instance
                 .draw
                 .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
-            // SAFETY: the same admitted owner lifetime, no borrowed output.
-            Ok(unsafe { callback(instance.state, token) })
+            // SAFETY: the same admitted owner lifetime; the frame is borrowed
+            // for this call only and does not alias host state.
+            Ok(status_only(unsafe {
+                callback(instance.state, token, borrowed(frame))
+            }))
         }
         _ => Err(Error::Status(host_glue::ERR_UNSUPPORTED)),
     }
@@ -676,6 +692,25 @@ pub fn dispatch_with_env<S, M>(
     })?
 }
 
+/// The screen frame (N2) of a canvas's visible region, encoded into `out`;
+/// `None` when the region is empty, which is never sent.
+fn screen_frame(clip: Rect, out: &mut [u8; 64]) -> Result<Option<usize>, Error> {
+    if clip.width == 0 || clip.height == 0 {
+        return Ok(None);
+    }
+    let (top, height) = (i32::from(clip.y), i32::from(clip.height));
+    let frame = super::frames::screen(
+        i32::from(clip.x),
+        top,
+        u32::from(clip.width),
+        u32::from(clip.height),
+        (top, top + height),
+    );
+    super::frames::encode(&frame, out)
+        .map(Some)
+        .map_err(Error::Status)
+}
+
 /// Draw dispatch with a frame: the Env (slots 4/5) and the Canvas (slot 9)
 /// are both lent for this one synchronous callback and cleared on every exit,
 /// including unwind. Nested installation is refused by the scopes.
@@ -689,13 +724,19 @@ pub fn dispatch_draw<S, M>(
     env: &Env<'_>,
     canvas: &mut Canvas<'_>,
 ) -> Result<i32, Error> {
+    let mut bytes = [0; 64];
+    // An empty clip is never sent (section 6): nothing visible, no call.
+    let Some(len) = screen_frame(canvas.clip(), &mut bytes)? else {
+        return Ok(host_glue::OK);
+    };
+    let frame = &bytes[..len];
     batch.dispatch(index, depth, |context, record| {
         // SAFETY: the owner structurally pins these fields; no API moves them.
         let env_scope = unsafe { context.map_unchecked(|value| &value.environment) };
         let canvas_scope = unsafe { context.map_unchecked(|value| &value.canvas) };
         env_scope.scope(env, || {
             canvas_scope.scope(canvas, || {
-                invoke_registration(context, *record, Invocation::Draw)
+                invoke_registration(context, *record, Invocation::Draw(frame))
             })
         })??
     })?

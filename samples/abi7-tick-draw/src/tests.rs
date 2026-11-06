@@ -153,6 +153,20 @@ unsafe extern "C" fn fill_rect(
     h.fills.push((x, y, width, height, color));
     OK
 }
+/// Tick has no reply: an empty, non-null reply buffer (N1).
+fn no_reply() -> PpBuffer {
+    PpBuffer {
+        ptr: core::ptr::NonNull::dangling().as_ptr(),
+        cap: 0,
+    }
+}
+/// The sample draws one fixed rectangle and ignores its frame (N2).
+fn frame() -> PpBytes {
+    PpBytes {
+        ptr: core::ptr::NonNull::dangling().as_ptr(),
+        len: 0,
+    }
+}
 fn table() -> PpHost {
     let mut table = paperpaw_native::host_glue::host_table();
     table.heap_alloc = allocate;
@@ -186,6 +200,7 @@ fn tick(plugin: *const PpPlugin, token: u32, now: u64) -> i32 {
                 ptr: bytes.as_ptr(),
                 len,
             },
+            no_reply(),
         )
     }
 }
@@ -215,8 +230,8 @@ fn instance_registers_then_remembers_tick_and_draw_without_global_host_state() {
     assert_eq!(tick(pb, EVENT_TOKEN, 92), OK);
     // SAFETY: distinct created live instances, synchronously invoked then inspected.
     unsafe {
-        assert_eq!(((*pa).draw.unwrap())((*pa).state, DRAW_TOKEN), OK);
-        assert_eq!(((*pb).draw.unwrap())((*pb).state, DRAW_TOKEN), OK);
+        assert_eq!(((*pa).draw.unwrap())((*pa).state, DRAW_TOKEN, frame()), OK);
+        assert_eq!(((*pb).draw.unwrap())((*pb).state, DRAW_TOKEN, frame()), OK);
         for (p, now) in [(pa, 41), (pb, 92)] {
             let s = &*(*p).state.cast::<State>();
             assert_eq!(s.last_tick_ms, Some(now));
@@ -248,11 +263,15 @@ fn malformed_input_and_wrong_tokens_leave_local_state_unchanged() {
                 PpBytes {
                     ptr: bytes.as_ptr(),
                     len: n - 1
-                }
+                },
+                no_reply(),
             ),
             ERR_INVALID
         );
-        assert_eq!(((*p).draw.unwrap())((*p).state, EVENT_TOKEN), ERR_INVALID);
+        assert_eq!(
+            ((*p).draw.unwrap())((*p).state, EVENT_TOKEN, frame()),
+            ERR_INVALID
+        );
         assert_eq!(((*p).state.cast::<State>()).as_ref().unwrap().ticks, 0);
         assert_eq!(((*p).state.cast::<State>()).as_ref().unwrap().draws, 0);
     }
@@ -288,7 +307,10 @@ fn draw_paints_one_black_rect_through_slot_9() {
     let p = create(&table, &mut ctx);
     for _ in 0..2 {
         // SAFETY: live instance/context, synchronous callback.
-        assert_eq!(unsafe { ((*p).draw.unwrap())((*p).state, DRAW_TOKEN) }, OK);
+        assert_eq!(
+            unsafe { ((*p).draw.unwrap())((*p).state, DRAW_TOKEN, frame()) },
+            OK
+        );
     }
     assert_eq!(ctx.fills, [(8, 8, 64, 32, 0); 2]);
     assert_eq!(color::color_encode(0, 0, 0), 0);
@@ -308,7 +330,7 @@ fn refused_fill_is_returned_and_commits_nothing() {
         ctx.fill_error = error;
         // SAFETY: live instance/context; the host refuses the fill.
         unsafe {
-            assert_eq!(((*p).draw.unwrap())((*p).state, DRAW_TOKEN), error);
+            assert_eq!(((*p).draw.unwrap())((*p).state, DRAW_TOKEN, frame()), error);
             let s = &*(*p).state.cast::<State>();
             assert_eq!((s.draws, s.fills, s.draw_clock_us), (0, 0, 0));
             assert!(s.observations.is_none());
@@ -326,7 +348,10 @@ fn clock_error_does_not_commit_a_draw() {
     ctx.clock_error = ERR_IO;
     // SAFETY: live instance/context; host intentionally refuses the clock query.
     unsafe {
-        assert_eq!(((*p).draw.unwrap())((*p).state, DRAW_TOKEN), ERR_IO);
+        assert_eq!(
+            ((*p).draw.unwrap())((*p).state, DRAW_TOKEN, frame()),
+            ERR_IO
+        );
         assert_eq!((*(*p).state.cast::<State>()).draws, 0);
     }
     destroy_plugin(p);

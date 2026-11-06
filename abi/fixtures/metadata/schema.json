@@ -75,6 +75,10 @@
                 {
                   "name": "input",
                   "type": "bytes"
+                },
+                {
+                  "name": "out",
+                  "type": "buffer"
                 }
               ],
               "nullable": true,
@@ -93,12 +97,38 @@
                 {
                   "name": "token",
                   "type": "u32"
+                },
+                {
+                  "name": "input",
+                  "type": "bytes"
                 }
               ],
               "nullable": true,
               "result": "i32"
             },
             "name": "draw",
+            "since": 1
+          },
+          {
+            "callback": {
+              "args": [
+                {
+                  "name": "state",
+                  "type": "pointer"
+                },
+                {
+                  "name": "token",
+                  "type": "u32"
+                },
+                {
+                  "name": "input",
+                  "type": "bytes"
+                }
+              ],
+              "nullable": true,
+              "result": "i32"
+            },
+            "name": "input",
             "since": 1
           }
         ],
@@ -920,6 +950,58 @@
       "reentry": "deny",
       "result": "status",
       "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "key",
+          "type": "bytes"
+        },
+        {
+          "name": "args",
+          "type": "bytes"
+        },
+        {
+          "name": "out",
+          "type": "buffer"
+        }
+      ],
+      "effect": "query",
+      "id": 27,
+      "max_bytes": 4096,
+      "name": "i18n.format",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "length",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "text",
+          "type": "bytes"
+        },
+        {
+          "name": "out",
+          "type": "buffer"
+        }
+      ],
+      "effect": "query",
+      "id": 28,
+      "max_bytes": 4096,
+      "name": "i18n.digits",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "length",
+      "since": 1
     }
   ],
   "major": 7,
@@ -938,14 +1020,20 @@
         "size_source": "entry_bytes"
       }
     ],
-    "features": [],
+    "features": [
+      {
+        "key": "test.feature",
+        "revision": 2,
+        "since": 1
+      }
+    ],
     "format": 2,
     "magic": "PPAM",
     "max_bytes": 2048,
     "max_exports": 1,
     "max_features": 32,
     "max_key_bytes": 128,
-    "max_services": 16,
+    "max_services": 32,
     "prefix": [
       {
         "name": "magic",
@@ -1048,7 +1136,7 @@
           "type": "u16"
         },
         {
-          "name": "reserved",
+          "name": "flags",
           "type": "u16"
         }
       ],
@@ -1306,6 +1394,11 @@
         },
         {
           "default": null,
+          "list": {
+            "item_max_bytes": 96,
+            "max_items": 32,
+            "separator": "\n"
+          },
           "max_bytes": 1024,
           "name": "choices",
           "optional": false,
@@ -1715,6 +1808,15 @@
           "ordinal": 1,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "insert",
+          "optional": true,
+          "ordinal": 2,
+          "since": 1,
+          "type": "u32"
         }
       ],
       "id": 37,
@@ -2025,6 +2127,459 @@
       "id": 52,
       "name": "service.end",
       "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "title",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 11,
+      "name": "screen.spec",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "title",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 12,
+      "name": "action.spec",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "screen",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "width",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "height",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 38,
+      "name": "event.screen_shown",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "action",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 39,
+      "name": "event.action_run",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "key",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "state",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 40,
+      "name": "input.key",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "x",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "y",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "phase",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 41,
+      "name": "input.pointer",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "x",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "y",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        }
+      ],
+      "id": 42,
+      "name": "input.gesture",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "action",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 43,
+      "name": "input.action",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 256,
+          "name": "value",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 44,
+      "name": "i18n.arg_str",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "value",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 45,
+      "name": "i18n.arg_int",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "value",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 46,
+      "name": "i18n.count",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "purpose",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "x",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "y",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "width",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "height",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "clip_top",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "clip_bottom",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "id",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 256,
+          "name": "payload",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        }
+      ],
+      "id": 192,
+      "name": "draw.frame",
+      "since": 1
     }
   ],
   "snapshot_value": {
@@ -2220,6 +2775,16 @@
       "name": "ERR_FULL",
       "since": 1,
       "value": -11
+    },
+    {
+      "name": "ERR_DENIED",
+      "since": 1,
+      "value": -12
+    },
+    {
+      "name": "ERR_TIMEOUT",
+      "since": 1,
+      "value": -13
     }
   ]
 }

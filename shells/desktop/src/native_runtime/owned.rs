@@ -10,7 +10,7 @@ use paperpaw_core::native_host::environment::EnvironmentScope;
 use paperpaw_core::native_host::registration_scope::RegistrationScope;
 use paperpaw_core::native_host::registrations::{self, EVENT_TICK_TAG, Registration};
 use paperpaw_core::native_host::{self, Construction, DispatchDepth, HostOwner, RegistrationBatch};
-use paperpaw_native::host_glue::{self, PpBytes, PpHost, PpPlugin, Services, ShellCtx};
+use paperpaw_native::host_glue::{self, PpBuffer, PpBytes, PpHost, PpPlugin, Services, ShellCtx};
 use std::{alloc::Layout, cell::Cell, ffi::c_void, path::Path, pin::Pin, ptr};
 
 #[derive(Debug)]
@@ -353,7 +353,34 @@ enum Invocation<'a> {
     /// An event of interface 7's list, its payload encoded by core
     /// (`native_host::events`): handed to the callback as it is.
     Event(&'a [u8]),
-    Draw,
+    /// One encoded `draw.frame` batch (N2).
+    Draw(&'a [u8]),
+}
+
+fn borrowed(bytes: &[u8]) -> PpBytes {
+    PpBytes {
+        ptr: bytes.as_ptr(),
+        len: bytes.len(),
+    }
+}
+
+/// Events 32-39 and tick have no reply family: an empty, non-null reply
+/// buffer (cap 0, `docs/abi/screens-input.md` section 6).
+fn no_reply() -> PpBuffer {
+    PpBuffer {
+        ptr: ptr::NonNull::dangling().as_ptr(),
+        cap: 0,
+    }
+}
+
+/// Callbacks without a reply family return a status: a positive result is a
+/// plugin fault, never a length (`docs/abi/screens-input.md` section 6).
+fn status_only(result: i32) -> i32 {
+    if result > 0 {
+        host_glue::ERR_INVALID
+    } else {
+        result
+    }
 }
 
 /// Called only inside a batch/queue admission closure that retains its owner.
@@ -377,16 +404,9 @@ fn invoke_registration<S>(
                 .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
             // SAFETY: admitted owner retains state/context/module. The callback
             // is present, bytes remain live for this call and do not alias host state.
-            Ok(unsafe {
-                callback(
-                    instance.state,
-                    token,
-                    PpBytes {
-                        ptr: bytes.as_ptr(),
-                        len: bytes.len(),
-                    },
-                )
-            })
+            Ok(status_only(unsafe {
+                callback(instance.state, token, borrowed(bytes), no_reply())
+            }))
         }
         (Registration::Event { token, .. }, Invocation::Event(bytes)) => {
             let callback = instance
@@ -394,23 +414,18 @@ fn invoke_registration<S>(
                 .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
             // SAFETY: same admitted owner lifetime; the payload is borrowed for
             // this call only and does not alias host state.
-            Ok(unsafe {
-                callback(
-                    instance.state,
-                    token,
-                    PpBytes {
-                        ptr: bytes.as_ptr(),
-                        len: bytes.len(),
-                    },
-                )
-            })
+            Ok(status_only(unsafe {
+                callback(instance.state, token, borrowed(bytes), no_reply())
+            }))
         }
-        (Registration::Draw { token }, Invocation::Draw) => {
+        (Registration::Draw { token }, Invocation::Draw(frame)) => {
             let callback = instance
                 .draw
                 .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
-            // SAFETY: same admitted owner lifetime, no borrowed callback output.
-            Ok(unsafe { callback(instance.state, token) })
+            // SAFETY: same admitted owner lifetime; the frame is borrowed for this call.
+            Ok(status_only(unsafe {
+                callback(instance.state, token, borrowed(frame))
+            }))
         }
         _ => Err(Error::Status(host_glue::ERR_UNSUPPORTED)),
     }

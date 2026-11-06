@@ -27,7 +27,9 @@ pub use wire::{
     EVENT_RESUME_TAG, EVENT_STARTED_TAG, EVENT_STOPPING_TAG, EVENT_SUSPEND_TAG,
     EventBatteryMeasured, EventPageTurned, EventResume, EventStarted, EventStopping, EventSuspend,
     Record, RecordBatch, RecordIter, ResourceFontExtension, ResourceFontFace, ResourceHyphenation,
-    SettingExtra, SettingGroup, SettingSpec, records_decode, records_encode,
+    SETTING_SPEC_CHOICES_ITEM_MAX_BYTES, SETTING_SPEC_CHOICES_MAX_ITEMS,
+    SETTING_SPEC_CHOICES_SEPARATOR, SettingExtra, SettingGroup, SettingSpec, records_decode,
+    records_encode,
 };
 // Service records 48-52 and the bare framing of service blobs (slots 17-19,
 // `docs/abi/proposals/interface-7-usage-clock.md`): built by the host, never
@@ -38,6 +40,16 @@ pub use wire::{
     SERVICE_PLUGIN_USAGE_TAG, SERVICE_USAGE_TAG, SERVICE_WORK_NOTE_TAG,
     SERVICE_WORK_NOTE_TEXT_MAX_BYTES, ServiceEnd, ServicePlugin, ServicePluginUsage, ServiceUsage,
     ServiceWorkNote, record_decode_one, record_encode_one, record_framed_len,
+};
+// Screen/action declarations (11/12), screen events (38/39), input records
+// (40-43), i18n format arguments (44-46) and the draw frame (192):
+// `docs/abi/screens-input.md`.
+pub use wire::{
+    ACTION_SPEC_TAG, ActionSpec, DRAW_FRAME_PAYLOAD_MAX_BYTES, DRAW_FRAME_TAG, DrawFrame,
+    EVENT_ACTION_RUN_TAG, EVENT_SCREEN_SHOWN_TAG, EventActionRun, EventScreenShown,
+    I18N_ARG_INT_TAG, I18N_ARG_STR_TAG, I18N_COUNT_TAG, I18nArgInt, I18nArgStr, I18nCount,
+    INPUT_ACTION_TAG, INPUT_GESTURE_TAG, INPUT_KEY_TAG, INPUT_POINTER_TAG, InputAction,
+    InputGesture, InputKey, InputPointer, SCREEN_SPEC_TAG, ScreenSpec,
 };
 // Single-record and streaming decoders for plugin-side readers (lock format 8).
 pub use wire::{RECORD_CARRY_MAX_BYTES, RecordStream, record_decode_prefix, records_decode_single};

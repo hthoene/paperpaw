@@ -152,6 +152,7 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
                 drop: Some(destroy),
                 dispatch_event: Some(event),
                 draw: Some(draw),
+                input: None,
             },
             last_tick_ms: None,
             ticks: 0,
@@ -166,7 +167,7 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
 }
 
 /// State is plugin-owned and exclusively admitted by the host for this callback.
-unsafe extern "C" fn event(state: *mut c_void, token: u32, input: PpBytes) -> i32 {
+unsafe extern "C" fn event(state: *mut c_void, token: u32, input: PpBytes, _out: PpBuffer) -> i32 {
     if state.is_null()
         || token != EVENT_TOKEN
         || input.len > wire::REGISTRATION_MAX_BYTES
@@ -194,7 +195,7 @@ unsafe extern "C" fn event(state: *mut c_void, token: u32, input: PpBytes) -> i3
 /// Copies current observations and paints one black rectangle through slot 9.
 /// Nothing is committed unless every host call succeeded, so a refused fill
 /// leaves the counters and observations as they were.
-unsafe extern "C" fn draw(state: *mut c_void, token: u32) -> i32 {
+unsafe extern "C" fn draw(state: *mut c_void, token: u32, _frame: PpBytes) -> i32 {
     if state.is_null() || token != DRAW_TOKEN {
         return ERR_INVALID;
     }

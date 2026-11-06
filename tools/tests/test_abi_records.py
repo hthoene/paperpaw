@@ -200,6 +200,12 @@ mod tests {
 '''
 
 
+# Every generated copy of the records codec, byte for byte (#180).
+COPIES = ['abi/generated/records_wire.rs',
+          'crates/paperpaw-core/src/abi7/records_wire.rs',
+          'crates/paperpaw-sdk/src/native/declare/records_wire.rs']
+
+
 class RecordsTests(unittest.TestCase):
     def setUp(self):
         self.schema = ABI.load(ROOT / 'abi/abi.def')
@@ -216,7 +222,11 @@ class RecordsTests(unittest.TestCase):
                           ('event.battery_measured', 36), ('event.page_turned', 37),
                           ('service.usage', 48), ('service.plugin_usage', 49),
                           ('service.plugin', 50), ('service.work_note', 51),
-                          ('service.end', 52)])
+                          ('service.end', 52), ('screen.spec', 11), ('action.spec', 12),
+                          ('event.screen_shown', 38), ('event.action_run', 39),
+                          ('input.key', 40), ('input.pointer', 41), ('input.gesture', 42),
+                          ('input.action', 43), ('i18n.arg_str', 44), ('i18n.arg_int', 45),
+                          ('i18n.count', 46), ('draw.frame', 192)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             if record['id'] <= 3:
@@ -296,18 +306,49 @@ class RecordsTests(unittest.TestCase):
         # The original raw module and settings emission do not acquire these types.
         self.assertNotIn('RegistrationBatch', ABI.rust_module(self.schema))
 
+    def test_list_bounds_are_generated_from_the_schema(self):
+        # #180: the choice limits come from abi.def, not literals in core or the SDK.
+        spec = next(r for r in self.schema['records'] if r['name'] == 'setting.spec')
+        items = next(f for f in spec['fields'] if f['name'] == 'choices')['list']
+        source = rust_records(self.schema)
+        self.assertIn(f"pub const SETTING_SPEC_CHOICES_MAX_ITEMS: usize = {items['max_items']};",
+                      source)
+        self.assertIn('pub const SETTING_SPEC_CHOICES_ITEM_MAX_BYTES: usize = '
+                      f"{items['item_max_bytes']};", source)
+        self.assertIn("pub const SETTING_SPEC_CHOICES_SEPARATOR: char = '\\n';", source)
+        for path in ['crates/paperpaw-core/src/native_host/declarations.rs',
+                     'crates/paperpaw-sdk/src/native/declare.rs']:
+            text = (ROOT / path).read_text()
+            self.assertIn('SETTING_SPEC_CHOICES_MAX_ITEMS', text, path)
+            self.assertNotIn('CHOICES_MAX_VALUES: usize = 32', text, path)
+        for bad in [dict(items, separator='ab'), dict(items, separator='\u00e9'),
+                    dict(items, max_items=0), dict(items, item_max_bytes=2048),
+                    dict(items, extra=1), {k: v for k, v in items.items() if k != 'separator'}]:
+            candidate = copy.deepcopy(self.schema)
+            field = next(f for f in next(r for r in candidate['records']
+                                         if r['name'] == 'setting.spec')['fields']
+                         if f['name'] == 'choices')
+            field['list'] = bad
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                rust_records(candidate)
+        candidate = copy.deepcopy(self.schema)
+        field = next(f for f in next(r for r in candidate['records']
+                                     if r['name'] == 'setting.spec')['fields']
+                     if f['name'] == 'default')
+        field['list'] = items
+        with self.assertRaises(ValueError):
+            rust_records(candidate)
+
     def test_standalone_copies_generated_and_checked(self):
         source = rust_records(self.schema) + rust_streams(self.schema)
-        for path in ['abi/generated/records_wire.rs',
-                     'crates/paperpaw-core/src/abi7/records_wire.rs']:
+        for path in COPIES:
             self.assertEqual((ROOT / path).read_text(), source)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'abi').mkdir()
             (root / 'abi/abi.def').write_text(ABI.canonical(self.schema))
             ABI.run(['--root', str(root), '--write-lock'])
-            for path in ['abi/generated/records_wire.rs',
-                         'crates/paperpaw-core/src/abi7/records_wire.rs']:
+            for path in COPIES:
                 generated = root / path
                 self.assertEqual(generated.read_text(), source)
                 generated.write_text('// stale')
