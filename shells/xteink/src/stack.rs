@@ -102,6 +102,7 @@ const TRIGGER: u32 = 2;
 
 /// Whether the band is armed now: the plugins of interface 7 run only
 /// where it is (`native::load_file` refuses them otherwise).
+#[cfg(target_arch = "riscv32")]
 static ARMED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
 /// Set when a re-arm found the trigger taken after the band had been armed.
@@ -128,8 +129,16 @@ pub fn native_loaded() {
 /// Whether the band at the stack's end is armed. Where it is not (the
 /// chip has none, or trigger 2 was taken by something else), the plugins
 /// that run native code do not run: they would have no net.
+#[cfg_attr(
+    not(any(target_arch = "riscv32", feature = "ppn5")),
+    allow(dead_code, reason = "the Xtensa chips have no band and, without ppn5, no caller")
+)]
 pub fn band_armed() -> bool {
-    ARMED.load(core::sync::atomic::Ordering::Relaxed)
+    // The Xtensa chips have no band.
+    #[cfg(target_arch = "riscv32")]
+    return ARMED.load(core::sync::atomic::Ordering::Relaxed);
+    #[cfg(not(target_arch = "riscv32"))]
+    false
 }
 
 /// Sets the CPU's data trigger to fire before any store into the band
