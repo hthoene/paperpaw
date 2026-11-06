@@ -356,3 +356,140 @@ fn mixed_decoded_and_owned_wire_distinct_names_remain_valid() {
         assert!(construction.commit(|_| {}).is_ok());
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Submission {
+    Image,
+    Owned,
+    Decoded,
+}
+const SUBMISSIONS: [Submission; 3] = [Submission::Image, Submission::Owned, Submission::Decoded];
+fn stage_submission(
+    construction: &mut Construction<'_, (), (), Registration>,
+    scope: core::pin::Pin<&RegistrationScope<Registration>>,
+    mode: Submission,
+    bytes: &[u8],
+) {
+    if mode == Submission::Decoded {
+        construction
+            .stage_batch(&records_decode(bytes).unwrap(), |r| r)
+            .unwrap();
+    } else {
+        scope
+            .scope(construction, || assert_eq!(submit(&scope, bytes), OK))
+            .unwrap();
+    }
+}
+
+#[test]
+fn forward_extras_resolve_across_every_submission_path_and_mixed_pair() {
+    for known_image in [false, true] {
+        for extra_mode in SUBMISSIONS {
+            for spec_mode in SUBMISSIONS {
+                if !known_image
+                    && (extra_mode == Submission::Image || spec_mode == Submission::Image)
+                {
+                    continue;
+                }
+                let owner = pin!(HostOwner::new((), ()));
+                let scope = pin!(RegistrationScope::<Registration>::new());
+                let extra_wire = encode(&[extra()]);
+                let spec_wire = encode(&[spec()]);
+                let mut image = extra_wire.clone();
+                image.extend_from_slice(&spec_wire);
+                let mut construction = owner.as_ref().begin::<Registration>("fixture").unwrap();
+                if known_image {
+                    construction.set_image(&image).unwrap();
+                }
+                stage_submission(
+                    &mut construction,
+                    scope.as_ref(),
+                    Submission::Decoded,
+                    &encode(&[group("g", "")]),
+                );
+                let bytes = if extra_mode == Submission::Image {
+                    &image[..extra_wire.len()]
+                } else {
+                    &extra_wire
+                };
+                stage_submission(&mut construction, scope.as_ref(), extra_mode, bytes);
+                let bytes = if spec_mode == Submission::Image {
+                    &image[extra_wire.len()..]
+                } else {
+                    &spec_wire
+                };
+                stage_submission(&mut construction, scope.as_ref(), spec_mode, bytes);
+                construction.finish_declarations().unwrap();
+                let result = construction.commit(|_| {});
+                if extra_mode == Submission::Image || spec_mode == Submission::Image {
+                    assert!(matches!(result, Err(Error::DeclarationViewsUnavailable)));
+                } else {
+                    assert!(result.is_ok());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn forward_extra_in_the_same_batch_is_valid_on_every_path() {
+    for mode in SUBMISSIONS {
+        let owner = pin!(HostOwner::new((), ()));
+        let scope = pin!(RegistrationScope::<Registration>::new());
+        let wire = encode(&[group("g", ""), extra(), spec()]);
+        let image = wire.clone();
+        let mut construction = owner.as_ref().begin::<Registration>("fixture").unwrap();
+        if mode == Submission::Image {
+            construction.set_image(&image).unwrap();
+        }
+        let bytes = if mode == Submission::Image {
+            &image
+        } else {
+            &wire
+        };
+        stage_submission(&mut construction, scope.as_ref(), mode, bytes);
+        construction.finish_declarations().unwrap();
+        let result = construction.commit(|_| {});
+        if mode == Submission::Image {
+            assert!(matches!(result, Err(Error::DeclarationViewsUnavailable)));
+        } else {
+            assert!(result.is_ok());
+        }
+    }
+}
+
+#[test]
+fn missing_specs_fail_at_commit_on_every_path_even_if_present_in_image_bytes() {
+    for known_image in [false, true] {
+        for mode in SUBMISSIONS {
+            if !known_image && mode == Submission::Image {
+                continue;
+            }
+            let owner = pin!(HostOwner::new((), ()));
+            let scope = pin!(RegistrationScope::<Registration>::new());
+            let wire = encode(&[extra()]);
+            let mut image = wire.clone();
+            image.extend_from_slice(&encode(&[spec()]));
+            let mut construction = owner.as_ref().begin::<Registration>("fixture").unwrap();
+            if known_image {
+                construction.set_image(&image).unwrap();
+            }
+            stage_submission(
+                &mut construction,
+                scope.as_ref(),
+                Submission::Decoded,
+                &encode(&[group("g", "")]),
+            );
+            let bytes = if mode == Submission::Image {
+                &image[..wire.len()]
+            } else {
+                &wire
+            };
+            stage_submission(&mut construction, scope.as_ref(), mode, bytes);
+            assert!(matches!(
+                construction.commit(|_| panic!("missing spec must not activate")),
+                Err(Error::Invalid)
+            ));
+        }
+    }
+}

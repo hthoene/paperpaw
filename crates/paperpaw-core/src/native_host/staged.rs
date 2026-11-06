@@ -512,8 +512,7 @@ impl Declarations {
     /// # Errors
     /// The status of the first violated per-record rule; `ERR_NO_SPACE` when a
     /// count or the byte budget would be exceeded; `ERR_INVALID` for a duplicate
-    /// name or an extra without its spec or beside another extra for the same
-    /// spec; `ERR_NO_MEMORY` when an allocation fails. `self` is unchanged.
+    /// name or a second extra for the same spec; `ERR_NO_MEMORY` when an allocation fails. `self` is unchanged.
     pub fn stage(&mut self, plugin_id: &str, batch: &RecordBatch<'_>) -> Result<(), i32> {
         self.stage_retaining(plugin_id, batch, 0)
     }
@@ -602,8 +601,8 @@ impl Declarations {
         Ok(counts)
     }
 
-    /// Whether `record` repeats no name of its namespace, and an extra has its
-    /// spec. `earlier` are the records before it in the same batch.
+    /// Whether `record` repeats no name of its namespace.
+    /// `earlier` are the records before it in the same batch.
     fn is_new<'a>(
         &self,
         record: &Record<'_>,
@@ -623,12 +622,7 @@ impl Declarations {
                         .any(|e| matches!(e, Record::SettingSpec(x) if x.name == r.name))
             }
             Record::SettingExtra(r) => {
-                let has_spec = self.specs.iter().any(|x| x.name == r.name)
-                    || earlier
-                        .clone()
-                        .any(|e| matches!(e, Record::SettingSpec(x) if x.name == r.name));
-                has_spec
-                    && !self.extras.iter().any(|x| x.name == r.name)
+                !self.extras.iter().any(|x| x.name == r.name)
                     && !earlier
                         .clone()
                         .any(|e| matches!(e, Record::SettingExtra(x) if x.name == r.name))
@@ -664,7 +658,8 @@ impl Declarations {
     ///
     /// Every spec `group` and group `parent` in the plugin's own namespace
     /// (`<plugin_id>.`) must name a group staged here, and own parents must not
-    /// form a cycle. An extra whose `follows` names a staged spec of this plugin
+    /// form a cycle. Each extra must name a spec in the completed transaction,
+    /// regardless of submission order. An extra whose `follows` names a spec
     /// needs the same kind as its own spec. Ids outside the namespace
     /// (`core.*`, other plugins) and an own `follows` that names no spec are
     /// left to the kernel's apply step. Does not allocate.
@@ -692,11 +687,12 @@ impl Declarations {
             }
         }
         for extra in &self.extras {
+            let kind_of = |name: &str| self.specs.iter().find(|s| s.name == name).map(|s| s.kind);
+            let own_kind = kind_of(&extra.name).ok_or(ERR_INVALID)?;
             let Some(name) = own_name(plugin_id, &extra.follows) else {
                 continue;
             };
-            let kind_of = |name: &str| self.specs.iter().find(|s| s.name == name).map(|s| s.kind);
-            if let (Some(followed), Some(own_kind)) = (kind_of(name), kind_of(&extra.name))
+            if let Some(followed) = kind_of(name)
                 && followed != own_kind
             {
                 return Err(ERR_INVALID);
