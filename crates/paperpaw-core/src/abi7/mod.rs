@@ -20,3 +20,11 @@ pub(crate) mod snapshot;
     reason = "generated environment snapshot codec"
 )]
 pub(crate) mod snapshot_wire;
+
+#[allow(
+    clippy::all,
+    clippy::pedantic,
+    missing_docs,
+    reason = "generated packed-color codec"
+)]
+pub(crate) mod color_wire;

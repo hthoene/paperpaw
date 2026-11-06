@@ -2,6 +2,7 @@
 //! The owner keeps this pinned slot, not a framebuffer or canvas reference.
 
 use super::Error;
+pub use crate::abi7::color_wire::{color_decode, color_encode};
 use crate::abi7::graphics;
 use core::{cell::RefCell, fmt, marker::PhantomPinned, pin::Pin, ptr::NonNull};
 use paperpaw_graphics::Canvas;
@@ -70,6 +71,25 @@ impl CanvasScope {
         drop(current);
         let _reset = Reset(self.get_ref());
         Ok(call())
+    }
+
+    /// Slot-9 scalar bridge: packed sRGB is 0x00RRGGBB, without alpha.
+    /// A nonzero high byte returns ERR_INVALID before any drawing.
+    /// Coordinates and extents have the exact declared ABI widths; clipping,
+    /// origin and grayscale conversion retain the existing Canvas behavior.
+    #[must_use]
+    pub fn fill_rect_raw(&self, x: i32, y: i32, width: u32, height: u32, color: u32) -> i32 {
+        let [r, g, b] = match color_decode(color) {
+            Ok(channels) => channels,
+            Err(error) => return error,
+        };
+        self.fill_rect(
+            i64::from(x),
+            i64::from(y),
+            u64::from(width),
+            u64::from(height),
+            Color::rgb(r, g, b),
+        )
     }
 
     /// Fill a signed rectangle through the existing checked graphics backend.

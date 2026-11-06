@@ -5,6 +5,15 @@ use paperpaw_graphics::{Framebuffer, Role};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE, OK};
 use paperpaw_platform::{Color, PixelFormat, Rect};
 use std::pin::pin;
+#[cfg(not(feature = "color"))]
+const FORMATS: &[PixelFormat] = &[PixelFormat::Mono1, PixelFormat::Gray8];
+#[cfg(feature = "color")]
+const FORMATS: &[PixelFormat] = &[
+    PixelFormat::Mono1,
+    PixelFormat::Gray8,
+    PixelFormat::Rgb565,
+    PixelFormat::Rgb888,
+];
 
 fn frame(format: PixelFormat) -> Framebuffer {
     let mut frame = Framebuffer::new(40, 32, format).unwrap();
@@ -13,7 +22,7 @@ fn frame(format: PixelFormat) -> Framebuffer {
 }
 #[test]
 fn borrowed_fill_matches_pixels_origin_clip_and_existing_semantics() {
-    for format in [PixelFormat::Mono1, PixelFormat::Gray8] {
+    for &format in FORMATS {
         let (mut expected, mut actual) = (frame(format), frame(format));
         let (mut expected_sink, mut actual_sink) = (Vec::new(), Vec::new());
         let scope = pin!(CanvasScope::new());
@@ -107,4 +116,33 @@ fn nested_error_and_unwind_paths_clear_or_preserve_the_correct_canvas() {
         .unwrap();
     assert_eq!(first.view().data, before);
     assert_ne!(second.view().data, untouched);
+}
+
+#[test]
+fn raw_slot_color_is_explicit_and_invalid_high_bytes_never_draw() {
+    use paperpaw_core::native_host::canvas::{color_decode, color_encode};
+    for &format in FORMATS {
+        let scope = pin!(CanvasScope::new());
+        let mut actual = frame(format);
+        let mut expected = frame(format);
+        assert_eq!(color_encode(0x12, 0x34, 0x56), 0x0012_3456);
+        assert_eq!(color_decode(0x0012_3456), Ok([0x12, 0x34, 0x56]));
+        assert_eq!(scope.fill_rect_raw(0, 0, 2, 2, 0), ERR_STATE);
+        scope
+            .as_ref()
+            .scope(&mut actual.canvas(), || {
+                for color in [0x0100_0000, 0xff00_0000, u32::MAX] {
+                    assert_eq!(scope.fill_rect_raw(0, 0, 40, 32, color), ERR_INVALID);
+                }
+                assert_eq!(
+                    scope.fill_rect_raw(-2, 3, 12, 8, color_encode(0x12, 0x34, 0x56)),
+                    OK
+                );
+            })
+            .unwrap();
+        expected
+            .canvas()
+            .fill_rect(-2, 3, 12, 8, Color::rgb(0x12, 0x34, 0x56));
+        assert_eq!(actual.view().data, expected.view().data);
+    }
 }
