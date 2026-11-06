@@ -85,7 +85,7 @@ struct Partition {
 }
 
 /// Filter both generations for comparison, preserving the original baseline
-/// on bless where its ABI 6 content is unchanged. Check ABI 7 first, even
+/// unconditionally until the coordinated raise. Check ABI 7 first, even
 /// when `PAPERPAW_BLESS` is set. The independent ABI lock gate still applies.
 pub(super) fn legacy(
     crate_: &str,
@@ -108,8 +108,10 @@ pub(super) fn legacy(
     (before, after, write)
 }
 
-fn baseline_text(original: &str, before: &str, after: &str) -> String {
-    if before == after { original } else { after }.to_string()
+fn baseline_text(original: &str, _before: &str, _after: &str) -> String {
+    // This temporary partition never advances the frozen ABI 6 reference,
+    // even for normally additive changes. Retire it at the coordinated raise.
+    original.to_string()
 }
 
 pub(super) fn checked_legacy(
@@ -321,7 +323,21 @@ exclusive-type paperpaw_native::host_glue::generated::SettingValueRef
         assert_eq!(after, LEGACY);
         assert_eq!(baseline_text(&kept, &before, &after), kept);
         assert!(checked_legacy(&kept, &new, Some(ABI7), OWNERS).is_err());
-        assert_eq!(baseline_text(&kept, &before, "changed6\n"), "changed6\n");
+        assert_eq!(baseline_text(&kept, &before, "changed6\n"), kept);
+    }
+
+    #[test]
+    fn additive_legacy_changes_cannot_strip_or_advance_the_frozen_baseline() {
+        let kept = format!("{LEGACY}{ABI7}");
+        let added = "pub fn paperpaw_native::new_legacy_function()\n";
+        let current = format!("{kept}{added}");
+        let (before, after) = checked_legacy(&kept, &current, Some(ABI7), OWNERS).unwrap();
+        assert_eq!(before, LEGACY);
+        assert_eq!(after, format!("{LEGACY}{added}"));
+        let first_bless = baseline_text(&kept, &before, &after);
+        assert_eq!(first_bless, kept);
+        let (before, after) = checked_legacy(&first_bless, &current, Some(ABI7), OWNERS).unwrap();
+        assert_eq!(baseline_text(&first_bless, &before, &after), kept);
     }
 
     #[test]
@@ -406,7 +422,7 @@ exclusive-type paperpaw_native::host_glue::generated::SettingValueRef
             let (before, after) = checked_legacy(line, &changed, Some(&changed), &owners).unwrap();
             assert_eq!(before, line);
             assert_eq!(after, changed);
-            assert_eq!(baseline_text(line, &before, &after), changed);
+            assert_eq!(baseline_text(line, &before, &after), line);
         }
     }
 
