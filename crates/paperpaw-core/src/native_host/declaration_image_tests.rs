@@ -109,7 +109,7 @@ fn mixed_image_and_owned_declarations_share_reference_and_duplicate_checks() {
             .unwrap();
         assert!(construction.raw.batches[0].bytes.is_empty());
         assert!(!construction.raw.batches[1].bytes.is_empty());
-        construction.declaration_view().finish().unwrap();
+        construction.finish_declarations().unwrap();
         assert!(matches!(
             construction.commit(|_| panic!("never activated")),
             Err(Error::DeclarationViewsUnavailable)
@@ -125,7 +125,7 @@ fn mixed_image_and_owned_declarations_share_reference_and_duplicate_checks() {
         .as_ref()
         .scope(&mut construction, || {
             assert_eq!(submit(&scope, &image), OK);
-            assert_eq!(submit(&scope, &duplicate), ERR_INVALID);
+            assert_eq!(submit(&scope, &duplicate), OK);
         })
         .unwrap();
     assert!(matches!(construction.commit(|_| {}), Err(Error::Invalid)));
@@ -206,10 +206,46 @@ fn image_entry_limit_accepts_512_and_refuses_the_513th() {
 #[test]
 fn image_index_budget_accepts_the_last_fitting_slot_and_refuses_the_next() {
     assert_eq!(IMAGE_INDEX_MAX_BYTES, 8192);
-    let cost = size_of::<raw_declarations::RawBatch>() + 4;
+    let cost = size_of::<raw_declarations::RawBatch>() + size_of::<declaration_index::NameEntry>();
     let fitting = IMAGE_INDEX_MAX_BYTES / cost;
     let (accepted, bytes) = image_limit(fitting + 1, 1);
     assert_eq!(accepted, fitting);
     assert_eq!(bytes, fitting * cost);
     assert!(bytes <= IMAGE_INDEX_MAX_BYTES && bytes + cost > IMAGE_INDEX_MAX_BYTES);
+}
+
+#[test]
+fn forced_hash_collisions_compare_actual_names_and_still_reject_duplicates() {
+    for duplicate in [false, true] {
+        let image = if duplicate {
+            encode(&[group("a", ""), group("b", ""), group("a", "")])
+        } else {
+            encode(&[group("a", ""), group("b", ""), group("c", "")])
+        };
+        let owner = pin!(HostOwner::new((), ()));
+        let scope = pin!(RegistrationScope::<Registration>::new());
+        let mut construction = owner.as_ref().begin::<Registration>("fixture").unwrap();
+        construction.set_image(&image).unwrap();
+        construction.raw.force_hash = Some(7);
+        scope
+            .as_ref()
+            .scope(&mut construction, || assert_eq!(submit(&scope, &image), OK))
+            .unwrap();
+        let result = construction.finish_declarations();
+        if duplicate {
+            assert_eq!(result, Err(ERR_INVALID));
+        } else {
+            result.unwrap();
+            assert!(
+                matches!(construction.raw.find(Some(&image), 0, "b").unwrap(), Some(Record::SettingGroup(group)) if group.name == "b")
+            );
+            assert!(
+                construction
+                    .raw
+                    .find(Some(&image), 0, "missing")
+                    .unwrap()
+                    .is_none()
+            );
+        }
+    }
 }

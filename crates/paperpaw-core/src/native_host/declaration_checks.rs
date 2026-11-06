@@ -1,5 +1,10 @@
 //! Allocation-free cross-record checks over image and owned declarations.
-use super::{raw_declarations::RawDeclarations, registrations::*, staged::Declarations};
+use super::{
+    declaration_index::{key, same_name},
+    raw_declarations::RawDeclarations,
+    registrations::*,
+    staged::Declarations,
+};
 use paperpaw_native::host_glue::ERR_INVALID;
 
 pub(crate) struct View<'a> {
@@ -78,57 +83,63 @@ impl<'a> View<'a> {
         Ok(())
     }
     fn group(&self, name: &str) -> Result<Option<&'a str>, i32> {
-        let mut parent = None;
-        self.visit(&mut |record| {
-            if let Record::SettingGroup(group) = record
-                && group.name == name
-            {
-                parent = Some(group.parent);
-            }
-        })?;
-        Ok(parent)
+        if let Some(Record::SettingGroup(group)) = self.raw.find(self.image, 0, name)? {
+            return Ok(Some(group.parent));
+        }
+        Ok(self
+            .owned
+            .groups()
+            .iter()
+            .find(|group| group.name == name)
+            .map(|group| group.parent.as_str()))
     }
     fn spec(&self, name: &str) -> Result<Option<u32>, i32> {
-        let mut kind = None;
-        self.visit(&mut |record| {
-            if let Record::SettingSpec(spec) = record
-                && spec.name == name
-            {
-                kind = Some(spec.kind);
-            }
-        })?;
-        Ok(kind)
+        if let Some(Record::SettingSpec(spec)) = self.raw.find(self.image, 1, name)? {
+            return Ok(Some(spec.kind));
+        }
+        Ok(self
+            .owned
+            .specs()
+            .iter()
+            .find(|spec| spec.name == name)
+            .map(|spec| spec.kind))
     }
-    pub(crate) fn check_batch(&self, batch: &RecordBatch<'_>) -> Result<(), i32> {
-        super::declarations::validate_batch(self.plugin, batch)?;
-        for (index, record) in batch.iter().enumerate() {
-            let Some(wanted) = key(record) else {
-                continue;
-            };
-            let mut duplicate = batch
+    fn owned_has(&self, kind: u8, name: &str) -> bool {
+        match kind {
+            0 => self.owned.groups().iter().any(|r| r.name == name),
+            1 => self.owned.specs().iter().any(|r| r.name == name),
+            2 => self.owned.extras().iter().any(|r| r.name == name),
+            3 => self
+                .owned
+                .hyphenations()
                 .iter()
-                .take(index)
-                .any(|earlier| same_key(key(earlier), wanted));
-            self.visit(&mut |earlier| duplicate |= same_key(key(earlier), wanted))?;
-            if duplicate {
-                return Err(ERR_INVALID);
+                .any(|r| same_name(kind, &r.language, name)),
+            4 => {
+                self.owned.font_faces().iter().any(|r| r.name == name)
+                    || self.owned.font_extensions().iter().any(|r| r.name == name)
             }
-            if let Record::SettingExtra(extra) = record {
-                let known = self.spec(extra.name)?.is_some() || batch.iter().take(index).any(|earlier| matches!(earlier, Record::SettingSpec(spec) if spec.name == extra.name));
-                if !known {
+            _ => false,
+        }
+    }
+    pub(crate) fn finish(&self) -> Result<(), i32> {
+        self.raw.check_duplicates(self.image)?;
+        // Decoded-only host submissions have no raw index. Compare them with
+        // image entries without mistaking an owned wire mirror for a duplicate.
+        for entry in self.raw.index.iter().filter(|_| !self.owned.is_empty()) {
+            if self.raw.batches[usize::from(entry.batch)].image.is_some() {
+                let (kind, name) = key(self.raw.record(self.image, *entry)?).ok_or(ERR_INVALID)?;
+                if self.owned_has(kind, name) {
                     return Err(ERR_INVALID);
                 }
             }
         }
-        Ok(())
-    }
-    pub(crate) fn finish(&self) -> Result<(), i32> {
-        let mut groups = 0;
-        self.visit(&mut |record| {
-            if matches!(record, Record::SettingGroup(_)) {
-                groups += 1;
-            }
-        })?;
+        let groups = self
+            .raw
+            .index
+            .iter()
+            .filter(|entry| entry.kind() == 0)
+            .count()
+            + self.owned.groups().len();
         let mut result = Ok(());
         self.visit(&mut |record| {
             if result.is_err() {
@@ -163,6 +174,9 @@ impl<'a> View<'a> {
         Ok(())
     }
     fn follow_kind(&self, extra: &SettingExtra<'_>) -> Result<(), i32> {
+        if self.spec(extra.name)?.is_none() {
+            return Err(ERR_INVALID);
+        }
         if let Some(name) = own_name(self.plugin, extra.follows)
             && let (Some(followed), Some(own)) = (self.spec(name)?, self.spec(extra.name)?)
             && followed != own
@@ -174,25 +188,4 @@ impl<'a> View<'a> {
 }
 fn own_name<'a>(plugin: &str, id: &'a str) -> Option<&'a str> {
     id.strip_prefix(plugin)?.strip_prefix('.')
-}
-fn key(record: Record<'_>) -> Option<(u8, &str)> {
-    Some(match record {
-        Record::SettingGroup(r) => (0, r.name),
-        Record::SettingSpec(r) => (1, r.name),
-        Record::SettingExtra(r) => (2, r.name),
-        Record::ResourceHyphenation(r) => (3, r.language),
-        Record::ResourceFontFace(r) => (4, r.name),
-        Record::ResourceFontExtension(r) => (4, r.name),
-        _ => return None,
-    })
-}
-fn same_key(candidate: Option<(u8, &str)>, wanted: (u8, &str)) -> bool {
-    candidate.is_some_and(|candidate| {
-        candidate.0 == wanted.0
-            && if wanted.0 == 3 {
-                candidate.1.eq_ignore_ascii_case(wanted.1)
-            } else {
-                candidate.1 == wanted.1
-            }
-    })
 }
