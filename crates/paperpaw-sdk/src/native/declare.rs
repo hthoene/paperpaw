@@ -533,7 +533,8 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// are borrowed only while adding each item; no declaration is retained.
     /// Call [`Self::submit`] to send the final batch. Dropping does not submit.
     /// If allocation fails, every addition and submission returns
-    /// [`DeclareError::NoMemory`] without calling the sink.
+    /// [`DeclareError::NoMemory`]. The sink then sees only the one empty abort
+    /// batch of the next [`Self::submit`], which poisons the host construction.
     pub fn new(sink: F) -> Self {
         let mut bytes = Vec::new();
         let failed = match bytes.try_reserve_exact(BATCH_MAX_BYTES) {
