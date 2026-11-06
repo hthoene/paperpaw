@@ -635,7 +635,7 @@ impl Radio {
     /// The time the radio was on since this was last asked.
     pub fn take_on_ms(&mut self, now: Instant) -> u64 {
         if let Some(since) = self.on_since {
-            self.on_ms += now.since(since);
+            self.on_ms = self.on_ms.saturating_add(now.since(since));
             self.on_since = Some(now);
         }
         core::mem::take(&mut self.on_ms)
@@ -932,7 +932,7 @@ impl Radio {
         self.advertised = None;
         self.idle_since = None;
         if let Some(since) = self.on_since.take() {
-            self.on_ms += now.since(since);
+            self.on_ms = self.on_ms.saturating_add(now.since(since));
         }
         self.calls.push(BtCall::Radio { on: false });
         self.watching.clear();

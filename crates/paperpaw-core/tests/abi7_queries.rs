@@ -20,7 +20,7 @@ mod snapshot_wire;
 use context::{Frame, FrameSlot};
 use paperpaw_i18n::{Catalog, Translator};
 use paperpaw_native::host_glue::{
-    ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UTF8, PpBuffer, PpBytes,
+    ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UTF8, PpBuffer, PpBytes,
 };
 use paperpaw_sdk::{Id, SettingKind, SettingSpec, SettingValue, Settings, collections::VecMap};
 use settings_wire::{SettingValueRef, settings_decode};
@@ -183,7 +183,7 @@ fn null_empty_pairs_are_valid_size_queries() {
         .scope(&view, || {
             for (call, expected) in [
                 (queries::settings_read as Query, 12),
-                (queries::i18n_copy, 0),
+                (queries::i18n_copy, ERR_NOT_FOUND),
             ] {
                 // SAFETY: null pairs with zero length/capacity are permitted.
                 let result = unsafe {
@@ -387,7 +387,7 @@ fn translations_and_missing_keys_copy_into_independent_live_outputs() {
                 );
                 assert_eq!(
                     query(queries::i18n_copy, &slot, &missing_key, &mut second),
-                    missing_key.len() as i32
+                    ERR_NOT_FOUND
                 );
                 assert_eq!(&first[.."Grüß dich".len()], "Grüß dich".as_bytes());
                 let mut partial = [SENTINEL; 8];
@@ -403,7 +403,7 @@ fn translations_and_missing_keys_copy_into_independent_live_outputs() {
         assert_eq!(view.settings_reads.get(), 0);
     }
     assert_eq!(&first[.."Grüß dich".len()], "Grüß dich".as_bytes());
-    assert_eq!(&second[.."test.missing".len()], b"test.missing");
+    assert_eq!(second, [SENTINEL; 32]);
     assert!(
         first["Grüß dich".len()..]
             .iter()
@@ -413,5 +413,85 @@ fn translations_and_missing_keys_copy_into_independent_live_outputs() {
         second["test.missing".len()..]
             .iter()
             .all(|byte| *byte == SENTINEL)
+    );
+}
+
+fn translation_case(messages: &str, key: &str, capacity: usize, expected: i32, copied: &[u8]) {
+    let slot = pin!(FrameSlot::new());
+    let settings = Settings::new();
+    let mut translator = Translator::new();
+    let catalog = format!(
+        "[meta]\nlanguage = en\nname = English\nplural = one-other\n[messages]\n{messages}\n"
+    );
+    translator.add(Catalog::parse(catalog).unwrap());
+    let view = View::new(&settings, &translator);
+    let mut output = [SENTINEL; 32];
+    slot.as_ref()
+        .scope(&view, || {
+            assert_eq!(
+                query(queries::i18n_copy, &slot, key, &mut output[..capacity]),
+                expected
+            );
+        })
+        .unwrap();
+    assert_eq!(&output[..copied.len()], copied);
+    assert!(output[copied.len()..].iter().all(|byte| *byte == SENTINEL));
+}
+
+#[test]
+fn a_translation_equal_to_its_key_is_present() {
+    translation_case("test.same = test.same", "test.same", 32, 9, b"test.same");
+}
+
+#[test]
+fn an_empty_translation_is_present() {
+    translation_case("test.empty =", "test.empty", 32, 0, b"");
+}
+
+#[test]
+fn a_missing_translation_with_a_partial_buffer_returns_not_found() {
+    translation_case(
+        "test.present = hello",
+        "test.missing",
+        3,
+        ERR_NOT_FOUND,
+        b"",
+    );
+}
+
+#[test]
+fn translation_input_validation_precedes_the_missing_frame_error() {
+    let slot = pin!(FrameSlot::new());
+    let mut output = [SENTINEL; 8];
+    let oversized = [b'a'; 4097];
+    for (key, expected) in [
+        (bytes(&[0xff]), ERR_UTF8),
+        (bytes(&oversized), ERR_INVALID),
+        (
+            PpBytes {
+                ptr: ptr::null(),
+                len: 1,
+            },
+            ERR_INVALID,
+        ),
+    ] {
+        // SAFETY: input is live, or a deliberately invalid null pair.
+        let status = unsafe { queries::i18n_copy(&slot, key, buffer(&mut output)) };
+        assert_eq!(status, expected);
+        assert_eq!(output, [SENTINEL; 8]);
+    }
+    // SAFETY: null output with nonzero capacity is rejected before lookup.
+    assert_eq!(
+        unsafe {
+            queries::i18n_copy(
+                &slot,
+                bytes(b"missing"),
+                PpBuffer {
+                    ptr: ptr::null_mut(),
+                    cap: 1,
+                },
+            )
+        },
+        ERR_INVALID
     );
 }

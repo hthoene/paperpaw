@@ -1001,3 +1001,22 @@ fn enabling_keys_on_an_existing_link_sets_power_before_hid_discovery() {
         }]
     );
 }
+
+#[test]
+fn radio_and_global_usage_times_saturate() {
+    let mut radio = radio();
+    radio.on_ms = u64::MAX;
+    radio.on_since = Some(Instant(0));
+    assert_eq!(radio.take_on_ms(Instant(1)), u64::MAX);
+    radio.on_ms = u64::MAX;
+    radio.radio_off(Instant(2));
+    assert_eq!(radio.take_on_ms(Instant(2)), u64::MAX);
+    radio.on_ms = 1;
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    kernel.shared.usage.bluetooth_ms = u64::MAX;
+    kernel.io.bluetooth = Some(radio);
+    kernel.sync_bluetooth();
+    assert_eq!(kernel.shared.usage.bluetooth_ms, u64::MAX);
+}
