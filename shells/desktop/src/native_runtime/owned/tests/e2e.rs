@@ -16,6 +16,15 @@ use paperpaw_platform::{Color, PixelFormat, SystemStatus};
 const TICK_INDEX: usize = 0;
 const DRAW_INDEX: usize = 1;
 
+/// Removes the directory when dropped, also when the build below fails.
+struct RemoveOnDrop(std::path::PathBuf);
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 fn sample_dir() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../samples/abi7-tick-draw")
@@ -30,8 +39,8 @@ fn sample_dir() -> std::path::PathBuf {
 fn sample_bytes() -> &'static [u8] {
     static BYTES: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
     BYTES.get_or_init(|| {
-        let root = crate::private::dir("paperpaw-e2e747-build").unwrap();
-        let target = root.join("target");
+        let root = RemoveOnDrop(crate::private::dir("paperpaw-e2e747-build").unwrap());
+        let target = root.0.join("target");
         let mut build = Command::new("cargo");
         // The nested build depends on nothing but the toolchain: the test run's
         // own CARGO_* settings (target, profile, flags) must not change it, so
@@ -84,9 +93,7 @@ fn sample_bytes() -> &'static [u8] {
                     })
             })
             .expect("the sample's cdylib");
-        let bytes = std::fs::read(built).unwrap();
-        std::fs::remove_dir_all(root).unwrap();
-        bytes
+        std::fs::read(built).unwrap()
     })
 }
 
