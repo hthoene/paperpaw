@@ -127,7 +127,8 @@ pub fn pack5(elf: &[u8]) -> Result<Packed5, String> {
         ));
     }
     let hot = Hot::of(&elf, &image, chip, &symbols, &words)?;
-    patch_count(hot.patches.len())?;
+    let patches = records(&hot.patches)?;
+    patch_count(patches.len())?;
     let align = [image.rodata.addralign, image.text.addralign, 4]
         .into_iter()
         .max()
@@ -147,12 +148,12 @@ pub fn pack5(elf: &[u8]) -> Result<Packed5, String> {
         align,
         hot_at: hot.at,
         hot_len: hot.len,
-        patches: hot.patches.len() as u32,
+        patches: patches.len() as u32,
         sha256: [0; 32],
         signed: false,
     };
     let mut rest = image.bytes.clone();
-    for word in words.iter().chain(hot.patches.iter().flatten()) {
+    for word in words.iter().chain(patches.iter().flatten()) {
         rest.extend_from_slice(&word.to_le_bytes());
     }
     let mut sha = header.digest();
@@ -204,6 +205,49 @@ pub fn check_file5(file: &[u8]) -> Result<(Header5, Option<Signature>), String> 
         return Err("its author's signature does not hold".into());
     }
     Ok((header, Some(signature)))
+}
+
+/// The patches of format 5 from the pairs `hot.rs` finds (the first word,
+/// then a reference; upper parts first): each as `kind | site`, `from`, `to`,
+/// sorted by site (`abi/ppn5.md`, "Decisions" 4). A lower part's `from` is the
+/// site of its `auipc` and `to` what that `auipc`'s upper part reaches: the
+/// loader looks nothing up, so **this is where it is guaranteed** that a lower
+/// part's `auipc` is patched, and that no instruction is patched twice.
+fn records(pairs: &[[u32; 2]]) -> Result<Vec<[u32; 3]>, String> {
+    use paperpaw_native::PatchKind;
+    let mut upper = std::collections::BTreeMap::new();
+    for &[record, reference] in pairs {
+        if let Some((PatchKind::Hi20, site)) = PatchKind::of(record) {
+            upper.insert(site, reference);
+        }
+    }
+    let mut out = Vec::with_capacity(pairs.len());
+    for &[record, reference] in pairs {
+        let (kind, site) = PatchKind::of(record).ok_or("a patch of no known kind")?;
+        out.push(match kind {
+            PatchKind::Hi20 => [record, site, reference],
+            _ => {
+                let to = upper.get(&reference).ok_or_else(|| {
+                    format!(
+                        "the instruction at {site:#x} uses the `auipc` at {reference:#x}, which \
+                         reaches nothing the packer patches"
+                    )
+                })?;
+                [record, reference, *to]
+            }
+        });
+    }
+    out.sort_by_key(|p| p[0] & 0x0FFF_FFFF);
+    if let Some(pair) = out
+        .windows(2)
+        .find(|w| w[0][0] & 0x0FFF_FFFF == w[1][0] & 0x0FFF_FFFF)
+    {
+        return Err(format!(
+            "the instruction at {:#x} is patched twice",
+            pair[0][0] & 0x0FFF_FFFF
+        ));
+    }
+    Ok(out)
 }
 
 /// Refuses more patches than a file may list (`abi/ppn5.md`, "Size caps"):
