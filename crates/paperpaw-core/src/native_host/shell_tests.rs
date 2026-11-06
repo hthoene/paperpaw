@@ -550,22 +550,24 @@ fn an_empty_visible_region_sends_no_frame_and_a_full_one_its_rows() {
 fn shared_shell_reports_fallback_failure_before_destroying_and_unmapping() {
     reset(NORMAL);
     let hosted = fake();
-    let mut pending = hosted
-        .make_registered(hosted.begin::<Registration>().unwrap())
-        .unwrap();
-    let transaction = pending.transaction.take().unwrap();
-    let batch = transaction
-        .staging
-        .commit(crate::native_host::Teardown {
-            report: report_context::<Heap>,
-            cancel: |_| Err(super::super::Error::Busy),
-            release: |_| Ok(()),
-            destroy: destroy_context::<Heap>,
-        })
-        .unwrap();
-    pending.armed = false;
-    drop(pending);
-    drop(batch);
+    {
+        let mut pending = hosted
+            .make_registered(hosted.begin::<Registration>().unwrap())
+            .unwrap();
+        let transaction = pending.transaction.take().unwrap();
+        let batch = transaction
+            .staging
+            .commit(crate::native_host::Teardown {
+                report: report_context::<Heap>,
+                cancel: |_| Err(super::super::Error::Busy),
+                release: |_| Ok(()),
+                destroy: destroy_context::<Heap>,
+            })
+            .unwrap();
+        pending.armed = false;
+        drop(pending);
+        drop(batch);
+    }
     drop(hosted);
     assert_eq!(logged(), ["report", "destroy", "module"]);
 }
