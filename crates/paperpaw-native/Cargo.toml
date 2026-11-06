@@ -12,7 +12,7 @@ categories = ["no-std", "embedded"]
 keywords = ["plugin", "loader", "relocation", "esp32", "e-reader"]
 # The linker script for plugins goes with the format; a plugin's project
 # keeps a copy of it (no build script, see paperpaw-plugin.x).
-include = ["src", "paperpaw-plugin.x", "tests"]
+include = ["src", "paperpaw-plugin.x", "paperpaw-plugin7.x", "tests"]
 
 [dependencies]
 paperpaw-digest.workspace = true
