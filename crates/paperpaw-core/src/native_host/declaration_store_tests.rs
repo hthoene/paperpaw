@@ -572,3 +572,59 @@ fn image_staging_and_lookup_acquire_a_non_reentrant_guard_only_once() {
     assert_eq!(source.denied.get(), 1);
     source.active.set(false);
 }
+
+#[test]
+fn changed_image_bytes_cannot_create_duplicate_names_inside_a_hash_collision_run() {
+    use super::super::declaration_index::name_hash;
+    const FIRST: &str = "entryboludzyf";
+    const SECOND: &str = "entryoxzxketp";
+    assert_eq!(name_hash(0, FIRST), name_hash(0, SECOND));
+    let mut bytes = vec![0; REGISTRATION_MAX_BYTES];
+    let records = [FIRST, SECOND].map(|name| {
+        Record::SettingGroup(SettingGroup {
+            name,
+            title: "Group",
+            order: 0,
+            page: "",
+            parent: "",
+        })
+    });
+    let len = records_encode(&records, &mut bytes).unwrap();
+    bytes.truncate(len);
+    let source = Rc::new(Image {
+        bytes: RefCell::new(bytes),
+        generation: Cell::new(1),
+        live: Cell::new(true),
+        errors: Cell::new(0),
+        active: Cell::new(false),
+        denied: Cell::new(0),
+    });
+    let mut allocations = Allocations::default();
+    let mut store = DeclarationStore::default();
+    store
+        .prepare(
+            pending(&source, false, &mut allocations).unwrap(),
+            &mut allocations,
+        )
+        .unwrap()
+        .commit();
+    assert!(store.find("fixture", Kind::Group, FIRST, &mut |_| {}));
+    assert!(store.find("fixture", Kind::Group, SECOND, &mut |_| {}));
+    let at = source
+        .bytes
+        .borrow()
+        .windows(FIRST.len())
+        .position(|bytes| bytes == FIRST.as_bytes())
+        .unwrap();
+    source.bytes.borrow_mut()[at..at + FIRST.len()].copy_from_slice(SECOND.as_bytes());
+    assert!(!store.find("fixture", Kind::Group, SECOND, &mut |_| panic!(
+        "mutated duplicate"
+    )));
+    for key in keys(&store) {
+        assert!(!store.with_record(key, &mut |_| panic!("duplicate key")));
+    }
+    assert!(source.errors.get() > 0);
+    source.bytes.borrow_mut()[at..at + FIRST.len()].copy_from_slice(FIRST.as_bytes());
+    assert!(store.find("fixture", Kind::Group, FIRST, &mut |_| {}));
+    assert!(store.find("fixture", Kind::Group, SECOND, &mut |_| {}));
+}
