@@ -35,3 +35,21 @@ pub fn ui(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError
     declarations.action(ActionDecl::new("open", "battery.title", OPEN_TOKEN))?;
     declarations.submit()
 }
+
+pub const RECORDER_TOKEN: u32 = 1;
+
+pub fn lifecycle(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
+    use paperpaw_sdk::native::declare::EventKind;
+    let mut declarations = Declarations::new(sink);
+    for kind in [
+        EventKind::Started,
+        EventKind::Resume,
+        EventKind::Suspend,
+        EventKind::Stopping,
+        EventKind::BatteryMeasured,
+        EventKind::PageTurned,
+    ] {
+        declarations.subscribe_event(kind, RECORDER_TOKEN)?;
+    }
+    declarations.submit()
+}

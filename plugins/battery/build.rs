@@ -47,6 +47,24 @@ fn main() -> Result<(), String> {
         writeln!(source, "&UI_{index},").map_err(|error| format!("write UI reference: {error}"))?;
     }
     source.push_str("];\n");
+    let mut events_count = 0;
+    declarations::lifecycle(|batch| {
+        writeln!(
+            source,
+            "pub static EVENTS_{events_count}: [u8; {}] = {batch:?};",
+            batch.len()
+        )
+        .map_err(|_| -2)?;
+        events_count += 1;
+        Ok(())
+    })
+    .map_err(|error| format!("invalid Battery event declarations: {error:?}"))?;
+    source.push_str("pub static EVENTS: &[&[u8]] = &[\n");
+    for index in 0..events_count {
+        writeln!(source, "&EVENTS_{index},")
+            .map_err(|error| format!("write events reference: {error}"))?;
+    }
+    source.push_str("];\n");
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
     std::fs::write(out.join("battery_declarations.rs"), source)
         .map_err(|error| format!("write declarations: {error}"))?;

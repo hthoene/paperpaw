@@ -17,6 +17,7 @@ paperpaw-sdk.workspace = true
 paperpaw-sdk.workspace = true
 
 [dev-dependencies]
+paperpaw-native.workspace = true
 paperpaw-core.workspace = true
 paperpaw-platform.workspace = true
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }

@@ -105,3 +105,15 @@ fn image_screen_and_action_match_the_builder() {
     .unwrap();
     assert_eq!(index, image::UI.len());
 }
+
+#[test]
+fn image_lifecycle_subscriptions_match_generated_callbacks() {
+    let mut index = 0;
+    fixture::subscriptions(|batch| {
+        assert_eq!(batch, image::EVENTS[index]);
+        index += 1;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(index, image::EVENTS.len());
+}
