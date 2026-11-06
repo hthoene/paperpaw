@@ -176,11 +176,7 @@ Proposed shared rules **[P]**:
 4. **Validation before effects.** Every slot validates all pointers, lengths, UTF-8,
    path grammar, caps, owner and root before the first side effect; a refused call
    leaves output buffers untouched (as `docs/abi/snapshot.md` and `abi/settings.md` already
-   require). Exception for `read_at`: validation and file preflight still preserve output;
-   after a successful file preflight, the host zeroes output and reads directly into it.
-   A failure during that read, including a disappeared file, I/O error or invalid count,
-   leaves the entire output capacity zeroed. This avoids result-sized stack or heap scratch.
-   Settings, snapshot, i18n and blob output rules are unchanged.
+   require).
 5. **No panics, no unbounded allocation.** Every variable-length input has a cap below;
    host scratch is stack or fixed.
 6. **Closed schemas.** Unknown record tags in a position that requires support return
@@ -535,11 +531,10 @@ Gates before plugin storage goes live (Senior's remarks 1 and 2 on PR #188, Mana
 | Non-UTF-8 path | `ERR_UTF8` | nothing touched |
 | Root unknown or unimplemented | `ERR_UNSUPPORTED` | nothing touched |
 | No frame/owner (call outside a callback) | `ERR_STATE` | nothing touched |
-| Missing file (`size`, `read_at`, `rename` source) | `ERR_NOT_FOUND` | `read_at`: preflight missing leaves output untouched; disappearance during the read leaves output zeroed. Others: nothing touched |
+| Missing file (`size`, `read_at`, `rename` source) | `ERR_NOT_FOUND` | nothing touched |
 | `remove` of a missing file | `OK` (trait semantics) | - |
 | Card full or reserve hit | `ERR_FULL` | `write`: old content intact (temp removed, `lib.rs:962-971`). `append`: **a partial tail may remain** (documented) |
-| I/O error, card removed | `ERR_IO` | `read_at`: preflight failure leaves output untouched; a failed read leaves output zeroed. Other operations: as the medium left it; `write` old-or-new |
-| Invalid count returned by the read backend | `ERR_INVALID` | `read_at`: whole output capacity zeroed, never partial data |
+| I/O error, card removed | `ERR_IO` | as the medium left it; `write` old-or-new |
 | Re-entry from inside the same plugin's dispatch | `ERR_BUSY` before any effect | nothing touched |
 
 ### 2.4 Memory (256 KiB heap)
