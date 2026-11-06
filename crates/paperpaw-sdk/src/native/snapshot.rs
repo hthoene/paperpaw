@@ -1,6 +1,6 @@
 //! Current device and battery values copied through the host's snapshot slot.
 use super::{Error, Host, binding::status, wire::snapshot_wire as wire};
-use crate::{Instant, time::UnixTime};
+use crate::Instant;
 use paperpaw_native::host_glue::PpBuffer;
 
 /// An owned snapshot. It retains no host or callback borrows.
@@ -8,7 +8,7 @@ use paperpaw_native::host_glue::PpBuffer;
 #[non_exhaustive]
 pub struct Snapshot {
     now: Instant,
-    unix: Option<UnixTime>,
+    unix_seconds: Option<i64>,
     percent: Option<u8>,
     millivolts: Option<u16>,
     charging: bool,
@@ -25,10 +25,11 @@ impl Snapshot {
         self.now
     }
 
-    /// Wall time, if known. Extreme seconds saturate to UnixTime's range.
+    /// Unix seconds, if known, preserving the wire's full signed range.
+    /// Call [`crate::time::UnixTime::from_secs`] to convert to the SDK time type.
     #[must_use]
-    pub const fn wall_time(&self) -> Option<UnixTime> {
-        self.unix
+    pub const fn unix_seconds(&self) -> Option<i64> {
+        self.unix_seconds
     }
 
     /// Battery percentage, including a measured zero; None means unavailable.
@@ -79,7 +80,7 @@ impl Snapshot {
 /// # Errors
 /// Returns the host refusal or a generated decoder error for malformed data.
 pub fn capture_snapshot(host: &Host<'_>) -> Result<Snapshot, Error> {
-    let mut bytes = [0; wire::SNAPSHOT_BYTES];
+    let mut bytes = [0; wire::SNAPSHOT_MAX_BYTES];
     // SAFETY: entry admission retains table/context; output is disjoint local storage.
     status(unsafe {
         (host.table.env_snapshot)(
@@ -90,10 +91,19 @@ pub fn capture_snapshot(host: &Host<'_>) -> Result<Snapshot, Error> {
             },
         )
     })?;
-    let value = wire::snapshot_decode(&bytes).map_err(Error::from_status)?;
+    // The snapshot contract puts total_bytes in the four bytes at offset 4.
+    // Only this header value is read before the generated decoder validates it.
+    let total = usize::try_from(u32::from_le_bytes(
+        bytes[4..8].try_into().map_err(|_| Error::Invalid)?,
+    ))
+    .map_err(|_| Error::Invalid)?;
+    if !(wire::SNAPSHOT_BYTES..=wire::SNAPSHOT_MAX_BYTES).contains(&total) {
+        return Err(Error::Invalid);
+    }
+    let value = wire::snapshot_decode(&bytes[..total]).map_err(Error::from_status)?;
     Ok(Snapshot {
         now: Instant(value.monotonic_ms),
-        unix: value.unix_seconds.map(UnixTime::from_secs),
+        unix_seconds: value.unix_seconds,
         percent: value.battery.map(|battery| battery.percent),
         millivolts: value.battery.and_then(|battery| battery.millivolts),
         charging: value.battery.is_some_and(|battery| battery.charging),

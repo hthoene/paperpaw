@@ -68,10 +68,6 @@ unsafe extern "C" fn canvas_round_fill_slot(
     // SAFETY: context is the one retained by this test's callback host.
     unsafe { record_canvas_call(ctx, Call::Fill(x, y, w, h, radius, color)) }
 }
-#[expect(
-    clippy::too_many_arguments,
-    reason = "signature matches the generated canvas slot"
-)]
 unsafe extern "C" fn canvas_round_stroke_slot(
     ctx: *mut c_void,
     x: i32,

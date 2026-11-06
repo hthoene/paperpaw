@@ -7,6 +7,8 @@ struct Context {
     snapshot: wire::Snapshot,
     result: i32,
     corrupt_reserved: bool,
+    extension: bool,
+    total_bytes: Option<u32>,
     calls: Cell<usize>,
 }
 
@@ -14,7 +16,7 @@ unsafe extern "C" fn snapshot_slot(ctx: *mut c_void, out: PpBuffer) -> i32 {
     // SAFETY: tests retain a live context throughout each host call.
     let ctx = unsafe { &*ctx.cast::<Context>() };
     ctx.calls.set(ctx.calls.get() + 1);
-    assert_eq!(out.cap, wire::SNAPSHOT_BYTES);
+    assert_eq!(out.cap, wire::SNAPSHOT_MAX_BYTES);
     if ctx.result != abi::OK {
         return ctx.result;
     }
@@ -26,6 +28,18 @@ unsafe extern "C" fn snapshot_slot(ctx: *mut c_void, out: PpBuffer) -> i32 {
             if ctx.corrupt_reserved {
                 // The generated canonical prefix ends with reserved bytes.
                 output[length - 1].write(1);
+            }
+            if ctx.extension {
+                for byte in &mut output[length..length + 8] {
+                    byte.write(0x91);
+                }
+            }
+            if ctx.extension || ctx.total_bytes.is_some() {
+                let total = ctx.total_bytes.unwrap_or((length + 8) as u32);
+                // The approved snapshot header places total_bytes at offset 4.
+                for (slot, byte) in output[4..8].iter_mut().zip(total.to_le_bytes()) {
+                    slot.write(byte);
+                }
             }
             abi::OK
         }
@@ -52,6 +66,8 @@ fn context() -> Context {
         snapshot,
         result: abi::OK,
         corrupt_reserved: false,
+        extension: false,
+        total_bytes: None,
         calls: Cell::new(0),
     }
 }
@@ -69,7 +85,7 @@ fn generated_snapshot_fields_are_converted_to_owned_sdk_values() {
     let mut ctx = context();
     let got = capture(&mut ctx).unwrap();
     assert_eq!(got.instant(), Instant(0x1234_5678_9abc_def0));
-    assert_eq!(got.wall_time(), Some(UnixTime::from_secs(-123)));
+    assert_eq!(got.unix_seconds(), Some(-123));
     assert_eq!(got.battery_percent(), Some(87));
     assert_eq!(got.battery_millivolts(), Some(4102));
     assert!(got.is_charging());
@@ -97,7 +113,7 @@ fn absent_values_stay_distinct_from_present_zeroes() {
         (
             absent.battery_percent(),
             absent.battery_millivolts(),
-            absent.wall_time()
+            absent.unix_seconds()
         ),
         (None, None, None)
     );
@@ -109,7 +125,7 @@ fn absent_values_stay_distinct_from_present_zeroes() {
     let zero_percent = capture(&mut ctx).unwrap();
     assert_eq!(zero_percent.battery_percent(), Some(0));
     assert_eq!(zero_percent.battery_millivolts(), None);
-    assert_eq!(zero_percent.wall_time(), Some(UnixTime::from_secs(0)));
+    assert_eq!(zero_percent.unix_seconds(), Some(0));
     let mut battery = wire::Battery::new(0);
     battery.millivolts = Some(0);
     ctx.snapshot.battery = Some(battery);
@@ -146,13 +162,27 @@ fn default_host_table_reports_unsupported() {
 }
 
 #[test]
-fn extreme_wall_seconds_follow_sdk_time_saturation() {
+fn extreme_wall_seconds_preserve_the_full_wire_range() {
     let mut ctx = context();
     for seconds in [i64::MIN, i64::MAX] {
         ctx.snapshot.unix_seconds = Some(seconds);
-        assert_eq!(
-            capture(&mut ctx).unwrap().wall_time(),
-            Some(UnixTime::from_secs(seconds))
-        );
+        assert_eq!(capture(&mut ctx).unwrap().unix_seconds(), Some(seconds));
+    }
+}
+
+#[test]
+fn same_version_extension_bytes_preserve_the_known_snapshot() {
+    let mut ctx = context();
+    let canonical = capture(&mut ctx).unwrap();
+    ctx.extension = true;
+    assert_eq!(capture(&mut ctx), Ok(canonical));
+}
+
+#[test]
+fn declared_totals_outside_the_generated_bounds_are_invalid() {
+    let mut ctx = context();
+    for total in [0, 51, 129, u32::MAX] {
+        ctx.total_bytes = Some(total);
+        assert_eq!(capture(&mut ctx), Err(Error::Invalid));
     }
 }

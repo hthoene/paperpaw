@@ -36,7 +36,6 @@ unsafe extern "C" fn acquire_draw_font(_: *mut c_void, _: PpBytes, out: *mut u32
 unsafe extern "C" fn release_draw_font(_: *mut c_void, _: u32) -> i32 {
     abi::OK
 }
-#[expect(clippy::too_many_arguments, reason = "matches the text.draw host slot")]
 unsafe extern "C" fn font_drawing_slot(
     ctx: *mut c_void,
     font: u32,
