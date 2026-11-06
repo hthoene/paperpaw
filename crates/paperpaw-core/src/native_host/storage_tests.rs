@@ -320,6 +320,10 @@ fn use_is_counted_for_the_plugin_that_runs() {
     assert_eq!((row("battery").read, row("battery").written), (6, 6));
     assert_eq!(meter.syncs_of("battery"), 2);
     assert_eq!(meter.syncs_of("core"), 1);
+    // Asking about a plugin that never ran adds no row.
+    let rows = meter.table.borrow().len();
+    assert_eq!(meter.syncs_of("unknown"), 0);
+    assert_eq!(meter.table.borrow().len(), rows);
 }
 
 /// Folders are made only where the storage says one is missing: a file in a
@@ -339,6 +343,22 @@ fn folders_are_made_only_when_missing() {
     assert_eq!(s.rename(0, b"log.csv", b"old/log.csv"), Ok(()));
     assert_eq!(fake.dir_calls.get(), 2);
     assert_eq!(get(&fake, "old/log.csv").unwrap(), b"a\nb\nb\nb\n");
-    // A missing source stays NotFound, after one try to make the folder.
+    // A missing source stays NotFound, and no folder is made for it.
     assert_eq!(s.rename(0, b"none", b"new/x"), Err(ERR_NOT_FOUND));
+    assert_eq!(fake.dir_calls.get(), 2);
+}
+
+/// A folder takes a cluster: making one keeps the reserve (S4), while a
+/// rename into a folder that exists stays possible on a full card.
+#[test]
+fn folders_are_not_made_below_the_reserve() {
+    let fake = Fake::new();
+    fake.strict.set(true);
+    let s = adapter(&fake);
+    assert_eq!(s.write(0, b"f", b"x"), Ok(()));
+    fake.free.set(Some(MIN_RESERVE - 1));
+    assert_eq!(s.rename(0, b"f", b"sub/f"), Err(ERR_FULL));
+    assert_eq!(fake.dir_calls.get(), 1);
+    assert_eq!(s.rename(0, b"f", b"g"), Ok(()));
+    assert_eq!(get(&fake, "g").unwrap(), b"x");
 }

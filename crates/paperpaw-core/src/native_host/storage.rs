@@ -125,10 +125,12 @@ impl<'a> StorageAdapter<'a> {
     }
 
     /// Makes the folders above `joined`, where the storage needs them made.
+    /// A folder takes a cluster: the reserve is checked first (S4).
     fn make_parents(&self, joined: &str) -> Result<(), i32> {
         let Some((parent, _)) = joined.rsplit_once('/') else {
             return Ok(());
         };
+        self.check_room(0)?;
         match self.storage.create_dir(parent) {
             Ok(()) | Err(StorageError::Unsupported) => Ok(()),
             Err(e) => Err(status(e)),
@@ -201,16 +203,22 @@ impl<'a> StorageAdapter<'a> {
     }
 
     /// Slot 24: renames `from` to `to`, replacing a file there.
-    /// `ERR_NOT_FOUND` if `from` is none.
+    /// `ERR_NOT_FOUND` if `from` is none. No reserve check where no folder
+    /// is made: a rename takes no space, and on a full card the S1 recipe
+    /// still publishes its temp file.
     ///
     /// # Errors
     /// An `ERR_*` status.
     pub fn rename(&self, root: u32, from: &[u8], to: &[u8]) -> Result<(), i32> {
         self.resolve(root, from, |f| {
-            self.resolve(root, to, |t| {
-                // A missing `from` is NotFound too: then the folders above
-                // `to` are made for nothing, and the rename says so again.
-                self.with_parents(t, |t| self.storage.rename(f, t))
+            self.resolve(root, to, |t| match self.storage.rename(f, t) {
+                // A missing `from` is NotFound too: folders above `to` are
+                // made only where `from` is there.
+                Err(StorageError::NotFound) if self.storage.exists(f) => {
+                    self.make_parents(t)?;
+                    self.storage.rename(f, t).map_err(status)
+                }
+                other => other.map_err(status),
             })
         })
     }

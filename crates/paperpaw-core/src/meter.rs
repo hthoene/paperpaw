@@ -104,7 +104,11 @@ impl Meter {
         reason = "read by the storage adapter tests until Battery shows it"
     )]
     pub(crate) fn syncs_of(&self, plugin: &str) -> u32 {
-        let index = self.index(plugin);
+        // Read only: a plugin not in the table gets no row.
+        let table = self.table.borrow();
+        let Some(index) = table.iter().position(|p| p.plugin.as_str() == plugin) else {
+            return 0;
+        };
         self.syncs.borrow().get(index).copied().unwrap_or(0)
     }
 
