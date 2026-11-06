@@ -91,6 +91,8 @@ fn sift_down<T, K: Ord>(items: &mut [T], mut root: usize, end: usize, key: &impl
 #[cfg(test)]
 mod sort_tests {
     use super::sort_by_key;
+    use alloc::vec;
+    use alloc::vec::Vec;
 
     #[test]
     fn it_sorts_like_the_standard_library_on_every_small_shape() {
