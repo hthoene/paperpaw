@@ -18,6 +18,12 @@ pub use wire::{
     RegistrationBatch as DecodedRegistrations, registrations_decode, registrations_encode,
     tick_decode, tick_encode,
 };
+// Mixed registration and declaration batches: borrowed records with capped
+// strings. `registrations_decode` still admits callback registrations only.
+pub use wire::{
+    Record, RecordBatch, RecordIter, ResourceFontExtension, ResourceFontFace, ResourceHyphenation,
+    SettingExtra, SettingGroup, SettingSpec, records_decode, records_encode,
+};
 
 use super::{Error, registration_scope::RegistrationScope};
 use paperpaw_native::host_glue::{

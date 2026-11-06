@@ -259,3 +259,617 @@ pub fn tick_decode(bytes: &[u8]) -> Result<u64, i32> {
     reader.finish()?;
     Ok(now_ms)
 }
+
+// Declaration records and the mixed-batch API.
+/// Wire tag of the `setting.group` record.
+pub const SETTING_GROUP_TAG: u32 = 5;
+/// Maximum bytes of `setting.group.name`.
+pub const SETTING_GROUP_NAME_MAX_BYTES: usize = 96;
+/// Maximum bytes of `setting.group.title`.
+pub const SETTING_GROUP_TITLE_MAX_BYTES: usize = 96;
+/// Maximum bytes of `setting.group.page`.
+pub const SETTING_GROUP_PAGE_MAX_BYTES: usize = 96;
+/// Maximum bytes of `setting.group.parent`.
+pub const SETTING_GROUP_PARENT_MAX_BYTES: usize = 128;
+
+/// The `setting.group` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SettingGroup<'a> {
+    /// UTF-8 text of at most 96 bytes.
+    pub name: &'a str,
+    /// UTF-8 text of at most 96 bytes.
+    pub title: &'a str,
+    /// Little-endian i32.
+    pub order: i32,
+    /// UTF-8 text of at most 96 bytes.
+    pub page: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub parent: &'a str,
+}
+
+impl<'a> SettingGroup<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::SettingGroup(Self {
+            name: body.string(SETTING_GROUP_NAME_MAX_BYTES)?,
+            title: body.string(SETTING_GROUP_TITLE_MAX_BYTES)?,
+            order: i32::from_le_bytes(body.scalar()?),
+            page: body.string(SETTING_GROUP_PAGE_MAX_BYTES)?,
+            parent: body.string(SETTING_GROUP_PARENT_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), SETTING_GROUP_NAME_MAX_BYTES)?;
+        len += blob_len(self.title.len(), SETTING_GROUP_TITLE_MAX_BYTES)?;
+        len += 4;
+        len += blob_len(self.page.len(), SETTING_GROUP_PAGE_MAX_BYTES)?;
+        len += blob_len(self.parent.len(), SETTING_GROUP_PARENT_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_bytes(&self.order.to_le_bytes(), out, offset);
+        write_blob(self.page.as_bytes(), out, offset);
+        write_blob(self.parent.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `setting.spec` record.
+pub const SETTING_SPEC_TAG: u32 = 6;
+/// Maximum bytes of `setting.spec.name`.
+pub const SETTING_SPEC_NAME_MAX_BYTES: usize = 96;
+/// Maximum bytes of `setting.spec.group`.
+pub const SETTING_SPEC_GROUP_MAX_BYTES: usize = 128;
+/// Maximum bytes of `setting.spec.title`.
+pub const SETTING_SPEC_TITLE_MAX_BYTES: usize = 96;
+/// Maximum bytes of `setting.spec.help`.
+pub const SETTING_SPEC_HELP_MAX_BYTES: usize = 96;
+/// Maximum bytes of `setting.spec.default`.
+pub const SETTING_SPEC_DEFAULT_MAX_BYTES: usize = 512;
+/// Maximum bytes of `setting.spec.choices`.
+pub const SETTING_SPEC_CHOICES_MAX_BYTES: usize = 1024;
+
+/// The `setting.spec` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SettingSpec<'a> {
+    /// UTF-8 text of at most 96 bytes.
+    pub name: &'a str,
+    /// Little-endian u32.
+    pub kind: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// UTF-8 text of at most 128 bytes.
+    pub group: &'a str,
+    /// UTF-8 text of at most 96 bytes.
+    pub title: &'a str,
+    /// UTF-8 text of at most 96 bytes.
+    pub help: &'a str,
+    /// Opaque bytes, at most 512.
+    pub default: &'a [u8],
+    /// Little-endian i32.
+    pub min: i32,
+    /// Little-endian i32.
+    pub max: i32,
+    /// UTF-8 text of at most 1024 bytes.
+    pub choices: &'a str,
+}
+
+impl<'a> SettingSpec<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::SettingSpec(Self {
+            name: body.string(SETTING_SPEC_NAME_MAX_BYTES)?,
+            kind: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+            group: body.string(SETTING_SPEC_GROUP_MAX_BYTES)?,
+            title: body.string(SETTING_SPEC_TITLE_MAX_BYTES)?,
+            help: body.string(SETTING_SPEC_HELP_MAX_BYTES)?,
+            default: body.blob(SETTING_SPEC_DEFAULT_MAX_BYTES)?,
+            min: i32::from_le_bytes(body.scalar()?),
+            max: i32::from_le_bytes(body.scalar()?),
+            choices: body.string(SETTING_SPEC_CHOICES_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), SETTING_SPEC_NAME_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += blob_len(self.group.len(), SETTING_SPEC_GROUP_MAX_BYTES)?;
+        len += blob_len(self.title.len(), SETTING_SPEC_TITLE_MAX_BYTES)?;
+        len += blob_len(self.help.len(), SETTING_SPEC_HELP_MAX_BYTES)?;
+        len += blob_len(self.default.len(), SETTING_SPEC_DEFAULT_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += blob_len(self.choices.len(), SETTING_SPEC_CHOICES_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_bytes(&self.kind.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_blob(self.group.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_blob(self.help.as_bytes(), out, offset);
+        write_blob(self.default, out, offset);
+        write_bytes(&self.min.to_le_bytes(), out, offset);
+        write_bytes(&self.max.to_le_bytes(), out, offset);
+        write_blob(self.choices.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `setting.extra` record.
+pub const SETTING_EXTRA_TAG: u32 = 7;
+/// Maximum bytes of `setting.extra.name`.
+pub const SETTING_EXTRA_NAME_MAX_BYTES: usize = 96;
+/// Maximum bytes of `setting.extra.unit`.
+pub const SETTING_EXTRA_UNIT_MAX_BYTES: usize = 96;
+/// Maximum bytes of `setting.extra.section`.
+pub const SETTING_EXTRA_SECTION_MAX_BYTES: usize = 96;
+/// Maximum bytes of `setting.extra.follows`.
+pub const SETTING_EXTRA_FOLLOWS_MAX_BYTES: usize = 128;
+/// Maximum bytes of `setting.extra.shown_id`.
+pub const SETTING_EXTRA_SHOWN_ID_MAX_BYTES: usize = 128;
+/// Maximum bytes of `setting.extra.shown_value`.
+pub const SETTING_EXTRA_SHOWN_VALUE_MAX_BYTES: usize = 128;
+/// Maximum bytes of `setting.extra.editor`.
+pub const SETTING_EXTRA_EDITOR_MAX_BYTES: usize = 96;
+
+/// The `setting.extra` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SettingExtra<'a> {
+    /// UTF-8 text of at most 96 bytes.
+    pub name: &'a str,
+    /// UTF-8 text of at most 96 bytes.
+    pub unit: &'a str,
+    /// UTF-8 text of at most 96 bytes.
+    pub section: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub follows: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub shown_id: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub shown_value: &'a str,
+    /// Little-endian u32.
+    pub editor_kind: u32,
+    /// UTF-8 text of at most 96 bytes.
+    pub editor: &'a str,
+    /// Little-endian i32.
+    pub step: i32,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// Little-endian u32.
+    pub check: u32,
+}
+
+impl<'a> SettingExtra<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::SettingExtra(Self {
+            name: body.string(SETTING_EXTRA_NAME_MAX_BYTES)?,
+            unit: body.string(SETTING_EXTRA_UNIT_MAX_BYTES)?,
+            section: body.string(SETTING_EXTRA_SECTION_MAX_BYTES)?,
+            follows: body.string(SETTING_EXTRA_FOLLOWS_MAX_BYTES)?,
+            shown_id: body.string(SETTING_EXTRA_SHOWN_ID_MAX_BYTES)?,
+            shown_value: body.string(SETTING_EXTRA_SHOWN_VALUE_MAX_BYTES)?,
+            editor_kind: u32::from_le_bytes(body.scalar()?),
+            editor: body.string(SETTING_EXTRA_EDITOR_MAX_BYTES)?,
+            step: i32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+            check: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), SETTING_EXTRA_NAME_MAX_BYTES)?;
+        len += blob_len(self.unit.len(), SETTING_EXTRA_UNIT_MAX_BYTES)?;
+        len += blob_len(self.section.len(), SETTING_EXTRA_SECTION_MAX_BYTES)?;
+        len += blob_len(self.follows.len(), SETTING_EXTRA_FOLLOWS_MAX_BYTES)?;
+        len += blob_len(self.shown_id.len(), SETTING_EXTRA_SHOWN_ID_MAX_BYTES)?;
+        len += blob_len(self.shown_value.len(), SETTING_EXTRA_SHOWN_VALUE_MAX_BYTES)?;
+        len += 4;
+        len += blob_len(self.editor.len(), SETTING_EXTRA_EDITOR_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_blob(self.unit.as_bytes(), out, offset);
+        write_blob(self.section.as_bytes(), out, offset);
+        write_blob(self.follows.as_bytes(), out, offset);
+        write_blob(self.shown_id.as_bytes(), out, offset);
+        write_blob(self.shown_value.as_bytes(), out, offset);
+        write_bytes(&self.editor_kind.to_le_bytes(), out, offset);
+        write_blob(self.editor.as_bytes(), out, offset);
+        write_bytes(&self.step.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_bytes(&self.check.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `resource.hyphenation` record.
+pub const RESOURCE_HYPHENATION_TAG: u32 = 8;
+/// Maximum bytes of `resource.hyphenation.language`.
+pub const RESOURCE_HYPHENATION_LANGUAGE_MAX_BYTES: usize = 35;
+/// Maximum bytes of `resource.hyphenation.path`.
+pub const RESOURCE_HYPHENATION_PATH_MAX_BYTES: usize = 100;
+
+/// The `resource.hyphenation` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResourceHyphenation<'a> {
+    /// UTF-8 text of at most 35 bytes.
+    pub language: &'a str,
+    /// UTF-8 text of at most 100 bytes.
+    pub path: &'a str,
+}
+
+impl<'a> ResourceHyphenation<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ResourceHyphenation(Self {
+            language: body.string(RESOURCE_HYPHENATION_LANGUAGE_MAX_BYTES)?,
+            path: body.string(RESOURCE_HYPHENATION_PATH_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.language.len(), RESOURCE_HYPHENATION_LANGUAGE_MAX_BYTES)?;
+        len += blob_len(self.path.len(), RESOURCE_HYPHENATION_PATH_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.language.as_bytes(), out, offset);
+        write_blob(self.path.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `resource.font_face` record.
+pub const RESOURCE_FONT_FACE_TAG: u32 = 9;
+/// Maximum bytes of `resource.font_face.name`.
+pub const RESOURCE_FONT_FACE_NAME_MAX_BYTES: usize = 96;
+/// Maximum bytes of `resource.font_face.path`.
+pub const RESOURCE_FONT_FACE_PATH_MAX_BYTES: usize = 100;
+/// Maximum bytes of `resource.font_face.family`.
+pub const RESOURCE_FONT_FACE_FAMILY_MAX_BYTES: usize = 64;
+/// Maximum bytes of `resource.font_face.role`.
+pub const RESOURCE_FONT_FACE_ROLE_MAX_BYTES: usize = 96;
+
+/// The `resource.font_face` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResourceFontFace<'a> {
+    /// UTF-8 text of at most 96 bytes.
+    pub name: &'a str,
+    /// UTF-8 text of at most 100 bytes.
+    pub path: &'a str,
+    /// UTF-8 text of at most 64 bytes.
+    pub family: &'a str,
+    /// Little-endian u32.
+    pub style: u32,
+    /// Little-endian u32.
+    pub weight: u32,
+    /// UTF-8 text of at most 96 bytes.
+    pub role: &'a str,
+    /// Little-endian i32.
+    pub priority: i32,
+}
+
+impl<'a> ResourceFontFace<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ResourceFontFace(Self {
+            name: body.string(RESOURCE_FONT_FACE_NAME_MAX_BYTES)?,
+            path: body.string(RESOURCE_FONT_FACE_PATH_MAX_BYTES)?,
+            family: body.string(RESOURCE_FONT_FACE_FAMILY_MAX_BYTES)?,
+            style: u32::from_le_bytes(body.scalar()?),
+            weight: u32::from_le_bytes(body.scalar()?),
+            role: body.string(RESOURCE_FONT_FACE_ROLE_MAX_BYTES)?,
+            priority: i32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), RESOURCE_FONT_FACE_NAME_MAX_BYTES)?;
+        len += blob_len(self.path.len(), RESOURCE_FONT_FACE_PATH_MAX_BYTES)?;
+        len += blob_len(self.family.len(), RESOURCE_FONT_FACE_FAMILY_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += blob_len(self.role.len(), RESOURCE_FONT_FACE_ROLE_MAX_BYTES)?;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_blob(self.path.as_bytes(), out, offset);
+        write_blob(self.family.as_bytes(), out, offset);
+        write_bytes(&self.style.to_le_bytes(), out, offset);
+        write_bytes(&self.weight.to_le_bytes(), out, offset);
+        write_blob(self.role.as_bytes(), out, offset);
+        write_bytes(&self.priority.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `resource.font_extension` record.
+pub const RESOURCE_FONT_EXTENSION_TAG: u32 = 10;
+/// Maximum bytes of `resource.font_extension.name`.
+pub const RESOURCE_FONT_EXTENSION_NAME_MAX_BYTES: usize = 96;
+/// Maximum bytes of `resource.font_extension.path`.
+pub const RESOURCE_FONT_EXTENSION_PATH_MAX_BYTES: usize = 100;
+/// Maximum bytes of `resource.font_extension.extends`.
+pub const RESOURCE_FONT_EXTENSION_EXTENDS_MAX_BYTES: usize = 128;
+
+/// The `resource.font_extension` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResourceFontExtension<'a> {
+    /// UTF-8 text of at most 96 bytes.
+    pub name: &'a str,
+    /// UTF-8 text of at most 100 bytes.
+    pub path: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub extends: &'a str,
+}
+
+impl<'a> ResourceFontExtension<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ResourceFontExtension(Self {
+            name: body.string(RESOURCE_FONT_EXTENSION_NAME_MAX_BYTES)?,
+            path: body.string(RESOURCE_FONT_EXTENSION_PATH_MAX_BYTES)?,
+            extends: body.string(RESOURCE_FONT_EXTENSION_EXTENDS_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), RESOURCE_FONT_EXTENSION_NAME_MAX_BYTES)?;
+        len += blob_len(self.path.len(), RESOURCE_FONT_EXTENSION_PATH_MAX_BYTES)?;
+        len += blob_len(
+            self.extends.len(),
+            RESOURCE_FONT_EXTENSION_EXTENDS_MAX_BYTES,
+        )?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_blob(self.path.as_bytes(), out, offset);
+        write_blob(self.extends.as_bytes(), out, offset);
+    }
+}
+
+/// A registration or declaration record, borrowed from one validated batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Record<'a> {
+    /// A callback registration.
+    Registration(Registration),
+    /// A `SettingGroup` record.
+    SettingGroup(SettingGroup<'a>),
+    /// A `SettingSpec` record.
+    SettingSpec(SettingSpec<'a>),
+    /// A `SettingExtra` record.
+    SettingExtra(SettingExtra<'a>),
+    /// A `ResourceHyphenation` record.
+    ResourceHyphenation(ResourceHyphenation<'a>),
+    /// A `ResourceFontFace` record.
+    ResourceFontFace(ResourceFontFace<'a>),
+    /// A `ResourceFontExtension` record.
+    ResourceFontExtension(ResourceFontExtension<'a>),
+}
+
+impl<'a> Reader<'a> {
+    fn blob(&mut self, cap: usize) -> Result<&'a [u8], i32> {
+        let len = self.varint()? as usize;
+        if len > cap {
+            return Err(-3);
+        }
+        self.take(len)
+    }
+
+    fn string(&mut self, cap: usize) -> Result<&'a str, i32> {
+        core::str::from_utf8(self.blob(cap)?).map_err(|_| -5)
+    }
+}
+
+fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+    Ok(match tag {
+        REGISTRATION_EVENT_TAG => {
+            body.bitmap()?;
+            Record::Registration(Registration::Event {
+                event_tag: u32::from_le_bytes(body.scalar()?),
+                token: u32::from_le_bytes(body.scalar()?),
+            })
+        }
+        REGISTRATION_DRAW_TAG => {
+            body.bitmap()?;
+            Record::Registration(Registration::Draw {
+                token: u32::from_le_bytes(body.scalar()?),
+            })
+        }
+        SETTING_GROUP_TAG => SettingGroup::decode(body)?,
+        SETTING_SPEC_TAG => SettingSpec::decode(body)?,
+        SETTING_EXTRA_TAG => SettingExtra::decode(body)?,
+        RESOURCE_HYPHENATION_TAG => ResourceHyphenation::decode(body)?,
+        RESOURCE_FONT_FACE_TAG => ResourceFontFace::decode(body)?,
+        RESOURCE_FONT_EXTENSION_TAG => ResourceFontExtension::decode(body)?,
+        _ => return Err(-1),
+    })
+}
+
+/// A fully validated, allocation-free batch of registrations and declarations.
+///
+/// It keeps the borrowed, already validated input and decodes each record again
+/// while iterating, so it holds no array of records.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RecordBatch<'a> {
+    records: &'a [u8],
+    len: usize,
+}
+
+impl<'a> RecordBatch<'a> {
+    /// Number of validated records.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Whether this batch has no records.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Iterate over records by value in wire order.
+    pub fn iter(&self) -> RecordIter<'a> {
+        RecordIter {
+            remaining: self.records,
+            left: self.len,
+        }
+    }
+}
+
+/// Iterator over a validated [`RecordBatch`].
+#[derive(Clone, Copy, Debug)]
+pub struct RecordIter<'a> {
+    remaining: &'a [u8],
+    left: usize,
+}
+
+impl<'a> Iterator for RecordIter<'a> {
+    type Item = Record<'a>;
+
+    fn next(&mut self) -> Option<Record<'a>> {
+        if self.left == 0 {
+            return None;
+        }
+        self.left -= 1;
+        let mut reader = Reader {
+            remaining: self.remaining,
+        };
+        let (tag, mut body) = reader.record().ok()?;
+        self.remaining = reader.remaining;
+        record_decode(tag, &mut body).ok()
+    }
+}
+
+/// Decode an entire mixed batch before exposing any record.
+///
+/// Accepts the registration tags and every declaration tag. Framing must be
+/// canonical u32 LEB128. Unknown tags (and the tick event) return
+/// ERR_UNSUPPORTED; malformed records return ERR_INVALID; invalid UTF-8 returns
+/// ERR_UTF8; byte, count and per-field cap violations return ERR_NO_SPACE.
+/// Unknown trailing fields and extended presence bitmaps are accepted.
+pub fn records_decode(bytes: &[u8]) -> Result<RecordBatch<'_>, i32> {
+    if bytes.len() > REGISTRATION_MAX_BYTES {
+        return Err(-3);
+    }
+    let mut reader = Reader { remaining: bytes };
+    let len = reader.varint()? as usize;
+    if len > REGISTRATION_MAX_RECORDS {
+        return Err(-3);
+    }
+    let records = reader.remaining;
+    for _ in 0..len {
+        let (tag, mut body) = reader.record()?;
+        record_decode(tag, &mut body)?;
+    }
+    reader.finish()?;
+    Ok(RecordBatch { records, len })
+}
+
+fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
+    if len > cap {
+        Err(-3)
+    } else {
+        Ok(varint_len(len as u32) + len)
+    }
+}
+
+fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+    write_varint(bytes.len() as u32, out, offset);
+    write_bytes(bytes, out, offset);
+}
+
+impl Record<'_> {
+    fn tag(&self) -> u32 {
+        match self {
+            Record::Registration(Registration::Event { .. }) => REGISTRATION_EVENT_TAG,
+            Record::Registration(Registration::Draw { .. }) => REGISTRATION_DRAW_TAG,
+            Record::SettingGroup(_) => SETTING_GROUP_TAG,
+            Record::SettingSpec(_) => SETTING_SPEC_TAG,
+            Record::SettingExtra(_) => SETTING_EXTRA_TAG,
+            Record::ResourceHyphenation(_) => RESOURCE_HYPHENATION_TAG,
+            Record::ResourceFontFace(_) => RESOURCE_FONT_FACE_TAG,
+            Record::ResourceFontExtension(_) => RESOURCE_FONT_EXTENSION_TAG,
+        }
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        match self {
+            Record::Registration(Registration::Event { .. }) => Ok(9),
+            Record::Registration(Registration::Draw { .. }) => Ok(5),
+            Record::SettingGroup(record) => record.body_len(),
+            Record::SettingSpec(record) => record.body_len(),
+            Record::SettingExtra(record) => record.body_len(),
+            Record::ResourceHyphenation(record) => record.body_len(),
+            Record::ResourceFontFace(record) => record.body_len(),
+            Record::ResourceFontExtension(record) => record.body_len(),
+        }
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        match self {
+            Record::Registration(Registration::Event { event_tag, token }) => {
+                write_bytes(&event_tag.to_le_bytes(), out, offset);
+                write_bytes(&token.to_le_bytes(), out, offset);
+            }
+            Record::Registration(Registration::Draw { token }) => {
+                write_bytes(&token.to_le_bytes(), out, offset);
+            }
+            Record::SettingGroup(record) => record.write(out, offset),
+            Record::SettingSpec(record) => record.write(out, offset),
+            Record::SettingExtra(record) => record.write(out, offset),
+            Record::ResourceHyphenation(record) => record.write(out, offset),
+            Record::ResourceFontFace(record) => record.write(out, offset),
+            Record::ResourceFontExtension(record) => record.write(out, offset),
+        }
+    }
+}
+
+/// Encode a canonical mixed batch without allocating.
+///
+/// Every field cap, the byte and count limits and the complete output capacity
+/// are checked before any write. Failure returns ERR_NO_SPACE and leaves the
+/// entire output unchanged.
+pub fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+    if records.len() > REGISTRATION_MAX_RECORDS {
+        return Err(-3);
+    }
+    let mut required = varint_len(records.len() as u32);
+    for record in records {
+        let body = record.body_len()?;
+        required += varint_len(record.tag()) + varint_len(body as u32) + body;
+        if required > REGISTRATION_MAX_BYTES {
+            return Err(-3);
+        }
+    }
+    if out.len() < required {
+        return Err(-3);
+    }
+    let mut offset = 0;
+    write_varint(records.len() as u32, out, &mut offset);
+    for record in records {
+        let body = record.body_len()?;
+        write_varint(record.tag(), out, &mut offset);
+        write_varint(body as u32, out, &mut offset);
+        write_varint(0, out, &mut offset);
+        record.write(out, &mut offset);
+    }
+    Ok(offset)
+}
