@@ -644,6 +644,241 @@ impl<'a> ResourceFontExtension<'a> {
         write_blob(self.extends.as_bytes(), out, offset);
     }
 }
+/// Wire tag of the `event.started` record.
+pub const EVENT_STARTED_TAG: u32 = 32;
+
+/// The `event.started` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventStarted {
+    /// Little-endian u64.
+    pub now_ms: u64,
+}
+
+impl EventStarted {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventStarted(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.resume` record.
+pub const EVENT_RESUME_TAG: u32 = 33;
+
+/// The `event.resume` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventResume {
+    /// Little-endian u64.
+    pub now_ms: u64,
+}
+
+impl EventResume {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventResume(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.suspend` record.
+pub const EVENT_SUSPEND_TAG: u32 = 34;
+
+/// The `event.suspend` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventSuspend {
+    /// Little-endian u64.
+    pub now_ms: u64,
+}
+
+impl EventSuspend {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventSuspend(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.stopping` record.
+pub const EVENT_STOPPING_TAG: u32 = 35;
+
+/// The `event.stopping` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventStopping {
+    /// Little-endian u64.
+    pub now_ms: u64,
+}
+
+impl EventStopping {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventStopping(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.battery_measured` record.
+pub const EVENT_BATTERY_MEASURED_TAG: u32 = 36;
+
+/// The `event.battery_measured` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventBatteryMeasured {
+    /// Little-endian u64.
+    pub now_ms: u64,
+}
+
+impl EventBatteryMeasured {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventBatteryMeasured(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.page_turned` record.
+pub const EVENT_PAGE_TURNED_TAG: u32 = 37;
+/// Maximum bytes of `event.page_turned.path`.
+pub const EVENT_PAGE_TURNED_PATH_MAX_BYTES: usize = 512;
+/// Maximum bytes of `event.page_turned.title`.
+pub const EVENT_PAGE_TURNED_TITLE_MAX_BYTES: usize = 256;
+/// Maximum bytes of `event.page_turned.chapter`.
+pub const EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES: usize = 256;
+
+/// The `event.page_turned` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventPageTurned<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub section: u32,
+    /// Little-endian u32.
+    pub offset: u32,
+    /// Little-endian u32.
+    pub progress_ppm: u32,
+    /// UTF-8 text of at most 512 bytes.
+    pub path: &'a str,
+    /// UTF-8 text of at most 256 bytes.
+    pub title: &'a str,
+    /// UTF-8 text of at most 256 bytes.
+    pub chapter: &'a str,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub page: Option<u32>,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub pages: Option<u32>,
+}
+
+impl<'a> EventPageTurned<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        let bits = body.bitmap_bits()?;
+        Ok(Record::EventPageTurned(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            section: u32::from_le_bytes(body.scalar()?),
+            offset: u32::from_le_bytes(body.scalar()?),
+            progress_ppm: u32::from_le_bytes(body.scalar()?),
+            path: body.string(EVENT_PAGE_TURNED_PATH_MAX_BYTES)?,
+            title: body.string(EVENT_PAGE_TURNED_TITLE_MAX_BYTES)?,
+            chapter: body.string(EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES)?,
+            page: body.maybe_u32(bits, 0x01)?,
+            pages: body.maybe_u32(bits, 0x02)?,
+        }))
+    }
+
+    fn bits(&self) -> u8 {
+        let mut bits = 0;
+        if self.page.is_some() {
+            bits |= 0x01;
+        }
+        if self.pages.is_some() {
+            bits |= 0x02;
+        }
+        bits
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let bits = self.bits();
+        // The bitmap is one byte when any optional field is present.
+        let mut len = 1 + usize::from(bits != 0);
+        len += 8;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += blob_len(self.path.len(), EVENT_PAGE_TURNED_PATH_MAX_BYTES)?;
+        len += blob_len(self.title.len(), EVENT_PAGE_TURNED_TITLE_MAX_BYTES)?;
+        len += blob_len(self.chapter.len(), EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES)?;
+        if bits & 0x01 != 0 {
+            len += 4;
+        }
+        if bits & 0x02 != 0 {
+            len += 4;
+        }
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.section.to_le_bytes(), out, offset);
+        write_bytes(&self.offset.to_le_bytes(), out, offset);
+        write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
+        write_blob(self.path.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_blob(self.chapter.as_bytes(), out, offset);
+        if let Some(value) = self.page {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+        if let Some(value) = self.pages {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+    }
+}
 
 /// A registration or declaration record, borrowed from one validated batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -663,6 +898,18 @@ pub enum Record<'a> {
     ResourceFontFace(ResourceFontFace<'a>),
     /// A `ResourceFontExtension` record.
     ResourceFontExtension(ResourceFontExtension<'a>),
+    /// A `EventStarted` record.
+    EventStarted(EventStarted),
+    /// A `EventResume` record.
+    EventResume(EventResume),
+    /// A `EventSuspend` record.
+    EventSuspend(EventSuspend),
+    /// A `EventStopping` record.
+    EventStopping(EventStopping),
+    /// A `EventBatteryMeasured` record.
+    EventBatteryMeasured(EventBatteryMeasured),
+    /// A `EventPageTurned` record.
+    EventPageTurned(EventPageTurned<'a>),
 }
 
 impl<'a> Reader<'a> {
@@ -676,6 +923,19 @@ impl<'a> Reader<'a> {
 
     fn string(&mut self, cap: usize) -> Result<&'a str, i32> {
         core::str::from_utf8(self.blob(cap)?).map_err(|_| -5)
+    }
+
+    fn bitmap_bits(&mut self) -> Result<u8, i32> {
+        let len = self.varint()? as usize;
+        // At most eight optional fields: the first bitmap byte is all that is known.
+        Ok(self.take(len)?.first().copied().unwrap_or(0))
+    }
+
+    fn maybe_u32(&mut self, bits: u8, mask: u8) -> Result<Option<u32>, i32> {
+        if bits & mask == 0 {
+            return Ok(None);
+        }
+        Ok(Some(u32::from_le_bytes(self.scalar()?)))
     }
 }
 
@@ -700,6 +960,12 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         RESOURCE_HYPHENATION_TAG => ResourceHyphenation::decode(body)?,
         RESOURCE_FONT_FACE_TAG => ResourceFontFace::decode(body)?,
         RESOURCE_FONT_EXTENSION_TAG => ResourceFontExtension::decode(body)?,
+        EVENT_STARTED_TAG => EventStarted::decode(body)?,
+        EVENT_RESUME_TAG => EventResume::decode(body)?,
+        EVENT_SUSPEND_TAG => EventSuspend::decode(body)?,
+        EVENT_STOPPING_TAG => EventStopping::decode(body)?,
+        EVENT_BATTERY_MEASURED_TAG => EventBatteryMeasured::decode(body)?,
+        EVENT_PAGE_TURNED_TAG => EventPageTurned::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -797,6 +1063,12 @@ impl Record<'_> {
             Record::ResourceHyphenation(_) => RESOURCE_HYPHENATION_TAG,
             Record::ResourceFontFace(_) => RESOURCE_FONT_FACE_TAG,
             Record::ResourceFontExtension(_) => RESOURCE_FONT_EXTENSION_TAG,
+            Record::EventStarted(_) => EVENT_STARTED_TAG,
+            Record::EventResume(_) => EVENT_RESUME_TAG,
+            Record::EventSuspend(_) => EVENT_SUSPEND_TAG,
+            Record::EventStopping(_) => EVENT_STOPPING_TAG,
+            Record::EventBatteryMeasured(_) => EVENT_BATTERY_MEASURED_TAG,
+            Record::EventPageTurned(_) => EVENT_PAGE_TURNED_TAG,
         }
     }
 
@@ -810,6 +1082,12 @@ impl Record<'_> {
             Record::ResourceHyphenation(record) => record.body_len(),
             Record::ResourceFontFace(record) => record.body_len(),
             Record::ResourceFontExtension(record) => record.body_len(),
+            Record::EventStarted(record) => record.body_len(),
+            Record::EventResume(record) => record.body_len(),
+            Record::EventSuspend(record) => record.body_len(),
+            Record::EventStopping(record) => record.body_len(),
+            Record::EventBatteryMeasured(record) => record.body_len(),
+            Record::EventPageTurned(record) => record.body_len(),
         }
     }
 
@@ -828,6 +1106,27 @@ impl Record<'_> {
             Record::ResourceHyphenation(record) => record.write(out, offset),
             Record::ResourceFontFace(record) => record.write(out, offset),
             Record::ResourceFontExtension(record) => record.write(out, offset),
+            Record::EventStarted(record) => record.write(out, offset),
+            Record::EventResume(record) => record.write(out, offset),
+            Record::EventSuspend(record) => record.write(out, offset),
+            Record::EventStopping(record) => record.write(out, offset),
+            Record::EventBatteryMeasured(record) => record.write(out, offset),
+            Record::EventPageTurned(record) => record.write(out, offset),
+        }
+    }
+
+    fn bits(&self) -> u8 {
+        match self {
+            Record::EventPageTurned(record) => record.bits(),
+            _ => 0,
+        }
+    }
+
+    fn write_bitmap(&self, out: &mut [u8], offset: &mut usize) {
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
         }
     }
 }
@@ -858,7 +1157,7 @@ pub fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i
         let body = record.body_len()?;
         write_varint(record.tag(), out, &mut offset);
         write_varint(body as u32, out, &mut offset);
-        write_varint(0, out, &mut offset);
+        record.write_bitmap(out, &mut offset);
         record.write(out, &mut offset);
     }
     Ok(offset)

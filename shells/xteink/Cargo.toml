@@ -32,6 +32,12 @@ x3 = ["esp32c3", "asleep-light"]
 # `sleep_lightly`, `paperpaw_x4::sleeping`): the X4, the X3 and the X4 Pro
 # (#153); the X4 Classic keeps its deep sleep.
 asleep-light = []
+# Loads the X4's interface-7 plugin files (format 5, `abi/ppn5.md`) as far as
+# the core can take them: reads, checks, places and relocates the image and
+# checks its entry (`src/native/ppn5.rs`); the plugin is not made, because
+# the core has no interface-7 plugin yet. Off by default: the shipped
+# firmware reads format-4 files only.
+ppn5 = ["paperpaw-native/kernel"]
 # What both ESP32-C3 devices build with; chosen by `x4` or `x3`, not by
 # hand.
 esp32c3 = [

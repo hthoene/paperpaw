@@ -126,6 +126,10 @@ const CROSSING: &[(u64, u64)] = &layouts![
     crate::firmware::Firmware,
     crate::formats::Formats,
     crate::usage::Usage,
+    // `Env::hyphenation` and what its `get` gives: card-backed since
+    // draft 2.
+    crate::hyphenation::Hyphenation,
+    crate::hyphenation::Hyphenator<'static>,
     crate::status::StatusItems,
     crate::readers::Readers,
     crate::widgets::Widgets,

@@ -1154,6 +1154,9 @@ impl Kernel {
         self.output.commands.push(events::SUSPEND.emit(()));
         self.bluetooth_suspend();
         let effects = self.finish();
+        // Asleep, no word is hyphenated: the tables open give their heap
+        // back (and the card may be another on waking).
+        self.shared.hyphenation.close_tables();
         self.keep_timing();
         // What plugins saved, and what storage kept back, written.
         let _ = self.shared.storage.sync();
@@ -1205,6 +1208,8 @@ impl Kernel {
     pub fn usb_drive_ended(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
         self.woke(now);
+        // A computer may have changed the card, or another card is in.
+        self.shared.hyphenation.card_changed();
         self.output.commands.push(events::USB_DRIVE_ENDED.emit(()));
         self.output.commands.push(events::LIBRARY_CHANGED.emit(()));
         self.finish()
@@ -1328,8 +1333,6 @@ struct Shared {
     font_dirs: Vec<String>,
     /// The folders of data plugins, by plugin, for removing them.
     data_folders: Vec<(Id, String)>,
-    /// Hyphenation tables of data plugins, by language (formats 5).
-    hyphenation_tables: data_plugin::hyphenation::Tables,
     /// The folders data plugins are found in.
     plugin_dirs: Vec<String>,
     /// What plugin libraries call this kind of device (see

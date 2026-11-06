@@ -15,6 +15,10 @@ change the plugin SDK.
   plugin declares is staged but not applied yet, and nothing is drawn; interface-6 plugins are unchanged (#228, #772).
 - Interface-7 draft: statuses `ERR_NOT_FOUND` (-10) and `ERR_FULL` (-11), and record codecs generated from
   the fields declared in `abi/abi.def` (optional appended fields, tag ranges per record family) (#228).
+- Interface-7 draft: event records 32-37 (`started`, `resume`, `suspend`, `stopping`, `battery_measured`,
+  `page_turned`) with host encoders in `native_host::events`; a plugin can register for them (#228).
+  An optional scalar field declared with `"default": null` is generated as `Option<T>` (present exactly
+  when its bit is set): `page_turned`'s `page` and `pages`, which have no value meaning "not counted".
 - `tools/hyphenation-packs`: builds and checks the thirteen hyphenation plugins as data plugins
   (`[hyphenation]` file kind, PPHP version 1 tables); the interface-6 plugins stay until the
   card-backed reader lands (#228).
@@ -46,8 +50,20 @@ change the plugin SDK.
   refuses an unnamed one against the PR's base. The temporary partition of the interface-7 host table
   from the frozen interface-6 files is retired.
 - `DATA_FORMATS` is 5: data plugins may name hyphenation tables in `[hyphenation]` (`hyphenation/*.pphp`),
-  so the 13 hyphenation plugins install. Their languages are used on a page once the SDK's
-  `Hyphenation::get` reads tables from the card (`abi/interface-7/raise.md`, row 2).
+  so the 13 hyphenation plugins install.
+- **Plugin interface 7, draft 2** (#228, `abi/interface-7/raise.md` row 2): hyphenation from data plugins is
+  used on a page. `Hyphenation::get` returns a `Hyphenator` (`with_minimums`, `hyphenate`) instead of
+  `&Patterns`: a table compiled into a plugin, or a data plugin's table read from the card a few blocks at a
+  time, which comes first. At most two card tables are open, within 48 KiB of heap together, checked
+  before anything is taken (about 20 KB for `de`, the largest); only a table idle for about a page of words
+  is closed for another, so two languages in use never close each other at every word. The kernel opens
+  them (an opener it sets with the storage), so plugins built without the `kernel` feature hyphenate with
+  them too, and closes them when a book is closed, before sleep and before Wi-Fi, network, store-install
+  and firmware work (`Hyphenation::close_tables`). A read that fails closes the table and the next word
+  opens it once more, a second failure gives the language up until the card is mounted anew. `PageType::patterns` returns the `Hyphenator`. The kernel keeps the
+  data plugins' tables in the SDK's `Hyphenation` (the greatest plugin id has a language).
+  `paperpaw-hyphen` (kernel): `StoredPatterns::open_within` refuses a table over a heap budget
+  (`OpenError::OverBudget`), `StoredPatterns::heap_bound` bounds it from its header.
 
 ## [0.6.0-beta.3] - 2026-11-05
 

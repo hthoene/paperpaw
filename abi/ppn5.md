@@ -116,10 +116,33 @@ loader's first call into the plugin is `make`. So the rule splits in two:
 
 `image_len` at most 4 MiB (`MAX_IMAGE_LEN`, above the X4's room; the real limit is the flash room,
 2,273,280 bytes for all plugins); `meta_len` at most 2,048; `relocs` at most `image_len / 4`;
-`patches` at most the code's 2-byte instruction slots, `(image_len − code_at) / 2`; `align` 4..4096; signature 112 bytes; `hot_len` at most the
+`patches` at most the code's 2-byte instruction slots, `(image_len − code_at) / 2`, **and at most 8,192
+(`MAX_PATCHES`)**: every call from cold code into the hot code adds a pair, however few call sites there are, and
+the loader reads them by lookup, so the count bounds its work; `paperpaw-sign pack` must refuse a file above it, so pack
+and load agree; `align` 4..4096; signature 112 bytes; `hot_len` at most the
 X4's IRAM arena (`HOT_MAX`, 16 KiB, as in format 4). The digest, the relocation words and the patches are
 **streamed through a fixed buffer**: nothing is allocated in proportion to the file, the image,
 `relocs` or `patches`, on the 256 KiB heap or elsewhere.
+
+The lists are looked up by binary search, each probe a read of 4 or 8 bytes; the X4 serves them from one block
+of the file held in RAM (512 bytes, `Cached`) so that probes in the block read last cost no read of the card.
+How many reads that saves, and what an install costs in time, is **to be measured on the device**; the host
+tests show only that no read is larger than the buffers. The source must serve, on every read, the bytes the
+digest covered: the lists are checked once and read again while relocating, and a source that answers
+otherwise the second time (a swapped card) is refused with a relocation error, never trusted. The write pass does
+not trust the first read either: it hashes each piece of the image as it reads it for the flash, hashes the lists
+once more in order after the image, and compares with the header's digest; a mismatch (`Damaged`) takes back the
+plugin, so the image in the flash is the image the digest covers. Only the single lookups into the lists while
+relocating are not under that second digest: a source that lies on them alone can move a relocation to another
+word that is valid; every byte it writes is still one the digest covers.
+
+**A refusal costs no write.** Everything that can refuse a file is decided on the file in RAM before the flash
+is touched: the header, the digest, every word to relocate, and the entry and the metadata record as they
+will lie once placed. A file refused there is taken out of the layout as if it had never been placed, so the
+plugins after it and the index are not written again for its sake, at this start or any later one. (Whether the
+plugin manager also remembers the refusal, so the file is not read and hashed again at each start, is the
+core's, not this note's.) Only a flash fault after the first erase rewinds the layout, and then the index is
+written anew.
 
 ## Decisions (Manager, 2026-11-06, on Senior's review #792)
 

@@ -421,7 +421,11 @@ impl Kernel {
             Command::Restart => self.restart = true,
             Command::LoadPlugin(folder) => self.load_plugin(&folder),
             Command::RemovePlugin(id) => self.remove_plugin(&id),
-            Command::InstallPlugin(id, folder) => self.install_plugin(&id, &folder),
+            Command::InstallPlugin(id, folder) => {
+                // As for network work (`wants_heap`): installing wants the heap.
+                self.shared.hyphenation.close_tables();
+                self.install_plugin(&id, &folder);
+            }
             Command::RequestPlugins { by, plugins } => self.request_plugins(by, plugins),
             Command::Sleep => self.sleep = self.shared.caps.sleep,
             Command::PowerOff => self.power_off = self.shared.caps.power_off,
@@ -559,6 +563,11 @@ impl Kernel {
         // A page turned, also by itself, is use.
         if *event == events::PAGE_TURNED {
             self.last_activity = self.now;
+        }
+        // A book closed: the hyphenation tables open for it give their heap
+        // back (opened again at the next word).
+        if *event == events::BOOK_CLOSED {
+            self.shared.hyphenation.close_tables();
         }
         self.tasks_follow_books(event, params);
         let guarded = self.guarded_screens();
@@ -829,6 +838,11 @@ impl Kernel {
     }
 
     fn apply_io(&mut self, command: Command) {
+        // Network, store and firmware work want the heap: the hyphenation
+        // tables open give theirs back (opened again at the next word).
+        if wants_heap(&command) {
+            self.shared.hyphenation.close_tables();
+        }
         let (network, screens) = (self.shared.caps.network, self.stack.len());
         let out = &mut self.output.commands;
         match command {
@@ -931,6 +945,21 @@ impl Kernel {
     }
 }
 
+/// Whether `command` starts work that wants much of the heap: the Wi-Fi
+/// radio on or joining, a request, a connection or a server, or the
+/// firmware's check, download or install.
+fn wants_heap(command: &Command) -> bool {
+    match command {
+        Command::Wifi(wifi) => !matches!(wifi, WifiCommand::Off | WifiCommand::Leave),
+        Command::Firmware(_)
+        | Command::Http(_)
+        | Command::Connect { .. }
+        | Command::StartTls { .. }
+        | Command::Serve { .. } => true,
+        _ => false,
+    }
+}
+
 /// Whether `command` changes how the device is set up: settings, secrets,
 /// plugins, menus, key bindings, slots.
 fn changes_setup(command: &Command) -> bool {
@@ -986,6 +1015,11 @@ pub(crate) struct Reserved<'a> {
 }
 
 impl<'a> Reserved<'a> {
+    /// The single authority rule for guarded settings and reserved commands.
+    pub(crate) fn guarded_exempt(&self, owner: &str) -> bool {
+        self.editor == Some(owner) || owner == crate::meter::CORE
+    }
+
     pub(crate) fn of(
         settings: &'a paperpaw_sdk::Settings,
         registry: &'a crate::registry::Registry,
@@ -1061,7 +1095,7 @@ pub(crate) fn vet_reserved(
             request.set_from(plugin);
         }
     }
-    let editor = reserved.editor == Some(owner) || owner == crate::meter::CORE;
+    let editor = reserved.guarded_exempt(owner);
     let foreign = |id: &str, kept: fn(&paperpaw_sdk::SettingSpec) -> bool| {
         id.split('.').next() != Some(owner) && reserved.settings.spec(id).is_some_and(kept)
     };
