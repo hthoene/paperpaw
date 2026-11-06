@@ -117,7 +117,12 @@ impl Text {
                 len: self.len,
             });
         }
-        let text = self.as_str();
+        Self::try_copy(self.as_str())
+    }
+
+    /// Owned text copied from `text`, refusing where the heap does: one
+    /// allocation of exactly its length (none for empty text).
+    fn try_copy(text: &str) -> Option<Self> {
         if text.is_empty() {
             return Some(Self::owned(String::new()));
         }
@@ -191,6 +196,27 @@ impl fmt::Display for InvalidId {
 
 impl core::error::Error for InvalidId {}
 
+/// Why [`Id::try_parse`] made no id.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum IdError {
+    /// Not an id ([`InvalidId`]).
+    Invalid,
+    /// A valid id, but the heap could not hold its copy.
+    NoMemory,
+}
+
+impl fmt::Display for IdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Invalid => InvalidId.fmt(f),
+            Self::NoMemory => f.write_str("no memory for the id"),
+        }
+    }
+}
+
+impl core::error::Error for IdError {}
+
 impl Id {
     /// Creates an id from a string literal.
     ///
@@ -210,6 +236,17 @@ impl Id {
         } else {
             Err(InvalidId)
         }
+    }
+
+    /// [`Id::parse`] that never aborts on a full heap, for hosts that must
+    /// not abort when memory runs out (the X4's plugin admission): checks
+    /// the id first ([`IdError::Invalid`]), then copies it in one allocation
+    /// of its length, [`IdError::NoMemory`] where the heap refuses it.
+    pub fn try_parse(id: &str) -> Result<Id, IdError> {
+        if !is_valid(id) {
+            return Err(IdError::Invalid);
+        }
+        Text::try_copy(id).map(Id).ok_or(IdError::NoMemory)
     }
 
     pub fn as_str(&self) -> &str {

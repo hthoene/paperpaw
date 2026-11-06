@@ -22,6 +22,9 @@ change the plugin SDK.
 - Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
   device usage, translated plugin names and work-note readers. Includes a deterministic fake-host
   fixture for Battery port tests; helpers use bounded buffers and allocate nothing (#228).
+- `Id::try_parse` and `IdError`: a parse that tells an invalid id (`IdError::Invalid`) from a full
+  heap (`IdError::NoMemory`) instead of aborting, so the X4's plugin admission can make new ids
+  from declarations and answer `ERR_NO_MEMORY` (#228).
 - `Id::try_clone`: a copy of an id that gives `None` where the heap refuses instead of aborting
   (kept ids copy without allocating), for hosts that must survive a full heap (#228).
 - Interface 7: host slots 29-31 (`text.metrics`, `text.ink`, `canvas.clip`) for text placed by its
