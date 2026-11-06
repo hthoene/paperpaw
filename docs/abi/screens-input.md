@@ -114,16 +114,23 @@ input(state: pointer, token: u32, input: bytes) -> i32
   | `role:reading-italic` | `Fonts::bound(fonts::READING_ITALIC)`, else `role:reading` |
   | `role:reading-bold-italic` | `Fonts::bound(fonts::READING_BOLD_ITALIC)`, else `role:reading-bold` |
   | `role:status` | `Fonts::role(fonts::STATUS)` |
+  | `role:icons` | `Fonts::bound(fonts::ICONS)`, no fallback |
+
+  `role:icons` acquires even while no icon font is bound; a text call through it answers
+  `ERR_NOT_FOUND` while none is (the plugin shows text only, as interface 6's menus do), checked
+  again at each call.
 
   A role is resolved again at each text call, so it follows the user's choice and never goes
   stale. Bolder or monospaced text is a font the plugin acquires by id (a font pack), not a role.
-- [D] Handles: at most 4 per plugin (`ERR_FULL` beyond); `handle.release` frees; teardown frees
+- [D] Handles: at most 8 per plugin, roles and font ids together (`ERR_FULL` beyond; a reading
+  plugin holds five roles); `handle.release` frees; teardown frees
   all. A handle acquired by font id answers `ERR_STATE` on `text.*` once that id is gone: the
   pack that provides it was removed or replaced (updated) after the acquire, even if the same
   id is registered again, or the id no longer resolves. The plugin acquires again (on
   `event.screen_shown`). How the host tells a replaced pack from the one acquired is its own
-  (today: a removal counter per providing plugin, recorded in the handle); it never compares
-  addresses or list positions.
+  (today: a removal counter per providing plugin, recorded in the handle; the counter never wraps
+  to a value a handle holds: it saturates, and from then on every handle by id is stale); it
+  never compares addresses or list positions.
 - [D] `text.measure`/`text.draw` keep their signatures; `size` finite and > 0, text at most 4096
   bytes UTF-8, `text.draw` needs a canvas (inside `draw`), else `ERR_STATE`. `text.draw` is not
   atomic on an advance error (documented).
