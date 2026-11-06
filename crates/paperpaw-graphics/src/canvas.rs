@@ -251,7 +251,11 @@ impl<'a> Canvas<'a> {
     /// left out.
     #[doc(hidden)]
     pub fn is_blind(&self) -> bool {
-        self.framebuffer.is_blind()
+        self.framebuffer.is_blind() && !self.framebuffer.is_probe()
+    }
+
+    pub(crate) fn framebuffer_mut(&mut self) -> &mut Framebuffer {
+        self.framebuffer
     }
 
     paperpaw_table::shared! {
@@ -928,6 +932,9 @@ impl<'a> Canvas<'a> {
         color: Color,
         coverage: impl Fn(u32, u32) -> u8,
     ) {
+        if self.framebuffer.is_probe() {
+            return self.probe_mask(x, y, width, height, coverage);
+        }
         let Some(rect) = self.clip_signed(x, y, width, height) else {
             return;
         };
