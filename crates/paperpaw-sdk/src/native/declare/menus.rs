@@ -20,13 +20,13 @@ pub enum EntryPlacement<'a> {
     Last,
 }
 
-/// An action or setting offered in a menu, borrowing its declaration strings.
+/// An item offered in a menu, borrowing its declaration strings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct MenuEntryDecl<'a> {
     /// Full menu id, including the menu owner's namespace.
     pub menu: &'a str,
-    /// Action or setting id relative to the declaring plugin.
+    /// Full item id, including its owner namespace; foreign items are allowed.
     pub item: &'a str,
     /// Fallback order, lower first.
     pub order: i16,
@@ -48,8 +48,8 @@ impl<'a> MenuEntryDecl<'a> {
 }
 
 impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
-    /// Offer an owned action or setting in a menu, which may belong to another
-    /// plugin. Missing anchors fall back to order; the host resolves ids.
+    /// Offer an item in a menu, including another plugin's item or menu.
+    /// Missing anchors fall back to order; the host resolves ids.
     ///
     /// # Errors
     /// Returns Empty or TooLong for fields outside the contract, Encode(Invalid)
@@ -83,7 +83,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
         self.accept_menu_declaration(record)
     }
 
-    /// Give an owned action, screen or setting an icon name. Unknown names are
+    /// Give any item an icon name. Unknown names are
     /// accepted by the host and show no icon. No icon data is retained.
     ///
     /// # Errors
@@ -102,8 +102,8 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
         self.accept_menu_declaration(record)
     }
 
-    /// Require a device feature for an owned action, setting or setting group.
-    /// The host checks ownership and permits at most one need per item. An
+    /// Require a device feature for an item, including a foreign item.
+    /// The host permits at most one need per item in each submitted batch. An
     /// unknown capability is treated as unmet by a host that does not know it.
     ///
     /// # Errors

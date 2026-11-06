@@ -27,26 +27,26 @@ fn every_placement_and_order_edge_matches_generated_bytes() {
                 batches.push(batch.to_vec());
                 Ok(())
             });
-            let mut entry = MenuEntryDecl::new("foreign.tools", "open");
+            let mut entry = MenuEntryDecl::new("foreign.tools", "battery.open");
             entry.order = order;
             entry.place = place;
             builder
                 .menu_entry(entry)
                 .unwrap()
-                .icon("open", "battery")
+                .icon("battery.open", "battery")
                 .unwrap();
             builder.submit().unwrap();
             drop(builder);
             let records = [
                 Record::MenuEntry(wire::MenuEntry {
                     menu: "foreign.tools",
-                    item: "open",
+                    item: "battery.open",
                     order: i32::from(order),
                     place: code,
                     anchor,
                 }),
                 Record::IconSpec(wire::IconSpec {
-                    item: "open",
+                    item: "battery.open",
                     icon: "battery",
                 }),
             ];
@@ -90,9 +90,9 @@ fn every_need_uses_the_contract_value_and_preserves_declaration_order() {
     })];
     builder.subscribe_event(EventKind::Started, 2).unwrap();
     for (need, code, capability) in kinds {
-        builder.menu_need("open", need).unwrap();
+        builder.menu_need("battery.open", need).unwrap();
         expected.push(Record::MenuNeed(wire::MenuNeed {
-            item: "open",
+            item: "battery.open",
             need: code,
             capability,
         }));
@@ -140,21 +140,21 @@ fn invalid_menu_fields_latch_and_abort_pending_callbacks() {
     let long_item = "a".repeat(wire::MENU_ENTRY_ITEM_MAX_BYTES + 1);
     let long_anchor = "a".repeat(wire::MENU_ENTRY_ANCHOR_MAX_BYTES + 1);
     for (menu, item, place) in [
-        ("", "open", EntryPlacement::Order),
-        ("Core.tools", "open", EntryPlacement::Order),
-        ("core..tools", "open", EntryPlacement::Order),
+        ("", "battery.open", EntryPlacement::Order),
+        ("Core.tools", "battery.open", EntryPlacement::Order),
+        ("core..tools", "battery.open", EntryPlacement::Order),
         ("core.tools", "", EntryPlacement::Order),
         ("core.tools", "bad name", EntryPlacement::Order),
-        ("core.tools", "open", EntryPlacement::After("")),
-        ("core.tools", "open", EntryPlacement::Before("BAD")),
+        ("core.tools", "battery.open", EntryPlacement::After("")),
+        ("core.tools", "battery.open", EntryPlacement::Before("BAD")),
         (
             "core.tools",
-            "open",
+            "battery.open",
             EntryPlacement::InSection("bad..section"),
         ),
-        (&long_menu, "open", EntryPlacement::Order),
+        (&long_menu, "battery.open", EntryPlacement::Order),
         ("core.tools", &long_item, EntryPlacement::Order),
-        ("core.tools", "open", EntryPlacement::After(&long_anchor)),
+        ("core.tools", "battery.open", EntryPlacement::After(&long_anchor)),
     ] {
         let mut batches = Vec::new();
         let mut builder = Declarations::new(|batch: &[u8]| {
@@ -165,10 +165,10 @@ fn invalid_menu_fields_latch_and_abort_pending_callbacks() {
         let mut entry = MenuEntryDecl::new(menu, item);
         entry.place = place;
         let error = builder.menu_entry(entry).unwrap_err();
-        assert_eq!(builder.icon("open", "battery").unwrap_err(), error);
+        assert_eq!(builder.icon("battery.open", "battery").unwrap_err(), error);
         assert_eq!(
             builder
-                .menu_need("open", crate::MenuNeed::Touch)
+                .menu_need("battery.open", crate::MenuNeed::Touch)
                 .unwrap_err(),
             error
         );
@@ -186,12 +186,12 @@ fn invalid_icon_fields_and_need_items_are_refused() {
     for (item, icon) in [
         ("", "battery"),
         ("bad..item", "battery"),
-        ("open", ""),
-        ("open", "Battery"),
-        ("open", "arrow.left"),
-        ("open", "é"),
+        ("battery.open", ""),
+        ("battery.open", "Battery"),
+        ("battery.open", "arrow.left"),
+        ("battery.open", "é"),
         (&long_item, "battery"),
-        ("open", &long_icon),
+        ("battery.open", &long_icon),
     ] {
         let mut builder = Declarations::new(|_: &[u8]| Ok(()));
         assert!(builder.icon(item, icon).is_err());
@@ -212,22 +212,22 @@ fn sink_refusal_is_preserved_without_retry_or_further_encoding() {
         Err(-77)
     });
     for _ in 0..BATCH_MAX_RECORDS {
-        builder.icon("open", "battery").unwrap();
+        builder.icon("battery.open", "battery").unwrap();
     }
     let error = DeclareError::Sink(-77);
     assert_eq!(
         builder
-            .menu_entry(MenuEntryDecl::new("core.tools", "open"))
+            .menu_entry(MenuEntryDecl::new("core.tools", "battery.open"))
             .unwrap_err(),
         error
     );
     assert_eq!(
         builder
-            .menu_need("open", crate::MenuNeed::Touch)
+            .menu_need("battery.open", crate::MenuNeed::Touch)
             .unwrap_err(),
         error
     );
-    assert_eq!(builder.icon("open", "battery").unwrap_err(), error);
+    assert_eq!(builder.icon("battery.open", "battery").unwrap_err(), error);
     assert_eq!(builder.submit(), Err(error));
     drop(builder);
     assert_eq!(calls, 1);

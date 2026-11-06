@@ -1683,7 +1683,7 @@ pub const MENU_ENTRY_TAG: u32 = 13;
 /// Maximum bytes of `menu.entry.menu`.
 pub const MENU_ENTRY_MENU_MAX_BYTES: usize = 128;
 /// Maximum bytes of `menu.entry.item`.
-pub const MENU_ENTRY_ITEM_MAX_BYTES: usize = 96;
+pub const MENU_ENTRY_ITEM_MAX_BYTES: usize = 128;
 /// Maximum bytes of `menu.entry.anchor`.
 pub const MENU_ENTRY_ANCHOR_MAX_BYTES: usize = 128;
 
@@ -1692,7 +1692,7 @@ pub const MENU_ENTRY_ANCHOR_MAX_BYTES: usize = 128;
 pub struct MenuEntry<'a> {
     /// UTF-8 text of at most 128 bytes.
     pub menu: &'a str,
-    /// UTF-8 text of at most 96 bytes.
+    /// UTF-8 text of at most 128 bytes.
     pub item: &'a str,
     /// Little-endian i32.
     pub order: i32,
@@ -1735,14 +1735,14 @@ impl<'a> MenuEntry<'a> {
 /// Wire tag of the `icon.spec` record.
 pub const ICON_SPEC_TAG: u32 = 14;
 /// Maximum bytes of `icon.spec.item`.
-pub const ICON_SPEC_ITEM_MAX_BYTES: usize = 96;
+pub const ICON_SPEC_ITEM_MAX_BYTES: usize = 128;
 /// Maximum bytes of `icon.spec.icon`.
 pub const ICON_SPEC_ICON_MAX_BYTES: usize = 64;
 
 /// The `icon.spec` record, borrowed from its batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IconSpec<'a> {
-    /// UTF-8 text of at most 96 bytes.
+    /// UTF-8 text of at most 128 bytes.
     pub item: &'a str,
     /// UTF-8 text of at most 64 bytes.
     pub icon: &'a str,
@@ -1772,12 +1772,12 @@ impl<'a> IconSpec<'a> {
 /// Wire tag of the `menu.need` record.
 pub const MENU_NEED_TAG: u32 = 15;
 /// Maximum bytes of `menu.need.item`.
-pub const MENU_NEED_ITEM_MAX_BYTES: usize = 96;
+pub const MENU_NEED_ITEM_MAX_BYTES: usize = 128;
 
 /// The `menu.need` record, borrowed from its batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MenuNeed<'a> {
-    /// UTF-8 text of at most 96 bytes.
+    /// UTF-8 text of at most 128 bytes.
     pub item: &'a str,
     /// Little-endian u32.
     pub need: u32,
@@ -1807,6 +1807,129 @@ impl<'a> MenuNeed<'a> {
         write_blob(self.item.as_bytes(), out, offset);
         write_bytes(&self.need.to_le_bytes(), out, offset);
         write_bytes(&self.capability.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `menu.section` record.
+pub const MENU_SECTION_TAG: u32 = 16;
+/// Maximum bytes of `menu.section.name`.
+pub const MENU_SECTION_NAME_MAX_BYTES: usize = 96;
+/// Maximum bytes of `menu.section.title`.
+pub const MENU_SECTION_TITLE_MAX_BYTES: usize = 128;
+/// Maximum bytes of `menu.section.menu`.
+pub const MENU_SECTION_MENU_MAX_BYTES: usize = 128;
+
+/// The `menu.section` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MenuSection<'a> {
+    /// UTF-8 text of at most 96 bytes.
+    pub name: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub title: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub menu: &'a str,
+    /// Little-endian i32.
+    pub order: i32,
+}
+
+impl<'a> MenuSection<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::MenuSection(Self {
+            name: body.string(MENU_SECTION_NAME_MAX_BYTES)?,
+            title: body.string(MENU_SECTION_TITLE_MAX_BYTES)?,
+            menu: body.string(MENU_SECTION_MENU_MAX_BYTES)?,
+            order: i32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), MENU_SECTION_NAME_MAX_BYTES)?;
+        len += blob_len(self.title.len(), MENU_SECTION_TITLE_MAX_BYTES)?;
+        len += blob_len(self.menu.len(), MENU_SECTION_MENU_MAX_BYTES)?;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_blob(self.menu.as_bytes(), out, offset);
+        write_bytes(&self.order.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `menu.hide` record.
+pub const MENU_HIDE_TAG: u32 = 17;
+/// Maximum bytes of `menu.hide.menu`.
+pub const MENU_HIDE_MENU_MAX_BYTES: usize = 128;
+/// Maximum bytes of `menu.hide.item`.
+pub const MENU_HIDE_ITEM_MAX_BYTES: usize = 128;
+
+/// The `menu.hide` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MenuHide<'a> {
+    /// UTF-8 text of at most 128 bytes.
+    pub menu: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub item: &'a str,
+}
+
+impl<'a> MenuHide<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::MenuHide(Self {
+            menu: body.string(MENU_HIDE_MENU_MAX_BYTES)?,
+            item: body.string(MENU_HIDE_ITEM_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.menu.len(), MENU_HIDE_MENU_MAX_BYTES)?;
+        len += blob_len(self.item.len(), MENU_HIDE_ITEM_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.menu.as_bytes(), out, offset);
+        write_blob(self.item.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `menu.describe` record.
+pub const MENU_DESCRIBE_TAG: u32 = 18;
+/// Maximum bytes of `menu.describe.item`.
+pub const MENU_DESCRIBE_ITEM_MAX_BYTES: usize = 96;
+/// Maximum bytes of `menu.describe.key`.
+pub const MENU_DESCRIBE_KEY_MAX_BYTES: usize = 128;
+
+/// The `menu.describe` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MenuDescribe<'a> {
+    /// UTF-8 text of at most 96 bytes.
+    pub item: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub key: &'a str,
+}
+
+impl<'a> MenuDescribe<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::MenuDescribe(Self {
+            item: body.string(MENU_DESCRIBE_ITEM_MAX_BYTES)?,
+            key: body.string(MENU_DESCRIBE_KEY_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.item.len(), MENU_DESCRIBE_ITEM_MAX_BYTES)?;
+        len += blob_len(self.key.len(), MENU_DESCRIBE_KEY_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.item.as_bytes(), out, offset);
+        write_blob(self.key.as_bytes(), out, offset);
     }
 }
 
@@ -1880,6 +2003,12 @@ pub enum Record<'a> {
     IconSpec(IconSpec<'a>),
     /// A `MenuNeed` record.
     MenuNeed(MenuNeed<'a>),
+    /// A `MenuSection` record.
+    MenuSection(MenuSection<'a>),
+    /// A `MenuHide` record.
+    MenuHide(MenuHide<'a>),
+    /// A `MenuDescribe` record.
+    MenuDescribe(MenuDescribe<'a>),
 }
 
 impl<'a> Reader<'a> {
@@ -1956,6 +2085,9 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         MENU_ENTRY_TAG => MenuEntry::decode(body)?,
         ICON_SPEC_TAG => IconSpec::decode(body)?,
         MENU_NEED_TAG => MenuNeed::decode(body)?,
+        MENU_SECTION_TAG => MenuSection::decode(body)?,
+        MENU_HIDE_TAG => MenuHide::decode(body)?,
+        MENU_DESCRIBE_TAG => MenuDescribe::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -2079,6 +2211,9 @@ impl Record<'_> {
             Record::MenuEntry(_) => MENU_ENTRY_TAG,
             Record::IconSpec(_) => ICON_SPEC_TAG,
             Record::MenuNeed(_) => MENU_NEED_TAG,
+            Record::MenuSection(_) => MENU_SECTION_TAG,
+            Record::MenuHide(_) => MENU_HIDE_TAG,
+            Record::MenuDescribe(_) => MENU_DESCRIBE_TAG,
         }
     }
 
@@ -2118,6 +2253,9 @@ impl Record<'_> {
             Record::MenuEntry(record) => record.body_len(),
             Record::IconSpec(record) => record.body_len(),
             Record::MenuNeed(record) => record.body_len(),
+            Record::MenuSection(record) => record.body_len(),
+            Record::MenuHide(record) => record.body_len(),
+            Record::MenuDescribe(record) => record.body_len(),
         }
     }
 
@@ -2162,6 +2300,9 @@ impl Record<'_> {
             Record::MenuEntry(record) => record.write(out, offset),
             Record::IconSpec(record) => record.write(out, offset),
             Record::MenuNeed(record) => record.write(out, offset),
+            Record::MenuSection(record) => record.write(out, offset),
+            Record::MenuHide(record) => record.write(out, offset),
+            Record::MenuDescribe(record) => record.write(out, offset),
         }
     }
 
