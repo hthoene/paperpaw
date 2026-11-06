@@ -80,8 +80,8 @@ pub fn left() -> (usize, usize) {
 /// and the start that follows refuses it ([`band_armed`] is false then).
 pub fn check() {
     use core::sync::atomic::Ordering;
-    if LOST.load(Ordering::Relaxed) && NATIVE.load(Ordering::Relaxed) {
-        panic!("the stack's band was taken while a native plugin runs: starting again without it");
+    if LOST.load(Ordering::Relaxed) {
+        lost_with_native_plugins();
     }
     let reached = (bottom()..bottom() + BAND)
         .step_by(4)
@@ -108,6 +108,15 @@ static ARMED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::n
 static LOST: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 /// Set when a plugin with native code was let through [`band_armed`]'s gate.
 static NATIVE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// Starts the X4 again if a plugin with native code is loaded and the band
+/// is lost: it would run on with no net, and the start that follows refuses
+/// it ([`band_armed`] is false then, so there is no loop).
+fn lost_with_native_plugins() {
+    if NATIVE.load(core::sync::atomic::Ordering::Relaxed) {
+        panic!("the stack's band was taken while a native plugin runs: starting again without it");
+    }
+}
 
 /// Notes that a plugin with native code is loaded, which needs the band for
 /// as long as it runs (`check` ends the run if the band is lost).
@@ -196,11 +205,15 @@ pub fn arm_band() {
         // Armed is what the chip holds, not what was meant.
         paperpaw_x4::stack_band::holds(set_control, set_address, address)
     });
-    if !armed && band_armed() {
+    let was = band_armed();
+    ARMED.store(armed, core::sync::atomic::Ordering::Relaxed);
+    if !armed && was {
         log::warn!("stack: trigger {TRIGGER} was taken: the band is no longer armed");
         LOST.store(true, core::sync::atomic::Ordering::Relaxed);
+        // Here, where the loss is found: the resume after a sleep runs plugin
+        // code before the main loop's next check does.
+        lost_with_native_plugins();
     }
-    ARMED.store(armed, core::sync::atomic::Ordering::Relaxed);
 }
 
 /// No band on the Xtensa chips.
