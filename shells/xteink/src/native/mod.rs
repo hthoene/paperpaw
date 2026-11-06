@@ -245,7 +245,11 @@ impl Loader {
                 warn!("native: {path} not run: the stack's band is not armed");
                 return Err(PluginProblem::Unsupported);
             }
-            return ppn5::load(&mut self.place, storage, code);
+            let loaded = ppn5::load(&mut self.place, storage, code);
+            if loaded.is_ok() {
+                crate::stack::native_loaded();
+            }
+            return loaded;
         }
         let header = Header::read(&head).map_err(|p| problem_of(&head, p))?;
         if header.chip != CHIP {

@@ -74,8 +74,15 @@ pub fn left() -> (usize, usize) {
 }
 
 /// Starts the X4 again (by a panic, which keeps the message) if the stack
-/// reached its end since start.
+/// reached its end since start, or if the band at its end was lost after a
+/// plugin with native code was loaded (a re-arm after a sleep found the
+/// trigger taken, a debugger's perhaps): that plugin runs on with no net,
+/// and the start that follows refuses it ([`band_armed`] is false then).
 pub fn check() {
+    use core::sync::atomic::Ordering;
+    if LOST.load(Ordering::Relaxed) && NATIVE.load(Ordering::Relaxed) {
+        panic!("the stack's band was taken while a native plugin runs: starting again without it");
+    }
     let reached = (bottom()..bottom() + BAND)
         .step_by(4)
         // SAFETY: as in `left`; the stack is never this deep here.
@@ -96,6 +103,17 @@ const TRIGGER: u32 = 2;
 /// Whether the band is armed now: the plugins of interface 7 run only
 /// where it is (`native::load_file` refuses them otherwise).
 static ARMED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// Set when a re-arm found the trigger taken after the band had been armed.
+static LOST: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+/// Set when a plugin with native code was let through [`band_armed`]'s gate.
+static NATIVE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// Notes that a plugin with native code is loaded, which needs the band for
+/// as long as it runs (`check` ends the run if the band is lost).
+pub fn native_loaded() {
+    NATIVE.store(true, core::sync::atomic::Ordering::Relaxed);
+}
 
 /// Whether the band at the stack's end is armed. Where it is not (the
 /// chip has none, or trigger 2 was taken by something else), the plugins
@@ -177,6 +195,7 @@ pub fn arm_band() {
     });
     if !armed && band_armed() {
         log::warn!("stack: trigger {TRIGGER} was taken: the band is no longer armed");
+        LOST.store(true, core::sync::atomic::Ordering::Relaxed);
     }
     ARMED.store(armed, core::sync::atomic::Ordering::Relaxed);
 }
