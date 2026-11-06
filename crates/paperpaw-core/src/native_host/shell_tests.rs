@@ -680,3 +680,48 @@ fn persistent_teardown_busy_keeps_owner_until_disarmed() {
     drop(hosted);
     assert_eq!(logged(), ["destroy", "module"]);
 }
+
+#[test]
+fn callback_admission_busy_preserves_read_output_before_raw_slot_entry() {
+    reset(NORMAL);
+    let hosted = fake();
+    let batch = hosted
+        .make_registered(hosted.begin().unwrap())
+        .unwrap()
+        .commit()
+        .unwrap();
+    let depth = DispatchDepth::new();
+    let mut out = [0xa5; 7];
+    let mut entered = false;
+    batch
+        .dispatch(0, &depth, |_, _| {
+            // Reentry is refused by RegistrationBatch admission. The raw read
+            // helper itself does not produce Busy and must not be reached here.
+            let result = batch.dispatch(0, &depth, |context, _| {
+                entered = true;
+                // SAFETY: live path and exclusive output; no borrowed data escapes.
+                unsafe {
+                    super::super::storage_slots::read_at(
+                        &context.environment,
+                        "fake",
+                        0,
+                        PpBytes {
+                            ptr: b"state".as_ptr(),
+                            len: 5,
+                        },
+                        0,
+                        PpBuffer {
+                            ptr: out.as_mut_ptr(),
+                            cap: out.len(),
+                        },
+                    )
+                }
+            });
+            assert_eq!(result, Err(super::super::Error::Busy));
+        })
+        .unwrap();
+    assert!(!entered);
+    assert_eq!(out, [0xa5; 7]);
+    drop(batch);
+    finish(&hosted);
+}
