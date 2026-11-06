@@ -220,10 +220,16 @@ fn declarations_are_refused_not_dropped_and_the_library_is_released() {
         "{refused:?}"
     );
     assert!(!mapped_copy("flatdecl"), "released after the refusal");
-    // The same library under an id its declaration names: staged, and the
-    // loader refuses it visibly because it cannot apply it yet.
+    // The same library under an id its declaration names: staged, and refused
+    // visibly: for now by the kernel (declarations in the image cannot be read
+    // back until the draft-4 views are wired), later by this loader if it
+    // cannot apply them.
     let own = load_flat("other", &bytes).err().unwrap();
-    assert!(matches!(own, Refusal::Declared(1)), "{own:?}");
+    assert!(
+        matches!(own, Refusal::Declared(1))
+            || format!("{own}").contains("DeclarationViewsUnavailable"),
+        "{own:?}"
+    );
     assert!(!mapped_copy("other"));
 }
 
