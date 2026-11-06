@@ -842,6 +842,7 @@ enum paperpaw_sdk::native::declare::settings_value::SettingValueRef<'a> { Absent
 enum paperpaw_sdk::native::events::Event<'a> { Started { now_ms: u64 }, Resume { now_ms: u64 }, Suspend { now_ms: u64 }, Stopping { now_ms: u64 }, BatteryMeasured { now_ms: u64 }, PageTurned(0: paperpaw_sdk::native::events::PageTurn<'a>) }
 enum paperpaw_sdk::native::keys::RevokedError { Full, NotKept }
 enum paperpaw_sdk::native::keys::RotationError { NoAuthor, NoRecoveryKey, BadSignature, Refused, NotKept }
+enum paperpaw_sdk::native::storage::Root { Data, Files }
 enum paperpaw_sdk::pattern::Item { Range(0: char, 1: char), Digit(0: bool), Word(0: bool), Space(0: bool) }
 enum paperpaw_sdk::pattern::Node { Char(0: char), Any, Class(0: paperpaw_sdk::pattern::Class), Start, End, Edge, Group(0: alloc::boxed::Box<alloc::vec::Vec<alloc::vec::Vec<paperpaw_sdk::pattern::Node>>>), Repeat(0: alloc::boxed::Box<paperpaw_sdk::pattern::Node>, 1: u32, 2: u32) }
 enum paperpaw_sdk::pattern::PatternError { TooLong, Syntax(0: usize), TooManyRepeats }

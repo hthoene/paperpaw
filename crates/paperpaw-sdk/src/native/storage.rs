@@ -6,6 +6,25 @@
 use super::{Error, Host, binding::status};
 use paperpaw_native::host_glue::{PpBuffer, PpBytes};
 
+/// The storage namespace selected by the plugin. Permissions are enforced by
+/// the host; Files needs a signed `uses.storage` declaration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Root {
+    /// This plugin's data folder (wire root 0).
+    Data,
+    /// User files on the card (wire root 1).
+    Files,
+}
+impl Root {
+    const fn wire(self) -> u32 {
+        match self {
+            Self::Data => 0,
+            Self::Files => 1,
+        }
+    }
+}
+
 /// Maximum path length, in UTF-8 bytes.
 pub const MAX_PATH: usize = 512;
 /// Maximum path segment length, in UTF-8 bytes.
@@ -39,11 +58,11 @@ fn data(input: &[u8]) -> Result<PpBytes, Error> {
 ///
 /// # Errors
 /// Returns path validation errors or the host refusal, including missing files.
-pub fn size(host: &Host<'_>, root: u32, name: impl AsRef<str>) -> Result<u64, Error> {
+pub fn size(host: &Host<'_>, root: Root, name: impl AsRef<str>) -> Result<u64, Error> {
     let path = path(name.as_ref())?;
     let mut out = 0;
     // SAFETY: callback binding and input are live; output is local and disjoint.
-    status(unsafe { (host.table.storage_size)(host.ctx, root, path, &mut out) })?;
+    status(unsafe { (host.table.storage_size)(host.ctx, root.wire(), path, &mut out) })?;
     Ok(out)
 }
 
@@ -55,7 +74,7 @@ pub fn size(host: &Host<'_>, root: u32, name: impl AsRef<str>) -> Result<u64, Er
 /// before calling the host; a host count beyond the supplied buffer is invalid.
 pub fn read_at(
     host: &Host<'_>,
-    root: u32,
+    root: Root,
     name: impl AsRef<str>,
     offset: u64,
     out: &mut [u8],
@@ -68,7 +87,7 @@ pub fn read_at(
     let n = unsafe {
         (host.table.storage_read_at)(
             host.ctx,
-            root,
+            root.wire(),
             path,
             offset,
             PpBuffer {
@@ -89,11 +108,16 @@ pub fn read_at(
 ///
 /// # Errors
 /// Returns validation or host errors. A refused call leaves the old file intact.
-pub fn write(host: &Host<'_>, root: u32, name: impl AsRef<str>, input: &[u8]) -> Result<(), Error> {
+pub fn write(
+    host: &Host<'_>,
+    root: Root,
+    name: impl AsRef<str>,
+    input: &[u8],
+) -> Result<(), Error> {
     let path = path(name.as_ref())?;
     let data = data(input)?;
     // SAFETY: all inputs and the callback binding remain live for this call.
-    status(unsafe { (host.table.storage_write)(host.ctx, root, path, data) })
+    status(unsafe { (host.table.storage_write)(host.ctx, root.wire(), path, data) })
 }
 
 /// Append at most 4096 bytes; empty data creates the file. Call [`sync`] for
@@ -104,14 +128,14 @@ pub fn write(host: &Host<'_>, root: u32, name: impl AsRef<str>, input: &[u8]) ->
 /// remain: end that fragment before appending the next record.
 pub fn append(
     host: &Host<'_>,
-    root: u32,
+    root: Root,
     name: impl AsRef<str>,
     input: &[u8],
 ) -> Result<(), Error> {
     let path = path(name.as_ref())?;
     let data = data(input)?;
     // SAFETY: all inputs and the callback binding remain live for this call.
-    status(unsafe { (host.table.storage_append)(host.ctx, root, path, data) })
+    status(unsafe { (host.table.storage_append)(host.ctx, root.wire(), path, data) })
 }
 
 /// Rename within one root, replacing the destination file if present.
@@ -120,24 +144,24 @@ pub fn append(
 /// Returns validation or host errors; both paths are checked before the call.
 pub fn rename(
     host: &Host<'_>,
-    root: u32,
+    root: Root,
     from: impl AsRef<str>,
     to: impl AsRef<str>,
 ) -> Result<(), Error> {
     let from = path(from.as_ref())?;
     let to = path(to.as_ref())?;
     // SAFETY: both paths and the callback binding remain live for this call.
-    status(unsafe { (host.table.storage_rename)(host.ctx, root, from, to) })
+    status(unsafe { (host.table.storage_rename)(host.ctx, root.wire(), from, to) })
 }
 
 /// Remove a file. Removing an absent file succeeds.
 ///
 /// # Errors
 /// Returns validation or host errors.
-pub fn remove(host: &Host<'_>, root: u32, name: impl AsRef<str>) -> Result<(), Error> {
+pub fn remove(host: &Host<'_>, root: Root, name: impl AsRef<str>) -> Result<(), Error> {
     let path = path(name.as_ref())?;
     // SAFETY: the path and callback binding remain live for this call.
-    status(unsafe { (host.table.storage_remove)(host.ctx, root, path) })
+    status(unsafe { (host.table.storage_remove)(host.ctx, root.wire(), path) })
 }
 
 /// Flush pending writes on the device. The host meters each attempt per plugin.
