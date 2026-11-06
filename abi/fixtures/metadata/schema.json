@@ -869,7 +869,69 @@
     "services": []
   },
   "minor": 1,
-  "records": [],
+  "record_codec": {
+    "max_records": 8,
+    "since": 1
+  },
+  "records": [
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "event_tag",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1,
+      "name": "registration.event",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 2,
+      "name": "registration.draw",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 3,
+      "name": "event.tick",
+      "since": 1
+    }
+  ],
   "statuses": [
     {
       "name": "OK",
