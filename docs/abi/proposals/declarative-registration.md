@@ -210,8 +210,8 @@ registries.
 **No manifest record and no new metadata field for identity.** Identity, name, description and version are
 the folder's `plugin.ini`. What a plugin may do (`uses`) is declared as signed metadata features.
 
-- *Identity.* The plugin id is the folder name and `plugin.ini` `id` (`docs/plugin-conventions.md:104`,
-  `data_plugin.rs:617-650` check it). It is **never a claim in registration bytes**; the host knows the
+- *Identity.* The plugin id is the folder name and `plugin.ini` `id` (`docs/plugin-conventions.md:103`, `:119`;
+  `data_plugin.rs:617-650` reads it). It is **never a claim in registration bytes**; the host knows the
   submitting plugin, as slot 15 already assumes ("never a claim in the bytes",
   `wt-abi7-commands/docs/abi/commands.md:41-43`).
 - *Name, description.* English in `plugin.ini` (`[plugin] name, description`); translated by the keys
@@ -220,12 +220,12 @@ the folder's `plugin.ini`. What a plugin may do (`uses`) is declared as signed m
 - *Version.* `plugin.ini` `version`. Interface 6 requires the code's manifest to repeat it
   (`docs/plugins.md:2039-2041`); with a flat entry that duplicate disappears, so the check goes (Q2).
 - *Target, ABI, services, features.* Already in `PAPERPAW_METADATA`, which "already contains target
-  identity, services, features and entry/export requirements" (`abi/entry.md:20-24`,
-  `abi/metadata.md:12-22`). Nothing to duplicate.
+  identity, services, features and entry/export requirements" (`abi/entry.md:19-20`,
+  `abi/metadata.md:12-17`). Nothing to duplicate.
 - *`uses`* (network, bluetooth, developer; `crates/paperpaw-sdk/src/plugin.rs:76-109`). Proposal: three
   semantic feature keys in the metadata `features` list, `uses.network`, `uses.bluetooth`,
   `uses.developer`, revision 1, minor 1. Reasons: the loader can show and enforce them **before** `make`
-  runs and without running code, they are inside the signed envelope (`metadata.md:23-25`), and the
+  runs and without running code, they are inside the signed envelope (`metadata.md:17`), and the
   metadata already limits features to 32 entries of 128-byte keys. The alternative, plugin.ini
   `uses = network`, is unsigned and editable on the card; it would be acceptable only if `uses` stays a
   consent device rather than a guard (unsandboxed code, ADR 0024), which is the current interface-6
@@ -243,8 +243,8 @@ it is the only signed, pre-`make` channel.
 
 - Records: **none**. Tag 5 is not consumed by this part.
 - Metadata: add three feature descriptors to `abi.def.metadata.features` (currently `[]`); the generator
-  and lock tooling already own that list (`abi/metadata.md:3-9`). Encoder rejects duplicates; loader refuses
-  an unknown feature key before `make` (`metadata.md:25-27`).
+  and lock tooling already own that list (`abi/metadata.md:3-9`, `abi/abi.json` key `metadata.features`). Encoder rejects duplicates; loader refuses
+  an unknown feature key before `make` (`metadata.md:19-25`).
 - Validation: folder id equals `plugin.ini` id (existing, `plugins.rs:981-987`); `plugin.ini` at most 4 KiB
   (`data_plugin.rs:68`). Failure: plugin not loaded, a warning naming the folder; not an ABI status.
 - Memory: unchanged from a data plugin today: `plugin.ini` is read transiently (at most 4 KiB), the
