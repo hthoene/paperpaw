@@ -44,7 +44,14 @@ fn pinned_owner_stages_without_activation_and_commits_only_after_scope() {
         Err((Error::State, String::from("late")))
     );
     assert!(matches!(owner.as_ref().lease(), Err(Error::State)));
-    let batch = construction.commit(ignore_context).unwrap();
+    let batch = construction
+        .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: ignore_context,
+        })
+        .unwrap();
     assert_eq!(batch.len(), 2);
     assert_eq!(
         batch.dispatch(1, &DispatchDepth::new(), |context, record| {
@@ -75,13 +82,30 @@ fn nested_scope_is_busy_and_preserves_the_outer_target() {
     })
     .unwrap();
     assert!(!nested_called.get());
-    let batch = outer.commit(ignore_context).unwrap();
+    let batch = outer
+        .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: ignore_context,
+        })
+        .unwrap();
     assert_eq!(batch.len(), 1);
     assert_eq!(
         batch.dispatch(0, &DispatchDepth::new(), |_, record| *record),
         Ok(9)
     );
-    assert!(inner.commit(|_| ()).unwrap().is_empty());
+    assert!(
+        inner
+            .commit(paperpaw_core::native_host::Teardown {
+                report: |_, _, _| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
+                destroy: |_| ()
+            })
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -100,7 +124,14 @@ fn a_returned_make_error_clears_the_scope_and_allows_retry() {
     construction.abort();
     let mut retry = owner.as_ref().begin("weather").unwrap();
     slot.scope(&mut retry, || slot.submit(3)).unwrap().unwrap();
-    let batch = retry.commit(ignore_context).unwrap();
+    let batch = retry
+        .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: ignore_context,
+        })
+        .unwrap();
     assert_eq!(batch.len(), 1);
     assert_eq!(
         batch.dispatch(0, &DispatchDepth::new(), |_, record| *record),
@@ -137,7 +168,14 @@ fn unwind_clears_scope_before_transaction_rollback_and_retry() {
         assert!(slot.submit(Record(dropped.clone())).is_ok());
     })
     .unwrap();
-    let batch = retry.commit(ignore_context).unwrap();
+    let batch = retry
+        .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: ignore_context,
+        })
+        .unwrap();
     assert_eq!(batch.len(), 1);
     drop(batch);
     assert_eq!(dropped.get(), 3);
@@ -165,7 +203,12 @@ fn capacity_refusal_preserves_record_and_poisoned_transaction() {
     })
     .unwrap();
     assert!(matches!(
-        construction.commit(ignore_context),
+        construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: ignore_context
+        }),
         Err(Error::Capacity)
     ));
     assert_eq!(slot.submit(Box::new(10)), Err((Error::State, Box::new(10))));
@@ -203,7 +246,12 @@ fn ignored_rejection_blocks_successful_make_and_drops_all_staged_records() {
         .unwrap();
     assert_eq!(staged_drops.get(), 0);
     assert!(matches!(
-        construction.commit(destroy_untransferred_output),
+        construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: destroy_untransferred_output
+        }),
         Err(Error::Invalid)
     ));
     assert_eq!(staged_drops.get(), 2);
@@ -240,7 +288,12 @@ fn rejection_returns_further_records_unchanged_and_survives_scope_exit() {
     })
     .unwrap();
     assert!(matches!(
-        construction.commit(ignore_context),
+        construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: ignore_context
+        }),
         Err(Error::Invalid)
     ));
 }
@@ -256,7 +309,14 @@ fn rejection_outside_scope_returns_state_without_poisoning_construction() {
         .unwrap()
         .unwrap();
     assert_eq!(slot.reject(), Err(Error::State));
-    let batch = construction.commit(ignore_context).unwrap();
+    let batch = construction
+        .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: ignore_context,
+        })
+        .unwrap();
     assert_eq!(batch.len(), 1);
     assert_eq!(
         batch.dispatch(0, &DispatchDepth::new(), |_, record| *record),
@@ -284,7 +344,12 @@ fn rejection_survives_caught_unwind_after_scope_reset() {
     assert_eq!(slot.reject(), Err(Error::State));
     assert_eq!(dropped.get(), 0);
     assert!(matches!(
-        construction.commit(ignore_context),
+        construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: ignore_context
+        }),
         Err(Error::Invalid)
     ));
     assert_eq!(dropped.get(), 1);
@@ -308,7 +373,14 @@ fn aborting_rejected_transaction_leaves_a_clean_retry() {
         assert!(slot.submit(Record(dropped.clone())).is_ok());
     })
     .unwrap();
-    let batch = retry.commit(ignore_context).unwrap();
+    let batch = retry
+        .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: ignore_context,
+        })
+        .unwrap();
     assert_eq!(batch.len(), 1);
     assert_eq!(dropped.get(), 1);
     drop(batch);
@@ -328,7 +400,12 @@ fn repeated_rejection_is_idempotent() {
     })
     .unwrap();
     assert!(matches!(
-        construction.commit(ignore_context),
+        construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: ignore_context
+        }),
         Err(Error::Invalid)
     ));
     assert_eq!(slot.reject(), Err(Error::State));
@@ -352,7 +429,12 @@ fn capacity_failure_precedes_later_decoder_rejection() {
     .unwrap();
     assert_eq!(dropped.get(), 1);
     assert!(matches!(
-        construction.commit(ignore_context),
+        construction.commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: ignore_context
+        }),
         Err(Error::Capacity)
     ));
     assert_eq!(dropped.get(), 9);
