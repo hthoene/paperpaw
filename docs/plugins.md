@@ -2641,3 +2641,28 @@ Decode their shown/run events with `native::events::Event::decode`. Format catal
 with `native::formatting::format` using caller-owned argument scratch and output;
 `digits` maps ASCII digits. Both return the full required byte length, so retry
 when the result exceeds the output capacity.
+
+### Native host wrappers for the Battery pilot
+
+`native::snapshot::capture_snapshot(host)` returns an owned snapshot with battery,
+display and time getters. `native::settings::read_setting(host, key, scratch)`
+returns a borrowed `SettingValue`; `Absent`, false, zero and empty text remain
+distinct. Grant reads use only `settings::own_grant(host, GrantKind)` and the host
+checks the caller. Generic grant reads and typed grant writes are refused.
+
+`native::formatting::copy_message(host, key, out)` returns complete borrowed UTF-8
+or `NoSpace`. `MAX_MESSAGE_BYTES` sizes one reusable output buffer. Number labels
+can look up `core.decimal` (falling back to "." when missing), format fixed-point
+ASCII text, then use the digit conversion slot.
+
+A draw callback obtains its canvas with `frame.canvas()`. A frame decoded outside
+entry glue has no canvas access and returns `State`. Copied frames share one
+canvas lease; a second live controller returns `Busy`. Canvas primitives preserve
+the host's frame clipping and colour conversion. `Font::acquire_role` borrows the
+callback host, `measure_text` returns advance, and `render_text` takes that canvas
+and a `TextOrigin`. Consuming `release` and `Drop` each release a font once. A
+font cannot be drawn through a different host binding.
+
+`native::commands::CommandSender::new(host, scratch)` stages typed setting changes
+with the generated encoder. Each accepted call is one atomic batch, applied by
+the host after the callback. Dropping the sender submits nothing.

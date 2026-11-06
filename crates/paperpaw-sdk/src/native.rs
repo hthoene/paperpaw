@@ -326,6 +326,7 @@ pub use binding::{Error, Host, Plugin};
 pub mod callbacks;
 pub mod canvas;
 pub mod clock;
+pub mod commands;
 pub mod declare;
 pub mod events;
 pub mod fonts;

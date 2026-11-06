@@ -1,5 +1,26 @@
 //! Callback-bound font handles and allocation-free text measurement.
-use super::{Error, Host, binding::status};
+use super::{Error, Host, binding::status, canvas::Canvas, wire::color_wire::color_encode};
+use crate::Color;
+
+const FONT_KEY_MAX_BYTES: usize = 128;
+const TEXT_MAX_BYTES: usize = 4096;
+
+/// Horizontal text position and baseline in screen pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct TextOrigin {
+    /// Horizontal position; fractional pixels are preserved.
+    pub x: f32,
+    /// Baseline row.
+    pub baseline: i32,
+}
+impl TextOrigin {
+    /// Place text at a horizontal position and baseline row.
+    #[must_use]
+    pub const fn new(x: f32, baseline: i32) -> Self {
+        Self { x, baseline }
+    }
+}
 use paperpaw_native::host_glue::PpBytes;
 
 /// A reader-selected font role, resolved by the host for each text call.
@@ -54,7 +75,7 @@ impl<'cb> Font<'cb> {
     /// Returns NoSpace for a key over 128 UTF-8 bytes, or the host refusal.
     pub fn acquire(host: &'cb Host<'cb>, key: impl AsRef<str>) -> Result<Self, Error> {
         let key = key.as_ref();
-        if key.len() > 128 {
+        if key.len() > FONT_KEY_MAX_BYTES {
             return Err(Error::NoSpace);
         }
         let mut handle = 0;
@@ -82,12 +103,7 @@ impl<'cb> Font<'cb> {
     /// over 4096 UTF-8 bytes, or the host refusal, including a stale handle.
     pub fn measure_text(&self, size: f32, text: impl AsRef<str>) -> Result<f32, Error> {
         let text = text.as_ref();
-        if !size.is_finite() || size <= 0.0 {
-            return Err(Error::Invalid);
-        }
-        if text.len() > 4096 {
-            return Err(Error::NoSpace);
-        }
+        validate_text(size, text)?;
         let handle = self.handle.ok_or(Error::State)?;
         let mut out = 0.0;
         // SAFETY: this font retains the callback host and its live opaque handle;
@@ -96,6 +112,48 @@ impl<'cb> Font<'cb> {
             (self.host.table.text_measure)(self.host.ctx, handle, size, bytes(text), &mut out)
         })?;
         Ok(out)
+    }
+
+    /// Draw text inside this callback's frame clip and return its advance.
+    /// An error after drawing begins can leave pixels changed.
+    ///
+    /// # Errors
+    /// Returns Invalid for an invalid size/position or a foreign canvas,
+    /// NoSpace for overlong text, or the host's refusal.
+    pub fn render_text(
+        &self,
+        canvas: &Canvas<'_>,
+        size: f32,
+        origin: TextOrigin,
+        color: Color,
+        text: impl AsRef<str>,
+    ) -> Result<f32, Error> {
+        let text = text.as_ref();
+        validate_text(size, text)?;
+        if !origin.x.is_finite() {
+            return Err(Error::Invalid);
+        }
+        let target = canvas.host();
+        if self.host.ctx != target.ctx || !core::ptr::eq(self.host.table, target.table) {
+            return Err(Error::Invalid);
+        }
+        let handle = self.handle.ok_or(Error::State)?;
+        let mut advance = 0.0;
+        // SAFETY: the font and canvas retain the same admitted callback host.
+        // Text and the disjoint advance output remain live through this call.
+        status(unsafe {
+            (target.table.text_draw)(
+                target.ctx,
+                handle,
+                size,
+                origin.x,
+                origin.baseline,
+                color_encode(color.r, color.g, color.b),
+                bytes(text),
+                &mut advance,
+            )
+        })?;
+        Ok(advance)
     }
 
     /// Release this handle and report the host status.
@@ -124,6 +182,16 @@ impl Drop for Font<'_> {
     }
 }
 
+fn validate_text(size: f32, text: &str) -> Result<(), Error> {
+    if !size.is_finite() || size <= 0.0 {
+        return Err(Error::Invalid);
+    }
+    if text.len() > TEXT_MAX_BYTES {
+        return Err(Error::NoSpace);
+    }
+    Ok(())
+}
+
 fn bytes(text: &str) -> PpBytes {
     PpBytes {
         ptr: text.as_ptr(),
@@ -134,3 +202,7 @@ fn bytes(text: &str) -> PpBytes {
 #[cfg(test)]
 #[path = "fonts_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "fonts_draw_tests.rs"]
+mod drawing_tests;

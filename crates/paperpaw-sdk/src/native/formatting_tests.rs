@@ -296,3 +296,26 @@ fn copy_message_default_table_is_unsupported() {
         Err(Error::Unsupported)
     );
 }
+
+#[test]
+fn message_capacity_is_bounded_even_with_larger_caller_storage() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut out = vec![77; MAX_MESSAGE_BYTES + 2];
+    ctx.result.set(MAX_MESSAGE_BYTES as i32);
+    assert_eq!(
+        copy_message(&host, "full", &mut out).unwrap().len(),
+        MAX_MESSAGE_BYTES
+    );
+    assert_eq!(&out[MAX_MESSAGE_BYTES..], &[77, 77]);
+    ctx.result.set((MAX_MESSAGE_BYTES + 1) as i32);
+    assert_eq!(
+        copy_message(&host, "oversized", &mut out),
+        Err(Error::NoSpace)
+    );
+    assert_eq!(&out[MAX_MESSAGE_BYTES..], &[77, 77]);
+}

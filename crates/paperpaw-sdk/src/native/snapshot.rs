@@ -5,6 +5,7 @@ use paperpaw_native::host_glue::PpBuffer;
 
 /// An owned snapshot. It retains no host or callback borrows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Snapshot {
     now: Instant,
     unix: Option<UnixTime>,
@@ -19,46 +20,55 @@ pub struct Snapshot {
 
 impl Snapshot {
     /// The snapshot's monotonic millisecond clock.
+    #[must_use]
     pub const fn instant(&self) -> Instant {
         self.now
     }
 
     /// Wall time, if known. Extreme seconds saturate to UnixTime's range.
+    #[must_use]
     pub const fn wall_time(&self) -> Option<UnixTime> {
         self.unix
     }
 
     /// Battery percentage, including a measured zero; None means unavailable.
+    #[must_use]
     pub const fn battery_percent(&self) -> Option<u8> {
         self.percent
     }
 
     /// Battery voltage in millivolts; a measured zero remains Some(0).
+    #[must_use]
     pub const fn battery_millivolts(&self) -> Option<u16> {
         self.millivolts
     }
 
     /// Whether the battery is charging; false when no battery is reported.
+    #[must_use]
     pub const fn is_charging(&self) -> bool {
         self.charging
     }
 
     /// Display width in pixels.
+    #[must_use]
     pub const fn display_width(&self) -> u16 {
         self.width
     }
 
     /// Display height in pixels.
+    #[must_use]
     pub const fn display_height(&self) -> u16 {
         self.height
     }
 
     /// Display pixels per inch.
+    #[must_use]
     pub const fn display_dpi(&self) -> u16 {
         self.dpi
     }
 
     /// Whether touch input is available.
+    #[must_use]
     pub const fn has_touch(&self) -> bool {
         self.touch
     }

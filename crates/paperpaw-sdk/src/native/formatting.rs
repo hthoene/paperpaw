@@ -11,6 +11,8 @@ pub const MAX_KEY_BYTES: usize = 128;
 pub const MAX_ARGUMENT_BYTES: usize = 1024;
 /// Maximum UTF-8 bytes passed to digit conversion.
 pub const MAX_DIGIT_BYTES: usize = 4096;
+/// Maximum translated message size in bytes (slot 6).
+pub const MAX_MESSAGE_BYTES: usize = 4096;
 
 /// One formatting argument. Signed integers use the wire's two's complement encoding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,7 +63,8 @@ fn length(result: i32) -> Result<usize, Error> {
 
 /// Copy a complete catalog translation into caller-owned output without allocating.
 /// Returns text borrowing `out`; a missing key leaves the buffer unchanged.
-/// Retry with a larger buffer if the complete message does not fit.
+/// Messages are bounded by [`MAX_MESSAGE_BYTES`]. A buffer of that size fits
+/// every permitted message; shorter buffers return NoSpace when necessary.
 ///
 /// ```compile_fail
 /// use paperpaw_sdk::native::{Host, formatting};
@@ -80,9 +83,18 @@ pub fn copy_message<'a>(
     out: &'a mut [u8],
 ) -> Result<&'a str, Error> {
     let key = key.as_ref();
+    let capacity = out.len().min(MAX_MESSAGE_BYTES);
     // SAFETY: callback binding, key and exclusively borrowed output remain live.
-    let count =
-        length(unsafe { (host.table.i18n_copy)(host.ctx, bytes(key.as_bytes()), buffer(out)) })?;
+    let count = length(unsafe {
+        (host.table.i18n_copy)(
+            host.ctx,
+            bytes(key.as_bytes()),
+            buffer(&mut out[..capacity]),
+        )
+    })?;
+    if count > capacity {
+        return Err(Error::NoSpace);
+    }
     let message = out.get(..count).ok_or(Error::NoSpace)?;
     core::str::from_utf8(message).map_err(|_| Error::Utf8)
 }

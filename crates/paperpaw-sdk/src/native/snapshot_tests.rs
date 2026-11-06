@@ -81,6 +81,7 @@ fn generated_snapshot_fields_are_converted_to_owned_sdk_values() {
     assert_eq!(ctx.calls.get(), 1);
     // Changes after capture cannot change the owned value.
     ctx.snapshot.battery = None;
+    assert_eq!(capture(&mut ctx).unwrap().battery_percent(), None);
     assert_eq!(got.battery_percent(), Some(87));
 }
 
