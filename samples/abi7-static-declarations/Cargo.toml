@@ -1,0 +1,15 @@
+[package]
+name = "paperpaw-sample-static-declarations"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[build-dependencies]
+paperpaw-sdk = { path = "../../crates/paperpaw-sdk", features = ["kernel"] }
+paperpaw-plugin-battery = { path = "../../plugins/battery" }
+paperpaw-plugin-widgets = { path = "../../plugins/widgets" }
+
+[profile.release]
+panic = "abort"

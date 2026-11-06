@@ -16,6 +16,15 @@
 //! `paperpaw-core` run every batch built here through its validator, so the two
 //! do not drift apart.
 //!
+//! Large declarations can run this same builder in a host `build.rs`, using
+//! the SDK as a build dependency. Have the sink emit each encoded batch into
+//! a Rust `static DECLARATIONS: &[&[u8]]`, then include that generated file
+//! from `OUT_DIR`. At plugin construction submit those image slices directly,
+//! without copying them through this builder. This permits the host to retain
+//! image references instead of charging runtime declaration storage. See the
+//! executable `samples/abi7-static-declarations` for golden equivalence tests
+//! and a no_std target library. Use `static`, not a temporary or stack buffer.
+//!
 //! Nothing here panics on any input: a refusal is a [`DeclareError`] naming the
 //! field. A sink failure is returned as [`DeclareError::Sink`] with its unchanged
 //! status and permanently poisons the builder. Every later addition or submission
