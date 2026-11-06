@@ -48,3 +48,6 @@ pub(crate) fn name_hash(kind: u8, name: &str) -> u32 {
     })
 }
 const _: () = assert!(core::mem::size_of::<NameEntry>() == 8);
+
+// The low three bits of record_kind hold the record index.
+const _: () = assert!(super::registrations::REGISTRATION_MAX_RECORDS <= 8);

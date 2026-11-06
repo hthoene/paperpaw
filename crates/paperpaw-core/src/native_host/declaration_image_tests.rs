@@ -249,3 +249,110 @@ fn forced_hash_collisions_compare_actual_names_and_still_reject_duplicates() {
         }
     }
 }
+
+#[test]
+fn mixed_decoded_and_owned_wire_duplicates_are_rejected_in_both_orders() {
+    use registrations::{ResourceFontExtension, ResourceFontFace, ResourceHyphenation};
+    let face = Record::ResourceFontFace(ResourceFontFace {
+        name: "font",
+        path: "fonts/a.ttf",
+        family: "Fixture",
+        style: 0,
+        weight: 400,
+        role: "",
+        priority: 0,
+    });
+    let extension = Record::ResourceFontExtension(ResourceFontExtension {
+        name: "font",
+        path: "fonts/a.ppfp",
+        extends: "fixture.other",
+    });
+    let hyphenation = Record::ResourceHyphenation(ResourceHyphenation {
+        language: "en",
+        path: "hyph/en.pphp",
+    });
+    let pairs = [
+        (group("other", ""), group("other", "")),
+        (spec(), spec()),
+        (extra(), extra()),
+        (hyphenation, hyphenation),
+        (face, face),
+        (face, extension),
+    ];
+    for (first, second) in pairs {
+        for wire_first in [false, true] {
+            let owner = pin!(HostOwner::new((), ()));
+            let scope = pin!(RegistrationScope::<Registration>::new());
+            let unrelated_image = [0];
+            let mut construction = owner.as_ref().begin::<Registration>("fixture").unwrap();
+            construction.set_image(&unrelated_image).unwrap();
+            let setup = if matches!(first, Record::SettingExtra(_)) {
+                encode(&[group("g", ""), spec()])
+            } else {
+                encode(&[group("g", "")])
+            };
+            construction
+                .stage_batch(&records_decode(&setup).unwrap(), |r| r)
+                .unwrap();
+            let first_bytes = encode(&[first]);
+            let second_bytes = encode(&[second]);
+            if wire_first {
+                scope
+                    .as_ref()
+                    .scope(&mut construction, || {
+                        assert_eq!(submit(&scope, &first_bytes), OK)
+                    })
+                    .unwrap();
+                assert_eq!(
+                    construction.stage_batch(&records_decode(&second_bytes).unwrap(), |r| r),
+                    Err(ERR_INVALID)
+                );
+            } else {
+                construction
+                    .stage_batch(&records_decode(&first_bytes).unwrap(), |r| r)
+                    .unwrap();
+                scope
+                    .as_ref()
+                    .scope(&mut construction, || {
+                        assert_eq!(submit(&scope, &second_bytes), OK)
+                    })
+                    .unwrap();
+            }
+            assert_eq!(construction.raw.image_entries, 0);
+            assert!(matches!(
+                construction.commit(|_| panic!("duplicate must never activate")),
+                Err(Error::Invalid)
+            ));
+        }
+    }
+}
+
+#[test]
+fn mixed_decoded_and_owned_wire_distinct_names_remain_valid() {
+    for wire_first in [false, true] {
+        let owner = pin!(HostOwner::new((), ()));
+        let scope = pin!(RegistrationScope::<Registration>::new());
+        let unrelated_image = [0];
+        let mut construction = owner.as_ref().begin::<Registration>("fixture").unwrap();
+        construction.set_image(&unrelated_image).unwrap();
+        let decoded = encode(&[group("a", "")]);
+        let wire = encode(&[group("b", "")]);
+        if wire_first {
+            scope
+                .as_ref()
+                .scope(&mut construction, || assert_eq!(submit(&scope, &wire), OK))
+                .unwrap();
+        }
+        construction
+            .stage_batch(&records_decode(&decoded).unwrap(), |r| r)
+            .unwrap();
+        if !wire_first {
+            scope
+                .as_ref()
+                .scope(&mut construction, || assert_eq!(submit(&scope, &wire), OK))
+                .unwrap();
+        }
+        assert_eq!(construction.declarations().groups().len(), 2);
+        assert!(construction.commit(|_| {}).is_ok());
+    }
+}

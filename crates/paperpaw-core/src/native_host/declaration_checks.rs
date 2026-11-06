@@ -123,6 +123,7 @@ impl<'a> View<'a> {
     }
     pub(crate) fn finish(&self) -> Result<(), i32> {
         self.raw.check_duplicates(self.image)?;
+        self.check_owned_names()?;
         // Decoded-only host submissions have no raw index. Compare them with
         // image entries without mistaking an owned wire mirror for a duplicate.
         for entry in self.raw.index.iter().filter(|_| !self.owned.is_empty()) {
@@ -154,6 +155,29 @@ impl<'a> View<'a> {
         })?;
         result
     }
+    // A decoded-only host batch has no raw index. Its names must also be
+    // checked against owned wire mirrors retained in the decoded collection.
+    fn check_owned_names(&self) -> Result<(), i32> {
+        unique_names(self.owned.groups().iter().map(|r| r.name.as_str()), false)?;
+        unique_names(self.owned.specs().iter().map(|r| r.name.as_str()), false)?;
+        unique_names(self.owned.extras().iter().map(|r| r.name.as_str()), false)?;
+        unique_names(
+            self.owned
+                .hyphenations()
+                .iter()
+                .map(|r| r.language.as_str()),
+            true,
+        )?;
+        unique_names(
+            self.owned
+                .font_faces()
+                .iter()
+                .map(|r| r.name.as_str())
+                .chain(self.owned.font_extensions().iter().map(|r| r.name.as_str())),
+            false,
+        )
+    }
+
     fn require_group(&self, id: &str) -> Result<(), i32> {
         if let Some(name) = own_name(self.plugin, id)
             && self.group(name)?.is_none()
@@ -188,4 +212,22 @@ impl<'a> View<'a> {
 }
 fn own_name<'a>(plugin: &str, id: &'a str) -> Option<&'a str> {
     id.strip_prefix(plugin)?.strip_prefix('.')
+}
+
+fn unique_names<'a>(
+    names: impl Iterator<Item = &'a str> + Clone,
+    language: bool,
+) -> Result<(), i32> {
+    for (at, name) in names.clone().enumerate() {
+        if names.clone().take(at).any(|earlier| {
+            if language {
+                earlier.eq_ignore_ascii_case(name)
+            } else {
+                earlier == name
+            }
+        }) {
+            return Err(ERR_INVALID);
+        }
+    }
+    Ok(())
 }
