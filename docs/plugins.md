@@ -530,6 +530,12 @@ What it is given:
   `cargo run --example paperpaw-dev -- check --plugin my-plugin`.
 - **A data plugin**: its folder, `paperpaw-dev check path/to/my-theme`.
 - **A code plugin built for a device**: `paperpaw-dev package hello.ppn`.
+- **A code plugin's library** (interface 7, `.so` for the desktop or
+  Android): `paperpaw-dev package libmy_plugin.so` runs the loader's check
+  before the plugin does: a 64-bit little-endian shared object for x86-64 or
+  AArch64 that names no other library (`readelf -d`: no `NEEDED`), imports
+  nothing (`nm -D --undefined-only`: empty) and exports exactly
+  `PAPERPAW_ENTRY` and `PAPERPAW_METADATA` (`nm -D --defined-only`).
 - **A code plugin's source**: `paperpaw-dev package path/to/crate` reads its
   `src/` for the conventions of
   [Plugin layout and best practices](plugin-conventions.md): files over 4 KB
@@ -2007,6 +2013,29 @@ paperpaw-emu --library my-library --trust-code
 Over `--stdio`, `start` with `"trust_code": true` does the same, and
 `reload` loads a new build; `ready` says the fingerprint and compiler
 the emulator takes.
+
+#### Interface-7 libraries (developer switch)
+
+For work on the interface-7 loader, the emulator can load interface-7 host
+plugins from the library. It is off by default and independent of
+`--trust-code`: start with `--abi7-dev-loader` or `PAPERPAW_ABI7_DEV_LOADER=1`
+(Linux x86-64 only). A plugin folder's `code-host.so` is told from its bytes:
+`PAPERPAW_METADATA` alone is interface 7, `PAPERPAW_API` alone is
+interface 6 and left to the loader above, anything else is refused and
+said. Nothing is guessed.
+
+For each interface-7 file the emulator checks the strict freestanding rule
+(no `NEEDED`, no undefined symbols, only the two entry exports), opens a
+private read-only copy under the id of the plugin's *folder* (never the id the
+library reports), and stages what the plugin declares. What is staged is
+kept, not applied: nothing a plugin declares reaches the app yet, and no draw
+runs, until the kernel's registry apply step (S2) exists. Ticks are
+dispatched to the plugin's tick registrations by the tests only.
+
+Release order, at a restart and at shutdown: the registrations first, then
+the plugin's admission is revoked and finished, then the plugin is destroyed
+and its copy unmapped. A folder removed while the plugin is loaded changes
+nothing until then: the mapped copy is private.
 
 ### Packing and signing
 

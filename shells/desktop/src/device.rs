@@ -232,6 +232,10 @@ pub struct Device {
     fixtures: bool,
     /// Online from each start, on USB ([`Device::set_wifi_online`]).
     wifi_online: bool,
+    /// Interface-7 plugins the developer switch loaded from the card
+    /// (`--abi7-dev-loader`): none by default. Kept, not applied (S2).
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    abi7: crate::native_runtime::DevPlugins,
 }
 
 /// How many of the kernel's warnings [`Device::warnings`] keeps.
@@ -324,6 +328,8 @@ impl Device {
             warnings: Vec::new(),
             fixtures: false,
             wifi_online: WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            abi7: crate::native_runtime::DevPlugins::default(),
             asleep: false,
             rotation,
             wall: None,
@@ -333,8 +339,25 @@ impl Device {
                 Clock::Real(StdInstant::now())
             },
         };
+        device.load_abi7();
         device.report_warnings();
         Ok(device)
+    }
+
+    /// Loads the interface-7 plugins of the card's folder, if the developer
+    /// switch is on (none otherwise, and none for a card in memory).
+    fn load_abi7(&mut self) {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        if let Library::Dir(root) = &self.library {
+            self.abi7 = crate::native_runtime::DevPlugins::load_folder(root);
+        }
+    }
+
+    /// The interface-7 plugins the developer switch loaded.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[must_use]
+    pub fn abi7_plugins(&self) -> &crate::native_runtime::DevPlugins {
+        &self.abi7
     }
 
     /// Where the device keeps its files.
@@ -885,6 +908,10 @@ impl Device {
         // Plugins save what is pending, as on the device before it restarts.
         let now = self.now();
         budget::track(|| self.kernel.stop(now));
+        // Interface-7 plugins of the switch are released with the old kernel
+        // and loaded again below (a changed library is read again).
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        self.abi7.unload();
         // As after a reboot, what the old kernel asked for is gone: its
         // requests' answers would otherwise reach the new kernel's (they
         // count from 1 again).
@@ -925,6 +952,7 @@ impl Device {
                     }
                     self.panel = Panel::new(display.width, display.height, display.color);
                 }
+                self.load_abi7();
                 self.report_warnings();
                 self.start();
             }

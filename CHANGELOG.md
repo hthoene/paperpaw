@@ -8,6 +8,9 @@ change the plugin SDK.
 
 ### Added
 
+- Desktop emulator: a developer switch, `--abi7-dev-loader` or `PAPERPAW_ABI7_DEV_LOADER=1` (Linux x86-64, off by
+  default), loads interface-7 plugin libraries (`plugins/<id>/code-host.so`, told from their bytes) for loader work. What a
+  plugin declares is staged but not applied yet, and nothing is drawn; interface-6 plugins are unchanged (#228, #772).
 - Interface-7 draft: statuses `ERR_NOT_FOUND` (-10) and `ERR_FULL` (-11), and record codecs generated from
   the fields declared in `abi/abi.def` (optional appended fields, tag ranges per record family) (#228).
 - `tools/hyphenation-packs`: builds and checks the thirteen hyphenation plugins as data plugins
