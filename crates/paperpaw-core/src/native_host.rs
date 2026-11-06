@@ -54,6 +54,10 @@ pub mod flat;
 /// Bounded decoded registration submission during plugin construction.
 #[path = "native_host/registrations.rs"]
 pub mod registrations;
+/// The shell's side of one hosted plugin (owner, host table, `make`,
+/// scoped dispatch), shared by the desktop and the X4.
+#[path = "native_host/shell.rs"]
+pub mod shell;
 /// Host-owned copies of declaration records staged during construction.
 #[path = "native_host/staged.rs"]
 pub mod staged;
@@ -294,7 +298,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// Returns Invalid after validation refusal or when the staged declarations
     /// fail their cross-record checks ([`Declarations::finish`]), Capacity if staging overflowed
     /// a slot, count or byte limit, Memory if staging ran out of memory, or State if revoked
-    /// before commit. DeclarationViewsUnavailable refuses image declarations
+    /// before commit. DeclarationViewsUnavailable refuses wire declarations
     /// until the draft-4 SDK registry views are wired.
     /// Every Err drops staged records before returning and leaves destruction
     /// unarmed. The loader still owns its validated successful output and must
@@ -306,7 +310,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         }
         // Cross-record checks come first: a refusal leaves destruction unarmed.
         self.finish_declarations().map_err(|_| Error::Invalid)?;
-        if self.raw.image_entries != 0 {
+        if !self.raw.batches.is_empty() {
             return Err(Error::DeclarationViewsUnavailable);
         }
         let lease = CallbackLease(self.owner.inner().activate_leased(destroy)?);
@@ -320,7 +324,8 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         })
     }
 
-    /// The declarations staged so far.
+    /// Decoded-only host declarations staged so far. Wire submissions are kept
+    /// separately as raw bytes or image ranges and do not appear here.
     #[must_use]
     pub const fn declarations(&self) -> &Declarations {
         &self.declarations
@@ -378,19 +383,22 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
             return Err(ERR_NO_SPACE);
         }
         declarations::validate_batch(self.plugin_id, batch)?;
-        let raw = self.raw.prepare(self.image, wire, batch)?;
-        if raw
-            .as_ref()
-            .is_none_or(|pending| pending.batch.image.is_none())
+        let raw = self
+            .raw
+            .prepare_retaining(self.image, wire, batch, self.declarations.bytes())?;
+        self.raw
+            .check_counts(&self.declarations, batch, raw.as_ref())?;
+        let retained = self.raw.retained(raw.as_ref());
+        if raw.is_none() {
+            self.declarations
+                .stage_retaining(self.plugin_id, batch, retained)?;
+        } else if self
+            .declarations
+            .bytes()
+            .checked_add(retained)
+            .is_none_or(|n| n > staged::DECLARATIONS_MAX_BYTES)
         {
-            let retained = self.raw.retained(raw.as_ref());
-            if self.image.is_some_and(|image| !image.is_empty()) && wire.is_some() {
-                self.declarations
-                    .stage_verified(self.plugin_id, batch, retained)?;
-            } else {
-                self.declarations
-                    .stage_retaining(self.plugin_id, batch, retained)?;
-            }
+            return Err(ERR_NO_SPACE);
         }
         self.raw.commit(raw);
         for record in batch.iter() {
@@ -457,8 +465,9 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
         core::mem::take(&mut self.raw)
     }
 
-    /// Move the staged declarations out, leaving an empty set behind. They are
-    /// moved, never copied; the kernel's apply step owns them from here.
+    /// Move decoded-only host declarations out, leaving an empty set behind.
+    /// Wire submissions are stored separately and do not appear here. They
+    /// currently refuse commit until the SDK declaration views are wired.
     pub fn take_declarations(&mut self) -> Declarations {
         core::mem::take(&mut self.declarations)
     }

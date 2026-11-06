@@ -103,7 +103,7 @@ fn assert_no_memory<F: FnMut(&[u8]) -> Result<(), i32>>(builder: &mut Declaratio
 }
 
 #[test]
-fn batch_allocation_failure_is_latched_without_calling_the_sink() {
+fn batch_allocation_failure_latches_and_sends_one_empty_abort() {
     let calls = Cell::new(0);
     let mut builder = fail_allocation(1, || {
         Declarations::new(|batch| {
