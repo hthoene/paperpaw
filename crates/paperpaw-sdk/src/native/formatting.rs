@@ -59,6 +59,19 @@ fn length(result: i32) -> Result<usize, Error> {
     usize::try_from(result).map_err(|_| Error::from_status(result))
 }
 
+/// Copy a catalog translation into caller-owned output without allocating.
+/// Returns the full byte length, even when the buffer holds only a prefix.
+/// Retry with a larger buffer when the result exceeds its capacity. A byte
+/// prefix can end inside a UTF-8 character. A missing key leaves `out` unchanged.
+///
+/// # Errors
+/// Returns the host's refusal, including NotFound for a missing key.
+pub fn copy(host: &Host<'_>, key: impl AsRef<str>, out: &mut [u8]) -> Result<usize, Error> {
+    let key = key.as_ref();
+    // SAFETY: callback binding, key and exclusively borrowed output remain live.
+    length(unsafe { (host.table.i18n_copy)(host.ctx, bytes(key.as_bytes()), buffer(out)) })
+}
+
 /// Format a catalog key, optionally selecting its plural form with [`Arg::Count`].
 /// `scratch` holds only the encoded arguments and can be reused after the call.
 /// Returns the full UTF-8 byte length, even when only `out.len()` bytes fit.

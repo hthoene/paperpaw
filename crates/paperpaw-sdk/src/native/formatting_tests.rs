@@ -42,6 +42,7 @@ unsafe extern "C" fn digits_slot(ctx: *mut c_void, text: PpBytes, out: PpBuffer)
 }
 fn table() -> PpHost {
     let mut table = abi::host_table();
+    table.i18n_copy = digits_slot;
     table.i18n_format = format_slot;
     table.i18n_digits = digits_slot;
     table
@@ -206,4 +207,44 @@ fn missing_keys_preserve_output_and_digits_return_required_length() {
     assert_eq!(digits(&host, "", &mut []), Ok(7));
     ctx.result.set(-124);
     assert_eq!(digits(&host, "1", &mut out), Err(Error::Other(-124)));
+}
+
+#[test]
+fn copy_forwards_keys_and_returns_full_length_without_a_local_cap() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    ctx.result.set(9);
+    assert_eq!(copy(&host, "battery.title", &mut []), Ok(9));
+    let mut out = [0; 4];
+    assert_eq!(copy(&host, "battery.title", &mut out), Ok(9));
+    assert_eq!(out, *b"xxxx");
+    let key = "x".repeat(MAX_KEY_BYTES + 1);
+    assert_eq!(copy(&host, &key, &mut out), Ok(9));
+    assert_eq!(ctx.inputs.borrow()[2].0, key);
+    ctx.result.set(abi::ERR_NOT_FOUND);
+    out = [77; 4];
+    assert_eq!(copy(&host, "missing", &mut out), Err(Error::NotFound));
+    assert_eq!(out, [77; 4]);
+    ctx.result.set(-125);
+    assert_eq!(
+        copy(&host, "battery.title", &mut out),
+        Err(Error::Other(-125))
+    );
+}
+
+#[test]
+fn copy_default_table_is_unsupported() {
+    let table = abi::host_table();
+    let host = Host {
+        table: &table,
+        ctx: ptr::null_mut(),
+    };
+    assert_eq!(
+        copy(&host, "battery.title", &mut [0; 4]),
+        Err(Error::Unsupported)
+    );
 }

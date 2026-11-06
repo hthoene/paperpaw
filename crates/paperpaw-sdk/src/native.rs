@@ -327,10 +327,12 @@ pub mod callbacks;
 pub mod clock;
 pub mod declare;
 pub mod events;
+pub mod fonts;
 pub mod formatting;
 pub mod keys;
 pub mod registrations;
 pub mod reply;
+pub mod settings;
 pub mod storage;
 
 #[cfg(feature = "kernel")]
