@@ -141,6 +141,9 @@ fn show5(path: &str) -> Result<(), String> {
         header.entry, header.meta_len, header.meta_at
     );
     println!("relocations: {} words", header.relocs);
+    if let Some(at) = header.heap_at {
+        println!("heap word:   at {at}, filled by the loader");
+    }
     println!(
         "hot code:    {} bytes at {}, {} patches",
         header.hot_len, header.hot_at, header.patches

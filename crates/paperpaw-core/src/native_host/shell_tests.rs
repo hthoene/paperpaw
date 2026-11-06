@@ -591,3 +591,65 @@ fn pinned_owner_allocation_failure_drops_unactivated_context_then_module() {
 
 #[path = "shell_oom_tests.rs"]
 mod oom;
+#[test]
+fn teardown_faults_are_one_shot_and_propagate_through_production_commit() {
+    use crate::native_host::{Error as HostError, TeardownStep};
+    for (step, error) in [
+        (TeardownStep::Cancel, HostError::Invalid),
+        (TeardownStep::Release, HostError::Invalid),
+        (TeardownStep::Release, HostError::Busy),
+    ] {
+        reset(NORMAL);
+        let hosted = fake();
+        let batch = hosted
+            .make_registered(hosted.begin::<Registration>().unwrap())
+            .unwrap()
+            .commit()
+            .unwrap();
+        teardown_fault::arm(step, error);
+        let prepared = hosted.owner().prepare_teardown();
+        if error == HostError::Busy {
+            assert_eq!(prepared, Err(HostError::Busy));
+            assert_eq!(hosted.owner().take_teardown_error(), None);
+            assert!(logged().is_empty());
+            hosted.owner().prepare_teardown().unwrap();
+        } else {
+            assert_eq!(prepared, Ok(()));
+            assert_eq!(hosted.owner().take_teardown_error(), Some(error));
+            assert_eq!(hosted.owner().take_teardown_error(), None);
+        }
+        drop(batch);
+        hosted.owner().finish().unwrap();
+        drop(hosted);
+        assert_eq!(logged(), ["destroy", "module"]);
+    }
+}
+
+#[test]
+fn persistent_teardown_busy_keeps_owner_until_disarmed() {
+    use crate::native_host::{Error as HostError, TeardownStep};
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            teardown_fault::disarm();
+        }
+    }
+    reset(NORMAL);
+    let hosted = fake();
+    let batch = hosted
+        .make_registered(hosted.begin::<Registration>().unwrap())
+        .unwrap()
+        .commit()
+        .unwrap();
+    let _reset = Reset;
+    teardown_fault::arm_persistent(TeardownStep::Release, HostError::Busy);
+    assert_eq!(hosted.owner().prepare_teardown(), Err(HostError::Busy));
+    drop(batch);
+    assert_eq!(hosted.owner().finish(), Err(HostError::Busy));
+    assert!(logged().is_empty());
+    assert!(MODULE_ALIVE.with(Cell::get));
+    teardown_fault::disarm();
+    hosted.owner().finish().unwrap();
+    drop(hosted);
+    assert_eq!(logged(), ["destroy", "module"]);
+}
