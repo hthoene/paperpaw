@@ -495,8 +495,9 @@ const paperpaw_sdk::memory::Memory::NONE: Self = Self { read: None }
 const paperpaw_sdk::memory::Placement::FAST: Self = Self(1)
 const paperpaw_sdk::memory::Placement::LARGE: Self = Self(2)
 const paperpaw_sdk::native::CODE_FILES: &[&str] = &[ "code.ppn", "code.so", "code-host.dll", "code-host.so", "code-host.dylib", ]
+const paperpaw_sdk::native::DRAFT: u16 = 1u16
 const paperpaw_sdk::native::FINGERPRINT: paperpaw_sdk::native::Fingerprint = Fingerprint::of(INTERFACE, { let mut hash = layout::Fnv::new()
-const paperpaw_sdk::native::INTERFACE: u16 = 6u16
+const paperpaw_sdk::native::INTERFACE: u16 = 7u16
 const paperpaw_sdk::native::LAYOUT: u64 = 10_440_263_880_052_507_335u64
 const paperpaw_sdk::native::TOOLCHAIN: &str = if cfg!(target_arch = "riscv32") { "rustc 1.99.0, riscv32imc-unknown-none-elf" } else if cfg!(target_arch = "xtensa") { "esp 1.97.0.0, xtensa-esp32s3-none-elf" } else { "the compiler of PaperPaw's release, for this computer" }
 const paperpaw_sdk::native::keys::MAX_REVOKED: usize = 256usize
@@ -632,7 +633,7 @@ const paperpaw_sdk::ui::style::UiStyle::PLAIN: paperpaw_sdk::ui::style::UiStyle 
 const paperpaw_sdk::ui::text::ICON_SCALE: f32 = 1.25f32
 const paperpaw_sdk::ui::text::NOTE_LINES: usize = 2usize
 const paperpaw_sdk::ui::text::NOTE_LINES_MOST: usize = 4usize
-const paperpaw_sdk::version::DATA_FORMATS: u32 = 4u32
+const paperpaw_sdk::version::DATA_FORMATS: u32 = 5u32
 const paperpaw_sdk::version::MAX_PRE_NUMBER: u16 = 8_190u16
 const paperpaw_sdk::version::SDK_VERSION: paperpaw_sdk::version::Version = crate::package_version!()
 const paperpaw_sdk::web::USER_AGENT: &str = "PaperPaw/0.6.0-beta.3 (e-reader)"

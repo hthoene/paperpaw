@@ -14,6 +14,7 @@
 //! On Onyx Boox devices, PaperPaw's refresh requests choose the e-ink
 //! waveform (see `epd`); elsewhere the device refreshes on its own.
 
+mod code;
 pub mod keys;
 pub mod pixels;
 pub mod private;

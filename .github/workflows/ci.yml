@@ -203,8 +203,8 @@ jobs:
           git show "${ABI_BASE_REV}:abi/abi.lock" > "$ABI_BASELINE"
           test -s "$ABI_BASELINE"
           sha256sum "$ABI_BASELINE"
-      - name: Keep interface-6 reference bytes frozen against the trusted base
-        run: python3 tools/abi-frozen6-check.py --base "$ABI_BASE_REV"
+      - name: Raise, re-bless or freeze the plugin interface only by name, against the trusted base
+        run: python3 tools/abi-reference-check.py --base "$ABI_BASE_REV"
       - name: Check generated ABI and append-only compatibility
         env:
           ABI_BASELINE: ${{ runner.temp }}/paperpaw-abi-baseline.lock
@@ -466,20 +466,16 @@ jobs:
           workspaces: |
             .
             crates/paperpaw-core/tests/native-plugin
-      - name: The list is only appended to, and old plugins still agree
-        run: |
-          baseline="$(sed -e 's/#.*//' crates/paperpaw-table/table-baseline.txt | awk 'NF { print $1; exit }')"
-          if [[ -z "$baseline" || "$baseline" == none ]]; then
-            # The raise commit sets the baseline: once an interface with
-            # tables is tagged, `none` would let every check pass unused.
-            if git tag -l 'interface-*' | awk -F- '$2 + 0 >= 5 { found = 1 } END { exit !found }'; then
-              echo "::error file=crates/paperpaw-table/table-baseline.txt::interface 5 or later is tagged, but the baseline is still none: set it to the raise's commit"
-              exit 1
-            fi
-            echo "no interface raise with tables yet: nothing to compare"
-            exit 0
-          fi
-          tools/table-compat.sh "$baseline"
+      - name: The list is only appended to, and old plugins still agree (or, of an older interface or draft, are refused)
+        # The baseline from table-baseline.txt, `none` refused once an
+        # interface with tables is tagged: in the script, as ci-local runs it.
+        run: tools/table-compat.sh
+      - name: This tree's own plugin runs, built with its own copies and in host table mode
+        # While the interface is a draft the step above only asserts that
+        # the interface-6 baseline is refused; the baseline HEAD (this
+        # tree) is of the same interface and draft, so both builds must
+        # run and agree, as they will against the frozen baseline.
+        run: tools/table-compat.sh HEAD
 
   architecture:
     name: Architecture rules

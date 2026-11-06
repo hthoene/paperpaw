@@ -1,0 +1,278 @@
+#!/usr/bin/env python3
+"""Compare the plugin interface's reference files with a trusted base commit.
+
+The reference files are `crates/paperpaw-sdk/interface.txt` and the folder
+`crates/paperpaw-sdk/interface/` (ADR 0026). Against the caller-supplied
+trusted base (the PR's base, or the commit before a push):
+
+- `native::INTERFACE` never moves back and is raised by one at most, and
+  `interface.txt` states the same interface and the same draft as
+  `native::INTERFACE` and `native::DRAFT`;
+- a raise is only allowed from a frozen interface (no `native::DRAFT`: freezing
+  deletes it, and an interface from before drafts has none) and lands at draft
+  1, never later and never straight at the freeze; freezing is a step of its own;
+  the history of the new interface (`blessings.txt`) must not exist yet;
+- a frozen interface keeps its reference bytes and file set exactly, and never
+  becomes a draft again;
+- a draft (`DRAFT`, never 0) stays, moves to the next draft (exactly one more) or
+  is frozen, never back and never skipping one. At the same draft only
+  additions pass: `interface.txt` stays byte-equal to the base, every
+  reference file of the base is still there with all its lines in their order,
+  and files and lines may be added. A line in `shared.list` and `table.sig` (and,
+  within each kind, in `lang.list` and `i18n.list`) is added at the end only: a
+  line slipped in before shifts the slots plugins were built against; the pins
+  of `crate-pins.list` are a set (any order). A change
+  plugins rely on takes the next draft;
+- every raise, every step to another draft and every addition is named:
+  `abi/interface-<N>/blessings.txt` keeps the base's lines as they were
+  (checked every time, also where nothing else changed) and gains at least one,
+  and its last line names the candidate's draft.
+
+A blessing line is `<draft> <what changed> (#<ticket or PR>)`, with draft 0
+for the freeze; lines that
+start with `#` and blank lines are comments. This supplements the
+candidate's semantic compatibility checks (`tools/abi-check.sh`, the SDK's
+interface test). It does not establish caller provenance or defend against
+changes to the checker itself.
+"""
+import argparse
+from pathlib import Path
+import re
+import subprocess
+
+SOURCE = 'crates/paperpaw-sdk/src/native.rs'
+DIRECTORY = 'crates/paperpaw-sdk/interface'
+SUMMARY = 'crates/paperpaw-sdk/interface.txt'
+VERSION = re.compile(rb'^pub const INTERFACE: u16 = ([0-9]+);$', re.M)
+DRAFT = re.compile(rb'^pub const DRAFT: u16 = ([0-9]+);$', re.M)
+DRAFT_NAMED = re.compile(rb'\bconst\s+DRAFT\b')
+ENTRY = re.compile(r'([0-9]+) \S.* \(#[0-9]+\)')
+SUMMARY_INTERFACE = re.compile(rb'^interface = ([0-9]+)$', re.M)
+SUMMARY_DRAFT = re.compile(rb'^draft = ([0-9]+)$', re.M)
+
+
+def git(root, *arguments):
+    return subprocess.check_output(['git', '-C', str(root), *arguments], stderr=subprocess.PIPE)
+
+
+def blessings_path(interface):
+    return f'abi/interface-{interface}/blessings.txt'
+
+
+def constant(pattern, text, name):
+    found = pattern.findall(text)
+    if len(found) != 1:
+        raise ValueError('cannot establish native::' + name)
+    return int(found[0])
+
+
+def draft_of(text):
+    """`native::DRAFT`, 0 where there is none (frozen); never one in an expression."""
+    if not DRAFT_NAMED.search(text):
+        return 0
+    draft = constant(DRAFT, text, 'DRAFT')
+    if draft == 0:
+        raise ValueError('native::DRAFT is never 0: freezing deletes it')
+    return draft
+
+
+def entries(text):
+    lines = [line for line in text.splitlines() if line.strip() and not line.startswith('#')]
+    for line in lines:
+        if not ENTRY.fullmatch(line):
+            raise ValueError('a blessing is "<draft> <what changed> (#<ticket>)": ' + line)
+    return lines
+
+
+def references(root, base):
+    """The reference files of the base and of the candidate, by name."""
+    names = git(root, 'ls-tree', '-r', '--name-only', base, '--', DIRECTORY, SUMMARY)
+    trusted = set(names.decode().splitlines())
+    if SUMMARY not in trusted or not any(name.startswith(DIRECTORY + '/') for name in trusted):
+        raise ValueError('trusted reference files are missing')
+    current = set()
+    for path in [root / SUMMARY, *(root / DIRECTORY).rglob('*')]:
+        if path.is_symlink() or (path.exists() and not path.is_file() and not path.is_dir()):
+            raise ValueError('a reference must be a regular file: ' + str(path.relative_to(root)))
+        if path.is_file():
+            current.add(str(path.relative_to(root)))
+    return trusted, current
+
+
+def changed(root, base, trusted, current):
+    if current != trusted:
+        return True
+    return any((root / name).read_bytes() != git(root, 'show', base + ':' + name)
+               for name in sorted(trusted))
+
+
+def summary_values(text):
+    """`interface` and `draft` (0 where there is none) that interface.txt states."""
+    found = SUMMARY_INTERFACE.findall(text)
+    drafts = SUMMARY_DRAFT.findall(text)
+    if len(found) != 1 or len(drafts) > 1:
+        raise ValueError('cannot establish interface and draft in interface.txt')
+    draft = int(drafts[0]) if drafts else 0
+    if drafts and draft == 0:
+        raise ValueError('draft = 0 in interface.txt: freezing deletes the line')
+    return int(found[0]), draft
+
+
+# Lists whose line order is an index plugins were built against (the table
+# of shared functions and its signatures: a line's place is its slot): at the
+# same draft they only grow at the end. The language and message lists are
+# indexed within each kind, the first word of the line.
+ORDERED = {DIRECTORY + '/shared.list', DIRECTORY + '/table.sig'}
+ORDERED_BY_KIND = {DIRECTORY + '/lang.list', DIRECTORY + '/i18n.list'}
+# A set, as the SDK interface test reads it: no index, so only the pins count.
+UNORDERED = {DIRECTORY + '/crate-pins.list'}
+
+
+def kind(line):
+    words = line.split(None, 1)
+    return words[0] if words else b''
+
+
+def by_kind(lines):
+    groups = {}
+    for line in lines:
+        groups.setdefault(kind(line), []).append(line)
+    return groups
+
+
+def kept(name, old, new):
+    """Whether `new` holds every line of `old` and nothing slipped in before
+    the end of it. In a set (the pins of crates) every old line is still
+    there, in any order. In an ordered list `old` is a prefix of `new`, in a
+    list indexed by kind it is within each kind; elsewhere the lines of `old`
+    are all there, in the same order."""
+    if name in UNORDERED:
+        return set(old) <= set(new)
+    if name in ORDERED:
+        return new[:len(old)] == old
+    if name in ORDERED_BY_KIND:
+        now = by_kind(new)
+        return all(now.get(one, [])[:len(lines)] == lines for one, lines in by_kind(old).items())
+    lines = iter(new)
+    return all(line in lines for line in old)
+
+
+def additions_only(root, base, trusted, current):
+    """At the same draft only additions pass (the next draft takes any other
+    change): `interface.txt` is byte-equal to the base's, every reference
+    file of the base is still there with all its lines in order. Says
+    whether files or lines were added."""
+    if (root / SUMMARY).read_bytes() != git(root, 'show', base + ':' + SUMMARY):
+        raise ValueError(f'{SUMMARY} must stay as it is at the same draft; a change takes the next draft')
+    added = bool(current - trusted)
+    for name in sorted(trusted - {SUMMARY}):
+        if name not in current:
+            raise ValueError(f'{name} is gone; a removal takes the next draft')
+        old = git(root, 'show', base + ':' + name).splitlines()
+        new = (root / name).read_bytes().splitlines()
+        if not kept(name, old, new):
+            raise ValueError(f'{name} lost or changed a line, or a line slipped in before the end of '
+                             'a list plugins index into; at the same draft only additions at the '
+                             'end pass, a change takes the next draft')
+        added = added or len(new) > len(old)
+    return added
+
+
+def history(root, base, interface, raised=False):
+    """`blessings.txt`'s entries now (None where there is no file) and in the
+    base; refuses a rewrite of the base's, a removal, and (`raised`) a base
+    that has the history already."""
+    name = blessings_path(interface)
+    path = root / name
+    listed = git(root, 'ls-tree', '--name-only', base, '--', name).decode().split()
+    if raised and listed:
+        raise ValueError(f'{name} exists in the base already; a raise starts the history')
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise ValueError(name + ' must be a regular file')
+    before = entries(git(root, 'show', base + ':' + name).decode()) if listed else []
+    if not path.exists():
+        if listed:
+            raise ValueError(name + ' is gone; blessings are only appended')
+        return None, before
+    now = entries(path.read_text(encoding='utf-8'))
+    if now[:len(before)] != before:
+        raise ValueError(name + ' changed lines it kept; blessings are only appended')
+    return now, before
+
+
+def named(interface, history_now, before, draft):
+    """The blessing that names this change: appended, ending at `draft`."""
+    now, name = history_now, blessings_path(interface)
+    if now is None:
+        raise ValueError(name + ' must name the change')
+    if len(now) == len(before):
+        raise ValueError(name + ' gains no line naming the change')
+    if int(ENTRY.fullmatch(now[-1]).group(1)) != draft:
+        raise ValueError(f'the last line of {name} names another draft than native::DRAFT {draft}')
+    return len(now) - len(before)
+
+
+def check(root, base):
+    if not re.fullmatch(r'[0-9a-f]{40}', base) or base == '0' * 40:
+        raise ValueError('an exact independently trusted base commit is required')
+    if git(root, 'rev-parse', base + '^{commit}').decode().strip() != base:
+        raise ValueError('base is not the exact trusted commit')
+    source = (root / SOURCE).read_bytes()
+    trusted_source = git(root, 'show', base + ':' + SOURCE)
+    interface = constant(VERSION, source, 'INTERFACE')
+    draft = draft_of(source)
+    base_interface = constant(VERSION, trusted_source, 'INTERFACE')
+    base_draft = draft_of(trusted_source)
+    if interface < base_interface:
+        raise ValueError('native::INTERFACE cannot move backwards')
+    if interface > base_interface + 1:
+        raise ValueError('native::INTERFACE is raised by one at a time')
+    raised = interface > base_interface
+    if raised:
+        if base_draft != 0:
+            raise ValueError(f'interface {base_interface} is still a draft: freeze it before '
+                             f'interface {interface} is raised')
+        if draft != 1:
+            raise ValueError(f'a raise lands at draft 1, not {draft or "frozen"}: freezing is a step of its own')
+    elif base_draft == 0:
+        if draft != 0:
+            raise ValueError(f'interface {interface} is frozen and cannot become a draft again')
+    elif draft != 0 and draft < base_draft:
+        raise ValueError(f'native::DRAFT moves from {base_draft} to {draft}: a draft only moves on')
+    elif draft > base_draft + 1:
+        raise ValueError(f'native::DRAFT moves from {base_draft} to {draft}: one draft at a time')
+    stated = summary_values((root / SUMMARY).read_bytes())
+    if stated != (interface, draft):
+        raise ValueError(f'{SUMMARY} says interface {stated[0]} draft {stated[1]}, '
+                         f'native::INTERFACE {interface} and native::DRAFT {draft} say otherwise')
+    trusted, current = references(root, base)
+    now, before = history(root, base, interface, raised)
+    if raised:
+        count = named(interface, now, before, draft)
+        return f'interface {base_interface} raised to {interface} draft {draft}, named ({count})'
+    if base_draft == 0:
+        if changed(root, base, trusted, current):
+            raise ValueError(f'frozen interface-{interface} reference changed; only a raise changes it')
+        return f'{len(trusted)} frozen interface-{interface} reference files match trusted base {base}'
+    if draft != base_draft:
+        count = named(interface, now, before, draft)
+        step = 'frozen' if draft == 0 else f'the next draft {draft}'
+        return f'interface {interface} draft {base_draft} moved to {step}, named ({count})'
+    if additions_only(root, base, trusted, current):
+        count = named(interface, now, before, draft)
+        return f'interface {interface} draft {draft}: additions named ({count})'
+    return f'{len(trusted)} interface-{interface} draft-{draft} reference files match trusted base {base}'
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--base', required=True, help='trusted PR-base commit, not candidate HEAD')
+    args = parser.parse_args()
+    try:
+        print(check(Path(__file__).resolve().parents[1], args.base))
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        parser.exit(1, 'interface reference check failed: ' + str(error) + '\n')
+
+
+if __name__ == '__main__':
+    main()
