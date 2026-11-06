@@ -40,6 +40,25 @@ priority. It blocks every port; this document blocks Battery and the UI groups.
   The slot 13/14 adapters, font acquire/release and the i18n format/digits slots are the next text items
   after registration.
 
+## Decided (Manager, 2026-11-06 05:27)
+
+Recorded after Senior review; these supersede the corresponding open questions below. Caps that depend on a
+measurement stay provisional until the X4 gate.
+
+- **Quota:** no hard per-plugin quota. Usage is counted per plugin (bytes and syncs, S7) and a free-space
+  reserve, the larger of 256 KiB and 1 % of the card, keeps the kernel's own saves possible.
+- **Slot 17:** snapshot queries over blobs only. Calls into interface services such as `core.library` get their
+  own design later.
+- **Battery view:** the plugin draws over the canvas and text slots; host widget entries are a separate, later part.
+- **`append_record`:** added only if the V1 cut tests show stale-byte tails (S2).
+- **`storage.sync`:** no rate limit; per-plugin counting (S7).
+- **Events:** `event.battery_measured` stays its own event; lifecycle and page turn are event kinds.
+- **`service.end` (tag 52):** carries `flags: u32` (bit 0 truncated), `total: u32` (rows in the table) and
+  `generation: u32` (changes whenever the table changes), in that order, as S6 requires.
+- **Owner decisions (on #228, open):** storage root 1 for the user's card files (recommendation: yes, gated by a
+  signed `uses.storage` feature; root 1 stays reserved in the wire meanwhile, root 0 is implemented), and what
+  uninstall does with a plugin's data folder (decision 124).
+
 ## Binding amendments after Senior review (S1–S7, 2026-11-06)
 
 These amendments override the sections below wherever they differ. The storage contract becomes final only
@@ -514,7 +533,7 @@ blob's length. This differs from a batch (count-prefixed, <= 8 records,
 <= 4096 B) on purpose: a 70-row table cannot be one batch. A reader keeps a carry buffer
 of one record (<= 256 B for usage rows) between `blob.read` chunks. Total blob size cap
 **8 KiB**; a table that would exceed it is cut at a row boundary and flagged by a final
-`service.end {flags: u32}` record (bit 0 = truncated).
+`service.end {flags: u32, total: u32, generation: u32}` record (bit 0 of `flags` = truncated).
 
 **D3.4 Blob lifetime and budget.** [P] A snapshot blob expires **at the end of the callback
 that created it** (stale use returns `ERR_STATE`, the host frees it) unless the key class
@@ -539,7 +558,7 @@ created.
 | 49 | `service.plugin_usage` | `plugin: str`, `busy_us: u64`, `calls: u32`, `shown_ms: u32`, `fast: u32`, `partial: u32`, `full: u32`, `pixels: u64`, `read: u32`, `written: u32`, `requests: u32`, `refused: u32`, `awake_ms: u32`, `awake_reason: str` | plugin 64, awake_reason 64; row <= 256 B |
 | 50 | `service.plugin` | `name: str`, `enabled: u32` | name 128 |
 | 51 | `service.work_note` | `at_ms: u64`, `text: str` | text 256 |
-| 52 | `service.end` | `flags: u32` | - |
+| 52 | `service.end` | `flags: u32`, `total: u32`, `generation: u32` | - |
 
 Notes. Row size estimate: about 52 B of numbers plus two short strings, roughly 80-90 B,
 so 70 plugins is about 6 KB (above one 4096 B read, hence chunking and the 8 KiB cap).
