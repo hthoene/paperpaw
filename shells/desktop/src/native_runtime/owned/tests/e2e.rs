@@ -23,50 +23,78 @@ fn sample_dir() -> std::path::PathBuf {
         .unwrap()
 }
 
-/// Builds the sample exactly as its own `verify.sh` does, into a private
-/// target directory, then copies the library next to the fixture root.
+/// The sample's library bytes, built once per process: the first caller runs
+/// the build (exactly as the sample's `verify.sh` does, into a private target
+/// directory that is removed again), every test then writes its own copy into
+/// its own fixture root, which its `Fixture` removes.
+fn sample_bytes() -> &'static [u8] {
+    static BYTES: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    BYTES.get_or_init(|| {
+        let root = crate::private::dir("paperpaw-e2e747-build").unwrap();
+        let target = root.join("target");
+        let mut build = Command::new("cargo");
+        // The nested build depends on nothing but the toolchain: the test run's
+        // own CARGO_* settings (target, profile, flags) must not change it, so
+        // the environment is cleared and only what finds the toolchain and
+        // `python3` (for the sample's `build.rs`) is passed on.
+        build.env_clear();
+        for name in [
+            "PATH",
+            "HOME",
+            "RUSTUP_HOME",
+            "CARGO_HOME",
+            "RUSTUP_TOOLCHAIN",
+        ] {
+            if let Some(value) = std::env::var_os(name) {
+                build.env(name, value);
+            }
+        }
+        let output = build
+            .current_dir(sample_dir())
+            .env("CARGO_TARGET_DIR", &target)
+            .args([
+                "rustc",
+                "--release",
+                "--lib",
+                "--locked",
+                "--offline",
+                "-j4",
+                "--",
+                "--crate-type=cdylib",
+                "-Cpanic=abort",
+                "-Clink-arg=-nostartfiles",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        // The override of the crate type leaves the library in `deps/`, hashed.
+        let built = std::fs::read_dir(target.join("release/deps"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| {
+                        name.starts_with("libpaperpaw_sample_abi7_tick_draw-")
+                            && name.ends_with(".so")
+                    })
+            })
+            .expect("the sample's cdylib");
+        let bytes = std::fs::read(built).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+        bytes
+    })
+}
+
+/// The sample in a fixture root of its own.
 fn sample() -> Fixture {
     let root = crate::private::dir("paperpaw-e2e747").unwrap();
-    let target = root.join("target");
-    let output = Command::new("cargo")
-        .current_dir(sample_dir())
-        .env_remove("RUSTFLAGS")
-        .env_remove("CARGO_ENCODED_RUSTFLAGS")
-        .env("CARGO_TARGET_DIR", &target)
-        .args([
-            "rustc",
-            "--release",
-            "--lib",
-            "--locked",
-            "--offline",
-            "-j4",
-            "--",
-            "--crate-type=cdylib",
-            "-Cpanic=abort",
-            "-Clink-arg=-nostartfiles",
-        ])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    // The override of the crate type leaves the library in `deps/`, hashed.
-    let built = std::fs::read_dir(target.join("release/deps"))
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .find(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| {
-                    name.starts_with("libpaperpaw_sample_abi7_tick_draw-") && name.ends_with(".so")
-                })
-        })
-        .expect("the sample's cdylib");
     let path = root.join("sample.so");
-    std::fs::copy(&built, &path).unwrap();
-    std::fs::remove_dir_all(&target).unwrap();
+    std::fs::write(&path, sample_bytes()).unwrap();
     let digest = paperpaw_core::sdk::digest::sha256::digest(&std::fs::read(&path).unwrap());
     Fixture { root, path, digest }
 }
