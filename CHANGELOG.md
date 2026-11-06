@@ -10,6 +10,9 @@ change the plugin SDK.
 
 - Interface-7 draft: statuses `ERR_NOT_FOUND` (-10) and `ERR_FULL` (-11), and record codecs generated from
   the fields declared in `abi/abi.def` (optional appended fields, tag ranges per record family) (#228).
+- `tools/hyphenation-packs`: builds and checks the thirteen hyphenation plugins as data plugins
+  (`[hyphenation]` file kind, PPHP version 1 tables); the interface-6 plugins stay until the
+  card-backed reader lands (#228).
 - `paperpaw-hyphen`: `check_table`, `Layout`, `TableError` and the limits `MAX_BLOCKS` (4096), `MAX_BLOCK_BYTES` (512) and
   `MAX_EXCEPTION_BYTES` (8 KiB) behind the `kernel` feature (not seen by plugins), the one check of a pattern table that the
   kernel's reader and `paperpaw-dev package` share (#228).

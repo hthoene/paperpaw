@@ -85,6 +85,8 @@ before 1.0.
   for code plugins (its README).
 - **`tools/fontgen`** converts fonts into bitmap font packs (`.ppfp`) for
   small devices.
+- **`tools/hyphenation-packs`** builds and checks the hyphenation data
+  plugins (its README).
 - **`tools/x4-remote.py`** drives an X4 over USB with firmware built
   with the `remote` feature: buttons, screenshots, files, the log, the
   heap (`--help`).

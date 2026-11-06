@@ -1,0 +1,18 @@
+[package]
+name = "paperpaw-hyphenation-packs"
+description = "Builds and checks PaperPaw's hyphenation data plugins (plugin.ini, catalogs, PPHP tables)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+# `kernel`: the table check the kernel's reader shares with this tool (ADR 0020).
+paperpaw-hyphen = { workspace = true, features = ["kernel"] }
+
+[lints]
+workspace = true
