@@ -76,12 +76,16 @@ pub mod bundle;
 pub mod compiler;
 mod extent;
 mod header;
+#[cfg(feature = "kernel")]
+pub mod header5;
 pub mod host_glue;
 pub mod index;
 mod interface;
 pub mod preflight;
 mod reloc;
 pub mod signature;
+#[cfg(feature = "kernel")]
+pub mod stream5;
 
 pub use extent::ImageExtent;
 pub use header::{

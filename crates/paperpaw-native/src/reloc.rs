@@ -48,7 +48,7 @@ impl PatchKind {
     }
 
     /// The bits of the instruction a patch keeps.
-    const fn kept(self) -> u32 {
+    pub(crate) const fn kept(self) -> u32 {
         match self {
             PatchKind::Hi20 => 0x0000_0FFF,
             PatchKind::Lo12I => 0x000F_FFFF,
@@ -59,7 +59,7 @@ impl PatchKind {
     /// The bits a patch writes for the distance `distance`, as `auipc`
     /// and its partner split it: the upper part rounded, so the lower one
     /// is signed.
-    const fn bits(self, distance: u32) -> u32 {
+    pub(crate) const fn bits(self, distance: u32) -> u32 {
         let hi = distance.wrapping_add(0x800) & 0xFFFF_F000;
         let lo = distance.wrapping_sub(hi);
         match self {
@@ -329,7 +329,7 @@ impl<'a> Relocator<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use alloc::vec::Vec;
 
     use super::*;
@@ -465,7 +465,7 @@ mod tests {
     }
 
     /// The image as linked and its words after it.
-    fn hot_image() -> (Header, Vec<u8>, Vec<u32>) {
+    pub(crate) fn hot_image() -> (Header, Vec<u8>, Vec<u32>) {
         let mut image = alloc::vec![0u8; LEN as usize];
         image[HOT_WORD..HOT_WORD + 4].copy_from_slice(&(CODE + HOT_AT).to_le_bytes());
         image[CONSTANT as usize..CONSTANT as usize + 4].copy_from_slice(b"PPaw");
