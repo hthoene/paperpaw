@@ -26,6 +26,26 @@ stays behind as 0). `DRAFT` is hashed into the fingerprint only while it is not 
 fingerprint is byte for byte the one without any draft concept. The freeze PR also replaces the interface
 test's import of `DRAFT` with 0 and appends `0 frozen ... (#...)` to `blessings.txt`.
 
+Freeze checklist, beside the above (Manager decisions on PR #191, 2026-11-06 11:20):
+
+- The packer writes no draft: the X4 `.ppn` header has no draft field (format 5 is final from the start), so
+  nothing about drafts is left in plugin files. `native::DRAFT` only shapes the Rust-side fingerprint.
+- The first PR after the freeze sets `crates/paperpaw-table/table-baseline.txt` to the frozen commit (step 7
+  below).
+
+**The C boundary during drafts (Manager decision, 2026-11-06 11:21).** With no draft in the X4 header, the lock's
+append-only rule is all that keeps a plugin built at an earlier draft safe on later firmware:
+
+- The major-7 lock (`abi/abi.lock`) is never re-baselined. The trusted-base check of the CI job "Stable ABI against
+  trusted base" (`tools/abi-check.sh --ci` against the lock of the PR's base) enforces it, and nothing reaches
+  `abi7/integration` except through a PR and the Manager's guarded merge.
+- **Meaning only grows.** During drafts an existing slot, record, field or status code only gains meaning; it never
+  changes it (a unit, a range, whether 0 is allowed, what a status says). A change of meaning takes a new slot or a
+  new tag. No tool sees meaning: the Senior Reviewer checks it in every review of a change to the boundary.
+- No generator reads a draft from the lock: the lock has none.
+- The SDK's generated glue checks the host's `size` before it uses a slot (row 4), so a plugin on older firmware
+  refuses to start instead of calling past the end of its `PpHost`.
+
 **Split (Manager decision, 2026-11-06 08:29).** The early raise applies **row 1 only**, so that the 13
 hyphenation data plugins (PR #164) install. Row 2 follows directly as the first named re-bless, with its own
 review; until it lands those plugins load, but their languages are not used on a page. Rows 3 and 4 follow as
