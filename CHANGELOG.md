@@ -8,6 +8,9 @@ change the plugin SDK.
 
 ### Added
 
+- Checked native admission metadata exposes declared service revisions through a
+  borrowing iterator, so host query admission uses the validated requirements (#228).
+
 - Interface-7 SDK callback host binding and `native_plugin!` entry glue, with checked table admission
   and fallible host allocation. Storage slots 20-26 use caller-owned buffers; event tags 32-37 decode
   into borrowed payloads. These facades do not activate any shell loader (#228).
