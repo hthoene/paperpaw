@@ -1,6 +1,6 @@
-//! Interface-7 storage slots 20-26 over [`Storage`]: root, path and buffers
-//! in, `ERR_*` out. One adapter serves one plugin; nothing here is a wire
-//! record, a pointer or a table entry.
+//! Interface-7 storage slots 20-26 over [`Storage`]: root, path and
+//! buffers in, `ERR_*` out. One adapter serves one plugin; nothing here is
+//! a wire record, a pointer or a table entry.
 //!
 //! Root 0 is the plugin's data folder `.paperpaw/plugins/<id>/`. A path is
 //! validated as a relative path first and joined under that folder after,
@@ -11,6 +11,10 @@
 //! [`Storage::total_space`]: `free_space` never says more than is free
 //! (the FAT storage tells no count before it has counted its FAT, never
 //! the FAT32 FSInfo count, which after a power cut may say more, #238).
+//!
+//! [`Storage`]: paperpaw_platform::Storage
+//! [`Storage::free_space`]: paperpaw_platform::Storage::free_space
+//! [`Storage::total_space`]: paperpaw_platform::Storage::total_space
 //! This adapter only compares what it is told and never makes a count up.
 //! Where a storage cannot say how much is free (yet), nothing is refused
 //! here and the storage's own `Full` becomes `ERR_FULL`.
