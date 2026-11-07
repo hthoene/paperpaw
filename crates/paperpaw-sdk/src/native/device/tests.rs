@@ -412,3 +412,170 @@ fn bounded_device_tables_reject_oversized_rows_and_totals() {
         ));
     }
 }
+
+#[test]
+fn power_control_bits_are_independent_and_unknown_bits_are_ignored() {
+    let controls = [
+        PowerControl::Radio,
+        PowerControl::CpuClock,
+        PowerControl::Buttons,
+        PowerControl::Frontlight,
+        PowerControl::SystemSaver,
+    ];
+    for (bit, expected) in controls.iter().enumerate() {
+        let Record::ServiceDevDevice(mut row) = identity() else {
+            panic!("fixture")
+        };
+        row.controls = (1 << bit) | (1 << 31);
+        let device = DeviceIdentity::decode(Record::ServiceDevDevice(row)).unwrap();
+        for control in controls {
+            assert_eq!(device.can_control(control), control == *expected);
+        }
+    }
+}
+#[test]
+fn radio_power_and_request_calls_use_exact_records_and_checked_identity() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let device = Device::open(&host).unwrap();
+    let mut input = [0; 256];
+    let mut out = [0; 4096];
+    reply(
+        &state,
+        &[Record::ServiceDevWifi(wire::ServiceDevWifi {
+            state: 99,
+            ssid: "wifi",
+            address: "",
+            host_name: "reader",
+            guests: 2,
+            flags: 5,
+        })],
+    );
+    let wifi = device.wifi(&host, &mut input, &mut out).unwrap();
+    assert_eq!(wifi.state(), WifiState::Unknown(99));
+    assert!(wifi.scanning() && wifi.busy() && !wifi.wanted());
+    assert_eq!(state.op.get(), schema::OP_WIFI);
+    reply(
+        &state,
+        &[Record::ServiceDevBluetooth(wire::ServiceDevBluetooth {
+            radio: 1,
+            max_links: 3,
+            flags: 0,
+        })],
+    );
+    assert_eq!(
+        device
+            .bluetooth(&host, &mut input, &mut out)
+            .unwrap()
+            .max_links(),
+        3
+    );
+    assert_eq!(state.op.get(), schema::OP_BLUETOOTH);
+    reply(
+        &state,
+        &[Record::ServiceDevPower(wire::ServiceDevPower {
+            level: 1,
+            mode: "core.saving",
+            flags: 3,
+            stretch: 2,
+            every_ms: 600,
+        })],
+    );
+    let power = device.power(&host, 300, &mut input, &mut out).unwrap();
+    assert_eq!((power.level(), power.every_ms()), (PowerLevel::Saving, 600));
+    assert!(power.automatic() && power.online());
+    let bytes = state.input.borrow();
+    let batch = wire::records_decode(&bytes).unwrap();
+    assert!(matches!(batch.iter().next(),Some(Record::ServiceDevInterval(r)) if r.base_ms==300));
+    drop(bytes);
+    let request = DeviceRequest::new(42).unwrap();
+    let install = wire::ServiceDevInstall {
+        request: 42,
+        kind: 0,
+        state: 0,
+        status: 0,
+        reason: 99,
+        flags: 3,
+        done: 0,
+        total: 1,
+        id: "demo",
+    };
+    reply(&state, &[Record::ServiceDevInstall(install)]);
+    let row = device
+        .install(&host, request, &mut input, &mut out)
+        .unwrap();
+    assert_eq!(row.reason(), DeviceOutcome::Other);
+    assert!(row.data_kept() && row.restart_required());
+    let bytes = state.input.borrow();
+    let batch = wire::records_decode(&bytes).unwrap();
+    assert!(matches!(batch.iter().next(),Some(Record::ServiceDevRequest(r)) if r.request==42));
+    drop(bytes);
+    reply(
+        &state,
+        &[Record::ServiceDevInstall(wire::ServiceDevInstall {
+            request: 43,
+            ..install
+        })],
+    );
+    assert!(matches!(
+        device.install(&host, request, &mut input, &mut out),
+        Err(Error::State)
+    ));
+}
+#[test]
+fn check_and_keys_validate_unsigned_evidence_empty_lists_and_truncation() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let device = Device::open(&host).unwrap();
+    let mut input = [0; 256];
+    let mut out = [0; 4096];
+    reply(
+        &state,
+        &[Record::ServiceDevCheck(wire::ServiceDevCheck {
+            reason: 8,
+            needs_draft: 0,
+            bytes: 123,
+            signer: "",
+            key: &[],
+            id: "demo",
+            version: "1",
+            flags: 0,
+        })],
+    );
+    let check = device
+        .check(&host, DeviceRequest::new(9).unwrap(), &mut input, &mut out)
+        .unwrap();
+    assert_eq!(check.reason(), DeviceOutcome::Unsigned);
+    assert!(check.signing_key().is_none());
+    assert_eq!(state.op.get(), schema::OP_CHECK);
+    let bytes = state.input.borrow();
+    let batch = wire::records_decode(&bytes).unwrap();
+    assert!(matches!(batch.iter().next(),Some(Record::ServiceDevRequest(r)) if r.request==9));
+    drop(bytes);
+    reply(&state, &[end(0, 0, 0, 0)]);
+    assert!(device.keys(&host, &mut input, &mut out).unwrap().is_empty());
+    let key = Record::ServiceDevKey(wire::ServiceDevKey {
+        name: "button.menu",
+    });
+    let mut rows = vec![key; 32];
+    rows.push(end(0, 32, 0, 0));
+    reply(&state, &rows);
+    assert_eq!(device.keys(&host, &mut input, &mut out).unwrap().len(), 32);
+    rows.insert(0, key);
+    reply(&state, &rows);
+    assert!(device.keys(&host, &mut input, &mut out).is_err());
+    reply(&state, &[identity()]);
+    let complete = state.reply.borrow().clone();
+    for n in 0..complete.len() {
+        state.reply.replace(complete[..n].to_vec());
+        assert!(device.device(&host, &mut input, &mut out).is_err());
+    }
+}

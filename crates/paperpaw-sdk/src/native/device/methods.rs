@@ -223,7 +223,8 @@ impl Device {
     /// Read the host's current result for one plugin-chosen request.
     ///
     /// # Errors
-    /// Returns host refusals (including Busy or NotFound), Invalid for malformed replies or another request.
+    /// Returns host refusals (including Busy or NotFound) or Invalid for malformed replies.
+    /// The host resolves the request; check replies carry no request identity.
     pub fn check<'a>(
         &self,
         host: &Host<'_>,
@@ -246,7 +247,8 @@ impl Device {
     /// Read the host's current result for one plugin-chosen request.
     ///
     /// # Errors
-    /// Returns host refusals (including Busy or NotFound), Invalid for malformed replies or another request.
+    /// Returns host refusals, Invalid for malformed replies, or State when the
+    /// returned request identity does not match the requested one.
     pub fn install<'a>(
         &self,
         host: &Host<'_>,

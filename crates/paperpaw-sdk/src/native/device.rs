@@ -68,6 +68,16 @@ impl DevicePageEnd {
 
 type Decode<'a, T> = fn(Record<'a>) -> Result<T, Error>;
 /// A completely validated list borrowing caller-owned reply bytes.
+///
+/// ```compile_fail
+/// use paperpaw_sdk::native::{Host, device::{Device,DeviceCursor,BuiltinPlugin,DevicePage}};
+/// fn keep<'a>(device: &Device, host: &Host<'_>, input: &mut [u8], out: &'a mut [u8])
+///     -> DevicePage<'a,BuiltinPlugin<'a>> {
+///     let page = device.builtins(host,DeviceCursor::start(),input,out).unwrap();
+///     out.fill(0); // The page still borrows this reply buffer.
+///     page
+/// }
+/// ```
 pub struct DevicePage<'a, T> {
     bytes: &'a [u8],
     len: usize,

@@ -24,6 +24,33 @@ values!(PowerLevel,"The current power level.",Normal=0=>"Normal.",Saving=1=>"Sav
 values!(InstallKind,"The kind of DEV request.",Plugin=0=>"Plugin install.",Firmware=1=>"Firmware install.",Removal=2=>"Plugin removal.",Check=3=>"File check.");
 values!(NotInstalledReason,"Why a plugin could not be installed at start.",OtherAuthor=1=>"Another author.",Damaged=2=>"Damaged or unreadable.",Revoked=3=>"Revoked.");
 
+/// A power control offered by the device.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PowerControl {
+    /// Radio power.
+    Radio,
+    /// CPU clock frequency.
+    CpuClock,
+    /// Button power.
+    Buttons,
+    /// Frontlight power.
+    Frontlight,
+    /// System power saver.
+    SystemSaver,
+}
+impl PowerControl {
+    const fn bit(self) -> u32 {
+        match self {
+            Self::Radio => 0,
+            Self::CpuClock => 1,
+            Self::Buttons => 2,
+            Self::Frontlight => 3,
+            Self::SystemSaver => 4,
+        }
+    }
+}
+
 /// A host verdict for a checked file or completed operation.
 /// Unknown host reasons use Other, as the contract requires.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -244,6 +271,12 @@ flag!(PowerInfo,automatic=0=>"Power level is automatic.",online=1=>"Network work
 flag!(InstallProgress,data_kept=0=>"Plugin data was kept after removal.",restart_required=1=>"The change takes effect after restart.");
 
 impl DeviceIdentity<'_> {
+    /// Whether the device offers this power control. Unknown host bits are ignored.
+    #[must_use]
+    pub const fn can_control(self, control: PowerControl) -> bool {
+        self.row.controls & (1 << control.bit()) != 0
+    }
+
     /// Whether the device has this capability.
     #[must_use]
     pub const fn supports(self, capability: DeviceCapability) -> bool {
