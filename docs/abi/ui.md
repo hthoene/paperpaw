@@ -102,6 +102,12 @@ gaps (commands 1553-1555, 1559 and 1560 and events 83, 88 and 90 are free after 
   key (indices never move nor are reused), `epoch` the running callback's `CallbackEpoch`; a call
   with no callback running is `ERR_STATE`, never epoch 0. No borrow of the store spans plugin
   code; a claim is a move-only token (`Claims`, no `Clone`), not a reference.
+  One owner id per plugin load: the `NativeInstances` key is the plugin's `OwnerResources` owner
+  (`HostResources::try_owner`), so `Frame::caller`, this store, `HostServices::owner_retired` and
+  the handle table name the same owner; no second counter, no mapping. Unloading retires it in
+  one place (`Kernel::unload_plugin`), in this order: no new callbacks, `owner_stopped` (7), the
+  plugin's instances closed (`instance_closed` each), its screen factories removed, then
+  `OwnerResources::release_all` (handles, then `owner_retired`), last the registry row.
   1. `handover_make(stamp, staged params) -> Result<u32, i32>` at op 16: published only after the
      batch walk returned `OK` (section 6), allocated fallibly (`ERR_NO_MEMORY`, X4 cap
      `ERR_FULL`); state **made**. Its text follows with op 9 on the same id.
