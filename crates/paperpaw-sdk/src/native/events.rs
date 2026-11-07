@@ -61,6 +61,22 @@ pub enum Event<'a> {
     },
     /// An extension stage calls this subscription's token. Answer through
     /// [`super::reply::Reply`] using the stage owner's payload schema.
+    ///
+    /// ```
+    /// use paperpaw_sdk::native::{Error, events::Event, reply::Reply};
+    /// fn answer(event: Event<'_>, reply: &mut Reply<'_>, encoded: &[u8])
+    ///     -> Result<(), Error>
+    /// {
+    ///     match event {
+    ///         Event::StageCall { stage: "reader.insert", schema: 1, .. } => {
+    ///             // Encode with the stage owner's schema before writing.
+    ///             reply.write(encoded)
+    ///         }
+    ///         Event::StageCall { .. } => Err(Error::Unsupported),
+    ///         _ => Ok(()),
+    ///     }
+    /// }
+    /// ```
     StageCall {
         stage: &'a str,
         schema: u32,
