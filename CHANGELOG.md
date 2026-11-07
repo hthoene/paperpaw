@@ -321,6 +321,8 @@ change the plugin SDK.
 
 ### Fixed
 
+- `paperpaw-sqlite` never copies over a database: a storage that cannot move files is refused
+  (the old file kept); it copies through one 4 KiB page and syncs before the move (#228).
 - *Discover fonts* in the reading settings, where *More fonts* does not run, says why and offers the one thing to
   do (it is not installed: open its page; it is switched off: switch it on; it waits for a restart: restart),
   instead of only opening the store's page of the plugin. A plugin's page opened without a connection says
