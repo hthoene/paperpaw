@@ -41,6 +41,7 @@ struct World {
 fn key(path: &str) -> Vec<String> {
     path.trim_matches('/')
         .split('/')
+        .filter(|segment| !segment.is_empty())
         .map(|segment| match segment.to_lowercase().as_str() {
             "books~1" => "books".to_string(),
             other => other.to_string(),
@@ -705,32 +706,63 @@ fn a_cut_after_every_durable_write_leaves_the_move_whole_or_not_done() {
 }
 
 #[test]
-fn paths_at_or_below_either_name_are_busy_while_the_job_runs() {
-    let w = world(3);
+fn the_busy_rule_depends_on_what_is_done_where() {
+    let w = World::default();
     let moves = Moves::default();
-    assert!(!moves.busy(&w, "Books/old"));
-    moves.begin(&w, "Books/old", "Books/new", false).unwrap();
-    for busy in [
-        "Books/old",
-        "books/OLD/b0000.epub",
-        "Books/new",
-        "Books/new/sub/x.epub",
-        // make_dir and writes at the old name, or below the new one.
-        "Books/old/fresh/",
-        "Books/new/fresh.epub",
-        // Unicode case and 8.3 aliases name the same folders.
-        "BOOKS~1/old",
-        "BOOKS~1/NEW/x",
+    for access in [
+        Access::Write,
+        Access::Rework,
+        Access::Remove,
+        Access::Rename,
     ] {
-        assert!(moves.busy(&w, busy), "{busy}");
+        assert!(!moves.busy(&w, "Books/old", access));
     }
-    for free in ["Books", "Books/older", "Books/news/x.epub", ""] {
-        assert!(!moves.busy(&w, free), "{free}");
+    let w = world(3);
+    moves.begin(&w, "Books/old", "Books/new", false).unwrap();
+    let busy = |path: &str, access| moves.busy(&w, path, access);
+    // Removal and rename: at, below and above either name.
+    for access in [Access::Remove, Access::Rename] {
+        for path in [
+            "Books/old",
+            "books/OLD/b0000.epub",
+            "Books/new",
+            "Books/new/sub/x.epub",
+            "Books",
+            "",
+            // Unicode case and 8.3 aliases name the same folders.
+            "BOOKS~1/old",
+            "BOOKS~1/NEW/x",
+        ] {
+            assert!(busy(path, access), "{access:?} {path}");
+        }
+        for free in ["Books/older", "Books/news/x.epub", "Other", "Other/new"] {
+            assert!(!busy(free, access), "{access:?} {free}");
+        }
     }
+    // make_dir and import: at or below either name, not above.
+    for path in ["Books/old/fresh/", "Books/new", "Books/new/fresh.epub"] {
+        assert!(busy(path, Access::Rework), "{path}");
+    }
+    assert!(!busy("Books", Access::Rework));
+    assert!(!busy("Books/older", Access::Rework));
+    // Writes: the old name is closed (a new file there too); below the new
+    // name they stay allowed.
+    assert!(busy("Books/old", Access::Write));
+    assert!(busy("books/OLD/fresh.epub", Access::Write));
+    assert!(!busy("Books/new/fresh.epub", Access::Write));
+    assert!(!busy("Books", Access::Write));
     // One entry in the journal: the next move waits as well.
     assert_eq!(moves.begin(&w, "Books/x", "Books/y", false), Err(ERR_BUSY));
     run(&moves, &w);
-    assert!(!moves.busy(&w, "Books/old"));
+    for access in [
+        Access::Write,
+        Access::Rework,
+        Access::Remove,
+        Access::Rename,
+    ] {
+        assert!(!moves.busy(&w, "Books/old", access));
+        assert!(!moves.busy(&w, "Books", access));
+    }
     moves.begin(&w, "Books/new", "Books/old", false).unwrap();
 }
 

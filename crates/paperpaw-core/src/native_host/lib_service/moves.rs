@@ -26,9 +26,11 @@
 //!    cannot stay stuck.
 //!
 //! While the job runs, [`Moves::busy`] says which paths the host answers
-//! `ERR_BUSY` for (`move`, `storage.rename`, `remove_tree`, `storage.remove`,
-//! `make_dir`, any write or create, an import at or below either name, so
-//! not a new file at the old name either), and [`Moves::open_book`] carries a
+//! `ERR_BUSY` for, by [`Access`]: removals and renames at, below or above
+//! either name (a folder that holds `from` or `to` cannot go); `make_dir`
+//! and imports at or below either name; writes at or below the old name
+//! (a new file there as well). Writes below the new name stay allowed: a
+//! reader meets the walk there by design. And [`Moves::open_book`] carries a
 //! book a reader opens before the walk reaches it, so it finds its position
 //! and annotations.
 //!
@@ -40,6 +42,19 @@
 use alloc::string::String;
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE};
+
+/// What an operation does to a path, for [`Moves::busy`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Access {
+    /// Writing or creating a file (also a new file at the old name).
+    Write,
+    /// `make_dir` or an import: it builds names at or below `from` or `to`.
+    Rework,
+    /// `storage.remove` or `remove_tree`.
+    Remove,
+    /// `move` or `storage.rename` (another move waits anyway).
+    Rename,
+}
 
 /// Books carried by one step.
 pub(crate) const STEP_BOOKS: usize = 16;
@@ -339,14 +354,28 @@ impl Moves {
         self.job.try_borrow().map_or(true, |job| job.is_some())
     }
 
-    /// Whether `path` is `from` or `to` or below either while the job runs:
-    /// a `move`, `storage.rename`, `remove_tree`, `storage.remove`,
-    /// `make_dir`, any write or create, or an import there answers
-    /// `ERR_BUSY` (also a new file at the old name).
-    pub(crate) fn busy(&self, host: &dyn MoveHost, path: &str) -> bool {
+    /// Whether the host answers `ERR_BUSY` to `access` at `path` while the job
+    /// runs (see [`Access`]).
+    pub(crate) fn busy(&self, host: &dyn MoveHost, path: &str, access: Access) -> bool {
         self.job.try_borrow().map_or(true, |job| {
-            job.as_ref()
-                .is_some_and(|job| host.within(path, &job.from) || host.within(path, &job.to))
+            let Some(job) = job.as_ref() else {
+                return false;
+            };
+            let at_or_below = |name: &str| host.within(path, name);
+            let above = |name: &str| host.within(name, path);
+            match access {
+                // A reader and the walk meet below the new name by design
+                // (`open_book` carries first): only the old name is closed.
+                Access::Write => at_or_below(&job.from),
+                Access::Rework => at_or_below(&job.from) || at_or_below(&job.to),
+                // A folder that holds either name goes with them.
+                Access::Remove | Access::Rename => {
+                    at_or_below(&job.from)
+                        || at_or_below(&job.to)
+                        || above(&job.from)
+                        || above(&job.to)
+                }
+            }
         })
     }
 
