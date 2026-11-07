@@ -62,7 +62,7 @@ struct List {
 }
 
 /// What a row of *Screens* does.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 enum Pick {
     /// Opens the candidates of this place.
     Slot(String),
@@ -436,42 +436,37 @@ impl NativePluginManager {
                     } else {
                         PluginEnabled::On
                     };
-                    CommandSender::new(host, &mut scratch).set_plugin_enabled(&row.id, enabled)?;
-                    // The restart row and the states follow the host's answer.
-                    self.reread(host)
+                    // Nothing else after the command: an error here would drop
+                    // the staged switch. The states follow `PluginsChanged`
+                    // (and `ScreenShown`), which read the rows again.
+                    CommandSender::new(host, &mut scratch).set_plugin_enabled(&row.id, enabled)
                 }
                 _ => Ok(()),
             },
-            Some(View::Places(view)) => {
-                let Some(pick) = view.picks.get(index).cloned() else {
-                    return Ok(());
-                };
-                let slot = copy(&view.slot)?;
-                match pick {
-                    Pick::Slot(place) => {
-                        let (mut input, mut out) =
-                            (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-                        let handover = self.ui.as_ref().ok_or(Error::State)?.handover(
-                            host,
-                            &[Param::new(SLOT, &place)?],
-                            &mut input,
-                            &mut out,
-                        )?;
-                        CommandSender::new(host, &mut scratch)
-                            .open(Open::screen("plugin-manager.screens")?.handover(handover))
-                    }
-                    Pick::Automatic => {
-                        let mut sender = CommandSender::new(host, &mut scratch);
-                        sender.bind_slot(&slot, None)?;
-                        sender.back()
-                    }
-                    Pick::Candidate(screen) => {
-                        let mut sender = CommandSender::new(host, &mut scratch);
-                        sender.bind_slot(&slot, Some(&screen))?;
-                        sender.back()
-                    }
+            Some(View::Places(view)) => match view.picks.get(index) {
+                Some(Pick::Slot(place)) => {
+                    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+                    let handover = self.ui.as_ref().ok_or(Error::State)?.handover(
+                        host,
+                        &[Param::new(SLOT, place)?],
+                        &mut input,
+                        &mut out,
+                    )?;
+                    CommandSender::new(host, &mut scratch)
+                        .open(Open::screen("plugin-manager.screens")?.handover(handover))
                 }
-            }
+                Some(Pick::Automatic) => {
+                    let mut sender = CommandSender::new(host, &mut scratch);
+                    sender.bind_slot(&view.slot, None)?;
+                    sender.back()
+                }
+                Some(Pick::Candidate(screen)) => {
+                    let mut sender = CommandSender::new(host, &mut scratch);
+                    sender.bind_slot(&view.slot, Some(screen))?;
+                    sender.back()
+                }
+                None => Ok(()),
+            },
             None => Ok(()),
         }
     }
