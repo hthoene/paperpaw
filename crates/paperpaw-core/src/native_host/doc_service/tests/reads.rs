@@ -742,3 +742,63 @@ fn pictures_get_the_openers_image_id_and_a_failed_one_is_no_picture() {
     fake.say(&[picture(), picture()]);
     assert_eq!(call_raw(&fake, 16, &input_for(16, id)), Err(ERR_INVALID));
 }
+
+/// Senior #1110 D1: once the format plugin stopped, no path calls it again,
+/// and every image id still ends.
+#[test]
+fn no_path_calls_a_format_after_it_stopped() {
+    // The format stops, then the opener stops.
+    let fake = Fake::new(Limits::LARGE);
+    let a = opened(&fake);
+    let b = opened(&fake);
+    assert_eq!(format_stopped(&*fake, FORMAT), 2);
+    assert_eq!(opener_stopped(&*fake, OWNER), 2);
+    assert!(
+        fake.ended.borrow().is_empty(),
+        "no op 4 into a stopped format"
+    );
+    assert_eq!(*fake.closed.borrow(), [(a, 1), (b, 1)], "told once");
+    assert!(fake.images_ended.borrow().contains(&a));
+    assert!(fake.images_ended.borrow().contains(&b));
+
+    // The format crashes during op 1: the cleanup must not call it again.
+    let fake = Fake::new(Limits::X4);
+    fake.stops_during_call.set(true);
+    fake.fails.set(Some(ERR_IO));
+    assert_eq!(
+        call(&fake, 1, &[Record::ServiceDocOpen(open_record())]),
+        Err(ERR_IO)
+    );
+    assert_eq!(fake.table.len(), 0);
+    assert!(fake.ended.borrow().is_empty());
+
+    // Three malformed answers close the document (the format is alive), then
+    // the format stops, then the opener closes: no op 4, one event.
+    let fake = Fake::new(Limits::X4);
+    let id = opened(&fake);
+    *fake.answer.borrow_mut() = stream(&[]);
+    for _ in 0..3 {
+        assert_eq!(call_raw(&fake, 3, &input_for(3, id)), Err(ERR_INVALID));
+    }
+    assert_eq!(*fake.closed.borrow(), [(id, 1)]);
+    assert_eq!(
+        format_stopped(&*fake, FORMAT),
+        0,
+        "already closed: no second event"
+    );
+    call(&fake, 18, &[doc_ref(id)]).unwrap();
+    assert!(fake.ended.borrow().is_empty());
+    assert_eq!(*fake.closed.borrow(), [(id, 1)]);
+    assert!(fake.images_ended.borrow().contains(&id));
+
+    // A strike-closed document of a live format: the opener's close still
+    // tells the format.
+    let fake = Fake::new(Limits::X4);
+    let id = opened(&fake);
+    *fake.answer.borrow_mut() = stream(&[]);
+    for _ in 0..3 {
+        let _ = call_raw(&fake, 3, &input_for(3, id));
+    }
+    call(&fake, 18, &[doc_ref(id)]).unwrap();
+    assert_eq!(*fake.ended.borrow(), [id]);
+}

@@ -722,3 +722,17 @@ fn status_discovery_checks_empty_pages_unknown_kinds_and_scope_mismatch() {
         ));
     }
 }
+
+#[test]
+fn menu_user_definition_is_read_from_the_explicit_flag() {
+    for flags in [0, 31, 32, 63, 1 << 31] {
+        let item = RegistryItem::decode(Record::ServiceRegItem(wire::ServiceRegItem {
+            id: "demo.menu",
+            plugin: "demo",
+            title: "Menu",
+            flags,
+        }))
+        .unwrap();
+        assert_eq!(item.user_defined(), flags & 32 != 0);
+    }
+}

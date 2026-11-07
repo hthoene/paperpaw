@@ -1409,3 +1409,11 @@ unsafe extern "C" fn service_call<S>(
         )
     }
 }
+
+#[path = "shell_stage.rs"]
+mod stage;
+#[allow(
+    unused_imports,
+    reason = "stage broker consumes this checked reply hook next"
+)]
+pub(crate) use stage::dispatch_stage;

@@ -1840,6 +1840,12 @@ for 32 wire records (32 × 104 bytes, measured with `-Zprint-type-sizes` for
 call; parameter text and transport buffers remain borrowed. This type-layout
 measurement does not replace the runtime X4 heap gate.
 
+Menu replacement temporarily allocates only its joined item bytes, at most
+2,048 bytes, and frees them after encoding into the caller's command buffer,
+before host submission. Empty and reset lists allocate nothing. The menu and
+handover temporaries are released before their host calls, so they do not
+overlap, including when both operations run in one callback.
+
 PaperPaw's standard app holds some 90 KiB of it once it has started
 with the sample books, 130 KiB at its peak (the emulator, `--profile
 xteink-x4 --headless --script wait:500`). A plugin that should run
@@ -2702,6 +2708,14 @@ clip rows and borrowed payload. `input` receives a typed `Input` and returns
 callback. Decoders reject unknown exact tags and invalid input enum values.
 
 Declare screens and actions with `native::declare::ScreenDecl` and `ActionDecl`.
+Choose repeated-open behavior with `ScreenDecl::instances(native::declare::Instances::Single)`;
+`PerParams` is the default and `Many` creates an instance for each open.
+Use `Question::confirm(...)?` with `.confirm_labels("Keep\nDiscard")?` for custom
+button words. Empty labels retain the dialog defaults. `.only_yes()?` requires an
+empty no label; `.focus_yes()?` selects initial yes focus. Dialog plugins read
+`QuestionInfo::{yes_label, no_label, only_yes, focus_yes}`.
+For menu discovery, `RegistryItem::user_defined()` reads the host's explicit user
+definition flag, including empty definitions and definitions equal to defaults.
 Decode their shown/run events with `native::events::Event::decode`. Format catalog strings
 with `native::formatting::format_message(host, key, args, &mut buffers)`.
 Create `FormatBuffers::new(scratch, out)` to name the temporary argument encoding
