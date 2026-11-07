@@ -510,3 +510,42 @@ fn a_later_add_heals_duplicates_left_by_a_refused_read() {
         "no refusal left a duplicate: the case proves nothing"
     );
 }
+
+/// Decks and cards, but no index: it was taken away after a refusal, and
+/// is made anew from two decks, one at a time. A refusal on the second
+/// must not leave the index of the first as the index.
+fn without_index() -> Quiet {
+    let storage = decks_of_cards();
+    fixture(|| {
+        storage.remove(&alloc::format!("{CARDS}/due.txt")).unwrap();
+        storage
+            .remove(&alloc::format!("{CARDS}/answers.txt"))
+            .unwrap();
+    });
+    storage
+}
+
+#[test]
+fn rebuilding_the_index_refuses_cleanly() {
+    sweep(
+        "recover without an index",
+        without_index,
+        |s| {
+            cards::recover(s);
+            Ok(())
+        },
+        healthy,
+    );
+    sweep(
+        "due without an index",
+        without_index,
+        |s| cards::due(s, 1_000, 20, 10, None),
+        healthy,
+    );
+    sweep(
+        "rebuild_index",
+        without_index,
+        |s| cards::rebuild_index(s),
+        healthy,
+    );
+}
