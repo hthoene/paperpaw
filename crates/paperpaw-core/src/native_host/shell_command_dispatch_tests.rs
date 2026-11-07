@@ -80,3 +80,6 @@ fn command_stage_applies_only_after_callback_scopes_and_discards_failed_calls() 
         finish(&hosted);
     }
 }
+
+#[path = "shell_command_status_tests.rs"]
+mod abi_status;

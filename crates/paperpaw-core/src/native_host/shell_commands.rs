@@ -59,6 +59,9 @@ impl Kernel {
                 // SAFETY: the admitted owner structurally pins the command scope.
                 let scope = unsafe { context.map_unchecked(|value| &value.commands) };
                 let status = scope.scope(&mut stage, || invoke(context, &frame))??;
+                if status < 0 {
+                    return Err(Error::Status(status));
+                }
                 let output = stage.into_ui_output();
                 Ok::<_, Error>((status, owner, output))
             })??
