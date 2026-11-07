@@ -23,6 +23,10 @@ change the plugin SDK.
   through `core.ui`, keys, shift, variants, paste, type on the phone, secret texts, the layouts
   chooser) on `paperpaw-ui-kit`; hardware-typed text, font-coverage filtering and layouts added by
   other plugins wait for host pieces and are named in `plugins/keyboard/PORTING-7.md` (#228).
+- Menu 1.0.6: the interface-7 native plugin, first slice: the menu list as a sheet over the
+  screen (rows from the registry, submenus, settings changed in place, paging); `paperpaw-ui-kit`
+  gains `ItemList::draw_sheet`, `sheet::geometry` and faint rows. Tiles, the bar and the quick
+  panel follow (#228).
 - Settings 1.0.6: the interface-7 native plugin (main page, group pages, choosing a value, themes,
   search, reset, number editing with preview) over the registry service; `paperpaw-ui-kit` item
   rows gain − and + buttons and show a title that is already translated as it is (#228).
