@@ -10,6 +10,7 @@ use core::{
 };
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::ERR_STATE;
+use paperpaw_platform::Rect;
 use paperpaw_sdk::Settings;
 
 #[allow(
@@ -27,6 +28,35 @@ pub(crate) struct RowsEnd {
     pub(crate) total: u32,
     pub(crate) generation: u32,
     pub(crate) next: u32,
+}
+
+/// What `kind` names (section 5.1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code, reason = "read by slot 35 and the frame's compose hook")]
+pub(crate) enum ComposeKind {
+    /// A widget instance (`draw.frame.purpose` 4).
+    Widget,
+    /// A drawn status item (purpose 3).
+    StatusItem,
+    /// A status line (purpose 5).
+    StatusLine,
+}
+
+/// One checked `ui.compose` call, as the frame's hook gets it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code, reason = "read by slot 35 and the frame's compose hook")]
+pub(crate) struct ComposeRequest {
+    pub(crate) kind: ComposeKind,
+    /// The instance or handle that op 4, 14 or 15 gave.
+    pub(crate) handle: u32,
+    /// The rectangle the caller asked for, in its canvas's coordinates.
+    pub(crate) x: i32,
+    pub(crate) y: i32,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    /// The part of the rectangle inside the caller's clip, in the same
+    /// coordinates; `None` when nothing of it is visible.
+    pub(crate) visible: Option<Rect>,
 }
 
 #[allow(dead_code, reason = "usage service methods await slots 17-19 adapters")]
@@ -47,6 +77,28 @@ pub(crate) trait Frame {
     ) -> Result<usize, i32> {
         // TODO(#228): once the production broker is wired, a frame without
         // stage authority must return ERR_STATE (stages-services.md frame checks).
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+    /// Slot 35 (`docs/abi/ui.md` section 5.1), after the slot checked `kind`,
+    /// that the caller is inside its own `draw`, and worked out
+    /// `request.visible`. `canvas` is the caller's canvas already clipped to
+    /// that part (empty when nothing is visible).
+    ///
+    /// The hook decides, in this order: an unknown or closed handle
+    /// `ERR_NOT_FOUND`; a private target, or one made below a guard,
+    /// `ERR_DENIED`; a target of the caller's own plugin, or a call made from
+    /// a child (depth 2), `ERR_BUSY`; then, only if something is visible, it
+    /// runs the owner's `draw` with `request.draw_frame()`. A child's failure
+    /// is its status, logged, and the hook returns `Ok`: the caller's frame
+    /// stays. A frame that composes nothing refuses with `ERR_UNSUPPORTED`
+    /// (the X4 until its stack gate passes), and every frame handed to a
+    /// child must answer `ERR_BUSY` here.
+    fn compose(
+        &self,
+        _caller_id: &str,
+        _request: &ComposeRequest,
+        _canvas: &mut paperpaw_graphics::Canvas<'_>,
+    ) -> Result<(), i32> {
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
