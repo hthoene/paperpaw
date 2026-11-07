@@ -29,7 +29,8 @@
 
 mod common;
 
-use std::cell::RefCell;
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use common::{FLASH, table};
@@ -60,6 +61,39 @@ const DATA_LEN: u32 = 0x2000;
 /// Where the update plugin asks, and the files it downloads.
 const SERVER: &str = "https://paperpaw.org/api/v1/updates";
 const PAGE: &str = "update.page";
+
+/// The system's allocator, failing the next block of a page or more on this
+/// thread when armed (the install's buffer, `updates::begin`): the out of
+/// memory the X4 meets, as an error to answer and not a crash.
+struct Fallible;
+
+thread_local! {
+    static FAIL_NEXT_PAGE: Cell<bool> = const { Cell::new(false) };
+}
+
+// SAFETY: forwards to the system allocator, which it fails only by
+// returning null, as the trait allows.
+unsafe impl GlobalAlloc for Fallible {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let fail = layout.size() >= 4096
+            && FAIL_NEXT_PAGE
+                .try_with(|armed| armed.replace(false))
+                .unwrap_or(false);
+        if fail {
+            return core::ptr::null_mut();
+        }
+        // SAFETY: as the system allocator, with the same layout.
+        unsafe { System.alloc(layout) }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // SAFETY: allocated by the system allocator with this layout.
+        unsafe { System.dealloc(ptr, layout) }
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: Fallible = Fallible;
 
 /// A device PaperPaw runs on, as its firmware is built for it
 /// (`shells/xteink/src/ota.rs`).
@@ -538,6 +572,9 @@ struct Device {
     rest: Vec<u8>,
     /// The device was told to restart.
     restart: bool,
+    /// The install's buffer finds no memory (the next page-sized block is
+    /// refused when `begin` runs).
+    fail_buffer: bool,
 }
 
 impl Device {
@@ -572,6 +609,7 @@ impl Device {
             now: 0,
             rest: Vec::new(),
             restart: false,
+            fail_buffer: false,
         };
         device.rest = device.rest_of(&flash);
         device.boot(Chip(flash));
@@ -685,7 +723,10 @@ impl Device {
                     }) => {
                         let card = self.card.clone();
                         let updates = self.updates.as_mut().unwrap();
-                        let state = match updates.begin(&card, &path, key.as_ref(), older) {
+                        FAIL_NEXT_PAGE.with(|armed| armed.set(self.fail_buffer));
+                        let begun = updates.begin(&card, &path, key.as_ref(), older);
+                        FAIL_NEXT_PAGE.with(|armed| armed.set(false));
+                        let state = match begun {
                             Ok(begun) => FirmwareState::Installing {
                                 done: 0,
                                 total: u64::from(begun.len),
@@ -948,6 +989,41 @@ fn an_update_without_room_is_refused() {
             device.updates.as_ref().unwrap().flash().0 == flash,
             "{name}: nothing written"
         );
+    }
+}
+
+/// An install whose buffer finds no memory is refused cleanly: nothing is
+/// written, the OTA data is as it was, the firmware running stays, and the
+/// same update installs once there is room.
+#[test]
+fn an_install_without_memory_for_its_buffer_is_refused_and_writes_nothing() {
+    for files in Files::all() {
+        let name = files.board.name;
+        let mut device = Device::flashed(&files, &files.old);
+        let flash = device.updates.as_ref().unwrap().flash().0.clone();
+        device.server.updates = vec![files.new.clone()];
+        device.fail_buffer = true;
+        let shown = device.update_online();
+        assert!(
+            !shown.contains("Update installed"),
+            "{name}: refused: {shown}"
+        );
+        assert!(
+            shown.contains("Nothing was changed"),
+            "{name}: said so: {shown}"
+        );
+        assert!(!device.updates.as_ref().unwrap().installing(), "{name}");
+        assert!(
+            device.updates.as_ref().unwrap().flash().0 == flash,
+            "{name}: nothing written, not even the OTA data"
+        );
+        // Room again: the same update goes through.
+        device.press("OK");
+        device.fail_buffer = false;
+        device.action(paperpaw_plugin_update::OPEN);
+        device.press_any(&["Install", "Update without them"]);
+        let shown = device.shown();
+        assert!(shown.contains("Update installed"), "{name}: {shown}");
     }
 }
 

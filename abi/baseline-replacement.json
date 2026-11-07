@@ -1,0 +1,10 @@
+{
+  "replaces_sha256": "a35b534cdc1fd4346daa2b9205d02feeb3d9bcd969393260d64f79189d2154c8",
+  "reason": "interface 7 is unreleased: service ops gain row counts (ServiceOp input_rows, paged, reply_rows) and the records codec gains counted input batches above 8 records (records_encode_counted, host_records_visit), so the emitted sections change for the prior schema too",
+  "ticket": "#228",
+  "waives": [
+    "emitted_services",
+    "emitted_records",
+    "emitted_host_decode"
+  ]
+}

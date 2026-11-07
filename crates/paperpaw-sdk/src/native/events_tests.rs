@@ -59,17 +59,22 @@ fn page_vectors_preserve_counters_and_borrow_input_strings() {
             panic!()
         };
         assert_eq!(
-            (got.now_ms, got.section, got.offset, got.progress_ppm),
+            (
+                got.now_ms(),
+                got.section(),
+                got.offset(),
+                got.progress_ppm()
+            ),
             (record.now_ms, 3, 4000, 250_000)
         );
         assert_eq!(
-            (got.path, got.title, got.chapter),
+            (got.path(), got.title(), got.chapter()),
             (record.path, record.title, record.chapter)
         );
-        assert_eq!((got.page, got.pages, got.insert), (p, n, 2));
-        assert!(bytes.as_ptr_range().contains(&got.path.as_ptr()));
-        assert!(bytes.as_ptr_range().contains(&got.title.as_ptr()));
-        assert!(bytes.as_ptr_range().contains(&got.chapter.as_ptr()));
+        assert_eq!((got.page(), got.pages(), got.insert()), (p, n, 2));
+        assert!(bytes.as_ptr_range().contains(&got.path().as_ptr()));
+        assert!(bytes.as_ptr_range().contains(&got.title().as_ptr()));
+        assert!(bytes.as_ptr_range().contains(&got.chapter().as_ptr()));
     }
 }
 #[test]
@@ -131,12 +136,12 @@ fn page_insert_ordinals_preserve_source_position_and_progress() {
         let Event::PageTurned(got) = decode(&bytes[..len]).unwrap() else {
             panic!()
         };
-        assert_eq!(got.insert, insert.unwrap_or(0));
+        assert_eq!(got.insert(), insert.unwrap_or(0));
         assert_eq!(
-            (got.section, got.offset, got.progress_ppm),
+            (got.section(), got.offset(), got.progress_ppm()),
             (record.section, record.offset, record.progress_ppm)
         );
-        assert_eq!((got.page, got.pages), (record.page, record.pages));
+        assert_eq!((got.page(), got.pages()), (record.page, record.pages));
     }
 }
 
@@ -276,4 +281,33 @@ fn tick_fallback_preserves_exact_tags_and_singleton_framing() {
     let record = Record::Registration(Registration::Draw { token: 3 });
     let len = records_encode(&[record], &mut bytes).unwrap();
     assert_eq!(Event::decode(&bytes[..len]), Err(Error::Unsupported));
+}
+
+#[test]
+fn stage_call_decodes_exact_tag_and_borrows_opaque_payload() {
+    let record = Record::StageCall(wire::StageCall {
+        stage: "reader.insert",
+        schema: 7,
+        payload: &[255, 0, 128],
+    });
+    let mut bytes = [0; 100];
+    let n = records_encode(&[record], &mut bytes).unwrap();
+    let Event::StageCall {
+        stage,
+        schema,
+        payload,
+    } = decode(&bytes[..n]).unwrap()
+    else {
+        panic!("expected stage call");
+    };
+    assert_eq!(
+        (stage, schema, payload),
+        ("reader.insert", 7, &[255, 0, 128][..])
+    );
+    assert!(bytes.as_ptr_range().contains(&payload.as_ptr()));
+    for end in 0..n {
+        assert!(decode(&bytes[..end]).is_err());
+    }
+    bytes[1] = 129; // tag 513 must never decode as a stage call.
+    assert!(decode(&bytes[..n]).is_err());
 }
