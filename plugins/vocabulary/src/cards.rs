@@ -1577,6 +1577,14 @@ pub(crate) fn rebuild_index(storage: &dyn Storage) -> Result<(), StorageError> {
     if storage.exists(INDEX) {
         return Ok(());
     }
+    // One deck at a time puts its line in place: where it stops part way
+    // the index there is would be a partial one that no later rebuild
+    // looks at, so it is taken away again.
+    keep_index(storage, make_index(storage))
+}
+
+/// The index of all decks, made one deck at a time.
+fn make_index(storage: &dyn Storage) -> Result<(), StorageError> {
     for deck in decks(storage)? {
         let mut index = Index {
             deck: deck.id,
