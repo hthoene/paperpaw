@@ -70,6 +70,10 @@ events) is still in place. It is removed in the PR that finishes the port.
   shell passes `week_start` (a setting of the host) and `day_of`. Kept from interface 6:
   `store::scan_recent`/`scan_range` still swallow a read error (what could be read counts).
   The calendar keeps at most 3 books per day (what the screen shows).
+- **For the shell:** where `overview_rows::tiles` and `chart` return `None` (no clock) it shows
+  `stats.no-clock`, and keeps the old chart title (`stats.last-days`) for the chart it does draw.
+  The key, swipe and tap mapping of the calendar is `calendar_model::{key_step, swipe_step,
+  tap_day}` (tested against interface 6).
 - Not built here: the layout and drawing (tiles side by side or stacked, the bars, the grid),
   the shell (`Plugin` impl, declarations, screens opened with the book id as
   a hand-over param, `Screens`), the chart of a book's last days. `totals::seconds_per_book`
