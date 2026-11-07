@@ -7,11 +7,14 @@ use crate::native_host::resources::HostResources;
 use alloc::rc::Rc;
 use core::cell::{Cell, RefCell};
 use paperpaw_hyphen::compile;
+use paperpaw_native::host_glue::ERR_NO_MEMORY;
 use std::collections::BTreeMap;
 
 struct File {
-    data: Vec<u8>,
+    data: Rc<Vec<u8>>,
     fail: Rc<Cell<bool>>,
+    /// Reads this file still serves (`usize::MAX`: all).
+    budget: Cell<usize>,
 }
 impl HyphenFile for File {
     fn size(&self) -> u64 {
@@ -21,6 +24,11 @@ impl HyphenFile for File {
         if self.fail.get() {
             return false;
         }
+        let left = self.budget.get();
+        if left == 0 {
+            return false;
+        }
+        self.budget.set(left.saturating_sub(1));
         let Some(part) = usize::try_from(at)
             .ok()
             .and_then(|at| self.data.get(at..at.checked_add(buf.len())?))
@@ -32,12 +40,16 @@ impl HyphenFile for File {
     }
 }
 
+type Tables = BTreeMap<String, (u64, Rc<Vec<u8>>)>;
+
 struct Card {
     /// lowercase tag -> (key, table bytes)
-    tables: RefCell<BTreeMap<String, (u64, Vec<u8>)>>,
+    tables: RefCell<Tables>,
     epoch: Cell<u64>,
     fail: Rc<Cell<bool>>,
     opens: Cell<u32>,
+    /// The reads each file opened from now on serves.
+    budget: Cell<usize>,
 }
 impl Card {
     fn new() -> Rc<Self> {
@@ -46,33 +58,37 @@ impl Card {
             epoch: Cell::new(1),
             fail: Rc::new(Cell::new(false)),
             opens: Cell::new(0),
+            budget: Cell::new(usize::MAX),
         })
     }
     fn add(&self, tag: &str, bytes: Vec<u8>) {
         let key = self.tables.borrow().len() as u64 + 1;
         self.tables
             .borrow_mut()
-            .insert(tag.to_ascii_lowercase(), (key, bytes));
+            .insert(tag.to_ascii_lowercase(), (key, Rc::new(bytes)));
     }
 }
 impl HyphenHost for Card {
     fn find(&self, tag: &str) -> Option<u64> {
+        // No allocation, as a real host's lookup has none.
         self.tables
             .borrow()
-            .get(&tag.to_ascii_lowercase())
-            .map(|t| t.0)
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(tag))
+            .map(|(_, t)| t.0)
     }
     fn open(&self, key: u64) -> Result<(Box<dyn HyphenFile>, u64), i32> {
         self.opens.set(self.opens.get() + 1);
         let tables = self.tables.borrow();
         let (_, bytes) = tables.values().find(|t| t.0 == key).ok_or(ERR_NOT_FOUND)?;
-        Ok((
-            Box::new(File {
-                data: bytes.clone(),
-                fail: self.fail.clone(),
-            }),
-            key,
-        ))
+        let file = File {
+            data: Rc::clone(bytes),
+            fail: self.fail.clone(),
+            budget: Cell::new(self.budget.get()),
+        };
+        let boxed: Box<dyn HyphenFile> =
+            crate::native_host::shared::try_box(file).ok_or(ERR_NO_MEMORY)?;
+        Ok((boxed, key))
     }
     fn card_epoch(&self) -> u64 {
         self.epoch.get()
@@ -307,4 +323,96 @@ fn the_slot_checks_its_pairs_and_writes_the_places() {
     assert_eq!(call(&[b'a'; 193], &mut out), ERR_INVALID);
     let mut small = [core::mem::MaybeUninit::<u8>::uninit(); 1];
     assert_eq!(call(b"abab", &mut small), ERR_NO_SPACE);
+}
+
+#[test]
+fn a_table_that_opens_and_then_fails_to_read_is_shut_out_at_the_second_time() {
+    let card = Card::new();
+    card.add("de", table(""));
+    // Count what a whole cold word takes to read, then give each file only
+    // some of that: it opens, and a read after the open fails.
+    let all = {
+        let s = state(&card);
+        ask(&s, "de", "abab", 1, 1).unwrap();
+        s.tables.borrow().open.len()
+    };
+    assert_eq!(all, 1);
+    let mut cases = 0;
+    for reads in 1..40 {
+        let card = Card::new();
+        card.add("de", table(""));
+        card.budget.set(reads);
+        let s = state(&card);
+        let first = ask(&s, "de", "abab", 1, 1);
+        if first != Ok(std::vec![]) || card.opens.get() != 1 || s.open_count() != 0 {
+            continue;
+        }
+        // The open succeeded (the table was held) and a later read failed.
+        // Words left whole until the second failure, then not found, and a
+        // success of the open between them wiped nothing.
+        cases += 1;
+        assert_eq!(
+            ask(&s, "de", "abab", 1, 1),
+            Ok(std::vec![]),
+            "reads {reads}"
+        );
+        assert_eq!(card.opens.get(), 2);
+        assert_eq!(
+            ask(&s, "de", "abab", 1, 1),
+            Err(ERR_NOT_FOUND),
+            "reads {reads}"
+        );
+        assert_eq!(card.opens.get(), 2, "not opened a third time");
+        // Until the card changes.
+        card.budget.set(usize::MAX);
+        assert_eq!(ask(&s, "de", "abab", 1, 1), Err(ERR_NOT_FOUND));
+        card.epoch.set(2);
+        assert_eq!(ask(&s, "de", "abab", 1, 1), Ok(std::vec![1, 3]));
+    }
+    assert!(
+        cases > 0,
+        "some budget lets the open through and fails a read after it"
+    );
+}
+
+fn warm_call(s: &HyphenState) -> Result<usize, i32> {
+    let mut out = [0u8; 64];
+    hyphenate(s, b"DE-ch", b"abab", 1, 1, &mut out)
+}
+
+#[test]
+fn a_warmed_word_allocates_nothing() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let card = Card::new();
+    card.add("de", table(""));
+    let s = state(&card);
+    assert_eq!(warm_call(&s), Ok(2));
+    // Every allocation would now fail: the call must not need one.
+    FAIL_NTH.with(|n| n.set(1));
+    let again = warm_call(&s);
+    let left = FAIL_NTH.with(|n| n.replace(0));
+    assert_eq!(again, Ok(2));
+    assert_eq!(left, 1, "no allocation was asked for");
+}
+
+#[test]
+fn every_allocation_of_a_cold_word_may_fail_and_the_language_is_not_shut_out() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let mut failed = 0;
+    for nth in 1..=80 {
+        let card = Card::new();
+        card.add("de", table(""));
+        let s = state(&card);
+        FAIL_NTH.with(|n| n.set(nth));
+        let first = warm_call(&s);
+        FAIL_NTH.with(|n| n.set(0));
+        match first {
+            Ok(2) => {}
+            Ok(0) => failed += 1,
+            other => panic!("nth {nth}: {other:?}"),
+        }
+        // No refusal for want of memory counted against the table.
+        assert_eq!(warm_call(&s), Ok(2), "nth {nth}");
+    }
+    assert!(failed > 0, "a cold word does allocate, fallibly");
 }

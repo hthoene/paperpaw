@@ -6,7 +6,7 @@ use super::{ImageTable, MAX_SIDE, prepare};
 use crate::native_host::commands::WireCommand;
 use alloc::string::String;
 use paperpaw_native::host_glue::{
-    ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED,
+    ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED,
 };
 
 /// `image_prepare.flags` bit 0: colour, where the screen has it.
@@ -122,42 +122,29 @@ impl ImageTable {
     /// How many more requests `owner` may queue now.
     #[must_use]
     pub(crate) fn prepare_room(&self, owner: u64) -> usize {
-        self.inner.try_borrow().map_or(0, |inner| {
-            let used = inner.waiting.iter().filter(|w| w.owner == owner).count()
-                + inner
-                    .ready
-                    .iter()
-                    .filter(|r| r.owner == owner && r.image == 0)
-                    .count();
-            let prepared = inner
-                .entries
-                .iter()
-                .filter(|e| e.owner == owner && e.origin == super::Origin::Prepared)
-                .count();
-            prepare::WAITING
-                .saturating_sub(used)
-                .min(super::PREPARED_IMAGES.saturating_sub(used + prepared))
-        })
+        self.inner.try_borrow().map_or(0, |inner| inner.room(owner))
     }
 
-    /// Does an admitted command for `owner`. A request whose source does not
-    /// resolve, or that cannot be queued for want of memory, is answered with
-    /// its status (4, 5) on `event.image_ready`, never lost; releasing an id
-    /// that is not there is nothing.
+    /// Does an admitted command for `owner`, and keeps it for a retry where
+    /// it could not be done: only `Ok` means it is queued or answered (a
+    /// request whose source does not resolve is answered with status 4 on
+    /// `event.image_ready`; one that cannot be queued for want of memory with
+    /// status 5, its answer's room taken first so it is never lost).
+    /// Releasing an id that is not there is nothing.
     ///
     /// # Errors
-    /// `ERR_BUSY` (the table is borrowed: apply again), `ERR_FULL`.
+    /// `ERR_BUSY` (the table is borrowed), `ERR_FULL` (no room now),
+    /// `ERR_NO_MEMORY` (neither the request nor its answer can be kept now):
+    /// in each the caller keeps the command and applies it again.
     pub(crate) fn apply(
         &self,
         owner: u64,
-        command: ImageCommand,
+        command: &ImageCommand,
         roots: &dyn ImageRoots,
     ) -> Result<(), i32> {
         match command {
-            ImageCommand::Release { image } => match self.release(owner, image) {
-                Err(paperpaw_native::host_glue::ERR_BUSY) => {
-                    Err(paperpaw_native::host_glue::ERR_BUSY)
-                }
+            ImageCommand::Release { image } => match self.release(owner, *image) {
+                Err(ERR_BUSY) => Err(ERR_BUSY),
                 _ => Ok(()),
             },
             ImageCommand::Prepare {
@@ -167,18 +154,15 @@ impl ImageTable {
                 cookie,
                 colour,
             } => {
-                let side = side.min(MAX_SIDE);
-                let queued = roots
-                    .resolve(owner, root, &path)
-                    .and_then(|source| self.prepare(owner, &source, side, cookie, colour));
-                match queued {
-                    Ok(()) => Ok(()),
-                    Err(ERR_NO_MEMORY) => self.refuse(owner, cookie, prepare::NO_MEMORY),
-                    Err(paperpaw_native::host_glue::ERR_BUSY) => {
-                        Err(paperpaw_native::host_glue::ERR_BUSY)
-                    }
-                    Err(ERR_FULL) => Err(ERR_FULL),
-                    Err(_) => self.refuse(owner, cookie, prepare::CARD),
+                let side = (*side).min(MAX_SIDE);
+                let source = match roots.resolve(owner, *root, path) {
+                    Ok(source) => source,
+                    Err(ERR_NO_MEMORY) => return Err(ERR_NO_MEMORY),
+                    Err(_) => return self.refuse(owner, *cookie, prepare::CARD),
+                };
+                match self.prepare(owner, &source, side, *cookie, *colour) {
+                    Err(ERR_NO_MEMORY) => self.refuse(owner, *cookie, prepare::NO_MEMORY),
+                    other => other,
                 }
             }
         }

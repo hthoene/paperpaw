@@ -15,12 +15,16 @@
 //! at `image_release`; with all eight protected the ninth is `ERR_BUSY`.
 //! Prepared images have their own eight (`ERR_FULL`) and are never evicted.
 //!
-//! **Drawing** takes no heap of its own beyond the band drawer's row buffers
-//! of the picture's width (a picture is at most [`MAX_SIDE`] pixels a side):
-//! the file is read row by row from the card by the SDK's band drawer
-//! (`paperpaw_sdk::ui::draw_image_over`), clipped by the canvas. A picture that
-//! the card no longer holds is `ERR_IO` (nothing drawn); a file whose header
-//! does not say the stated size is `ERR_INVALID`.
+//! **Drawing** reads the file row by row from the card through the SDK's band
+//! drawer (`paperpaw_sdk::ui::try_draw_picture`), clipped by the canvas. Its
+//! row buffers (a row chunk of 8 KiB and about 6 bytes a source pixel row and
+//! 9 a destination column, so some 25-30 KiB at 1,600 pixels) are taken
+//! fallibly before the first band and freed on return: no room is
+//! `ERR_NO_MEMORY` with nothing drawn. The file's size must be what its header
+//! says (checked without allocating): else `ERR_IO`, nothing drawn; a header
+//! that does not say the stated size is `ERR_INVALID`; a card that stops
+//! reading mid-draw is `ERR_IO` with the bands before it drawn. A draw that
+//! failed is not a draw (the id is not marked drawn).
 //!
 //! Flags: bit 0 fill and crop, bit 1 small (not counted towards the e-paper
 //! ghost full refresh), bits 8 to 15 transparency (255 minus the opacity); an
@@ -37,6 +41,8 @@ use paperpaw_native::host_glue::{
 };
 use paperpaw_platform::{Rect, Storage};
 
+/// Image ids the device holds at all (`document.md` 8.2).
+pub(crate) const DEVICE_IMAGES: usize = 64;
 /// Document image ids a plugin holds at once, and prepared ones.
 pub(crate) const DOC_IMAGES: usize = 8;
 pub(crate) const PREPARED_IMAGES: usize = 8;
@@ -46,14 +52,35 @@ pub(crate) const MAX_SIDE: u32 = 4096;
 /// The longest cache path.
 pub(crate) const PATH_MAX: usize = 512;
 
-/// A cache path of root 2 (`document.md` 5): relative, no `..`, `\`, NUL,
-/// empty segments or leading `/`, and not the host's `.complete` or `.host/`.
+/// Whether `name` is `reserved` or its FAT 8.3 alias (`HOST~1`: the name
+/// without its dot, six characters at most, `~` and a number), in any case.
+fn is_reserved(name: &str, reserved: &str) -> bool {
+    if name.eq_ignore_ascii_case(reserved) {
+        return true;
+    }
+    let stem: alloc::string::String = reserved
+        .trim_start_matches('.')
+        .chars()
+        .take(6)
+        .map(|c| c.to_ascii_uppercase())
+        .collect();
+    let upper = name.to_ascii_uppercase();
+    upper
+        .strip_prefix(&stem)
+        .and_then(|rest| rest.strip_prefix('~'))
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// A cache path of root 6 (`document.md` 5): the storage grammar (relative,
+/// no `.` or `..` segment, `\`, `:`, control characters, empty segments,
+/// names FAT or Windows take for another), and not the host's `.complete`
+/// stamp or anything below `.host/`, by any spelling FAT reads as them.
 fn cache_path_ok(path: &str) -> bool {
-    !path.is_empty()
-        && !path.contains(['\\', '\0'])
-        && path.split('/').all(|part| !part.is_empty() && part != "..")
-        && path != ".complete"
-        && path.split('/').next() != Some(".host")
+    if !paperpaw_platform::storage::is_valid_path(path) {
+        return false;
+    }
+    let first = path.split('/').next().unwrap_or_default();
+    !is_reserved(first, ".host") && !is_reserved(first, ".complete")
 }
 
 /// `canvas.draw_image` flags.
@@ -78,7 +105,12 @@ struct Entry {
     id: u32,
     owner: u64,
     origin: Origin,
+    /// A document image's cache file (the root and the format's path); empty
+    /// for a prepared one, whose file is named by `owner` and `seq`
+    /// ([`prepare::file_name`]), so it keeps no path.
     path: String,
+    /// The number in a prepared image's file name.
+    seq: u32,
     width: u32,
     height: u32,
     colour: bool,
@@ -98,7 +130,7 @@ struct Inner {
     waiting: Vec<prepare::Waiting>,
     /// Cache files of prepared images that ended, to delete; room is reserved
     /// when a prepared image is made, so ending one never allocates.
-    garbage: Vec<String>,
+    garbage: Vec<(u64, u32)>,
     /// Names the cache files of prepared images.
     seq: u32,
     /// `event.image_ready` told to no plugin yet, oldest first; room is
@@ -109,8 +141,10 @@ struct Inner {
 impl Inner {
     /// A prepared image ended: its cache file is to be deleted.
     fn retire(&mut self, entry: Entry) {
-        if entry.origin == Origin::Prepared && self.garbage.len() < self.garbage.capacity() {
-            self.garbage.push(entry.path);
+        if entry.origin == Origin::Prepared {
+            // Room was reserved when the image was made (`add`): the list
+            // never holds fewer free places than there are live images.
+            self.garbage.push((entry.owner, entry.seq));
         }
     }
 }
@@ -131,6 +165,16 @@ pub(crate) struct Info {
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) flags: u32,
+}
+
+/// The slot's status for a drawing failure.
+fn draw_status(error: paperpaw_sdk::image::ImageError) -> i32 {
+    use paperpaw_sdk::image::ImageError;
+    match error {
+        ImageError::OutOfMemory => ERR_NO_MEMORY,
+        ImageError::Invalid(_) => ERR_INVALID,
+        _ => ERR_IO,
+    }
 }
 
 impl Default for ImageTable {
@@ -193,9 +237,40 @@ impl ImageTable {
         height: u32,
         colour: bool,
     ) -> Result<u32, i32> {
+        self.add_entry(owner, origin, path, 0, width, height, colour)
+    }
+
+    /// A prepared image: its file is the one named by `owner` and `seq`
+    /// ([`prepare::file_name`]); no path is kept.
+    ///
+    /// # Errors
+    /// As [`ImageTable::add`].
+    pub(crate) fn add_prepared(
+        &self,
+        owner: u64,
+        seq: u32,
+        width: u32,
+        height: u32,
+        colour: bool,
+    ) -> Result<u32, i32> {
+        self.add_entry(owner, Origin::Prepared, "", seq, width, height, colour)
+    }
+
+    #[allow(clippy::too_many_arguments, reason = "an entry's parts")]
+    fn add_entry(
+        &self,
+        owner: u64,
+        origin: Origin,
+        path: &str,
+        seq: u32,
+        width: u32,
+        height: u32,
+        colour: bool,
+    ) -> Result<u32, i32> {
+        let prepared = origin == Origin::Prepared;
         if !(1..=MAX_SIDE).contains(&width)
             || !(1..=MAX_SIDE).contains(&height)
-            || path.is_empty()
+            || (path.is_empty() && !prepared)
             || path.len() > PATH_MAX
         {
             return Err(ERR_INVALID);
@@ -236,6 +311,11 @@ impl ImageTable {
             }
             _ => {}
         }
+        // The device holds 64 ids at all (a plugin that is under its own cap
+        // waits or is told it is full): only a new entry grows the table.
+        if evict.is_none() && inner.entries.len() >= DEVICE_IMAGES {
+            return Err(if prepared { ERR_FULL } else { ERR_BUSY });
+        }
         // Everything that can fail comes before the first change.
         let id = inner.next_id.checked_add(1).ok_or(ERR_NO_SPACE)?;
         let mut owned = String::new();
@@ -247,20 +327,25 @@ impl ImageTable {
             inner.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         }
         if origin == Origin::Prepared {
-            // Every prepared image that exists can end into the garbage list.
+            // Every prepared image that exists (all plugins') can end into
+            // the garbage list: room for its files and this one's, over what
+            // is listed already (`try_reserve` counts from the length).
             let live = inner
                 .entries
                 .iter()
                 .filter(|e| e.origin == Origin::Prepared)
                 .count();
-            let want = (live + 1).saturating_sub(inner.garbage.capacity() - inner.garbage.len());
-            inner.garbage.try_reserve(want).map_err(|_| ERR_NO_MEMORY)?;
+            inner
+                .garbage
+                .try_reserve(live + 1)
+                .map_err(|_| ERR_NO_MEMORY)?;
         }
         let entry = Entry {
             id,
             owner,
             origin,
             path: owned,
+            seq,
             width,
             height,
             colour,
@@ -310,17 +395,17 @@ impl ImageTable {
         full.push('/');
         full.push_str(path);
         // Downloaded input: the header must say what the format says.
-        let Some(decoded) = paperpaw_sdk::image::Decoded::peek(storage, &full) else {
+        let Some((kind, width, height)) = paperpaw_sdk::ui::probe_picture(storage, &full) else {
             return Ok(None);
         };
-        if decoded.size() != (image.width, image.height) {
+        if (width, height) != (image.width, image.height) {
             return Ok(None);
         }
         let origin = Origin::Document {
             document,
             index: image.index,
         };
-        let colour = matches!(decoded, paperpaw_sdk::image::Decoded::Color(_));
+        let colour = kind == paperpaw_sdk::ui::PictureKind::Color;
         match self.add(owner, origin, &full, image.width, image.height, colour) {
             Ok(id) => Ok(Some(id)),
             Err(ERR_INVALID) => Ok(None),
@@ -368,6 +453,8 @@ impl ImageTable {
             .position(|e| e.id == id && e.owner == owner)
             .ok_or(ERR_NOT_FOUND)?;
         let gone = inner.entries.remove(at);
+        // An answer not told yet for an image that is gone is of no use.
+        inner.ready.retain(|r| !(r.owner == owner && r.image == id));
         inner.retire(gone);
         Ok(())
     }
@@ -426,16 +513,17 @@ impl ImageTable {
         Ok(())
     }
 
-    /// The plugin's draw callback ended. If it drew a picture in it, the ids
-    /// it handed out and did not use are no longer protected.
+    /// The plugin's draw callback ended: the ids it handed out and did not
+    /// use in it are no longer protected.
     ///
     /// # Errors
     /// `ERR_BUSY`: the frame's end is not lost, a retry applies it.
     pub(crate) fn end_frame(&self, owner: u64) -> Result<(), i32> {
         let mut inner = self.lock()?;
-        let drew = inner.entries.iter().any(|e| e.owner == owner && e.used_now);
         for e in inner.entries.iter_mut().filter(|e| e.owner == owner) {
-            if drew && !e.used_now {
+            // The frame did not use it (a text-only frame too): an abandoned
+            // page or a prefetch never pins an id.
+            if !e.used_now {
                 e.protected = false;
             }
             e.used_now = false;
@@ -476,17 +564,21 @@ impl ImageTable {
                 .iter()
                 .find(|e| e.id == id && e.owner == owner)
                 .ok_or(ERR_NOT_FOUND)?;
-            let mut path = String::new();
-            path.try_reserve_exact(e.path.len())
-                .map_err(|_| ERR_NO_MEMORY)?;
-            path.push_str(&e.path);
+            let path = match e.origin {
+                Origin::Prepared => prepare::file_name(e.owner, e.seq)?,
+                Origin::Document { .. } => {
+                    let mut path = String::new();
+                    path.try_reserve_exact(e.path.len())
+                        .map_err(|_| ERR_NO_MEMORY)?;
+                    path.push_str(&e.path);
+                    path
+                }
+            };
             (path, e.width, e.height)
         };
         // The file is the card's, downloaded input: its header must say what
         // the id says, and it must be readable now.
-        let (fw, fh) = paperpaw_sdk::image::Decoded::peek(storage, &path)
-            .ok_or(ERR_IO)?
-            .size();
+        let (kind, fw, fh) = paperpaw_sdk::ui::probe_picture(storage, &path).ok_or(ERR_IO)?;
         if (fw, fh) != (w, h) {
             return Err(ERR_INVALID);
         }
@@ -497,20 +589,25 @@ impl ImageTable {
             // Nothing of the rectangle is on the canvas; still a draw.
             return self.drawn(owner, id);
         };
-        let image = paperpaw_sdk::document::ImageRef {
-            path,
+        let picture = paperpaw_sdk::ui::Picture {
+            path: &path,
+            kind,
             width: w,
             height: h,
         };
         let mut child = canvas.clipped(visible).offset(place.left, place.top);
         let area = Rect::new(0, 0, place.width, place.height);
+        let mut drawn = Ok(());
         if flags & SMALL != 0 {
             child.small_pictures(|child| {
-                paperpaw_sdk::ui::draw_image_over(child, storage, &image, area, opacity);
+                drawn = paperpaw_sdk::ui::try_draw_picture(child, storage, &picture, area, opacity);
             });
         } else {
-            paperpaw_sdk::ui::draw_image_over(&mut child, storage, &image, area, opacity);
+            drawn =
+                paperpaw_sdk::ui::try_draw_picture(&mut child, storage, &picture, area, opacity);
         }
+        // Nothing is marked drawn for a draw that failed.
+        drawn.map_err(draw_status)?;
         self.drawn(owner, id)
     }
 
