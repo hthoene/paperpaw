@@ -222,9 +222,15 @@ impl Cache for Lru {
             last_used: clock,
         };
         if self.anchored.len() < ANCHORED {
-            // At once the room for all: no doubling past it.
-            self.anchored.reserve_exact(ANCHORED - self.anchored.len());
-            self.anchored.push(entry);
+            // At once the room for all: no doubling past it. Where the heap
+            // refuses, the anchors are answered and not kept.
+            if self
+                .anchored
+                .try_reserve_exact(ANCHORED - self.anchored.len())
+                .is_ok()
+            {
+                self.anchored.push(entry);
+            }
         } else if let Some(oldest) = self
             .anchored
             .iter_mut()
@@ -291,6 +297,9 @@ impl Lru {
             None => {
                 let glyph = rasterize(f32::from(key.size) / 4.0)?;
                 self.shrink_to(self.capacity.saturating_sub(glyph.byte_size()));
+                // Room for the entry before it is counted: where the heap
+                // refuses, the glyph is not kept and reads as not read now.
+                self.entries.try_reserve(1).ok()?;
                 self.bytes += glyph.byte_size();
                 self.entries.push(Entry {
                     key,
