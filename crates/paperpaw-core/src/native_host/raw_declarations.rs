@@ -389,6 +389,8 @@ fn growth(current: [usize; 2], needed: [usize; 2], budget: usize) -> Result<[usi
         base[i] + (desired[i] - base[i]) * spare / expansion
     }))
 }
+// Only these six kinds have individual count caps. Screen/action entries
+// share the aggregate index_cost budget and use no per-kind raw vectors.
 fn counts(batch: &RecordBatch<'_>) -> [usize; 6] {
     let mut counts = [0; 6];
     for record in batch.iter() {

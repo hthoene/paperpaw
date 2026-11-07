@@ -184,6 +184,7 @@ fn sleep_until(deadline: Instant) -> bool {
     low_power.sleep_light(RtcSleepConfig::default());
     critical_section::with(|cs| LOW_POWER.replace(cs, Some(low_power)));
     mark(at::WOKEN);
+    crate::stack::arm_band();
     count_nap();
     crate::input::sample_now();
     mark(at::BUTTONS_READ);
@@ -206,6 +207,7 @@ pub fn sleep_asleep(until_ms: u64) -> bool {
     low_power.clear_wakeup_deadline();
     critical_section::with(|cs| LOW_POWER.replace(cs, Some(low_power)));
     mark(at::WOKEN);
+    crate::stack::arm_band();
     count_nap();
     down
 }

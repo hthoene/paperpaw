@@ -1,4 +1,4 @@
-//! Registry-free syntactic validation of declaration records (tags 5-10).
+//! Registry-free syntactic validation of declaration records (tags 5-18).
 //!
 //! Every function checks one record, or one whole batch, without allocating and
 //! without looking at any registry. Cross-record rules (uniqueness, references
@@ -8,7 +8,8 @@
 //! enforced by the codec (`ERR_UTF8`, `ERR_NO_SPACE`).
 
 use super::registrations::{
-    ActionSpec, Record, RecordBatch, ResourceFontExtension, ResourceFontFace, ResourceHyphenation,
+    ActionSpec, ICON_SPEC_ICON_MAX_BYTES, IconSpec, MenuDescribe, MenuEntry, MenuHide, MenuNeed,
+    MenuSection, Record, RecordBatch, ResourceFontExtension, ResourceFontFace, ResourceHyphenation,
     SETTING_SPEC_CHOICES_ITEM_MAX_BYTES, SETTING_SPEC_CHOICES_MAX_ITEMS,
     SETTING_SPEC_CHOICES_SEPARATOR, ScreenSpec, SettingExtra, SettingGroup, SettingSpec,
 };
@@ -72,6 +73,16 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         Record::ResourceFontExtension(extension) => extension_check(plugin_id, extension),
         Record::ScreenSpec(screen) => screen_check(plugin_id, screen),
         Record::ActionSpec(action) => action_check(plugin_id, action),
+        // Checked, then refused until the host's menus and icons take them
+        // (`docs/abi/screens-input.md` section 1): never accepted and dropped.
+        Record::MenuEntry(entry) => menu_entry_check(entry).and(Err(ERR_UNSUPPORTED)),
+        Record::IconSpec(icon) => icon_check(icon).and(Err(ERR_UNSUPPORTED)),
+        Record::MenuNeed(need) => need_check(need).and(Err(ERR_UNSUPPORTED)),
+        Record::MenuSection(section) => section_check(plugin_id, section).and(Err(ERR_UNSUPPORTED)),
+        Record::MenuHide(hide) => hide_check(hide).and(Err(ERR_UNSUPPORTED)),
+        Record::MenuDescribe(describe) => {
+            describe_check(plugin_id, describe).and(Err(ERR_UNSUPPORTED))
+        }
         Record::Registration(_) => Ok(()),
         // Events flow from the host to the plugin; a batch never carries one.
         Record::EventStarted(_)
@@ -355,3 +366,162 @@ fn action_check(plugin_id: &str, action: &ActionSpec<'_>) -> Check {
     }
     Ok(())
 }
+
+/// `menu.entry` places: by `order`, after/before another entry, in a section,
+/// first, last. `anchor` names the entry or section for 1-3 and is empty else.
+/// A place this host does not know is accepted and the entry is not shown, so a
+/// plugin built for a later host still loads (as in interface 6).
+pub const MENU_PLACE_ORDER: u32 = 0;
+/// After the entry `anchor` (a full id).
+pub const MENU_PLACE_AFTER: u32 = 1;
+/// Before the entry `anchor` (a full id).
+pub const MENU_PLACE_BEFORE: u32 = 2;
+/// In the section `anchor` (a full id, a `menu.section`).
+pub const MENU_PLACE_IN_SECTION: u32 = 3;
+/// First in the menu.
+pub const MENU_PLACE_FIRST: u32 = 4;
+/// Last in the menu.
+pub const MENU_PLACE_LAST: u32 = 5;
+
+/// An item of a menu record: a full id, `<plugin>.<name>`. Its first segment
+/// names the owning plugin; the caller's own items must resolve at commit,
+/// another plugin's may come later (load order).
+fn item_id(id: &str) -> Check {
+    full_id(id)?;
+    ensure(id.contains('.'))
+}
+
+/// The syntax of one `menu.entry`; whether `item` and `anchor` resolve is the
+/// commit's.
+pub(crate) fn menu_entry_check(entry: &MenuEntry<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let MenuEntry {
+        menu,
+        item,
+        order,
+        place,
+        anchor,
+    } = entry;
+    item_id(menu)?;
+    item_id(item)?;
+    ensure(i16::try_from(*order).is_ok())?;
+    match *place {
+        MENU_PLACE_AFTER | MENU_PLACE_BEFORE | MENU_PLACE_IN_SECTION => item_id(anchor),
+        MENU_PLACE_ORDER | MENU_PLACE_FIRST | MENU_PLACE_LAST => ensure(anchor.is_empty()),
+        // A later place: kept and not shown; its anchor still has the syntax.
+        _ => optional_item_id(anchor),
+    }
+}
+
+fn optional_item_id(id: &str) -> Check {
+    if id.is_empty() { Ok(()) } else { item_id(id) }
+}
+
+/// The syntax of one `icon.spec`: an icon name is one `[a-z0-9-]` segment. A
+/// name the host's icon set lacks is not an error (the entry shows no icon).
+/// Any item may get one (an icon theme); the last loaded plugin's wins.
+pub(crate) fn icon_check(icon: &IconSpec<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let IconSpec { item, icon } = icon;
+    item_id(item)?;
+    ensure(
+        !icon.is_empty()
+            && icon.len() <= ICON_SPEC_ICON_MAX_BYTES
+            && icon.bytes().all(is_name_byte),
+    )
+}
+
+/// `menu.need` values: what a device must have for the item to be offered,
+/// in the order of the SDK's `MenuNeed` (`docs/abi/screens-input.md` section 1).
+/// A need this host does not know is accepted and not met.
+pub const MENU_NEEDS: [&str; 13] = [
+    "speech",
+    "sleep",
+    "rotation",
+    "no-touch",
+    "touch",
+    "button-row",
+    "colors",
+    "wifi",
+    "firmware",
+    "black-and-white",
+    "frontlight",
+    "bluetooth",
+    "has",
+];
+/// `menu.need` 12 (`has`): every bit of `capability` must be a capability the
+/// device has; a bit this host does not know is not met.
+pub const MENU_NEED_HAS: u32 = 12;
+
+/// The capability bits `has` names, in bit order, as the SDK's `Capability`
+/// (bit 0 first); a test keeps this list, the SDK and the contract text equal.
+pub const MENU_NEED_CAPABILITIES: [&str; 17] = [
+    "audio",
+    "warmth",
+    "charge-limit",
+    "keyboard",
+    "hot-code",
+    "page-keys",
+    "buttons",
+    "usb-link",
+    "render-hook",
+    "render-regions",
+    "look-extras",
+    "usb-drive",
+    "chords",
+    "page-turner",
+    "hotspot",
+    "pen-tilt",
+    "pen-hover",
+];
+
+/// The syntax of one `menu.need`; one need per item is the commit's rule.
+pub(crate) fn need_check(need: &MenuNeed<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let MenuNeed {
+        item,
+        need,
+        capability,
+    } = need;
+    item_id(item)?;
+    let known = usize::try_from(*need).is_ok_and(|need| need < MENU_NEEDS.len());
+    // `capability` names the bits for `has` and is 0 for every other known
+    // need; a later need may give it a meaning.
+    ensure(!known || (*need == MENU_NEED_HAS) == (*capability != 0))
+}
+
+/// The syntax of one `menu.section`: a heading of the plugin's own in any menu.
+pub(crate) fn section_check(plugin_id: &str, section: &MenuSection<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let MenuSection {
+        name,
+        title,
+        menu,
+        order,
+    } = section;
+    relative(plugin_id, name)?;
+    ensure(!title.is_empty())?;
+    item_id(menu)?;
+    ensure(i16::try_from(*order).is_ok())
+}
+
+/// The syntax of one `menu.hide`: any plugin's entry may be taken out.
+pub(crate) fn hide_check(hide: &MenuHide<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let MenuHide { menu, item } = hide;
+    item_id(menu)?;
+    item_id(item)
+}
+
+/// The syntax of one `menu.describe`: a line under one of the plugin's own
+/// items, by its translation key.
+pub(crate) fn describe_check(plugin_id: &str, describe: &MenuDescribe<'_>) -> Check {
+    // Every field named: a field added to the record must be checked here.
+    let MenuDescribe { item, key } = describe;
+    relative(plugin_id, item)?;
+    ensure(!key.is_empty())
+}
+
+#[cfg(test)]
+#[path = "declarations_menu_tests.rs"]
+mod menu_tests;

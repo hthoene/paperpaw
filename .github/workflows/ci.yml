@@ -245,6 +245,12 @@ jobs:
       - name: SDK interface-7 entry packs and rejects misalignment
         if: matrix.target == 'riscv32imc-unknown-none-elf'
         run: CARGO_TARGET_DIR="$PWD/target/abi7-sdk-entry" samples/abi7-sdk-entry/check.sh
+      - name: The smallest interface-7 sample packs to its committed file
+        # Built and packed by the real packer and compared with the file the
+        # tests read (crates/paperpaw-native/tests/data); it had stopped
+        # compiling unseen when only ci-local.sh built it.
+        if: matrix.target == 'riscv32imc-unknown-none-elf'
+        run: CARGO_TARGET_DIR="$PWD/target/abi7-x4-min" samples/abi7-x4-min/build.sh --check
       - name: Lint the web emulator
         # The emulator's device model and paperpaw-dev's checks, with std,
         # in a browser (shells/web); its exports exist on wasm32 only.

@@ -22,6 +22,12 @@ batch lies in the image, owned otherwise; refused at activation until the SDK vi
 | --- | --- | --- | --- |
 | 11 | `screen.spec` | `name: str` (relative), `title: str` (i18n key), `token: u32`, `flags: u32` | 96, 128 |
 | 12 | `action.spec` | `name: str` (relative), `title: str` (i18n key), `token: u32`, `flags: u32` | 96, 128 |
+| 13 | `menu.entry` | `menu: str` (full id), `item: str` (full id), `order: i32`, `place: u32`, `anchor: str` (full id or empty) | 128, 128, 128 |
+| 14 | `icon.spec` | `item: str` (full id), `icon: str` (icon name) | 128, 64 |
+| 15 | `menu.need` | `item: str` (full id), `need: u32`, `capability: u64` | 128 |
+| 16 | `menu.section` | `name: str` (relative), `title: str` (i18n key), `menu: str` (full id), `order: i32` | 96, 128, 128 |
+| 17 | `menu.hide` | `menu: str` (full id), `item: str` (full id) | 128, 128 |
+| 18 | `menu.describe` | `item: str` (relative), `key: str` (i18n key) | 96, 128 |
 
 - [D] `token` names the plugin callback state the host passes to `draw`, `input` and
   `dispatch_event` for this screen or action. Tokens are the plugin's own numbers; one token may
@@ -34,6 +40,61 @@ batch lies in the image, owned otherwise; refused at activation until the SDK vi
   and an action may share a name); checked at commit, order-independent.
 - [D] Running an action delivers `event.action_run` (tag 39) to its token through
   `dispatch_event`; the plugin answers with commands.
+- [D] **Menu items are full ids** (`<plugin>.<name>`) in `menu.entry`, `icon.spec`, `menu.need` and
+  `menu.hide`, as interface 6's `MenuEntry.item` is any `Id`: a plugin may put a core setting or
+  another plugin's action into a menu (the reader puts `NIGHT_MODE` into its own menu). The first
+  segment names the owner. An item of the calling plugin must resolve at commit to one of its
+  actions, settings, setting groups or screens (`ERR_INVALID` otherwise); another plugin's item, or a
+  menu or anchor that does not exist yet, is accepted and takes effect once it exists (plugins load
+  in any order). `menu.section` and `menu.describe` only name the plugin's own (relative) items.
+- [D] `menu.entry` puts `item` into `menu` (any plugin's menu, such as `core.tools` or `core.main`).
+  The label is the item's title. `order` must fit an `i16` (lower comes first). `place`: 0 by
+  `order`, 1 after the entry `anchor`, 2 before it, 3 last in the section `anchor` (a
+  `menu.section`), 4 first, 5 last; `anchor` is a full id for 1-3 and empty for 0, 4 and 5
+  (`ERR_INVALID`). **A place this host does not know is accepted and the entry is not shown** (a
+  plugin built for a later host still loads; interface 6 did the same); its `anchor` is empty or a
+  full id. An anchor that is not, or no longer, there places the entry by `order`. The same `menu`
+  and `item` twice in one batch is `ERR_INVALID`. Where two plugins put the same item into the same
+  menu, a placed entry (1-5) wins over one by order (it moves it), and between two of the same kind
+  the plugin loaded later wins.
+- [D] `icon.spec` gives an item an icon: one `[a-z0-9-]` segment naming an icon of the host's icon
+  set (the SDK's icon names). **Any item may get one** (an icon theme); at most one per item in a
+  batch (`ERR_INVALID`), and across plugins the one loaded later wins. A name the host's set lacks
+  is accepted and shows no icon, so hosts may carry smaller sets.
+- [D] `menu.need` offers an item only on devices that have what it needs; elsewhere it is left out
+  of menus and settings pages, also where the user listed it (except `no-touch`, which only leaves
+  it out of the menus plugins define). `need`: 0 `speech`, 1 `sleep` (the device shows the sleep
+  screen), 2 `rotation`, 3 `no-touch`, 4 `touch`, 5 `button-row` (buttons below the screen with a
+  row of hints), 6 `colors` (shows colours other than black and white), 7 `wifi`, 8 `firmware` (the
+  device can update its firmware), 9 `black-and-white`, 10 `frontlight`, 11 `bluetooth`, 12 `has`.
+  **A need this host does not know is accepted and not met** (the item is left out), so a later
+  need needs no new record. For a known need `capability` is 0 except for `has`, where it is a
+  nonzero set of capability bits the device must all have (`ERR_INVALID` otherwise): bit 0
+  `audio`, 1 `warmth`, 2 `charge-limit`, 3 `keyboard`, 4 `hot-code`, 5 `page-keys`, 6 `buttons`,
+  7 `usb-link`, 8 `render-hook`, 9 `render-regions`, 10 `look-extras`, 11 `usb-drive`, 12
+  `chords`, 13 `page-turner`, 14 `hotspot`, 15 `pen-tilt`, 16 `pen-hover`, as the SDK's
+  `Capability` (a test keeps this list, the SDK and the host's equal); a bit the host does not know
+  is not met. At most one need per item in a batch (`ERR_INVALID`).
+- [D] `menu.section` adds a heading `name` (the plugin's own; also usable in the user's menu
+  definitions as `<plugin>.<name>`) with the translated `title` to `menu` at `order` (an `i16`);
+  the entries ordered after it, up to the next heading, belong to it, and place 3 puts an entry last
+  in it. Names are unique among the plugin's sections (`ERR_INVALID`).
+- [D] `menu.hide` takes `item` out of `menu` as plugins contribute it, another plugin's entry
+  included (an entry a plugin replaces with its own); a user who lists the item in their own menu
+  keeps it, and the menu editor tells which plugin took it out. The same pair twice in a batch is
+  `ERR_INVALID`.
+- [D] `menu.describe` puts a line under one of the plugin's own items (`item`, relative) in menus,
+  by its translation key `key`. At most one per item in a batch (`ERR_INVALID`).
+- [D] An item whose label, switch, badge or availability changes while it is shown is not a
+  declaration: a later command family (`item.state`) sets it.
+- [D] Until a host's menus and icon set take them, a host refuses these six records with
+  `ERR_UNSUPPORTED` (after the syntax checks above, so a malformed record still says
+  `ERR_INVALID`); it never accepts and drops one.
+- [D] Translations need no record. A card plugin's catalogs are the files
+  `plugins/<id>/i18n/<language>.ini` beside its `code.ppn` (the same folder layout as interface 6);
+  a plugin built into the firmware brings them built in. `title` keys, `i18n.copy` (6),
+  `i18n.format` (27) and plurals resolve in the calling plugin's catalogs through the host's language
+  fallback chain, which ends in English; a key in none gives `ERR_NOT_FOUND`.
 
 ## 2. Input and screen events
 

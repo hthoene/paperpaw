@@ -61,6 +61,7 @@ static PLUGIN: Plugin = Plugin(PpPlugin {
     drop: Some(drop_plugin),
     dispatch_event: None,
     draw: None,
+    input: None,
 });
 
 /// The plugin's `drop`: nothing to free.

@@ -6,13 +6,15 @@ use super::*;
 use alloc::{vec, vec::Vec};
 use core::cell::{Cell, RefCell};
 
-const KINDS: [Kind; 6] = [
+const KINDS: [Kind; KIND_COUNT] = [
     Kind::Group,
     Kind::Spec,
     Kind::Extra,
     Kind::Hyphenation,
     Kind::Face,
     Kind::Extension,
+    Kind::Screen,
+    Kind::Action,
 ];
 struct Image {
     bytes: RefCell<Vec<u8>>,
@@ -1005,3 +1007,6 @@ fn check_busy_cleanup(fallback: bool) {
         "module actually unmapped after both releases"
     );
 }
+
+#[path = "declaration_screen_action_tests.rs"]
+mod screen_action;
