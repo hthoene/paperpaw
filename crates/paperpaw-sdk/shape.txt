@@ -1720,6 +1720,7 @@ enum paperpaw_sdk::native::commands::registry::PresetMode { Apply, Preview }
 enum paperpaw_sdk::native::commands::registry::ResetTarget<'a> { Setting(0: &'a str), Group(0: &'a str), Plugin(0: &'a str), All, Placement(0: &'a str) }
 enum paperpaw_sdk::native::declare::DeclareError { Empty(0: &'static str), TooLong(0: &'static str), Default, Range, Choices, SecretScoped, Encode(0: i32), Sink(0: i32), NoMemory }
 enum paperpaw_sdk::native::declare::EditorDecl<'a> { Screen(0: &'a str), Slot(0: &'a str) }
+enum paperpaw_sdk::native::declare::Instances { PerParams, Single, Many }
 enum paperpaw_sdk::native::declare::Kind<'a> { Bool(0: bool), Int { default: i64, min: i32, max: i32 }, Choice { default: &'a str, choices: &'a [&'a str] }, Text(0: &'a str), Language(0: &'a str), List(0: &'a str) }
 enum paperpaw_sdk::native::declare::Latched { Sink(0: i32), NoMemory, Refused(0: paperpaw_sdk::native::declare::DeclareError) }
 enum paperpaw_sdk::native::declare::callbacks::EventKind { Tick, Started, Resume, Suspend, Stopping, BatteryMeasured, PageTurned, ScreenShown, ActionRun, SettingChanged, BookOpened, BookClosed, BookFinished, BookMoved, BookRemoved, PluginsChanged, WifiChanged, PowerChanged, StatusChanged, ChargeChanged, RegistryChanged, PreviewChanged, PluginsRequested, PluginAnswered, StackChanged, ScreenReady }

@@ -16,6 +16,13 @@ pub mod registration_scope;
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
 
+#[path = "native_host/ui_guard.rs"]
+#[allow(
+    dead_code,
+    reason = "consumers are the UIX stack applier and the core.ui ops"
+)]
+pub(crate) mod ui_guard;
+
 #[path = "native_host/shared.rs"]
 mod shared;
 
@@ -40,6 +47,8 @@ pub(crate) mod format_call;
 pub(crate) mod format_index;
 #[path = "native_host/formatting.rs"]
 mod formatting;
+#[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
+pub(crate) mod lookup_service;
 mod service_slots;
 #[allow(
     dead_code,

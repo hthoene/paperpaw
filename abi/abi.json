@@ -13796,9 +13796,12 @@
           "max_input": 4096,
           "max_reply": 4096,
           "name": "can_delete",
+          "paged": false,
           "reply": [
-            "service.lib_result"
+            "service.lib_result",
+            "service.end"
           ],
+          "reply_rows": 7,
           "since": 0
         },
         {
@@ -13812,9 +13815,12 @@
           "max_input": 4096,
           "max_reply": 4096,
           "name": "delete",
+          "paged": false,
           "reply": [
-            "service.lib_result"
+            "service.lib_result",
+            "service.end"
           ],
+          "reply_rows": 7,
           "since": 0
         },
         {

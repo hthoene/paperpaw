@@ -140,6 +140,13 @@ impl DocumentTable {
         flags: u32,
     ) -> Result<u32, i32> {
         let mut rows = self.rows()?;
+        // TODO(#228, Senior #1110): on the X4 the reading plugin's `open` must
+        // evict a background opener's document instead of refusing with
+        // `ERR_FULL`; that document is closed with reason 4 `needed` (each
+        // opener hears `event.document_closed`, the format is told to close).
+        // Waits for Kernel's draft-20 contract and records (reason 4); the
+        // ignored test `x4_reading_open_evicts_a_background_document_with_reason_needed`
+        // in `tests.rs` marks the expected behaviour.
         if rows.len() >= self.limits.device
             || rows.iter().filter(|d| d.owner == owner).count() >= self.limits.per_owner()
         {
@@ -282,6 +289,15 @@ impl DocumentTable {
         mut ended: impl FnMut(&Document),
     ) -> usize {
         let mut count = 0;
+        // Every document of the format, also one the host closed earlier (three
+        // malformed answers), never reaches the stopped format again.
+        match self.documents.try_borrow_mut() {
+            Ok(mut rows) => rows
+                .iter_mut()
+                .filter(|d| d.format == format)
+                .for_each(|d| d.format_gone = true),
+            Err(_) => return 0,
+        }
         loop {
             let document = {
                 let Ok(mut rows) = self.documents.try_borrow_mut() else {
