@@ -151,6 +151,8 @@ pub enum Event<'a> {
         old: Option<super::settings::SettingValue<'a>>,
     },
     /// A book session edge with the host-stamped reading position.
+    /// Reason 0 is an ordinary open/close or a finished book. Reason 1 is a
+    /// restored open or a sleep/shutdown close. Reserved reasons become 0.
     Book {
         kind: BookKind,
         reason: u32,
