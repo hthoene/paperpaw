@@ -57,6 +57,54 @@ pub(crate) fn step(day: i32, step: Step) -> i32 {
     }
 }
 
+/// A key that moves the chosen day.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Key {
+    Left,
+    Previous,
+    Right,
+    Next,
+    Up,
+    Down,
+    PreviousPage,
+    NextPage,
+}
+
+/// What a key does, as in interface 6: left and previous a day back, right
+/// and next a day on, up and down a week, the page keys a month.
+pub(crate) const fn key_step(key: Key) -> Step {
+    match key {
+        Key::Left | Key::Previous => Step::DayBack,
+        Key::Right | Key::Next => Step::DayForward,
+        Key::Up => Step::WeekBack,
+        Key::Down => Step::WeekForward,
+        Key::PreviousPage => Step::MonthBack,
+        Key::NextPage => Step::MonthForward,
+    }
+}
+
+/// A swipe across the calendar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Swipe {
+    Left,
+    Right,
+}
+
+/// A swipe turns the month like a page: left to the next, right to the
+/// previous.
+pub(crate) const fn swipe_step(swipe: Swipe) -> Step {
+    match swipe {
+        Swipe::Left => Step::MonthForward,
+        Swipe::Right => Step::MonthBack,
+    }
+}
+
+/// The day a tap on `tapped` chooses: one of the month shown; a day of the
+/// weeks around it (another month) is ignored.
+pub(crate) fn tap_day(chosen: i32, tapped: i32) -> Option<i32> {
+    (month_of(tapped) == month_of(chosen)).then_some(tapped)
+}
+
 /// The first day shown: the start of the week the month of `day` begins in;
 /// `week_start` is the first day of the week, 0 being Sunday.
 pub(crate) fn first_shown(day: i32, week_start: u8) -> i32 {
@@ -201,7 +249,7 @@ pub(crate) fn detail(
         }
         pages.push((stat.book, stat.page));
         match known.and_then(|at| per_book.get_mut(at)) {
-            Some((_, s, _)) => *s += u32::from(stat.duration),
+            Some((_, s, _)) => *s = s.saturating_add(u32::from(stat.duration)),
             None => per_book.push((stat.book, u32::from(stat.duration), seen)),
         }
     });

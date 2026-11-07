@@ -321,7 +321,7 @@ mod overview_and_calendar {
     }
 
     fn day_of(year: i32, month: u8, d: u8) -> i32 {
-        (0..30_000)
+        (0..60_000)
             .find(|&n| {
                 let t = texts::date_of(n);
                 (t.year, t.month, t.day) == (year, month, d)
@@ -536,6 +536,162 @@ mod overview_and_calendar {
         assert_eq!(note(Some(TODAY)).as_deref(), Some("2 days in a row"));
         assert_eq!(note(Some(TODAY - 5)), None);
         assert_eq!(note(None), None);
+    }
+
+    #[test]
+    fn keys_swipes_and_taps_move_the_chosen_day_as_in_interface_6() {
+        use cal::{Key, Swipe};
+        let d = day_of(2026, 10, 14);
+        let to = |key| cal::step(d, cal::key_step(key));
+        assert_eq!(to(Key::Left), d - 1);
+        assert_eq!(to(Key::Previous), d - 1);
+        assert_eq!(to(Key::Right), d + 1);
+        assert_eq!(to(Key::Next), d + 1);
+        assert_eq!(to(Key::Up), d - 7);
+        assert_eq!(to(Key::Down), d + 7);
+        assert_eq!(to(Key::PreviousPage), day_of(2026, 9, 1));
+        assert_eq!(to(Key::NextPage), day_of(2026, 11, 1));
+        assert_eq!(
+            cal::step(d, cal::swipe_step(Swipe::Left)),
+            day_of(2026, 11, 1)
+        );
+        assert_eq!(
+            cal::step(d, cal::swipe_step(Swipe::Right)),
+            day_of(2026, 9, 1)
+        );
+        // A tap on a day of the month chooses it; on another month's day
+        // (shown in the weeks around) it does nothing.
+        assert_eq!(
+            cal::tap_day(d, day_of(2026, 10, 20)),
+            Some(day_of(2026, 10, 20))
+        );
+        assert_eq!(cal::tap_day(d, d), Some(d));
+        assert_eq!(cal::tap_day(d, day_of(2026, 9, 28)), None);
+        assert_eq!(cal::tap_day(d, day_of(2026, 11, 2)), None);
+        // The same month of another year is another month.
+        assert_eq!(cal::tap_day(d, day_of(2025, 10, 14)), None);
+    }
+
+    #[test]
+    fn leap_years_have_a_february_29() {
+        let feb29 = day_of(2024, 2, 29);
+        assert_eq!(texts::date_of(feb29).day, 29);
+        assert_eq!(cal::next_month(feb29), day_of(2024, 3, 1));
+        assert_eq!(cal::previous_month(feb29), day_of(2024, 1, 1));
+        assert_eq!(cal::next_month(day_of(2024, 1, 31)), day_of(2024, 2, 1));
+        assert_eq!(cal::previous_month(day_of(2024, 3, 31)), day_of(2024, 2, 1));
+        // 2023 has none: February ends on the 28th.
+        assert_eq!(cal::next_month(day_of(2023, 2, 28)), day_of(2023, 3, 1));
+        assert_eq!(texts::date_of(day_of(2023, 3, 1) - 1).day, 28);
+        // 2024-02-01 is a Thursday: the grid starts on a Monday 4 days before.
+        assert_eq!(cal::first_shown(feb29, 1), day_of(2024, 1, 29));
+        assert_eq!(cal::month_of(feb29), (2024, 2));
+        // 1900 and 2100 are not leap years, 2000 is.
+        assert_eq!(texts::date_of(day_of(2000, 3, 1) - 1).day, 29);
+        assert_eq!(texts::date_of(day_of(2100, 3, 1) - 1).day, 28);
+    }
+
+    /// The day of a stay at `second` of local day `day` in a zone.
+    fn log_at(storage: &MemoryStorage, unix: u32, book: u16, page: u32, duration: u16) {
+        store::append(
+            storage,
+            PageStat {
+                book,
+                page,
+                start: unix,
+                duration,
+                pages: 100,
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_zone_and_summer_time_decide_which_day_a_stay_is_on() {
+        // Berlin: +1 h, and +2 h from 2026-03-29 01:00 UTC.
+        let change = 1_774_746_000u32;
+        let berlin = move |unix: u32| {
+            let offset = if unix >= change { 7_200 } else { 3_600 };
+            ((i64::from(unix) + offset).div_euclid(86_400)) as i32
+        };
+        let day = berlin(change);
+        // 23:30 UTC on the 28th is 00:30 on the 29th in winter time; 22:30 UTC
+        // on the 29th is 00:30 on the 30th in summer time.
+        let (a, b) = (change - 5_400, change + 77_400);
+        assert_eq!((utc_day(a), utc_day(b)), (day - 1, day));
+        assert_eq!((berlin(a), berlin(b)), (day, day + 1));
+        let storage = MemoryStorage::new();
+        log_at(&storage, a, 1, 1, 30);
+        log_at(&storage, b, 1, 2, 50);
+        assert_eq!(over::distinct_pages(&storage, day - 1, berlin).unwrap(), 0);
+        assert_eq!(over::distinct_pages(&storage, day, berlin).unwrap(), 1);
+        assert_eq!(over::distinct_pages(&storage, day + 1, berlin).unwrap(), 1);
+        let books = alloc::vec![book(1, "First", "", 0, 100)];
+        let days = alloc::vec![day_row(day, 30), day_row(day + 1, 50)];
+        let first = cal::detail(&storage, &books, &days, day, berlin).unwrap();
+        assert_eq!((first.seconds, first.pages), (30, 1));
+        let second = cal::detail(&storage, &books, &days, day + 1, berlin).unwrap();
+        assert_eq!((second.seconds, second.pages), (50, 1));
+        assert_eq!(
+            cal::detail(&storage, &books, &days, day - 1, berlin).unwrap(),
+            cal::Detail::default()
+        );
+        // Read as UTC the stays are on the days before.
+        let utc_days = alloc::vec![day_row(day - 1, 30), day_row(day, 50)];
+        let utc = cal::detail(&storage, &books, &utc_days, day, utc_day).unwrap();
+        assert_eq!(utc.seconds, 50);
+    }
+
+    fn day_row(day: i32, seconds: u32) -> Day {
+        Day {
+            day,
+            seconds,
+            stays: 1,
+        }
+    }
+
+    #[test]
+    fn equal_times_and_equal_pages_keep_a_stable_answer() {
+        let storage = MemoryStorage::new();
+        let start = (TODAY as u32) * 86_400 + 8 * 3_600;
+        // Three books with the same time, met in the order 3, 1, 2; and the
+        // same page of a book logged twice at the very same second.
+        log_at(&storage, start, 3, 1, 60);
+        log_at(&storage, start + 100, 1, 1, 60);
+        log_at(&storage, start + 200, 2, 1, 60);
+        log_at(&storage, start + 200, 2, 1, 60);
+        log_at(&storage, start + 300, 4, 1, 5);
+        let books = alloc::vec![
+            book(1, "A", "", 0, 100),
+            book(2, "B", "", 0, 100),
+            book(3, "C", "", 0, 100),
+            book(4, "D", "", 0, 100),
+        ];
+        let days = alloc::vec![day_row(TODAY, 245)];
+        let detail = cal::detail(&storage, &books, &days, TODAY, utc_day).unwrap();
+        // B has two stays (120 s) and leads; the others tie at 60 s and come
+        // in the order they were first read; D (5 s) is cut at three books.
+        let titles: Vec<&str> = detail.books.iter().map(|(t, _)| t.as_str()).collect();
+        assert_eq!(titles, ["B", "C", "A"]);
+        // Four distinct pages (book, page) in all, the doubled one once.
+        assert_eq!(detail.pages, 4);
+        assert_eq!(over::distinct_pages(&storage, TODAY, utc_day).unwrap(), 4);
+    }
+
+    #[test]
+    fn a_day_of_very_long_reading_does_not_overflow() {
+        let storage = MemoryStorage::new();
+        let start = (TODAY as u32) * 86_400;
+        for n in 0..3 {
+            log_at(&storage, start + n * 70_000, 1, n + 1, u16::MAX);
+        }
+        let books = alloc::vec![book(1, "A", "", 0, 100)];
+        let days = alloc::vec![day_row(TODAY, 3 * 65_535)];
+        let mut detail = cal::detail(&storage, &books, &days, TODAY, utc_day).unwrap();
+        assert!(detail.books.len() <= 1);
+        // The words say it too.
+        detail.seconds = u32::MAX;
+        assert!(cal::day_text(&mut words("en"), TODAY, &detail).is_ok());
     }
 
     #[test]
