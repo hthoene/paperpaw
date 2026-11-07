@@ -1,13 +1,14 @@
-//! Host side of the service `core.ui` (`docs/abi/ui.md` 6): the hand-over ops
-//! 16 `handover` and 17 `params` and the text ops 9 `text_write` and 10
-//! `text_read`, over the one [`UiStore`]. The other ops answer `ERR_UNSUPPORTED`
-//! until their handlers land.
+//! Host side of the service `core.ui` (`docs/abi/ui.md` 6): the questions and
+//! answers (ops 8 `ask`, 2 `question`, 11 `answer`), the hand-over ops 16
+//! `handover` and 17 `params` and the text ops 9 `text_write` and 10
+//! `text_read`, over the one [`UiStore`]. The other ops answer
+//! `ERR_UNSUPPORTED` until their handlers land.
 //!
 //! The shell wires the [`UiStore`] once; the callback epoch, the host-resolved
-//! calling instance and the stack come from each call's `Frame`. A family
-//! without the store answers `ERR_UNSUPPORTED`; the X4 profile wires nothing yet. Texts and params may be
-//! secret: they are never in a `Debug` or a log, and the buffers that held a
-//! text are wiped.
+//! calling instance, the stack and the X4 flag come from each call's `Frame`.
+//! A family without the store answers `ERR_UNSUPPORTED`. Texts and params may
+//! be secret: they are never in a `Debug` or a log, and the buffers that held
+//! a text are wiped.
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
@@ -143,8 +144,11 @@ fn ask(
         admission.cancels_asker_request,
     )?;
     if let Some(dialog) = cancelled.and_then(|c| c.dialog) {
-        // Queued, no plugin code runs; at most 4 requests cannot fill the
-        // queue of 16, so a refusal here is a stale stack and changes nothing.
+        // Queued, no plugin code runs. The request is cancelled already and
+        // stays so whatever this answers: `ERR_STATE` is a stack that moved on
+        // (the dialog is gone), and the queue (16 closes) cannot fill with at
+        // most 4 requests open. A dialog left over is closed by the cleanup
+        // sweep when its request is delivered.
         let _ = frame.close_dialog(dialog);
     }
     wire::record_encode_one(

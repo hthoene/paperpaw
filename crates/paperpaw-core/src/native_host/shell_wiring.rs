@@ -67,12 +67,13 @@ impl HostWiring {
     }
 
     /// `core.ui`: the screen-stack service (questions, hand-overs, texts). The
-    /// host makes its store, sized for the device (`x4`: the small limits of
-    /// the X4's 256 KiB heap); nothing else is passed in, and nothing is
-    /// allocated until a plugin uses it.
+    /// host makes its store, sized for the device named by `device_id` (the
+    /// X4 gets the small limits of its 256 KiB heap; the same test as the
+    /// admission rules use, so the two cannot disagree); nothing else is passed
+    /// in, and nothing is allocated until a plugin uses it.
     #[must_use]
-    pub fn ui(mut self, x4: bool) -> Self {
-        self.ui = Some(x4);
+    pub fn ui(mut self, device_id: &str) -> Self {
+        self.ui = Some(super::ui_store::is_x4(device_id));
         self
     }
 }
