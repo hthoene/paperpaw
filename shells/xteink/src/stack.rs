@@ -73,6 +73,38 @@ pub fn left() -> (usize, usize) {
     (at - end, start - end)
 }
 
+/// The stack pointer now: the panic handler's entry, for [`handler_use`].
+pub fn sp() -> usize {
+    pointer()
+}
+
+/// What the panic handler reports of the stack, read at its end
+/// (`paperpaw_x4::stack_note`): `None` if it was entered on a stack that is
+/// not the main one (a radio task's); otherwise the bytes never touched since
+/// boot, and, after a band trap only (`breakpoint`: the exception was a
+/// breakpoint; the pointer is at the band), the depth below `entry` (the
+/// pointer where the handler was entered, [`sp`]) the handler went. The
+/// painted words show it (`paint` ran at start), so it needs nothing kept
+/// across the reset: the figures go into the panic's message in the crash
+/// slot, and the device checklist (G7) reads the handler's real depth from
+/// the message after a band trap (G8's overflow test).
+pub fn handler_use(entry: usize, breakpoint: bool) -> Option<(Option<u32>, u32)> {
+    let to_u32 = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    let end = to_u32(core::ptr::addr_of!(_stack_end) as usize);
+    let start = to_u32(core::ptr::addr_of!(_stack_start) as usize);
+    let entry = to_u32(entry);
+    if !paperpaw_x4::stack_note::in_main_stack(entry, end, start) {
+        return None;
+    }
+    let (left, _) = left();
+    let left = to_u32(left);
+    let trap = paperpaw_x4::stack_note::is_band_trap(breakpoint, entry, end, start);
+    Some((
+        trap.then(|| paperpaw_x4::stack_note::handler_depth(entry, end, left)),
+        left,
+    ))
+}
+
 /// Starts the X4 again (by a panic, which keeps the message) if the stack
 /// reached its end since start, or if the band at its end was lost after a
 /// plugin with native code was loaded (a re-arm after a sleep found the

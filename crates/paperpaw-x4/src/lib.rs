@@ -66,6 +66,7 @@ pub mod sleeping;
 pub mod slept;
 pub mod sntp;
 pub mod stack_band;
+pub mod stack_note;
 pub mod stall;
 pub mod stay_awake;
 pub mod tls_gate;
