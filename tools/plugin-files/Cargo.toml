@@ -17,12 +17,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "battery"
-path = "src/bin/battery.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "browser"
 path = "src/bin/browser.rs"
 test = false
@@ -265,7 +259,6 @@ bench = false
 [dependencies]
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
 paperpaw-plugin-aids = { path = "../../plugins/aids" }
-paperpaw-plugin-battery = { path = "../../plugins/battery" }
 paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", default-features = false }
 paperpaw-plugin-end-of-book = { path = "../../plugins/end-of-book" }
 paperpaw-plugin-notes-overview = { path = "../../plugins/notes-overview" }

@@ -1,4 +1,4 @@
-# The battery page from the tools, by touch, on the Boox.
+# The statistics page from the tools, by touch, on the Boox.
 profiles: boox-go-7
 
 expect screen home.dashboard
@@ -7,11 +7,11 @@ tap:632:840
 expect screen menu.list
 tap-on:Tools
 expect text "Reading statistics"
-tap-on:Battery
-expect screen battery.screen
-expect text "This time awake"
+tap-on:Reading statistics
+expect screen stats.overview
+expect text "Today"
 expect no text "Tools"
-expect picture battery
+expect picture stats
 back
 expect screen home.dashboard
 expect no warnings
