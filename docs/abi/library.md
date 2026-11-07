@@ -22,18 +22,20 @@ proposed and numbered without gaps at the records step.
   it (section 5). Interface 6 could also **replace** the library with one of a plugin's own (its
   `Library` trait; `files/tests/library_service.rs` tests a remote library with books not on the
   card); no shipped plugin does. This draft does not carry replacement: a deliberate capability
-  loss, not parity. [Q] Manager (owner if needed): accept for 1.0, with a later additive
+  loss, not parity, **accepted by Manager for 1.0** (2026-11-07); a later additive
   `core.library-source` stage (a plugin lists books of its own, shown beside the card's under path
-  scheme `<plugin>:`), or require it now (about a day more of contract and host work)?
+  scheme `<plugin>:`) can bring it back.
 - [D] **Nothing is lost on a move, a rename or an export** (inventory rule 1): positions,
   annotations, fields and book data follow the book when the host moves it, and when the user moves
   it on a computer the host finds them again by the book's fingerprint (section 6).
 - [D] **Every change is visible to all** (rule 2): each one raises `event.library_changed` (91) and,
   for a book's file, EVT's 68/69. Readers of a value never cache it across that event.
 - [D] **Feature `uses.library`** (signed metadata, as `uses.storage`): every op below needs it
-  (`ERR_UNSUPPORTED` without). Ops that remove or move the user's files (`delete`, `move`) also need
-  `uses.storage` (decision 125). `import` does not: it only puts a file the plugin made into the
-  library folder (section 2.3), so downloaders need no card-wide access.
+  (`ERR_UNSUPPORTED` without). The store page and the install confirmation say what it means in
+  plain words: the plugin reads the whole library, every reading position and **every plugin's
+  highlights and notes**, and may change them. Ops that remove or move the user's files (`delete`,
+  `move`) also need `uses.storage` (decision 125). `import` does not: it only puts a file the plugin
+  made into the library folder (section 2.3), so downloaders need no card-wide access.
 - Out of LIB: opening and reading books (DOC), the catalog walk's internals (host), sync protocols
   (koreader, kosync: plugins over NET/SOCK).
 
@@ -214,12 +216,30 @@ that fit 4,096 bytes). Two kinds of generation, never mixed up:
   `with_notes` (the view asked the user; read-later and wallabag pass it for their own downloads).
   One `lib_result` per path.
 - [D] `move` (`lib_move`: `from`, `to`, root 1 both, `flags` bit 0 replace an existing `to`): the
-  file and everything kept for it follow (keys change, section 6); EVT 68 and `library_changed`.
+  file and everything kept for it follow (keys change, section 6), each through the card's
+  journalled move (section 6); EVT 68 and `library_changed`.
 - [D] `import` (`lib_import`: `from` a file in the caller's root 0, `folder` a folder below the
   library folder setting, empty for the library folder itself, `name` the file name, `flags` bit 0
-  replace): copies, syncs and renames into root 1, then catalogues it (indexed on the next walk
-  step), and removes `from`. It answers the book's root-1 path in `lib_result`. Downloaders (opds,
-  news, wallabag, read-later, transfer) need no `uses.storage` for it.
+  replace, bit 1 take a free name): puts the file into root 1 (section 6: a journalled move where
+  root 0 and root 1 are on one card, as on the X4 and the desktop; else a copy to a host temp
+  file, synced, then the move, then `from` removed), then catalogues it (indexed on the next walk
+  step). It answers the book's root-1 path in `lib_result`. Downloaders (opds, news, wallabag,
+  read-later, transfer) need no `uses.storage` for it.
+- [D] **Import names come from outside** (a feed, a server) and are checked before anything is
+  written, `ERR_INVALID` for: an empty `name` or `folder` segment; `/` or `\` in `name`; `.` or
+  `..` segments; NUL, control characters or `"*:<>?|`; a trailing dot or space; a reserved
+  device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, any case, with or without
+  an extension); a segment over 255 UTF-16 units; a `name` starting with `.` or `~` (hidden and
+  host temp names). The joined path is resolved below the library folder and refused
+  (`ERR_DENIED`) if it ends anywhere else, including `.paperpaw/`. Missing folders below the
+  library folder are made.
+- [D] **Import never overwrites the user's books.** An existing `name` without bit 0 or 1 is
+  `ERR_STATE` (nothing changes); bit 1 makes the name free as `name (2).ext`, `(3)` and so on, and
+  answers the path taken. Bit 0 `replace` is allowed only where the existing file is one **this
+  plugin imported** and nobody moved since (the host keeps the importer's id with the book's data;
+  a move by the user or another plugin clears it); anything else `ERR_DENIED`. A replaced book
+  keeps its key, positions and annotations (an updated feed issue), and its document caches are
+  dropped.
 
 ## 3. Events
 
@@ -242,6 +262,11 @@ that fit 4,096 bytes). Two kinds of generation, never mixed up:
   fields of every plugin; `set_field` (`lib_field_set`: `lib_ref`, `field` one of the caller's own,
   `value`, empty removes) changes the caller's only (`ERR_DENIED` for another's). In-catalog fields
   over 64 bytes `ERR_NO_SPACE`.
+- [D] **Fields live on the card.** Every field value, in-catalog ones too, is stored with the
+  book's data on the card and read when asked; the in-memory catalog gains nothing per field or
+  per book for them. In-catalog values are written into the walk's sorted index file
+  (`sorted.idx`, #328), so queries, sorting and filters on them read the card step by step as for
+  titles, never a table in RAM.
 
 ## 5. Provided metadata (calibre)
 
@@ -256,6 +281,13 @@ that fit 4,096 bytes). Two kinds of generation, never mixed up:
 - [D] **Book key:** `lib_key.key` is the 16 hex digits of FNV-1a 64 of the book's root-1 path
   (interface 6 `library::key`), what plugins name their per-book folders by. A move by the host
   changes it, and the host renames what it keeps under the old key.
+- [D] **Keys are the host's, never computed by plugins.** FNV-1a is not collision-resistant, and a
+  downloaded name can be made to hit another book's key. The host keeps the full root-1 path with
+  each key it gives out (`.paperpaw/library/keys`, written atomically); a new book whose key is
+  already held by another existing path gets the next free key of FNV-1a 64 over the path followed
+  by `\n1`, `\n2` and so on, so no two books share a key or its data. Op 25 is the only source of
+  a book's key; the SDK has no key function. Data found under a key whose stored path names another
+  book is not handed over.
 - [D] **Fingerprint:** `lib_key.fingerprint: str 32` is interface 6's `Fingerprint`
   (`library/fingerprint.rs`): the file's size and KOReader's partial MD5 (up to twelve 1 KiB reads),
   so kosync and koreader keep matching other devices. It is kept with each book's data; a book moved
@@ -265,12 +297,41 @@ that fit 4,096 bytes). Two kinds of generation, never mixed up:
   to attach it to one.
 - [D] **Atomic writes.** Positions, annotation files, fields and status are each written as temp,
   sync, rename (D2.5); a power cut leaves the old state or the new one, never a mix.
-- [D] **Journalled moves and deletes.** `move` and `delete` write a journal entry (`from`, `to` or
-  the removal) into `.paperpaw/library/journal`, synced, before touching anything; then the file,
-  then the kept data (renamed into `.paperpaw/.removing/` for a delete, removed there). At the next
-  start the host finishes or rolls back every journalled step (fault-injection tests after every
-  write, as the uninstall data removal of decision 124). The catalog walk never runs while a journal
-  entry is open.
+- [D] **The card's move (one routine for LIB and DEV).** A move into another folder is not atomic
+  on FAT: it writes a new directory entry and then removes the old one, and between the two both
+  name one cluster chain, so freeing either later would free clusters the other still uses. Every
+  move LIB and DEV make (a book, its kept data, an import, the rename into `.removing/`, DEV's
+  plugin swap) goes through `paperpaw-fat`'s journalled move (`Storage::rename`, `move_entry`):
+  1. the move is recorded in the root's hidden journal (`~PPMOVE.BIN`: from, to), synced;
+  2. the new entry is added (patched rust-fatfs adds before it removes; a folder that cannot grow
+     fails before anything changed), synced;
+  3. the old entry is removed **without freeing its clusters** (`unlink`), synced;
+  4. the record is cleared.
+
+  At the next start, before anything else touches the card (`settle_moves`), an open record is
+  settled: both entries present and holding the same clusters → the old entry is unlinked, never
+  its chain freed; only the new one → the record is cleared; only the old one → the move did not
+  happen and the record is cleared. A record that cannot be settled holds up its two paths until the
+  next start (`held_up`); everything else goes on. A file removal removes the entry before it frees
+  the clusters, so a cut leaves clusters taken by no file, never a file on free clusters. A moved
+  folder's `..` entry must name its new parent once the move is settled (a test checks it; Kernel
+  confirms rust-fatfs's order in `paperpaw-fat` with the tests).
+- [D] **Fault injection at every card write.** The move, delete, import and swap tests run on
+  `paperpaw-fat`'s block-cut disk (`src/tests.rs` `Cut`) and are replayed cut after **each block
+  write** (directory entry, FAT copy, FSInfo), for files and folders, same and other folders,
+  replace and no replace; after each cut and a fresh mount: every file reads whole as before or
+  after, no two entries share a cluster once settled, and no cluster in use is free. An exFAT
+  backend (#5, with its allocation bitmap and entry-set checksums) holds the library only after it
+  passes the same suite with the bitmap as a cut point; until then it is a gate item, not a claim.
+- [D] **Journalled library steps.** `move`, `delete` and `import` write a library journal entry
+  (`from`, `to` or the removal, the old and new keys) into `.paperpaw/library/journal`, synced,
+  before touching anything; then the file, then the kept data (renamed into `.paperpaw/.removing/`
+  for a delete, removed there), each a card move as above. At the next start, after
+  `settle_moves`, the host finishes or rolls back every journalled step: a book at its new place
+  gets its data moved there too, an import whose file arrived has `from` removed and is
+  catalogued, an import whose file did not arrive has its host temp file removed (fault-injection
+  tests after every write, as the uninstall data removal of decision 124). The catalog walk never
+  runs while a journal entry is open.
 - [D] **Card failure.** A missing or failing card is `ERR_IO` for every op that reads the card (no
   partial rows: a page is answered whole or not at all); a full card `ERR_NO_SPACE` for writes, the
   old state stays. A pulled card raises `library_changed` bit 0 when it is back (the walk checks
@@ -309,9 +370,10 @@ that fit 4,096 bytes). Two kinds of generation, never mixed up:
   with the edits, sync, rename), at most one 4 KiB buffer.
 - Covers: image ids as DOC (24 bytes each).
 - Journal: one entry in memory while a move or delete runs (about 1.1 KiB for two paths).
+- Keys: the key file is read through the 4 KiB buffer when a key is given out; nothing kept.
 - **X4 worst case for LIB's host side: about 6 KiB beyond today's library** (edit buffer 4, journal
-  1.1, scratch shared), all fallible; an activation-gate item measured with the files and reader
-  ports.
+  1.1, scratch shared; fields and keys on the card), all fallible; an activation-gate item measured
+  with the files and reader ports.
 
 ## 8. Interface-6 calls and their interface-7 form
 
@@ -337,6 +399,8 @@ that fit 4,096 bytes). Two kinds of generation, never mixed up:
 
 - **Kernel:** records, `core.library@1` schema, `core.book_badge@1` stage schema, the `uses.library`
   feature, this document final.
+- **Kernel (`paperpaw-fat`):** the per-block cut replay for moves, deletes, imports and swaps,
+  folder moves' `..` entry, the exFAT gate (#5).
 - **Core:** the service over the host library, the journal with fault-injection tests, the
   annotation transaction (streamed rewrite, CAS), book data folder moves and removals, provided
   values, the event; the cover cache through DOC.
