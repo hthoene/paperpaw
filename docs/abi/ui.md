@@ -91,6 +91,8 @@ gaps (commands 1553-1555, 1559 and 1560 and events 83, 88 and 90 are free after 
   compare the params, and reopening screens after a restart (#275) opens them with the same params
   (not the text). On the X4 the params of all instances share 1,536 bytes (section 8.1, op 16
   `ERR_FULL` beyond) and texts are in the host text pool (section 8.2).
+- [D] **Ownership, settled (Manager, 2026-11-07):** Input (H2) owns the hand-over store; Core (H1)
+  only uses it.
 - [D] **The host's hand-over seam** (for the host implementers; no plugin sees it). One store,
   `UiStore` in `crates/paperpaw-core/src/native_host/ui_store.rs`, owned by Input (H2), held once
   in the native host state: the one checked id allocator (nonzero, never reused) for requests,
