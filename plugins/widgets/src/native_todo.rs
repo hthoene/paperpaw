@@ -52,29 +52,79 @@ struct View {
     unreadable: bool,
 }
 
-/// The items to show on `today`, as the settings say.
-fn view(host: &Host<'_>, settings: &Settings<'_, '_>, today: i64) -> Result<View, Error> {
+/// The list as last read, kept for the callbacks of a frame (the size, the
+/// targets, the drawing) and until the next minute's tick reads it anew; what
+/// this plugin writes makes it forget. It is read for one day: another day
+/// lets the items done go.
+#[derive(Debug, Default)]
+pub struct Cache(core::cell::RefCell<Option<(i64, Loaded)>>);
+
+impl Cache {
+    /// Forgets the list (it was changed, or may have been).
+    pub fn forget(&self) {
+        if let Ok(mut slot) = self.0.try_borrow_mut() {
+            *slot = None;
+        }
+    }
+
+    /// Runs `f` on the list of `today`: the one kept, or read anew where none
+    /// is kept (or `fresh` says to).
+    fn with<R>(
+        &self,
+        host: &Host<'_>,
+        (today, fresh): (i64, bool),
+        f: impl FnOnce(&Loaded) -> Result<R, Error>,
+    ) -> Result<R, Error> {
+        let mut slot = self.0.try_borrow_mut().map_err(|_| Error::Busy)?;
+        let kept = matches!(&*slot, Some((day, _)) if *day == today);
+        if fresh || !kept {
+            // Not kept while it is read: a refusal leaves nothing stale.
+            *slot = None;
+            *slot = Some((today, load(host, today)?));
+        }
+        match &*slot {
+            Some((_, loaded)) => f(loaded),
+            None => Err(Error::State),
+        }
+    }
+}
+
+/// The items to show on `today`, as the settings say; `fresh` reads the list
+/// anew instead of using the one kept.
+fn view(
+    host: &Host<'_>,
+    settings: &Settings<'_, '_>,
+    cache: &Cache,
+    (today, fresh): (i64, bool),
+) -> Result<View, Error> {
     let hide = settings.with_text("done", |value| value.ends_with(".hidden"))?;
     let count = settings.int("count", 5)?.clamp(1, 12) as usize;
-    let loaded = load(host, today)?;
-    let Loaded::List(list) = loaded else {
-        return Ok(View {
-            unreadable: true,
-            ..View::default()
-        });
-    };
-    let mut all = list.items;
-    if hide {
-        all.retain(|item| item.done.is_none());
-    }
-    let open = all.iter().filter(|item| item.done.is_none()).count();
-    let more = all.len().saturating_sub(count);
-    all.truncate(count);
-    Ok(View {
-        items: all,
-        open,
-        more,
-        unreadable: false,
+    cache.with(host, (today, fresh), |loaded| {
+        let Loaded::List(list) = loaded else {
+            return Ok(View {
+                unreadable: true,
+                ..View::default()
+            });
+        };
+        let wanted = |item: &&Item| !(hide && item.done.is_some());
+        let open = list.items.iter().filter(|item| item.done.is_none()).count();
+        let all = list.items.iter().filter(wanted).count();
+        let mut items = Vec::new();
+        items
+            .try_reserve_exact(count.min(all))
+            .map_err(|_| Error::NoMemory)?;
+        for item in list.items.iter().filter(wanted).take(count) {
+            items.push(Item {
+                text: paperpaw_ui_kit::text::copy(&item.text)?,
+                done: item.done,
+            });
+        }
+        Ok(View {
+            items,
+            open,
+            more: all.saturating_sub(count),
+            unreadable: false,
+        })
     })
 }
 
@@ -92,9 +142,18 @@ fn boxes(settings: &Settings<'_, '_>) -> Result<Boxes, Error> {
 /// # Errors
 /// Host refusals.
 pub fn shows(host: &Host<'_>, widget: &str) -> Result<u64, Error> {
+    shows_with(host, widget, &Cache::default())
+}
+
+/// [`shows`], reading the list anew and keeping it in `cache` for the frame
+/// that follows.
+///
+/// # Errors
+/// Host refusals.
+pub fn shows_with(host: &Host<'_>, widget: &str, cache: &Cache) -> Result<u64, Error> {
     let settings = Settings::new(host, widget);
     let today = crate::native_draw::epoch_day(host)?;
-    let view = view(host, &settings, today)?;
+    let view = view(host, &settings, cache, (today, true))?;
     let mut mark = crate::native_draw::fnv(
         1,
         &[
@@ -142,9 +201,17 @@ fn row_height(cx: &Cx<'_>) -> Result<u16, Error> {
 ///
 /// # Errors
 /// Font and host refusals.
-pub fn height(cx: &mut Cx<'_>, _width: u16) -> Result<u16, Error> {
+pub fn height(cx: &mut Cx<'_>, width: u16) -> Result<u16, Error> {
+    height_with(cx, width, &Cache::default())
+}
+
+/// [`height`], with the list kept in `cache`.
+///
+/// # Errors
+/// Font and host refusals.
+pub fn height_with(cx: &mut Cx<'_>, _width: u16, cache: &Cache) -> Result<u16, Error> {
     let today = crate::native_draw::epoch_day(cx.host)?;
-    let view = view(cx.host, &cx.settings, today)?;
+    let view = view(cx.host, &cx.settings, cache, (today, false))?;
     let rows = u16::try_from(view.items.len().max(1))
         .unwrap_or(u16::MAX)
         .saturating_add(u16::from(view.more > 0));
@@ -330,9 +397,22 @@ fn caption_text(cx: &mut Cx<'_>, open: usize) -> Result<String, Error> {
 /// # Errors
 /// Font and host refusals, [`Error::NoMemory`].
 pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Error> {
+    draw_with(cx, out, area, &Cache::default())
+}
+
+/// [`draw`], with the list kept in `cache`.
+///
+/// # Errors
+/// Font and host refusals, [`Error::NoMemory`].
+pub fn draw_with(
+    cx: &mut Cx<'_>,
+    out: &mut Vec<Paint>,
+    area: Rect,
+    cache: &Cache,
+) -> Result<(), Error> {
     let look = cx.shape.paint(out, area, 256)?;
     let today = crate::native_draw::epoch_day(cx.host)?;
-    let view = view(cx.host, &cx.settings, today)?;
+    let view = view(cx.host, &cx.settings, cache, (today, false))?;
     let align = cx.settings.align()?;
     let small = cx.style().small;
     let message = if view.unreadable {
@@ -403,9 +483,9 @@ fn frame_of(rect: Rect) -> FrameRect {
 ///
 /// # Errors
 /// Font and host refusals, [`Error::NoMemory`].
-pub fn targets(cx: &Cx<'_>, area: Rect) -> Result<Vec<WidgetTarget>, Error> {
+pub fn targets(cx: &Cx<'_>, area: Rect, cache: &Cache) -> Result<Vec<WidgetTarget>, Error> {
     let today = crate::native_draw::epoch_day(cx.host)?;
-    let view = view(cx.host, &cx.settings, today)?;
+    let view = view(cx.host, &cx.settings, cache, (today, false))?;
     let mut targets = Vec::new();
     if view.unreadable || view.items.is_empty() {
         mem::push(&mut targets, WidgetTarget::new(OPEN_TARGET, frame_of(area)))?;
@@ -438,7 +518,9 @@ pub fn targets(cx: &Cx<'_>, area: Rect) -> Result<Vec<WidgetTarget>, Error> {
 /// # Errors
 /// The host's refusals, [`Error::NoMemory`], [`Error::Unsupported`] for a list
 /// that cannot be read (it is not written over).
-pub fn tick(host: &Host<'_>, target: u32) -> Result<(), Error> {
+pub fn tick(host: &Host<'_>, target: u32, cache: &Cache) -> Result<(), Error> {
+    // The file is read anew, and what is kept is forgotten whatever follows.
+    cache.forget();
     let today = crate::native_draw::epoch_day(host)?;
     let Loaded::List(mut list) = load(host, today)? else {
         return Err(Error::Unsupported);

@@ -209,7 +209,7 @@ impl NativeWidgets {
         if row == 0 {
             return self.ask_text(host, "widgets.todo.add", "", Asked::Add);
         }
-        self.tick(host, row - 1)
+        self.tick_item(host, row - 1)
     }
 
     /// What can be done with the item of `row`.
@@ -235,7 +235,11 @@ impl NativeWidgets {
             choices = concat(&[&choices, if n > 0 { "\n" } else { "" }, &label])?;
         }
         let question = Question::choice(&title, "", &choices)?;
-        self.ask(host, question, Asked::Options { index, title })
+        let asked = Asked::Options {
+            index,
+            title: copy(&title)?,
+        };
+        self.ask(host, question, asked)
     }
 
     /// Asks a question unless one is open: its keyboard or list is on screen
@@ -313,7 +317,7 @@ impl NativeWidgets {
                 };
                 let wanted = Options::new(item.done.is_some(), index, view.list.items.len());
                 match wanted.all().get(answer.choice() as usize).copied() {
-                    Some("tick" | "untick") => self.tick(host, index),
+                    Some("tick" | "untick") => self.tick_item(host, index),
                     Some("edit") => {
                         let initial = copy(&title)?;
                         self.ask_text(host, "widgets.todo.edit", &initial, Asked::Edit { index })
@@ -330,6 +334,8 @@ impl NativeWidgets {
 
     /// Keeps the list on the card, rebuilds the screen and tells the widgets.
     fn changed(&mut self, host: &Host<'_>, focus: Option<usize>) -> Result<(), Error> {
+        // What the widgets kept of the file is stale now.
+        self.todo.forget();
         let Some(view) = self.screens.top(SCREEN) else {
             return Ok(());
         };
@@ -355,7 +361,7 @@ impl NativeWidgets {
         Self::redraw(host)
     }
 
-    fn tick(&mut self, host: &Host<'_>, index: usize) -> Result<(), Error> {
+    fn tick_item(&mut self, host: &Host<'_>, index: usize) -> Result<(), Error> {
         let today = crate::native_draw::epoch_day(host)?;
         let Some(view) = self.screens.top(SCREEN) else {
             return Ok(());
