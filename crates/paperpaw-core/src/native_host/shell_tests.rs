@@ -27,9 +27,16 @@ std::thread_local! {
     static UNCOVERED: Cell<u32> = const { Cell::new(0) };
     /// The nth allocation of this thread fails (1-based; 0: none).
     pub(in crate::native_host) static FAIL_NTH: Cell<u32> = const { Cell::new(0) };
+    /// Bytes this thread holds from the heap now, and the most it held.
+    pub(in crate::native_host) static HEAP_LIVE: Cell<usize> = const { Cell::new(0) };
+    pub(in crate::native_host) static HEAP_PEAK: Cell<usize> = const { Cell::new(0) };
+    /// Fixture work (a card in memory) is not counted while this is set.
+    pub(in crate::native_host) static HEAP_SHIELD: Cell<bool> = const { Cell::new(false) };
     /// An address to watch (0: none) and whether a block holding it was freed.
     static WATCH: Cell<usize> = const { Cell::new(0) };
     static WATCH_FREED: Cell<bool> = const { Cell::new(false) };
+    static ZERO_WATCH: Cell<Option<(usize, usize)>> = const { Cell::new(None) };
+    static ZERO_RESULT: Cell<Option<bool>> = const { Cell::new(None) };
     /// `make` registers the one event only (the flat adapter routes no draw).
     static EVENT_ONLY: Cell<bool> = const { Cell::new(false) };
 }
@@ -54,7 +61,14 @@ unsafe impl core::alloc::GlobalAlloc for Failing {
             return ptr::null_mut();
         }
         // SAFETY: the caller's layout, forwarded.
-        unsafe { std::alloc::System.alloc(layout) }
+        let block = unsafe { std::alloc::System.alloc(layout) };
+        if !block.is_null() && HEAP_SHIELD.try_with(Cell::get) == Ok(false) {
+            let _ = HEAP_LIVE.try_with(|live| {
+                live.set(live.get() + layout.size());
+                let _ = HEAP_PEAK.try_with(|peak| peak.set(peak.get().max(live.get())));
+            });
+        }
+        block
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         let _ = WATCH.try_with(|watch| {
@@ -64,9 +78,35 @@ unsafe impl core::alloc::GlobalAlloc for Failing {
                 let _ = WATCH_FREED.try_with(|freed| freed.set(true));
             }
         });
+        if HEAP_SHIELD.try_with(Cell::get) == Ok(false) {
+            let _ = HEAP_LIVE.try_with(|live| live.set(live.get().saturating_sub(layout.size())));
+        }
+        let _ = ZERO_WATCH.try_with(|watch| {
+            if let Some((at, length)) = watch.get()
+                && at == ptr.addr()
+                && length <= layout.size()
+            {
+                // SAFETY: this allocation has not been freed yet. The backend
+                // initialized and registered this entire byte range for inspection.
+                let bytes = unsafe { core::slice::from_raw_parts(ptr, length) };
+                let zeroed = bytes.iter().all(|byte| *byte == 0);
+                watch.set(None);
+                let _ = ZERO_RESULT.try_with(|result| result.set(Some(zeroed)));
+            }
+        });
         // SAFETY: allocated by `alloc` above.
         unsafe { std::alloc::System.dealloc(ptr, layout) }
     }
+}
+
+/// Observe the initialized scratch immediately before its actual deallocation.
+pub(crate) fn watch_zeroed_scratch(bytes: &[u8]) {
+    ZERO_RESULT.with(|result| result.set(None));
+    ZERO_WATCH.with(|watch| watch.set(Some((bytes.as_ptr().addr(), bytes.len()))));
+}
+
+pub(crate) fn scratch_zeroed_before_free() -> Option<bool> {
+    ZERO_RESULT.with(Cell::take)
 }
 
 #[global_allocator]
@@ -568,8 +608,9 @@ pub(in crate::native_host) fn arm_failure(nth: u32) {
 
 #[test]
 fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_calls_make() {
-    // The 1st allocation is the id, the 2nd the owner.
-    for nth in [1, 2] {
+    // The 1st allocation is the room reserved for the owner's retirement (the
+    // owner is not admitted: a status), the 2nd the id, the 3rd the owner.
+    for nth in [1, 2, 3] {
         reset(NORMAL);
         let module = Module::new();
         let resources = super::super::HostResources::try_new().unwrap();
@@ -588,7 +629,12 @@ fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_c
             )
         };
         arm_failure(0);
-        assert_eq!(refused.err(), Some(Error::Allocation), "allocation {nth}");
+        let expected = if nth == 1 {
+            Error::Status(host_glue::ERR_NO_MEMORY)
+        } else {
+            Error::Allocation
+        };
+        assert_eq!(refused.err(), Some(expected), "allocation {nth}");
         assert_eq!(logged(), ["module"], "the module is dropped, once");
         assert_eq!(MAKES.with(Cell::get), 0, "make was never called");
     }
