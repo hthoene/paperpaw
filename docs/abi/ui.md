@@ -89,8 +89,8 @@ gaps (commands 1553-1555, 1559 and 1560 and events 83, 88 and 90 are free after 
 - [D] **The host keeps each instance's hand-over** (fallibly, `ERR_NO_MEMORY` at op 16) for as
   long as the instance is open, or until a reopen gives it a new one: `open` modes 1 and 3
   compare the params, and reopening screens after a restart (#275) opens them with the same params
-  (not the text). On the X4 the params of all instances share 8 KiB and texts are in the host
-  text pool (section 8.2).
+  (not the text). On the X4 the params of all instances share 1,536 bytes (section 8.1, op 16
+  `ERR_FULL` beyond) and texts are in the host text pool (section 8.2).
 - [D] `stack_changed` is a hint: a screen opened, closed or came to the top. It carries nothing;
   the stack is read with `core.ui` op 1 (section 6).
 
