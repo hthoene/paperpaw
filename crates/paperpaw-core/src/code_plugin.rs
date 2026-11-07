@@ -286,7 +286,7 @@ impl Kernel {
     /// switched off, or, when that is not known, every one that was on.
     fn hold_back(&mut self, found: Vec<DataPlugin>, disabled: &[String], safe_mode: &mut SafeMode) {
         let culprit = match safe_mode.reason {
-            SafeModeReason::FailedStarts | SafeModeReason::PowerEscape => safe_mode.crashed.clone(),
+            SafeModeReason::FailedStarts => safe_mode.crashed.clone(),
             _ => None,
         };
         for plugin in found {
@@ -735,26 +735,6 @@ mod tests {
         let native = kernel.shared.native.as_ref().unwrap();
         let safe = native.safe_mode.as_ref().unwrap();
         assert_eq!(safe.switched_off, [Id::new_static("zeta")]);
-    }
-
-    #[test]
-    fn safe_mode_after_the_power_escape_switches_off_only_the_plugin_it_blamed() {
-        let loader = loader();
-        let mut safe_mode = SafeMode::new(SafeModeReason::PowerEscape);
-        safe_mode.crashed = Some(String::from("zeta"));
-        let kernel = kernel(&loader, "", Some(safe_mode));
-        assert!(loader.asked.borrow().is_empty(), "no code at all");
-        let zeta = info(&kernel, "zeta");
-        assert_eq!(
-            (zeta.enabled, zeta.problem),
-            (false, Some(PluginProblem::Crashed))
-        );
-        let hello = info(&kernel, "hello");
-        assert_eq!((hello.state, hello.enabled), (PluginState::Off, true));
-        let native = kernel.shared.native.as_ref().unwrap();
-        let safe = native.safe_mode.as_ref().unwrap();
-        assert_eq!(safe.switched_off, [Id::new_static("zeta")]);
-        assert_eq!(safe.reason, SafeModeReason::PowerEscape);
     }
 
     #[test]

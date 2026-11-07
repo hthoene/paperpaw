@@ -143,9 +143,7 @@ fn the_notices_fit_whole() {
         crashed.crashed = Some(String::from("reading-clock"));
         let mut last = SafeMode::new(SafeModeReason::FailedStarts);
         last.last_loaded = Some(String::from("reading-clock"));
-        let mut escaped = SafeMode::new(SafeModeReason::PowerEscape);
-        escaped.crashed = Some(String::from("reading-clock"));
-        for safe_mode in [crashed, last, escaped] {
+        for safe_mode in [crashed, last] {
             let shown = shown_in(language, &[], Some(safe_mode));
             assert!(fits(&shown), "{language}: {shown}");
         }

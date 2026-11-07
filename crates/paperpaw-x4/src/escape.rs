@@ -19,7 +19,7 @@
 //!    The reset leaves its place in RTC memory (`power::at::ESCAPE`) and,
 //!    when [`CallWatch`] says a plugin's call has run past the grace, that
 //!    call's plugin (the interface-7 loader's record of calls,
-//!    `safe_mode`): the next start switches it off and says why. A call that
+//!    `safe_mode`): the next start switches it off. A call that
 //!    began after the grace started is not blamed (a long host step before
 //!    it, a call that has only just begun).
 //!
