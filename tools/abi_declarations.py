@@ -176,10 +176,11 @@ def _fields(record):
                      and 1 <= items['item_max_bytes'] <= cap,
                      f'{name}.{label}: list bounds outside 1-255 items, 1-cap bytes')
         secret = 'secret' in field
-        _require(not secret or (field['secret'] is True and kind == 'str' and items is None
-                                and (is_growth_command(record) or name.startswith('service.'))),
+        _require(not secret or (field['secret'] is True and items is None
+                                and (kind == 'str' and is_growth_command(record)
+                                     or kind in ('str', 'bytes') and name.startswith('service.'))),
                  f'{name}.{label}: secret must be true, on a str field of a command or a '
-                 'service record, not a list')
+                 'str or bytes field of a service record, not a list')
         out.append(dict(name=label, kind=kind, cap=cap, items=items, optional=field['optional'],
                         secret=secret,
                         since=field['since'],

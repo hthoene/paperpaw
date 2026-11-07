@@ -195,3 +195,17 @@ fn a_raw_stream_visits_what_the_record_stream_visits() {
         assert_eq!(raws.len(), 2);
     }
 }
+
+/// The random bytes of `core.secrets` (`service.sec_bytes.data`, a secret field) never
+/// reach a Debug string: neither the bytes nor their length (Senior R2 on #367).
+#[test]
+fn secret_bytes_stay_out_of_debug() {
+    let record = wire::ServiceSecBytes {
+        flags: 5,
+        data: &[0xAB, 0xCD, 0xEF],
+    };
+    let text = std::format!("{record:?}");
+    assert_eq!(text, r#"ServiceSecBytes { flags: 5, data: ".." }"#);
+    let text = std::format!("{:?}", Record::ServiceSecBytes(record));
+    assert!(!text.contains("171") && !text.contains('3'), "{text}");
+}
