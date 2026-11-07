@@ -110,7 +110,11 @@ impl HostResources {
         let next = owner.checked_add(1).ok_or(ERR_NO_SPACE)?;
         let table = self.0.try_clone().ok_or(ERR_NO_MEMORY)?;
         self.0.next_owner.set(next);
-        Ok(OwnerResources { table, owner })
+        Ok(OwnerResources {
+            table,
+            owner,
+            caller: None,
+        })
     }
 }
 
@@ -120,6 +124,7 @@ impl HostResources {
 pub struct OwnerResources {
     table: Shared<Table>,
     owner: u64,
+    caller: Option<Id>,
 }
 
 /// Retained callback view. Dropping this releases only the table reference.
@@ -131,6 +136,25 @@ pub(crate) struct OwnerResourceView {
 }
 
 impl OwnerResources {
+    /// Bind the host-admitted identity once, before plugin construction.
+    /// Preflight resource owners remain unbound and cannot call a service.
+    pub(crate) fn bind_caller(&mut self, id: &str) -> Result<(), i32> {
+        if self.caller.is_some() {
+            return Err(paperpaw_native::host_glue::ERR_STATE);
+        }
+        self.caller = Some(Id::try_parse(id).map_err(|error| match error {
+            paperpaw_sdk::IdError::NoMemory => ERR_NO_MEMORY,
+            _ => paperpaw_native::host_glue::ERR_INVALID,
+        })?);
+        Ok(())
+    }
+
+    pub(crate) fn caller(&self) -> Result<&Id, i32> {
+        self.caller
+            .as_ref()
+            .ok_or(paperpaw_native::host_glue::ERR_DENIED)
+    }
+
     pub(crate) fn try_view(&self) -> Option<OwnerResourceView> {
         self.table.try_clone().map(|table| OwnerResourceView {
             table,

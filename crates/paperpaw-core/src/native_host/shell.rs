@@ -280,7 +280,14 @@ impl<S: Services, M> Hosted<S, M> {
         resources: super::HostResources,
         declared_services: DeclaredServices,
     ) -> Result<Self, Error> {
-        let resources = resources.try_owner().map_err(Error::Status)?;
+        let mut resources = resources.try_owner().map_err(Error::Status)?;
+        resources.bind_caller(id).map_err(|status| {
+            if status == host_glue::ERR_NO_MEMORY {
+                Error::Allocation
+            } else {
+                Error::Status(status)
+            }
+        })?;
         let scoped_resources = resources
             .try_view()
             .ok_or(Error::Status(host_glue::ERR_NO_MEMORY))?;

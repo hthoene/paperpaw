@@ -13,7 +13,8 @@ use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
 
-pub(crate) type Backend = fn(&dyn Frame, &ServiceOp, &[u8], &mut [u8]) -> Result<usize, i32>;
+pub(crate) type Backend =
+    fn(&dyn Frame, &paperpaw_sdk::Id, &ServiceOp, &[u8], &mut [u8]) -> Result<usize, i32>;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ServiceKey {
@@ -110,11 +111,12 @@ impl ServiceCall<'_> {
     pub(crate) fn run(
         &self,
         frame: &dyn Frame,
+        caller: &paperpaw_sdk::Id,
         op: &ServiceOp,
         input: &[u8],
         out: &mut [u8],
     ) -> Result<usize, i32> {
-        (self.entry.backend)(frame, op, input, out)
+        (self.entry.backend)(frame, caller, op, input, out)
     }
 }
 impl Drop for ServiceCall<'_> {
@@ -181,8 +183,12 @@ mod tests {
         let mut registry = ServiceRegistry::device().unwrap();
         assert_eq!(
             registry.register(
-                &crate::abi7::services_wire::SERVICES[0],
-                |_, _, _, _| Ok(0),
+                crate::abi7::services_wire::service_schema(
+                    crate::abi7::services_wire::core_test_echo_v1::KEY,
+                    crate::abi7::services_wire::core_test_echo_v1::MAJOR,
+                )
+                .unwrap(),
+                |_, _, _, _, _| Ok(0),
                 false
             ),
             Err(ERR_UNSUPPORTED)

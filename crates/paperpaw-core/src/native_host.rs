@@ -900,3 +900,7 @@ mod pinned_owner_tests {
 #[cfg(test)]
 #[path = "native_host/event_hook_tests.rs"]
 mod event_hook_tests;
+
+#[cfg(test)]
+#[path = "native_host/registry_page.rs"]
+mod registry_page;

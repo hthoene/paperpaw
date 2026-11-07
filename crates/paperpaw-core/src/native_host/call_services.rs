@@ -149,6 +149,7 @@ pub(super) unsafe fn call(
         input_pair(input)?;
         output_pair(out)?;
         scope.with_frame(|frame| {
+            let caller = owner.caller()?;
             let key = owner.service(service)?;
             // SAFETY: the slot caller supplies readable input after pair checks.
             let input = unsafe { buffers::bytes_in(input, buffers::TEXT_MAX) }?;
@@ -159,7 +160,7 @@ pub(super) unsafe fn call(
                 .try_reserve_exact(op.max_reply)
                 .map_err(|_| ERR_NO_MEMORY)?;
             scratch.resize(op.max_reply, 0);
-            let length = running.run(frame, op, input, &mut scratch)?;
+            let length = running.run(frame, caller, op, input, &mut scratch)?;
             let reply = scratch.get(..length).ok_or(ERR_INVALID)?;
             validate_batch(reply, op.reply)?;
             // SAFETY: output has the declared capacity; no output was written on

@@ -538,8 +538,8 @@ fn arm_failure(nth: u32) {
 
 #[test]
 fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_calls_make() {
-    // The 1st allocation is the id, the 2nd the owner.
-    for nth in [1, 2] {
+    // Caller identity, diagnostic id and pinned owner all fail before make.
+    for nth in [1, 2, 3] {
         reset(NORMAL);
         let module = Module::new();
         let resources = super::super::HostResources::try_new().unwrap();
