@@ -122,12 +122,36 @@ impl<B: Storage, P: Storage> Storage for Private<B, P> {
         self.base.create_dir(path)
     }
 
+    fn list_bounded(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        self.base.list_bounded(dir, from, visit)
+    }
+
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        self.base.remove_listed(dir, place)
+    }
+
     fn remove_tree_step(
         &self,
         root: &str,
         keep_root: bool,
         place: u64,
     ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        if root == FILE {
+            // The secrets file itself is in the private folder, not in the
+            // base: it is removed there, and done is told only then.
+            let existed = self.private.exists(NAME);
+            self.private.remove(NAME)?;
+            return Ok(paperpaw_platform::tree::TreeStep {
+                removed: u32::from(existed),
+                done: true,
+                next: 0,
+            });
+        }
         let step = self.base.remove_tree_step(root, keep_root, place)?;
         // The secrets go with the folder that holds them.
         let inside = root.is_empty()
@@ -263,5 +287,82 @@ mod tests {
             storage.rename(FILE, "elsewhere.txt"),
             Err(StorageError::Unsupported)
         );
+    }
+
+    /// The step on the secrets file itself removes the file in the private
+    /// folder (not in the base, where there is none); on a folder that holds
+    /// it only once the whole folder is gone.
+    #[test]
+    fn a_tree_step_reaches_the_secrets_in_the_private_folder() {
+        let storage = Private::new(MemoryStorage::new(), MemoryStorage::new());
+        storage.write(FILE, b"s").unwrap();
+        storage.write(".paperpaw/other.txt", b"o").unwrap();
+        let step = storage.remove_tree_step(FILE, false, 0).unwrap();
+        assert!(step.done && step.removed == 1);
+        assert!(!storage.exists(FILE));
+        assert!(storage.base.exists(".paperpaw/other.txt"));
+        // Again: nothing there, still done.
+        let step = storage.remove_tree_step(FILE, false, 0).unwrap();
+        assert!(step.done && step.removed == 0);
+    }
+
+    /// A base whose tree steps are scripted: not done twice, then done.
+    struct Scripted(core::cell::Cell<u32>);
+
+    impl Storage for Scripted {
+        fn read_at(&self, _: &str, _: u64, _: &mut [u8]) -> Result<usize, StorageError> {
+            Ok(0)
+        }
+        fn size(&self, _: &str) -> Result<u64, StorageError> {
+            Err(StorageError::NotFound)
+        }
+        fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn remove(&self, _: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn remove_tree_step(
+            &self,
+            _: &str,
+            _: bool,
+            _: u64,
+        ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+            let calls = self.0.get() + 1;
+            self.0.set(calls);
+            Ok(paperpaw_platform::tree::TreeStep {
+                removed: 1,
+                done: calls >= 3,
+                next: u64::from(calls),
+            })
+        }
+    }
+
+    /// The secrets go with the folder that holds them, in the step that
+    /// finishes the tree, not before; a folder that does not hold them never
+    /// reaches them.
+    #[test]
+    fn a_tree_step_takes_the_secrets_with_the_last_piece_of_their_folder() {
+        for (root, holds) in [
+            (".paperpaw", true),
+            ("", true),
+            (".paperpaw/plugins", false),
+            ("Books", false),
+        ] {
+            let storage = Private::new(Scripted(core::cell::Cell::new(0)), MemoryStorage::new());
+            storage.private.write(NAME, b"s").unwrap();
+            for piece in 1..=3 {
+                let step = storage.remove_tree_step(root, false, 0).unwrap();
+                assert_eq!(step.done, piece == 3);
+                let kept = !(holds && step.done);
+                assert_eq!(storage.exists(FILE), kept, "{root:?} piece {piece}");
+            }
+        }
     }
 }

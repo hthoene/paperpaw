@@ -184,6 +184,9 @@ impl Storage for Tree {
     }
 
     fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        // What a real storage reads: the entry, the one after it, and the
+        // look into a folder.
+        self.reads.set(self.reads.get() + 3);
         self.fails()?;
         let children = self.children(dir);
         let found = if self.stable {
@@ -349,7 +352,7 @@ fn a_missing_path_is_done_and_a_file_is_one_entry() {
 #[test]
 fn any_place_removes_only_inside_the_tree() {
     let depths = [0u64, 1, 2, 5, MAX_DEPTH as u64 - 1, MAX_DEPTH as u64, 255];
-    let positions = [0u64, 1, 2, 3, 7, 1 << 20, (1 << 56) - 1];
+    let positions = [0u64, 1, 2, 3, 7, 1 << 20, (1 << 48) - 1];
     for stable in [true, false] {
         for depth in depths {
             for position in positions {
@@ -359,7 +362,7 @@ fn any_place_removes_only_inside_the_tree() {
                 tree.file("t/a/b/two");
                 tree.file("t/c");
                 tree.file("t2/inside-sibling");
-                let mut place = depth << 56 | position;
+                let mut place = depth << 48 | position;
                 for _ in 0..200 {
                     let step = remove_tree_step(&tree, "t", false, place).unwrap();
                     if step.done {
@@ -382,11 +385,10 @@ fn any_place_removes_only_inside_the_tree() {
 
 #[test]
 fn a_place_that_is_too_large_is_an_error_not_a_loop() {
-    // 2^56 and more cannot be a place of ours; the storage's own places are
-    // far below it.
+    // A depth above 256 cannot be a place of ours.
     let tree = Tree::new(true);
     tree.file("t/a");
-    let step = remove_tree_step(&tree, "t", false, 1 << 56).unwrap();
+    let step = remove_tree_step(&tree, "t", false, u64::MAX).unwrap();
     assert!(step.removed > 0 || step.done);
 }
 
@@ -605,5 +607,99 @@ fn a_resumed_place_whose_folder_is_gone_starts_that_folder_over() {
             place = step.next;
         }
         assert_eq!(tree.paths(), ["keep", "keep/x"]);
+    });
+}
+
+/// Names no path holds are removed by their place, which reads entries too:
+/// those are reserved before the removal, so no call goes past its cap.
+#[test]
+fn removals_by_place_stay_within_the_read_cap() {
+    both(|tree| {
+        for i in 0..400 {
+            tree.file(&format!("data/bad{i}."));
+        }
+        let mut place = 0;
+        loop {
+            tree.reads.set(0);
+            let step = remove_tree_step(tree, "data", false, place).unwrap();
+            assert!(tree.reads.get() <= MAX_READS, "reads: {}", tree.reads.get());
+            assert!(step.removed <= MAX_REMOVALS);
+            if step.done {
+                break;
+            }
+            place = step.next;
+        }
+        assert!(tree.paths().is_empty());
+    });
+}
+
+/// The deepest folder with more leaves than one call removes: the place a
+/// call hands back at that depth keeps the depth (the tree is not started
+/// again from its root), and every call stays within its removals and reads
+/// (the descent apart) while the 256 folders above are taken away as well.
+#[test]
+fn a_place_at_the_deepest_level_keeps_its_depth() {
+    both(|tree| {
+        let mut path = String::from("t");
+        for i in 0..MAX_DEPTH {
+            path.push_str(&format!("/d{i}"));
+        }
+        for i in 0..150 {
+            tree.file(&format!("{path}/f{i}"));
+        }
+        tree.file("t/d0/side");
+        tree.file("keep/x");
+        let (mut place, mut calls, mut deepest) = (0, 0, false);
+        loop {
+            tree.reads.set(0);
+            let before = tree.removals.get();
+            let step = remove_tree_step(tree, "t", false, place).unwrap();
+            calls += 1;
+            assert!(step.removed <= MAX_REMOVALS, "removals: {}", step.removed);
+            assert_eq!(step.removed, tree.removals.get() - before);
+            assert!(
+                tree.reads.get() <= MAX_READS + DESCENT,
+                "reads: {}",
+                tree.reads.get()
+            );
+            if step.done {
+                break;
+            }
+            if step.next >> 48 == MAX_DEPTH as u64 {
+                deepest = true;
+            }
+            place = step.next;
+            assert!(calls < 20, "it does not end");
+        }
+        assert!(deepest, "a place was handed back at depth 256");
+        assert_eq!(tree.paths(), ["keep", "keep/x"]);
+    });
+}
+
+/// Unwinding a 256-deep chain removes at most 64 folders a call.
+#[test]
+fn unwinding_a_deep_chain_is_bounded_by_the_removal_share() {
+    both(|tree| {
+        let mut path = String::from("t");
+        for i in 0..MAX_DEPTH {
+            path.push_str(&format!("/d{i}"));
+        }
+        tree.file(&format!("{path}/leaf"));
+        let mut place = 0;
+        let mut calls = 0;
+        loop {
+            let before = tree.removals.get();
+            let step = remove_tree_step(tree, "t", false, place).unwrap();
+            calls += 1;
+            assert!(step.removed <= MAX_REMOVALS);
+            assert_eq!(step.removed, tree.removals.get() - before);
+            if step.done {
+                break;
+            }
+            place = step.next;
+            assert!(calls < 20);
+        }
+        assert!(calls >= 258 / 64, "{calls} calls");
+        assert!(tree.paths().is_empty());
     });
 }

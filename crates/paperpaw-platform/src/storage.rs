@@ -307,7 +307,7 @@ pub fn remove_listed_by_path<S: Storage + ?Sized>(
     const PATH: usize = 640;
     let mut path = [0u8; PATH];
     let mut found = None;
-    storage.list_from(dir, place, &mut |entry| {
+    storage.list_bounded(dir, place, &mut |entry| {
         let start = if dir.is_empty() { 0 } else { dir.len() + 1 };
         let end = start + entry.name.len();
         if entry.name.len() <= NAME
@@ -482,9 +482,15 @@ impl<B: Storage, M: Storage> Storage for Mounted<B, M> {
         keep_root: bool,
         place: u64,
     ) -> Result<crate::tree::TreeStep, StorageError> {
-        // The root's places count the mount point too.
+        // The root is the base's own tree, by the base's own walk: the mount
+        // point and what is mounted at it are another storage's and stay (as
+        // with `remove_dir_all("")`), never walked into by the generic walk.
         if root.is_empty() {
-            return crate::tree::remove_tree_step(self, root, keep_root, place);
+            return self.base.remove_tree_step(root, keep_root, place);
+        }
+        if root == self.at && !keep_root {
+            // Never the mount point itself.
+            return Err(StorageError::Unsupported);
         }
         let (storage, root) = self.route(root);
         storage.remove_tree_step(root, keep_root, place)

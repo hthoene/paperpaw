@@ -6,11 +6,13 @@
 //! name of a folder at once. [`remove_tree_step`] is the bounded form the
 //! interface-7 file service (`docs/abi/files.md` 2.5) needs: one call shows
 //! it at most [`MAX_READS`] folder entries (every entry a listing visits is
-//! counted, the look-ahead and the checks that a folder is empty too; finding
-//! the place's folder again is counted apart, at most [`DESCENT`]) and removes at most [`MAX_REMOVALS`] entries, keeps nothing between
-//! calls but a 64-bit place it hands back; the path it walks is the one thing it
-//! holds on the heap, built fallibly (this is the walk for storages without a
-//! step of their own: the memory card and the host's file system have theirs).
+//! counted, the look-ahead and the checks that a folder is empty too;
+//! finding the place's folder again is counted apart, at most [`DESCENT`])
+//! and removes at most [`MAX_REMOVALS`] entries. It keeps nothing between
+//! calls but a 64-bit place it hands back; the path it walks is the one
+//! thing it holds on the heap, built fallibly (this is the walk for storages
+//! without a step of their own: the memory card and the host's file system
+//! have theirs).
 //! Entries are removed one at a time, by their path or, for names no path can
 //! hold, by their place ([`Storage::remove_listed`]); a folder is handed to
 //! [`Storage::remove_dir_all`] only once a listing from its start has shown
@@ -41,17 +43,21 @@ use crate::storage::{DirEntry, Storage, StorageError, is_valid_path};
 pub const MAX_REMOVALS: u32 = 64;
 /// Most folder entries one [`remove_tree_step`] has a listing show.
 pub const MAX_READS: u32 = 256;
-/// Deepest folder the walk goes into itself; a folder deeper than that, or
-/// one whose path does not fit, is taken away by its place with all in it
-/// ([`Storage::remove_listed`]) instead of being walked.
+/// Deepest folder the walk goes into: 256 levels below the tree's root. A
+/// folder below that ends the call with [`StorageError::InvalidData`]; what
+/// was removed stays removed, nothing outside the tree is touched.
 pub const MAX_DEPTH: usize = 256;
 /// Most entries one call reads finding the folder of a place again: a look
 /// at two entries a level.
 pub const DESCENT: u32 = 2 * MAX_DEPTH as u32 + 8;
+/// Most entries the removal of one entry by its place reads (the entry, the
+/// one after it, and the check that a folder is empty).
+const PLACE_READS: u32 = 3;
 /// Longest name the walk uses, in bytes (a segment of a path).
 pub const MAX_NAME: usize = 255;
-/// Bits of a place that hold the storage's place; the rest hold the depth.
-const POSITION_BITS: u32 = 56;
+/// Bits of a place that hold the storage's place; the rest (16) hold the depth,
+/// which goes up to [`MAX_DEPTH`] (256, nine bits).
+const POSITION_BITS: u32 = 48;
 /// What a path names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -235,6 +241,26 @@ fn fetch<S: Storage + ?Sized>(
     })
 }
 
+// With places that are counts of entries (`list_counted`: the default of
+// storages without stable places), every removal shifts the entries after it,
+// so the place after an entry skips one. The pass over a folder from its first
+// entry before it is declared empty keeps this correct; it only costs extra
+// passes.
+
+/// The way down to the place's folder is longer than its share (folders added
+/// above it between calls): after removals the call ends and goes on from the
+/// place it was given; with none, `Io`, so that no call loops without progress.
+fn out_of_descent(removed: u32, place: u64) -> Result<TreeStep, StorageError> {
+    if removed == 0 {
+        return Err(StorageError::Io);
+    }
+    Ok(TreeStep {
+        removed,
+        done: false,
+        next: place,
+    })
+}
+
 /// The step that is the whole answer where `root` is no folder: nothing there
 /// (done), or a file (removed).
 fn whole_answer<S: Storage + ?Sized>(
@@ -298,8 +324,10 @@ pub fn remove_tree_step<S: Storage + ?Sized>(
     positions.push(if target == 0 { resume } else { 0 });
     let mut entry = Entry::EMPTY;
     loop {
-        // A look at two entries must fit, so no call shows more than its share.
-        if removed >= MAX_REMOVALS || reads + 2 > MAX_READS {
+        // A look at two entries and, for a name no path holds, the three
+        // reads of its removal by place must fit, so that no call shows more
+        // than its share.
+        if removed >= MAX_REMOVALS || reads + 2 + PLACE_READS > MAX_READS {
             let position = positions.get(level).copied().unwrap_or(0);
             return Ok(TreeStep {
                 removed,
@@ -320,7 +348,7 @@ pub fn remove_tree_step<S: Storage + ?Sized>(
         // descent: counted apart, so that every call advances.
         let counter = if level < target {
             if descent + 2 > DESCENT {
-                return Err(StorageError::Io);
+                return out_of_descent(removed, place);
             }
             &mut descent
         } else {
@@ -390,7 +418,7 @@ pub fn remove_tree_step<S: Storage + ?Sized>(
         }
         // A name no path holds: by its place (a file, or a folder with
         // nothing in it). The check that it is empty reads a few entries.
-        reads += 3;
+        reads += PLACE_READS;
         storage.remove_listed(path.at(level), here)?;
         removed += 1;
     }

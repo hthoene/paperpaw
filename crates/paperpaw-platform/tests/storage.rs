@@ -108,6 +108,20 @@ impl Storage for Log {
         self.note(format!("remove_dir_all {path}"))
     }
 
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        self.note(format!("remove_tree_step {root} {keep_root} {place}"))?;
+        Ok(paperpaw_platform::tree::TreeStep {
+            removed: 0,
+            done: true,
+            next: 0,
+        })
+    }
+
     fn local_path(&self, path: &str, with: &mut dyn FnMut(&str)) {
         let _ = self.note(format!("local_path {path}"));
         with(&format!("/{}/{path}", self.name));
@@ -205,6 +219,45 @@ fn renames_stay_within_one_storage() {
             "{from} to {to}"
         );
     }
+}
+
+/// A tree below the mount point goes to the mounted storage's own step, by
+/// its path in it and with its place; the root is the base's own tree (the
+/// mounted storage is not walked into); the mount point is never removed.
+#[test]
+fn tree_steps_go_to_the_storage_that_holds_the_tree() {
+    assert_eq!(
+        routed(|s| {
+            s.remove_tree_step("books/series", false, 7).unwrap();
+        }),
+        ["books: remove_tree_step series false 7"]
+    );
+    assert_eq!(
+        routed(|s| {
+            s.remove_tree_step("data/x", true, 3).unwrap();
+        }),
+        ["base: remove_tree_step data/x true 3"]
+    );
+    assert_eq!(
+        routed(|s| {
+            s.remove_tree_step("", true, 0).unwrap();
+        }),
+        ["base: remove_tree_step  true 0"]
+    );
+    // The mount point's contents may be emptied, the mount point stays.
+    assert_eq!(
+        routed(|s| {
+            s.remove_tree_step("books", true, 0).unwrap();
+        }),
+        ["books: remove_tree_step  true 0"]
+    );
+    assert_eq!(
+        routed(|s| assert_eq!(
+            s.remove_tree_step("books", false, 0).map(|_| ()),
+            Err(StorageError::Unsupported)
+        )),
+        Vec::<String>::new()
+    );
 }
 
 #[test]
