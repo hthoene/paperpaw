@@ -77,9 +77,12 @@ mod tests {
         let instance = Instance::new();
         let depth = Depth::new();
         assert!(!instance.is_active());
+        assert_eq!(depth.current(), 0);
         let call = instance.enter(&depth).unwrap();
         assert!(instance.is_active());
+        assert_eq!(depth.current(), 1);
         drop(call);
         assert!(!instance.is_active());
+        assert_eq!(depth.current(), 0);
     }
 }
