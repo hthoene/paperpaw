@@ -66,6 +66,24 @@ impl Kernel {
         false
     }
 
+    /// Factory failure may be caused by persistent OOM. Reporting must not
+    /// allocate infallibly or expose the screen's private params.
+    fn warn_native_open_failed(&mut self) {
+        const MESSAGE: &str = "Could not open native screen";
+        let mut message = String::new();
+        if message.try_reserve_exact(MESSAGE.len()).is_err()
+            || self.warnings.try_reserve(1).is_err()
+        {
+            return;
+        }
+        message.push_str(MESSAGE);
+        self.warnings.push(Warning {
+            source: WarningSource::Runtime,
+            line: None,
+            message,
+        });
+    }
+
     /// Opens screen `id` with `params` on top, for `slot` if it was bound
     /// to one.
     pub(crate) fn open(&mut self, id: Id, slot: Option<Id>, params: &Params) {
@@ -77,6 +95,7 @@ impl Kernel {
         };
         // Native allocation finishes before changing the serial, layout or screen.
         let Ok(native_screen) = spec.prepare_native(params) else {
+            self.warn_native_open_failed();
             return;
         };
         let on_open = spec.refresh_on_open();
