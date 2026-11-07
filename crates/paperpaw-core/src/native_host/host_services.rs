@@ -9,6 +9,7 @@
 //! and its annotation transactions.
 use super::{
     doc_service::{self, DocHost, DocServices},
+    hyphen_service::HyphenServices,
     lib_service::{self, LibHost, LibServices},
     lookup_service::{LookupHost, LookupServices},
 };
@@ -34,6 +35,7 @@ pub(crate) struct HostServices {
     documents: OnceCell<DocServices>,
     library: OnceCell<LibServices>,
     lookup: OnceCell<LookupServices>,
+    hyphen: OnceCell<HyphenServices>,
 }
 
 impl core::fmt::Debug for HostServices {
@@ -42,6 +44,7 @@ impl core::fmt::Debug for HostServices {
             .field("documents", &self.documents.get().is_some())
             .field("library", &self.library.get().is_some())
             .field("lookup", &self.lookup.get().is_some())
+            .field("hyphen", &self.hyphen.get().is_some())
             .finish()
     }
 }
@@ -52,6 +55,7 @@ impl HostServices {
             documents: OnceCell::new(),
             library: OnceCell::new(),
             lookup: OnceCell::new(),
+            hyphen: OnceCell::new(),
         }
     }
 
@@ -69,6 +73,23 @@ impl HostServices {
     /// Wire `core.lookup` once.
     pub(crate) fn wire_lookup(&self, host: Rc<dyn LookupHost>) -> Result<(), i32> {
         self.lookup.set(LookupServices(host)).map_err(|_| ERR_STATE)
+    }
+
+    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
+    /// Wire `text.hyphenate` once.
+    pub(crate) fn wire_hyphen(
+        &self,
+        host: Rc<dyn super::hyphen_service::HyphenHost>,
+    ) -> Result<(), i32> {
+        self.hyphen
+            .set(HyphenServices(Rc::new(
+                super::hyphen_service::HyphenState::new(host),
+            )))
+            .map_err(|_| ERR_STATE)
+    }
+
+    pub(crate) fn hyphen(&self) -> Option<&HyphenServices> {
+        self.hyphen.get()
     }
 
     pub(crate) fn documents(&self) -> Option<&DocServices> {

@@ -1630,6 +1630,7 @@ dependencies = [
  "paperpaw-config",
  "paperpaw-graphics",
  "paperpaw-hid",
+ "paperpaw-hyphen",
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",

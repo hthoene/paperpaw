@@ -246,6 +246,7 @@ pub fn host_table<S: Services>() -> PpHost {
     table.text_measure = text_measure::<S>;
     table.text_metrics = text_metrics::<S>;
     table.text_draw = text_draw::<S>;
+    table.text_hyphenate = text_hyphenate::<S>;
     // The X4 ink probe is enabled only after device timing qualifies it.
     #[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
     {
@@ -1251,6 +1252,24 @@ unsafe extern "C" fn text_measure<S>(
             out,
         )
     }
+}
+
+unsafe extern "C" fn text_hyphenate<S>(
+    ctx: *mut c_void,
+    language: PpBytes,
+    word: PpBytes,
+    left: u32,
+    right: u32,
+    out: PpBuffer,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
+    // SAFETY: generated slot contracts supply live, disjoint input and output pairs.
+    unsafe { super::hyphen_service::slot(&context.resources, language, word, left, right, out) }
 }
 
 unsafe extern "C" fn text_metrics<S>(
