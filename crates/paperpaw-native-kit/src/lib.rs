@@ -9,11 +9,13 @@
 //! for list screens with hit-testing. It uses `paperpaw_sdk::native` only,
 //! allocates fallibly and keeps nothing callback-scoped.
 #![no_std]
+#![cfg_attr(test, allow(clippy::unwrap_used, reason = "assertions"))]
 
 extern crate alloc;
 
 pub mod focus;
 pub mod header;
+pub mod items;
 pub mod list;
 pub mod messages;
 pub mod paint;
@@ -21,6 +23,7 @@ pub mod style;
 pub mod text;
 
 pub use focus::{ListFocus, ListInput, Step};
+pub use items::{Item, ItemList, ItemStep, RowItem};
 pub use list::ListRenderer;
 pub use messages::Messages;
 pub use paint::{Page, Paint};

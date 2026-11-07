@@ -143,10 +143,6 @@ impl ListRenderer {
         Ok(())
     }
 }
-#[allow(
-    clippy::too_many_arguments,
-    reason = "one measured row and its target geometry"
-)]
 /// Prepares one list row: focus, separator, title at the left and value at the right.
 ///
 /// # Errors
@@ -160,13 +156,31 @@ pub fn row(
     value: &str,
     focused: bool,
 ) -> Result<(), Error> {
-    let ink = if focused && !style.ring {
+    backdrop(paint, style, rect, focused)?;
+    columns(paint, font, style, rect, title, value, ink(style, focused))
+}
+
+/// The ink of text on a row that is focused or not.
+#[must_use]
+pub fn ink(style: &Style, focused: bool) -> Color {
+    if focused && !style.ring {
         style.paper
     } else {
         style.ink
-    };
+    }
+}
+
+/// The focus round a row, or else the separator below it.
+///
+/// # Errors
+/// [`Error::NoMemory`] when the paint list cannot grow.
+pub fn backdrop(
+    paint: &mut Vec<Paint>,
+    style: &Style,
+    rect: Rect,
+    focused: bool,
+) -> Result<(), Error> {
     if focused {
-        paint.try_reserve(1).map_err(|_| Error::NoMemory)?;
         let inset = rect.inset(
             (style.margin / 2).min(rect.width / 8),
             style.line.min(rect.height / 8),
@@ -176,33 +190,53 @@ pub fn row(
         } else {
             u32::from(inset.height) / 2
         };
-        paint.push(Paint::Focus(
-            inset,
-            radius,
-            style
-                .ring
-                .then_some(u32::from(style.line) * 2)
-                .map(|line| line.max(3)),
-            Color::BLACK,
-        ));
-    }
-    if !focused && style.separators != "core.separators.none" {
-        paint.try_reserve(1).map_err(|_| Error::NoMemory)?;
+        paint::push(
+            paint,
+            Paint::Focus(
+                inset,
+                radius,
+                style
+                    .ring
+                    .then_some(u32::from(style.line) * 2)
+                    .map(|line| line.max(3)),
+                Color::BLACK,
+            ),
+        )?;
+    } else if style.separators != "core.separators.none" {
         let thickness = if style.separators == "core.separators.inset" {
             (style.line / 2).max(1)
         } else {
             style.line
         };
-        paint.push(Paint::Fill(
-            Rect::new(
-                rect.x + style.margin,
-                rect.y + rect.height.saturating_sub(style.line),
-                rect.width.saturating_sub(2 * style.margin),
-                thickness,
+        paint::push(
+            paint,
+            Paint::Fill(
+                Rect::new(
+                    rect.x + style.margin,
+                    rect.y + rect.height.saturating_sub(style.line),
+                    rect.width.saturating_sub(2 * style.margin),
+                    thickness,
+                ),
+                style.separator_ink,
             ),
-            style.separator_ink,
-        ));
+        )?;
     }
+    Ok(())
+}
+
+/// A title at the left and a value at the right of `rect`, shortened to fit.
+///
+/// # Errors
+/// Propagates allocation and font errors.
+pub fn columns(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    rect: Rect,
+    title: &str,
+    value: &str,
+    ink: Color,
+) -> Result<(), Error> {
     let margin = f32::from(style.margin);
     let room = (f32::from(rect.width) - 2.0 * margin).max(0.0);
     let room = (room - margin).max(0.0);
