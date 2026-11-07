@@ -738,3 +738,15 @@ fn a_frame_without_the_host_or_a_caller_refuses_the_family() {
         },
     );
 }
+
+/// Senior #1110: on the X4 the reading plugin's `open` evicts a background
+/// opener's document, which is closed with reason 4 `needed`. Not built until
+/// Kernel's draft-20 contract carries the reason and the records.
+#[test]
+#[ignore = "waits for Kernel's draft-20 reason 4 `needed` (#228, Senior #1110)"]
+fn x4_reading_open_evicts_a_background_document_with_reason_needed() {
+    // Expected: a background opener holds the only slot it may take, the
+    // reading plugin opens its book, the background document ends with
+    // reason 4, its opener hears `event.document_closed` and the format gets
+    // op 4 close; the reader's open succeeds. A background open never evicts.
+}
