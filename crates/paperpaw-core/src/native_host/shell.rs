@@ -213,6 +213,7 @@ pub fn host_table<S: Services>() -> PpHost {
     table.heap_dealloc = heap_dealloc::<S>;
     table.heap_realloc = heap_realloc::<S>;
     table.clock_micros = clock_micros::<S>;
+    table.stage_run = stage_slot::run::<S>;
     table.registrations_submit = registrations_submit::<S>;
     table.commands_submit = commands_submit::<S>;
     table.env_snapshot = env_snapshot::<S>;
@@ -1361,3 +1362,5 @@ mod stage;
     reason = "stage broker consumes this checked reply hook next"
 )]
 pub(crate) use stage::dispatch_stage;
+#[path = "shell_stage_slot.rs"]
+mod stage_slot;
