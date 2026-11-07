@@ -152,6 +152,100 @@ pub const COMMAND_IMAGE_PREPARE_TAG: u32 = 1559;
 pub const COMMAND_IMAGE_PREPARE_PATH_MAX_BYTES: usize = 512;
 /// Wire tag of the `command.image_release` command.
 pub const COMMAND_IMAGE_RELEASE_TAG: u32 = 1560;
+/// Wire tag of the `command.wifi_on` command.
+pub const COMMAND_WIFI_ON_TAG: u32 = 1564;
+/// Wire tag of the `command.wifi_off` command.
+pub const COMMAND_WIFI_OFF_TAG: u32 = 1565;
+/// Wire tag of the `command.wifi_scan` command.
+pub const COMMAND_WIFI_SCAN_TAG: u32 = 1566;
+/// Wire tag of the `command.wifi_join` command.
+pub const COMMAND_WIFI_JOIN_TAG: u32 = 1567;
+/// Maximum bytes of `command.wifi_join.ssid`.
+pub const COMMAND_WIFI_JOIN_SSID_MAX_BYTES: usize = 32;
+/// Maximum bytes of `command.wifi_join.password`.
+pub const COMMAND_WIFI_JOIN_PASSWORD_MAX_BYTES: usize = 63;
+/// Wire tag of the `command.wifi_leave` command.
+pub const COMMAND_WIFI_LEAVE_TAG: u32 = 1568;
+/// Wire tag of the `command.wifi_host` command.
+pub const COMMAND_WIFI_HOST_TAG: u32 = 1569;
+/// Maximum bytes of `command.wifi_host.ssid`.
+pub const COMMAND_WIFI_HOST_SSID_MAX_BYTES: usize = 32;
+/// Maximum bytes of `command.wifi_host.password`.
+pub const COMMAND_WIFI_HOST_PASSWORD_MAX_BYTES: usize = 63;
+/// Wire tag of the `command.network_none` command.
+pub const COMMAND_NETWORK_NONE_TAG: u32 = 1570;
+/// Wire tag of the `command.go_online` command.
+pub const COMMAND_GO_ONLINE_TAG: u32 = 1571;
+/// Wire tag of the `command.sleep` command.
+pub const COMMAND_SLEEP_TAG: u32 = 1572;
+/// Wire tag of the `command.power_off` command.
+pub const COMMAND_POWER_OFF_TAG: u32 = 1573;
+/// Wire tag of the `command.restart` command.
+pub const COMMAND_RESTART_TAG: u32 = 1574;
+/// Wire tag of the `command.wear` command.
+pub const COMMAND_WEAR_TAG: u32 = 1575;
+/// Maximum bytes of `command.wear.mode`.
+pub const COMMAND_WEAR_MODE_MAX_BYTES: usize = 128;
+/// Wire tag of the `command.install_plugin` command.
+pub const COMMAND_INSTALL_PLUGIN_TAG: u32 = 1576;
+/// Maximum bytes of `command.install_plugin.path`.
+pub const COMMAND_INSTALL_PLUGIN_PATH_MAX_BYTES: usize = 512;
+/// Wire tag of the `command.remove_plugin` command.
+pub const COMMAND_REMOVE_PLUGIN_TAG: u32 = 1577;
+/// Maximum bytes of `command.remove_plugin.plugin`.
+pub const COMMAND_REMOVE_PLUGIN_PLUGIN_MAX_BYTES: usize = 64;
+/// Wire tag of the `command.install_firmware` command.
+pub const COMMAND_INSTALL_FIRMWARE_TAG: u32 = 1578;
+/// Maximum bytes of `command.install_firmware.path`.
+pub const COMMAND_INSTALL_FIRMWARE_PATH_MAX_BYTES: usize = 512;
+/// Maximum bytes of `command.install_firmware.key`.
+pub const COMMAND_INSTALL_FIRMWARE_KEY_MAX_BYTES: usize = 32;
+/// Wire tag of the `command.firmware_restart` command.
+pub const COMMAND_FIRMWARE_RESTART_TAG: u32 = 1579;
+/// Wire tag of the `command.install_author` command.
+pub const COMMAND_INSTALL_AUTHOR_TAG: u32 = 1580;
+/// Maximum bytes of `command.install_author.author`.
+pub const COMMAND_INSTALL_AUTHOR_AUTHOR_MAX_BYTES: usize = 32;
+/// Maximum bytes of `command.install_author.recovery`.
+pub const COMMAND_INSTALL_AUTHOR_RECOVERY_MAX_BYTES: usize = 32;
+/// Wire tag of the `command.install_rotation` command.
+pub const COMMAND_INSTALL_ROTATION_TAG: u32 = 1581;
+/// Maximum bytes of `command.install_rotation.to`.
+pub const COMMAND_INSTALL_ROTATION_TO_MAX_BYTES: usize = 32;
+/// Maximum bytes of `command.install_rotation.signature`.
+pub const COMMAND_INSTALL_ROTATION_SIGNATURE_MAX_BYTES: usize = 64;
+/// Wire tag of the `command.trust_revoked` command.
+pub const COMMAND_TRUST_REVOKED_TAG: u32 = 1582;
+/// Maximum bytes of `command.trust_revoked.plugin`.
+pub const COMMAND_TRUST_REVOKED_PLUGIN_MAX_BYTES: usize = 64;
+/// Maximum bytes of `command.trust_revoked.key`.
+pub const COMMAND_TRUST_REVOKED_KEY_MAX_BYTES: usize = 32;
+/// Maximum bytes of `command.trust_revoked.signature`.
+pub const COMMAND_TRUST_REVOKED_SIGNATURE_MAX_BYTES: usize = 64;
+/// Wire tag of the `command.check_file` command.
+pub const COMMAND_CHECK_FILE_TAG: u32 = 1592;
+/// Maximum bytes of `command.check_file.path`.
+pub const COMMAND_CHECK_FILE_PATH_MAX_BYTES: usize = 512;
+/// Wire tag of the `command.bt_scan` command.
+pub const COMMAND_BT_SCAN_TAG: u32 = 1583;
+/// Wire tag of the `command.bt_stop_scan` command.
+pub const COMMAND_BT_STOP_SCAN_TAG: u32 = 1584;
+/// Wire tag of the `command.bt_pair` command.
+pub const COMMAND_BT_PAIR_TAG: u32 = 1585;
+/// Wire tag of the `command.bt_connect` command.
+pub const COMMAND_BT_CONNECT_TAG: u32 = 1586;
+/// Wire tag of the `command.bt_disconnect` command.
+pub const COMMAND_BT_DISCONNECT_TAG: u32 = 1587;
+/// Wire tag of the `command.bt_forget` command.
+pub const COMMAND_BT_FORGET_TAG: u32 = 1588;
+/// Wire tag of the `command.bt_give` command.
+pub const COMMAND_BT_GIVE_TAG: u32 = 1589;
+/// Maximum bytes of `command.bt_give.plugin`.
+pub const COMMAND_BT_GIVE_PLUGIN_MAX_BYTES: usize = 64;
+/// Wire tag of the `command.bt_take_back` command.
+pub const COMMAND_BT_TAKE_BACK_TAG: u32 = 1590;
+/// Wire tag of the `command.bt_keys` command.
+pub const COMMAND_BT_KEYS_TAG: u32 = 1591;
 pub const COMMAND_SET_SETTING_TAG: u32 = 4;
 
 /// A command borrowed from one validated batch. No Rust value crosses the ABI.
@@ -365,6 +459,173 @@ pub enum Command<'a> {
     ImageRelease {
         /// Little-endian u32.
         image: u32,
+    },
+    /// The `command.wifi_on` command.
+    WifiOn {},
+    /// The `command.wifi_off` command.
+    WifiOff {},
+    /// The `command.wifi_scan` command.
+    WifiScan {},
+    /// The `command.wifi_join` command (`docs/abi/registry.md`).
+    WifiJoin {
+        /// Little-endian u32.
+        request: u32,
+        /// UTF-8 text of at most 32 bytes.
+        ssid: &'a str,
+        /// UTF-8 text of at most 63 bytes.
+        password: &'a str,
+        /// Little-endian u32.
+        flags: u32,
+    },
+    /// The `command.wifi_leave` command.
+    WifiLeave {},
+    /// The `command.wifi_host` command (`docs/abi/registry.md`).
+    WifiHost {
+        /// Little-endian u32.
+        request: u32,
+        /// UTF-8 text of at most 32 bytes.
+        ssid: &'a str,
+        /// UTF-8 text of at most 63 bytes.
+        password: &'a str,
+    },
+    /// The `command.network_none` command.
+    NetworkNone {},
+    /// The `command.go_online` command (`docs/abi/registry.md`).
+    GoOnline {
+        /// Little-endian u32.
+        for_ms: u32,
+    },
+    /// The `command.sleep` command.
+    Sleep {},
+    /// The `command.power_off` command.
+    PowerOff {},
+    /// The `command.restart` command.
+    Restart {},
+    /// The `command.wear` command (`docs/abi/registry.md`).
+    Wear {
+        /// UTF-8 text of at most 128 bytes.
+        mode: &'a str,
+        /// Little-endian u32.
+        flags: u32,
+    },
+    /// The `command.install_plugin` command (`docs/abi/registry.md`).
+    InstallPlugin {
+        /// Little-endian u32.
+        request: u32,
+        /// Little-endian u32.
+        root: u32,
+        /// UTF-8 text of at most 512 bytes.
+        path: &'a str,
+        /// Little-endian u32.
+        flags: u32,
+    },
+    /// The `command.remove_plugin` command (`docs/abi/registry.md`).
+    RemovePlugin {
+        /// Little-endian u32.
+        request: u32,
+        /// UTF-8 text of at most 64 bytes.
+        plugin: &'a str,
+        /// Little-endian u32.
+        flags: u32,
+    },
+    /// The `command.install_firmware` command (`docs/abi/registry.md`).
+    InstallFirmware {
+        /// Little-endian u32.
+        request: u32,
+        /// Little-endian u32.
+        root: u32,
+        /// UTF-8 text of at most 512 bytes.
+        path: &'a str,
+        /// At most 32 bytes.
+        key: &'a [u8],
+        /// Little-endian u32.
+        flags: u32,
+    },
+    /// The `command.firmware_restart` command.
+    FirmwareRestart {},
+    /// The `command.install_author` command (`docs/abi/registry.md`).
+    InstallAuthor {
+        /// Little-endian u32.
+        request: u32,
+        /// At most 32 bytes.
+        author: &'a [u8],
+        /// At most 32 bytes.
+        recovery: &'a [u8],
+    },
+    /// The `command.install_rotation` command (`docs/abi/registry.md`).
+    InstallRotation {
+        /// Little-endian u32.
+        request: u32,
+        /// At most 32 bytes.
+        to: &'a [u8],
+        /// At most 64 bytes.
+        signature: &'a [u8],
+    },
+    /// The `command.trust_revoked` command (`docs/abi/registry.md`).
+    TrustRevoked {
+        /// UTF-8 text of at most 64 bytes.
+        plugin: &'a str,
+        /// At most 32 bytes.
+        key: &'a [u8],
+        /// At most 64 bytes.
+        signature: &'a [u8],
+    },
+    /// The `command.check_file` command (`docs/abi/registry.md`).
+    CheckFile {
+        /// Little-endian u32.
+        request: u32,
+        /// Little-endian u32.
+        root: u32,
+        /// UTF-8 text of at most 512 bytes.
+        path: &'a str,
+        /// Little-endian u32.
+        kind: u32,
+    },
+    /// The `command.bt_scan` command (`docs/abi/registry.md`).
+    BtScan {
+        /// Little-endian u32.
+        lasting_ms: u32,
+    },
+    /// The `command.bt_stop_scan` command.
+    BtStopScan {},
+    /// The `command.bt_pair` command (`docs/abi/registry.md`).
+    BtPair {
+        /// Little-endian u32.
+        device: u32,
+    },
+    /// The `command.bt_connect` command (`docs/abi/registry.md`).
+    BtConnect {
+        /// Little-endian u32.
+        device: u32,
+    },
+    /// The `command.bt_disconnect` command (`docs/abi/registry.md`).
+    BtDisconnect {
+        /// Little-endian u32.
+        device: u32,
+    },
+    /// The `command.bt_forget` command (`docs/abi/registry.md`).
+    BtForget {
+        /// Little-endian u32.
+        device: u32,
+    },
+    /// The `command.bt_give` command (`docs/abi/registry.md`).
+    BtGive {
+        /// Little-endian u32.
+        device: u32,
+        /// UTF-8 text of at most 64 bytes.
+        plugin: &'a str,
+    },
+    /// The `command.bt_take_back` command (`docs/abi/registry.md`).
+    BtTakeBack {
+        /// Little-endian u32.
+        device: u32,
+    },
+    /// The `command.bt_keys` command (`docs/abi/registry.md`).
+    BtKeys {
+        /// Little-endian u32.
+        device: u32,
+        /// Little-endian u32.
+        on: u32,
     },
 }
 
@@ -823,6 +1084,186 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                     image: u32::from_le_bytes(scalar(body.take(4)?)),
                 }
             }
+            COMMAND_WIFI_ON_TAG => {
+                body.bitmap()?;
+                Command::WifiOn {}
+            }
+            COMMAND_WIFI_OFF_TAG => {
+                body.bitmap()?;
+                Command::WifiOff {}
+            }
+            COMMAND_WIFI_SCAN_TAG => {
+                body.bitmap()?;
+                Command::WifiScan {}
+            }
+            COMMAND_WIFI_JOIN_TAG => {
+                body.bitmap()?;
+                Command::WifiJoin {
+                    request: u32::from_le_bytes(scalar(body.take(4)?)),
+                    ssid: text(body.bytes()?, COMMAND_WIFI_JOIN_SSID_MAX_BYTES)?,
+                    password: text(body.bytes()?, COMMAND_WIFI_JOIN_PASSWORD_MAX_BYTES)?,
+                    flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_WIFI_LEAVE_TAG => {
+                body.bitmap()?;
+                Command::WifiLeave {}
+            }
+            COMMAND_WIFI_HOST_TAG => {
+                body.bitmap()?;
+                Command::WifiHost {
+                    request: u32::from_le_bytes(scalar(body.take(4)?)),
+                    ssid: text(body.bytes()?, COMMAND_WIFI_HOST_SSID_MAX_BYTES)?,
+                    password: text(body.bytes()?, COMMAND_WIFI_HOST_PASSWORD_MAX_BYTES)?,
+                }
+            }
+            COMMAND_NETWORK_NONE_TAG => {
+                body.bitmap()?;
+                Command::NetworkNone {}
+            }
+            COMMAND_GO_ONLINE_TAG => {
+                body.bitmap()?;
+                Command::GoOnline {
+                    for_ms: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_SLEEP_TAG => {
+                body.bitmap()?;
+                Command::Sleep {}
+            }
+            COMMAND_POWER_OFF_TAG => {
+                body.bitmap()?;
+                Command::PowerOff {}
+            }
+            COMMAND_RESTART_TAG => {
+                body.bitmap()?;
+                Command::Restart {}
+            }
+            COMMAND_WEAR_TAG => {
+                body.bitmap()?;
+                Command::Wear {
+                    mode: text(body.bytes()?, COMMAND_WEAR_MODE_MAX_BYTES)?,
+                    flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_INSTALL_PLUGIN_TAG => {
+                body.bitmap()?;
+                Command::InstallPlugin {
+                    request: u32::from_le_bytes(scalar(body.take(4)?)),
+                    root: u32::from_le_bytes(scalar(body.take(4)?)),
+                    path: text(body.bytes()?, COMMAND_INSTALL_PLUGIN_PATH_MAX_BYTES)?,
+                    flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_REMOVE_PLUGIN_TAG => {
+                body.bitmap()?;
+                Command::RemovePlugin {
+                    request: u32::from_le_bytes(scalar(body.take(4)?)),
+                    plugin: text(body.bytes()?, COMMAND_REMOVE_PLUGIN_PLUGIN_MAX_BYTES)?,
+                    flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_INSTALL_FIRMWARE_TAG => {
+                body.bitmap()?;
+                Command::InstallFirmware {
+                    request: u32::from_le_bytes(scalar(body.take(4)?)),
+                    root: u32::from_le_bytes(scalar(body.take(4)?)),
+                    path: text(body.bytes()?, COMMAND_INSTALL_FIRMWARE_PATH_MAX_BYTES)?,
+                    key: blob(body.bytes()?, COMMAND_INSTALL_FIRMWARE_KEY_MAX_BYTES)?,
+                    flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_FIRMWARE_RESTART_TAG => {
+                body.bitmap()?;
+                Command::FirmwareRestart {}
+            }
+            COMMAND_INSTALL_AUTHOR_TAG => {
+                body.bitmap()?;
+                Command::InstallAuthor {
+                    request: u32::from_le_bytes(scalar(body.take(4)?)),
+                    author: blob(body.bytes()?, COMMAND_INSTALL_AUTHOR_AUTHOR_MAX_BYTES)?,
+                    recovery: blob(body.bytes()?, COMMAND_INSTALL_AUTHOR_RECOVERY_MAX_BYTES)?,
+                }
+            }
+            COMMAND_INSTALL_ROTATION_TAG => {
+                body.bitmap()?;
+                Command::InstallRotation {
+                    request: u32::from_le_bytes(scalar(body.take(4)?)),
+                    to: blob(body.bytes()?, COMMAND_INSTALL_ROTATION_TO_MAX_BYTES)?,
+                    signature: blob(body.bytes()?, COMMAND_INSTALL_ROTATION_SIGNATURE_MAX_BYTES)?,
+                }
+            }
+            COMMAND_TRUST_REVOKED_TAG => {
+                body.bitmap()?;
+                Command::TrustRevoked {
+                    plugin: text(body.bytes()?, COMMAND_TRUST_REVOKED_PLUGIN_MAX_BYTES)?,
+                    key: blob(body.bytes()?, COMMAND_TRUST_REVOKED_KEY_MAX_BYTES)?,
+                    signature: blob(body.bytes()?, COMMAND_TRUST_REVOKED_SIGNATURE_MAX_BYTES)?,
+                }
+            }
+            COMMAND_CHECK_FILE_TAG => {
+                body.bitmap()?;
+                Command::CheckFile {
+                    request: u32::from_le_bytes(scalar(body.take(4)?)),
+                    root: u32::from_le_bytes(scalar(body.take(4)?)),
+                    path: text(body.bytes()?, COMMAND_CHECK_FILE_PATH_MAX_BYTES)?,
+                    kind: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_BT_SCAN_TAG => {
+                body.bitmap()?;
+                Command::BtScan {
+                    lasting_ms: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_BT_STOP_SCAN_TAG => {
+                body.bitmap()?;
+                Command::BtStopScan {}
+            }
+            COMMAND_BT_PAIR_TAG => {
+                body.bitmap()?;
+                Command::BtPair {
+                    device: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_BT_CONNECT_TAG => {
+                body.bitmap()?;
+                Command::BtConnect {
+                    device: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_BT_DISCONNECT_TAG => {
+                body.bitmap()?;
+                Command::BtDisconnect {
+                    device: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_BT_FORGET_TAG => {
+                body.bitmap()?;
+                Command::BtForget {
+                    device: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_BT_GIVE_TAG => {
+                body.bitmap()?;
+                Command::BtGive {
+                    device: u32::from_le_bytes(scalar(body.take(4)?)),
+                    plugin: text(body.bytes()?, COMMAND_BT_GIVE_PLUGIN_MAX_BYTES)?,
+                }
+            }
+            COMMAND_BT_TAKE_BACK_TAG => {
+                body.bitmap()?;
+                Command::BtTakeBack {
+                    device: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_BT_KEYS_TAG => {
+                body.bitmap()?;
+                Command::BtKeys {
+                    device: u32::from_le_bytes(scalar(body.take(4)?)),
+                    on: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
             _ => return Err(-1),
         });
     }
@@ -1030,6 +1471,95 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
             Ok((COMMAND_IMAGE_PREPARE_TAG, len))
         }
         Command::ImageRelease { .. } => Ok((COMMAND_IMAGE_RELEASE_TAG, 1 + 4)),
+        Command::WifiOn {} => Ok((COMMAND_WIFI_ON_TAG, 1)),
+        Command::WifiOff {} => Ok((COMMAND_WIFI_OFF_TAG, 1)),
+        Command::WifiScan {} => Ok((COMMAND_WIFI_SCAN_TAG, 1)),
+        Command::WifiJoin { ssid, password, .. } => {
+            let mut len = 1 + 8;
+            len += blob_len(ssid.len(), COMMAND_WIFI_JOIN_SSID_MAX_BYTES)?;
+            len += blob_len(password.len(), COMMAND_WIFI_JOIN_PASSWORD_MAX_BYTES)?;
+            Ok((COMMAND_WIFI_JOIN_TAG, len))
+        }
+        Command::WifiLeave {} => Ok((COMMAND_WIFI_LEAVE_TAG, 1)),
+        Command::WifiHost { ssid, password, .. } => {
+            let mut len = 1 + 4;
+            len += blob_len(ssid.len(), COMMAND_WIFI_HOST_SSID_MAX_BYTES)?;
+            len += blob_len(password.len(), COMMAND_WIFI_HOST_PASSWORD_MAX_BYTES)?;
+            Ok((COMMAND_WIFI_HOST_TAG, len))
+        }
+        Command::NetworkNone {} => Ok((COMMAND_NETWORK_NONE_TAG, 1)),
+        Command::GoOnline { .. } => Ok((COMMAND_GO_ONLINE_TAG, 1 + 4)),
+        Command::Sleep {} => Ok((COMMAND_SLEEP_TAG, 1)),
+        Command::PowerOff {} => Ok((COMMAND_POWER_OFF_TAG, 1)),
+        Command::Restart {} => Ok((COMMAND_RESTART_TAG, 1)),
+        Command::Wear { mode, .. } => {
+            let mut len = 1 + 4;
+            len += blob_len(mode.len(), COMMAND_WEAR_MODE_MAX_BYTES)?;
+            Ok((COMMAND_WEAR_TAG, len))
+        }
+        Command::InstallPlugin { path, .. } => {
+            let mut len = 1 + 12;
+            len += blob_len(path.len(), COMMAND_INSTALL_PLUGIN_PATH_MAX_BYTES)?;
+            Ok((COMMAND_INSTALL_PLUGIN_TAG, len))
+        }
+        Command::RemovePlugin { plugin, .. } => {
+            let mut len = 1 + 8;
+            len += blob_len(plugin.len(), COMMAND_REMOVE_PLUGIN_PLUGIN_MAX_BYTES)?;
+            Ok((COMMAND_REMOVE_PLUGIN_TAG, len))
+        }
+        Command::InstallFirmware { path, key, .. } => {
+            let mut len = 1 + 12;
+            len += blob_len(path.len(), COMMAND_INSTALL_FIRMWARE_PATH_MAX_BYTES)?;
+            len += blob_len(key.len(), COMMAND_INSTALL_FIRMWARE_KEY_MAX_BYTES)?;
+            Ok((COMMAND_INSTALL_FIRMWARE_TAG, len))
+        }
+        Command::FirmwareRestart {} => Ok((COMMAND_FIRMWARE_RESTART_TAG, 1)),
+        Command::InstallAuthor {
+            author, recovery, ..
+        } => {
+            let mut len = 1 + 4;
+            len += blob_len(author.len(), COMMAND_INSTALL_AUTHOR_AUTHOR_MAX_BYTES)?;
+            len += blob_len(recovery.len(), COMMAND_INSTALL_AUTHOR_RECOVERY_MAX_BYTES)?;
+            Ok((COMMAND_INSTALL_AUTHOR_TAG, len))
+        }
+        Command::InstallRotation { to, signature, .. } => {
+            let mut len = 1 + 4;
+            len += blob_len(to.len(), COMMAND_INSTALL_ROTATION_TO_MAX_BYTES)?;
+            len += blob_len(
+                signature.len(),
+                COMMAND_INSTALL_ROTATION_SIGNATURE_MAX_BYTES,
+            )?;
+            Ok((COMMAND_INSTALL_ROTATION_TAG, len))
+        }
+        Command::TrustRevoked {
+            plugin,
+            key,
+            signature,
+        } => {
+            let mut len = 1;
+            len += blob_len(plugin.len(), COMMAND_TRUST_REVOKED_PLUGIN_MAX_BYTES)?;
+            len += blob_len(key.len(), COMMAND_TRUST_REVOKED_KEY_MAX_BYTES)?;
+            len += blob_len(signature.len(), COMMAND_TRUST_REVOKED_SIGNATURE_MAX_BYTES)?;
+            Ok((COMMAND_TRUST_REVOKED_TAG, len))
+        }
+        Command::CheckFile { path, .. } => {
+            let mut len = 1 + 12;
+            len += blob_len(path.len(), COMMAND_CHECK_FILE_PATH_MAX_BYTES)?;
+            Ok((COMMAND_CHECK_FILE_TAG, len))
+        }
+        Command::BtScan { .. } => Ok((COMMAND_BT_SCAN_TAG, 1 + 4)),
+        Command::BtStopScan {} => Ok((COMMAND_BT_STOP_SCAN_TAG, 1)),
+        Command::BtPair { .. } => Ok((COMMAND_BT_PAIR_TAG, 1 + 4)),
+        Command::BtConnect { .. } => Ok((COMMAND_BT_CONNECT_TAG, 1 + 4)),
+        Command::BtDisconnect { .. } => Ok((COMMAND_BT_DISCONNECT_TAG, 1 + 4)),
+        Command::BtForget { .. } => Ok((COMMAND_BT_FORGET_TAG, 1 + 4)),
+        Command::BtGive { plugin, .. } => {
+            let mut len = 1 + 4;
+            len += blob_len(plugin.len(), COMMAND_BT_GIVE_PLUGIN_MAX_BYTES)?;
+            Ok((COMMAND_BT_GIVE_TAG, len))
+        }
+        Command::BtTakeBack { .. } => Ok((COMMAND_BT_TAKE_BACK_TAG, 1 + 4)),
+        Command::BtKeys { .. } => Ok((COMMAND_BT_KEYS_TAG, 1 + 8)),
     }
 }
 
@@ -1235,6 +1765,167 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
                 }
                 Command::ImageRelease { image } => {
                     out[offset..offset + 4].copy_from_slice(&image.to_le_bytes());
+                    offset += 4;
+                }
+                Command::WifiOn {} => {}
+                Command::WifiOff {} => {}
+                Command::WifiScan {} => {}
+                Command::WifiJoin {
+                    request,
+                    ssid,
+                    password,
+                    flags,
+                } => {
+                    out[offset..offset + 4].copy_from_slice(&request.to_le_bytes());
+                    offset += 4;
+                    write_blob(ssid.as_bytes(), out, &mut offset);
+                    write_blob(password.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+                    offset += 4;
+                }
+                Command::WifiLeave {} => {}
+                Command::WifiHost {
+                    request,
+                    ssid,
+                    password,
+                } => {
+                    out[offset..offset + 4].copy_from_slice(&request.to_le_bytes());
+                    offset += 4;
+                    write_blob(ssid.as_bytes(), out, &mut offset);
+                    write_blob(password.as_bytes(), out, &mut offset);
+                }
+                Command::NetworkNone {} => {}
+                Command::GoOnline { for_ms } => {
+                    out[offset..offset + 4].copy_from_slice(&for_ms.to_le_bytes());
+                    offset += 4;
+                }
+                Command::Sleep {} => {}
+                Command::PowerOff {} => {}
+                Command::Restart {} => {}
+                Command::Wear { mode, flags } => {
+                    write_blob(mode.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+                    offset += 4;
+                }
+                Command::InstallPlugin {
+                    request,
+                    root,
+                    path,
+                    flags,
+                } => {
+                    out[offset..offset + 4].copy_from_slice(&request.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&root.to_le_bytes());
+                    offset += 4;
+                    write_blob(path.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+                    offset += 4;
+                }
+                Command::RemovePlugin {
+                    request,
+                    plugin,
+                    flags,
+                } => {
+                    out[offset..offset + 4].copy_from_slice(&request.to_le_bytes());
+                    offset += 4;
+                    write_blob(plugin.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+                    offset += 4;
+                }
+                Command::InstallFirmware {
+                    request,
+                    root,
+                    path,
+                    key,
+                    flags,
+                } => {
+                    out[offset..offset + 4].copy_from_slice(&request.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&root.to_le_bytes());
+                    offset += 4;
+                    write_blob(path.as_bytes(), out, &mut offset);
+                    write_blob(key, out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+                    offset += 4;
+                }
+                Command::FirmwareRestart {} => {}
+                Command::InstallAuthor {
+                    request,
+                    author,
+                    recovery,
+                } => {
+                    out[offset..offset + 4].copy_from_slice(&request.to_le_bytes());
+                    offset += 4;
+                    write_blob(author, out, &mut offset);
+                    write_blob(recovery, out, &mut offset);
+                }
+                Command::InstallRotation {
+                    request,
+                    to,
+                    signature,
+                } => {
+                    out[offset..offset + 4].copy_from_slice(&request.to_le_bytes());
+                    offset += 4;
+                    write_blob(to, out, &mut offset);
+                    write_blob(signature, out, &mut offset);
+                }
+                Command::TrustRevoked {
+                    plugin,
+                    key,
+                    signature,
+                } => {
+                    write_blob(plugin.as_bytes(), out, &mut offset);
+                    write_blob(key, out, &mut offset);
+                    write_blob(signature, out, &mut offset);
+                }
+                Command::CheckFile {
+                    request,
+                    root,
+                    path,
+                    kind,
+                } => {
+                    out[offset..offset + 4].copy_from_slice(&request.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&root.to_le_bytes());
+                    offset += 4;
+                    write_blob(path.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&kind.to_le_bytes());
+                    offset += 4;
+                }
+                Command::BtScan { lasting_ms } => {
+                    out[offset..offset + 4].copy_from_slice(&lasting_ms.to_le_bytes());
+                    offset += 4;
+                }
+                Command::BtStopScan {} => {}
+                Command::BtPair { device } => {
+                    out[offset..offset + 4].copy_from_slice(&device.to_le_bytes());
+                    offset += 4;
+                }
+                Command::BtConnect { device } => {
+                    out[offset..offset + 4].copy_from_slice(&device.to_le_bytes());
+                    offset += 4;
+                }
+                Command::BtDisconnect { device } => {
+                    out[offset..offset + 4].copy_from_slice(&device.to_le_bytes());
+                    offset += 4;
+                }
+                Command::BtForget { device } => {
+                    out[offset..offset + 4].copy_from_slice(&device.to_le_bytes());
+                    offset += 4;
+                }
+                Command::BtGive { device, plugin } => {
+                    out[offset..offset + 4].copy_from_slice(&device.to_le_bytes());
+                    offset += 4;
+                    write_blob(plugin.as_bytes(), out, &mut offset);
+                }
+                Command::BtTakeBack { device } => {
+                    out[offset..offset + 4].copy_from_slice(&device.to_le_bytes());
+                    offset += 4;
+                }
+                Command::BtKeys { device, on } => {
+                    out[offset..offset + 4].copy_from_slice(&device.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&on.to_le_bytes());
                     offset += 4;
                 }
                 Command::SetSetting { .. } => {}

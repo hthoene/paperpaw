@@ -93,8 +93,9 @@ fn refusals(scope: &CommandScope) {
             batch(&[flag, WireCommand::Redraw { mode: 3 }]),
             ERR_UNSUPPORTED,
         ),
-        // `answer_plugin` is refused for every plugin until DEV defines
-        // `uses.install`, even behind a command refused for another reason.
+        // `answer_plugin` is refused for every plugin until command staging
+        // checks `uses.install` (DEV host side), even behind a command refused
+        // for another reason.
         (batch(&[flag, ANSWER]), ERR_DENIED),
         (
             batch(&[WireCommand::Redraw { mode: 3 }, ANSWER]),

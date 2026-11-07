@@ -356,7 +356,8 @@ class CommandTests(unittest.TestCase):
         from abi_declarations import wire_records
         self.assertEqual([item['id'] for item in self.growth(self.schema)],
                          list(range(1536, 1553)) + [1556, 1557, 1558, 1561, 1562, 1563,
-                                                                   1559, 1560])
+                                                                   1559, 1560]
+                         + list(range(1564, 1583)) + [1592] + list(range(1583, 1592)))
         self.assertFalse([r for r in wire_records(self.schema) if r['name'].startswith('command.')])
         source = rust_commands(self.schema)
         for line in ['pub const COMMAND_RESET_SETTING_TAG: u32 = 1536;',

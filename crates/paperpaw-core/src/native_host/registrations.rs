@@ -180,6 +180,23 @@ pub use wire::{
     ServiceLibText, ServiceLibTextAt, ServiceLibTransaction, ServiceLibTransactionRef,
     ServiceLookupAsk, ServiceLookupEntry,
 };
+// The device (DEV, `docs/abi/device.md`): events 92-98 and the `core.device` rows
+// 1125-1141; the host answers them once wired (its commands 1564-1592 are in the
+// command codec).
+pub use wire::{
+    EVENT_BLUETOOTH_TAG, EVENT_FIRMWARE_CHANGED_TAG, EVENT_INSTALL_DONE_TAG,
+    EVENT_NETWORK_IDLE_TAG, EVENT_NETWORK_WANTED_TAG, EVENT_WIFI_DONE_TAG, EVENT_WIFI_SCANNED_TAG,
+    EventBluetooth, EventFirmwareChanged, EventInstallDone, EventNetworkIdle, EventNetworkWanted,
+    EventWifiDone, EventWifiScanned, SERVICE_DEV_BLUETOOTH_TAG, SERVICE_DEV_BONDED_TAG,
+    SERVICE_DEV_BUILTIN_TAG, SERVICE_DEV_CHECK_TAG, SERVICE_DEV_DEVICE_TAG,
+    SERVICE_DEV_FIRMWARE_TAG, SERVICE_DEV_INSTALL_TAG, SERVICE_DEV_INTERVAL_TAG,
+    SERVICE_DEV_KEY_TAG, SERVICE_DEV_MEMORY_TAG, SERVICE_DEV_NATIVE_TAG, SERVICE_DEV_NETWORK_TAG,
+    SERVICE_DEV_NOT_INSTALLED_TAG, SERVICE_DEV_POWER_TAG, SERVICE_DEV_REQUEST_TAG,
+    SERVICE_DEV_VALUE_TAG, SERVICE_DEV_WIFI_TAG, ServiceDevBluetooth, ServiceDevBonded,
+    ServiceDevBuiltin, ServiceDevCheck, ServiceDevDevice, ServiceDevFirmware, ServiceDevInstall,
+    ServiceDevInterval, ServiceDevKey, ServiceDevMemory, ServiceDevNative, ServiceDevNetwork,
+    ServiceDevNotInstalled, ServiceDevPower, ServiceDevRequest, ServiceDevValue, ServiceDevWifi,
+};
 // Single-record and streaming decoders for plugin-side readers (lock format 8).
 pub use wire::{RECORD_CARRY_MAX_BYTES, RecordStream, record_decode_prefix, records_decode_single};
 // The host's decoders (lock format 10, #985): only records a plugin sends. The

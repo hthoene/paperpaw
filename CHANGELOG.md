@@ -71,6 +71,15 @@ change the plugin SDK.
   metadata and book keys); declarations 31 and 229-233, events 90-91, rows 1060-1124 and
   the image commands 1559-1560. Hosts answer `ERR_UNSUPPORTED` until wired. Interface draft
   18 (`native::DRAFT`) refuses plugins built for draft 17 (#228).
+- Interface 7, family 3 DEV (`docs/abi/device.md`): the `core.device` service (major 1, 15 read
+  ops: device, hardware values, firmware, built-in plugins, native build, file checks, memory,
+  Wi-Fi, networks, Bluetooth, bonded devices, power, install requests, plugins not installed,
+  keys; rows 1125-1141), one command per action 1564-1592 (Wi-Fi, power, installing and removing
+  plugins with trust evidence, firmware, file checks, Bluetooth), events 92-98 (scan, join and
+  install outcomes, network wanted or idle, firmware progress, Bluetooth) and the features
+  `uses.wifi`, `uses.power`, `uses.install`, `uses.firmware` and `uses.bluetooth`. Hosts answer
+  `ERR_UNSUPPORTED` until wired. Interface draft 19 (`native::DRAFT`) refuses plugins built for
+  draft 18 (#228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
   `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
   position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70

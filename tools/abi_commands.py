@@ -777,8 +777,22 @@ def _pattern(indent, variant, names):
     the fields take more than 18 columns (its struct literal width)."""
     if len(', '.join(names)) <= 18:
         return f"{indent}Command::{variant} {{ {', '.join(names)} }}"
+    # With a rest pattern rustfmt lays the named fields out alone: where they
+    # take at most 18 columns they share one line, `..` after them.
+    if names[-1] == '..' and len(', '.join(names[:-1])) <= 18:
+        return f"{indent}Command::{variant} {{\n{indent}    {', '.join(names)}\n{indent}}}"
     lines = [f"{indent}    {name}{'' if name == '..' else ','}\n" for name in names]
     return f"{indent}Command::{variant} {{\n{''.join(lines)}{indent}}}"
+
+
+def _blob_len(label, cap):
+    """`len += blob_len(..)?;` as rustfmt lays it out: arguments a line each
+    once they take more than 60 columns (its call width) or the line passes 100."""
+    line = f"            len += blob_len({label}.len(), {cap})?;\n"
+    if len(f"{label}.len(), {cap}") <= 60 and len(line) - 1 <= 100:
+        return line
+    return (f"            len += blob_len(\n                {label}.len(),\n"
+            f"                {cap},\n            )?;\n")
 
 
 def _growth_command(item, consts, variants, arms, lens, writes):
@@ -852,8 +866,7 @@ def _growth_command(item, consts, variants, arms, lens, writes):
         names = [label for label, _ in sized] + (['..'] if len(sized) < len(fields) else [])
         lens.append(_pattern('        ', variant, names) + " => {\n"
                     + f"            let mut len = {fixed};\n"
-                    + "".join(f"            len += blob_len({label}.len(), {cap})?;\n"
-                              for label, cap in sized)
+                    + "".join(_blob_len(label, cap) for label, cap in sized)
                     + "".join(lists)
                     + f"            Ok(({tag}, len))\n        }}\n")
     else:
