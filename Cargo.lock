@@ -2527,6 +2527,7 @@ dependencies = [
  "paperpaw-plugin-home",
  "paperpaw-sdk",
  "paperpaw-sqlite",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 

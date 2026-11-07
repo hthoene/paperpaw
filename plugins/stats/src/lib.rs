@@ -25,6 +25,16 @@ extern crate alloc;
 extern crate std;
 
 mod book;
+#[cfg_attr(
+    not(test),
+    allow(dead_code, reason = "the native screens use it, in the next slice")
+)]
+mod book_list;
+#[cfg_attr(
+    not(test),
+    allow(dead_code, reason = "the native screens use it, in the next slice")
+)]
+mod book_rows;
 mod books;
 mod calendar;
 mod chart;
@@ -38,9 +48,13 @@ mod overview;
 mod room;
 mod store;
 mod sync;
+#[allow(dead_code, reason = "the native screens use it, in the next slice")]
+mod texts;
 mod totals;
 mod widget;
 
+#[cfg(test)]
+mod screens_tests;
 #[cfg(test)]
 mod testing;
 

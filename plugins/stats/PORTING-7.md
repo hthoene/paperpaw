@@ -44,6 +44,22 @@ events) is still in place. It is removed in the PR that finishes the port.
   `Md5::hex` (32 bytes) for a book without a usable MD5. Both need fallible variants in
   their crates (Kernel).
 
+## Ported: the rows of the books and book screens (`texts.rs`, `book_list.rs`, `book_rows.rs`)
+
+- Host-free: rows are made over `Words` (catalog texts, fallible; `HostWords` is the host's
+  `Messages`) and shown by the shell in an `ItemList` (kit). Tests in `screens_tests.rs`
+  cover both languages, local days, ordering and refusals of the heap.
+- The time zone is a parameter (`offset` seconds east of UTC); reading the zone the user
+  chose (`core.time-zone`, `core.time-zone-rule`) is the shell's and not built yet. The
+  system zone is not in the snapshot (draft 25 adds `utc_offset_minutes`, per Port A).
+- Differences from interface 6: the rows of the book screen can take focus (an `ItemList`
+  has no unselectable value rows); the books are ordered by last open, then id (the
+  interface-6 sort was stable over the same order).
+- Not built here: the shell (`Plugin` impl, declarations, screens opened with the book id as
+  a hand-over param, `Screens`), the chart of a book's last days, the overview and the
+  calendar. `totals::seconds_per_book` and `totals::of_book` are still infallible and
+  interface-6 shaped (`Env`); the shell needs fallible versions.
+
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
 - The native shell: `Plugin` impl, declarations, `build.rs`, metadata, linked entry.
