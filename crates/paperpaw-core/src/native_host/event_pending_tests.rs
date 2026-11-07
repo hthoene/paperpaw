@@ -107,7 +107,7 @@ fn shared_byte_budget_and_per_plugin_cap_recover_on_pop_clear_and_drop() {
     let old = [0; 512];
     for queue in [&mut a, &mut b, &mut c] {
         while queue.setting(1, "plugin.value", Ok(&old), Readable).is_ok() {}
-        assert!(queue.held_bytes <= PLUGIN_BYTES);
+        assert!(queue.budget.bytes.get() <= PLUGIN_BYTES);
         assert!(budget.used() <= DEVICE_BYTES);
     }
     assert!(c.edges.len() < a.edges.len());
@@ -198,4 +198,92 @@ fn explicit_reread_uses_no_edge_budget_and_is_not_a_drop() {
     assert_eq!(budget.used(), 0);
     assert!(matches!(queue.take(), Some(Ready::Reread)));
     assert!(queue.take().is_none());
+}
+
+fn retain_until_full(queue: &mut Pending, held: &mut Vec<Ready>) {
+    let old = [0; 512];
+    while queue.setting(1, "plugin.value", Ok(&old), Readable).is_ok() {
+        held.push(queue.take().unwrap());
+    }
+}
+
+#[test]
+fn detached_events_keep_the_per_plugin_byte_charge_during_enqueue() {
+    let budget = EventBudget::try_new().unwrap();
+    let mut queue = budget.pending().unwrap();
+    let mut held = Vec::new();
+    retain_until_full(&mut queue, &mut held);
+    let used = budget.used();
+    assert!(used > PLUGIN_BYTES - 600);
+    assert!(used <= PLUGIN_BYTES);
+    assert!(queue.edges.is_empty());
+    assert_eq!(queue.budget.bytes.get(), used);
+    assert_eq!(
+        queue.setting(2, "plugin.value", Ok(&[0; 512]), Readable),
+        Err(ERR_NO_SPACE)
+    );
+    drop(held.pop());
+    queue
+        .setting(3, "plugin.value", Ok(&[0; 512]), Readable)
+        .unwrap();
+    assert_eq!(budget.used(), used);
+    queue.clear();
+    assert!(budget.used() > 0);
+    drop(held);
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn detached_events_keep_the_shared_charge_across_queue_teardown() {
+    let budget = EventBudget::try_new().unwrap();
+    let mut a = budget.pending().unwrap();
+    let mut b = budget.pending().unwrap();
+    let mut c = budget.pending().unwrap();
+    let mut held = Vec::new();
+    for queue in [&mut a, &mut b, &mut c] {
+        retain_until_full(queue, &mut held);
+        assert!(budget.used() <= DEVICE_BYTES);
+    }
+    let used = budget.used();
+    assert!(used > DEVICE_BYTES - 600);
+    drop(a);
+    b.clear();
+    assert_eq!(budget.used(), used);
+    assert_eq!(
+        c.setting(2, "plugin.value", Ok(&[0; 512]), Readable),
+        Err(ERR_NO_SPACE)
+    );
+    drop(held.pop());
+    c.setting(3, "plugin.value", Ok(&[0; 512]), Readable)
+        .unwrap();
+    assert_eq!(budget.used(), used);
+    drop(b);
+    drop(c);
+    assert!(budget.used() > 0);
+    drop(held);
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn repeated_take_and_retain_cannot_bypass_the_held_edge_limit() {
+    let budget = EventBudget::try_new().unwrap();
+    let mut queue = budget.pending().unwrap();
+    let mut held = Vec::new();
+    for at in 0..EDGES {
+        raise(&mut queue, at as u64);
+        held.push(queue.take().unwrap());
+    }
+    assert!(queue.edges.is_empty());
+    assert_eq!(
+        queue.setting(17, "plugin.value", Ok(&[]), Readable),
+        Err(ERR_NO_SPACE)
+    );
+    assert_eq!(queue.budget.edges.get(), EDGES);
+    drop(held.pop());
+    raise(&mut queue, 18);
+    assert_eq!(queue.budget.edges.get(), EDGES);
+    drop(queue);
+    assert!(budget.used() > 0);
+    drop(held);
+    assert_eq!(budget.used(), 0);
 }

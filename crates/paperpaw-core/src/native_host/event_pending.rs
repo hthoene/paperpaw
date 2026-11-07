@@ -30,9 +30,13 @@ impl EventBudget {
     }
     pub(crate) fn pending(&self) -> Result<Pending, i32> {
         Ok(Pending {
-            budget: self.0.try_clone().ok_or(ERR_NO_MEMORY)?,
+            budget: Shared::try_new(PluginBudget {
+                device: self.0.try_clone().ok_or(ERR_NO_MEMORY)?,
+                bytes: Cell::new(0),
+                edges: Cell::new(0),
+            })
+            .map_err(|_| ERR_NO_MEMORY)?,
             edges: Vec::new(),
-            held_bytes: 0,
             order: [0; ORDER],
             len: 0,
         })
@@ -44,18 +48,41 @@ impl EventBudget {
 }
 
 pub(crate) struct Pending {
-    budget: Shared<Cell<usize>>,
-    edges: Vec<Vec<u8>>,
-    held_bytes: usize,
+    budget: Shared<PluginBudget>,
+    edges: Vec<HeldEdge>,
     // IDs 0..5 are hint/overflow bits; IDs 6..21 name dense held-edge slots.
     // Coalescing moves its ID to the back. There is no sequence counter to wrap.
     order: [u8; ORDER],
     len: u8,
 }
 
+struct PluginBudget {
+    device: Shared<Cell<usize>>,
+    bytes: Cell<usize>,
+    edges: Cell<usize>,
+}
+
+/// A queued or detached edge keeps its original plugin and device charges.
+/// The ledger remains alive when plugin teardown drops its Pending queue.
+pub(crate) struct HeldEdge {
+    bytes: Vec<u8>,
+    budget: Shared<PluginBudget>,
+}
+impl Drop for HeldEdge {
+    fn drop(&mut self) {
+        self.budget
+            .bytes
+            .set(self.budget.bytes.get() - self.bytes.len());
+        self.budget
+            .device
+            .set(self.budget.device.get() - self.bytes.len());
+        self.budget.edges.set(self.budget.edges.get() - 1);
+    }
+}
+
 /// Detached from Pending, so delivery holds no queue or registry borrow.
 pub(crate) enum Ready {
-    Edge(Vec<u8>),
+    Edge(HeldEdge),
     Hint(u32),
     Reread,
 }
@@ -72,7 +99,7 @@ impl Ready {
                 key: "",
                 old: &[],
             },
-            Self::Edge(bytes) => match wire::records_decode_single(bytes)? {
+            Self::Edge(edge) => match wire::records_decode_single(&edge.bytes)? {
                 wire::Record::EventSettingChanged(event) => event,
                 _ => return Err(ERR_INVALID),
             },
@@ -128,9 +155,9 @@ impl Pending {
         let record =
             wire::Record::EventSettingChanged(wire::EventSettingChanged { now_ms, key, old });
         let length = 1 + wire::record_framed_len(&record)?;
-        if self.edges.len() == EDGES
-            || length > PLUGIN_BYTES - self.held_bytes
-            || length > DEVICE_BYTES - self.budget.get()
+        if self.budget.edges.get() == EDGES
+            || length > PLUGIN_BYTES - self.budget.bytes.get()
+            || length > DEVICE_BYTES - self.budget.device.get()
         {
             return Err(ERR_NO_SPACE);
         }
@@ -139,10 +166,12 @@ impl Pending {
         bytes.resize(length, 0);
         wire::records_encode(&[record], &mut bytes)?;
         self.edges.try_reserve_exact(1).map_err(|_| ERR_NO_MEMORY)?;
+        let budget = self.budget.try_clone().ok_or(ERR_NO_MEMORY)?;
         let id = BITS + self.edges.len() as u8;
-        self.edges.push(bytes);
-        self.held_bytes += length;
-        self.budget.set(self.budget.get() + length);
+        self.edges.push(HeldEdge { bytes, budget });
+        self.budget.bytes.set(self.budget.bytes.get() + length);
+        self.budget.device.set(self.budget.device.get() + length);
+        self.budget.edges.set(self.budget.edges.get() + 1);
         self.touch(id);
         Ok(())
     }
@@ -181,21 +210,17 @@ impl Pending {
         if id < BITS {
             return Some(Ready::Hint(wire::EVENT_PLUGINS_CHANGED_TAG + u32::from(id)));
         }
-        let bytes = self.edges.remove(usize::from(id - BITS));
-        self.held_bytes -= bytes.len();
-        self.budget.set(self.budget.get() - bytes.len());
+        let edge = self.edges.remove(usize::from(id - BITS));
         for next in &mut self.order[..usize::from(self.len)] {
             if *next > id {
                 *next -= 1;
             }
         }
-        Some(Ready::Edge(bytes))
+        Some(Ready::Edge(edge))
     }
 
     /// Teardown drops all held edges and pending hints without entering plugin code.
     pub(crate) fn clear(&mut self) {
-        self.budget.set(self.budget.get() - self.held_bytes);
-        self.held_bytes = 0;
         self.edges.clear();
         self.len = 0;
     }
