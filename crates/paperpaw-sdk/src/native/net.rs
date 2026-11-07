@@ -526,7 +526,8 @@ impl<'a> Answer<'a> {
         self.0.status
     }
 
-    /// The memory body was cut at `max_body`.
+    /// The body kept in memory was cut: at `max_body`, or at 4,096 for an error
+    /// body (as [`HttpDone::truncated`]).
     #[must_use]
     pub const fn truncated(&self) -> bool {
         self.0.flags & 2 != 0
