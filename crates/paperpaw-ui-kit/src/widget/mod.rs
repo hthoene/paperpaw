@@ -7,6 +7,7 @@ pub mod cx;
 pub mod layout;
 pub mod look;
 pub mod names;
+pub mod options;
 pub mod settings;
 pub mod text;
 

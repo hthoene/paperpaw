@@ -55,3 +55,15 @@ its tests together (no shim).
 constructs in the kernel's real registered scope; the host refuses that with
 `Unsupported` until it admits every family (#310), so the positive case is an
 ignored refusal.
+
+## Native image and frame scan (widgets.day slice)
+
+Built as a riscv32imc plugin (`opt-level = "s"`, fat LTO, `-C jump-tables=no`,
+`default-features = false`, `native-entry`) and packed with `paperpaw-sign pack`:
+format 5, interface 7.1, ESP32-C3, file 281,196 bytes (25,280 data, 253,172
+code, 662 relocated words). The pack-time frame scan passes; the largest frames
+are 448 bytes (`Settings::align`, `Settings::shows`, in the kit), then 352
+(`local_time_in`) and 336 (SDK record decode). By code size the image is about
+176 KB SDK (record encode/decode of the declarations), 42 KB this port (kit
+22 KB, plugin 20 KB), 25 KB core float formatting. The SDK share is not this
+port's; it is the same for every plugin that submits declarations.
