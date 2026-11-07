@@ -227,14 +227,19 @@ fn every_schema_rejects_foreign_tags_missing_fields_and_trailing_bytes() {
 }
 
 #[test]
-fn local_tags_do_not_admit_another_schemas_record_body() {
+fn local_tags_are_interpreted_only_by_the_selected_stage_schema() {
     assert_eq!(filter::FILTER_INPUT_TAG, status::STATUS_ASK_TAG);
     assert_eq!(status::STATUS_ASK_TAG, widget::WIDGET_MEASURE_TAG);
     let mut bytes = [0; 128];
     let len = (widget::WidgetMeasure::new(1, 2))
         .encode(&mut bytes)
         .unwrap();
-    assert_eq!(filter::FilterInput::decode(&bytes[..len]), Err(ERR_INVALID));
+    // A local tag has no global family: these bytes also form a valid filter
+    // input followed by unknown appended fields. The stage key selects the codec.
+    assert_eq!(
+        filter::FilterInput::decode(&bytes[..len]),
+        Ok(filter::FilterInput::new(&[0], 131_072))
+    );
     assert_eq!(status::StatusAsk::decode(&bytes[..len]), Err(ERR_INVALID));
 }
 
