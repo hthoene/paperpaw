@@ -229,14 +229,30 @@ pub fn declare_option(
 ///
 /// # Errors
 /// What the declaration encoder refuses.
-pub fn declare_all(
+pub fn declare_all<'a>(
     d: &mut Declarations<impl FnMut(&[u8]) -> Result<(), i32>>,
     widget: &str,
     group: &str,
-    options: &[Opt],
+    options: impl IntoIterator<Item = &'a Opt>,
 ) -> Result<(), DeclareError> {
     for option in options {
         declare_option(d, widget, group, *option)?;
     }
     Ok(())
+}
+
+/// The look settings every widget shares, in their order: alignment (with its
+/// default), frame (none), padding, paper, ink, corners, frame line, shadow.
+#[must_use]
+pub const fn shared_look(align: &'static str) -> [Opt; 8] {
+    [
+        Opt::Align(align),
+        Opt::Frame("core.frame.none"),
+        Opt::Padding,
+        Opt::Paper,
+        Opt::Ink,
+        Opt::Corners,
+        Opt::FrameLine,
+        Opt::Shadow,
+    ]
 }
