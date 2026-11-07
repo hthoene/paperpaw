@@ -1252,6 +1252,8 @@ impl Kernel {
 
 /// Everything plugins can read through [`Env`].
 struct Shared {
+    /// The native runtime's producer endpoint; absent before runtime installation.
+    native_events: Option<Box<dyn native_host::event_producers::EventSink>>,
     /// The screens and slots plugins added (in here so that a screen can
     /// make another to host it: [`Env::make_screen`]).
     registry: Registry,

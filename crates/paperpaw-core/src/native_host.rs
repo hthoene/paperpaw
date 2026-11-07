@@ -85,6 +85,13 @@ pub(crate) mod event_pending;
 )]
 #[path = "native_host/event_producers.rs"]
 pub(crate) mod event_producers;
+
+#[allow(
+    dead_code,
+    reason = "native runtime installation and EVT producer hooks follow this accessor"
+)]
+#[path = "native_host/event_sink.rs"]
+mod event_sink;
 /// Production event adapter for a shell-owned flat plugin instance.
 #[path = "native_host/flat.rs"]
 pub mod flat;
