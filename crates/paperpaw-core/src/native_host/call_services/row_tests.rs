@@ -231,6 +231,8 @@ fn usage_producer_and_echo_backend_share_the_dispatch_reply_validator() {
         .unwrap();
     let env = kernel.shared.env(Instant(0));
     let frame = CoreFrame {
+        callback: None,
+        instance: None,
         env: &env,
         meter: &kernel.shared.meter,
         font_removals: &kernel.shared.font_removals,

@@ -51,6 +51,11 @@ const TIMES_UNDER_OVERLAYS_SINCE: u16 = 3;
 const TASKS_KEPT: usize = 8;
 const SCREEN_KEYS_EXHAUSTED: &str = "screen key space exhausted";
 
+fn next_screen_serial(next: u32, native: bool) -> Option<(u32, u32)> {
+    let serial = if native { next.max(1) } else { next };
+    serial.checked_add(1).map(|following| (serial, following))
+}
+
 impl Kernel {
     /// Closed room screens keep enough of the unused key space to reopen.
     pub(crate) fn screen_keys_remaining(&self) -> u32 {
@@ -66,6 +71,24 @@ impl Kernel {
         false
     }
 
+    /// Factory failure may be caused by persistent OOM. Reporting must not
+    /// allocate infallibly or expose the screen's private params.
+    fn warn_native_open_failed(&mut self) {
+        const MESSAGE: &str = "Could not open native screen";
+        let mut message = String::new();
+        if message.try_reserve_exact(MESSAGE.len()).is_err()
+            || self.warnings.try_reserve(1).is_err()
+        {
+            return;
+        }
+        message.push_str(MESSAGE);
+        self.warnings.push(Warning {
+            source: WarningSource::Runtime,
+            line: None,
+            message,
+        });
+    }
+
     /// Opens screen `id` with `params` on top, for `slot` if it was bound
     /// to one.
     pub(crate) fn open(&mut self, id: Id, slot: Option<Id>, params: &Params) {
@@ -77,15 +100,12 @@ impl Kernel {
         };
         // Native allocation finishes before changing the serial, layout or screen.
         let Ok(native_screen) = spec.prepare_native(params) else {
+            self.warn_native_open_failed();
             return;
         };
         let on_open = spec.refresh_on_open();
-        let serial = if spec.is_native() {
-            self.next_serial.max(1)
-        } else {
-            self.next_serial
-        };
-        let Some(next_serial) = serial.checked_add(1) else {
+        let Some((serial, next_serial)) = next_screen_serial(self.next_serial, spec.is_native())
+        else {
             return self.warn_runtime(SCREEN_KEYS_EXHAUSTED);
         };
         self.next_serial = next_serial;
@@ -444,6 +464,26 @@ impl Kernel {
         } else if index > base {
             self.invalidate(region);
             self.output.request_refresh(RefreshMode::Partial);
+        }
+    }
+
+    /// A retired owner cannot veto removal, including its root or guard.
+    pub(crate) fn remove_retired_native_screens(&mut self, owner: &Id) {
+        let mut removed = false;
+        for index in (0..self.stack.len()).rev() {
+            if self.stack[index].id.namespace() == owner.as_str() {
+                // The owner is revoked already. Dropping its private wrapper
+                // releases the lease without calling retired plugin code.
+                self.native_instance_closed(self.stack[index].serial);
+                self.stack.remove(index);
+                removed = true;
+            }
+        }
+        if removed {
+            self.screens_changed = true;
+            self.sync_stack();
+            self.stop_for_closed_screens();
+            self.screen_changed(self.content(), false);
         }
     }
 

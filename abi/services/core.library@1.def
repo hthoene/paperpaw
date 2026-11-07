@@ -366,8 +366,10 @@
       "effect": "query",
       "feature": "uses.library",
       "input": [
-        "service.lib_ref"
+        "service.lib_ref",
+        "service.lib_field_page"
       ],
+      "input_rows": 2,
       "reply": [
         "service.lib_field",
         "service.end"
