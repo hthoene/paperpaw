@@ -24,3 +24,4 @@
 12 additive: host-only record decoding for the X4 (lock format 10, generated host decoder, RecordBatch::EMPTY for a heap-held batch) (#985)
 13 family 1b: core event records 64-74 (setting changed, book opened/closed/finished/moved/removed, plugins/Wi-Fi/power/status/charge changed) in the generated records codec change the SDK Record shape, so the next draft; hosts refuse their registrations until producers are wired (#228)
 13 additive: Id::try_parse and IdError, a parse that answers NoMemory where the heap refuses instead of aborting (#228)
+14 family 2 registry (REG): declarations 21-28 (setup steps, slots and offers, key bindings, foreign defaults and choices, presets), events 75-78, core.registry rows 1025-1040 in the generated records codec and commands 1536-1546 generated into the command codec change the private SDK Record and Command shapes, so the next draft; hosts answer ERR_UNSUPPORTED until wired (#228)
