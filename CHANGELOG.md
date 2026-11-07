@@ -25,6 +25,15 @@ change the plugin SDK.
 - Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
   device usage, translated plugin names and work-note readers. Includes a deterministic fake-host
   fixture for Battery port tests; helpers use bounded buffers and allocate nothing (#228).
+- Interface 7: declaration records 13 `menu.entry` (any action or setting, also another plugin's
+  or a core setting, into a menu, by order or beside another entry), 14 `icon.spec` (an icon for
+  any item, so icon themes work), 15 `menu.need` (offered only on devices with touch, speech,
+  Wi-Fi and the like), 16 `menu.section` (a heading), 17 `menu.hide` (takes an entry out, also
+  another plugin's) and 18 `menu.describe` (a line under an entry), in the generated records
+  codec: interface 6's menu calls as declarations. An unknown place or need is accepted (the entry
+  is not shown), so plugins for a later host still load. Hosts check them and answer
+  `ERR_UNSUPPORTED` until their menus take them; a plugin's translations stay the
+  `i18n/<language>.ini` files of its folder (#228).
 - `Id::try_clone`: a copy of an id that gives `None` where the heap refuses instead of aborting
   (kept ids copy without allocating), for hosts that must survive a full heap (#228).
 - Interface 7: host slots 29-31 (`text.metrics`, `text.ink`, `canvas.clip`) for text placed by its

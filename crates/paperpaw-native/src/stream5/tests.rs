@@ -844,7 +844,7 @@ fn the_packer_made_file_is_taken_at_any_place_and_with_hot_code_in_or_out_of_pla
     let h = packed_header();
     assert_eq!(
         (h.image_len, h.hot_len, h.patches, h.relocs),
-        (220, 12, 2, 3)
+        (236, 12, 2, 3)
     );
     for base in [LINK_BASE, 0x3C81_0000, 0x3C80_0040] {
         for hot in [0, 0x4038_1000, 0x4038_1004] {
@@ -894,7 +894,9 @@ fn the_packer_made_file_relocates_its_words_to_the_place_and_its_calls_to_the_ho
     assert!(h.make_offset(make, base, hot) < h.image_len);
     assert!((base + CODE_OFFSET..base + CODE_OFFSET + h.image_len).contains(&make));
     // The plugin table's `drop`, the third word of the table, is in the image too.
-    assert!(h.word_in_image(word(h.code_at as usize - 20 + 8) - base + h.base));
+    // It follows the 88-byte metadata record (`meta_at` 20), and is 24 bytes
+    // with the `input` slot.
+    assert!(h.word_in_image(word((h.meta_at + 88) as usize + 8) - base + h.base));
     // The call of the hot function reaches the arena: auipc + jalr from the
     // call site in `make` give `hot + (table_ok - hot_at)`.
     let mut reached = Vec::new();
