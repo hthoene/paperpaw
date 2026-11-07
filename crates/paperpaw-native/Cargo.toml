@@ -29,6 +29,7 @@ ed25519-compact = { version = "=2.6.0", default-features = false, features = ["o
 kernel = []
 
 [dev-dependencies]
+serde_json = "1"
 # The tests build with the kernel's part, as the SDK's do.
 paperpaw-native = { path = ".", features = ["kernel"] }
 

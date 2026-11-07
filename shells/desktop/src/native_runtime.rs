@@ -15,6 +15,7 @@ use paperpaw_native::preflight::{
 
 use crate::host_services::DesktopHost;
 use crate::native::HeldLibrary;
+use paperpaw_core::native_host;
 
 #[allow(
     dead_code,
@@ -37,6 +38,10 @@ pub enum RuntimeError {
     Import,
     /// The interface, profile, requirements or metadata structure is unsupported.
     Metadata,
+    /// Memory for checked admission requirements could not be allocated.
+    NoMemory,
+    /// A required semantic feature is absent or needs a newer revision.
+    RequiredFeature { key: String, revision: u16 },
     /// The system loader could not load the checked file.
     Load,
     /// Loaded entry and locator disagree with the bytes checked before loading.
@@ -57,42 +62,44 @@ fn u32_at(bytes: &[u8], at: usize) -> Result<u32, RuntimeError> {
     Ok(u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]))
 }
 
-/// M1 has no qualified service or feature catalogs. Reject every requirement
-/// rather than treating a present but unsupported table slot as implemented.
+/// This shell advertises only capabilities it implements, never slot presence.
+#[cfg(test)]
 fn metadata(bytes: &[u8], host: &PpHost) -> Result<u16, RuntimeError> {
-    use wire::*;
-    if bytes.len() > MAX_BYTES
-        || bytes.get(..MAGIC_BYTES.len()) != Some(MAGIC_BYTES)
-        || u16_at(bytes, LAYOUT)? != FORMAT
-        || usize::from(u16_at(bytes, PREFIX_BYTES)?) != PREFIX_SIZE
-        || u32_at(bytes, TOTAL_BYTES)? as usize != bytes.len()
-        || u16_at(bytes, ABI_MAJOR)? != host.major
-        || u16_at(bytes, NEEDS_MINOR)? == 0
-        || u16_at(bytes, NEEDS_MINOR)? > host.minor
-        || usize::from(u16_at(bytes, ENTRY_LAYOUT)?) != PROFILE_ENTRY_LAYOUT
-        || usize::from(u16_at(bytes, ENTRY_BYTES)?) != PROFILE_ENTRY_BYTES
-        || u32_at(bytes, FLAGS)? != 0
-        || u16_at(bytes, SERVICES)? != 0
-        || u16_at(bytes, FEATURES)? != 0
-        || u16_at(bytes, EXPORTS)? != 1
-    {
-        return Err(RuntimeError::Metadata);
+    checked_metadata(bytes, host, &[]).map(|checked| checked.needs_minor)
+}
+
+fn checked_metadata<'a>(
+    bytes: &'a [u8],
+    host: &PpHost,
+    services: &[paperpaw_native::metadata::Service<'_>],
+) -> Result<paperpaw_native::metadata::Checked<'a>, RuntimeError> {
+    use paperpaw_native::metadata::{self, Host, Profile, Refusal};
+    let capabilities = Host {
+        abi_major: host.major,
+        minor: host.minor,
+        profile: Profile {
+            target: core::str::from_utf8(wire::PROFILE).map_err(|_| RuntimeError::Metadata)?,
+            entry_layout: wire::PROFILE_ENTRY_LAYOUT as u16,
+            entry_bytes: wire::PROFILE_ENTRY_BYTES as u16,
+        },
+        services,
+        features: &[],
+    };
+    match metadata::check(bytes, &capabilities) {
+        Ok(checked) => Ok(checked),
+        Err(Refusal::RequiredFeature { key, revision }) => {
+            let mut owned = String::new();
+            owned
+                .try_reserve_exact(key.len())
+                .map_err(|_| RuntimeError::Metadata)?;
+            owned.push_str(key);
+            Err(RuntimeError::RequiredFeature {
+                key: owned,
+                revision,
+            })
+        }
+        Err(_) => Err(RuntimeError::Metadata),
     }
-    let target_end = PREFIX_SIZE + usize::from(u16_at(bytes, TARGET_BYTES)?);
-    if bytes.get(PREFIX_SIZE..target_end) != Some(PROFILE) {
-        return Err(RuntimeError::Metadata);
-    }
-    let record = bytes.get(target_end..).ok_or(RuntimeError::Metadata)?;
-    if usize::from(u16_at(record, EXPORT_RECORD_BYTES)?) != record.len()
-        || record.get(EXPORT_KIND) != Some(&1)
-        || record.get(EXPORT_RESERVED) != Some(&0)
-        || u32_at(record, EXPORT_EXPECTED_BYTES)? as usize != PROFILE_ENTRY_BYTES
-        || usize::from(u16_at(record, EXPORT_NAME_BYTES)?) != ENTRY_SYMBOL.len()
-        || record.get(EXPORT_SIZE..) != Some(ENTRY_SYMBOL.as_bytes())
-    {
-        return Err(RuntimeError::Metadata);
-    }
-    u16_at(bytes, NEEDS_MINOR)
 }
 
 /// A live plugin. Its factory output and code remain owned until destruction.
@@ -134,7 +141,7 @@ pub unsafe fn load(
 ) -> Result<LoadedPlugin, RuntimeError> {
     // SAFETY: the same authorization and immutable-file contract applies.
     let CheckedLibrary { library, make, .. } =
-        unsafe { checked_library(path, digest, host.table()) }?;
+        unsafe { checked_library(path, digest, host.table(), &[]) }?;
     let mut out = ptr::null();
     // SAFETY: table and context outlive the plugin; output storage is writable.
     let status = unsafe { make(host.table(), host.ctx(), &mut out) };
@@ -156,6 +163,7 @@ pub unsafe fn load(
 type Make = unsafe extern "C" fn(*const PpHost, *mut c_void, *mut *const PpPlugin) -> i32;
 
 struct CheckedLibrary {
+    declared_services: native_host::shell::DeclaredServices,
     library: HeldLibrary,
     make: Make,
     /// The library's read-only data as mapped: its address and length
@@ -233,6 +241,7 @@ unsafe fn checked_library(
     path: &Path,
     digest: &[u8; 32],
     host: &PpHost,
+    services: &[paperpaw_native::metadata::Service<'_>],
 ) -> Result<CheckedLibrary, RuntimeError> {
     let mut file = std::fs::File::open(path).map_err(|_| RuntimeError::File)?;
     let mut bytes = Vec::new();
@@ -255,7 +264,13 @@ unsafe fn checked_library(
     })?;
     let locator =
         data_export(&bytes, 62, METADATA_SYMBOL, true).map_err(|_| RuntimeError::Export)?;
-    let minor = metadata(locator.bytes, host)?;
+    let checked = checked_metadata(locator.bytes, host, services)?;
+    let minor = checked.needs_minor;
+    let declared_services = native_host::shell::DeclaredServices::try_from_iter(checked.services())
+        .map_err(|error| match error {
+            native_host::shell::DeclaredServicesError::Invalid => RuntimeError::Metadata,
+            native_host::shell::DeclaredServicesError::NoMemory => RuntimeError::NoMemory,
+        })?;
     let entry = data_export(&bytes, 62, ENTRY_SYMBOL, false).map_err(|_| RuntimeError::Export)?;
     if entry.bytes.len() != wire::PROFILE_ENTRY_BYTES
         || entry.address % wire::PROFILE_ENTRY_ALIGN as u64 != 0
@@ -304,6 +319,7 @@ unsafe fn checked_library(
         locator.address,
     );
     Ok(CheckedLibrary {
+        declared_services,
         library,
         make,
         image,
