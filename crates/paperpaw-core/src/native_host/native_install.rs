@@ -96,8 +96,12 @@ impl crate::Kernel {
         match self.shared.native_instances.retire(key) {
             Ok(replacement) => replacement,
             Err(status) => {
-                if status != paperpaw_native::host_glue::ERR_BUSY {
-                    self.warn_runtime("native owner cleanup failed; retry scheduled");
+                if self
+                    .shared
+                    .native_instances
+                    .retirement_failed(key, status, self.now.millis())
+                {
+                    self.warn_runtime("native owner cleanup failed; retry delayed");
                 }
                 None
             }
@@ -116,7 +120,10 @@ impl crate::Kernel {
     pub(crate) fn retry_native_unloads(&mut self) {
         // The same driver handles HostServices' orphan queue and the retained
         // rows whose lifecycle cleanup has not completed. No second queue.
-        if let Err(status) = self.shared.native_instances.retry_orphaned_retirements()
+        if let Err(status) = self
+            .shared
+            .native_instances
+            .retry_orphaned_retirements(self.now.millis())
             && status != paperpaw_native::host_glue::ERR_BUSY
         {
             self.warn_runtime("orphaned native owner cleanup failed; retry scheduled");
@@ -124,6 +131,13 @@ impl crate::Kernel {
         let mut after = None;
         while let Some((key, owner)) = self.shared.native_instances.pending_unload(after) {
             after = Some(key);
+            if !self
+                .shared
+                .native_instances
+                .retirement_ready(key, self.now.millis())
+            {
+                continue;
+            }
             let Some(owner) = owner.try_clone() else {
                 continue;
             };
@@ -134,8 +148,8 @@ impl crate::Kernel {
     pub(crate) fn native_unload_due(&self) -> Option<paperpaw_platform::Instant> {
         self.shared
             .native_instances
-            .retirements_pending()
-            .then(|| paperpaw_platform::Instant(self.now.millis().saturating_add(50)))
+            .retirement_due(self.now.millis())
+            .map(paperpaw_platform::Instant)
     }
 
     fn bind_native<S: Services + 'static, M: 'static>(
