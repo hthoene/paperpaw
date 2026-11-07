@@ -115,7 +115,9 @@
       ],
       "max_input": 256,
       "max_reply": 4096,
-      "bound": "none"
+      "bound": "none",
+      "paged": false,
+      "reply_rows": 32
     },
     {
       "id": 8,
@@ -222,7 +224,9 @@
       ],
       "max_input": 4096,
       "max_reply": 4096,
-      "bound": "none"
+      "bound": "none",
+      "paged": false,
+      "reply_rows": 8
     },
     {
       "id": 15,
@@ -254,7 +258,8 @@
       ],
       "max_input": 2048,
       "max_reply": 4096,
-      "bound": "none"
+      "bound": "none",
+      "input_rows": 32
     },
     {
       "id": 17,
@@ -271,7 +276,9 @@
       ],
       "max_input": 256,
       "max_reply": 4096,
-      "bound": "none"
+      "bound": "none",
+      "paged": false,
+      "reply_rows": 32
     },
     {
       "id": 18,

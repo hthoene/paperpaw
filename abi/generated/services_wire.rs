@@ -32,6 +32,13 @@ pub struct ServiceOp {
     pub max_reply: usize,
     /// What the call may wait for.
     pub bound: ServiceBound,
+    /// Most records one input batch holds (a counted batch, never cut).
+    pub input_rows: u16,
+    /// Whether it is a list op that pages by `service.reg_query` cursor.
+    pub paged: bool,
+    /// Most rows before the reply's `service.end`: the schema's page rows for
+    /// a paged op, its own for an unpaged list op, 0 for an op that is no list.
+    pub reply_rows: u16,
 }
 
 /// One call service: its key, version and ops in id order.
@@ -83,6 +90,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 2,
@@ -95,6 +105,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 3,
@@ -107,6 +120,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 4,
@@ -119,6 +135,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 5,
@@ -131,6 +150,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 6,
@@ -143,6 +165,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 7,
@@ -155,6 +180,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 8,
@@ -167,6 +195,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 9,
@@ -179,6 +210,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 10,
@@ -191,6 +225,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 11,
@@ -203,6 +240,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 12,
@@ -215,6 +255,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 13,
@@ -227,6 +270,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 14,
@@ -239,6 +285,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 15,
@@ -251,6 +300,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 16,
@@ -263,6 +315,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 17,
@@ -275,6 +330,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 18,
@@ -287,6 +345,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 19,
@@ -299,6 +360,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 20,
@@ -311,6 +375,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 21,
@@ -323,6 +390,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
             },
         ],
     },
@@ -343,6 +413,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 512,
                 max_reply: 512,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
         ],
     },
@@ -363,6 +436,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 8,
             },
             ServiceOp {
                 id: 2,
@@ -375,6 +451,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 3,
@@ -387,6 +466,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 8,
             },
             ServiceOp {
                 id: 4,
@@ -399,6 +481,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 512,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 5,
@@ -411,6 +496,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 64,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 6,
@@ -423,6 +511,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 64,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 7,
@@ -435,6 +526,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 8,
@@ -447,6 +541,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 4096,
                 max_reply: 4096,
                 bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 9,
@@ -459,6 +556,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 4096,
                 max_reply: 64,
                 bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 10,
@@ -471,6 +571,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 11,
@@ -483,6 +586,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 64,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 12,
@@ -495,6 +601,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 13,
@@ -507,6 +616,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 64,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 14,
@@ -519,6 +631,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 4096,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 8,
             },
             ServiceOp {
                 id: 15,
@@ -531,6 +646,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 4096,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 16,
@@ -543,6 +661,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 2048,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 32,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 17,
@@ -555,6 +676,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::None,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 32,
             },
             ServiceOp {
                 id: 18,
@@ -567,6 +691,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 4096,
                 max_reply: 64,
                 bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
             ServiceOp {
                 id: 19,
@@ -579,6 +706,9 @@ pub static SERVICES: &[ServiceSchema] = &[
                 max_input: 256,
                 max_reply: 4096,
                 bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
             },
         ],
     },
