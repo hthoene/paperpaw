@@ -22,20 +22,40 @@ pub(super) fn visit_batch(
         return Err(ERR_INVALID);
     }
     for _ in 0..count {
-        let start = at;
-        let tag = integer(bytes, &mut at)?;
-        let length = usize::try_from(integer(bytes, &mut at)?).map_err(|_| ERR_INVALID)?;
-        at = at
-            .checked_add(length)
-            .filter(|end| *end <= bytes.len())
-            .ok_or(ERR_INVALID)?;
-        visit(tag, &bytes[start..at])?;
+        visit_frame(bytes, &mut at, &mut visit)?;
     }
     if at == bytes.len() {
         Ok(())
     } else {
         Err(ERR_INVALID)
     }
+}
+
+/// Walk a bare service reply stream using the same canonical frame checks.
+pub(super) fn visit_stream(
+    bytes: &[u8],
+    mut visit: impl FnMut(u32, &[u8]) -> Result<(), i32>,
+) -> Result<(), i32> {
+    let mut at = 0;
+    while at < bytes.len() {
+        visit_frame(bytes, &mut at, &mut visit)?;
+    }
+    Ok(())
+}
+
+fn visit_frame(
+    bytes: &[u8],
+    at: &mut usize,
+    visit: &mut impl FnMut(u32, &[u8]) -> Result<(), i32>,
+) -> Result<(), i32> {
+    let start = *at;
+    let tag = integer(bytes, at)?;
+    let length = usize::try_from(integer(bytes, at)?).map_err(|_| ERR_INVALID)?;
+    *at = at
+        .checked_add(length)
+        .filter(|end| *end <= bytes.len())
+        .ok_or(ERR_INVALID)?;
+    visit(tag, &bytes[start..*at])
 }
 
 fn integer(bytes: &[u8], at: &mut usize) -> Result<u32, i32> {

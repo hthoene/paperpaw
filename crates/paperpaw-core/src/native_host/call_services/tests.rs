@@ -266,21 +266,21 @@ fn service_failure_never_copies_partial_scratch_and_does_not_stick_busy() {
 fn generic_schema_validation_accepts_multiplicity_but_echo_requires_one_record() {
     let bytes = batch("one");
     assert_eq!(
-        validate_batch(&bytes, &[registrations::SERVICE_ECHO_TAG]),
+        validate_batch(&bytes, &[registrations::SERVICE_ECHO_TAG], 2),
         Ok(())
     );
     let mut two = bytes.clone();
     two[0] = 2;
     two.extend_from_slice(&bytes[1..]);
     assert_eq!(
-        validate_batch(&two, &[registrations::SERVICE_ECHO_TAG]),
+        validate_batch(&two, &[registrations::SERVICE_ECHO_TAG], 2),
         Ok(())
     );
     assert_eq!(
-        validate_batch(&[0], &[registrations::SERVICE_ECHO_TAG]),
+        validate_batch(&[0], &[registrations::SERVICE_ECHO_TAG], 2),
         Ok(())
     );
-    assert_eq!(validate_batch(&bytes, &[]), Err(ERR_UNSUPPORTED));
+    assert_eq!(validate_batch(&bytes, &[], 2), Err(ERR_UNSUPPORTED));
     let key = services_wire::service_schema("core.test-echo", 1).unwrap();
     let op = key.op(1).unwrap();
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -369,3 +369,6 @@ fn broken_backend_replies_preserve_output_and_clear_busy_before_recovery() {
         })
         .unwrap();
 }
+
+#[path = "row_tests.rs"]
+mod row_tests;
