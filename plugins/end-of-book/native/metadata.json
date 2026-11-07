@@ -117,6 +117,10 @@
     {
       "kind": "host",
       "name": "i18n.digits"
+    },
+    {
+      "kind": "host",
+      "name": "storage.size"
     }
   ],
   "services": [
@@ -126,6 +130,10 @@
   "features": [
     {
       "key": "uses.library",
+      "required": true
+    },
+    {
+      "key": "uses.storage",
       "required": true
     }
   ]

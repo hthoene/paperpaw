@@ -5,8 +5,8 @@ built-in descriptor `NATIVE_ENTRY` (feature `linked`), declarations in
 `declarations.rs` (built into the image by `build.rs`), metadata in `native/`
 (`python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json
 --bytes native/metadata.bin --json native/metadata.inspected.json`, and the same
-for `metadata.host.*`; services `core.library` and `core.ui`, feature
-`uses.library`). The screen uses `paperpaw-ui-kit`. The interface-6 plugin, its
+for `metadata.host.*`; services `core.library` and `core.ui`, features
+`uses.library` and `uses.storage`, the latter for the card-presence check). The screen uses `paperpaw-ui-kit`. The interface-6 plugin, its
 screen and Kernel tests are gone; the app and the store-file build do not carry
 it until Core publishes native plugins (the `tools/plugin-files` row is
 commented out in `plugins.txt`).
@@ -17,8 +17,8 @@ commented out in `plugins.txt`).
   (`BookFinished`, `BookClosed`), the screen with its three rows (next book of
   the series, rating, finished) and the finished mark kept while the book is
   open and said again at its closing.
-- The book is looked up in the library (`NotFound`: gone from the card, no
-  screen). The next book comes from LIB op 6 (`next_in_series`), stepping over
+- The book is looked up in the library (`NotFound`: no
+  screen) and its file on the card must exist. The next book comes from LIB op 6 (`next_in_series`), stepping over
   finished ones; opening it is a handover with `path` into `core.reader`
   (`command.open`, mode 1). No next book: `core.library`.
 - Fallible allocation throughout the callbacks (kit `mem`).
@@ -46,7 +46,8 @@ cases left the live list of `snapshots.rs`.
 
 ## Not carried
 
-- The check that a book "is on the card" used the interface-6 storage; now the
-  library having the book is the test (the walk drops books that are gone).
+- "On the card" is `storage::size(Files, path)` as before (`NotFound`: gone, no screen
+  and no finished mark said again; other refusals propagate); the library having the book
+  is not proof (Services). It runs where interface 6 checked: at the end and at the closing.
 - The next-book rule is the host's op 6 plus stepping over finished books; the
   interface-6 plugin walked the series itself.
