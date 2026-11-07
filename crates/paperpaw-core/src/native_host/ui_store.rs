@@ -286,9 +286,19 @@ pub(super) fn write_part(
         rest + room_after.min(CHUNK - rest)
     };
     let charge = if chunk == 0 { 0 } else { chunk + DESCRIPTOR };
-    let dropped = if restart { text.charged } else { 0 };
+    let mut dropped = if restart { text.charged } else { 0 };
     if (*memory - dropped).saturating_add(charge) > rules.memory_cap {
         return Err(ERR_IO);
+    }
+    // A restart holds the old text while the new chunk is allocated: that
+    // peak (old + new) must stay inside the pool. When both do not fit, the
+    // old text is freed first, so the peak is the larger of the two and a
+    // refusal after that leaves the text started over and empty (offset 0
+    // said so).
+    if restart && dropped > 0 && memory.saturating_add(charge) > rules.memory_cap {
+        *text = Text::default();
+        *memory -= dropped;
+        dropped = 0;
     }
     let fresh_chunk = if chunk == 0 {
         None

@@ -744,7 +744,7 @@ fn an_over_cap_ask_is_full_and_allocates_nothing() {
         ask(&s, owner, 1, &q(0, 0, ""));
     }
     FAIL_NTH.with(|n| n.set(1));
-    let got = s.ask(who(99, 1), None, &q(0, 0, "a\nb"), false, None, false);
+    let got = s.ask(who(99, 1), None, &q(0, 0, ""), false, None, false);
     FAIL_NTH.with(|n| n.set(0));
     assert_eq!(got.err(), Some(ERR_FULL));
     assert_eq!(s.request_count(), Limits::X4.requests_kept);
@@ -768,4 +768,33 @@ fn an_over_cap_ask_is_full_and_allocates_nothing() {
     assert_eq!(got.err(), Some(ERR_FULL));
     assert_eq!(s.inner.borrow().question_memory, before);
     assert_eq!(s.request_count(), 1);
+}
+
+#[test]
+fn a_restart_that_does_not_fit_beside_the_old_text_frees_the_old_one_first() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let s = UiStore::new(Limits::X4);
+    let id = ask(&s, 1, 1, &q(0, 0, ""));
+    s.request_text_write(who(1, 1), None, id, 0, &[b'a'; 1_000], false)
+        .unwrap();
+    let old = s.inner.borrow().text_memory;
+    assert!(old >= 1_000);
+    // 1,000 + 1,000 would peak over the 2 KiB pool: the old text goes first,
+    // the restart fits, and the pool never held both.
+    s.request_text_write(who(1, 1), None, id, 0, &[b'b'; 1_100], true)
+        .unwrap();
+    {
+        let inner = s.inner.borrow();
+        assert_eq!(inner.requests[0].text.bytes, 1_100);
+        assert!(inner.text_memory <= Limits::X4.text_memory);
+    }
+    // A refused allocation after that leaves the text started over and empty,
+    // and the pool charge is gone with it.
+    FAIL_NTH.with(|n| n.set(1));
+    let got = s.request_text_write(who(1, 1), None, id, 0, &[b'c'; 1_100], true);
+    FAIL_NTH.with(|n| n.set(0));
+    assert_eq!(got, Err(ERR_NO_MEMORY));
+    let inner = s.inner.borrow();
+    assert_eq!(inner.requests[0].text.bytes, 0);
+    assert_eq!(inner.text_memory, 0);
 }
