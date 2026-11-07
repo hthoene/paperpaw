@@ -1259,6 +1259,7 @@ struct Shared {
     settings: Settings,
     translator: Translator,
     fonts: Fonts,
+    font_removals: alloc::rc::Rc<native_host::font_removals::FontRemovals>,
     formats: Formats,
     hyphenation: Hyphenation,
     menus: Menus,

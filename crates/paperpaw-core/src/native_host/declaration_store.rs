@@ -39,6 +39,8 @@ pub(crate) struct DeclKey {
     incarnation: u32,
 }
 
+const KIND_COUNT: usize = 8;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
     Group,
@@ -47,8 +49,24 @@ pub(crate) enum Kind {
     Hyphenation,
     Face,
     Extension,
+    Screen,
+    Action,
 }
+const _: () = assert!(Kind::Action as usize + 1 == KIND_COUNT);
+
 impl Kind {
+    fn category(self) -> u8 {
+        match self {
+            Self::Group => 0,
+            Self::Spec => 1,
+            Self::Extra => 2,
+            Self::Hyphenation => 3,
+            Self::Face | Self::Extension => 4,
+            Self::Screen => 5,
+            Self::Action => 6,
+        }
+    }
+
     fn of(record: &Record<'_>) -> Option<Self> {
         Some(match record {
             Record::SettingGroup(_) => Self::Group,
@@ -57,6 +75,8 @@ impl Kind {
             Record::ResourceHyphenation(_) => Self::Hyphenation,
             Record::ResourceFontFace(_) => Self::Face,
             Record::ResourceFontExtension(_) => Self::Extension,
+            Record::ScreenSpec(_) => Self::Screen,
+            Record::ActionSpec(_) => Self::Action,
             _ => return None,
         })
     }
@@ -127,13 +147,13 @@ pub(crate) struct PendingDeclarations {
     generation: u32,
     source: Rc<dyn ImageOwner>,
     batches: Vec<DeclRef>,
-    kinds: [Vec<Slot>; 6],
+    kinds: [Vec<Slot>; KIND_COUNT],
     resident: usize,
     incarnation: u32,
     failure: Option<i32>,
     index_bytes: usize,
     image_entries: usize,
-    owned_counts: [usize; 6],
+    owned_counts: [usize; KIND_COUNT],
 }
 impl PendingDeclarations {
     pub(crate) fn new(id: Id, source: Rc<dyn ImageOwner>) -> Self {
@@ -148,7 +168,7 @@ impl PendingDeclarations {
             failure: None,
             index_bytes: 0,
             image_entries: 0,
-            owned_counts: [0; 6],
+            owned_counts: [0; KIND_COUNT],
         }
     }
 
@@ -211,7 +231,7 @@ impl PendingDeclarations {
         let decoded = records_decode(bytes)?;
         declarations::validate_batch(self.id.as_str(), &decoded)?;
         let offsets = super::raw_declarations::offsets(bytes, decoded.len())?;
-        let mut counts = [0usize; 6];
+        let mut counts = [0usize; KIND_COUNT];
         let mut kinds = [None; super::registrations::REGISTRATION_MAX_RECORDS];
         for (index, record) in decoded.iter().enumerate() {
             if let Some(kind) = Kind::of(&record) {
@@ -278,7 +298,7 @@ impl PendingDeclarations {
 
     fn charge(
         &self,
-        counts: [usize; 6],
+        counts: [usize; KIND_COUNT],
         image: bool,
         bytes: usize,
     ) -> Result<(usize, usize, usize), i32> {
@@ -308,6 +328,9 @@ impl PendingDeclarations {
                 HYPHENATIONS_MAX,
                 FONT_FACES_MAX,
                 FONT_EXTENSIONS_MAX,
+                // Screen/action copies share the aggregate owned-byte cap.
+                usize::MAX,
+                usize::MAX,
             ];
             if self
                 .owned_counts
@@ -374,7 +397,7 @@ impl DeclarationStore {
             return Err(ERR_STATE);
         }
         for entries in &mut pending.kinds {
-            entries.sort_unstable_by_key(|entry| entry.hash);
+            super::declaration_index::sort_by_key(entries, |entry| entry.hash);
         }
         let at = self
             .owners
@@ -449,11 +472,7 @@ impl DeclarationStore {
         }) else {
             return false;
         };
-        let category = if kind == Kind::Extension {
-            4
-        } else {
-            kind as u8
-        };
+        let category = kind.category();
         let hash = super::declaration_index::name_hash(category, name);
         let slots = &owner.kinds[kind as usize];
         let from = slots.partition_point(|slot| slot.hash < hash);
