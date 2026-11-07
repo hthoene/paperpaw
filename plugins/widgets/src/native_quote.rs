@@ -22,7 +22,7 @@ use paperpaw_ui_kit::{
     text::{concat, copy, decimal_u64},
     widget::{
         Cx, Settings, TextSize,
-        cx::{face_font, local_time_now},
+        cx::face_font,
         layout::{break_words, caption, label, line as line_of, wrap},
         text::{fit_line, ink_room, largest_size},
     },
