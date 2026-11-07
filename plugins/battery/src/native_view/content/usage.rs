@@ -1,5 +1,6 @@
 use super::{Line, Messages, style};
-use alloc::{format, string::String, vec::Vec};
+use crate::mem;
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::{
     Error, Host,
     formatting::Arg,
@@ -38,29 +39,51 @@ fn top_four(rows: &[Row], minimum: u64, score: impl Fn(&Row) -> u64) -> [Option<
 
 fn rows(host: &Host<'_>) -> Result<Vec<Row>, Error> {
     let mut rows: Vec<Row> = Vec::new();
+    let mut failed = None;
     services::for_each_plugin_usage(host, &mut |p| {
-        let row = Row {
-            id: String::from(p.plugin),
-            shown: p.shown_ms,
-            busy: p.busy_us,
-            refreshes: p.fast.saturating_add(p.partial).saturating_add(p.full),
-            requests: p.requests,
-            refused: p.refused,
-        };
-        if let Some(old) = rows.iter_mut().find(|r| r.id == p.plugin) {
-            *old = row;
-        } else {
-            rows.push(row);
+        if failed.is_some() {
+            return;
+        }
+        if let Err(error) = note(&mut rows, p) {
+            failed = Some(error);
         }
     })?;
-    Ok(rows)
+    match failed {
+        Some(error) => Err(error),
+        None => Ok(rows),
+    }
+}
+fn note(rows: &mut Vec<Row>, p: &services::ServicePluginUsage<'_>) -> Result<(), Error> {
+    let row = Row {
+        id: mem::string(p.plugin)?,
+        shown: p.shown_ms,
+        busy: p.busy_us,
+        refreshes: p.fast.saturating_add(p.partial).saturating_add(p.full),
+        requests: p.requests,
+        refused: p.refused,
+    };
+    if let Some(old) = rows.iter_mut().find(|r| r.id == p.plugin) {
+        *old = row;
+        Ok(())
+    } else {
+        mem::push(rows, row)
+    }
 }
 fn name(host: &Host<'_>, m: &mut Messages, id: &str) -> Result<String, Error> {
     let mut name = String::new();
-    match services::plugin_name(host, id, |text| name.push_str(text)) {
+    let mut failed = None;
+    let found = services::plugin_name(host, id, |text| {
+        if failed.is_none() {
+            failed = mem::push_str(&mut name, text).err();
+        }
+    });
+    if let Some(error) = failed {
+        return Err(error);
+    }
+    match found {
         Ok(()) => Ok(name),
         Err(Error::NotFound) if id == "core" => m.copy(host, "battery.core"),
-        Err(Error::NotFound) => Ok(String::from(id)),
+        Err(Error::NotFound) => mem::string(id),
         Err(error) => Err(error),
     }
 }
@@ -73,7 +96,7 @@ pub(super) fn append(
     if style::boolean(host, "core.developer")? && style::boolean(host, "battery.by-plugin")? {
         let shown = top_four(&usage, 60_000, |p| p.shown);
         if shown[0].is_some() {
-            lines.push(Line::Heading(m.copy(host, "battery.by-screen")?));
+            mem::push(lines, Line::Heading(m.copy(host, "battery.by-screen")?))?;
             for p in shown.into_iter().flatten() {
                 let duration = m.duration(host, p.shown)?;
                 let text = m.format(
@@ -91,14 +114,17 @@ pub(super) fn append(
                         },
                     ],
                 )?;
-                lines.push(Line::Value(name(host, m, &p.id)?, text));
+                mem::push(lines, Line::Value(name(host, m, &p.id)?, text))?;
             }
         }
         let busy = top_four(&usage, 100_000, |p| p.busy);
         if busy[0].is_some() {
-            lines.push(Line::Heading(m.copy(host, "battery.by-processor")?));
+            mem::push(lines, Line::Heading(m.copy(host, "battery.by-processor")?))?;
             for p in busy.into_iter().flatten() {
-                lines.push(Line::Value(name(host, m, &p.id)?, m.seconds(host, p.busy)?));
+                mem::push(
+                    lines,
+                    Line::Value(name(host, m, &p.id)?, m.seconds(host, p.busy)?),
+                )?;
             }
         }
     }
@@ -106,10 +132,23 @@ pub(super) fn append(
         u64::from(p.requests.saturating_add(p.refused))
     });
     if net[0].is_some() {
-        lines.push(Line::Heading(m.copy(host, "battery.network")?));
+        mem::push(lines, Line::Heading(m.copy(host, "battery.network")?))?;
     }
     for p in net.into_iter().flatten() {
-        lines.push(Line::Value(
+        network_row(host, m, p, lines)?;
+    }
+    Ok(())
+}
+
+fn network_row(
+    host: &Host<'_>,
+    m: &mut Messages,
+    p: &Row,
+    lines: &mut Vec<Line>,
+) -> Result<(), Error> {
+    mem::push(
+        lines,
+        Line::Value(
             name(host, m, &p.id)?,
             m.format(
                 host,
@@ -122,10 +161,13 @@ pub(super) fn append(
                     },
                 ],
             )?,
-        ));
-        let mut more = Vec::new();
-        if p.refused > 0 {
-            more.push(m.format(
+        ),
+    )?;
+    let mut more = Vec::new();
+    if p.refused > 0 {
+        mem::push(
+            &mut more,
+            m.format(
                 host,
                 "battery.refused",
                 &[
@@ -135,30 +177,40 @@ pub(super) fn append(
                         value: i64::from(p.refused),
                     },
                 ],
-            )?);
-        }
-        let mut scratch = [0; 32];
-        if matches!(
-            settings::read_setting(host, format!("core.network.{}", p.id), &mut scratch)?,
-            SettingValue::Bool(false)
-        ) {
-            more.push(m.copy(host, "battery.network-off")?);
-        } else {
-            let choice = style::setting_text(host, &format!("core.saving.{}", p.id))?;
-            if matches!(choice.as_str(), "core.saving.normal" | "core.saving.manual") {
-                more.push(m.copy(host, &choice)?);
-            }
-        }
-        if !more.is_empty() {
-            lines.push(Line::Message(more.join(" · ")));
-        }
-        let mut note = String::new();
-        match services::work_note(host, &p.id, |_, text| note.push_str(text)) {
-            Ok(()) => lines.push(Line::Message(note)),
-            Err(Error::NotFound) => {}
-            Err(error) => return Err(error),
+            )?,
+        )?;
+    }
+    let mut scratch = [0; 32];
+    if matches!(
+        settings::read_setting(host, mem::format!("core.network.{}", p.id)?, &mut scratch)?,
+        SettingValue::Bool(false)
+    ) {
+        mem::push(&mut more, m.copy(host, "battery.network-off")?)?;
+    } else {
+        let choice = style::setting_text(host, &mem::format!("core.saving.{}", p.id)?)?;
+        if matches!(choice.as_str(), "core.saving.normal" | "core.saving.manual") {
+            mem::push(&mut more, m.copy(host, &choice)?)?;
         }
     }
+    if !more.is_empty() {
+        mem::push(lines, Line::Message(mem::join(&more, " · ")?))?;
+    }
+    let mut note = String::new();
+    let mut failed = None;
+    let found = services::work_note(host, &p.id, |_, text| {
+        if failed.is_none() {
+            failed = mem::push_str(&mut note, text).err();
+        }
+    });
+    if let Some(error) = failed {
+        return Err(error);
+    }
+    match found {
+        Ok(()) => mem::push(lines, Line::Message(note))?,
+        Err(Error::NotFound) => {}
+        Err(error) => return Err(error),
+    }
+
     Ok(())
 }
 

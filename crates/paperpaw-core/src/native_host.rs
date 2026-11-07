@@ -36,6 +36,23 @@ pub(crate) mod secrets_service;
 #[path = "native_host/host_slot.rs"]
 pub mod host_slot;
 
+#[path = "native_host/ui_service.rs"]
+pub(crate) mod ui_service;
+
+#[path = "native_host/ui_requests.rs"]
+#[allow(
+    dead_code,
+    reason = "consumers are Core's stack and the core.ui ops 8, 2, 11"
+)]
+pub(crate) mod ui_requests;
+
+#[path = "native_host/ui_store.rs"]
+#[allow(
+    dead_code,
+    reason = "consumers are Core's command stage and the core.ui ops"
+)]
+pub(crate) mod ui_store;
+
 #[path = "native_host/ui_compose.rs"]
 pub(crate) mod ui_compose;
 
