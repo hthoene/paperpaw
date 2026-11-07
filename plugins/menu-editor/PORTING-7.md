@@ -1,39 +1,44 @@
-# Interface-7 runtime port
+# Interface-7 port
 
-Base: typed UIX/REG facade `d7488aa58`, combined branch `plugin/batch2-ui-1048`.
+Version 1.0.8. Native plugin: `src/native_plugin.rs` (`NativeMenuEditor`),
+built-in descriptor `NATIVE_ENTRY` (feature `linked`), declarations in
+`declarations.rs` (built into the image by `build.rs`), metadata in `native/`
+(`python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json
+--bytes native/metadata.bin --json native/metadata.inspected.json`, and the same
+for `metadata.host.*`). Drawing uses `paperpaw-native-kit`.
 
-Completed: typed screen/action/menu/icon declarations with byte parity;
-`native_menu` reads all registry menu pages and both current/declared orders,
-checks one generation across the snapshot, and stages add/remove/reorder/reset
-commands through the typed SDK. Traversal is iterative and allocations fallible.
-Existing protection of Settings and the editor remains in place. Version 1.0.7.
+## Ported
 
-Job #3252 passed menu-editor tests (including arbitrary-cycle and reorder
-properties), fmt and all-target clippy. These are model/command checks, not
-native activation or pixel evidence. Screen callbacks, renderer, add-candidate
-metadata and host UIX acceptance are still open; no ready PR claim.
+- Four screens (menus, entries, entry options overlay, add) with the interface-6
+  behaviour: submenus listed after their menu, *Changed* marks, *Reset all* /
+  *Reset this menu*, protection of Settings and this editor, no submenu circles,
+  candidates sorted by name with "taken out by <plugin>" notes.
+- Registry reads through typed pages (one generation per snapshot), edits through
+  `set_menu`; rows come from the host's answer after `RegistryChanged`.
+- Parameters travel in handovers (`menu`, `index`); the one overlay screen is
+  declared `overlay`.
 
-Native packaging must use paperpaw-plugin7.x, `-C jump-tables=no`, and pass the
-2 KiB frame scan. Services has the 2,048-byte local buffer in set_menu to audit;
-no measured pack refusal is claimed yet. Device gates remain open.
+## Tests
 
-Renderer work in progress: native header/font/clip/canvas drawing and retained
-hit geometry are implemented, but not yet accepted against pixel goldens.
-Remaining renderer parity: wrapped value rows, drag grips/indicator, popup
-region and theme behavior. Soft-focus currently refuses Unsupported because
-its shade depends on display gray levels not exposed by the snapshot facade;
-this is an explicit incomplete path, not a replacement visual.
+- Unit: menu graph, ordering, reachability, edits (property tests), navigation
+  state, overlay input rules; kit list/input rules.
+- `tests/abi7_declarations.rs`: ids and titles equal the interface-6 registration.
+- `tests/linked_entry.rs`: descriptor and metadata.
 
-REG gap resolved in contract #288 at 482556eeb: op-11 reg_item flags bit 5
-marks a user-defined menu, including empty overrides and overrides equal to
-defaults. The checked PR #292 getter is now retained in each Menu; Core host population
-and the screen callback consumers remain open. Preserve existing
-Changed/Reset/Reset all behavior using this flag; never compare row orders.
-Native pointer contact forwarding is owned by Kernel/Services/Core; do not
-substitute a fabricated id or capture a single contact.
+## Acceptance pending on the host
 
-Host acceptance dependencies (Core handoff, 2026-11-07): H1 screen commands
-(Core), H2 services/dialogs (Services), H3 compose and H4 input (Input Engineer).
-Existing native-screen tests are fixtures, not emulator activation proof.
-Integration ceabdc905 and SDK PR #292 at 286a4832826a592663c57501a9cd8cdaaa6edbe7
-are merged locally. SDK interface references/blessing for #292 remain pending.
+| Case (golden) | Needs |
+| --- | --- |
+| `boox-menu-drag` (open, list, entry options) | H1 screen commands, H3 composition, H4 input |
+
+Pending cases are `#[ignore]`d refusals in `tests/acceptance_pending.rs`; they never pass.
+
+## Not ported yet (explicit)
+
+- Dragging an entry by its grip (interface 6 `Reorder`): needs pointer contact
+  forwarding to plugin screens (H4). Moving an entry is possible through its
+  options (*Move up*, *Move down*), as before.
+- Soft focus style (`core.focus.soft`): `Style::read` refuses `Unsupported`
+  because the snapshot gives no display gray levels.
+- Legacy `Plugin` registration and the app's `offered(.., MenuEditor)` stay until
+  the host activates native plugins; then they are removed together (no shim).

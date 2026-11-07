@@ -2307,7 +2307,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-menu-editor"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-app",
  "paperpaw-core",

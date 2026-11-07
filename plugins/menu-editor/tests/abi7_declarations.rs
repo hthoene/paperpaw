@@ -1,6 +1,12 @@
-//! Screen identity parity only; not callback or instance-policy parity.
+//! Screen identity parity with the interface-6 registration: ids and titles.
+//! The one deliberate difference is the entry screen's `overlay` flag (it is
+//! drawn over the list, as the interface-6 screen drew its `region`).
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script also uses the event declarations"
+)]
 mod declarations;
 use paperpaw_sdk::native::declare::{Declarations, ScreenDecl};
 use paperpaw_sdk::{Contribution, Id, Plugin, Registrar};
@@ -21,11 +27,13 @@ fn screen_identity_matches_existing_registration() {
             match c {
                 Contribution::FixedScreens(screens) => {
                     for s in screens {
-                        d.screen(ScreenDecl::new(
-                            s.id().as_str().strip_prefix("menu-editor.").unwrap(),
-                            s.title(),
-                            token,
-                        ))
+                        let name = s.id().as_str().strip_prefix("menu-editor.").unwrap();
+                        let screen = ScreenDecl::new(name, s.title(), token);
+                        d.screen(if name == "entry" {
+                            screen.overlay()
+                        } else {
+                            screen
+                        })
                         .unwrap();
                         token += 1;
                     }

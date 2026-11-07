@@ -20,7 +20,7 @@ pub mod paint;
 pub mod style;
 pub mod text;
 
-pub use focus::{ListFocus, ListInput};
+pub use focus::{ListFocus, ListInput, Step};
 pub use list::ListRenderer;
 pub use messages::Messages;
 pub use paint::{Page, Paint};

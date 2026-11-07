@@ -21,6 +21,19 @@ pub struct ListRenderer {
     header: Page,
 }
 impl ListRenderer {
+    /// A renderer with the geometry of an earlier frame: the list area, the
+    /// row height, the page shown and the rows a page holds. For tests of
+    /// input handling, which needs no drawing.
+    #[must_use]
+    pub fn geometry(area: Rect, row: u16, page: usize, rows: usize) -> Self {
+        Self {
+            area: Some(area),
+            row,
+            page,
+            rows,
+            header: Page::default(),
+        }
+    }
     /// First visible item, from the last successfully rendered frame.
     pub fn first(&self) -> usize {
         self.page.saturating_mul(self.rows)

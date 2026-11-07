@@ -17,6 +17,8 @@ pub struct Menu {
     id: String,
     title: String,
     current: Vec<String>,
+    /// Host-translated names of `current`, same order.
+    current_titles: Vec<String>,
     declared: Vec<String>,
     user_defined: bool,
 }
@@ -36,6 +38,14 @@ impl Menu {
     /// Entries in the current ordering.
     pub fn entries(&self) -> &[String] {
         &self.current
+    }
+    /// Host-translated names of [`Self::entries`], same order.
+    pub fn entry_titles(&self) -> &[String] {
+        &self.current_titles
+    }
+    /// Entries in the plugins' declared ordering.
+    pub fn declared(&self) -> &[String] {
+        &self.declared
     }
 }
 
@@ -74,6 +84,7 @@ impl MenuGraph {
                     id: copy(row.id())?,
                     title: copy(row.title())?,
                     current: Vec::new(),
+                    current_titles: Vec::new(),
                     declared: Vec::new(),
                     user_defined: row.user_defined(),
                 });
@@ -84,7 +95,7 @@ impl MenuGraph {
             cursor = next;
         }
         for menu in &mut result.menus {
-            menu.current = read_entries(
+            (menu.current, menu.current_titles) = read_entries(
                 registry,
                 host,
                 &menu.id,
@@ -101,7 +112,8 @@ impl MenuGraph {
                 result.generation,
                 input,
                 output,
-            )?;
+            )?
+            .0;
         }
         Ok(result)
     }
@@ -247,8 +259,9 @@ fn read_entries(
     generation: u32,
     input: &mut [u8],
     output: &mut [u8],
-) -> Result<Vec<String>, Error> {
+) -> Result<(Vec<String>, Vec<String>), Error> {
     let mut result = Vec::new();
+    let mut titles = Vec::new();
     let mut cursor = PageCursor::start();
     loop {
         let page = registry.menu(host, menu, query, cursor, input, output)?;
@@ -258,21 +271,28 @@ fn read_entries(
         result
             .try_reserve(page.len())
             .map_err(|_| Error::NoMemory)?;
+        titles
+            .try_reserve(page.len())
+            .map_err(|_| Error::NoMemory)?;
         for row in page.rows() {
+            let title = copy(row.title())?;
             result.push(copy(row.item())?);
+            titles.push(title);
         }
         let Some(next) = page.end().next_cursor() else {
             break;
         };
         cursor = next;
     }
-    Ok(result)
+    Ok((result, titles))
 }
 
+mod candidates;
 mod edits;
 mod navigation;
 mod ordering;
 
+pub use candidates::Candidate;
 pub use navigation::ScreenState;
 pub use paperpaw_native_kit::ListRenderer;
 

@@ -22,6 +22,7 @@ fn graph(edges: u16) -> MenuGraph {
             title: String::from(*id),
             declared: entries.clone(),
             user_defined: false,
+            current_titles: Vec::new(),
             current: entries,
         });
     }
@@ -137,6 +138,7 @@ fn long_chains_use_bounded_traversal_stack() {
         menus.push(Menu {
             id: alloc::format!("test.m{index}"),
             title: String::new(),
+            current_titles: Vec::new(),
             current: vec![next],
             declared: Vec::new(),
             user_defined: false,

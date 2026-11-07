@@ -16,8 +16,13 @@
 
 extern crate alloc;
 
+mod native_entry;
 /// Interface-7 menu state and typed edits; screen integration is in progress.
 pub mod native_menu;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+/// The interface-7 plugin.
+pub mod native_plugin;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;

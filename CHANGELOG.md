@@ -19,6 +19,10 @@ change the plugin SDK.
 
 ### Added
 
+- Menu editor 1.0.8: the interface-7 native plugin (menus, entries, entry options, add), built
+  on `paperpaw-native-kit`; dragging an entry and the soft focus style wait for host input and
+  display support (#228).
+
 - `paperpaw-native-kit`: drawing helpers for interface-7 plugin screens (stock UI style,
   header with back and pager, paged list rows with focus and hit-testing, text fitting, catalog
   messages) over the flat native SDK, extracted from Battery and the menu editor (#228).
