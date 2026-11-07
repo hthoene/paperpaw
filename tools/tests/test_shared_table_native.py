@@ -88,6 +88,31 @@ class SharedTableNative(unittest.TestCase):
         reached = self.reach(folder, 'ui.rs', '{ paperpaw_native::size(); is_last(3) }')
         self.assertEqual(reached, {TABLE.normal('{ n == 9 }')})
 
+    def test_the_facade_root_module_counts_as_importing_it(self):
+        # src/native.rs calls its submodules by bare paths, without a `use`.
+        folder = self.crate({'native/mod.rs': NATIVE, 'other.rs': OTHER, 'native.rs': ''})
+        with self.assertRaises(SystemExit) as refused:
+            self.reach(folder, 'native.rs', '{ is_last(3) }')
+        self.assertIn('imports from native', str(refused.exception))
+
+    def test_a_re_export_of_facade_items_outside_its_root_is_refused(self):
+        for line in ('pub use crate::native::is_last;\n',
+                     'pub(crate) use native::{only_native};\n',
+                     'pub use self::native::is_last;\n',
+                     'pub(super) use crate::{native::is_last, other};\n'):
+            folder = self.crate({'native/mod.rs': NATIVE, 'other.rs': OTHER, 'lib.rs': line})
+            with self.assertRaises(SystemExit) as refused:
+                TABLE.crate_functions(folder, {}, set())
+            self.assertIn('re-exports native facade items', str(refused.exception))
+
+    def test_allowed_re_exports(self):
+        files = {'native/mod.rs': NATIVE + 'pub use super::other::is_last as again;\n',
+                 'native.rs': 'pub use native::is_last;\n', 'other.rs': OTHER,
+                 'lib.rs': 'pub use paperpaw_native::Api;\nuse crate::native::is_last;\n'}
+        folder = self.crate(files)
+        functions = TABLE.crate_functions(folder, {}, set())
+        self.assertIn('is_last', functions)
+
 
 if __name__ == '__main__':
     unittest.main()

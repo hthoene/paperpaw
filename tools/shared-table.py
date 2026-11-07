@@ -146,6 +146,11 @@ NATIVE = "native"
 # `paperpaw_native::`), and a `use` that imports from it.
 NATIVE_PATH = re.compile(r"(?<![\w])native\s*::")
 NATIVE_USE = re.compile(r"\buse\b[^;]*(?<![\w])native\b[^;]*;")
+# A public re-export of a facade item (`pub use crate::native::x`,
+# `pub(crate) use native::{x}`): outside `src/native.rs` it would let other
+# files call facade code by a name that is not the facade's path.
+NATIVE_REEXPORT = re.compile(r"\bpub\b(?:\s*\([^)]*\))?\s*use\b[^;]*"
+                             r"(?:(?<![\w:])native\s*::|\b(?:crate|super|self)\s*::\s*native\b)")
 
 
 def is_native(path, crate=None):
@@ -234,8 +239,14 @@ def crate_functions(crate, generated=None, native_users=None):
     head = re.compile(r"\bfn\s+([a-z_][a-z0-9_]*)\b")
     for path in sorted(crate.glob("src/**/*.rs")):
         text = path.read_text(encoding="utf-8")
-        native = path.relative_to(crate).parts[:2] == ("src", NATIVE)
-        if native_users is not None and not native and NATIVE_USE.search(normal(text)):
+        parts = path.relative_to(crate).parts
+        native = parts[:2] == ("src", NATIVE)
+        # The facade's root module calls its submodules by bare paths.
+        root = parts == ("src", NATIVE + ".rs")
+        if not native and not root and NATIVE_REEXPORT.search(normal(text)):
+            sys.exit(f"{path}: re-exports native facade items outside src/native.rs; "
+                     "shared bodies could reach them unhashed")
+        if native_users is not None and not native and (root or NATIVE_USE.search(normal(text))):
             native_users.add(path)
         if text.startswith(GENERATED) or native:
             if generated is not None:
