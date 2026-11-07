@@ -329,6 +329,10 @@ impl From<lifecycle::Error> for Error {
 pub struct DispatchDepth(calls::Depth);
 
 impl DispatchDepth {
+    pub(crate) fn current(&self) -> u8 {
+        self.0.current()
+    }
+
     /// Construct an idle budget. Owners must share this value during nesting.
     #[must_use]
     pub const fn new() -> Self {

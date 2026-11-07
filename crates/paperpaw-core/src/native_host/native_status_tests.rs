@@ -21,6 +21,10 @@ struct Target {
     guard: crate::abi7::calls::Instance,
 }
 impl Dispatch for Target {
+    fn dropped(&self, _: u32, status: i32) {
+        assert_eq!(status, self.failure.get());
+    }
+
     fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
         unreachable!()
     }
@@ -65,6 +69,10 @@ impl Dispatch for Target {
     }
 }
 impl NativeInstance for Target {
+    fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
+        visit(Some(&[]));
+    }
+
     fn running(&self) -> bool {
         self.live.get()
     }

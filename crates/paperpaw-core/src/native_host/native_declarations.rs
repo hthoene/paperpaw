@@ -108,6 +108,12 @@ impl NativeDeclarations {
             .store
             .try_borrow_mut()
             .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
+        if pending.host_owner_id()? != owner {
+            return Err(ERR_STATE);
+        }
+        if store.host_owner(pending.plugin_id()).is_ok() {
+            return Err(paperpaw_native::host_glue::ERR_INVALID);
+        }
         store.prune_stopped_native();
         store.prepare(pending, allocations)?.commit();
         let prepared = store

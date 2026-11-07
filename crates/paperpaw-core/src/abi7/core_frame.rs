@@ -67,7 +67,7 @@ impl Frame for CoreFrame<'_> {
 
     fn callback_depth(&self) -> Result<u8, i32> {
         self.callback_epoch()?;
-        self.depth.map(|depth| depth.0.current()).ok_or(ERR_STATE)
+        self.depth.map(|depth| depth.current()).ok_or(ERR_STATE)
     }
 
     fn ui_directory(&self) -> Result<&dyn crate::native_host::ui_service::UiDirectory, i32> {

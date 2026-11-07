@@ -202,6 +202,13 @@ pub(crate) struct PendingDeclarations {
     owned_counts: [usize; KIND_COUNT],
 }
 impl PendingDeclarations {
+    pub(crate) fn plugin_id(&self) -> &str {
+        self.id.as_str()
+    }
+    pub(crate) fn host_owner_id(&self) -> Result<u64, i32> {
+        self.source.owner_id()
+    }
+
     pub(crate) fn new(id: Id, source: Rc<dyn ImageOwner>) -> Self {
         Self {
             id,
