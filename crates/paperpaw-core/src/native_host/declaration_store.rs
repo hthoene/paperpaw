@@ -508,6 +508,25 @@ impl DeclarationStore {
         key: DeclKey,
         visit: &mut dyn for<'a> FnMut(Record<'a>),
     ) -> bool {
+        self.visit_checked(key, true, visit)
+    }
+
+    /// Visit a retained record without requiring a named-kind index entry.
+    /// The visitor must not invoke plugins or reenter the declaration store.
+    pub(crate) fn visit_record(
+        &self,
+        key: DeclKey,
+        visit: &mut dyn for<'a> FnMut(Record<'a>),
+    ) -> bool {
+        self.visit_checked(key, false, visit)
+    }
+
+    fn visit_checked(
+        &self,
+        key: DeclKey,
+        indexed: bool,
+        visit: &mut dyn for<'a> FnMut(Record<'a>),
+    ) -> bool {
         let Some(owner) = self
             .owners
             .get(usize::from(key.owner))
@@ -529,7 +548,9 @@ impl DeclarationStore {
                 return;
             };
             let result = decode_entry(owner, image, key.batch, key.record).and_then(|record| {
-                check_indexed_name(owner, image, key, record)?;
+                if indexed {
+                    check_indexed_name(owner, image, key, record)?;
+                }
                 visit(record);
                 Ok(())
             });
