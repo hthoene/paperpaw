@@ -655,6 +655,16 @@ fn a_stopped_format_ends_its_documents_and_their_openers_hear_it() {
     assert!(fake.ended.borrow().is_empty());
     assert_eq!(call(&fake, 2, &[doc_ref(a)]), Err(ERR_CANCELLED));
     call(&fake, 18, &[doc_ref(a)]).unwrap();
+    assert!(
+        fake.ended.borrow().is_empty(),
+        "closing it does not call the stopped format"
+    );
+    // A host-closed document of a live format (here: the card went) still has
+    // its format told to close it.
+    let c = opened(&fake);
+    fake.table.cancel(c, 2).unwrap();
+    call(&fake, 18, &[doc_ref(c)]).unwrap();
+    assert_eq!(*fake.ended.borrow(), [c]);
 }
 
 #[test]

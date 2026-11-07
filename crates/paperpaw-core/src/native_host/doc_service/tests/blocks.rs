@@ -505,3 +505,36 @@ fn pictures_in_a_stream_get_ids_in_place_and_a_bad_one_never_fails_the_stream() 
     let reply = block_call(&fake, id, 0, 0, &stream_of).unwrap();
     assert_eq!(reply, stream(&[header(3, 0), end(1, 0, 9)]));
 }
+
+#[test]
+fn a_block_has_at_most_one_columns_record_and_only_a_table_row_has_it() {
+    let columns = || Record::ServiceDocColumns(Columns { weights: &[1, 0] });
+    let whole = |answer: &[Record<'_>]| {
+        let fake = Fake::new(Limits::X4);
+        let id = opened(&fake);
+        block_call(&fake, id, 0, 0, answer)
+    };
+    assert!(whole(&[header(4, 0), columns(), cell(), end(1, 0, 9)]).is_ok());
+    // Two on a table row, two on a paragraph, one on a paragraph: all invalid.
+    assert_eq!(
+        whole(&[header(4, 0), columns(), columns(), cell(), end(1, 0, 9)]),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(
+        whole(&[header(0, 0), columns(), columns(), end(1, 0, 9)]),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(
+        whole(&[header(0, 0), columns(), end(1, 0, 9)]),
+        Err(ERR_INVALID)
+    );
+    // Split: the second comes in a later fragment.
+    let fake = Fake::new(Limits::X4);
+    let id = opened(&fake);
+    block_call(&fake, id, 0, 0, &[header(4, 0), columns(), end(2, 77, 2)]).unwrap();
+    assert_eq!(
+        block_call(&fake, id, 2, 77, &[columns(), cell(), end(1, 77, 9)]),
+        Err(ERR_INVALID)
+    );
+    assert!(block_call(&fake, id, 2, 77, &[cell(), end(1, 77, 9)]).is_ok());
+}
