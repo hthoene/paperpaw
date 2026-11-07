@@ -281,6 +281,60 @@ mod tests {
     }
 
     #[test]
+    fn drain_exhaustion_keeps_key_and_stack_and_warns_for_missing_close() {
+        let mut kernel = screens_kernel();
+        kernel.apply(Command::OpenScreen(
+            Id::new_static("probe.base"),
+            Params::new(),
+        ));
+        kernel.next_serial = u32::MAX - 1;
+        let owner = Id::new_static("probe");
+        let (mut commands, redraw, _) = {
+            let env = kernel.shared.env(Instant(0));
+            let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096).with_ui(
+                &env,
+                None,
+                0,
+                u32::MAX - kernel.next_serial,
+            );
+            let mut bytes = [0; 192];
+            let len = commands_encode(
+                &[WireCommand::OpenScreen {
+                    screen: "probe.new",
+                }],
+                &mut bytes,
+            )
+            .unwrap();
+            assert_eq!(stage.stage(&commands_decode(&bytes[..len]).unwrap()), OK);
+            stage.into_ui_output()
+        };
+        // Another callback consumes the last available key before this drain.
+        kernel.apply(Command::OpenScreen(
+            Id::new_static("probe.old"),
+            Params::new(),
+        ));
+        kernel.take_warnings();
+        // A native close normally stamps an existing screen at submission.
+        // Exercise the drain's defensive refusal for a target that never opened.
+        commands.push(Command::Close(ScreenKey::new(u32::MAX)));
+        kernel.drain_native_ui(&owner, commands, redraw);
+        assert_eq!(kernel.next_serial, u32::MAX);
+        assert_eq!(kernel.shared.stack.len(), 2);
+        assert_eq!(
+            kernel.shared.stack.last().unwrap().screen.as_str(),
+            "probe.old"
+        );
+        assert_eq!(
+            kernel.shared.stack.last().unwrap().key,
+            ScreenKey::new(u32::MAX - 1)
+        );
+        let warnings = kernel.take_warnings();
+        assert_eq!(warnings.len(), 2);
+        assert!(warnings[0].message.contains("screen key space exhausted"));
+        assert!(warnings[1].message.contains("native close dropped"));
+    }
+
+    #[test]
     fn open_then_close_uses_original_target_or_warns_when_already_closed() {
         for already_closed in [false, true] {
             let mut kernel = screens_kernel();
