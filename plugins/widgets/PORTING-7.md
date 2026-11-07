@@ -90,14 +90,14 @@ words); the pack-time frame scan passes, largest frames 560 bytes
 core float formatting (where it comes from is not traced yet).
 
 After the review of the time family (fallible allocation everywhere, the float
-formatting removed, `shows` as numbers): file 396,484 bytes (60,896 data,
-331,256 code, 1,059 relocated words); no float formatting is left (12
+formatting removed, `shows` as numbers): file 396,840 bytes (60,896 data,
+331,612 code, 1,059 relocated words); no float formatting is left (12
 `flt2dec` symbols before, none now). The float formatting came from
 `f32::clamp` in `native_day::sheet`: its panic message formats the two bounds
 with `Debug`, which links the float formatter; use `.max(min).min(max)` on
 floats in plugin code (integer `clamp` has a fixed message and is fine).
 With `opt-level = "z"` for `paperpaw-plugin-widgets` and `paperpaw-ui-kit`
-only (not adopted): 372,852 bytes (57,584 data, 311,108 code), 23,632 bytes
+only (not adopted): 373,116 bytes (57,584 data, 311,372 code), 23,724 bytes
 smaller. Refusal sweeps (`src/refusals_tests.rs`) cover the pure widget
 calls (tiles, word clock text and grid, moon rows, the kit's joins); the
 calls that need a host have no sweep because the SDK has no mock host.

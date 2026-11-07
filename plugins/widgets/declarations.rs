@@ -33,6 +33,10 @@ pub struct Def {
 
 impl Def {
     /// Every setting of the widget in order: the shared look, then its own.
+    #[allow(
+        dead_code,
+        reason = "the tests read it; the build script reads the same file and does not"
+    )]
     pub fn all(&self) -> impl Iterator<Item = Opt> + '_ {
         shared_look(self.align)
             .into_iter()
