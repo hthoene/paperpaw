@@ -116,8 +116,15 @@ impl Encoded {
     }
 
     /// The same, from the bytes of a verdict's `input` (one record).
+    /// It is input made by a plugin, so a key name is checked: 1 to 32 bytes
+    /// without control characters (otherwise `ERR_INVALID`).
     fn from_batch(batch: &[u8]) -> Result<Self, i32> {
         let record = wire::records_decode_single(batch)?;
+        if let Record::InputKey(key) = &record
+            && (key.key.is_empty() || key.key.chars().any(char::is_control))
+        {
+            return Err(ERR_INVALID);
+        }
         Self::from_record(&record)
     }
 
@@ -158,6 +165,8 @@ fn classify(record: &Record<'_>) -> Result<(Subject, Phase), i32> {
             let phase = match key.state {
                 0 => Phase::Start,
                 1 => Phase::End,
+                // A repeat is more of the held key (screens-input.md 2.2).
+                2 => Phase::Mid,
                 _ => return Err(ERR_INVALID),
             };
             Ok((

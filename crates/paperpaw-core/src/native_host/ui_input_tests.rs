@@ -707,3 +707,46 @@ fn the_broker_runs_each_filter_alone_and_a_refused_callback_is_a_pass() {
     assert_eq!(out.refused, 3);
     assert_eq!(registry.depth(), 0);
 }
+
+#[test]
+fn a_key_repeat_is_more_of_the_held_key_and_a_replaced_key_name_is_checked() {
+    let mut chain = InputFilters::new();
+    let mut script = Script::default();
+    let rows = [row(A), row(B)];
+    // Not held: a repeat is filtered like any key input.
+    assert!(is_pass(&dispatch(
+        &mut chain,
+        &mut script,
+        &rows,
+        &key("button.up", 2)
+    )));
+    assert_eq!(script.take_calls(), [A, B]);
+    // Held: repeats go to the capturer alone and the release ends it.
+    script.set(A, Answer::Take);
+    dispatch(&mut chain, &mut script, &rows, &key("button.up", 0));
+    script.set(A, Answer::Pass);
+    script.take_calls();
+    assert!(is_taken(&dispatch(
+        &mut chain,
+        &mut script,
+        &rows,
+        &key("button.up", 2)
+    )));
+    assert_eq!(script.take_calls(), [A]);
+    dispatch(&mut chain, &mut script, &rows, &key("button.up", 1));
+    assert_eq!(chain.held(), 0);
+    // A replacement key: 1 to 32 bytes, no control characters.
+    for bad in ["", "bad\nkey"] {
+        let mut bytes = [0; 128];
+        let record = Record::InputKey(InputKey {
+            now_ms: 1,
+            key: bad,
+            state: 0,
+        });
+        let len = wire::records_encode(&[record], &mut bytes).unwrap();
+        script.set(A, Answer::Replace(bytes[..len].to_vec()));
+        let out = dispatch(&mut chain, &mut script, &rows, &key("k", 0));
+        assert!(is_pass(&out), "{bad:?}");
+        assert_eq!(out.refused, 1);
+    }
+}
