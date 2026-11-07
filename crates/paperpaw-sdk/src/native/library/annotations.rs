@@ -36,7 +36,13 @@ impl<'a> Annotation<'a> {
         let row = raw
             .decode::<wire::ServiceLibAnnotation<'a>>()
             .map_err(|_| Error::Invalid)?;
-        if row.flags & !31 != 0 || row.percent > 100 {
+        if row.flags & !31 != 0
+            || row.percent > 100
+            || row.kind == 1
+                && (row.start_section, row.start_offset) > (row.end_section, row.end_offset)
+            || row.flags & 8 == 0 && row.conversion != 0
+            || row.flags & 1 == 0 && !row.note.is_empty()
+        {
             return Err(Error::Invalid);
         }
         Ok(Self(row))
@@ -209,6 +215,9 @@ impl<'a> AnnotationPage<'a> {
     pub(super) fn decode(bytes: &'a [u8], cursor: AnnotationCursor) -> Result<Self, Error> {
         let mut rest = bytes;
         let mut count = 0;
+        // The schema bounds this temporary id set to 128 bytes, with no heap use.
+        let mut ids = [0; schema::PAGE_MAX_ROWS];
+        let mut previous_start = None;
         let end = loop {
             let (raw, n) = wire::RawRecord::prefix(rest).map_err(|_| Error::Invalid)?;
             rest = rest.get(n..).ok_or(Error::Invalid)?;
@@ -221,7 +230,15 @@ impl<'a> AnnotationPage<'a> {
             if count > schema::PAGE_MAX_ROWS {
                 return Err(Error::Invalid);
             }
-            Annotation::decode(raw)?;
+            let row = Annotation::decode(raw)?;
+            let start = (row.start_section(), row.start_offset());
+            if ids[..count - 1].contains(&row.id())
+                || previous_start.is_some_and(|previous| previous > start)
+            {
+                return Err(Error::Invalid);
+            }
+            ids[count - 1] = row.id();
+            previous_start = Some(start);
         };
         if !rest.is_empty() || end.flags > 1 || end.cursor.is_some() || end.generation == 0 {
             return Err(Error::Invalid);

@@ -29,8 +29,11 @@ fn maximum_previews_and_32_row_pages_allocate_nothing() {
     let mut annotation = annotation();
     annotation.text = &preview;
     annotation.note = &preview;
-    let max_rows = vec![Record::ServiceLibAnnotation(annotation); 3];
-    for (mut records, count) in [(max_rows, 3), (vec![row(); 32], 32)] {
+    let max_rows = annotation_rows(annotation, 3);
+    for (mut records, count) in [
+        (max_rows, 3),
+        (annotation_rows(super::annotation(), 32), 32),
+    ] {
         records.push(end(1, count, 3, count));
         reply(&state, &records);
         let reply = state.reply.borrow();
@@ -189,4 +192,108 @@ fn opaque_cursor_tail_and_oversized_reply_are_rejected() {
         ),
         Err(Error::Invalid)
     ));
+}
+
+#[test]
+fn semantic_row_errors_and_invalid_reading_order_are_rejected() {
+    let mut reversed = annotation();
+    reversed.kind = 1;
+    reversed.end_section = 0;
+    let mut conversion = annotation();
+    conversion.flags &= !8;
+    conversion.conversion = 7;
+    let mut note = annotation();
+    note.flags &= !1;
+    for invalid in [reversed, conversion, note] {
+        let state = State::default();
+        reply(
+            &state,
+            &[Record::ServiceLibAnnotation(invalid), end(1, 1, 1, 1)],
+        );
+        assert!(matches!(
+            AnnotationPage::decode(&state.reply.borrow(), AnnotationCursor::start()),
+            Err(Error::Invalid)
+        ));
+    }
+    let mut earlier = annotation();
+    earlier.id = 10;
+    earlier.start_section = 0;
+    for invalid in [annotation(), earlier] {
+        let state = State::default();
+        reply(
+            &state,
+            &[
+                row(),
+                Record::ServiceLibAnnotation(invalid),
+                end(1, 2, 1, 2),
+            ],
+        );
+        assert!(matches!(
+            AnnotationPage::decode(&state.reply.borrow(), AnnotationCursor::start()),
+            Err(Error::Invalid)
+        ));
+    }
+    // Equal starting positions and zero-length highlights are valid; ids remain unique.
+    let mut equal = annotation();
+    equal.kind = 1;
+    equal.end_section = equal.start_section;
+    equal.end_offset = equal.start_offset;
+    equal.flags = 0;
+    equal.note = "";
+    let state = State::default();
+    let mut rows = annotation_rows(equal, 2);
+    rows.push(end(1, 2, 1, 2));
+    reply(&state, &rows);
+    assert_eq!(
+        AnnotationPage::decode(&state.reply.borrow(), AnnotationCursor::start())
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn nonfinal_text_chunks_allow_only_utf8_boundary_slack() {
+    let state = State::default();
+    for len in 1020..=1024 {
+        let text = "x".repeat(len);
+        reply(
+            &state,
+            &[Record::ServiceLibText(wire::ServiceLibText {
+                kind: 5,
+                index: 9,
+                total: 2048,
+                text: &text,
+            })],
+        );
+        let reply = state.reply.borrow();
+        let mut fixed = Fixed {
+            reply: &reply,
+            op: schema::OP_TEXT,
+        };
+        let mut table = table();
+        table.service_call = fixed_call;
+        let host = Host {
+            table: &table,
+            ctx: core::ptr::from_mut(&mut fixed).cast(),
+        };
+        let lib = Library::open(&host).unwrap();
+        let mut input = [0; 1024];
+        let mut out = [0; 4096];
+        let result = lib.annotation_text(
+            &host,
+            BookRef::path("book.epub").unwrap(),
+            AnnotationTextQuery::new(9, AnnotationTextKind::Text),
+            &mut input,
+            &mut out,
+        );
+        if len == 1020 {
+            assert!(matches!(result, Err(Error::Invalid)));
+        } else {
+            assert_eq!(
+                result.unwrap().next_offset(),
+                Some(u32::try_from(len).unwrap())
+            );
+        }
+    }
 }

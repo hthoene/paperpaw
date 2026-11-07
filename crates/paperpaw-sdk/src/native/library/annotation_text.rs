@@ -93,13 +93,15 @@ impl Library {
         let row = wire::RawRecord::one(&out[..n])
             .and_then(|raw| raw.decode::<wire::ServiceLibText<'a>>())
             .map_err(|_| Error::Invalid)?;
-        let next = offset
-            .checked_add(u32::try_from(row.text.len()).map_err(|_| Error::Invalid)?)
-            .ok_or(Error::Invalid)?;
+        let remaining = row.total.checked_sub(offset).ok_or(Error::Invalid)?;
+        let len = u32::try_from(row.text.len()).map_err(|_| Error::Invalid)?;
+        let want = remaining.min(1024);
+        let next = offset.checked_add(len).ok_or(Error::Invalid)?;
         if row.kind != kind.wire()
             || row.index != id
-            || next > row.total
-            || row.text.is_empty() && next < row.total
+            || len > want
+            || len + 3 < want
+            || remaining <= 1024 && len != remaining
         {
             return Err(Error::Invalid);
         }

@@ -22,6 +22,15 @@ fn annotation() -> wire::ServiceLibAnnotation<'static> {
 fn row() -> Record<'static> {
     Record::ServiceLibAnnotation(annotation())
 }
+fn annotation_rows(row: wire::ServiceLibAnnotation<'_>, count: u32) -> Vec<Record<'_>> {
+    (0..count)
+        .map(|id| {
+            let mut row = row;
+            row.id = id;
+            Record::ServiceLibAnnotation(row)
+        })
+        .collect()
+}
 #[test]
 fn pages_borrow_rows_and_keep_generations_separate() {
     let table = table();
@@ -137,7 +146,7 @@ fn page_caps_empty_and_overflow_are_checked() {
             .unwrap()
             .is_empty()
     );
-    let mut rows = vec![row(); 32];
+    let mut rows = annotation_rows(annotation(), 32);
     rows.push(end(1, 32, 1, 32));
     reply(&state, &rows);
     assert_eq!(
@@ -146,7 +155,9 @@ fn page_caps_empty_and_overflow_are_checked() {
             .len(),
         32
     );
-    rows.insert(0, row());
+    let mut extra = annotation();
+    extra.id = 32;
+    rows.insert(32, Record::ServiceLibAnnotation(extra));
     rows[33] = end(1, 33, 1, 33);
     reply(&state, &rows);
     assert!(AnnotationPage::decode(&state.reply.borrow(), AnnotationCursor::start()).is_err());
@@ -174,14 +185,15 @@ fn text_chunks_check_identity_and_utf8_byte_offsets() {
     let book = BookRef::path("books/test.epub").unwrap();
     let mut input = [0; 1024];
     let mut out = [0; 4096];
+    let text = "漢".repeat(341);
     for (kind, wire_kind) in [(AnnotationTextKind::Text, 5), (AnnotationTextKind::Note, 6)] {
         reply(
             &state,
             &[Record::ServiceLibText(wire::ServiceLibText {
                 kind: wire_kind,
                 index: 9,
-                total: 6,
-                text: "é漢",
+                total: 1027,
+                text: &text,
             })],
         );
         let range = out.as_ptr_range();
@@ -196,7 +208,7 @@ fn text_chunks_check_identity_and_utf8_byte_offsets() {
             .unwrap();
         assert_eq!(
             (part.text(), part.total(), part.next_offset()),
-            ("é漢", 6, Some(5))
+            (text.as_str(), 1027, Some(1023))
         );
         assert!(range.contains(&part.text().as_ptr()));
         let records = state.input.borrow();
@@ -209,15 +221,15 @@ fn text_chunks_check_identity_and_utf8_byte_offsets() {
             &[Record::ServiceLibText(wire::ServiceLibText {
                 kind: wire_kind,
                 index: 9,
-                total: 6,
-                text: "!",
+                total: 1027,
+                text: "😀",
             })],
         );
         assert_eq!(
             lib.annotation_text(
                 &host,
                 book,
-                AnnotationTextQuery::new(9, kind).from(5),
+                AnnotationTextQuery::new(9, kind).from(1023),
                 &mut input,
                 &mut out
             )
@@ -244,6 +256,8 @@ fn text_chunks_reject_bad_identity_and_lengths() {
         (5, 10, 1, "a", 0),
         (5, 9, 0, "a", 0),
         (5, 9, 2, "", 0),
+        (5, 9, 6, "é漢", 0),
+        (5, 9, 2048, "short", 0),
         (5, 9, 0, "", 1),
         (5, 9, u32::MAX, "a", u32::MAX),
     ] {
