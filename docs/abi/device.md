@@ -100,7 +100,7 @@ agree (a host test).
 | 1127 | `service.dev_firmware` | `version: str 64`, `project: str 32`, `chip: u32`, `room: u64`, `undone: u32`, `state: u32`, `done: u64`, `total: u64`, `reason: u32`, `request: u32` |
 | 1128 | `service.dev_builtin` | `id: str 64`, `version: str 32` |
 | 1129 | `service.dev_native` | `abi_major: u32`, `abi_draft: u32`, `target: u32`, `code_file: str 32`, `safe_mode: u32`, `crashed: str 64`, `last_loaded: str 64`, `pending: u32`, `not_installed: u32`, `room_free: u64`, `room_largest: u64` |
-| 1130 | `service.dev_check` | `reason: u32`, `needs_draft: u32`, `bytes: u64`, `signer: str 64`, `key: bytes 32`, `sha256: bytes 32`, `id: str 64`, `version: str 64`, `flags: u32` |
+| 1130 | `service.dev_check` | `reason: u32`, `needs_draft: u32`, `bytes: u64`, `signer: str 64`, `key: bytes 32`, `id: str 64`, `version: str 64`, `flags: u32`, `sha256: bytes 32` (optional, ordinal 0; draft 20) |
 | 1131 | `service.dev_memory` | `heap_free: u32`, `heap_size: u32`, `largest: u32`, `stack_free: u32`, `stack_size: u32`, `external_free: u32`, `external_size: u32`, `flags: u32` |
 | 1132 | `service.dev_wifi` | `state: u32`, `ssid: str 32`, `address: str 45`, `host_name: str 63`, `guests: u32`, `flags: u32` |
 | 1133 | `service.dev_network` | `ssid: str 32`, `signal: i32`, `flags: u32` |
@@ -317,9 +317,9 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   runs the loader's own checks without changing anything: `reason` 0 fits, else the reason of 5.5
   that an install would end with (`needs_draft` for reason 10); `bytes`; `signer` the key's name
   (empty for a key the device does not know); `key` the signing key and `sha256` the code's (plugin)
-  or the image's (firmware) digest, both empty when unsigned; `id`, `version`; `flags` bit 0 data
-  plugin (no code), bit 1 this id's author key is pinned here and is `key`, bit 2 this id is pinned
-  to another key (an install needs a rotation, 5.2), bit 3 the image is signed by PaperPaw, bit 4 a
+  or the image's (firmware) digest, both empty when unsigned (`sha256` then absent); `id`,
+  `version`; `flags` bit 0 data plugin (no code), bit 1 this id's author key is pinned here and is
+  `key`, bit 2 this id is pinned to another key (an install needs a rotation, 5.2), bit 3 the image is signed by PaperPaw, bit 4 a
   foreign image (another firmware than PaperPaw). The store and update show it before they ask; they
   never parse `.ppn` headers or update trailers themselves. A check is advice for the view: an
   install checks the staged copy again (5.2), whatever a check said.
@@ -495,7 +495,7 @@ unknown values read as 1.
 | `dev_firmware` | 1 + 66 + 34 + 4×4 + 8×3 + 4×2 + 4 = 153 | 4,096 |
 | `dev_builtin` page | 1 + 66 + 34 + 5 = 106; 32 rows + `end` = 3,422 (96 built-ins: 3 pages) | 4,096 |
 | `dev_native` | 1 + 4×3 + 34 + 4 + 66×2 + 4×2 + 8×2 = 207 | 4,096 |
-| `dev_check` | 1 + 4 + 4 + 8 + 66 + 34 + 34 + 66 + 66 + 4 = 287 | 4,096 |
+| `dev_check` | 1 + 4 + 4 + 8 + 66 + 34 + 66 + 66 + 4 + 34 (`sha256`, absent when unsigned) = 287 | 4,096 |
 | `dev_install` | 1 + 4×6 + 8×2 + 66 = 107 | 4,096 |
 | `dev_not_installed` × 32 + `end` | 32 × (1 + 66 + 4 + 5) + 30 = 2,462 | 4,096 |
 | `dev_key` × 32 + `end` | 32 × (1 + 34 + 5) + 30 = 1,310 | 4,096 |

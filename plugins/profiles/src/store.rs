@@ -220,8 +220,10 @@ fn without_bom(bytes: &[u8]) -> &[u8] {
 pub fn may_save_over(head: &[u8]) -> bool {
     let full = head.len() >= HEAD;
     let head = without_bom(head);
-    // A first line that does not end within the bytes is no version line.
-    if full && !head.contains(&b'\n') {
+    // A version line that does not end within the bytes is not one this version
+    // knows. A first line of the first version (`[A long profile name]`) is no
+    // version line at all and may be longer.
+    if full && !head.contains(&b'\n') && head.starts_with(b"# format ") {
         return false;
     }
     // A cut in the middle of a character is no reason to refuse.
@@ -654,10 +656,18 @@ mod tests {
         assert!(!may_save_over(b"# format 0\n"));
         assert!(!may_save_over(b"# format x\n"));
         assert!(!may_save_over("\u{feff}# format 3\n".as_bytes()));
-        // A first line that fills the bytes read is no version line.
+        // A version line that fills the bytes read is not one that is known.
         let mut long = Vec::from(&b"# format 2"[..]);
         long.resize(HEAD, b' ');
         assert!(!may_save_over(&long));
+        // A first-version file whose first profile has a long name has no version
+        // line: it may be saved over, with or without a mark, however long the line.
+        let mut v1 = Vec::from(&b"["[..]);
+        v1.resize(HEAD, b'n');
+        assert!(may_save_over(&v1));
+        let mut marked = Vec::from("\u{feff}[".as_bytes());
+        marked.resize(HEAD, b'n');
+        assert!(may_save_over(&marked));
         // A cut inside a character is no reason to refuse a good file.
         let mut cut = Vec::from("# format 2\n".as_bytes());
         cut.extend_from_slice(&"é".as_bytes()[..1]);

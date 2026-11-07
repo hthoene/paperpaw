@@ -124,6 +124,12 @@ impl DocumentTable {
         })
     }
 
+    /// Hold the table as a running call does (tests of a busy table).
+    #[cfg(test)]
+    pub(crate) fn hold(&self) -> Result<core::cell::RefMut<'_, Vec<Document>>, i32> {
+        self.rows()
+    }
+
     fn rows(&self) -> Result<core::cell::RefMut<'_, Vec<Document>>, i32> {
         self.documents.try_borrow_mut().map_err(|_| ERR_BUSY)
     }
@@ -260,13 +266,19 @@ impl DocumentTable {
     /// The opener stopped: free all its ids; `ended` gets each document, with
     /// the table released (the host tells the format to close it). Returns how
     /// many.
-    pub(crate) fn close_owner(&self, owner: u64, mut ended: impl FnMut(&Document)) -> usize {
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the table is borrowed: what is left stays, and a retry
+    /// ends it.
+    pub(crate) fn close_owner(
+        &self,
+        owner: u64,
+        mut ended: impl FnMut(&Document),
+    ) -> Result<usize, i32> {
         let mut count = 0;
         loop {
             let document = {
-                let Ok(mut rows) = self.documents.try_borrow_mut() else {
-                    break;
-                };
+                let mut rows = self.rows()?;
                 let Some(at) = rows.iter().position(|d| d.owner == owner) else {
                     break;
                 };
@@ -275,34 +287,38 @@ impl DocumentTable {
             ended(&document);
             count += 1;
         }
-        count
+        Ok(count)
     }
 
     /// The format plugin stopped (or was uninstalled): each of its documents
     /// that is not ended yet is ended by the host with `reason`
     /// (`event.document_closed`) and stays until its opener closes it; `ended`
     /// gets each, with the table released. Returns how many.
+    ///
+    /// `retiring` is the owner that is going away with the format (a plugin
+    /// that is both opener and format): its documents are marked gone and
+    /// closed like the others, but `ended` does not get them (it hears no
+    /// event) and they are not counted; its opener cleanup follows.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the table is borrowed: a retry finishes the rest.
     pub(crate) fn cancel_format(
         &self,
         format: FormatRef,
         reason: u32,
+        retiring: Option<u64>,
         mut ended: impl FnMut(&Document),
-    ) -> usize {
+    ) -> Result<usize, i32> {
         let mut count = 0;
         // Every document of the format, also one the host closed earlier (three
         // malformed answers), never reaches the stopped format again.
-        match self.documents.try_borrow_mut() {
-            Ok(mut rows) => rows
-                .iter_mut()
-                .filter(|d| d.format == format)
-                .for_each(|d| d.format_gone = true),
-            Err(_) => return 0,
-        }
+        self.rows()?
+            .iter_mut()
+            .filter(|d| d.format == format)
+            .for_each(|d| d.format_gone = true);
         loop {
             let document = {
-                let Ok(mut rows) = self.documents.try_borrow_mut() else {
-                    break;
-                };
+                let mut rows = self.rows()?;
                 let Some(document) = rows
                     .iter_mut()
                     .find(|d| d.format == format && d.closed_by_host == 0)
@@ -313,10 +329,13 @@ impl DocumentTable {
                 document.format_gone = true;
                 *document
             };
+            if retiring == Some(document.owner) {
+                continue;
+            }
             ended(&document);
             count += 1;
         }
-        count
+        Ok(count)
     }
 
     /// The host ends a document (format stopped, card gone, book moved): the
@@ -375,5 +394,26 @@ impl DocumentTable {
     #[cfg(test)]
     pub(crate) fn set_next_id(&self, id: u32) {
         self.next_id.set(id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
+    use super::*;
+    use paperpaw_native::host_glue::ERR_BUSY;
+
+    #[test]
+    fn a_borrowed_table_is_reported_not_skipped() {
+        let table = DocumentTable::try_new(Limits::LARGE).unwrap();
+        let format = FormatRef(1);
+        let id = table.open(7, format, 0, 0).unwrap();
+        let held = table.documents.borrow();
+        assert_eq!(table.close_owner(7, |_| ()), Err(ERR_BUSY));
+        assert_eq!(table.cancel_format(format, 1, None, |_| ()), Err(ERR_BUSY));
+        drop(held);
+        // Nothing was lost: a retry ends it.
+        assert_eq!(table.cancel_format(format, 1, None, |_| ()), Ok(1));
+        assert_eq!(table.close_owner(7, |d| assert_eq!(d.id, id)), Ok(1));
     }
 }

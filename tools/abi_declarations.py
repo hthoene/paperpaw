@@ -177,8 +177,9 @@ def _fields(record):
                      f'{name}.{label}: list bounds outside 1-255 items, 1-cap bytes')
         secret = 'secret' in field
         _require(not secret or (field['secret'] is True and kind == 'str' and items is None
-                                and is_growth_command(record)),
-                 f'{name}.{label}: secret must be true, on a str field of a command, not a list')
+                                and (is_growth_command(record) or name.startswith('service.'))),
+                 f'{name}.{label}: secret must be true, on a str field of a command or a '
+                 'service record, not a list')
         out.append(dict(name=label, kind=kind, cap=cap, items=items, optional=field['optional'],
                         secret=secret,
                         since=field['since'],
@@ -275,8 +276,13 @@ def _record_source(record, decode_name="decode", record_type="Record<'a>", exten
                     f'pub const {constant}_MAX_ITEMS: usize = {items["max_items"]};',
                     f'/// Longest item of `{name}.{field["name"]}` in bytes.',
                     f'pub const {constant}_ITEM_MAX_BYTES: usize = {items["item_max_bytes"]};']
+    # A record with a secret field (`"secret": true`) gets its own `Debug`, which
+    # shows neither that text nor its length; every other record derives it.
+    hidden = [f['name'] for f in fields if f.get('secret')]
+    derive = '#[derive(Clone, Copy, PartialEq, Eq)]' if hidden else \
+        '#[derive(Clone, Copy, Debug, PartialEq, Eq)]'
     out += ['', f'/// The `{name}` record, borrowed from its batch.',
-            '#[derive(Clone, Copy, Debug, PartialEq, Eq)]', f"pub struct {title}{_lifetime(record)} {{"]
+            derive, f"pub struct {title}{_lifetime(record)} {{"]
     if extensible:
         out.insert(len(out) - 1, '#[non_exhaustive]')
     for field in fields:
@@ -292,6 +298,15 @@ def _record_source(record, decode_name="decode", record_type="Record<'a>", exten
             text += f' Appended and optional; {absent} when absent.'
         out += [f'    /// {text}', f'    pub {field["name"]}: {rust},']
     borrows = _lifetime(record)
+    if hidden:
+        life = "<'_>" if borrows else ''
+        out += ['}', '', f'impl core::fmt::Debug for {title}{life} {{',
+                "    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {",
+                f'        f.debug_struct("{title}")']
+        for field in fields:
+            shown = '&".."' if field['name'] in hidden else f'&self.{field["name"]}'
+            out.append(f'            .field("{field["name"]}", {shown})')
+        out += ['            .finish()', '    }']
     out += ['}', '', f"impl<'a> {title}<'a> {{" if borrows else f'impl {title} {{',
             f"    fn {decode_name}(body: &mut Reader<'a>) -> Result<{record_type}, i32> {{" if borrows
             else f"    fn {decode_name}<'a>(body: &mut Reader<'a>) -> Result<{record_type}, i32> {{",

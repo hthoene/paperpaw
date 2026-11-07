@@ -370,13 +370,13 @@ mod tests {
     fn a_power_cut_in_the_appends_leaves_a_stale_temp_that_the_next_write_replaces() {
         let old = bytes(10, b'o');
         let fake = Fake::with("f", &old);
-        // Cut at the second append: the temp holds two chunks of three.
+        // Cut at the third operation, the second append: the temp holds two chunks of three.
         fake.fail_at.set(3);
         fake.cut.set(true);
         let new = bytes(MAX_DATA * 3, b'n');
         assert!(replace_on(&fake, "f", &new).is_err());
         assert_eq!(fake.get("f").unwrap(), old);
-        assert_eq!(fake.get("f.new").unwrap().len(), MAX_DATA);
+        assert_eq!(fake.get("f.new").unwrap().len(), MAX_DATA * 2);
         fake.restart();
         // The first write of the next save replaces the stale temp.
         let next = bytes(MAX_DATA + 7, b'm');
