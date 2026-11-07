@@ -258,7 +258,7 @@ fn ordinary_query_frames_refuse_stage_execution() {
                 },
             )
         },
-        Err(abi::ERR_STATE)
+        Err(abi::ERR_UNSUPPORTED)
     );
     assert_eq!(out, [0xa5; 8]);
 }

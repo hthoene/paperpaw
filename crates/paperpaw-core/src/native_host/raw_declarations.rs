@@ -100,13 +100,13 @@ impl RawDeclarations {
         let mut len = 0;
         for (record, value) in batch.iter().enumerate() {
             if let Some((kind, name)) = key(value) {
-                index[len] = NameEntry {
-                    hash: self.hash(kind, name),
-                    batch: u16::try_from(self.batches.len()).map_err(|_| ERR_NO_SPACE)?,
-                    record_kind: (u16::from(kind) << 3)
-                        | (u16::from(matches!(value, Record::ResourceFontExtension(_))) << 6)
-                        | u16::try_from(record).map_err(|_| ERR_INVALID)?,
-                };
+                index[len] = NameEntry::new(
+                    self.hash(kind, name),
+                    u16::try_from(self.batches.len()).map_err(|_| ERR_NO_SPACE)?,
+                    kind,
+                    record,
+                    matches!(value, Record::ResourceFontExtension(_)),
+                )?;
                 len += 1;
             }
         }
