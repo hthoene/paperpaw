@@ -16,6 +16,9 @@ pub mod registration_scope;
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
 
+#[path = "native_host/host_slot.rs"]
+pub mod host_slot;
+
 #[path = "native_host/ui_guard.rs"]
 #[allow(
     dead_code,
@@ -41,8 +44,15 @@ mod data_services;
 mod declared_services;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
+#[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
+pub(crate) mod format_call;
+#[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
+pub(crate) mod format_index;
 #[path = "native_host/formatting.rs"]
 mod formatting;
+pub(crate) mod host_services;
+#[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
+pub(crate) mod lib_service;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
 mod service_slots;
@@ -132,6 +142,12 @@ mod retained;
     dead_code,
     reason = "native built-in registry adapter follows this screen router"
 )]
+#[path = "native_host/native_install.rs"]
+mod native_install;
+
+#[path = "native_host/native_screen_factory.rs"]
+pub(crate) mod native_screen_factory;
+
 #[path = "native_host/native_screen.rs"]
 mod native_screen;
 

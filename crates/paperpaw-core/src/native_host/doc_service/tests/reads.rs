@@ -752,8 +752,8 @@ fn no_path_calls_a_format_after_it_stopped() {
     let fake = Fake::new(Limits::LARGE);
     let a = opened(&fake);
     let b = opened(&fake);
-    assert_eq!(format_stopped(&*fake, FORMAT), 2);
-    assert_eq!(opener_stopped(&*fake, OWNER), 2);
+    assert_eq!(format_stopped(&*fake, FORMAT), Ok(2));
+    assert_eq!(opener_stopped(&*fake, OWNER), Ok(2));
     assert!(
         fake.ended.borrow().is_empty(),
         "no op 4 into a stopped format"
@@ -784,7 +784,7 @@ fn no_path_calls_a_format_after_it_stopped() {
     assert_eq!(*fake.closed.borrow(), [(id, 1)]);
     assert_eq!(
         format_stopped(&*fake, FORMAT),
-        0,
+        Ok(0),
         "already closed: no second event"
     );
     call(&fake, 18, &[doc_ref(id)]).unwrap();
