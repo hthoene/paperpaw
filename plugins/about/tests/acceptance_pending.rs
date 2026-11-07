@@ -13,19 +13,20 @@ const CASES: [Case; 3] = [
         golden: None,
         blocked_by: &["H1", "H4"],
     },
-    // Licences and the plugins built in open their text in the reader: no
-    // interface-7 command opens a text there yet (not an H item).
+    // Licences and the plugins built in open their text in the reader
+    // (`command.open` into `core.reader`), which needs draft 21's
+    // `doc_open.root` 4 so the reader may read About's own Data.
     Case {
         name: "about-open-licences-in-reader",
         golden: None,
-        blocked_by: &["H1", "H4", "open-in-reader"],
+        blocked_by: &["H1", "H4", "draft-21-doc_open-root-4"],
     },
-    // Other plugins' lines (about.lines) below the address: no interface-7
-    // contribution contract yet.
+    // Other plugins' lines (the `about.lines` stage) below the address: stages
+    // are not on integration yet (#330).
     Case {
         name: "about-lines-from-plugins",
         golden: None,
-        blocked_by: &["about.lines-contract"],
+        blocked_by: &["stage-codec-330", "H1"],
     },
 ];
 
@@ -45,13 +46,13 @@ fn about_page() {
 }
 
 #[test]
-#[ignore = "BLOCKED: no interface-7 command opens a text in the reader"]
+#[ignore = "BLOCKED: draft 21 doc_open.root 4 (opening About's texts in the reader)"]
 fn about_open_licences_in_reader() {
     CASES[1].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED: no interface-7 contribution contract for about.lines"]
+#[ignore = "BLOCKED: the about.lines stage (#330) is not on integration"]
 fn about_lines_from_plugins() {
     CASES[2].refuse().unwrap();
 }

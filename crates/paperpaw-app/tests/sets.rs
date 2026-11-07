@@ -27,7 +27,7 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
 );
 
 /// What a beginner needs on a fresh device, and what gets the rest back.
-const ALWAYS: [&str; 16] = [
+const ALWAYS: [&str; 15] = [
     "fonts-default",
     "format-epub",
     "format-txt",
@@ -43,7 +43,6 @@ const ALWAYS: [&str; 16] = [
     "plugin-manager",
     "update",
     "transfer",
-    "about",
 ];
 
 fn fonts() -> paperpaw_app::Fonts {

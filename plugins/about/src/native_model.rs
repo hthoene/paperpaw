@@ -77,10 +77,7 @@ pub(crate) fn rows(texts: &Texts, facts: &Facts) -> Result<Vec<(Kind, Item)>, Er
         let names = names(&facts.names)?;
         push(
             &mut rows,
-            (
-                Kind::BuiltIn,
-                Item::noted(&texts.plugins, &count, &names)?,
-            ),
+            (Kind::BuiltIn, Item::noted(&texts.plugins, &count, &names)?),
         )?;
     }
     if facts.native.is_some() {
