@@ -48,6 +48,18 @@ the port.
   add_deck, rename/delete deck, add, edit, delete, record, fold, queue_lookup, take_lookups and
   recover: after any refusal the decks read, card ids are unique and no `.tmp`/`.part` is left.
 
+- When the heap refuses something after a deck was put in place, the index (`due.txt`) no
+  longer says what the decks hold: it is taken away (`keep_index`, a removal needs no heap) and
+  made anew from the decks (`rebuild_index`) at start, when the cards are chosen (`due`), and by
+  the next `set_index`/`add_to_index` (an index is never started from one deck). The sweeps
+  assert that after the next start the widget's `due_count` equals what the decks hold.
+  `delete_deck` makes every allocation before it changes anything.
+- `Answers::note` inserts into a sorted `Vec`: folding `n` answers of different cards is
+  quadratic in `n`. Fine for the few hundred answers of a review or a day (`answers.txt` is
+  folded when a review ends and before any change of a deck); not a design for tens of thousands.
+- Ties between cards due at the same time are broken by the deck's place in `decks.txt`, then the
+  card's offset: as the stable sort did (a test lists the decks with the higher id first).
+
 ## Interim: interface-6 callers
 
 `lib.rs` and `widget.rs` (still interface 6) call the Result API with `unwrap_or(0)` /

@@ -536,6 +536,8 @@ pub(crate) fn rename_deck(storage: &dyn Storage, deck: u32, name: &str) -> Resul
 
 /// Deletes a deck and its cards.
 pub(crate) fn delete_deck(storage: &dyn Storage, deck: u32) -> Result<(), Problem> {
+    // Every allocation before anything is changed.
+    let file = deck_path(deck)?;
     fold(storage)?;
     // The counter is read with the deck still there: its id is past it.
     let (mut decks, next) = decks_and_next(storage)?;
@@ -545,8 +547,10 @@ pub(crate) fn delete_deck(storage: &dyn Storage, deck: u32) -> Result<(), Proble
         return Err(Problem::Missing);
     }
     write_decks(storage, &decks, next)?;
-    storage.remove(&deck_path(deck)?)?;
-    set_index(storage, deck, None)?;
+    // The deck is out of the list: what follows is not to be left half done.
+    let removed = storage.remove(&file);
+    keep_index(storage, set_index(storage, deck, None))?;
+    removed?;
     Ok(())
 }
 
@@ -807,7 +811,10 @@ impl<'a> Adder<'a> {
     fn finish(mut self) -> Result<usize, Problem> {
         if self.added > 0 {
             self.flush()?;
-            add_to_index(self.storage, self.deck, self.added as u32)?;
+            keep_index(
+                self.storage,
+                add_to_index(self.storage, self.deck, self.added as u32),
+            )?;
             self.storage.remove(ADDING)?;
         } else if self.count >= MAX_CARDS {
             return Err(Problem::Full);
@@ -1006,7 +1013,7 @@ pub(crate) fn rewrite_with(
         let _ = storage.remove(&temporary);
     })?;
     put_in_place(storage, &temporary, &file)?;
-    set_index(storage, deck, Some(index))?;
+    keep_index(storage, set_index(storage, deck, Some(index)))?;
     Ok(added)
 }
 
@@ -1047,6 +1054,7 @@ pub(crate) fn recover(storage: &dyn Storage) {
     }
     let _ = storage.remove(ADDING);
     let _ = fold(storage);
+    let _ = rebuild_index(storage);
 }
 
 // ---- Words looked up ---------------------------------------------------
@@ -1193,6 +1201,12 @@ impl Answers {
 
     /// The last state of the card and when it was due before the first
     /// answer: `state` and `before` where it is the first.
+    ///
+    /// A sorted `Vec` takes an insert in linear time, so folding `n` answers
+    /// of different cards is quadratic in `n` (a memmove of 56 B entries):
+    /// fine for the few hundred answers of a review or a day (`answers.txt`
+    /// is folded when a review ends and before any change of a deck), but
+    /// not a design for tens of thousands.
     fn note(&mut self, deck: u32, state: State, before: i64) -> Result<(), StorageError> {
         match self
             .0
@@ -1295,8 +1309,18 @@ pub(crate) fn due(
     only: Option<u32>,
 ) -> Result<Vec<Due>, StorageError> {
     let _ = fold(storage);
+    let _ = rebuild_index(storage);
     let (mut reviews, mut fresh): (Vec<Due>, Vec<Due>) = (Vec::new(), Vec::new());
     let decks = decks(storage).unwrap_or_default();
+    // Ties are broken as the stable sort did: by the deck's place in
+    // `decks.txt` (not its id: a file edited by hand or synced may list
+    // them in another order), then by where the card is in the deck.
+    let position = |deck: u32| {
+        decks
+            .iter()
+            .position(|d| d.id == deck)
+            .unwrap_or(usize::MAX)
+    };
     let mut failed = Ok(());
     for deck in decks.iter().filter(|d| only.is_none_or(|o| o == d.id)) {
         each_card(storage, deck.id, |offset, card| {
@@ -1325,7 +1349,8 @@ pub(crate) fn due(
                 // Keep those due longest, without holding more than twice
                 // as many at a time.
                 if reviews.len() >= most * 2 {
-                    reviews.sort_unstable_by_key(|d: &Due| (d.state.due, d.deck, d.offset));
+                    reviews
+                        .sort_unstable_by_key(|d: &Due| (d.state.due, position(d.deck), d.offset));
                     reviews.truncate(most);
                 }
             }
@@ -1333,7 +1358,7 @@ pub(crate) fn due(
         })?;
         failed?;
     }
-    reviews.sort_unstable_by_key(|d| (d.state.due, d.deck, d.offset));
+    reviews.sort_unstable_by_key(|d| (d.state.due, position(d.deck), d.offset));
     reviews.truncate(most);
     reviews
         .try_reserve(fresh.len())
@@ -1539,6 +1564,43 @@ fn each_index(storage: &dyn Storage, mut part: impl FnMut(Index)) -> Result<(), 
     failed
 }
 
+/// Where the index could not be brought along with a change of the decks
+/// (the heap refused something after the deck was put in place), it no
+/// longer says what the decks hold: it is taken away (a removal needs no
+/// heap), which marks it for a rebuild ([`rebuild_index`], at start and
+/// when the cards are chosen). The error goes on.
+fn keep_index(storage: &dyn Storage, result: Result<(), StorageError>) -> Result<(), StorageError> {
+    if result.is_err() {
+        let _ = storage.remove(INDEX);
+    }
+    result
+}
+
+/// Makes the index anew from the decks where there is none (it was taken
+/// away, see [`keep_index`], or never made): each deck read once.
+pub(crate) fn rebuild_index(storage: &dyn Storage) -> Result<(), StorageError> {
+    if storage.exists(INDEX) {
+        return Ok(());
+    }
+    for deck in decks(storage)? {
+        let mut index = Index {
+            deck: deck.id,
+            ..Index::default()
+        };
+        let mut failed = Ok(());
+        each_card(storage, deck.id, |_, card| match index.count(&card.state) {
+            Ok(()) => ControlFlow::Continue(()),
+            Err(e) => {
+                failed = Err(e);
+                ControlFlow::Break(())
+            }
+        })?;
+        failed?;
+        write_index(storage, deck.id, Some(index))?;
+    }
+    Ok(())
+}
+
 /// The first line of the index.
 fn index_header() -> Result<String, StorageError> {
     let mut out = String::new();
@@ -1549,8 +1611,10 @@ fn index_header() -> Result<String, StorageError> {
 
 /// `added` new cards more in `deck`: a line of the index more.
 fn add_to_index(storage: &dyn Storage, deck: u32, added: u32) -> Result<(), StorageError> {
+    // Without an index (taken away, see [`keep_index`]) one made now from
+    // the decks, the new cards in them: never one that knows only these.
     if !storage.exists(INDEX) {
-        storage.write(INDEX, index_header()?.as_bytes())?;
+        return rebuild_index(storage);
     }
     let mut line = String::new();
     push_number(&mut line, deck)?;
@@ -1561,8 +1625,17 @@ fn add_to_index(storage: &dyn Storage, deck: u32, added: u32) -> Result<(), Stor
 }
 
 /// Puts `index` in place of `deck`'s (or takes it out), the others'
-/// lines copied a line at a time.
+/// lines copied a line at a time. Without an index (taken away, see
+/// [`keep_index`]) it is made anew from the decks, as they are now.
 fn set_index(storage: &dyn Storage, deck: u32, index: Option<Index>) -> Result<(), StorageError> {
+    if !storage.exists(INDEX) {
+        return rebuild_index(storage);
+    }
+    write_index(storage, deck, index)
+}
+
+/// [`set_index`] on an index that is there (or is to be made).
+fn write_index(storage: &dyn Storage, deck: u32, index: Option<Index>) -> Result<(), StorageError> {
     storage.write(INDEX_TEMPORARY, index_header()?.as_bytes())?;
     let work = || -> Result<(), StorageError> {
         let mut out = String::new();

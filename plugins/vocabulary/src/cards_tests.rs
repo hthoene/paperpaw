@@ -226,8 +226,9 @@ fn cuts_leave_nothing_lost_nor_overwritten() {
             b"9\t0\t0\t0\t0\t0\t0\tKatze\tcat\t\n",
         )
         .unwrap();
-    // (The card put there by hand above was not counted either.)
-    assert_eq!(sizes(&storage).unwrap().get(&deck).copied().unwrap(), 1);
+    // (The card put there by hand above was not counted either: the index,
+    // made from the deck when the first card was added, has the two before.)
+    assert_eq!(sizes(&storage).unwrap().get(&deck).copied().unwrap(), 2);
     recover(&storage);
     assert_eq!(sizes(&storage).unwrap().get(&deck).copied().unwrap(), 3);
     assert!(!storage.exists(ADDING));
@@ -459,4 +460,40 @@ fn a_change_to_a_card_seen_before_it_changed_is_refused() {
     assert_eq!(card.back, "the dog");
     delete(&storage, deck, 1, Some(card.version())).unwrap();
     assert_eq!(page(&storage, deck, 0, 1).1, 0);
+}
+
+/// Cards due at the same moment come in the order of the decks in
+/// `decks.txt`, whatever their ids (a file edited by hand or synced may
+/// list them in another order), as the stable sort had it.
+#[test]
+fn ties_follow_the_decks_file_not_the_ids() {
+    let storage = MemoryStorage::new();
+    let first = add_deck(&storage, "First").unwrap();
+    let second = add_deck(&storage, "Second").unwrap();
+    for (deck, front) in [(first, "a"), (second, "b")] {
+        add(&storage, deck, [texts(front, "x")]).unwrap();
+        rewrite(&storage, deck, |card| {
+            card.state = State {
+                id: card.state.id,
+                due: 100,
+                last: 50,
+                stability: 100,
+                difficulty: 500,
+                reps: 1,
+                lapses: 0,
+            };
+            true
+        })
+        .unwrap();
+    }
+    // The decks listed with the higher id first.
+    let (mut listed, next) = decks_and_next(&storage).unwrap();
+    listed.reverse();
+    write_decks(&storage, &listed, next).unwrap();
+    assert!(listed[0].id > listed[1].id);
+    let order: Vec<u32> = due(&storage, 1000, 0, 10, None)
+        .iter()
+        .map(|d| d.deck)
+        .collect();
+    assert_eq!(order, [second, first]);
 }

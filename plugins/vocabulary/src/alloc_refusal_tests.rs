@@ -244,6 +244,40 @@ fn healthy(storage: &Quiet) {
             .unwrap();
         assert!(left.is_empty(), "left behind: {left:?}");
     });
+    index_agrees(storage);
+}
+
+/// The index (what the widget counts from) agrees with the decks, as it
+/// does after the next start (`recover`): where a refusal left it out of
+/// step it was taken away and is made anew then; cards added when it
+/// happened are counted in (`adding.txt`); answers are folded.
+fn index_agrees(storage: &Quiet) {
+    fixture(|| {
+        cards::recover(storage);
+        let mut held = 0usize;
+        for deck in cards::decks(storage).unwrap() {
+            cards::each_card(storage, deck.id, |_, _| {
+                held += 1;
+                core::ops::ControlFlow::Continue(())
+            })
+            .unwrap();
+        }
+        let waiting = storage
+            .get(&alloc::format!("{CARDS}/looked-up.txt"))
+            .map_or(0, |d| d.iter().filter(|b| **b == b'\n').count());
+        let counted = cards::due_count(storage, i64::MAX / 2, usize::MAX).unwrap();
+        assert_eq!(
+            counted,
+            held + waiting,
+            "the index and the decks disagree: {:?} {:?}",
+            storage
+                .get(&alloc::format!("{CARDS}/decks.txt"))
+                .map(String::from_utf8),
+            storage
+                .get(&alloc::format!("{CARDS}/due.txt"))
+                .map(String::from_utf8)
+        );
+    });
 }
 
 fn cards_in(storage: &Quiet, deck: u32) -> usize {
