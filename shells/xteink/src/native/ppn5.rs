@@ -110,9 +110,9 @@ pub fn load(
     }
     #[cfg(feature = "esp32c3")]
     {
-        let (placed, make) = x4::verified(place, storage, code, &header, started)?;
+        let (placed, make, declared) = x4::verified(place, storage, code, &header, started)?;
         x4::run(
-            place, code, &header, &placed, make, depth, resources, started,
+            place, code, &header, &placed, make, depth, resources, declared, started,
         )
     }
     #[cfg(not(feature = "esp32c3"))]
@@ -144,6 +144,7 @@ mod x4 {
         EntryFacts, EntryRefusal, HEADER_LEN, Header5, RawEntry, RecordFacts,
     };
     use paperpaw_native::host_glue::Services;
+    use paperpaw_native::metadata;
     use paperpaw_platform::Storage;
     use paperpaw_sdk::Plugin;
     use paperpaw_sdk::PluginProblem;
@@ -185,6 +186,24 @@ mod x4 {
         PluginProblem::Damaged
     }
 
+    /// What the plugin manager says for a record the admission refuses.
+    fn admission_refused(path: &str, why: shell::admission::Admission<'_>) -> PluginProblem {
+        use shell::admission::Admission;
+        warn!("native: {path}: format 5: metadata: {why:?}");
+        match why {
+            Admission::NoRoom => PluginProblem::NoRoom,
+            Admission::Refused(metadata::Refusal::Incompatible) => PluginProblem::OtherBuild,
+            // A service or feature this firmware does not offer: a newer
+            // PaperPaw might.
+            Admission::Refused(
+                metadata::Refusal::Service { .. } | metadata::Refusal::RequiredFeature { .. },
+            ) => PluginProblem::NeedsNewerPaperPaw,
+            Admission::Refused(metadata::Refusal::Malformed) | Admission::Invalid => {
+                PluginProblem::Damaged
+            }
+        }
+    }
+
     /// Places the image of `header`, checks its entry, and takes it back if
     /// the entry is refused.
     pub(super) fn verified(
@@ -193,7 +212,7 @@ mod x4 {
         code: &CodeFile<'_>,
         header: &Header5,
         started: u64,
-    ) -> Result<(crate::native::flash::Placed5, u32), PluginProblem> {
+    ) -> Result<(crate::native::flash::Placed5, u32, shell::DeclaredServices), PluginProblem> {
         let path = code.path;
         // The metadata record as the file has it: at most 2 KiB, however large
         // the file.
@@ -213,6 +232,23 @@ mod x4 {
             warn!("native: {path}: format 5: the metadata record is not one this firmware reads");
             PluginProblem::Damaged
         })?;
+        // The record's body against what this firmware offers, before the
+        // image is written: a plugin that asks for a service this firmware
+        // lacks costs no flash. What it declares is kept for the host, which
+        // refuses a query of any other service.
+        let offered = metadata::Host {
+            abi_major: HOST.abi_major,
+            minor: HOST.minor,
+            profile: paperpaw_native::header5::X4_PROFILE,
+            services: shell::DATA_SERVICES,
+            features: &[],
+        };
+        let (declared, needs_minor) = shell::admission::admit(&record, &offered)
+            .map_err(|why| admission_refused(path, why))?;
+        if needs_minor != facts.needs_minor {
+            warn!("native: {path}: format 5: the record's two readings disagree");
+            return Err(PluginProblem::Damaged);
+        }
         let placed = place.put5(storage, path, header)?;
         let make = match check_placed(path, header, &placed, &facts, &record) {
             Ok(make) => make,
@@ -230,7 +266,7 @@ mod x4 {
             header.patches,
             crate::micros() - started
         );
-        Ok((placed, make))
+        Ok((placed, make, declared))
     }
 
     /// Step 9 on the image as it lies in flash: reads the entry and the
@@ -457,6 +493,7 @@ mod x4 {
         make: u32,
         depth: &mut Option<FlatDepth>,
         resources: &mut Option<HostResources>,
+        declared_services: shell::DeclaredServices,
         started: u64,
     ) -> Result<Box<dyn Plugin>, PluginProblem> {
         let id = code.id.as_str();
@@ -504,9 +541,7 @@ mod x4 {
                 report,
                 hooks,
                 share,
-                // Format 5 carries no declared services yet: every service
-                // query of the plugin is refused (fail closed).
-                shell::DeclaredServices::none(),
+                declared_services,
             )
         };
         let instance = loaded.map_err(|why| {

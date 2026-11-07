@@ -44,6 +44,15 @@ pub const PATCH_BYTES: u64 = 12;
 pub const ABI_MAJOR: u16 = 7;
 /// The entry's length on the ESP32-C3 (profile `esp32c3-riscv32imc-ilp32-soft-le`).
 pub const X4_ENTRY_BYTES: u32 = 20;
+/// The entry layout of the first (and only) layout of the metadata record.
+const ENTRY_LAYOUT: u16 = 1;
+/// The ESP32-C3's profile as the metadata check compares a record with it
+/// (`abi/abi.def`, `metadata.profiles`; pinned by a test).
+pub const X4_PROFILE: crate::metadata::Profile<'static> = crate::metadata::Profile {
+    target: "esp32c3-riscv32imc-ilp32-soft-le",
+    entry_layout: ENTRY_LAYOUT,
+    entry_bytes: X4_ENTRY_BYTES as u16,
+};
 
 /// What the host (the firmware) is, to compare a file with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,7 +165,6 @@ impl RecordFacts {
         const MAGIC: [u8; 4] = *b"PPAM";
         const LAYOUT: u16 = 2;
         const PREFIX_BYTES: u16 = 32;
-        const ENTRY_LAYOUT: u16 = 1;
         if record.len() < PREFIX_BYTES as usize || record.len() > META_MAX as usize {
             return None;
         }

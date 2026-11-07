@@ -922,6 +922,11 @@ pub mod instance;
 #[path = "shell_tests.rs"]
 mod tests;
 
+/// The services a plugin declares, checked against the host's catalog before
+/// its image is placed.
+#[path = "shell_admission.rs"]
+pub mod admission;
+
 /// Which plugin's code runs now, kept where a reset leaves it.
 #[path = "shell_inflight.rs"]
 pub mod inflight;
