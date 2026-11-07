@@ -404,6 +404,11 @@ impl CardTables {
             })
     }
 
+    #[cfg(feature = "kernel")]
+    pub(super) fn tables(&self) -> impl Iterator<Item = CardTable<'_>> + Clone {
+        self.entries.iter().map(|entry| CardTable { entry })
+    }
+
     pub(super) fn table(&self, tag: &str) -> Option<CardTable<'_>> {
         self.entry(tag).map(|entry| CardTable { entry })
     }

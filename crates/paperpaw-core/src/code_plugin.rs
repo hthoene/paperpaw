@@ -270,7 +270,7 @@ impl Kernel {
         }
         drop(installed);
         loader.finish(storage.as_ref());
-        self.shared.hyphen_feed.ask(loader.as_mut(), &storage);
+        self.ask_hyphenation_sink(loader.as_mut(), &storage);
         self.shared.native = Some(native);
     }
 

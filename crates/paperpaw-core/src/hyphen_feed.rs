@@ -1,80 +1,25 @@
-//! The data plugins' hyphenation tables as the kernel registered them, kept
-//! for the shell's `text.hyphenate` service ([`HyphenTables`]): the shell hands
-//! the kernel a sink once ([`CodeLoader::hyphenation_sink`]
-//! (crate::code_plugin::CodeLoader::hyphenation_sink)); from then on every
-//! plugin added or removed, and every change of the card, reaches it.
+//! The data plugins' hyphenation tables as the kernel registered them, handed
+//! to the shell's `text.hyphenate` service ([`HyphenTables`]): the shell gives
+//! the kernel a sink once ([`CodeLoader::hyphenation_sink`]); from then on
+//! every plugin added or removed, and every change of the card, reaches it.
+//!
+//! The list itself is the SDK's (`Hyphenation::card_tables`): the feed keeps
+//! no second copy of the table strings, only the sink.
 use crate::code_plugin::CodeLoader;
 use crate::native_host::HyphenTables;
-use alloc::{collections::TryReserveError, rc::Rc, string::String, vec::Vec};
+use crate::{Kernel, WarningSource};
+use alloc::rc::Rc;
 use paperpaw_platform::Storage;
+use paperpaw_sdk::Hyphenation;
 
-/// One declared table: the plugin, the language tag, the card path.
-struct Declared {
-    plugin: String,
-    tag: String,
-    path: String,
-}
-
-/// What the kernel registered, and where it goes.
+/// Where the declared tables go.
 pub(crate) struct HyphenFeed {
-    declared: Vec<Declared>,
     sink: Option<HyphenTables>,
 }
 
 impl HyphenFeed {
     pub(crate) const fn new() -> Self {
-        Self {
-            declared: Vec::new(),
-            sink: None,
-        }
-    }
-
-    /// Asks the shell's loader for its sink: it gets everything declared so
-    /// far, and what follows.
-    pub(crate) fn ask(&mut self, loader: &mut dyn CodeLoader, storage: &Rc<dyn Storage>) {
-        if let Some(sink) = loader.hyphenation_sink(storage) {
-            self.attach(sink);
-        }
-    }
-
-    pub(crate) fn attach(&mut self, sink: HyphenTables) {
-        self.sink = Some(sink);
-        self.push();
-    }
-
-    /// The tables of data plugin `plugin` (language tag, file relative to
-    /// `folder`). All or none.
-    ///
-    /// # Errors
-    /// No memory; nothing was added.
-    pub(crate) fn add<'t>(
-        &mut self,
-        plugin: &str,
-        folder: &str,
-        tables: impl ExactSizeIterator<Item = (&'t str, &'t str)>,
-    ) -> Result<(), TryReserveError> {
-        let mut new = Vec::new();
-        new.try_reserve_exact(tables.len())?;
-        for (tag, path) in tables {
-            new.push(Declared {
-                plugin: copy(plugin)?,
-                tag: copy(tag)?,
-                path: join(folder, path)?,
-            });
-        }
-        self.declared.try_reserve(new.len())?;
-        self.declared.extend(new);
-        self.push();
-        Ok(())
-    }
-
-    /// The tables of `plugin` are gone.
-    pub(crate) fn remove(&mut self, plugin: &str) {
-        let before = self.declared.len();
-        self.declared.retain(|d| d.plugin != plugin);
-        if self.declared.len() != before {
-            self.push();
-        }
+        Self { sink: None }
     }
 
     /// The card may hold other files than before.
@@ -86,32 +31,53 @@ impl HyphenFeed {
 
     /// Tells the sink what is declared now. A sink that cannot take it keeps
     /// the declarations it had.
-    fn push(&self) {
-        if let Some(sink) = &self.sink {
-            let _ = sink.declare_plugins(
-                self.declared
-                    .iter()
-                    .map(|d| (d.tag.as_str(), d.path.as_str(), d.plugin.as_str())),
-            );
+    ///
+    /// # Errors
+    /// The sink's status.
+    pub(crate) fn push(&self, tables: &Hyphenation) -> Result<(), i32> {
+        match &self.sink {
+            Some(sink) => sink.declare_plugins(
+                tables
+                    .card_tables()
+                    .map(|t| (t.tag(), t.path(), t.plugin())),
+            ),
+            None => Ok(()),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn attach(&mut self, sink: HyphenTables) {
+        self.sink = Some(sink);
     }
 }
 
-fn copy(text: &str) -> Result<String, TryReserveError> {
-    let mut owned = String::new();
-    owned.try_reserve_exact(text.len())?;
-    owned.push_str(text);
-    Ok(owned)
-}
+impl Kernel {
+    /// Asks the shell's loader for its sink; it gets everything declared so
+    /// far, and what follows.
+    pub(crate) fn ask_hyphenation_sink(
+        &mut self,
+        loader: &mut dyn CodeLoader,
+        storage: &Rc<dyn Storage>,
+    ) {
+        if let Some(sink) = loader.hyphenation_sink(storage) {
+            self.shared.hyphen_feed.sink = Some(sink);
+            self.feed_hyphenation(None);
+        }
+    }
 
-/// `folder`, a slash and `path`, as the kernel's own tables join them.
-fn join(folder: &str, path: &str) -> Result<String, TryReserveError> {
-    let mut owned = String::new();
-    owned.try_reserve_exact(folder.len() + 1 + path.len())?;
-    owned.push_str(folder);
-    owned.push('/');
-    owned.push_str(path);
-    Ok(owned)
+    /// The declared tables changed (of plugin `id`, if one): the sink is told.
+    /// One it cannot take is a warning; it keeps what it had.
+    pub(crate) fn feed_hyphenation(&mut self, id: Option<&paperpaw_sdk::Id>) {
+        let Err(status) = self.shared.hyphen_feed.push(&self.shared.hyphenation) else {
+            return;
+        };
+        let source = id.map_or(WarningSource::Runtime, |id| {
+            WarningSource::Plugin(id.clone())
+        });
+        let problem =
+            alloc::format!("hyphenation tables not handed to the shell (status {status})");
+        self.warn(source, None, problem);
+    }
 }
 
 #[cfg(test)]
