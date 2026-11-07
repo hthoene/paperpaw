@@ -116,19 +116,63 @@ fn a_chain_of_frames_that_would_overflow_is_over_its_budget_not_a_panic() {
 }
 
 #[test]
-fn a_chain_may_add_a_constant_for_frames_no_name_can_say() {
-    let all = [frame("a::panic", Some(1000)), frame("c::fmt", Some(300))];
+fn a_chain_family_counts_a_function_and_the_closures_inside_it() {
+    // The handler, and closures named in the several ways a build may name
+    // them (the handler's own path, `::0`, `::_`).
+    let all = [
+        frame("x::crash::handle", Some(912)),
+        frame("x::crash::handle", Some(272)),
+        frame("x::crash::handle::0", Some(272)),
+        frame("x::crash::handle::_", Some(200)),
+        frame("x::crash::handle_helper", Some(5000)),
+        frame("c::fmt", Some(300)),
+    ];
+    // The two largest of the family: 912 + 272; `handle_helper` is no part of it.
     assert!(
-        check(&all, "chain 1620 a::panic +320 c::fmt")
+        check(&all, "chain 1484 crash::handle*2 c::fmt")
             .unwrap()
             .is_empty()
     );
-    let p = check(&all, "chain 1619 a::panic +320 c::fmt").unwrap();
-    assert!(p[0].contains("1620") && p[0].contains("1619"), "{p:?}");
-    // Not a number: refused when the budget is read, not matched as a name.
-    assert!(check(&all, "chain 100 a::panic +x").is_err());
-    assert!(check(&all, "chain 100 a::panic +").is_err());
-    // A constant that overflows the sum is over any budget, not a panic.
-    let p = check(&all, "chain 4294967295 a::panic +4294967295").unwrap();
+    let p = check(&all, "chain 1483 crash::handle*2 c::fmt").unwrap();
+    assert!(p[0].contains("1484") && p[0].contains("1483"), "{p:?}");
+    // One counts only the handler itself.
+    assert!(
+        check(&all, "chain 1212 crash::handle*1 c::fmt")
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn an_unsized_or_oversized_closure_fails_its_family() {
+    // Code Reviewer's probe on #254: a closure the code does not size, or
+    // one far larger than expected, must not pass through a name that misses it.
+    let base = [
+        frame("x::crash::handle", Some(912)),
+        frame("c::fmt", Some(300)),
+    ];
+    let mut unsized_one = base.to_vec();
+    unsized_one.push(frame("x::crash::handle::0", None));
+    let p = check(&unsized_one, "chain 5000 crash::handle*2 c::fmt").unwrap();
+    assert!(p[0].contains("does not size"), "{p:?}");
+    let mut big = base.to_vec();
+    big.push(frame("x::crash::handle::_", Some(4000)));
+    let p = check(&big, "chain 1700 crash::handle*2 c::fmt").unwrap();
+    assert!(p[0].contains("over its 1700"), "{p:?}");
+    // A family with no member is a rename, not a pass.
+    let p = check(&base, "chain 5000 nothing::here*2").unwrap();
+    assert!(p[0].contains("no function matches"), "{p:?}");
+}
+
+#[test]
+fn a_malformed_family_word_is_refused_when_the_budget_is_read() {
+    let all = [frame("a::f", Some(1))];
+    assert!(check(&all, "chain 100 a::f*0").is_err());
+    assert!(check(&all, "chain 100 a::f*x").is_err());
+    assert!(check(&all, "chain 100 a::f*").is_err());
+    assert!(check(&all, "chain 100 *2").is_err());
+    // A sum that overflows is over any budget, not a panic.
+    let all = [frame("a::f", Some(u32::MAX)), frame("a::f::0", Some(10))];
+    let p = check(&all, "chain 4294967295 a::f*2").unwrap();
     assert_eq!(p.len(), 1);
 }

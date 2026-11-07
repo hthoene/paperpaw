@@ -10,7 +10,7 @@
 //! frame, so a change that makes the handler's frames larger fails the build.
 //!
 //! The budget is lines of `frame <bytes> <name>` (the largest frame of any
-//! function whose path is `<name>` or ends in `::<name>`) and `chain <bytes> <name> ...` (a word `+<bytes>` is a constant added to the sum, for frames no name can say) (the
+//! function whose path is `<name>` or ends in `::<name>`) and `chain <bytes> <name> ...` (a word `<name>*<count>` is the sum of the largest `count` frames in the family of `<name>`: the function and what is compiled inside it, e.g. its closures) (the
 //! sum of the largest frame of each name stays within `<bytes>`: what one call
 //! down the chain takes at most). A name that matches no function fails too,
 //! so a rename cannot make a check pass by matching nothing. A function whose
@@ -179,8 +179,11 @@ fn parse(budget: &str) -> Result<Vec<Rule>, String> {
                 name: names[0].clone(),
             }),
             ("chain", 1..) => {
-                if let Some(bad) = names.iter().find(|n| extra(n).is_some_and(|e| e.is_none())) {
-                    return Err(format!("line {at}: `{bad}` is not `+<bytes>`"));
+                if let Some(bad) = names
+                    .iter()
+                    .find(|n| family(n).is_some_and(|f| f.is_none()))
+                {
+                    return Err(format!("line {at}: `{bad}` is not `<name>*<count>`"));
                 }
                 rules.push(Rule::Chain { max, names });
             }
@@ -194,11 +197,55 @@ fn parse(budget: &str) -> Result<Vec<Rule>, String> {
     Ok(rules)
 }
 
-/// A chain's constant, `+<bytes>`: frames the chain has that no name can say
-/// (a closure's name changes from one build to the next). `None` if `word` is
-/// not one, `Some(None)` if it starts with `+` but is no number.
-fn extra(word: &str) -> Option<Option<u32>> {
-    word.strip_prefix('+').map(|n| n.parse().ok())
+/// A chain's family word, `<name>*<count>`: the sum of the `count` largest
+/// frames among the functions of the family of `name` (a function and what is
+/// compiled inside it: its closures, whose names change from one build to the
+/// next). `None` if `word` has no `*`, `Some(None)` if it is malformed (no name,
+/// or a count that is not a number of at least 1).
+fn family(word: &str) -> Option<Option<(&str, usize)>> {
+    let (name, count) = word.split_once('*')?;
+    Some(
+        count
+            .parse::<usize>()
+            .ok()
+            .filter(|&n| n >= 1 && !name.is_empty())
+            .map(|n| (name, n)),
+    )
+}
+
+/// Whether `path` is in the family of `name`: it is `name` (or ends in
+/// `::name`, see [`names`]) or lies inside it, `name::...` anywhere in the path.
+fn in_family(path: &str, name: &str) -> bool {
+    names(path, name)
+        || path.starts_with(&format!("{name}::"))
+        || path.contains(&format!("::{name}::"))
+}
+
+/// The sum of the `count` largest frames in the family of `name`: `Err` if
+/// none is in it, `Ok(None)` if one has a frame that cannot be read (an unsized
+/// member of the family fails the chain); a sum that overflows `u32` is
+/// `u32::MAX`, over any budget.
+fn family_sum(all: &[Frame], name: &str, count: usize) -> Result<Option<u32>, String> {
+    let mut sizes = Vec::new();
+    for f in all.iter().filter(|f| in_family(&f.path, name)) {
+        match f.bytes {
+            None => return Ok(None),
+            Some(b) => sizes.push(b),
+        }
+    }
+    if sizes.is_empty() {
+        return Err(format!(
+            "no function matches `{name}`: renamed? (update the budget)"
+        ));
+    }
+    sizes.sort_unstable_by(|a, b| b.cmp(a));
+    Ok(Some(
+        sizes
+            .iter()
+            .take(count)
+            .try_fold(0u32, |sum, &b| sum.checked_add(b))
+            .unwrap_or(u32::MAX),
+    ))
 }
 
 /// Whether a function's `path` is `name`, or ends in `::name`: the whole
@@ -249,11 +296,11 @@ pub fn check(all: &[Frame], budget: &str) -> Result<Vec<String>, String> {
                 let mut sum = Some(0u32);
                 let mut bad = false;
                 for name in &names {
-                    if let Some(Some(bytes)) = extra(name) {
-                        sum = sum.and_then(|s| s.checked_add(bytes));
-                        continue;
-                    }
-                    match largest(all, name) {
+                    let measured = match family(name) {
+                        Some(Some((family, count))) => family_sum(all, family, count),
+                        _ => largest(all, name),
+                    };
+                    match measured {
                         Err(e) => {
                             problems.push(e);
                             bad = true;
@@ -262,6 +309,8 @@ pub fn check(all: &[Frame], budget: &str) -> Result<Vec<String>, String> {
                             problems.push(format!("`{name}` has a frame the code does not size"));
                             bad = true;
                         }
+                        // `u32::MAX` is a family sum that overflowed (no frame is that big).
+                        Ok(Some(u32::MAX)) => sum = None,
                         Ok(Some(b)) => sum = sum.and_then(|s| s.checked_add(b)),
                     }
                 }
