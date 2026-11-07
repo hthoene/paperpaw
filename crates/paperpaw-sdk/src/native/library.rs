@@ -162,7 +162,8 @@ impl Library {
         )?;
         Entry::decode(one(&out[..n])?)
     }
-    /// Set or remove one field owned by the caller; empty value removes it.
+    /// Set or remove a full field id (`plugin.name`) owned by the caller.
+    /// An empty value removes it; relative declaration names are not accepted.
     ///
     /// # Errors
     /// Returns host authority/refusal errors or Invalid for a nonempty reply.
@@ -175,9 +176,7 @@ impl Library {
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<(), Error> {
-        if field.is_empty() {
-            return Err(Error::Invalid);
-        }
+        super::ui::navigation::full_id(field)?;
         let row = Record::ServiceLibFieldSet(wire::ServiceLibFieldSet { field, value });
         self.mutate(
             host,

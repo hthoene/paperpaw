@@ -282,7 +282,7 @@ fn scalar_state_and_field_update_use_checked_schema_calls() {
     lib.set_field(
         &host,
         BookRef::catalog(0, 9).unwrap(),
-        "rating",
+        "demo.rating",
         "5",
         &mut input,
         &mut out,
@@ -296,6 +296,111 @@ fn scalar_state_and_field_update_use_checked_schema_calls() {
         matches!(records.next(),Some(Record::ServiceLibRef(r)) if r.path.is_empty() && r.key==Some(0) && r.generation==9)
     );
     assert!(
-        matches!(records.next(),Some(Record::ServiceLibFieldSet(r)) if r.field=="rating" && r.value=="5")
+        matches!(records.next(),Some(Record::ServiceLibFieldSet(r)) if r.field=="demo.rating" && r.value=="5")
     );
+}
+
+fn book_row(key: u32, generation: u32) -> Record<'static> {
+    Record::ServiceLibBook(wire::ServiceLibBook {
+        key,
+        generation,
+        path: "books/a.epub",
+        title: "A",
+        author: "B",
+        series: "C",
+        number: "1",
+        progress: 45,
+        flags: 2,
+        added: 7,
+        size: 123,
+        format: "core.epub",
+        tags: 2,
+        fields: 1,
+        title_bytes: 1,
+        author_bytes: 1,
+        series_bytes: 1,
+    })
+}
+#[test]
+fn book_and_next_series_validate_records_and_preserve_reference_identity() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let lib = Library::open(&host).unwrap();
+    let mut input = [0; 2048];
+    let mut out = [0; 4096];
+    let book = BookRef::catalog(0, 9).unwrap();
+    reply(&state, &[book_row(0, 9)]);
+    let row = lib.book(&host, book, &mut input, &mut out).unwrap();
+    assert_eq!(
+        (row.path(), row.title(), row.size(), row.progress()),
+        ("books/a.epub", "A", 123, Some(45))
+    );
+    let reference = row.reference().unwrap();
+    assert_eq!((reference.0.key, reference.0.generation), (Some(0), 9));
+    for bad in [book_row(1, 9), book_row(0, 10)] {
+        reply(&state, &[bad]);
+        assert!(matches!(
+            lib.book(&host, book, &mut input, &mut out),
+            Err(Error::State)
+        ));
+    }
+    reply(&state, &[entry()]);
+    assert!(matches!(
+        lib.book(&host, book, &mut input, &mut out),
+        Err(Error::Invalid)
+    ));
+    reply(&state, &[book_row(0, 9), book_row(0, 9)]);
+    assert!(lib.book(&host, book, &mut input, &mut out).is_err());
+    reply(&state, &[entry()]);
+    assert_eq!(
+        lib.next_in_series(&host, book, &mut input, &mut out)
+            .unwrap()
+            .title(),
+        "Book"
+    );
+    assert_eq!(state.op.get(), schema::OP_NEXT_IN_SERIES);
+    let bytes = state.input.borrow();
+    let batch = wire::records_decode(&bytes).unwrap();
+    assert!(
+        matches!(batch.iter().next(),Some(Record::ServiceLibRef(r)) if r.key==Some(0) && r.generation==9)
+    );
+    drop(bytes);
+    reply(&state, &[book_row(0, 9)]);
+    assert!(
+        lib.next_in_series(&host, book, &mut input, &mut out)
+            .is_err()
+    );
+    state.error.set(abi::ERR_NOT_FOUND);
+    assert!(matches!(
+        lib.next_in_series(&host, book, &mut input, &mut out),
+        Err(Error::NotFound)
+    ));
+}
+#[test]
+fn relative_field_ids_are_refused_without_a_host_call() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let lib = Library::open(&host).unwrap();
+    let mut input = [0; 2048];
+    let mut out = [0; 4096];
+    assert!(matches!(
+        lib.set_field(
+            &host,
+            BookRef::path("a.epub").unwrap(),
+            "rating",
+            "5",
+            &mut input,
+            &mut out
+        ),
+        Err(Error::Invalid)
+    ));
+    assert_eq!(state.calls.get(), 0);
 }

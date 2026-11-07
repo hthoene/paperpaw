@@ -2735,7 +2735,8 @@ A stale generation returns `State`; start the query again instead of skipping ro
 
 Identify a book with `BookRef::path(path)?` or a catalog key and its page generation.
 `set_finished(host, book, true, input, out)` changes only the finished status.
-`set_field` writes a field owned by the caller; an empty value removes it.
+`set_field` takes the full `plugin.name` field id owned by the caller; an empty
+value removes it.
 The SDK leaves field enumeration out until the host contract supports lossless
 paging for all fields. Reply and input buffers belong to the caller; queries
 allocate no SDK heap storage.
