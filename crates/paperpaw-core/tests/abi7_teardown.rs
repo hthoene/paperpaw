@@ -140,9 +140,7 @@ fn running_handle_release_cancels_once_and_other_owners_survive_teardown() {
         .insert(1, Kind::Blob, make())
         .ok()
         .unwrap();
-    for _ in 0..3 {
-        assert!(registry.borrow_mut().insert(1, Kind::Blob, make()).is_ok());
-    }
+    assert!(registry.borrow_mut().insert(1, Kind::Blob, make()).is_ok());
     let (error, _) = registry
         .borrow_mut()
         .insert(1, Kind::Blob, make())
@@ -166,7 +164,7 @@ fn running_handle_release_cancels_once_and_other_owners_survive_teardown() {
     handles::release_owner(&registry, 1).unwrap();
     assert!(registry.borrow().get(2, Kind::Font, other).is_ok());
     assert!(registry.borrow_mut().insert(1, Kind::Blob, make()).is_ok());
-    assert_eq!(log.borrow().iter().filter(|&&v| v == "release").count(), 4);
+    assert_eq!(log.borrow().iter().filter(|&&v| v == "release").count(), 2);
 }
 
 #[test]

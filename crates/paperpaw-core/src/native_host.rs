@@ -13,8 +13,23 @@ pub use lifecycle::{Teardown, TeardownStep};
 #[path = "native_host/registration_scope.rs"]
 pub mod registration_scope;
 
+#[path = "native_host/font_removals.rs"]
+pub(crate) mod font_removals;
+
 #[path = "native_host/shared.rs"]
 mod shared;
+
+#[path = "native_host/resources.rs"]
+pub mod resources;
+pub use resources::HostResources;
+
+#[path = "native_host/fonts.rs"]
+mod fonts;
+
+#[path = "native_host/formatting.rs"]
+mod formatting;
+#[path = "native_host/storage_slots.rs"]
+mod storage_slots;
 
 const REGISTRATIONS: usize = 8;
 
@@ -84,6 +99,7 @@ use staged::Declarations;
 #[derive(Debug)]
 pub struct FlatHost {
     pub(crate) meter: alloc::rc::Rc<crate::meter::Meter>,
+    pub(crate) font_removals: alloc::rc::Rc<font_removals::FontRemovals>,
 }
 
 /// Host admission or construction failure.

@@ -249,7 +249,18 @@ fn frame() -> Vec<u8> {
 
 fn fake() -> Hosted<Heap, Module> {
     // SAFETY: `make` is this file's plugin, always callable; no image.
-    unsafe { Hosted::new(Heap, Module::new(), make, "fake", (0, 0), report) }.unwrap()
+    unsafe {
+        Hosted::new(
+            Heap,
+            Module::new(),
+            make,
+            "fake",
+            (0, 0),
+            report,
+            super::super::HostResources::try_new().unwrap(),
+        )
+    }
+    .unwrap()
 }
 
 fn finish<S: Services, M>(hosted: &Hosted<S, M>) {
@@ -376,6 +387,7 @@ fn the_image_is_given_before_make_once_and_read_back_as_given() {
             "fake",
             (IMAGE.as_ptr() as usize, IMAGE.len()),
             report,
+            super::super::HostResources::try_new().unwrap(),
         )
     }
     .unwrap();
@@ -520,9 +532,10 @@ fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_c
     for nth in [1, 2] {
         reset(NORMAL);
         let module = Module::new();
+        let resources = super::super::HostResources::try_new().unwrap();
         arm_failure(nth);
         // SAFETY: `make` is this file's plugin; no image.
-        let refused = unsafe { Hosted::new(Heap, module, make, "fake", (0, 0), report) };
+        let refused = unsafe { Hosted::new(Heap, module, make, "fake", (0, 0), report, resources) };
         arm_failure(0);
         assert_eq!(refused.err(), Some(Error::Allocation), "allocation {nth}");
         assert_eq!(logged(), ["module"], "the module is dropped, once");
@@ -591,6 +604,7 @@ fn pinned_owner_allocation_failure_drops_unactivated_context_then_module() {
 
 #[path = "shell_oom_tests.rs"]
 mod oom;
+
 #[test]
 fn teardown_faults_are_one_shot_and_propagate_through_production_commit() {
     use crate::native_host::{Error as HostError, TeardownStep};
@@ -652,4 +666,49 @@ fn persistent_teardown_busy_keeps_owner_until_disarmed() {
     hosted.owner().finish().unwrap();
     drop(hosted);
     assert_eq!(logged(), ["destroy", "module"]);
+}
+
+#[test]
+fn callback_admission_busy_preserves_read_output_before_raw_slot_entry() {
+    reset(NORMAL);
+    let hosted = fake();
+    let batch = hosted
+        .make_registered(hosted.begin().unwrap())
+        .unwrap()
+        .commit()
+        .unwrap();
+    let depth = DispatchDepth::new();
+    let mut out = [0xa5; 7];
+    let mut entered = false;
+    batch
+        .dispatch(0, &depth, |_, _| {
+            // Reentry is refused by RegistrationBatch admission. The raw read
+            // helper itself does not produce Busy and must not be reached here.
+            let result = batch.dispatch(0, &depth, |context, _| {
+                entered = true;
+                // SAFETY: live path and exclusive output; no borrowed data escapes.
+                unsafe {
+                    super::super::storage_slots::read_at(
+                        &context.environment,
+                        "fake",
+                        0,
+                        PpBytes {
+                            ptr: b"state".as_ptr(),
+                            len: 5,
+                        },
+                        0,
+                        PpBuffer {
+                            ptr: out.as_mut_ptr(),
+                            cap: out.len(),
+                        },
+                    )
+                }
+            });
+            assert_eq!(result, Err(super::super::Error::Busy));
+        })
+        .unwrap();
+    assert!(!entered);
+    assert_eq!(out, [0xa5; 7]);
+    drop(batch);
+    finish(&hosted);
 }
