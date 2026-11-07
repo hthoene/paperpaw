@@ -11,10 +11,14 @@
 extern crate alloc;
 
 mod log;
+mod mem;
 mod native_entry;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
 pub mod native_plugin;
+/// Test support: reads the history as the screen does.
+#[doc(hidden)]
+pub use native_view::{HistorySummary, history_summary};
 mod native_view;
 pub mod recording;
 

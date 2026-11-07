@@ -1,8 +1,8 @@
 //! What Battery records, byte for byte, and what it does with each event: the
 //! acceptance table for events, the golden files of the log and the usage log,
 //! their rotation at the size cap, and a tail cut by a power loss. They run the
-//! interface-7 recorder through the real native entry glue and a test-only
-//! host (`support/native_host.rs`); they are the interface-6 plugin's tests
+//! interface-7 plugin (`NativeBattery`, routed by callback token as the host
+//! routes it) through the real native entry glue and a test-only host (`support/native_host.rs`); they are the interface-6 plugin's tests
 //! (`PORTING.md`) carried over, with their goldens unchanged except where
 //! `PORTING.md` says otherwise.
 //!
@@ -29,23 +29,35 @@ use paperpaw_core::native_host::{
     registrations::{Record, ServiceEnd, ServicePluginUsage},
 };
 use paperpaw_platform::Battery as Charge;
-use paperpaw_plugin_battery::recording::Recorder;
+use paperpaw_plugin_battery::native_plugin::NativeBattery;
 use paperpaw_sdk::native::{Error, Host, Plugin, events::Event, reply::Reply};
 
+/// The production plugin behind the host's token routing, plus one extra
+/// token that reads the history as the screen does.
+const HISTORY: u32 = 99;
+thread_local! {
+    static HISTORY_SEEN: std::cell::Cell<Option<paperpaw_plugin_battery::HistorySummary>> =
+        const { std::cell::Cell::new(None) };
+}
 #[derive(Default)]
-struct Probe(Recorder);
+struct Probe(NativeBattery);
 impl Plugin for Probe {
-    fn make(_: &Host<'_>) -> Result<Self, Error> {
-        Ok(Self::default())
+    fn make(host: &Host<'_>) -> Result<Self, Error> {
+        Ok(Self(NativeBattery::make(host)?))
     }
     fn event(
         &mut self,
         host: &Host<'_>,
-        _: u32,
+        token: u32,
         event: Event<'_>,
-        _: &mut Reply<'_>,
+        reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        self.0.event(host, event)
+        if token == HISTORY {
+            let seen = paperpaw_plugin_battery::history_summary(host)?;
+            HISTORY_SEEN.with(|cell| cell.set(Some(seen)));
+            return Ok(());
+        }
+        self.0.event(host, token, event, reply)
     }
 }
 // Existing generated SDK-entry metadata is adequate for this in-process probe.
@@ -55,6 +67,8 @@ paperpaw_sdk::native_plugin!(
     heap = none
 );
 
+/// The callback token of the lifecycle subscriptions (`declarations.rs`).
+const RECORDER: u32 = 1;
 const HEADER: &str =
     "kind,ms,millivolts,percent,charging,fast,partial,full,kilopixels,inputs,panel_ms,pages,unix\n";
 const PLUGINS_HEADER: &str =
@@ -148,7 +162,7 @@ impl Device {
         self.at(at);
         let mut bytes = [0; 64];
         let len = encode(at, &mut bytes).unwrap();
-        assert_eq!(self.h.dispatch(&bytes[..len]), 0);
+        assert_eq!(self.h.dispatch_token(RECORDER, &bytes[..len]), 0);
     }
 
     fn start(&mut self, at: u64) {
@@ -190,7 +204,7 @@ impl Device {
             &mut bytes,
         )
         .unwrap();
-        assert_eq!(self.h.dispatch(&bytes[..len]), 0);
+        assert_eq!(self.h.dispatch_token(RECORDER, &bytes[..len]), 0);
     }
     fn file(&self, name: &str) -> Option<String> {
         self.h
@@ -599,4 +613,135 @@ fn recording_survives_a_tail_cut_at_every_byte() {
             "cut at {cut}"
         );
     }
+}
+
+mod image {
+    include!(concat!(env!("OUT_DIR"), "/battery_declarations.rs"));
+}
+
+/// Construction submits the settings, the screen and action, and the
+/// lifecycle subscriptions, in this order and nothing else.
+#[test]
+fn make_submits_the_declared_batches_in_order() {
+    let device = Device::new(true, false);
+    let wanted: Vec<&[u8]> = image::SETTINGS
+        .iter()
+        .chain(image::UI)
+        .chain(image::EVENTS)
+        .copied()
+        .collect();
+    let batches = device.h.context.batches.borrow();
+    assert_eq!(batches.len(), wanted.len());
+    for (batch, wanted) in batches.iter().zip(wanted) {
+        assert_eq!(batch.as_slice(), wanted);
+    }
+}
+
+/// Events for tokens that are not the recorder's change nothing on the card.
+#[test]
+fn only_the_recorder_token_writes() {
+    let mut device = Device::new(true, false);
+    device.at(0);
+    let mut bytes = [0; 64];
+    let len = encode_started(0, &mut bytes).unwrap();
+    for token in [0, 2, 12, 42] {
+        assert_eq!(device.h.dispatch_token(token, &bytes[..len]), 0, "{token}");
+    }
+    assert!(device.h.context.files.borrow().is_empty());
+}
+
+/// The times awake the screen reads, wherever a power cut left the tail of
+/// the log: reading never fails, an earlier time awake is never lost, and a
+/// cut line loses only itself.
+#[test]
+fn the_view_reads_a_tail_cut_at_every_byte() {
+    let whole =
+        format!("{HEADER}start,0,4100,90,0,0,0,0,0,0,0,0,\nend,3600000,4000,85,0,0,0,0,0,0,0,1,\n");
+    let next = "start,4000000,4000,85,0,0,0,0,0,0,0,0,\nend,7600000,3900,80,0,0,0,0,0,0,0,2,\n";
+    let first = next.find('\n').unwrap() + 1;
+    for cut in 0..=next.len() {
+        let mut device = Device::new(false, false);
+        device
+            .h
+            .context
+            .seed("log.csv", format!("{whole}{}", &next[..cut]));
+        device.at(0);
+        let mut bytes = [0; 64];
+        let len = encode_started(0, &mut bytes).unwrap();
+        assert_eq!(
+            device.h.dispatch_token(HISTORY, &bytes[..len]),
+            0,
+            "cut {cut}"
+        );
+        let seen = HISTORY_SEEN.with(std::cell::Cell::take).unwrap();
+        // A line is read when it is whole or, cut, once its twelfth field (the
+        // pages) is there; the trailing time is optional.
+        let read = |line: &str| {
+            line.split(',')
+                .nth(11)
+                .is_some_and(|field| !field.is_empty())
+        };
+        let (one, two) = next[..cut].split_at(cut.min(first));
+        let (ended, current) = match (read(one), read(two)) {
+            (true, true) => (2, false),
+            (true, false) => (1, true),
+            _ => (1, false),
+        };
+        assert_eq!((seen.ended, seen.current), (ended, current), "cut at {cut}");
+    }
+}
+
+/// A log that cannot become the old one starts anew all the same: the rename
+/// fails for both attempts, the old one is removed in between, and the log
+/// never grows past its cap.
+#[test]
+fn a_full_log_starts_anew_where_it_cannot_be_renamed() {
+    let mut device = Device::new(true, false);
+    device.h.context.rename_error.set(-8);
+    device.h.context.seed("log.csv", filler(MAX_BYTES));
+    device.h.context.seed("log.old.csv", "an older log\n");
+    device.start(0);
+    let log = device.file("log.csv").unwrap();
+    assert!(log.starts_with(HEADER) && log.lines().count() == 2, "{log}");
+    assert!(log.lines().nth(1).unwrap().starts_with("start,0,"));
+    // Both renames were tried, the old log removed between them, and the
+    // full log removed after: nothing of it is kept.
+    let operations = device.h.context.operations.borrow();
+    let renames = operations
+        .iter()
+        .filter(|op| op.starts_with("rename:log.csv:log.old.csv"))
+        .count();
+    assert_eq!(renames, 2, "{operations:?}");
+    assert!(operations.iter().any(|op| op == "remove:log.old.csv"));
+    assert!(operations.iter().any(|op| op == "remove:log.csv"));
+    assert!(device.file("log.old.csv").is_none());
+}
+
+/// What each plugin took is written at the first measurement, every ten
+/// minutes awake, and always at the end of a time awake.
+#[test]
+fn plugin_usage_is_periodic_and_always_written_at_the_end() {
+    let mut device = Device::new(true, false);
+    device.start(0);
+    let at = |device: &Device| -> Vec<u64> {
+        let text = device.file(PLUGINS).unwrap_or_default();
+        let mut times: Vec<u64> = text
+            .lines()
+            .skip(1)
+            .map(|line| line.split(',').next().unwrap().parse().unwrap())
+            .collect();
+        times.dedup();
+        times
+    };
+    assert!(device.file(PLUGINS).is_none());
+    device.status(60_000, Some(Charge::new(80, false, None)));
+    assert_eq!(at(&device), [60_000]);
+    device.status(120_000, Some(Charge::new(80, false, None)));
+    assert_eq!(at(&device), [60_000], "ten minutes are not over");
+    device.status(659_999, Some(Charge::new(79, false, None)));
+    assert_eq!(at(&device), [60_000], "one millisecond short");
+    device.status(660_000, Some(Charge::new(79, false, None)));
+    assert_eq!(at(&device), [60_000, 660_000]);
+    device.suspend(661_000);
+    assert_eq!(at(&device), [60_000, 660_000, 661_000]);
 }

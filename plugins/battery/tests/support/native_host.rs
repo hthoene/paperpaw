@@ -4,7 +4,32 @@
 //! instance. Calls are synchronous, never reentrant, and lend disjoint buffers.
 //! Snapshot/settings bytes come from the public host environment encoder;
 //! service bytes come from the public generated host record encoder.
-#![allow(dead_code, reason = "each test crate uses a part of this shared fixture")]
+#![allow(
+    dead_code,
+    reason = "each test crate uses a part of this shared fixture"
+)]
+
+std::thread_local! {
+    /// How many host callbacks of this thread are running: what they
+    /// allocate is the host's, not the plugin's (see `fail_alloc.rs`).
+    pub static HOST_DEPTH: Cell<u32> = const { Cell::new(0) };
+}
+
+/// Marks the host's side of a call for the test allocator.
+pub struct HostScope;
+
+impl HostScope {
+    pub fn enter() -> Self {
+        HOST_DEPTH.with(|depth| depth.set(depth.get() + 1));
+        Self
+    }
+}
+
+impl Drop for HostScope {
+    fn drop(&mut self) {
+        HOST_DEPTH.with(|depth| depth.set(depth.get() - 1));
+    }
+}
 
 use std::{
     alloc::Layout,
@@ -158,6 +183,10 @@ pub struct Context {
     pub query_error: Cell<i32>,
     pub append_error: Cell<i32>,
     pub sync_error: Cell<i32>,
+    /// Every rename is refused with this status when it is not `OK`.
+    pub rename_error: Cell<i32>,
+    /// The registration batches `make` submitted, in order.
+    pub batches: RefCell<Vec<Vec<u8>>>,
     blob: RefCell<Vec<u8>>,
 }
 
@@ -193,6 +222,8 @@ impl Context {
             query_error: Cell::new(OK),
             append_error: Cell::new(OK),
             sync_error: Cell::new(OK),
+            rename_error: Cell::new(OK),
+            batches: RefCell::new(Vec::new()),
             blob: RefCell::new(Vec::new()),
         }
     }
@@ -247,13 +278,19 @@ impl Harness {
     }
 
     pub fn dispatch(&mut self, input: &[u8]) -> i32 {
+        self.dispatch_token(42, input)
+    }
+
+    /// Delivers `input` to the callback token `token`, as the host's
+    /// subscription would.
+    pub fn dispatch_token(&mut self, token: u32, input: &[u8]) -> i32 {
         // SAFETY: this owner exclusively admits the live instance. Input is
         // borrowed only for this call; the empty output aliases nothing.
         let status = unsafe {
             let plugin = &*self.plugin;
             plugin.dispatch_event.unwrap()(
                 plugin.state,
-                42,
+                token,
                 PpBytes {
                     ptr: input.as_ptr(),
                     len: input.len(),
@@ -298,6 +335,7 @@ fn table() -> PpHost {
     table.storage_rename = rename;
     table.storage_remove = remove;
     table.storage_sync = sync;
+    table.registrations_submit = submit;
     table
 }
 
@@ -332,6 +370,7 @@ unsafe extern "C" fn allocate(
     align: usize,
     out: *mut *mut c_void,
 ) -> i32 {
+    let _scope = HostScope::enter();
     // SAFETY: entry supplies a valid layout and exclusive output; ctx is retained.
     unsafe {
         let context = context(ctx);
@@ -351,6 +390,7 @@ unsafe extern "C" fn deallocate(
     size: usize,
     align: usize,
 ) -> i32 {
+    let _scope = HostScope::enter();
     // SAFETY: entry returns the one live allocation with its original layout.
     unsafe {
         std::alloc::dealloc(block.cast(), Layout::from_size_align(size, align).unwrap());
@@ -361,6 +401,7 @@ unsafe extern "C" fn deallocate(
 }
 
 unsafe extern "C" fn snapshot(ctx: *mut c_void, out: PpBuffer) -> i32 {
+    let _scope = HostScope::enter();
     // SAFETY: ctx is retained and out is disjoint exclusive callback storage.
     unsafe {
         let context = context(ctx);
@@ -377,6 +418,7 @@ unsafe extern "C" fn snapshot(ctx: *mut c_void, out: PpBuffer) -> i32 {
 }
 
 unsafe extern "C" fn setting(ctx: *mut c_void, key: PpBytes, out: PpBuffer) -> i32 {
+    let _scope = HostScope::enter();
     // SAFETY: ctx/key live for this call; output is exclusive and disjoint.
     unsafe {
         let context = context(ctx);
@@ -399,6 +441,7 @@ unsafe extern "C" fn query(
     minor: u16,
     out: *mut u32,
 ) -> i32 {
+    let _scope = HostScope::enter();
     // SAFETY: retained ctx, borrowed SDK key and disjoint aligned output.
     unsafe {
         let context = context(ctx);
@@ -427,6 +470,7 @@ unsafe extern "C" fn query(
 }
 
 unsafe extern "C" fn blob_read(ctx: *mut c_void, handle: u32, offset: u64, out: PpBuffer) -> i32 {
+    let _scope = HostScope::enter();
     // SAFETY: retained ctx and exclusively borrowed SDK output.
     unsafe {
         let context = context(ctx);
@@ -442,6 +486,7 @@ unsafe extern "C" fn blob_read(ctx: *mut c_void, handle: u32, offset: u64, out: 
 }
 
 unsafe extern "C" fn blob_release(ctx: *mut c_void, handle: u32) -> i32 {
+    let _scope = HostScope::enter();
     // SAFETY: ctx lives until all callbacks and releases have completed.
     let context = unsafe { context(ctx) };
     if handle == 0 || context.active_blob.get() != handle {
@@ -453,6 +498,7 @@ unsafe extern "C" fn blob_release(ctx: *mut c_void, handle: u32) -> i32 {
 }
 
 unsafe extern "C" fn size(ctx: *mut c_void, root: u32, path: PpBytes, out: *mut u64) -> i32 {
+    let _scope = HostScope::enter();
     assert_eq!(root, 0, "recorder storage belongs to the plugin data root");
     // SAFETY: retained ctx/path and disjoint aligned writable output.
     unsafe {
@@ -474,6 +520,7 @@ unsafe extern "C" fn read_at(
     offset: u64,
     out: PpBuffer,
 ) -> i32 {
+    let _scope = HostScope::enter();
     assert_eq!(root, 0);
     // SAFETY: retained ctx/path and disjoint exclusively borrowed output.
     unsafe {
@@ -491,6 +538,7 @@ unsafe extern "C" fn read_at(
 }
 
 unsafe extern "C" fn append(ctx: *mut c_void, root: u32, path: PpBytes, data: PpBytes) -> i32 {
+    let _scope = HostScope::enter();
     assert_eq!(root, 0);
     assert!(data.len <= paperpaw_sdk::native::storage::MAX_DATA);
     // SAFETY: retained ctx; both borrowed SDK inputs are initialized and live.
@@ -515,6 +563,7 @@ unsafe extern "C" fn append(ctx: *mut c_void, root: u32, path: PpBytes, data: Pp
 }
 
 unsafe extern "C" fn rename(ctx: *mut c_void, root: u32, from: PpBytes, to: PpBytes) -> i32 {
+    let _scope = HostScope::enter();
     assert_eq!(root, 0);
     // SAFETY: retained ctx; both path buffers are borrowed for this call.
     unsafe {
@@ -525,6 +574,9 @@ unsafe extern "C" fn rename(ctx: *mut c_void, root: u32, from: PpBytes, to: PpBy
             .operations
             .borrow_mut()
             .push(format!("rename:{from}:{to}"));
+        if context.rename_error.get() != OK {
+            return context.rename_error.get();
+        }
         let mut files = context.files.borrow_mut();
         if files.contains_key(to) {
             return ERR_IO;
@@ -538,6 +590,7 @@ unsafe extern "C" fn rename(ctx: *mut c_void, root: u32, from: PpBytes, to: PpBy
 }
 
 unsafe extern "C" fn remove(ctx: *mut c_void, root: u32, path: PpBytes) -> i32 {
+    let _scope = HostScope::enter();
     assert_eq!(root, 0);
     // SAFETY: retained ctx and path borrowed for this call only.
     unsafe {
@@ -554,7 +607,20 @@ unsafe extern "C" fn remove(ctx: *mut c_void, root: u32, path: PpBytes) -> i32 {
     OK
 }
 
+unsafe extern "C" fn submit(ctx: *mut c_void, batch: PpBytes) -> i32 {
+    let _scope = HostScope::enter();
+    // SAFETY: retained ctx; the batch is borrowed for this call only.
+    unsafe {
+        context(ctx)
+            .batches
+            .borrow_mut()
+            .push(input(batch).to_vec());
+    }
+    OK
+}
+
 unsafe extern "C" fn sync(ctx: *mut c_void) -> i32 {
+    let _scope = HostScope::enter();
     // SAFETY: the harness retains its boxed context through this callback.
     let context = unsafe { context(ctx) };
     context.operations.borrow_mut().push("sync".into());
