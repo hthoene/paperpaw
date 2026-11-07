@@ -19,6 +19,8 @@ change the plugin SDK.
 
 ### Added
 
+- SDK: `native::net` (typed `core.net@1` requests with checked headers, bodies, files and limits, answer and body reads, cancel) and the `HttpDone` and `HttpProgress` events with `EventKind::HttpDone` and `HttpProgress` (#228).
+
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
   `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-ui-kit` gains item lists with
   footers, whole-file storage helpers and a screen registry (#228).
