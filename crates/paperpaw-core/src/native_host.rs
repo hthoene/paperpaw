@@ -907,3 +907,7 @@ mod pinned_owner_tests {
 #[cfg(test)]
 #[path = "native_host/event_hook_tests.rs"]
 mod event_hook_tests;
+/// Generated stage-local payload records, shared byte for byte with the SDK.
+#[path = "abi7/stages_wire.rs"]
+#[allow(clippy::all, clippy::pedantic, reason = "generated stage wire codecs")]
+pub mod stages_wire;
