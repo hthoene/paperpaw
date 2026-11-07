@@ -1,11 +1,8 @@
 {
-  "replaces_sha256": "a35b534cdc1fd4346daa2b9205d02feeb3d9bcd969393260d64f79189d2154c8",
-  "reason": "interface 7 is unreleased: service ops gain row counts (ServiceOp input_rows, paged, reply_rows) and the records codec gains counted input batches above 8 records (records_encode_counted, host_records_visit), and settings_encode documents which output bytes it initializes, so the emitted sections change for the prior schema too",
+  "replaces_sha256": "b4b47ba821eaf17b2a59633276ea11d8c49f196ecc5f896d540a9f7abdccc36f",
+  "reason": "interface 7 is unreleased: the records codec gains records_encode_counted_iter, a counted batch encoder over a cloneable iterator so the SDK encodes records it makes on the fly without a heap slice, and records_encode_counted delegates to it, so the emitted records section changes for the prior schema too",
   "ticket": "#228",
   "waives": [
-    "emitted_rust",
-    "emitted_services",
-    "emitted_records",
-    "emitted_host_decode"
+    "emitted_records"
   ]
 }

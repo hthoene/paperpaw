@@ -7,9 +7,10 @@
 
 use paperpaw_core::native_host::registrations::{
     REGISTRATION_MAX_RECORDS, Record, ServiceUiParam, ServiceUiTarget, host_records_visit,
-    records_encode_counted,
+    records_encode_counted, records_encode_counted_iter,
 };
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE};
+use std::{cell::Cell, rc::Rc};
 
 /// `core.ui@1` op 16: `input_rows` and `max_input` (pinned by
 /// `tools/tests/test_abi_services.py`).
@@ -125,4 +126,82 @@ fn an_error_from_the_visitor_stops_the_walk() {
         if calls == 2 { Err(-77) } else { Ok(()) }
     });
     assert_eq!((result, calls), (Err(-77), 2));
+}
+
+/// Params made on the fly from the keys, never collected into a slice.
+fn lazy(keys: &[String]) -> impl Iterator<Item = Record<'_>> + Clone {
+    keys.iter()
+        .map(|key| Record::ServiceUiParam(ServiceUiParam { key, value: "v" }))
+}
+
+#[test]
+fn the_iterator_encoder_writes_what_the_slice_encoder_writes() {
+    for count in [0, 1, REGISTRATION_MAX_RECORDS + 1, HANDOVER_ROWS] {
+        let keys = keys(count);
+        let mut by_slice = vec![0; HANDOVER_BYTES];
+        let mut by_iter = vec![0; HANDOVER_BYTES];
+        let a =
+            records_encode_counted(&params(&keys), HANDOVER_ROWS, HANDOVER_BYTES, &mut by_slice);
+        let b =
+            records_encode_counted_iter(lazy(&keys), HANDOVER_ROWS, HANDOVER_BYTES, &mut by_iter);
+        assert_eq!(a, b);
+        let len = b.unwrap();
+        assert_eq!(by_slice[..len], by_iter[..len]);
+        assert_eq!(visit_all(&by_iter[..len], HANDOVER_ROWS).1, keys);
+    }
+    // The same refusals, output untouched.
+    let keys = keys(HANDOVER_ROWS + 1);
+    let mut out = vec![0xAA; HANDOVER_BYTES];
+    assert_eq!(
+        records_encode_counted_iter(lazy(&keys), HANDOVER_ROWS, HANDOVER_BYTES, &mut out),
+        Err(ERR_NO_SPACE)
+    );
+    assert_eq!(
+        records_encode_counted_iter(lazy(&keys[..4]), 4, 8, &mut out),
+        Err(ERR_NO_SPACE)
+    );
+    let mut short = vec![0xAA; 8];
+    assert_eq!(
+        records_encode_counted_iter(lazy(&keys[..4]), 4, HANDOVER_BYTES, &mut short),
+        Err(ERR_NO_SPACE)
+    );
+    assert!(
+        out.iter().chain(&short).all(|byte| *byte == 0xAA),
+        "output untouched"
+    );
+}
+
+/// An iterator whose third walk (the writing one) yields other records.
+fn unsteady<'a>(
+    keys: &'a [String],
+    later: &'a str,
+) -> impl Iterator<Item = Record<'a>> + Clone + 'a {
+    let made = Rc::new(Cell::new(0));
+    let first_two = 2 * keys.len();
+    keys.iter().map(move |key| {
+        made.set(made.get() + 1);
+        let value = if made.get() > first_two { later } else { "v" };
+        Record::ServiceUiParam(ServiceUiParam { key, value })
+    })
+}
+
+#[test]
+fn an_iterator_that_changes_between_walks_is_refused_and_never_writes_past_out() {
+    let keys = keys(4);
+    for later in ["a longer value", ""] {
+        let mut out = vec![0; HANDOVER_BYTES];
+        assert_eq!(
+            records_encode_counted_iter(unsteady(&keys, later), 8, HANDOVER_BYTES, &mut out),
+            Err(ERR_INVALID),
+            "{later:?}"
+        );
+    }
+    // Exact capacity: a longer writing walk stops at the end of `out`.
+    let mut exact = vec![0; HANDOVER_BYTES];
+    let len = records_encode_counted(&params(&keys), 8, HANDOVER_BYTES, &mut exact).unwrap();
+    let mut out = vec![0; len];
+    assert_eq!(
+        records_encode_counted_iter(unsteady(&keys, "a longer value"), 8, len, &mut out),
+        Err(ERR_INVALID)
+    );
 }
