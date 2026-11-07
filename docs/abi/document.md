@@ -431,8 +431,12 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   `prepare_image`, `prepare_image_larger`): a new image id, or the live one where nothing was to do.
 - [D] `image_prepare` decodes a JPEG (baseline and progressive), PNG (not interlaced) or GIF
   (first frame) of the caller's root 0 or root 1 (`uses.storage`) into the host's image cache at
-  most `side` pixels on the longest side (0: the screen's), in the background (bounded work per
-  main-loop turn, as preparing). `event.image_ready` (to the
+  most `side` pixels on the longest side (0: the screen's), in the background: **one request per
+  main-loop turn**, decoded to completion in that turn (the `paperpaw-image` decoders cannot pause;
+  interface 6 prepared pictures the same way), never inside a plugin callback, so a waiting input
+  is handled before the next request starts. A request is bounded by the caps below (8 Mpx source,
+  `side` at most 1,600); its time on the X4 is a measured gate (a 1,600-pixel PNG), and a
+  resumable decoder replaces this rule if it fails. `event.image_ready` (to the
   caller only) tells `status` 0 ready, 1 unsupported (also BMP, which no first-party plugin
   prepares, interlaced PNG and WebP: the image crate has no decoder for them; WebP joins the list
   once one exists, with its own fuzz target), 2 damaged, 3 too large (over 8 Mpx source, `XTC` and
@@ -452,7 +456,11 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   `ERR_IO`, a header that does not match the file `ERR_INVALID` (hostile-input rule below), with
   nothing drawn when found before the first band, else the bands drawn so far kept and the error
   returned (never a silent partial draw). The host reads the file in bands of at most 2 KiB (the
-  X4 frame band) and allocates nothing while drawing. Dithering and night-mode inversion are the
+  X4 frame band). **Draw memory:** besides that band the drawer takes one bounded, transient heap
+  block per call (its source row chunk of 8 KiB plus a few bytes per source row and per drawn
+  column: at most 32 KiB, about 25-30 KiB for a 1,600-pixel picture), allocated fallibly before
+  the first band and freed before the call returns; refused, it is `ERR_NO_MEMORY` with nothing
+  drawn. Nothing is kept between calls. Dithering and night-mode inversion are the
   host's own, by the screen and the user's settings, not flags.
 - [D] **Hostile input.** Every picture is downloaded input. The band drawer checks a cache image a
   format wrote (`fmt.image`) before using it: header against its file size and the stated
