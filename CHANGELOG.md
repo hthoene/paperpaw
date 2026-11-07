@@ -22,6 +22,17 @@ change the plugin SDK.
 - Interface-7 generated stage schemas for `core.input-filter`, `core.widget` and
   `core.status` share bounded payload codecs between the host and SDK (#228).
 
+- Interface-7 EVT SDK subscriptions and borrowed typed events cover settings,
+  book sessions and file edges, plugins, Wi-Fi, power, status and charge. Page
+  turns and book edges share `ReadingView` accessors; malformed values are
+  refused and reserved state values use the contract fallbacks. Interface draft
+  15 (`native::DRAFT`) refuses plugins built for draft 14 (#228).
+
+- Interface-7 SDK stage declarations, borrowed subscriber calls and lending reply
+  cursors expose host-stamped style grants; schema-checked service handles survive
+  callbacks and release explicitly; interface draft 14 (`native::DRAFT`), so plugins built for
+  draft 13 are refused (#228).
+
 - Interface-7 call-service host slots 33–34 use generated schemas, bounded reply
   scratch and owned service handles; device hosts refuse test-only schemas (#228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
