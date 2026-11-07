@@ -23,6 +23,16 @@ pub(crate) mod work_sched;
 #[path = "native_host/work_service.rs"]
 mod work_service;
 
+#[path = "native_host/secrets_file.rs"]
+pub(crate) mod secrets_file;
+
+#[path = "native_host/secrets_service.rs"]
+#[allow(
+    dead_code,
+    reason = "the shell wires the sealer and the source; tests do today"
+)]
+pub(crate) mod secrets_service;
+
 #[path = "native_host/ui_guard.rs"]
 #[allow(
     dead_code,

@@ -11,6 +11,7 @@ use super::{
     doc_service::{self, DocHost, DocServices},
     lib_service::{self, LibHost, LibServices},
     lookup_service::{LookupHost, LookupServices},
+    secrets_service::SecretsServices,
     work_service::WorkServices,
 };
 use alloc::rc::Rc;
@@ -36,6 +37,7 @@ pub(crate) struct HostServices {
     library: OnceCell<LibServices>,
     lookup: OnceCell<LookupServices>,
     work: OnceCell<WorkServices>,
+    secrets: OnceCell<SecretsServices>,
 }
 
 impl core::fmt::Debug for HostServices {
@@ -45,6 +47,7 @@ impl core::fmt::Debug for HostServices {
             .field("library", &self.library.get().is_some())
             .field("lookup", &self.lookup.get().is_some())
             .field("work", &self.work.get().is_some())
+            .field("secrets", &self.secrets.get().is_some())
             .finish()
     }
 }
@@ -56,6 +59,7 @@ impl HostServices {
             library: OnceCell::new(),
             lookup: OnceCell::new(),
             work: OnceCell::new(),
+            secrets: OnceCell::new(),
         }
     }
 
@@ -83,6 +87,16 @@ impl HostServices {
 
     pub(crate) fn work(&self) -> Option<&WorkServices> {
         self.work.get()
+    }
+
+    #[allow(dead_code, reason = "a shell wires its secrets host; tests do today")]
+    /// Wire `core.secrets` once.
+    pub(crate) fn wire_secrets(&self, secrets: SecretsServices) -> Result<(), i32> {
+        self.secrets.set(secrets).map_err(|_| ERR_STATE)
+    }
+
+    pub(crate) fn secrets(&self) -> Option<&SecretsServices> {
+        self.secrets.get()
     }
 
     pub(crate) fn documents(&self) -> Option<&DocServices> {
