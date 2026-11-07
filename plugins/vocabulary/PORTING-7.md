@@ -43,7 +43,7 @@ the port.
 - Lines are read by `lines::each_line_limited` (the 8 KiB limit of the cards is a parameter);
   `put_in_place`/`part_of` in `files.rs` replace the SDK's interface-6 `files` helpers (rename
   only: no copy-and-delete fallback; root 0 and the card both rename).
-- `clean_or_empty` and `path` stay only for `sync`, `export`, `phone`, `apkg` until they are ported.
+- `clean_or_empty` stays only for `phone` until it is ported; `cards::path` is for the tests.
 - `alloc_refusal_tests.rs` sweeps decks, sizes, due, due_count, card_at, visit_page, next_due,
   add_deck, rename/delete deck, add, edit, delete, record, fold, queue_lookup, take_lookups and
   recover: after any refusal the decks read, card ids are unique and no `.tmp`/`.part` is left.
@@ -68,9 +68,7 @@ the port.
   and UTF-8 fields are decoded into reserved strings, and slicing of read chunks is `get(..n)`.
 - `plain` (HTML to text) is one pass with one reservation (the text is never longer than the
   HTML): tags out, the six character references turned, white space collapsed. `plain_or_empty`
-  stays for `apkg` (interface 6) until it is ported: where the heap refuses, the text of that
-  Anki note field becomes empty (a note whose front is then empty is skipped as a card without
-  a front), not an abort and not half a text.
+  is gone: `apkg` uses `plain`.
 - `alloc_refusal_tests.rs` sweeps `detect`, `each`, `scan` in steps, a Windows-1252 file and
   `plain`.
 
@@ -103,8 +101,15 @@ native screens replace these callers.
 - Changes of behaviour: a ledger file that begins with a blank line is unreadable as before; a
   byte order mark before the header is now accepted; the sort of the files is by folded name
   then name (the old stable sort over `to_lowercase` had no tie-break).
-- `apkg::tidy` names its two files by constants and allocates nothing (the rest of `apkg` is
-  next).
+- `apkg`: the plugin's own part allocates fallibly: both files are constants, a note's
+  fields are one reservation each (`note_text`: sounds and `data:` addresses cut out, then
+  `plain`), the collected text is reserved once (3 KiB) and grows fallibly, `quote` reserves
+  its worst case. A refused allocation is `Fault::Memory` (the notes written so far stay
+  until the next job tidies them), never a note with a missing field. The zip and sqlite
+  readers it calls still allocate infallibly (`paperpaw-zip` `find_end_record`/entry names,
+  `paperpaw-sqlite` `read.rs` entries/parts/pages): the whole-read sweep
+  (`reading_an_anki_deck_refuses_cleanly`) is ignored with that reason until Kernel makes
+  them fallible.
 - Sweeps (`alloc_refusal_tests::folder`): listing, pending, folder, names, `sources`,
   `write_sources` and a whole job (a changed file and a new one) with each allocation refused.
 - The card folder is still the platform `Storage`'s (`list`, `exists`, `modified`,
@@ -113,7 +118,7 @@ native screens replace these callers.
 
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
-- `export`, `sdcard`, `apkg`, `phone` (they still use `format!`, `collect`,
+- `sdcard`, `sdmenu`, `phone` (they still use `format!`, `collect`,
   `to_lowercase`; `fsrs.rs` is pure and needs nothing). Next slices.
 - The native shell: `Plugin` impl, declarations, `build.rs`, metadata, linked entry.
 - Screens (word list, decks, card files, review, sleep card) on `core.ui`.
