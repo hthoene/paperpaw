@@ -65,10 +65,8 @@ fn stage_of<'a>(
     env: &'a paperpaw_sdk::Env<'a>,
     bits: u32,
 ) -> CommandStage<'a> {
-    CommandStage::new(owner, env.settings(), None, 16, 4096).with_dev(DevContext::new(
-        features(bits),
-        &kernel.radio_requests,
-    ))
+    CommandStage::new(owner, env.settings(), None, 16, 4096)
+        .with_dev(DevContext::new(features(bits), &kernel.radio_requests))
 }
 
 fn submit(stage: &mut CommandStage<'_>, commands: &[WireCommand<'_>]) -> i32 {
@@ -135,7 +133,10 @@ fn a_missing_feature_denies_the_whole_batch_valid_commands_included() {
     assert!(kernel.radio_requests.borrow().is_empty());
     let mut stage = stage_of(&owner, &kernel, &env, 0);
     assert_eq!(submit(&mut stage, &[join(1, "net")]), ERR_DENIED);
-    assert!(kernel.radio_requests.borrow().is_empty(), "nothing reserved");
+    assert!(
+        kernel.radio_requests.borrow().is_empty(),
+        "nothing reserved"
+    );
     let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
     assert_eq!(submit(&mut stage, &batch), OK);
     assert_eq!(dev_len(&stage), 2);
@@ -170,7 +171,10 @@ fn install_and_bluetooth_commands_stay_unsupported() {
         plugin: "x",
         flags: 0,
     };
-    assert_eq!(submit(&mut stage, &[WireCommand::WifiOn {}, removal]), ERR_UNSUPPORTED);
+    assert_eq!(
+        submit(&mut stage, &[WireCommand::WifiOn {}, removal]),
+        ERR_UNSUPPORTED
+    );
     assert_eq!(dev_len(&stage), 0);
     let scan = WireCommand::BtScan { lasting_ms: 1 };
     assert_eq!(submit(&mut stage, &[scan]), ERR_UNSUPPORTED);
@@ -194,13 +198,13 @@ fn batch_limits_sit_exactly_at_two_wifi_and_one_power_command() {
         submit(&mut stage, &[sleep, WireCommand::Restart {}]),
         ERR_INVALID
     );
-    assert_eq!(submit(&mut stage, &[WireCommand::NetworkNone {}, sleep]), OK);
+    assert_eq!(
+        submit(&mut stage, &[WireCommand::NetworkNone {}, sleep]),
+        OK
+    );
     // go_online and wear count: one wifi, one power, plus a third wifi.
     assert_eq!(
-        submit(
-            &mut stage,
-            &[on, WireCommand::GoOnline { for_ms: 5 }, scan]
-        ),
+        submit(&mut stage, &[on, WireCommand::GoOnline { for_ms: 5 }, scan]),
         ERR_INVALID
     );
     assert_eq!(dev_len(&stage), 4, "refused batches kept nothing");
@@ -235,9 +239,22 @@ fn field_rules_hold_at_their_boundaries() {
     };
     assert_eq!(ok(&[long]), OK, "join password 63");
     assert_eq!(ok(&[join(2, "again")]), ERR_INVALID, "request 2 is waiting");
-    assert_eq!(ok(&[join(9, "a"), join(9, "b")]), ERR_INVALID, "twice in a batch");
-    for (for_ms, status) in [(0, ERR_INVALID), (1, OK), (600_000, OK), (600_001, ERR_INVALID)] {
-        assert_eq!(ok(&[WireCommand::GoOnline { for_ms }]), status, "go_online {for_ms}");
+    assert_eq!(
+        ok(&[join(9, "a"), join(9, "b")]),
+        ERR_INVALID,
+        "twice in a batch"
+    );
+    for (for_ms, status) in [
+        (0, ERR_INVALID),
+        (1, OK),
+        (600_000, OK),
+        (600_001, ERR_INVALID),
+    ] {
+        assert_eq!(
+            ok(&[WireCommand::GoOnline { for_ms }]),
+            status,
+            "go_online {for_ms}"
+        );
     }
     let wear = |mode| WireCommand::Wear { mode, flags: 1 };
     assert_eq!(ok(&[wear("core.saving")]), OK);
@@ -258,7 +275,8 @@ fn the_guard_alone_may_restart_or_power_off_and_sleep_stays_open() {
         paperpaw_sdk::ScreenKey::new(1),
     )
     .guarding(true)];
-    let context = DevContext::new(features(WIFI | POWER), &kernel.radio_requests).guarded_by(&stack);
+    let context =
+        DevContext::new(features(WIFI | POWER), &kernel.radio_requests).guarded_by(&stack);
     let power = Id::new_static("power");
     let lock = Id::new_static("lock");
     let mut stage = CommandStage::new(&power, env.settings(), None, 16, 4096).with_dev(context);
@@ -267,9 +285,14 @@ fn the_guard_alone_may_restart_or_power_off_and_sleep_stays_open() {
     assert_eq!(submit(&mut stage, &[WireCommand::Sleep {}]), OK);
     let mut stage = CommandStage::new(&lock, env.settings(), None, 16, 4096).with_dev(context);
     assert_eq!(submit(&mut stage, &[WireCommand::Restart {}]), OK);
-    let mut stage = CommandStage::new(&power, env.settings(), None, 16, 4096)
-        .with_dev(DevContext::new(features(WIFI | POWER), &kernel.radio_requests));
-    assert_eq!(submit(&mut stage, &[WireCommand::PowerOff {}]), OK, "no guard");
+    let mut stage = CommandStage::new(&power, env.settings(), None, 16, 4096).with_dev(
+        DevContext::new(features(WIFI | POWER), &kernel.radio_requests),
+    );
+    assert_eq!(
+        submit(&mut stage, &[WireCommand::PowerOff {}]),
+        OK,
+        "no guard"
+    );
 }
 
 #[test]
@@ -284,7 +307,11 @@ fn the_fifth_request_is_full_and_the_first_four_are_still_delivered() {
     assert_eq!(kernel.radio_requests.borrow().len(), 4);
     let status = run(&mut kernel, &owners[0], &[join(5, "net")], &clock);
     assert_eq!(status, ERR_FULL);
-    assert_eq!(kernel.radio_requests.borrow().len(), 4, "the 5th changed nothing");
+    assert_eq!(
+        kernel.radio_requests.borrow().len(),
+        4,
+        "the 5th changed nothing"
+    );
     // Each of the four ends exactly once: three superseded, the last online.
     kernel.wifi_event(
         Instant(6_000),
@@ -315,7 +342,12 @@ fn a_full_table_rolls_back_the_first_of_two_requests() {
     for request in 1..=3 {
         assert_eq!(run(&mut kernel, &b, &[join(request, "n")], &clock), OK);
     }
-    let status = run(&mut kernel, &a, &[join(1, "x"), host(2, "password-ok")], &clock);
+    let status = run(
+        &mut kernel,
+        &a,
+        &[join(1, "x"), host(2, "password-ok")],
+        &clock,
+    );
     assert_eq!(status, ERR_FULL);
     assert_eq!(kernel.radio_requests.borrow().len(), 3);
     assert!(!kernel.radio_requests.borrow().holds("a", 1));
@@ -343,7 +375,11 @@ fn a_join_reaches_the_radio_and_ends_once_by_what_the_radio_says() {
     let (request, done) = outcome(&kernel, "wifi").unwrap();
     assert_eq!((request, done.status, done.reason), (3, ERR_DENIED, 2));
     kernel.wifi_event(Instant(12_000), WifiEvent::State(WifiState::Off));
-    assert_eq!(outcome(&kernel, "wifi").unwrap().1, done, "never ends twice");
+    assert_eq!(
+        outcome(&kernel, "wifi").unwrap().1,
+        done,
+        "never ends twice"
+    );
 }
 
 #[test]
@@ -357,13 +393,27 @@ fn a_newer_join_from_any_plugin_supersedes_exactly_once() {
     assert_eq!((first.status, first.reason), (ERR_CANCELLED, 4));
     assert!(outcome(&kernel, "b").is_none());
     // A host supersedes a join the same way, even in one batch.
-    assert_eq!(run(&mut kernel, &b, &[join(2, "x"), host(3, "password-ok")], &clock), OK);
+    assert_eq!(
+        run(
+            &mut kernel,
+            &b,
+            &[join(2, "x"), host(3, "password-ok")],
+            &clock
+        ),
+        OK
+    );
     let table = kernel.radio_requests.borrow();
     assert!(table.holds("b", 1) && table.holds("b", 2) && table.holds("b", 3));
     drop(table);
-    assert_eq!(outcome(&kernel, "b").map(|(r, o)| (r, o.reason)), Some((1, 4)));
+    assert_eq!(
+        outcome(&kernel, "b").map(|(r, o)| (r, o.reason)),
+        Some((1, 4))
+    );
     kernel.radio_requests.borrow_mut().delivered("b", 1);
-    assert_eq!(outcome(&kernel, "b").map(|(r, o)| (r, o.reason)), Some((2, 4)));
+    assert_eq!(
+        outcome(&kernel, "b").map(|(r, o)| (r, o.reason)),
+        Some((2, 4))
+    );
 }
 
 #[test]
@@ -400,13 +450,20 @@ fn the_input_window_for_join_ends_after_2000_ms_inclusive() {
         let owner = Id::new_static("wifi");
         let clock = Clock(50_000, Some(50_000 - since));
         assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &clock), OK);
-        assert_eq!(wifi_calls(&mut kernel).len(), usize::from(honoured), "{since} ms");
+        assert_eq!(
+            wifi_calls(&mut kernel).len(),
+            usize::from(honoured),
+            "{since} ms"
+        );
         assert_eq!(outcome(&kernel, "wifi").is_some(), !honoured, "{since} ms");
     }
     // No input yet, and the clock before the input, are handled.
     let mut kernel = kernel();
     let owner = Id::new_static("wifi");
-    assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &Clock(5, None)), OK);
+    assert_eq!(
+        run(&mut kernel, &owner, &[join(1, "net")], &Clock(5, None)),
+        OK
+    );
     assert_eq!(outcome(&kernel, "wifi").unwrap().1.reason, 6);
 }
 
@@ -417,8 +474,14 @@ fn a_stored_password_or_the_network_manager_needs_no_input_but_a_host_does() {
     let mut kernel = kernel();
     assert_eq!(run(&mut kernel, &owner, &[join(1, "home")], &stale), OK);
     assert_eq!(wifi_calls(&mut kernel).len(), 1, "stored password");
-    assert_eq!(run(&mut kernel, &owner, &[host(2, "password-ok")], &stale), OK);
-    assert!(wifi_calls(&mut kernel).is_empty(), "a host always needs the user");
+    assert_eq!(
+        run(&mut kernel, &owner, &[host(2, "password-ok")], &stale),
+        OK
+    );
+    assert!(
+        wifi_calls(&mut kernel).is_empty(),
+        "a host always needs the user"
+    );
     let (request, done) = outcome(&kernel, "wifi").unwrap();
     assert_eq!((request, done.reason), (2, 6));
 }
@@ -437,7 +500,10 @@ fn the_network_manager_may_join_and_host_without_input() {
         kernel.shared.settings.define(spec.clone()).unwrap();
         let owner = Id::new_static(name);
         assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &stale), OK);
-        assert_eq!(run(&mut kernel, &owner, &[host(2, "password-ok")], &stale), OK);
+        assert_eq!(
+            run(&mut kernel, &owner, &[host(2, "password-ok")], &stale),
+            OK
+        );
         assert_eq!(wifi_calls(&mut kernel).len(), if honoured { 2 } else { 0 });
     }
 }
@@ -453,7 +519,9 @@ fn go_online_is_honoured_only_within_the_window_else_ok_and_logged() {
         assert_eq!(kernel.works.online_until.is_some(), honoured, "{since} ms");
         let warnings = kernel.take_warnings();
         assert_eq!(
-            warnings.iter().any(|w| w.message.contains("go_online ignored")),
+            warnings
+                .iter()
+                .any(|w| w.message.contains("go_online ignored")),
             !honoured
         );
         assert!(warnings.iter().all(|w| !w.message.contains("probe-ssid")));
@@ -463,7 +531,12 @@ fn go_online_is_honoured_only_within_the_window_else_ok_and_logged() {
 #[test]
 fn power_commands_apply_after_the_commands_before_them_and_in_order() {
     let mut kernel = kernel();
-    let spec = SettingSpec::switch("probe.flag", "flag", false, paperpaw_sdk::builtin::groups::OTHER);
+    let spec = SettingSpec::switch(
+        "probe.flag",
+        "flag",
+        false,
+        paperpaw_sdk::builtin::groups::OTHER,
+    );
     kernel.shared.settings.define(spec).unwrap();
     let owner = Id::new_static("probe");
     let set = |on| WireCommand::SetSetting {
@@ -473,7 +546,10 @@ fn power_commands_apply_after_the_commands_before_them_and_in_order() {
     let (status, output) = {
         let env = kernel.shared.env(Instant(0));
         let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
-        let first = submit(&mut stage, &[WireCommand::WifiOn {}, set(true), WireCommand::Sleep {}]);
+        let first = submit(
+            &mut stage,
+            &[WireCommand::WifiOn {}, set(true), WireCommand::Sleep {}],
+        );
         let second = submit(&mut stage, &[set(false)]);
         assert_eq!((first, second), (OK, OK));
         assert_eq!(stage.staged().len(), 2);
@@ -481,14 +557,24 @@ fn power_commands_apply_after_the_commands_before_them_and_in_order() {
     };
     let (staged, redraw, _, batch) = output;
     let at: Vec<usize> = batch.items.iter().map(|item| item.at).collect();
-    assert_eq!(at, [0, 1], "wifi_on before both settings, sleep after the first");
+    assert_eq!(
+        at,
+        [0, 1],
+        "wifi_on before both settings, sleep after the first"
+    );
     let clock = Clock(0, None);
-    let host = DevHost { clock: &clock, stored: &NoStoredNetworks };
+    let host = DevHost {
+        clock: &clock,
+        stored: &NoStoredNetworks,
+    };
     kernel.drain_native_dev(&owner, staged, redraw, batch, &host);
     assert_eq!(status, OK);
     assert!(kernel.sleep, "the shell sleeps once the frame is shown");
     assert_eq!(wifi_calls(&mut kernel), [WifiCommand::On]);
-    assert_eq!(kernel.shared.settings.global("probe.flag"), Some(&SettingValue::Bool(false)));
+    assert_eq!(
+        kernel.shared.settings.global("probe.flag"),
+        Some(&SettingValue::Bool(false))
+    );
 }
 
 #[test]
@@ -509,13 +595,13 @@ fn power_ops_set_the_kernel_flags_and_wear_chooses_the_preset() {
         (WireCommand::Sleep {}, 2),
     ] {
         assert_eq!(run(&mut kernel, &owner, &[command], &clock), OK);
-        assert_eq!(
-            [kernel.restart, kernel.power_off, kernel.sleep][flag],
-            true
-        );
+        assert!([kernel.restart, kernel.power_off, kernel.sleep][flag]);
     }
     let mut elsewhere = Kernel::builder(crate::tests::DEVICE).build().unwrap();
-    assert_eq!(run(&mut elsewhere, &owner, &[WireCommand::Sleep {}], &clock), OK);
+    assert_eq!(
+        run(&mut elsewhere, &owner, &[WireCommand::Sleep {}], &clock),
+        OK
+    );
     assert!(!elsewhere.sleep, "ignored where the device cannot");
 }
 
@@ -530,14 +616,20 @@ fn a_dropped_stage_gives_its_reservations_back_and_a_stop_releases_the_rest() {
         assert_eq!(kernel.radio_requests.borrow().len(), 1);
         let _ = stage.into_commands();
     }
-    assert!(kernel.radio_requests.borrow().is_empty(), "never drained: given back");
+    assert!(
+        kernel.radio_requests.borrow().is_empty(),
+        "never drained: given back"
+    );
     let clock = Clock(0, Some(0));
     assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &clock), OK);
     kernel.wifi_event(Instant(1), WifiEvent::State(WifiState::Off));
     assert!(outcome(&kernel, "wifi").is_some());
     kernel.radio_sender_stopped("wifi");
     assert!(kernel.radio_requests.borrow().is_empty());
-    assert!(outcome(&kernel, "wifi").is_none(), "released with no delivery");
+    assert!(
+        outcome(&kernel, "wifi").is_none(),
+        "released with no delivery"
+    );
 }
 
 #[test]
@@ -546,9 +638,15 @@ fn leave_and_off_cancel_a_waiting_join_through_the_drain() {
     let owner = Id::new_static("wifi");
     let clock = Clock(0, Some(0));
     assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &clock), OK);
-    assert_eq!(run(&mut kernel, &owner, &[WireCommand::WifiLeave {}], &clock), OK);
+    assert_eq!(
+        run(&mut kernel, &owner, &[WireCommand::WifiLeave {}], &clock),
+        OK
+    );
     assert_eq!(outcome(&kernel, "wifi").unwrap().1.reason, 4);
-    assert!(matches!(wifi_calls(&mut kernel).last(), Some(WifiCommand::Leave)));
+    assert!(matches!(
+        wifi_calls(&mut kernel).last(),
+        Some(WifiCommand::Leave)
+    ));
 }
 
 #[test]

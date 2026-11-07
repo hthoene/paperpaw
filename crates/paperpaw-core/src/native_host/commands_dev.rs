@@ -291,9 +291,7 @@ impl<'a> CommandStage<'a> {
     }
 
     /// Like `into_ui_output`, with the DEV commands to apply in order.
-    pub(crate) fn into_dev_output(
-        mut self,
-    ) -> (Vec<Command>, Option<ui::Redraw>, u8, DevBatch) {
+    pub(crate) fn into_dev_output(mut self) -> (Vec<Command>, Option<ui::Redraw>, u8, DevBatch) {
         let items = self
             .dev
             .as_mut()
@@ -366,7 +364,11 @@ impl<'a> CommandStage<'a> {
                     .presets()
                     .get(mode)
                     .is_some_and(|preset| preset.kind == MODE_KIND);
-                if known { Ok(mode.len()) } else { Err(ERR_NOT_FOUND) }
+                if known {
+                    Ok(mode.len())
+                } else {
+                    Err(ERR_NOT_FOUND)
+                }
             }
             WireCommand::PowerOff { .. } | WireCommand::Restart { .. } => {
                 self.guard_allows().map(|()| 0)
@@ -489,7 +491,8 @@ fn check_request(
 
 fn join_op(request: u32, host: bool, ssid: &str, password: &str) -> Result<DevOp, i32> {
     let mut copy = String::new();
-    copy.try_reserve_exact(ssid.len()).map_err(|_| ERR_NO_MEMORY)?;
+    copy.try_reserve_exact(ssid.len())
+        .map_err(|_| ERR_NO_MEMORY)?;
     copy.push_str(ssid);
     Ok(DevOp::Join(JoinOp {
         request,
@@ -554,7 +557,11 @@ impl crate::Kernel {
             DevOp::Restart => self.apply(Command::Restart),
             DevOp::Wear { mode, automatic } => {
                 let wear = Wear::new(mode);
-                self.apply(Command::Wear(if automatic { wear.automatic() } else { wear }));
+                self.apply(Command::Wear(if automatic {
+                    wear.automatic()
+                } else {
+                    wear
+                }));
             }
             DevOp::Join(join) => self.apply_join(owner, join, host),
         }
@@ -577,7 +584,9 @@ impl crate::Kernel {
         // The host judged this the user's choice; the kernel's own rule asks
         // for the reader's call, which a later event in the window is not.
         let reader = core::mem::replace(&mut self.shared.reader, true);
-        self.apply(Command::GoOnlineFor(Duration::from_millis(u64::from(for_ms))));
+        self.apply(Command::GoOnlineFor(Duration::from_millis(u64::from(
+            for_ms,
+        ))));
         self.shared.reader = reader;
     }
 

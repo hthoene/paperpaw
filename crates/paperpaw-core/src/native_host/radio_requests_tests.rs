@@ -25,7 +25,11 @@ fn reserve_refuses_request_zero_duplicates_and_the_fifth_entry() {
     table.reserve(&b, 2, false, "net").unwrap();
     assert_eq!(table.len(), MAX_REQUESTS);
     assert_eq!(table.reserve(&a, 3, false, "net"), Err(ERR_FULL));
-    assert_eq!(table.len(), MAX_REQUESTS, "a refused reserve changes nothing");
+    assert_eq!(
+        table.len(),
+        MAX_REQUESTS,
+        "a refused reserve changes nothing"
+    );
     assert_eq!(table.reserve(&a, 3, false, &"x".repeat(33)), Err(ERR_FULL));
 }
 
@@ -78,7 +82,11 @@ fn a_newer_join_supersedes_the_waiting_one_and_each_ends_exactly_once() {
         table.next_outcome("b").unwrap().outcome,
         Outcome::success(STATE_ONLINE)
     );
-    assert_eq!(table.next_outcome("a").unwrap().outcome, first, "a never ends twice");
+    assert_eq!(
+        table.next_outcome("a").unwrap().outcome,
+        first,
+        "a never ends twice"
+    );
     assert!(!table.end("a", 1, Outcome::success(STATE_ONLINE)));
     assert!(!table.end("b", 7, Outcome::failed(reason::OTHER)));
 }
@@ -99,7 +107,10 @@ fn radio_reports_map_to_statuses_and_reasons() {
             reason: failure,
         });
         let outcome = table.next_outcome("a").unwrap().outcome;
-        assert_eq!((outcome.status, outcome.reason, outcome.state), (expected.0, expected.1, 0));
+        assert_eq!(
+            (outcome.status, outcome.reason, outcome.state),
+            (expected.0, expected.1, 0)
+        );
     }
     assert_eq!(Outcome::failed(99), Outcome::failed(reason::OTHER));
     assert_eq!(Outcome::failed(reason::UNSUPPORTED).status, ERR_UNSUPPORTED);
@@ -123,12 +134,18 @@ fn a_host_ends_on_hosting_a_join_on_online_and_the_radio_off_ends_both() {
         address: String::new(),
         guests: 0,
     }));
-    assert_eq!(table.next_outcome("a").unwrap().outcome.state, STATE_HOSTING);
+    assert_eq!(
+        table.next_outcome("a").unwrap().outcome.state,
+        STATE_HOSTING
+    );
 
     let mut table = RadioRequests::new();
     waiting(&mut table, &a, 1, "net");
     table.on_wifi_event(&WifiEvent::State(WifiState::Off));
-    assert_eq!(table.next_outcome("a").unwrap().outcome, Outcome::failed(reason::OTHER));
+    assert_eq!(
+        table.next_outcome("a").unwrap().outcome,
+        Outcome::failed(reason::OTHER)
+    );
 }
 
 #[test]
@@ -151,7 +168,10 @@ fn the_backstop_ends_a_request_the_radio_never_reports() {
     table.tick(10 + BACKSTOP_MS - 1);
     assert!(table.next_outcome("a").is_none());
     table.tick(10 + BACKSTOP_MS);
-    assert_eq!(table.next_outcome("a").unwrap().outcome, Outcome::failed(reason::TIMEOUT));
+    assert_eq!(
+        table.next_outcome("a").unwrap().outcome,
+        Outcome::failed(reason::TIMEOUT)
+    );
     table.tick(u64::MAX);
     assert_eq!(table.len(), 1);
 }
@@ -194,12 +214,24 @@ fn a_delivery_encodes_event_wifi_done_for_its_sender() {
     table.reserve(&a, 9, false, "home").unwrap();
     table.end("a", 9, Outcome::failed(reason::NEEDS_USER));
     let mut bytes = [0; 128];
-    let len = table.next_outcome("a").unwrap().encode(77, &mut bytes).unwrap();
-    let wire::Record::EventWifiDone(done) = wire::records_decode_single(&bytes[..len]).unwrap() else {
+    let len = table
+        .next_outcome("a")
+        .unwrap()
+        .encode(77, &mut bytes)
+        .unwrap();
+    let wire::Record::EventWifiDone(done) = wire::records_decode_single(&bytes[..len]).unwrap()
+    else {
         panic!("not a wifi_done");
     };
     assert_eq!(
-        (done.now_ms, done.request, done.ssid, done.status, done.reason, done.state),
+        (
+            done.now_ms,
+            done.request,
+            done.ssid,
+            done.status,
+            done.reason,
+            done.state
+        ),
         (77, 9, "home", ERR_DENIED, 6, 0)
     );
 }

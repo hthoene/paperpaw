@@ -197,7 +197,9 @@ impl<'a> CommandStage<'a> {
         }
         let stored = batch
             .iter()
-            .filter(|command| !matches!(command, WireCommand::Redraw { .. }) && !dev::is_dev(command))
+            .filter(|command| {
+                !matches!(command, WireCommand::Redraw { .. }) && !dev::is_dev(command)
+            })
             .count();
         if self.staged.try_reserve(stored).is_err() {
             return ERR_NO_MEMORY;

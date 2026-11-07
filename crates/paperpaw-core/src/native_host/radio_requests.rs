@@ -233,13 +233,7 @@ impl RadioRequests {
     /// `ERR_INVALID` for request 0 or one `owner` already holds, `ERR_FULL`
     /// when [`MAX_REQUESTS`] entries are held, `ERR_NO_MEMORY` when the
     /// entry cannot be allocated. The table is unchanged on error.
-    pub fn reserve(
-        &mut self,
-        owner: &Id,
-        request: u32,
-        host: bool,
-        ssid: &str,
-    ) -> Result<(), i32> {
+    pub fn reserve(&mut self, owner: &Id, request: u32, host: bool, ssid: &str) -> Result<(), i32> {
         if request == 0 || self.holds(owner.as_str(), request) {
             return Err(ERR_INVALID);
         }
