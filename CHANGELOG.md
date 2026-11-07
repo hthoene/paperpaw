@@ -29,7 +29,8 @@ change the plugin SDK.
   Empty paths identify the book/CSS files; the host enforces permissions, lifetime and
   cache limits (#228).
 - Native SDK `EventKind::Answered` (subscribe to `core.ui` question answers) and
-  `Snapshot::display_gray_levels` / `display_is_colour` (#228).
+  `Snapshot::display_gray_levels` / `display_is_colour`. Interface draft 22 (`native::DRAFT`)
+  refuses plugins built for draft 21 (#228).
 
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
   `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-ui-kit` gains item lists with
