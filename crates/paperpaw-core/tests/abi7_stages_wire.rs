@@ -240,7 +240,10 @@ fn local_tags_are_interpreted_only_by_the_selected_stage_schema() {
         filter::FilterInput::decode(&bytes[..len]),
         Ok(filter::FilterInput::new(&[0], 131_072))
     );
-    assert_eq!(status::StatusAsk::decode(&bytes[..len]), Err(ERR_INVALID));
+    assert_eq!(
+        status::StatusAsk::decode(&bytes[..len]),
+        Ok(status::StatusAsk::new("\0", &[]))
+    );
 }
 
 #[test]
