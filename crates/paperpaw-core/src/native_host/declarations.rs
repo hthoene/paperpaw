@@ -5,7 +5,9 @@
 //! that must resolve, limits per plugin) belong to the commit and are not here.
 //! Statuses: unknown enum values and flag bits return `ERR_UNSUPPORTED`, every
 //! other violation returns `ERR_INVALID`; UTF-8 and byte caps are already
-//! enforced by the codec (`ERR_UTF8`, `ERR_NO_SPACE`).
+//! enforced by the codec (`ERR_UTF8`, `ERR_NO_SPACE`). The document, library and
+//! lookup declarations (`declarations_docs.rs`) are the exception: their unknown
+//! values are `ERR_INVALID`.
 
 use super::registrations::{
     ActionSpec, ICON_SPEC_ICON_MAX_BYTES, IconSpec, MenuDescribe, MenuEntry, MenuHide, MenuNeed,
@@ -115,12 +117,19 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::StatusPlace(_) => Err(ERR_UNSUPPORTED),
         // Format, reader, lookup and book declarations (`docs/abi/document.md`,
         // `library.md`): refused until the host admits them (DOC/LIB hand-off).
-        Record::FormatSpec(_)
-        | Record::ReaderSpec(_)
-        | Record::LookupSpec(_)
-        | Record::BookFieldSpec(_)
-        | Record::BookBadgeSpec(_)
-        | Record::BookDataSpec(_) => Err(ERR_UNSUPPORTED),
+        // Checked, then refused until the host admits them (the format index).
+        Record::FormatSpec(spec) => docs::format_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
+        Record::ReaderSpec(spec) => docs::reader_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
+        Record::LookupSpec(spec) => docs::lookup_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
+        Record::BookFieldSpec(spec) => {
+            docs::book_field_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
+        }
+        Record::BookBadgeSpec(spec) => {
+            docs::book_badge_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
+        }
+        Record::BookDataSpec(spec) => {
+            docs::book_data_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
+        }
         Record::Registration(_) => Ok(()),
         // Events flow from the host to the plugin; a batch never carries one.
         Record::EventStarted(_)
@@ -758,6 +767,9 @@ pub(crate) fn stage_registration_check(registration: &RegistrationStage<'_>) -> 
     full_id(stage)?;
     ensure(i16::try_from(*order).is_ok())
 }
+
+#[path = "declarations_docs.rs"]
+mod docs;
 
 #[cfg(test)]
 #[path = "declarations_menu_tests.rs"]
