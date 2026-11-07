@@ -2475,11 +2475,13 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-rules"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]

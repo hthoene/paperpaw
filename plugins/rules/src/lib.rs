@@ -42,7 +42,12 @@ mod fail_alloc;
 #[global_allocator]
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
+mod native_data;
+mod native_entry;
+pub mod native_plugin;
 pub mod native_rules;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 mod rule;
 mod screens;
 

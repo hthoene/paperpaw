@@ -2487,9 +2487,10 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-help"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2671,6 +2672,13 @@ dependencies = [
  "paperpaw-table",
  "read-fonts",
  "skrifa",
+]
+
+[[package]]
+name = "paperpaw-ui-kit"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-sdk",
 ]
 
 [[package]]
