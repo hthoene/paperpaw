@@ -543,8 +543,6 @@ impl<'a, S, M, T> PendingInstance<'a, S, M, T> {
         self.armed = false;
         Ok(batch)
     }
-
-
 }
 
 // A separate local guard survives unwinding from a staged host record's Drop.

@@ -166,7 +166,10 @@ mod retained;
     reason = "native built-in registry adapter follows this screen router"
 )]
 #[path = "native_host/native_declarations.rs"]
-#[allow(dead_code, reason = "shared declaration producer is attached by the UI admission slice")]
+#[allow(
+    dead_code,
+    reason = "shared declaration producer is attached by the UI admission slice"
+)]
 mod native_declarations;
 
 #[path = "native_host/native_install.rs"]
