@@ -31,6 +31,8 @@ use paperpaw_native::host_glue::{
 use paperpaw_platform::Rect;
 
 use super::canvas::CanvasScope;
+pub use super::data_services::DATA_SERVICES;
+pub use super::declared_services::{DeclaredServices, Error as DeclaredServicesError};
 use super::environment::EnvironmentScope;
 use super::registration_scope::RegistrationScope;
 use super::registrations::{self, EVENT_TICK_TAG, Registration};
@@ -114,6 +116,9 @@ unsafe fn read_output(out: *const PpPlugin) -> Result<PluginOutput, Error> {
 
 /// Shell diagnostic sink. It must log owner, step and error without allocating,
 /// panicking or reentering the owner. No default or silent sink is supplied.
+/// The same rules apply during callbacks, including no conflicting RefCell
+/// borrows. Release also reports failed callback blob cleanup; it does not
+/// mean the callback was refused or teardown has begun.
 pub type Report<S> = fn(&S, &str, super::TeardownStep, super::Error);
 
 /// The host table's `ctx`: what the shell's entries reach. Pinned inside the
@@ -124,6 +129,7 @@ pub struct Context<S> {
     id: Box<str>,
     report: Report<S>,
     resources: super::resources::OwnerResources,
+    declared_services: DeclaredServices,
     /// The shell's heap and clock.
     pub services: S,
     instance: Cell<Option<PluginOutput>>,
@@ -223,6 +229,9 @@ pub fn host_table<S: Services>() -> PpHost {
     table.storage_rename = storage_rename::<S>;
     table.storage_remove = storage_remove::<S>;
     table.storage_sync = storage_sync::<S>;
+    table.services_query = services_query::<S>;
+    table.blob_read = blob_read::<S>;
+    table.blob_release = blob_release::<S>;
     table.font_acquire = font_acquire::<S>;
     table.handle_release = handle_release::<S>;
     table.text_measure = text_measure::<S>;
@@ -252,6 +261,10 @@ impl<S: Services, M> Hosted<S, M> {
     ///   and stays callable while `module` lives.
     /// - `image` is a read-only mapping of that many bytes which stays mapped
     ///   while `module` lives, or `(0, 0)`.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "admission supplies the owner resources and checked requirements"
+    )]
     pub unsafe fn new(
         services: S,
         module: M,
@@ -260,8 +273,12 @@ impl<S: Services, M> Hosted<S, M> {
         image: (usize, usize),
         report: Report<S>,
         resources: super::HostResources,
+        declared_services: DeclaredServices,
     ) -> Result<Self, Error> {
         let resources = resources.try_owner().map_err(Error::Status)?;
+        let scoped_resources = resources
+            .try_view()
+            .ok_or(Error::Status(host_glue::ERR_NO_MEMORY))?;
         // Fallible, before anything else is built: the X4 has no room to abort.
         let mut owned = String::new();
         owned
@@ -273,14 +290,24 @@ impl<S: Services, M> Hosted<S, M> {
             id: owned.into_boxed_str(),
             report,
             resources,
+            declared_services,
             services,
             instance: Cell::new(None),
             attempted: Cell::new(false),
             registrations: RegistrationScope::new(),
-            environment: EnvironmentScope::new(),
+            environment: EnvironmentScope::with_resources(scoped_resources),
             canvas: CanvasScope::new(),
         };
         let owner = pin_owner(HostOwner::new(context, module))?;
+        let context = owner.as_ref().context();
+        // SAFETY: the owner pins Context<S> and keeps it alive through every
+        // callback and cleanup. Report<S> promises no panic or reentry.
+        unsafe {
+            context.environment.set_cleanup_reporter(
+                (context.get_ref() as *const Context<S>).cast(),
+                report_blob_cleanup::<S>,
+            );
+        }
         Ok(Self {
             owner,
             make,
@@ -573,6 +600,22 @@ pub(crate) mod teardown_fault {
             _ => Ok(()),
         })
     }
+}
+
+unsafe fn report_blob_cleanup<S>(raw: *const c_void, status: i32) {
+    // SAFETY: Hosted::new installed the exact pinned Context<S> pointer.
+    let context = unsafe { &*raw.cast::<Context<S>>() };
+    let error = if status == host_glue::ERR_BUSY {
+        super::Error::Busy
+    } else {
+        super::Error::State
+    };
+    (context.report)(
+        &context.services,
+        &context.id,
+        super::TeardownStep::Release,
+        error,
+    );
 }
 
 fn report_context<S>(context: Pin<&Context<S>>, step: super::TeardownStep, error: super::Error) {
@@ -1201,4 +1244,46 @@ unsafe extern "C" fn text_draw<S>(
             out,
         )
     }
+}
+
+unsafe extern "C" fn services_query<S>(
+    ctx: *mut c_void,
+    key: PpBytes,
+    major: u16,
+    minor: u16,
+    out: *mut u32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: slot contracts supply live, disjoint input and output storage.
+    unsafe {
+        super::service_slots::query(
+            &context.environment,
+            &context.resources,
+            &context.declared_services,
+            key,
+            major,
+            minor,
+            out,
+        )
+    }
+}
+unsafe extern "C" fn blob_read<S>(ctx: *mut c_void, blob: u32, offset: u64, out: PpBuffer) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // SAFETY: slot contracts supply live, disjoint output storage.
+    unsafe {
+        super::service_slots::read(&context.environment, &context.resources, blob, offset, out)
+    }
+}
+unsafe extern "C" fn blob_release<S>(ctx: *mut c_void, blob: u32) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> supplied to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    super::service_slots::release(&context.environment, &context.resources, blob)
 }

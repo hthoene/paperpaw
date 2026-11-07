@@ -19,6 +19,13 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 host usage/name/note services and callback-scoped blobs, with checked
+  metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).
+- Interface 7: command 60 `command.set_item_state` in the generated command codec: a plugin says
+  what menus show of its own actions and settings (label and badge as catalog keys with arguments,
+  hidden, faint, a switch) when it changes, instead of interface 6's callback asked on every menu;
+  with `keep` the host restores it at boot without starting the plugin. Hosts answer
+  `ERR_UNSUPPORTED` until their menus take it (#228).
 - Graphics: `Framebuffer::probe`, a framebuffer that keeps no pixels but where masks put ink
   (pixels at or above the frame's ink threshold, `Framebuffer::ink_threshold`, unclipped), and
   `InkBounds`; host-only `FontHandle::ink_drawn`
@@ -26,6 +33,8 @@ change the plugin SDK.
   `text.ink` (#228).
 - Checked native admission metadata exposes declared service revisions through a
   borrowing iterator, so host query admission uses the validated requirements (#228).
+- Interface 7 SDK: typed, borrowed builders for menu entries, icons, device needs,
+  sections, hidden entries and item descriptions, including static build-script batches.
 - Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
   device usage, translated plugin names and work-note readers. Includes a deterministic fake-host
   fixture for Battery port tests; helpers use bounded buffers and allocate nothing (#228).
@@ -52,6 +61,8 @@ change the plugin SDK.
   screen) in the generated command codec, and generated i18n format/digits limits. Hosts answer
   `ERR_UNSUPPORTED` until they wire them; the SDK keeps private generated copies of the snapshot,
   settings, colour and command codecs (#228).
+- Checked native admission metadata exposes declared service revisions through a
+  borrowing iterator, so host query admission uses the validated requirements (#228).
 
 - Interface-7 SDK callback host binding and `native_plugin!` entry glue, with checked table admission
   and fallible host allocation. Storage slots 20-26 use caller-owned buffers; event tags 32-37 decode
