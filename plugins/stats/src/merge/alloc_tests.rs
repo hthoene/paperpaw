@@ -321,3 +321,23 @@ fn a_book_that_cannot_be_named_keeps_its_names() {
         },
     );
 }
+
+#[test]
+fn reading_time_per_book_refuses_cleanly_never_partial() {
+    use crate::totals::seconds_per_book;
+    let make = || device_with(300);
+    let storage = fixture(make);
+    let books = fixture(|| store::load_books(&storage).unwrap());
+    let whole = fixture(|| seconds_per_book(&storage, &books)).unwrap();
+    assert!(whole.iter().all(|s| *s > 0));
+    sweep(
+        "seconds_per_book",
+        make,
+        |s| {
+            let got = seconds_per_book(s, &books)?;
+            assert_eq!(got, whole, "times that lack stays");
+            Ok(())
+        },
+        |_, _| {},
+    );
+}

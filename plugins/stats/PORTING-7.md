@@ -72,9 +72,9 @@ events) is still in place. It is removed in the PR that finishes the port.
   The calendar keeps at most 3 books per day (what the screen shows).
 - Not built here: the layout and drawing (tiles side by side or stacked, the bars, the grid),
   the shell (`Plugin` impl, declarations, screens opened with the book id as
-  a hand-over param, `Screens`), the chart of a book's last days. `totals::seconds_per_book`
-  is still infallible (`vec!`) and `of_book` takes a closure for local days; the shell needs
-  `seconds_per_book` fallible.
+  a hand-over param, `Screens`), the chart of a book's last days. `of_book` takes a closure for local
+  days. `totals::seconds_per_book` and `of_book` are fallible (`TooLarge`; their sweeps are in
+  `merge/alloc_tests.rs`); the interface-6 views show nothing on an error.
 
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
