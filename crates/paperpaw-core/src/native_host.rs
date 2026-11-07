@@ -26,6 +26,7 @@ pub use resources::HostResources;
 #[path = "native_host/fonts.rs"]
 mod fonts;
 
+mod admitted_features;
 #[path = "native_host/call_services.rs"]
 mod call_services;
 #[path = "native_host/data_services.rs"]
@@ -79,6 +80,26 @@ pub mod environment;
 /// Interface-7 event records (tags 32-39): host encode, decode and admission.
 #[path = "native_host/events.rs"]
 pub mod events;
+// State is attached to Core's single registry when its publication seam lands.
+#[allow(
+    dead_code,
+    reason = "Core owns production runtime attachment and outermost draining"
+)]
+#[path = "native_host/event_pending.rs"]
+pub(crate) mod event_pending;
+#[allow(
+    dead_code,
+    reason = "Core owns production runtime attachment and outermost draining"
+)]
+#[path = "native_host/event_producers.rs"]
+pub(crate) mod event_producers;
+
+#[allow(
+    dead_code,
+    reason = "native runtime installation and EVT producer hooks follow this accessor"
+)]
+#[path = "native_host/event_sink.rs"]
+mod event_sink;
 /// Production event adapter for a shell-owned flat plugin instance.
 #[path = "native_host/flat.rs"]
 pub mod flat;
@@ -876,3 +897,7 @@ mod pinned_owner_tests {
         assert_eq!(unsafe { (*context).canary }, 0x1234_5678);
     }
 }
+
+#[cfg(test)]
+#[path = "native_host/event_hook_tests.rs"]
+mod event_hook_tests;
