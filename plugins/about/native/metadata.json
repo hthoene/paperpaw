@@ -117,6 +117,10 @@
     {
       "kind": "host",
       "name": "i18n.digits"
+    },
+    {
+      "kind": "host",
+      "name": "stage.run"
     }
   ],
   "services": [

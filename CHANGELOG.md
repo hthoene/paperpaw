@@ -22,9 +22,10 @@ change the plugin SDK.
 - About 1.0.3: the interface-7 native plugin (version, source, plugins built in, the interface and draft
   code plugins are built for, licences) on `paperpaw-ui-kit`'s item lists and the typed device reads; the
   interface-6 page and its app registration are gone. The licences and the plugins-built-in texts open in
-  the reader only with draft 21 (`doc_open.root` 4), other plugins' lines (`about.lines`) come through a
-  stage once stages are on integration (#330), and the fingerprint row is replaced by the interface and
-  draft; those rows refuse as unsupported, never fake (#228).
+  the reader only with draft 22 (`doc_open.root` 5, handed), other plugins' lines come through the
+  plugin-defined stage `about.lines` (About's schema and generated codec; subscribers answer one line
+  each; they follow the licences row under a heading), and the fingerprint row is replaced by the
+  interface and draft; those rows refuse as unsupported, never fake (#228).
 
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
   `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-ui-kit` gains item lists with

@@ -12,6 +12,8 @@ use paperpaw_ui_kit::{
 pub(crate) const MOST_NAMES: usize = 1024;
 /// The most pages of built-in plugins read (the host pages 32 rows).
 pub(crate) const MOST_PAGES: usize = 8;
+/// The most lines other plugins add (each at most 512 bytes).
+pub(crate) const MOST_LINES: usize = 32;
 
 /// What a row does when chosen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,6 +23,8 @@ pub(crate) enum Kind {
     BuiltIn,
     Native,
     Licences,
+    /// A line another plugin added through the `about.lines` stage.
+    Line,
 }
 
 /// What the host said about this device and build.
@@ -35,6 +39,8 @@ pub(crate) struct Facts {
     /// The interface and draft code plugins must be built for, where
     /// this device loads them.
     pub native: Option<(u32, u32)>,
+    /// The lines other plugins added, in stage order: (plugin id, text).
+    pub lines: Vec<(String, String)>,
 }
 
 /// The words, from the catalogue.
@@ -49,6 +55,8 @@ pub(crate) struct Texts {
     pub native_note: String,
     pub licences: String,
     pub licences_help: String,
+    /// The heading above the lines other plugins added.
+    pub credits: String,
 }
 
 /// The rows, in the order the page has always had.
@@ -96,6 +104,12 @@ pub(crate) fn rows(texts: &Texts, facts: &Facts) -> Result<Vec<(Kind, Item)>, Er
             Item::noted(&texts.licences, "›", &texts.licences_help)?,
         ),
     )?;
+    if !facts.lines.is_empty() {
+        push(&mut rows, (Kind::Line, Item::heading(&texts.credits)?))?;
+        for (plugin, line) in &facts.lines {
+            push(&mut rows, (Kind::Line, Item::noted(plugin, "", line)?))?;
+        }
+    }
     Ok(rows)
 }
 
@@ -156,6 +170,7 @@ mod tests {
             native_note: "note".to_string(),
             licences: "Licences".to_string(),
             licences_help: "help".to_string(),
+            credits: "Credits".to_string(),
         }
     }
 
@@ -176,6 +191,7 @@ mod tests {
             built_in: 2,
             names: ["reader".to_string(), "paperpaw-plugin-menu".to_string()].into(),
             native: Some((7, 20)),
+            lines: Vec::new(),
         };
         let rows = rows(&texts(), &facts).unwrap();
         assert_eq!(
@@ -197,6 +213,75 @@ mod tests {
             panic!("a row")
         };
         assert_eq!(source.note, "github.com/hthoene/paperpaw");
+    }
+
+    #[test]
+    fn lines_other_plugins_added_follow_the_licences_under_a_heading() {
+        let facts = Facts {
+            lines: [
+                ("wikipedia".to_string(), "Texts: CC BY-SA 4.0".to_string()),
+                ("weather".to_string(), "Data: CC BY 4.0".to_string()),
+            ]
+            .into(),
+            ..Facts::default()
+        };
+        let rows = rows(&texts(), &facts).unwrap();
+        assert_eq!(
+            kinds(&rows),
+            [
+                Kind::Version,
+                Kind::Source,
+                Kind::Licences,
+                Kind::Line,
+                Kind::Line,
+                Kind::Line
+            ]
+        );
+        let Item::Row(first) = &rows[4].1 else {
+            panic!("a row")
+        };
+        assert_eq!(
+            (first.title.as_str(), first.note.as_str()),
+            ("wikipedia", "Texts: CC BY-SA 4.0")
+        );
+    }
+
+    #[test]
+    fn the_declared_stage_bounds_are_the_generated_codecs() {
+        use crate::{declarations as d, stages::about_lines_v1 as stage};
+        assert_eq!(d::LINES_SCHEMA, u32::from(stage::MAJOR));
+        assert_eq!(d::LINES_MAX_INPUT as usize, stage::MAX_INPUT);
+        assert_eq!(d::LINES_MAX_REPLY as usize, stage::MAX_REPLY);
+        assert_eq!(d::LINES_MAX_RECORDS as usize, stage::MAX_SUBSCRIBERS);
+        assert_eq!(MOST_LINES, stage::MAX_SUBSCRIBERS);
+    }
+
+    #[test]
+    fn a_line_travels_as_one_reply_record_of_at_most_512_bytes() {
+        use crate::stages::about_lines_v1::{
+            LINES_LINE_TEXT_MAX_BYTES, LinesLine, MAX_REPLY, Record, reply_decode, reply_encode,
+        };
+        let mut out = [0; MAX_REPLY];
+        let n = reply_encode(
+            &[Record::LinesLine(LinesLine::new("Texts: CC BY-SA 4.0"))],
+            &mut out,
+        )
+        .unwrap();
+        let mut records = reply_decode(&out[..n]).unwrap();
+        let Some(Ok(Record::LinesLine(line))) = records.next() else {
+            panic!("one line")
+        };
+        assert_eq!(line.text, "Texts: CC BY-SA 4.0");
+        assert!(records.next().is_none());
+        let long = "x".repeat(LINES_LINE_TEXT_MAX_BYTES + 1);
+        assert!(reply_encode(&[Record::LinesLine(LinesLine::new(&long))], &mut out).is_err());
+        // The input is the product, and nothing else.
+        let mut input = [0; 64];
+        let ask = crate::stages::about_lines_v1::LinesAsk::new("firmware");
+        assert!(
+            crate::stages::about_lines_v1::input_encode(&[Record::LinesAsk(ask)], &mut input)
+                .is_ok()
+        );
     }
 
     #[test]

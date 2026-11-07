@@ -1,6 +1,10 @@
 //! The flat About plugin: one list screen over what the host says about
 //! this device and build.
-use crate::native_model::{self, Facts, Kind, MOST_PAGES, Texts};
+use crate::{
+    declarations,
+    native_model::{self, Facts, Kind, MOST_LINES, MOST_PAGES, Texts},
+    stages,
+};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled,
@@ -13,6 +17,7 @@ use paperpaw_sdk::{
         formatting::Arg,
         registrations,
         reply::Reply,
+        stages::Stage,
         ui::{Instance, Open},
     },
 };
@@ -45,7 +50,11 @@ pub struct NativeAbout {
 
 impl Plugin for NativeAbout {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
-        for batch in image::SCREENS.iter().chain(image::NAVIGATION) {
+        for batch in image::SCREENS
+            .iter()
+            .chain(image::NAVIGATION)
+            .chain(image::STAGE_SPECS)
+        {
             registrations::submit(host, batch)?;
         }
         // `core.device` is opened by the first callback: opening needs a live frame.
@@ -94,10 +103,13 @@ impl Plugin for NativeAbout {
         let step = view.list.input(host, &input)?;
         if let ItemStep::Chosen(index) = step {
             return match view.kinds.get(index) {
-                // BLOCKED (#228): the text of these rows opens in the reader, and
-                // interface 7 has no command to open a text there yet. Refused
-                // plainly rather than faked; the rest of the page works.
+                // BLOCKED (#228): the text of these rows opens in the reader with
+                // `command.open` into `core.reader` and `root` = `5` ("handed":
+                // the reader may read the Data of the plugin that handed it the
+                // path, draft 22 `doc_open.root` 5). Until that merges the rows
+                // refuse plainly rather than fake; the rest of the page works.
                 Some(Kind::Licences | Kind::BuiltIn) => Err(Error::Unsupported),
+                // The lines other plugins added are shown, not opened.
                 _ => Ok(Handled::Yes),
             };
         }
@@ -163,7 +175,50 @@ fn read_facts(host: &Host<'_>, device: &Device) -> Result<Facts, Error> {
         Err(Error::NotFound) => {}
         Err(error) => return Err(error),
     }
+    read_lines(host, &mut facts)?;
     Ok(facts)
+}
+
+/// Asks the plugins subscribed to `about.lines` for their lines, one each,
+/// in stage order. A subscriber that fails, or answers something else, adds
+/// none (the page is About's, not theirs); at most [`MOST_LINES`] are kept.
+fn read_lines(host: &Host<'_>, facts: &mut Facts) -> Result<(), Error> {
+    let product = if facts.version.is_some() {
+        "firmware"
+    } else {
+        "app"
+    };
+    let mut input = buffer(stages::about_lines_v1::MAX_INPUT)?;
+    let length = stages::about_lines_v1::input_encode(
+        &[stages::about_lines_v1::Record::LinesAsk(
+            stages::about_lines_v1::LinesAsk::new(product),
+        )],
+        &mut input,
+    )
+    .map_err(|_| Error::Invalid)?;
+    let mut out = buffer(Stage::out_len(declarations::LINES_MAX_REPLY))?;
+    let stage = Stage::new(host, stages::about_lines_v1::KEY)?;
+    let mut run = stage.run(&input[..length], &mut out);
+    while facts.lines.len() < MOST_LINES {
+        let Some(reply) = run.next()? else { break };
+        if reply.status().is_err() {
+            continue;
+        }
+        let Ok(records) = stages::about_lines_v1::reply_decode(reply.payload()) else {
+            continue;
+        };
+        for record in records {
+            if let Ok(stages::about_lines_v1::Record::LinesLine(line)) = record
+                && facts.lines.len() < MOST_LINES
+            {
+                push(
+                    &mut facts.lines,
+                    (copy(reply.subscriber())?, copy(line.text)?),
+                )?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The page's words, in the reader's language.
@@ -223,5 +278,6 @@ fn texts(host: &Host<'_>, messages: &mut Messages, facts: &Facts) -> Result<Text
         native_note: messages.copy(host, "about.native.note")?,
         licences: messages.copy(host, "about.licences")?,
         licences_help: messages.copy(host, "about.licences.help")?,
+        credits: messages.copy(host, "about.credits")?,
     })
 }

@@ -14,19 +14,19 @@ const CASES: [Case; 3] = [
         blocked_by: &["H1", "H4"],
     },
     // Licences and the plugins built in open their text in the reader
-    // (`command.open` into `core.reader`), which needs draft 21's
-    // `doc_open.root` 4 so the reader may read About's own Data.
+    // (`command.open` into `core.reader`), which needs draft 22's
+    // `doc_open.root` 5 so the reader may read About's own Data.
     Case {
         name: "about-open-licences-in-reader",
         golden: None,
-        blocked_by: &["H1", "H4", "draft-21-doc_open-root-4"],
+        blocked_by: &["H1", "H4", "draft-22-doc_open-root-5"],
     },
-    // Other plugins' lines (the `about.lines` stage) below the address: stages
-    // are not on integration yet (#330).
+    // Other plugins' lines (the `about.lines` stage) after the licences: the
+    // host refuses the stage spec until its stages are wired.
     Case {
         name: "about-lines-from-plugins",
         golden: None,
-        blocked_by: &["stage-codec-330", "H1"],
+        blocked_by: &["stage-host-wiring", "H1"],
     },
 ];
 
@@ -46,13 +46,13 @@ fn about_page() {
 }
 
 #[test]
-#[ignore = "BLOCKED: draft 21 doc_open.root 4 (opening About's texts in the reader)"]
+#[ignore = "BLOCKED: draft 22 doc_open.root 5 (opening About's texts in the reader)"]
 fn about_open_licences_in_reader() {
     CASES[1].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED: the about.lines stage (#330) is not on integration"]
+#[ignore = "BLOCKED: the host does not yet admit stage specs (about.lines)"]
 fn about_lines_from_plugins() {
     CASES[2].refuse().unwrap();
 }

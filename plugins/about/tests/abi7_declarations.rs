@@ -38,6 +38,7 @@ fn the_image_is_what_the_builder_makes() {
             batches!(declarations::navigation),
             image::NAVIGATION,
         ),
+        ("stages", batches!(declarations::stages), image::STAGE_SPECS),
     ] {
         assert_eq!(built.len(), image.len(), "{name}");
         for (built, image) in built.iter().zip(image) {
@@ -71,4 +72,13 @@ fn the_host_admits_the_screen_and_the_action_and_refuses_the_menu_place_and_icon
         }
     }
     assert_eq!(refused, 2, "the menu place and the icon");
+    // The stage spec is checked, then refused until the host's stages are
+    // wired, as the menu place is.
+    for batch in batches!(declarations::stages) {
+        let records = records_decode(&batch).unwrap();
+        for record in records.iter() {
+            assert!(matches!(record, Record::StageSpec(_)), "{record:?}");
+            assert_eq!(validate_record("about", &record), Err(ERR_UNSUPPORTED));
+        }
+    }
 }
