@@ -66,6 +66,7 @@ pub use wire::{
 };
 // Stages (19, 20, 512, 513) and the test-only service record 1024
 // (`docs/abi/stages-services.md`).
+pub(crate) use wire::EVENT_SETTING_CHANGED_OLD_MAX_BYTES;
 pub use wire::{
     REGISTRATION_STAGE_TAG, RegistrationStage, SERVICE_ECHO_TAG, STAGE_CALL_PAYLOAD_MAX_BYTES,
     STAGE_CALL_TAG, STAGE_REPLY_PAYLOAD_MAX_BYTES, STAGE_REPLY_TAG, STAGE_SPEC_TAG, ServiceEcho,

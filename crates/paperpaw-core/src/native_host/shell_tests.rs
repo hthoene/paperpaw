@@ -783,3 +783,6 @@ fn kernel_dispatch_supplies_real_core_views_and_clears_them_after_callbacks() {
     drop(batch);
     finish(&hosted);
 }
+
+#[path = "shell_evt_oom_tests.rs"]
+mod evt_oom;

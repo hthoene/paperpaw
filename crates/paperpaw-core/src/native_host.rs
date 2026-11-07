@@ -72,6 +72,19 @@ pub mod environment;
 /// Interface-7 event records (tags 32-39): host encode, decode and admission.
 #[path = "native_host/events.rs"]
 pub mod events;
+// State is attached to Core's single registry when its publication seam lands.
+#[allow(
+    dead_code,
+    reason = "Core owns production runtime attachment and outermost draining"
+)]
+#[path = "native_host/event_pending.rs"]
+pub(crate) mod event_pending;
+#[allow(
+    dead_code,
+    reason = "Core owns production runtime attachment and outermost draining"
+)]
+#[path = "native_host/event_producers.rs"]
+pub(crate) mod event_producers;
 /// Production event adapter for a shell-owned flat plugin instance.
 #[path = "native_host/flat.rs"]
 pub mod flat;
