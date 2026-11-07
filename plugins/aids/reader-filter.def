@@ -1,0 +1,85 @@
+{
+  "stage": "reader.filter",
+  "schema": 1,
+  "max_bytes": 3840,
+  "max_records": 33,
+  "records": [
+    {
+      "id": 1,
+      "name": "filter.rules",
+      "since": 1,
+      "fields": [
+        {
+          "name": "signature",
+          "type": "u64",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "bold",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "pictures",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "caption_word",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "filter.pair",
+      "since": 1,
+      "fields": [
+        {
+          "name": "from",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "to",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "whole_word",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    }
+  ]
+}

@@ -2635,6 +2635,18 @@ has the steps.
 [`Widget`]: ../crates/paperpaw-sdk/src/widgets.rs
 
 
+### Document-scoped storage
+
+`native::storage::Root::Install` (root 2) reads the plugin's own install folder,
+read only, in any callback. During a permitted format callback, `Book` selects
+root 3, `UserCss` root 4 and `DocumentCache` root 6. An empty path names the book
+file on root 3 or the CSS file on root 4. Folder and siblings formats may read
+relative paths inside root 3. Root 3 is read only; root 4 is read only and
+available during `core.format` ops 2 and 3 only. The host enforces the callback scope,
+cache quota and reserved `.complete`/`.host/` cache paths. The host writes
+`.complete`; a format never writes it. Use the current callback's `Host`
+for storage calls and never retain it across callbacks.
+
 ### Extension stages and call services
 
 Declare an extension point with `native::declare::StageDecl` and subscribe with
@@ -2648,7 +2660,17 @@ A subscriber receives `native::events::Event::StageCall { stage, schema, payload
 at its declared token. Check the stage and schema, decode `payload` with the
 stage owner's schema crate, and write the encoded reply using the existing
 `native::reply::Reply`. Return `Error::Unsupported` for a schema the subscriber
-does not understand. The SDK leaves stage payloads opaque.
+does not understand. Plugin-defined stage payloads remain opaque.
+
+For `core.widget` major 1, use `native::ui::stages::WidgetCall::decode(payload)`
+to read measure, place and target requests. Reply with `reply_size`,
+`reply_place` or `reply_targets` into caller-owned scratch, then pass the encoded
+bytes to `Reply`. Targets stay in reading order; more than 32 returns
+`Error::NoSpace`. For `core.status` major 1, `StatusCall::decode(payload)` exposes
+borrowed requested item ids and context params. Build `StatusAnswer::text` or
+`StatusAnswer::drawn` values and encode with `StatusCall::reply`. Replies accept
+at most eight requested items and refuse duplicates. These adapters use the
+generated directional codecs and allocate no heap storage.
 
 `native::stages::Stage::new(host, "reader.insert")` binds a full stage id.
 The host refuses another plugin running it with `Error::Denied`.
@@ -2722,6 +2744,39 @@ Create `FormatBuffers::new(scratch, out)` to name the temporary argument encodin
 storage and translated output separately; neither buffer is allocated by the SDK.
 `digits` maps ASCII digits. Both functions return the full required byte length,
 so retry when the result exceeds the output capacity.
+
+### Native library access
+
+Open `native::library::Library` during a callback and release the service handle
+explicitly when finished. Declare `core.library` and request `uses.library` in
+metadata. Build borrowed filters with `Query::new().show(Show::Unread)` and
+`.words(search)?`. `Library::query` returns a page borrowing the output buffer;
+read `page.end().next()` to continue the same query with `.cursor(next)`.
+A stale generation returns `State`; start the query again instead of skipping rows.
+`Entry::badges()` exposes the host's badge texts without a second lookup.
+
+Identify a book with `BookRef::path(path)?` or a catalog key and its page generation.
+`set_finished(host, book, true, input, out)` changes only the finished status.
+`set_field` takes the full `plugin.name` field id owned by the caller; an empty
+value removes it.
+The SDK leaves field enumeration out until the host contract supports lossless
+paging for all fields. Reply and input buffers belong to the caller; queries
+allocate no SDK heap storage.
+
+### Native device inventory
+
+Open `native::device::Device` from a callback after declaring `core.device` in
+metadata. Its inventory reads include `device`, `firmware`, `native`, `memory`,
+`values` and `builtins`; radio, power and request-status reads use the same handle.
+Call `release(host)` explicitly when the handle is no longer needed.
+Replies borrow the caller's output buffer, and the SDK allocates no reply storage.
+
+Use `DeviceCursor::start()` for a paged list and continue only with
+`page.end().next_cursor()`. A `State` error means restart from the first page.
+Hardware values and physical keys are complete unpaged lists; their terminal
+metadata is checked before rows are exposed. Optional memory readings return
+`None` when the host did not measure them. `FileCheck` is host evidence, not a
+local trust decision; installation still goes through the host confirmation flow.
 
 ### Native host wrappers for the Battery pilot
 
