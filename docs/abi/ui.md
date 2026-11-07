@@ -20,12 +20,16 @@ gaps (commands 1553-1555 and events 83 and 90 are free after the first review ro
   at once (section 3); a clipboard read or a speech request carries the asker's own `cookie` (a
   `u32`, like a declaration `token`). The host records who asked and delivers the answer to that
   plugin alone. No plugin can read or consume another
-  plugin's answer, and an answer never arrives after the asker stopped (it is dropped as an edge,
-  `core-events.md` section 3.3).
-- [D] **Guards win.** A screen that guards the device (the lock) hides everything below it from
-  every plugin: no stack details, no composition, no input, no help, no message drawn over it.
-- [D] **The hold-Power escape is untouched.** No filter, guard, plugin input or dialog sees or
-  takes the 8-second Power hold (`registry.md` section 4.2, `stages-services.md` section 1.3).
+  plugin's answer; an answer is never dropped for lack of room (section 3.2) and never arrives
+  after the asker stopped.
+- [D] **Guards win.** A screen that guards the device (the lock) owns the input path and the
+  stack above it, and hides everything below it from every other plugin (section 4.3).
+- [D] **The hold-Power escape is untouched.** The host times the Power key on the raw device
+  input, whatever any filter, guard, screen or dialog answers: Power key records never reach a
+  filter (they go past the filter chain to the host's own handling), a filter's `replace` or
+  `raise` can never produce a Power key record (such a verdict counts as pass, logged), and
+  `raise_input` cannot name it (`ERR_DENIED`). An escape while a plugin callback hangs stays the
+  REG device check (`registry.md` section 4.2).
 - [D] **No interface-6 shapes.** `Params`, `ScreenKey`, `Emit`-based replies and `Env::stack` have
   no interface-7 copies; what they carried is in the records below.
 - Out of 1.0 (no first-party plugin uses them; additive later): chrome bars (`ChromeSpec`),
@@ -36,8 +40,9 @@ gaps (commands 1553-1555 and events 83 and 90 are free after the first review ro
 
 ### 1.1 Instances
 
-- [D] Each opening of a screen is an **instance**: a host-assigned `u32`, never 0, not reused while
-  the host runs (on the X4 until restart). The same screen may be open more than once with
+- [D] Each opening of a screen is an **instance**: a host-assigned `u32` from a checked counter,
+  never 0 and never reused while the host runs (on the X4 until restart; at `u32::MAX` opens are
+  `ERR_FULL` until restart). Request ids (section 3) follow the same rule. The same screen may be open more than once with
   different parameters. An instance is what interface 6 called `ScreenKey`.
 - [D] The `draw` and `input` callbacks keep their signatures. The host calls them only for the
   instance on top (and for composed instances, section 5), and it announces which instance is on
@@ -47,7 +52,7 @@ gaps (commands 1553-1555 and events 83 and 90 are free after the first review ro
 | Tag | Record | Fields | To |
 | --- | --- | --- | --- |
 | 38 | `event.screen_shown` (grown) | existing fields, then `instance: u32` | the screen's token |
-| 79 | `event.screen_opened` | `now_ms: u64`, `screen: str 128`, `instance: u32`, `slot: str 128`, `flags: u32`, `params: bytes 3072` | the screen's token |
+| 79 | `event.screen_opened` | `now_ms: u64`, `screen: str 128`, `instance: u32`, `slot: str 128`, `flags: u32`, `params: bytes 1024` | the screen's token |
 | 80 | `event.screen_closed` | `now_ms: u64`, `screen: str 128`, `instance: u32` | the screen's token |
 | 81 | `event.stack_changed` | `now_ms: u64` | subscribers (hint) |
 
@@ -58,13 +63,17 @@ gaps (commands 1553-1555 and events 83 and 90 are free after the first review ro
   registrable (`ERR_UNSUPPORTED` in `registration.event`): they go to the token of the screen
   they name.
 - [D] **Params are lossless** (interface 6 `Params`): `params` is a bare record stream of
-  `ui.param` records (`key: str 32`, `value: str 3072`), decoded with the generated decoders; at
-  most 32 records and 3,072 bytes in all; keys `[a-z0-9_.-]{1,32}`, unique; a value is any UTF-8,
-  newlines and long selected text included. The host checks the form at submit (`ERR_INVALID`,
-  over the cap `ERR_NO_SPACE`) and passes them unchanged; their meaning belongs to the screen that
-  reads them. Host-added keys start with `core.` (section 3: `core.request`). A value that does
-  not fit is the opener's to shorten or to pass another way (a file in its Data); the host never
-  cuts one.
+  `ui.param` records (`key: str 32`, `value: str 1024`), decoded with the generated decoders; at
+  most 16 records and 1,024 bytes in all; keys `[a-z0-9_.-]{1,32}`, unique; a value is any UTF-8,
+  newlines included. The host checks the form at submit (`ERR_INVALID`, over the cap
+  `ERR_NO_SPACE`) and passes them unchanged; their meaning belongs to the screen that reads them.
+  Keys starting with `core.` are the host's (section 3: `core.request`, `core.kind`): a plugin's
+  `open` naming one is `ERR_INVALID`. A value that does not fit is the opener's to pass another way
+  (a file in its Data, its path as the value); the host never cuts one.
+- [D] **The host keeps each instance's params** (fallibly, `ERR_NO_MEMORY` at open) for as long as
+  the instance is open: `open` modes 1 and 3 compare them, and reopening screens after a restart
+  (#275) opens them with the same params. At most 16 instances × 1,024 bytes = 16 KiB on the X4,
+  counted in section 8.
 - [D] `stack_changed` is a hint: a screen opened, closed or came to the top. It carries nothing;
   the stack is read with `core.ui` op 1 (section 6).
 
@@ -96,7 +105,7 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
 
 | Tag | Record | Fields |
 | --- | --- | --- |
-| 1547 | `command.open` | `target: str 128`, `mode: u32`, `slot: str 128`, `params: bytes 3072` |
+| 1547 | `command.open` | `target: str 128`, `mode: u32`, `slot: str 128`, `params: bytes 1024` |
 | 1548 | `command.close` | `instance: u32` |
 | 1549 | `command.back_to` | `target: str 128` |
 | 1550 | `command.set_key_layer` | `layer: str 128` |
@@ -116,9 +125,9 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
   own top screen `ERR_STATE`, as command 59). A non-zero instance closes that instance wherever it
   is in the stack, leaving the screens above it (interface 6 `Close(key)`): allowed for the
   submitter's own instances, and for another plugin's instance that is an `overlay` (help closes
-  the overlay it covers). A guarding instance only its own plugin closes (`ERR_DENIED`). An
-  instance that is no longer open is `ERR_NOT_FOUND`; the root screen is never closed (no effect,
-  `OK`).
+  the overlay it covers). A guarding instance, and any instance above the topmost guarding one,
+  only the guard's own plugin closes (`ERR_DENIED`, section 4.3). An instance that is no longer
+  open is `ERR_NOT_FOUND`; the root screen is never closed (no effect, `OK`).
 - [D] `back_to`: closes the screens above the topmost open instance of screen `target`, or of the
   screen of slot `target`; nothing where none is open (`OK`). Not across a guarding instance
   (`ERR_DENIED`).
@@ -128,9 +137,11 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
 - [D] `show_hints`: shows the row of button hints for a few seconds on a device with a hint row
   (`menu.need` 5); elsewhere `OK` and nothing.
 - [D] `raise_input`: raises an input as written in key maps (`button.menu`, `double-tap.center`,
-  a plugin's `input.<plugin>.<name>`): it runs what the layers shown bind it to, as if it came
-  from the device. The escape chord cannot be raised (`ERR_DENIED`). Raised inputs are a chain
-  step (hop + 1).
+  or the submitter's own `input.<plugin>.<name>` / `gesture.<plugin>.<name>`): it runs what the
+  layers shown bind it to, as if it came from the device. Another plugin's input or gesture, the
+  Power key and the escape chord are `ERR_DENIED`; while an instance guards, only the guard's
+  plugin may raise (`ERR_DENIED`, section 4.3). Raised inputs are a chain step (hop + 1) and pass
+  no input filter.
 
 ## 2. Plugin inputs and gestures (declarations)
 
@@ -202,12 +213,18 @@ asker learns its request id at once and long texts move in pages, never cut.
 - [D] What each kind answers: text, the request text (`length` its bytes); choice, `choice` (the
   line's index, `ERR_INVALID` past the list); confirm, `choice` 1 yes or 0 no; folder, the request
   text, a path on root 1 of at most 512 bytes (`ERR_INVALID` longer). Unused fields are 0.
-- [D] The host delivers `event.answered` to the asker only, as an edge (`core-events.md` 3.3). The
-  asker reads the text with op 10 inside that callback; the host frees the text when the callback
-  returns (a final answer) or keeps it for the next `typing` update. Typing updates are coalesced
-  per request (the newest wins). A final answer is never coalesced; if it cannot be held it is
-  dropped, logged, and the asker sees its dialog closed with no answer, as when the user goes back.
-  `flags` bit 0: the dialog closed itself after this answer.
+- [D] **An answer is never lost.** `event.answered` is not a held-store edge: the answer stays in
+  the request (its outcome, choice and text) and the request has its own pending mark, as a hint
+  has (`core-events.md` 3.3), so the held-event store being full never drops it. The host encodes
+  the event from the request when it delivers it to the asker (only the asker), in order with the
+  asker's other events (the answer's place is when the dialog committed it). The asker reads the
+  text with op 10 inside that callback; the host frees the request after that callback returns
+  (final answer) or keeps it for the next `typing` update (typing updates replace each other; the
+  final answer replaces a pending typing update). Memory is the request's own (section 8), bounded
+  by the request limits.
+- [D] If the asker's callback fails or the asker stops before reading, the answer is gone with the
+  asker (logged); the dialog's own text is the dialog plugin's (it may keep a draft). `flags` bit
+  0: the dialog closed itself after this answer.
 
 ## 4. Input filters and guards
 
@@ -238,16 +255,30 @@ asker learns its request id at once and long texts move in pages, never cut.
 ### 4.3 Guards
 
 - [D] An instance guards while its declared or current policy says so (section 1.2). While any
-  instance guards, everything below the topmost guarding instance is hidden:
-  - `core.ui` op 1 lists the stack only from the topmost guarding instance up; rows below it are
-    left out and `service.end.flags` bit 2 says so;
-  - **no screen instance is composed** (section 5) by any plugin but the guarding one, wherever
-    it lies in the stack: the sleep screen never shows the page while the device is locked;
-  - screens other plugins open meanwhile wait below it (they open when it stops guarding), and
-    the guarding plugin's own screens and the ones they open show above it (its keyboard);
-  - `command.close`/`back_to` cannot cross it (section 1.3); no `notify` is drawn over it (it
-    waits, section 7); help shows nothing for screens below it; input filters run as for a secret
-    top instance (section 1.2).
+  instance guards, the **guard's plugin owns the input path and the stack above the topmost
+  guarding instance**; everything else waits or is hidden. "The guard's plugin" below is the
+  owner of the topmost guarding instance.
+  - **Opens wait below.** An `open` (any mode), a dialog of another plugin's question, or a
+    command 56 by any other plugin places the new instance directly below the topmost guarding
+    instance: it gets no `draw` and no `input` until the guard ends (interface 6 rule). Only the
+    guard's plugin opens above it (its keyboard, its PIN dialog; questions it asks open above it).
+    The one exception is the screen the host itself shows for a device state, the sleep screen of
+    slot `core.sleep`: it shows above the guard, gets no input while the guard is up, and may not
+    compose screens (below).
+  - **Input.** Only the guard's plugin's input filters are called (the others are skipped, not
+    called and ignored); keys and pointers then go to the top instance, which is the guard's
+    plugin's. `raise_input` from any other plugin is `ERR_DENIED`.
+  - **Closing.** Only the guard's plugin closes the guarding instance or any instance above it
+    (`close`, `back_to`: `ERR_DENIED` for others), so no plugin closes the lock's own keyboard.
+  - **Stack.** For every other plugin, `core.ui` op 1 lists only the topmost guarding instance
+    (`screen`, `owner`, flag guards) and nothing above or below it; `service.end.flags` bit 2
+    says rows were left out. The guard's plugin sees the instances from the guard up.
+  - **Composition.** No screen instance is composed (section 5) by any plugin but the guard's,
+    wherever it lies in the stack: the sleep screen never shows the page while the device is
+    locked. Widget instances made by a screen below the guard are `ERR_DENIED` for ops 4-7 and 12-15.
+  - **Output.** No `notify` is drawn over it (it waits, section 7); help shows nothing for any
+    screen while the guard is up except the guard's plugin's own.
+  - Core's tests cover each of these (hand-off, section 10).
 - [Q] Plugin: widgets and status values stay composable under a guard (a clock on the sleep
   screen of a locked device). Is any widget private enough (the current book, its cover) that it
   must not show while locked? Proposal: `widget.spec.flags` bit 1 `private`, not composed while
@@ -276,10 +307,26 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   handle, the rectangle given and the caller's clip intersected with it (empty: no call, `OK`).
   Drawing outside is clipped by the canvas slots.
 - [D] Refusals: an unknown or closed handle `ERR_NOT_FOUND`; a screen instance while any instance
-  guards (section 4.3) `ERR_DENIED`; the caller's own instance or a cycle `ERR_INVALID`; nesting
-  beyond depth 2 `ERR_BUSY`. The child's failure is its status, logged; the caller's frame stays.
-- [D] The child never sees the caller's state, and the caller never sees the child's; they share
-  only the canvas inside the clip rectangle.
+  guards, or a widget made by a screen below the guard (section 4.3), `ERR_DENIED`; the caller's
+  own instance `ERR_INVALID`; **a target owned by the caller's own plugin `ERR_BUSY`** (the host's
+  per-plugin re-entry guard: a plugin is never re-entered while its `draw` runs; it draws its own
+  widgets itself); a call from depth 2 `ERR_BUSY`.
+- [D] **Depth.** The caller's `draw` runs at depth 1, the child's at depth 2. A child cannot
+  compose (`ERR_BUSY`) or run a stage (`stage.run` is depth 1 only), and ops 7 and 12-15 are
+  depth 1 only: a screen composed by another (home under the sleep screen) draws without its
+  widgets and status values. The sleep screen shows its own widgets itself.
+- [D] **State.** The host saves the caller's clip and canvas state before the child and restores
+  them after it, also when the child fails or faults. The child's failure is its status, logged;
+  the caller's frame stays.
+- [D] **Isolation.** The child gets no handle to the caller's state and the caller none to the
+  child's; they share the canvas inside the clip rectangle. Whatever a plugin may read back from
+  the framebuffer (the #251 probe, host-only today) it may read of a composed child too, so a
+  screen that must not be read (secret) is never composed: kind 1 refuses a `secret` instance with
+  `ERR_DENIED`.
+- [D] **X4 stack.** Two plugin `draw` frames and the slot-35 host frame share the main stack: slot
+  35 joins the frame budget of #254 (limit 2,048 bytes per frame), with a device high-water case
+  (sleep over the reader with widgets) before activation; until the stack gate passes, the X4
+  answers slot 35 with `ERR_UNSUPPORTED`.
 
 ### 5.2 Widgets
 
@@ -327,7 +374,7 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
 | 228 | `status.place` | `name: str 96`, `title: str 96`, `left: str 128`, `center: str 128`, `right: str 128` |
 
 - [D] A screen that shows a status line asks for its items' values with op 14 `status_values`
-  (`items`: full ids, one per line, at most 16; `context`: a `ui.param` stream, the reader's
+  (`items`: full ids, one per line, at most 12, a longer line asks twice; `context`: a `ui.param` stream, the reader's
   `title`, `chapter`, `page`, `progress`) and gets one `ui_status_value` row per item (`item`,
   `flags`, `text`, `handle`), then `end`. The host runs the **host-defined stage `core.status`**
   once per owning plugin for its items (stage-local `status.ask` / `status.value`) and caches the
@@ -384,7 +431,7 @@ that run another plugin's callback (7, 12-15) are allowed at depth 1 only (`ERR_
 | 1054 | `service.ui_size` | `height: u32`, `min_height: u32` |
 | 1055 | `service.ui_status_ask` | `items: str 2048`, `context: bytes 1024` |
 | 1056 | `service.ui_status_value` | `item: str 128`, `flags: u32`, `handle: u32`, `text: str 128` |
-| 91 | `ui.param` | `key: str 32`, `value: str 3072` |
+| 91 | `ui.param` | `key: str 32`, `value: str 1024` |
 
 - [D] `ui_screen.flags`: bit 0 overlay, 1 guards, 2 covered (another instance is above it), 3
   waits ready and not yet ready, 4 secret. `owner` is host-stamped.
@@ -434,16 +481,40 @@ that run another plugin's callback (7, 12-15) are allowed at depth 1 only (`ERR_
   on this device). Only `menu.need` 0 (`speech`) devices speak; elsewhere `spoken` status 3 at
   once. `stop_speaking` stops the submitter's own speech only.
 
-## 8. Memory (X4)
+## 8. Sizes and memory
+
+### 8.1 Every record fits its limit
+
+Encoded sizes at the caps (bitmap 1 byte; a `str N`/`bytes N` field takes a 2-byte length and N
+bytes; scalars 4 or 8; a record frame adds its tag and a 2-byte length; a batch its count byte).
+Limits: a command batch and a service input 4,096 bytes (`commands.md`, `stages-services.md`),
+a service reply `max_reply` 4,096, a stage payload 3,840. Each case gets a test that encodes it at
+its caps (hand-off).
+
+| Record | At its caps | Limit |
+| --- | --- | --- |
+| `ui_ask` (op 8 input, batch) | 1 + 4 + 4 + 130 + 258 + 1,026 + 2,050 = 3,473, framed 3,478 | 4,096 |
+| `ui_question` (op 2 reply) | 1 + 12 + 258 + 1,026 + 2,050 = 3,347, framed 3,351 | 4,096 |
+| `ui_text` (ops 9, 10) | 1 + 16 + 3,074 = 3,091, framed 3,096 | 4,096 |
+| `ui_status_ask` (ops 14, 15) | 1 + 2,050 + 1,026 = 3,077, framed 3,082 | 4,096 |
+| `ui_status_value` × 12 + `end` (op 14) | 12 × 273 + about 30 = 3,306 | 4,096 |
+| `ui_screen` row (op 1) | 1 + 130 + 4 + 130 + 66 + 4 = 335, 12 rows a page | 4,096 |
+| `command.open` | 1 + 130 + 4 + 130 + 1,026 = 1,291, framed 1,295 | 4,096 and the stage budget |
+| `event.screen_opened` | 1 + 8 + 130 + 4 + 130 + 4 + 1,026 = 1,303, framed 1,306 | encoded on the host scratch, not the 1.1 KB stack buffer of `core-events.md` 3.3 |
+| `ui.verdict` (filter reply) | under 200 | 3,840 |
+
+### 8.2 Memory (X4)
 
 - Instances: one entry per open instance (about 16 bytes; the stack is at most 16 deep, deeper
-  opens are `ERR_FULL`); params are not kept by the host after `screen_opened` is delivered.
+  opens are `ERR_FULL`) plus its params, kept while it is open: at most 16 × 1,024 bytes =
+  16 KiB, allocated fallibly at open (`ERR_NO_MEMORY`).
 - Questions: at most 4 open requests device-wide, about 24 bytes each plus the question (title,
   text, choices: at most 3.3 KiB) and the request text, allocated fallibly as written
   (`ERR_NO_MEMORY`). On the X4 the request texts share 8 KiB device-wide and only one request is
   open at a time (`ERR_FULL`), so questions cost at most about 11.5 KiB, and nothing when none is
   open.
-- Answers use the held-event store (`core-events.md` 3.3); the answer text stays in the request.
+- Answers are not held-store edges: each request carries its answer and a pending mark (section
+  3.2), so they cost nothing beyond the request.
 - Filters: at most 4 subscribers; one stage call per input on the host scratch.
 - Composition: no host memory; nesting as `stages-services.md` (depth 2). Ops 7 and 12-15 run one
   stage call each on the host scratch.
