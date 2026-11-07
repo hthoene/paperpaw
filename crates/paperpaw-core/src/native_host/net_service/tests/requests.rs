@@ -829,10 +829,49 @@ fn a_held_body_is_charged_by_capacity_and_an_oversized_buffer_is_refused() {
         events[0],
         Event::Done { reason: r, status: 0, body_len: 0, .. } if r == reason::TOO_LARGE
     ));
-    // An error body with a buffer above the reservation is refused.
+    // An error answer with a roomier buffer keeps its real status: its bytes
+    // are copied to an exact-size buffer, which is what the pool is charged.
     let fake = Fake::x4();
     let id = request(&fake, OWNER, &big(1, 100)).unwrap();
-    answer(&fake, id, 500, Vec::with_capacity(101), false);
+    let mut roomy = Vec::with_capacity(8_192);
+    roomy.extend_from_slice(&[3; 40]);
+    answer(&fake, id, 404, roomy, false);
+    assert_eq!(fake.pool_used(), 40);
+    assert_eq!(drain(&fake, OWNER), [done(id, 1, 404, 0, 0, 40)]);
+    // Bytes beyond the cap (100 here) are cut and said so; the status stays.
+    let id = request(&fake, OWNER, &big(1, 100)).unwrap();
+    let mut over = Vec::with_capacity(8_192);
+    over.extend_from_slice(&[3; 5_000]);
+    answer(&fake, id, 404, over, false);
+    assert_eq!(
+        drain(&fake, OWNER),
+        [done(id, 1, 404, 0, DONE_TRUNCATED, 100)]
+    );
+    assert_eq!(fake.pool_used(), 0);
+    // A failed copy (allocation 1) loses the body, a failed head (allocation 2)
+    // loses the metadata; the status stays either way.
+    for nth in 1..=2 {
+        let id = request(&fake, OWNER, &big(1, 100)).unwrap();
+        let mut roomy = Vec::with_capacity(8_192);
+        roomy.extend_from_slice(&[3; 40]);
+        FAIL_NTH.with(|n| n.set(nth));
+        answer(&fake, id, 404, roomy, false);
+        FAIL_NTH.with(|n| n.set(0));
+        let events = drain(&fake, OWNER);
+        let Event::Done {
+            status,
+            reason: why,
+            ..
+        } = events[0]
+        else {
+            panic!()
+        };
+        assert_eq!((status, why), (404, 0), "allocation {nth}");
+        assert_eq!(fake.pool_used(), 0, "allocation {nth}");
+    }
+    // A success body in a buffer above the reservation is still refused.
+    let id = request(&fake, OWNER, &big(1, 100)).unwrap();
+    answer(&fake, id, 200, Vec::with_capacity(101), false);
     assert_eq!(fake.pool_used(), 0);
     // ... while a buffer that fits the reservation is charged as it is.
     let id = request(&fake, OWNER, &big(2, 100)).unwrap();
@@ -1123,4 +1162,133 @@ fn a_stopped_plugin_has_its_received_folder_emptied() {
     let fake = Fake::x4();
     owner_stopped(&fake, OWNER).unwrap();
     assert!(fake.cleared.borrow().contains(&(OWNER, None)));
+}
+
+#[test]
+fn sockets_and_requests_charge_the_same_pool() {
+    // What `core.sockets` does: reserve at connect, release at the end, on the
+    // pool it takes from the NET table (the same `Rc`).
+    let fake = Fake::x4();
+    let sock_pool = fake.table.pool().clone();
+    let pool = NetProfile::X4.pool;
+    // A memory body fills most of the pool: a socket's 8 KiB no longer fits.
+    let a = request(&fake, OWNER, &big(1, 45_056)).unwrap();
+    assert!(
+        !sock_pool.reserve(8_192),
+        "NO_MEMORY for the socket, nothing held"
+    );
+    assert_eq!(sock_pool.used(), fake.pool_used());
+    finish(&fake, a, 200, b"");
+    drain(&fake, OWNER);
+    // Two sockets' reservations (SOCK_QUEUE + SOCK_READ) are held; a request
+    // for a large body waits behind them instead of overcommitting.
+    assert!(sock_pool.reserve(8_192) && sock_pool.reserve(8_192));
+    let b = request(&fake, OWNER, &big(2, 45_056)).unwrap();
+    assert!(fake.started.borrow().iter().all(|id| *id != b), "b waits");
+    assert!(sock_pool.used() <= pool);
+    // A socket ends: its room goes back, and the waiting request starts.
+    sock_pool.release(8_192);
+    sock_pool.release(8_192);
+    tick(&fake).unwrap();
+    assert!(fake.started.borrow().contains(&b), "b started on the room");
+    assert!(!sock_pool.reserve(8_192), "and the pool is full again");
+}
+
+#[test]
+fn an_error_answer_keeps_status_and_body_when_its_head_cannot_be_held() {
+    let fake = Fake::x4();
+    let id = request(&fake, OWNER, &big(1, 1_000)).unwrap();
+    FAIL_NTH.with(|n| n.set(1));
+    finished(
+        &fake,
+        id,
+        Finished {
+            status: 503,
+            reason: 0,
+            saved: false,
+            truncated: false,
+            etag: "\"v\"",
+            content_type: "text/plain",
+            final_url: "https://example.org/x",
+            body: std::vec![5; 20],
+        },
+    )
+    .unwrap();
+    FAIL_NTH.with(|n| n.set(0));
+    assert_eq!(drain(&fake, OWNER), [done(id, 1, 503, 0, 0, 20)]);
+    assert_eq!(fake.pool_used(), 0);
+}
+
+#[test]
+fn dropping_the_net_tables_gives_back_only_their_own_charges() {
+    let pool = Rc::new(NetPool::new(NetProfile::X4.pool));
+    // core.sockets holds 8 KiB for the whole test.
+    assert!(pool.reserve(8_192));
+    {
+        let fake = Fake::with_pool(NetProfile::X4, pool.clone());
+        // Running, queued (waiting for the pool), a done and held answer: all
+        // hold charges.
+        let a = request(&fake, OWNER, &big(1, 20_000)).unwrap();
+        let _b = request(&fake, OWNER, &big(2, 30_000)).unwrap();
+        finish(&fake, a, 200, b"hello");
+        assert!(pool.used() > 8_192);
+    }
+    assert_eq!(pool.used(), 8_192, "the sockets' reservation is untouched");
+    pool.release(8_192);
+    assert_eq!(pool.used(), 0);
+}
+
+#[test]
+fn every_end_path_gives_the_shared_pool_its_charge_back_exactly_once() {
+    let external = 8_192;
+    let new_fake = || {
+        let pool = Rc::new(NetPool::new(NetProfile::X4.pool));
+        assert!(pool.reserve(external));
+        (Fake::with_pool(NetProfile::X4, pool.clone()), pool)
+    };
+    // Cancel, the clock, an answer heard, an owner stop, a replaced request:
+    // each leaves only the sockets' reservation behind.
+    let (fake, pool) = new_fake();
+    let id = request(&fake, OWNER, &big(1, 20_000)).unwrap();
+    table::cancel(&fake, OWNER, 1).unwrap();
+    drain(&fake, OWNER);
+    assert_eq!(pool.used(), external, "cancelled {id}");
+
+    let (fake, pool) = new_fake();
+    request(&fake, OWNER, &big(1, 20_000)).unwrap();
+    fake.advance(40_000);
+    tick(&fake).unwrap();
+    drain(&fake, OWNER);
+    assert_eq!(pool.used(), external, "timed out");
+
+    let (fake, pool) = new_fake();
+    let id = request(&fake, OWNER, &big(1, 20_000)).unwrap();
+    finish(&fake, id, 200, b"hello");
+    drain(&fake, OWNER);
+    assert_eq!(pool.used(), external, "answer delivered and freed");
+
+    let (fake, pool) = new_fake();
+    // `held` runs, its answer is told to the plugin (state Held: the body
+    // stays until the callback returns); `running` runs; `_queued` waits for
+    // room behind them.
+    let held = request(&fake, OWNER, &big(3, 1_000)).unwrap();
+    let _running = request(&fake, OWNER, &big(1, 20_000)).unwrap();
+    let _queued = request(&fake, OWNER, &big(2, 30_000)).unwrap();
+    assert_eq!(fake.started.borrow().len(), 2, "the third waits");
+    finish(&fake, held, 200, b"x");
+    assert!(next_event(&fake, OWNER, &mut [0; 128]).unwrap().is_some());
+    assert!(
+        pool.used() > external + 20_000,
+        "all three states hold room"
+    );
+    owner_stopped(&fake, OWNER).unwrap();
+    assert_eq!(pool.used(), external, "owner stopped with all states alive");
+    owner_stopped(&fake, OWNER).unwrap();
+    assert_eq!(pool.used(), external, "and again: nothing given back twice");
+
+    let (fake, pool) = new_fake();
+    request(&fake, OWNER, &save_to(1, 0, "same.bin")).unwrap();
+    request(&fake, OWNER, &save_to(2, 0, "same.bin")).unwrap();
+    owner_stopped(&fake, OWNER).unwrap();
+    assert_eq!(pool.used(), external, "replaced and stopped");
 }

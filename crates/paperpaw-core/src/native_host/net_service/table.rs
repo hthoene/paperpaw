@@ -1,13 +1,14 @@
 //! The request table of `core.net`: ids, tokens, the queue, the pool, the
 //! held answers and the routing of events 99 and 100.
 use super::super::host_services::Caller;
+use super::super::net_pool::NetPool;
 use super::{
     BODY_PIECE, DEVICE_REQUESTS, DONE_LATER, DONE_SAVED, DONE_TRUNCATED, ERROR_BODY,
     FILE_TIMEOUT_MS, IO_BUFFER, MEMORY_TIMEOUT_MS, NO_NETWORK_MS, NetHost, PLUGIN_REQUESTS, Start,
     args, gate, reason, serving,
     wire::{self, Record},
 };
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, rc::Rc, vec::Vec};
 use core::cell::{RefCell, RefMut};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
@@ -85,27 +86,50 @@ pub(super) enum Pick {
 #[derive(Default)]
 pub(super) struct Inner {
     pub(super) stamp: u64,
+    /// Pool bytes this table holds: what it reserved and has not released.
+    /// The pool is shared (with `core.sockets`), so a table gives back only
+    /// its own ledger, never the pool's whole count.
+    ledger: u32,
     next_id: u32,
     reqs: Vec<Req>,
-    /// Pool bytes held by requests and uploads.
-    pub(super) used: u32,
     demand: bool,
     pub(super) serving: serving::Tables,
 }
 
-/// The request and server tables of one device.
-#[derive(Default)]
+/// The request and server tables of one device, and the device's network
+/// pool they charge (shared with `core.sockets`, see [`NetPool`]).
 pub(crate) struct NetTable {
     inner: RefCell<Inner>,
+    pool: Rc<NetPool>,
 }
 
 impl NetTable {
-    pub(crate) fn new() -> Self {
-        Self::default()
+    /// Tables charging `pool`; the shell gives the SOCK host a clone of the
+    /// same `Rc` ([`Self::pool`]).
+    pub(crate) fn new(pool: Rc<NetPool>) -> Self {
+        Self {
+            inner: RefCell::new(Inner::default()),
+            pool,
+        }
+    }
+
+    /// The device's pool: the one counter NET and SOCK both charge.
+    pub(crate) fn pool(&self) -> &Rc<NetPool> {
+        &self.pool
     }
 
     pub(super) fn lock(&self) -> Result<RefMut<'_, Inner>, i32> {
         self.inner.try_borrow_mut().map_err(|_| ERR_BUSY)
+    }
+}
+
+impl Drop for NetTable {
+    /// The tables go: their payloads are freed with them, and so are their
+    /// charges, exactly (the pool outlives them and may hold `core.sockets`
+    /// reservations that are not the tables').
+    fn drop(&mut self) {
+        let held = core::mem::take(&mut self.inner.get_mut().ledger);
+        self.pool.release(held);
     }
 }
 
@@ -117,23 +141,21 @@ impl Inner {
 
     /// Reserve `bytes` from the pool; false when it has not that room.
     pub(super) fn reserve(&mut self, host: &dyn NetHost, bytes: u32) -> bool {
-        let pool = host.profile().pool;
-        if pool == 0 {
-            return true;
+        let pool = host.table().pool();
+        if !pool.reserve(bytes) {
+            return false;
         }
-        match self.used.checked_add(bytes) {
-            Some(total) if total <= pool => {
-                self.used = total;
-                true
-            }
-            _ => false,
+        if pool.capacity() != 0 {
+            self.ledger = self.ledger.saturating_add(bytes);
         }
+        true
     }
 
     pub(super) fn release(&mut self, host: &dyn NetHost, bytes: u32) {
-        if host.profile().pool != 0 {
-            self.used = self.used.saturating_sub(bytes);
-        }
+        // Never more than this table holds: the rest of the pool is not its.
+        let give = bytes.min(self.ledger);
+        self.ledger -= give;
+        host.table().pool().release(give);
     }
 
     fn live(r: &Req) -> bool {
@@ -184,20 +206,17 @@ impl Inner {
     /// Whether the pool holds `bytes` more once the `replaced` requests have
     /// given back their input (`ERR_NO_MEMORY`: nothing is held then).
     fn input_fits(&self, host: &dyn NetHost, replaced: &[u32], bytes: usize) -> Result<(), i32> {
-        let pool = host.profile().pool;
-        if pool == 0 {
-            return Ok(());
-        }
         let back: u32 = replaced
             .iter()
             .filter_map(|id| self.index(*id))
             .map(|i| self.reqs[i].input)
             .sum();
-        let after = u64::from(self.used - back.min(self.used)) + bytes as u64;
-        if after > u64::from(pool) {
-            return Err(ERR_NO_MEMORY);
+        let bytes = u32::try_from(bytes).map_err(|_| ERR_NO_MEMORY)?;
+        if host.table().pool().fits(bytes, back) {
+            Ok(())
+        } else {
+            Err(ERR_NO_MEMORY)
         }
-        Ok(())
     }
 
     /// `network_demand` follows whether anything uses or waits for the
@@ -306,7 +325,11 @@ impl Inner {
             {
                 break;
             }
-            self.reqs[index].reserved = if profile.pool == 0 { 0 } else { need };
+            self.reqs[index].reserved = if host.table().pool().capacity() == 0 {
+                0
+            } else {
+                need
+            };
             self.reqs[index].net_wait = None;
             let started = self.begin(host, index);
             if let Err(error) = started {
@@ -438,7 +461,7 @@ pub(super) fn request(host: &dyn NetHost, who: &Caller<'_>, input: &[u8]) -> Res
         last_move: now,
         net_wait: None,
         reserved: 0,
-        input: if host.profile().pool == 0 {
+        input: if host.table().pool().capacity() == 0 {
             0
         } else {
             input.len() as u32
@@ -526,6 +549,30 @@ pub(crate) struct Finished<'a> {
     pub(crate) body: Vec<u8>,
 }
 
+/// The transport's body buffer against the room the request reserved
+/// (`ceiling`; `truncate` and `clear` keep capacity, so capacity is what is
+/// held). Returns the body to keep, whether the buffer broke the contract
+/// (the request then ends `TOO_LARGE`), and whether a body was lost.
+///
+/// An error answer (a status that is not a success) keeps its real status
+/// even when the buffer is roomier than the reservation: the bytes it keeps
+/// are copied into an exact-size buffer, or dropped (and said so) when even
+/// that cannot be allocated.
+fn fit_body(body: Vec<u8>, ceiling: usize, error_answer: bool) -> (Vec<u8>, bool, bool) {
+    if body.capacity() <= ceiling {
+        return (body, false, false);
+    }
+    if !error_answer {
+        return (Vec::new(), true, false);
+    }
+    let mut exact = Vec::new();
+    if body.len() > ceiling || gate().is_err() || exact.try_reserve_exact(body.len()).is_err() {
+        return (Vec::new(), false, true);
+    }
+    exact.extend_from_slice(&body);
+    (exact, false, false)
+}
+
 /// The transport ended request `id`. An id that is not running (cancelled,
 /// timed out, replaced) is ignored: a request ends exactly once.
 ///
@@ -550,7 +597,7 @@ pub(crate) fn finished(host: &dyn NetHost, id: u32, mut outcome: Finished<'_>) -
     }
     // An error body is at most 4,096 bytes, and a memory request keeps no
     // more than its `max_body`. A device without a pool has no ceiling.
-    let ceiling = if host.profile().pool == 0 {
+    let ceiling = if host.table().pool().capacity() == 0 {
         usize::MAX
     } else {
         r.reserved as usize
@@ -571,9 +618,13 @@ pub(crate) fn finished(host: &dyn NetHost, id: u32, mut outcome: Finished<'_>) -
     }
     // The transport's buffer must fit what the request holds in the pool:
     // `truncate` and `clear` keep capacity, so the capacity is what is held.
-    let overshoot = outcome.body.capacity() > ceiling;
-    if overshoot {
-        outcome.body = Vec::new();
+    let error_answer =
+        outcome.status != 0 && !(ok && !r.saving && (200..300).contains(&outcome.status));
+    let (body, overshoot, lost) =
+        fit_body(core::mem::take(&mut outcome.body), ceiling, error_answer);
+    outcome.body = body;
+    if lost {
+        flags |= DONE_TRUNCATED;
     }
     let at = host.now_ms();
     let mut done = inner.bare(at, outcome.status, outcome.reason, flags);
@@ -592,14 +643,20 @@ pub(crate) fn finished(host: &dyn NetHost, id: u32, mut outcome: Finished<'_>) -
         parts = ["", "", ""];
     }
     let total: usize = parts.iter().map(|p| p.len()).sum();
-    if overshoot || gate().is_err() || done.head.try_reserve_exact(total).is_err() {
-        if overshoot || !saved {
+    if overshoot {
+        done.reason = reason::TOO_LARGE;
+        done.status = 0;
+    } else if gate().is_err() || done.head.try_reserve_exact(total).is_err() {
+        if saved || error_answer {
+            // The outcome is real (the file is committed; the server's
+            // status and reason stand): only the optional head (ETag, type,
+            // final URL) is lost.
+            done.body = outcome.body;
+        } else {
             // No room for the answer's head: the body goes too.
             done.reason = reason::TOO_LARGE;
             done.status = 0;
         }
-        // A saved answer is committed: the file is the new one. It stays a
-        // success; only the optional head (ETag, type, final URL) is lost.
     } else {
         for part in parts {
             done.head.extend_from_slice(part.as_bytes());
