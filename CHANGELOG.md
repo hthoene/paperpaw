@@ -26,11 +26,6 @@ change the plugin SDK.
 
 ### Added
 
-- Native widget/status declarations use the shared retained declaration store and
-  full-width host owner identities. Callback frames expose the directory, bounded
-  owner/token status calls and a fixed kernel stack snapshot. UI cleanup retries
-  borrowed stores after callbacks return; X4 nested UI activation remains gated (#228).
-
 - Keyboard 1.1.2: the interface-7 native plugin (the text dialog on `core.keyboard` answering
   through `core.ui`, keys, shift, variants, paste, type on the phone, secret texts, the layouts
   chooser) on `paperpaw-ui-kit`; hardware-typed text, font-coverage filtering and layouts added by
