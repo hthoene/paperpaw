@@ -14,7 +14,7 @@ pub(crate) struct View<'a> {
     pub(crate) plugin: &'a str,
 }
 impl<'a> View<'a> {
-    fn visit(&self, visit: &mut dyn FnMut(Record<'a>)) -> Result<(), i32> {
+    pub(crate) fn visit(&self, visit: &mut dyn FnMut(Record<'a>)) -> Result<(), i32> {
         self.raw.visit(self.plugin, self.image, visit)?;
         // Decoded host submissions have no raw batch.
         for r in self.owned.groups() {

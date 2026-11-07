@@ -1,4 +1,4 @@
-//! Borrowed interface-7 host events, decoded without allocations.
+//! Borrowed interface-7 host events and stage subscriber calls, decoded without allocations.
 //! All strings borrow the
 //! callback input; decoding allocates nothing and copies no strings.
 use super::{

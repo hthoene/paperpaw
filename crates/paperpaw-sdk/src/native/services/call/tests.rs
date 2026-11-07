@@ -116,6 +116,9 @@ fn future_op_is_not_available_at_opened_minor() {
             max_input: 0,
             max_reply: 0,
             bound: crate::native::wire::services_wire::ServiceBound::None,
+            input_rows: 1,
+            paged: false,
+            reply_rows: 0,
         }],
     };
     let table = table();

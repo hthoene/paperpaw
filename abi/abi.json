@@ -8150,10 +8150,12 @@
           "max_input": 256,
           "max_reply": 4096,
           "name": "widget_targets",
+          "paged": false,
           "reply": [
             "service.ui_target",
             "service.end"
           ],
+          "reply_rows": 32,
           "since": 0
         },
         {
@@ -8257,10 +8259,12 @@
           "max_input": 4096,
           "max_reply": 4096,
           "name": "status_values",
+          "paged": false,
           "reply": [
             "service.ui_status_value",
             "service.end"
           ],
+          "reply_rows": 8,
           "since": 0
         },
         {
@@ -8287,6 +8291,7 @@
           "input": [
             "service.ui_param"
           ],
+          "input_rows": 32,
           "max_input": 2048,
           "max_reply": 4096,
           "name": "handover",
@@ -8306,10 +8311,12 @@
           "max_input": 256,
           "max_reply": 4096,
           "name": "params",
+          "paged": false,
           "reply": [
             "service.ui_param",
             "service.end"
           ],
+          "reply_rows": 32,
           "since": 0
         },
         {

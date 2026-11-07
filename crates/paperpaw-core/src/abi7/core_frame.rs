@@ -27,6 +27,14 @@ impl Frame for CoreFrame<'_> {
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
         Some(self.env.fonts())
     }
+    fn ink_threshold(&self) -> Result<u8, i32> {
+        Ok(match self.env.device().display.format {
+            paperpaw_platform::PixelFormat::Mono1 => {
+                crate::config::mono_coverage(self.env.settings()).max(1)
+            }
+            _ => 128,
+        })
+    }
     fn font_generation(&self) -> Option<u64> {
         self.font_removals.generation()
     }

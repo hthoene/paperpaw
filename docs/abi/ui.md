@@ -465,16 +465,16 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   placement `x@2`) in one of its `list_keys`. The host works it out from the settings at the
   time of the query: REG op 19 `reg_widget.flags` bit 0 `shown` (`registry.md` section 3).
 - [D] **Layout** (interface 6 `height`, `min_height`, `place`, `targets`): the showing screen asks
-  through op 12 `widget_measure` (`instance`, `width` → `height`, `min_height`; 0 height: nothing
-  to show), tells the place with op 13 `widget_place` (the rectangle, before the first draw there
-  and when it changes), and reads targets with op 7 (`instance`, the rectangle → `ui_target` rows,
+  through op 12 `widget_measure` (`instance`, `width` → `height`, `min_height`; 0 height: nothing to
+  show), tells the place with op 13 `widget_place` (the rectangle, before the first draw there and
+  when it changes), and reads targets with op 7 (`instance`, the rectangle → `ui_target` rows,
   reading order; Senior's answer to [Q] 1: targets follow live content, so the owner answers each
-  time). The owner returns at most 32 targets per call (more `ERR_NO_SPACE` for the owner's
-  reply, logged, no targets); op 7 pages them (8 rows a page) from the stage reply the host keeps
-  for the cursor, and a `widget_changed` in between makes the cursor stale (`ERR_STATE`). The host
-  answers each by one call of the `core.widget` stage to the owner only
-  (stage-local records `widget.measure`, `widget.place`, `widget.targets` and their replies; the
-  owner is subscribed by its `widget.spec`, no `registration.stage`).
+  time). The owner returns at most 32 targets per call (more `ERR_NO_SPACE` for the owner's reply,
+  logged, no targets); op 7 is not paged: one call answers all of them, at most 32 `ui_target` rows
+  and its `end` (about 1 KiB), so the host keeps nothing between calls and a `widget_changed` only
+  means the next call answers anew. The host answers each by one call of the `core.widget` stage to
+  the owner only (stage-local records `widget.measure`, `widget.place`, `widget.targets` and their
+  replies; the owner is subscribed by its `widget.spec`, no `registration.stage`).
 - [D] **Updates.** The owner says its widget shows something new with `command.widget_changed`
   (own instances); the host sends `event.widget_changed` (a hint, coalesced per instance) to the
   plugin whose screen made it, which measures and draws again. The minute tick stays `event.tick`.
@@ -520,7 +520,12 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
 ## 6. The service `core.ui` (major 1)
 
 Bare reply streams and paging as `core.registry` (`registry.md` section 2.1) with `page_rows` 8
-(a `ui_screen` row is 339 bytes: 8 rows and `end` fit 4,096, 12 would not). Paged ops: 1, 3, 7.
+(a `ui_screen` row is 339 bytes: 8 rows and `end` fit 4,096, 12 would not). Paged ops: 1 and 3.
+Ops 7, 14 and 17 are lists that are not paged: one call writes all rows, at most 32, 8 and 32,
+then one `end` with `total` the rows written and `next`, `generation` and `flags` 0 (anything
+else is `ERR_INVALID`). The schema says this per op (`paged: false`, `reply_rows`), and op 16's
+input holds up to 32 `ui_param` records (`input_rows: 32`): one counted batch, encoded with the
+generated `records_encode_counted` and decoded by the host with `host_records_visit`, never cut.
 Ops that run another plugin's callback (7, 12-15) are allowed at depth 1 only (`ERR_BUSY` deeper).
 
 | Op | Name | Input | Reply | Who |
@@ -593,7 +598,8 @@ Ops that run another plugin's callback (7, 12-15) are allowed at depth 1 only (`
 
 - [D] **Help.** `help.hint` declares a hint for any screen (own or another's, full id): `input` 0
   any, 1 touch, 2 buttons; the zone in thousandths of the screen (all 0: no zone, listed in the
-  box); `text` a catalog key of the declaring plugin (`owner` in op 3 says whose catalog). The help
+  box; `x + width` and `y + height` at most 1,000, else `ERR_INVALID` at admission, and a reader
+  treats a `ui_hint` row that breaks it as malformed, never clamped); `text` a catalog key of the declaring plugin (`owner` in op 3 says whose catalog). The help
   plugin reads them with op 3, subscribes to `event.screen_ready` (an edge, registrable) and to 81.
   A screen declared `waits_ready` sends `command.screen_ready` once its first page is drawn (own
   top instance, else `ERR_STATE`); for other screens the host raises 87 itself after the first
