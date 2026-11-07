@@ -227,7 +227,7 @@ pub(crate) fn convert(storage: &dyn Storage, path: &str) -> Result<Notes, Fault>
 /// The notes table of the database at `db` written as text.
 fn write_notes(storage: &dyn Storage, db: &str) -> Result<Notes, Fault> {
     let database = Database::open(storage, db)?;
-    let (columns, root) = database.table("notes").map_err(|_| Fault::NoNotes)?;
+    let (columns, root) = database.table("notes").map_err(Fault::from)?;
     let flds = columns
         .iter()
         .position(|c| c.eq_ignore_ascii_case("flds"))

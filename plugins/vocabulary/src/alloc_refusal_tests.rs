@@ -955,10 +955,6 @@ mod folder {
     }
 
     #[test]
-    #[ignore = "BLOCKED by paperpaw-zip and paperpaw-sqlite: their readers allocate infallibly \
-        (zip find_end_record `to_vec`, entry names `String::from`; sqlite read.rs entries, \
-        parts, pages `vec!`), so the first refusal aborts the test binary before the \
-        plugin's own allocations are reached; asked of Kernel"]
     fn reading_an_anki_deck_refuses_cleanly() {
         // Made here, not in the run: nothing of the test's own is refused.
         let path = fixture(|| alloc::format!("{FOLDER}/de.apkg"));
