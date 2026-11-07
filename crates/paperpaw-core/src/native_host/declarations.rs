@@ -109,7 +109,8 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventPluginsChanged(_)
         | Record::EventWifiChanged(_)
         | Record::EventPowerChanged(_)
-        | Record::EventStatusChanged(_) => Err(ERR_INVALID),
+        | Record::EventStatusChanged(_)
+        | Record::EventChargeChanged(_) => Err(ERR_INVALID),
         // Input records go to `PpPlugin.input`, frames to `draw`, format
         // arguments to slot 27.
         Record::DrawFrame(_)

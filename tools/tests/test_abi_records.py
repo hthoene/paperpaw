@@ -239,7 +239,8 @@ class RecordsTests(unittest.TestCase):
                           ('event.book_closed', 66), ('event.book_finished', 67),
                           ('event.book_moved', 68), ('event.book_removed', 69),
                           ('event.plugins_changed', 70), ('event.wifi_changed', 71),
-                          ('event.power_changed', 72), ('event.status_changed', 73)])
+                          ('event.power_changed', 72), ('event.status_changed', 73),
+                          ('event.charge_changed', 74)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             if record['id'] <= 3:

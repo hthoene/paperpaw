@@ -40,20 +40,22 @@ Overlong, overflowing or truncated varints are malformed.
 | 36 | `event.battery_measured` | `now_ms: u64` |
 | 37 | `event.page_turned` | `now_ms: u64`, `section: u32`, `offset: u32`, `progress_ppm: u32`, `path: str 512`, `title: str 256`, `chapter: str 256`; optional (appended, bits 0 and 1, no default: `Option<u32>`): `page: u32`, `pages: u32` (absent until the reader counted the pages; pages count from 1, so a present 0, or a page past the count, is refused) |
 | 64 | `event.setting_changed` | `now_ms: u64`, `key: str 128`, `old: bytes 512` (empty: no previous value) |
-| 65 | `event.book_opened` | `now_ms: u64`, `section: u32`, `offset: u32`, `progress_ppm: u32`, `path: str 512`, `title: str 256`, `chapter: str 256`; optional `page: u32`, `pages: u32`, `insert: u32` (the rules of tag 37) |
+| 65 | `event.book_opened` | `now_ms: u64`, `section: u32`, `offset: u32`, `progress_ppm: u32`, `path: str 512`, `title: str 256`, `chapter: str 256`, `reason: u32`; optional `page: u32`, `pages: u32`, `insert: u32` (the rules of tag 37) |
 | 66 | `event.book_closed` | as 65 |
 | 67 | `event.book_finished` | as 65 |
 | 68 | `event.book_moved` | `now_ms: u64`, `from: str 512`, `path: str 512` |
 | 69 | `event.book_removed` | `now_ms: u64`, `path: str 512` |
 | 70 | `event.plugins_changed` | `now_ms: u64` |
 | 71 | `event.wifi_changed` | `now_ms: u64`, `state: u32` |
-| 72 | `event.power_changed` | `now_ms: u64`, `flags: u32` |
+| 72 | `event.power_changed` | `now_ms: u64`, `level: u32`, `flags: u32`, `stretch: u32`, `mode: str 128` |
 | 73 | `event.status_changed` | `now_ms: u64` |
+| 74 | `event.charge_changed` | `now_ms: u64`, `flags: u32` |
 
-Tags 64-73 (`event.setting_changed`, `event.book_opened`, `event.book_closed`,
+Tags 64-74 (`event.setting_changed`, `event.book_opened`, `event.book_closed`,
 `event.book_finished`, `event.book_moved`, `event.book_removed`, `event.plugins_changed`,
-`event.wifi_changed`, `event.power_changed`, `event.status_changed`) are the core events of
-`docs/abi/core-events.md`, with the same delivery as 32-37; a host admits each once its producer
+`event.wifi_changed`, `event.power_changed`, `event.status_changed`, `event.charge_changed`) are
+the core events of `docs/abi/core-events.md`, with the same delivery as 32-37; only the host raises
+them, and a host admits each once its producer
 is wired.
 
 Tags 32-37 are events the host sends with `dispatch_event`, as a batch of exactly one
@@ -100,7 +102,7 @@ unknown family or a tag declared twice is refused; tags are never reused):
 | 48-55 | `service.*` |
 | 56-62 | `command.*` |
 | 63 | reserved |
-| 64-191 | `event.*` growth block: 64-73 core events (`docs/abi/core-events.md`) |
+| 64-191 | `event.*` growth block: 64-74 core events (`docs/abi/core-events.md`) |
 | 512-1023 | `stage.*`: 512 `stage.call`, 513 `stage.reply` (`docs/abi/stages-services.md`) |
 | 1024-1535 | `service.*` growth block: 1024 `service.echo` (host tests only) |
 

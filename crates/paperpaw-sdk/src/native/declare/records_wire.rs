@@ -2229,6 +2229,8 @@ pub struct EventBookOpened<'a> {
     pub title: &'a str,
     /// UTF-8 text of at most 256 bytes.
     pub chapter: &'a str,
+    /// Little-endian u32.
+    pub reason: u32,
     /// Little-endian u32. Appended and optional; `None` when absent.
     pub page: Option<u32>,
     /// Little-endian u32. Appended and optional; `None` when absent.
@@ -2248,6 +2250,7 @@ impl<'a> EventBookOpened<'a> {
             path: body.string(EVENT_BOOK_OPENED_PATH_MAX_BYTES)?,
             title: body.string(EVENT_BOOK_OPENED_TITLE_MAX_BYTES)?,
             chapter: body.string(EVENT_BOOK_OPENED_CHAPTER_MAX_BYTES)?,
+            reason: u32::from_le_bytes(body.scalar()?),
             page: body.maybe_u32(bits, 0x01)?,
             pages: body.maybe_u32(bits, 0x02)?,
             insert: body.maybe_u32(bits, 0x04)?,
@@ -2279,6 +2282,7 @@ impl<'a> EventBookOpened<'a> {
         len += blob_len(self.path.len(), EVENT_BOOK_OPENED_PATH_MAX_BYTES)?;
         len += blob_len(self.title.len(), EVENT_BOOK_OPENED_TITLE_MAX_BYTES)?;
         len += blob_len(self.chapter.len(), EVENT_BOOK_OPENED_CHAPTER_MAX_BYTES)?;
+        len += 4;
         if bits & 0x01 != 0 {
             len += 4;
         }
@@ -2299,6 +2303,7 @@ impl<'a> EventBookOpened<'a> {
         write_blob(self.path.as_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
         write_blob(self.chapter.as_bytes(), out, offset);
+        write_bytes(&self.reason.to_le_bytes(), out, offset);
         if let Some(value) = self.page {
             write_bytes(&value.to_le_bytes(), out, offset);
         }
@@ -2336,6 +2341,8 @@ pub struct EventBookClosed<'a> {
     pub title: &'a str,
     /// UTF-8 text of at most 256 bytes.
     pub chapter: &'a str,
+    /// Little-endian u32.
+    pub reason: u32,
     /// Little-endian u32. Appended and optional; `None` when absent.
     pub page: Option<u32>,
     /// Little-endian u32. Appended and optional; `None` when absent.
@@ -2355,6 +2362,7 @@ impl<'a> EventBookClosed<'a> {
             path: body.string(EVENT_BOOK_CLOSED_PATH_MAX_BYTES)?,
             title: body.string(EVENT_BOOK_CLOSED_TITLE_MAX_BYTES)?,
             chapter: body.string(EVENT_BOOK_CLOSED_CHAPTER_MAX_BYTES)?,
+            reason: u32::from_le_bytes(body.scalar()?),
             page: body.maybe_u32(bits, 0x01)?,
             pages: body.maybe_u32(bits, 0x02)?,
             insert: body.maybe_u32(bits, 0x04)?,
@@ -2386,6 +2394,7 @@ impl<'a> EventBookClosed<'a> {
         len += blob_len(self.path.len(), EVENT_BOOK_CLOSED_PATH_MAX_BYTES)?;
         len += blob_len(self.title.len(), EVENT_BOOK_CLOSED_TITLE_MAX_BYTES)?;
         len += blob_len(self.chapter.len(), EVENT_BOOK_CLOSED_CHAPTER_MAX_BYTES)?;
+        len += 4;
         if bits & 0x01 != 0 {
             len += 4;
         }
@@ -2406,6 +2415,7 @@ impl<'a> EventBookClosed<'a> {
         write_blob(self.path.as_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
         write_blob(self.chapter.as_bytes(), out, offset);
+        write_bytes(&self.reason.to_le_bytes(), out, offset);
         if let Some(value) = self.page {
             write_bytes(&value.to_le_bytes(), out, offset);
         }
@@ -2443,6 +2453,8 @@ pub struct EventBookFinished<'a> {
     pub title: &'a str,
     /// UTF-8 text of at most 256 bytes.
     pub chapter: &'a str,
+    /// Little-endian u32.
+    pub reason: u32,
     /// Little-endian u32. Appended and optional; `None` when absent.
     pub page: Option<u32>,
     /// Little-endian u32. Appended and optional; `None` when absent.
@@ -2462,6 +2474,7 @@ impl<'a> EventBookFinished<'a> {
             path: body.string(EVENT_BOOK_FINISHED_PATH_MAX_BYTES)?,
             title: body.string(EVENT_BOOK_FINISHED_TITLE_MAX_BYTES)?,
             chapter: body.string(EVENT_BOOK_FINISHED_CHAPTER_MAX_BYTES)?,
+            reason: u32::from_le_bytes(body.scalar()?),
             page: body.maybe_u32(bits, 0x01)?,
             pages: body.maybe_u32(bits, 0x02)?,
             insert: body.maybe_u32(bits, 0x04)?,
@@ -2493,6 +2506,7 @@ impl<'a> EventBookFinished<'a> {
         len += blob_len(self.path.len(), EVENT_BOOK_FINISHED_PATH_MAX_BYTES)?;
         len += blob_len(self.title.len(), EVENT_BOOK_FINISHED_TITLE_MAX_BYTES)?;
         len += blob_len(self.chapter.len(), EVENT_BOOK_FINISHED_CHAPTER_MAX_BYTES)?;
+        len += 4;
         if bits & 0x01 != 0 {
             len += 4;
         }
@@ -2513,6 +2527,7 @@ impl<'a> EventBookFinished<'a> {
         write_blob(self.path.as_bytes(), out, offset);
         write_blob(self.title.as_bytes(), out, offset);
         write_blob(self.chapter.as_bytes(), out, offset);
+        write_bytes(&self.reason.to_le_bytes(), out, offset);
         if let Some(value) = self.page {
             write_bytes(&value.to_le_bytes(), out, offset);
         }
@@ -2664,22 +2679,33 @@ impl EventWifiChanged {
 }
 /// Wire tag of the `event.power_changed` record.
 pub const EVENT_POWER_CHANGED_TAG: u32 = 72;
+/// Maximum bytes of `event.power_changed.mode`.
+pub const EVENT_POWER_CHANGED_MODE_MAX_BYTES: usize = 128;
 
 /// The `event.power_changed` record, borrowed from its batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct EventPowerChanged {
+pub struct EventPowerChanged<'a> {
     /// Little-endian u64.
     pub now_ms: u64,
     /// Little-endian u32.
+    pub level: u32,
+    /// Little-endian u32.
     pub flags: u32,
+    /// Little-endian u32.
+    pub stretch: u32,
+    /// UTF-8 text of at most 128 bytes.
+    pub mode: &'a str,
 }
 
-impl EventPowerChanged {
-    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+impl<'a> EventPowerChanged<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         body.bitmap()?;
         Ok(Record::EventPowerChanged(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
+            level: u32::from_le_bytes(body.scalar()?),
             flags: u32::from_le_bytes(body.scalar()?),
+            stretch: u32::from_le_bytes(body.scalar()?),
+            mode: body.string(EVENT_POWER_CHANGED_MODE_MAX_BYTES)?,
         }))
     }
 
@@ -2687,12 +2713,18 @@ impl EventPowerChanged {
         let mut len = 1; // The initial bitmap is empty.
         len += 8;
         len += 4;
+        len += 4;
+        len += 4;
+        len += blob_len(self.mode.len(), EVENT_POWER_CHANGED_MODE_MAX_BYTES)?;
         Ok(len)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.level.to_le_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_bytes(&self.stretch.to_le_bytes(), out, offset);
+        write_blob(self.mode.as_bytes(), out, offset);
     }
 }
 /// Wire tag of the `event.status_changed` record.
@@ -2721,6 +2753,39 @@ impl EventStatusChanged {
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.charge_changed` record.
+pub const EVENT_CHARGE_CHANGED_TAG: u32 = 74;
+
+/// The `event.charge_changed` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventChargeChanged {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl EventChargeChanged {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventChargeChanged(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
     }
 }
 
@@ -2827,9 +2892,11 @@ pub enum Record<'a> {
     /// A `EventWifiChanged` record.
     EventWifiChanged(EventWifiChanged),
     /// A `EventPowerChanged` record.
-    EventPowerChanged(EventPowerChanged),
+    EventPowerChanged(EventPowerChanged<'a>),
     /// A `EventStatusChanged` record.
     EventStatusChanged(EventStatusChanged),
+    /// A `EventChargeChanged` record.
+    EventChargeChanged(EventChargeChanged),
 }
 
 impl<'a> Reader<'a> {
@@ -2924,6 +2991,7 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         EVENT_WIFI_CHANGED_TAG => EventWifiChanged::decode(body)?,
         EVENT_POWER_CHANGED_TAG => EventPowerChanged::decode(body)?,
         EVENT_STATUS_CHANGED_TAG => EventStatusChanged::decode(body)?,
+        EVENT_CHARGE_CHANGED_TAG => EventChargeChanged::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -3065,6 +3133,7 @@ impl Record<'_> {
             Record::EventWifiChanged(_) => EVENT_WIFI_CHANGED_TAG,
             Record::EventPowerChanged(_) => EVENT_POWER_CHANGED_TAG,
             Record::EventStatusChanged(_) => EVENT_STATUS_CHANGED_TAG,
+            Record::EventChargeChanged(_) => EVENT_CHARGE_CHANGED_TAG,
         }
     }
 
@@ -3122,6 +3191,7 @@ impl Record<'_> {
             Record::EventWifiChanged(record) => record.body_len(),
             Record::EventPowerChanged(record) => record.body_len(),
             Record::EventStatusChanged(record) => record.body_len(),
+            Record::EventChargeChanged(record) => record.body_len(),
         }
     }
 
@@ -3184,6 +3254,7 @@ impl Record<'_> {
             Record::EventWifiChanged(record) => record.write(out, offset),
             Record::EventPowerChanged(record) => record.write(out, offset),
             Record::EventStatusChanged(record) => record.write(out, offset),
+            Record::EventChargeChanged(record) => record.write(out, offset),
         }
     }
 

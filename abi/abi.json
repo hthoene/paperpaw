@@ -3586,6 +3586,15 @@
         {
           "default": null,
           "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
           "name": "page",
           "optional": true,
           "ordinal": 0,
@@ -3683,6 +3692,15 @@
         {
           "default": null,
           "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
           "name": "page",
           "optional": true,
           "ordinal": 0,
@@ -3776,6 +3794,15 @@
           "ordinal": null,
           "since": 1,
           "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
         },
         {
           "default": null,
@@ -3923,11 +3950,38 @@
         {
           "default": null,
           "max_bytes": 0,
+          "name": "level",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
           "name": "flags",
           "optional": false,
           "ordinal": null,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "stretch",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "mode",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
         }
       ],
       "id": 72,
@@ -3948,6 +4002,31 @@
       ],
       "id": 73,
       "name": "event.status_changed",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 74,
+      "name": "event.charge_changed",
       "since": 1
     }
   ],
