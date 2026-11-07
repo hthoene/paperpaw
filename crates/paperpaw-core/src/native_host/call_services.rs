@@ -114,20 +114,34 @@ fn validate_batch(bytes: &[u8], expected: &[u32], max_records: usize) -> Result<
     })
 }
 
-fn validate_reply(bytes: &[u8], op: &ServiceOp) -> Result<(), i32> {
-    if op.reply_rows == 0 {
-        return validate_batch(bytes, op.reply, usize::MAX);
+/// Shared by dispatch and backend conformance tests; replies are bare streams.
+pub(crate) fn validate_reply(bytes: &[u8], op: &ServiceOp) -> Result<(), i32> {
+    if bytes.len() > op.max_reply {
+        return Err(ERR_INVALID);
     }
     let mut rows = 0_u32;
     let mut ended = false;
+    let mut next_tag = 0;
     super::stage_wire::visit_stream(bytes, |tag, framed| {
         if ended {
             return Err(ERR_INVALID);
         }
-        if !op.reply.contains(&tag) {
-            return Err(ERR_UNSUPPORTED);
+        let index = op
+            .reply
+            .iter()
+            .position(|expected| *expected == tag)
+            .ok_or(ERR_INVALID)?;
+        let record = registrations::record_decode_one(framed).map_err(|_| ERR_INVALID)?;
+        if op.reply_rows == 0 {
+            if tag == registrations::SERVICE_END_TAG || index < next_tag || rows == 0 && index != 0
+            {
+                return Err(ERR_INVALID);
+            }
+            next_tag = index + 1;
+            rows += 1;
+            return Ok(());
         }
-        match registrations::record_decode_one(framed)? {
+        match record {
             registrations::Record::ServiceEnd(end) => {
                 if !op.paged
                     && (end.total != rows || end.next != 0 || end.generation != 0 || end.flags != 0)
@@ -144,8 +158,12 @@ fn validate_reply(bytes: &[u8], op: &ServiceOp) -> Result<(), i32> {
             }
         }
         Ok(())
-    })?;
-    if ended { Ok(()) } else { Err(ERR_INVALID) }
+    })
+    .map_err(|_| ERR_INVALID)?;
+    if op.reply_rows != 0 && !ended || op.reply_rows == 0 && !op.reply.is_empty() && rows == 0 {
+        return Err(ERR_INVALID);
+    }
+    Ok(())
 }
 
 fn validate_op(

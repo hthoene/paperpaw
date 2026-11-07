@@ -85,7 +85,7 @@ fn input_over_limit_never_calls_backend_or_changes_output() {
                 assert_eq!(BACKEND_CALLS.with(core::cell::Cell::get), 0);
                 assert_eq!(
                     call(&scope, &owner, handle, 1, pair(&input), output(&mut out)),
-                    i32::try_from(input.len()).unwrap()
+                    i32::try_from(input.len() - 1).unwrap()
                 );
                 assert_eq!(BACKEND_CALLS.with(core::cell::Cell::get), 1);
             }
@@ -179,4 +179,63 @@ fn paged_reply_uses_generated_row_cap_and_allows_paging_metadata() {
         validate_reply(&targets(limit + 1, tail), &op),
         Err(ERR_INVALID)
     );
+}
+
+#[test]
+fn nonlist_replies_are_bare_and_repeated_or_counted_replies_are_invalid() {
+    let op = services_wire::service_schema("core.test-echo", 1)
+        .unwrap()
+        .op(1)
+        .unwrap();
+    let input = batch("echo");
+    assert_eq!(validate_reply(&input[1..], op), Ok(()));
+    assert_eq!(validate_reply(&input, op), Err(ERR_INVALID));
+    assert_eq!(validate_reply(&[], op), Err(ERR_INVALID));
+    let mut repeated = input[1..].to_vec();
+    repeated.extend_from_slice(&input[1..]);
+    assert_eq!(validate_reply(&repeated, op), Err(ERR_INVALID));
+    assert_eq!(validate_reply(&targets(0, end(0)), op), Err(ERR_INVALID));
+}
+
+#[test]
+fn usage_producer_and_echo_backend_share_the_dispatch_reply_validator() {
+    use crate::abi7::core_frame::CoreFrame;
+    use crate::native_host::data_services::{self, Query};
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(Instant(0));
+    let frame = CoreFrame {
+        env: &env,
+        meter: &kernel.shared.meter,
+        font_removals: &kernel.shared.font_removals,
+        usage: &kernel.shared.usage,
+        plugins: &kernel.shared.plugins,
+        work: &kernel.shared.work_states,
+    };
+    let echo_op = services_wire::service_schema("core.test-echo", 1)
+        .unwrap()
+        .op(1)
+        .unwrap();
+    let mut out = [0; 512];
+    let input = batch("shared validator");
+    let len = echo(&frame, echo_op, &input, &mut out).unwrap();
+    assert_eq!(validate_reply(&out[..len], echo_op), Ok(()));
+    let usage_op = ServiceOp {
+        reply: &[registrations::SERVICE_USAGE_TAG],
+        ..*echo_op
+    };
+    let len = data_services::encode(&frame, Query::Usage, &mut out).unwrap();
+    assert_eq!(validate_reply(&out[..len], &usage_op), Ok(()));
+    let rows_op = ServiceOp {
+        reply: &[
+            registrations::SERVICE_PLUGIN_USAGE_TAG,
+            registrations::SERVICE_END_TAG,
+        ],
+        paged: true,
+        reply_rows: 32,
+        ..*echo_op
+    };
+    let len = data_services::encode(&frame, Query::PluginUsage(0), &mut out).unwrap();
+    assert_eq!(validate_reply(&out[..len], &rows_op), Ok(()));
 }
