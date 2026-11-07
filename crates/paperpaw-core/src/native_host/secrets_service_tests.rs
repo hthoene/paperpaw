@@ -37,6 +37,8 @@ struct Card {
     appends_left: Cell<u32>,
     largest_read: Cell<usize>,
     renames: Cell<u32>,
+    /// Every `write` and `append`.
+    writes: Cell<u32>,
 }
 
 impl Card {
@@ -97,11 +99,13 @@ impl Storage for Card {
     }
     fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         let _shield = Shield::new();
+        self.writes.set(self.writes.get() + 1);
         self.put(path, data);
         Ok(())
     }
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         let _shield = Shield::new();
+        self.writes.set(self.writes.get() + 1);
         let left = self.appends_left.get();
         if left == 0 {
             return Err(StorageError::Io);
@@ -144,6 +148,9 @@ struct Seal {
     key: u8,
     seals: bool,
     nonce: Cell<u8>,
+    /// Seals that still work before the next answers `ERR_STATE` (the X4 with
+    /// its radio off has no strong nonce).
+    seals_left: Cell<u32>,
 }
 
 impl Seal {
@@ -152,6 +159,7 @@ impl Seal {
             key,
             seals: true,
             nonce: Cell::new(1),
+            seals_left: Cell::new(u32::MAX),
         }
     }
     fn tag(&self, aad: &[u8], body: &[u8]) -> [u8; 16] {
@@ -168,6 +176,11 @@ impl Sealer for Seal {
         self.seals
     }
     fn seal(&self, aad: &[u8], plain: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        let left = self.seals_left.get();
+        if left == 0 {
+            return Err(ERR_STATE);
+        }
+        self.seals_left.set(left.saturating_sub(1));
         let nonce = [self.nonce.replace(self.nonce.get().wrapping_add(1)); 12];
         let total = 12 + plain.len() + 16;
         let out = out.get_mut(..total).ok_or(ERR_NO_SPACE)?;
@@ -195,9 +208,14 @@ impl Sealer for Seal {
 
 struct Source {
     strong: Cell<bool>,
+    /// A refusal to answer instead (0: none).
+    refuse: Cell<i32>,
 }
 impl Rng for Source {
     fn fill(&self, out: &mut [u8]) -> Result<bool, i32> {
+        if self.refuse.get() != 0 {
+            return Err(self.refuse.get());
+        }
         for (i, b) in out.iter_mut().enumerate() {
             *b = (i as u8).wrapping_mul(7).wrapping_add(3);
         }
@@ -211,6 +229,7 @@ struct Host {
     source: Source,
     has_source: bool,
     notices: Cell<u32>,
+    radio_notices: Cell<u32>,
 }
 impl SecretsHost for Host {
     fn storage(&self) -> &dyn Storage {
@@ -224,6 +243,9 @@ impl SecretsHost for Host {
     }
     fn unreadable(&self) {
         self.notices.set(self.notices.get() + 1);
+    }
+    fn needs_radio(&self) {
+        self.radio_notices.set(self.radio_notices.get() + 1);
     }
 }
 
@@ -398,9 +420,11 @@ fn host(seal: Seal) -> Rc<Host> {
         seal,
         source: Source {
             strong: Cell::new(true),
+            refuse: Cell::new(0),
         },
         has_source: true,
         notices: Cell::new(0),
+        radio_notices: Cell::new(0),
     })
 }
 
@@ -438,6 +462,20 @@ fn interface6(lines: &[(&str, &str, bool, &str)]) -> Vec<u8> {
         );
     }
     secrets.encode().into_bytes()
+}
+
+/// The whole startup migration, one bounded step at a time; whether any value
+/// was sealed.
+fn upgrade(services: &SecretsServices) -> Result<bool, i32> {
+    let (mut from, mut any) = (0, false);
+    loop {
+        let step = services.migrate(from)?;
+        any |= step.sealed > 0;
+        match step.next {
+            Some(next) => from = next,
+            None => return Ok(any),
+        }
+    }
 }
 
 fn text(bytes: &[u8]) -> String {
@@ -683,7 +721,7 @@ fn interface_6_values_are_read_and_become_sealed_at_the_first_save() {
             ("wifi-pw".into(), "Home".into(), 1)
         );
         // The first start after the update saves at once.
-        assert_eq!(v.services().upgrade(), Ok(true));
+        assert_eq!(upgrade(v.services()), Ok(true));
         let file = text(&v.host.card.file());
         assert_eq!(file.matches("s1:").count(), 2, "{file}");
         assert!(
@@ -697,7 +735,7 @@ fn interface_6_values_are_read_and_become_sealed_at_the_first_save() {
         assert_eq!(v.get("mail", "password").unwrap().0, "old-pw");
         assert_eq!(v.get("wifi", "Home").unwrap().2, 1);
         // Nothing left to upgrade.
-        assert_eq!(v.services().upgrade(), Ok(false));
+        assert_eq!(upgrade(v.services()), Ok(false));
     });
     // A keep alone also seals what was veiled.
     with_view(|v| {
@@ -726,7 +764,7 @@ fn a_device_that_only_veils_keeps_interface_6s_file_readable_by_interface_6() {
         assert_eq!(v.get("mail", "sealed").err(), Some(ERR_NOT_FOUND));
         v.keep("mail", "more", "", "x").unwrap();
         assert!(text(&v.host.card.file()).contains("mail.sealed\t\t\ts1:00aa\n"));
-        assert_eq!(v.services().upgrade(), Ok(false));
+        assert_eq!(upgrade(v.services()), Ok(false));
     });
 }
 
@@ -1066,7 +1104,7 @@ fn a_missing_file_is_an_empty_one_and_remove_of_nothing_writes_nothing() {
         v.remove("mail", "", "a").unwrap();
         assert!(v.host.card.get(file::FILE).is_none());
         assert!(v.host.card.get(file::TEMP).is_none());
-        assert_eq!(v.services().upgrade(), Ok(false));
+        assert_eq!(upgrade(v.services()), Ok(false));
     });
 }
 
@@ -1238,3 +1276,6 @@ fn get_takes_an_empty_plugin_only_and_an_explicit_id_is_denied_even_the_callers_
         }
     });
 }
+
+#[path = "secrets_maintenance_tests.rs"]
+mod maintenance;
