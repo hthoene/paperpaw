@@ -117,6 +117,13 @@ mod native_values;
 #[path = "native_host/native_dispatch.rs"]
 mod native_dispatch;
 
+#[allow(
+    dead_code,
+    reason = "production native activation and stage broker follow this registry"
+)]
+#[path = "native_host/native_instances.rs"]
+pub(crate) mod native_instances;
+
 // Static-entry activation uses the shared D1 reader; registry wiring follows.
 #[allow(
     dead_code,
@@ -344,6 +351,11 @@ impl<C, M> HostOwner<C, M> {
     #[must_use]
     pub fn is_active(&self) -> bool {
         self.inner.is_active()
+    }
+
+    /// Whether callback admission remains open, including between callbacks.
+    pub(crate) fn is_live(&self) -> bool {
+        self.inner.is_live()
     }
 
     /// Revoke immediately and run cancellation then release once, unless a
