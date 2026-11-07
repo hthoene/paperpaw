@@ -37,6 +37,8 @@ pub enum RuntimeError {
     Import,
     /// The interface, profile, requirements or metadata structure is unsupported.
     Metadata,
+    /// A required semantic feature is absent or needs a newer revision.
+    RequiredFeature { key: String, revision: u16 },
     /// The system loader could not load the checked file.
     Load,
     /// Loaded entry and locator disagree with the bytes checked before loading.
@@ -57,42 +59,35 @@ fn u32_at(bytes: &[u8], at: usize) -> Result<u32, RuntimeError> {
     Ok(u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]))
 }
 
-/// M1 has no qualified service or feature catalogs. Reject every requirement
-/// rather than treating a present but unsupported table slot as implemented.
+/// This shell advertises only capabilities it implements, never slot presence.
 fn metadata(bytes: &[u8], host: &PpHost) -> Result<u16, RuntimeError> {
-    use wire::*;
-    if bytes.len() > MAX_BYTES
-        || bytes.get(..MAGIC_BYTES.len()) != Some(MAGIC_BYTES)
-        || u16_at(bytes, LAYOUT)? != FORMAT
-        || usize::from(u16_at(bytes, PREFIX_BYTES)?) != PREFIX_SIZE
-        || u32_at(bytes, TOTAL_BYTES)? as usize != bytes.len()
-        || u16_at(bytes, ABI_MAJOR)? != host.major
-        || u16_at(bytes, NEEDS_MINOR)? == 0
-        || u16_at(bytes, NEEDS_MINOR)? > host.minor
-        || usize::from(u16_at(bytes, ENTRY_LAYOUT)?) != PROFILE_ENTRY_LAYOUT
-        || usize::from(u16_at(bytes, ENTRY_BYTES)?) != PROFILE_ENTRY_BYTES
-        || u32_at(bytes, FLAGS)? != 0
-        || u16_at(bytes, SERVICES)? != 0
-        || u16_at(bytes, FEATURES)? != 0
-        || u16_at(bytes, EXPORTS)? != 1
-    {
-        return Err(RuntimeError::Metadata);
+    use paperpaw_native::metadata::{self, Host, Profile, Refusal};
+    let capabilities = Host {
+        abi_major: host.major,
+        minor: host.minor,
+        profile: Profile {
+            target: core::str::from_utf8(wire::PROFILE).map_err(|_| RuntimeError::Metadata)?,
+            entry_layout: wire::PROFILE_ENTRY_LAYOUT as u16,
+            entry_bytes: wire::PROFILE_ENTRY_BYTES as u16,
+        },
+        services: &[],
+        features: &[],
+    };
+    match metadata::check(bytes, &capabilities) {
+        Ok(checked) => Ok(checked.needs_minor),
+        Err(Refusal::RequiredFeature { key, revision }) => {
+            let mut owned = String::new();
+            owned
+                .try_reserve_exact(key.len())
+                .map_err(|_| RuntimeError::Metadata)?;
+            owned.push_str(key);
+            Err(RuntimeError::RequiredFeature {
+                key: owned,
+                revision,
+            })
+        }
+        Err(_) => Err(RuntimeError::Metadata),
     }
-    let target_end = PREFIX_SIZE + usize::from(u16_at(bytes, TARGET_BYTES)?);
-    if bytes.get(PREFIX_SIZE..target_end) != Some(PROFILE) {
-        return Err(RuntimeError::Metadata);
-    }
-    let record = bytes.get(target_end..).ok_or(RuntimeError::Metadata)?;
-    if usize::from(u16_at(record, EXPORT_RECORD_BYTES)?) != record.len()
-        || record.get(EXPORT_KIND) != Some(&1)
-        || record.get(EXPORT_RESERVED) != Some(&0)
-        || u32_at(record, EXPORT_EXPECTED_BYTES)? as usize != PROFILE_ENTRY_BYTES
-        || usize::from(u16_at(record, EXPORT_NAME_BYTES)?) != ENTRY_SYMBOL.len()
-        || record.get(EXPORT_SIZE..) != Some(ENTRY_SYMBOL.as_bytes())
-    {
-        return Err(RuntimeError::Metadata);
-    }
-    u16_at(bytes, NEEDS_MINOR)
 }
 
 /// A live plugin. Its factory output and code remain owned until destruction.
@@ -319,7 +314,7 @@ mod plugin_output;
 )]
 mod owned;
 
-pub(crate) use owned::dev::load_flat;
+pub(crate) use owned::dev::load_flat_with_resources;
 /// The developer switch's loader for interface-7 plugins (assignment #772),
 /// off unless `--abi7-dev-loader` or `PAPERPAW_ABI7_DEV_LOADER=1` says so.
 pub use owned::dev::{DevPlugins, Kind, Refusal, classify, enabled, set_enabled};
