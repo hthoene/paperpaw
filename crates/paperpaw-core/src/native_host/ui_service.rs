@@ -48,9 +48,8 @@ pub(crate) trait UiHost {
 /// over the registry; it keeps no borrow past the call.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Declared {
-    /// The declaring plugin's index (`ui_handles` calls it `owner`).
-    pub(crate) plugin: u16,
-    /// The declaring plugin's host owner key (`NativeInstances`).
+    /// The declaring plugin's host owner id (the one `OwnerResources` id,
+    /// full width; `ui_handles` keeps it as it is).
     pub(crate) owner: u64,
     /// The owner's callback token (`widget.spec`, `status.item`, `status.line`).
     pub(crate) token: u32,
@@ -60,10 +59,7 @@ pub(crate) struct Declared {
 
 /// The registry's widget and status directory, read by ops 4, 14 and 15.
 /// Every method answers `ERR_NOT_FOUND` for an id nobody declared (or whose
-/// plugin retired), `ERR_NO_MEMORY` when it cannot answer and `ERR_FULL` when
-/// the declaring owner's id no longer fits the compact `plugin` index (the
-/// index narrows the one `OwnerResources` owner id, never a second namespace;
-/// `plugin_index` answers `None` then).
+/// plugin retired) and `ERR_NO_MEMORY` when it cannot answer.
 #[allow(dead_code, reason = "Core implements it; ops 4, 14 and 15 consume it")]
 pub(crate) trait UiDirectory {
     /// Op 4: the widget `widget` (a base id; a placement `x@2` has been
@@ -73,8 +69,6 @@ pub(crate) trait UiDirectory {
     fn status_item(&self, item: &str) -> Result<Declared, i32>;
     /// Op 15: the status line with the full id `line`.
     fn status_line(&self, line: &str) -> Result<Declared, i32>;
-    /// The plugin index of a host owner key, if that plugin is live.
-    fn plugin_index(&self, owner: u64) -> Option<u16>;
 }
 
 /// Op 14's call of the host-defined stage `core.status` to ONE owning plugin
