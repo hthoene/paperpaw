@@ -20,6 +20,9 @@ std::thread_local! {
     /// Calls announced to the shell, and how many are open now.
     static CALLS: Cell<u32> = const { Cell::new(0) };
     static OPEN: Cell<i32> = const { Cell::new(0) };
+    /// Host slots the shell announced on this thread, and how many are open.
+    static SLOTS: Cell<u32> = const { Cell::new(0) };
+    static SLOTS_OPEN: Cell<i32> = const { Cell::new(0) };
     /// Destructor runs that were outside any announced call.
     static UNCOVERED: Cell<u32> = const { Cell::new(0) };
     /// The nth allocation of this thread fails (1-based; 0: none).
@@ -643,6 +646,31 @@ mod instance_tests {
                 DeclaredServices::none(),
             )
         }
+    }
+
+    fn slot_begin() {
+        SLOTS.with(|n| n.set(n.get() + 1));
+        SLOTS_OPEN.with(|n| n.set(n.get() + 1));
+    }
+
+    fn slot_end() {
+        SLOTS_OPEN.with(|n| n.set(n.get() - 1));
+    }
+
+    #[test]
+    fn a_plugin_call_into_a_host_slot_is_announced_and_ended() {
+        // The hooks are global but count per thread, so tests running beside
+        // this one only count their own.
+        crate::native_host::host_slot::set(slot_begin, slot_end);
+        reset(NORMAL);
+        SLOTS.with(|n| n.set(0));
+        SLOTS_OPEN.with(|n| n.set(0));
+        let instance = load().unwrap();
+        // `make` submitted its registrations through the host's slot.
+        assert!(SLOTS.with(Cell::get) >= 1, "the slot was announced");
+        assert_eq!(SLOTS_OPEN.with(Cell::get), 0, "and ended");
+        drop(instance);
+        assert_eq!(SLOTS_OPEN.with(Cell::get), 0);
     }
 
     #[test]
@@ -1322,5 +1350,11 @@ mod stage_broker_oom;
 
 #[path = "shell_evt_oom_tests.rs"]
 mod evt_oom;
+
+#[path = "shell_command_dispatch_tests.rs"]
+mod command_dispatch;
 #[path = "stage_broker_native_tests.rs"]
 mod stage_broker_native;
+
+#[path = "native_screen_install_tests.rs"]
+mod native_screen_install;

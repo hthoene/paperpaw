@@ -735,6 +735,8 @@ unsafe extern "C" fn registrations_submit<S: Services>(ctx: *mut c_void, batch: 
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: the foreign caller supplies stable readable batch bytes for this
     // synchronous call. Core copies callback records, owns its snapshots of
     // declarations, and borrows image storage only through the image range
@@ -747,6 +749,8 @@ unsafe extern "C" fn env_snapshot<S>(ctx: *mut c_void, out: PpBuffer) -> i32 {
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: generated slot 4 requires exclusive writable output, disjoint
     // from host state and borrowed inputs. The scope keeps no output pointer.
     unsafe { context.environment.copy(out.ptr, out.cap) }
@@ -757,6 +761,8 @@ unsafe extern "C" fn settings_read<S>(ctx: *mut c_void, key: PpBytes, out: PpBuf
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: generated slot 5 requires initialized immutable readable key
     // bytes and exclusive output, disjoint from key and host state. No pointer
     // is kept. The backend's required-length and prefix semantics are kept.
@@ -782,6 +788,8 @@ unsafe extern "C" fn canvas_fill_rect<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     context.canvas.fill_rect_raw(x, y, width, height, color)
 }
 
@@ -987,6 +995,8 @@ unsafe extern "C" fn i18n_copy<S>(ctx: *mut c_void, key: PpBytes, out: PpBuffer)
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe { super::formatting::copy(&context.environment, key, out) }
 }
@@ -1001,6 +1011,8 @@ unsafe extern "C" fn i18n_format<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe { super::formatting::format(&context.environment, key, args, out) }
 }
@@ -1010,6 +1022,8 @@ unsafe extern "C" fn i18n_digits<S>(ctx: *mut c_void, text: PpBytes, out: PpBuff
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe { super::formatting::digits(&context.environment, text, out) }
 }
@@ -1024,6 +1038,8 @@ unsafe extern "C" fn storage_size<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe { super::storage_slots::size(&context.environment, &context.id, root, path, out) }
 }
@@ -1039,6 +1055,8 @@ unsafe extern "C" fn storage_read_at<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe {
         super::storage_slots::read_at(&context.environment, &context.id, root, path, offset, out)
@@ -1055,6 +1073,8 @@ unsafe extern "C" fn storage_write<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe { super::storage_slots::write(&context.environment, &context.id, root, path, data) }
 }
@@ -1069,6 +1089,8 @@ unsafe extern "C" fn storage_append<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe { super::storage_slots::append(&context.environment, &context.id, root, path, data) }
 }
@@ -1083,6 +1105,8 @@ unsafe extern "C" fn storage_rename<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe { super::storage_slots::rename(&context.environment, &context.id, root, from, to) }
 }
@@ -1092,6 +1116,8 @@ unsafe extern "C" fn storage_remove<S>(ctx: *mut c_void, root: u32, path: PpByte
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
     unsafe { super::storage_slots::remove(&context.environment, &context.id, root, path) }
 }
@@ -1101,6 +1127,8 @@ unsafe extern "C" fn storage_sync<S>(ctx: *mut c_void) -> i32 {
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     super::storage_slots::sync(&context.environment, &context.id)
 }
 
@@ -1117,6 +1145,8 @@ unsafe extern "C" fn canvas_draw_line<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     context.canvas.draw_line(x0, y0, x1, y1, width, color)
 }
 
@@ -1133,6 +1163,8 @@ unsafe extern "C" fn canvas_fill_round<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     context
         .canvas
         .fill_round(x, y, width, height, radius, color)
@@ -1152,6 +1184,8 @@ unsafe extern "C" fn canvas_stroke_round<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     context
         .canvas
         .stroke_round(x, y, width, height, radius, thickness, color)
@@ -1168,6 +1202,8 @@ unsafe extern "C" fn canvas_clip<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     context.canvas.clip(x, y, width, height)
 }
 
@@ -1176,6 +1212,8 @@ unsafe extern "C" fn font_acquire<S>(ctx: *mut c_void, key: PpBytes, out: *mut u
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: slot contracts supply live, disjoint input and output storage.
     unsafe { super::fonts::acquire(&context.environment, &context.resources, key, out) }
 }
@@ -1185,6 +1223,8 @@ unsafe extern "C" fn handle_release<S>(ctx: *mut c_void, handle: u32) -> i32 {
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     super::fonts::release(&context.resources, handle)
 }
 
@@ -1199,6 +1239,8 @@ unsafe extern "C" fn text_measure<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: slot contracts supply live, disjoint input and output storage.
     unsafe {
         super::fonts::measure(
@@ -1224,6 +1266,8 @@ unsafe extern "C" fn text_metrics<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: slot contracts supply live, disjoint input and output storage.
     unsafe {
         super::fonts::metrics(
@@ -1254,6 +1298,8 @@ unsafe extern "C" fn text_ink<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: slot contracts supply live, disjoint input and output storage.
     unsafe {
         super::fonts::ink(
@@ -1285,6 +1331,8 @@ unsafe extern "C" fn text_draw<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: slot contracts supply live, disjoint input and output storage.
     unsafe {
         super::fonts::draw(
@@ -1316,6 +1364,8 @@ unsafe extern "C" fn services_query<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: slot contracts supply live, disjoint input and output storage.
     unsafe {
         super::service_slots::query(
@@ -1334,6 +1384,8 @@ unsafe extern "C" fn blob_read<S>(ctx: *mut c_void, blob: u32, offset: u64, out:
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: slot contracts supply live, disjoint output storage.
     unsafe {
         super::service_slots::read(&context.environment, &context.resources, blob, offset, out)
@@ -1344,8 +1396,14 @@ unsafe extern "C" fn blob_release<S>(ctx: *mut c_void, blob: u32) -> i32 {
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     super::service_slots::release(&context.environment, &context.resources, blob)
 }
+
+#[cfg(test)]
+#[path = "shell_commands.rs"]
+mod command_dispatch;
 
 #[cfg(test)]
 #[path = "shell_core.rs"]
@@ -1356,6 +1414,8 @@ unsafe extern "C" fn commands_submit<S>(ctx: *mut c_void, batch: PpBytes) -> i32
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: the slot contract supplies stable, readable batch bytes.
     unsafe { context.commands.submit(batch.ptr, batch.len) }
 }
@@ -1373,6 +1433,8 @@ unsafe extern "C" fn service_open<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: generated slot contracts supply live and disjoint pairs.
     unsafe {
         super::call_services::open(
@@ -1398,6 +1460,8 @@ unsafe extern "C" fn service_call<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
     // SAFETY: generated slot contracts supply live and disjoint pairs.
     unsafe {
         super::call_services::call(
