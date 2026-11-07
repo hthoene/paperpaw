@@ -35,7 +35,8 @@ fn pair(bytes: &[u8]) -> PpBytes {
 #[test]
 fn failed_handle_and_reply_allocations_recover_without_sticking_busy() {
     let pool = HostResources::with_test_service(echo).unwrap();
-    let owner = pool.try_owner().unwrap();
+    let mut owner = pool.try_owner().unwrap();
+    owner.bind_caller("fixture").unwrap();
     let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
     let declared = DeclaredServices::try_from_iter(core::iter::once(Declared {
         key: "core.test-echo",
@@ -131,4 +132,17 @@ fn failed_handle_and_reply_allocations_recover_without_sticking_busy() {
             owner.release(handle).unwrap();
         })
         .unwrap();
+}
+
+#[test]
+fn failed_identity_binding_leaves_the_owner_unresolved_and_can_retry() {
+    let pool = HostResources::with_test_service(echo).unwrap();
+    let mut owner = pool.try_owner().unwrap();
+    arm_failure(1);
+    let result = owner.bind_caller("fixture");
+    arm_failure(0);
+    assert_eq!(result, Err(abi::ERR_NO_MEMORY));
+    assert!(matches!(owner.bound_caller(), Err(abi::ERR_DENIED)));
+    owner.bind_caller("fixture").unwrap();
+    assert_eq!(owner.bound_caller().unwrap().as_str(), "fixture");
 }

@@ -19,6 +19,8 @@ use paperpaw_sdk::Id;
 /// The bridge holds the module guard and excludes image release during a visit.
 /// Methods must not invoke plugin callbacks or reenter the store.
 pub(crate) trait ImageOwner {
+    /// Host identity, unchanged within a source generation.
+    fn plugin_id(&self) -> &str;
     fn generation(&self) -> u32;
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>));
     fn invalid_declaration(&self, error: i32);
@@ -96,7 +98,7 @@ pub(crate) struct Allocations {
     pub(crate) fail_after: Option<usize>,
 }
 impl Allocations {
-    fn reserve<T>(&mut self, target: &mut Vec<T>, count: usize) -> Result<(), i32> {
+    pub(crate) fn reserve<T>(&mut self, target: &mut Vec<T>, count: usize) -> Result<(), i32> {
         if count == 0 {
             return Ok(());
         }
@@ -506,6 +508,25 @@ impl DeclarationStore {
         key: DeclKey,
         visit: &mut dyn for<'a> FnMut(Record<'a>),
     ) -> bool {
+        self.visit_checked(key, true, visit)
+    }
+
+    /// Visit a retained record without requiring a named-kind index entry.
+    /// The visitor must not invoke plugins or reenter the declaration store.
+    pub(crate) fn visit_record(
+        &self,
+        key: DeclKey,
+        visit: &mut dyn for<'a> FnMut(Record<'a>),
+    ) -> bool {
+        self.visit_checked(key, false, visit)
+    }
+
+    fn visit_checked(
+        &self,
+        key: DeclKey,
+        indexed: bool,
+        visit: &mut dyn for<'a> FnMut(Record<'a>),
+    ) -> bool {
         let Some(owner) = self
             .owners
             .get(usize::from(key.owner))
@@ -527,7 +548,9 @@ impl DeclarationStore {
                 return;
             };
             let result = decode_entry(owner, image, key.batch, key.record).and_then(|record| {
-                check_indexed_name(owner, image, key, record)?;
+                if indexed {
+                    check_indexed_name(owner, image, key, record)?;
+                }
                 visit(record);
                 Ok(())
             });

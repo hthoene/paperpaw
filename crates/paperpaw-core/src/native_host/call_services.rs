@@ -221,6 +221,9 @@ pub(super) unsafe fn call(
         input_pair(input)?;
         output_pair(out)?;
         scope.with_frame(|frame| {
+            if owner.bound_caller()?.as_str() != plugin {
+                return Err(paperpaw_native::host_glue::ERR_DENIED);
+            }
             let key = owner.service(service)?;
             // SAFETY: the slot caller supplies readable input after pair checks.
             let input = unsafe { buffers::bytes_in(input, buffers::TEXT_MAX) }?;

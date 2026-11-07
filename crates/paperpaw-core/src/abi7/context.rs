@@ -63,6 +63,9 @@ pub(crate) struct ComposeRequest {
 pub(crate) trait Frame {
     fn settings(&self) -> &Settings;
     fn translator(&self) -> &Translator;
+    fn settings_editor(&self) -> Option<&str> {
+        None
+    }
     /// Broker access exists only for the duration of the outer callback.
     /// The broker completes checks and subscriber calls before publishing a reply.
     /// On success it initializes exactly the returned prefix using writes only,

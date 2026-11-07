@@ -292,7 +292,14 @@ impl<S: Services, M> Hosted<S, M> {
         resources: super::HostResources,
         declared_services: DeclaredServices,
     ) -> Result<Self, Error> {
-        let resources = resources.try_owner().map_err(Error::Status)?;
+        let mut resources = resources.try_owner().map_err(Error::Status)?;
+        resources.bind_caller(id).map_err(|status| {
+            if status == host_glue::ERR_NO_MEMORY {
+                Error::Allocation
+            } else {
+                Error::Status(status)
+            }
+        })?;
         let scoped_resources = resources
             .try_view()
             .ok_or(Error::Status(host_glue::ERR_NO_MEMORY))?;
@@ -770,14 +777,14 @@ unsafe extern "C" fn settings_read<S>(ctx: *mut c_void, key: PpBytes, out: PpBuf
     };
     // The plugin waits for the host from here to the return.
     let _slot = super::host_slot::enter();
+    let caller = match context.resources.bound_caller() {
+        Ok(caller) => caller,
+        Err(error) => return error,
+    };
     // SAFETY: generated slot 5 requires initialized immutable readable key
     // bytes and exclusive output, disjoint from key and host state. No pointer
     // is kept. The backend's required-length and prefix semantics are kept.
-    unsafe {
-        context
-            .environment
-            .settings_read(key.ptr, key.len, out.ptr, out.cap)
-    }
+    unsafe { context.environment.settings_read_for(caller, key, out) }
 }
 
 /// Slot 9 (`canvas.fill_rect`): the foreign callback reaches [`CanvasScope`]

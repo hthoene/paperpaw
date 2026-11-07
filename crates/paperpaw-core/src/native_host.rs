@@ -93,6 +93,16 @@ mod declaration_index;
 #[path = "native_host/declaration_checks.rs"]
 mod declaration_checks;
 
+#[path = "native_host/declaration_reg_checks.rs"]
+mod declaration_reg_checks;
+
+#[path = "native_host/reg_catalog.rs"]
+#[allow(
+    dead_code,
+    reason = "REG callback attachment follows the catalog ownership implementation"
+)]
+pub(crate) mod reg_catalog;
+
 #[path = "native_host/raw_declarations.rs"]
 mod raw_declarations;
 
@@ -952,3 +962,11 @@ pub mod stages_wire;
     reason = "host stage entry point is wired by the reader port"
 )]
 pub(crate) mod stage_broker;
+
+#[cfg(test)]
+#[path = "native_host/registry_page.rs"]
+mod registry_page;
+
+#[cfg(test)]
+#[path = "native_host/declaration_reg_index_tests.rs"]
+mod declaration_reg_index_tests;
