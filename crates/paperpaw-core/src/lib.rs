@@ -1273,6 +1273,7 @@ impl Kernel {
 struct Shared {
     /// The native runtime's producer endpoint; absent before runtime installation.
     native_events: Option<Box<dyn native_host::event_producers::EventSink>>,
+    native_instances: native_host::native_instances::NativeInstances,
     /// The screens and slots plugins added (in here so that a screen can
     /// make another to host it: [`Env::make_screen`]).
     registry: Registry,

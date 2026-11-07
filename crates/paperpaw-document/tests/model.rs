@@ -14,9 +14,9 @@
 )]
 
 use paperpaw_document::{
-    Align, Block, BlockKind, Document, DocumentError, EditError, Lang, Link, LinkKind, Locator,
-    MAX_FAMILIES, MAX_INLINE_LANGS, Metadata, NoStorage, OffsetMap, Run, Storage, TextStyle,
-    is_external,
+    Align, Block, BlockKind, CheckpointError, Document, DocumentError, EditError, Lang, Link,
+    LinkKind, Locator, MAX_FAMILIES, MAX_INLINE_LANGS, Metadata, NoStorage, OffsetMap, Run,
+    Storage, TextStyle, is_external,
 };
 use proptest::prelude::*;
 
@@ -512,4 +512,25 @@ fn a_link_is_plain_unless_it_says() {
     let block = Block::new(BlockKind::Paragraph, 0, 0, String::new());
     assert_eq!(block.lang, Lang::NONE);
     assert_eq!(block.drop_cap, 0);
+}
+
+#[test]
+fn try_checkpoint_refuses_without_changing_the_map() {
+    let mut map = OffsetMap::default();
+    assert_eq!(map.try_checkpoint(1, 1), Ok(()));
+    assert_eq!(map.try_checkpoint(2, 5), Ok(()));
+    // The same index again moves its source, as `checkpoint` does.
+    assert_eq!(map.try_checkpoint(2, 9), Ok(()));
+    assert_eq!(map.try_checkpoint(1, 0), Err(CheckpointError::OutOfOrder));
+    if let Ok(past) = usize::try_from(u64::from(u32::MAX) + 1) {
+        assert_eq!(map.try_checkpoint(past, 0), Err(CheckpointError::TooLarge));
+    }
+    assert_eq!(map.checkpoints().collect::<Vec<_>>(), [(1, 1), (2, 9)]);
+    assert_eq!(map.checkpoints().len(), 2);
+
+    let mut same = OffsetMap::default();
+    same.checkpoint(1, 1);
+    same.checkpoint(2, 5);
+    same.checkpoint(2, 9);
+    assert_eq!(map, same);
 }

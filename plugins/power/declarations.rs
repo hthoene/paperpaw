@@ -90,8 +90,9 @@ pub fn ui(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError
     declarations.submit()
 }
 
-/// Events that make the plugin look at the battery again, the dialog's
-/// answer and the status stage.
+/// Events that make the plugin look at the battery again and the status
+/// stage. The dialog's answer is not subscribed: the host delivers it to the
+/// asker on its own.
 pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
     let mut declarations = Declarations::new(sink);
     for kind in [
@@ -100,7 +101,6 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
         EventKind::BatteryMeasured,
         EventKind::ChargeChanged,
         EventKind::SettingChanged,
-        EventKind::Answered,
     ] {
         declarations.subscribe_event(kind, EVENTS_TOKEN)?;
     }

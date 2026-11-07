@@ -114,8 +114,9 @@ fn the_events_are_the_ones_the_mode_follows() {
     for batch in &events {
         count += records_decode(batch).unwrap().len();
     }
-    // Started, resume, battery, charge, setting, answered and the status stage.
-    assert_eq!(count, 7);
+    // Started, resume, battery, charge, setting and the status stage. The
+    // dialog's answer goes to the asker without a subscription.
+    assert_eq!(count, 6);
 }
 
 /// Every record is well formed for the host. The host does not admit menu

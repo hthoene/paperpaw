@@ -12982,6 +12982,39 @@ impl EventDocumentClosed {
         write_bytes(&self.reason.to_le_bytes(), out, offset);
     }
 }
+/// Wire tag of the `service.lib_field_page` record.
+pub const SERVICE_LIB_FIELD_PAGE_TAG: u32 = 1182;
+
+/// The `service.lib_field_page` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceLibFieldPage {
+    /// Little-endian u32.
+    pub cursor: u32,
+    /// Little-endian u32.
+    pub generation: u32,
+}
+
+impl ServiceLibFieldPage {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceLibFieldPage(Self {
+            cursor: u32::from_le_bytes(body.scalar()?),
+            generation: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.cursor.to_le_bytes(), out, offset);
+        write_bytes(&self.generation.to_le_bytes(), out, offset);
+    }
+}
 
 /// A registration or declaration record, borrowed from one validated batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -13513,6 +13546,8 @@ pub enum Record<'a> {
     ServiceSockPort(ServiceSockPort),
     /// A `EventDocumentClosed` record.
     EventDocumentClosed(EventDocumentClosed),
+    /// A `ServiceLibFieldPage` record.
+    ServiceLibFieldPage(ServiceLibFieldPage),
 }
 
 impl<'a> Reader<'a> {
@@ -13833,6 +13868,7 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         SERVICE_SOCK_BROADCAST_TAG => ServiceSockBroadcast::decode(body)?,
         SERVICE_SOCK_PORT_TAG => ServiceSockPort::decode(body)?,
         EVENT_DOCUMENT_CLOSED_TAG => EventDocumentClosed::decode(body)?,
+        SERVICE_LIB_FIELD_PAGE_TAG => ServiceLibFieldPage::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -14186,6 +14222,7 @@ impl Record<'_> {
             Record::ServiceSockBroadcast(_) => SERVICE_SOCK_BROADCAST_TAG,
             Record::ServiceSockPort(_) => SERVICE_SOCK_PORT_TAG,
             Record::EventDocumentClosed(_) => EVENT_DOCUMENT_CLOSED_TAG,
+            Record::ServiceLibFieldPage(_) => SERVICE_LIB_FIELD_PAGE_TAG,
         }
     }
 
@@ -14455,6 +14492,7 @@ impl Record<'_> {
             Record::ServiceSockBroadcast(record) => record.body_len(),
             Record::ServiceSockPort(record) => record.body_len(),
             Record::EventDocumentClosed(record) => record.body_len(),
+            Record::ServiceLibFieldPage(record) => record.body_len(),
         }
     }
 
@@ -14729,6 +14767,7 @@ impl Record<'_> {
             Record::ServiceSockBroadcast(record) => record.write(out, offset),
             Record::ServiceSockPort(record) => record.write(out, offset),
             Record::EventDocumentClosed(record) => record.write(out, offset),
+            Record::ServiceLibFieldPage(record) => record.write(out, offset),
         }
     }
 
@@ -15186,6 +15225,7 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         SERVICE_SOCK_REF_TAG => ServiceSockRef::decode(body)?,
         SERVICE_SOCK_BROADCAST_TAG => ServiceSockBroadcast::decode(body)?,
         SERVICE_SOCK_PORT_TAG => ServiceSockPort::decode(body)?,
+        SERVICE_LIB_FIELD_PAGE_TAG => ServiceLibFieldPage::decode(body)?,
         EVENT_TICK_TAG
         | EVENT_STARTED_TAG
         | EVENT_RESUME_TAG
