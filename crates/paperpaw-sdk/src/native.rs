@@ -1077,4 +1077,4 @@ pub(crate) mod tests;
 /// Generated host-stage payload records and their local tag tables.
 #[path = "native/wire/stages_wire.rs"]
 #[allow(clippy::all, clippy::pedantic, reason = "generated stage wire codecs")]
-pub mod stages;
+pub mod stage_schemas;

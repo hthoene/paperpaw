@@ -409,8 +409,8 @@ pub mod core_input_filter_v1 {
             Some(decoded)
         }
     }
-    /// Validate the complete batch before exposing records; foreign tags are invalid.
-    pub fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+    /// Tooling-only, side-agnostic batch validation. Runtime callers use a direction.
+    pub(crate) fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
         decode_with(bytes, MAX_INPUT.max(MAX_REPLY), REPLY_ROWS.max(1), &[])
     }
     /// Decode exactly one stage input using only input tags and its byte cap.
@@ -453,8 +453,8 @@ pub mod core_input_filter_v1 {
             remaining: count,
         })
     }
-    /// Encode a bounded batch; invalid values and short output leave it untouched.
-    pub fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+    /// Tooling-only, side-agnostic encoding. Runtime callers use a direction.
+    pub(crate) fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
         encode_with(
             records,
             out,
@@ -494,7 +494,7 @@ pub mod core_input_filter_v1 {
             required += varint_len(record.tag()) + varint_len(body as u32) + body;
         }
         if required > cap {
-            return Err(-2);
+            return Err(-3);
         }
         if out.len() < required {
             return Err(-3);
@@ -891,8 +891,8 @@ pub mod core_status_v1 {
             Some(decoded)
         }
     }
-    /// Validate the complete batch before exposing records; foreign tags are invalid.
-    pub fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+    /// Tooling-only, side-agnostic batch validation. Runtime callers use a direction.
+    pub(crate) fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
         decode_with(bytes, MAX_INPUT.max(MAX_REPLY), REPLY_ROWS.max(1), &[])
     }
     /// Decode exactly one stage input using only input tags and its byte cap.
@@ -935,8 +935,8 @@ pub mod core_status_v1 {
             remaining: count,
         })
     }
-    /// Encode a bounded batch; invalid values and short output leave it untouched.
-    pub fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+    /// Tooling-only, side-agnostic encoding. Runtime callers use a direction.
+    pub(crate) fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
         encode_with(
             records,
             out,
@@ -976,7 +976,7 @@ pub mod core_status_v1 {
             required += varint_len(record.tag()) + varint_len(body as u32) + body;
         }
         if required > cap {
-            return Err(-2);
+            return Err(-3);
         }
         if out.len() < required {
             return Err(-3);
@@ -1553,8 +1553,8 @@ pub mod core_widget_v1 {
             Some(decoded)
         }
     }
-    /// Validate the complete batch before exposing records; foreign tags are invalid.
-    pub fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+    /// Tooling-only, side-agnostic batch validation. Runtime callers use a direction.
+    pub(crate) fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
         decode_with(bytes, MAX_INPUT.max(MAX_REPLY), REPLY_ROWS.max(1), &[])
     }
     /// Decode exactly one stage input using only input tags and its byte cap.
@@ -1597,8 +1597,8 @@ pub mod core_widget_v1 {
             remaining: count,
         })
     }
-    /// Encode a bounded batch; invalid values and short output leave it untouched.
-    pub fn records_encode(records: &[Record], out: &mut [u8]) -> Result<usize, i32> {
+    /// Tooling-only, side-agnostic encoding. Runtime callers use a direction.
+    pub(crate) fn records_encode(records: &[Record], out: &mut [u8]) -> Result<usize, i32> {
         encode_with(
             records,
             out,
@@ -1638,7 +1638,7 @@ pub mod core_widget_v1 {
             required += varint_len(record.tag()) + varint_len(body as u32) + body;
         }
         if required > cap {
-            return Err(-2);
+            return Err(-3);
         }
         if out.len() < required {
             return Err(-3);

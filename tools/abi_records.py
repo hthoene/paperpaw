@@ -500,8 +500,8 @@ impl<'a> Iterator for RecordStream<'a> {
         Some(decoded)
     }
 }
-/// Validate the complete batch before exposing records; foreign tags are invalid.
-pub fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+/// Tooling-only, side-agnostic batch validation. Runtime callers use a direction.
+pub(crate) fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
     decode_with(bytes, MAX_INPUT.max(MAX_REPLY), REPLY_ROWS.max(1), &[])
 }
 /// Decode exactly one stage input using only input tags and its byte cap.
@@ -529,8 +529,8 @@ fn decode_with<'a>(bytes: &'a [u8], cap: usize, rows: usize, tags: &[u32]) -> Re
     Ok(RecordStream { bytes: records, remaining: count })
 }
 '''
-ENCODE_TEMPLATE = '''/// Encode a bounded batch; invalid values and short output leave it untouched.
-pub fn records_encode(records: &[@RECORD@], out: &mut [u8]) -> Result<usize, i32> {
+ENCODE_TEMPLATE = '''/// Tooling-only, side-agnostic encoding. Runtime callers use a direction.
+pub(crate) fn records_encode(records: &[@RECORD@], out: &mut [u8]) -> Result<usize, i32> {
     encode_with(records, out, MAX_INPUT.max(MAX_REPLY), REPLY_ROWS.max(1), &[])
 }
 /// Encode exactly one input using its tag and byte bounds.
@@ -551,7 +551,7 @@ fn encode_with(records: &[@RECORD@], out: &mut [u8], cap: usize, rows: usize, ta
         let body = record.body_len()?;
         required += varint_len(record.tag()) + varint_len(body as u32) + body;
     }
-    if required > cap { return Err(-2); }
+    if required > cap { return Err(-3); }
     if out.len() < required { return Err(-3); }
     let mut offset = 0;
     write_varint(records.len() as u32, out, &mut offset);
