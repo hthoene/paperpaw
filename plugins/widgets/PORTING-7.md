@@ -41,8 +41,9 @@ interface-7 port uses it, none builds its own.
 
 ## Not ported yet (explicit)
 
-The words family (quote, note, to-do, picture,
-greeting) and the books family. The interface-6 pack stays in `src/` until
+The words family's quote, to-do, picture and logo widgets, and the books
+family. Ported from the words family so far: greeting (by time of day) and
+note (tap asks for a text with `core.ui`; host acceptance pending H1/H2/H4). The interface-6 pack stays in `src/` until
 every widget is ported; then the last commit deletes it, its app wiring and
 its tests together (no shim).
 
