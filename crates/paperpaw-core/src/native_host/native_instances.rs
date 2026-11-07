@@ -10,7 +10,7 @@ use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_
 use paperpaw_sdk::Id;
 
 pub(crate) trait NativeInstance: Dispatch {
-    fn active(&self) -> bool;
+    fn running(&self) -> bool;
     fn stop(&self);
 }
 
@@ -27,7 +27,7 @@ impl NativeLease {
         self.0.try_clone().map(Self).ok_or(ERR_NO_MEMORY)
     }
     pub(crate) fn live(&self) -> Result<&dyn NativeInstance, i32> {
-        if self.0.active() {
+        if self.0.running() {
             Ok(&**self.0)
         } else {
             Err(ERR_CANCELLED)
@@ -146,7 +146,7 @@ impl NativeInstances {
         let entry = self.entries.get_mut(key).ok_or(ERR_STATE)?;
         entry.enabled = false;
         entry.start.set(false);
-        if let Some(instance) = &entry.instance {
+        if let Some(instance) = entry.instance.take() {
             instance.stop();
         }
         Ok(())
@@ -216,7 +216,7 @@ mod tests {
         }
     }
     impl NativeInstance for Fake {
-        fn active(&self) -> bool {
+        fn running(&self) -> bool {
             self.active.get()
         }
         fn stop(&self) {
@@ -264,10 +264,10 @@ mod tests {
             .unwrap();
         let env = kernel.shared.env(paperpaw_platform::Instant(0));
         assert_eq!(lease.event(1, &[], &env), Err(ERR_CANCELLED));
-        drop(registry);
         assert_eq!(drops.get(), 0, "frozen lease retains the old owner");
         drop(lease);
         assert_eq!(drops.get(), 1);
+        assert!(matches!(registry.state(key), Ok(InstanceState::Stopped)));
     }
 
     #[test]

@@ -163,7 +163,7 @@ impl<C, M> Owner<C, M> {
     /// Reserve before publishing a registration or queued callback. Eight is
     /// a conservative local lease bound, not a device-wide memory guarantee.
     pub(crate) fn lease(self: Pin<&Self>) -> Result<Lease<'_, C, M>, Error> {
-        if self.state.get() != State::Live {
+        if !self.is_live() {
             return Err(Error::State);
         }
         if self.leases.get() >= 8 {
@@ -184,6 +184,10 @@ impl<C, M> Owner<C, M> {
     /// resource cleanup until that callback has returned.
     pub(crate) fn is_active(&self) -> bool {
         self.instance.is_active()
+    }
+
+    pub(crate) fn is_live(&self) -> bool {
+        self.state.get() == State::Live
     }
 
     pub(crate) fn prepare_teardown(self: Pin<&Self>) -> Result<(), Error> {
@@ -261,7 +265,7 @@ impl<C, M> Lease<'_, C, M> {
         depth: &Depth,
         callback: impl FnOnce(Pin<&C>) -> R,
     ) -> Result<R, Error> {
-        if self.owner.state.get() != State::Live {
+        if !self.owner.is_live() {
             return Err(Error::State);
         }
         let _call = self

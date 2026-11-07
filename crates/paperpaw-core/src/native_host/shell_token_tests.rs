@@ -397,6 +397,57 @@ fn native_mapping_finishes_before_callbacks_activate() {
 }
 
 #[test]
+fn registry_dispatches_idle_retained_owner_and_releases_it_after_last_frozen_lease() {
+    use super::super::{
+        native_dispatch::NativeDispatch,
+        native_instances::{InstanceState, NativeInstances, NativeLease},
+        native_screen::Dispatch,
+        retained::Retained,
+    };
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let lease = NativeLease::try_new(NativeDispatch::new(
+        Retained::make(hosted(false)).unwrap(),
+        super::super::flat::FlatDepth::try_new().unwrap(),
+        super::super::FlatHost {
+            meter: alloc::rc::Rc::clone(&kernel.shared.meter),
+            font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
+        },
+        |_, _, _| {},
+    ))
+    .unwrap();
+    let mut registry = NativeInstances::default();
+    let key = registry
+        .insert(paperpaw_sdk::Id::new_static("tokens"), Some(lease), true)
+        .unwrap();
+    let env = kernel.shared.env(Instant(12));
+    for expected in 1..=2 {
+        let InstanceState::Running(lease) = registry.state(key).unwrap() else {
+            panic!("idle retained owner must remain running");
+        };
+        assert_eq!(lease.event(TOKEN, &[], &env), Ok(0));
+        assert_eq!(CALLS.with(Cell::get), expected);
+    }
+    let InstanceState::Running(frozen) = registry.state(key).unwrap() else {
+        panic!("running between calls");
+    };
+    registry.stop(key).unwrap();
+    assert!(matches!(registry.state(key), Ok(InstanceState::Stopped)));
+    assert_eq!(
+        frozen.event(TOKEN, &[], &env),
+        Err(host_glue::ERR_CANCELLED)
+    );
+    assert_eq!(CALLS.with(Cell::get), 2);
+    assert_eq!(DESTROYS.with(Cell::get), 0);
+    drop(frozen);
+    assert_eq!(DESTROYS.with(Cell::get), 1);
+    assert!(matches!(registry.state(key), Ok(InstanceState::Stopped)));
+    registry.stop(key).unwrap();
+    assert_eq!(DESTROYS.with(Cell::get), 1);
+}
+
+#[test]
 fn shared_native_dispatch_scopes_all_screen_callbacks_and_retains_owner() {
     use super::super::{
         native_dispatch::NativeDispatch, native_screen::Dispatch, retained::Retained,

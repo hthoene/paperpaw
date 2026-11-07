@@ -335,6 +335,11 @@ impl<C, M> HostOwner<C, M> {
         self.inner.is_active()
     }
 
+    /// Whether callback admission remains open, including between callbacks.
+    pub(crate) fn is_live(&self) -> bool {
+        self.inner.is_live()
+    }
+
     /// Revoke immediately and run cancellation then release once, unless a
     /// callback is active. The shell must defer Busy to its next tick. After
     /// success, remove subscriptions and queued work before calling finish.

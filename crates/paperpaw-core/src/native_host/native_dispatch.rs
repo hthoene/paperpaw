@@ -112,8 +112,8 @@ fn status(error: shell::Error) -> i32 {
 impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
     for NativeDispatch<S, M>
 {
-    fn active(&self) -> bool {
-        self.instance.host().owner().is_active()
+    fn running(&self) -> bool {
+        self.instance.host().owner().is_live()
     }
     fn stop(&self) {
         self.instance.host().stop();
