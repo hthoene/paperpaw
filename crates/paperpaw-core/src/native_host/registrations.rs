@@ -76,7 +76,9 @@ pub use wire::{RECORD_CARRY_MAX_BYTES, RecordStream, record_decode_prefix, recor
 // The host's decoders (lock format 10, #985): only records a plugin sends. The
 // host decodes through these alone, so a device links no decoder for events,
 // input, frames or service replies.
-pub use wire::{host_decode_one, host_decode_prefix, host_records_decode_into};
+pub use wire::{
+    host_arguments_decode_into, host_decode_one, host_decode_prefix, host_records_decode_into,
+};
 
 /// A plugin's batch as the host decodes it ([`host_records_decode_into`]),
 /// returned by value. A plugin-reachable slot holds its batch on the heap

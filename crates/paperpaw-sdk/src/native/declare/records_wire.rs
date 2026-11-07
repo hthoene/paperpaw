@@ -2880,6 +2880,17 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
     })
 }
 
+/// Decode a format argument (`i18n.*`); any other tag is ERR_UNSUPPORTED
+/// before its body is read, as slot 27 answers for a record that is not one.
+fn host_argument<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+    Ok(match tag {
+        I18N_ARG_STR_TAG => I18nArgStr::decode(body)?,
+        I18N_ARG_INT_TAG => I18nArgInt::decode(body)?,
+        I18N_COUNT_TAG => I18nCount::decode(body)?,
+        _ => return Err(-1),
+    })
+}
+
 impl RecordBatch<'_> {
     /// A batch without records, to decode into ([`host_records_decode_into`]).
     pub const EMPTY: Self = Self {
@@ -2896,7 +2907,25 @@ pub fn host_records_decode_into<'a>(
     bytes: &'a [u8],
     batch: &mut RecordBatch<'a>,
 ) -> Result<(), i32> {
-    let decoded = host_records_fill(bytes, batch);
+    host_records_decode_with(bytes, batch, host_decode)
+}
+
+/// A format argument batch (slot 27) as the host decodes it: `i18n.*` records
+/// only; any other tag is ERR_UNSUPPORTED before its body is read. On an error
+/// the batch is empty.
+pub fn host_arguments_decode_into<'a>(
+    bytes: &'a [u8],
+    batch: &mut RecordBatch<'a>,
+) -> Result<(), i32> {
+    host_records_decode_with(bytes, batch, host_argument)
+}
+
+fn host_records_decode_with<'a>(
+    bytes: &'a [u8],
+    batch: &mut RecordBatch<'a>,
+    decode: HostDecoder,
+) -> Result<(), i32> {
+    let decoded = host_records_fill(bytes, batch, decode);
     if decoded.is_err() {
         batch.len = 0;
         for place in batch.records.iter_mut() {
@@ -2906,7 +2935,14 @@ pub fn host_records_decode_into<'a>(
     decoded
 }
 
-fn host_records_fill<'a>(bytes: &'a [u8], batch: &mut RecordBatch<'a>) -> Result<(), i32> {
+/// One record of a plugin's batch, decoded by tag ([`host_decode`] or [`host_argument`]).
+type HostDecoder = for<'a> fn(u32, &mut Reader<'a>) -> Result<Record<'a>, i32>;
+
+fn host_records_fill<'a>(
+    bytes: &'a [u8],
+    batch: &mut RecordBatch<'a>,
+    decode: HostDecoder,
+) -> Result<(), i32> {
     batch.len = 0;
     if bytes.len() > REGISTRATION_MAX_BYTES {
         return Err(-3);
@@ -2919,7 +2955,7 @@ fn host_records_fill<'a>(bytes: &'a [u8], batch: &mut RecordBatch<'a>) -> Result
     for (index, place) in batch.records.iter_mut().enumerate() {
         *place = if index < len {
             let (tag, mut body) = reader.record()?;
-            Some(host_decode(tag, &mut body)?)
+            Some(decode(tag, &mut body)?)
         } else {
             None
         };

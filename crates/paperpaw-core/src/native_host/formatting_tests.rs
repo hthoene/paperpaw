@@ -236,6 +236,23 @@ fn framing_utf8_and_foreign_records_are_validated_before_lookup_or_output() {
             formatted(scope, "missing", &foreign, &mut []),
             ERR_UNSUPPORTED
         );
+        // Any record that is not an argument is refused before its body is
+        // read (#985): a declaration, or one with bad UTF-8 in its text.
+        let group = encode(&[wire::Record::SettingGroup(wire::SettingGroup {
+            name: "g",
+            title: "t",
+            order: 0,
+            page: "",
+            parent: "",
+        })]);
+        assert_eq!(
+            formatted(scope, "missing", &group, &mut []),
+            ERR_UNSUPPORTED
+        );
+        let mut bad = group.clone();
+        let at = bad.iter().position(|&byte| byte == b'g').unwrap();
+        bad[at] = 0xff;
+        assert_eq!(formatted(scope, "missing", &bad, &mut []), ERR_UNSUPPORTED);
         assert_eq!(formatted(scope, "missing", &[9], &mut []), ERR_NO_SPACE);
     });
 }

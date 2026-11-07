@@ -37,6 +37,11 @@ class HostDecode(unittest.TestCase):
         self.assertIn('        EVENT_TICK_TAG\n', arms)
         self.assertNotIn('EventStarted::decode', arms)
         self.assertIn('SettingSpec::decode', arms)
+        # Slot 27's own decoder takes the format arguments and nothing else.
+        self.assertIn('pub fn host_arguments_decode_into', source)
+        arguments = source[source.index('fn host_argument<'):source.index('impl RecordBatch')]
+        decoded = [line.split('=>')[0].strip() for line in arguments.splitlines() if '::decode(' in line]
+        self.assertEqual(decoded, ['I18N_ARG_STR_TAG', 'I18N_ARG_INT_TAG', 'I18N_COUNT_TAG'])
         self.assertIn('ServiceEcho::decode', arms)
 
     def test_a_service_input_is_decoded_only_while_a_schema_takes_it(self):
