@@ -1,5 +1,6 @@
 //! Generated service row budgets apply before dispatch and publication.
 use super::*;
+use crate::native_host::host_services::Caller;
 use registrations::{Record, ServiceEnd, ServiceUiParam, ServiceUiTarget};
 
 fn params(count: usize) -> Vec<u8> {
@@ -15,7 +16,11 @@ fn params(count: usize) -> Vec<u8> {
 fn generated_input_row_limit_accepts_exact_and_refuses_one_more() {
     let schema = services_wire::service_schema("core.ui", 1).unwrap();
     let op = schema.op(16).unwrap();
-    let key = ServiceKey { schema, minor: 0 };
+    let key = ServiceKey {
+        schema,
+        minor: 0,
+        features: crate::native_host::admitted_features::AdmittedFeatures::NONE,
+    };
     let limit = usize::from(op.input_rows);
     assert_eq!(limit, 32);
     assert!(validate_op(key, op.id, &params(limit), op.max_reply).is_ok());
@@ -36,12 +41,13 @@ std::thread_local! {
 }
 fn counted_echo(
     frame: &dyn Frame,
+    who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
     BACKEND_CALLS.with(|calls| calls.set(calls.get() + 1));
-    echo(frame, op, input, out)
+    echo(frame, who, op, input, out)
 }
 
 #[test]
@@ -78,13 +84,29 @@ fn input_over_limit_never_calls_backend_or_changes_output() {
                     OK
                 );
                 assert_eq!(
-                    call(&scope, &owner, handle, 1, pair(&two), output(&mut out)),
+                    call(
+                        &scope,
+                        &owner,
+                        "files",
+                        handle,
+                        1,
+                        pair(&two),
+                        output(&mut out)
+                    ),
                     ERR_NO_SPACE
                 );
                 assert_eq!(out, [0xa5; 512]);
                 assert_eq!(BACKEND_CALLS.with(core::cell::Cell::get), 0);
                 assert_eq!(
-                    call(&scope, &owner, handle, 1, pair(&input), output(&mut out)),
+                    call(
+                        &scope,
+                        &owner,
+                        "files",
+                        handle,
+                        1,
+                        pair(&input),
+                        output(&mut out)
+                    ),
                     i32::try_from(input.len() - 1).unwrap()
                 );
                 assert_eq!(BACKEND_CALLS.with(core::cell::Cell::get), 1);
@@ -222,7 +244,14 @@ fn usage_producer_and_echo_backend_share_the_dispatch_reply_validator() {
         .unwrap();
     let mut out = [0; 512];
     let input = batch("shared validator");
-    let len = echo(&frame, echo_op, &input, &mut out).unwrap();
+    let hosts = crate::native_host::host_services::HostServices::new();
+    let who = Caller {
+        owner: 1,
+        plugin: "files",
+        features: crate::native_host::admitted_features::AdmittedFeatures::NONE,
+        hosts: &hosts,
+    };
+    let len = echo(&frame, &who, echo_op, &input, &mut out).unwrap();
     assert_eq!(validate_reply(&out[..len], echo_op), Ok(()));
     let usage_op = ServiceOp {
         reply: &[registrations::SERVICE_USAGE_TAG],
@@ -424,4 +453,60 @@ fn library_edit_add_accepts_4_records_and_refuses_5() {
             edit
         ],
     );
+}
+
+mod gate {
+    use super::*;
+    use crate::native_host::admitted_features::AdmittedFeatures;
+    use paperpaw_native::host_glue::ERR_DENIED;
+    use paperpaw_native::metadata::Feature;
+
+    const WIRED: &[Feature<'static>] = &[Feature {
+        key: "uses.library",
+        revision: 1,
+    }];
+
+    fn state_key(features: AdmittedFeatures) -> ServiceKey {
+        ServiceKey {
+            schema: services_wire::service_schema("core.library", 1).unwrap(),
+            minor: 0,
+            features,
+        }
+    }
+
+    fn state_input() -> Vec<u8> {
+        let rows = std::vec![Record::ServiceLibRef(registrations::ServiceLibRef {
+            path: "book.epub",
+            generation: 0,
+            key: None,
+        })];
+        let mut out = std::vec![0; 256];
+        let len = registrations::records_encode_counted(&rows, 4, 256, &mut out).unwrap();
+        out.truncate(len);
+        out
+    }
+
+    #[test]
+    fn gated_op_is_unsupported_without_host_denied_without_grant_and_runs_with_it() {
+        let schema = services_wire::service_schema("core.library", 1).unwrap();
+        let op = schema.op(3).unwrap();
+        assert_eq!(op.feature, Some("uses.library"));
+        let input = state_input();
+        let status =
+            |features| validate_op(state_key(features), op.id, &input, op.max_reply).map(|_| ());
+        assert_eq!(status(AdmittedFeatures::NONE), Err(ERR_UNSUPPORTED));
+        assert_eq!(status(AdmittedFeatures::test(0, WIRED)), Err(ERR_DENIED));
+        assert_eq!(status(AdmittedFeatures::test(1, WIRED)), Ok(()));
+        // Features are asked before sizes: a denied caller learns nothing about them.
+        assert_eq!(
+            validate_op(
+                state_key(AdmittedFeatures::test(0, WIRED)),
+                op.id,
+                &input,
+                0
+            )
+            .map(|_| ()),
+            Err(ERR_DENIED)
+        );
+    }
 }

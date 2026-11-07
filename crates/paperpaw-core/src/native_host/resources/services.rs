@@ -7,18 +7,26 @@ use crate::abi7::{
     handles,
     services_wire::{ServiceOp, ServiceSchema},
 };
+use crate::native_host::admitted_features::AdmittedFeatures;
+use crate::native_host::host_services::Caller;
 use alloc::vec::Vec;
 use core::cell::Cell;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
 
-pub(crate) type Backend = fn(&dyn Frame, &ServiceOp, &[u8], &mut [u8]) -> Result<usize, i32>;
+/// A service family's stateless backend: the frame, the caller (owner,
+/// plugin id, admitted features, the wired host views), the op, its input and
+/// its output.
+pub(crate) type Backend =
+    fn(&dyn Frame, &Caller<'_>, &ServiceOp, &[u8], &mut [u8]) -> Result<usize, i32>;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ServiceKey {
     pub(crate) schema: &'static ServiceSchema,
     pub(crate) minor: u16,
+    /// The opening instance's admitted features, for gated ops at call time.
+    pub(crate) features: AdmittedFeatures,
 }
 
 #[derive(Debug)]
@@ -37,11 +45,32 @@ impl ServiceRegistry {
     pub(super) fn device() -> Result<Self, i32> {
         // New service families add only their implemented backends here. Schema
         // presence alone is not implementation, and test schemas stay refused.
-        let implementations: &[(&'static ServiceSchema, Backend)] = &[];
+        use crate::abi7::services_wire::{
+            core_document_v1, core_library_v1, core_lookup_v1, service_schema,
+        };
+        use crate::native_host::{doc_service, lib_service, lookup_service};
+        let implementations: [(&str, u16, Backend); 3] = [
+            (
+                core_document_v1::KEY,
+                core_document_v1::MAJOR,
+                doc_service::backend,
+            ),
+            (
+                core_library_v1::KEY,
+                core_library_v1::MAJOR,
+                lib_service::backend,
+            ),
+            (
+                core_lookup_v1::KEY,
+                core_lookup_v1::MAJOR,
+                lookup_service::backend,
+            ),
+        ];
         let mut registry = Self {
             entries: Vec::new(),
         };
-        for &(schema, backend) in implementations {
+        for (key, major, backend) in implementations {
+            let schema = service_schema(key, major).ok_or(ERR_NOT_FOUND)?;
             registry.register(schema, backend, false)?;
         }
         Ok(registry)
@@ -110,11 +139,12 @@ impl ServiceCall<'_> {
     pub(crate) fn run(
         &self,
         frame: &dyn Frame,
+        caller: &Caller<'_>,
         op: &ServiceOp,
         input: &[u8],
         out: &mut [u8],
     ) -> Result<usize, i32> {
-        (self.entry.backend)(frame, op, input, out)
+        (self.entry.backend)(frame, caller, op, input, out)
     }
 }
 impl Drop for ServiceCall<'_> {
@@ -179,14 +209,15 @@ mod tests {
     #[test]
     fn device_registration_refuses_test_only_schema_in_code() {
         let mut registry = ServiceRegistry::device().unwrap();
+        let registered = registry.entries.len();
         let test_only = crate::abi7::services_wire::SERVICES
             .iter()
             .find(|schema| schema.test_only)
             .unwrap();
         assert_eq!(
-            registry.register(test_only, |_, _, _, _| Ok(0), false),
+            registry.register(test_only, |_, _, _, _, _| Ok(0), false),
             Err(ERR_UNSUPPORTED)
         );
-        assert!(registry.entries.is_empty());
+        assert_eq!(registry.entries.len(), registered, "nothing was added");
     }
 }
