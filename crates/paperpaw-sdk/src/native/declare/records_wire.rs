@@ -18574,12 +18574,21 @@ pub const SERVICE_SEC_BYTES_TAG: u32 = 1166;
 pub const SERVICE_SEC_BYTES_DATA_MAX_BYTES: usize = 256;
 
 /// The `service.sec_bytes` record, borrowed from its batch.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ServiceSecBytes<'a> {
     /// Little-endian u32.
     pub flags: u32,
     /// Opaque bytes, at most 256.
     pub data: &'a [u8],
+}
+
+impl core::fmt::Debug for ServiceSecBytes<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ServiceSecBytes")
+            .field("flags", &self.flags)
+            .field("data", &"..")
+            .finish()
+    }
 }
 
 impl<'a> ServiceSecBytes<'a> {
