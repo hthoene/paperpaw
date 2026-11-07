@@ -115,6 +115,11 @@ impl<'a> UiHint<'a> {
         let wire::Record::ServiceUiHint(row) = record else {
             return Err(Error::State);
         };
+        if row.x.checked_add(row.width).is_none_or(|end| end > 1000)
+            || row.y.checked_add(row.height).is_none_or(|end| end > 1000)
+        {
+            return Err(Error::Invalid);
+        }
         let input = match row.input {
             0 => HintInput::Any,
             1 => HintInput::Touch,

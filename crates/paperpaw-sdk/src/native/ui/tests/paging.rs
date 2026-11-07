@@ -111,3 +111,61 @@ fn paged_stack_refuses_stale_generation_and_nonprogressing_pages() {
         assert_eq!(result.unwrap_err(), expected);
     }
 }
+
+#[test]
+fn help_zones_reject_out_of_range_values_and_extent_overflow() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let ui = Ui::open(&host).unwrap();
+    for (x, y, width, height, valid) in [
+        (0, 0, 1000, 1000, true),
+        (1000, 1000, 0, 0, true),
+        (1001, 0, 0, 0, false),
+        (0, 1001, 0, 0, false),
+        (0, 0, 1001, 0, false),
+        (0, 0, 0, 1001, false),
+        (999, 0, 2, 0, false),
+        (0, u32::MAX, 0, 1, false),
+    ] {
+        set_stream(
+            &state,
+            &[
+                wire::Record::ServiceUiHint(wire::ServiceUiHint {
+                    input: 0,
+                    x,
+                    y,
+                    width,
+                    height,
+                    text: "hint",
+                    owner: "fixture",
+                }),
+                wire::Record::ServiceEnd(wire::ServiceEnd {
+                    flags: 1,
+                    total: 1,
+                    generation: 1,
+                    next: 1,
+                }),
+            ],
+        );
+        let mut input = [0; 4096];
+        let mut out = [0; 4096];
+        let result = ui.hints(
+            &host,
+            "fixture.screen",
+            UiCursor::start(),
+            &mut input,
+            &mut out,
+        );
+        if valid {
+            let zone = result.unwrap().next().unwrap().unwrap().zone().unwrap();
+            assert_eq!(u32::from(zone.x), x);
+            assert_eq!(u32::from(zone.width), width);
+        } else {
+            assert_eq!(result.unwrap_err(), Error::Invalid);
+        }
+    }
+}

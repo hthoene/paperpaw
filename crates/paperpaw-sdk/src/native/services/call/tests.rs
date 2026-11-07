@@ -110,7 +110,7 @@ fn future_op_is_not_available_at_opened_minor() {
             feature: None,
             input: &[],
             reply: &[],
-            input_rows: 0,
+            input_rows: 1,
             paged: false,
             reply_rows: 0,
             max_input: 0,
