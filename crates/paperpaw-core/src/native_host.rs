@@ -56,6 +56,11 @@ pub(crate) mod host_services;
     reason = "wired into the shell table; a shell wires its host view"
 )]
 pub(crate) mod hyphen_service;
+#[allow(
+    dead_code,
+    reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
+)]
+pub(crate) mod image_service;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]

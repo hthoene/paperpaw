@@ -36,6 +36,7 @@ pub(crate) struct HostServices {
     library: OnceCell<LibServices>,
     lookup: OnceCell<LookupServices>,
     hyphen: OnceCell<HyphenServices>,
+    images: super::image_service::ImageTable,
 }
 
 impl core::fmt::Debug for HostServices {
@@ -56,6 +57,7 @@ impl HostServices {
             library: OnceCell::new(),
             lookup: OnceCell::new(),
             hyphen: OnceCell::new(),
+            images: super::image_service::ImageTable::new(),
         }
     }
 
@@ -86,6 +88,11 @@ impl HostServices {
                 super::hyphen_service::HyphenState::new(host),
             )))
             .map_err(|_| ERR_STATE)
+    }
+
+    /// The device's decoded pictures (`image.info`, `canvas.draw_image`).
+    pub(crate) fn images(&self) -> &super::image_service::ImageTable {
+        &self.images
     }
 
     pub(crate) fn hyphen(&self) -> Option<&HyphenServices> {
@@ -126,6 +133,8 @@ impl HostServices {
         if let Some(library) = self.library.get() {
             result = result.and(lib_service::owner_stopped(&*library.0, owner));
         }
+        // The plugin's pictures end with it (its image ids are its own).
+        result = result.and(self.images.owner_stopped(owner));
         result
     }
 }

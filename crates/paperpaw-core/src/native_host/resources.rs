@@ -140,6 +140,11 @@ pub(crate) struct OwnerResourceView {
 }
 
 impl OwnerResources {
+    /// This owner's id (never reused).
+    pub(crate) fn owner_id(&self) -> u64 {
+        self.owner
+    }
+
     /// The device's wired host views (a slot reaches its family here).
     pub(crate) fn hosts(&self) -> &super::host_services::HostServices {
         &self.table.hosts
