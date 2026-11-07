@@ -41,7 +41,7 @@ pub(super) fn log(storage: &dyn Storage) -> Vec<(u16, u32, u32, u16)> {
 }
 
 /// A KOReader file from another device: its own ids and names.
-fn other_device(
+pub(super) fn other_device(
     storage: &dyn Storage,
     path: &str,
     books: &[(i64, &str, &str)],

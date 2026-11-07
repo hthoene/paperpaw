@@ -19,9 +19,8 @@ events) is still in place. It is removed in the PR that finishes the port.
   row of one id (also with empty sections between) still merge as in interface 6; a
   section of an id read before that is ignored, so the first book of an id is the book
   (interface 6 kept it too, by sorting stably and dropping later copies).
-- Still infallible: `Value::as_str()` of `paperpaw-config` allocates for a quoted value with
-  escapes. Its `quoted` flag is private, so it cannot be redone here cheaply; it wants a
-  fallible variant in `paperpaw-config` (Kernel).
+- `Value::try_as_str()` (`paperpaw-config`) reads the values of `books.ini`: a quoted value with
+  escapes that cannot be allocated is `TooLarge`, not an abort.
 - Callers that read today's seconds (`read_today`) do not cache a failed read as 0.
 
 ## Ported: `extsort`, `merge`, `koreader` (fallible allocation)
@@ -38,11 +37,15 @@ events) is still in place. It is removed in the PR that finishes the port.
 - Allocation-refusal sweeps (`merge/alloc_tests.rs`, a refusing global allocator in
   `testing.rs`): `extsort::sort` (two merge passes), `each`, `Records`, a merge of this
   device alone, `merge_books` and `take_names`.
-- **Still infallible** (a refusal aborts; swept around, not through): what `paperpaw-sqlite`
-  allocates while it reads or writes a database (`Value::Text`, `encode_record`,
-  `SchemaEntry`, `Database::table` column names; the rows are small and short-lived), and
-  `Md5::hex` (32 bytes) for a book without a usable MD5. Both need fallible variants in
-  their crates (Kernel).
+- `paperpaw-sqlite` and `Md5` are fallible now (todo 104, #383): `koreader::write` takes every
+  text, record and schema entry with `room::string` / `try_encode_record` (a refusal is
+  noted and the call that took the rows says `Error::OutOfMemory`), and `Key::of` and
+  `register_book` use `hex_into` / `partial_into` on the stack. Sweeps cover writing the other
+  app's database and a merge with its file (`merge/alloc_tests.rs`).
+- A merge writes the new log and the new `books.ini` beside the old ones first (`stage_log`,
+  `stage_books`) and renames both after, so a refusal or a full card while writing leaves
+  the pair as it was (the sweep found a refusal in `save_books` after the log was replaced).
+  Only the rename itself, or the upload's own file after both, can fail past that point.
 
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 

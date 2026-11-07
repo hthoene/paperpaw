@@ -260,7 +260,10 @@ pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageErro
         let Some(book) = books.get_mut(at) else {
             return Ok(());
         };
-        let value = entry.value.as_str();
+        let value = entry
+            .value
+            .try_as_str()
+            .map_err(|_| StorageError::TooLarge)?;
         match entry.key {
             "title" => book.title = copy(&value)?,
             "authors" => book.authors = copy(&value)?,
@@ -315,12 +318,26 @@ pub(crate) fn update_books(
 /// them with [`load_books`] (or use [`update_books`]). The text is written a
 /// piece at a time, never held whole.
 pub(crate) fn save_books(storage: &dyn Storage, books: &[Book]) -> Result<(), StorageError> {
+    stage_books(storage, books)?;
+    commit_books(storage, books)
+}
+
+/// The first half of [`save_books`]: `books` written to a new file, which a
+/// refused allocation or a full card leaves as it was (and without the new
+/// file). [`commit_books`] puts it in place; until then nothing changed.
+pub(crate) fn stage_books(storage: &dyn Storage, books: &[Book]) -> Result<(), StorageError> {
     let new = BOOKS_NEW;
     if let Err(e) = write_books(storage, new, books) {
         remove_temporary(storage, new);
         return Err(e);
     }
-    let file = BOOKS;
+    Ok(())
+}
+
+/// The second half of [`save_books`]: the staged file replaces `books.ini`.
+/// Where files cannot be renamed, `books` are written in place instead.
+pub(crate) fn commit_books(storage: &dyn Storage, books: &[Book]) -> Result<(), StorageError> {
+    let (new, file) = (BOOKS_NEW, BOOKS);
     match storage.rename(new, file) {
         // Where files cannot be renamed, written in place.
         Err(StorageError::Unsupported) => {
@@ -333,6 +350,11 @@ pub(crate) fn save_books(storage: &dyn Storage, books: &[Book]) -> Result<(), St
         }
         Ok(()) => Ok(()),
     }
+}
+
+/// Drops what [`stage_books`] wrote, where [`commit_books`] will not follow.
+pub(crate) fn unstage_books(storage: &dyn Storage) {
+    remove_temporary(storage, BOOKS_NEW);
 }
 
 /// The pieces of a file written a few KiB at a time: the first one replaces
@@ -577,14 +599,32 @@ fn drop_cut_record(storage: &dyn Storage, log: &str, size: u64) -> Result<(), St
 /// start, duration and pages as big-endian u32, in time order), e.g.
 /// after merging with another device's; the day totals are summed anew.
 /// After an error the log is as it was.
+#[cfg(test)]
 pub(crate) fn replace_log(storage: &dyn Storage, file: &str) -> Result<(), StorageError> {
+    stage_log(storage, file)?;
+    commit_log(storage)
+}
+
+/// The first half of [`replace_log`]: the new log written beside the old
+/// one, which a refusal or a full card leaves as it was.
+pub(crate) fn stage_log(storage: &dyn Storage, file: &str) -> Result<(), StorageError> {
     let new = PAGES_NEW;
     if let Err(e) = write_log(storage, file, new) {
         remove_temporary(storage, new);
         return Err(e);
     }
-    // Swapped in at once, by a rename where the storage can.
-    put_in_place(storage, new, PAGES)
+    Ok(())
+}
+
+/// Drops what [`stage_log`] wrote, where [`commit_log`] will not follow.
+pub(crate) fn unstage_log(storage: &dyn Storage) {
+    remove_temporary(storage, PAGES_NEW);
+}
+
+/// The second half of [`replace_log`]: swapped in at once, by a rename
+/// where the storage can.
+pub(crate) fn commit_log(storage: &dyn Storage) -> Result<(), StorageError> {
+    put_in_place(storage, PAGES_NEW, PAGES)
 }
 
 fn write_log(storage: &dyn Storage, file: &str, new: &str) -> Result<(), StorageError> {
