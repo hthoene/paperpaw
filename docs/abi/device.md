@@ -8,7 +8,8 @@ C-family proposals (#890 2.12), `registry.md` (plugin rows, `set_plugin_enabled`
 `request_plugins` / `answer_plugin`), `core-events.md` (events 70-72), `ui.md` (host-drawn
 confirmations, the guard) and owner decisions 124, 132 and 134. Round 2 folds in Firmware's check
 of the OTA path (`crates/paperpaw-x4/src/updates.rs`, `ota.rs`, `shells/xteink/src/`) and Plugin's
-gap review (`/home/agent/shared/plugin-dev-gaps-1025.md`). Doc-only; records follow once approved.
+gap review (`/home/agent/shared/plugin-dev-gaps-1025.md`); round 3 Senior's review (#1030: must-fix
+1-3, should-fix 4-9). Doc-only; records follow once approved.
 Tags are proposed and numbered without gaps at the records step.
 
 ## 0. Scope and principles
@@ -58,8 +59,8 @@ Tags are proposed and numbered without gaps at the records step.
 | --- | --- | --- |
 | `uses.wifi` | commands 1561-1568 | wifi, transfer, diagnostics |
 | `uses.power` | commands 1569-1572 | power, diagnostics, settings, plugin-manager, reading-goal, store, update |
-| `uses.install` | commands 1573, 1574, 1577-1579; REG `answer_plugin` | store, fonts-browser, plugin-manager, update |
-| `uses.firmware` | commands 1575-1576 | update |
+| `uses.install` | commands 1573, 1574, 1577-1579, 1589 (kind 0); REG `answer_plugin` | store, fonts-browser, plugin-manager, update |
+| `uses.firmware` | commands 1575, 1576, 1589 (kind 1) | update |
 | `uses.bluetooth` | commands 1580-1588 | bluetooth |
 
 - [D] With `uses.install` defined, REG's `answer_plugin` refusal (`registry.md` 4.2: `ERR_DENIED`
@@ -81,14 +82,14 @@ agree (a host test).
 | 3 | `firmware` | (none) | `dev_firmware` | version, install state and progress |
 | 4 | `builtin` | `reg_query` | `dev_builtin`*, `end` | plugins built into the image, paged |
 | 5 | `native` | (none) | `dev_native` | what a code plugin must be built for, safe mode, code room |
-| 6 | `check` | `dev_check_ask` | `dev_check` | will this plugin or firmware file load here (section 5.1) |
+| 6 | `check` | `dev_request` | `dev_check` | the result of a finished file check (section 5.1) |
 | 7 | `memory` | (none) | `dev_memory` | heap and stack, at most one real probe per 250 ms |
 | 8 | `wifi` | (none) | `dev_wifi` | radio state |
 | 9 | `networks` | `reg_query` | `dev_network`*, `end` | found networks, strongest first, at most 32 |
 | 10 | `bluetooth` | (none) | `dev_bluetooth` | radio state |
 | 11 | `bonded` | `reg_query` | `dev_bonded`*, `end` | bonded devices, at most 16 |
 | 12 | `power` | `dev_interval` | `dev_power` | power level and mode; `every(base)` |
-| 13 | `install` | `dev_request` | `dev_install` | state of an install, removal or firmware request |
+| 13 | `install` | `dev_request` | `dev_install` | state of an install, removal, firmware or check request |
 | 14 | `not_installed` | `reg_query` | `dev_not_installed`*, `end` | plugins this start could not install, at most 32 |
 | 15 | `keys` | (none) | `dev_key`*, `end` | the device's physical keys, at most 32 |
 
@@ -99,7 +100,6 @@ agree (a host test).
 | 1096 | `service.dev_firmware` | `version: str 64`, `project: str 32`, `chip: u32`, `room: u64`, `undone: u32`, `state: u32`, `done: u64`, `total: u64`, `reason: u32`, `request: u32` |
 | 1097 | `service.dev_builtin` | `id: str 64`, `version: str 32` |
 | 1098 | `service.dev_native` | `abi_major: u32`, `abi_draft: u32`, `target: u32`, `code_file: str 32`, `safe_mode: u32`, `crashed: str 64`, `last_loaded: str 64`, `pending: u32`, `not_installed: u32`, `room_free: u64`, `room_largest: u64` |
-| 1099 | `service.dev_check_ask` | `root: u32`, `path: str 512`, `kind: u32` |
 | 1100 | `service.dev_check` | `reason: u32`, `needs_draft: u32`, `bytes: u64`, `signer: str 64`, `key: bytes 32`, `sha256: bytes 32`, `id: str 64`, `version: str 64`, `flags: u32` |
 | 1101 | `service.dev_memory` | `heap_free: u32`, `heap_size: u32`, `largest: u32`, `stack_free: u32`, `stack_size: u32`, `external_free: u32`, `external_size: u32`, `flags: u32` |
 | 1102 | `service.dev_wifi` | `state: u32`, `ssid: str 32`, `address: str 45`, `host_name: str 63`, `guests: u32`, `flags: u32` |
@@ -187,21 +187,26 @@ agree (a host test).
 | 1577 | `command.install_author` | `request: u32`, `author: bytes 32`, `recovery: bytes 32`, `sha256: bytes 32` | `uses.install` |
 | 1578 | `command.install_rotation` | `request: u32`, `to: bytes 32`, `signature: bytes 64` | `uses.install` |
 | 1579 | `command.trust_revoked` | `plugin: str 64`, `key: bytes 32`, `signature: bytes 64` | `uses.install` |
+| 1589 | `command.check_file` | `request: u32`, `root: u32`, `path: str 512`, `kind: u32` | `uses.install` (kind 0), `uses.firmware` (kind 1) |
 | 1580-1588 | `command.bt_scan` (`lasting_ms`), `bt_stop_scan`, `bt_pair`, `bt_connect`, `bt_disconnect`, `bt_forget` (`device`), `bt_give` (`device`, `plugin: str 64`), `bt_take_back` (`device`), `bt_keys` (`device`, `on`) | as named, `device: u32` | `uses.bluetooth` |
 
 - [D] One record per action (Firmware's Q2): tags are plentiful in the growth block, each record is
   checked by the generated codec without a per-action table, and a later action is a new record.
 - [D] **Requests:** `request` is the sender's own non-zero number; a request number the plugin
   already has waiting is `ERR_INVALID` at submit. The host reserves the request's table entry and
-  its kept outcome **at submit** (fallibly; device-wide at most 4 install, removal or firmware
-  requests and 4 radio requests waiting, else `ERR_FULL` for the batch), so an accepted request
-  always has room for its outcome and is never dropped later. Outcomes are kept until delivered,
-  then readable with op 13 until the plugin's next request of the same kind or its stop.
+  its kept outcome **at submit** (fallibly; device-wide at most 4 install, removal, firmware or
+  check requests and 4 radio requests waiting, else `ERR_FULL` for the batch), so an accepted
+  request always has room for its outcome and is never dropped later. Outcomes are kept until
+  delivered, then readable with op 13 until the plugin's next request of the same kind or its stop.
 - [D] **Wi-Fi** (interface 6 `WifiCommand`, `NoNetwork`): `join` and `host` need a non-empty `ssid`;
   `host`'s password is 8-63 bytes, `join`'s 0-63; `join.flags` bit 0 remember the password (SEC's
   store, owned by the Wi-Fi plugin). A password is never logged nor shown in a record any other
   plugin reads. A newer `join` or `host` from any plugin supersedes a waiting one, whose outcome is
-  `wifi_failed` reason 4. `go_online` (`for_ms` 1-600,000) is honoured only within 2,000 ms after a
+  `wifi_failed` reason 4. **No silent network change:** a `join` of a network without a stored
+  password, and every `host`, are honoured only within 2,000 ms after a user input or from the
+  network manager (`core.network-manager`); else they end at once with `wifi_failed` reason 6
+  (needs the user). A `join` of a network with a stored password, `wifi_on`, `scan`, `leave` and
+  `off` need no input. `go_online` (`for_ms` 1-600,000) is honoured only within 2,000 ms after a
   user input (else `OK` and ignored, logged): no plugin turns the radio on in the background by it.
 - [D] **Power** (`Sleep`, `PowerOff`, `Restart`, `Wear`): commands of a batch apply in order. A
   power command waits until every screen command before it in the same batch (`command.open`,
@@ -213,6 +218,13 @@ agree (a host test).
   16-18; an unknown id is `ERR_NOT_FOUND` at submit), `flags` bit 0 automatic. While an instance
   guards (`ui.md` 4.3) only the guard's plugin and the host may restart or switch off
   (`ERR_DENIED`); sleep stays open to all.
+- [D] **The Power-key escape (G12) can never be blocked.** No power mode, `controls` bit (buttons,
+  CPU clock), guard, filter, key map, confirmation or plugin stops the Power key or its 8 s hold.
+  The hold is timed by a timer or the key's interrupt, not polled from the main loop, so a 64 KiB
+  flash erase step or a long callback cannot stretch or hide it. An escape during a firmware write
+  leaves the old slot starting (no switch, the new slot's first word missing); during a plugin swap
+  or a card move the journals finish or roll back at the next start (5.4). [Q] Firmware: confirm the
+  X4's hold timer is not main-loop polled today, else this is a Firmware fix with DEV.
 - [D] Batch limits: at most one power command (1569-1572) and one firmware command per batch, at
   most two Wi-Fi commands, at most one `install_author` and 8 `install_rotation` per request (the
   store's `MAX_STEPS`), both after their `install_plugin` in the same batch, at most 16
@@ -239,32 +251,57 @@ agree (a host test).
 
 - [D] 92, 94-96 are hints (coalesced per kind; read again with section 2). 93 and 97 are **edges
   kept like answers** (`ui.md` 3.2) in the room reserved at submit (section 3).
-- [D] 93 (`reason` 0 other, 1 not found, 2 password, 3 timeout, 4 superseded, 5 unsupported here;
-  unknown as 0) goes to the plugin whose `join` or `host` it answers (`request`); a failure of a
-  join the host started itself (a remembered network at wake) has `request` 0 and goes to the
-  network manager. A join that succeeds raises 71 to all; its sender reads op 8.
+- [D] 93 (`reason` 0 other, 1 not found, 2 password, 3 timeout, 4 superseded, 5 unsupported here, 6
+  needs the user; unknown as 0) goes to the plugin whose `join` or `host` it answers (`request`); a
+  failure of a join the host started itself (a remembered network at wake) has `request` 0 and goes
+  to the network manager. A join that succeeds raises 71 to all; its sender reads op 8.
 - [D] 97 ends every install, removal and firmware request exactly once and goes to its sender only:
-  `kind` 0 plugin install, 1 firmware, 2 removal; `status` OK or the error of 5.5 with its `reason`;
-  `flags` bit 0 the plugin's data was kept (removal), bit 1 takes effect at the next start; `id` the
-  plugin. A removal or install is reported **only once done** (5.2), never when queued. 98 goes to
-  the plugin bound to `core.bluetooth`. `firmware_changed` comes at most every 250 ms while
-  installing (at most once per written block, 5.3).
+  `kind` 0 plugin install, 1 firmware, 2 removal, 3 file check; `status` OK or the error of 5.5 with
+  its `reason`; `flags` bit 0 the plugin's data was kept (removal), bit 1 takes effect at the next
+  start; `id` the plugin. `kind` 3 ends a `check_file` (5.1). A removal or install is reported
+  **only once done** (5.2), never when queued. 98 goes to the plugin bound to `core.bluetooth`.
+  `firmware_changed` comes at most every 250 ms while installing (at most once per written block,
+  5.3).
 
 ## 5. Installing plugins and firmware
 
+### 5.0 The host confirmation
+
+- [D] **Only the user answers it** (decisions 132, 134, 124). While a host confirmation shows,
+  input goes from the device straight to it: no UIX input filter sees it, no raised or replaced
+  input (`raise_input`, filter `take`/`replace`) reaches it, no key map or action runs, and no
+  overlay, notification or plugin screen is drawn over it. Focus starts on **No** (Cancel); input
+  that arrives within 500 ms after it is shown, and presses queued before it, are dropped, so no
+  earlier press answers it. Touch counts only inside its own buttons.
+- [D] **Ending:** yes, no (reason 2, `ERR_DENIED`), dismissed by Back or Power short press
+  (reason 3, `ERR_CANCELLED`), or **10 minutes without an answer** (reason 3, decision 132's
+  timeout); each discards the stage and changes nothing. Sleep while it shows dismisses it. One
+  confirmation shows at a time; others wait in the job queue. While a guard is up (`ui.md` 4.3: the
+  lock) a confirmation waits until the guard ends; it is never drawn over the lock.
+- [D] **Its words are the host's** (with Plugin, en/de): the asking plugin's name; what is installed
+  or removed (id, name, version, signer or key fingerprint, `uses.*` as on the store page); for an
+  update "older" or "the same version" when it is not newer (`flags` bit 1 of `install_plugin`,
+  bit 0 of `install_firmware`); for a foreign firmware the four points of 5.3.
+
 ### 5.1 Checking before asking
 
-- [D] Op 6 `check` (`dev_check_ask`: `root` 0 the caller's Data or 1 with `uses.storage`, `path` a
-  `.ppn` file, a plugin folder or a firmware image, `kind` 0 plugin, 1 firmware; Firmware's Q4) runs
-  the loader's own checks without changing anything: `reason` 0 fits, else the reason of 5.5 that
-  an install would end with (`needs_draft` for reason 10); `bytes`; `signer` the key's name (empty
-  for a key the device does not know); `key` the signing key and `sha256` the code's (plugin) or the
-  image's (firmware) digest, both empty when unsigned; `id`, `version`; `flags` bit 0 data plugin
-  (no code), bit 1 this id's author key is pinned here and is `key`, bit 2 this id is pinned to
-  another key (an install needs a rotation, 5.2), bit 3 the image is signed by PaperPaw, bit 4 a
+- [D] `check_file` (`root` 0 the caller's Data or 1 with `uses.storage`, `path` a `.ppn` file, a
+  plugin folder or a firmware image, `kind` 0 plugin with `uses.install`, 1 firmware with
+  `uses.firmware`, else `ERR_DENIED` at submit; Firmware's Q4) starts a check: a job of the queue
+  (5.2), so one at a time device-wide, run from the main loop in bounded steps (a 2-3 MB firmware
+  image takes seconds on the X4, never inside one callback); signature verification (Ed25519,
+  SHA-256) runs in host frames inside the #254 frame budget. It ends with `install_done` kind 3
+  (`status` OK once the check ran, `reason` its verdict), and op 6 reads the result by `request`
+  (`ERR_NOT_FOUND` for an unknown one, `ERR_BUSY` while it runs) until the plugin's next check. It
+  runs the loader's own checks without changing anything: `reason` 0 fits, else the reason of 5.5
+  that an install would end with (`needs_draft` for reason 10); `bytes`; `signer` the key's name
+  (empty for a key the device does not know); `key` the signing key and `sha256` the code's (plugin)
+  or the image's (firmware) digest, both empty when unsigned; `id`, `version`; `flags` bit 0 data
+  plugin (no code), bit 1 this id's author key is pinned here and is `key`, bit 2 this id is pinned
+  to another key (an install needs a rotation, 5.2), bit 3 the image is signed by PaperPaw, bit 4 a
   foreign image (another firmware than PaperPaw). The store and update show it before they ask; they
-  never parse `.ppn` headers or update trailers themselves. A check reads the whole file to hash it
-  (bounded steps, about the time of a copy).
+  never parse `.ppn` headers or update trailers themselves. A check is advice for the view: an
+  install checks the staged copy again (5.2), whatever a check said.
 
 ### 5.2 Plugins
 
@@ -300,17 +337,23 @@ agree (a host test).
   2 (`ERR_DENIED`), dismissed reason 3 (`ERR_CANCELLED`); the stage is removed. Code plugins load at
   the next start (`install_done.flags` bit 1, `dev_native.pending`). While a guard is up the
   confirmation waits (`ui.md` 4.3).
-- [D] **Grants for data plugins**: the user may allow one plugin to install data plugins (fonts,
-  hyphenation, translations) without asking each time, the host grant `core.grant.install.<asking
-  plugin>` (a host setting, off by default, REG-visible); code plugins always ask.
+- [D] **Trusted-installer grant** (decision 132 as decided: plugins, fonts and data; Senior's
+  should-fix 7): the user may allow one plugin to install and update plugins, fonts and data
+  plugins without asking each time, the host grant `core.grant.install.<asking plugin>` (a host
+  setting, off by default, granted only in a host confirmation of its own, REG-visible and
+  revocable). The grant skips the prompt only; every check and trust rule of this section still
+  applies, and it never covers firmware (decision 134), removals (decision 124), a sideload without
+  catalog evidence (the key fingerprint must be confirmed) or a plugin that would declare a `uses.*`
+  feature the installed version did not (the user sees the new features).
 - [D] `remove_plugin` (`RemovePlugin`): removes an installed plugin (not one built into the image:
-  reason 15); the host asks the user whether its Data folder goes too, default keep (decision 124,
-  its safety rules: removal only of `.paperpaw/plugins/<id>/` resolved from a validated id, by a
-  journalled rename into `.removing`). The plugin's instances are closed first; a loaded code
-  plugin's flash room returns at the next start (`flags` bit 1). Its `install_done` (kind 2) comes
-  only once the folder is renamed away and the plugin is gone from REG op 6 (event 70 raised), with
-  `flags` bit 0 when the data was kept; declined or dismissed as for installs, and nothing is
-  removed. `flags` reserved.
+  reason 15) after **one host confirmation** (5.0) with three answers: remove and keep its data (the
+  focus after No), remove with its data, cancel (decision 124, its safety rules: removal only of
+  `.paperpaw/plugins/<id>/` resolved from a validated id, by a journalled card move into
+  `.removing`, `library.md` 6). It waits while a guard is up, so no plugin removes the lock under
+  it. The plugin's instances are closed first; a loaded code plugin's flash room returns at the next
+  start (`flags` bit 1). Its `install_done` (kind 2) comes only once the folder is renamed away and
+  the plugin is gone from REG op 6 (event 70 raised), with `flags` bit 0 when the data was kept;
+  declined or dismissed as for installs, and nothing is removed. `flags` reserved.
 - [D] **One job at a time:** the host runs install, removal and firmware jobs one after another in
   submit order (one I/O buffer, 6.2). Firmware installs and code-plugin installs both write the code
   flash, so neither starts while the other runs; a request waits its turn (`dev_install.state` 0
@@ -320,8 +363,11 @@ agree (a host test).
 
 - [D] `install_firmware` (`FirmwareCommand::Install`, `InstallForeign`): an image on the card
   (`root` 0 or 1 with `uses.storage`); `flags` bit 0 allow an older or the same version, bit 1
-  foreign (another firmware than PaperPaw, unsigned, checked as the boot loader would start it; the
-  confirmation says so in its own words and that the way back is the web flasher).
+  foreign (another firmware than PaperPaw, unsigned, checked as the boot loader would start it).
+  The confirmation for a foreign image says, in the host's words (Firmware's four points): it is
+  another firmware, not PaperPaw; it is not signed; PaperPaw cannot undo it; PaperPaw stays in
+  flash, and the web flasher (or the other firmware) brings it back. It always asks, whatever
+  grant.
 - [D] **Keys** (update `page.rs` `Signer::Unknown`, `firmware.rs`): an image signed by a PaperPaw
   key installs with the normal confirmation. An image signed by another key (e.g. the user's own
   builds) installs only when `key` names exactly that key **and** the user accepts it in the host's
@@ -348,18 +394,26 @@ agree (a host test).
 ### 5.4 Power loss and card failure
 
 - [D] **Plugins:** the swap writes a journal entry (`plugins/.journal`: the id, the stage path, the
-  old folder's new name, the pins and rotations to take), synced, then renames old → `.old-<id>`,
-  stage → `<id>`, takes the pins, removes `.old`; at start the host finishes or rolls back each
-  journalled step, so the plugin is the old one or the new one with its matching pins, never a mix.
-  Fault-injection tests cut after every write.
+  old folder's new name, the pins and rotations to take), synced, then moves old → `.old-<id>`,
+  stage → `<id>`, takes the pins, removes `.old`; at start, after the card's own move records are
+  settled, the host finishes or rolls back each journalled step, so the plugin is the old one or
+  the new one with its matching pins, never a mix. Every one of these renames, and the removal's
+  move into `.removing`, is the card's journalled move shared with LIB (`library.md` 6:
+  `paperpaw-fat` `move_entry`, the old entry unlinked without freeing its clusters, so a cut never
+  leaves two entries freeing one chain), and the tests replay a cut after each block write.
 - [D] **Firmware:** the running slot is never written; a cut while writing leaves the old slot
-  starting, since the new slot's first word is still missing. The new image runs as a trial: it is
-  marked trial at its first start and becomes valid once it has run 30 s in total across starts; a
-  start that ends uncleanly during the trial is undone at the next start, which boots the old image
-  again (the firmware's own trial, not the boot loader's; `dev_firmware.undone`). A foreign image
-  has no PaperPaw trial.
-- [Q] (Firmware) confirm that a foreign image cannot be undone from PaperPaw's side and that the
-  confirmation's wording covers it.
+  starting, since the new slot's first word is still missing. The new image runs as a trial (the
+  firmware's own, not the boot loader's app rollback, which the doc does not rely on): it is marked
+  trial at its first start; **a good start** is one that drew the home screen's first frame, and
+  only run time after that point counts, before any code plugin's time is counted against it; the
+  image becomes valid once good starts sum to 30 s; a start that ends uncleanly during the trial (a
+  panic, a watchdog or brown-out reset, the 8 s Power escape) is undone at the next start, which
+  boots the old image again (`dev_firmware.undone`). A failing code plugin cannot fail the trial:
+  safe mode (op 5) handles it.
+- [D] **Foreign images** never run PaperPaw's trial, so they are final at the switch: the slot is
+  chosen as valid, no rollback follows, and PaperPaw's slot stays untouched in flash (Firmware,
+  from the code). An older signed PaperPaw image (`flags` bit 0) runs the trial as any other and is
+  named "older" in the confirmation.
 - [D] **Card:** a missing or failing card during a check or a copy ends with reason 16
   (`ERR_IO`) and nothing changes; a full card reason 17 (`ERR_NO_SPACE`).
 
@@ -406,6 +460,7 @@ unknown values read as 1.
 | `command.install_plugin` | 1 + 4 + 4 + 514 + 4 + 5 = 532 | 4,096 |
 | install with full evidence | 532 + `install_author` (1 + 4 + 34×3 + 5 = 112) + 8 × `install_rotation` (1 + 4 + 34 + 66 + 5 = 110) = 1,524 | the 4,096-byte batch |
 | `command.install_firmware` | 1 + 4 + 4 + 514 + 34 + 4 + 5 = 566 | 4,096 |
+| `command.check_file` | 1 + 4 + 4 + 514 + 4 + 5 = 532 | 4,096 |
 | `trust_revoked` × 16 | 16 × (1 + 66 + 34 + 66 + 5) = 2,752 | the 4,096-byte batch |
 | `event.install_done` | 1 + 8 + 4×5 + 66 + 5 = 100 | the 1.1 KB event buffer |
 | `event.bluetooth` | 1 + 8 + 4×2 + 66 + 4×3 + 4 = 99 | the 1.1 KB event buffer |
@@ -414,8 +469,8 @@ unknown values read as 1.
 
 - Replies: on the host scratch, freed after the call; nothing kept per plugin.
 - The memory probe's cached answer: 32 bytes.
-- Requests: at most 4 install, removal or firmware requests (about 48 bytes each plus the kept
-  `install_done`, 104 bytes) and 4 radio requests (about 64 bytes with the kept `wifi_failed`)
+- Requests: at most 4 install, removal, firmware or check requests (about 48 bytes each plus the
+  kept `install_done`, 104 bytes) and 4 radio requests (about 64 bytes with the kept `wifi_failed`)
   device-wide, reserved at submit: about 0.9 KiB at most.
 - Trust evidence of waiting requests: one fixed pool of 2 KiB device-wide (a full chain is 1,000
   bytes), taken at submit (`ERR_FULL` beyond); usually 0 or 100 bytes.
@@ -438,7 +493,7 @@ unknown values read as 1.
 | `env.status().value(name)` | op 2 |
 | `env.firmware()` (`version`, `project`, `chip`, `room`, `undone`, `state`, `plugins`) | ops 3, 4; event 96 |
 | `env.native()` (`safe_mode`, `not_installed`, code room, `file`), `fingerprint`, `toolchain` | ops 5, 14 (fingerprint and toolchain go, see below) |
-| `store/trust.rs` `check_file`, `native::read_header`, `room.rs`, `verdict` | op 6; commands 1577-1578 |
+| `store/trust.rs` `check_file`, `native::read_header`, `room.rs`, `verdict` | command 1589, op 6; commands 1577-1578 |
 | `keys::accept_rotation`, `keys::keep_revoked`, `revoked.rs` | commands 1578, 1579 (host-checked, taken at commit) |
 | `env.memory().read()` | op 7 |
 | `env.wifi()`, `Command::Wifi(..)`, `NoNetwork`, `WIFI_*`, `NETWORK_WANTED`/`IDLE` | ops 8, 9; commands 1561-1567; events 71, 92-95 |
@@ -476,12 +531,14 @@ where a capability is missing.
   request table with reservations and kept edges, the job queue, the stage-then-ask install with
   the trust rules moved from the store (pins, rotations, revocations taken at commit), the plugin
   install journal with fault-injection tests (with the uninstall data removal of decision 124), the
-  host confirmation (with Plugin for the words), the grant setting, the power ordering after screen
-  commands.
+  host confirmation with its input isolation, 500 ms guard and 10-minute timeout (with Plugin for
+  the words), the grant setting, the power ordering after screen commands, the Wi-Fi user-input
+  rule, `check_file` as a queued job.
 - **Firmware:** the X4 adapters (Wi-Fi, power, memory probe, values, keys), the firmware writer in
   64 KiB steps with digest binding and its trial, the fallible OTA buffer (`updates.rs:532`, offered
-  by Firmware), the device checks with the owner (install confirmation, Wi-Fi join/host, sleep,
-  power off, restart, step time and card read speed).
+  by Firmware), the good-start point of the trial, foreign images final at the switch, the Power
+  hold timer off the main loop (G12), the device checks with the owner (install confirmation,
+  Wi-Fi join/host, sleep, power off, restart, step time and card read speed).
 - **Services:** the SDK facade (typed reads, command builders, install request helpers with
   evidence).
 - **Web:** the store catalog keyed by `abi_major`, `abi_draft`, `target`, shipped with the firmware
