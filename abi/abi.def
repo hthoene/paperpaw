@@ -2596,6 +2596,67 @@
           "max_bytes": 128
         }
       ]
+    },
+    {
+      "id": 60,
+      "name": "command.set_item_state",
+      "since": 1,
+      "fields": [
+        {
+          "name": "item",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "label",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "label_args",
+          "type": "bytes",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 256
+        },
+        {
+          "name": "badge",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "badge_args",
+          "type": "bytes",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 256
+        }
+      ]
     }
   ],
   "statuses": [
