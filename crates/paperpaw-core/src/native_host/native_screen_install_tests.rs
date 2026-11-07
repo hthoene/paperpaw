@@ -6,6 +6,8 @@ use paperpaw_sdk::{Command, Handled, Id, Params};
 std::thread_local! {
     static UNSUPPORTED: Cell<bool> = const { Cell::new(false) };
     static INSTALL_FAIL_NTH: Cell<u32> = const { Cell::new(0) };
+    static EMPTY: Cell<bool> = const { Cell::new(false) };
+    static EXTRA_CALLBACK: Cell<bool> = const { Cell::new(false) };
     static FLAGS: Cell<u32> = const { Cell::new(0) };
     static DESTROYED: Cell<u32> = const { Cell::new(0) };
     static REPORTS: Cell<u32> = const { Cell::new(0) };
@@ -40,9 +42,26 @@ unsafe extern "C" fn screen_make(
     let len = wire::records_encode(&records[..count], &mut bytes).unwrap();
     // SAFETY: the linked factory receives a live host table and context, and
     // its encoded declaration remains readable for the synchronous call.
-    let status = unsafe { ((*host).registrations_submit)(ctx, borrowed(&bytes[..len])) };
-    if status != OK {
-        return status;
+    if !EMPTY.with(Cell::get) {
+        let status = unsafe { ((*host).registrations_submit)(ctx, borrowed(&bytes[..len])) };
+        if status != OK {
+            return status;
+        }
+    }
+    if EXTRA_CALLBACK.with(Cell::get) {
+        let len = wire::registrations_encode(
+            &[wire::Registration::Event {
+                event_tag: wire::EVENT_STARTED_TAG,
+                token: 91,
+            }],
+            &mut bytes,
+        )
+        .unwrap();
+        // SAFETY: the encoded callback registration remains readable for submit.
+        let status = unsafe { ((*host).registrations_submit)(ctx, borrowed(&bytes[..len])) };
+        if status != OK {
+            return status;
+        }
     }
     let state = Box::into_raw(Box::new(ScreenState {
         table: PpPlugin {
@@ -278,4 +297,27 @@ fn every_post_factory_host_allocation_refuses_without_partial_publication() {
         reached_success,
         "the fault walk reached a fully admitted owner"
     );
+}
+
+#[test]
+fn empty_or_unmapped_callback_install_is_refused_without_publication() {
+    for (empty, callback) in [(true, false), (false, true)] {
+        reset(NORMAL);
+        DESTROYED.with(|value| value.set(0));
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        let before = kernel.shared.registry.screens.list().iter().count();
+        EMPTY.with(|value| value.set(empty));
+        EXTRA_CALLBACK.with(|value| value.set(callback));
+        let result = install(&mut kernel, 0);
+        EMPTY.with(|value| value.set(false));
+        EXTRA_CALLBACK.with(|value| value.set(false));
+        assert!(matches!(
+            result,
+            Err(Error::Status(host_glue::ERR_UNSUPPORTED))
+        ));
+        assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
+        assert_eq!(DESTROYED.with(Cell::get), 1);
+    }
 }

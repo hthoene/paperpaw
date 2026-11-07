@@ -64,8 +64,16 @@ impl crate::Kernel {
                 })();
             })?;
             result?;
+            if owned.is_empty() {
+                return Err(ERR_UNSUPPORTED);
+            }
             Ok((owner, owned))
         })?;
+        // Callback registrations need their own mapping arm. Never accept an
+        // owner while silently leaving any committed contribution unrouted.
+        if !retained.batch().map_err(shell::Error::from)?.is_empty() {
+            return Err(shell::Error::Status(ERR_UNSUPPORTED));
+        }
         let flat_host = FlatHost {
             meter: Rc::clone(&self.shared.meter),
             font_removals: Rc::clone(&self.shared.font_removals),
