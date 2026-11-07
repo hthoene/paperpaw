@@ -29,6 +29,8 @@ pub use paperpaw_lang::{Direction, Lang, WritingMode};
 
 pub use paperpaw_platform::{DirEntry, NoStorage, Storage};
 
+mod edit;
+pub use edit::{EditError, TextEdit};
 mod table;
 pub use table::{MAX_COLUMNS, TableCell, TableRow, VerticalAlign};
 
@@ -800,62 +802,6 @@ impl Block {
                 .copied()
                 .unwrap_or(self.lang),
         }
-    }
-
-    /// Replaces bytes `range` of `text` (on character boundaries) with
-    /// `with`, e.g. in a text filter: styles move along, and positions in
-    /// the source stay right around it (the new text maps to where the old
-    /// one was).
-    pub fn replace(&mut self, range: core::ops::Range<usize>, with: &str) {
-        let (from, to) = (range.start, range.end.min(self.text.len()));
-        if from > to || !self.text.is_char_boundary(from) || !self.text.is_char_boundary(to) {
-            return;
-        }
-        let shift = |i: u32| -> u32 { (i as usize + with.len() - (to - from)) as u32 };
-        let (source_from, source_to) = (self.source_offset(from), self.source_offset(to));
-        let mut checkpoints: Vec<(u32, u32)> = self
-            .map
-            .checkpoints
-            .iter()
-            .copied()
-            .filter(|&(t, _)| (t as usize) < from)
-            .collect();
-        checkpoints.push((from as u32, source_from));
-        checkpoints.push(((from + with.len()) as u32, source_to));
-        checkpoints.extend(
-            self.map
-                .checkpoints
-                .iter()
-                .filter(|&&(t, _)| t as usize > to)
-                .map(|&(t, s)| (shift(t), s)),
-        );
-        // One checkpoint per text index, the last one wins.
-        let mut map = OffsetMap::default();
-        for (t, s) in checkpoints {
-            map.checkpoint(t as usize, s);
-        }
-        self.map = map;
-        // The new text takes the style of the first run reaching into the
-        // replaced text; runs after it that reach in too start behind it.
-        let end = (from + with.len()) as u32;
-        let mut claimed = false;
-        for run in &mut self.runs {
-            let (start, stop) = (run.start as usize, run.end as usize);
-            if stop <= from {
-                continue;
-            }
-            if start >= to {
-                run.start = shift(run.start);
-            } else if claimed {
-                run.start = end;
-            } else {
-                run.start = run.start.min(from as u32);
-                claimed = true;
-            }
-            run.end = if stop >= to { shift(run.end) } else { end };
-        }
-        self.runs.retain(|run| run.start < run.end);
-        self.text.replace_range(from..to, with);
     }
 
     /// The source offset of byte `index` of `text`.
