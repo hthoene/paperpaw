@@ -159,6 +159,7 @@ impl SecretList {
 }
 
 /// A secret value borrowed from caller-owned output, with redacted Debug.
+/// Clear the output with [`super::wipe`] after using the value and its view.
 ///
 /// ```compile_fail
 /// use paperpaw_sdk::native::{Host, secrets::{Secrets, SecretValue}};
@@ -210,6 +211,7 @@ pub(super) fn plugin_id(plugin: &str) -> Result<(), Error> {
 }
 
 /// Device randomness borrowed from the caller's output. Debug hides the bytes.
+/// Clear output with [`super::wipe`] after using bytes drawn for key material.
 #[derive(Clone, Copy)]
 pub struct RandomBytes<'a>(pub(super) wire::ServiceSecBytes<'a>);
 impl core::fmt::Debug for RandomBytes<'_> {

@@ -1,8 +1,11 @@
 //! Borrowed secret requests and service access. The host enforces owner stamping
 //! and `uses.secrets`; an editor can list/change other owners but never read values.
+//! Call [`wipe`] on caller-owned buffers after consuming secret values or random
+//! bytes used as key material, and clear any separate copies as well.
 use super::wire::services_wire::core_secrets_v1 as schema;
 use super::{Error, Host, declare::records_wire as wire, services::Service};
 mod calls;
+pub use calls::wipe;
 mod paging;
 pub use paging::{SecretEntry, SecretPage, SecretPageEnd};
 mod types;

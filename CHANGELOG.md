@@ -22,7 +22,9 @@ change the plugin SDK.
 - Native SDK `Secrets` provides typed owner-only reads, paged editor listings,
   save/remove calls and random bytes with a strength flag. Replies borrow caller
   buffers; values and random bytes have redacted Debug. Secret writes clear
-  encoded input on success and refusal, with no facade heap allocations (#228).
+  encoded input on success and refusal. Failed value replies are cleared, and a
+  public volatile `secrets::wipe` clears caller buffers after use. The facade
+  performs no heap allocations (#228).
 
 - Settings 1.0.6: the interface-7 native plugin (main page, group pages, choosing a value, themes,
   search, reset, number editing with preview) over the registry service; `paperpaw-ui-kit` item

@@ -396,3 +396,112 @@ fn failures_and_short_buffers_do_not_call_or_publish_success() {
         Err(Error::Invalid)
     ));
 }
+
+#[test]
+fn failed_get_wipes_reported_reply_without_touching_unused_output() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let secrets = Secrets::open(&host).unwrap();
+    let mut input = [0; 128];
+    let mut out = [0xa5; 1280];
+    for (label, flags) in [("bad\u{1}", 0), ("valid", 2)] {
+        reply(
+            &state,
+            &[&wire::ServiceSecValue {
+                label,
+                flags,
+                value: "never-leave-this-secret",
+            }],
+        );
+        let n = state.reply.borrow().len();
+        out.fill(0xa5);
+        assert!(secrets.get(&host, "token", &mut input, &mut out).is_err());
+        assert!(out[..n].iter().all(|b| *b == 0));
+        assert!(out[n..].iter().all(|b| *b == 0xa5));
+    }
+    // A wrong record may still carry sensitive bytes and must be wiped as well.
+    reply(
+        &state,
+        &[&wire::ServiceSecBytes {
+            flags: 1,
+            data: b"key-material",
+        }],
+    );
+    let n = state.reply.borrow().len();
+    out.fill(0xa5);
+    assert!(secrets.get(&host, "token", &mut input, &mut out).is_err());
+    assert!(out[..n].iter().all(|b| *b == 0));
+    assert!(out[n..].iter().all(|b| *b == 0xa5));
+    reply(
+        &state,
+        &[&wire::ServiceSecValue {
+            flags: 0,
+            label: "",
+            value: "truncated-secret",
+        }],
+    );
+    state.reply.borrow_mut().pop();
+    let n = state.reply.borrow().len();
+    out.fill(0xa5);
+    assert!(secrets.get(&host, "token", &mut input, &mut out).is_err());
+    assert!(out[..n].iter().all(|b| *b == 0));
+}
+#[test]
+fn public_wipe_clears_values_random_keys_and_empty_buffers() {
+    let mut secret = *b"secret";
+    wipe(&mut secret);
+    assert_eq!(secret, [0; 6]);
+    let mut key = [0xff; 256];
+    wipe(&mut key);
+    assert_eq!(key, [0; 256]);
+    wipe(&mut []);
+}
+#[test]
+fn raw_random_wire_debug_redacts_bytes_and_length() {
+    for data in [b"SECRET-KEY".as_slice(), &[83; 256]] {
+        let raw = wire::ServiceSecBytes { flags: 1, data };
+        assert_eq!(
+            alloc::format!("{raw:?}"),
+            "ServiceSecBytes { flags: 1, data: \"..\" }"
+        );
+        assert_eq!(
+            alloc::format!("{:?}", wire::Record::ServiceSecBytes(raw)),
+            "ServiceSecBytes(ServiceSecBytes { flags: 1, data: \"..\" })"
+        );
+    }
+}
+
+#[test]
+fn get_wipes_whole_output_if_host_wrote_then_refused() {
+    unsafe extern "C" fn write_then_fail(
+        _: *mut c_void,
+        _: u32,
+        _: u32,
+        _: PpBytes,
+        out: PpBuffer,
+    ) -> i32 {
+        // SAFETY: the SDK passes a live exclusive output buffer of at least 1,280 bytes.
+        unsafe {
+            core::ptr::copy_nonoverlapping(b"secret".as_ptr(), out.ptr, 6);
+        }
+        abi::ERR_IO
+    }
+    let mut table = table();
+    table.service_call = write_then_fail;
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::null_mut(),
+    };
+    let secrets = Secrets::open(&host).unwrap();
+    let mut input = [0; 128];
+    let mut out = [0xa5; 1280];
+    assert!(matches!(
+        secrets.get(&host, "token", &mut input, &mut out),
+        Err(Error::Io)
+    ));
+    assert_eq!(out, [0; 1280]);
+}

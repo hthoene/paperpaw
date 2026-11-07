@@ -23,7 +23,9 @@ impl Secrets {
         Ok(n)
     }
     /// Read only the calling plugin's own value. Editor access cannot read values.
-    /// Output retains the value while the returned view borrows it.
+    /// Output retains the value while the returned view borrows it. After use,
+    /// call [`super::wipe`] on the output buffer. A malformed reply is wiped
+    /// through its reported length; a call failure wipes the whole output.
     ///
     /// # Errors
     /// Returns local name/framing/cap errors or the host's refusal.
@@ -39,13 +41,43 @@ impl Secrets {
             plugin: "",
             name: name.name,
         };
-        let n = self.call(host, schema::OP_GET, &row, input, out)?;
-        let row = one::<wire::ServiceSecValue<'a>>(&out[..n])?;
-        super::types::label(row.label, wire::SERVICE_SEC_VALUE_LABEL_MAX_BYTES)?;
-        if row.flags & !1 != 0 {
-            return Err(Error::Invalid);
+        let cap = self
+            .service
+            .max_reply(schema::OP_GET)
+            .ok_or(Error::Unsupported)?;
+        let encoded = wire::records_encode_of(&[&row], input).map_err(Error::from_status)?;
+        if out.len() < cap {
+            return Err(Error::NoSpace);
         }
-        Ok(SecretValue(row))
+        let n = match self
+            .service
+            .call(host, schema::OP_GET, &input[..encoded], out)
+        {
+            Ok(n) => n,
+            Err(error) => {
+                // A failing host may have written bytes without reporting a length.
+                wipe(out);
+                return Err(error);
+            }
+        };
+        let valid = (|| {
+            if n > cap {
+                return Err(Error::Invalid);
+            }
+            let row = one::<wire::ServiceSecValue<'_>>(&out[..n])?;
+            super::types::label(row.label, wire::SERVICE_SEC_VALUE_LABEL_MAX_BYTES)?;
+            if row.flags & !1 != 0 {
+                return Err(Error::Invalid);
+            }
+            Ok(())
+        })();
+        if let Err(error) = valid {
+            wipe(&mut out[..n]);
+            return Err(error);
+        }
+        // Decode again after validation so the failure path can exclusively wipe
+        // output without extending a successful reply's borrow across that path.
+        one::<wire::ServiceSecValue<'a>>(&out[..n]).map(SecretValue)
     }
     /// List names and labels, never values, from the requested row cursor.
     /// Every row and terminal marker is checked before exposing a page.
@@ -116,6 +148,7 @@ impl Secrets {
     }
     /// Draw 1-256 bytes from the device source. Strength is reported for this
     /// draw; no weaker fallback is substituted when the host refuses it.
+    /// Call [`super::wipe`] on output after consuming bytes used as key material.
     ///
     /// # Errors
     /// Invalid for a zero/over-cap length or malformed reply; otherwise buffer
@@ -148,7 +181,11 @@ fn one<'a, T: wire::WireRecord<'a>>(bytes: &'a [u8]) -> Result<T, Error> {
     }
     raw.decode::<T>().map_err(Error::from_status)
 }
-fn wipe(bytes: &mut [u8]) {
+/// Clear a caller-owned buffer with volatile writes and a compiler fence.
+/// Call this after consuming secret values or random bytes used as key material,
+/// once every borrowed view into that buffer is no longer used. This clears only
+/// the supplied memory; callers must also clear any copies they made.
+pub fn wipe(bytes: &mut [u8]) {
     for byte in bytes {
         // SAFETY: each byte is exclusively borrowed and remains writable.
         unsafe {
