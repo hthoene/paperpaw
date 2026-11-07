@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 categories = ["no-std"]
-include = ["src", "how", "i18n", "build.rs", "declarations.rs", "native", "data", "pictures"]
+include = ["src", "how", "i18n", "build.rs", "declarations.rs", "native", "stages", "data", "pictures"]
 
 [features]
 linked = []
