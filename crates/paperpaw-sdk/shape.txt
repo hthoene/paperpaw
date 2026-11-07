@@ -722,6 +722,7 @@ const paperpaw_sdk::native::declare::records_wire::SERVICE_DEV_BUILTIN_TAG: u32 
 const paperpaw_sdk::native::declare::records_wire::SERVICE_DEV_BUILTIN_VERSION_MAX_BYTES: usize = 32usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_DEV_CHECK_ID_MAX_BYTES: usize = 64usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_DEV_CHECK_KEY_MAX_BYTES: usize = 32usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_DEV_CHECK_SHA256_MAX_BYTES: usize = 32usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_DEV_CHECK_SIGNER_MAX_BYTES: usize = 64usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_DEV_CHECK_TAG: u32 = 1_130u32
 const paperpaw_sdk::native::declare::records_wire::SERVICE_DEV_CHECK_VERSION_MAX_BYTES: usize = 64usize
@@ -2393,7 +2394,7 @@ struct paperpaw_sdk::native::declare::records_wire::ScreenSpec<'a> { name: &'a s
 struct paperpaw_sdk::native::declare::records_wire::ServiceDevBluetooth { radio: u32, max_links: u32, flags: u32 }
 struct paperpaw_sdk::native::declare::records_wire::ServiceDevBonded<'a> { device: u32, name: &'a str, kind: u32, flags: u32, given: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceDevBuiltin<'a> { id: &'a str, version: &'a str }
-struct paperpaw_sdk::native::declare::records_wire::ServiceDevCheck<'a> { reason: u32, needs_draft: u32, bytes: u64, signer: &'a str, key: &'a [u8], id: &'a str, version: &'a str, flags: u32 }
+struct paperpaw_sdk::native::declare::records_wire::ServiceDevCheck<'a> { reason: u32, needs_draft: u32, bytes: u64, signer: &'a str, key: &'a [u8], id: &'a str, version: &'a str, flags: u32, sha256: &'a [u8] }
 struct paperpaw_sdk::native::declare::records_wire::ServiceDevDevice<'a> { id: &'a str, model: &'a str, catalog: &'a str, class: u32, caps: u64, controls: u32, tls_sessions: u32, start: u32, slept_ms: u64, flags: u32 }
 struct paperpaw_sdk::native::declare::records_wire::ServiceDevFirmware<'a> { version: &'a str, project: &'a str, chip: u32, room: u64, undone: u32, state: u32, done: u64, total: u64, reason: u32, request: u32 }
 struct paperpaw_sdk::native::declare::records_wire::ServiceDevInstall<'a> { request: u32, kind: u32, state: u32, status: i32, reason: u32, flags: u32, done: u64, total: u64, id: &'a str }

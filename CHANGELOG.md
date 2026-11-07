@@ -102,6 +102,7 @@ change the plugin SDK.
   and `core.lookup` that mirror their service rows. Secret-bearing record fields print redacted.
   `paperpaw_sdk::document` re-exports `TextEdit` and `EditError`; `TextEdit::try_set_text` sets a
   whole text mapped from the block's own source range.
+  `service.dev_check` gains the optional `sha256` digest `device.md` already named.
   Hosts answer `ERR_UNSUPPORTED` until wired. Interface draft 20 (`native::DRAFT`) refuses
   plugins built for draft 19 (#228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
