@@ -39,7 +39,14 @@ pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
         shows: crate::native_calendar::shows,
         settable: false,
     };
+    static COUNTDOWN: Behaviour = Behaviour {
+        height: crate::native_countdown::height,
+        draw: crate::native_countdown::draw,
+        shows: crate::native_countdown::shows,
+        settable: true,
+    };
     match token {
+        103 => Some(&COUNTDOWN),
         102 => Some(&CALENDAR),
         100 => Some(&DAY),
         101 => Some(&TILES),

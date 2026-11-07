@@ -90,6 +90,8 @@ pub enum Opt {
         &'static str,
         &'static str,
     ),
+    /// Free text: key, title, default, help.
+    Text(&'static str, &'static str, &'static str, &'static str),
     /// How dates are written: the default is one of [`DATE_FORMATS`].
     DateFormat(&'static str),
 }
@@ -216,6 +218,43 @@ const CALENDAR_OPTIONS: &[Opt] = &[
     Opt::Part("next", "widgets.setting.next-month", false),
 ];
 
+const COUNTDOWN_OPTIONS: &[Opt] = &[
+    Opt::Align("core.align.left"),
+    Opt::Frame("core.frame.none"),
+    Opt::Padding,
+    Opt::Paper,
+    Opt::Ink,
+    Opt::Corners,
+    Opt::FrameLine,
+    Opt::Shadow,
+    Opt::Text(
+        "title",
+        "widgets.setting.countdown-title",
+        "",
+        "widgets.setting.countdown-title.help",
+    ),
+    Opt::Text(
+        "date",
+        "widgets.setting.countdown-date",
+        "12-24",
+        "widgets.setting.countdown-date.help",
+    ),
+    Opt::Choice(
+        "style",
+        "widgets.setting.style",
+        &[
+            "widgets.countdown.style.number",
+            "widgets.countdown.style.sentence",
+        ],
+        "widgets.countdown.style.number",
+        "widgets.countdown.style.help",
+    ),
+    Opt::Size("core.size.fit", true),
+    Opt::Part("show-date", "widgets.setting.show-date", true),
+    Opt::Part("weeks", "widgets.setting.weeks", false),
+    Opt::DateFormat("widgets.date-format.weekday"),
+];
+
 /// Every widget of the pack.
 pub const WIDGETS: &[Def] = &[
     Def {
@@ -238,6 +277,13 @@ pub const WIDGETS: &[Def] = &[
         category: category::TIME,
         live: true,
         options: CALENDAR_OPTIONS,
+    },
+    Def {
+        name: "countdown",
+        token: 103,
+        category: category::TIME,
+        live: true,
+        options: COUNTDOWN_OPTIONS,
     },
 ];
 
@@ -338,6 +384,13 @@ fn row(option: Opt) -> Row<'static> {
         Opt::Choice(key, title, values, default, help) => {
             choice(key, (default, values), title, help)
         }
+        Opt::Text(key, title, default, help) => Row {
+            suffix: key,
+            kind: Kind::Text(default),
+            title,
+            help,
+            keeps: false,
+        },
         Opt::DateFormat(default) => choice(
             "date-format",
             (default, DATE_FORMATS),

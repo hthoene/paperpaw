@@ -28,7 +28,10 @@ pub fn fill_circle(
     if radius == 0 {
         return Ok(());
     }
-    paint::push(out, Paint::Focus(square(centre, radius), radius, None, color))
+    paint::push(
+        out,
+        Paint::Focus(square(centre, radius), radius, None, color),
+    )
 }
 
 /// A circle's outline of `radius` pixels round `centre`, `thickness` wide,

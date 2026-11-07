@@ -397,3 +397,93 @@ pub fn stack(
     }
     Ok(())
 }
+
+/// The lines `text` breaks into at `size` in `width` pixels, between words
+/// only; `None` where a word alone is wider.
+///
+/// # Errors
+/// Font refusals and [`Error::NoMemory`].
+pub fn words_in_lines(
+    font: &Font<'_>,
+    size: f32,
+    text: &str,
+    width: f32,
+) -> Result<Option<Vec<String>>, Error> {
+    let mut lines: Vec<String> = Vec::new();
+    for word in text.split_whitespace() {
+        if font.measure_text(size, word)? > width {
+            return Ok(None);
+        }
+        let joined = match lines.last() {
+            Some(last) => {
+                let joined = text::concat(&[last, " ", word])?;
+                (font.measure_text(size, &joined)? <= width).then_some(joined)
+            }
+            None => None,
+        };
+        match (joined, lines.last_mut()) {
+            (Some(joined), Some(last)) => *last = joined,
+            _ => {
+                lines.try_reserve(1).map_err(|_| Error::NoMemory)?;
+                lines.push(text::copy(word)?);
+            }
+        }
+    }
+    Ok(Some(lines))
+}
+
+/// The largest size, from `least` to `most`, at which `text` fits a room
+/// `width` by `height` broken into lines between words (no word wider than a
+/// line), as it is drawn; `least` where none does.
+///
+/// # Errors
+/// Font refusals and [`Error::NoMemory`].
+pub fn largest(
+    font: &Font<'_>,
+    text: &str,
+    (width, height): (u16, u16),
+    (least, most): (f32, f32),
+) -> Result<f32, Error> {
+    let fits = |size: f32| -> Result<bool, Error> {
+        Ok(match words_in_lines(font, size, text, f32::from(width))? {
+            Some(lines) => line(font, size)? * lines.len() as f32 <= f32::from(height),
+            None => false,
+        })
+    };
+    Ok(largest_size(most.max(least), least, fits)?.unwrap_or(least))
+}
+
+/// `text` broken into as many lines as `width` needs at `size`, between words
+/// only, the lines as even as can be (not one long and one short). A word
+/// wider than a line has a line to itself.
+///
+/// # Errors
+/// Font refusals and [`Error::NoMemory`].
+pub fn balanced(font: &Font<'_>, size: f32, text: &str, width: f32) -> Result<Vec<String>, Error> {
+    let Some(first) = words_in_lines(font, size, text, width)? else {
+        let mut words: Vec<String> = Vec::new();
+        for word in text.split_whitespace() {
+            words.try_reserve(1).map_err(|_| Error::NoMemory)?;
+            words.push(text::copy(word)?);
+        }
+        return Ok(words);
+    };
+    let count = first.len();
+    if count <= 1 {
+        return Ok(first);
+    }
+    // The narrowest width that needs no more lines.
+    let (mut low, mut high) = (width / count as f32, width);
+    let mut best = first;
+    for _ in 0..8 {
+        let mid = f32::midpoint(low, high);
+        match words_in_lines(font, size, text, mid)? {
+            Some(narrow) if narrow.len() <= count => {
+                high = mid;
+                best = narrow;
+            }
+            _ => low = mid,
+        }
+    }
+    Ok(best)
+}

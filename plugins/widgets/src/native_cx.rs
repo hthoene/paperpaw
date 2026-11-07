@@ -153,6 +153,20 @@ impl<'a> Cx<'a> {
         )
     }
 
+    /// The catalog's text for `key` in the form `count` selects, with the
+    /// arguments (`{count}` is bound too).
+    ///
+    /// # Errors
+    /// The host's refusal and [`Error::NoMemory`].
+    pub fn plural(&mut self, key: &str, count: i64, args: &[Arg<'_>]) -> Result<String, Error> {
+        let mut all: alloc::vec::Vec<Arg<'_>> = alloc::vec::Vec::new();
+        all.try_reserve(args.len() + 1)
+            .map_err(|_| Error::NoMemory)?;
+        all.push(Arg::Count(count));
+        all.extend_from_slice(args);
+        self.messages.format(self.host, key, &all)
+    }
+
     /// The first day of the week, 0 (Sunday) or 1 (Monday), as set for the
     /// device, or as the language's habit says.
     ///
