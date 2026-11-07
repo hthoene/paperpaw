@@ -11,7 +11,7 @@ use paperpaw_core::native_host::registration_scope::RegistrationScope;
 use paperpaw_core::native_host::registrations::{self, EVENT_TICK_TAG, Registration};
 use paperpaw_core::native_host::{self, Construction, DispatchDepth, HostOwner, RegistrationBatch};
 use paperpaw_native::host_glue::{self, PpBuffer, PpBytes, PpHost, PpPlugin, Services, ShellCtx};
-use std::{alloc::Layout, cell::Cell, ffi::c_void, path::Path, pin::Pin, ptr};
+use std::{cell::Cell, ffi::c_void, path::Path, pin::Pin, ptr};
 
 #[derive(Debug)]
 enum Error {
@@ -68,7 +68,7 @@ impl<'a, S, T> Transaction<'a, S, T> {
 type Batch<'a, S, T> = RegistrationBatch<'a, Context<S>, HeldLibrary, T>;
 
 struct PinnedPlugin<S> {
-    owner: Pin<Box<Owner<S>>>,
+    owner: native_host::PinnedOwner<Context<S>, HeldLibrary>,
     make: Make,
     /// Host-known plugin id (from the folder, never from the library) that
     /// staged declaration names are checked against.
@@ -213,19 +213,10 @@ impl<S: Services> PinnedPlugin<S> {
 
 /// Fallible allocation uses the emulator's global budget allocator. The owner
 /// includes a module and context, so its allocation is never zero-sized.
-fn pin_owner<S>(value: Owner<S>) -> Result<Pin<Box<Owner<S>>>, Error> {
-    let layout = Layout::new::<Owner<S>>();
-    // SAFETY: layout is nonzero and valid for this exact owner type.
-    let allocation = unsafe { std::alloc::alloc(layout) }.cast::<Owner<S>>();
-    if allocation.is_null() {
-        return Err(Error::Allocation);
-    }
-    // SAFETY: uniquely owned allocation of the exact Box layout, initialized
-    // before creating its Box. Nothing has observed the unpinned owner yet.
-    unsafe {
-        allocation.write(value);
-        Ok(Box::into_pin(Box::from_raw(allocation)))
-    }
+fn pin_owner<S>(
+    value: Owner<S>,
+) -> Result<native_host::PinnedOwner<Context<S>, HeldLibrary>, Error> {
+    native_host::PinnedOwner::try_new(value).ok_or(Error::Allocation)
 }
 
 struct PendingInstance<'a, S, T> {
@@ -239,7 +230,14 @@ impl<'a, S, T> PendingInstance<'a, S, T> {
         // The pending guard owns staging so panic or cancellation also drains
         // records before foreign output destruction. It is present until here.
         let transaction = self.transaction.take().ok_or(Error::Attempt)?;
-        let batch = transaction.staging.commit(destroy_context::<S>)?;
+        let batch = transaction
+            .staging
+            .commit(paperpaw_core::native_host::Teardown {
+                report: report_teardown::<S>,
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
+                destroy: destroy_context::<S>,
+            })?;
         self.armed = false;
         Ok(batch)
     }
@@ -271,6 +269,17 @@ impl<S, T> Drop for PendingInstance<'_, S, T> {
         // before the local foreign-cleanup guard runs. A second panic aborts.
         drop(self.transaction.take());
     }
+}
+
+fn report_teardown<S>(
+    context: Pin<&Context<S>>,
+    step: native_host::TeardownStep,
+    error: native_host::Error,
+) {
+    eprintln!(
+        "abi7 owner {:p}: fallback {step:?} teardown error: {error:?}",
+        context.get_ref()
+    );
 }
 
 fn destroy_context<S>(context: Pin<&Context<S>>) {
@@ -350,9 +359,8 @@ unsafe extern "C" fn registrations_submit<S: Services>(ctx: *mut c_void, batch: 
 
 enum Invocation<'a> {
     Tick(&'a [u8]),
-    /// An event of interface 7's list, its payload encoded by core
-    /// (`native_host::events`): handed to the callback as it is.
-    Event(&'a [u8]),
+    /// An encoded event and the caller's exclusive borrowed reply buffer.
+    Event(&'a [u8], &'a mut [u8]),
     /// One encoded `draw.frame` batch (N2).
     Draw(&'a [u8]),
 }
@@ -408,15 +416,24 @@ fn invoke_registration<S>(
                 callback(instance.state, token, borrowed(bytes), no_reply())
             }))
         }
-        (Registration::Event { token, .. }, Invocation::Event(bytes)) => {
+        (Registration::Event { token, .. }, Invocation::Event(bytes, out)) => {
             let callback = instance
                 .event
                 .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
-            // SAFETY: same admitted owner lifetime; the payload is borrowed for
-            // this call only and does not alias host state.
-            Ok(status_only(unsafe {
-                callback(instance.state, token, borrowed(bytes), no_reply())
-            }))
+            let reply = PpBuffer {
+                ptr: out.as_mut_ptr(),
+                cap: out.len(),
+            };
+            // SAFETY: admission retains the owner; input/output are disjoint
+            // borrowed slices, exclusively writable for the lent output span.
+            let status = unsafe { callback(instance.state, token, borrowed(bytes), reply) };
+            Ok(
+                if status >= 0 && usize::try_from(status).is_ok_and(|len| len > out.len()) {
+                    host_glue::ERR_INVALID
+                } else {
+                    status
+                },
+            )
         }
         (Registration::Draw { token }, Invocation::Draw(frame)) => {
             let callback = instance

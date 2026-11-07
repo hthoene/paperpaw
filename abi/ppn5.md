@@ -208,6 +208,19 @@ is merged.
 
 ## The packer (slice 3)
 
+The packer's stack frame scan bounds each function's frame, not the depth of a call path; the band at the stack's end
+and the device's high-water test cover that. A jump through a register inside a frame is how a `match` compiled to a
+jump table looks; the scan reads such a table from the plugin's `.rodata` (the run of its relocated words that point
+into the function) and follows every entry, and refuses one it cannot read. Plugins are built with
+`-C jump-tables=no` all the same (set in the `rustflags` of the sample's `.cargo/config.toml`, the template of an
+interface-7 plugin build), which leaves the plugin's own `match`es nothing to read; the flag does not reach the
+precompiled `core`, whose tables the scan reads.
+
+**Floats:** formatting a float (`{}` or `{:.2}` of an `f32` or `f64`) is refused for another reason than its
+tables: `core`'s `float_to_decimal_common_exact` has a stack frame of 1,952 bytes (RV32IMC, `opt-level = "s"`),
+over the 1,536 the scan allows, and any float `Display` links it. An X4 plugin shows a percentage or a size from
+integers (`n * 100 / total`, fixed digits).
+
 `paperpaw-sign pack <plugin.elf> <plugin.ppn> [--key <file>]` writes format 5 for a plugin linked with
 `paperpaw-plugin7.x` and `--emit-relocs` that defines `PAPERPAW_METADATA`; a plugin that defines `PAPERPAW_API` is
 interface 6 and gets format 4, and one that defines both or neither is refused. The file is made as above:

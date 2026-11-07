@@ -14,10 +14,8 @@
 //! records stay non-dispatchable until the output validates and commits; the
 //! plugin's destructor runs exactly once, while the context, services and
 //! module are alive; Env and Canvas are lent for one synchronous callback.
-use alloc::alloc::{alloc, handle_alloc_error};
 use alloc::boxed::Box;
 use alloc::string::String;
-use core::alloc::Layout;
 use core::cell::Cell;
 use core::ffi::c_void;
 use core::pin::Pin;
@@ -112,11 +110,17 @@ unsafe fn read_output(out: *const PpPlugin) -> Result<PluginOutput, Error> {
     }
 }
 
+/// Shell diagnostic sink. It must log owner, step and error without allocating,
+/// panicking or reentering the owner. No default or silent sink is supplied.
+pub type Report<S> = fn(&S, &str, super::TeardownStep, super::Error);
+
 /// The host table's `ctx`: what the shell's entries reach. Pinned inside the
 /// owner; the plugin keeps only its address.
 #[allow(missing_debug_implementations, reason = "holds the generated table")]
 pub struct Context<S> {
     table: PpHost,
+    id: Box<str>,
+    report: Report<S>,
     /// The shell's heap and clock.
     pub services: S,
     instance: Cell<Option<PluginOutput>>,
@@ -181,11 +185,8 @@ impl<'a, S, M, T> Transaction<'a, S, M, T> {
 /// ```
 #[allow(missing_debug_implementations, reason = "holds the generated table")]
 pub struct Hosted<S, M> {
-    owner: Pin<Box<Owner<S, M>>>,
+    owner: super::PinnedOwner<Context<S>, M>,
     make: Make,
-    /// Host-known plugin id (from the folder, never from the library) that
-    /// staged declaration names are checked against.
-    id: Box<str>,
     /// The plugin's read-only data as mapped: address and length.
     image: (usize, usize),
     /// Admission was stopped ([`Hosted::stop`]): no image is given any more.
@@ -210,6 +211,7 @@ pub fn host_table<S: Services>() -> PpHost {
 
 impl<S: Services, M> Hosted<S, M> {
     /// Hosts the plugin `id` whose factory is `make`, kept alive by `module`.
+    /// `report` is the shell's real diagnostic sink, including the X4 sink.
     /// `image` is the address and length of the plugin's read-only data
     /// (`(0, 0)` for none).
     ///
@@ -229,6 +231,7 @@ impl<S: Services, M> Hosted<S, M> {
         make: Make,
         id: &str,
         image: (usize, usize),
+        report: Report<S>,
     ) -> Result<Self, Error> {
         // Fallible, before anything else is built: the X4 has no room to abort.
         let mut owned = String::new();
@@ -238,6 +241,8 @@ impl<S: Services, M> Hosted<S, M> {
         owned.push_str(id);
         let context = Context {
             table: host_table::<S>(),
+            id: owned.into_boxed_str(),
+            report,
             services,
             instance: Cell::new(None),
             attempted: Cell::new(false),
@@ -249,7 +254,6 @@ impl<S: Services, M> Hosted<S, M> {
         Ok(Self {
             owner,
             make,
-            id: owned.into_boxed_str(),
             image,
             stopped: Cell::new(false),
         })
@@ -294,7 +298,10 @@ impl<S: Services, M> Hosted<S, M> {
     pub fn begin<T>(&self) -> Result<Transaction<'_, S, M, T>, Error> {
         Ok(Transaction {
             context: self.owner.as_ref().context(),
-            staging: self.owner.as_ref().begin(&self.id)?,
+            staging: self
+                .owner
+                .as_ref()
+                .begin(&self.owner.as_ref().context().get_ref().id)?,
         })
     }
 
@@ -378,22 +385,8 @@ impl<S: Services, M> Hosted<S, M> {
 
 /// Fallible placement of the owner: it holds a context and a module, so its
 /// allocation is never zero-sized.
-fn pin_owner<S, M>(value: Owner<S, M>) -> Result<Pin<Box<Owner<S, M>>>, Error> {
-    let layout = Layout::new::<Owner<S, M>>();
-    if layout.size() == 0 {
-        handle_alloc_error(layout);
-    }
-    // SAFETY: the layout is nonzero and valid for this exact owner type.
-    let allocation = unsafe { alloc(layout) }.cast::<Owner<S, M>>();
-    if allocation.is_null() {
-        return Err(Error::Allocation);
-    }
-    // SAFETY: a uniquely owned allocation of the exact `Box` layout,
-    // initialized before the `Box` exists. Nothing has seen the unpinned owner.
-    unsafe {
-        allocation.write(value);
-        Ok(Box::into_pin(Box::from_raw(allocation)))
-    }
+fn pin_owner<S, M>(value: Owner<S, M>) -> Result<super::PinnedOwner<Context<S>, M>, Error> {
+    super::PinnedOwner::try_new(value).ok_or(Error::Allocation)
 }
 
 /// A made plugin whose records are not yet dispatchable. Dropped before
@@ -416,7 +409,12 @@ impl<'a, S, M, T> PendingInstance<'a, S, M, T> {
         // The pending guard owns staging so a panic or cancellation also
         // drains the records before the foreign output is destroyed.
         let transaction = self.transaction.take().ok_or(Error::Attempt)?;
-        let batch = transaction.staging.commit(destroy_context::<S>)?;
+        let batch = transaction.staging.commit(crate::native_host::Teardown {
+            report: report_context::<S>,
+            cancel: cancel_context::<S>,
+            release: release_context::<S>,
+            destroy: destroy_context::<S>,
+        })?;
         self.armed = false;
         Ok(batch)
     }
@@ -448,6 +446,61 @@ impl<S, M, T> Drop for PendingInstance<'_, S, M, T> {
         // local foreign-cleanup guard runs. A second panic aborts.
         drop(self.transaction.take());
     }
+}
+
+fn cancel_context<S>(_: Pin<&Context<S>>) -> Result<(), super::Error> {
+    host_cleanup(super::TeardownStep::Cancel)
+}
+
+fn release_context<S>(_: Pin<&Context<S>>) -> Result<(), super::Error> {
+    host_cleanup(super::TeardownStep::Release)
+}
+
+fn host_cleanup(_step: super::TeardownStep) -> Result<(), super::Error> {
+    #[cfg(test)]
+    return teardown_fault::run(_step);
+    #[cfg(not(test))]
+    Ok(())
+}
+
+/// Test-only host failures. Never present in device builds.
+#[cfg(test)]
+pub(crate) mod teardown_fault {
+    extern crate std as test_std;
+    use crate::native_host::{Error, TeardownStep};
+    use core::cell::Cell;
+
+    test_std::thread_local! {
+        static FAILURE: Cell<Option<(TeardownStep, Error, bool)>> = const { Cell::new(None) };
+    }
+
+    pub(crate) fn arm(step: TeardownStep, error: Error) {
+        FAILURE.with(|failure| failure.set(Some((step, error, false))));
+    }
+
+    pub(crate) fn arm_persistent(step: TeardownStep, error: Error) {
+        FAILURE.with(|failure| failure.set(Some((step, error, true))));
+    }
+
+    pub(crate) fn disarm() {
+        FAILURE.with(|failure| failure.set(None));
+    }
+
+    pub(super) fn run(step: TeardownStep) -> Result<(), Error> {
+        FAILURE.with(|failure| match failure.get() {
+            Some((wanted, error, persistent)) if wanted == step => {
+                if !persistent {
+                    failure.set(None);
+                }
+                Err(error)
+            }
+            _ => Ok(()),
+        })
+    }
+}
+
+fn report_context<S>(context: Pin<&Context<S>>, step: super::TeardownStep, error: super::Error) {
+    (context.report)(&context.services, &context.id, step, error);
 }
 
 fn destroy_context<S>(context: Pin<&Context<S>>) {
