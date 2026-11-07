@@ -54,7 +54,9 @@ fn plugin_with(machine: u16, spare: [u8; 4]) -> Plugin {
     let tx = b.section(".text", SHF_ALLOC | 4, TEXT, &[0x13; 32], 4);
     b.symbol(ENTRY_SYMBOL, LINK_BASE, 20, ro as u16, false);
     b.symbol(METADATA_SYMBOL, LINK_BASE + 24, 88, ro as u16, false);
-    let make = b.symbol("make", TEXT, 8, tx as u16, true);
+    // The whole code is the function `make` (the packer reads each function
+    // within its symbol's size and refuses code no function covers).
+    let make = b.function("make", TEXT, 32, tx as u16, true);
     b.symbol("PAPERPAW_HOT", TEXT + 32, 0, tx as u16, false);
     b.symbol("PAPERPAW_HOT_END", TEXT + 32, 0, tx as u16, false);
     let meta = b.symbol("META", LINK_BASE + 24, 0, ro as u16, true);
@@ -268,10 +270,10 @@ fn the_real_sample_packs_to_the_committed_file() {
         (h.target, h.abi_major, h.needs_minor),
         (Chip::Esp32C3, 7, 1)
     );
-    assert_eq!((h.image_len, h.code_at, h.entry), (220, 128, 0));
+    assert_eq!((h.image_len, h.code_at, h.entry), (236, 144, 0));
     assert_eq!((h.meta_at, h.meta_len, h.relocs, h.align), (20, 88, 3, 16));
     // One hot function, called from cold code: an `auipc` and its partner.
-    assert_eq!((h.hot_at, h.hot_len, h.patches), (208, 12, 2));
+    assert_eq!((h.hot_at, h.hot_len, h.patches), (224, 12, 2));
 }
 
 #[test]

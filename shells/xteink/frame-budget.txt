@@ -1,0 +1,26 @@
+# The stack frames of the X4's panic path, checked in CI against the
+# firmware as built (`paperpaw-sign frames <elf> --budget shells/xteink/
+# frame-budget.txt`). The band at the stack's end keeps 2 KiB below it for
+# the panic handler (`paperpaw_x4::stack_band::RESERVE`), counted from the
+# stack pointer; the handler's real depth is measured on the device. This is
+# the build-time half: a change that makes these functions' frames larger
+# fails the build instead of the reserve.
+#
+# frame <bytes> <name>      the largest frame of a function whose path holds <name>
+# chain <bytes> <name>...   the frames of each name, summed; `<name>*<n>` sums the n largest frames of a function and its closures
+#
+# Frames today (riscv32imc, release, with the handler split in two for the
+# stack note, PR #262): `rust_begin_unwind` 16 (it only reads the stack pointer
+# and calls the handler), `crash::handle` with its 400-byte message 912, its
+# closures 272 each (named `crash::handle::_` or `::0` from build to build, or `crash::handle` itself: the chain
+# takes the family of `crash::handle`, the two largest frames: the handler and one closure called from it), ExceptionHandler 96, core::fmt::write 64.
+# The trap frame (esp-hal's assembly, no function of its own, about 144 bytes)
+# and what the handler's callees add come out of the chain's allowance.
+frame 64 rust_begin_unwind
+frame 1024 crash::handle
+frame 128 ExceptionHandler
+frame 96 core::fmt::write
+# The packer's reading of a mangled `impl` name is rough (the logger's `log` is
+# `esp_println::logger::_12E::log::Log::log` in one build and another path in the next), so the
+# chain names the tail `log::Log::log`: every `Log::log` of the firmware, and the largest counts.
+chain 1792 rust_begin_unwind crash::handle*2 ExceptionHandler core::fmt::write log::Log::log

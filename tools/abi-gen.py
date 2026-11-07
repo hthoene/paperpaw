@@ -18,6 +18,7 @@ from abi_metadata_schema import compatible_metadata, resolved_metadata, validate
 from abi_entry import validate_entry, compatible_entry, c_entry, rust_entry
 from abi_settings import validate_settings, compatible_settings, rust_settings
 from abi_callbacks import rust_callbacks
+from abi_host_decode import rust_host_decode
 from abi_records import validate_records, compatible_records, rust_records
 from abi_declarations import rust_streams
 from abi_snapshot import validate_snapshot, compatible_snapshot, rust_snapshot
@@ -326,7 +327,7 @@ def rust_module(schema):
 
 def lock_record(schema, released_minor=0):
     """Keep exact emitted declarations as well as logical schema semantics."""
-    return {'lock_format': 9, 'released_minor': released_minor,
+    return {'lock_format': 10, 'released_minor': released_minor,
             'schema': schema, 'emitted_c': header(schema),
             'emitted_rust': rust_module(schema),
             'emitted_metadata': resolved_metadata(schema),
@@ -335,7 +336,8 @@ def lock_record(schema, released_minor=0):
             'emitted_color': rust_color(schema),
             'emitted_commands': rust_commands(schema),
             'emitted_streams': rust_streams(schema),
-            'emitted_services': rust_services(schema)}
+            'emitted_services': rust_services(schema),
+            'emitted_host_decode': rust_host_decode(schema)}
 
 
 # The emitted sections of a lock: key, renderer name (looked up when used, so
@@ -352,7 +354,9 @@ EMITTED = (('emitted_c', 'header', 1, 'emitted C contract changed from prior loc
             'emitted commands contract changed from prior lock'),
            ('emitted_streams', 'rust_streams', 8, 'emitted streams contract changed from prior lock'),
            ('emitted_services', 'rust_services', 9,
-            'emitted services contract changed from prior lock'))
+            'emitted services contract changed from prior lock'),
+           ('emitted_host_decode', 'rust_host_decode', 10,
+            'emitted host decoder contract changed from prior lock'))
 # What a reviewed baseline replacement may waive, and nothing else: the lock's
 # shape, its format and major, and every check not named stay enforced.
 WAIVABLE = frozenset(['schema', 'compatible'] + [key for key, *_ in EMITTED])
@@ -362,7 +366,7 @@ def lock_shape(prior, schema):
     """The lock's structure and line (format, major), never waived."""
     require(type(prior) is dict, 'lock must be an object')
     version = prior.get('lock_format')
-    require(type(version) is int and version in (1, 2, 3, 4, 5, 6, 7, 8, 9), 'unsupported lock format')
+    require(type(version) is int and version in range(1, 11), 'unsupported lock format')
     keys(prior, ' '.join(['lock_format released_minor schema'] +
                          [key for key, _, since, _ in EMITTED if version >= since]))
     old = prior['schema']
@@ -495,7 +499,8 @@ def run(argv=None):
         outputs[args.root / 'crates/paperpaw-core/src/abi7/settings_wire.rs'] = codec
         # The SDK's private copy (#228): byte for byte the same codec.
         outputs[args.root / 'crates/paperpaw-sdk/src/native/declare/settings_value.rs'] = codec
-    codec = rust_records(schema) + rust_streams(schema) + rust_i18n(schema)
+    codec = (rust_records(schema) + rust_streams(schema) + rust_i18n(schema)
+             + rust_host_decode(schema))
     if codec:
         outputs[folder / 'generated' / 'records_wire.rs'] = codec
         outputs[args.root / 'crates/paperpaw-core/src/abi7/records_wire.rs'] = codec

@@ -13,6 +13,7 @@ SPEC.loader.exec_module(ABI)
 from abi_declarations import rust_streams
 from abi_records import rust_records
 from abi_i18n import rust_i18n
+from abi_host_decode import rust_host_decode
 
 
 class Streams(unittest.TestCase):
@@ -25,7 +26,9 @@ class Streams(unittest.TestCase):
                      'pub struct RecordStream', 'pub const RECORD_CARRY_MAX_BYTES: usize = 256;'):
             self.assertIn(name, source)
         generated = (ROOT / 'abi/generated/records_wire.rs').read_text()
-        self.assertEqual(generated, rust_records(self.schema) + source + rust_i18n(self.schema))
+        served = ABI.with_services(self.schema, ROOT / 'abi/services')
+        self.assertEqual(generated, rust_records(self.schema) + source + rust_i18n(self.schema)
+                         + rust_host_decode(served))
         without = copy.deepcopy(self.schema)
         without['records'] = [r for r in without['records']
                               if not r['name'].startswith('service.')]
@@ -33,7 +36,7 @@ class Streams(unittest.TestCase):
 
     def test_the_lock_pins_the_section(self):
         trusted = ABI.lock_record(self.schema)
-        self.assertEqual(trusted['lock_format'], 9)
+        self.assertEqual(trusted['lock_format'], 10)
         self.assertEqual(trusted['emitted_streams'], rust_streams(self.schema))
         ABI.check_lock(trusted, self.schema)
         original = ABI.rust_streams
@@ -44,6 +47,7 @@ class Streams(unittest.TestCase):
         legacy['lock_format'] = 7
         del legacy['emitted_streams']
         del legacy['emitted_services']
+        del legacy['emitted_host_decode']
         with patch.object(ABI, 'rust_streams', lambda s: original(s) + '// drift\n'):
             ABI.check_lock(legacy, self.schema)
 

@@ -195,6 +195,7 @@ class SchemaTests(unittest.TestCase):
         del prior['emitted_commands']
         del prior['emitted_streams']
         del prior['emitted_services']
+        del prior['emitted_host_decode']
         ABI.check_lock(prior, self.base)
         with patch.dict(ABI.TYPES, {'handle': 'uint64_t'}):
             with self.assertRaisesRegex(ValueError, 'emitted C contract'):

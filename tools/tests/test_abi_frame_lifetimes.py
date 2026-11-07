@@ -11,9 +11,12 @@ PREFIX = '''#![allow(dead_code, reason = "compile-only lifetime probe")]
 extern crate self as paperpaw_sdk;
 extern crate self as paperpaw_i18n;
 extern crate self as paperpaw_native;
+extern crate self as paperpaw_platform;
 pub mod host_glue { pub const ERR_STATE: i32 = -6; }
 mod snapshot_wire { pub struct Snapshot; }
 pub struct Settings;
+pub struct Fonts;
+pub trait Storage {}
 pub struct Translator;
 pub struct Id;
 impl Id { pub fn as_str(&self) -> &str { "fixture" } }

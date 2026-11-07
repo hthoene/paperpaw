@@ -26,12 +26,19 @@ pub use resources::HostResources;
 #[path = "native_host/fonts.rs"]
 mod fonts;
 
+#[path = "native_host/call_services.rs"]
+mod call_services;
 #[path = "native_host/data_services.rs"]
 mod data_services;
 mod declared_services;
 #[path = "native_host/formatting.rs"]
 mod formatting;
 mod service_slots;
+#[allow(
+    dead_code,
+    reason = "stage broker wiring follows this framing foundation"
+)]
+mod stage_wire;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 
@@ -72,6 +79,26 @@ pub mod environment;
 /// Interface-7 event records (tags 32-39): host encode, decode and admission.
 #[path = "native_host/events.rs"]
 pub mod events;
+// State is attached to Core's single registry when its publication seam lands.
+#[allow(
+    dead_code,
+    reason = "Core owns production runtime attachment and outermost draining"
+)]
+#[path = "native_host/event_pending.rs"]
+pub(crate) mod event_pending;
+#[allow(
+    dead_code,
+    reason = "Core owns production runtime attachment and outermost draining"
+)]
+#[path = "native_host/event_producers.rs"]
+pub(crate) mod event_producers;
+
+#[allow(
+    dead_code,
+    reason = "native runtime installation and EVT producer hooks follow this accessor"
+)]
+#[path = "native_host/event_sink.rs"]
+mod event_sink;
 /// Production event adapter for a shell-owned flat plugin instance.
 #[path = "native_host/flat.rs"]
 pub mod flat;
@@ -319,6 +346,17 @@ impl<C, M> HostOwner<C, M> {
     ///
     /// # Errors
     /// Returns State unless live, or Capacity when all lease slots are held.
+    ///
+    /// A safe lease cannot escape the host that owns its pinned allocation.
+    /// ```compile_fail,E0515
+    /// use paperpaw_core::native_host::{CallbackLease, shell::{Context, Hosted}};
+    /// use paperpaw_native::host_glue::Services;
+    /// fn escape<S: Services + 'static, M: 'static>(host: Hosted<S, M>)
+    ///     -> CallbackLease<'static, Context<S>, M>
+    /// {
+    ///     host.owner().lease().unwrap()
+    /// }
+    /// ```
     pub fn lease(self: Pin<&Self>) -> Result<CallbackLease<'_, C, M>, Error> {
         Ok(CallbackLease(self.inner().lease()?))
     }
@@ -426,8 +464,14 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// refusal, even if foreign code ignores the returned status. Preserve an
     /// earlier staging failure. Only a new transaction can clear this latch.
     pub fn reject(&mut self) {
+        self.reject_with(Error::Invalid);
+    }
+
+    /// [`reject`](Self::reject) with a cause other than Invalid, such as
+    /// Memory when the host could not allocate to decode a batch.
+    pub fn reject_with(&mut self, cause: Error) {
         if self.failure.is_none() {
-            self.failure = Some(Error::Invalid);
+            self.failure = Some(cause);
         }
     }
 
@@ -497,6 +541,10 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         }
         self.finish_declarations()?;
         let staging = map(&self.declaration_view())?;
+        // The mapper owns every value it keeps. Release construction copies
+        // and image indexes before activation instead of retaining both sets.
+        self.declarations = Declarations::default();
+        self.raw = raw_declarations::RawDeclarations::default();
         let batch = self.publish(teardown).map_err(registrations::status)?;
         Ok((batch, staging))
     }
@@ -508,7 +556,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
             len: self.len,
             declarations: core::mem::take(&mut self.declarations),
             raw: core::mem::take(&mut self.raw),
-            _image: self.image,
+            _image: core::marker::PhantomData,
             lease,
         })
     }
@@ -631,11 +679,27 @@ pub struct RegistrationBatch<'a, C, M, T> {
     len: usize,
     declarations: Declarations,
     raw: raw_declarations::RawDeclarations,
-    _image: Option<&'a [u8]>,
+    _image: core::marker::PhantomData<&'a [u8]>,
     lease: CallbackLease<'a, C, M>,
 }
 
 impl<C, M, T> RegistrationBatch<'_, C, M, T> {
+    /// The caller retains the pinned owner and image until this batch drops.
+    unsafe fn into_retained(self) -> RegistrationBatch<'static, C, M, T>
+    where
+        T: 'static,
+    {
+        RegistrationBatch {
+            records: self.records,
+            len: self.len,
+            declarations: self.declarations,
+            raw: self.raw,
+            _image: core::marker::PhantomData,
+            // SAFETY: the caller provides the retained pinned owner lifetime.
+            lease: CallbackLease(unsafe { self.lease.0.into_retained() }),
+        }
+    }
+
     /// Number of published host records.
     #[must_use]
     pub const fn len(&self) -> usize {
