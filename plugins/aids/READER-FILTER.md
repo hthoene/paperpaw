@@ -12,13 +12,14 @@ ceiling. Each string is at most 96 UTF-8 bytes; whole payload at most 3840 bytes
 Both limits apply: 32 full-length pairs do not fit (about 17 fit, depending on
 the header). Settings validation must measure the exact encoded payload and
 refuse the whole configuration visibly when either limit is exceeded.
-The generated framing is shared with the approved #224 codec template. Regenerate
-with `python3 tools/reader-filter-gen.py`; `--check` detects drift. ABI global
-records and lock are unchanged.
+The checked-in codec is provisional output from the earlier #224-based generator.
+That separate generator is not included here, so there is no supported regeneration
+command on this branch yet. Core follow-up 38 must provide the shared external-schema
+entry point before migration. ABI global records and lock are unchanged.
 
 Caption word is localized once; the reader combines it with each image's own
-trimmed alternative text, preserving brackets, centre/italic styling and source
-positions. Image-only cbz/cbr/xtc/xtch books bypass image policy. Apply returns a
+trimmed alternative text, preserving brackets and centre/italic styling. Caption
+source positions are currently incorrect in the cases described below. Image-only cbz/cbr/xtc/xtch books bypass image policy. Apply returns a
 drop verdict; consumers must honor it. Bold precedes ordered replacements, as
 in the existing registrations. A complete block, including source mapping, is
 the application unit; never apply independently to arbitrary stream chunks.
@@ -49,22 +50,27 @@ Job #3415 passed 23 unit tests, two refusing-allocator tests, formatting and
 all-target clippy with `reader-filter`. The allocator sweep fails successive
 allocations until the complete caption application succeeds; every refusal
 keeps the original block. Caption text/style/kind/alignment/image changes commit
-atomically. Its source map deliberately changes: the caption spans the original
-picture's source range instead of retaining stale alternative-text checkpoints.
-The en/de caption regression asserts that mapping separately.
+atomically. The intended source map starts at the picture's source start and ends
+at its source end, but the current `try_replace` implementation does not establish
+that mapping for every image. For an image spanning 4..90, empty alt text starts
+the caption at 90; a nonidentity map beginning at 40 starts it at 40. Two local
+regressions reproduce these failures. The committed en/de test covers nonempty,
+identity-mapped alt text only and is not proof of the general mapping correction.
+Activation requires Kernel's checked `TextEdit::try_set_text` helper, its adoption
+here and passing empty-alt/nonidentity regressions.
 
-This is inactive preparation pending review, generator migration and cache-key
-validation below. Existing registration remains unchanged in this intermediate
+This is approved only as inactive preparation under the accepted gates. Caption
+mapping, generator migration and final native registration remain open. Existing registration remains unchanged in this intermediate
 branch; the final native port must remove it, not retain a compatibility path.
 No emulator activation, device heap/stack or timing qualification is claimed.
 
 ## Kernel review gates
 
-Before merge, migrate to Core PR #276's single stage-schema format and generator
-after it lands in integration. Use `key: reader.filter`, major 1, explicit input
+Before completing the port, migrate to Core PR #276's shared stage-schema format
+and generator once follow-up 38 supports plugin-owned schemas. Use `key: reader.filter`, major 1, explicit input
 and reply lists and limits, and `since` starting at 0. Keep generated output
-plugin-owned; remove the separate `abi_stage_codec.py` and `reader-filter-gen.py`
-path, preserving its regression coverage in the shared generator.
+plugin-owned. No duplicate generator is present on this branch; preserve the
+previous generator regression coverage when adopting the shared entry point.
 
 The receiver now verifies FNV-1a 64 over the canonical generated encoding with
 signature zeroed before mutation. Stale signatures return Invalid. Both
