@@ -213,6 +213,50 @@ impl TextEdit {
         )
     }
 
+    /// Puts `with` in place of the whole text, mapped afresh from the
+    /// block's own source range: text index `i` maps to the block's start
+    /// plus `i`, the text's end to the block's end, whatever the old
+    /// offset map said (a caption in place of a picture, a text made
+    /// anew). The runs are cleared; set new ones with
+    /// [`try_set_runs`](Self::try_set_runs). [`try_replace`](Self::try_replace)
+    /// over the whole text instead keeps the old map's first offset.
+    ///
+    /// # Errors
+    /// [`EditError::Range`] for a text longer than `u32` offsets name or
+    /// whose source offsets would pass `u32::MAX`; [`EditError::Limit`]
+    /// where the copy would pass its limit, checked before anything is
+    /// reserved; [`EditError::NoMemory`]. The copy is then unchanged.
+    pub fn try_set_text(&mut self, with: &str) -> Result<(), EditError> {
+        if u32::try_from(with.len()).is_err()
+            || !offsets_fit(self.start, with.len(), core::iter::empty())
+        {
+            return Err(EditError::Range);
+        }
+        // The old map is held until the text has its room.
+        let held = self.map.checkpoints.capacity().saturating_mul(CHECKPOINT);
+        let text_peak = if with.len() > self.text.capacity() {
+            self.text.capacity().saturating_add(with.len())
+        } else {
+            self.text.capacity()
+        };
+        let peak = text_peak
+            .saturating_add(held)
+            .saturating_add(self.runs.capacity().saturating_mul(RUN));
+        if self.limit != usize::MAX && peak > self.limit {
+            return Err(EditError::Limit);
+        }
+        let more = with.len().saturating_sub(self.text.len());
+        self.text
+            .try_reserve_exact(more)
+            .map_err(|_| EditError::NoMemory)?;
+        // Nothing below allocates.
+        self.text.clear();
+        self.text.push_str(with);
+        self.map = OffsetMap::IDENTITY;
+        self.runs.clear();
+        Ok(())
+    }
+
     /// Adds `run` after the last one.
     ///
     /// # Errors

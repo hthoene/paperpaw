@@ -55,6 +55,10 @@ impl crate::Kernel {
             .shared
             .native_instances
             .insert(
+                retained
+                    .host()
+                    .resource_identity()
+                    .ok_or(shell::Error::Status(ERR_NO_MEMORY))?,
                 owner
                     .try_clone()
                     .ok_or(shell::Error::Status(ERR_NO_MEMORY))?,
@@ -72,9 +76,56 @@ impl crate::Kernel {
         result
     }
 
+    /// Revoke first; store cleanup, screen closure and factory removal must
+    /// precede resource retirement. Busy cleanup retains a pending row.
+    pub(crate) fn begin_native_unload(&mut self, key: u64, owner: &Id) {
+        if self.shared.native_instances.stop(key).is_err() {
+            return;
+        }
+        self.native_owner_stopped(key);
+        self.remove_retired_native_screens(owner);
+        self.shared
+            .registry
+            .screens
+            .remove_native_owner(owner.as_str());
+        // The main loop retries a revoked row and requests a wake meanwhile.
+        if let Err(status) = self.shared.native_instances.retire(key)
+            && status != paperpaw_native::host_glue::ERR_BUSY
+        {
+            self.warn_runtime("native owner cleanup failed; retry scheduled");
+        }
+    }
+
+    fn native_owner_stopped(&self, _owner: u64) {
+        // TODO(#228 H2): call the one UiStore::owner_stopped before its
+        // instances close. Input owns that store; no second store lives here.
+    }
+
+    pub(crate) fn native_instance_closed(&self, _instance: u32) {
+        // TODO(#228 H2): call the same UiStore::instance_closed.
+    }
+
+    pub(crate) fn retry_native_unloads(&mut self) {
+        let mut after = None;
+        while let Some((key, owner)) = self.shared.native_instances.pending_unload(after) {
+            after = Some(key);
+            let Some(owner) = owner.try_clone() else {
+                continue;
+            };
+            self.unload_plugin(&owner);
+        }
+    }
+
+    pub(crate) fn native_unload_due(&self) -> Option<paperpaw_platform::Instant> {
+        self.shared
+            .native_instances
+            .pending_unload(None)
+            .map(|_| paperpaw_platform::Instant(self.now.millis().saturating_add(50)))
+    }
+
     fn bind_native<S: Services + 'static, M: 'static>(
         &mut self,
-        key: usize,
+        key: u64,
         retained: Retained<S, M>,
         depth: FlatDepth,
         owned: Vec<Owned>,

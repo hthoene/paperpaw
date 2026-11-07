@@ -132,7 +132,7 @@ fn retained_native_stage_replies_refuse_and_revoke_without_stale_calls() {
     let depth = FlatDepth::try_new().unwrap();
     let mut registry = NativeInstances::default();
     let plugin = registry
-        .insert(
+        .test_insert(
             Id::new_static("native-widget"),
             Some(instance(&kernel, &depth)),
             true,

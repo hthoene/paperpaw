@@ -875,7 +875,10 @@ impl Kernel {
     /// it in the list of plugins. What was chosen from it stays chosen
     /// until [`plugins_changed`](Self::plugins_changed) finds it no longer
     /// offered.
-    fn unload_plugin(&mut self, id: &Id) {
+    pub(crate) fn unload_plugin(&mut self, id: &Id) {
+        if let Some(key) = self.shared.native_instances.find(id.as_str()) {
+            self.begin_native_unload(key, id);
+        }
         // Its background work's sockets close.
         self.works.runs.end_plugin(id.as_str());
         self.close_ended_runs();

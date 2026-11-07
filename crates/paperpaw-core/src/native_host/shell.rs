@@ -147,6 +147,13 @@ pub struct Context<S> {
     pub canvas: CanvasScope,
 }
 
+impl<S> Context<S> {
+    /// The host-known id of the plugin this context belongs to.
+    pub(crate) fn plugin_id(&self) -> &str {
+        &self.id
+    }
+}
+
 /// The pinned owner of one plugin.
 pub type Owner<S, M> = HostOwner<Context<S>, M>;
 /// Staging of one `make`.
@@ -217,6 +224,7 @@ pub fn host_table<S: Services>() -> PpHost {
     table.heap_realloc = heap_realloc::<S>;
     table.clock_micros = clock_micros::<S>;
     table.stage_run = stage_slot::run::<S>;
+    table.ui_compose = super::ui_compose::compose::<S>;
     table.registrations_submit = registrations_submit::<S>;
     table.commands_submit = commands_submit::<S>;
     table.env_snapshot = env_snapshot::<S>;
@@ -332,6 +340,11 @@ impl<S: Services, M> Hosted<S, M> {
         self.owner.as_ref().context().declared_services.features()
     }
 
+    /// Retain only the pool identity and this load's authoritative owner key.
+    pub(crate) fn resource_identity(&self) -> Option<super::resources::OwnerResourceView> {
+        self.owner.as_ref().context().resources.try_view()
+    }
+
     /// The pinned owner; callers lease and finish through it. To stop the
     /// plugin call [`stop`](Self::stop), not `revoke` here: only `stop` also
     /// withdraws [`image`](Self::image).
@@ -342,7 +355,8 @@ impl<S: Services, M> Hosted<S, M> {
 
     /// Stops callback admission: from here a dispatch answers the owner's
     /// error and [`image`](Self::image) gives none. The module stays alive
-    /// until the drop.
+    /// until the drop. The kernel observes registered owners and completes
+    /// the same ordered unload through its main loop, retrying busy cleanup.
     pub fn stop(&self) {
         self.stopped.set(true);
         self.owner.as_ref().revoke();
@@ -978,7 +992,7 @@ pub mod instance;
 
 #[cfg(test)]
 #[path = "shell_tests.rs"]
-mod tests;
+pub(crate) mod tests;
 
 /// The services a plugin declares, checked against the host's catalog before
 /// its image is placed.
@@ -1466,6 +1480,7 @@ unsafe extern "C" fn service_call<S>(
         super::call_services::call(
             &context.environment,
             &context.resources,
+            &context.id,
             service,
             op,
             input,

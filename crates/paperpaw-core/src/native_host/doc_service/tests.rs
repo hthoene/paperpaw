@@ -21,6 +21,9 @@ use wire::{
     ServiceDocPage as Page, ServiceDocRef as Ref, ServiceDocState as State,
 };
 
+/// The owner of the fake format plugin.
+pub(crate) const FORMAT_OWNER: u64 = 99;
+
 #[path = "tests/blocks.rs"]
 mod blocks;
 #[path = "tests/lists.rs"]
@@ -28,11 +31,11 @@ mod lists;
 #[path = "tests/reads.rs"]
 mod reads;
 
-pub(super) const OWNER: u64 = 7;
-pub(super) const FORMAT: FormatRef = FormatRef(3);
+pub(crate) const OWNER: u64 = 7;
+pub(crate) const FORMAT: FormatRef = FormatRef(3);
 
 /// A bare stream of records, as a format answers.
-pub(super) fn stream(records: &[Record<'_>]) -> Vec<u8> {
+pub(crate) fn stream(records: &[Record<'_>]) -> Vec<u8> {
     let mut out = Vec::new();
     for record in records {
         let mut one = std::vec![0; 4096];
@@ -42,35 +45,37 @@ pub(super) fn stream(records: &[Record<'_>]) -> Vec<u8> {
     out
 }
 /// A counted input batch.
-pub(super) fn batch(records: &[Record<'_>]) -> Vec<u8> {
+pub(crate) fn batch(records: &[Record<'_>]) -> Vec<u8> {
     let mut out = std::vec![0; 4096];
     let used = wire::records_encode_counted(records, 64, 4096, &mut out).unwrap();
     out.truncate(used);
     out
 }
 
-pub(super) struct Fake {
+pub(crate) struct Fake {
     table: DocumentTable,
     /// What the format answers next.
-    pub(super) answer: RefCell<Vec<u8>>,
-    pub(super) fails: Cell<Option<i32>>,
+    pub(crate) answer: RefCell<Vec<u8>>,
+    pub(crate) fails: Cell<Option<i32>>,
     /// (op, document, cursor, generation, flags, index, image_side, cover_side)
-    pub(super) calls: RefCell<Vec<[u32; 8]>>,
-    pub(super) texts: RefCell<Vec<std::string::String>>,
-    pub(super) options_seen: Cell<usize>,
-    pub(super) roots: Cell<u32>,
-    pub(super) ended: RefCell<Vec<u32>>,
-    pub(super) images_ended: RefCell<Vec<u32>>,
+    pub(crate) calls: RefCell<Vec<[u32; 8]>>,
+    pub(crate) texts: RefCell<Vec<std::string::String>>,
+    pub(crate) options_seen: Cell<usize>,
+    pub(crate) roots: Cell<u32>,
+    pub(crate) ended: RefCell<Vec<u32>>,
+    pub(crate) images_ended: RefCell<Vec<u32>>,
     /// The format plugin stops while the host is calling it (it crashed).
-    pub(super) stops_during_call: Cell<bool>,
-    pub(super) closed: RefCell<Vec<(u32, u32)>>,
-    pub(super) image: Cell<Option<Option<u32>>>,
-    pub(super) rows: RefCell<Vec<Vec<u8>>>,
-    pub(super) generation: Cell<u32>,
-    pub(super) owner: Cell<u64>,
+    pub(crate) stops_during_call: Cell<bool>,
+    pub(crate) closed: RefCell<Vec<(u32, u32)>>,
+    pub(crate) image: Cell<Option<Option<u32>>>,
+    pub(crate) rows: RefCell<Vec<Vec<u8>>>,
+    pub(crate) generation: Cell<u32>,
+    pub(crate) owner: Cell<u64>,
+    /// The owner of the fake format plugin.
+    pub(crate) format_owner: Cell<u64>,
 }
 impl Fake {
-    pub(super) fn new(limits: Limits) -> Rc<Self> {
+    pub(crate) fn new(limits: Limits) -> Rc<Self> {
         Rc::new(Self {
             table: DocumentTable::try_new(limits).unwrap(),
             answer: RefCell::new(Vec::new()),
@@ -87,9 +92,10 @@ impl Fake {
             rows: RefCell::new(Vec::new()),
             generation: Cell::new(5),
             owner: Cell::new(OWNER),
+            format_owner: Cell::new(FORMAT_OWNER),
         })
     }
-    pub(super) fn say(&self, records: &[Record<'_>]) {
+    pub(crate) fn say(&self, records: &[Record<'_>]) {
         *self.answer.borrow_mut() = stream(records);
     }
 }
@@ -137,7 +143,7 @@ impl DocHost for Fake {
         ]);
         self.texts.borrow_mut().push(call.text.into());
         if self.stops_during_call.get() {
-            format_stopped(self, FORMAT);
+            format_stopped(self, FORMAT).unwrap_or(0);
         }
         if let Some(error) = self.fails.get() {
             return Err(error);
@@ -161,6 +167,12 @@ impl DocHost for Fake {
         match self.image.get() {
             Some(Some(0)) if !in_block => Err(ERR_BUSY),
             other => Ok(other.flatten()),
+        }
+    }
+    fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
+        // The fake's format plugin is owner 99.
+        if owner == self.format_owner.get() {
+            visit(FORMAT);
         }
     }
     fn formats(
@@ -242,9 +254,9 @@ impl Fake {
     }
 }
 
-pub(super) struct View<'a> {
+pub(crate) struct View<'a> {
     env: &'a Env<'a>,
-    services: Option<DocServices>,
+    hosts: crate::native_host::host_services::HostServices,
     fake: Rc<Fake>,
 }
 impl Frame for View<'_> {
@@ -254,32 +266,37 @@ impl Frame for View<'_> {
     fn translator(&self) -> &Translator {
         self.env.i18n()
     }
-    fn caller(&self) -> Result<u64, i32> {
-        Ok(self.fake.owner.get())
-    }
-    fn host_service(&self, key: &str) -> Option<&dyn core::any::Any> {
-        (key == "core.document")
-            .then_some(self.services.as_ref())
-            .flatten()
-            .map(|s| s as &dyn core::any::Any)
+}
+impl View<'_> {
+    /// The backend as the dispatcher calls it, for the fake's current owner.
+    pub(crate) fn run(&self, op: &ServiceOp, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        let caller = Caller {
+            owner: self.fake.owner.get(),
+            plugin: "opener",
+            features: crate::native_host::admitted_features::AdmittedFeatures::NONE,
+            hosts: &self.hosts,
+        };
+        backend(self, &caller, op, input, out)
     }
 }
 
 /// Run `body` with a frame over `fake`.
-pub(super) fn with<R>(fake: &Rc<Fake>, body: impl FnOnce(&View<'_>) -> R) -> R {
+pub(crate) fn with<R>(fake: &Rc<Fake>, body: impl FnOnce(&View<'_>) -> R) -> R {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
     let env = kernel.shared.env(Instant(0));
     let host: Rc<dyn DocHost> = fake.clone();
+    let hosts = crate::native_host::host_services::HostServices::new();
+    hosts.wire_documents(host).unwrap();
     body(&View {
         env: &env,
-        services: Some(DocServices(host)),
+        hosts,
         fake: fake.clone(),
     })
 }
 
-pub(super) fn schema_op(id: u32) -> &'static ServiceOp {
+pub(crate) fn schema_op(id: u32) -> &'static ServiceOp {
     services_wire::service_schema("core.document", 1)
         .unwrap()
         .op(id)
@@ -288,7 +305,7 @@ pub(super) fn schema_op(id: u32) -> &'static ServiceOp {
 
 /// One call: encode `records`, run the backend into the op's scratch, check the
 /// reply as the dispatcher does, return the reply bytes.
-pub(super) fn call(fake: &Rc<Fake>, id: u32, records: &[Record<'_>]) -> Result<Vec<u8>, i32> {
+pub(crate) fn call(fake: &Rc<Fake>, id: u32, records: &[Record<'_>]) -> Result<Vec<u8>, i32> {
     let op = schema_op(id);
     let mut input = std::vec![0; 4096];
     let used = wire::records_encode_counted(
@@ -299,16 +316,16 @@ pub(super) fn call(fake: &Rc<Fake>, id: u32, records: &[Record<'_>]) -> Result<V
     )?;
     call_raw(fake, id, &input[..used])
 }
-pub(super) fn call_raw(fake: &Rc<Fake>, id: u32, input: &[u8]) -> Result<Vec<u8>, i32> {
+pub(crate) fn call_raw(fake: &Rc<Fake>, id: u32, input: &[u8]) -> Result<Vec<u8>, i32> {
     let op = schema_op(id);
     let mut out = std::vec![0; op.max_reply];
-    let length = with(fake, |frame| backend(frame, op, input, &mut out))?;
+    let length = with(fake, |frame| frame.run(op, input, &mut out))?;
     out.truncate(length);
     validate_reply(&out, op)?;
     Ok(out)
 }
 
-pub(super) fn open_record() -> Open<'static> {
+pub(crate) fn open_record() -> Open<'static> {
     Open {
         root: 1,
         path: "books/a.epub",
@@ -320,7 +337,7 @@ pub(super) fn open_record() -> Open<'static> {
         css_path: "",
     }
 }
-pub(super) fn state_answer(state: u32, status: i32) -> Vec<u8> {
+pub(crate) fn state_answer(state: u32, status: i32) -> Vec<u8> {
     stream(&[Record::ServiceDocState(State {
         document: 99,
         state,
@@ -331,19 +348,19 @@ pub(super) fn state_answer(state: u32, status: i32) -> Vec<u8> {
         format: "other.format",
     })])
 }
-pub(super) fn state_of(bytes: &[u8]) -> State<'_> {
+pub(crate) fn state_of(bytes: &[u8]) -> State<'_> {
     let Record::ServiceDocState(state) = wire::record_decode_one(bytes).unwrap() else {
         panic!("not a doc_state")
     };
     state
 }
 /// Open one document as the default owner and return its id.
-pub(super) fn opened(fake: &Rc<Fake>) -> u32 {
+pub(crate) fn opened(fake: &Rc<Fake>) -> u32 {
     *fake.answer.borrow_mut() = state_answer(0, 0);
     let reply = call(fake, 1, &[Record::ServiceDocOpen(open_record())]).unwrap();
     state_of(&reply).document
 }
-pub(super) fn doc_ref(document: u32) -> Record<'static> {
+pub(crate) fn doc_ref(document: u32) -> Record<'static> {
     Record::ServiceDocRef(Ref { document })
 }
 
@@ -636,14 +653,14 @@ fn a_document_the_host_closed_is_cancelled_until_its_opener_closes_it() {
     assert_eq!(call(&fake, 3, &[doc_ref(id)]), Err(ERR_CANCELLED));
     assert_eq!(fake.table.lease(OWNER, id), Err(ERR_CANCELLED));
     call(&fake, 18, &[doc_ref(id)]).unwrap();
-    assert_eq!(fake.table.close_owner(OWNER, |_| ()), 0);
+    assert_eq!(fake.table.close_owner(OWNER, |_| ()), Ok(0));
 }
 
 #[test]
 fn a_stopped_opener_loses_all_its_documents() {
     let fake = Fake::new(Limits::LARGE);
     let ids = [opened(&fake), opened(&fake)];
-    assert_eq!(opener_stopped(&*fake, OWNER), ids.len());
+    assert_eq!(opener_stopped(&*fake, OWNER), Ok(ids.len()));
     assert_eq!(fake.table.len(), 0);
     // Each document's format was told to close it, once, after the table was
     // released (the host's callback could use the table).
@@ -658,11 +675,11 @@ fn a_stopped_format_ends_its_documents_and_their_openers_hear_it() {
     let b = opened(&fake);
     fake.owner.set(OWNER);
     // The other format's documents stay.
-    assert_eq!(format_stopped(&*fake, FormatRef(FORMAT.0 + 1)), 0);
-    assert_eq!(format_stopped(&*fake, FORMAT), 2);
+    assert_eq!(format_stopped(&*fake, FormatRef(FORMAT.0 + 1)), Ok(0));
+    assert_eq!(format_stopped(&*fake, FORMAT), Ok(2));
     assert_eq!(*fake.closed.borrow(), [(a, 1), (b, 1)]);
     // Told once; the format is not called again; the opener closes the id.
-    assert_eq!(format_stopped(&*fake, FORMAT), 0);
+    assert_eq!(format_stopped(&*fake, FORMAT), Ok(0));
     assert!(fake.ended.borrow().is_empty());
     assert_eq!(call(&fake, 2, &[doc_ref(a)]), Err(ERR_CANCELLED));
     call(&fake, 18, &[doc_ref(a)]).unwrap();
@@ -718,13 +735,13 @@ fn a_frame_without_the_host_or_a_caller_refuses_the_family() {
     let fake = Fake::new(Limits::X4);
     let view = View {
         env: &env,
-        services: None,
+        hosts: crate::native_host::host_services::HostServices::new(),
         fake: fake.clone(),
     };
     let op = schema_op(2);
     let input = batch(&[doc_ref(1)]);
     let mut out = std::vec![0; op.max_reply];
-    assert_eq!(backend(&view, op, &input, &mut out), Err(ERR_UNSUPPORTED));
+    assert_eq!(view.run(op, &input, &mut out), Err(ERR_UNSUPPORTED));
     let _ = Image {
         image: 0,
         index: 0,
