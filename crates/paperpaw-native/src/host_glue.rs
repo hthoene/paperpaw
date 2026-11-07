@@ -328,6 +328,24 @@ unsafe extern "C" fn unsupported_canvas_clip(
 ) -> i32 {
     ERR_UNSUPPORTED
 }
+unsafe extern "C" fn unsupported_stage_run(
+    _: *mut c_void,
+    _: PpBytes,
+    _: u32,
+    _: PpBytes,
+    _: PpBuffer,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
+unsafe extern "C" fn unsupported_service_call(
+    _: *mut c_void,
+    _: u32,
+    _: u32,
+    _: PpBytes,
+    _: PpBuffer,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
 unsafe extern "C" fn unsupported_text_draw(
     _: *mut c_void,
     _: u32,
@@ -435,6 +453,9 @@ pub const fn host_table() -> PpHost {
         text_metrics: unsupported_text_metrics,
         text_ink: unsupported_text_ink,
         canvas_clip: unsupported_canvas_clip,
+        stage_run: unsupported_stage_run,
+        service_open: unsupported_services_query,
+        service_call: unsupported_service_call,
     }
 }
 

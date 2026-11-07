@@ -26,7 +26,7 @@ TAG_RANGES = {
     # then actions, menus, screens and icons (Part 5).
     'setting': DECLARATIVE, 'resource': DECLARATIVE, 'action': DECLARATIVE,
     'menu': DECLARATIVE, 'screen': DECLARATIVE, 'icon': DECLARATIVE,
-    'format': DECLARATIVE, 'stage': ((512, 1023),),
+    'format': DECLARATIVE, 'stage.spec': DECLARATIVE, 'stage': ((512, 1023),),
     'event': ((32, 39), (64, 191)), 'input': ((40, 43), (192, 223)), 'draw': ((192, 223),),
     'i18n': ((44, 47),), 'service': ((48, 55), (1024, 1535)),
     'command': ((56, 62), (1536, 2047)),

@@ -22,6 +22,13 @@ change the plugin SDK.
 - Native host text ink probes the shaped raster path with the target frame's
   coverage threshold; inkless text reports not found. X4 timing remains gated (#228).
 
+- Interface 7, family 1a (stages and services, `docs/abi/stages-services.md`): host slots 32
+  `stage.run`, 33 `service.open` and 34 `service.call`; records 19 `stage.spec`, 20
+  `registration.stage`, 512 `stage.call`, 513 `stage.reply` and the test-only 1024 `service.echo`;
+  service schemas in `abi/services/<key>@<major>.def`, validated by `tools/abi-gen.py`, which
+  writes the shared op table `services_wire` and pins it in the lock (format 9, append-only ops,
+  new schemas at an unreleased minor). Hosts answer `ERR_UNSUPPORTED` and refuse stage
+  declarations until they wire them (#228).
 - Interface 7: `native_plugin!(P, metadata = M, linked = NAME)` and `native::Linked` for plugins
   linked into the program that hosts them (firmware built-ins): the same entry and metadata under
   a Rust name of their own, without exported symbols, heap word, allocator or panic handler, so

@@ -64,6 +64,13 @@ pub use wire::{
     INPUT_ACTION_TAG, INPUT_GESTURE_TAG, INPUT_KEY_TAG, INPUT_POINTER_TAG, InputAction,
     InputGesture, InputKey, InputPointer, SCREEN_SPEC_TAG, ScreenSpec,
 };
+// Stages (19, 20, 512, 513) and the test-only service record 1024
+// (`docs/abi/stages-services.md`).
+pub use wire::{
+    REGISTRATION_STAGE_TAG, RegistrationStage, SERVICE_ECHO_TAG, STAGE_CALL_PAYLOAD_MAX_BYTES,
+    STAGE_CALL_TAG, STAGE_REPLY_PAYLOAD_MAX_BYTES, STAGE_REPLY_TAG, STAGE_SPEC_TAG, ServiceEcho,
+    StageCall, StageReply, StageSpec,
+};
 // Single-record and streaming decoders for plugin-side readers (lock format 8).
 pub use wire::{RECORD_CARRY_MAX_BYTES, RecordStream, record_decode_prefix, records_decode_single};
 
