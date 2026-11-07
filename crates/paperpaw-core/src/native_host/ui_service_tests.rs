@@ -6,17 +6,21 @@ use super::*;
 use crate::abi7::services_wire;
 use crate::native_host::admitted_features::AdmittedFeatures;
 use crate::native_host::call_services::validate_reply;
+use crate::native_host::ui_guard::Row;
 use crate::native_host::ui_store::Limits;
 use alloc::string::String;
 use core::cell::Cell;
 use paperpaw_i18n::Translator;
-use paperpaw_native::host_glue::{ERR_FULL, ERR_NOT_FOUND};
+use paperpaw_native::host_glue::{ERR_DENIED, ERR_FULL, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{Env, Settings};
 
 struct Stack {
     epoch: Cell<u64>,
     instance: Cell<Option<u32>>,
+    rows: core::cell::RefCell<Vec<ui_guard::Row<'static>>>,
+    x4: Cell<bool>,
+    closed: core::cell::RefCell<Vec<u32>>,
 }
 impl UiHost for Stack {
     fn callback_epoch(&self) -> u64 {
@@ -24,6 +28,15 @@ impl UiHost for Stack {
     }
     fn calling_instance(&self, _: u64) -> Option<u32> {
         self.instance.get()
+    }
+    fn with_stack(&self, f: &mut dyn FnMut(&dyn UiStackView)) {
+        f(&ui_guard::Rows(&self.rows.borrow()));
+    }
+    fn x4(&self) -> bool {
+        self.x4.get()
+    }
+    fn close_dialog(&self, instance: u32) {
+        self.closed.borrow_mut().push(instance);
     }
 }
 
@@ -146,6 +159,9 @@ fn with_view<R>(limits: Limits, wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -
     let stack = Rc::new(Stack {
         epoch: Cell::new(1),
         instance: Cell::new(None),
+        rows: core::cell::RefCell::new(Vec::new()),
+        x4: Cell::new(false),
+        closed: core::cell::RefCell::new(Vec::new()),
     });
     let hosts = crate::native_host::host_services::HostServices::new();
     if wire_it {
@@ -176,7 +192,7 @@ fn an_unwired_family_and_the_ops_not_yet_here_are_unsupported() {
     });
     view(|v| {
         let schema = services_wire::service_schema("core.ui", 1).unwrap();
-        for op in [1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15] {
+        for op in [1, 3, 4, 5, 6, 7, 12, 13, 14, 15] {
             let op = schema.op(op).unwrap();
             assert_eq!(
                 v.call_raw(1, op, &[0]).err(),
@@ -382,5 +398,196 @@ fn every_failed_allocation_refuses_with_no_memory_and_changes_nothing() {
                 assert_eq!(e, ERR_NO_MEMORY, "allocation {nth}");
             }
         }
+    });
+}
+
+/// An `ask` input for op 8.
+fn ask_record<'a>(kind: u32, flags: u32, slot: &'a str, choices: &'a str) -> Record<'a> {
+    Record::ServiceUiAsk(wire::ServiceUiAsk {
+        kind,
+        flags,
+        slot,
+        title: "T",
+        text: "Q?",
+        choices,
+    })
+}
+
+fn ask_id(v: &View<'_>, owner: u64, record: Record<'_>) -> Result<u32, i32> {
+    let reply = v.call(owner, 8, &[record])?;
+    match wire::record_decode_one(&reply).unwrap() {
+        Record::ServiceUiRequest(r) => Ok(r.request),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// The stack's end of a question: the callback returns, the dialog opens.
+fn open_dialog(v: &View<'_>, owner: u64, id: u32, dialog: u32) {
+    let stamp = Stamp::new(owner, v.stack.epoch.get()).unwrap();
+    let mut started = 0;
+    v.store
+        .callback_returned(stamp, false, &mut |_| started += 1);
+    assert_eq!(started, 1);
+    v.store.dialog_opened(id, dialog).unwrap();
+}
+
+fn row(instance: u32, owner: &'static str) -> Row<'static> {
+    Row {
+        instance,
+        owner,
+        overlay: false,
+        guards: false,
+        secret: false,
+        host: false,
+        guard_dialog: false,
+    }
+}
+
+#[test]
+fn ask_records_a_question_the_dialog_reads_and_answers() {
+    view(|v| {
+        v.stack.instance.set(Some(30));
+        let id = ask_id(v, 1, ask_record(0, 0b10, "", "")).unwrap();
+        assert_ne!(id, 0);
+        // The asker writes the initial text in the same callback.
+        v.write(1, id, 0, "hello", true).unwrap();
+        open_dialog(v, 1, id, 40);
+        // The dialog (another owner, its own instance) reads question and text.
+        v.stack.instance.set(Some(40));
+        let reply = v
+            .call(
+                2,
+                2,
+                &[Record::ServiceUiRequest(wire::ServiceUiRequest {
+                    request: id,
+                })],
+            )
+            .unwrap();
+        let Record::ServiceUiQuestion(shown) = wire::record_decode_one(&reply).unwrap() else {
+            panic!()
+        };
+        assert_eq!(
+            (shown.kind, shown.flags, shown.max_bytes),
+            (0, 0b10, 24_576)
+        );
+        assert_eq!((shown.title, shown.text), ("T", "Q?"));
+        assert_eq!(v.read(2, id, 0).unwrap(), ("hello".into(), 5, true));
+        // Another instance cannot read the question; the asker cannot answer.
+        v.stack.instance.set(Some(41));
+        let ask = Record::ServiceUiRequest(wire::ServiceUiRequest { request: id });
+        assert_eq!(v.call(2, 2, &[ask]).err(), Some(ERR_STATE));
+        // The dialog answers: write the text over, commit, op 11.
+        v.stack.instance.set(Some(40));
+        v.stack.epoch.set(5);
+        v.write(2, id, 0, "typed", true).unwrap();
+        let answer = |outcome| {
+            v.call(
+                2,
+                11,
+                &[Record::ServiceUiAnswer(wire::ServiceUiAnswer {
+                    request: id,
+                    outcome,
+                    choice: 0,
+                })],
+            )
+        };
+        assert_eq!(answer(3).err(), Some(ERR_INVALID));
+        answer(0).unwrap();
+        assert_eq!(answer(0).err(), Some(ERR_STATE), "once");
+        let delivery = v.store.take_delivery(1).unwrap();
+        assert_eq!(
+            (delivery.request, delivery.outcome, delivery.length),
+            (id, 0, 5)
+        );
+    });
+}
+
+#[test]
+fn ask_refuses_a_bad_form_with_the_contract_statuses() {
+    view(|v| {
+        for (record, status) in [
+            (ask_record(4, 0, "", ""), ERR_INVALID),
+            (ask_record(0, 0, "core.choice", ""), ERR_INVALID),
+            (ask_record(1, 0, "core.remote-keyboard", "a"), ERR_INVALID),
+            (ask_record(1, 0, "", ""), ERR_INVALID),
+            (ask_record(1, 0, "", "a\n\nb"), ERR_INVALID),
+            (ask_record(2, 0, "", "one"), ERR_INVALID),
+            (ask_record(2, 1 << 8, "", "Read\nNo"), ERR_INVALID),
+            (ask_record(0, 1 << 8, "", ""), ERR_INVALID),
+            (ask_record(0, 0, "", "x"), ERR_INVALID),
+        ] {
+            assert_eq!(ask_id(v, 1, record).err(), Some(status));
+        }
+        assert_eq!(v.store.request_count(), 0, "a refusal records nothing");
+        // No callback epoch is a state error.
+        v.stack.epoch.set(0);
+        assert_eq!(
+            ask_id(v, 1, ask_record(0, 0, "", "")).err(),
+            Some(ERR_STATE)
+        );
+    });
+}
+
+#[test]
+fn ask_limits_four_devices_wide_one_on_the_x4_and_one_per_asker() {
+    view(|v| {
+        for owner in 1..=4 {
+            ask_id(v, owner, ask_record(2, 0, "", "")).unwrap();
+        }
+        assert_eq!(ask_id(v, 5, ask_record(2, 0, "", "")).err(), Some(ERR_FULL));
+        // The asker asking again cancels its open one: not a fifth.
+        let again = ask_id(v, 1, ask_record(2, 0, "", "")).unwrap();
+        assert_eq!(v.store.take_delivery(1).unwrap().outcome, 1);
+        assert_ne!(again, 0);
+    });
+    with_view(Limits::X4, true, |v| {
+        v.stack.x4.set(true);
+        ask_id(v, 1, ask_record(2, 0, "", "")).unwrap();
+        assert_eq!(ask_id(v, 2, ask_record(2, 0, "", "")).err(), Some(ERR_FULL));
+    });
+}
+
+#[test]
+fn the_phone_keyboard_asks_under_its_dialog_and_never_under_a_guard() {
+    view(|v| {
+        v.stack.instance.set(Some(30));
+        let parent = ask_id(v, 1, ask_record(0, 1 << 2, "", "")).unwrap();
+        open_dialog(v, 1, parent, 40);
+        // The dialog instance asks the phone question: kind 0 only, on the slot.
+        v.stack.instance.set(Some(40));
+        v.stack.epoch.set(6);
+        let phone = ask_record(0, 0, "core.remote-keyboard", "");
+        assert_eq!(
+            ask_id(v, 2, ask_record(1, 0, "", "a")).err(),
+            Some(ERR_DENIED)
+        );
+        let nested = ask_id(v, 2, phone).unwrap();
+        // It inherits the parent's secret, and the parent has only one.
+        let nested_secret = v.store.dialog_of(40).unwrap();
+        assert_eq!(nested_secret, (parent, true, false, true));
+        assert_eq!(
+            ask_id(v, 2, ask_record(0, 0, "core.remote-keyboard", "")).err(),
+            Some(ERR_FULL)
+        );
+        let _ = nested;
+    });
+}
+
+#[test]
+fn a_guard_denies_the_nested_question_and_the_answer_goes_to_the_asker() {
+    view(|v| {
+        v.stack.instance.set(Some(30));
+        let parent = ask_id(v, 1, ask_record(0, 0, "", "")).unwrap();
+        open_dialog(v, 1, parent, 40);
+        v.stack.instance.set(Some(40));
+        v.stack.epoch.set(6);
+        let mut guard = row(50, "lock");
+        guard.guards = true;
+        v.stack.rows.borrow_mut().push(guard);
+        assert_eq!(
+            ask_id(v, 2, ask_record(0, 0, "core.remote-keyboard", "")).err(),
+            Some(ERR_DENIED)
+        );
+        assert_eq!(v.store.request_count(), 1);
     });
 }

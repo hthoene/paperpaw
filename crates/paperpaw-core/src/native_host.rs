@@ -22,6 +22,13 @@ pub mod host_slot;
 #[path = "native_host/ui_service.rs"]
 pub(crate) mod ui_service;
 
+#[path = "native_host/ui_requests.rs"]
+#[allow(
+    dead_code,
+    reason = "consumers are Core's stack and the core.ui ops 8, 2, 11"
+)]
+pub(crate) mod ui_requests;
+
 #[path = "native_host/ui_store.rs"]
 #[allow(
     dead_code,

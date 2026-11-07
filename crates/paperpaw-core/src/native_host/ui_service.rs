@@ -11,6 +11,8 @@
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
+    ui_guard::{self, Ask, OpenRequests, UiStackView},
+    ui_requests::Question,
     ui_store::{PARAMS_MAX, PART_MAX, Param, Stamp, UiStore},
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
@@ -27,6 +29,14 @@ pub(crate) trait UiHost {
     /// The instance whose callback runs for `owner` (the host resolves it,
     /// never the plugin), if a screen's callback is running.
     fn calling_instance(&self, owner: u64) -> Option<u32>;
+    /// The stack, bottom to top, for the admission rules. `f` runs at once and
+    /// the view does not outlive it.
+    fn with_stack(&self, f: &mut dyn FnMut(&dyn UiStackView));
+    /// Whether this is the X4 (one open request, not four).
+    fn x4(&self) -> bool;
+    /// Close the dialog instance of a request that was cancelled (queued: no
+    /// plugin code runs inside the call).
+    fn close_dialog(&self, instance: u32);
 }
 
 /// What the shell wires under `core.ui`: the store and the stack's view.
@@ -37,6 +47,8 @@ pub(crate) struct UiServices {
 
 /// `text_write` flags: bit 0 `last`.
 const LAST: u32 = 1;
+/// `ui_ask.flags` bit 2 `secret` (kind 0).
+const SECRET: u32 = 1 << 2;
 
 /// The `core.ui` backend.
 pub(crate) fn backend(
@@ -48,6 +60,9 @@ pub(crate) fn backend(
 ) -> Result<usize, i32> {
     let ui = who.hosts.ui().ok_or(ERR_UNSUPPORTED)?;
     match op.id {
+        8 => ask(ui, who, input, out),
+        2 => question(ui, who, input, out),
+        11 => answer(ui, who, input).map(|()| 0),
         16 => handover(ui, who, input, out),
         17 => params(ui, who, input, out),
         9 => text_write(ui, who, input).map(|()| 0),
@@ -58,6 +73,101 @@ pub(crate) fn backend(
 
 fn stamp(ui: &UiServices, who: &Caller<'_>) -> Result<Stamp, i32> {
     Stamp::new(who.owner, ui.host.callback_epoch())
+}
+
+/// Op 8: records a question for the caller and returns its request id; the
+/// dialog opens after the caller's callback returns.
+fn ask(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+    let Record::ServiceUiAsk(ask) = wire::records_decode_single(input)? else {
+        return Err(ERR_INVALID);
+    };
+    let stamp = stamp(ui, who)?;
+    let remote = match ask.slot {
+        "" => false,
+        ui_guard::REMOTE_KEYBOARD if ask.kind == 0 => true,
+        _ => return Err(ERR_INVALID),
+    };
+    let question = Question {
+        kind: ask.kind,
+        flags: ask.flags,
+        remote,
+        title: ask.title,
+        text: ask.text,
+        choices: ask.choices,
+    };
+    question.check()?;
+    let instance = ui.host.calling_instance(who.owner);
+    // A dialog of an open request asks under it (the phone keyboard).
+    let parent = instance.and_then(|dialog| ui.store.dialog_of(dialog));
+    let (total, has) = ui.store.open_requests(who.owner);
+    let secret = ask.kind == 0 && ask.flags & SECRET != 0;
+    let mut admitted = Err(ERR_STATE);
+    ui.host.with_stack(&mut |view| {
+        admitted = ui_guard::ask_admission(
+            view,
+            &Ask {
+                asker: who.plugin,
+                kind: ask.kind,
+                slot: ask.slot,
+                secret,
+                parent: parent.map(|(_, secret, nested, has_nested)| ui_guard::Parent {
+                    secret,
+                    nested,
+                    has_nested,
+                }),
+            },
+            OpenRequests {
+                total,
+                asker_has_one: has,
+            },
+            ui.host.x4(),
+        );
+    });
+    let admission = admitted?;
+    let (id, cancelled) = ui.store.ask(
+        stamp,
+        instance,
+        &question,
+        admission.secret,
+        parent.map(|(id, ..)| id),
+        admission.cancels_asker_request,
+    )?;
+    if let Some(dialog) = cancelled.and_then(|c| c.dialog) {
+        ui.host.close_dialog(dialog);
+    }
+    wire::record_encode_one(
+        &Record::ServiceUiRequest(wire::ServiceUiRequest { request: id }),
+        out,
+    )
+}
+
+/// Op 2: the question, for the request's dialog instance only.
+fn question(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+    let Record::ServiceUiRequest(ask) = wire::records_decode_single(input)? else {
+        return Err(ERR_INVALID);
+    };
+    let dialog = ui.host.calling_instance(who.owner).ok_or(ERR_STATE)?;
+    ui.store.question(dialog, ask.request, |shown| {
+        let record = Record::ServiceUiQuestion(wire::ServiceUiQuestion {
+            kind: shown.kind,
+            flags: shown.flags,
+            max_bytes: shown.max_bytes,
+            title: shown.title,
+            text: shown.text,
+            choices: shown.choices,
+        });
+        wire::record_encode_one(&record, out)
+    })?
+}
+
+/// Op 11: the dialog's answer.
+fn answer(ui: &UiServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {
+    let Record::ServiceUiAnswer(answer) = wire::records_decode_single(input)? else {
+        return Err(ERR_INVALID);
+    };
+    let dialog = ui.host.calling_instance(who.owner).ok_or(ERR_STATE)?;
+    ui.store
+        .answer(dialog, answer.request, answer.outcome, answer.choice)
 }
 
 /// Op 16: stages the params, publishes the hand-over only after the whole
@@ -118,13 +228,20 @@ fn text_write(ui: &UiServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32
         return Err(ERR_INVALID);
     }
     let offset = usize::try_from(part.offset).map_err(|_| ERR_INVALID)?;
-    ui.store.text_write(
-        stamp(ui, who)?,
-        part.text,
-        offset,
-        part.data.as_bytes(),
-        part.flags & LAST != 0,
-    )
+    let (stamp, last) = (stamp(ui, who)?, part.flags & LAST != 0);
+    if ui.store.is_request(part.text) {
+        let instance = ui.host.calling_instance(who.owner);
+        return ui.store.request_text_write(
+            stamp,
+            instance,
+            part.text,
+            offset,
+            part.data.as_bytes(),
+            last,
+        );
+    }
+    ui.store
+        .text_write(stamp, part.text, offset, part.data.as_bytes(), last)
 }
 
 /// Op 10: a part of a hand-over's text, for the owning instance only.
@@ -137,27 +254,32 @@ fn text_read(
     let Record::ServiceUiTextAt(at) = wire::records_decode_single(input)? else {
         return Err(ERR_INVALID);
     };
-    let instance = ui.host.calling_instance(who.owner).ok_or(ERR_STATE)?;
+    let instance = ui.host.calling_instance(who.owner);
     let offset = usize::try_from(at.offset).map_err(|_| ERR_INVALID)?;
     let mut part = Vec::new();
     part.try_reserve_exact(PART_MAX)
         .map_err(|_| ERR_NO_MEMORY)?;
     part.resize(PART_MAX, 0_u8);
-    let result = ui
-        .store
-        .text_read(instance, at.text, offset, &mut part)
-        .and_then(|(total, read)| {
-            let data = core::str::from_utf8(&part[..read]).map_err(|_| ERR_INVALID)?;
-            let last = offset + read >= total;
-            let record = Record::ServiceUiText(wire::ServiceUiText {
-                text: at.text,
-                offset: at.offset,
-                total: u32::try_from(total).map_err(|_| ERR_INVALID)?,
-                flags: u32::from(last),
-                data,
-            });
-            wire::record_encode_one(&record, out)
+    let read = if ui.store.is_request(at.text) {
+        ui.store
+            .request_text_read(who.owner, instance, at.text, offset, &mut part)
+    } else {
+        instance
+            .ok_or(ERR_STATE)
+            .and_then(|instance| ui.store.text_read(instance, at.text, offset, &mut part))
+    };
+    let result = read.and_then(|(total, read)| {
+        let data = core::str::from_utf8(&part[..read]).map_err(|_| ERR_INVALID)?;
+        let last = offset + read >= total;
+        let record = Record::ServiceUiText(wire::ServiceUiText {
+            text: at.text,
+            offset: at.offset,
+            total: u32::try_from(total).map_err(|_| ERR_INVALID)?,
+            flags: u32::from(last),
+            data,
         });
+        wire::record_encode_one(&record, out)
+    });
     part.fill(0);
     core::hint::black_box(&mut part);
     result

@@ -45,6 +45,10 @@ pub(crate) struct Limits {
     /// Bytes of text kept in memory, all texts together (`ERR_IO` beyond: the
     /// card holds the rest where there is one).
     pub(crate) text_memory: usize,
+    /// Bytes a live-typing answer may hold of a text that is not secret.
+    pub(crate) typing_bytes: usize,
+    /// Open requests (not counting a nested one).
+    pub(crate) requests: u8,
 }
 
 impl Limits {
@@ -53,12 +57,16 @@ impl Limits {
         params_bytes: 1_536,
         texts: 4,
         text_memory: 2_048,
+        typing_bytes: 512,
+        requests: 1,
     };
     /// Elsewhere: 16 texts, each in memory.
     pub(crate) const ELSEWHERE: Self = Self {
         params_bytes: 16 * 1_313,
         texts: 16,
         text_memory: usize::MAX,
+        typing_bytes: usize::MAX,
+        requests: 4,
     };
 }
 
@@ -66,8 +74,8 @@ impl Limits {
 /// at every callback entry; it is never 0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Stamp {
-    owner: u64,
-    epoch: u64,
+    pub(super) owner: u64,
+    pub(super) epoch: u64,
 }
 
 impl Stamp {
@@ -96,7 +104,7 @@ pub(crate) struct Info {
 }
 
 /// Bytes wiped when they are freed.
-struct Wiped(Vec<u8>);
+pub(super) struct Wiped(pub(super) Vec<u8>);
 
 impl Drop for Wiped {
     fn drop(&mut self) {
@@ -106,7 +114,7 @@ impl Drop for Wiped {
 }
 
 impl Wiped {
-    fn copy(bytes: &[u8]) -> Result<Self, i32> {
+    pub(super) fn copy(bytes: &[u8]) -> Result<Self, i32> {
         let mut data = Vec::new();
         data.try_reserve_exact(bytes.len())
             .map_err(|_| ERR_NO_MEMORY)?;
@@ -122,32 +130,33 @@ enum State {
 }
 
 #[derive(Default)]
-struct Text {
-    parts: Vec<Wiped>,
-    bytes: usize,
-    committed: bool,
+pub(super) struct Text {
+    pub(super) parts: Vec<Wiped>,
+    pub(super) bytes: usize,
+    pub(super) committed: bool,
 }
 
-struct Entry {
-    id: u32,
+pub(super) struct Entry {
+    pub(super) id: u32,
     state: State,
     /// The params as `ui_param` records, framed.
     params: Wiped,
     count: u32,
-    text: Text,
+    pub(super) text: Text,
 }
 
-struct Inner {
-    entries: Vec<Entry>,
-    params_bytes: usize,
-    text_memory: usize,
+pub(super) struct Inner {
+    pub(super) entries: Vec<Entry>,
+    pub(super) requests: Vec<super::ui_requests::Request>,
+    pub(super) params_bytes: usize,
+    pub(super) text_memory: usize,
 }
 
 /// The store.
 pub(crate) struct UiStore {
-    limits: Limits,
+    pub(super) limits: Limits,
     next: Cell<u32>,
-    inner: RefCell<Inner>,
+    pub(super) inner: RefCell<Inner>,
 }
 
 impl fmt::Debug for UiStore {
@@ -167,6 +176,74 @@ fn key_fine(key: &str) -> bool {
         })
 }
 
+/// What a text write is held to.
+pub(super) struct WriteRules {
+    /// A text without bytes may take a slot (`ERR_FULL` when not).
+    pub(super) slots_free: bool,
+    /// Bytes of text in memory, all texts together (`ERR_IO` beyond).
+    pub(super) memory_cap: usize,
+    /// This text's cap (`ERR_NO_SPACE` beyond; never cut).
+    pub(super) text_cap: usize,
+}
+
+/// A part of a text (ui.md 3.1): an offset 0 starts the text over, any other
+/// must be the bytes written so far (`ERR_INVALID`); `last` commits. Every
+/// fallible step comes before the first change, so a refusal leaves the text
+/// at the parts before it.
+pub(super) fn write_part(
+    text: &mut Text,
+    memory: &mut usize,
+    rules: &WriteRules,
+    offset: usize,
+    data: &[u8],
+    last: bool,
+) -> Result<(), i32> {
+    if data.len() > PART_MAX {
+        return Err(ERR_NO_SPACE);
+    }
+    let had = text.bytes;
+    let restart = offset == 0;
+    if !restart && offset != had {
+        return Err(ERR_INVALID);
+    }
+    let kept = if restart { 0 } else { had };
+    if kept + data.len() > rules.text_cap {
+        return Err(ERR_NO_SPACE);
+    }
+    let had_slot = had > 0 || text.committed;
+    if !had_slot && (!data.is_empty() || last) && !rules.slots_free {
+        return Err(ERR_FULL);
+    }
+    let dropped = if restart { had } else { 0 };
+    if *memory - dropped + data.len() > rules.memory_cap {
+        return Err(ERR_IO);
+    }
+    let part = Wiped::copy(data)?;
+    // The room for the part is reserved before anything changes.
+    let mut fresh = Vec::new();
+    if restart {
+        fresh.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+    } else {
+        text.parts.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+    }
+    // Nothing fails past this point.
+    if restart {
+        *text = Text {
+            parts: fresh,
+            bytes: 0,
+            committed: false,
+        };
+        *memory -= had;
+    }
+    if !data.is_empty() {
+        text.parts.push(part);
+    }
+    text.bytes += data.len();
+    text.committed = last;
+    *memory += data.len();
+    Ok(())
+}
+
 impl UiStore {
     pub(crate) fn new(limits: Limits) -> Self {
         Self {
@@ -174,6 +251,7 @@ impl UiStore {
             next: Cell::new(1),
             inner: RefCell::new(Inner {
                 entries: Vec::new(),
+                requests: Vec::new(),
                 params_bytes: 0,
                 text_memory: 0,
             }),
@@ -191,7 +269,7 @@ impl UiStore {
         Ok(id)
     }
 
-    fn inner(&self) -> Result<core::cell::RefMut<'_, Inner>, i32> {
+    pub(super) fn inner(&self) -> Result<core::cell::RefMut<'_, Inner>, i32> {
         self.inner.try_borrow_mut().map_err(|_| ERR_STATE)
     }
 
@@ -285,60 +363,32 @@ impl UiStore {
             State::Made { .. } => return Err(ERR_NOT_FOUND),
             _ => return Err(ERR_STATE),
         }
-        let had = inner.entries[at].text.bytes;
-        let restart = offset == 0;
-        if !restart && offset != had {
-            return Err(ERR_INVALID);
-        }
-        let kept = if restart { 0 } else { had };
-        if kept + data.len() > TEXT_MAX {
-            return Err(ERR_NO_SPACE);
-        }
-        // A text counts once it has bytes; the slot is the first write's.
-        let had_slot = inner.entries[at].text.bytes > 0 || inner.entries[at].text.committed;
-        let slots = inner
-            .entries
-            .iter()
-            .filter(|entry| entry.text.bytes > 0 || entry.text.committed)
-            .count();
-        let needs_slot = !had_slot && (!data.is_empty() || last);
-        if needs_slot && slots >= self.limits.texts {
-            return Err(ERR_FULL);
-        }
-        let dropped = if restart { had } else { 0 };
-        let memory_after = inner.text_memory - dropped + data.len();
-        if memory_after > self.limits.text_memory {
-            return Err(ERR_IO);
-        }
-        let part = Wiped::copy(data)?;
-        // The room for the part is reserved before anything changes.
-        let mut fresh = Vec::new();
-        if restart {
-            fresh.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-        } else {
-            inner.entries[at]
-                .text
-                .parts
-                .try_reserve(1)
-                .map_err(|_| ERR_NO_MEMORY)?;
-        }
-        // Nothing fails past this point.
-        if restart {
-            inner.entries[at].text = Text {
-                parts: fresh,
-                bytes: 0,
-                committed: false,
-            };
-            inner.text_memory -= had;
-        }
-        let text = &mut inner.entries[at].text;
-        if !data.is_empty() {
-            text.parts.push(part);
-        }
-        text.bytes += data.len();
-        text.committed = last;
-        inner.text_memory += data.len();
-        Ok(())
+        let slots_free = Self::text_slots(&inner) < self.limits.texts;
+        let Inner {
+            entries,
+            text_memory,
+            ..
+        } = &mut *inner;
+        write_part(
+            &mut entries[at].text,
+            text_memory,
+            &WriteRules {
+                slots_free,
+                memory_cap: self.limits.text_memory,
+                text_cap: TEXT_MAX,
+            },
+            offset,
+            data,
+            last,
+        )
+    }
+
+    /// Texts alive now (hand-overs and requests): one slot per text with bytes
+    /// or a commit.
+    pub(super) fn text_slots(inner: &Inner) -> usize {
+        let held = |text: &Text| text.bytes > 0 || text.committed;
+        inner.entries.iter().filter(|e| held(&e.text)).count()
+            + inner.requests.iter().filter(|r| held(&r.text)).count()
     }
 
     /// While `command.open` is submitted: the id exists, `who` made it in this
@@ -450,6 +500,7 @@ impl UiStore {
     /// A plugin stopped: what it made or named is freed; what it handed
     /// to another live instance stays with that instance. No plugin is called.
     pub(crate) fn owner_stopped(&self, owner: u64) {
+        self.requests_owner_stopped(owner);
         let Ok(mut inner) = self.inner() else {
             return;
         };
@@ -529,6 +580,16 @@ impl UiStore {
         if !text.committed && text.bytes > 0 {
             return Err(ERR_STATE);
         }
+        Self::read_text(text, offset, out)
+    }
+
+    /// Reads `text` from `offset` into `out`, cut only at a UTF-8 boundary;
+    /// returns the text's total and the bytes written.
+    pub(super) fn read_text(
+        text: &Text,
+        offset: usize,
+        out: &mut [u8],
+    ) -> Result<(usize, usize), i32> {
         let total = text.bytes;
         if offset > total {
             return Err(ERR_INVALID);
