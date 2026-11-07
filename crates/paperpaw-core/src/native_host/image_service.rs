@@ -17,10 +17,14 @@
 //!
 //! **Drawing** reads the file row by row from the card through the SDK's band
 //! drawer (`paperpaw_sdk::ui::try_draw_picture`), clipped by the canvas. Its
-//! row buffers (a row chunk of 8 KiB and about 6 bytes a source pixel row and
-//! 9 a destination column, so some 25-30 KiB at 1,600 pixels) are taken
+//! buffers (a row chunk of 8 KiB, and a few bytes per source pixel and per
+//! destination column on the clip only, at most 32 KiB together) are taken
 //! fallibly before the first band and freed on return: no room is
-//! `ERR_NO_MEMORY` with nothing drawn. The file's size must be what its header
+//! `ERR_NO_MEMORY` with nothing drawn. This host keeps nothing between draw
+//! calls: the 4 KiB per-plugin dithering carry `document.md` allows is not
+//! implemented, so a dithered picture drawn in several bands is diffused
+//! again from its first row in each (the contract's fallback, never an
+//! error). The file's size must be what its header
 //! says (checked without allocating): else `ERR_IO`, nothing drawn; a header
 //! that does not say the stated size is `ERR_INVALID`; a card that stops
 //! reading mid-draw is `ERR_IO` with the bands before it drawn. A draw that
@@ -155,7 +159,15 @@ pub(crate) mod prepare;
 /// The device's images, all plugins'.
 pub(crate) struct ImageTable {
     inner: RefCell<Inner>,
+    /// The most heap one draw may take ([`SCRATCH_X4`] until the shell says
+    /// the device has more: [`ImageTable::set_scratch_max`]).
+    scratch_max: core::cell::Cell<usize>,
 }
+
+/// The X4's draw scratch (`document.md` 5): one transient block of 32 KiB.
+pub(crate) const SCRATCH_X4: usize = 32 * 1024;
+/// A device with memory to spare (Android, desktop, emulator).
+pub(crate) const SCRATCH_LARGE: usize = 1 << 20;
 
 /// What `image.info` tells.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -213,7 +225,13 @@ impl ImageTable {
                 seq: 0,
                 ready: Vec::new(),
             }),
+            scratch_max: core::cell::Cell::new(SCRATCH_X4),
         }
+    }
+
+    /// The draw scratch of this device: [`SCRATCH_X4`] or [`SCRATCH_LARGE`].
+    pub(crate) fn set_scratch_max(&self, bytes: usize) {
+        self.scratch_max.set(bytes);
     }
 
     fn lock(&self) -> Result<core::cell::RefMut<'_, Inner>, i32> {
@@ -598,6 +616,7 @@ impl ImageTable {
             kind,
             width: w,
             height: h,
+            scratch_max: self.scratch_max.get(),
         };
         let mut child = canvas.clipped(visible).offset(place.left, place.top);
         let area = Rect::new(0, 0, place.width, place.height);

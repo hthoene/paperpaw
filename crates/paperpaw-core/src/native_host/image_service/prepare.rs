@@ -372,6 +372,12 @@ impl ImageTable {
     /// nothing: no file it can delete is left behind a false end.
     /// `Ok(true)`: call again. `Ok(false)`: done. A `max` of 0 is `ERR_INVALID`:
     /// with no budget the cursor would never move.
+    /// INTERIM: each call hands out at most `SWEEP_SCAN` entries, but
+    /// `Storage::list_from` is not a bounded read on this head (the FAT card
+    /// reads the folder at place 0 and a stale place; the default
+    /// `list_counted` rereads it every call). The read bound comes with
+    /// `Storage::list_bounded` (#339), which this call switches to; until
+    /// then the sweep is not activated for large folders.
     ///
     /// # Errors
     /// `ERR_INVALID` (`max` is 0), `ERR_IO` (the card cannot list the folder; a

@@ -822,3 +822,36 @@ fn every_allocation_of_a_fmt_image_mapping_may_fail_and_keeps_no_id() {
     }
     assert!(failed > 0);
 }
+
+#[test]
+fn the_draw_scratch_is_the_devices_32_kib_on_the_x4_and_more_elsewhere() {
+    use paperpaw_sdk::image::ColorWriter;
+    let storage = MemoryStorage::new();
+    // A prepared 4,096 px colour picture, drawn taller and see-through: it
+    // needs about 36 KiB of scratch (the X4 never prepares one that wide).
+    let path = prepare::file_name(A, 1).unwrap();
+    let mut writer = ColorWriter::new(&storage, &path);
+    writer.start(4096, 2).unwrap();
+    for _ in 0..2 {
+        writer.row_rgb(&std::vec![0_u8; 4096 * 3]).unwrap();
+    }
+    writer.finish().unwrap();
+    let flags = FILL | (55 << TRANSPARENCY_SHIFT);
+    let t = ImageTable::new();
+    let id = t.add_prepared(A, 1, 4096, 2, true).unwrap();
+    // The X4's cap (the default): refused before anything is drawn.
+    let mut fb = screen();
+    let mut canvas = fb.canvas();
+    assert_eq!(
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 40, 30, flags),
+        Err(ERR_NO_MEMORY)
+    );
+    assert_eq!(gray(&canvas, 20, 15), 255);
+    // A device with memory to spare draws it.
+    t.set_scratch_max(SCRATCH_LARGE);
+    assert_eq!(
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 40, 30, flags),
+        Ok(())
+    );
+    assert!(gray(&canvas, 20, 15) < 255);
+}
