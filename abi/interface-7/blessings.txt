@@ -29,4 +29,5 @@
 15 additive: paperpaw-document fallible block edits (Block::try_transform, TextEdit, EditError) for text filters that must refuse atomically under a byte limit (#228)
 16 family 2 registry (REG): declarations 21-28 (setup steps, slots and offers, key bindings, foreign defaults and choices, presets), events 75-78, core.registry rows 1025-1040 and 1059 (op 21 status) in the generated records codec and commands 1536-1546 generated into the command codec change the private SDK Record and Command shapes, so the next draft; hosts answer ERR_UNSUPPORTED until wired (#228)
 16 additive: native host event sink accessor and bounded deferred event preparation (#228)
-16 additive: generated stage schemas (abi/stages, stage_schemas: core.input-filter, core.widget, core.status) (#228)
+17 family 2 UIX (screens, dialogs, input, composition; docs/abi/ui.md): declarations 29-30 and 224-228, events 79-82, 84-87, 89, input 193, core.ui@1 rows 1041-1058, commands 1547-1552, 1556-1558, 1561-1563, event 38's instance, and host slot 35 ui.compose (ERR_UNSUPPORTED until wired) change the PpHost and Record shapes, so the next draft; with the typed SDK facades native::ui and native::registry (#228)
+17 additive: generated stage schemas (abi/stages, stage_schemas: core.input-filter, core.widget, core.status) (#228)

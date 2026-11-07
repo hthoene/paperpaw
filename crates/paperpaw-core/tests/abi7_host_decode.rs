@@ -95,7 +95,7 @@ fn framed(tag: u32, body: &[u8]) -> Vec<u8> {
 /// Kinds only the host sends, each by its tag (`docs/abi/stages-services.md`).
 /// Every other known kind (`service.echo`, 1024, a service input, among them)
 /// is one a plugin sends.
-const HOST_ONLY: [u32; 51] = [
+const HOST_ONLY: [u32; 67] = [
     3,    // event.tick
     32,   // event.started
     33,   // event.resume
@@ -129,7 +129,17 @@ const HOST_ONLY: [u32; 51] = [
     76,   // event.preview_changed
     77,   // event.plugins_requested
     78,   // event.plugin_answered
+    79,   // event.screen_opened
+    80,   // event.screen_closed
+    81,   // event.stack_changed
+    82,   // event.answered
+    84,   // event.widget_made
+    85,   // event.widget_dropped
+    86,   // event.widget_changed
+    87,   // event.screen_ready
+    89,   // event.spoken
     192,  // draw.frame
+    193,  // input.widget
     512,  // stage.call
     513,  // stage.reply
     1027, // service.reg_setting
@@ -146,6 +156,12 @@ const HOST_ONLY: [u32; 51] = [
     1038, // service.reg_setup_step
     1039, // service.reg_value
     1040, // service.reg_widget
+    1041, // service.ui_screen
+    1043, // service.ui_question
+    1044, // service.ui_hint
+    1048, // service.ui_target
+    1054, // service.ui_size
+    1056, // service.ui_status_value
     1059, // service.reg_status
 ];
 
@@ -183,7 +199,7 @@ fn every_kind_only_the_host_sends_is_refused_and_every_other_decodes_as_before()
     }
     // Pinned: a new record kind must be placed on one side on purpose.
     assert_eq!(refused.len(), HOST_ONLY.len(), "{refused:?}");
-    assert_eq!(decoded.len(), 32, "{decoded:?}");
+    assert_eq!(decoded.len(), 51, "{decoded:?}");
 }
 
 #[test]
@@ -207,9 +223,9 @@ fn a_tick_is_invalid_bare_as_a_prefix_and_in_a_batch() {
 
 #[test]
 fn unknown_tags_and_limits_keep_their_statuses() {
-    // Tag 79 has no record yet: unsupported, as in `records_decode`.
-    assert_eq!(host_decode_one(&[79, 1, 0]), Err(ERR_UNSUPPORTED));
-    assert_eq!(record_decode_one(&[79, 1, 0]), Err(ERR_UNSUPPORTED));
+    // Tag 83 has no record: unsupported, as in `records_decode`.
+    assert_eq!(host_decode_one(&[83, 1, 0]), Err(ERR_UNSUPPORTED));
+    assert_eq!(record_decode_one(&[83, 1, 0]), Err(ERR_UNSUPPORTED));
     let mut nine = vec![9];
     for _ in 0..9 {
         nine.extend(bare(GROUP));

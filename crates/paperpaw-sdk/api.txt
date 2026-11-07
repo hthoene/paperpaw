@@ -3022,6 +3022,7 @@ pub paperpaw_sdk::native::callbacks::DrawPurpose::Other(u32)
 pub paperpaw_sdk::native::callbacks::DrawPurpose::PageLayer
 pub paperpaw_sdk::native::callbacks::DrawPurpose::Screen
 pub paperpaw_sdk::native::callbacks::DrawPurpose::StatusItem
+pub paperpaw_sdk::native::callbacks::DrawPurpose::StatusLine
 pub paperpaw_sdk::native::callbacks::DrawPurpose::Widget
 #[non_exhaustive] pub enum paperpaw_sdk::native::callbacks::Input<'a>
 pub paperpaw_sdk::native::callbacks::Input::Action
@@ -3039,6 +3040,12 @@ pub paperpaw_sdk::native::callbacks::Input::Pointer
 pub paperpaw_sdk::native::callbacks::Input::Pointer::now_ms: u64
 pub paperpaw_sdk::native::callbacks::Input::Pointer::phase: paperpaw_sdk::native::callbacks::PointerPhase
 pub paperpaw_sdk::native::callbacks::Input::Pointer::position: paperpaw_platform::geometry::Point
+pub paperpaw_sdk::native::callbacks::Input::Widget
+pub paperpaw_sdk::native::callbacks::Input::Widget::instance: paperpaw_sdk::native::ui::Instance
+pub paperpaw_sdk::native::callbacks::Input::Widget::kind: paperpaw_sdk::native::ui::WidgetInputKind
+pub paperpaw_sdk::native::callbacks::Input::Widget::now_ms: u64
+pub paperpaw_sdk::native::callbacks::Input::Widget::position: paperpaw_platform::geometry::Point
+pub paperpaw_sdk::native::callbacks::Input::Widget::target: u32
 impl<'a> paperpaw_sdk::native::callbacks::Input<'a>
 pub fn paperpaw_sdk::native::callbacks::Input<'a>::decode(&'a [u8]) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 #[non_exhaustive] pub enum paperpaw_sdk::native::callbacks::InputGestureKind
@@ -3100,12 +3107,59 @@ pub fn paperpaw_sdk::native::canvas::ClipGuard<'_, 'cb>::deref(&self) -> &Self::
 pub mod paperpaw_sdk::native::clock
 pub fn paperpaw_sdk::native::clock::micros(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<u64, paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::commands
+#[non_exhaustive] pub enum paperpaw_sdk::native::commands::KeyBinding<'a>
+pub paperpaw_sdk::native::commands::KeyBinding::Action(&'a str)
+pub paperpaw_sdk::native::commands::KeyBinding::Default
+pub paperpaw_sdk::native::commands::KeyBinding::None
+#[non_exhaustive] pub enum paperpaw_sdk::native::commands::PluginEnabled
+pub paperpaw_sdk::native::commands::PluginEnabled::Off
+pub paperpaw_sdk::native::commands::PluginEnabled::On
+#[non_exhaustive] pub enum paperpaw_sdk::native::commands::PluginOutcome
+pub paperpaw_sdk::native::commands::PluginOutcome::Declined
+pub paperpaw_sdk::native::commands::PluginOutcome::Failed
+pub paperpaw_sdk::native::commands::PluginOutcome::Installed
+pub paperpaw_sdk::native::commands::PluginOutcome::NotFound
+#[non_exhaustive] pub enum paperpaw_sdk::native::commands::PresetMode
+pub paperpaw_sdk::native::commands::PresetMode::Apply
+pub paperpaw_sdk::native::commands::PresetMode::Preview
 #[non_exhaustive] pub enum paperpaw_sdk::native::commands::RedrawMode
 pub paperpaw_sdk::native::commands::RedrawMode::Fast
 pub paperpaw_sdk::native::commands::RedrawMode::Full
 pub paperpaw_sdk::native::commands::RedrawMode::Partial
 pub paperpaw_sdk::native::commands::RedrawMode::RedrawOnly
+#[non_exhaustive] pub enum paperpaw_sdk::native::commands::ResetTarget<'a>
+pub paperpaw_sdk::native::commands::ResetTarget::All
+pub paperpaw_sdk::native::commands::ResetTarget::Group(&'a str)
+pub paperpaw_sdk::native::commands::ResetTarget::Placement(&'a str)
+pub paperpaw_sdk::native::commands::ResetTarget::Plugin(&'a str)
+pub paperpaw_sdk::native::commands::ResetTarget::Setting(&'a str)
 pub struct paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>
+impl paperpaw_sdk::native::commands::CommandSender<'_, '_>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::answer_plugin(&mut self, paperpaw_sdk::native::events::PluginRequestId, impl core::convert::AsRef<str>, paperpaw_sdk::native::commands::PluginOutcome) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::apply_preset(&mut self, impl core::convert::AsRef<str>, paperpaw_sdk::native::commands::PresetMode) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::bind_key(&mut self, impl core::convert::AsRef<str>, impl core::convert::AsRef<str>, paperpaw_sdk::native::commands::KeyBinding<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::bind_slot(&mut self, impl core::convert::AsRef<str>, core::option::Option<&str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::end_preview(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::preview_settings(&mut self, &[paperpaw_sdk::native::commands::PreviewSetting<'_>], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::request_plugins(&mut self, &[&str]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::reset_setting(&mut self, paperpaw_sdk::native::commands::ResetTarget<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::set_menu(&mut self, impl core::convert::AsRef<str>, core::option::Option<&[&str]>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::set_plugin_enabled(&mut self, impl core::convert::AsRef<str>, paperpaw_sdk::native::commands::PluginEnabled) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::set_scope(&mut self, core::option::Option<&str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::commands::CommandSender<'_, '_>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::back(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::back_to(&mut self, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::close(&mut self, paperpaw_sdk::native::ui::Instance) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::notify(&mut self, paperpaw_sdk::native::ui::Notify<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::open(&mut self, paperpaw_sdk::native::ui::Open<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::raise_input(&mut self, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::screen_policy(&mut self, core::option::Option<paperpaw_sdk::native::ui::Instance>, paperpaw_sdk::native::ui::ScreenPolicy) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::screen_ready(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::set_key_layer(&mut self, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::show_hints(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::speak(&mut self, paperpaw_sdk::native::ui::SpeechRequest<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::stop_speaking(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::widget_changed(&mut self, paperpaw_sdk::native::ui::Instance) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl<'cb, 'buf> paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::close_screen(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::new(&'cb paperpaw_sdk::native::Host<'cb>, &'buf mut [u8]) -> Self
@@ -3115,6 +3169,9 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::run_action(&mut
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::set_setting(&mut self, impl core::convert::AsRef<str>, paperpaw_sdk::native::settings::SettingValue<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl core::fmt::Debug for paperpaw_sdk::native::commands::CommandSender<'_, '_>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub struct paperpaw_sdk::native::commands::PreviewSetting<'a>
+impl<'a> paperpaw_sdk::native::commands::PreviewSetting<'a>
+pub const fn paperpaw_sdk::native::commands::PreviewSetting<'a>::new(&'a str, paperpaw_sdk::native::settings::SettingValue<'a>) -> Self
 pub mod paperpaw_sdk::native::declare
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::DeclareError
 pub paperpaw_sdk::native::declare::DeclareError::Choices
@@ -3148,17 +3205,26 @@ pub paperpaw_sdk::native::declare::EventKind::BookOpened
 pub paperpaw_sdk::native::declare::EventKind::BookRemoved
 pub paperpaw_sdk::native::declare::EventKind::ChargeChanged
 pub paperpaw_sdk::native::declare::EventKind::PageTurned
+pub paperpaw_sdk::native::declare::EventKind::PluginAnswered
 pub paperpaw_sdk::native::declare::EventKind::PluginsChanged
+pub paperpaw_sdk::native::declare::EventKind::PluginsRequested
 pub paperpaw_sdk::native::declare::EventKind::PowerChanged
+pub paperpaw_sdk::native::declare::EventKind::PreviewChanged
+pub paperpaw_sdk::native::declare::EventKind::RegistryChanged
 pub paperpaw_sdk::native::declare::EventKind::Resume
+pub paperpaw_sdk::native::declare::EventKind::ScreenReady
 pub paperpaw_sdk::native::declare::EventKind::ScreenShown
 pub paperpaw_sdk::native::declare::EventKind::SettingChanged
+pub paperpaw_sdk::native::declare::EventKind::StackChanged
 pub paperpaw_sdk::native::declare::EventKind::Started
 pub paperpaw_sdk::native::declare::EventKind::StatusChanged
 pub paperpaw_sdk::native::declare::EventKind::Stopping
 pub paperpaw_sdk::native::declare::EventKind::Suspend
 pub paperpaw_sdk::native::declare::EventKind::Tick
 pub paperpaw_sdk::native::declare::EventKind::WifiChanged
+#[non_exhaustive] pub enum paperpaw_sdk::native::declare::InputKind
+pub paperpaw_sdk::native::declare::InputKind::Gesture
+pub paperpaw_sdk::native::declare::InputKind::Input
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::Kind<'a>
 pub paperpaw_sdk::native::declare::Kind::Bool(bool)
 pub paperpaw_sdk::native::declare::Kind::Choice
@@ -3171,6 +3237,12 @@ pub paperpaw_sdk::native::declare::Kind::Int::min: i32
 pub paperpaw_sdk::native::declare::Kind::Language(&'a str)
 pub paperpaw_sdk::native::declare::Kind::List(&'a str)
 pub paperpaw_sdk::native::declare::Kind::Text(&'a str)
+#[non_exhaustive] pub enum paperpaw_sdk::native::declare::SetupPage<'a>
+pub paperpaw_sdk::native::declare::SetupPage::Screen(&'a str)
+pub paperpaw_sdk::native::declare::SetupPage::Setting(&'a str)
+#[non_exhaustive] pub enum paperpaw_sdk::native::declare::WidgetLayout
+pub paperpaw_sdk::native::declare::WidgetLayout::Grid
+pub paperpaw_sdk::native::declare::WidgetLayout::Stack
 #[non_exhaustive] pub struct paperpaw_sdk::native::declare::ActionDecl<'a>
 pub paperpaw_sdk::native::declare::ActionDecl::name: &'a str
 pub paperpaw_sdk::native::declare::ActionDecl::needs_screen: bool
@@ -3199,6 +3271,23 @@ pub fn paperpaw_sdk::native::declare::Declarations<F>::icon(&mut self, &str, &st
 pub fn paperpaw_sdk::native::declare::Declarations<F>::menu_entry(&mut self, paperpaw_sdk::native::declare::MenuEntryDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::menu_need(&mut self, &str, paperpaw_sdk::MenuNeed) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::menu_section(&mut self, paperpaw_sdk::native::declare::MenuSectionDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::help_hint(&mut self, paperpaw_sdk::native::declare::HelpHintDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::input(&mut self, paperpaw_sdk::native::declare::InputDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::status_item(&mut self, paperpaw_sdk::native::declare::StatusItemDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::status_line(&mut self, paperpaw_sdk::native::declare::StatusLineDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::status_place(&mut self, paperpaw_sdk::native::declare::StatusPlaceDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::widget(&mut self, paperpaw_sdk::native::declare::WidgetDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::widget_place(&mut self, paperpaw_sdk::native::declare::WidgetPlaceDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::key_binding(&mut self, paperpaw_sdk::native::declare::KeyBindingDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::preset(&mut self, paperpaw_sdk::native::declare::PresetDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::preset_value(&mut self, paperpaw_sdk::native::declare::PresetValueDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::setting_choice(&mut self, &str, &str, &str) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::setting_default(&mut self, &str, paperpaw_sdk::native::settings::SettingValue<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::setup_step(&mut self, paperpaw_sdk::native::declare::SetupStepDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::slot(&mut self, paperpaw_sdk::native::declare::SlotDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::slot_offer(&mut self, paperpaw_sdk::native::declare::SlotOfferDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::register_draw(&mut self, u32) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::subscribe_event(&mut self, paperpaw_sdk::native::declare::EventKind, u32) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
@@ -3246,6 +3335,22 @@ pub paperpaw_sdk::native::declare::GroupDecl::parent: &'a str
 pub paperpaw_sdk::native::declare::GroupDecl::title: &'a str
 impl<'a> paperpaw_sdk::native::declare::GroupDecl<'a>
 pub fn paperpaw_sdk::native::declare::GroupDecl<'a>::new(&'a str, &'a str) -> Self
+pub struct paperpaw_sdk::native::declare::HelpHintDecl<'a>(_)
+impl<'a> paperpaw_sdk::native::declare::HelpHintDecl<'a>
+pub fn paperpaw_sdk::native::declare::HelpHintDecl<'a>::new(&'a str, &'a str, paperpaw_sdk::native::ui::HintInput) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::declare::HelpHintDecl<'a>::zone(self, paperpaw_platform::geometry::Rect) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::declare::InputDecl<'a>(_)
+impl<'a> paperpaw_sdk::native::declare::InputDecl<'a>
+pub fn paperpaw_sdk::native::declare::InputDecl<'a>::need(self, paperpaw_sdk::MenuNeed) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::declare::InputDecl<'a>::new(&'a str, &'a str, paperpaw_sdk::native::declare::InputKind) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+#[non_exhaustive] pub struct paperpaw_sdk::native::declare::KeyBindingDecl<'a>
+pub paperpaw_sdk::native::declare::KeyBindingDecl::action: &'a str
+pub paperpaw_sdk::native::declare::KeyBindingDecl::input: &'a str
+pub paperpaw_sdk::native::declare::KeyBindingDecl::layer: &'a str
+pub paperpaw_sdk::native::declare::KeyBindingDecl::when_key: &'a str
+pub paperpaw_sdk::native::declare::KeyBindingDecl::when_value: &'a str
+impl<'a> paperpaw_sdk::native::declare::KeyBindingDecl<'a>
+pub const fn paperpaw_sdk::native::declare::KeyBindingDecl<'a>::new(&'a str, &'a str, &'a str) -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::declare::MenuEntryDecl<'a>
 pub paperpaw_sdk::native::declare::MenuEntryDecl::item: &'a str
 pub paperpaw_sdk::native::declare::MenuEntryDecl::menu: &'a str
@@ -3260,13 +3365,55 @@ pub paperpaw_sdk::native::declare::MenuSectionDecl::order: i16
 pub paperpaw_sdk::native::declare::MenuSectionDecl::title: &'a str
 impl<'a> paperpaw_sdk::native::declare::MenuSectionDecl<'a>
 pub const fn paperpaw_sdk::native::declare::MenuSectionDecl<'a>::new(&'a str, &'a str, &'a str) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::declare::PresetDecl<'a>
+pub paperpaw_sdk::native::declare::PresetDecl::help: &'a str
+pub paperpaw_sdk::native::declare::PresetDecl::kind: &'a str
+pub paperpaw_sdk::native::declare::PresetDecl::name: &'a str
+pub paperpaw_sdk::native::declare::PresetDecl::title: &'a str
+impl<'a> paperpaw_sdk::native::declare::PresetDecl<'a>
+pub const fn paperpaw_sdk::native::declare::PresetDecl<'a>::new(&'a str, &'a str, &'a str) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::declare::PresetValueDecl<'a>
+pub paperpaw_sdk::native::declare::PresetValueDecl::key: &'a str
+pub paperpaw_sdk::native::declare::PresetValueDecl::preset: &'a str
+pub paperpaw_sdk::native::declare::PresetValueDecl::value: paperpaw_sdk::native::settings::SettingValue<'a>
+impl<'a> paperpaw_sdk::native::declare::PresetValueDecl<'a>
+pub const fn paperpaw_sdk::native::declare::PresetValueDecl<'a>::new(&'a str, &'a str, paperpaw_sdk::native::settings::SettingValue<'a>) -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::declare::ScreenDecl<'a>
 pub paperpaw_sdk::native::declare::ScreenDecl::full_refresh_on_open: bool
 pub paperpaw_sdk::native::declare::ScreenDecl::name: &'a str
 pub paperpaw_sdk::native::declare::ScreenDecl::title: &'a str
 pub paperpaw_sdk::native::declare::ScreenDecl::token: u32
+impl paperpaw_sdk::native::declare::ScreenDecl<'_>
+pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::guards(self) -> Self
+pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::holds_edges(self) -> Self
+pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::overlay(self) -> Self
+pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::secret(self) -> Self
+pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::waits_ready(self) -> Self
 impl<'a> paperpaw_sdk::native::declare::ScreenDecl<'a>
 pub fn paperpaw_sdk::native::declare::ScreenDecl<'a>::new(&'a str, &'a str, u32) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::declare::SetupStepDecl<'a>
+pub paperpaw_sdk::native::declare::SetupStepDecl::applies: bool
+pub paperpaw_sdk::native::declare::SetupStepDecl::applies_key: &'a str
+pub paperpaw_sdk::native::declare::SetupStepDecl::applies_value: &'a str
+pub paperpaw_sdk::native::declare::SetupStepDecl::help: &'a str
+pub paperpaw_sdk::native::declare::SetupStepDecl::name: &'a str
+pub paperpaw_sdk::native::declare::SetupStepDecl::need: core::option::Option<paperpaw_sdk::MenuNeed>
+pub paperpaw_sdk::native::declare::SetupStepDecl::order: i32
+pub paperpaw_sdk::native::declare::SetupStepDecl::page: paperpaw_sdk::native::declare::SetupPage<'a>
+pub paperpaw_sdk::native::declare::SetupStepDecl::title: &'a str
+impl<'a> paperpaw_sdk::native::declare::SetupStepDecl<'a>
+pub const fn paperpaw_sdk::native::declare::SetupStepDecl<'a>::new(&'a str, &'a str, paperpaw_sdk::native::declare::SetupPage<'a>) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::declare::SlotDecl<'a>
+pub paperpaw_sdk::native::declare::SlotDecl::name: &'a str
+pub paperpaw_sdk::native::declare::SlotDecl::title: &'a str
+impl<'a> paperpaw_sdk::native::declare::SlotDecl<'a>
+pub const fn paperpaw_sdk::native::declare::SlotDecl<'a>::new(&'a str, &'a str) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::declare::SlotOfferDecl<'a>
+pub paperpaw_sdk::native::declare::SlotOfferDecl::priority: i32
+pub paperpaw_sdk::native::declare::SlotOfferDecl::screen: &'a str
+pub paperpaw_sdk::native::declare::SlotOfferDecl::slot: &'a str
+impl<'a> paperpaw_sdk::native::declare::SlotOfferDecl<'a>
+pub const fn paperpaw_sdk::native::declare::SlotOfferDecl<'a>::new(&'a str, &'a str) -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::declare::SpecDecl<'a>
 pub paperpaw_sdk::native::declare::SpecDecl::advanced: bool
 pub paperpaw_sdk::native::declare::SpecDecl::group: &'a str
@@ -3286,16 +3433,45 @@ pub fn paperpaw_sdk::native::declare::StageDecl<'a>::changes_layout(self) -> Sel
 pub fn paperpaw_sdk::native::declare::StageDecl<'a>::draws(self) -> Self
 pub fn paperpaw_sdk::native::declare::StageDecl<'a>::new(&'a str, u32, u32, u32, u32) -> Self
 pub fn paperpaw_sdk::native::declare::StageDecl<'a>::takes_taps(self) -> Self
+pub struct paperpaw_sdk::native::declare::StatusItemDecl<'a>(_)
+impl<'a> paperpaw_sdk::native::declare::StatusItemDecl<'a>
+pub const fn paperpaw_sdk::native::declare::StatusItemDecl<'a>::min_width(self, u32) -> Self
+pub fn paperpaw_sdk::native::declare::StatusItemDecl<'a>::new(&'a str, &'a str, u32) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::declare::StatusItemDecl<'a>::priority(self, u8) -> Self
+pub const fn paperpaw_sdk::native::declare::StatusItemDecl<'a>::private(self) -> Self
+pub fn paperpaw_sdk::native::declare::StatusItemDecl<'a>::tap(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::declare::StatusLineDecl<'a>(_)
+impl<'a> paperpaw_sdk::native::declare::StatusLineDecl<'a>
+pub fn paperpaw_sdk::native::declare::StatusLineDecl<'a>::new(&'a str, &'a str, u32, u32) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::declare::StatusLineDecl<'a>::private(self) -> Self
+pub struct paperpaw_sdk::native::declare::StatusPlaceDecl<'a>(_)
+impl<'a> paperpaw_sdk::native::declare::StatusPlaceDecl<'a>
+pub fn paperpaw_sdk::native::declare::StatusPlaceDecl<'a>::new(&'a str, &'a str, &'a str, &'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub struct paperpaw_sdk::native::declare::SubscribeDecl<'a>
 impl<'a> paperpaw_sdk::native::declare::SubscribeDecl<'a>
 pub fn paperpaw_sdk::native::declare::SubscribeDecl<'a>::new(&'a str, u32) -> Self
 pub fn paperpaw_sdk::native::declare::SubscribeDecl<'a>::order(self, i16) -> Self
 pub fn paperpaw_sdk::native::declare::SubscribeDecl<'a>::signature(self, u64) -> Self
+pub struct paperpaw_sdk::native::declare::WidgetDecl<'a>(_)
+impl<'a> paperpaw_sdk::native::declare::WidgetDecl<'a>
+pub const fn paperpaw_sdk::native::declare::WidgetDecl<'a>::cells(self, u8, u8) -> Self
+pub const fn paperpaw_sdk::native::declare::WidgetDecl<'a>::live(self) -> Self
+pub fn paperpaw_sdk::native::declare::WidgetDecl<'a>::new(&'a str, &'a str, &'a str, u32) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::declare::WidgetDecl<'a>::previews(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::declare::WidgetDecl<'a>::private(self) -> Self
+pub struct paperpaw_sdk::native::declare::WidgetPlaceDecl<'a>(_)
+impl<'a> paperpaw_sdk::native::declare::WidgetPlaceDecl<'a>
+pub fn paperpaw_sdk::native::declare::WidgetPlaceDecl<'a>::new(&'a str, &'a str, &'a str, paperpaw_sdk::native::declare::WidgetLayout) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::declare::WidgetPlaceDecl<'a>::shown_if(self, &'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub const paperpaw_sdk::native::declare::BATCH_MAX_BYTES: usize
 pub const paperpaw_sdk::native::declare::BATCH_MAX_RECORDS: usize
 pub const paperpaw_sdk::native::declare::CHOICES_MAX_VALUES: usize
 pub const paperpaw_sdk::native::declare::CHOICE_MAX_BYTES: usize
 pub mod paperpaw_sdk::native::events
+#[non_exhaustive] pub enum paperpaw_sdk::native::events::AnswerOutcome
+pub paperpaw_sdk::native::events::AnswerOutcome::Answered
+pub paperpaw_sdk::native::events::AnswerOutcome::Cancelled
+pub paperpaw_sdk::native::events::AnswerOutcome::Typing
 #[non_exhaustive] pub enum paperpaw_sdk::native::events::BookKind
 pub paperpaw_sdk::native::events::BookKind::Closed
 pub paperpaw_sdk::native::events::BookKind::Finished
@@ -3304,6 +3480,9 @@ pub paperpaw_sdk::native::events::BookKind::Opened
 pub paperpaw_sdk::native::events::Event::ActionRun
 pub paperpaw_sdk::native::events::Event::ActionRun::action: &'a str
 pub paperpaw_sdk::native::events::Event::ActionRun::now_ms: u64
+pub paperpaw_sdk::native::events::Event::Answered
+pub paperpaw_sdk::native::events::Event::Answered::answer: paperpaw_sdk::native::events::Answered
+pub paperpaw_sdk::native::events::Event::Answered::now_ms: u64
 pub paperpaw_sdk::native::events::Event::BatteryMeasured
 pub paperpaw_sdk::native::events::Event::BatteryMeasured::now_ms: u64
 pub paperpaw_sdk::native::events::Event::Book
@@ -3321,13 +3500,47 @@ pub paperpaw_sdk::native::events::Event::ChargeChanged
 pub paperpaw_sdk::native::events::Event::ChargeChanged::flags: paperpaw_sdk::native::events::ChargeFlags
 pub paperpaw_sdk::native::events::Event::ChargeChanged::now_ms: u64
 pub paperpaw_sdk::native::events::Event::PageTurned(paperpaw_sdk::native::events::ReadingView<'a>)
+pub paperpaw_sdk::native::events::Event::PluginAnswered
+pub paperpaw_sdk::native::events::Event::PluginAnswered::now_ms: u64
+pub paperpaw_sdk::native::events::Event::PluginAnswered::outcome: paperpaw_sdk::native::commands::PluginOutcome
+pub paperpaw_sdk::native::events::Event::PluginAnswered::plugin: &'a str
+pub paperpaw_sdk::native::events::Event::PluginAnswered::request: paperpaw_sdk::native::events::PluginRequestId
 pub paperpaw_sdk::native::events::Event::PluginsChanged
 pub paperpaw_sdk::native::events::Event::PluginsChanged::now_ms: u64
+pub paperpaw_sdk::native::events::Event::PluginsRequested
+pub paperpaw_sdk::native::events::Event::PluginsRequested::by: &'a str
+pub paperpaw_sdk::native::events::Event::PluginsRequested::now_ms: u64
+pub paperpaw_sdk::native::events::Event::PluginsRequested::plugins: paperpaw_sdk::native::events::RequestedPlugins<'a>
+pub paperpaw_sdk::native::events::Event::PluginsRequested::request: paperpaw_sdk::native::events::PluginRequestId
 pub paperpaw_sdk::native::events::Event::PowerChanged(paperpaw_sdk::native::events::PowerChange<'a>)
+pub paperpaw_sdk::native::events::Event::PreviewChanged
+pub paperpaw_sdk::native::events::Event::PreviewChanged::now_ms: u64
+pub paperpaw_sdk::native::events::Event::RegistryChanged
+pub paperpaw_sdk::native::events::Event::RegistryChanged::now_ms: u64
+pub paperpaw_sdk::native::events::Event::RegistryChanged::what: paperpaw_sdk::native::events::RegistryChanges
 pub paperpaw_sdk::native::events::Event::Resume
 pub paperpaw_sdk::native::events::Event::Resume::now_ms: u64
+pub paperpaw_sdk::native::events::Event::ScreenClosed
+pub paperpaw_sdk::native::events::Event::ScreenClosed::instance: paperpaw_sdk::native::ui::Instance
+pub paperpaw_sdk::native::events::Event::ScreenClosed::now_ms: u64
+pub paperpaw_sdk::native::events::Event::ScreenClosed::screen: &'a str
+pub paperpaw_sdk::native::events::Event::ScreenOpened
+pub paperpaw_sdk::native::events::Event::ScreenOpened::again: bool
+pub paperpaw_sdk::native::events::Event::ScreenOpened::handover: core::option::Option<paperpaw_sdk::native::ui::HandoverId>
+pub paperpaw_sdk::native::events::Event::ScreenOpened::instance: paperpaw_sdk::native::ui::Instance
+pub paperpaw_sdk::native::events::Event::ScreenOpened::now_ms: u64
+pub paperpaw_sdk::native::events::Event::ScreenOpened::params: u32
+pub paperpaw_sdk::native::events::Event::ScreenOpened::restored: bool
+pub paperpaw_sdk::native::events::Event::ScreenOpened::screen: &'a str
+pub paperpaw_sdk::native::events::Event::ScreenOpened::slot: &'a str
+pub paperpaw_sdk::native::events::Event::ScreenOpened::text_bytes: u32
+pub paperpaw_sdk::native::events::Event::ScreenReady
+pub paperpaw_sdk::native::events::Event::ScreenReady::instance: paperpaw_sdk::native::ui::Instance
+pub paperpaw_sdk::native::events::Event::ScreenReady::now_ms: u64
+pub paperpaw_sdk::native::events::Event::ScreenReady::screen: &'a str
 pub paperpaw_sdk::native::events::Event::ScreenShown
 pub paperpaw_sdk::native::events::Event::ScreenShown::height: u32
+pub paperpaw_sdk::native::events::Event::ScreenShown::instance: core::option::Option<paperpaw_sdk::native::ui::Instance>
 pub paperpaw_sdk::native::events::Event::ScreenShown::now_ms: u64
 pub paperpaw_sdk::native::events::Event::ScreenShown::screen: &'a str
 pub paperpaw_sdk::native::events::Event::ScreenShown::width: u32
@@ -3335,6 +3548,12 @@ pub paperpaw_sdk::native::events::Event::SettingChanged
 pub paperpaw_sdk::native::events::Event::SettingChanged::key: &'a str
 pub paperpaw_sdk::native::events::Event::SettingChanged::now_ms: u64
 pub paperpaw_sdk::native::events::Event::SettingChanged::old: core::option::Option<paperpaw_sdk::native::settings::SettingValue<'a>>
+pub paperpaw_sdk::native::events::Event::Spoken
+pub paperpaw_sdk::native::events::Event::Spoken::cookie: u32
+pub paperpaw_sdk::native::events::Event::Spoken::now_ms: u64
+pub paperpaw_sdk::native::events::Event::Spoken::status: paperpaw_sdk::native::events::SpeechStatus
+pub paperpaw_sdk::native::events::Event::StackChanged
+pub paperpaw_sdk::native::events::Event::StackChanged::now_ms: u64
 pub paperpaw_sdk::native::events::Event::StageCall
 pub paperpaw_sdk::native::events::Event::StageCall::payload: &'a [u8]
 pub paperpaw_sdk::native::events::Event::StageCall::schema: u32
@@ -3349,23 +3568,52 @@ pub paperpaw_sdk::native::events::Event::Suspend
 pub paperpaw_sdk::native::events::Event::Suspend::now_ms: u64
 pub paperpaw_sdk::native::events::Event::Tick
 pub paperpaw_sdk::native::events::Event::Tick::now_ms: u64
+pub paperpaw_sdk::native::events::Event::WidgetChanged
+pub paperpaw_sdk::native::events::Event::WidgetChanged::instance: paperpaw_sdk::native::ui::Instance
+pub paperpaw_sdk::native::events::Event::WidgetChanged::now_ms: u64
+pub paperpaw_sdk::native::events::Event::WidgetDropped
+pub paperpaw_sdk::native::events::Event::WidgetDropped::instance: paperpaw_sdk::native::ui::Instance
+pub paperpaw_sdk::native::events::Event::WidgetDropped::now_ms: u64
+pub paperpaw_sdk::native::events::Event::WidgetMade
+pub paperpaw_sdk::native::events::Event::WidgetMade::instance: paperpaw_sdk::native::ui::Instance
+pub paperpaw_sdk::native::events::Event::WidgetMade::now_ms: u64
+pub paperpaw_sdk::native::events::Event::WidgetMade::place: &'a str
+pub paperpaw_sdk::native::events::Event::WidgetMade::widget: &'a str
 pub paperpaw_sdk::native::events::Event::WifiChanged
 pub paperpaw_sdk::native::events::Event::WifiChanged::now_ms: u64
 pub paperpaw_sdk::native::events::Event::WifiChanged::state: paperpaw_sdk::native::events::WifiLinkState
 impl<'a> paperpaw_sdk::native::events::Event<'a>
 pub fn paperpaw_sdk::native::events::Event<'a>::decode(&'a [u8]) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+#[non_exhaustive] pub enum paperpaw_sdk::native::events::SpeechStatus
+pub paperpaw_sdk::native::events::SpeechStatus::NoVoice
+pub paperpaw_sdk::native::events::SpeechStatus::Spoken
+pub paperpaw_sdk::native::events::SpeechStatus::Stopped
+pub paperpaw_sdk::native::events::SpeechStatus::Unsupported
 #[non_exhaustive] pub enum paperpaw_sdk::native::events::WifiLinkState
 pub paperpaw_sdk::native::events::WifiLinkState::AccessPoint
 pub paperpaw_sdk::native::events::WifiLinkState::Connected
 pub paperpaw_sdk::native::events::WifiLinkState::Connecting
 pub paperpaw_sdk::native::events::WifiLinkState::Off
 pub paperpaw_sdk::native::events::WifiLinkState::On
+pub struct paperpaw_sdk::native::events::Answered
+impl paperpaw_sdk::native::events::Answered
+pub const fn paperpaw_sdk::native::events::Answered::choice(self) -> u32
+pub const fn paperpaw_sdk::native::events::Answered::dialog_closed(self) -> bool
+pub const fn paperpaw_sdk::native::events::Answered::kind(self) -> paperpaw_sdk::native::ui::QuestionKind
+pub const fn paperpaw_sdk::native::events::Answered::not_started(self) -> bool
+pub const fn paperpaw_sdk::native::events::Answered::outcome(self) -> paperpaw_sdk::native::events::AnswerOutcome
+pub const fn paperpaw_sdk::native::events::Answered::request(self) -> paperpaw_sdk::native::ui::RequestId
+pub const fn paperpaw_sdk::native::events::Answered::text_bytes(self) -> u32
+pub const fn paperpaw_sdk::native::events::Answered::typing_stopped(self) -> bool
 pub struct paperpaw_sdk::native::events::ChargeFlags(_)
 impl paperpaw_sdk::native::events::ChargeFlags
 pub fn paperpaw_sdk::native::events::ChargeFlags::battery_low(&self) -> bool
 pub fn paperpaw_sdk::native::events::ChargeFlags::charging(&self) -> bool
 pub fn paperpaw_sdk::native::events::ChargeFlags::external_power(&self) -> bool
 pub fn paperpaw_sdk::native::events::ChargeFlags::from_bits(u32) -> Self
+pub struct paperpaw_sdk::native::events::PluginRequestId(_)
+impl paperpaw_sdk::native::events::PluginRequestId
+pub const fn paperpaw_sdk::native::events::PluginRequestId::get(self) -> u32
 pub struct paperpaw_sdk::native::events::PowerChange<'a>
 impl<'a> paperpaw_sdk::native::events::PowerChange<'a>
 pub fn paperpaw_sdk::native::events::PowerChange<'a>::automatic(&self) -> bool
@@ -3385,6 +3633,24 @@ pub fn paperpaw_sdk::native::events::ReadingView<'a>::path(&self) -> &'a str
 pub fn paperpaw_sdk::native::events::ReadingView<'a>::progress_ppm(&self) -> u32
 pub fn paperpaw_sdk::native::events::ReadingView<'a>::section(&self) -> u32
 pub fn paperpaw_sdk::native::events::ReadingView<'a>::title(&self) -> &'a str
+pub struct paperpaw_sdk::native::events::RegistryChanges(_)
+impl paperpaw_sdk::native::events::RegistryChanges
+pub const fn paperpaw_sdk::native::events::RegistryChanges::actions_or_screens(self) -> bool
+pub const fn paperpaw_sdk::native::events::RegistryChanges::bindings(self) -> bool
+pub const fn paperpaw_sdk::native::events::RegistryChanges::bits(self) -> u32
+pub const fn paperpaw_sdk::native::events::RegistryChanges::dropped(self) -> bool
+pub const fn paperpaw_sdk::native::events::RegistryChanges::from_bits(u32) -> Self
+pub const fn paperpaw_sdk::native::events::RegistryChanges::groups(self) -> bool
+pub const fn paperpaw_sdk::native::events::RegistryChanges::menus(self) -> bool
+pub const fn paperpaw_sdk::native::events::RegistryChanges::presets(self) -> bool
+pub const fn paperpaw_sdk::native::events::RegistryChanges::setup(self) -> bool
+pub const fn paperpaw_sdk::native::events::RegistryChanges::slots(self) -> bool
+pub const fn paperpaw_sdk::native::events::RegistryChanges::widgets(self) -> bool
+pub struct paperpaw_sdk::native::events::RequestedPlugins<'a>(_)
+impl<'a> paperpaw_sdk::native::events::RequestedPlugins<'a>
+pub fn paperpaw_sdk::native::events::RequestedPlugins<'a>::is_empty(self) -> bool
+pub fn paperpaw_sdk::native::events::RequestedPlugins<'a>::iter(self) -> impl core::iter::traits::iterator::Iterator<Item = &'a str> + core::clone::Clone
+pub fn paperpaw_sdk::native::events::RequestedPlugins<'a>::len(self) -> usize
 pub mod paperpaw_sdk::native::fonts
 #[non_exhaustive] pub enum paperpaw_sdk::native::fonts::FontRole
 pub paperpaw_sdk::native::fonts::FontRole::Mono
@@ -3463,6 +3729,248 @@ pub fn paperpaw_sdk::native::keys::revoked(&dyn paperpaw_platform::storage::Stor
 pub fn paperpaw_sdk::native::keys::rotation_message(&str, &[u8; 32], &[u8; 32]) -> alloc::string::String
 pub mod paperpaw_sdk::native::registrations
 pub fn paperpaw_sdk::native::registrations::submit(&paperpaw_sdk::native::Host<'_>, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub mod paperpaw_sdk::native::registry
+#[non_exhaustive] pub enum paperpaw_sdk::native::registry::MenuQuery
+pub paperpaw_sdk::native::registry::MenuQuery::All
+pub paperpaw_sdk::native::registry::MenuQuery::Current
+pub paperpaw_sdk::native::registry::MenuQuery::Declared
+#[non_exhaustive] pub enum paperpaw_sdk::native::registry::RegistryBindingOrigin
+pub paperpaw_sdk::native::registry::RegistryBindingOrigin::Device
+pub paperpaw_sdk::native::registry::RegistryBindingOrigin::Plugin
+pub paperpaw_sdk::native::registry::RegistryBindingOrigin::Preset
+pub paperpaw_sdk::native::registry::RegistryBindingOrigin::Unknown(u32)
+pub paperpaw_sdk::native::registry::RegistryBindingOrigin::User
+#[non_exhaustive] pub enum paperpaw_sdk::native::registry::RegistryMenuKind
+pub paperpaw_sdk::native::registry::RegistryMenuKind::Action
+pub paperpaw_sdk::native::registry::RegistryMenuKind::Section
+pub paperpaw_sdk::native::registry::RegistryMenuKind::Setting
+pub paperpaw_sdk::native::registry::RegistryMenuKind::Submenu
+pub paperpaw_sdk::native::registry::RegistryMenuKind::Unknown(u32)
+#[non_exhaustive] pub enum paperpaw_sdk::native::registry::RegistryNeedKind
+pub paperpaw_sdk::native::registry::RegistryNeedKind::Feature
+pub paperpaw_sdk::native::registry::RegistryNeedKind::Plugin
+pub paperpaw_sdk::native::registry::RegistryNeedKind::Service
+pub paperpaw_sdk::native::registry::RegistryNeedKind::Unknown(u32)
+#[non_exhaustive] pub enum paperpaw_sdk::native::registry::RegistryPluginKind
+pub paperpaw_sdk::native::registry::RegistryPluginKind::BuiltIn
+pub paperpaw_sdk::native::registry::RegistryPluginKind::Code
+pub paperpaw_sdk::native::registry::RegistryPluginKind::Data
+pub paperpaw_sdk::native::registry::RegistryPluginKind::Unknown(u32)
+#[non_exhaustive] pub enum paperpaw_sdk::native::registry::RegistryPluginState
+pub paperpaw_sdk::native::registry::RegistryPluginState::Failed
+pub paperpaw_sdk::native::registry::RegistryPluginState::Off
+pub paperpaw_sdk::native::registry::RegistryPluginState::Running
+pub paperpaw_sdk::native::registry::RegistryPluginState::Unknown(u32)
+#[non_exhaustive] pub enum paperpaw_sdk::native::registry::RegistrySettingKind
+pub paperpaw_sdk::native::registry::RegistrySettingKind::Bool
+pub paperpaw_sdk::native::registry::RegistrySettingKind::Choice
+pub paperpaw_sdk::native::registry::RegistrySettingKind::Int
+pub paperpaw_sdk::native::registry::RegistrySettingKind::Language
+pub paperpaw_sdk::native::registry::RegistrySettingKind::List
+pub paperpaw_sdk::native::registry::RegistrySettingKind::Text
+pub paperpaw_sdk::native::registry::RegistrySettingKind::Unknown(u32)
+#[non_exhaustive] pub enum paperpaw_sdk::native::registry::RegistrySetupPageKind
+pub paperpaw_sdk::native::registry::RegistrySetupPageKind::Screen
+pub paperpaw_sdk::native::registry::RegistrySetupPageKind::Setting
+pub paperpaw_sdk::native::registry::RegistrySetupPageKind::Unknown(u32)
+#[non_exhaustive] pub enum paperpaw_sdk::native::registry::RegistryValueSource
+pub paperpaw_sdk::native::registry::RegistryValueSource::BookScope
+pub paperpaw_sdk::native::registry::RegistryValueSource::Default
+pub paperpaw_sdk::native::registry::RegistryValueSource::Preset
+pub paperpaw_sdk::native::registry::RegistryValueSource::Profile
+pub paperpaw_sdk::native::registry::RegistryValueSource::Unknown(u32)
+pub paperpaw_sdk::native::registry::RegistryValueSource::User
+#[non_exhaustive] pub enum paperpaw_sdk::native::registry::StatusKind
+pub paperpaw_sdk::native::registry::StatusKind::Item
+pub paperpaw_sdk::native::registry::StatusKind::Line
+#[non_exhaustive] pub enum paperpaw_sdk::native::registry::StatusScope
+pub paperpaw_sdk::native::registry::StatusScope::All
+pub paperpaw_sdk::native::registry::StatusScope::Items
+pub paperpaw_sdk::native::registry::StatusScope::Lines
+#[non_exhaustive] pub enum paperpaw_sdk::native::registry::ValuesQuery<'a>
+pub paperpaw_sdk::native::registry::ValuesQuery::Placement(&'a str)
+pub paperpaw_sdk::native::registry::ValuesQuery::Preset(&'a str)
+pub struct paperpaw_sdk::native::registry::PageCursor
+impl paperpaw_sdk::native::registry::PageCursor
+pub const fn paperpaw_sdk::native::registry::PageCursor::generation(self) -> u32
+pub const fn paperpaw_sdk::native::registry::PageCursor::offset(self) -> u32
+pub const fn paperpaw_sdk::native::registry::PageCursor::start() -> Self
+pub struct paperpaw_sdk::native::registry::Registry
+impl paperpaw_sdk::native::registry::Registry
+pub fn paperpaw_sdk::native::registry::Registry::actions<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryItem<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::bindings<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryBinding<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::choices<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryChoice<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::groups<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryGroup<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::inputs<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryItem<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::menu<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, paperpaw_sdk::native::registry::MenuQuery, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryMenuRow<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::menus<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryItem<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::needs<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryNeed<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::plugins<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryPlugin<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::presets<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryItem<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::screens<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryItem<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::settings<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistrySetting<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::setup<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistrySetupStep<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::slot_offers<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryItem<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::slots<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistrySlot<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::values<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::registry::ValuesQuery<'_>, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryValue<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::widgets<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryWidget<'a>>, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::registry::Registry
+pub fn paperpaw_sdk::native::registry::Registry::open(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::release(self, &paperpaw_sdk::native::Host<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::registry::Registry
+pub fn paperpaw_sdk::native::registry::Registry::plugin<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPluginDetail<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::preset<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPresetDetail<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::registry::Registry::setting<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistrySettingDetail<'a>, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::registry::Registry
+pub fn paperpaw_sdk::native::registry::Registry::status<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::registry::StatusScope, paperpaw_sdk::native::registry::PageCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::registry::RegistryPage<'a, paperpaw_sdk::native::registry::RegistryStatus<'a>>, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::registry::RegistryBinding<'a>
+impl<'a> paperpaw_sdk::native::registry::RegistryBinding<'a>
+pub fn paperpaw_sdk::native::registry::RegistryBinding<'a>::action(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryBinding<'a>::input(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryBinding<'a>::layer(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryBinding<'a>::origin(&self) -> paperpaw_sdk::native::registry::RegistryBindingOrigin
+pub struct paperpaw_sdk::native::registry::RegistryChoice<'a>
+impl<'a> paperpaw_sdk::native::registry::RegistryChoice<'a>
+pub fn paperpaw_sdk::native::registry::RegistryChoice<'a>::title(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryChoice<'a>::value(&self) -> &'a str
+pub struct paperpaw_sdk::native::registry::RegistryGroup<'a>
+impl<'a> paperpaw_sdk::native::registry::RegistryGroup<'a>
+pub fn paperpaw_sdk::native::registry::RegistryGroup<'a>::id(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryGroup<'a>::order(&self) -> i32
+pub fn paperpaw_sdk::native::registry::RegistryGroup<'a>::page(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryGroup<'a>::parent(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryGroup<'a>::title(&self) -> &'a str
+pub struct paperpaw_sdk::native::registry::RegistryItem<'a>
+impl<'a> paperpaw_sdk::native::registry::RegistryItem<'a>
+pub fn paperpaw_sdk::native::registry::RegistryItem<'a>::flags(&self) -> u32
+pub fn paperpaw_sdk::native::registry::RegistryItem<'a>::id(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryItem<'a>::plugin(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryItem<'a>::title(&self) -> &'a str
+pub struct paperpaw_sdk::native::registry::RegistryMenuRow<'a>
+impl<'a> paperpaw_sdk::native::registry::RegistryMenuRow<'a>
+pub fn paperpaw_sdk::native::registry::RegistryMenuRow<'a>::badge(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryMenuRow<'a>::by(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryMenuRow<'a>::describe(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryMenuRow<'a>::flags(&self) -> u32
+pub fn paperpaw_sdk::native::registry::RegistryMenuRow<'a>::icon(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryMenuRow<'a>::item(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryMenuRow<'a>::kind(&self) -> paperpaw_sdk::native::registry::RegistryMenuKind
+pub fn paperpaw_sdk::native::registry::RegistryMenuRow<'a>::order(&self) -> i32
+pub fn paperpaw_sdk::native::registry::RegistryMenuRow<'a>::title(&self) -> &'a str
+pub struct paperpaw_sdk::native::registry::RegistryNeed<'a>
+impl<'a> paperpaw_sdk::native::registry::RegistryNeed<'a>
+pub fn paperpaw_sdk::native::registry::RegistryNeed<'a>::flags(&self) -> u32
+pub fn paperpaw_sdk::native::registry::RegistryNeed<'a>::key(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryNeed<'a>::kind(&self) -> paperpaw_sdk::native::registry::RegistryNeedKind
+pub fn paperpaw_sdk::native::registry::RegistryNeed<'a>::version(&self) -> &'a str
+pub struct paperpaw_sdk::native::registry::RegistryPage<'a, T>
+impl<'a, T> paperpaw_sdk::native::registry::RegistryPage<'a, T>
+pub const fn paperpaw_sdk::native::registry::RegistryPage<'a, T>::end(&self) -> paperpaw_sdk::native::registry::RegistryPageEnd
+pub const fn paperpaw_sdk::native::registry::RegistryPage<'a, T>::is_empty(&self) -> bool
+pub const fn paperpaw_sdk::native::registry::RegistryPage<'a, T>::len(&self) -> usize
+pub fn paperpaw_sdk::native::registry::RegistryPage<'a, T>::rows(&self) -> paperpaw_sdk::native::registry::RegistryRows<'a, T>
+impl<T> core::fmt::Debug for paperpaw_sdk::native::registry::RegistryPage<'_, T>
+pub fn paperpaw_sdk::native::registry::RegistryPage<'_, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct paperpaw_sdk::native::registry::RegistryPageEnd
+impl paperpaw_sdk::native::registry::RegistryPageEnd
+pub const fn paperpaw_sdk::native::registry::RegistryPageEnd::generation(self) -> u32
+pub const fn paperpaw_sdk::native::registry::RegistryPageEnd::is_last(self) -> bool
+pub const fn paperpaw_sdk::native::registry::RegistryPageEnd::next_cursor(self) -> core::option::Option<paperpaw_sdk::native::registry::PageCursor>
+pub const fn paperpaw_sdk::native::registry::RegistryPageEnd::total(self) -> u32
+pub struct paperpaw_sdk::native::registry::RegistryPlugin<'a>
+impl<'a> paperpaw_sdk::native::registry::RegistryPlugin<'a>
+pub fn paperpaw_sdk::native::registry::RegistryPlugin<'a>::flags(&self) -> u32
+pub fn paperpaw_sdk::native::registry::RegistryPlugin<'a>::id(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryPlugin<'a>::kind(&self) -> paperpaw_sdk::native::registry::RegistryPluginKind
+pub fn paperpaw_sdk::native::registry::RegistryPlugin<'a>::name(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryPlugin<'a>::problem(&self) -> u32
+pub fn paperpaw_sdk::native::registry::RegistryPlugin<'a>::problem_arg(&self) -> u32
+pub fn paperpaw_sdk::native::registry::RegistryPlugin<'a>::state(&self) -> paperpaw_sdk::native::registry::RegistryPluginState
+pub fn paperpaw_sdk::native::registry::RegistryPlugin<'a>::update(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryPlugin<'a>::version(&self) -> &'a str
+pub struct paperpaw_sdk::native::registry::RegistryPluginDetail<'a>
+impl<'a> paperpaw_sdk::native::registry::RegistryPluginDetail<'a>
+pub const fn paperpaw_sdk::native::registry::RegistryPluginDetail<'a>::description(&self) -> core::option::Option<&'a str>
+pub const fn paperpaw_sdk::native::registry::RegistryPluginDetail<'a>::plugin(&self) -> paperpaw_sdk::native::registry::RegistryPlugin<'a>
+pub struct paperpaw_sdk::native::registry::RegistryPresetDetail<'a>
+impl<'a> paperpaw_sdk::native::registry::RegistryPresetDetail<'a>
+pub const fn paperpaw_sdk::native::registry::RegistryPresetDetail<'a>::description(&self) -> core::option::Option<&'a str>
+pub const fn paperpaw_sdk::native::registry::RegistryPresetDetail<'a>::preset(&self) -> paperpaw_sdk::native::registry::RegistryItem<'a>
+pub struct paperpaw_sdk::native::registry::RegistryRows<'a, T>
+impl<'a, T> core::iter::traits::iterator::Iterator for paperpaw_sdk::native::registry::RegistryRows<'a, T>
+pub type paperpaw_sdk::native::registry::RegistryRows<'a, T>::Item = T
+pub fn paperpaw_sdk::native::registry::RegistryRows<'a, T>::next(&mut self) -> core::option::Option<T>
+pub fn paperpaw_sdk::native::registry::RegistryRows<'a, T>::size_hint(&self) -> (usize, core::option::Option<usize>)
+impl<T> core::fmt::Debug for paperpaw_sdk::native::registry::RegistryRows<'_, T>
+pub fn paperpaw_sdk::native::registry::RegistryRows<'_, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<T> core::iter::traits::exact_size::ExactSizeIterator for paperpaw_sdk::native::registry::RegistryRows<'_, T>
+impl<T> core::iter::traits::marker::FusedIterator for paperpaw_sdk::native::registry::RegistryRows<'_, T>
+pub struct paperpaw_sdk::native::registry::RegistrySetting<'a>
+impl<'a> paperpaw_sdk::native::registry::RegistrySetting<'a>
+pub fn paperpaw_sdk::native::registry::RegistrySetting<'a>::flags(&self) -> u32
+pub fn paperpaw_sdk::native::registry::RegistrySetting<'a>::group(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistrySetting<'a>::key(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistrySetting<'a>::kind(&self) -> paperpaw_sdk::native::registry::RegistrySettingKind
+pub fn paperpaw_sdk::native::registry::RegistrySetting<'a>::source(&self) -> paperpaw_sdk::native::registry::RegistryValueSource
+pub fn paperpaw_sdk::native::registry::RegistrySetting<'a>::title(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistrySetting<'a>::value(&self) -> core::option::Option<paperpaw_sdk::native::settings::SettingValue<'a>>
+pub struct paperpaw_sdk::native::registry::RegistrySettingDetail<'a>
+impl<'a> paperpaw_sdk::native::registry::RegistrySettingDetail<'a>
+pub const fn paperpaw_sdk::native::registry::RegistrySettingDetail<'a>::extra(&self) -> paperpaw_sdk::native::registry::RegistrySettingExtra<'a>
+pub const fn paperpaw_sdk::native::registry::RegistrySettingDetail<'a>::help(&self) -> core::option::Option<&'a str>
+pub const fn paperpaw_sdk::native::registry::RegistrySettingDetail<'a>::setting(&self) -> paperpaw_sdk::native::registry::RegistrySetting<'a>
+pub struct paperpaw_sdk::native::registry::RegistrySettingExtra<'a>
+impl<'a> paperpaw_sdk::native::registry::RegistrySettingExtra<'a>
+pub fn paperpaw_sdk::native::registry::RegistrySettingExtra<'a>::choices(&self) -> u32
+pub fn paperpaw_sdk::native::registry::RegistrySettingExtra<'a>::editor(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistrySettingExtra<'a>::editor_kind(&self) -> u32
+pub fn paperpaw_sdk::native::registry::RegistrySettingExtra<'a>::follows(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistrySettingExtra<'a>::max(&self) -> i32
+pub fn paperpaw_sdk::native::registry::RegistrySettingExtra<'a>::min(&self) -> i32
+pub fn paperpaw_sdk::native::registry::RegistrySettingExtra<'a>::section(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistrySettingExtra<'a>::shown_id(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistrySettingExtra<'a>::shown_value(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistrySettingExtra<'a>::step(&self) -> i32
+pub fn paperpaw_sdk::native::registry::RegistrySettingExtra<'a>::unit(&self) -> &'a str
+pub struct paperpaw_sdk::native::registry::RegistrySetupStep<'a>
+impl<'a> paperpaw_sdk::native::registry::RegistrySetupStep<'a>
+pub fn paperpaw_sdk::native::registry::RegistrySetupStep<'a>::flags(&self) -> u32
+pub fn paperpaw_sdk::native::registry::RegistrySetupStep<'a>::id(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistrySetupStep<'a>::order(&self) -> i32
+pub fn paperpaw_sdk::native::registry::RegistrySetupStep<'a>::page(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistrySetupStep<'a>::page_kind(&self) -> paperpaw_sdk::native::registry::RegistrySetupPageKind
+pub fn paperpaw_sdk::native::registry::RegistrySetupStep<'a>::title(&self) -> &'a str
+pub struct paperpaw_sdk::native::registry::RegistrySlot<'a>
+impl<'a> paperpaw_sdk::native::registry::RegistrySlot<'a>
+pub fn paperpaw_sdk::native::registry::RegistrySlot<'a>::default(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistrySlot<'a>::flags(&self) -> u32
+pub fn paperpaw_sdk::native::registry::RegistrySlot<'a>::id(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistrySlot<'a>::screen(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistrySlot<'a>::title(&self) -> &'a str
+pub struct paperpaw_sdk::native::registry::RegistryStatus<'a>
+impl<'a> paperpaw_sdk::native::registry::RegistryStatus<'a>
+pub const fn paperpaw_sdk::native::registry::RegistryStatus<'a>::drawn_by_owner(self) -> bool
+pub const fn paperpaw_sdk::native::registry::RegistryStatus<'a>::id(self) -> &'a str
+pub const fn paperpaw_sdk::native::registry::RegistryStatus<'a>::kind(self) -> paperpaw_sdk::native::registry::StatusKind
+pub const fn paperpaw_sdk::native::registry::RegistryStatus<'a>::plugin(self) -> &'a str
+pub const fn paperpaw_sdk::native::registry::RegistryStatus<'a>::priority(self) -> u32
+pub const fn paperpaw_sdk::native::registry::RegistryStatus<'a>::private(self) -> bool
+pub const fn paperpaw_sdk::native::registry::RegistryStatus<'a>::size(self) -> u32
+pub const fn paperpaw_sdk::native::registry::RegistryStatus<'a>::tap(self) -> &'a str
+pub const fn paperpaw_sdk::native::registry::RegistryStatus<'a>::title(self) -> &'a str
+pub struct paperpaw_sdk::native::registry::RegistryValue<'a>
+impl<'a> paperpaw_sdk::native::registry::RegistryValue<'a>
+pub fn paperpaw_sdk::native::registry::RegistryValue<'a>::flags(&self) -> u32
+pub fn paperpaw_sdk::native::registry::RegistryValue<'a>::key(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryValue<'a>::value(&self) -> core::option::Option<paperpaw_sdk::native::settings::SettingValue<'a>>
+pub struct paperpaw_sdk::native::registry::RegistryWidget<'a>
+impl<'a> paperpaw_sdk::native::registry::RegistryWidget<'a>
+pub fn paperpaw_sdk::native::registry::RegistryWidget<'a>::flags(&self) -> u32
+pub fn paperpaw_sdk::native::registry::RegistryWidget<'a>::icon(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryWidget<'a>::id(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryWidget<'a>::kind(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryWidget<'a>::plugin(&self) -> &'a str
+pub fn paperpaw_sdk::native::registry::RegistryWidget<'a>::title(&self) -> &'a str
 pub mod paperpaw_sdk::native::reply
 pub struct paperpaw_sdk::native::reply::Reply<'cb>
 impl<'cb> paperpaw_sdk::native::reply::Reply<'cb>
@@ -3788,6 +4296,199 @@ pub fn paperpaw_sdk::native::storage::rename(&paperpaw_sdk::native::Host<'_>, pa
 pub fn paperpaw_sdk::native::storage::size(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>) -> core::result::Result<u64, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::storage::sync(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::storage::write(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::storage::Root, impl core::convert::AsRef<str>, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub mod paperpaw_sdk::native::ui
+#[non_exhaustive] pub enum paperpaw_sdk::native::ui::Answer
+pub paperpaw_sdk::native::ui::Answer::Accept
+pub paperpaw_sdk::native::ui::Answer::Cancel
+pub paperpaw_sdk::native::ui::Answer::No
+pub paperpaw_sdk::native::ui::Answer::Pick(u32)
+pub paperpaw_sdk::native::ui::Answer::Typing
+pub paperpaw_sdk::native::ui::Answer::Yes
+#[non_exhaustive] pub enum paperpaw_sdk::native::ui::Compose<'cb>
+pub paperpaw_sdk::native::ui::Compose::StatusItem(paperpaw_sdk::native::ui::StatusHandle<'cb>)
+pub paperpaw_sdk::native::ui::Compose::StatusLine(paperpaw_sdk::native::ui::StatusLineHandle<'cb>)
+pub paperpaw_sdk::native::ui::Compose::Widget(paperpaw_sdk::native::ui::WidgetHandle)
+#[non_exhaustive] pub enum paperpaw_sdk::native::ui::HintInput
+pub paperpaw_sdk::native::ui::HintInput::Any
+pub paperpaw_sdk::native::ui::HintInput::Buttons
+pub paperpaw_sdk::native::ui::HintInput::Touch
+#[non_exhaustive] pub enum paperpaw_sdk::native::ui::QuestionKind
+pub paperpaw_sdk::native::ui::QuestionKind::Choice
+pub paperpaw_sdk::native::ui::QuestionKind::Confirm
+pub paperpaw_sdk::native::ui::QuestionKind::Folder
+pub paperpaw_sdk::native::ui::QuestionKind::Text
+#[non_exhaustive] pub enum paperpaw_sdk::native::ui::StatusLine<'cb>
+pub paperpaw_sdk::native::ui::StatusLine::Draw(paperpaw_sdk::native::ui::StatusLineHandle<'cb>)
+pub paperpaw_sdk::native::ui::StatusLine::Own
+#[non_exhaustive] pub enum paperpaw_sdk::native::ui::TextMode
+pub paperpaw_sdk::native::ui::TextMode::Email
+pub paperpaw_sdk::native::ui::TextMode::FileName
+pub paperpaw_sdk::native::ui::TextMode::Number
+pub paperpaw_sdk::native::ui::TextMode::Plain
+pub paperpaw_sdk::native::ui::TextMode::Url
+#[non_exhaustive] pub enum paperpaw_sdk::native::ui::TextWrite
+pub paperpaw_sdk::native::ui::TextWrite::Continue
+pub paperpaw_sdk::native::ui::TextWrite::Last
+#[non_exhaustive] pub enum paperpaw_sdk::native::ui::WidgetInputKind
+pub paperpaw_sdk::native::ui::WidgetInputKind::LongPress
+pub paperpaw_sdk::native::ui::WidgetInputKind::Tap
+pub struct paperpaw_sdk::native::ui::HandoverId(_)
+impl paperpaw_sdk::native::ui::HandoverId
+pub const fn paperpaw_sdk::native::ui::HandoverId::get(self) -> u32
+impl paperpaw_sdk::native::ui::HandoverId
+pub const fn paperpaw_sdk::native::ui::HandoverId::text(self) -> paperpaw_sdk::native::ui::TextId
+pub struct paperpaw_sdk::native::ui::Instance(_)
+impl paperpaw_sdk::native::ui::Instance
+pub const fn paperpaw_sdk::native::ui::Instance::get(self) -> u32
+pub struct paperpaw_sdk::native::ui::Notify<'a>
+impl<'a> paperpaw_sdk::native::ui::Notify<'a>
+pub const fn paperpaw_sdk::native::ui::Notify<'a>::announce(self) -> Self
+pub fn paperpaw_sdk::native::ui::Notify<'a>::new(&'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::ui::Open<'a>
+impl<'a> paperpaw_sdk::native::ui::Open<'a>
+pub const fn paperpaw_sdk::native::ui::Open<'a>::handover(self, paperpaw_sdk::native::ui::HandoverId) -> Self
+pub fn paperpaw_sdk::native::ui::Open<'a>::in_slot(&'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Open<'a>::replace(&'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Open<'a>::screen(&'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Open<'a>::slot(&'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::ui::Param<'a>
+impl<'a> paperpaw_sdk::native::ui::Param<'a>
+pub const fn paperpaw_sdk::native::ui::Param<'a>::key(self) -> &'a str
+pub fn paperpaw_sdk::native::ui::Param<'a>::kind(self) -> core::result::Result<core::option::Option<paperpaw_sdk::native::ui::QuestionKind>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Param<'a>::new(&'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Param<'a>::request(self) -> core::result::Result<core::option::Option<paperpaw_sdk::native::ui::RequestId>, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::ui::Param<'a>::value(self) -> &'a str
+pub struct paperpaw_sdk::native::ui::Question<'a>
+impl<'a> paperpaw_sdk::native::ui::Question<'a>
+pub fn paperpaw_sdk::native::ui::Question<'a>::choice(&'a str, &'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Question<'a>::confirm(&'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Question<'a>::folder(&'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Question<'a>::live(self) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Question<'a>::mode(self, paperpaw_sdk::native::ui::TextMode) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Question<'a>::multiline(self) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Question<'a>::remote(self) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Question<'a>::secret(self) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Question<'a>::text(&'a str, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::ui::QuestionInfo<'a>
+impl<'a> paperpaw_sdk::native::ui::QuestionInfo<'a>
+pub fn paperpaw_sdk::native::ui::QuestionInfo<'a>::choices(self) -> impl core::iter::traits::iterator::Iterator<Item = &'a str>
+pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::is_live(self) -> bool
+pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::is_multiline(self) -> bool
+pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::is_secret(self) -> bool
+pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::kind(self) -> paperpaw_sdk::native::ui::QuestionKind
+pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::max_bytes(self) -> u32
+pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::mode(self) -> paperpaw_sdk::native::ui::TextMode
+pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::text(self) -> &'a str
+pub const fn paperpaw_sdk::native::ui::QuestionInfo<'a>::title(self) -> &'a str
+pub struct paperpaw_sdk::native::ui::RequestId(_)
+impl paperpaw_sdk::native::ui::RequestId
+pub const fn paperpaw_sdk::native::ui::RequestId::get(self) -> u32
+impl paperpaw_sdk::native::ui::RequestId
+pub const fn paperpaw_sdk::native::ui::RequestId::text(self) -> paperpaw_sdk::native::ui::TextId
+pub struct paperpaw_sdk::native::ui::ScreenPolicy
+impl paperpaw_sdk::native::ui::ScreenPolicy
+pub const fn paperpaw_sdk::native::ui::ScreenPolicy::guards(self) -> Self
+pub const fn paperpaw_sdk::native::ui::ScreenPolicy::holds_edges(self) -> Self
+pub const fn paperpaw_sdk::native::ui::ScreenPolicy::new() -> Self
+pub const fn paperpaw_sdk::native::ui::ScreenPolicy::secret(self) -> Self
+pub struct paperpaw_sdk::native::ui::SpeechRequest<'a>
+impl<'a> paperpaw_sdk::native::ui::SpeechRequest<'a>
+pub fn paperpaw_sdk::native::ui::SpeechRequest<'a>::language(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::SpeechRequest<'a>::new(u32, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::ui::SpeechRequest<'a>::queue(self) -> Self
+pub fn paperpaw_sdk::native::ui::SpeechRequest<'a>::rate(self, u16) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::ui::StatusHandle<'cb>
+pub struct paperpaw_sdk::native::ui::StatusLineHandle<'cb>
+pub struct paperpaw_sdk::native::ui::StatusValue<'a>
+impl<'a> paperpaw_sdk::native::ui::StatusValue<'a>
+pub const fn paperpaw_sdk::native::ui::StatusValue<'a>::draw_handle(self) -> core::option::Option<paperpaw_sdk::native::ui::StatusHandle<'a>>
+pub const fn paperpaw_sdk::native::ui::StatusValue<'a>::is_hidden(self) -> bool
+pub const fn paperpaw_sdk::native::ui::StatusValue<'a>::is_own(self) -> bool
+pub const fn paperpaw_sdk::native::ui::StatusValue<'a>::item(self) -> &'a str
+pub const fn paperpaw_sdk::native::ui::StatusValue<'a>::text(self) -> &'a str
+pub struct paperpaw_sdk::native::ui::TextId(_)
+impl paperpaw_sdk::native::ui::TextId
+pub const fn paperpaw_sdk::native::ui::TextId::get(self) -> u32
+pub struct paperpaw_sdk::native::ui::TextPart<'a>
+impl<'a> paperpaw_sdk::native::ui::TextPart<'a>
+pub const fn paperpaw_sdk::native::ui::TextPart<'a>::data(self) -> &'a str
+pub fn paperpaw_sdk::native::ui::TextPart<'a>::next_offset(self) -> core::option::Option<u32>
+pub const fn paperpaw_sdk::native::ui::TextPart<'a>::offset(self) -> u32
+pub const fn paperpaw_sdk::native::ui::TextPart<'a>::text(self) -> u32
+pub const fn paperpaw_sdk::native::ui::TextPart<'a>::total(self) -> u32
+pub struct paperpaw_sdk::native::ui::Ui
+impl paperpaw_sdk::native::ui::Ui
+pub fn paperpaw_sdk::native::ui::Ui::answer(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::ui::RequestId, paperpaw_sdk::native::ui::Answer, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::ask(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::ui::Question<'_>, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::ui::RequestId, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::open(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::question<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::ui::RequestId, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::ui::QuestionInfo<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::release(self, &paperpaw_sdk::native::Host<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::text_read<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::ui::TextId, u32, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::ui::TextPart<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::text_write(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::ui::TextId, u32, &str, paperpaw_sdk::native::ui::TextWrite, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::ui::Ui
+pub fn paperpaw_sdk::native::ui::Ui::clipboard_read<'a>(&self, &paperpaw_sdk::native::Host<'_>, u32, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::ui::TextPart<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::clipboard_write(&self, &paperpaw_sdk::native::Host<'_>, u32, &str, paperpaw_sdk::native::ui::TextWrite, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::hints<'a>(&self, &paperpaw_sdk::native::Host<'_>, &str, paperpaw_sdk::native::ui::UiCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::ui::UiPage<'a, paperpaw_sdk::native::ui::UiHint<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::stack<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::ui::UiCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::ui::UiPage<'a, paperpaw_sdk::native::ui::UiScreen<'a>>, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::ui::Ui
+pub fn paperpaw_sdk::native::ui::Ui::compose<'cb>(&'cb paperpaw_sdk::native::Host<'cb>, paperpaw_sdk::native::ui::Compose<'cb>, paperpaw_sdk::native::callbacks::FrameRect) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::widget_drop(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::ui::WidgetHandle, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::widget_input(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::ui::WidgetHandle, u32, paperpaw_platform::geometry::Point, paperpaw_sdk::native::ui::WidgetInputKind, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::widget_make(&self, &paperpaw_sdk::native::Host<'_>, &str, &str, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::ui::WidgetHandle, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::widget_measure(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::ui::WidgetHandle, u32, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::ui::WidgetSize, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::widget_place(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::ui::WidgetHandle, paperpaw_sdk::native::callbacks::FrameRect, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::widget_targets<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::ui::WidgetHandle, paperpaw_sdk::native::callbacks::FrameRect, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::ui::UiPage<'a, paperpaw_sdk::native::ui::WidgetTarget>, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::ui::Ui
+pub fn paperpaw_sdk::native::ui::Ui::handover(&self, &paperpaw_sdk::native::Host<'_>, &[paperpaw_sdk::native::ui::Param<'_>], &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::ui::HandoverId, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::params<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::ui::HandoverId, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::ui::UiPage<'a, paperpaw_sdk::native::ui::Param<'a>>, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::ui::Ui
+pub fn paperpaw_sdk::native::ui::Ui::status_line<'a>(&self, &'a paperpaw_sdk::native::Host<'a>, &str, &[paperpaw_sdk::native::ui::Param<'_>], &mut [u8], &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::ui::StatusLine<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::Ui::status_values<'a>(&self, &'a paperpaw_sdk::native::Host<'a>, &str, &[paperpaw_sdk::native::ui::Param<'_>], &mut [u8], &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::ui::UiPage<'a, paperpaw_sdk::native::ui::StatusValue<'a>>, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::ui::UiCursor
+impl paperpaw_sdk::native::ui::UiCursor
+pub const fn paperpaw_sdk::native::ui::UiCursor::start() -> Self
+pub struct paperpaw_sdk::native::ui::UiHint<'a>
+impl<'a> paperpaw_sdk::native::ui::UiHint<'a>
+pub const fn paperpaw_sdk::native::ui::UiHint<'a>::input(self) -> paperpaw_sdk::native::ui::HintInput
+pub const fn paperpaw_sdk::native::ui::UiHint<'a>::owner(self) -> &'a str
+pub const fn paperpaw_sdk::native::ui::UiHint<'a>::text(self) -> &'a str
+pub fn paperpaw_sdk::native::ui::UiHint<'a>::zone(self) -> core::option::Option<paperpaw_platform::geometry::Rect>
+pub struct paperpaw_sdk::native::ui::UiPage<'a, T>
+impl<'a, T> paperpaw_sdk::native::ui::UiPage<'a, T>
+pub const fn paperpaw_sdk::native::ui::UiPage<'a, T>::end(&self) -> paperpaw_sdk::native::ui::UiPageEnd
+impl<'a, T> core::iter::traits::iterator::Iterator for paperpaw_sdk::native::ui::UiPage<'a, T>
+pub type paperpaw_sdk::native::ui::UiPage<'a, T>::Item = core::result::Result<T, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::ui::UiPage<'a, T>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct paperpaw_sdk::native::ui::UiPageEnd
+impl paperpaw_sdk::native::ui::UiPageEnd
+pub const fn paperpaw_sdk::native::ui::UiPageEnd::generation(self) -> u32
+pub const fn paperpaw_sdk::native::ui::UiPageEnd::has_hidden(self) -> bool
+pub const fn paperpaw_sdk::native::ui::UiPageEnd::next(self) -> core::option::Option<paperpaw_sdk::native::ui::UiCursor>
+pub const fn paperpaw_sdk::native::ui::UiPageEnd::total(self) -> u32
+pub struct paperpaw_sdk::native::ui::UiScreen<'a>
+impl<'a> paperpaw_sdk::native::ui::UiScreen<'a>
+pub const fn paperpaw_sdk::native::ui::UiScreen<'a>::guards(self) -> bool
+pub const fn paperpaw_sdk::native::ui::UiScreen<'a>::instance(self) -> paperpaw_sdk::native::ui::Instance
+pub const fn paperpaw_sdk::native::ui::UiScreen<'a>::is_covered(self) -> bool
+pub const fn paperpaw_sdk::native::ui::UiScreen<'a>::is_overlay(self) -> bool
+pub const fn paperpaw_sdk::native::ui::UiScreen<'a>::is_secret(self) -> bool
+pub const fn paperpaw_sdk::native::ui::UiScreen<'a>::owner(self) -> &'a str
+pub const fn paperpaw_sdk::native::ui::UiScreen<'a>::screen(self) -> &'a str
+pub const fn paperpaw_sdk::native::ui::UiScreen<'a>::slot(self) -> &'a str
+pub const fn paperpaw_sdk::native::ui::UiScreen<'a>::waits_ready(self) -> bool
+pub struct paperpaw_sdk::native::ui::WidgetHandle
+impl paperpaw_sdk::native::ui::WidgetHandle
+pub const fn paperpaw_sdk::native::ui::WidgetHandle::instance(self) -> paperpaw_sdk::native::ui::Instance
+pub const fn paperpaw_sdk::native::ui::WidgetHandle::is_own(self) -> bool
+pub struct paperpaw_sdk::native::ui::WidgetSize
+impl paperpaw_sdk::native::ui::WidgetSize
+pub const fn paperpaw_sdk::native::ui::WidgetSize::height(self) -> u32
+pub const fn paperpaw_sdk::native::ui::WidgetSize::min_height(self) -> u32
+pub struct paperpaw_sdk::native::ui::WidgetTarget
+impl paperpaw_sdk::native::ui::WidgetTarget
+pub const fn paperpaw_sdk::native::ui::WidgetTarget::new(u32, paperpaw_sdk::native::callbacks::FrameRect) -> Self
+pub const fn paperpaw_sdk::native::ui::WidgetTarget::rect(self) -> paperpaw_sdk::native::callbacks::FrameRect
+pub const fn paperpaw_sdk::native::ui::WidgetTarget::target(self) -> u32
 #[non_exhaustive] pub enum paperpaw_sdk::native::Author
 pub paperpaw_sdk::native::Author::Known
 pub paperpaw_sdk::native::Author::New

@@ -1330,6 +1330,46 @@
       "reentry": "deny",
       "result": "count",
       "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "kind",
+          "type": "u32"
+        },
+        {
+          "name": "handle",
+          "type": "u32"
+        },
+        {
+          "name": "x",
+          "type": "i32"
+        },
+        {
+          "name": "y",
+          "type": "i32"
+        },
+        {
+          "name": "width",
+          "type": "u32"
+        },
+        {
+          "name": "height",
+          "type": "u32"
+        }
+      ],
+      "effect": "mutate",
+      "id": 35,
+      "max_bytes": 0,
+      "name": "ui.compose",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
     }
   ],
   "i18n_limits": {
@@ -1544,6 +1584,13 @@
       },
       {
         "key": "core.registry",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.ui",
         "major": 1,
         "min_table_bytes": 0,
         "semantic_revision": 0,
@@ -2631,6 +2678,15 @@
           "name": "height",
           "optional": false,
           "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "instance",
+          "optional": true,
+          "ordinal": 0,
           "since": 1,
           "type": "u32"
         }
@@ -5758,6 +5814,1837 @@
       "id": 1546,
       "name": "command.apply_preset",
       "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "title",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "need",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "capability",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 29,
+      "name": "input.spec",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "screen",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "input",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "x",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "y",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "width",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "height",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "text",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 30,
+      "name": "help.hint",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "title",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "category",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "previews",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "cells",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 224,
+      "name": "widget.spec",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "title",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "list": {
+            "item_max_bytes": 128,
+            "max_items": 8,
+            "separator": "\n"
+          },
+          "max_bytes": 1032,
+          "name": "list_keys",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "layout",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "shown_if_key",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "shown_if_value",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 225,
+      "name": "widget.place",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "title",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "tap",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "priority",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "min_width",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 226,
+      "name": "status.item",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "title",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "height",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "token",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 227,
+      "name": "status.line",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "title",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "left",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "center",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "right",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 228,
+      "name": "status.place",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "screen",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "instance",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "slot",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "handover",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "params",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "text_bytes",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 79,
+      "name": "event.screen_opened",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "screen",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "instance",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 80,
+      "name": "event.screen_closed",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 81,
+      "name": "event.stack_changed",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "outcome",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "choice",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "length",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 82,
+      "name": "event.answered",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "widget",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "instance",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "place",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 84,
+      "name": "event.widget_made",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "instance",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 85,
+      "name": "event.widget_dropped",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "instance",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 86,
+      "name": "event.widget_changed",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "screen",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "instance",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 87,
+      "name": "event.screen_ready",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "cookie",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "status",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 89,
+      "name": "event.spoken",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "instance",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "target",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "x",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "y",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 193,
+      "name": "input.widget",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "screen",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "instance",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "slot",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "owner",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1041,
+      "name": "service.ui_screen",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1042,
+      "name": "service.ui_request",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "max_bytes",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 256,
+          "name": "title",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 1024,
+          "name": "text",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "list": {
+            "item_max_bytes": 128,
+            "max_items": 32,
+            "separator": "\n"
+          },
+          "max_bytes": 2048,
+          "name": "choices",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1043,
+      "name": "service.ui_question",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "input",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "x",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "y",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "width",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "height",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "text",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "owner",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1044,
+      "name": "service.ui_hint",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "widget",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "place",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1045,
+      "name": "service.ui_widget_ref",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "instance",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1046,
+      "name": "service.ui_instance",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "instance",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "target",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "x",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "y",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1047,
+      "name": "service.ui_widget_input",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "target",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "x",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "y",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "width",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "height",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1048,
+      "name": "service.ui_target",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "slot",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 256,
+          "name": "title",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 1024,
+          "name": "text",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "list": {
+            "item_max_bytes": 128,
+            "max_items": 32,
+            "separator": "\n"
+          },
+          "max_bytes": 2048,
+          "name": "choices",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1049,
+      "name": "service.ui_ask",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "text",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "offset",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "total",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 3072,
+          "name": "data",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1050,
+      "name": "service.ui_text",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "text",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "offset",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1051,
+      "name": "service.ui_text_at",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "outcome",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "choice",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1052,
+      "name": "service.ui_answer",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "instance",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "x",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "y",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "width",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "height",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1053,
+      "name": "service.ui_widget_area",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "height",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "min_height",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1054,
+      "name": "service.ui_size",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "list": {
+            "item_max_bytes": 128,
+            "max_items": 8,
+            "separator": "\n"
+          },
+          "max_bytes": 1032,
+          "name": "items",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 1024,
+          "name": "context",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        }
+      ],
+      "id": 1055,
+      "name": "service.ui_status_ask",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "item",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "handle",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "text",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1056,
+      "name": "service.ui_status_value",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "key",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 1024,
+          "name": "value",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1057,
+      "name": "service.ui_param",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "handle",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1058,
+      "name": "service.ui_handle",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "target",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "mode",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "slot",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "handover",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1547,
+      "name": "command.open",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "instance",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1548,
+      "name": "command.close",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "target",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1549,
+      "name": "command.back_to",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "layer",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1550,
+      "name": "command.set_key_layer",
+      "since": 1
+    },
+    {
+      "fields": [],
+      "id": 1551,
+      "name": "command.show_hints",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "input",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1552,
+      "name": "command.raise_input",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "instance",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1556,
+      "name": "command.widget_changed",
+      "since": 1
+    },
+    {
+      "fields": [],
+      "id": 1557,
+      "name": "command.screen_ready",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 256,
+          "name": "text",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1558,
+      "name": "command.notify",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "cookie",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 2048,
+          "name": "text",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 35,
+          "name": "language",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "rate",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1561,
+      "name": "command.speak",
+      "since": 1
+    },
+    {
+      "fields": [],
+      "id": 1562,
+      "name": "command.stop_speaking",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "instance",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1563,
+      "name": "command.screen_policy",
+      "since": 1
     }
   ],
   "services": [
@@ -6153,6 +8040,320 @@
       "revision": 0,
       "since": 1,
       "test_only": true
+    },
+    {
+      "key": "core.ui",
+      "major": 1,
+      "ops": [
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 1,
+          "input": [
+            "service.reg_query"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "stack",
+          "reply": [
+            "service.ui_screen",
+            "service.end"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "card",
+          "effect": "query",
+          "feature": null,
+          "id": 2,
+          "input": [
+            "service.ui_request"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "question",
+          "reply": [
+            "service.ui_question"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 3,
+          "input": [
+            "service.reg_query"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "hints",
+          "reply": [
+            "service.ui_hint",
+            "service.end"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "mutate",
+          "feature": null,
+          "id": 4,
+          "input": [
+            "service.ui_widget_ref"
+          ],
+          "max_input": 512,
+          "max_reply": 4096,
+          "name": "widget_make",
+          "reply": [
+            "service.ui_instance"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "mutate",
+          "feature": null,
+          "id": 5,
+          "input": [
+            "service.ui_instance"
+          ],
+          "max_input": 256,
+          "max_reply": 64,
+          "name": "widget_drop",
+          "reply": [],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "mutate",
+          "feature": null,
+          "id": 6,
+          "input": [
+            "service.ui_widget_input"
+          ],
+          "max_input": 256,
+          "max_reply": 64,
+          "name": "widget_input",
+          "reply": [],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 7,
+          "input": [
+            "service.ui_widget_area"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "widget_targets",
+          "paged": false,
+          "reply": [
+            "service.ui_target",
+            "service.end"
+          ],
+          "reply_rows": 32,
+          "since": 0
+        },
+        {
+          "bound": "card",
+          "effect": "mutate",
+          "feature": null,
+          "id": 8,
+          "input": [
+            "service.ui_ask"
+          ],
+          "max_input": 4096,
+          "max_reply": 4096,
+          "name": "ask",
+          "reply": [
+            "service.ui_request"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "card",
+          "effect": "mutate",
+          "feature": null,
+          "id": 9,
+          "input": [
+            "service.ui_text"
+          ],
+          "max_input": 4096,
+          "max_reply": 64,
+          "name": "text_write",
+          "reply": [],
+          "since": 0
+        },
+        {
+          "bound": "card",
+          "effect": "query",
+          "feature": null,
+          "id": 10,
+          "input": [
+            "service.ui_text_at"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "text_read",
+          "reply": [
+            "service.ui_text"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "mutate",
+          "feature": null,
+          "id": 11,
+          "input": [
+            "service.ui_answer"
+          ],
+          "max_input": 256,
+          "max_reply": 64,
+          "name": "answer",
+          "reply": [],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 12,
+          "input": [
+            "service.ui_widget_area"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "widget_measure",
+          "reply": [
+            "service.ui_size"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "mutate",
+          "feature": null,
+          "id": 13,
+          "input": [
+            "service.ui_widget_area"
+          ],
+          "max_input": 256,
+          "max_reply": 64,
+          "name": "widget_place",
+          "reply": [],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 14,
+          "input": [
+            "service.ui_status_ask"
+          ],
+          "max_input": 4096,
+          "max_reply": 4096,
+          "name": "status_values",
+          "paged": false,
+          "reply": [
+            "service.ui_status_value",
+            "service.end"
+          ],
+          "reply_rows": 8,
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 15,
+          "input": [
+            "service.ui_status_ask"
+          ],
+          "max_input": 4096,
+          "max_reply": 4096,
+          "name": "status_line",
+          "reply": [
+            "service.ui_instance"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "mutate",
+          "feature": null,
+          "id": 16,
+          "input": [
+            "service.ui_param"
+          ],
+          "input_rows": 32,
+          "max_input": 2048,
+          "max_reply": 4096,
+          "name": "handover",
+          "reply": [
+            "service.ui_handle"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 17,
+          "input": [
+            "service.ui_handle"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "params",
+          "paged": false,
+          "reply": [
+            "service.ui_param",
+            "service.end"
+          ],
+          "reply_rows": 32,
+          "since": 0
+        },
+        {
+          "bound": "card",
+          "effect": "mutate",
+          "feature": null,
+          "id": 18,
+          "input": [
+            "service.ui_text"
+          ],
+          "max_input": 4096,
+          "max_reply": 64,
+          "name": "clipboard_write",
+          "reply": [],
+          "since": 0
+        },
+        {
+          "bound": "card",
+          "effect": "query",
+          "feature": null,
+          "id": 19,
+          "input": [
+            "service.ui_text_at"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "clipboard_read",
+          "reply": [
+            "service.ui_text"
+          ],
+          "since": 0
+        }
+      ],
+      "page_rows": 8,
+      "revision": 0,
+      "since": 1,
+      "test_only": false
     }
   ],
   "settings_value": {

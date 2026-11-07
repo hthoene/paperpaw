@@ -26,6 +26,7 @@ pub use resources::HostResources;
 #[path = "native_host/fonts.rs"]
 mod fonts;
 
+mod admitted_features;
 #[path = "native_host/call_services.rs"]
 mod call_services;
 #[path = "native_host/data_services.rs"]
@@ -901,3 +902,6 @@ mod pinned_owner_tests {
 #[path = "abi7/stages_wire.rs"]
 #[allow(clippy::all, clippy::pedantic, reason = "generated stage wire codecs")]
 pub mod stages_wire;
+#[cfg(test)]
+#[path = "native_host/event_hook_tests.rs"]
+mod event_hook_tests;

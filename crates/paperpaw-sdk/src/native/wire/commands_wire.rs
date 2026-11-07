@@ -106,6 +106,46 @@ pub const COMMAND_ANSWER_PLUGIN_PLUGIN_MAX_BYTES: usize = 64;
 pub const COMMAND_APPLY_PRESET_TAG: u32 = 1546;
 /// Maximum bytes of `command.apply_preset.preset`.
 pub const COMMAND_APPLY_PRESET_PRESET_MAX_BYTES: usize = 128;
+/// Wire tag of the `command.open` command.
+pub const COMMAND_OPEN_TAG: u32 = 1547;
+/// Maximum bytes of `command.open.target`.
+pub const COMMAND_OPEN_TARGET_MAX_BYTES: usize = 128;
+/// Maximum bytes of `command.open.slot`.
+pub const COMMAND_OPEN_SLOT_MAX_BYTES: usize = 128;
+/// Wire tag of the `command.close` command.
+pub const COMMAND_CLOSE_TAG: u32 = 1548;
+/// Wire tag of the `command.back_to` command.
+pub const COMMAND_BACK_TO_TAG: u32 = 1549;
+/// Maximum bytes of `command.back_to.target`.
+pub const COMMAND_BACK_TO_TARGET_MAX_BYTES: usize = 128;
+/// Wire tag of the `command.set_key_layer` command.
+pub const COMMAND_SET_KEY_LAYER_TAG: u32 = 1550;
+/// Maximum bytes of `command.set_key_layer.layer`.
+pub const COMMAND_SET_KEY_LAYER_LAYER_MAX_BYTES: usize = 128;
+/// Wire tag of the `command.show_hints` command.
+pub const COMMAND_SHOW_HINTS_TAG: u32 = 1551;
+/// Wire tag of the `command.raise_input` command.
+pub const COMMAND_RAISE_INPUT_TAG: u32 = 1552;
+/// Maximum bytes of `command.raise_input.input`.
+pub const COMMAND_RAISE_INPUT_INPUT_MAX_BYTES: usize = 64;
+/// Wire tag of the `command.widget_changed` command.
+pub const COMMAND_WIDGET_CHANGED_TAG: u32 = 1556;
+/// Wire tag of the `command.screen_ready` command.
+pub const COMMAND_SCREEN_READY_TAG: u32 = 1557;
+/// Wire tag of the `command.notify` command.
+pub const COMMAND_NOTIFY_TAG: u32 = 1558;
+/// Maximum bytes of `command.notify.text`.
+pub const COMMAND_NOTIFY_TEXT_MAX_BYTES: usize = 256;
+/// Wire tag of the `command.speak` command.
+pub const COMMAND_SPEAK_TAG: u32 = 1561;
+/// Maximum bytes of `command.speak.text`.
+pub const COMMAND_SPEAK_TEXT_MAX_BYTES: usize = 2048;
+/// Maximum bytes of `command.speak.language`.
+pub const COMMAND_SPEAK_LANGUAGE_MAX_BYTES: usize = 35;
+/// Wire tag of the `command.stop_speaking` command.
+pub const COMMAND_STOP_SPEAKING_TAG: u32 = 1562;
+/// Wire tag of the `command.screen_policy` command.
+pub const COMMAND_SCREEN_POLICY_TAG: u32 = 1563;
 pub const COMMAND_SET_SETTING_TAG: u32 = 4;
 
 /// A command borrowed from one validated batch. No Rust value crosses the ABI.
@@ -230,6 +270,75 @@ pub enum Command<'a> {
     ApplyPreset {
         /// UTF-8 text of at most 128 bytes.
         preset: &'a str,
+        /// Little-endian u32.
+        flags: u32,
+    },
+    /// The `command.open` command (`docs/abi/registry.md`).
+    Open {
+        /// UTF-8 text of at most 128 bytes.
+        target: &'a str,
+        /// Little-endian u32.
+        mode: u32,
+        /// UTF-8 text of at most 128 bytes.
+        slot: &'a str,
+        /// Little-endian u32.
+        handover: u32,
+    },
+    /// The `command.close` command (`docs/abi/registry.md`).
+    Close {
+        /// Little-endian u32.
+        instance: u32,
+    },
+    /// The `command.back_to` command (`docs/abi/registry.md`).
+    BackTo {
+        /// UTF-8 text of at most 128 bytes.
+        target: &'a str,
+    },
+    /// The `command.set_key_layer` command (`docs/abi/registry.md`).
+    SetKeyLayer {
+        /// UTF-8 text of at most 128 bytes.
+        layer: &'a str,
+    },
+    /// The `command.show_hints` command.
+    ShowHints {},
+    /// The `command.raise_input` command (`docs/abi/registry.md`).
+    RaiseInput {
+        /// UTF-8 text of at most 64 bytes.
+        input: &'a str,
+    },
+    /// The `command.widget_changed` command (`docs/abi/registry.md`).
+    WidgetChanged {
+        /// Little-endian u32.
+        instance: u32,
+    },
+    /// The `command.screen_ready` command.
+    ScreenReady {},
+    /// The `command.notify` command (`docs/abi/registry.md`).
+    Notify {
+        /// UTF-8 text of at most 256 bytes.
+        text: &'a str,
+        /// Little-endian u32.
+        flags: u32,
+    },
+    /// The `command.speak` command (`docs/abi/registry.md`).
+    Speak {
+        /// Little-endian u32.
+        cookie: u32,
+        /// UTF-8 text of at most 2048 bytes.
+        text: &'a str,
+        /// UTF-8 text of at most 35 bytes.
+        language: &'a str,
+        /// Little-endian u32.
+        rate: u32,
+        /// Little-endian u32.
+        flags: u32,
+    },
+    /// The `command.stop_speaking` command.
+    StopSpeaking {},
+    /// The `command.screen_policy` command (`docs/abi/registry.md`).
+    ScreenPolicy {
+        /// Little-endian u32.
+        instance: u32,
         /// Little-endian u32.
         flags: u32,
     },
@@ -599,6 +708,81 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                     flags: u32::from_le_bytes(scalar(body.take(4)?)),
                 }
             }
+            COMMAND_OPEN_TAG => {
+                body.bitmap()?;
+                Command::Open {
+                    target: text(body.bytes()?, COMMAND_OPEN_TARGET_MAX_BYTES)?,
+                    mode: u32::from_le_bytes(scalar(body.take(4)?)),
+                    slot: text(body.bytes()?, COMMAND_OPEN_SLOT_MAX_BYTES)?,
+                    handover: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_CLOSE_TAG => {
+                body.bitmap()?;
+                Command::Close {
+                    instance: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_BACK_TO_TAG => {
+                body.bitmap()?;
+                Command::BackTo {
+                    target: text(body.bytes()?, COMMAND_BACK_TO_TARGET_MAX_BYTES)?,
+                }
+            }
+            COMMAND_SET_KEY_LAYER_TAG => {
+                body.bitmap()?;
+                Command::SetKeyLayer {
+                    layer: text(body.bytes()?, COMMAND_SET_KEY_LAYER_LAYER_MAX_BYTES)?,
+                }
+            }
+            COMMAND_SHOW_HINTS_TAG => {
+                body.bitmap()?;
+                Command::ShowHints {}
+            }
+            COMMAND_RAISE_INPUT_TAG => {
+                body.bitmap()?;
+                Command::RaiseInput {
+                    input: text(body.bytes()?, COMMAND_RAISE_INPUT_INPUT_MAX_BYTES)?,
+                }
+            }
+            COMMAND_WIDGET_CHANGED_TAG => {
+                body.bitmap()?;
+                Command::WidgetChanged {
+                    instance: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_SCREEN_READY_TAG => {
+                body.bitmap()?;
+                Command::ScreenReady {}
+            }
+            COMMAND_NOTIFY_TAG => {
+                body.bitmap()?;
+                Command::Notify {
+                    text: text(body.bytes()?, COMMAND_NOTIFY_TEXT_MAX_BYTES)?,
+                    flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_SPEAK_TAG => {
+                body.bitmap()?;
+                Command::Speak {
+                    cookie: u32::from_le_bytes(scalar(body.take(4)?)),
+                    text: text(body.bytes()?, COMMAND_SPEAK_TEXT_MAX_BYTES)?,
+                    language: text(body.bytes()?, COMMAND_SPEAK_LANGUAGE_MAX_BYTES)?,
+                    rate: u32::from_le_bytes(scalar(body.take(4)?)),
+                    flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
+            COMMAND_STOP_SPEAKING_TAG => {
+                body.bitmap()?;
+                Command::StopSpeaking {}
+            }
+            COMMAND_SCREEN_POLICY_TAG => {
+                body.bitmap()?;
+                Command::ScreenPolicy {
+                    instance: u32::from_le_bytes(scalar(body.take(4)?)),
+                    flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
             _ => return Err(-1),
         });
     }
@@ -762,6 +946,44 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
             len += blob_len(preset.len(), COMMAND_APPLY_PRESET_PRESET_MAX_BYTES)?;
             Ok((COMMAND_APPLY_PRESET_TAG, len))
         }
+        Command::Open { target, slot, .. } => {
+            let mut len = 1 + 8;
+            len += blob_len(target.len(), COMMAND_OPEN_TARGET_MAX_BYTES)?;
+            len += blob_len(slot.len(), COMMAND_OPEN_SLOT_MAX_BYTES)?;
+            Ok((COMMAND_OPEN_TAG, len))
+        }
+        Command::Close { .. } => Ok((COMMAND_CLOSE_TAG, 1 + 4)),
+        Command::BackTo { target } => {
+            let mut len = 1;
+            len += blob_len(target.len(), COMMAND_BACK_TO_TARGET_MAX_BYTES)?;
+            Ok((COMMAND_BACK_TO_TAG, len))
+        }
+        Command::SetKeyLayer { layer } => {
+            let mut len = 1;
+            len += blob_len(layer.len(), COMMAND_SET_KEY_LAYER_LAYER_MAX_BYTES)?;
+            Ok((COMMAND_SET_KEY_LAYER_TAG, len))
+        }
+        Command::ShowHints {} => Ok((COMMAND_SHOW_HINTS_TAG, 1)),
+        Command::RaiseInput { input } => {
+            let mut len = 1;
+            len += blob_len(input.len(), COMMAND_RAISE_INPUT_INPUT_MAX_BYTES)?;
+            Ok((COMMAND_RAISE_INPUT_TAG, len))
+        }
+        Command::WidgetChanged { .. } => Ok((COMMAND_WIDGET_CHANGED_TAG, 1 + 4)),
+        Command::ScreenReady {} => Ok((COMMAND_SCREEN_READY_TAG, 1)),
+        Command::Notify { text, .. } => {
+            let mut len = 1 + 4;
+            len += blob_len(text.len(), COMMAND_NOTIFY_TEXT_MAX_BYTES)?;
+            Ok((COMMAND_NOTIFY_TAG, len))
+        }
+        Command::Speak { text, language, .. } => {
+            let mut len = 1 + 12;
+            len += blob_len(text.len(), COMMAND_SPEAK_TEXT_MAX_BYTES)?;
+            len += blob_len(language.len(), COMMAND_SPEAK_LANGUAGE_MAX_BYTES)?;
+            Ok((COMMAND_SPEAK_TAG, len))
+        }
+        Command::StopSpeaking {} => Ok((COMMAND_STOP_SPEAKING_TAG, 1)),
+        Command::ScreenPolicy { .. } => Ok((COMMAND_SCREEN_POLICY_TAG, 1 + 8)),
     }
 }
 
@@ -885,6 +1107,66 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
                 }
                 Command::ApplyPreset { preset, flags } => {
                     write_blob(preset.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+                    offset += 4;
+                }
+                Command::Open {
+                    target,
+                    mode,
+                    slot,
+                    handover,
+                } => {
+                    write_blob(target.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&mode.to_le_bytes());
+                    offset += 4;
+                    write_blob(slot.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&handover.to_le_bytes());
+                    offset += 4;
+                }
+                Command::Close { instance } => {
+                    out[offset..offset + 4].copy_from_slice(&instance.to_le_bytes());
+                    offset += 4;
+                }
+                Command::BackTo { target } => {
+                    write_blob(target.as_bytes(), out, &mut offset);
+                }
+                Command::SetKeyLayer { layer } => {
+                    write_blob(layer.as_bytes(), out, &mut offset);
+                }
+                Command::ShowHints {} => {}
+                Command::RaiseInput { input } => {
+                    write_blob(input.as_bytes(), out, &mut offset);
+                }
+                Command::WidgetChanged { instance } => {
+                    out[offset..offset + 4].copy_from_slice(&instance.to_le_bytes());
+                    offset += 4;
+                }
+                Command::ScreenReady {} => {}
+                Command::Notify { text, flags } => {
+                    write_blob(text.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+                    offset += 4;
+                }
+                Command::Speak {
+                    cookie,
+                    text,
+                    language,
+                    rate,
+                    flags,
+                } => {
+                    out[offset..offset + 4].copy_from_slice(&cookie.to_le_bytes());
+                    offset += 4;
+                    write_blob(text.as_bytes(), out, &mut offset);
+                    write_blob(language.as_bytes(), out, &mut offset);
+                    out[offset..offset + 4].copy_from_slice(&rate.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
+                    offset += 4;
+                }
+                Command::StopSpeaking {} => {}
+                Command::ScreenPolicy { instance, flags } => {
+                    out[offset..offset + 4].copy_from_slice(&instance.to_le_bytes());
+                    offset += 4;
                     out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
                     offset += 4;
                 }

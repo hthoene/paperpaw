@@ -30,6 +30,7 @@ use paperpaw_native::host_glue::{
 };
 use paperpaw_platform::Rect;
 
+pub use super::admitted_features::AdmittedFeatures;
 use super::canvas::CanvasScope;
 pub use super::data_services::DATA_SERVICES;
 pub use super::declared_services::{DeclaredServices, Error as DeclaredServicesError};
@@ -215,6 +216,7 @@ pub fn host_table<S: Services>() -> PpHost {
     table.heap_dealloc = heap_dealloc::<S>;
     table.heap_realloc = heap_realloc::<S>;
     table.clock_micros = clock_micros::<S>;
+    table.stage_run = stage_slot::run::<S>;
     table.registrations_submit = registrations_submit::<S>;
     table.commands_submit = commands_submit::<S>;
     table.env_snapshot = env_snapshot::<S>;
@@ -322,6 +324,12 @@ impl<S: Services, M> Hosted<S, M> {
             image,
             stopped: Cell::new(false),
         })
+    }
+
+    /// Per-instance available features retained before make, without metadata.
+    #[must_use]
+    pub fn features(&self) -> AdmittedFeatures {
+        self.owner.as_ref().context().declared_services.features()
     }
 
     /// The pinned owner; callers lease and finish through it. To stop the
@@ -1351,6 +1359,8 @@ unsafe extern "C" fn commands_submit<S>(ctx: *mut c_void, batch: PpBytes) -> i32
     unsafe { context.commands.submit(batch.ptr, batch.len) }
 }
 
+#[path = "shell_stage_slot.rs"]
+mod stage_slot;
 unsafe extern "C" fn service_open<S>(
     ctx: *mut c_void,
     key: PpBytes,
