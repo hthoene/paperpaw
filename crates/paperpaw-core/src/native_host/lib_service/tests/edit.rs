@@ -522,8 +522,7 @@ fn a_reply_that_cannot_be_written_stops_before_anything_is_applied() {
     let mut small = [0_u8; 4];
     let applied = |fake: &Rc<Fake>| fake.log.borrow().iter().any(|l| l.starts_with("commit"));
     assert_eq!(
-        with(host(&fake), |frame| backend(
-            frame,
+        with(host(&fake), |frame| frame.run(
             schema_op(20),
             &bytes,
             &mut small
@@ -639,7 +638,9 @@ fn a_stopped_plugin_ends_its_transaction() {
     let fake = Fake::new();
     let t = begin(&fake).unwrap();
     let mut ended = std::vec::Vec::new();
-    fake.transactions.close_owner(OWNER, |id| ended.push(id));
+    fake.transactions
+        .close_owner(OWNER, |id| ended.push(id))
+        .unwrap();
     assert_eq!(ended, [t]);
     assert_eq!(fake.transactions.open_count(), 0);
 }

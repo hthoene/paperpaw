@@ -303,3 +303,11 @@ fn a_screen_below_the_top_gets_no_pointer_at_all() {
     );
     assert!(dispatch.calls.borrow().is_empty());
 }
+
+#[test]
+fn only_native_overlays_show_the_screens_below_them() {
+    let (screen, _) = screen();
+    assert_eq!(screen.shows_through(), paperpaw_sdk::ShowsThrough::Nothing);
+    let screen = screen.with_flags(1 << 2);
+    assert_eq!(screen.shows_through(), paperpaw_sdk::ShowsThrough::All);
+}
