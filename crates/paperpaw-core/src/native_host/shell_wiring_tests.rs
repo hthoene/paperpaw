@@ -18,6 +18,7 @@ fn nothing_named_wires_nothing() {
     assert!(wired.hyphen().is_none());
     assert!(resources.hosts().hyphen().is_none());
     assert!(resources.hosts().device().is_none());
+    assert!(resources.hosts().secrets().is_none());
 }
 
 #[test]
@@ -96,3 +97,6 @@ fn the_plugin_with_the_greater_id_wins_a_tag_without_regard_to_case() {
         .unwrap();
     assert!(tables.card().find("de").is_some());
 }
+
+#[path = "shell_wiring/secrets_tests.rs"]
+mod secrets;
