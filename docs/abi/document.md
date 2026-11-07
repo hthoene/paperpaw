@@ -169,7 +169,10 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   of everything that changes the output (publisher styles, colour, `image_side`, `cover_side`, the
   CSS file's content hash, the forwarded options), interface 6 `prepared_keeping` and `PreparedCss`.
   Root 2 is `.paperpaw/cache/<book key>/<format plugin>/<conversion key>/`; the host keeps at most
-  two conversions per book (the older goes), and `doc_state.conversion` (a `u64`) names it, which
+  two conversions per book (the older goes, but never one an open document uses: a conversion is
+  **pinned** while any document of it is open, on any plugin; a third conversion needed while two
+  are pinned waits, the open answers `ERR_BUSY`, and nothing an open document reads is removed
+  under it), and `doc_state.conversion` (a `u64`) names it, which
   LIB stores with positions and annotations (`library.md` 2.2). The host writes `.complete` (the
   stamp of those inputs) after the format answers done and the card is synced; a cache without a
   current stamp (power cut, card pulled, a new format version, other options) is removed and made
@@ -250,8 +253,12 @@ host passes them on after checking them.
 - [D] Service ops map one to one: 3 → 5, 4 → 6, 5 → 7, 6 → 8, 7 → 9, 8 → 10, 9 → 11, 10 → 12,
   11 → 13, 12 → 14, 13 → 15, 14 → 16, 15 → 17, 16 → 18, 17 → 19; ops 1, 2, 18-21 of the service
   are the host's own (open, state, close, formats, readers). Sizes: `fmt.call` 1 + 9×4 + 8 + 1,026
-  + 514 + 5 = 1,590, with 12 options 4,014: over the 3,840 payload, so op 2 carries `text` and
-  `arg` empty (1,590 − 1,536 + 2,424 = 2,478).
+  + 514 + 5 = 1,590, with 12 options 4,014: over the 3,840 payload, so op 2 carries `arg` empty
+  and `text` empty except for a `siblings` format, where it names the opened file within the book's
+  folder (at most 255 bytes, a FAT name: 1,590 − 512 − 1,024 + 257 + 2,424 = 2,735, within 3,840).
+  Every later call of that document carries the same name in `text` where the op uses no other
+  `text` (ops 13 and 15 name their XPointer or href instead; the host keeps the name with the
+  document).
 
 - [D] **Roots** (the reserved roots of D2.2, valid only inside a call for that document): root 2 the
   document's cache for its conversion (section 2.1; read and write; the book key is LIB's, so the
@@ -357,7 +364,15 @@ canvas.draw_image(ctx, image: u32, x: i32, y: i32, width: u32, height: u32, flag
   or when the plugin stops. Image ids are per plugin: another plugin's id is `ERR_NOT_FOUND`.
 - [D] A format answers a picture as its cache path (stage-local `fmt.image`: `path: str 256` in root
   2, `width`, `height`, `flags` bit 0 not decoded yet); the host turns it into an image id for the
-  opener. Op 16 (`doc_image_ask`: `image`, `side` 0 for the page's size, else the longest side for a
+  opener. **Translation:** in a block stream (op 8) and in ops 17 and 18 the host replaces each
+  `fmt.image` by a `doc_image` for the opener: it checks the path (root 2 rules, the cache file's
+  header against `width`/`height`, section 5's hostile-input rule), gives the picture an image id of
+  the opener (or the id it already has for that path in this document), and passes `width`, `height`
+  and `flags` bit 0 on; a `fmt.image` that fails the check becomes no `doc_image` (the block keeps
+  its alt text, counted as a failed read) and never fails the whole stream. Over the 8 image ids per
+  plugin, the host ends the opener's least recently drawn document image first, so a long chapter of
+  pictures never runs out (`ERR_NOT_FOUND` at a draw of an ended id: the reader asks again with op
+  16). Op 16 (`doc_image_ask`: `image`, `side` 0 for the page's size, else the longest side for a
   zoom, at most 1,600) asks the format to decode it now (interface 6 `prepare_image`,
   `prepare_image_larger`): a new image id, or the same where nothing was to do.
 - [D] `image_prepare` decodes a JPEG (baseline and progressive), PNG (not interlaced), GIF (first
