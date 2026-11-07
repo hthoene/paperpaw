@@ -36,6 +36,8 @@ pub enum EventKind {
     BookMoved,
     /// Subscribe to the book removed host event.
     BookRemoved,
+    /// Subscribe to the library changed host event (a coalesced hint).
+    LibraryChanged,
     /// Subscribe to the plugins changed host event.
     PluginsChanged,
     /// Subscribe to the wifi changed host event.
@@ -84,6 +86,7 @@ impl EventKind {
             Self::BookFinished => records_wire::EVENT_BOOK_FINISHED_TAG,
             Self::BookMoved => records_wire::EVENT_BOOK_MOVED_TAG,
             Self::BookRemoved => records_wire::EVENT_BOOK_REMOVED_TAG,
+            Self::LibraryChanged => records_wire::EVENT_LIBRARY_CHANGED_TAG,
             Self::PluginsChanged => records_wire::EVENT_PLUGINS_CHANGED_TAG,
             Self::WifiChanged => records_wire::EVENT_WIFI_CHANGED_TAG,
             Self::PowerChanged => records_wire::EVENT_POWER_CHANGED_TAG,

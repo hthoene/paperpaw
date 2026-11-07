@@ -6,6 +6,8 @@ use super::{
     services::Service,
 };
 
+mod facets;
+pub use facets::{Facet, FacetPage, FacetRow};
 mod fields;
 pub use fields::{Field, FieldCursor, FieldPage, FieldPageEnd};
 mod query;

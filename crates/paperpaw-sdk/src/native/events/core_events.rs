@@ -1,7 +1,7 @@
 //! Exact generated EVT records become borrowed typed views.
 use super::{
-    BluetoothChange, BookKind, ChargeFlags, Error, Event, PowerChange, ReadingView, WifiLinkState,
-    wire::Record,
+    BluetoothChange, BookKind, ChargeFlags, Error, Event, LibraryChanges, PowerChange, ReadingView,
+    WifiLinkState, wire::Record,
 };
 use crate::{
     native::{
@@ -56,6 +56,17 @@ pub(super) fn decode(record: Record<'_>) -> Result<Event<'_>, Error> {
             now_ms: r.now_ms,
             path: r.path,
         },
+        Record::EventLibraryChanged(r) => {
+            if r.path.chars().any(char::is_control) {
+                return Err(Error::Invalid);
+            }
+            Event::LibraryChanged {
+                now_ms: r.now_ms,
+                what: LibraryChanges::from_bits(r.what),
+                generation: r.generation,
+                path: r.path,
+            }
+        }
         Record::EventPluginsChanged(r) => Event::PluginsChanged { now_ms: r.now_ms },
         Record::EventWifiChanged(r) => Event::WifiChanged {
             now_ms: r.now_ms,

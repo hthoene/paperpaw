@@ -527,3 +527,50 @@ fn bluetooth_values_follow_the_contract_and_unknown_ones_are_other() {
         assert_eq!(change(8, 0, 0, wire).3, Some(expected), "reason {wire}");
     }
 }
+
+#[test]
+fn a_library_hint_with_a_control_character_in_its_path_is_refused() {
+    let record = Record::EventLibraryChanged(wire::EventLibraryChanged {
+        now_ms: 1,
+        what: 1,
+        generation: 1,
+        path: "a\nb.epub",
+    });
+    assert_eq!(decode(&encode(record)), Err(Error::Invalid));
+    // Several books: an empty path is fine.
+    let record = Record::EventLibraryChanged(wire::EventLibraryChanged {
+        now_ms: 1,
+        what: 1 << 5,
+        generation: 0,
+        path: "",
+    });
+    assert!(matches!(
+        decode(&encode(record)),
+        Ok(Event::LibraryChanged { path: "", .. })
+    ));
+}
+
+#[test]
+fn a_library_hint_is_typed_keeps_future_bits_and_borrows_its_path() {
+    let record = Record::EventLibraryChanged(wire::EventLibraryChanged {
+        now_ms: 42,
+        what: 0b100_0011 | (1 << 20),
+        generation: 9,
+        path: "books/a.epub",
+    });
+    let bytes = encode(record);
+    let Ok(Event::LibraryChanged {
+        now_ms,
+        what,
+        generation,
+        path,
+    }) = decode(&bytes)
+    else {
+        panic!("a typed library hint");
+    };
+    assert_eq!((now_ms, generation, path), (42, 9, "books/a.epub"));
+    assert_eq!(what.bits(), 0b100_0011 | (1 << 20), "future bits are kept");
+    assert!(what.books() && what.status() && what.cover());
+    assert!(!(what.positions() || what.annotations() || what.fields() || what.walk()));
+    assert_borrowed_text(&bytes, path);
+}

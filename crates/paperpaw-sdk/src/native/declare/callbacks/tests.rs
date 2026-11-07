@@ -40,6 +40,10 @@ fn every_event_kind_matches_its_generated_registration_bytes() {
         (EventKind::BookMoved, records_wire::EVENT_BOOK_MOVED_TAG),
         (EventKind::BookRemoved, records_wire::EVENT_BOOK_REMOVED_TAG),
         (
+            EventKind::LibraryChanged,
+            records_wire::EVENT_LIBRARY_CHANGED_TAG,
+        ),
+        (
             EventKind::PluginsChanged,
             records_wire::EVENT_PLUGINS_CHANGED_TAG,
         ),

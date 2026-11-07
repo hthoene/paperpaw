@@ -103,6 +103,58 @@ impl ChargeFlags {
     }
 }
 
+/// What `event.library_changed` says changed. Unknown future bits stay available
+/// through [`Self::bits`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LibraryChanges(u32);
+impl LibraryChanges {
+    /// Keep every host-stamped bit.
+    #[must_use]
+    pub const fn from_bits(bits: u32) -> Self {
+        Self(bits)
+    }
+    /// The complete host-stamped mask.
+    #[must_use]
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+    /// Books were added, removed or moved: the catalog has a new generation.
+    #[must_use]
+    pub const fn books(self) -> bool {
+        self.0 & 1 != 0
+    }
+    /// Finished, favourite or opened status changed.
+    #[must_use]
+    pub const fn status(self) -> bool {
+        self.0 & (1 << 1) != 0
+    }
+    /// Reading positions changed.
+    #[must_use]
+    pub const fn positions(self) -> bool {
+        self.0 & (1 << 2) != 0
+    }
+    /// Annotations changed.
+    #[must_use]
+    pub const fn annotations(self) -> bool {
+        self.0 & (1 << 3) != 0
+    }
+    /// Fields or badges changed.
+    #[must_use]
+    pub const fn fields(self) -> bool {
+        self.0 & (1 << 4) != 0
+    }
+    /// The catalog walk progressed or ended.
+    #[must_use]
+    pub const fn walk(self) -> bool {
+        self.0 & (1 << 5) != 0
+    }
+    /// A cover the plugin asked for is ready.
+    #[must_use]
+    pub const fn cover(self) -> bool {
+        self.0 & (1 << 6) != 0
+    }
+}
+
 /// What a Bluetooth event says happened (`event.bluetooth`, `docs/abi/device.md`).
 /// Values this SDK does not know are [`Self::Other`]: ignore them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
