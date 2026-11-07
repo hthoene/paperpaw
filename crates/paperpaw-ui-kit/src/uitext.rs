@@ -2,7 +2,7 @@
 use alloc::string::String;
 use paperpaw_sdk::native::{
     Error, Host,
-    ui::{TextId, Ui},
+    ui::{TextId, TextWrite, Ui},
 };
 
 use crate::mem::{SERVICE_BUFFER, buffer};
@@ -36,6 +36,46 @@ pub fn read_all(ui: &Ui, host: &Host<'_>, text: TextId, limit: usize) -> Result<
         }
         if data.is_empty() {
             return Err(Error::Invalid);
+        }
+    }
+}
+
+/// The most one part of a host text holds.
+pub const PART_BYTES: usize = 3072;
+
+/// Writes `text` to the host text `text_id` in parts of at most
+/// [`PART_BYTES`] (cut at character boundaries), the last committing it. An
+/// empty text is one write of no bytes.
+///
+/// # Errors
+/// [`Error::NoSpace`] for an offset past `u32`, [`Error::NoMemory`], and the
+/// host's refusals; a text begun is not committed then.
+pub fn write_all(ui: &Ui, host: &Host<'_>, text_id: TextId, text: &str) -> Result<(), Error> {
+    let mut input = buffer(SERVICE_BUFFER)?;
+    let mut output = buffer(SERVICE_BUFFER)?;
+    let mut offset = 0usize;
+    loop {
+        let mut end = text.len().min(offset + PART_BYTES);
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        let last = end == text.len();
+        ui.text_write(
+            host,
+            text_id,
+            u32::try_from(offset).map_err(|_| Error::NoSpace)?,
+            &text[offset..end],
+            if last {
+                TextWrite::Last
+            } else {
+                TextWrite::Continue
+            },
+            &mut input,
+            &mut output,
+        )?;
+        offset = end;
+        if last {
+            return Ok(());
         }
     }
 }
