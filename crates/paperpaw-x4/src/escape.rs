@@ -54,16 +54,34 @@ pub enum Step {
     Force,
 }
 
-/// Which plugin call has been running, as the readings see it: the call's
-/// token (it is another one whenever a call begins or ends) and since when it
-/// is the same. A reset by the escape blames the plugin only if that call has
-/// run for the whole grace ([`GRACE_MS`]), which a call that began after the
-/// 8 s mark cannot have: not the one a legitimately long host step (a blocking
-/// network call, a 64 KiB erase) only just handed over to.
+/// Whom a reset by the escape blames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Blame {
+    /// No plugin: no plugin's own code has run for the whole grace (the host
+    /// was working, or calls came and went).
+    Nobody,
+    /// The innermost plugin call: it has run unchanged for the whole grace.
+    Innermost,
+    /// The outermost plugin call: it has run for the whole grace, but the
+    /// calls inside it came and went (a loop of nested calls).
+    Outermost,
+}
+
+/// Which plugin call has been running, as the readings see it: the running
+/// call's token and the outermost call's (each another value whenever a call
+/// begins or ends, or only when a new outermost call begins), and since when
+/// each is the same. Nothing is watched while the host works for a plugin (a
+/// slot of the host is open: a slow card write, a large erase), so a plugin is
+/// never blamed for waiting on the host. A reset by the escape blames a plugin
+/// only if its call has run for the whole grace ([`GRACE_MS`]) with plugin
+/// code running all that time, which a call that began after the 8 s mark
+/// cannot have.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CallWatch {
-    token: Option<u32>,
-    since: u64,
+    call: Option<u32>,
+    call_since: u64,
+    outer: Option<u32>,
+    outer_since: u64,
 }
 
 impl CallWatch {
@@ -71,25 +89,42 @@ impl CallWatch {
     #[must_use]
     pub const fn new() -> Self {
         CallWatch {
-            token: None,
-            since: 0,
+            call: None,
+            call_since: 0,
+            outer: None,
+            outer_since: 0,
         }
     }
 
-    /// One reading at `now` (ms, increasing) of the running call's token
-    /// (`None`: no plugin's code runs).
-    pub fn observe(&mut self, now: u64, token: Option<u32>) {
-        if token != self.token {
-            self.token = token;
-            self.since = now;
+    /// One reading at `now` (ms, increasing): `running` is the record of
+    /// calls' `(call, outermost)` while plugin code runs, `None` while no call
+    /// is open or the host works.
+    pub fn observe(&mut self, now: u64, running: Option<(u32, u32)>) {
+        let (call, outer) = match running {
+            Some((call, outer)) => (Some(call), Some(outer)),
+            None => (None, None),
+        };
+        if call != self.call {
+            self.call = call;
+            self.call_since = now;
+        }
+        if outer != self.outer {
+            self.outer = outer;
+            self.outer_since = now;
         }
     }
 
-    /// Whether a plugin's call runs at `now` that has run, unchanged, for
-    /// [`GRACE_MS`] or more.
+    /// Whom a reset at `now` blames.
     #[must_use]
-    pub fn outlived_grace(&self, now: u64) -> bool {
-        self.token.is_some() && now.saturating_sub(self.since) >= GRACE_MS
+    pub fn blame(&self, now: u64) -> Blame {
+        let long = |since: u64| now.saturating_sub(since) >= GRACE_MS;
+        if self.call.is_some() && long(self.call_since) {
+            Blame::Innermost
+        } else if self.outer.is_some() && long(self.outer_since) {
+            Blame::Outermost
+        } else {
+            Blame::Nobody
+        }
     }
 }
 
@@ -285,10 +320,11 @@ mod tests {
         assert_eq!(escape.update(1_000, true, true, false), Step::Idle);
     }
 
-    /// Feeds readings every 5 ms in `[from, to)` with `token`.
-    fn watch(call: &mut CallWatch, from: u64, to: u64, token: Option<u32>) {
+    /// Feeds readings every 5 ms in `[from, to)` of the running call
+    /// `(call, outermost)`.
+    fn watch(call: &mut CallWatch, from: u64, to: u64, running: Option<(u32, u32)>) {
         for now in (from..to).step_by(5) {
-            call.observe(now, token);
+            call.observe(now, running);
         }
     }
 
@@ -296,10 +332,10 @@ mod tests {
     fn a_call_that_was_running_at_the_mark_is_blamed_at_the_reset() {
         let mut call = CallWatch::new();
         // The call began shortly before the 8 s mark and never returned.
-        watch(&mut call, 7_000, HOLD_MS + GRACE_MS, Some(7));
+        watch(&mut call, 7_000, HOLD_MS + GRACE_MS, Some((7, 1)));
         let forced = HOLD_MS + GRACE_MS;
-        call.observe(forced, Some(7));
-        assert!(call.outlived_grace(forced));
+        call.observe(forced, Some((7, 1)));
+        assert_eq!(call.blame(forced), Blame::Innermost);
     }
 
     #[test]
@@ -308,31 +344,64 @@ mod tests {
         // A long host step (no plugin call) up to just after the mark; then a
         // call begins and is the one running when the reset comes.
         watch(&mut call, 7_000, HOLD_MS + 10, None);
-        watch(&mut call, HOLD_MS + 10, HOLD_MS + GRACE_MS, Some(9));
+        watch(&mut call, HOLD_MS + 10, HOLD_MS + GRACE_MS, Some((9, 2)));
         let forced = HOLD_MS + GRACE_MS;
-        call.observe(forced, Some(9));
-        assert!(!call.outlived_grace(forced));
+        call.observe(forced, Some((9, 2)));
+        assert_eq!(call.blame(forced), Blame::Nobody);
+    }
+
+    #[test]
+    fn a_plugin_inside_a_slow_host_write_is_not_blamed() {
+        let mut call = CallWatch::new();
+        // The plugin's call began before the mark; its card write began just
+        // before it and runs through the reset: nothing is watched meanwhile.
+        watch(&mut call, 7_000, 7_900, Some((7, 1)));
+        watch(&mut call, 7_900, HOLD_MS + GRACE_MS, None);
+        let forced = HOLD_MS + GRACE_MS;
+        call.observe(forced, None);
+        assert_eq!(call.blame(forced), Blame::Nobody);
+        // The write returned just before the reset: the plugin runs again as
+        // another reading, which has not run for the grace.
+        call.observe(forced + 5, Some((9, 1)));
+        assert_eq!(call.blame(forced + 5), Blame::Nobody);
     }
 
     #[test]
     fn a_nested_or_another_call_starts_the_count_anew() {
         let mut call = CallWatch::new();
-        watch(&mut call, 7_000, 9_000, Some(1));
+        watch(&mut call, 7_000, 9_000, Some((1, 1)));
         // The first call ends and another begins (even the same plugin): the
         // token is another one.
-        watch(&mut call, 9_000, HOLD_MS + GRACE_MS, Some(3));
+        watch(&mut call, 9_000, HOLD_MS + GRACE_MS, Some((3, 2)));
         let forced = HOLD_MS + GRACE_MS;
-        call.observe(forced, Some(3));
-        assert!(!call.outlived_grace(forced));
-        assert!(call.outlived_grace(9_000 + GRACE_MS));
+        call.observe(forced, Some((3, 2)));
+        assert_eq!(call.blame(forced), Blame::Nobody);
+        assert_eq!(call.blame(9_000 + GRACE_MS), Blame::Innermost);
+    }
+
+    #[test]
+    fn a_loop_of_nested_calls_under_one_stuck_outer_call_blames_the_outermost() {
+        let mut call = CallWatch::new();
+        // Plugin A's call began at 7 s and never returned; inside it, nested
+        // calls begin and end every reading (the innermost token changes all
+        // the time, the outermost does not).
+        for (n, now) in (0u32..).zip((7_000..HOLD_MS + GRACE_MS + 5).step_by(5)) {
+            call.observe(now, Some((n, 4)));
+        }
+        let forced = HOLD_MS + GRACE_MS;
+        assert_eq!(call.blame(forced), Blame::Outermost);
+        // A stuck inner call is the innermost, though.
+        let mut call = CallWatch::new();
+        watch(&mut call, 7_000, forced + 5, Some((5, 4)));
+        assert_eq!(call.blame(forced), Blame::Innermost);
     }
 
     #[test]
     fn no_call_means_nobody_is_blamed() {
         let mut call = CallWatch::new();
         watch(&mut call, 0, 20_000, None);
-        assert!(!call.outlived_grace(20_000));
-        assert!(!CallWatch::new().outlived_grace(100_000));
+        assert_eq!(call.blame(20_000), Blame::Nobody);
+        assert_eq!(CallWatch::new().blame(100_000), Blame::Nobody);
     }
 
     #[test]
@@ -341,8 +410,8 @@ mod tests {
         // the reset 6 s after the request finds a call that has run 6 s.
         let mut call = CallWatch::new();
         let asked = HOLD_MS;
-        watch(&mut call, asked + 100, asked + CLEAN_MS, Some(11));
-        call.observe(asked + CLEAN_MS, Some(11));
-        assert!(call.outlived_grace(asked + CLEAN_MS));
+        watch(&mut call, asked + 100, asked + CLEAN_MS, Some((11, 6)));
+        call.observe(asked + CLEAN_MS, Some((11, 6)));
+        assert_eq!(call.blame(asked + CLEAN_MS), Blame::Innermost);
     }
 }

@@ -13,15 +13,22 @@ pub const NESTING: usize = 4;
 
 /// The ids of the plugins whose code runs now, outermost first.
 ///
-/// `head` packs the number of open calls (low 8 bits) with a count of every
-/// change (the upper 24 bits, wrapping), so that one aligned word says both
-/// and a reader that interrupts the writer (the X4's button interrupt) never
-/// sees one without the other: a call that began or ended gives another
-/// [`token`](Self::token).
+/// `head` packs, in one word: the number of open calls (bits 0-7), the number
+/// of host slots open in the innermost call (bits 8-15) and a count of every
+/// change (bits 16-31, wrapping). `root` counts the calls that began with no
+/// other open (the outermost ones). Both are stored with one volatile store
+/// each and read by the X4's button interrupt with one volatile load each
+/// ([`watch_at`](Self::watch_at)), so a reader that interrupts the writer
+/// never sees half a word and the two sides do not race in the language's
+/// sense (the X4 is a RISC-V C3: an aligned 32-bit access is a single one).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C)]
 pub struct Inflight {
     head: u32,
+    root: u32,
+    /// Host slots that were open in each outer call when a deeper plugin call
+    /// began (the host called back into plugin code).
+    outer_host: [u8; NESTING],
     ids: [[u8; ID_LEN]; NESTING],
 }
 
@@ -29,6 +36,8 @@ impl Inflight {
     /// Nothing runs.
     pub const EMPTY: Self = Self {
         head: 0,
+        root: 0,
+        outer_host: [0; NESTING],
         ids: [[0; ID_LEN]; NESTING],
     };
 
@@ -36,23 +45,46 @@ impl Inflight {
         (head & 0xff) as u8
     }
 
-    /// `head` with `depth` open calls and the change counted.
-    fn changed(head: u32, depth: u8) -> u32 {
-        (head & !0xff).wrapping_add(0x100) | u32::from(depth)
+    fn host_of(head: u32) -> u8 {
+        ((head >> 8) & 0xff) as u8
+    }
+
+    /// `head` with these counts and the change counted.
+    fn changed(head: u32, depth: u8, host: u8) -> u32 {
+        let changes = (head >> 16).wrapping_add(1) & 0xffff;
+        (changes << 16) | (u32::from(host) << 8) | u32::from(depth)
+    }
+
+    fn store_head(&mut self, head: u32) {
+        // SAFETY: a valid, aligned word of `self`; volatile so that it is one
+        // store the interrupt's volatile load matches.
+        unsafe { core::ptr::write_volatile(core::ptr::addr_of_mut!(self.head), head) };
+    }
+
+    fn store_root(&mut self, root: u32) {
+        // SAFETY: as in `store_head`.
+        unsafe { core::ptr::write_volatile(core::ptr::addr_of_mut!(self.root), root) };
     }
 
     /// The code of plugin `id` is about to run (a call, nested or not).
     pub fn enter(&mut self, id: &str) {
-        let depth = Self::depth_of(self.head);
+        let (depth, host) = (Self::depth_of(self.head), Self::host_of(self.head));
         if let Some(slot) = self.ids.get_mut(usize::from(depth)) {
             *slot = [0; ID_LEN];
             let len = id.len().min(ID_LEN);
             slot[..len].copy_from_slice(&id.as_bytes()[..len]);
         }
+        if let Some(saved) = self.outer_host.get_mut(usize::from(depth)) {
+            // Host work open around this call is waited for, not shown by it.
+            *saved = host;
+        }
+        if depth == 0 {
+            self.store_root(self.root.wrapping_add(1));
+        }
         // One store: the id is in place before the call is counted (the fence
         // keeps the compiler from moving it above the copy).
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
-        self.head = Self::changed(self.head, depth.saturating_add(1));
+        self.store_head(Self::changed(self.head, depth.saturating_add(1), 0));
     }
 
     /// The innermost call returned (or was refused before it began): the plugin
@@ -62,13 +94,35 @@ impl Inflight {
         if depth == 0 {
             return;
         }
+        // The host work that was open around the call is open again.
+        let host = self
+            .outer_host
+            .get(usize::from(depth - 1))
+            .copied()
+            .unwrap_or(0);
         // One store first, then the slot is cleared: a reader in between sees
         // the call gone and the slot of no call.
-        self.head = Self::changed(self.head, depth - 1);
+        self.store_head(Self::changed(self.head, depth - 1, host));
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
         if let Some(slot) = self.ids.get_mut(usize::from(depth - 1)) {
             *slot = [0; ID_LEN];
         }
+        if let Some(saved) = self.outer_host.get_mut(usize::from(depth - 1)) {
+            *saved = 0;
+        }
+    }
+
+    /// The running call is waiting for the host: a plugin's call into one of
+    /// the host's slots began.
+    pub fn host_enter(&mut self) {
+        let (depth, host) = (Self::depth_of(self.head), Self::host_of(self.head));
+        self.store_head(Self::changed(self.head, depth, host.saturating_add(1)));
+    }
+
+    /// The host slot returned.
+    pub fn host_leave(&mut self) {
+        let (depth, host) = (Self::depth_of(self.head), Self::host_of(self.head));
+        self.store_head(Self::changed(self.head, depth, host.saturating_sub(1)));
     }
 
     /// How many calls are open.
@@ -77,27 +131,49 @@ impl Inflight {
         Self::depth_of(self.head)
     }
 
-    /// Names the call that runs now: `None` when no call is open, otherwise a
-    /// number that is another one after every call that begins or ends. The
-    /// same number read twice means the same call ran in between (up to a
-    /// wrap of 2^24 changes).
+    /// How many host slots are open in the innermost call.
     #[must_use]
-    pub fn token(&self) -> Option<u32> {
-        (self.depth() > 0).then_some(self.head)
+    pub fn host_slots(&self) -> u8 {
+        Self::host_of(self.head)
     }
 
-    /// [`token`](Self::token) of the record at `this`, read with one volatile
-    /// load of the word: for a reader that may interrupt the writer (the X4's
-    /// button interrupt), which must not form a reference to a record the
+    /// What a watcher reads: `Some((call, outermost))` while plugin code runs
+    /// (a call is open and no host slot is open in it), `None` otherwise.
+    /// `call` is another value after every change (a call or a host slot
+    /// began or ended); `outermost` is another value only when a new
+    /// outermost call begins.
+    #[must_use]
+    pub fn watch(&self) -> Option<(u32, u32)> {
+        Self::watched(self.head, self.root)
+    }
+
+    fn watched(head: u32, root: u32) -> Option<(u32, u32)> {
+        (Self::depth_of(head) > 0 && Self::host_of(head) == 0).then_some((head, root))
+    }
+
+    /// [`watch`](Self::watch) of the record at `this`, read with one volatile
+    /// load of each word: for a reader that may interrupt the writer (the
+    /// X4's button interrupt), which must not form a reference to a record the
     /// main loop is changing.
     ///
     /// # Safety
     /// `this` points to a valid, aligned `Inflight`.
     #[must_use]
-    pub unsafe fn token_at(this: *const Self) -> Option<u32> {
-        // SAFETY: the caller's contract; one aligned word.
+    pub unsafe fn watch_at(this: *const Self) -> Option<(u32, u32)> {
+        // SAFETY: the caller's contract; aligned words.
         let head = unsafe { core::ptr::addr_of!((*this).head).read_volatile() };
-        (Self::depth_of(head) > 0).then_some(head)
+        // SAFETY: as above.
+        let root = unsafe { core::ptr::addr_of!((*this).root).read_volatile() };
+        Self::watched(head, root)
+    }
+
+    /// Keeps only the outermost call recorded (the next start blames its
+    /// plugin): for a reset that found the outermost call stuck while the
+    /// calls inside it came and went.
+    pub fn keep_outermost(&mut self) {
+        if Self::depth_of(self.head) > 1 {
+            self.store_head(Self::changed(self.head, 1, 0));
+        }
     }
 
     /// The plugin whose code runs now (the innermost call kept), if any.
@@ -125,7 +201,7 @@ mod tests {
     fn an_empty_record_runs_nothing() {
         assert_eq!(Inflight::EMPTY.current(), None);
         assert_eq!(Inflight::EMPTY.depth(), 0);
-        assert_eq!(Inflight::EMPTY.token(), None);
+        assert_eq!(Inflight::EMPTY.watch(), None);
     }
 
     #[test]
@@ -150,7 +226,7 @@ mod tests {
         inflight.leave();
         assert_eq!(inflight.ids, before.ids);
         assert_eq!(inflight.current(), Some("a"));
-        assert_ne!(inflight.token(), before.token(), "it was another call");
+        assert_ne!(inflight.watch(), before.watch(), "it was another call");
     }
 
     #[test]
@@ -200,28 +276,97 @@ mod tests {
     fn every_call_that_begins_or_ends_gives_another_token() {
         let mut inflight = Inflight::EMPTY;
         inflight.enter("a");
-        let a = inflight.token();
+        let a = inflight.watch();
         assert!(a.is_some());
-        assert_eq!(inflight.token(), a, "unchanged while it runs");
+        assert_eq!(inflight.watch(), a, "unchanged while it runs");
         inflight.enter("b");
-        let b = inflight.token();
+        let b = inflight.watch();
         assert_ne!(b, a);
         // The nested call returned: the outer plugin runs again, but it is not
         // the same reading as before the nested call began or while it ran.
         inflight.leave();
-        assert_ne!(inflight.token(), b);
-        assert_ne!(inflight.token(), a);
+        assert_ne!(inflight.watch(), b);
+        assert_ne!(inflight.watch().map(|w| w.0), a.map(|w| w.0));
         inflight.leave();
-        assert_eq!(inflight.token(), None);
+        assert_eq!(inflight.watch(), None);
         // The same plugin calling again is another call.
         inflight.enter("a");
-        assert_ne!(inflight.token(), a);
+        assert_ne!(inflight.watch(), a);
+    }
+
+    #[test]
+    fn the_outermost_token_changes_only_with_a_new_outermost_call() {
+        let mut inflight = Inflight::EMPTY;
+        inflight.enter("a");
+        let root = inflight.watch().map(|w| w.1);
+        for _ in 0..5 {
+            inflight.enter("b");
+            inflight.leave();
+        }
+        assert_eq!(inflight.watch().map(|w| w.1), root, "nested calls under A");
+        inflight.leave();
+        inflight.enter("a");
+        assert_ne!(inflight.watch().map(|w| w.1), root, "A called again");
+    }
+
+    #[test]
+    fn nothing_is_watched_while_a_host_slot_is_open() {
+        let mut inflight = Inflight::EMPTY;
+        inflight.enter("a");
+        let before = inflight.watch();
+        assert!(before.is_some());
+        inflight.host_enter();
+        assert_eq!(inflight.watch(), None, "the host is working");
+        assert_eq!(inflight.host_slots(), 1);
+        inflight.host_enter();
+        inflight.host_leave();
+        assert_eq!(inflight.watch(), None, "still inside the first slot");
+        inflight.host_leave();
+        let after = inflight.watch();
+        assert!(after.is_some());
+        assert_ne!(after, before, "the plugin runs again as another reading");
+        assert_eq!(inflight.current(), Some("a"));
+        // A host slot with no call open is harmless and watched as nothing.
+        inflight.leave();
+        inflight.host_enter();
+        assert_eq!(inflight.watch(), None);
+        inflight.host_leave();
+        assert_eq!(inflight.depth(), 0);
+    }
+
+    #[test]
+    fn a_plugin_the_host_called_back_into_is_watched_and_the_host_work_around_it_returns() {
+        let mut inflight = Inflight::EMPTY;
+        inflight.enter("a");
+        inflight.host_enter();
+        // The host slot calls plugin B (an event, a service callback).
+        inflight.enter("b");
+        assert!(inflight.watch().is_some(), "B's own code runs");
+        assert_eq!(inflight.current(), Some("b"));
+        inflight.leave();
+        assert_eq!(inflight.watch(), None, "back in the host's slot");
+        assert_eq!(inflight.host_slots(), 1);
+        inflight.host_leave();
+        assert!(inflight.watch().is_some());
+    }
+
+    #[test]
+    fn keeping_the_outermost_call_blames_its_plugin() {
+        let mut inflight = Inflight::EMPTY;
+        inflight.enter("a");
+        inflight.enter("b");
+        assert_eq!(inflight.current(), Some("b"));
+        inflight.keep_outermost();
+        assert_eq!(inflight.current(), Some("a"));
+        assert_eq!(inflight.depth(), 1);
+        inflight.keep_outermost();
+        assert_eq!(inflight.depth(), 1);
     }
 
     #[test]
     fn the_token_wraps_without_confusing_depth() {
         let mut inflight = Inflight::EMPTY;
-        inflight.head = !0xff;
+        inflight.head = !0xffff;
         inflight.enter("a");
         assert_eq!(inflight.depth(), 1);
         assert_eq!(inflight.current(), Some("a"));

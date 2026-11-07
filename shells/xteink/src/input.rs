@@ -162,7 +162,7 @@ impl Sampler {
         ) {
             Step::Idle => {}
             Step::Ask => ESCAPE_ASKED.store(true, Ordering::Relaxed),
-            Step::Force => escape_reset(self.call.outlived_grace(now)),
+            Step::Force => escape_reset(self.call.blame(now)),
         }
         let (reading, levels) = keys.read(self.power_armed && power_down);
         #[cfg(feature = "remote")]
@@ -346,7 +346,9 @@ fn sample() {
 /// (`power::at::ESCAPE`) and, with `blame` (a plugin's call has run past the
 /// grace), which plugin's call was running (`safe_mode`): it is switched off
 /// and the plugin manager says why. Without it no plugin is blamed.
-fn escape_reset(#[cfg_attr(not(feature = "ppn5"), allow(unused_variables))] blame: bool) -> ! {
+fn escape_reset(
+    #[cfg_attr(not(feature = "ppn5"), allow(unused_variables))] blame: paperpaw_x4::escape::Blame,
+) -> ! {
     #[cfg(feature = "ppn5")]
     crate::safe_mode::escape_reset(blame);
     crate::power::mark(crate::power::at::ESCAPE);

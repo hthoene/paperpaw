@@ -208,29 +208,48 @@ fn reset() {
     unsafe { core::ptr::addr_of_mut!(RECORD).write_volatile(EMPTY) };
 }
 
-/// Names the plugin call that runs now, `None` if no plugin's code runs: for
-/// the escape's watch in the button interrupt (one volatile word, no copy of
-/// the record). The same number twice is the same call.
+/// What the escape's watch reads in the button interrupt: `(call, outermost)`
+/// while plugin code runs (a call is open and no host slot is open in it),
+/// `None` otherwise. One volatile word each, no copy of the record. The same
+/// numbers twice are the same call.
 #[cfg(feature = "ppn5")]
-pub fn running_call() -> Option<u32> {
-    // SAFETY: as in `read`; the interrupt only loads one word of a record that
-    // the main loop may be changing, through a raw pointer.
+pub fn running_call() -> Option<(u32, u32)> {
+    // SAFETY: as in `read`; the interrupt only loads two words of a record that
+    // the main loop may be changing, through a raw pointer, and the main loop
+    // stores them with matching volatile stores.
     unsafe {
         let record = core::ptr::addr_of!(RECORD);
         if core::ptr::addr_of!((*record).magic).read_volatile() != MAGIC {
             return None;
         }
-        Inflight::token_at(core::ptr::addr_of!((*record).inflight))
+        Inflight::watch_at(core::ptr::addr_of!((*record).inflight))
     }
 }
 
-/// The escape resets the processor now (from the button interrupt): with
-/// `blame` the call it found past the grace stays recorded, and the next
-/// start switches that plugin off (`check`); without it no plugin is blamed
-/// and the record of calls is cleared.
+/// A plugin's call into the host's code begins (a host slot): the plugin
+/// waits for the host, so the escape does not blame it meanwhile.
 #[cfg(feature = "ppn5")]
-pub fn escape_reset(blame: bool) {
-    if !blame {
-        with_inflight(|inflight| *inflight = Inflight::EMPTY);
+pub fn host_begin() {
+    with_inflight(Inflight::host_enter);
+}
+
+/// The host slot returned.
+#[cfg(feature = "ppn5")]
+pub fn host_end() {
+    with_inflight(Inflight::host_leave);
+}
+
+/// The escape resets the processor now (from the button interrupt): with a
+/// plugin to blame, its call stays recorded and the next start switches that
+/// plugin off (`check`): the innermost call as it is, or, for the outermost
+/// one, only that call is kept. Without it no plugin is blamed and the record
+/// of calls is cleared.
+#[cfg(feature = "ppn5")]
+pub fn escape_reset(blame: paperpaw_x4::escape::Blame) {
+    use paperpaw_x4::escape::Blame;
+    match blame {
+        Blame::Innermost => {}
+        Blame::Outermost => with_inflight(Inflight::keep_outermost),
+        Blame::Nobody => with_inflight(|inflight| *inflight = Inflight::EMPTY),
     }
 }
