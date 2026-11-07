@@ -189,7 +189,7 @@ fn handover(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> 
         });
         Ok(())
     })?;
-    let id = ui.store.make(stamp, &staged)?;
+    let id = ui.store.handover_make(stamp, &staged)?;
     wire::record_encode_one(
         &Record::ServiceUiHandle(wire::ServiceUiHandle { handle: id }),
         out,

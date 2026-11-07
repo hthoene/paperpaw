@@ -142,11 +142,13 @@ impl View<'_> {
         .unwrap();
         Ok((rows, total))
     }
-    /// What Core's stack does with a made hand-over: name it and claim it.
+    /// What Core's stack does with a made hand-over: check, claim and attach it.
     fn open_with(&self, owner: u64, id: u32, instance: u32) {
         let stamp = Stamp::new(owner, self.stack.epoch.get()).unwrap();
-        self.store.check(stamp, id).unwrap();
-        self.store.claim(id, instance).unwrap();
+        self.store.handover_check(stamp, id).unwrap();
+        let claims = self.store.claim(stamp, &[id]).unwrap();
+        self.store.attach(Some(id), instance).unwrap();
+        drop(claims);
     }
 }
 
