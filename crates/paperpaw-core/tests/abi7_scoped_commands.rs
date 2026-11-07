@@ -6,7 +6,7 @@ use paperpaw_core::native_host::commands::{
 };
 use paperpaw_core::native_host::environment::{EnvironmentScope, SettingValueRef, settings_decode};
 use paperpaw_native::host_glue::{
-    ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, ERR_UTF8, OK,
+    ERR_DENIED, ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, ERR_UTF8, OK,
 };
 use paperpaw_platform::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat, Rotation};
 use paperpaw_sdk::{
@@ -47,6 +47,12 @@ static FOREIGN: [SettingSpec; 3] = [
     SettingSpec::text("other.secret", "secret", "", builtin::groups::OTHER).with_extra(&SECRET),
 ];
 
+const ANSWER: WireCommand<'static> = WireCommand::AnswerPlugin {
+    request: 1,
+    plugin: "weather",
+    outcome: 0,
+};
+
 fn set<'a>(key: &'a str, value: SettingValueRef<'a>) -> WireCommand<'a> {
     WireCommand::SetSetting { key, value }
 }
@@ -80,12 +86,19 @@ fn read(env: &Env<'_>, key: &str) -> Vec<u8> {
 fn refusals(scope: &CommandScope) {
     let flag = set("probe.flag", SettingValueRef::Bool(true));
     let long = "t".repeat(BYTES);
-    let cases: [(Vec<u8>, i32); 13] = [
+    let cases: [(Vec<u8>, i32); 15] = [
         // Commands 56-59 decode but this host does not run them yet: the
         // whole batch is refused, the flag before it included.
         (
             batch(&[flag, WireCommand::Redraw { mode: 3 }]),
             ERR_UNSUPPORTED,
+        ),
+        // `answer_plugin` is refused for every plugin until DEV defines
+        // `uses.install`, even behind a command refused for another reason.
+        (batch(&[flag, ANSWER]), ERR_DENIED),
+        (
+            batch(&[WireCommand::Redraw { mode: 3 }, ANSWER]),
+            ERR_DENIED,
         ),
         (
             batch(&[flag, set("other.guarded", SettingValueRef::Bool(true))]),

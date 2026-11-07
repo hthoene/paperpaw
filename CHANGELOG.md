@@ -24,14 +24,29 @@ change the plugin SDK.
   turns and book edges share `ReadingView` accessors; malformed values are
   refused and reserved state values use the contract fallbacks. Interface draft
   15 (`native::DRAFT`) refuses plugins built for draft 14 (#228).
-
+- `paperpaw-document`: `Block::try_transform` runs a filter on a working copy of a
+  block's text, offset map and runs (`TextEdit`: `try_replace`, `try_set_runs`,
+  `try_push_run`, kind, alignment, dropping the picture) under a byte limit checked
+  before every reservation, and puts it back only on success; out of memory, the
+  limit or the filter's own error leave the block unchanged. `Block::replace` shares
+  its code and leaves the block unchanged where memory runs out (#228).
 - Interface-7 SDK stage declarations, borrowed subscriber calls and lending reply
   cursors expose host-stamped style grants; schema-checked service handles survive
   callbacks and release explicitly; interface draft 14 (`native::DRAFT`), so plugins built for
   draft 13 are refused (#228).
-
 - Interface-7 call-service host slots 33–34 use generated schemas, bounded reply
   scratch and owned service handles; device hosts refuse test-only schemas (#228).
+- Interface 7, family 2 (registry, `docs/abi/registry.md`): the `core.registry` service (major 1,
+  21 paged read ops over settings, plugins, actions, screens, slots, menus, bindings, inputs, setup
+  steps, presets, widgets and status items and lines; rows 1025-1040 and 1059), the registry
+  commands 1536-1546 (reset, preview,
+  book scope, menus, key and slot bindings, plugin switching, plugin requests and answers,
+  presets), events 75-78 (registry and preview changes, plugin requests and answers) and the
+  declarations 21-28 (`setup.step`, `slot.spec`, `slot.offer`, `key.bind`, `setting.default`,
+  `setting.choice`, `preset.spec`, `preset.value`); the feature `uses.registry`. Commands of the
+  growth block are generated from their `abi.def` fields into the command codec. Hosts answer
+  `ERR_UNSUPPORTED` until wired. Interface draft 16 (`native::DRAFT`) refuses plugins built for
+  draft 15 (#228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
   `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
   position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70
