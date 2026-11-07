@@ -15,6 +15,11 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::Extension,
     Kind::Screen,
     Kind::Action,
+    Kind::Widget,
+    Kind::WidgetPlace,
+    Kind::StatusItem,
+    Kind::StatusLine,
+    Kind::StatusPlace,
 ];
 struct Image {
     bytes: RefCell<Vec<u8>>,

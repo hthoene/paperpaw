@@ -24,6 +24,32 @@ pub(crate) trait ImageOwner {
     fn generation(&self) -> u32;
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>));
     fn invalid_declaration(&self, error: i32);
+    fn owner_id(&self) -> Result<u64, i32> {
+        Err(ERR_STATE)
+    }
+}
+
+/// Test fixtures may use Rc; native admission uses checked shared ownership.
+enum OwnerRef {
+    Existing(Rc<dyn ImageOwner>),
+    Native(super::shared::Shared<Box<dyn ImageOwner>>),
+}
+impl OwnerRef {
+    fn try_clone(&self) -> Result<Self, i32> {
+        match self {
+            Self::Existing(owner) => Ok(Self::Existing(Rc::clone(owner))),
+            Self::Native(owner) => owner.try_clone().map(Self::Native).ok_or(ERR_NO_MEMORY),
+        }
+    }
+}
+impl core::ops::Deref for OwnerRef {
+    type Target = dyn ImageOwner;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Existing(owner) => &**owner,
+            Self::Native(owner) => &***owner,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -41,7 +67,7 @@ pub(crate) struct DeclKey {
     incarnation: u32,
 }
 
-const KIND_COUNT: usize = 8;
+const KIND_COUNT: usize = 13;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
@@ -53,8 +79,13 @@ pub(crate) enum Kind {
     Extension,
     Screen,
     Action,
+    Widget,
+    WidgetPlace,
+    StatusItem,
+    StatusLine,
+    StatusPlace,
 }
-const _: () = assert!(Kind::Action as usize + 1 == KIND_COUNT);
+const _: () = assert!(Kind::StatusPlace as usize + 1 == KIND_COUNT);
 
 impl Kind {
     fn category(self) -> u8 {
@@ -66,6 +97,11 @@ impl Kind {
             Self::Face | Self::Extension => 4,
             Self::Screen => 5,
             Self::Action => 6,
+            Self::Widget => 18,
+            Self::WidgetPlace => 19,
+            Self::StatusItem => 20,
+            Self::StatusLine => 21,
+            Self::StatusPlace => 22,
         }
     }
 
@@ -79,6 +115,11 @@ impl Kind {
             Record::ResourceFontExtension(_) => Self::Extension,
             Record::ScreenSpec(_) => Self::Screen,
             Record::ActionSpec(_) => Self::Action,
+            Record::WidgetSpec(_) => Self::Widget,
+            Record::WidgetPlace(_) => Self::WidgetPlace,
+            Record::StatusItem(_) => Self::StatusItem,
+            Record::StatusLine(_) => Self::StatusLine,
+            Record::StatusPlace(_) => Self::StatusPlace,
             _ => return None,
         })
     }
@@ -147,7 +188,7 @@ impl Input<'_> {
 pub(crate) struct PendingDeclarations {
     id: Id,
     generation: u32,
-    source: Rc<dyn ImageOwner>,
+    source: OwnerRef,
     batches: Vec<DeclRef>,
     kinds: [Vec<Slot>; KIND_COUNT],
     resident: usize,
@@ -162,7 +203,7 @@ impl PendingDeclarations {
         Self {
             id,
             generation: source.generation(),
-            source,
+            source: OwnerRef::Existing(source),
             batches: Vec::new(),
             kinds: core::array::from_fn(|_| Vec::new()),
             resident: 0,
@@ -172,6 +213,25 @@ impl PendingDeclarations {
             image_entries: 0,
             owned_counts: [0; KIND_COUNT],
         }
+    }
+
+    pub(crate) fn native(id: Id, source: impl ImageOwner + 'static) -> Result<Self, i32> {
+        let source: Box<dyn ImageOwner> = super::shared::try_box(source).ok_or(ERR_NO_MEMORY)?;
+        let source =
+            OwnerRef::Native(super::shared::Shared::try_new(source).map_err(|_| ERR_NO_MEMORY)?);
+        Ok(Self {
+            id,
+            generation: source.generation(),
+            source,
+            batches: Vec::new(),
+            kinds: core::array::from_fn(|_| Vec::new()),
+            resident: 0,
+            incarnation: 0,
+            failure: None,
+            index_bytes: 0,
+            image_entries: 0,
+            owned_counts: [0; KIND_COUNT],
+        })
     }
 
     /// Stage one whole batch. Failed reservations may grow capacity but never
@@ -193,7 +253,7 @@ impl PendingDeclarations {
             return self.stage(Input::Committed(raw), allocations);
         }
         let range = raw.image.ok_or(ERR_STATE)?;
-        let source = Rc::clone(&self.source);
+        let source = self.source.try_clone()?;
         let mut result = Err(ERR_STATE);
         source.with_image(&mut |image| {
             result = raw.view(image).and_then(|bytes| {
@@ -330,7 +390,12 @@ impl PendingDeclarations {
                 HYPHENATIONS_MAX,
                 FONT_FACES_MAX,
                 FONT_EXTENSIONS_MAX,
-                // Screen/action copies share the aggregate owned-byte cap.
+                // Screen, action and UIX copies share the aggregate byte cap.
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
                 usize::MAX,
                 usize::MAX,
             ];
@@ -436,6 +501,30 @@ impl DeclarationStore {
                 *owner = None;
             }
         }
+    }
+
+    pub(crate) fn remove_host_owner(&mut self, key: u64) {
+        for owner in &mut self.owners {
+            if owner
+                .as_ref()
+                .is_some_and(|owner| owner.source.owner_id() == Ok(key))
+            {
+                *owner = None;
+            }
+        }
+    }
+
+    pub(crate) fn host_owner(&self, plugin: &str) -> Result<u64, i32> {
+        let owner = self
+            .owners
+            .iter()
+            .flatten()
+            .find(|owner| owner.id.as_str() == plugin)
+            .ok_or(paperpaw_native::host_glue::ERR_NOT_FOUND)?;
+        if owner.source.generation() != owner.generation {
+            return Err(paperpaw_native::host_glue::ERR_NOT_FOUND);
+        }
+        owner.source.owner_id()
     }
 
     pub(crate) fn keys(&self, kind: Kind, visit: &mut dyn FnMut(DeclKey)) {

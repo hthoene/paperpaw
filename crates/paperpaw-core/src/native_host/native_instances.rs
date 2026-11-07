@@ -14,6 +14,9 @@ use paperpaw_sdk::Id;
 pub(crate) trait NativeInstance: Dispatch {
     fn running(&self) -> bool;
     fn stop(&self);
+    fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
+        visit(None);
+    }
     /// Revoke before owner cleanup; the registry supplies the original key.
     fn retire(&self, _owner: u64) -> Result<(), i32> {
         self.stop();

@@ -20,6 +20,13 @@ pub(crate) const KIND_TABLE: &[(&str, u8)] = &[
     ("setting.choice", 13),
     ("preset.spec", 14),
     ("preset.value", 15),
+    ("input.spec", 16),
+    ("help.hint", 17),
+    ("widget.spec", 18),
+    ("widget.place", 19),
+    ("status.item", 20),
+    ("status.line", 21),
+    ("status.place", 22),
 ];
 pub(crate) const STAGE_KIND: u8 = KIND_TABLE[7].1;
 pub(crate) const COMPOSITE_SEPARATOR: u8 = 0x1f;
@@ -86,6 +93,11 @@ pub(crate) fn key(record: Record<'_>) -> Option<(u8, &str)> {
         Record::SettingChoice(r) => (KIND_TABLE[13].1, r.key),
         Record::PresetSpec(r) => (KIND_TABLE[14].1, r.name),
         Record::PresetValue(r) => (KIND_TABLE[15].1, r.preset),
+        Record::WidgetSpec(r) => (KIND_TABLE[18].1, r.name),
+        Record::WidgetPlace(r) => (KIND_TABLE[19].1, r.name),
+        Record::StatusItem(r) => (KIND_TABLE[20].1, r.name),
+        Record::StatusLine(r) => (KIND_TABLE[21].1, r.name),
+        Record::StatusPlace(r) => (KIND_TABLE[22].1, r.name),
         _ => return None,
     })
 }

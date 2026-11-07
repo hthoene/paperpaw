@@ -165,6 +165,10 @@ mod retained;
     dead_code,
     reason = "native built-in registry adapter follows this screen router"
 )]
+#[path = "native_host/native_declarations.rs"]
+#[allow(dead_code, reason = "shared declaration producer is attached by the UI admission slice")]
+mod native_declarations;
+
 #[path = "native_host/native_install.rs"]
 mod native_install;
 
@@ -586,21 +590,38 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         reason = "native built-in registry adapter follows this transaction"
     )]
     pub(crate) fn commit_native<R>(
-        mut self,
+        self,
         teardown: Teardown<C>,
         map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
     ) -> Result<(RegistrationBatch<'a, C, M, T>, R), i32> {
+        let (batch, staging, raw) = self.commit_native_stored(teardown, map)?;
+        drop(raw);
+        Ok((batch, staging))
+    }
+
+    /// Transfer original declaration batches to the shared store's producer.
+    /// No address from a runtime submission survives its construction call.
+    pub(crate) fn commit_native_stored<R>(
+        mut self,
+        teardown: Teardown<C>,
+        map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
+    ) -> Result<
+        (
+            RegistrationBatch<'a, C, M, T>,
+            R,
+            raw_declarations::RawDeclarations,
+        ),
+        i32,
+    > {
         if let Some(error) = self.failure {
             return Err(registrations::status(error));
         }
         self.finish_declarations()?;
         let staging = map(&self.declaration_view())?;
-        // The mapper owns every value it keeps. Release construction copies
-        // and image indexes before activation instead of retaining both sets.
         self.declarations = Declarations::default();
-        self.raw = raw_declarations::RawDeclarations::default();
+        let raw = core::mem::take(&mut self.raw);
         let batch = self.publish(teardown).map_err(registrations::status)?;
-        Ok((batch, staging))
+        Ok((batch, staging, raw))
     }
 
     fn publish(mut self, teardown: Teardown<C>) -> Result<RegistrationBatch<'a, C, M, T>, Error> {

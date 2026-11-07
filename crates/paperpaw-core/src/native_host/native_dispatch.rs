@@ -180,6 +180,9 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
     fn stop(&self) {
         self.instance.host().stop();
     }
+    fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
+        visit(self.instance.host().image());
+    }
     fn retire(&self, owner: u64) -> Result<(), i32> {
         self.instance.host().stop();
         if owner != self.identity.owner() {
