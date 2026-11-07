@@ -485,10 +485,14 @@ fn registry_dispatches_idle_retained_owner_and_releases_it_after_last_frozen_lea
     assert_eq!(CALLS.with(Cell::get), 2);
     assert_eq!(DESTROYS.with(Cell::get), 0);
     drop(frozen);
+    assert_eq!(
+        DESTROYS.with(Cell::get),
+        0,
+        "cleanup ownership stays in the pending row"
+    );
+    assert!(registry.retire(key).unwrap().is_none());
     assert_eq!(DESTROYS.with(Cell::get), 1);
-    assert!(matches!(registry.state(key), Ok(InstanceState::Stopped)));
-    registry.stop(key).unwrap();
-    assert_eq!(DESTROYS.with(Cell::get), 1);
+    assert!(matches!(registry.state(key), Err(host_glue::ERR_STATE)));
 }
 
 #[test]
