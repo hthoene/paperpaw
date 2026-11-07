@@ -779,6 +779,7 @@ its caps (hand-off).
 | --- | --- |
 | `Command::OpenScreen(id, params)`, `OpenSlot`, `Replace`, `OpenInSlot` | `command.open` modes 0-3 |
 | `Command::Back`, `Close(key)`, `BackTo` | `command.close` (0 / instance), `command.back_to` |
+| `Command::OpenBook`, `readers::open`, `open_page`, `open_with` | `command.open` mode 1 (slot `core.reader`) or 3 (a `doc_reader.screen` in `core.reader`), params `path`, `page` (`document.md` 1) |
 | `ScreenKey`, `Cx::params`, `params::TEXT` | `instance`; hand-over (op 16, `command.open.handover`), read with op 17 and the hand-over text (op 10); event 79 again on update |
 | `Screen::guards`, `secret`, `holds_edges` (dynamic) | `screen.spec.flags` bits 1, 4, 5; `command.screen_policy` |
 | `Env::stack`, `StackEntry` (`guards`, `overlay`, `slot`) | `core.ui` op 1, `ui_screen`; event 81 |
