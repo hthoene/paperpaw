@@ -19,6 +19,8 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 call-service host slots 33–34 use generated schemas, bounded reply
+  scratch and owned service handles; device hosts refuse test-only schemas (#228).
 - Native host text ink probes the shaped raster path with the target frame's
   coverage threshold; inkless text reports not found. X4 timing remains gated (#228).
 
@@ -46,6 +48,7 @@ change the plugin SDK.
   `InkBounds`; host-only `FontHandle::ink_drawn`
   measures text ink by the drawing path itself (shaping, joining, marks, jamo), for slot 30
   `text.ink` (#228).
+
 - Checked native admission metadata exposes declared service revisions through a
   borrowing iterator, so host query admission uses the validated requirements (#228).
 - Interface 7 SDK: typed, borrowed builders for menu entries, icons, device needs,
