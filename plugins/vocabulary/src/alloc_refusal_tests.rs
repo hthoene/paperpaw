@@ -565,6 +565,73 @@ fn reading_a_table_refuses_cleanly() {
     let latin1 =
         || Quiet::default().with("f", b"front;back\nstra\xdfe;b\xe4r\nh\x80llo;x\n".to_vec());
     sweep("latin1 detect", latin1, |s| table::detect(s, "f"), |_| {});
+    // The same file read: Windows-1252 fields decoded into reserved strings.
+    sweep(
+        "latin1 each",
+        latin1,
+        |s| {
+            let layout = fixture(|| table::detect(s, "f").unwrap());
+            assert!(layout.latin1);
+            let mut records = 0;
+            table::each(s, "f", &layout, None, |_| {
+                records += 1;
+                core::ops::ControlFlow::Continue(())
+            })?;
+            assert_eq!(records, 2);
+            Ok(())
+        },
+        |_| {},
+    );
+    sweep(
+        "latin1 scan in steps",
+        latin1,
+        |s| {
+            let layout = fixture(|| table::detect(s, "f").unwrap());
+            let mut from = table::Resume {
+                at: layout.start,
+                line: layout.line,
+            };
+            while let Some(next) = table::scan(s, "f", &layout, from, Some(10), |_| {
+                core::ops::ControlFlow::Continue(())
+            })? {
+                from = next;
+            }
+            Ok(())
+        },
+        |_| {},
+    );
+    // A record read again by its offset (`record_at` says `None` where the
+    // heap refuses: no card, never a half one).
+    sweep(
+        "record_at",
+        csv,
+        |s| {
+            let layout = fixture(|| table::detect(s, "f").unwrap());
+            let offset = fixture(|| {
+                let (mut second, mut n) = (0, 0);
+                table::each(s, "f", &layout, None, |item| {
+                    if let table::Item::Record(record) = item {
+                        n += 1;
+                        second = record.offset;
+                    }
+                    if n == 2 {
+                        core::ops::ControlFlow::Break(())
+                    } else {
+                        core::ops::ControlFlow::Continue(())
+                    }
+                })
+                .unwrap();
+                second
+            });
+            // Whole or not there; a record is never half made.
+            if let Some(record) = table::record_at(s, "f", &layout, offset) {
+                assert_eq!(record.front, "word 1");
+                assert!(record.back.contains("meaning"));
+            }
+            Ok(())
+        },
+        |_| {},
+    );
 }
 
 #[test]

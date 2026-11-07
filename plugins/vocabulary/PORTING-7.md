@@ -68,7 +68,9 @@ the port.
   and UTF-8 fields are decoded into reserved strings, and slicing of read chunks is `get(..n)`.
 - `plain` (HTML to text) is one pass with one reservation (the text is never longer than the
   HTML): tags out, the six character references turned, white space collapsed. `plain_or_empty`
-  stays for `apkg` until it is ported.
+  stays for `apkg` (interface 6) until it is ported: where the heap refuses, the text of that
+  Anki note field becomes empty (a note whose front is then empty is skipped as a card without
+  a front), not an abort and not half a text.
 - `alloc_refusal_tests.rs` sweeps `detect`, `each`, `scan` in steps, a Windows-1252 file and
   `plain`.
 
