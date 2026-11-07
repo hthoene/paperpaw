@@ -1,18 +1,18 @@
 //! A greeting by the time of day: "Good morning", "Good afternoon", "Good
 //! evening", "Good night", with the reader's name if set ("Good evening,
 //! Anna"), the date below if wanted, and a sun or a moon before it.
-use alloc::{string::String, vec, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Color, Point, Rect,
-    native::{Error, Host, formatting::Arg},
+    native::{Error, Host, fonts::Font, formatting::Arg},
     round::point_at,
 };
 use paperpaw_ui_kit::{
-    Paint,
+    Paint, mem,
     widget::{
         Align, Cx, TextSize,
         cx::{face_font, local_time_now},
-        layout::{break_words, label, line},
+        layout::{break_words, label},
         names::{chosen_name, date_words},
         shape::{fill_circle, line as stroke_line},
         text::largest_size,
@@ -198,6 +198,58 @@ fn draw_icon(
     Ok(())
 }
 
+/// The size and lines of the greeting: on one line as large as the width and
+/// the room allow; where it has no room, in two lines broken between words,
+/// without the icon; else shortened on one; `None` where not even that has
+/// room.
+fn choose(
+    cx: &Cx<'_>,
+    font: &Font<'_>,
+    text: String,
+    (icon, room, width): (bool, f32, f32),
+    height: u16,
+) -> Result<Option<(f32, Vec<String>, bool)>, Error> {
+    let small = cx.style().small;
+    let (max, min) = match cx.settings.size()? {
+        TextSize::Fit => (room.max(small), small),
+        size => (size.text(cx.style()), size.text(cx.style()).min(small)),
+    };
+    let line_of = |size: f32| paperpaw_ui_kit::geometry::line_px(font, size);
+    let one = largest_size(max, min, |size| {
+        Ok(
+            font.measure_text(size, &text)? + icon_width(icon, size) <= width
+                && f32::from(line_of(size)?) <= room,
+        )
+    })?;
+    if let Some(size) = one {
+        return Ok(Some((size, mem::one(text)?, icon)));
+    }
+    let two = largest_size(max, min, |size| {
+        let (lines, too_wide) = break_words(font, size, &text, width)?;
+        Ok(!too_wide && lines.len() <= 2 && f32::from(line_of(size)?) * lines.len() as f32 <= room)
+    })?;
+    if let Some(size) = two {
+        return Ok(Some((
+            size,
+            break_words(font, size, &text, width)?.0,
+            false,
+        )));
+    }
+    if f32::from(line_of(min)?) > f32::from(height) {
+        return Ok(None);
+    }
+    let shown = paperpaw_ui_kit::text::fit(font, min, &text, width)?;
+    if font.measure_text(min, &shown)? > width {
+        return Ok(None);
+    }
+    Ok(Some((min, mem::one(shown)?, false)))
+}
+
+/// The room the icon takes before text `size` pixels large.
+fn icon_width(on: bool, size: f32) -> f32 {
+    if on { size * 1.3 } else { 0.0 }
+}
+
 /// Draws the widget in `area`.
 ///
 /// # Errors
@@ -208,7 +260,7 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Err
     let face = cx.settings.string("face", 96)?;
     let font = face_font(cx.host, &face)?;
     let part = part(cx)?;
-    let (small, gap) = (cx.style().small, cx.style().gap);
+    let small = cx.style().small;
     let width = f32::from(area.width);
     // The date below, where it fits whole (without its weekday if need be)
     // and leaves a line for the greeting.
@@ -228,7 +280,6 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Err
     }
     let date_line = date.as_ref().map_or(0, |_| small_line);
     let room = f32::from(area.height.saturating_sub(date_line));
-    let icon_width = |on: bool, size: f32| if on { size * 1.3 } else { 0.0 };
     // Where it is narrow, without the name, then without the icon.
     let mut icon = cx.settings.shows("icon")?;
     let mut text = greeting(cx, part, true)?;
@@ -242,42 +293,12 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Err
     if !fits(&text, icon) {
         icon = false;
     }
-    let (max, min) = match cx.settings.size()? {
-        TextSize::Fit => (room.max(small), small),
-        size => (size.text(cx.style()), size.text(cx.style()).min(small)),
-    };
-    let line_of = |size: f32| paperpaw_ui_kit::geometry::line_px(&font, size);
-    let one = largest_size(max, min, |size| {
-        Ok(
-            font.measure_text(size, &text)? + icon_width(icon, size) <= width
-                && f32::from(line_of(size)?) <= room,
-        )
-    })?;
-    // Where it has no room on one line: in two, broken between words, without
-    // the icon; else shortened on one.
-    let (size, lines, icon) = if let Some(size) = one {
-        (size, vec![text], icon)
-    } else {
-        let two = largest_size(max, min, |size| {
-            let (lines, too_wide) = break_words(&font, size, &text, width)?;
-            Ok(!too_wide
-                && lines.len() <= 2
-                && f32::from(line_of(size)?) * lines.len() as f32 <= room)
-        })?;
-        match two {
-            Some(size) => (size, break_words(&font, size, &text, width)?.0, false),
-            None if f32::from(line_of(min)?) <= f32::from(area.height) => {
-                let shown = paperpaw_ui_kit::text::fit(&font, min, &text, width)?;
-                if font.measure_text(min, &shown)? > width {
-                    return Ok(());
-                }
-                (min, vec![shown], false)
-            }
-            None => return Ok(()),
-        }
+    let Some((size, lines, icon)) = choose(cx, &font, text, (icon, room, width), area.height)?
+    else {
+        return Ok(());
     };
     let align: Align = cx.settings.align()?;
-    let big = line_of(size)?;
+    let big = paperpaw_ui_kit::geometry::line_px(&font, size)?;
     let count = u16::try_from(lines.len()).unwrap_or(u16::MAX);
     let used = big.saturating_mul(count).saturating_add(date_line);
     let top = area.y + area.height.saturating_sub(used) / 2;
@@ -310,7 +331,6 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Err
         let row = Rect::new(area.x, top + big * count, area.width, small_line);
         label(out, &cx.font, (small, align), row, &date, look.faint)?;
     }
-    let _ = (gap, line);
     Ok(())
 }
 

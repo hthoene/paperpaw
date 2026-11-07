@@ -4,7 +4,7 @@
 //! run time.
 use paperpaw_sdk::native::declare::{Declarations, DeclareError, EventKind, GroupDecl, WidgetDecl};
 pub use paperpaw_ui_kit::widget::options::Opt;
-use paperpaw_ui_kit::widget::options::{FACES, declare_all};
+use paperpaw_ui_kit::widget::options::{FACES, declare_all, shared_look};
 
 /// The callback token of the minute tick.
 pub const TICK: u32 = 1;
@@ -24,18 +24,36 @@ pub struct Def {
     pub category: &'static str,
     /// Read each minute.
     pub live: bool,
+    /// Where the text sits by default: the widget's look settings (frame,
+    /// padding, paper, ink, corners, line, shadow) are the shared ones, and
+    /// come first.
+    pub align: &'static str,
+    /// Whether the shared look comes after the widget's own settings.
+    pub look_last: bool,
+    /// The widget's own settings.
     pub options: &'static [Opt],
 }
 
+impl Def {
+    /// Every setting of the widget in order: the shared look, then its own.
+    #[allow(
+        dead_code,
+        reason = "the tests read it; the build script reads the same file and does not"
+    )]
+    pub fn all(&self) -> impl Iterator<Item = Opt> + '_ {
+        let look = shared_look(self.align);
+        let (own, last) = (self.options, self.look_last);
+        (0..look.len() + own.len()).filter_map(move |n| {
+            if last {
+                own.get(n).or_else(|| look.get(n - own.len())).copied()
+            } else {
+                look.get(n).or_else(|| own.get(n - look.len())).copied()
+            }
+        })
+    }
+}
+
 const DAY_OPTIONS: &[Opt] = &[
-    Opt::Align("core.align.left"),
-    Opt::Frame("core.frame.none"),
-    Opt::Padding,
-    Opt::Paper,
-    Opt::Ink,
-    Opt::Corners,
-    Opt::FrameLine,
-    Opt::Shadow,
     Opt::Choice(
         "style",
         "widgets.setting.style",
@@ -54,14 +72,6 @@ const DAY_OPTIONS: &[Opt] = &[
 ];
 
 const TILES_OPTIONS: &[Opt] = &[
-    Opt::Align("core.align.center"),
-    Opt::Frame("core.frame.none"),
-    Opt::Padding,
-    Opt::Paper,
-    Opt::Ink,
-    Opt::Corners,
-    Opt::FrameLine,
-    Opt::Shadow,
     Opt::Choice(
         "tiles",
         "widgets.setting.tiles",
@@ -94,14 +104,6 @@ pub const WEEK_STARTS: &[&str] = &[
 ];
 
 const CALENDAR_OPTIONS: &[Opt] = &[
-    Opt::Align("core.align.center"),
-    Opt::Frame("core.frame.none"),
-    Opt::Padding,
-    Opt::Paper,
-    Opt::Ink,
-    Opt::Corners,
-    Opt::FrameLine,
-    Opt::Shadow,
     Opt::Choice(
         "week-start",
         "widgets.setting.week-start",
@@ -138,14 +140,6 @@ const CALENDAR_OPTIONS: &[Opt] = &[
 ];
 
 const COUNTDOWN_OPTIONS: &[Opt] = &[
-    Opt::Align("core.align.left"),
-    Opt::Frame("core.frame.none"),
-    Opt::Padding,
-    Opt::Paper,
-    Opt::Ink,
-    Opt::Corners,
-    Opt::FrameLine,
-    Opt::Shadow,
     Opt::Text(
         "title",
         "widgets.setting.countdown-title",
@@ -175,14 +169,6 @@ const COUNTDOWN_OPTIONS: &[Opt] = &[
 ];
 
 const YEAR_OPTIONS: &[Opt] = &[
-    Opt::Align("core.align.left"),
-    Opt::Frame("core.frame.none"),
-    Opt::Padding,
-    Opt::Paper,
-    Opt::Ink,
-    Opt::Corners,
-    Opt::FrameLine,
-    Opt::Shadow,
     Opt::Choice(
         "style",
         "widgets.setting.style",
@@ -202,14 +188,6 @@ const YEAR_OPTIONS: &[Opt] = &[
 ];
 
 const ANALOGUE_OPTIONS: &[Opt] = &[
-    Opt::Align("core.align.center"),
-    Opt::Frame("core.frame.none"),
-    Opt::Padding,
-    Opt::Paper,
-    Opt::Ink,
-    Opt::Corners,
-    Opt::FrameLine,
-    Opt::Shadow,
     Opt::Choice(
         "face",
         "widgets.setting.face",
@@ -257,14 +235,6 @@ const ANALOGUE_OPTIONS: &[Opt] = &[
 ];
 
 const MOON_OPTIONS: &[Opt] = &[
-    Opt::Align("core.align.left"),
-    Opt::Frame("core.frame.none"),
-    Opt::Padding,
-    Opt::Paper,
-    Opt::Ink,
-    Opt::Corners,
-    Opt::FrameLine,
-    Opt::Shadow,
     Opt::Part("name", "widgets.setting.phase-name", true),
     Opt::Part("full", "widgets.setting.next-full-moon", true),
     Opt::Part("lit", "widgets.setting.lit-percent", false),
@@ -323,14 +293,6 @@ pub const WORLD_ZONES_OR_NONE: [&str; 23] = {
 };
 
 const WORLD_OPTIONS: &[Opt] = &[
-    Opt::Align("core.align.left"),
-    Opt::Frame("core.frame.none"),
-    Opt::Padding,
-    Opt::Paper,
-    Opt::Ink,
-    Opt::Corners,
-    Opt::FrameLine,
-    Opt::Shadow,
     Opt::Choice(
         "place-1",
         "widgets.setting.place-1",
@@ -369,14 +331,6 @@ const WORLD_OPTIONS: &[Opt] = &[
 ];
 
 const WORD_CLOCK_OPTIONS: &[Opt] = &[
-    Opt::Align("core.align.left"),
-    Opt::Frame("core.frame.none"),
-    Opt::Padding,
-    Opt::Paper,
-    Opt::Ink,
-    Opt::Corners,
-    Opt::FrameLine,
-    Opt::Shadow,
     Opt::Choice(
         "style",
         "widgets.setting.style",
@@ -436,14 +390,6 @@ const GREETING_OPTIONS: &[Opt] = &[
         "widgets.setting.face-font.help",
     ),
     Opt::Size("core.size.fit", true),
-    Opt::Align("core.align.center"),
-    Opt::Frame("core.frame.none"),
-    Opt::Padding,
-    Opt::Paper,
-    Opt::Ink,
-    Opt::Corners,
-    Opt::FrameLine,
-    Opt::Shadow,
 ];
 
 /// Every widget of the pack.
@@ -453,6 +399,8 @@ pub const WIDGETS: &[Def] = &[
         token: 100,
         category: category::TIME,
         live: true,
+        align: "core.align.left",
+        look_last: false,
         options: DAY_OPTIONS,
     },
     Def {
@@ -460,6 +408,8 @@ pub const WIDGETS: &[Def] = &[
         token: 101,
         category: category::TIME,
         live: true,
+        align: "core.align.center",
+        look_last: false,
         options: TILES_OPTIONS,
     },
     Def {
@@ -467,6 +417,8 @@ pub const WIDGETS: &[Def] = &[
         token: 102,
         category: category::TIME,
         live: true,
+        align: "core.align.center",
+        look_last: false,
         options: CALENDAR_OPTIONS,
     },
     Def {
@@ -474,6 +426,8 @@ pub const WIDGETS: &[Def] = &[
         token: 103,
         category: category::TIME,
         live: true,
+        align: "core.align.left",
+        look_last: false,
         options: COUNTDOWN_OPTIONS,
     },
     Def {
@@ -481,6 +435,8 @@ pub const WIDGETS: &[Def] = &[
         token: 104,
         category: category::TIME,
         live: true,
+        align: "core.align.left",
+        look_last: false,
         options: YEAR_OPTIONS,
     },
     Def {
@@ -488,6 +444,8 @@ pub const WIDGETS: &[Def] = &[
         token: 105,
         category: category::TIME,
         live: true,
+        align: "core.align.center",
+        look_last: false,
         options: ANALOGUE_OPTIONS,
     },
     Def {
@@ -495,6 +453,8 @@ pub const WIDGETS: &[Def] = &[
         token: 106,
         category: category::TIME,
         live: true,
+        align: "core.align.left",
+        look_last: false,
         options: MOON_OPTIONS,
     },
     Def {
@@ -502,6 +462,8 @@ pub const WIDGETS: &[Def] = &[
         token: 107,
         category: category::TIME,
         live: true,
+        align: "core.align.left",
+        look_last: false,
         options: WORLD_OPTIONS,
     },
     Def {
@@ -509,6 +471,8 @@ pub const WIDGETS: &[Def] = &[
         token: 108,
         category: category::TIME,
         live: true,
+        align: "core.align.left",
+        look_last: false,
         options: WORD_CLOCK_OPTIONS,
     },
     Def {
@@ -516,6 +480,8 @@ pub const WIDGETS: &[Def] = &[
         token: 109,
         category: category::PERSONAL,
         live: true,
+        align: "core.align.center",
+        look_last: true,
         options: GREETING_OPTIONS,
     },
 ];
@@ -537,7 +503,7 @@ pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
             spec.previews(&group)
                 .map_err(|_| DeclareError::TooLong("widget preview"))?,
         )?;
-        declare_all(d, widget.name, &group, widget.options)?;
+        declare_all(d, widget.name, &group, widget.all())?;
         d.submit()?;
     }
     Ok(())

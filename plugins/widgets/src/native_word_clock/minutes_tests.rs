@@ -219,7 +219,7 @@ fn the_grid_lights_every_sentence_in_reading_order() {
                 for minute in (0..60u8).step_by(5) {
                     let (lead, rest) = sentence(&mut Fake(&t), hour, minute, next).unwrap();
                     let words = format!("{lead} {rest}");
-                    let mut cells = lit(&rows, &words).unwrap();
+                    let mut cells = lit(&rows, &words).unwrap().unwrap();
                     // Each letter once, all in the grid.
                     cells.sort_by_key(|&(r, c)| r * columns + c);
                     let before = cells.len();
@@ -238,11 +238,14 @@ fn the_grid_lights_every_sentence_in_reading_order() {
 #[test]
 fn words_not_in_the_grid_light_nothing() {
     let rows = grid(&mut Fake(&translator("en"))).unwrap();
-    assert_eq!(lit(&rows, "It is quarter past quarter past ten"), None);
-    assert_eq!(lit(&rows, "Zwölf"), None);
+    assert_eq!(
+        lit(&rows, "It is quarter past quarter past ten").unwrap(),
+        None
+    );
+    assert_eq!(lit(&rows, "Zwölf").unwrap(), None);
     // Nothing to light: no letters lit, not none found.
-    assert_eq!(lit(&rows, ""), Some(Vec::new()));
-    assert_eq!(lit(&rows, "- , !"), Some(Vec::new()));
+    assert_eq!(lit(&rows, "").unwrap(), Some(Vec::new()));
+    assert_eq!(lit(&rows, "- , !").unwrap(), Some(Vec::new()));
     // An empty grid finds no word.
-    assert_eq!(lit(&[], "It is"), None);
+    assert_eq!(lit(&[], "It is").unwrap(), None);
 }

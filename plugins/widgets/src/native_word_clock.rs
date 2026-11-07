@@ -11,7 +11,7 @@
 //! Quarters may be told towards the next hour ("viertel elf"), as some
 //! regions say (`widgets.word-clock.next.<15|45>`).
 use crate::native_draw::no_time;
-use alloc::{format, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::Host;
 use paperpaw_sdk::native::fonts::TextOrigin;
 use paperpaw_sdk::{
@@ -19,6 +19,7 @@ use paperpaw_sdk::{
     native::{Error, formatting::Arg},
 };
 use paperpaw_ui_kit::widget::names::chosen_name;
+use paperpaw_ui_kit::widget::settings::Stack;
 use paperpaw_ui_kit::widget::{Cx, Settings, cx::local_time_now};
 use paperpaw_ui_kit::{
     Paint, paint,
@@ -75,38 +76,67 @@ pub fn told(hour: u8, minute: u8, dots: bool) -> (u8, u8, u8) {
 }
 
 /// `text` with its first letter a capital.
-pub fn capitalised(text: &str) -> String {
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn capitalised(text: &str) -> Result<String, Error> {
+    let mut out = String::new();
+    out.try_reserve(text.len() + 4)
+        .map_err(|_| Error::NoMemory)?;
     let mut chars = text.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().chain(chars).collect(),
-        None => String::new(),
+    if let Some(first) = chars.next() {
+        for upper in first.to_uppercase() {
+            out.push(upper);
+        }
     }
+    out.push_str(chars.as_str());
+    Ok(out)
 }
 
-pub fn upper(text: &str) -> String {
-    text.chars().flat_map(char::to_uppercase).collect()
+/// `text` in capitals.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn upper(text: &str) -> Result<String, Error> {
+    let mut out = String::new();
+    out.try_reserve(text.len() + 4)
+        .map_err(|_| Error::NoMemory)?;
+    for c in text.chars() {
+        for upper in c.to_uppercase() {
+            let needed = upper.len_utf8();
+            out.try_reserve(needed).map_err(|_| Error::NoMemory)?;
+            out.push(upper);
+        }
+    }
+    Ok(out)
 }
 
 /// The letters of the grid lit by `words` (row, column): each word found
 /// in a row, the words in order, the last one as late in the grid as it
 /// can be (the hour comes last, below the minutes); `None` if a word is
 /// not in it.
-pub fn lit(grid: &[Vec<char>], words: &str) -> Option<Vec<(usize, usize)>> {
-    let words: Vec<Vec<char>> = words
-        .split_whitespace()
-        .map(|w| {
-            w.chars()
-                .filter(|c| c.is_alphabetic())
-                .flat_map(char::to_uppercase)
-                .collect::<Vec<char>>()
-        })
-        .filter(|w| !w.is_empty())
-        .collect();
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn lit(grid: &[Vec<char>], words: &str) -> Result<Option<Vec<(usize, usize)>>, Error> {
+    let mut letters: Vec<Vec<char>> = Vec::new();
+    for word in words.split_whitespace() {
+        let mut one: Vec<char> = Vec::new();
+        one.try_reserve(word.len()).map_err(|_| Error::NoMemory)?;
+        for c in word.chars().filter(|c| c.is_alphabetic()) {
+            for upper in c.to_uppercase() {
+                one.push(upper);
+            }
+        }
+        if !one.is_empty() {
+            paperpaw_ui_kit::mem::push(&mut letters, one)?;
+        }
+    }
     let columns = grid.iter().map(Vec::len).max().unwrap_or(0);
     // Positions counted through the rows; each word before the one after.
     let mut before = grid.len() * columns;
     let mut cells = Vec::new();
-    for word in words.iter().rev() {
+    for word in letters.iter().rev() {
         let mut found = None;
         'rows: for (r, row) in grid.iter().enumerate().rev() {
             if row.len() < word.len() {
@@ -119,11 +149,14 @@ pub fn lit(grid: &[Vec<char>], words: &str) -> Option<Vec<(usize, usize)>> {
                 }
             }
         }
-        let (r, c) = found?;
+        let Some((r, c)) = found else {
+            return Ok(None);
+        };
         before = r * columns + c;
+        cells.try_reserve(word.len()).map_err(|_| Error::NoMemory)?;
         cells.extend((c..c + word.len()).map(|c| (r, c)));
     }
-    Some(cells)
+    Ok(Some(cells))
 }
 
 /// What it says at `hour`:`minute` (the five minutes told): the lead ("It
@@ -140,9 +173,9 @@ pub fn sentence<W: Words>(
     let minute = minute / 5 * 5;
     let quarter = next && matches!(minute, 15 | 45);
     let key = if quarter {
-        format!("{KEY}.next.{minute}")
+        Stack::<64>::from_args(format_args!("{KEY}.next.{minute}"))?
     } else {
-        format!("{KEY}.{minute}")
+        Stack::<64>::from_args(format_args!("{KEY}.{minute}"))?
     };
     // Which hour it names: this one or the next ("half past ten", "halb
     // elf").
@@ -160,9 +193,13 @@ pub fn sentence<W: Words>(
             0 => 12,
             h => h,
         };
-        copy(words.word(&format!("{KEY}.hour.{h}"))?.trim())?
+        copy(
+            words
+                .word(Stack::<64>::from_args(format_args!("{KEY}.hour.{h}"))?.as_str())?
+                .trim(),
+        )?
     };
-    let rest = words.say(&key, &name)?;
+    let rest = words.say(key.as_str(), &name)?;
     Ok((copy(words.word("widgets.word-clock.lead")?.trim())?, rest))
 }
 
@@ -191,11 +228,11 @@ fn text(cx: &mut Cx<'_>, hour: u8, minute: u8) -> Result<(Option<String>, String
     let next = chosen_name(cx, "quarters")?.as_str() == "next";
     let (lead, rest) = sentence(cx, hour, minute, next)?;
     let capitals = cx.settings.shows("capitals")?;
-    let case = |s: String| if capitals { upper(&s) } else { s };
+    let case = |s: String| -> Result<String, Error> { if capitals { upper(&s) } else { Ok(s) } };
     Ok(match chosen_name(cx, "lead")?.as_str() {
-        "none" => (None, case(capitalised(&rest))),
-        "caption" => (Some(case(lead)), case(capitalised(&rest))),
-        _ => (None, case(format!("{lead} {rest}"))),
+        "none" => (None, case(capitalised(&rest)?)?),
+        "caption" => (Some(case(lead)?), case(capitalised(&rest)?)?),
+        _ => (None, case(concat(&[&lead, " ", &rest])?)?),
     })
 }
 
@@ -204,12 +241,12 @@ fn text(cx: &mut Cx<'_>, hour: u8, minute: u8) -> Result<(Option<String>, String
 fn time_alone(cx: &mut Cx<'_>, hour: u8, minute: u8) -> Result<String, Error> {
     let next = chosen_name(cx, "quarters")?.as_str() == "next";
     let (_, rest) = sentence(cx, hour, minute, next)?;
-    let rest = capitalised(&rest);
-    Ok(if cx.settings.shows("capitals")? {
+    let rest = capitalised(&rest)?;
+    if cx.settings.shows("capitals")? {
         upper(&rest)
     } else {
-        rest
-    })
+        Ok(rest)
+    }
 }
 
 /// What it shows, to tell when it changed: the five minutes told.
@@ -349,6 +386,7 @@ fn draw_text(
             }
             tail.push_str(held);
         }
+        tail.try_reserve(4).map_err(|_| Error::NoMemory)?;
         tail.push_str(" …");
         lines.truncate(most - 1);
         lines.try_reserve(1).map_err(|_| Error::NoMemory)?;
@@ -408,7 +446,7 @@ fn draw_grid(
     let next = chosen_name(cx, "quarters")?.as_str() == "next";
     let (lead, rest) = sentence(cx, told.hour, told.minute, next)?;
     let rows = grid(cx)?;
-    let Some(cells) = lit(&rows, &concat(&[&lead, " ", &rest])?) else {
+    let Some(cells) = lit(&rows, &concat(&[&lead, " ", &rest])?)? else {
         return Ok(false);
     };
     let columns = rows.iter().map(Vec::len).max().unwrap_or(0);
@@ -517,6 +555,7 @@ impl Words for Fake<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::format;
     use paperpaw_i18n::Catalog;
     use paperpaw_sdk::Translator;
 
@@ -611,7 +650,7 @@ mod tests {
                     for minute in (0..60).step_by(5) {
                         let (lead, rest) = sentence(&mut Fake(&t), hour, minute, next).unwrap();
                         let words = format!("{lead} {rest}");
-                        assert!(lit(&rows, &words).is_some(), "{language}: {words}");
+                        assert!(lit(&rows, &words).unwrap().is_some(), "{language}: {words}");
                     }
                 }
             }
@@ -624,20 +663,20 @@ mod tests {
         let rows = grid(&mut Fake(&en)).unwrap();
         // "ten past ten": the first "ten" in the minutes, the second the
         // hour in the last row.
-        let cells = lit(&rows, "It is ten past ten").unwrap();
+        let cells = lit(&rows, "It is ten past ten").unwrap().unwrap();
         let last = rows.len() - 1;
         assert!(cells.iter().any(|&(r, _)| r == last));
         assert!(cells.iter().any(|&(r, _)| r == 3));
         // "five o'clock": the hour's five, not the minutes'.
-        let cells = lit(&rows, "It is five o'clock").unwrap();
+        let cells = lit(&rows, "It is five o'clock").unwrap().unwrap();
         assert!(!cells.iter().any(|&(r, _)| r == 2));
-        assert!(lit(&rows, "It is teatime").is_none());
+        assert!(lit(&rows, "It is teatime").unwrap().is_none());
     }
 
     #[test]
     fn capitals_and_case() {
-        assert_eq!(capitalised("viertel elf"), "Viertel elf");
-        assert_eq!(upper("fünf vor zwölf"), "FÜNF VOR ZWÖLF");
+        assert_eq!(capitalised("viertel elf").unwrap(), "Viertel elf");
+        assert_eq!(upper("fünf vor zwölf").unwrap(), "FÜNF VOR ZWÖLF");
     }
 }
 

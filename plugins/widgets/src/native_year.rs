@@ -3,7 +3,7 @@
 //! left, as wished.
 use crate::native_dates::{day_of_year, days_in_month, days_in_year, iso_week};
 use crate::native_draw::no_time;
-use alloc::{format, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::Host;
 use paperpaw_sdk::{
     Color, Point, Rect,
@@ -11,6 +11,7 @@ use paperpaw_sdk::{
     time::LocalTime,
 };
 use paperpaw_ui_kit::widget::names::chosen_name;
+use paperpaw_ui_kit::widget::settings::Stack;
 use paperpaw_ui_kit::widget::{Cx, cx::local_time_now};
 use paperpaw_ui_kit::{
     Paint, paint,
@@ -108,8 +109,8 @@ fn notes(cx: &mut Cx<'_>, p: &Progress, short: bool) -> Result<Vec<String>, Erro
 }
 
 fn percent_text(cx: &mut Cx<'_>, p: &Progress) -> Result<String, Error> {
-    let text = format!("{} %", p.permille / 10);
-    cx.messages.digits(cx.host, &text)
+    let text = Stack::<16>::from_args(format_args!("{} %", p.permille / 10))?;
+    cx.messages.digits(cx.host, text.as_str())
 }
 
 /// The height: the percent large, two small lines, two gaps, the frame.
@@ -193,7 +194,7 @@ fn ink(
     size: f32,
 ) -> Result<f32, Error> {
     let part = Part {
-        lines: lines.to_vec(),
+        lines: paperpaw_ui_kit::mem::copy_strs(lines)?,
         size,
         color: Color::BLACK,
     };
@@ -285,11 +286,7 @@ fn draw_bar(
         let note_h = if lines.is_empty() {
             0.0
         } else {
-            ink(
-                &cx.font,
-                &lines.iter().map(String::as_str).collect::<Vec<_>>(),
-                small,
-            )? + gap
+            ink(&cx.font, &paperpaw_ui_kit::mem::strs(&lines)?, small)? + gap
         };
         let top_h = if with_caption { caption_h + gap } else { 0.0 };
         let bar = bar_h(height);
@@ -325,7 +322,7 @@ fn draw_bar(
         Some(size) => ink(&cx.font, &[text.as_str()], size)? + gap,
         None => 0.0,
     };
-    let note_refs: Vec<&str> = parts.notes.iter().map(String::as_str).collect();
+    let note_refs: Vec<&str> = paperpaw_ui_kit::mem::strs(&parts.notes)?;
     let note_h = if parts.notes.is_empty() {
         0.0
     } else {
@@ -348,7 +345,7 @@ fn draw_bar(
             y,
             caption_h,
             Part {
-                lines: alloc::vec![c],
+                lines: paperpaw_ui_kit::mem::one(c)?,
                 size: small,
                 color: look.faint,
             },
@@ -362,7 +359,7 @@ fn draw_bar(
             y,
             big - gap,
             Part {
-                lines: alloc::vec![text.as_str()],
+                lines: paperpaw_ui_kit::mem::one(text.as_str())?,
                 size,
                 color: look.ink,
             },
@@ -499,16 +496,7 @@ fn draw_ring(
     if !beside {
         if below > 0 {
             let row = Rect::new(area.x, top + side + gap / 2, area.width, small as u16);
-            let mut joined = String::new();
-            for (n, note) in items.iter().enumerate() {
-                joined
-                    .try_reserve(note.len() + 4)
-                    .map_err(|_| Error::NoMemory)?;
-                if n > 0 {
-                    joined.push_str(" · ");
-                }
-                joined.push_str(note);
-            }
+            let joined = paperpaw_ui_kit::text::join_notes(&items)?;
             label(out, &cx.font, (small_size, align), row, &joined, look.faint)?;
         }
         return Ok(());

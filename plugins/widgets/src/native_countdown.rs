@@ -10,6 +10,8 @@ use paperpaw_sdk::{
     Rect,
     native::{Error, formatting::Arg},
 };
+use paperpaw_ui_kit::mem;
+use paperpaw_ui_kit::text::join_notes;
 use paperpaw_ui_kit::widget::names::{chosen_name, date_text, month_name};
 use paperpaw_ui_kit::widget::{Cx, Settings};
 use paperpaw_ui_kit::{
@@ -238,17 +240,7 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Err
     if cx.settings.shows("show-date")? && titled {
         notes.push(copy(&date)?);
     }
-    let mut joined = String::new();
-    for (n, note) in notes.iter().enumerate() {
-        joined
-            .try_reserve(note.len() + 4)
-            .map_err(|_| Error::NoMemory)?;
-        if n > 0 {
-            joined.push_str(" · ");
-        }
-        joined.push_str(note);
-    }
-    let notes = joined;
+    let notes = join_notes(&notes)?;
     let area = look.area;
     let align = cx.settings.align()?;
     let small_size = cx.style().small;
@@ -442,18 +434,20 @@ fn number_style(
     // reaches further.
     let small = line(&cx.font, small_size)?;
     while size > small_size {
-        let number = [copy(&shown.big)?];
-        let mut parts = alloc::vec![Part {
-            lines: number.iter().map(String::as_str).collect(),
+        let mut parts = mem::one(Part {
+            lines: mem::one(shown.big.as_str())?,
             size,
             color: look.ink,
-        }];
+        })?;
         if !note_lines.is_empty() {
-            parts.push(Part {
-                lines: note_lines.iter().map(String::as_str).collect(),
-                size: note_size,
-                color: look.ink,
-            });
+            mem::push(
+                &mut parts,
+                Part {
+                    lines: mem::strs(&note_lines)?,
+                    size: note_size,
+                    color: look.ink,
+                },
+            )?;
         }
         let total = stack_height(&cx.font, &parts, gap)? + if extra { small + gap } else { 0.0 };
         if total <= height {
@@ -466,24 +460,30 @@ fn number_style(
         return Ok(());
     }
     // Centred together by their ink, a gap between the parts.
-    let mut parts = alloc::vec![Part {
-        lines: alloc::vec![number.as_str()],
+    let mut parts = mem::one(Part {
+        lines: mem::one(number.as_str())?,
         size,
         color: look.ink,
-    }];
+    })?;
     if !note_lines.is_empty() {
-        parts.push(Part {
-            lines: note_lines.iter().map(String::as_str).collect(),
-            size: note_size,
-            color: look.ink,
-        });
+        mem::push(
+            &mut parts,
+            Part {
+                lines: mem::strs(&note_lines)?,
+                size: note_size,
+                color: look.ink,
+            },
+        )?;
     }
     if extra {
-        parts.push(Part {
-            lines: alloc::vec![notes],
-            size: small_size,
-            color: look.faint,
-        });
+        mem::push(
+            &mut parts,
+            Part {
+                lines: mem::one(notes)?,
+                size: small_size,
+                color: look.faint,
+            },
+        )?;
     }
     layout::stack(out, &cx.font, area, align, &parts, gap)
 }
@@ -496,7 +496,7 @@ fn ink_of(
     color: paperpaw_sdk::Color,
 ) -> Result<f32, Error> {
     let part = Part {
-        lines: lines.iter().map(String::as_str).collect(),
+        lines: mem::strs(lines)?,
         size,
         color,
     };
