@@ -4,6 +4,7 @@ use crate::native::{
     settings::SettingValue,
     wire::settings_wire::{SettingValueRef, settings_encode},
 };
+use alloc::vec::Vec;
 use core::mem::MaybeUninit;
 
 // registry.md section 4.4: keys and encoded values of one preview set.
@@ -215,24 +216,33 @@ impl CommandSender<'_, '_> {
     ///
     /// # Errors
     /// Returns Invalid for empty IDs, embedded separators or list item limits,
-    /// NoSpace for total field overflow,
+    /// NoSpace for total field overflow, NoMemory for the temporary joined list,
     /// or the host's refusal, including Denied without uses.registry.
     pub fn set_menu(&mut self, menu: impl AsRef<str>, items: Option<&[&str]>) -> Result<(), Error> {
         let menu = menu.as_ref();
         check_id(menu, wire::COMMAND_SET_MENU_MENU_MAX_BYTES)?;
-        let mut joined = [0; wire::COMMAND_SET_MENU_ITEMS_MAX_BYTES];
-        let text = join_ids(
-            items.unwrap_or(&[]),
-            &mut joined,
-            wire::COMMAND_SET_MENU_ITEMS_MAX_ITEMS,
-            wire::COMMAND_SET_MENU_ITEMS_ITEM_MAX_BYTES,
-            wire::COMMAND_SET_MENU_ITEMS_SEPARATOR,
-        )?;
-        self.submit(wire::Command::SetMenu {
-            menu,
-            items: text,
-            flags: u32::from(items.is_none()),
-        })
+        let length = {
+            let ids = items.unwrap_or(&[]);
+            let needed = menu_list_bytes(ids)?;
+            let mut joined = Vec::new();
+            joined
+                .try_reserve_exact(needed)
+                .map_err(|_| Error::NoMemory)?;
+            joined.resize(needed, 0);
+            let text = join_ids(
+                ids,
+                &mut joined,
+                wire::COMMAND_SET_MENU_ITEMS_MAX_ITEMS,
+                wire::COMMAND_SET_MENU_ITEMS_ITEM_MAX_BYTES,
+                wire::COMMAND_SET_MENU_ITEMS_SEPARATOR,
+            )?;
+            self.encode_batch(&[wire::Command::SetMenu {
+                menu,
+                items: text,
+                flags: u32::from(items.is_none()),
+            }])?
+        };
+        self.submit_encoded(length)
     }
 
     /// Set a binding or return it to its declared default.
@@ -358,6 +368,27 @@ impl CommandSender<'_, '_> {
             flags: u32::from(matches!(mode, PresetMode::Preview)),
         })
     }
+}
+
+fn menu_list_bytes(ids: &[&str]) -> Result<usize, Error> {
+    if ids.len() > wire::COMMAND_SET_MENU_ITEMS_MAX_ITEMS {
+        return Err(Error::Invalid);
+    }
+    let mut total = 0usize;
+    for (index, id) in ids.iter().enumerate() {
+        if id.is_empty()
+            || id.contains(wire::COMMAND_SET_MENU_ITEMS_SEPARATOR)
+            || id.len() > wire::COMMAND_SET_MENU_ITEMS_ITEM_MAX_BYTES
+        {
+            return Err(Error::Invalid);
+        }
+        total = total
+            .checked_add(id.len())
+            .and_then(|n| n.checked_add(usize::from(index != 0)))
+            .filter(|n| *n <= wire::COMMAND_SET_MENU_ITEMS_MAX_BYTES)
+            .ok_or(Error::NoSpace)?;
+    }
+    Ok(total)
 }
 
 fn join_ids<'a>(
