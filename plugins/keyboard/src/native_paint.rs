@@ -1,5 +1,5 @@
 //! How the keyboard is drawn: the text field, the keys and the variants of a
-//! letter above them, laid out as owned [`Paint`] operations for the draw
+//! letter above them, laid out as owned [`Paint`](paperpaw_ui_kit::paint::Paint) operations for the draw
 //! callback to replay.
 use crate::keys::{Key, Layer};
 use crate::native_model::{Board, FIELD_ROW, FieldButton, Popup, Shift, title_height};

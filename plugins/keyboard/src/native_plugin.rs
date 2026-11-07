@@ -1,7 +1,7 @@
 //! The keyboard as an interface-7 plugin: the dialog of text questions on the
 //! slot `core.keyboard` (it reads the question and the starting text, types on
 //! the keys, and answers through `core.ui`), and the screen that chooses the
-//! layouts. Drawing goes through owned [`Paint`] operations.
+//! layouts. Drawing goes through owned [`Paint`](paperpaw_ui_kit::paint::Paint) operations.
 use crate::keys::Key;
 use crate::layouts::{AUTO, LAYOUTS, chosen_for};
 use crate::native_model::{
