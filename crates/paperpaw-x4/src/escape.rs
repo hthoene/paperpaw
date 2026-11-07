@@ -69,19 +69,27 @@ pub enum Blame {
 
 /// Which plugin call has been running, as the readings see it: the running
 /// call's token and the outermost call's (each another value whenever a call
-/// begins or ends, or only when a new outermost call begins), and since when
-/// each is the same. Nothing is watched while the host works for a plugin (a
-/// slot of the host is open: a slow card write, a large erase), so a plugin is
-/// never blamed for waiting on the host. A reset by the escape blames a plugin
-/// only if its call has run for the whole grace ([`GRACE_MS`]) with plugin
-/// code running all that time, which a call that began after the 8 s mark
-/// cannot have.
+/// or a host slot begins or ends, or only when a new outermost call begins),
+/// whether the call waits for a host slot, and since when each is the same.
+///
+/// A reset by the escape blames a plugin only if its call has run for the
+/// whole grace ([`GRACE_MS`]), which a call that began after the 8 s mark
+/// cannot have. The plugin's own code running unchanged blames the innermost
+/// call; a call that keeps the device busy through many short host calls (or
+/// nested calls) for the whole grace blames the outermost one, because the
+/// device is stuck inside that plugin's call. Only **one** host call that has
+/// stayed open for the whole grace blames nobody (a slow card write is the
+/// host's time, not the plugin's), and the outermost call's time then starts
+/// again where that call returns.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CallWatch {
     call: Option<u32>,
     call_since: u64,
     outer: Option<u32>,
     outer_since: u64,
+    /// The reading of the host call that is open now, and since when.
+    host: Option<u32>,
+    host_since: u64,
 }
 
 impl CallWatch {
@@ -93,24 +101,42 @@ impl CallWatch {
             call_since: 0,
             outer: None,
             outer_since: 0,
+            host: None,
+            host_since: 0,
         }
     }
 
-    /// One reading at `now` (ms, increasing): `running` is the record of
-    /// calls' `(call, outermost)` while plugin code runs, `None` while no call
-    /// is open or the host works.
-    pub fn observe(&mut self, now: u64, running: Option<(u32, u32)>) {
-        let (call, outer) = match running {
-            Some((call, outer)) => (Some(call), Some(outer)),
-            None => (None, None),
+    /// One reading at `now` (ms, increasing) of the record of calls:
+    /// `(call, outermost, host)` while a call is open (`host`: the innermost
+    /// call waits for a host slot), `None` when none is.
+    pub fn observe(&mut self, now: u64, running: Option<(u32, u32, bool)>) {
+        let Some((call, outer, host)) = running else {
+            *self = CallWatch::new();
+            return;
         };
-        if call != self.call {
-            self.call = call;
-            self.call_since = now;
-        }
-        if outer != self.outer {
-            self.outer = outer;
+        if self.outer != Some(outer) {
+            self.outer = Some(outer);
             self.outer_since = now;
+            self.host = None;
+        }
+        if host {
+            // The plugin's own code is not running; the innermost rule has
+            // nothing to time, and a host call open for the whole grace is the
+            // host's time.
+            self.call = None;
+            if self.host != Some(call) {
+                self.host = Some(call);
+                self.host_since = now;
+            }
+            if now.saturating_sub(self.host_since) >= GRACE_MS {
+                self.outer_since = now;
+            }
+        } else {
+            self.host = None;
+            if self.call != Some(call) {
+                self.call = Some(call);
+                self.call_since = now;
+            }
         }
     }
 
@@ -320,22 +346,23 @@ mod tests {
         assert_eq!(escape.update(1_000, true, true, false), Step::Idle);
     }
 
-    /// Feeds readings every 5 ms in `[from, to)` of the running call
-    /// `(call, outermost)`.
-    fn watch(call: &mut CallWatch, from: u64, to: u64, running: Option<(u32, u32)>) {
+    /// Feeds readings every 5 ms in `[from, to)` of the record of calls
+    /// `(call, outermost, host)`.
+    fn watch(call: &mut CallWatch, from: u64, to: u64, running: Option<(u32, u32, bool)>) {
         for now in (from..to).step_by(5) {
             call.observe(now, running);
         }
     }
 
+    const FORCED: u64 = HOLD_MS + GRACE_MS;
+
     #[test]
     fn a_call_that_was_running_at_the_mark_is_blamed_at_the_reset() {
         let mut call = CallWatch::new();
         // The call began shortly before the 8 s mark and never returned.
-        watch(&mut call, 7_000, HOLD_MS + GRACE_MS, Some((7, 1)));
-        let forced = HOLD_MS + GRACE_MS;
-        call.observe(forced, Some((7, 1)));
-        assert_eq!(call.blame(forced), Blame::Innermost);
+        watch(&mut call, 7_000, FORCED, Some((7, 1, false)));
+        call.observe(FORCED, Some((7, 1, false)));
+        assert_eq!(call.blame(FORCED), Blame::Innermost);
     }
 
     #[test]
@@ -344,38 +371,57 @@ mod tests {
         // A long host step (no plugin call) up to just after the mark; then a
         // call begins and is the one running when the reset comes.
         watch(&mut call, 7_000, HOLD_MS + 10, None);
-        watch(&mut call, HOLD_MS + 10, HOLD_MS + GRACE_MS, Some((9, 2)));
-        let forced = HOLD_MS + GRACE_MS;
-        call.observe(forced, Some((9, 2)));
-        assert_eq!(call.blame(forced), Blame::Nobody);
+        watch(&mut call, HOLD_MS + 10, FORCED, Some((9, 2, false)));
+        call.observe(FORCED, Some((9, 2, false)));
+        assert_eq!(call.blame(FORCED), Blame::Nobody);
     }
 
     #[test]
-    fn a_plugin_inside_a_slow_host_write_is_not_blamed() {
+    fn a_plugin_inside_one_slow_host_call_is_not_blamed() {
         let mut call = CallWatch::new();
-        // The plugin's call began before the mark; its card write began just
-        // before it and runs through the reset: nothing is watched meanwhile.
-        watch(&mut call, 7_000, 7_900, Some((7, 1)));
-        watch(&mut call, 7_900, HOLD_MS + GRACE_MS, None);
-        let forced = HOLD_MS + GRACE_MS;
-        call.observe(forced, None);
-        assert_eq!(call.blame(forced), Blame::Nobody);
+        // The plugin's call began before the mark; its card write began at 7.9
+        // s and is open through the reset: one host call, open for the grace.
+        watch(&mut call, 7_000, 7_900, Some((7, 1, false)));
+        watch(&mut call, 7_900, FORCED, Some((8, 1, true)));
+        call.observe(FORCED, Some((8, 1, true)));
+        assert_eq!(call.blame(FORCED), Blame::Nobody);
         // The write returned just before the reset: the plugin runs again as
-        // another reading, which has not run for the grace.
-        call.observe(forced + 5, Some((9, 1)));
-        assert_eq!(call.blame(forced + 5), Blame::Nobody);
+        // another reading, and its outermost call's time starts there.
+        call.observe(FORCED + 5, Some((9, 1, false)));
+        assert_eq!(call.blame(FORCED + 5), Blame::Nobody);
+    }
+
+    #[test]
+    fn a_loop_of_short_host_calls_is_blamed_on_the_outermost_call() {
+        let mut call = CallWatch::new();
+        // `loop { text_measure() }`: the outermost call never returns; a host
+        // slot opens and closes every reading, so the reading changes all the
+        // time and no host call stays open.
+        for (n, now) in (0u32..).zip((7_000..FORCED + 5).step_by(5)) {
+            call.observe(now, Some((n, 4, n % 2 == 1)));
+        }
+        assert_eq!(call.blame(FORCED), Blame::Outermost);
+    }
+
+    #[test]
+    fn a_host_call_shorter_than_the_grace_does_not_hide_a_stuck_outer_call() {
+        let mut call = CallWatch::new();
+        // The outermost call has run since 7 s; a host call opens at 8.9 s and
+        // is still open at the reset (1.1 s < the grace).
+        watch(&mut call, 7_000, 8_900, Some((7, 1, false)));
+        watch(&mut call, 8_900, FORCED, Some((8, 1, true)));
+        assert_eq!(call.blame(FORCED), Blame::Outermost);
     }
 
     #[test]
     fn a_nested_or_another_call_starts_the_count_anew() {
         let mut call = CallWatch::new();
-        watch(&mut call, 7_000, 9_000, Some((1, 1)));
+        watch(&mut call, 7_000, 9_000, Some((1, 1, false)));
         // The first call ends and another begins (even the same plugin): the
-        // token is another one.
-        watch(&mut call, 9_000, HOLD_MS + GRACE_MS, Some((3, 2)));
-        let forced = HOLD_MS + GRACE_MS;
-        call.observe(forced, Some((3, 2)));
-        assert_eq!(call.blame(forced), Blame::Nobody);
+        // outermost token is another one.
+        watch(&mut call, 9_000, FORCED, Some((3, 2, false)));
+        call.observe(FORCED, Some((3, 2, false)));
+        assert_eq!(call.blame(FORCED), Blame::Nobody);
         assert_eq!(call.blame(9_000 + GRACE_MS), Blame::Innermost);
     }
 
@@ -385,15 +431,14 @@ mod tests {
         // Plugin A's call began at 7 s and never returned; inside it, nested
         // calls begin and end every reading (the innermost token changes all
         // the time, the outermost does not).
-        for (n, now) in (0u32..).zip((7_000..HOLD_MS + GRACE_MS + 5).step_by(5)) {
-            call.observe(now, Some((n, 4)));
+        for (n, now) in (0u32..).zip((7_000..FORCED + 5).step_by(5)) {
+            call.observe(now, Some((n, 4, false)));
         }
-        let forced = HOLD_MS + GRACE_MS;
-        assert_eq!(call.blame(forced), Blame::Outermost);
+        assert_eq!(call.blame(FORCED), Blame::Outermost);
         // A stuck inner call is the innermost, though.
         let mut call = CallWatch::new();
-        watch(&mut call, 7_000, forced + 5, Some((5, 4)));
-        assert_eq!(call.blame(forced), Blame::Innermost);
+        watch(&mut call, 7_000, FORCED + 5, Some((5, 4, false)));
+        assert_eq!(call.blame(FORCED), Blame::Innermost);
     }
 
     #[test]
@@ -410,8 +455,13 @@ mod tests {
         // the reset 6 s after the request finds a call that has run 6 s.
         let mut call = CallWatch::new();
         let asked = HOLD_MS;
-        watch(&mut call, asked + 100, asked + CLEAN_MS, Some((11, 6)));
-        call.observe(asked + CLEAN_MS, Some((11, 6)));
+        watch(
+            &mut call,
+            asked + 100,
+            asked + CLEAN_MS,
+            Some((11, 6, false)),
+        );
+        call.observe(asked + CLEAN_MS, Some((11, 6, false)));
         assert_eq!(call.blame(asked + CLEAN_MS), Blame::Innermost);
     }
 }

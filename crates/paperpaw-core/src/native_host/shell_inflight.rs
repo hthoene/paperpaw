@@ -137,18 +137,18 @@ impl Inflight {
         Self::host_of(self.head)
     }
 
-    /// What a watcher reads: `Some((call, outermost))` while plugin code runs
-    /// (a call is open and no host slot is open in it), `None` otherwise.
-    /// `call` is another value after every change (a call or a host slot
-    /// began or ended); `outermost` is another value only when a new
-    /// outermost call begins.
+    /// What a watcher reads: `Some((call, outermost, host))` while a call is
+    /// open, `None` otherwise. `call` is another value after every change (a
+    /// call or a host slot began or ended); `outermost` is another value only
+    /// when a new outermost call begins; `host` says the innermost call is
+    /// waiting for a host slot (its code is not running).
     #[must_use]
-    pub fn watch(&self) -> Option<(u32, u32)> {
+    pub fn watch(&self) -> Option<(u32, u32, bool)> {
         Self::watched(self.head, self.root)
     }
 
-    fn watched(head: u32, root: u32) -> Option<(u32, u32)> {
-        (Self::depth_of(head) > 0 && Self::host_of(head) == 0).then_some((head, root))
+    fn watched(head: u32, root: u32) -> Option<(u32, u32, bool)> {
+        (Self::depth_of(head) > 0).then_some((head, root, Self::host_of(head) > 0))
     }
 
     /// [`watch`](Self::watch) of the record at `this`, read with one volatile
@@ -159,7 +159,7 @@ impl Inflight {
     /// # Safety
     /// `this` points to a valid, aligned `Inflight`.
     #[must_use]
-    pub unsafe fn watch_at(this: *const Self) -> Option<(u32, u32)> {
+    pub unsafe fn watch_at(this: *const Self) -> Option<(u32, u32, bool)> {
         // SAFETY: the caller's contract; aligned words.
         let head = unsafe { core::ptr::addr_of!((*this).head).read_volatile() };
         // SAFETY: as above.
@@ -310,23 +310,26 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_watched_while_a_host_slot_is_open() {
+    fn a_host_slot_is_read_as_the_call_waiting_for_the_host() {
         let mut inflight = Inflight::EMPTY;
         inflight.enter("a");
-        let before = inflight.watch();
-        assert!(before.is_some());
+        let (before, root, host) = inflight.watch().unwrap();
+        assert!(!host);
         inflight.host_enter();
-        assert_eq!(inflight.watch(), None, "the host is working");
+        let (during, same_root, host) = inflight.watch().unwrap();
+        assert!(host, "the host is working");
+        assert_ne!(during, before, "a slot began: another reading");
+        assert_eq!(same_root, root, "the outermost call is the same one");
         assert_eq!(inflight.host_slots(), 1);
         inflight.host_enter();
         inflight.host_leave();
-        assert_eq!(inflight.watch(), None, "still inside the first slot");
+        assert!(inflight.watch().unwrap().2, "still inside the first slot");
         inflight.host_leave();
-        let after = inflight.watch();
-        assert!(after.is_some());
+        let (after, _, host) = inflight.watch().unwrap();
+        assert!(!host);
         assert_ne!(after, before, "the plugin runs again as another reading");
         assert_eq!(inflight.current(), Some("a"));
-        // A host slot with no call open is harmless and watched as nothing.
+        // A host slot with no call open is read as nothing.
         inflight.leave();
         inflight.host_enter();
         assert_eq!(inflight.watch(), None);
@@ -341,13 +344,21 @@ mod tests {
         inflight.host_enter();
         // The host slot calls plugin B (an event, a service callback).
         inflight.enter("b");
-        assert!(inflight.watch().is_some(), "B's own code runs");
+        assert_eq!(
+            inflight.watch().map(|w| w.2),
+            Some(false),
+            "B's own code runs"
+        );
         assert_eq!(inflight.current(), Some("b"));
         inflight.leave();
-        assert_eq!(inflight.watch(), None, "back in the host's slot");
+        assert_eq!(
+            inflight.watch().map(|w| w.2),
+            Some(true),
+            "back in the host's slot"
+        );
         assert_eq!(inflight.host_slots(), 1);
         inflight.host_leave();
-        assert!(inflight.watch().is_some());
+        assert_eq!(inflight.watch().map(|w| w.2), Some(false));
     }
 
     #[test]

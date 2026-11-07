@@ -32,7 +32,7 @@ const ID_LEN: usize = 48;
 const MAGIC: u32 = 0x5050_5346;
 /// The record has the plugin calls in it (another layout, another magic).
 #[cfg(feature = "ppn5")]
-const MAGIC: u32 = 0x5050_5348;
+const MAGIC: u32 = 0x5050_5349;
 
 /// What safe mode keeps through a reset.
 #[derive(Clone, Copy)]
@@ -208,12 +208,12 @@ fn reset() {
     unsafe { core::ptr::addr_of_mut!(RECORD).write_volatile(EMPTY) };
 }
 
-/// What the escape's watch reads in the button interrupt: `(call, outermost)`
-/// while plugin code runs (a call is open and no host slot is open in it),
-/// `None` otherwise. One volatile word each, no copy of the record. The same
+/// What the escape's watch reads in the button interrupt: `(call, outermost,
+/// host)` while a call is open (`host`: it waits for a host slot), `None`
+/// otherwise. One volatile word each, no copy of the record. The same
 /// numbers twice are the same call.
 #[cfg(feature = "ppn5")]
-pub fn running_call() -> Option<(u32, u32)> {
+pub fn running_call() -> Option<(u32, u32, bool)> {
     // SAFETY: as in `read`; the interrupt only loads two words of a record that
     // the main loop may be changing, through a raw pointer, and the main loop
     // stores them with matching volatile stores.

@@ -48,3 +48,64 @@ impl Drop for Slot {
         call(&END);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::Path;
+
+    /// Entries of the host table that never wait: the allocator and the clock
+    /// (hot and bounded), and the helper they share.
+    const FAST: &[&str] = &["heap_alloc", "heap_dealloc", "heap_realloc", "clock_micros"];
+
+    /// Every function a plugin can call through the host table (an
+    /// `extern "C" fn` taking the context first) announces its host slot, so
+    /// the Power-hold escape never blames a plugin that waits for the host.
+    /// A new entry without the guard (a service, a stage runner that calls back
+    /// into plugins) fails here.
+    #[test]
+    fn every_host_table_entry_but_the_allocator_and_the_clock_announces_its_slot() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = vec![root.join("native_host.rs")];
+        for entry in fs::read_dir(root.join("native_host")).unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.file_name().unwrap().to_str().unwrap().to_owned();
+            if name.ends_with(".rs") && !name.contains("tests") && name != "shell_core.rs" {
+                files.push(path);
+            }
+        }
+        let mut seen = 0;
+        let mut missing = Vec::new();
+        for path in files {
+            let source = fs::read_to_string(&path).unwrap();
+            // Only the code before the file's test module.
+            let source = source.split("\n#[cfg(test)]").next().unwrap();
+            let mut rest = source;
+            while let Some(at) = rest.find("extern \"C\" fn ") {
+                let after = &rest[at + "extern \"C\" fn ".len()..];
+                let name: String = after
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                let body_end = after
+                    .find("\nunsafe extern \"C\" fn ")
+                    .or_else(|| after.find("\nextern \"C\" fn "))
+                    .unwrap_or(after.len());
+                let function = &after[..body_end];
+                let signature = function.split('{').next().unwrap();
+                if signature.contains("ctx: *mut c_void") && !FAST.contains(&name.as_str()) {
+                    seen += 1;
+                    if !function.contains("host_slot::enter()") {
+                        missing.push(format!("{}: {name}", path.display()));
+                    }
+                }
+                rest = &after[body_end..];
+            }
+        }
+        assert!(seen >= 25, "the scan found only {seen} host entries");
+        assert!(
+            missing.is_empty(),
+            "host entries without `host_slot::enter()`: {missing:#?}"
+        );
+    }
+}
