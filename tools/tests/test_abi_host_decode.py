@@ -32,6 +32,8 @@ class HostDecode(unittest.TestCase):
                      'registration.stage', 'service.echo'):
             self.assertFalse(host_sent(self.schema, name), name)
         self.assertIn('EVENT_STARTED_TAG\n', arms)
+        # `event.tick` has its own codec; the host refuses it all the same.
+        self.assertIn('        EVENT_TICK_TAG\n', arms)
         self.assertNotIn('EventStarted::decode', arms)
         self.assertIn('SettingSpec::decode', arms)
         self.assertIn('ServiceEcho::decode', arms)

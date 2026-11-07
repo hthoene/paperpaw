@@ -2856,7 +2856,8 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         REGISTRATION_STAGE_TAG => RegistrationStage::decode(body)?,
         STAGE_REPLY_TAG => StageReply::decode(body)?,
         SERVICE_ECHO_TAG => ServiceEcho::decode(body)?,
-        EVENT_STARTED_TAG
+        EVENT_TICK_TAG
+        | EVENT_STARTED_TAG
         | EVENT_RESUME_TAG
         | EVENT_SUSPEND_TAG
         | EVENT_STOPPING_TAG
@@ -2891,7 +2892,10 @@ impl RecordBatch<'_> {
 /// caller holds (for example on the heap, so it never passes through the
 /// stack). Records only the host sends are ERR_INVALID ([`host_decode_one`]).
 /// On an error the batch is empty.
-pub fn host_records_decode_into<'a>(bytes: &'a [u8], batch: &mut RecordBatch<'a>) -> Result<(), i32> {
+pub fn host_records_decode_into<'a>(
+    bytes: &'a [u8],
+    batch: &mut RecordBatch<'a>,
+) -> Result<(), i32> {
     let decoded = host_records_fill(bytes, batch);
     if decoded.is_err() {
         batch.len = 0;

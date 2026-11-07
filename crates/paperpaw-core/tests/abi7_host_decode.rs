@@ -79,6 +79,79 @@ fn what_only_the_host_sends_is_invalid_before_its_body_is_read() {
     assert_eq!(host_decode_one(&end), Err(ERR_INVALID));
 }
 
+fn framed(tag: u32, body: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for mut value in [tag, u32::try_from(body.len()).unwrap()] {
+        while value >= 0x80 {
+            out.push((value & 0x7f) as u8 | 0x80);
+            value >>= 7;
+        }
+        out.push(value as u8);
+    }
+    out.extend_from_slice(body);
+    out
+}
+
+/// Kinds only the host sends, by tag (`docs/abi/stages-services.md`): the
+/// tick, events, inputs and frames, the stage call, and every service record
+/// no service schema takes as input (`service.echo`, 1024, is one).
+fn host_only(tag: u32) -> bool {
+    matches!(tag, 3 | 32..=43 | 48..=55 | 64..=223 | 512)
+        || ((1024..=1535).contains(&tag) && tag != 1024)
+}
+
+#[test]
+fn every_kind_only_the_host_sends_is_refused_and_every_other_decodes_as_before() {
+    // Sixty-four zero bytes are a valid body of every generated record: an
+    // empty bitmap, zero scalars, empty text, trailing bytes skipped.
+    let zeros = [0; 64];
+    let (mut refused, mut decoded) = (Vec::new(), Vec::new());
+    for tag in 0..2048 {
+        let bytes = framed(tag, &zeros);
+        let full = record_decode_one(&bytes);
+        let host = host_decode_one(&bytes);
+        if tag != 3 && full == Err(ERR_UNSUPPORTED) {
+            assert_eq!(host, Err(ERR_UNSUPPORTED), "unknown tag {tag}");
+            continue;
+        }
+        if host_only(tag) {
+            assert_eq!(host, Err(ERR_INVALID), "host-only tag {tag}");
+            assert_eq!(host_decode_prefix(&bytes).map(|(r, _)| r), Err(ERR_INVALID));
+            let mut two = vec![2];
+            two.extend(bare(GROUP));
+            two.extend(&bytes);
+            assert_eq!(host_records_decode(&two), Err(ERR_INVALID), "tag {tag}");
+            refused.push(tag);
+        } else {
+            assert!(full.is_ok(), "tag {tag}: {full:?}");
+            assert_eq!(host, full, "tag {tag}");
+            decoded.push(tag);
+        }
+    }
+    // Pinned: a new record kind must be placed on one side on purpose.
+    assert_eq!(refused.len(), 20, "{refused:?}");
+    assert_eq!(decoded.len(), 23, "{decoded:?}");
+}
+
+#[test]
+fn a_tick_is_invalid_bare_as_a_prefix_and_in_a_batch() {
+    // `event.tick` (tag 3) has its own codec and only the host sends it.
+    let tick = [3, 8, 0, 0, 0, 0, 0, 0, 0, 0];
+    assert_eq!(host_decode_one(&tick), Err(ERR_INVALID));
+    assert_eq!(host_decode_prefix(&tick).map(|(r, _)| r), Err(ERR_INVALID));
+    let mut one = vec![1];
+    one.extend(tick);
+    assert_eq!(host_records_decode(&one), Err(ERR_INVALID));
+    let mut two = vec![2];
+    two.extend(bare(GROUP));
+    two.extend(tick);
+    let mut held = RecordBatch::EMPTY;
+    assert_eq!(host_records_decode_into(&two, &mut held), Err(ERR_INVALID));
+    assert!(held.is_empty());
+    // A malformed tick body is still refused before it is read.
+    assert_eq!(host_decode_one(&[3, 1, 0xff]), Err(ERR_INVALID));
+}
+
 #[test]
 fn unknown_tags_and_limits_keep_their_statuses() {
     // Tag 75 has no record yet: unsupported, as in `records_decode`.

@@ -2856,7 +2856,8 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         REGISTRATION_STAGE_TAG => RegistrationStage::decode(body)?,
         STAGE_REPLY_TAG => StageReply::decode(body)?,
         SERVICE_ECHO_TAG => ServiceEcho::decode(body)?,
-        EVENT_STARTED_TAG
+        EVENT_TICK_TAG
+        | EVENT_STARTED_TAG
         | EVENT_RESUME_TAG
         | EVENT_SUSPEND_TAG
         | EVENT_STOPPING_TAG

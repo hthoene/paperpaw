@@ -39,9 +39,9 @@ def rust_host_decode(schema):
     taken = [r for r in declared if not host_sent(schema, r['name'])]
     arms = ''.join(f"        {_const(r['name'])}_TAG => {_camel(r['name'])}::decode(body)?,\n"
                    for r in taken)
-    if sent:
-        arms += ('        ' + '\n        | '.join(_const(r['name']) + '_TAG' for r in sent)
-                 + ' => return Err(@INVALID@),\n')
+    # `event.tick` has its own codec (not a wire record) and only the host sends it.
+    refused = ['EVENT_TICK_TAG'] + [_const(r['name']) + '_TAG' for r in sent]
+    arms += '        ' + '\n        | '.join(refused) + ' => return Err(@INVALID@),\n'
     source = HOST_TEMPLATE.replace('@ARMS@', arms.rstrip('\n'))
     for marker, name in [('@INVALID@', 'ERR_INVALID'), ('@UNSUPPORTED@', 'ERR_UNSUPPORTED'),
                          ('@NO_SPACE@', 'ERR_NO_SPACE')]:
@@ -88,7 +88,10 @@ impl RecordBatch<'_> {
 /// caller holds (for example on the heap, so it never passes through the
 /// stack). Records only the host sends are ERR_INVALID ([`host_decode_one`]).
 /// On an error the batch is empty.
-pub fn host_records_decode_into<'a>(bytes: &'a [u8], batch: &mut RecordBatch<'a>) -> Result<(), i32> {
+pub fn host_records_decode_into<'a>(
+    bytes: &'a [u8],
+    batch: &mut RecordBatch<'a>,
+) -> Result<(), i32> {
     let decoded = host_records_fill(bytes, batch);
     if decoded.is_err() {
         batch.len = 0;
