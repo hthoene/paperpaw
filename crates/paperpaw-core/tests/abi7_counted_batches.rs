@@ -40,7 +40,7 @@ fn visit_all(bytes: &[u8], max: usize) -> (Result<usize, i32>, Vec<String>) {
 
 #[test]
 fn thirty_two_params_round_trip_in_one_batch_in_order() {
-    assert!(HANDOVER_ROWS > REGISTRATION_MAX_RECORDS);
+    const { assert!(HANDOVER_ROWS > REGISTRATION_MAX_RECORDS) };
     let keys = keys(HANDOVER_ROWS);
     let mut out = vec![0; HANDOVER_BYTES];
     let len =

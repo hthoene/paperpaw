@@ -598,7 +598,8 @@ Ops that run another plugin's callback (7, 12-15) are allowed at depth 1 only (`
 
 - [D] **Help.** `help.hint` declares a hint for any screen (own or another's, full id): `input` 0
   any, 1 touch, 2 buttons; the zone in thousandths of the screen (all 0: no zone, listed in the
-  box); `text` a catalog key of the declaring plugin (`owner` in op 3 says whose catalog). The help
+  box; `x + width` and `y + height` at most 1,000, else `ERR_INVALID` at admission, and a reader
+  treats a `ui_hint` row that breaks it as malformed, never clamped); `text` a catalog key of the declaring plugin (`owner` in op 3 says whose catalog). The help
   plugin reads them with op 3, subscribes to `event.screen_ready` (an edge, registrable) and to 81.
   A screen declared `waits_ready` sends `command.screen_ready` once its first page is drawn (own
   top instance, else `ERR_STATE`); for other screens the host raises 87 itself after the first
