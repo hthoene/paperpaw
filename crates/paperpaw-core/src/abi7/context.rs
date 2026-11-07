@@ -5,7 +5,9 @@
 //! dispatch, clears it on every exit, and refuses nested installation.
 
 use super::snapshot_wire::Snapshot;
-use core::{cell::Cell, marker::PhantomPinned, ops::ControlFlow, pin::Pin, ptr::NonNull};
+use core::{
+    cell::Cell, marker::PhantomPinned, mem::MaybeUninit, ops::ControlFlow, pin::Pin, ptr::NonNull,
+};
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::ERR_STATE;
 use paperpaw_sdk::Settings;
@@ -33,6 +35,20 @@ pub(crate) trait Frame {
     fn translator(&self) -> &Translator;
     fn settings_editor(&self) -> Option<&str> {
         None
+    }
+    /// Broker access exists only for the duration of the outer callback.
+    /// The broker completes checks and subscriber calls before publishing a reply.
+    /// On success it initializes exactly the returned prefix using writes only,
+    /// with count at most out.len(). On error it leaves every output byte untouched.
+    fn stage_run(
+        &self,
+        _caller_id: &str,
+        _full_stage: &str,
+        _cursor: u32,
+        _input: &[u8],
+        _out: &mut [MaybeUninit<u8>],
+    ) -> Result<usize, i32> {
+        Err(ERR_STATE)
     }
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
         None

@@ -76,6 +76,7 @@ impl native::Plugin for ScreenProbe {
                 screen: "battery.screen",
                 width: 480,
                 height: 800,
+                instance: None,
             },
             r,
         )

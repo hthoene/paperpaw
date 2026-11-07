@@ -245,6 +245,18 @@
       "max_input": 256,
       "max_reply": 4096,
       "bound": "none"
+    },
+    {
+      "id": 21,
+      "name": "status",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": ["service.reg_query"],
+      "reply": ["service.reg_status", "service.end"],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
     }
   ]
 }

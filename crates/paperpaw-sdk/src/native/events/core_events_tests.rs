@@ -79,7 +79,7 @@ fn encode(record: Record<'_>) -> Vec<u8> {
     bytes.truncate(n);
     bytes
 }
-fn borrow(bytes: &[u8], text: &str) {
+fn assert_borrowed_text(bytes: &[u8], text: &str) {
     assert!(bytes.as_ptr_range().contains(&text.as_ptr()));
 }
 
@@ -91,7 +91,7 @@ fn every_evt_record_has_an_exact_typed_view_and_borrows_its_text() {
         match decode(&bytes).unwrap() {
             Event::SettingChanged { now_ms, key, old } => {
                 assert_eq!((now_ms, key, old), (42, "reader.size", None));
-                borrow(&bytes, key);
+                assert_borrowed_text(&bytes, key);
             }
             Event::Book {
                 kind,
@@ -118,18 +118,18 @@ fn every_evt_record_has_an_exact_typed_view_and_borrows_its_text() {
                     (reading.path(), reading.title(), reading.chapter()),
                     ("books/a.epub", "A title", "Chapter")
                 );
-                borrow(&bytes, reading.path());
-                borrow(&bytes, reading.title());
-                borrow(&bytes, reading.chapter());
+                assert_borrowed_text(&bytes, reading.path());
+                assert_borrowed_text(&bytes, reading.title());
+                assert_borrowed_text(&bytes, reading.chapter());
             }
             Event::BookMoved { now_ms, from, path } => {
                 assert_eq!((now_ms, from, path), (42, "old.epub", "new.epub"));
-                borrow(&bytes, from);
-                borrow(&bytes, path);
+                assert_borrowed_text(&bytes, from);
+                assert_borrowed_text(&bytes, path);
             }
             Event::BookRemoved { now_ms, path } => {
                 assert_eq!((now_ms, path), (42, "old.epub"));
-                borrow(&bytes, path);
+                assert_borrowed_text(&bytes, path);
             }
             Event::PluginsChanged { now_ms } | Event::StatusChanged { now_ms } => {
                 assert_eq!(now_ms, 42)
@@ -148,7 +148,7 @@ fn every_evt_record_has_an_exact_typed_view_and_borrows_its_text() {
                     ),
                     (42, PowerLevel::Offline, true, 4, "core.offline")
                 );
-                borrow(&bytes, power.mode());
+                assert_borrowed_text(&bytes, power.mode());
             }
             Event::ChargeChanged { now_ms, flags } => {
                 assert_eq!(now_ms, 42);
@@ -242,7 +242,7 @@ fn old_setting_values_are_typed_and_malformed_is_never_missing() {
         };
         assert_eq!(old, Some(expected));
         if let Some(SettingValue::Text(text)) = old {
-            borrow(&bytes, text);
+            assert_borrowed_text(&bytes, text);
         }
     }
     let valid = setting_bytes(settings::SettingValueRef::Bool(true));
@@ -400,7 +400,7 @@ fn complete_book_paths_and_text_caps_survive_without_truncation() {
         (reading.insert(), reading.page(), reading.pages()),
         (0, None, None)
     );
-    borrow(&bytes, reading.path());
+    assert_borrowed_text(&bytes, reading.path());
     let too_long = "p".repeat(wire::EVENT_BOOK_OPENED_PATH_MAX_BYTES + 1);
     let mut out = [0; 4096];
     assert_eq!(

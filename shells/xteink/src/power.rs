@@ -42,6 +42,8 @@ pub mod at {
     pub const TICK: u32 = 7;
     pub const SHOWING: u32 = 8;
     pub const STATUS: u32 = 9;
+    /// Power held for the escape (G12): the processor was reset by it.
+    pub const ESCAPE: u32 = 12;
     /// A try of light sleeps over USB ended (by starting again).
     #[cfg(feature = "remote")]
     pub const TRIED: u32 = 10;
@@ -76,6 +78,7 @@ pub fn place_name(place: u32) -> &'static str {
         at::TICK => "tick",
         at::SHOWING => "refreshing the screen",
         at::STATUS => "status",
+        at::ESCAPE => "Power held 8 s: reset by the escape",
         at::START => "start: before the update check",
         at::START_OTA => "start: update checked, board next",
         at::START_BOARD => "start: board ready, card next",

@@ -1283,25 +1283,41 @@ pub struct EventScreenShown<'a> {
     pub width: u32,
     /// Little-endian u32.
     pub height: u32,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub instance: Option<u32>,
 }
 
 impl<'a> EventScreenShown<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
-        body.bitmap()?;
+        let bits = body.bitmap_bits()?;
         Ok(Record::EventScreenShown(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             screen: body.string(EVENT_SCREEN_SHOWN_SCREEN_MAX_BYTES)?,
             width: u32::from_le_bytes(body.scalar()?),
             height: u32::from_le_bytes(body.scalar()?),
+            instance: body.maybe_u32(bits, 0x01)?,
         }))
     }
 
+    fn bits(&self) -> u8 {
+        let mut bits = 0;
+        if self.instance.is_some() {
+            bits |= 0x01;
+        }
+        bits
+    }
+
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
+        let bits = self.bits();
+        // The bitmap is one byte when any optional field is present.
+        let mut len = 1 + usize::from(bits != 0);
         len += 8;
         len += blob_len(self.screen.len(), EVENT_SCREEN_SHOWN_SCREEN_MAX_BYTES)?;
         len += 4;
         len += 4;
+        if bits & 0x01 != 0 {
+            len += 4;
+        }
         Ok(len)
     }
 
@@ -1310,6 +1326,9 @@ impl<'a> EventScreenShown<'a> {
         write_blob(self.screen.as_bytes(), out, offset);
         write_bytes(&self.width.to_le_bytes(), out, offset);
         write_bytes(&self.height.to_le_bytes(), out, offset);
+        if let Some(value) = self.instance {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
     }
 }
 /// Wire tag of the `event.action_run` record.
@@ -4248,6 +4267,1744 @@ impl<'a> ServiceRegWidget<'a> {
         write_blob(self.title.as_bytes(), out, offset);
     }
 }
+/// Wire tag of the `service.reg_status` record.
+pub const SERVICE_REG_STATUS_TAG: u32 = 1059;
+/// Maximum bytes of `service.reg_status.id`.
+pub const SERVICE_REG_STATUS_ID_MAX_BYTES: usize = 128;
+/// Maximum bytes of `service.reg_status.plugin`.
+pub const SERVICE_REG_STATUS_PLUGIN_MAX_BYTES: usize = 64;
+/// Maximum bytes of `service.reg_status.tap`.
+pub const SERVICE_REG_STATUS_TAP_MAX_BYTES: usize = 128;
+/// Maximum bytes of `service.reg_status.title`.
+pub const SERVICE_REG_STATUS_TITLE_MAX_BYTES: usize = 128;
+
+/// The `service.reg_status` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceRegStatus<'a> {
+    /// UTF-8 text of at most 128 bytes.
+    pub id: &'a str,
+    /// UTF-8 text of at most 64 bytes.
+    pub plugin: &'a str,
+    /// Little-endian u32.
+    pub kind: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// Little-endian u32.
+    pub priority: u32,
+    /// Little-endian u32.
+    pub size: u32,
+    /// UTF-8 text of at most 128 bytes.
+    pub tap: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub title: &'a str,
+}
+
+impl<'a> ServiceRegStatus<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceRegStatus(Self {
+            id: body.string(SERVICE_REG_STATUS_ID_MAX_BYTES)?,
+            plugin: body.string(SERVICE_REG_STATUS_PLUGIN_MAX_BYTES)?,
+            kind: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+            priority: u32::from_le_bytes(body.scalar()?),
+            size: u32::from_le_bytes(body.scalar()?),
+            tap: body.string(SERVICE_REG_STATUS_TAP_MAX_BYTES)?,
+            title: body.string(SERVICE_REG_STATUS_TITLE_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.id.len(), SERVICE_REG_STATUS_ID_MAX_BYTES)?;
+        len += blob_len(self.plugin.len(), SERVICE_REG_STATUS_PLUGIN_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += blob_len(self.tap.len(), SERVICE_REG_STATUS_TAP_MAX_BYTES)?;
+        len += blob_len(self.title.len(), SERVICE_REG_STATUS_TITLE_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.id.as_bytes(), out, offset);
+        write_blob(self.plugin.as_bytes(), out, offset);
+        write_bytes(&self.kind.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_bytes(&self.priority.to_le_bytes(), out, offset);
+        write_bytes(&self.size.to_le_bytes(), out, offset);
+        write_blob(self.tap.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `input.spec` record.
+pub const INPUT_SPEC_TAG: u32 = 29;
+/// Maximum bytes of `input.spec.name`.
+pub const INPUT_SPEC_NAME_MAX_BYTES: usize = 64;
+/// Maximum bytes of `input.spec.title`.
+pub const INPUT_SPEC_TITLE_MAX_BYTES: usize = 96;
+
+/// The `input.spec` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InputSpec<'a> {
+    /// UTF-8 text of at most 64 bytes.
+    pub name: &'a str,
+    /// UTF-8 text of at most 96 bytes.
+    pub title: &'a str,
+    /// Little-endian u32.
+    pub kind: u32,
+    /// Little-endian u32.
+    pub need: u32,
+    /// Little-endian u64.
+    pub capability: u64,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl<'a> InputSpec<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::InputSpec(Self {
+            name: body.string(INPUT_SPEC_NAME_MAX_BYTES)?,
+            title: body.string(INPUT_SPEC_TITLE_MAX_BYTES)?,
+            kind: u32::from_le_bytes(body.scalar()?),
+            need: u32::from_le_bytes(body.scalar()?),
+            capability: u64::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), INPUT_SPEC_NAME_MAX_BYTES)?;
+        len += blob_len(self.title.len(), INPUT_SPEC_TITLE_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += 8;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_bytes(&self.kind.to_le_bytes(), out, offset);
+        write_bytes(&self.need.to_le_bytes(), out, offset);
+        write_bytes(&self.capability.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `help.hint` record.
+pub const HELP_HINT_TAG: u32 = 30;
+/// Maximum bytes of `help.hint.screen`.
+pub const HELP_HINT_SCREEN_MAX_BYTES: usize = 128;
+/// Maximum bytes of `help.hint.text`.
+pub const HELP_HINT_TEXT_MAX_BYTES: usize = 128;
+
+/// The `help.hint` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HelpHint<'a> {
+    /// UTF-8 text of at most 128 bytes.
+    pub screen: &'a str,
+    /// Little-endian u32.
+    pub input: u32,
+    /// Little-endian u32.
+    pub x: u32,
+    /// Little-endian u32.
+    pub y: u32,
+    /// Little-endian u32.
+    pub width: u32,
+    /// Little-endian u32.
+    pub height: u32,
+    /// UTF-8 text of at most 128 bytes.
+    pub text: &'a str,
+}
+
+impl<'a> HelpHint<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::HelpHint(Self {
+            screen: body.string(HELP_HINT_SCREEN_MAX_BYTES)?,
+            input: u32::from_le_bytes(body.scalar()?),
+            x: u32::from_le_bytes(body.scalar()?),
+            y: u32::from_le_bytes(body.scalar()?),
+            width: u32::from_le_bytes(body.scalar()?),
+            height: u32::from_le_bytes(body.scalar()?),
+            text: body.string(HELP_HINT_TEXT_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.screen.len(), HELP_HINT_SCREEN_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += blob_len(self.text.len(), HELP_HINT_TEXT_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.screen.as_bytes(), out, offset);
+        write_bytes(&self.input.to_le_bytes(), out, offset);
+        write_bytes(&self.x.to_le_bytes(), out, offset);
+        write_bytes(&self.y.to_le_bytes(), out, offset);
+        write_bytes(&self.width.to_le_bytes(), out, offset);
+        write_bytes(&self.height.to_le_bytes(), out, offset);
+        write_blob(self.text.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `widget.spec` record.
+pub const WIDGET_SPEC_TAG: u32 = 224;
+/// Maximum bytes of `widget.spec.name`.
+pub const WIDGET_SPEC_NAME_MAX_BYTES: usize = 96;
+/// Maximum bytes of `widget.spec.title`.
+pub const WIDGET_SPEC_TITLE_MAX_BYTES: usize = 96;
+/// Maximum bytes of `widget.spec.category`.
+pub const WIDGET_SPEC_CATEGORY_MAX_BYTES: usize = 96;
+/// Maximum bytes of `widget.spec.previews`.
+pub const WIDGET_SPEC_PREVIEWS_MAX_BYTES: usize = 128;
+
+/// The `widget.spec` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WidgetSpec<'a> {
+    /// UTF-8 text of at most 96 bytes.
+    pub name: &'a str,
+    /// UTF-8 text of at most 96 bytes.
+    pub title: &'a str,
+    /// UTF-8 text of at most 96 bytes.
+    pub category: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub previews: &'a str,
+    /// Little-endian u32.
+    pub cells: u32,
+    /// Little-endian u32.
+    pub token: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl<'a> WidgetSpec<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::WidgetSpec(Self {
+            name: body.string(WIDGET_SPEC_NAME_MAX_BYTES)?,
+            title: body.string(WIDGET_SPEC_TITLE_MAX_BYTES)?,
+            category: body.string(WIDGET_SPEC_CATEGORY_MAX_BYTES)?,
+            previews: body.string(WIDGET_SPEC_PREVIEWS_MAX_BYTES)?,
+            cells: u32::from_le_bytes(body.scalar()?),
+            token: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), WIDGET_SPEC_NAME_MAX_BYTES)?;
+        len += blob_len(self.title.len(), WIDGET_SPEC_TITLE_MAX_BYTES)?;
+        len += blob_len(self.category.len(), WIDGET_SPEC_CATEGORY_MAX_BYTES)?;
+        len += blob_len(self.previews.len(), WIDGET_SPEC_PREVIEWS_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_blob(self.category.as_bytes(), out, offset);
+        write_blob(self.previews.as_bytes(), out, offset);
+        write_bytes(&self.cells.to_le_bytes(), out, offset);
+        write_bytes(&self.token.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `widget.place` record.
+pub const WIDGET_PLACE_TAG: u32 = 225;
+/// Maximum bytes of `widget.place.name`.
+pub const WIDGET_PLACE_NAME_MAX_BYTES: usize = 96;
+/// Maximum bytes of `widget.place.title`.
+pub const WIDGET_PLACE_TITLE_MAX_BYTES: usize = 96;
+/// Maximum bytes of `widget.place.list_keys`.
+pub const WIDGET_PLACE_LIST_KEYS_MAX_BYTES: usize = 1032;
+/// Separator of the list in `widget.place.list_keys`.
+pub const WIDGET_PLACE_LIST_KEYS_SEPARATOR: char = '\n';
+/// Most items in `widget.place.list_keys`.
+pub const WIDGET_PLACE_LIST_KEYS_MAX_ITEMS: usize = 8;
+/// Longest item of `widget.place.list_keys` in bytes.
+pub const WIDGET_PLACE_LIST_KEYS_ITEM_MAX_BYTES: usize = 128;
+/// Maximum bytes of `widget.place.shown_if_key`.
+pub const WIDGET_PLACE_SHOWN_IF_KEY_MAX_BYTES: usize = 128;
+/// Maximum bytes of `widget.place.shown_if_value`.
+pub const WIDGET_PLACE_SHOWN_IF_VALUE_MAX_BYTES: usize = 128;
+
+/// The `widget.place` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WidgetPlace<'a> {
+    /// UTF-8 text of at most 96 bytes.
+    pub name: &'a str,
+    /// UTF-8 text of at most 96 bytes.
+    pub title: &'a str,
+    /// UTF-8 text of at most 1032 bytes.
+    pub list_keys: &'a str,
+    /// Little-endian u32.
+    pub layout: u32,
+    /// UTF-8 text of at most 128 bytes.
+    pub shown_if_key: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub shown_if_value: &'a str,
+}
+
+impl<'a> WidgetPlace<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::WidgetPlace(Self {
+            name: body.string(WIDGET_PLACE_NAME_MAX_BYTES)?,
+            title: body.string(WIDGET_PLACE_TITLE_MAX_BYTES)?,
+            list_keys: body.string(WIDGET_PLACE_LIST_KEYS_MAX_BYTES)?,
+            layout: u32::from_le_bytes(body.scalar()?),
+            shown_if_key: body.string(WIDGET_PLACE_SHOWN_IF_KEY_MAX_BYTES)?,
+            shown_if_value: body.string(WIDGET_PLACE_SHOWN_IF_VALUE_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), WIDGET_PLACE_NAME_MAX_BYTES)?;
+        len += blob_len(self.title.len(), WIDGET_PLACE_TITLE_MAX_BYTES)?;
+        len += blob_len(self.list_keys.len(), WIDGET_PLACE_LIST_KEYS_MAX_BYTES)?;
+        len += 4;
+        len += blob_len(self.shown_if_key.len(), WIDGET_PLACE_SHOWN_IF_KEY_MAX_BYTES)?;
+        len += blob_len(
+            self.shown_if_value.len(),
+            WIDGET_PLACE_SHOWN_IF_VALUE_MAX_BYTES,
+        )?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_blob(self.list_keys.as_bytes(), out, offset);
+        write_bytes(&self.layout.to_le_bytes(), out, offset);
+        write_blob(self.shown_if_key.as_bytes(), out, offset);
+        write_blob(self.shown_if_value.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `status.item` record.
+pub const STATUS_ITEM_TAG: u32 = 226;
+/// Maximum bytes of `status.item.name`.
+pub const STATUS_ITEM_NAME_MAX_BYTES: usize = 96;
+/// Maximum bytes of `status.item.title`.
+pub const STATUS_ITEM_TITLE_MAX_BYTES: usize = 96;
+/// Maximum bytes of `status.item.tap`.
+pub const STATUS_ITEM_TAP_MAX_BYTES: usize = 96;
+
+/// The `status.item` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StatusItem<'a> {
+    /// UTF-8 text of at most 96 bytes.
+    pub name: &'a str,
+    /// UTF-8 text of at most 96 bytes.
+    pub title: &'a str,
+    /// UTF-8 text of at most 96 bytes.
+    pub tap: &'a str,
+    /// Little-endian u32.
+    pub priority: u32,
+    /// Little-endian u32.
+    pub min_width: u32,
+    /// Little-endian u32.
+    pub token: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl<'a> StatusItem<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::StatusItem(Self {
+            name: body.string(STATUS_ITEM_NAME_MAX_BYTES)?,
+            title: body.string(STATUS_ITEM_TITLE_MAX_BYTES)?,
+            tap: body.string(STATUS_ITEM_TAP_MAX_BYTES)?,
+            priority: u32::from_le_bytes(body.scalar()?),
+            min_width: u32::from_le_bytes(body.scalar()?),
+            token: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), STATUS_ITEM_NAME_MAX_BYTES)?;
+        len += blob_len(self.title.len(), STATUS_ITEM_TITLE_MAX_BYTES)?;
+        len += blob_len(self.tap.len(), STATUS_ITEM_TAP_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_blob(self.tap.as_bytes(), out, offset);
+        write_bytes(&self.priority.to_le_bytes(), out, offset);
+        write_bytes(&self.min_width.to_le_bytes(), out, offset);
+        write_bytes(&self.token.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `status.line` record.
+pub const STATUS_LINE_TAG: u32 = 227;
+/// Maximum bytes of `status.line.name`.
+pub const STATUS_LINE_NAME_MAX_BYTES: usize = 96;
+/// Maximum bytes of `status.line.title`.
+pub const STATUS_LINE_TITLE_MAX_BYTES: usize = 96;
+
+/// The `status.line` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StatusLine<'a> {
+    /// UTF-8 text of at most 96 bytes.
+    pub name: &'a str,
+    /// UTF-8 text of at most 96 bytes.
+    pub title: &'a str,
+    /// Little-endian u32.
+    pub height: u32,
+    /// Little-endian u32.
+    pub token: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl<'a> StatusLine<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::StatusLine(Self {
+            name: body.string(STATUS_LINE_NAME_MAX_BYTES)?,
+            title: body.string(STATUS_LINE_TITLE_MAX_BYTES)?,
+            height: u32::from_le_bytes(body.scalar()?),
+            token: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), STATUS_LINE_NAME_MAX_BYTES)?;
+        len += blob_len(self.title.len(), STATUS_LINE_TITLE_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_bytes(&self.height.to_le_bytes(), out, offset);
+        write_bytes(&self.token.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `status.place` record.
+pub const STATUS_PLACE_TAG: u32 = 228;
+/// Maximum bytes of `status.place.name`.
+pub const STATUS_PLACE_NAME_MAX_BYTES: usize = 96;
+/// Maximum bytes of `status.place.title`.
+pub const STATUS_PLACE_TITLE_MAX_BYTES: usize = 96;
+/// Maximum bytes of `status.place.left`.
+pub const STATUS_PLACE_LEFT_MAX_BYTES: usize = 128;
+/// Maximum bytes of `status.place.center`.
+pub const STATUS_PLACE_CENTER_MAX_BYTES: usize = 128;
+/// Maximum bytes of `status.place.right`.
+pub const STATUS_PLACE_RIGHT_MAX_BYTES: usize = 128;
+
+/// The `status.place` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StatusPlace<'a> {
+    /// UTF-8 text of at most 96 bytes.
+    pub name: &'a str,
+    /// UTF-8 text of at most 96 bytes.
+    pub title: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub left: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub center: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub right: &'a str,
+}
+
+impl<'a> StatusPlace<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::StatusPlace(Self {
+            name: body.string(STATUS_PLACE_NAME_MAX_BYTES)?,
+            title: body.string(STATUS_PLACE_TITLE_MAX_BYTES)?,
+            left: body.string(STATUS_PLACE_LEFT_MAX_BYTES)?,
+            center: body.string(STATUS_PLACE_CENTER_MAX_BYTES)?,
+            right: body.string(STATUS_PLACE_RIGHT_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.name.len(), STATUS_PLACE_NAME_MAX_BYTES)?;
+        len += blob_len(self.title.len(), STATUS_PLACE_TITLE_MAX_BYTES)?;
+        len += blob_len(self.left.len(), STATUS_PLACE_LEFT_MAX_BYTES)?;
+        len += blob_len(self.center.len(), STATUS_PLACE_CENTER_MAX_BYTES)?;
+        len += blob_len(self.right.len(), STATUS_PLACE_RIGHT_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_blob(self.left.as_bytes(), out, offset);
+        write_blob(self.center.as_bytes(), out, offset);
+        write_blob(self.right.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.screen_opened` record.
+pub const EVENT_SCREEN_OPENED_TAG: u32 = 79;
+/// Maximum bytes of `event.screen_opened.screen`.
+pub const EVENT_SCREEN_OPENED_SCREEN_MAX_BYTES: usize = 128;
+/// Maximum bytes of `event.screen_opened.slot`.
+pub const EVENT_SCREEN_OPENED_SLOT_MAX_BYTES: usize = 128;
+
+/// The `event.screen_opened` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventScreenOpened<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// UTF-8 text of at most 128 bytes.
+    pub screen: &'a str,
+    /// Little-endian u32.
+    pub instance: u32,
+    /// UTF-8 text of at most 128 bytes.
+    pub slot: &'a str,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// Little-endian u32.
+    pub handover: u32,
+    /// Little-endian u32.
+    pub params: u32,
+    /// Little-endian u32.
+    pub text_bytes: u32,
+}
+
+impl<'a> EventScreenOpened<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventScreenOpened(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            screen: body.string(EVENT_SCREEN_OPENED_SCREEN_MAX_BYTES)?,
+            instance: u32::from_le_bytes(body.scalar()?),
+            slot: body.string(EVENT_SCREEN_OPENED_SLOT_MAX_BYTES)?,
+            flags: u32::from_le_bytes(body.scalar()?),
+            handover: u32::from_le_bytes(body.scalar()?),
+            params: u32::from_le_bytes(body.scalar()?),
+            text_bytes: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += blob_len(self.screen.len(), EVENT_SCREEN_OPENED_SCREEN_MAX_BYTES)?;
+        len += 4;
+        len += blob_len(self.slot.len(), EVENT_SCREEN_OPENED_SLOT_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_blob(self.screen.as_bytes(), out, offset);
+        write_bytes(&self.instance.to_le_bytes(), out, offset);
+        write_blob(self.slot.as_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_bytes(&self.handover.to_le_bytes(), out, offset);
+        write_bytes(&self.params.to_le_bytes(), out, offset);
+        write_bytes(&self.text_bytes.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.screen_closed` record.
+pub const EVENT_SCREEN_CLOSED_TAG: u32 = 80;
+/// Maximum bytes of `event.screen_closed.screen`.
+pub const EVENT_SCREEN_CLOSED_SCREEN_MAX_BYTES: usize = 128;
+
+/// The `event.screen_closed` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventScreenClosed<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// UTF-8 text of at most 128 bytes.
+    pub screen: &'a str,
+    /// Little-endian u32.
+    pub instance: u32,
+}
+
+impl<'a> EventScreenClosed<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventScreenClosed(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            screen: body.string(EVENT_SCREEN_CLOSED_SCREEN_MAX_BYTES)?,
+            instance: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += blob_len(self.screen.len(), EVENT_SCREEN_CLOSED_SCREEN_MAX_BYTES)?;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_blob(self.screen.as_bytes(), out, offset);
+        write_bytes(&self.instance.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.stack_changed` record.
+pub const EVENT_STACK_CHANGED_TAG: u32 = 81;
+
+/// The `event.stack_changed` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventStackChanged {
+    /// Little-endian u64.
+    pub now_ms: u64,
+}
+
+impl EventStackChanged {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventStackChanged(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.answered` record.
+pub const EVENT_ANSWERED_TAG: u32 = 82;
+
+/// The `event.answered` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventAnswered {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub request: u32,
+    /// Little-endian u32.
+    pub kind: u32,
+    /// Little-endian u32.
+    pub outcome: u32,
+    /// Little-endian u32.
+    pub choice: u32,
+    /// Little-endian u32.
+    pub length: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl EventAnswered {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventAnswered(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            request: u32::from_le_bytes(body.scalar()?),
+            kind: u32::from_le_bytes(body.scalar()?),
+            outcome: u32::from_le_bytes(body.scalar()?),
+            choice: u32::from_le_bytes(body.scalar()?),
+            length: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.request.to_le_bytes(), out, offset);
+        write_bytes(&self.kind.to_le_bytes(), out, offset);
+        write_bytes(&self.outcome.to_le_bytes(), out, offset);
+        write_bytes(&self.choice.to_le_bytes(), out, offset);
+        write_bytes(&self.length.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.widget_made` record.
+pub const EVENT_WIDGET_MADE_TAG: u32 = 84;
+/// Maximum bytes of `event.widget_made.widget`.
+pub const EVENT_WIDGET_MADE_WIDGET_MAX_BYTES: usize = 128;
+/// Maximum bytes of `event.widget_made.place`.
+pub const EVENT_WIDGET_MADE_PLACE_MAX_BYTES: usize = 128;
+
+/// The `event.widget_made` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventWidgetMade<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// UTF-8 text of at most 128 bytes.
+    pub widget: &'a str,
+    /// Little-endian u32.
+    pub instance: u32,
+    /// UTF-8 text of at most 128 bytes.
+    pub place: &'a str,
+}
+
+impl<'a> EventWidgetMade<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventWidgetMade(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            widget: body.string(EVENT_WIDGET_MADE_WIDGET_MAX_BYTES)?,
+            instance: u32::from_le_bytes(body.scalar()?),
+            place: body.string(EVENT_WIDGET_MADE_PLACE_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += blob_len(self.widget.len(), EVENT_WIDGET_MADE_WIDGET_MAX_BYTES)?;
+        len += 4;
+        len += blob_len(self.place.len(), EVENT_WIDGET_MADE_PLACE_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_blob(self.widget.as_bytes(), out, offset);
+        write_bytes(&self.instance.to_le_bytes(), out, offset);
+        write_blob(self.place.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.widget_dropped` record.
+pub const EVENT_WIDGET_DROPPED_TAG: u32 = 85;
+
+/// The `event.widget_dropped` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventWidgetDropped {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub instance: u32,
+}
+
+impl EventWidgetDropped {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventWidgetDropped(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            instance: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.instance.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.widget_changed` record.
+pub const EVENT_WIDGET_CHANGED_TAG: u32 = 86;
+
+/// The `event.widget_changed` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventWidgetChanged {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub instance: u32,
+}
+
+impl EventWidgetChanged {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventWidgetChanged(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            instance: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.instance.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.screen_ready` record.
+pub const EVENT_SCREEN_READY_TAG: u32 = 87;
+/// Maximum bytes of `event.screen_ready.screen`.
+pub const EVENT_SCREEN_READY_SCREEN_MAX_BYTES: usize = 128;
+
+/// The `event.screen_ready` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventScreenReady<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// UTF-8 text of at most 128 bytes.
+    pub screen: &'a str,
+    /// Little-endian u32.
+    pub instance: u32,
+}
+
+impl<'a> EventScreenReady<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventScreenReady(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            screen: body.string(EVENT_SCREEN_READY_SCREEN_MAX_BYTES)?,
+            instance: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += blob_len(self.screen.len(), EVENT_SCREEN_READY_SCREEN_MAX_BYTES)?;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_blob(self.screen.as_bytes(), out, offset);
+        write_bytes(&self.instance.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `event.spoken` record.
+pub const EVENT_SPOKEN_TAG: u32 = 89;
+
+/// The `event.spoken` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventSpoken {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub cookie: u32,
+    /// Little-endian u32.
+    pub status: u32,
+}
+
+impl EventSpoken {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::EventSpoken(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            cookie: u32::from_le_bytes(body.scalar()?),
+            status: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.cookie.to_le_bytes(), out, offset);
+        write_bytes(&self.status.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `input.widget` record.
+pub const INPUT_WIDGET_TAG: u32 = 193;
+
+/// The `input.widget` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InputWidget {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub instance: u32,
+    /// Little-endian u32.
+    pub target: u32,
+    /// Little-endian i32.
+    pub x: i32,
+    /// Little-endian i32.
+    pub y: i32,
+    /// Little-endian u32.
+    pub kind: u32,
+}
+
+impl InputWidget {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::InputWidget(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            instance: u32::from_le_bytes(body.scalar()?),
+            target: u32::from_le_bytes(body.scalar()?),
+            x: i32::from_le_bytes(body.scalar()?),
+            y: i32::from_le_bytes(body.scalar()?),
+            kind: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.instance.to_le_bytes(), out, offset);
+        write_bytes(&self.target.to_le_bytes(), out, offset);
+        write_bytes(&self.x.to_le_bytes(), out, offset);
+        write_bytes(&self.y.to_le_bytes(), out, offset);
+        write_bytes(&self.kind.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.ui_screen` record.
+pub const SERVICE_UI_SCREEN_TAG: u32 = 1041;
+/// Maximum bytes of `service.ui_screen.screen`.
+pub const SERVICE_UI_SCREEN_SCREEN_MAX_BYTES: usize = 128;
+/// Maximum bytes of `service.ui_screen.slot`.
+pub const SERVICE_UI_SCREEN_SLOT_MAX_BYTES: usize = 128;
+/// Maximum bytes of `service.ui_screen.owner`.
+pub const SERVICE_UI_SCREEN_OWNER_MAX_BYTES: usize = 64;
+
+/// The `service.ui_screen` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiScreen<'a> {
+    /// UTF-8 text of at most 128 bytes.
+    pub screen: &'a str,
+    /// Little-endian u32.
+    pub instance: u32,
+    /// UTF-8 text of at most 128 bytes.
+    pub slot: &'a str,
+    /// UTF-8 text of at most 64 bytes.
+    pub owner: &'a str,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl<'a> ServiceUiScreen<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiScreen(Self {
+            screen: body.string(SERVICE_UI_SCREEN_SCREEN_MAX_BYTES)?,
+            instance: u32::from_le_bytes(body.scalar()?),
+            slot: body.string(SERVICE_UI_SCREEN_SLOT_MAX_BYTES)?,
+            owner: body.string(SERVICE_UI_SCREEN_OWNER_MAX_BYTES)?,
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.screen.len(), SERVICE_UI_SCREEN_SCREEN_MAX_BYTES)?;
+        len += 4;
+        len += blob_len(self.slot.len(), SERVICE_UI_SCREEN_SLOT_MAX_BYTES)?;
+        len += blob_len(self.owner.len(), SERVICE_UI_SCREEN_OWNER_MAX_BYTES)?;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.screen.as_bytes(), out, offset);
+        write_bytes(&self.instance.to_le_bytes(), out, offset);
+        write_blob(self.slot.as_bytes(), out, offset);
+        write_blob(self.owner.as_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.ui_request` record.
+pub const SERVICE_UI_REQUEST_TAG: u32 = 1042;
+
+/// The `service.ui_request` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiRequest {
+    /// Little-endian u32.
+    pub request: u32,
+}
+
+impl ServiceUiRequest {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiRequest(Self {
+            request: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.request.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.ui_question` record.
+pub const SERVICE_UI_QUESTION_TAG: u32 = 1043;
+/// Maximum bytes of `service.ui_question.title`.
+pub const SERVICE_UI_QUESTION_TITLE_MAX_BYTES: usize = 256;
+/// Maximum bytes of `service.ui_question.text`.
+pub const SERVICE_UI_QUESTION_TEXT_MAX_BYTES: usize = 1024;
+/// Maximum bytes of `service.ui_question.choices`.
+pub const SERVICE_UI_QUESTION_CHOICES_MAX_BYTES: usize = 2048;
+/// Separator of the list in `service.ui_question.choices`.
+pub const SERVICE_UI_QUESTION_CHOICES_SEPARATOR: char = '\n';
+/// Most items in `service.ui_question.choices`.
+pub const SERVICE_UI_QUESTION_CHOICES_MAX_ITEMS: usize = 32;
+/// Longest item of `service.ui_question.choices` in bytes.
+pub const SERVICE_UI_QUESTION_CHOICES_ITEM_MAX_BYTES: usize = 128;
+
+/// The `service.ui_question` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiQuestion<'a> {
+    /// Little-endian u32.
+    pub kind: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// Little-endian u32.
+    pub max_bytes: u32,
+    /// UTF-8 text of at most 256 bytes.
+    pub title: &'a str,
+    /// UTF-8 text of at most 1024 bytes.
+    pub text: &'a str,
+    /// UTF-8 text of at most 2048 bytes.
+    pub choices: &'a str,
+}
+
+impl<'a> ServiceUiQuestion<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiQuestion(Self {
+            kind: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+            max_bytes: u32::from_le_bytes(body.scalar()?),
+            title: body.string(SERVICE_UI_QUESTION_TITLE_MAX_BYTES)?,
+            text: body.string(SERVICE_UI_QUESTION_TEXT_MAX_BYTES)?,
+            choices: body.string(SERVICE_UI_QUESTION_CHOICES_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += 4;
+        len += blob_len(self.title.len(), SERVICE_UI_QUESTION_TITLE_MAX_BYTES)?;
+        len += blob_len(self.text.len(), SERVICE_UI_QUESTION_TEXT_MAX_BYTES)?;
+        len += blob_len(self.choices.len(), SERVICE_UI_QUESTION_CHOICES_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.kind.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_bytes(&self.max_bytes.to_le_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_blob(self.text.as_bytes(), out, offset);
+        write_blob(self.choices.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.ui_hint` record.
+pub const SERVICE_UI_HINT_TAG: u32 = 1044;
+/// Maximum bytes of `service.ui_hint.text`.
+pub const SERVICE_UI_HINT_TEXT_MAX_BYTES: usize = 128;
+/// Maximum bytes of `service.ui_hint.owner`.
+pub const SERVICE_UI_HINT_OWNER_MAX_BYTES: usize = 64;
+
+/// The `service.ui_hint` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiHint<'a> {
+    /// Little-endian u32.
+    pub input: u32,
+    /// Little-endian u32.
+    pub x: u32,
+    /// Little-endian u32.
+    pub y: u32,
+    /// Little-endian u32.
+    pub width: u32,
+    /// Little-endian u32.
+    pub height: u32,
+    /// UTF-8 text of at most 128 bytes.
+    pub text: &'a str,
+    /// UTF-8 text of at most 64 bytes.
+    pub owner: &'a str,
+}
+
+impl<'a> ServiceUiHint<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiHint(Self {
+            input: u32::from_le_bytes(body.scalar()?),
+            x: u32::from_le_bytes(body.scalar()?),
+            y: u32::from_le_bytes(body.scalar()?),
+            width: u32::from_le_bytes(body.scalar()?),
+            height: u32::from_le_bytes(body.scalar()?),
+            text: body.string(SERVICE_UI_HINT_TEXT_MAX_BYTES)?,
+            owner: body.string(SERVICE_UI_HINT_OWNER_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += blob_len(self.text.len(), SERVICE_UI_HINT_TEXT_MAX_BYTES)?;
+        len += blob_len(self.owner.len(), SERVICE_UI_HINT_OWNER_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.input.to_le_bytes(), out, offset);
+        write_bytes(&self.x.to_le_bytes(), out, offset);
+        write_bytes(&self.y.to_le_bytes(), out, offset);
+        write_bytes(&self.width.to_le_bytes(), out, offset);
+        write_bytes(&self.height.to_le_bytes(), out, offset);
+        write_blob(self.text.as_bytes(), out, offset);
+        write_blob(self.owner.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.ui_widget_ref` record.
+pub const SERVICE_UI_WIDGET_REF_TAG: u32 = 1045;
+/// Maximum bytes of `service.ui_widget_ref.widget`.
+pub const SERVICE_UI_WIDGET_REF_WIDGET_MAX_BYTES: usize = 128;
+/// Maximum bytes of `service.ui_widget_ref.place`.
+pub const SERVICE_UI_WIDGET_REF_PLACE_MAX_BYTES: usize = 128;
+
+/// The `service.ui_widget_ref` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiWidgetRef<'a> {
+    /// UTF-8 text of at most 128 bytes.
+    pub widget: &'a str,
+    /// UTF-8 text of at most 128 bytes.
+    pub place: &'a str,
+}
+
+impl<'a> ServiceUiWidgetRef<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiWidgetRef(Self {
+            widget: body.string(SERVICE_UI_WIDGET_REF_WIDGET_MAX_BYTES)?,
+            place: body.string(SERVICE_UI_WIDGET_REF_PLACE_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.widget.len(), SERVICE_UI_WIDGET_REF_WIDGET_MAX_BYTES)?;
+        len += blob_len(self.place.len(), SERVICE_UI_WIDGET_REF_PLACE_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.widget.as_bytes(), out, offset);
+        write_blob(self.place.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.ui_instance` record.
+pub const SERVICE_UI_INSTANCE_TAG: u32 = 1046;
+
+/// The `service.ui_instance` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiInstance {
+    /// Little-endian u32.
+    pub instance: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl ServiceUiInstance {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiInstance(Self {
+            instance: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.instance.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.ui_widget_input` record.
+pub const SERVICE_UI_WIDGET_INPUT_TAG: u32 = 1047;
+
+/// The `service.ui_widget_input` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiWidgetInput {
+    /// Little-endian u32.
+    pub instance: u32,
+    /// Little-endian u32.
+    pub target: u32,
+    /// Little-endian i32.
+    pub x: i32,
+    /// Little-endian i32.
+    pub y: i32,
+    /// Little-endian u32.
+    pub kind: u32,
+}
+
+impl ServiceUiWidgetInput {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiWidgetInput(Self {
+            instance: u32::from_le_bytes(body.scalar()?),
+            target: u32::from_le_bytes(body.scalar()?),
+            x: i32::from_le_bytes(body.scalar()?),
+            y: i32::from_le_bytes(body.scalar()?),
+            kind: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.instance.to_le_bytes(), out, offset);
+        write_bytes(&self.target.to_le_bytes(), out, offset);
+        write_bytes(&self.x.to_le_bytes(), out, offset);
+        write_bytes(&self.y.to_le_bytes(), out, offset);
+        write_bytes(&self.kind.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.ui_target` record.
+pub const SERVICE_UI_TARGET_TAG: u32 = 1048;
+
+/// The `service.ui_target` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiTarget {
+    /// Little-endian u32.
+    pub target: u32,
+    /// Little-endian i32.
+    pub x: i32,
+    /// Little-endian i32.
+    pub y: i32,
+    /// Little-endian u32.
+    pub width: u32,
+    /// Little-endian u32.
+    pub height: u32,
+}
+
+impl ServiceUiTarget {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiTarget(Self {
+            target: u32::from_le_bytes(body.scalar()?),
+            x: i32::from_le_bytes(body.scalar()?),
+            y: i32::from_le_bytes(body.scalar()?),
+            width: u32::from_le_bytes(body.scalar()?),
+            height: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.target.to_le_bytes(), out, offset);
+        write_bytes(&self.x.to_le_bytes(), out, offset);
+        write_bytes(&self.y.to_le_bytes(), out, offset);
+        write_bytes(&self.width.to_le_bytes(), out, offset);
+        write_bytes(&self.height.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.ui_ask` record.
+pub const SERVICE_UI_ASK_TAG: u32 = 1049;
+/// Maximum bytes of `service.ui_ask.slot`.
+pub const SERVICE_UI_ASK_SLOT_MAX_BYTES: usize = 128;
+/// Maximum bytes of `service.ui_ask.title`.
+pub const SERVICE_UI_ASK_TITLE_MAX_BYTES: usize = 256;
+/// Maximum bytes of `service.ui_ask.text`.
+pub const SERVICE_UI_ASK_TEXT_MAX_BYTES: usize = 1024;
+/// Maximum bytes of `service.ui_ask.choices`.
+pub const SERVICE_UI_ASK_CHOICES_MAX_BYTES: usize = 2048;
+/// Separator of the list in `service.ui_ask.choices`.
+pub const SERVICE_UI_ASK_CHOICES_SEPARATOR: char = '\n';
+/// Most items in `service.ui_ask.choices`.
+pub const SERVICE_UI_ASK_CHOICES_MAX_ITEMS: usize = 32;
+/// Longest item of `service.ui_ask.choices` in bytes.
+pub const SERVICE_UI_ASK_CHOICES_ITEM_MAX_BYTES: usize = 128;
+
+/// The `service.ui_ask` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiAsk<'a> {
+    /// Little-endian u32.
+    pub kind: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// UTF-8 text of at most 128 bytes.
+    pub slot: &'a str,
+    /// UTF-8 text of at most 256 bytes.
+    pub title: &'a str,
+    /// UTF-8 text of at most 1024 bytes.
+    pub text: &'a str,
+    /// UTF-8 text of at most 2048 bytes.
+    pub choices: &'a str,
+}
+
+impl<'a> ServiceUiAsk<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiAsk(Self {
+            kind: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+            slot: body.string(SERVICE_UI_ASK_SLOT_MAX_BYTES)?,
+            title: body.string(SERVICE_UI_ASK_TITLE_MAX_BYTES)?,
+            text: body.string(SERVICE_UI_ASK_TEXT_MAX_BYTES)?,
+            choices: body.string(SERVICE_UI_ASK_CHOICES_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += blob_len(self.slot.len(), SERVICE_UI_ASK_SLOT_MAX_BYTES)?;
+        len += blob_len(self.title.len(), SERVICE_UI_ASK_TITLE_MAX_BYTES)?;
+        len += blob_len(self.text.len(), SERVICE_UI_ASK_TEXT_MAX_BYTES)?;
+        len += blob_len(self.choices.len(), SERVICE_UI_ASK_CHOICES_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.kind.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_blob(self.slot.as_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_blob(self.text.as_bytes(), out, offset);
+        write_blob(self.choices.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.ui_text` record.
+pub const SERVICE_UI_TEXT_TAG: u32 = 1050;
+/// Maximum bytes of `service.ui_text.data`.
+pub const SERVICE_UI_TEXT_DATA_MAX_BYTES: usize = 3072;
+
+/// The `service.ui_text` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiText<'a> {
+    /// Little-endian u32.
+    pub text: u32,
+    /// Little-endian u32.
+    pub offset: u32,
+    /// Little-endian u32.
+    pub total: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// UTF-8 text of at most 3072 bytes.
+    pub data: &'a str,
+}
+
+impl<'a> ServiceUiText<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiText(Self {
+            text: u32::from_le_bytes(body.scalar()?),
+            offset: u32::from_le_bytes(body.scalar()?),
+            total: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+            data: body.string(SERVICE_UI_TEXT_DATA_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += blob_len(self.data.len(), SERVICE_UI_TEXT_DATA_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.text.to_le_bytes(), out, offset);
+        write_bytes(&self.offset.to_le_bytes(), out, offset);
+        write_bytes(&self.total.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_blob(self.data.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.ui_text_at` record.
+pub const SERVICE_UI_TEXT_AT_TAG: u32 = 1051;
+
+/// The `service.ui_text_at` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiTextAt {
+    /// Little-endian u32.
+    pub text: u32,
+    /// Little-endian u32.
+    pub offset: u32,
+}
+
+impl ServiceUiTextAt {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiTextAt(Self {
+            text: u32::from_le_bytes(body.scalar()?),
+            offset: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.text.to_le_bytes(), out, offset);
+        write_bytes(&self.offset.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.ui_answer` record.
+pub const SERVICE_UI_ANSWER_TAG: u32 = 1052;
+
+/// The `service.ui_answer` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiAnswer {
+    /// Little-endian u32.
+    pub request: u32,
+    /// Little-endian u32.
+    pub outcome: u32,
+    /// Little-endian u32.
+    pub choice: u32,
+}
+
+impl ServiceUiAnswer {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiAnswer(Self {
+            request: u32::from_le_bytes(body.scalar()?),
+            outcome: u32::from_le_bytes(body.scalar()?),
+            choice: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.request.to_le_bytes(), out, offset);
+        write_bytes(&self.outcome.to_le_bytes(), out, offset);
+        write_bytes(&self.choice.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.ui_widget_area` record.
+pub const SERVICE_UI_WIDGET_AREA_TAG: u32 = 1053;
+
+/// The `service.ui_widget_area` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiWidgetArea {
+    /// Little-endian u32.
+    pub instance: u32,
+    /// Little-endian i32.
+    pub x: i32,
+    /// Little-endian i32.
+    pub y: i32,
+    /// Little-endian u32.
+    pub width: u32,
+    /// Little-endian u32.
+    pub height: u32,
+}
+
+impl ServiceUiWidgetArea {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiWidgetArea(Self {
+            instance: u32::from_le_bytes(body.scalar()?),
+            x: i32::from_le_bytes(body.scalar()?),
+            y: i32::from_le_bytes(body.scalar()?),
+            width: u32::from_le_bytes(body.scalar()?),
+            height: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.instance.to_le_bytes(), out, offset);
+        write_bytes(&self.x.to_le_bytes(), out, offset);
+        write_bytes(&self.y.to_le_bytes(), out, offset);
+        write_bytes(&self.width.to_le_bytes(), out, offset);
+        write_bytes(&self.height.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.ui_size` record.
+pub const SERVICE_UI_SIZE_TAG: u32 = 1054;
+
+/// The `service.ui_size` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiSize {
+    /// Little-endian u32.
+    pub height: u32,
+    /// Little-endian u32.
+    pub min_height: u32,
+}
+
+impl ServiceUiSize {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiSize(Self {
+            height: u32::from_le_bytes(body.scalar()?),
+            min_height: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.height.to_le_bytes(), out, offset);
+        write_bytes(&self.min_height.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.ui_status_ask` record.
+pub const SERVICE_UI_STATUS_ASK_TAG: u32 = 1055;
+/// Maximum bytes of `service.ui_status_ask.items`.
+pub const SERVICE_UI_STATUS_ASK_ITEMS_MAX_BYTES: usize = 1032;
+/// Separator of the list in `service.ui_status_ask.items`.
+pub const SERVICE_UI_STATUS_ASK_ITEMS_SEPARATOR: char = '\n';
+/// Most items in `service.ui_status_ask.items`.
+pub const SERVICE_UI_STATUS_ASK_ITEMS_MAX_ITEMS: usize = 8;
+/// Longest item of `service.ui_status_ask.items` in bytes.
+pub const SERVICE_UI_STATUS_ASK_ITEMS_ITEM_MAX_BYTES: usize = 128;
+/// Maximum bytes of `service.ui_status_ask.context`.
+pub const SERVICE_UI_STATUS_ASK_CONTEXT_MAX_BYTES: usize = 1024;
+
+/// The `service.ui_status_ask` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiStatusAsk<'a> {
+    /// UTF-8 text of at most 1032 bytes.
+    pub items: &'a str,
+    /// Opaque bytes, at most 1024.
+    pub context: &'a [u8],
+}
+
+impl<'a> ServiceUiStatusAsk<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiStatusAsk(Self {
+            items: body.string(SERVICE_UI_STATUS_ASK_ITEMS_MAX_BYTES)?,
+            context: body.blob(SERVICE_UI_STATUS_ASK_CONTEXT_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.items.len(), SERVICE_UI_STATUS_ASK_ITEMS_MAX_BYTES)?;
+        len += blob_len(self.context.len(), SERVICE_UI_STATUS_ASK_CONTEXT_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.items.as_bytes(), out, offset);
+        write_blob(self.context, out, offset);
+    }
+}
+/// Wire tag of the `service.ui_status_value` record.
+pub const SERVICE_UI_STATUS_VALUE_TAG: u32 = 1056;
+/// Maximum bytes of `service.ui_status_value.item`.
+pub const SERVICE_UI_STATUS_VALUE_ITEM_MAX_BYTES: usize = 128;
+/// Maximum bytes of `service.ui_status_value.text`.
+pub const SERVICE_UI_STATUS_VALUE_TEXT_MAX_BYTES: usize = 128;
+
+/// The `service.ui_status_value` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiStatusValue<'a> {
+    /// UTF-8 text of at most 128 bytes.
+    pub item: &'a str,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// Little-endian u32.
+    pub handle: u32,
+    /// UTF-8 text of at most 128 bytes.
+    pub text: &'a str,
+}
+
+impl<'a> ServiceUiStatusValue<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiStatusValue(Self {
+            item: body.string(SERVICE_UI_STATUS_VALUE_ITEM_MAX_BYTES)?,
+            flags: u32::from_le_bytes(body.scalar()?),
+            handle: u32::from_le_bytes(body.scalar()?),
+            text: body.string(SERVICE_UI_STATUS_VALUE_TEXT_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.item.len(), SERVICE_UI_STATUS_VALUE_ITEM_MAX_BYTES)?;
+        len += 4;
+        len += 4;
+        len += blob_len(self.text.len(), SERVICE_UI_STATUS_VALUE_TEXT_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.item.as_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_bytes(&self.handle.to_le_bytes(), out, offset);
+        write_blob(self.text.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.ui_param` record.
+pub const SERVICE_UI_PARAM_TAG: u32 = 1057;
+/// Maximum bytes of `service.ui_param.key`.
+pub const SERVICE_UI_PARAM_KEY_MAX_BYTES: usize = 32;
+/// Maximum bytes of `service.ui_param.value`.
+pub const SERVICE_UI_PARAM_VALUE_MAX_BYTES: usize = 1024;
+
+/// The `service.ui_param` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiParam<'a> {
+    /// UTF-8 text of at most 32 bytes.
+    pub key: &'a str,
+    /// UTF-8 text of at most 1024 bytes.
+    pub value: &'a str,
+}
+
+impl<'a> ServiceUiParam<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiParam(Self {
+            key: body.string(SERVICE_UI_PARAM_KEY_MAX_BYTES)?,
+            value: body.string(SERVICE_UI_PARAM_VALUE_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += blob_len(self.key.len(), SERVICE_UI_PARAM_KEY_MAX_BYTES)?;
+        len += blob_len(self.value.len(), SERVICE_UI_PARAM_VALUE_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.key.as_bytes(), out, offset);
+        write_blob(self.value.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.ui_handle` record.
+pub const SERVICE_UI_HANDLE_TAG: u32 = 1058;
+
+/// The `service.ui_handle` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceUiHandle {
+    /// Little-endian u32.
+    pub handle: u32,
+}
+
+impl ServiceUiHandle {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceUiHandle(Self {
+            handle: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.handle.to_le_bytes(), out, offset);
+    }
+}
 
 /// A registration or declaration record, borrowed from one validated batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -4413,6 +6170,78 @@ pub enum Record<'a> {
     ServiceRegValue(ServiceRegValue<'a>),
     /// A `ServiceRegWidget` record.
     ServiceRegWidget(ServiceRegWidget<'a>),
+    /// A `ServiceRegStatus` record.
+    ServiceRegStatus(ServiceRegStatus<'a>),
+    /// A `InputSpec` record.
+    InputSpec(InputSpec<'a>),
+    /// A `HelpHint` record.
+    HelpHint(HelpHint<'a>),
+    /// A `WidgetSpec` record.
+    WidgetSpec(WidgetSpec<'a>),
+    /// A `WidgetPlace` record.
+    WidgetPlace(WidgetPlace<'a>),
+    /// A `StatusItem` record.
+    StatusItem(StatusItem<'a>),
+    /// A `StatusLine` record.
+    StatusLine(StatusLine<'a>),
+    /// A `StatusPlace` record.
+    StatusPlace(StatusPlace<'a>),
+    /// A `EventScreenOpened` record.
+    EventScreenOpened(EventScreenOpened<'a>),
+    /// A `EventScreenClosed` record.
+    EventScreenClosed(EventScreenClosed<'a>),
+    /// A `EventStackChanged` record.
+    EventStackChanged(EventStackChanged),
+    /// A `EventAnswered` record.
+    EventAnswered(EventAnswered),
+    /// A `EventWidgetMade` record.
+    EventWidgetMade(EventWidgetMade<'a>),
+    /// A `EventWidgetDropped` record.
+    EventWidgetDropped(EventWidgetDropped),
+    /// A `EventWidgetChanged` record.
+    EventWidgetChanged(EventWidgetChanged),
+    /// A `EventScreenReady` record.
+    EventScreenReady(EventScreenReady<'a>),
+    /// A `EventSpoken` record.
+    EventSpoken(EventSpoken),
+    /// A `InputWidget` record.
+    InputWidget(InputWidget),
+    /// A `ServiceUiScreen` record.
+    ServiceUiScreen(ServiceUiScreen<'a>),
+    /// A `ServiceUiRequest` record.
+    ServiceUiRequest(ServiceUiRequest),
+    /// A `ServiceUiQuestion` record.
+    ServiceUiQuestion(ServiceUiQuestion<'a>),
+    /// A `ServiceUiHint` record.
+    ServiceUiHint(ServiceUiHint<'a>),
+    /// A `ServiceUiWidgetRef` record.
+    ServiceUiWidgetRef(ServiceUiWidgetRef<'a>),
+    /// A `ServiceUiInstance` record.
+    ServiceUiInstance(ServiceUiInstance),
+    /// A `ServiceUiWidgetInput` record.
+    ServiceUiWidgetInput(ServiceUiWidgetInput),
+    /// A `ServiceUiTarget` record.
+    ServiceUiTarget(ServiceUiTarget),
+    /// A `ServiceUiAsk` record.
+    ServiceUiAsk(ServiceUiAsk<'a>),
+    /// A `ServiceUiText` record.
+    ServiceUiText(ServiceUiText<'a>),
+    /// A `ServiceUiTextAt` record.
+    ServiceUiTextAt(ServiceUiTextAt),
+    /// A `ServiceUiAnswer` record.
+    ServiceUiAnswer(ServiceUiAnswer),
+    /// A `ServiceUiWidgetArea` record.
+    ServiceUiWidgetArea(ServiceUiWidgetArea),
+    /// A `ServiceUiSize` record.
+    ServiceUiSize(ServiceUiSize),
+    /// A `ServiceUiStatusAsk` record.
+    ServiceUiStatusAsk(ServiceUiStatusAsk<'a>),
+    /// A `ServiceUiStatusValue` record.
+    ServiceUiStatusValue(ServiceUiStatusValue<'a>),
+    /// A `ServiceUiParam` record.
+    ServiceUiParam(ServiceUiParam<'a>),
+    /// A `ServiceUiHandle` record.
+    ServiceUiHandle(ServiceUiHandle),
 }
 
 impl<'a> Reader<'a> {
@@ -4536,6 +6365,42 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         SERVICE_REG_SETUP_STEP_TAG => ServiceRegSetupStep::decode(body)?,
         SERVICE_REG_VALUE_TAG => ServiceRegValue::decode(body)?,
         SERVICE_REG_WIDGET_TAG => ServiceRegWidget::decode(body)?,
+        SERVICE_REG_STATUS_TAG => ServiceRegStatus::decode(body)?,
+        INPUT_SPEC_TAG => InputSpec::decode(body)?,
+        HELP_HINT_TAG => HelpHint::decode(body)?,
+        WIDGET_SPEC_TAG => WidgetSpec::decode(body)?,
+        WIDGET_PLACE_TAG => WidgetPlace::decode(body)?,
+        STATUS_ITEM_TAG => StatusItem::decode(body)?,
+        STATUS_LINE_TAG => StatusLine::decode(body)?,
+        STATUS_PLACE_TAG => StatusPlace::decode(body)?,
+        EVENT_SCREEN_OPENED_TAG => EventScreenOpened::decode(body)?,
+        EVENT_SCREEN_CLOSED_TAG => EventScreenClosed::decode(body)?,
+        EVENT_STACK_CHANGED_TAG => EventStackChanged::decode(body)?,
+        EVENT_ANSWERED_TAG => EventAnswered::decode(body)?,
+        EVENT_WIDGET_MADE_TAG => EventWidgetMade::decode(body)?,
+        EVENT_WIDGET_DROPPED_TAG => EventWidgetDropped::decode(body)?,
+        EVENT_WIDGET_CHANGED_TAG => EventWidgetChanged::decode(body)?,
+        EVENT_SCREEN_READY_TAG => EventScreenReady::decode(body)?,
+        EVENT_SPOKEN_TAG => EventSpoken::decode(body)?,
+        INPUT_WIDGET_TAG => InputWidget::decode(body)?,
+        SERVICE_UI_SCREEN_TAG => ServiceUiScreen::decode(body)?,
+        SERVICE_UI_REQUEST_TAG => ServiceUiRequest::decode(body)?,
+        SERVICE_UI_QUESTION_TAG => ServiceUiQuestion::decode(body)?,
+        SERVICE_UI_HINT_TAG => ServiceUiHint::decode(body)?,
+        SERVICE_UI_WIDGET_REF_TAG => ServiceUiWidgetRef::decode(body)?,
+        SERVICE_UI_INSTANCE_TAG => ServiceUiInstance::decode(body)?,
+        SERVICE_UI_WIDGET_INPUT_TAG => ServiceUiWidgetInput::decode(body)?,
+        SERVICE_UI_TARGET_TAG => ServiceUiTarget::decode(body)?,
+        SERVICE_UI_ASK_TAG => ServiceUiAsk::decode(body)?,
+        SERVICE_UI_TEXT_TAG => ServiceUiText::decode(body)?,
+        SERVICE_UI_TEXT_AT_TAG => ServiceUiTextAt::decode(body)?,
+        SERVICE_UI_ANSWER_TAG => ServiceUiAnswer::decode(body)?,
+        SERVICE_UI_WIDGET_AREA_TAG => ServiceUiWidgetArea::decode(body)?,
+        SERVICE_UI_SIZE_TAG => ServiceUiSize::decode(body)?,
+        SERVICE_UI_STATUS_ASK_TAG => ServiceUiStatusAsk::decode(body)?,
+        SERVICE_UI_STATUS_VALUE_TAG => ServiceUiStatusValue::decode(body)?,
+        SERVICE_UI_PARAM_TAG => ServiceUiParam::decode(body)?,
+        SERVICE_UI_HANDLE_TAG => ServiceUiHandle::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -4706,6 +6571,42 @@ impl Record<'_> {
             Record::ServiceRegSetupStep(_) => SERVICE_REG_SETUP_STEP_TAG,
             Record::ServiceRegValue(_) => SERVICE_REG_VALUE_TAG,
             Record::ServiceRegWidget(_) => SERVICE_REG_WIDGET_TAG,
+            Record::ServiceRegStatus(_) => SERVICE_REG_STATUS_TAG,
+            Record::InputSpec(_) => INPUT_SPEC_TAG,
+            Record::HelpHint(_) => HELP_HINT_TAG,
+            Record::WidgetSpec(_) => WIDGET_SPEC_TAG,
+            Record::WidgetPlace(_) => WIDGET_PLACE_TAG,
+            Record::StatusItem(_) => STATUS_ITEM_TAG,
+            Record::StatusLine(_) => STATUS_LINE_TAG,
+            Record::StatusPlace(_) => STATUS_PLACE_TAG,
+            Record::EventScreenOpened(_) => EVENT_SCREEN_OPENED_TAG,
+            Record::EventScreenClosed(_) => EVENT_SCREEN_CLOSED_TAG,
+            Record::EventStackChanged(_) => EVENT_STACK_CHANGED_TAG,
+            Record::EventAnswered(_) => EVENT_ANSWERED_TAG,
+            Record::EventWidgetMade(_) => EVENT_WIDGET_MADE_TAG,
+            Record::EventWidgetDropped(_) => EVENT_WIDGET_DROPPED_TAG,
+            Record::EventWidgetChanged(_) => EVENT_WIDGET_CHANGED_TAG,
+            Record::EventScreenReady(_) => EVENT_SCREEN_READY_TAG,
+            Record::EventSpoken(_) => EVENT_SPOKEN_TAG,
+            Record::InputWidget(_) => INPUT_WIDGET_TAG,
+            Record::ServiceUiScreen(_) => SERVICE_UI_SCREEN_TAG,
+            Record::ServiceUiRequest(_) => SERVICE_UI_REQUEST_TAG,
+            Record::ServiceUiQuestion(_) => SERVICE_UI_QUESTION_TAG,
+            Record::ServiceUiHint(_) => SERVICE_UI_HINT_TAG,
+            Record::ServiceUiWidgetRef(_) => SERVICE_UI_WIDGET_REF_TAG,
+            Record::ServiceUiInstance(_) => SERVICE_UI_INSTANCE_TAG,
+            Record::ServiceUiWidgetInput(_) => SERVICE_UI_WIDGET_INPUT_TAG,
+            Record::ServiceUiTarget(_) => SERVICE_UI_TARGET_TAG,
+            Record::ServiceUiAsk(_) => SERVICE_UI_ASK_TAG,
+            Record::ServiceUiText(_) => SERVICE_UI_TEXT_TAG,
+            Record::ServiceUiTextAt(_) => SERVICE_UI_TEXT_AT_TAG,
+            Record::ServiceUiAnswer(_) => SERVICE_UI_ANSWER_TAG,
+            Record::ServiceUiWidgetArea(_) => SERVICE_UI_WIDGET_AREA_TAG,
+            Record::ServiceUiSize(_) => SERVICE_UI_SIZE_TAG,
+            Record::ServiceUiStatusAsk(_) => SERVICE_UI_STATUS_ASK_TAG,
+            Record::ServiceUiStatusValue(_) => SERVICE_UI_STATUS_VALUE_TAG,
+            Record::ServiceUiParam(_) => SERVICE_UI_PARAM_TAG,
+            Record::ServiceUiHandle(_) => SERVICE_UI_HANDLE_TAG,
         }
     }
 
@@ -4792,6 +6693,42 @@ impl Record<'_> {
             Record::ServiceRegSetupStep(record) => record.body_len(),
             Record::ServiceRegValue(record) => record.body_len(),
             Record::ServiceRegWidget(record) => record.body_len(),
+            Record::ServiceRegStatus(record) => record.body_len(),
+            Record::InputSpec(record) => record.body_len(),
+            Record::HelpHint(record) => record.body_len(),
+            Record::WidgetSpec(record) => record.body_len(),
+            Record::WidgetPlace(record) => record.body_len(),
+            Record::StatusItem(record) => record.body_len(),
+            Record::StatusLine(record) => record.body_len(),
+            Record::StatusPlace(record) => record.body_len(),
+            Record::EventScreenOpened(record) => record.body_len(),
+            Record::EventScreenClosed(record) => record.body_len(),
+            Record::EventStackChanged(record) => record.body_len(),
+            Record::EventAnswered(record) => record.body_len(),
+            Record::EventWidgetMade(record) => record.body_len(),
+            Record::EventWidgetDropped(record) => record.body_len(),
+            Record::EventWidgetChanged(record) => record.body_len(),
+            Record::EventScreenReady(record) => record.body_len(),
+            Record::EventSpoken(record) => record.body_len(),
+            Record::InputWidget(record) => record.body_len(),
+            Record::ServiceUiScreen(record) => record.body_len(),
+            Record::ServiceUiRequest(record) => record.body_len(),
+            Record::ServiceUiQuestion(record) => record.body_len(),
+            Record::ServiceUiHint(record) => record.body_len(),
+            Record::ServiceUiWidgetRef(record) => record.body_len(),
+            Record::ServiceUiInstance(record) => record.body_len(),
+            Record::ServiceUiWidgetInput(record) => record.body_len(),
+            Record::ServiceUiTarget(record) => record.body_len(),
+            Record::ServiceUiAsk(record) => record.body_len(),
+            Record::ServiceUiText(record) => record.body_len(),
+            Record::ServiceUiTextAt(record) => record.body_len(),
+            Record::ServiceUiAnswer(record) => record.body_len(),
+            Record::ServiceUiWidgetArea(record) => record.body_len(),
+            Record::ServiceUiSize(record) => record.body_len(),
+            Record::ServiceUiStatusAsk(record) => record.body_len(),
+            Record::ServiceUiStatusValue(record) => record.body_len(),
+            Record::ServiceUiParam(record) => record.body_len(),
+            Record::ServiceUiHandle(record) => record.body_len(),
         }
     }
 
@@ -4883,12 +6820,49 @@ impl Record<'_> {
             Record::ServiceRegSetupStep(record) => record.write(out, offset),
             Record::ServiceRegValue(record) => record.write(out, offset),
             Record::ServiceRegWidget(record) => record.write(out, offset),
+            Record::ServiceRegStatus(record) => record.write(out, offset),
+            Record::InputSpec(record) => record.write(out, offset),
+            Record::HelpHint(record) => record.write(out, offset),
+            Record::WidgetSpec(record) => record.write(out, offset),
+            Record::WidgetPlace(record) => record.write(out, offset),
+            Record::StatusItem(record) => record.write(out, offset),
+            Record::StatusLine(record) => record.write(out, offset),
+            Record::StatusPlace(record) => record.write(out, offset),
+            Record::EventScreenOpened(record) => record.write(out, offset),
+            Record::EventScreenClosed(record) => record.write(out, offset),
+            Record::EventStackChanged(record) => record.write(out, offset),
+            Record::EventAnswered(record) => record.write(out, offset),
+            Record::EventWidgetMade(record) => record.write(out, offset),
+            Record::EventWidgetDropped(record) => record.write(out, offset),
+            Record::EventWidgetChanged(record) => record.write(out, offset),
+            Record::EventScreenReady(record) => record.write(out, offset),
+            Record::EventSpoken(record) => record.write(out, offset),
+            Record::InputWidget(record) => record.write(out, offset),
+            Record::ServiceUiScreen(record) => record.write(out, offset),
+            Record::ServiceUiRequest(record) => record.write(out, offset),
+            Record::ServiceUiQuestion(record) => record.write(out, offset),
+            Record::ServiceUiHint(record) => record.write(out, offset),
+            Record::ServiceUiWidgetRef(record) => record.write(out, offset),
+            Record::ServiceUiInstance(record) => record.write(out, offset),
+            Record::ServiceUiWidgetInput(record) => record.write(out, offset),
+            Record::ServiceUiTarget(record) => record.write(out, offset),
+            Record::ServiceUiAsk(record) => record.write(out, offset),
+            Record::ServiceUiText(record) => record.write(out, offset),
+            Record::ServiceUiTextAt(record) => record.write(out, offset),
+            Record::ServiceUiAnswer(record) => record.write(out, offset),
+            Record::ServiceUiWidgetArea(record) => record.write(out, offset),
+            Record::ServiceUiSize(record) => record.write(out, offset),
+            Record::ServiceUiStatusAsk(record) => record.write(out, offset),
+            Record::ServiceUiStatusValue(record) => record.write(out, offset),
+            Record::ServiceUiParam(record) => record.write(out, offset),
+            Record::ServiceUiHandle(record) => record.write(out, offset),
         }
     }
 
     fn bits(&self) -> u8 {
         match self {
             Record::EventPageTurned(record) => record.bits(),
+            Record::EventScreenShown(record) => record.bits(),
             Record::EventBookOpened(record) => record.bits(),
             Record::EventBookClosed(record) => record.bits(),
             Record::EventBookFinished(record) => record.bits(),
@@ -4982,6 +6956,40 @@ pub fn record_decode_one(bytes: &[u8]) -> Result<Record<'_>, i32> {
     let record = record_decode(tag, &mut body)?;
     reader.finish()?;
     Ok(record)
+}
+
+/// Encode a counted batch of at most `max_records` records and `max_bytes`
+/// bytes: the framing of [`records_encode`], with the limits a service op
+/// names (its `input_rows` and `max_input`) in place of
+/// [`REGISTRATION_MAX_RECORDS`]. Every cap and the output capacity are checked
+/// before any write. Failure returns ERR_NO_SPACE and leaves the entire output
+/// unchanged; nothing is ever cut.
+pub fn records_encode_counted(
+    records: &[Record<'_>],
+    max_records: usize,
+    max_bytes: usize,
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    if records.len() > max_records || records.len() > u32::MAX as usize {
+        return Err(-3);
+    }
+    let mut required = varint_len(records.len() as u32);
+    for record in records {
+        required += record_framed_len(record)?;
+        if required > max_bytes {
+            return Err(-3);
+        }
+    }
+    if out.len() < required {
+        return Err(-3);
+    }
+    let mut offset = 0;
+    write_varint(records.len() as u32, out, &mut offset);
+    for record in records {
+        let rest = out.get_mut(offset..).ok_or(-3)?;
+        offset += record_encode_one(record, rest)?;
+    }
+    Ok(offset)
 }
 
 // Single-record and streaming decoders (lock format 8).
@@ -5189,6 +7197,25 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         PRESET_VALUE_TAG => PresetValue::decode(body)?,
         SERVICE_REG_QUERY_TAG => ServiceRegQuery::decode(body)?,
         SERVICE_REG_KEY_TAG => ServiceRegKey::decode(body)?,
+        INPUT_SPEC_TAG => InputSpec::decode(body)?,
+        HELP_HINT_TAG => HelpHint::decode(body)?,
+        WIDGET_SPEC_TAG => WidgetSpec::decode(body)?,
+        WIDGET_PLACE_TAG => WidgetPlace::decode(body)?,
+        STATUS_ITEM_TAG => StatusItem::decode(body)?,
+        STATUS_LINE_TAG => StatusLine::decode(body)?,
+        STATUS_PLACE_TAG => StatusPlace::decode(body)?,
+        SERVICE_UI_REQUEST_TAG => ServiceUiRequest::decode(body)?,
+        SERVICE_UI_WIDGET_REF_TAG => ServiceUiWidgetRef::decode(body)?,
+        SERVICE_UI_INSTANCE_TAG => ServiceUiInstance::decode(body)?,
+        SERVICE_UI_WIDGET_INPUT_TAG => ServiceUiWidgetInput::decode(body)?,
+        SERVICE_UI_ASK_TAG => ServiceUiAsk::decode(body)?,
+        SERVICE_UI_TEXT_TAG => ServiceUiText::decode(body)?,
+        SERVICE_UI_TEXT_AT_TAG => ServiceUiTextAt::decode(body)?,
+        SERVICE_UI_ANSWER_TAG => ServiceUiAnswer::decode(body)?,
+        SERVICE_UI_WIDGET_AREA_TAG => ServiceUiWidgetArea::decode(body)?,
+        SERVICE_UI_STATUS_ASK_TAG => ServiceUiStatusAsk::decode(body)?,
+        SERVICE_UI_PARAM_TAG => ServiceUiParam::decode(body)?,
+        SERVICE_UI_HANDLE_TAG => ServiceUiHandle::decode(body)?,
         EVENT_TICK_TAG
         | EVENT_STARTED_TAG
         | EVENT_RESUME_TAG
@@ -5238,7 +7265,24 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         | SERVICE_REG_BINDING_TAG
         | SERVICE_REG_SETUP_STEP_TAG
         | SERVICE_REG_VALUE_TAG
-        | SERVICE_REG_WIDGET_TAG => return Err(-2),
+        | SERVICE_REG_WIDGET_TAG
+        | SERVICE_REG_STATUS_TAG
+        | EVENT_SCREEN_OPENED_TAG
+        | EVENT_SCREEN_CLOSED_TAG
+        | EVENT_STACK_CHANGED_TAG
+        | EVENT_ANSWERED_TAG
+        | EVENT_WIDGET_MADE_TAG
+        | EVENT_WIDGET_DROPPED_TAG
+        | EVENT_WIDGET_CHANGED_TAG
+        | EVENT_SCREEN_READY_TAG
+        | EVENT_SPOKEN_TAG
+        | INPUT_WIDGET_TAG
+        | SERVICE_UI_SCREEN_TAG
+        | SERVICE_UI_QUESTION_TAG
+        | SERVICE_UI_HINT_TAG
+        | SERVICE_UI_TARGET_TAG
+        | SERVICE_UI_SIZE_TAG
+        | SERVICE_UI_STATUS_VALUE_TAG => return Err(-2),
         _ => return Err(-1),
     })
 }
@@ -5351,4 +7395,43 @@ pub fn host_decode_one(bytes: &[u8]) -> Result<Record<'_>, i32> {
     let record = host_decode(tag, &mut body)?;
     reader.finish()?;
     Ok(record)
+}
+
+/// A counted batch a plugin sent that may hold more records than
+/// [`REGISTRATION_MAX_RECORDS`] (a service op's input: at most `max_records`,
+/// its `input_rows`), as the host decodes it. The whole batch is decoded and
+/// checked first, and only then is `visit` called for each record in wire
+/// order, so a refused batch visits nothing. No record array is kept: each
+/// record is decoded again for its visit. Statuses are those of
+/// [`host_records_decode_into`], a count over `max_records` is ERR_NO_SPACE,
+/// and an error from `visit` stops and is returned. Returns the record count.
+pub fn host_records_visit<'a>(
+    bytes: &'a [u8],
+    max_records: usize,
+    visit: &mut dyn FnMut(Record<'a>) -> Result<(), i32>,
+) -> Result<usize, i32> {
+    if bytes.len() > REGISTRATION_MAX_BYTES {
+        return Err(-3);
+    }
+    let len = host_records_pass(bytes, max_records, &mut |_| Ok(()))?;
+    host_records_pass(bytes, max_records, visit)?;
+    Ok(len)
+}
+
+fn host_records_pass<'a>(
+    bytes: &'a [u8],
+    max_records: usize,
+    visit: &mut dyn FnMut(Record<'a>) -> Result<(), i32>,
+) -> Result<usize, i32> {
+    let mut reader = Reader { remaining: bytes };
+    let len = reader.varint()? as usize;
+    if len > max_records {
+        return Err(-3);
+    }
+    for _ in 0..len {
+        let (tag, mut body) = reader.record()?;
+        visit(host_decode(tag, &mut body)?)?;
+    }
+    reader.finish()?;
+    Ok(len)
 }

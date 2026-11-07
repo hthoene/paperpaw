@@ -45,6 +45,7 @@ typedef struct {
     int32_t (*stage_run)(void * ctx, PpBytes stage, uint32_t cursor, PpBytes input, PpBuffer out);
     int32_t (*service_open)(void * ctx, PpBytes key, uint16_t major, uint16_t minor, uint32_t * out);
     int32_t (*service_call)(void * ctx, uint32_t service, uint32_t op, PpBytes input, PpBuffer out);
+    int32_t (*ui_compose)(void * ctx, uint32_t kind, uint32_t handle, int32_t x, int32_t y, uint32_t width, uint32_t height);
 } PpHost;
 #define PP_ABI_MAJOR 7
 #define PP_ABI_MINOR 1

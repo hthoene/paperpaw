@@ -154,6 +154,7 @@ fn screen_and_action_events_borrow_the_exact_input_fields() {
         screen: "demo.main",
         width: 0x1234_5678,
         height: 0x9abc_def0,
+        instance: None,
     });
     let len = records_encode(&[screen], &mut bytes).unwrap();
     assert_eq!(bytes[1], 38);
@@ -162,10 +163,12 @@ fn screen_and_action_events_borrow_the_exact_input_fields() {
         screen,
         width,
         height,
+        instance,
     } = decode(&bytes[..len]).unwrap()
     else {
         panic!()
     };
+    assert_eq!(instance, None);
     assert_eq!(
         (got_ms, screen, width, height),
         (now_ms, "demo.main", 0x1234_5678, 0x9abc_def0)
@@ -196,6 +199,7 @@ fn screen_and_action_events_refuse_bad_framing_and_utf8() {
             screen: "demo.main",
             width: 800,
             height: 600,
+            instance: None,
         }),
         Record::EventActionRun(EventActionRun {
             now_ms: 13,
@@ -230,10 +234,11 @@ fn event_decoding_uses_exact_tags_for_growth_and_input_records() {
     )
     .unwrap();
     assert_eq!(decode(&bytes[..len]), Err(Error::Unsupported));
-    // Reserved tags (64-78 are core and registry events now) stay unsupported even with valid framing.
+    // Unassigned tags (64-89 are core, registry and UIX events now) stay unsupported even with
+    // valid framing.
     for unknown in [
         &[1, 63, 1, 0][..],
-        &[1, 79, 1, 0][..],
+        &[1, 126, 1, 0][..],
         &[1, 127, 1, 0][..],
         &[1, 191, 1, 1, 0][..],
     ] {
@@ -268,7 +273,7 @@ fn tick_optional_extensions_are_generated_decoder_compatible() {
 fn tick_fallback_preserves_exact_tags_and_singleton_framing() {
     let mut bytes = [0; 12];
     let len = wire::tick_encode(17, &mut bytes).unwrap();
-    for tag in [63, 79, 127] {
+    for tag in [63, 126, 127] {
         bytes[1] = tag;
         assert_eq!(Event::decode(&bytes[..len]), Err(Error::Unsupported));
     }
@@ -278,4 +283,232 @@ fn tick_fallback_preserves_exact_tags_and_singleton_framing() {
     let record = Record::Registration(Registration::Draw { token: 3 });
     let len = records_encode(&[record], &mut bytes).unwrap();
     assert_eq!(Event::decode(&bytes[..len]), Err(Error::Unsupported));
+}
+
+#[test]
+fn stage_call_decodes_exact_tag_and_borrows_opaque_payload() {
+    let record = Record::StageCall(wire::StageCall {
+        stage: "reader.insert",
+        schema: 7,
+        payload: &[255, 0, 128],
+    });
+    let mut bytes = [0; 100];
+    let n = records_encode(&[record], &mut bytes).unwrap();
+    let Event::StageCall {
+        stage,
+        schema,
+        payload,
+    } = decode(&bytes[..n]).unwrap()
+    else {
+        panic!("expected stage call");
+    };
+    assert_eq!(
+        (stage, schema, payload),
+        ("reader.insert", 7, &[255, 0, 128][..])
+    );
+    assert!(bytes.as_ptr_range().contains(&payload.as_ptr()));
+    for end in 0..n {
+        assert!(decode(&bytes[..end]).is_err());
+    }
+    bytes[1] = 129; // tag 513 must never decode as a stage call.
+    assert!(decode(&bytes[..n]).is_err());
+}
+
+#[test]
+fn registry_hints_preserve_unknown_bits_and_expose_every_known_section() {
+    let mut bytes = [0; 64];
+    let cases = [
+        (1, RegistryChanges::menus as fn(RegistryChanges) -> bool),
+        (1 << 1, RegistryChanges::bindings),
+        (1 << 2, RegistryChanges::slots),
+        (1 << 3, RegistryChanges::actions_or_screens),
+        (1 << 4, RegistryChanges::setup),
+        (1 << 5, RegistryChanges::groups),
+        (1 << 6, RegistryChanges::presets),
+        (1 << 7, RegistryChanges::widgets),
+        (1 << 31, RegistryChanges::dropped),
+    ];
+    for (bit, accessor) in cases {
+        let what = bit | (1 << 20);
+        let len = records_encode(
+            &[Record::EventRegistryChanged(wire::EventRegistryChanged {
+                now_ms: 12,
+                what,
+            })],
+            &mut bytes,
+        )
+        .unwrap();
+        let Event::RegistryChanged {
+            now_ms,
+            what: changes,
+        } = Event::decode(&bytes[..len]).unwrap()
+        else {
+            panic!("expected registry hint");
+        };
+        assert_eq!(now_ms, 12);
+        assert_eq!(changes.bits(), what);
+        assert!(accessor(changes));
+        assert!(!accessor(RegistryChanges::from_bits(1 << 20)));
+    }
+    let len = records_encode(
+        &[Record::EventPreviewChanged(wire::EventPreviewChanged {
+            now_ms: 42,
+        })],
+        &mut bytes,
+    )
+    .unwrap();
+    assert_eq!(
+        Event::decode(&bytes[..len]),
+        Ok(Event::PreviewChanged { now_ms: 42 })
+    );
+}
+
+#[test]
+fn plugin_request_ids_borrow_input_and_keep_order_at_the_generated_limit() {
+    let mut bytes = [0; 2048];
+    let ids = ["dictionary"; wire::EVENT_PLUGINS_REQUESTED_PLUGINS_MAX_ITEMS];
+    let joined = ids.join("\n");
+    let len = records_encode(
+        &[Record::EventPluginsRequested(wire::EventPluginsRequested {
+            now_ms: 14,
+            request: 7,
+            by: "keys",
+            plugins: &joined,
+        })],
+        &mut bytes,
+    )
+    .unwrap();
+    let Event::PluginsRequested {
+        now_ms,
+        request,
+        by,
+        plugins,
+    } = Event::decode(&bytes[..len]).unwrap()
+    else {
+        panic!("expected plugin request");
+    };
+    assert_eq!((now_ms, request.get(), by), (14, 7, "keys"));
+    assert_eq!(plugins.len(), ids.len());
+    assert!(!plugins.is_empty());
+    assert_eq!(plugins.iter().collect::<alloc::vec::Vec<_>>(), ids);
+    assert!(bytes.as_ptr_range().contains(&by.as_ptr()));
+    for id in plugins.iter() {
+        assert!(bytes.as_ptr_range().contains(&id.as_ptr()));
+    }
+}
+
+#[test]
+fn malformed_plugin_request_lists_and_excess_items_are_refused() {
+    let mut bytes = [0; 2048];
+    let excess = ["dictionary"; wire::EVENT_PLUGINS_REQUESTED_PLUGINS_MAX_ITEMS + 1].join("\n");
+    let overlong = "a".repeat(wire::EVENT_PLUGINS_REQUESTED_PLUGINS_ITEM_MAX_BYTES + 1);
+    for plugins in [
+        "",
+        "dictionary\n",
+        "\ndictionary",
+        "dictionary\n\nkeys",
+        excess.as_str(),
+        overlong.as_str(),
+    ] {
+        let len = records_encode(
+            &[Record::EventPluginsRequested(wire::EventPluginsRequested {
+                now_ms: 14,
+                request: 7,
+                by: "keys",
+                plugins,
+            })],
+            &mut bytes,
+        )
+        .unwrap();
+        assert_eq!(
+            Event::decode(&bytes[..len]),
+            Err(Error::Invalid),
+            "{plugins:?}"
+        );
+    }
+}
+
+#[test]
+fn plugin_answers_share_typed_outcomes_and_reserved_values_mean_failed() {
+    use crate::native::commands::PluginOutcome;
+    let mut bytes = [0; 256];
+    for (outcome, expected) in [
+        (0, PluginOutcome::Installed),
+        (1, PluginOutcome::Declined),
+        (2, PluginOutcome::Failed),
+        (3, PluginOutcome::NotFound),
+        (4, PluginOutcome::Failed),
+        (u32::MAX, PluginOutcome::Failed),
+    ] {
+        let len = records_encode(
+            &[Record::EventPluginAnswered(wire::EventPluginAnswered {
+                now_ms: 42,
+                request: 17,
+                plugin: "dictionary",
+                outcome,
+            })],
+            &mut bytes,
+        )
+        .unwrap();
+        let Event::PluginAnswered {
+            now_ms,
+            request,
+            plugin,
+            outcome,
+        } = Event::decode(&bytes[..len]).unwrap()
+        else {
+            panic!("expected plugin answer");
+        };
+        assert_eq!(
+            (now_ms, request.get(), plugin, outcome),
+            (42, 17, "dictionary", expected)
+        );
+        assert!(bytes.as_ptr_range().contains(&plugin.as_ptr()));
+    }
+}
+
+#[test]
+fn host_plugin_ids_use_wire_caps_instead_of_the_current_loader_grammar() {
+    let mut bytes = [0; 512];
+    let id = "F".repeat(wire::EVENT_PLUGINS_REQUESTED_PLUGINS_ITEM_MAX_BYTES);
+    assert!(id.len() > 40);
+    let len = records_encode(
+        &[Record::EventPluginsRequested(wire::EventPluginsRequested {
+            now_ms: 1,
+            request: 2,
+            by: &id,
+            plugins: &id,
+        })],
+        &mut bytes,
+    )
+    .unwrap();
+    let Event::PluginsRequested { by, plugins, .. } = Event::decode(&bytes[..len]).unwrap() else {
+        panic!("expected request");
+    };
+    assert_eq!(by, id);
+    assert_eq!(
+        plugins.iter().collect::<alloc::vec::Vec<_>>(),
+        [id.as_str()]
+    );
+    assert!(bytes.as_ptr_range().contains(&by.as_ptr()));
+    assert!(
+        bytes
+            .as_ptr_range()
+            .contains(&plugins.iter().next().unwrap().as_ptr())
+    );
+    let len = records_encode(
+        &[Record::EventPluginAnswered(wire::EventPluginAnswered {
+            now_ms: 1,
+            request: 2,
+            plugin: &id,
+            outcome: 0,
+        })],
+        &mut bytes,
+    )
+    .unwrap();
+    let Event::PluginAnswered { plugin, .. } = Event::decode(&bytes[..len]).unwrap() else {
+        panic!("expected answer");
+    };
+    assert_eq!(plugin, id);
+    assert!(bytes.as_ptr_range().contains(&plugin.as_ptr()));
 }

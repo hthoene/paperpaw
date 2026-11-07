@@ -14,8 +14,10 @@
 //! records stay non-dispatchable until the output validates and commits; the
 //! plugin's destructor runs exactly once, while the context, services and
 //! module are alive; Env and Canvas are lent for one synchronous callback.
+use alloc::alloc::alloc;
 use alloc::boxed::Box;
 use alloc::string::String;
+use core::alloc::Layout;
 use core::cell::Cell;
 use core::ffi::c_void;
 use core::pin::Pin;
@@ -28,6 +30,7 @@ use paperpaw_native::host_glue::{
 };
 use paperpaw_platform::Rect;
 
+pub use super::admitted_features::AdmittedFeatures;
 use super::canvas::CanvasScope;
 pub use super::data_services::DATA_SERVICES;
 pub use super::declared_services::{DeclaredServices, Error as DeclaredServicesError};
@@ -213,6 +216,7 @@ pub fn host_table<S: Services>() -> PpHost {
     table.heap_dealloc = heap_dealloc::<S>;
     table.heap_realloc = heap_realloc::<S>;
     table.clock_micros = clock_micros::<S>;
+    table.stage_run = stage_slot::run::<S>;
     table.registrations_submit = registrations_submit::<S>;
     table.commands_submit = commands_submit::<S>;
     table.env_snapshot = env_snapshot::<S>;
@@ -329,7 +333,15 @@ impl<S: Services, M> Hosted<S, M> {
         })
     }
 
-    /// The pinned owner; callers lease, revoke and finish through it.
+    /// Per-instance available features retained before make, without metadata.
+    #[must_use]
+    pub fn features(&self) -> AdmittedFeatures {
+        self.owner.as_ref().context().declared_services.features()
+    }
+
+    /// The pinned owner; callers lease and finish through it. To stop the
+    /// plugin call [`stop`](Self::stop), not `revoke` here: only `stop` also
+    /// withdraws [`image`](Self::image).
     #[must_use]
     pub fn owner(&self) -> Pin<&Owner<S, M>> {
         self.owner.as_ref()
@@ -341,6 +353,12 @@ impl<S: Services, M> Hosted<S, M> {
     pub fn stop(&self) {
         self.stopped.set(true);
         self.owner.as_ref().revoke();
+    }
+
+    /// Whether [`stop`](Self::stop) was called.
+    #[must_use]
+    pub fn is_stopped(&self) -> bool {
+        self.stopped.get()
     }
 
     /// The plugin's read-only data, as mapped; `None` once stopped. The bytes
@@ -450,6 +468,29 @@ impl<S: Services, M> Hosted<S, M> {
         // On a refusal the transaction drops before returning. No unvalidated
         // partial output is used; a failed `make` has no live output.
         self.make_registered(transaction)?.commit()
+    }
+}
+
+/// Boxes `value` or says `Allocation`; the host is never aborted by a plugin's
+/// memory use (the X4 has no room to abort).
+///
+/// # Errors
+/// `Allocation` when the heap has no room.
+pub fn try_box<T>(value: T) -> Result<Box<T>, Error> {
+    let layout = Layout::new::<T>();
+    if layout.size() == 0 {
+        return Ok(Box::new(value));
+    }
+    // SAFETY: the layout is nonzero and valid for this exact type.
+    let allocation = unsafe { alloc(layout) }.cast::<T>();
+    if allocation.is_null() {
+        return Err(Error::Allocation);
+    }
+    // SAFETY: a uniquely owned allocation of the exact `Box` layout,
+    // initialized before the `Box` exists.
+    unsafe {
+        allocation.write(value);
+        Ok(Box::from_raw(allocation))
     }
 }
 
@@ -930,9 +971,22 @@ pub fn dispatch_draw<S, M>(
     })?
 }
 
+/// One hosted, made and committed plugin as the kernel's `FlatInstance`.
+#[path = "shell_instance.rs"]
+pub mod instance;
+
 #[cfg(test)]
 #[path = "shell_tests.rs"]
 mod tests;
+
+/// The services a plugin declares, checked against the host's catalog before
+/// its image is placed.
+#[path = "shell_admission.rs"]
+pub mod admission;
+
+/// Which plugin's code runs now, kept where a reset leaves it.
+#[path = "shell_inflight.rs"]
+pub mod inflight;
 
 unsafe extern "C" fn i18n_copy<S>(ctx: *mut c_void, key: PpBytes, out: PpBuffer) -> i32 {
     // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
@@ -1312,6 +1366,8 @@ unsafe extern "C" fn commands_submit<S>(ctx: *mut c_void, batch: PpBytes) -> i32
     unsafe { context.commands.submit(batch.ptr, batch.len) }
 }
 
+#[path = "shell_stage_slot.rs"]
+mod stage_slot;
 unsafe extern "C" fn service_open<S>(
     ctx: *mut c_void,
     key: PpBytes,

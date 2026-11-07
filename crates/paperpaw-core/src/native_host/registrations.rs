@@ -85,7 +85,7 @@ pub use wire::{
     EventSettingChanged, EventStatusChanged, EventWifiChanged,
 };
 // Registry (REG, `docs/abi/registry.md`): declarations 21-28, events 75-78 and
-// the `core.registry` rows 1025-1040; the host admits and answers them once
+// the `core.registry` rows 1025-1040 and 1059; the host admits and answers them once
 // wired (Core hand-off).
 pub use wire::{
     EVENT_PLUGIN_ANSWERED_TAG, EVENT_PLUGINS_REQUESTED_PLUGINS_ITEM_MAX_BYTES,
@@ -96,13 +96,40 @@ pub use wire::{
     SERVICE_REG_BINDING_TAG, SERVICE_REG_CHOICE_TAG, SERVICE_REG_GROUP_TAG, SERVICE_REG_ITEM_TAG,
     SERVICE_REG_KEY_TAG, SERVICE_REG_MENU_ROW_TAG, SERVICE_REG_NEED_TAG, SERVICE_REG_PLUGIN_TAG,
     SERVICE_REG_QUERY_TAG, SERVICE_REG_SETTING_EXTRA_TAG, SERVICE_REG_SETTING_TAG,
-    SERVICE_REG_SETUP_STEP_TAG, SERVICE_REG_SLOT_TAG, SERVICE_REG_TEXT_TAG, SERVICE_REG_VALUE_TAG,
-    SERVICE_REG_WIDGET_TAG, SETTING_CHOICE_TAG, SETTING_DEFAULT_TAG, SETUP_STEP_TAG,
-    SLOT_OFFER_TAG, SLOT_SPEC_TAG, ServiceRegBinding, ServiceRegChoice, ServiceRegGroup,
-    ServiceRegItem, ServiceRegKey, ServiceRegMenuRow, ServiceRegNeed, ServiceRegPlugin,
-    ServiceRegQuery, ServiceRegSetting, ServiceRegSettingExtra, ServiceRegSetupStep,
-    ServiceRegSlot, ServiceRegText, ServiceRegValue, ServiceRegWidget, SettingChoice,
-    SettingDefault, SetupStep, SlotOffer, SlotSpec,
+    SERVICE_REG_SETUP_STEP_TAG, SERVICE_REG_SLOT_TAG, SERVICE_REG_STATUS_TAG, SERVICE_REG_TEXT_TAG,
+    SERVICE_REG_VALUE_TAG, SERVICE_REG_WIDGET_TAG, SETTING_CHOICE_TAG, SETTING_DEFAULT_TAG,
+    SETUP_STEP_TAG, SLOT_OFFER_TAG, SLOT_SPEC_TAG, ServiceRegBinding, ServiceRegChoice,
+    ServiceRegGroup, ServiceRegItem, ServiceRegKey, ServiceRegMenuRow, ServiceRegNeed,
+    ServiceRegPlugin, ServiceRegQuery, ServiceRegSetting, ServiceRegSettingExtra,
+    ServiceRegSetupStep, ServiceRegSlot, ServiceRegStatus, ServiceRegText, ServiceRegValue,
+    ServiceRegWidget, SettingChoice, SettingDefault, SetupStep, SlotOffer, SlotSpec,
+};
+// Screens, dialogs and composition (UIX, `docs/abi/ui.md`): declarations 29-30
+// and 224-228, events 79-89, input 193 and the `core.ui` rows 1041-1058; the
+// host admits and answers them once wired (UIX hand-off).
+pub use wire::{
+    EVENT_ANSWERED_TAG, EVENT_SCREEN_CLOSED_TAG, EVENT_SCREEN_OPENED_TAG, EVENT_SCREEN_READY_TAG,
+    EVENT_SPOKEN_TAG, EVENT_STACK_CHANGED_TAG, EVENT_WIDGET_CHANGED_TAG, EVENT_WIDGET_DROPPED_TAG,
+    EVENT_WIDGET_MADE_TAG, EventAnswered, EventScreenClosed, EventScreenOpened, EventScreenReady,
+    EventSpoken, EventStackChanged, EventWidgetChanged, EventWidgetDropped, EventWidgetMade,
+    HELP_HINT_TAG, HelpHint, INPUT_SPEC_TAG, INPUT_WIDGET_TAG, InputSpec, InputWidget,
+    SERVICE_UI_ANSWER_TAG, SERVICE_UI_ASK_CHOICES_ITEM_MAX_BYTES, SERVICE_UI_ASK_CHOICES_MAX_ITEMS,
+    SERVICE_UI_ASK_CHOICES_SEPARATOR, SERVICE_UI_ASK_TAG, SERVICE_UI_HANDLE_TAG,
+    SERVICE_UI_HINT_TAG, SERVICE_UI_INSTANCE_TAG, SERVICE_UI_PARAM_TAG,
+    SERVICE_UI_QUESTION_CHOICES_ITEM_MAX_BYTES, SERVICE_UI_QUESTION_CHOICES_MAX_ITEMS,
+    SERVICE_UI_QUESTION_CHOICES_SEPARATOR, SERVICE_UI_QUESTION_TAG, SERVICE_UI_REQUEST_TAG,
+    SERVICE_UI_SCREEN_TAG, SERVICE_UI_SIZE_TAG, SERVICE_UI_STATUS_ASK_ITEMS_ITEM_MAX_BYTES,
+    SERVICE_UI_STATUS_ASK_ITEMS_MAX_ITEMS, SERVICE_UI_STATUS_ASK_ITEMS_SEPARATOR,
+    SERVICE_UI_STATUS_ASK_TAG, SERVICE_UI_STATUS_VALUE_ITEM_MAX_BYTES, SERVICE_UI_STATUS_VALUE_TAG,
+    SERVICE_UI_TARGET_TAG, SERVICE_UI_TEXT_AT_TAG, SERVICE_UI_TEXT_TAG, SERVICE_UI_WIDGET_AREA_TAG,
+    SERVICE_UI_WIDGET_INPUT_TAG, SERVICE_UI_WIDGET_REF_TAG, STATUS_ITEM_TAG, STATUS_LINE_TAG,
+    STATUS_PLACE_TAG, ServiceUiAnswer, ServiceUiAsk, ServiceUiHandle, ServiceUiHint,
+    ServiceUiInstance, ServiceUiParam, ServiceUiQuestion, ServiceUiRequest, ServiceUiScreen,
+    ServiceUiSize, ServiceUiStatusAsk, ServiceUiStatusValue, ServiceUiTarget, ServiceUiText,
+    ServiceUiTextAt, ServiceUiWidgetArea, ServiceUiWidgetInput, ServiceUiWidgetRef, StatusItem,
+    StatusLine, StatusPlace, WIDGET_PLACE_LIST_KEYS_ITEM_MAX_BYTES,
+    WIDGET_PLACE_LIST_KEYS_MAX_ITEMS, WIDGET_PLACE_LIST_KEYS_SEPARATOR, WIDGET_PLACE_TAG,
+    WIDGET_SPEC_TAG, WidgetPlace, WidgetSpec,
 };
 // Single-record and streaming decoders for plugin-side readers (lock format 8).
 pub use wire::{RECORD_CARRY_MAX_BYTES, RecordStream, record_decode_prefix, records_decode_single};
@@ -111,7 +138,10 @@ pub use wire::{RECORD_CARRY_MAX_BYTES, RecordStream, record_decode_prefix, recor
 // input, frames or service replies.
 pub use wire::{
     host_arguments_decode_into, host_decode_one, host_decode_prefix, host_records_decode_into,
+    host_records_visit,
 };
+// Counted service inputs above the registration limit (`ServiceOp::input_rows`).
+pub use wire::records_encode_counted;
 
 /// A plugin's batch as the host decodes it ([`host_records_decode_into`]),
 /// returned by value. A plugin-reachable slot holds its batch on the heap

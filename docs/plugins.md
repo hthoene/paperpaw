@@ -1834,6 +1834,12 @@ chip, segments, checksum and hash, and CrossPoint's board tag).
 PaperPaw's code guidelines ([CONTRIBUTING.md](../CONTRIBUTING.md#code-guidelines)) hold for plugins too: length limits, errors on user data, memory, comments.
 
 The smallest device, the Xteink X4, has 256 KiB of heap for everything.
+The interface-7 SDK handover encoder temporarily allocates at most 3,328 bytes
+for 32 wire records (32 × 104 bytes, measured with `-Zprint-type-sizes` for
+`riscv32imc-unknown-none-elf`). This fallible allocation is freed before the host
+call; parameter text and transport buffers remain borrowed. This type-layout
+measurement does not replace the runtime X4 heap gate.
+
 PaperPaw's standard app holds some 90 KiB of it once it has started
 with the sample books, 130 KiB at its peak (the emulator, `--profile
 xteink-x4 --headless --script wait:500`). A plugin that should run
@@ -2623,6 +2629,36 @@ has the steps.
 [`Widget`]: ../crates/paperpaw-sdk/src/widgets.rs
 
 
+### Extension stages and call services
+
+Declare an extension point with `native::declare::StageDecl` and subscribe with
+`SubscribeDecl`, passing it to `Declarations::stage` or `subscribe`. Grammar and payload ranges are
+checked locally. Stage ownership, self-subscription, duplicate stage/token pairs
+and the eight-per-plugin subscription limit are checked by the host at commit.
+A subscription's `order` controls its position and its `signature` contributes to
+layout invalidation when the stage changes layout.
+
+A subscriber receives `native::events::Event::StageCall { stage, schema, payload }`
+at its declared token. Check the stage and schema, decode `payload` with the
+stage owner's schema crate, and write the encoded reply using the existing
+`native::reply::Reply`. Return `Error::Unsupported` for a schema the subscriber
+does not understand. The SDK leaves stage payloads opaque.
+
+`native::stages::Stage::new(host, "reader.insert")` binds a full stage id.
+The host refuses another plugin running it with `Error::Denied`.
+`native::stages::StageRun::next` lends one `StageReply` at a time from the owner's
+reply buffer. Inspect `status()` before using `payload()`; cancellation, busy and
+invalid subscriber replies still advance the cursor. Only `style_granted()`
+permits an override of a user-protected style value. Size the buffer with
+`Stage::out_len(max_reply)`. End-of-stage and host refusals finish the cursor.
+
+`native::services::Service::open(host, key, major, minor)` opens a generated call
+service schema. Keep the handle across callbacks and pass each callback's current
+host to `call`. Use `max_reply(op)` to size the output buffer. The SDK checks the
+operation version and buffer limits before calling the host. Explicitly consume
+the handle with `release(host)` when done; teardown also releases it. There is
+no automatic Drop release because the handle retains no callback host. Per-family
+typed wrappers define the input and output records.
 ### Core event subscriptions
 
 `native::declare::EventKind` includes setting changes, book opened/closed/finished,
@@ -2715,6 +2751,20 @@ the host's frame clipping and colour conversion. `Font::acquire_role` borrows th
 callback host, `measure_text` returns advance, and `render_text` takes that canvas
 and a `TextOrigin`. Consuming `release` and `Drop` each release a font once. A
 font cannot be drawn through a different host binding.
+
+REG declarations use `SetupStepDecl`, `SlotDecl`, `SlotOfferDecl`, `KeyBindingDecl`,
+`PresetDecl` and `PresetValueDecl` through `native::declare::Declarations`.
+`setting_default` and `setting_choice` extend another plugin's settings; the host
+checks authority and resolves extensions in plugin load order. Setup conditions
+are declared values and device requirements, with no callback during a query.
+
+Registry commands preserve the difference between a default and an empty user
+configuration: `set_menu(menu, None)` restores declared rows, while
+`set_menu(menu, Some(&[]))` clears the custom menu. Menu and plugin request lists
+are checked against the generated limits and never truncated. A preview set is
+submitted as one batch with caller-owned value scratch; oversized previews fail
+before submission. Use a preset preview for larger sets. The host checks preview
+ownership and obtains any required user consent for mass resets.
 
 `native::commands::CommandSender::new(host, scratch)` stages typed setting changes
 with the generated encoder. Each accepted call is one atomic batch, applied by

@@ -125,8 +125,9 @@ impl<'a> CommandStage<'a> {
         if self.accepted.saturating_add(batch.len()) > self.limit {
             return ERR_NO_SPACE;
         }
-        // The install feature is not defined until DEV: refuse every answer
-        // before validating or staging any other command in the batch.
+        // `answer_plugin` needs the install feature (`uses.install`, DEV), which
+        // no catalog defines yet: refused for every plugin, wherever it sits in
+        // the batch (`docs/abi/registry.md` section 5).
         if batch
             .iter()
             .any(|command| matches!(command, WireCommand::AnswerPlugin { .. }))

@@ -21,6 +21,7 @@ pub(crate) enum Refusal {
 #[derive(Debug)]
 pub(crate) struct Admitted {
     pub(crate) make: Make,
+    features: shell::AdmittedFeatures,
     pub(crate) metadata: metadata::Checked<'static>,
 }
 
@@ -58,7 +59,7 @@ impl Admitted {
                 (core::ptr::null(), 0),
                 report,
                 resources,
-                declared,
+                declared.with_features(self.features),
             )
         }
     }
@@ -78,7 +79,7 @@ impl Admitted {
 pub(crate) fn check(
     entry: &'static PpEntry,
     bytes: &'static [u8],
-    host: &metadata::Host<'_>,
+    host: &metadata::Host<'static>,
 ) -> Result<Admitted, Refusal> {
     if entry.size as usize != core::mem::size_of::<PpEntry>()
         || entry.metadata.ptr != bytes.as_ptr()
@@ -94,8 +95,11 @@ pub(crate) fn check(
         return Err(Refusal::Entry);
     }
     let make = entry.make.ok_or(Refusal::Entry)?;
+    let features = shell::AdmittedFeatures::from_checked(&checked, host.features)
+        .map_err(|_| Refusal::Entry)?;
     Ok(Admitted {
         make,
+        features,
         metadata: checked,
     })
 }

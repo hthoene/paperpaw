@@ -1,4 +1,4 @@
-//! Borrowed interface-7 host events, decoded without allocations.
+//! Borrowed interface-7 host events and stage subscriber calls, decoded without allocations.
 //! All strings borrow the
 //! callback input; decoding allocates nothing and copies no strings.
 use super::{
@@ -9,6 +9,115 @@ use super::{
 mod core_events;
 mod states;
 pub use states::{BookKind, ChargeFlags, PowerChange, WifiLinkState};
+
+/// A host-issued plugin installation request, obtained from a decoded event.
+///
+/// ```compile_fail
+/// use paperpaw_sdk::native::events::PluginRequestId;
+/// let request = PluginRequestId(7);
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PluginRequestId(u32);
+impl PluginRequestId {
+    /// The host-issued number, unchanged.
+    #[must_use]
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+/// Registry sections that changed. Unknown future bits remain available through [`Self::bits`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RegistryChanges(u32);
+impl RegistryChanges {
+    /// Keep every host-stamped bit, including future sections.
+    #[must_use]
+    pub const fn from_bits(bits: u32) -> Self {
+        Self(bits)
+    }
+    /// The complete host-stamped mask.
+    #[must_use]
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+    /// Menus or live item state changed.
+    #[must_use]
+    pub const fn menus(self) -> bool {
+        self.0 & 1 != 0
+    }
+    /// Key bindings changed.
+    #[must_use]
+    pub const fn bindings(self) -> bool {
+        self.0 & (1 << 1) != 0
+    }
+    /// Slot bindings or offers changed.
+    #[must_use]
+    pub const fn slots(self) -> bool {
+        self.0 & (1 << 2) != 0
+    }
+    /// Actions or screens changed.
+    #[must_use]
+    pub const fn actions_or_screens(self) -> bool {
+        self.0 & (1 << 3) != 0
+    }
+    /// Setup steps changed.
+    #[must_use]
+    pub const fn setup(self) -> bool {
+        self.0 & (1 << 4) != 0
+    }
+    /// Settings groups changed.
+    #[must_use]
+    pub const fn groups(self) -> bool {
+        self.0 & (1 << 5) != 0
+    }
+    /// Presets changed.
+    #[must_use]
+    pub const fn presets(self) -> bool {
+        self.0 & (1 << 6) != 0
+    }
+    /// Widget discovery changed.
+    #[must_use]
+    pub const fn widgets(self) -> bool {
+        self.0 & (1 << 7) != 0
+    }
+    /// One of this plugin's staged registry batches was dropped when applied.
+    #[must_use]
+    pub const fn dropped(self) -> bool {
+        self.0 & (1 << 31) != 0
+    }
+}
+
+/// Validated requested plugin identities, borrowed from one event callback.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RequestedPlugins<'a>(&'a str);
+impl<'a> RequestedPlugins<'a> {
+    /// Iterate complete plugin identities in their original order without allocating.
+    pub fn iter(self) -> impl Iterator<Item = &'a str> + Clone {
+        self.0
+            .split(wire::EVENT_PLUGINS_REQUESTED_PLUGINS_SEPARATOR)
+    }
+    /// Number of requested identities, bounded by the generated event-list limit.
+    #[must_use]
+    pub fn len(self) -> usize {
+        self.iter().count()
+    }
+    /// Whether no identities were requested. A decoded request is always nonempty.
+    #[must_use]
+    pub fn is_empty(self) -> bool {
+        self.0.is_empty()
+    }
+    fn decode(text: &'a str) -> Result<Self, Error> {
+        let plugins = Self(text);
+        if plugins.len() > wire::EVENT_PLUGINS_REQUESTED_PLUGINS_MAX_ITEMS
+            || plugins.iter().any(|id| {
+                id.is_empty() || id.len() > wire::EVENT_PLUGINS_REQUESTED_PLUGINS_ITEM_MAX_BYTES
+            })
+        {
+            return Err(Error::Invalid);
+        }
+        Ok(plugins)
+    }
+}
 
 /// A reading position borrowed from a page turn or book-session event.
 ///
@@ -140,9 +249,33 @@ pub enum Event<'a> {
         screen: &'a str,
         width: u32,
         height: u32,
+        instance: Option<super::ui::Instance>,
     },
     /// A registered action was invoked.
     ActionRun { now_ms: u64, action: &'a str },
+    /// An extension stage calls this subscription's token. Answer through
+    /// [`super::reply::Reply`] using the stage owner's payload schema.
+    ///
+    /// ```
+    /// use paperpaw_sdk::native::{Error, events::Event, reply::Reply};
+    /// fn answer(event: Event<'_>, reply: &mut Reply<'_>, encoded: &[u8])
+    ///     -> Result<(), Error>
+    /// {
+    ///     match event {
+    ///         Event::StageCall { stage: "reader.insert", schema: 1, .. } => {
+    ///             // Encode with the stage owner's schema before writing.
+    ///             reply.write(encoded)
+    ///         }
+    ///         Event::StageCall { .. } => Err(Error::Unsupported),
+    ///         _ => Ok(()),
+    ///     }
+    /// }
+    /// ```
+    StageCall {
+        stage: &'a str,
+        schema: u32,
+        payload: &'a [u8],
+    },
     /// A setting changed. An empty key asks the plugin to reread retained settings.
     /// Empty old bytes mean no previous readable value; the new value is read from the host.
     SettingChanged {
@@ -176,6 +309,76 @@ pub enum Event<'a> {
     StatusChanged { now_ms: u64 },
     /// Charging, external power or low-battery state changed.
     ChargeChanged { now_ms: u64, flags: ChargeFlags },
+    /// Registry sections changed; reread the sections used by this plugin.
+    RegistryChanged { now_ms: u64, what: RegistryChanges },
+    /// The active settings preview changed or ended.
+    PreviewChanged { now_ms: u64 },
+    /// Another plugin asks subscribers to offer installation. This installs nothing itself.
+    PluginsRequested {
+        now_ms: u64,
+        request: PluginRequestId,
+        by: &'a str,
+        plugins: RequestedPlugins<'a>,
+    },
+    /// One requested plugin received an installation outcome. Delivered only to the requester.
+    /// Reserved outcome values become Failed.
+    PluginAnswered {
+        now_ms: u64,
+        request: PluginRequestId,
+        plugin: &'a str,
+        outcome: super::commands::PluginOutcome,
+    },
+    /// An instance opened or received a new handover.
+    ScreenOpened {
+        now_ms: u64,
+        screen: &'a str,
+        instance: super::ui::Instance,
+        slot: &'a str,
+        handover: Option<super::ui::HandoverId>,
+        params: u32,
+        text_bytes: u32,
+        again: bool,
+        restored: bool,
+    },
+    /// An instance closed after its final draw.
+    ScreenClosed {
+        now_ms: u64,
+        screen: &'a str,
+        instance: super::ui::Instance,
+    },
+    /// Read the current stack through core.ui.
+    StackChanged { now_ms: u64 },
+    /// A final answer or committed live update, readable in this callback.
+    Answered { now_ms: u64, answer: Answered },
+    /// The host made a widget instance for its maker.
+    WidgetMade {
+        now_ms: u64,
+        widget: &'a str,
+        instance: super::ui::Instance,
+        place: &'a str,
+    },
+    /// The host dropped a widget instance.
+    WidgetDropped {
+        now_ms: u64,
+        instance: super::ui::Instance,
+    },
+    /// A widget's content or layout changed.
+    WidgetChanged {
+        now_ms: u64,
+        instance: super::ui::Instance,
+    },
+    /// A screen drew its first page and is ready for help.
+    ScreenReady {
+        now_ms: u64,
+        screen: &'a str,
+        instance: super::ui::Instance,
+    },
+    /// Speech ended or was refused; the caller's cookie is unchanged.
+    Spoken {
+        now_ms: u64,
+        cookie: u32,
+        status: SpeechStatus,
+    },
 }
 
 impl<'a> Event<'a> {
@@ -215,6 +418,11 @@ fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
         Err(status) => return Err(Error::from_status(status)),
     };
     Ok(match record {
+        Record::StageCall(r) => Event::StageCall {
+            stage: r.stage,
+            schema: r.schema,
+            payload: r.payload,
+        },
         Record::EventStarted(r) => Event::Started { now_ms: r.now_ms },
         Record::EventResume(r) => Event::Resume { now_ms: r.now_ms },
         Record::EventSuspend(r) => Event::Suspend { now_ms: r.now_ms },
@@ -240,12 +448,48 @@ fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
             screen: r.screen,
             width: r.width,
             height: r.height,
+            instance: r
+                .instance
+                .map(|value| super::ui::Instance::new(value).ok_or(Error::Invalid))
+                .transpose()?,
         },
         Record::EventActionRun(r) => Event::ActionRun {
             now_ms: r.now_ms,
             action: r.action,
         },
-        other => core_events::decode(other)?,
+        other => decode_registry(other)?,
+    })
+}
+
+fn decode_registry(record: Record<'_>) -> Result<Event<'_>, Error> {
+    Ok(match record {
+        Record::EventRegistryChanged(r) => Event::RegistryChanged {
+            now_ms: r.now_ms,
+            what: RegistryChanges::from_bits(r.what),
+        },
+        Record::EventPreviewChanged(r) => Event::PreviewChanged { now_ms: r.now_ms },
+        Record::EventPluginsRequested(r) => Event::PluginsRequested {
+            now_ms: r.now_ms,
+            request: PluginRequestId(r.request),
+            by: r.by,
+            plugins: RequestedPlugins::decode(r.plugins)?,
+        },
+        Record::EventPluginAnswered(r) => {
+            use super::commands::PluginOutcome;
+            let outcome = match r.outcome {
+                0 => PluginOutcome::Installed,
+                1 => PluginOutcome::Declined,
+                3 => PluginOutcome::NotFound,
+                _ => PluginOutcome::Failed,
+            };
+            Event::PluginAnswered {
+                now_ms: r.now_ms,
+                request: PluginRequestId(r.request),
+                plugin: r.plugin,
+                outcome,
+            }
+        }
+        other => uix_events::decode(other)?,
     })
 }
 
@@ -256,3 +500,10 @@ mod tests;
 #[cfg(test)]
 #[path = "events/core_events_tests.rs"]
 mod core_tests;
+
+mod uix_events;
+pub use uix_events::{AnswerOutcome, Answered, SpeechStatus};
+
+#[cfg(test)]
+#[path = "events/uix_tests.rs"]
+mod uix_tests;
