@@ -22034,6 +22034,7 @@ pub trait WireRecord<'a>: WireEncode + Copy + Sized {
 
 mod seal {
     /// Only this codec writes record bodies.
+    #[derive(Debug)]
     pub struct Seal;
 }
 
