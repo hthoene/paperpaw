@@ -13,7 +13,7 @@ use super::{
     lookup_service::{LookupHost, LookupServices},
 };
 use alloc::rc::Rc;
-use core::cell::OnceCell;
+use core::cell::{Cell, OnceCell};
 use paperpaw_native::host_glue::ERR_STATE;
 
 /// What the dispatcher tells a service backend about its caller.
@@ -34,7 +34,16 @@ pub(crate) struct HostServices {
     documents: OnceCell<DocServices>,
     library: OnceCell<LibServices>,
     lookup: OnceCell<LookupServices>,
+    /// Owners whose retirement met `ERR_BUSY` where nobody can retry (a
+    /// `Drop`): the main loop retries them ([`Self::retry_retirements`]).
+    /// Owner ids are never 0, so 0 is a free slot.
+    retiring: [Cell<u64>; RETIRING_SLOTS],
 }
+
+/// Owners that may wait for a retried retirement at once. A table is busy only
+/// while a call holds it, so a few suffice; a full queue leaves the owner to
+/// its next release.
+const RETIRING_SLOTS: usize = 16;
 
 impl core::fmt::Debug for HostServices {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -52,7 +61,50 @@ impl HostServices {
             documents: OnceCell::new(),
             library: OnceCell::new(),
             lookup: OnceCell::new(),
+            retiring: [const { Cell::new(0) }; RETIRING_SLOTS],
         }
+    }
+
+    /// Remember `owner` for [`Self::retry_retirements`]. False when the
+    /// queue is full (the owner was not queued); an owner queued already is
+    /// queued once.
+    pub(crate) fn queue_retirement(&self, owner: u64) -> bool {
+        if self.retiring.iter().any(|slot| slot.get() == owner) {
+            return true;
+        }
+        self.retiring
+            .iter()
+            .find(|slot| slot.get() == 0)
+            .is_some_and(|slot| {
+                slot.set(owner);
+                true
+            })
+    }
+
+    /// Whether an owner still waits for its retirement.
+    pub(crate) fn retirements_pending(&self) -> bool {
+        self.retiring.iter().any(|slot| slot.get() != 0)
+    }
+
+    /// The main loop's retry: finish the retirement of every queued owner. An
+    /// owner leaves the queue when its retirement ran to the end; one that is
+    /// still busy stays for the next call. `Ok(true)` while owners are left.
+    ///
+    /// # Errors
+    /// The first error of an owner that stays queued.
+    pub(crate) fn retry_retirements(&self) -> Result<bool, i32> {
+        let mut result = Ok(());
+        for slot in &self.retiring {
+            let owner = slot.get();
+            if owner == 0 {
+                continue;
+            }
+            match self.owner_retired(owner) {
+                Ok(()) => slot.set(0),
+                Err(error) => result = result.and(Err(error)),
+            }
+        }
+        result.map(|()| self.retirements_pending())
     }
 
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
