@@ -1,0 +1,464 @@
+//! Requests: the form of a question, the phases, the answers, who may write and
+//! read, cancellation, delivery and cleanup.
+#![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
+extern crate std;
+use super::*;
+use crate::native_host::ui_store::Limits;
+use alloc::string::String;
+use alloc::vec::Vec;
+
+fn who(owner: u64, epoch: u64) -> Stamp {
+    Stamp::new(owner, epoch).unwrap()
+}
+
+fn store() -> UiStore {
+    UiStore::new(Limits::ELSEWHERE)
+}
+
+fn q(kind: u32, flags: u32, choices: &'static str) -> Question<'static> {
+    Question {
+        kind,
+        flags,
+        remote: false,
+        title: "Title",
+        text: "Question?",
+        choices,
+    }
+}
+
+fn ask(s: &UiStore, owner: u64, epoch: u64, question: &Question<'_>) -> u32 {
+    s.ask(
+        who(owner, epoch),
+        None,
+        question,
+        question.flags & SECRET != 0,
+        None,
+        false,
+    )
+    .unwrap()
+    .0
+}
+
+/// The callback returns and the stack opens the dialog as `dialog`.
+fn open(s: &UiStore, owner: u64, epoch: u64, id: u32, dialog: u32) {
+    let mut started = Vec::new();
+    s.callback_returned(who(owner, epoch), false, &mut |start| started.push(start));
+    assert_eq!(started.iter().map(|s| s.request).collect::<Vec<_>>(), [id]);
+    s.dialog_opened(id, dialog).unwrap();
+}
+
+fn text(s: &UiStore, who: u64, instance: Option<u32>, id: u32) -> Result<String, i32> {
+    let mut all = Vec::new();
+    let mut offset = 0;
+    loop {
+        let mut out = [0_u8; 5];
+        let (total, n) = s.request_text_read(who, instance, id, offset, &mut out)?;
+        all.extend_from_slice(&out[..n]);
+        offset += n;
+        if offset >= total {
+            return Ok(String::from_utf8(all).unwrap());
+        }
+    }
+}
+
+#[test]
+fn the_form_of_a_question_kinds_flags_and_choices() {
+    let ok = |kind, flags, choices| q(kind, flags, choices).check();
+    assert_eq!(ok(0, 0, ""), Ok(()));
+    assert_eq!(ok(4, 0, "").err(), Some(ERR_INVALID));
+    // Flags: bits 0-7 for text only (mode 0-4), 8-9 for confirm only.
+    assert_eq!(ok(0, 0b111 | (4 << 4), ""), Ok(()));
+    assert_eq!(ok(0, 5 << 4, "").err(), Some(ERR_INVALID));
+    assert_eq!(ok(0, ONLY_YES, "").err(), Some(ERR_INVALID));
+    assert_eq!(ok(2, LIVE, "").err(), Some(ERR_INVALID));
+    assert_eq!(ok(1, 1, "a").err(), Some(ERR_INVALID));
+    assert_eq!(ok(2, 0x400, "").err(), Some(ERR_INVALID));
+    // Choice: non-empty lines, no trailing break, 32 of 128 bytes, 2,048 in all.
+    assert_eq!(ok(1, 0, "").err(), Some(ERR_INVALID));
+    assert_eq!(ok(1, 0, "a\nb"), Ok(()));
+    assert_eq!(ok(1, 0, "a\n\nb").err(), Some(ERR_INVALID));
+    assert_eq!(ok(1, 0, "a\nb\n").err(), Some(ERR_INVALID));
+    let lines32 = std::vec!["x"; 32].join("\n");
+    let lines33 = std::vec!["x"; 33].join("\n");
+    assert_eq!(
+        q(1, 0, std::boxed::Box::leak(lines32.into_boxed_str())).check(),
+        Ok(())
+    );
+    assert_eq!(
+        q(1, 0, std::boxed::Box::leak(lines33.into_boxed_str()))
+            .check()
+            .err(),
+        Some(ERR_NO_SPACE)
+    );
+    let long = "l".repeat(129);
+    assert_eq!(
+        q(1, 0, std::boxed::Box::leak(long.into_boxed_str()))
+            .check()
+            .err(),
+        Some(ERR_NO_SPACE)
+    );
+    let line128 = "l".repeat(128);
+    assert_eq!(
+        q(1, 0, std::boxed::Box::leak(line128.into_boxed_str())).check(),
+        Ok(())
+    );
+    // Confirm: none, or exactly two lines (an empty one keeps the word).
+    assert_eq!(ok(2, 0, ""), Ok(()));
+    assert_eq!(ok(2, 0, "Delete\nKeep"), Ok(()));
+    assert_eq!(ok(2, 0, "\nKeep"), Ok(()));
+    assert_eq!(ok(2, 0, "Delete").err(), Some(ERR_INVALID));
+    assert_eq!(ok(2, 0, "a\nb\nc").err(), Some(ERR_INVALID));
+    let over = "y".repeat(129);
+    assert_eq!(
+        q(
+            2,
+            0,
+            std::boxed::Box::leak(std::format!("{over}\nno").into_boxed_str())
+        )
+        .check()
+        .err(),
+        Some(ERR_NO_SPACE)
+    );
+    // Only yes: one button, its `no` line empty.
+    assert_eq!(ok(2, ONLY_YES, "Read\n"), Ok(()));
+    assert_eq!(ok(2, ONLY_YES, ""), Ok(()));
+    assert_eq!(ok(2, ONLY_YES, "Read\nNo").err(), Some(ERR_INVALID));
+    // Kinds 0 and 3 take no choices.
+    assert_eq!(ok(0, 0, "a").err(), Some(ERR_INVALID));
+    assert_eq!(ok(3, 0, "a").err(), Some(ERR_INVALID));
+    assert_eq!(ok(3, 0, ""), Ok(()));
+}
+
+#[test]
+fn a_text_question_runs_asked_opened_answered_delivered_freed() {
+    let s = store();
+    let id = ask(&s, 1, 10, &q(0, 0, ""));
+    // The asker writes the initial text inside the asking callback.
+    s.request_text_write(who(1, 10), None, id, 0, b"start", true)
+        .unwrap();
+    assert_eq!(
+        s.request_text_write(who(1, 11), None, id, 0, b"x", true),
+        Err(ERR_STATE)
+    );
+    assert_eq!(
+        s.request_text_write(who(2, 10), None, id, 0, b"x", true),
+        Err(ERR_STATE)
+    );
+    // Nothing is read, nothing answered, before the dialog is up.
+    assert_eq!(s.answer(7, id, 0, 0), Err(ERR_STATE));
+    open(&s, 1, 10, id, 7);
+    // Only the dialog reads the question.
+    assert!(s.question(8, id, |_| ()).is_err());
+    s.question(7, id, |shown| {
+        assert_eq!(
+            (shown.kind, shown.max_bytes, shown.title, shown.text),
+            (0, 24_576, "Title", "Question?")
+        );
+    })
+    .unwrap();
+    assert_eq!(
+        text(&s, 1, Some(30), id),
+        Err(ERR_STATE),
+        "the asker is not the dialog"
+    );
+    assert_eq!(
+        text(&s, 9, Some(7), id).unwrap(),
+        "start",
+        "the dialog reads it"
+    );
+    // The dialog writes its answer (a start over) and commits with op 11.
+    s.request_text_write(who(9, 3), Some(7), id, 0, b"hel", false)
+        .unwrap();
+    assert_eq!(s.answer(7, id, 0, 0), Err(ERR_STATE), "uncommitted");
+    s.request_text_write(who(9, 3), Some(7), id, 3, b"lo", true)
+        .unwrap();
+    assert_eq!(
+        s.request_text_write(who(1, 4), None, id, 0, b"x", true),
+        Err(ERR_STATE)
+    );
+    s.answer(7, id, 0, 0).unwrap();
+    assert_eq!(
+        s.answer(7, id, 0, 0),
+        Err(ERR_STATE),
+        "the first final answer wins"
+    );
+    assert_eq!(
+        s.request_text_write(who(9, 4), Some(7), id, 0, b"x", true),
+        Err(ERR_STATE)
+    );
+    // Delivery: the event from the request, the text readable in that callback.
+    assert_eq!(text(&s, 1, None, id), Err(ERR_STATE), "not delivering yet");
+    let delivery = s.take_delivery(1).unwrap();
+    assert_eq!(
+        delivery,
+        Delivery {
+            request: id,
+            kind: 0,
+            outcome: 0,
+            choice: 0,
+            length: 5,
+            flags: 0
+        }
+    );
+    assert!(s.take_delivery(1).is_none());
+    assert_eq!(text(&s, 1, None, id).unwrap(), "hello");
+    assert_eq!(text(&s, 2, None, id), Err(ERR_STATE));
+    s.delivered(id);
+    assert_eq!(s.request_count(), 0);
+    assert_eq!(s.held().1, 0);
+}
+
+#[test]
+fn a_failed_or_half_written_start_cancels_before_any_dialog() {
+    let s = store();
+    // The callback failed.
+    let a = ask(&s, 1, 1, &q(0, 0, ""));
+    let mut started = 0;
+    s.callback_returned(who(1, 1), true, &mut |_| started += 1);
+    // An initial text begun and not committed.
+    let b = ask(&s, 1, 2, &q(0, 0, ""));
+    s.request_text_write(who(1, 2), None, b, 0, b"half", false)
+        .unwrap();
+    s.callback_returned(who(1, 2), false, &mut |_| started += 1);
+    assert_eq!(started, 0);
+    let first = s.take_delivery(1).unwrap();
+    assert_eq!(
+        (first.request, first.outcome, first.flags),
+        (a, 1, NOT_STARTED)
+    );
+    s.delivered(a);
+    let second = s.take_delivery(1).unwrap();
+    assert_eq!(
+        (second.request, second.outcome, second.flags),
+        (b, 1, NOT_STARTED)
+    );
+    // A dialog that cannot open is the same.
+    let c = ask(&s, 1, 3, &q(2, 0, ""));
+    s.callback_returned(who(1, 3), false, &mut |_| ());
+    s.dialog_failed(c);
+    s.delivered(b);
+    assert_eq!(s.take_delivery(1).unwrap().flags, NOT_STARTED);
+}
+
+#[test]
+fn what_each_kind_answers() {
+    let s = store();
+    // Choice: the line's index, none past the list.
+    let id = ask(&s, 1, 1, &q(1, 0, "a\nb\nc"));
+    open(&s, 1, 1, id, 5);
+    assert_eq!(s.answer(5, id, 0, 3), Err(ERR_INVALID));
+    assert_eq!(s.answer(5, id, 3, 0), Err(ERR_INVALID), "unknown outcome");
+    assert_eq!(
+        s.answer(5, id, 2, 0),
+        Err(ERR_INVALID),
+        "choice cannot type"
+    );
+    s.answer(5, id, 0, 2).unwrap();
+    assert_eq!(s.take_delivery(1).unwrap().choice, 2);
+    s.delivered(id);
+    // Confirm: 1 yes, 0 no, nothing else.
+    let id = ask(&s, 1, 2, &q(2, 0, ""));
+    open(&s, 1, 2, id, 6);
+    assert_eq!(s.answer(6, id, 0, 2), Err(ERR_INVALID));
+    s.answer(6, id, 0, 1).unwrap();
+    assert_eq!(s.take_delivery(1).unwrap().choice, 1);
+    s.delivered(id);
+    // Folder: a committed path of at most 512 bytes.
+    let id = ask(&s, 1, 3, &q(3, 0, ""));
+    open(&s, 1, 3, id, 7);
+    s.request_text_write(who(2, 1), Some(7), id, 0, "p".repeat(513).as_bytes(), true)
+        .unwrap();
+    assert_eq!(s.answer(7, id, 0, 0), Err(ERR_INVALID));
+    s.request_text_write(who(2, 1), Some(7), id, 0, "p".repeat(512).as_bytes(), true)
+        .unwrap();
+    s.answer(7, id, 0, 0).unwrap();
+    assert_eq!(s.take_delivery(1).unwrap().length, 512);
+    s.delivered(id);
+    // Cancel needs no text and carries nothing.
+    let id = ask(&s, 1, 4, &q(0, 0, ""));
+    open(&s, 1, 4, id, 8);
+    s.answer(8, id, 1, 9).unwrap();
+    let d = s.take_delivery(1).unwrap();
+    assert_eq!((d.outcome, d.choice, d.length), (1, 0, 0));
+}
+
+#[test]
+fn live_typing_replaces_itself_and_a_final_answer_replaces_it() {
+    let s = store();
+    let id = ask(&s, 1, 1, &q(0, LIVE, ""));
+    open(&s, 1, 1, id, 5);
+    s.request_text_write(who(2, 1), Some(5), id, 0, b"a", true)
+        .unwrap();
+    s.answer(5, id, 2, 0).unwrap();
+    s.request_text_write(who(2, 2), Some(5), id, 0, b"ab", true)
+        .unwrap();
+    // A write withdraws the pending update; the next answer makes a new one.
+    assert!(s.take_delivery(1).is_none());
+    s.answer(5, id, 2, 0).unwrap();
+    s.answer(5, id, 2, 0).unwrap();
+    let d = s.take_delivery(1).unwrap();
+    assert_eq!((d.outcome, d.length), (2, 2));
+    s.delivered(id);
+    assert_eq!(s.request_count(), 1, "typing keeps the request");
+    s.answer(5, id, 0, 0).unwrap();
+    assert_eq!(s.take_delivery(1).unwrap().outcome, 0);
+    // Typing needs a live text question.
+    let quiet = ask(&s, 3, 1, &q(0, 0, ""));
+    open(&s, 3, 1, quiet, 6);
+    s.request_text_write(who(2, 3), Some(6), quiet, 0, b"x", true)
+        .unwrap();
+    assert_eq!(s.answer(6, quiet, 2, 0), Err(ERR_INVALID));
+}
+
+#[test]
+fn on_the_x4_live_typing_stops_past_512_bytes_but_the_final_answer_is_whole() {
+    let s = UiStore::new(Limits::X4);
+    let id = s
+        .ask(who(1, 1), None, &q(0, LIVE, ""), false, None, false)
+        .unwrap()
+        .0;
+    open(&s, 1, 1, id, 5);
+    s.request_text_write(who(2, 1), Some(5), id, 0, &[b'a'; 512], true)
+        .unwrap();
+    s.answer(5, id, 2, 0).unwrap();
+    s.request_text_write(who(2, 2), Some(5), id, 0, &[b'a'; 600], true)
+        .unwrap();
+    assert_eq!(s.answer(5, id, 2, 0), Err(ERR_NO_SPACE));
+    let d = s.take_delivery(1).unwrap();
+    assert_eq!((d.outcome, d.flags), (2, TYPING_STOPPED));
+    s.delivered(id);
+    s.answer(5, id, 0, 0).unwrap();
+    assert_eq!(s.take_delivery(1).unwrap().length, 600);
+}
+
+#[test]
+fn closing_cancels_and_the_dialog_is_named_to_close() {
+    let s = store();
+    // A dialog that closes without an answer.
+    let id = ask(&s, 1, 1, &q(2, 0, ""));
+    open(&s, 1, 1, id, 5);
+    s.dialog_closed(5);
+    let d = s.take_delivery(1).unwrap();
+    assert_eq!((d.outcome, d.flags), (1, DIALOG_CLOSED));
+    s.delivered(id);
+    // A screen that asked and closes: the request is cancelled, its dialog told.
+    let s = store();
+    let id = s
+        .ask(who(1, 1), Some(30), &q(2, 0, ""), false, None, false)
+        .unwrap()
+        .0;
+    open(&s, 1, 1, id, 5);
+    let mut closed = Vec::new();
+    s.asker_instance_closed(30, &mut |c| closed.push(c));
+    assert_eq!(
+        closed,
+        [Cancelled {
+            request: id,
+            dialog: Some(5)
+        }]
+    );
+    assert_eq!(s.take_delivery(1).unwrap().outcome, 1);
+    // Asking again cancels the open one first.
+    let s = store();
+    let first = ask(&s, 1, 1, &q(2, 0, ""));
+    open(&s, 1, 1, first, 5);
+    let (second, cancelled) = s
+        .ask(who(1, 2), None, &q(2, 0, ""), false, None, true)
+        .unwrap();
+    assert_eq!(
+        cancelled,
+        Some(Cancelled {
+            request: first,
+            dialog: Some(5)
+        })
+    );
+    assert_ne!(first, second);
+    assert_eq!(s.take_delivery(1).unwrap().request, first);
+}
+
+#[test]
+fn a_nested_question_hangs_under_its_parent_and_ends_with_it() {
+    let s = store();
+    let parent = s
+        .ask(who(1, 1), None, &q(0, SECRET, ""), true, None, false)
+        .unwrap()
+        .0;
+    open(&s, 1, 1, parent, 5);
+    assert_eq!(s.dialog_of(5), Some((parent, true, false, false)));
+    let nested = s
+        .ask(who(2, 1), Some(5), &q(0, 0, ""), true, Some(parent), false)
+        .unwrap()
+        .0;
+    assert_eq!(
+        s.dialog_of(5),
+        Some((parent, true, false, true)),
+        "its one nested is open"
+    );
+    // Not counted among the open requests.
+    assert_eq!(s.open_requests(2), (1, false));
+    // A second nested one under the same parent is full.
+    assert_eq!(
+        s.ask(who(2, 2), Some(5), &q(0, 0, ""), true, Some(parent), false)
+            .err(),
+        Some(ERR_FULL)
+    );
+    // The parent ends: the nested one is cancelled with it.
+    s.answer(5, parent, 1, 0).unwrap();
+    let d = s.take_delivery(2).unwrap();
+    assert_eq!((d.request, d.outcome), (nested, 1));
+}
+
+#[test]
+fn texts_are_capped_24576_and_8192_for_a_secret_one_and_freed_with_the_asker() {
+    let s = store();
+    let id = ask(&s, 1, 1, &q(0, 0, ""));
+    let part = [b'a'; 3_072];
+    for n in 0..8 {
+        s.request_text_write(who(1, 1), None, id, n * 3_072, &part, false)
+            .unwrap();
+    }
+    assert_eq!(
+        s.request_text_write(who(1, 1), None, id, 24_576, b"x", true),
+        Err(ERR_NO_SPACE)
+    );
+    let secret = s
+        .ask(who(2, 1), None, &q(0, SECRET, ""), true, None, false)
+        .unwrap()
+        .0;
+    s.request_text_write(who(2, 1), None, secret, 0, &[b'p'; 3_072], false)
+        .unwrap();
+    s.request_text_write(who(2, 1), None, secret, 3_072, &[b'p'; 3_072], false)
+        .unwrap();
+    assert_eq!(
+        s.request_text_write(who(2, 1), None, secret, 6_144, &[b'p'; 3_072], true),
+        Err(ERR_NO_SPACE)
+    );
+    s.question(1, secret, |_| ()).ok();
+    s.owner_stopped(1);
+    s.owner_stopped(2);
+    assert_eq!(s.request_count(), 0);
+    assert_eq!(s.held().1, 0);
+}
+
+#[test]
+fn nothing_shows_in_a_debug_print_and_failed_allocations_change_nothing() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let s = store();
+    let id = ask(&s, 1, 1, &q(0, SECRET, ""));
+    s.request_text_write(who(1, 1), None, id, 0, b"hunter2", true)
+        .unwrap();
+    assert!(!std::format!("{s:?}").contains("hunter2"));
+    for nth in 1..=6 {
+        FAIL_NTH.with(|n| n.set(nth));
+        let asked = s.ask(who(3, 1), None, &q(0, 0, ""), false, None, false);
+        FAIL_NTH.with(|n| n.set(0));
+        match asked {
+            Err(e) => assert_eq!(e, ERR_NO_MEMORY, "allocation {nth}"),
+            Ok(_) => s.owner_stopped(3),
+        }
+    }
+    assert_eq!(s.request_count(), 1);
+    // Unknown ids.
+    assert_eq!(s.answer(1, 999, 0, 0), Err(ERR_NOT_FOUND));
+    assert!(s.question(1, 999, |_| ()).is_err());
+}

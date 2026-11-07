@@ -11,6 +11,7 @@ use super::{
     doc_service::{self, DocHost, DocServices},
     lib_service::{self, LibHost, LibServices},
     lookup_service::{LookupHost, LookupServices},
+    ui_service::UiServices,
 };
 use alloc::rc::Rc;
 use alloc::vec::Vec;
@@ -35,6 +36,7 @@ pub(crate) struct HostServices {
     documents: OnceCell<DocServices>,
     library: OnceCell<LibServices>,
     lookup: OnceCell<LookupServices>,
+    ui: OnceCell<UiServices>,
     /// Owners whose retirement met `ERR_BUSY` where nobody can retry (a
     /// `Drop`): the main loop retries them ([`Self::retry_retirements`]).
     /// Owner ids are never 0. The vector's room is reserved when an owner is
@@ -55,6 +57,7 @@ impl core::fmt::Debug for HostServices {
             .field("documents", &self.documents.get().is_some())
             .field("library", &self.library.get().is_some())
             .field("lookup", &self.lookup.get().is_some())
+            .field("ui", &self.ui.get().is_some())
             .finish()
     }
 }
@@ -65,6 +68,7 @@ impl HostServices {
             documents: OnceCell::new(),
             library: OnceCell::new(),
             lookup: OnceCell::new(),
+            ui: OnceCell::new(),
             retiring: RefCell::new(Vec::new()),
             alive: Cell::new(0),
             lost: Cell::new(0),
@@ -182,6 +186,16 @@ impl HostServices {
         self.lookup.set(LookupServices(host)).map_err(|_| ERR_STATE)
     }
 
+    #[allow(dead_code, reason = "a shell wires its screen stack; tests do today")]
+    /// Wire `core.ui` once.
+    pub(crate) fn wire_ui(&self, ui: UiServices) -> Result<(), i32> {
+        self.ui.set(ui).map_err(|_| ERR_STATE)
+    }
+
+    pub(crate) fn ui(&self) -> Option<&UiServices> {
+        self.ui.get()
+    }
+
     pub(crate) fn documents(&self) -> Option<&DocServices> {
         self.documents.get()
     }
@@ -215,6 +229,10 @@ impl HostServices {
         }
         if let Some(library) = self.library.get() {
             result = result.and(lib_service::owner_stopped(&*library.0, owner));
+        }
+        // What the owner made for the screen stack is freed; no plugin is called.
+        if let Some(ui) = self.ui.get() {
+            ui.store.owner_stopped(owner);
         }
         result
     }
