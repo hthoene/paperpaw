@@ -203,7 +203,7 @@ pub(super) fn url_ok(url: &str) -> bool {
         let Some((v6, after)) = inner.split_once(']') else {
             return false;
         };
-        let v6_ok = ipv6_ok(v6);
+        let v6_ok = v6.parse::<core::net::Ipv6Addr>().is_ok();
         let port = if after.is_empty() {
             None
         } else if let Some(port) = after.strip_prefix(':') {
@@ -224,56 +224,6 @@ pub(super) fn url_ok(url: &str) -> bool {
         (name_ok, port)
     };
     host_ok && port.is_none_or(port_ok)
-}
-
-/// An IPv6 address without brackets (RFC 4291 text form): eight groups of 1-4
-/// hex digits, `::` once standing for at least one zero group, and an
-/// optional dotted IPv4 as the last 32 bits. No zone, no allocation.
-fn ipv6_ok(addr: &str) -> bool {
-    let (head, tail, gap) = match addr.split_once("::") {
-        Some((h, t)) => (h, t, true),
-        None => (addr, "", false),
-    };
-    if gap && tail.contains("::") {
-        return false;
-    }
-    let mut groups = 0usize;
-    for (part, last_part) in [(head, !gap), (tail, true)] {
-        if part.is_empty() {
-            continue;
-        }
-        let count = part.split(':').count();
-        for (i, g) in part.split(':').enumerate() {
-            if last_part && i + 1 == count && g.contains('.') {
-                if !ipv4_ok(g) {
-                    return false;
-                }
-                groups += 2;
-            } else if g.is_empty() || g.len() > 4 || !g.bytes().all(|b| b.is_ascii_hexdigit()) {
-                return false;
-            } else {
-                groups += 1;
-            }
-        }
-    }
-    if gap { groups < 8 } else { groups == 8 }
-}
-
-/// Four decimal fields of 0-255 (no leading zeros beyond a single `0`).
-fn ipv4_ok(text: &str) -> bool {
-    let mut n = 0;
-    for f in text.split('.') {
-        n += 1;
-        if f.is_empty()
-            || f.len() > 3
-            || (f.len() > 1 && f.starts_with('0'))
-            || !f.bytes().all(|b| b.is_ascii_digit())
-            || f.parse::<u16>().map_or(true, |v| v > 255)
-        {
-            return false;
-        }
-    }
-    n == 4
 }
 
 /// A port of 1 to 5 digits, 1-65535.
