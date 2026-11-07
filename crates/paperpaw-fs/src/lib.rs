@@ -11,6 +11,7 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use paperpaw_platform::storage::is_valid_path;
+use paperpaw_platform::tree::{DESCENT, MAX_READS, MAX_REMOVALS, TreeStep};
 use paperpaw_platform::{DirEntry, Storage, StorageError};
 
 /// Maps storage paths below a root directory.
@@ -52,9 +53,18 @@ impl DirStorage {
     /// The folder `dir`, the root itself for `""` (to list or make it).
     fn resolve_dir(&self, dir: &str) -> Result<PathBuf, StorageError> {
         if dir.is_empty() {
-            return Ok(self.root.clone());
+            return self.start(0);
         }
         self.resolve(dir)
+    }
+
+    /// The root, in a path with room for `extra` more bytes (a path that
+    /// cannot be made is `Io`, not a failed allocation).
+    fn start(&self, extra: usize) -> Result<PathBuf, StorageError> {
+        let mut full = PathBuf::new();
+        reserve(&mut full, self.root.as_os_str().len() + extra + 1)?;
+        full.push(&self.root);
+        Ok(full)
     }
 
     /// The file or folder `path` inside the root: never the root itself,
@@ -63,7 +73,7 @@ impl DirStorage {
         if !is_valid_path(path) {
             return Err(StorageError::InvalidPath);
         }
-        let mut full = self.root.clone();
+        let mut full = self.start(path.len() + 1)?;
         for part in path.split('/') {
             if !is_own_name(&full, part) {
                 return Err(StorageError::InvalidPath);
@@ -71,6 +81,46 @@ impl DirStorage {
             full.push(part);
         }
         Ok(full)
+    }
+
+    /// One piece of removing the tree at `root`, and what it cost.
+    fn step(&self, root: &str, keep_root: bool) -> Result<(TreeStep, Budget), StorageError> {
+        let mut target = self.resolve_dir(root)?;
+        *self.open.borrow_mut() = None;
+        let done = |removed| TreeStep {
+            removed,
+            done: true,
+            next: 0,
+        };
+        let mut budget = Budget::default();
+        match fs::symlink_metadata(&target) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((done(0), budget)),
+            Err(e) => return Err(error(e)),
+            Ok(meta) if !meta.is_dir() => {
+                fs::remove_file(&target).map_err(error)?;
+                budget.removed = 1;
+                return Ok((done(1), budget));
+            }
+            Ok(_) => {}
+        }
+        let more = |budget: &Budget| TreeStep {
+            removed: budget.removed,
+            done: false,
+            next: 1,
+        };
+        if !sweep(&mut target, 0, &mut budget)? {
+            return Ok((more(&budget), budget));
+        }
+        if !keep_root && !root.is_empty() {
+            // The share of removals holds for the last folder too: the next
+            // call finds it empty and takes it.
+            if budget.removed >= MAX_REMOVALS {
+                return Ok((more(&budget), budget));
+            }
+            fs::remove_dir(&target).map_err(error)?;
+            budget.removed += 1;
+        }
+        Ok((done(budget.removed), budget))
     }
 
     /// Closes the cached handle if it refers to `path` (before writes).
@@ -81,6 +131,98 @@ impl DirStorage {
         }
     }
 }
+
+/// What one piece of removing a tree has done.
+#[derive(Debug, Default)]
+struct Budget {
+    removed: u32,
+    /// Files shown by a listing, and the looks that a folder is empty.
+    reads: u32,
+    /// Folders shown on the way down, found again by every call.
+    descent: u32,
+}
+
+/// Room for `extra` more bytes in `path`, or `Io`: the one allocation of the
+/// walk that grows with the tree (std's own small ones, a listing's handle
+/// and the name of an entry, are not fallible).
+fn reserve(path: &mut PathBuf, extra: usize) -> Result<(), StorageError> {
+    path.as_mut_os_string()
+        .try_reserve(extra)
+        .map_err(|_| StorageError::Io)
+}
+
+/// Takes the entries out of folder `dir` (`depth` levels below the tree's
+/// root) until it is empty (true) or the call's share is used (false): at most
+/// [`MAX_REMOVALS`] removals, files and looks at a folder numbering
+/// [`MAX_READS`], and the folders passed on the way down apart
+/// ([`DESCENT`]). The share is checked before every removal, also of the
+/// folders left behind on the way back up. `dir` is the path of the folder
+/// and is the same again on return.
+fn sweep(dir: &mut PathBuf, depth: usize, budget: &mut Budget) -> Result<bool, StorageError> {
+    let mut entries = fs::read_dir(&*dir).map_err(error)?;
+    loop {
+        // The share is checked before the next entry is fetched.
+        if budget.removed >= MAX_REMOVALS || budget.reads >= MAX_READS {
+            return Ok(false);
+        }
+        let Some(entry) = entries.next() else {
+            break;
+        };
+        let entry = entry.map_err(error)?;
+        let is_dir = entry.file_type().map_err(error)?.is_dir();
+        let name = entry.file_name();
+        if is_dir {
+            // Going down is the descent: counted apart, as each call starts
+            // at the root again.
+            if depth + 1 > TREE_DEPTH {
+                return Err(StorageError::InvalidData);
+            }
+            budget.descent += 1;
+            if budget.descent > DESCENT {
+                return Err(StorageError::Io);
+            }
+        } else {
+            budget.reads += 1;
+        }
+        reserve(dir, 1 + name.len())?;
+        dir.push(&name);
+        let gone = remove_entry(dir, is_dir, depth, budget);
+        dir.pop();
+        if !gone? {
+            return Ok(false);
+        }
+        budget.removed += 1;
+    }
+    // Entries removed while the folder was read may be skipped by the OS's
+    // iterator: empty only once a new look finds none.
+    if budget.reads >= MAX_READS {
+        return Ok(false);
+    }
+    budget.reads += 1;
+    Ok(fs::read_dir(&*dir).map_err(error)?.next().is_none())
+}
+
+/// Removes the entry at `path`: a file, or a folder once it was emptied.
+/// False where the call's share ran out before.
+fn remove_entry(
+    path: &mut PathBuf,
+    is_dir: bool,
+    depth: usize,
+    budget: &mut Budget,
+) -> Result<bool, StorageError> {
+    if !is_dir {
+        fs::remove_file(&*path).map_err(error)?;
+        return Ok(true);
+    }
+    if !sweep(path, depth + 1, budget)? || budget.removed >= MAX_REMOVALS {
+        return Ok(false);
+    }
+    fs::remove_dir(&*path).map_err(error)?;
+    Ok(true)
+}
+
+/// Deepest folder below the root of a tree the removal goes into.
+const TREE_DEPTH: usize = 256;
 
 fn error(e: io::Error) -> StorageError {
     match e.kind() {
@@ -349,6 +491,22 @@ impl Storage for DirStorage {
         }
     }
 
+    /// A tree removed a piece at a time on the host's own file system: at
+    /// most 64 removals and 256 entries read a call (the folders passed on the
+    /// way down counted apart), a folder deeper than 256 levels `InvalidData`,
+    /// the rest the OS's limits (`Io`). The path is built fallibly. The place
+    /// is not needed: each call starts at the root and what it removed is
+    /// gone, so it is only ever a nonzero token.
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<TreeStep, StorageError> {
+        let _ = place;
+        self.step(root, keep_root).map(|(step, _)| step)
+    }
+
     fn ignores_case(&self) -> bool {
         self.ignores_case
     }
@@ -435,6 +593,47 @@ fn seconds(metadata: &fs::Metadata) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A chain of 256 folders with leaves, taken away piece by piece: every
+    /// call within its removals and its reads (the folders passed on the way
+    /// down counted apart), also the one that unwinds the chain and takes the
+    /// root; the work is never more than the shares allow.
+    #[test]
+    fn a_deep_chain_is_removed_within_the_shares_of_every_call() {
+        let root = std::env::temp_dir().join(format!("paperpaw-deep-{}", std::process::id()));
+        fs::remove_dir_all(&root).unwrap_or_default();
+        let storage = DirStorage::new(&root).unwrap();
+        let mut chain = String::from("T");
+        for _ in 0..TREE_DEPTH {
+            chain.push_str("/a");
+        }
+        for n in 0..70 {
+            storage.write(&format!("{chain}/f{n}"), b"x").unwrap();
+        }
+        // Files on the way down, so that they are removed before the chain.
+        storage.write("T/a/side", b"x").unwrap();
+        storage.write("Keep/k", b"keep").unwrap();
+        let (mut calls, mut removed) = (0, 0);
+        loop {
+            let (step, budget) = storage.step("T", false).unwrap();
+            calls += 1;
+            removed += step.removed;
+            assert!(budget.removed <= MAX_REMOVALS, "{}", budget.removed);
+            assert!(budget.reads <= MAX_READS, "{}", budget.reads);
+            assert!(budget.descent <= DESCENT, "{}", budget.descent);
+            assert_eq!(step.removed, budget.removed);
+            if step.done {
+                break;
+            }
+            assert!(calls < 40, "it does not end");
+        }
+        // 70 + 1 files and 256 folders, and the root.
+        assert_eq!(removed, 70 + 1 + 256 + 1);
+        assert!(calls >= 328 / 64, "{calls}");
+        assert!(!root.join("T").exists());
+        assert_eq!(storage.size("Keep/k"), Ok(4));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     /// Files of one name with other extensions are written apart, and
     /// nothing is left beside them.

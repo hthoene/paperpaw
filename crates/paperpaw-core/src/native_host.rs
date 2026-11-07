@@ -82,6 +82,8 @@ mod declared_services;
 pub mod device_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
+#[allow(dead_code, reason = "wired into the shell frame by the files adapter")]
+pub(crate) mod files_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod format_call;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
