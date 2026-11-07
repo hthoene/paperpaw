@@ -6,6 +6,13 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+- Interface 7 SDK: `native::storage::DataStorage`, the plugin's data folder as a
+  `Storage`. Reads and appends over 4 KiB are split; a longer write is staged in
+  `name.pp-staged`, synced and renamed over the old file, so it is the old file or
+  the new, whole. The suffix `.pp-staged` is reserved: `native::storage::write`,
+  `append`, `rename` and `remove` refuse (`Invalid`) any name ending in it, in any
+  case, so only the staging touches such files.
+
 - Interface 7 draft 7 SDK: typed callbacks and frame-owned drawing, font metrics
   and ink, nested clipping, exact snapshot views, complete message copies,
   settings/grant reads, typed callback subscriptions and
@@ -27,10 +34,19 @@ change the plugin SDK.
   each; they follow the licences row under a heading), and the fingerprint row is replaced by the
   interface and draft; those rows refuse as unsupported, never fake (#228).
 
+- Battery is a native interface-7 plugin only: the interface-6 plugin, its view and its Kernel
+  tests are removed, the events table and storage goldens run on the native recorder, and the app
+  and the store-file build no longer register it until Core publishes native plugins (#228).
 - Keyboard 1.1.2: the interface-7 native plugin (the text dialog on `core.keyboard` answering
   through `core.ui`, keys, shift, variants, paste, type on the phone, secret texts, the layouts
   chooser) on `paperpaw-ui-kit`; hardware-typed text, font-coverage filtering and layouts added by
   other plugins wait for host pieces and are named in `plugins/keyboard/PORTING-7.md` (#228).
+- Native SDK library field reads use lossless pages with a separate book-field
+  generation cursor. Typed book-field and badge declarations expose the existing
+  library records to providers (#228).
+
+- `paperpaw-config`: `Value::try_as_str` (one fallible reservation for escaped values, so an X4
+  plugin gets an error instead of an abort) and `Value::is_escaped` (#228).
 - Settings 1.0.6: the interface-7 native plugin (main page, group pages, choosing a value, themes,
   search, reset, number editing with preview) over the registry service; `paperpaw-ui-kit` item
   rows gain − and + buttons and show a title that is already translated as it is (#228).
