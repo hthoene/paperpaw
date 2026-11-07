@@ -457,3 +457,39 @@ fn compose_resolves_first_then_draws_only_what_is_visible_and_logs_a_failing_chi
     );
     assert!(child.draws.borrow().is_empty());
 }
+
+#[test]
+fn each_table_is_one_allocation_of_its_cap_and_never_grows() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    // The sizes the memory line is built on.
+    assert_eq!(size_of::<Widget>(), 16);
+    assert_eq!(size_of::<Status>(), 24);
+    for (x4, widgets, status) in [(false, 32, 16), (true, 16, 8)] {
+        let mut table = UiHandles::new(x4);
+        assert_eq!((table.widgets.capacity(), table.status.capacity()), (0, 0));
+        table.make_widget(OWNER, ME, 7, 0, false).unwrap();
+        table.grant_status(ME, 1, OWNER, 0, false).unwrap();
+        let (wc, sc) = (table.widgets.capacity(), table.status.capacity());
+        assert!(wc >= widgets && sc >= status);
+        // From here no insert allocates: a refusing heap changes nothing.
+        FAIL_NTH.with(|n| n.set(1));
+        let mut made = 1;
+        while table.make_widget(OWNER, ME, 7, 0, false).is_ok() {
+            made += 1;
+        }
+        let mut granted = 1;
+        while table.grant_status(ME, 1, OWNER, 0, false).is_ok() {
+            granted += 1;
+        }
+        let spared = FAIL_NTH.with(|n| n.replace(0));
+        assert_eq!((made, granted), (widgets, status));
+        assert_eq!(spared, 1, "no insert after the first asked the heap");
+        assert_eq!(
+            (table.widgets.capacity(), table.status.capacity()),
+            (wc, sc),
+            "no growth to the cap"
+        );
+        // The bytes held at most: 16 x 32 + 24 x 16, 16 x 16 + 24 x 8 on the X4.
+        assert!(wc * size_of::<Widget>() + sc * size_of::<Status>() <= if x4 { 448 } else { 896 });
+    }
+}

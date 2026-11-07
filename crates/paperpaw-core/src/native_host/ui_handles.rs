@@ -11,6 +11,11 @@
 //!   that got them (section 5.3), so each carries the callback id of the
 //!   granting plugin and is gone when that callback is.
 //!
+//! Memory: each table is one allocation of its whole cap, made at its first
+//! insert and kept (no growth, no realloc, so no old-plus-new peak): widgets
+//! 16 B x 32 = 512 B (x 16 = 256 B on the X4), status handles 24 B x 16 =
+//! 384 B (x 8 = 192 B on the X4); on the X4 at most 448 B once both are used.
+//!
 //! Plugins are named by small indices (`u16`, the host's plugin table), so a
 //! made instance costs 16 bytes and no string. Everything is fallible: a
 //! refusal is `ERR_FULL` or `ERR_NO_MEMORY`, never a panic, and ids come from
@@ -145,7 +150,7 @@ impl UiHandles {
         }
         let id = self.next_widget;
         let next = id.checked_add(1).ok_or(ERR_FULL)?;
-        self.widgets.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        reserve(&mut self.widgets, self.widget_cap)?;
         self.widgets.push(Widget {
             id,
             screen,
@@ -225,7 +230,7 @@ impl UiHandles {
         }
         let handle = self.next_status;
         let next = handle.checked_add(1).ok_or(ERR_FULL)?;
-        self.status.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        reserve(&mut self.status, self.status_cap)?;
         self.status.push(Status {
             handle,
             token,
@@ -306,6 +311,19 @@ impl UiHandles {
     pub(crate) fn widgets(&self) -> usize {
         self.widgets.len()
     }
+}
+
+/// Makes room for the whole cap in one allocation, the first time a table is
+/// used: the table then never grows or reallocates, so there is no moment
+/// when an old and a new buffer exist together, and a later insert cannot
+/// fail for memory. `ERR_NO_MEMORY` when the heap refuses, nothing changed.
+fn reserve<T>(items: &mut Vec<T>, cap: usize) -> Result<(), i32> {
+    if items.capacity() < cap {
+        items
+            .try_reserve_exact(cap - items.len())
+            .map_err(|_| ERR_NO_MEMORY)?;
+    }
+    Ok(())
 }
 
 /// Runs the owner's `draw`: Core's dispatcher implements it.
