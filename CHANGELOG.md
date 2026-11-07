@@ -75,7 +75,8 @@ change the plugin SDK.
   (one per params, single, many; interface 6 `Instances`), and a confirm dialog's `choices` may
   name its two button words, with flags for a single button and the focus on yes;
   `native::SafeModeReason::PowerEscape` names a start in safe mode after the 8 s Power escape.
-  Hosts answer `ERR_UNSUPPORTED` until wired. Interface draft 18 (`native::DRAFT`) refuses plugins built for draft 17 (#228).
+  Hosts answer `ERR_UNSUPPORTED` until wired. Interface draft 18 (`native::DRAFT`) refuses
+  plugins built for draft 17 (#228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
   `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
   position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70
