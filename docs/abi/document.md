@@ -450,7 +450,7 @@ Slots 36 and 37 come with draft 21; a host answers `ERR_UNSUPPORTED` until it dr
   cache-image reader keep a fuzz target (`fuzz/fuzz_targets`, today one `image.rs` for all), a gate
   for this family.
 
-## 6. Fonts of a book
+## 6. Fonts of a book and hyphenation
 
 - [D] `doc_font` rows, one per **face** (`index` from 0, at most 124: 31 families × regular, bold,
   italic, bold italic; `family` 1-31 as the runs' `TextStyle` family, `flags` bit 0 bold, bit 1
@@ -465,6 +465,48 @@ Slots 36 and 37 come with draft 21; a host answers `ERR_UNSUPPORTED` until it dr
 - [D] Embedded fonts are hostile input to the host's font engine: its parser has a fuzz target (a
   gate), `font.acquire` checks the tables it needs, and a glyph that fails to parse later draws
   nothing (counted as a failed read), never a panic.
+
+### 6.1 Hyphenation (slot 38)
+
+- [D] **The host hyphenates; the reader holds no table.** Layout stays with the reader (section 0),
+  so it asks where a word may break with host slot 38 `text.hyphenate(ctx, language: bytes, word:
+  bytes, left: u32, right: u32, out: buffer)`, `query`, any callback, no `uses.*` feature. It
+  replaces interface 6's `env.hyphenation()`, `Hyphenator`, `CardTable` and `with_minimums`
+  (section 9). Tables are data plugins' `[hyphenation]` files on the card (`resource.hyphenation`,
+  `docs/abi/proposals/declarative-registration.md`); no `.ppn` carries one.
+- [D] **Which table.** `language` is a tag, `[A-Za-z0-9-]`, 1 to 35 bytes (as
+  `resource.hyphenation.language`), matched without regard to case. The host tries the tag, then
+  drops its last `-` part until one is left (`de-ch-1996`, `de-ch`, `de`); where several plugins
+  name the same tag, the greatest plugin id wins (D4). No table for any of them is `ERR_NOT_FOUND`.
+- [D] **The answer.** `word` is UTF-8 (`ERR_UTF8`), at most 192 bytes (`ERR_INVALID`), letters
+  only by the caller's choice (it strips punctuation and soft hyphens), matched without regard to
+  case. `out` gets one byte per place the word may break: the byte offset into `word` before which
+  a hyphen goes, ascending, each at a character boundary, at most 47 bytes (a word of at most 48
+  characters), and the call answers `OK` with that many bytes written; an `out` too small for all
+  of them is `ERR_NO_SPACE` with nothing written. `left` and `right` are the fewest characters
+  before and after a break, 1 to 16, or 0 for the table's own (above 16 `ERR_INVALID`): the
+  reader's `core.hyphen-min-left`/`-right` settings. `OK` with no bytes: the word may not break
+  (an empty word, shorter than `left` + `right`, longer than 48 characters, no pattern allows it),
+  or the table cannot be read at this moment (below); the reader leaves the word whole. An empty
+  `word` is how a reader asks whether a language has a table at all (`OK` or `ERR_NOT_FOUND`).
+- [D] **Reading the table** (as interface 6's card tables, now host-side): opened at the first word
+  of its language with `paperpaw-hyphen`'s card-backed reader, which keeps the index and
+  exceptions and reads pattern blocks as words need them (about 26 reads a word for `de`; opening
+  reads the file once, 708 reads). A table is untrusted input for as long as it is read: the reader
+  checks it as it opens and bounds every read; nothing panics. A read that fails closes it and the
+  next word opens it again; after a second failure, or a table that is not sound, the language
+  answers `ERR_NOT_FOUND` until the card changes. At most 2 tables are open (a book's language
+  and the UI's), together at most 48 KiB, checked before anything is taken; to make room only a
+  table idle for 256 words is closed, else the newer language's words are left whole (`OK`, no
+  bytes; Senior #816). The host closes them all when a book is closed, before the device sleeps,
+  before network, store and firmware work, when the card is mounted anew, and a plugin's tables
+  when it removes or updates that plugin.
+- [D] **Memory per call (X4): no heap.** A call takes the host's stack only (the word as at most
+  48 characters, their offsets and values: under 1 KiB, a gate item measured with the host port)
+  and writes at most 47 bytes into the caller's `out`. What stays is the open tables above: about
+  20 KB for `de`, the largest shipped, at most about 42 KiB for one table the shared check lets
+  through, at most 48 KiB for both (section 8.2). Time: one host call per word the layout wants to
+  break, about one a line.
 
 ## 7. Lookup (dictionary, wikipedia, translate)
 
@@ -532,11 +574,15 @@ reply 4,096 bytes, stage payload 3,840.
   JPEG and BMP a few rows. **This transient peak (PNG the largest) is an X4 gate item**, measured
   with the reader port at a 1,600-pixel PNG.
 - Fonts: card fonts, no heap beyond the font engine's per-handle state.
+- Hyphenation (section 6.1): no heap per call; open tables at most 48 KiB together (2 tables;
+  about 20 KB for `de`), opened at a book's first hyphenated word and closed with the book, as
+  interface 6's card tables, which the reader held; the same bytes, now counted to the host.
 - Lookup: one stage call on the scratch; nothing kept.
 - **X4 worst case for DOC's host side: about 6 KiB at rest** (documents 0.13 + images 1.5 + band 4 +
   queue), **plus the decoder's transient peak while an image decodes (PNG at most 48 KiB on the
-  X4)**, all fallible; an activation-gate item beside UIX's, measured with the reader port. The
-  format plugins' own heaps are gated by their ports.
+  X4)**, **and the open hyphenation tables while a book is open (at most 48 KiB, `de` about 20
+  KB; interface 6's reader held the same)**, all fallible; an activation-gate item beside UIX's,
+  measured with the reader port. The format plugins' own heaps are gated by their ports.
 
 ## 9. Interface-6 calls and their interface-7 form
 
@@ -553,6 +599,7 @@ reply 4,096 bytes, stage payload 3,840.
 | `page_label`, `xpointer`, `locate_xpointer` | ops 9, 10, 11 |
 | `links`, `link_target` | ops 12, 13 |
 | `fonts`, `font_data`, `env.fonts().failed_reads` | op 14, `font.acquire` key `document.<id>.<index>` |
+| `env.hyphenation()`, `Hyphenator`, `CardTable`, `with_minimums` | slot 38 `text.hyphenate` (section 6.1) |
 | `cover`, `prepare_image`, `prepare_image_larger`, `ui::draw_image` | ops 15, 16; slots 36, 37; `image_prepare` |
 | `Document::extended` | none: new ops in a new revision |
 | `Registrar::add_text_filter`, `add_decorator`, `add_page_layer`, `add_page_frame`, `add_voice` | reader-defined stages (`reader.def`, #964), not DOC |
@@ -562,17 +609,20 @@ reply 4,096 bytes, stage payload 3,840.
 ## 10. Hand-offs (after approval)
 
 - **Kernel:** records, `core.document@1` and `core.lookup@1` schemas, `core.format@1` and
-  `core.lookup@1` stage schemas (Core's stage-schema generator first), slots 36-37 in `abi.def`,
+  `core.lookup@1` stage schemas (Core's stage-schema generator first), slots 36-38 in `abi.def`,
   roots 2-4 in the storage contract, this document final.
 - **Core:** the document table and leases, the format broker and its checks, preparing in the main
   loop with the `.complete` stamp, roots 2-4, image ids and the band drawer, `image_prepare`
   decoding, document fonts in `font.acquire`, the lookup broker; tests for every refusal above,
   power-cut tests of the cache stamp; the path checks of roots 2-4; fuzz targets per decoder, for
   the cache-image reader and the font parser.
+- **Host Engineer:** slot 38 `text.hyphenate` (section 6.1): the tag fallback and D4 choice over the
+  registry's `resource.hyphenation` rows, interface 6's card-table rules (`OPEN`, `BUDGET`, `HOT`,
+  give-up, closing) moved into the host; tests for every status of section 6.1.
 - **Services:** the SDK side: a `Document` facade for openers over op 1-21, the block writer (piece
   splitting by size), a `Format` trait for format plugins over `core.format`, image and font
-  helpers.
+  helpers; a safe `hyphenate` wrapper over slot 38 for the reader's layout and the SDK grid.
 - **Firmware:** the X4 nested-callback stack case for `block`, the image band drawer's speed, the
-  DOC line of the heap budget.
+  DOC line of the heap budget, slot 38's host stack.
 - **Plugin:** the ports: the six format plugins, notes-vault, the reader, files, file-manager,
   browser, koreader, kosync, sleep, dictionary, wikipedia, translate.

@@ -103,6 +103,8 @@ pub struct PpHost {
     pub image_info: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, image: u32, out: PpBuffer) -> i32,
     /// canvas.draw_image: mutate, status, since 1.
     pub canvas_draw_image: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, image: u32, x: i32, y: i32, width: u32, height: u32, flags: u32) -> i32,
+    /// text.hyphenate: query, status, since 1.
+    pub text_hyphenate: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, language: PpBytes, word: PpBytes, left: u32, right: u32, out: PpBuffer) -> i32,
 }
 /// Generated ABI major.
 pub const MAJOR: u16 = 7;

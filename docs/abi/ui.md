@@ -568,8 +568,21 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   stream, the reader's
   `title`, `chapter`, `page`, `progress`) and gets one `ui_status_value` row per item (`item`,
   `flags`, `text`, `handle`), then `end`. The host runs the **host-defined stage `core.status`**
-  once per owning plugin for its items (stage-local `status.ask` / `status.value`) and caches the
-  values per (item, context) until event 73 (`status_changed`) or the minute tick. A value is text
+  once per owning plugin and `status.item.token` for its items (stage-local `status.ask` /
+  `status.value`) and caches the values per (item, context) until event 73 (`status_changed`) or
+  the minute tick.
+- [D] **Status calls (Core's question, todo 76).** Own items, hidden private ones and cached values
+  need no call. The rest are grouped by (owner, token), groups in the order of their first item
+  in op 14's `items`; each group is one call through `dispatch_stage` with that token,
+  `status.ask.items` only the group's ids in op 14's order and `context` op 14's, byte for byte.
+  At most 8 items, so at most 8 calls. This is not `stage.run`: one target, membership from the
+  registered `status.item` rows (no `registration.stage`, no `order`, no frozen membership), the
+  stage's codec and caps (1 input record, at most 8 reply rows, 3,840 bytes). The caller is at
+  depth 1, the owner runs at depth 2 under the re-entry guard and N8; the host holds no store
+  borrow across the owner's code. Reply rows whose `item` is not in the group are ignored, the
+  first row of an item wins. An item without a row, or whose owner call fails (`ERR_BUSY`, an
+  error, a crash, over budget), comes back with `flags` 0, `handle` 0 and no text, not cached; op
+  14 still answers `OK`, and other groups are unaffected. A value is text
   (at most 128 bytes) or, with `flags` bit 0, drawn: the showing screen composes it with
   `ui.compose` kind 1 and the row's `handle`. A handle is valid only inside the callback that got
   it, so a drawn item is asked for with op 14 inside `draw`, then composed in the same `draw`.

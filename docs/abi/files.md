@@ -174,11 +174,13 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
   roots 0 and 1 (both on the device's one storage: a news article written in the data folder moves
   into the user's books; an upload moves from the data folder to the card). Root 1 on either side
   needs `uses.storage`; root 2 is `ERR_DENIED`.
-- [D] `flags` bit 0 `replace`: an existing **file** at `to` is replaced. Without it, an existing
-  `to` is `ERR_STATE`; an existing **folder** at `to` is always `ERR_STATE` (never merged). Other
-  bits `ERR_UNSUPPORTED`. A folder moved into itself or below itself is `ERR_INVALID`. The parent
-  folder of `to` must exist (`ERR_NOT_FOUND`; plugins call `make_dir` first). A case-only rename
-  (`Book.epub` → `book.epub`) is a rename, not a replace, where the storage ignores case.
+- [D] `flags` bit 0 `replace`: an existing **file** at `to` is replaced by a **file**. Without it,
+  an existing `to` is `ERR_STATE`; an existing **folder** at `to` is always `ERR_STATE` (never
+  merged), and so is a folder moved onto an existing file, with or without `replace` (a file is
+  replaced only by a file). Other bits `ERR_UNSUPPORTED`. A folder moved into itself or below
+  itself is `ERR_INVALID`. The parent folder of `to` must exist (`ERR_NOT_FOUND`; plugins call
+  `make_dir` first). A case-only rename (`Book.epub` → `book.epub`) is a rename, not a replace,
+  where the storage ignores case.
 - [D] **Power cut:** as `storage.rename`: the new entry is added before the old one is removed, so
   the file or folder is found at both places or at one of them, never at neither. For a folder, the
   host also points its `..` entry at the new parent; a cut between leaves a folder that is whole and

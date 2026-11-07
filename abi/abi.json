@@ -1434,6 +1434,42 @@
       "reentry": "deny",
       "result": "status",
       "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "language",
+          "type": "bytes"
+        },
+        {
+          "name": "word",
+          "type": "bytes"
+        },
+        {
+          "name": "left",
+          "type": "u32"
+        },
+        {
+          "name": "right",
+          "type": "u32"
+        },
+        {
+          "name": "out",
+          "type": "buffer"
+        }
+      ],
+      "effect": "query",
+      "id": 38,
+      "max_bytes": 192,
+      "name": "text.hyphenate",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
     }
   ],
   "i18n_limits": {

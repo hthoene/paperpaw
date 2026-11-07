@@ -138,6 +138,10 @@ fn every_called_host_table_entry_but_the_allocator_and_the_clock_announces_its_s
         canvas_draw_image,
         (table.canvas_draw_image)(ctx, 0, 0, 0, 0, 0, 0)
     );
+    entry!(
+        text_hyphenate,
+        (table.text_hyphenate)(ctx, none, none, 0, 0, nobuf)
+    );
     // Every field of the table is accounted for: the four exempt ones
     // (heap_alloc, heap_dealloc, heap_realloc, clock_micros) plus the
     // list above. A new entry makes the table longer than the list.

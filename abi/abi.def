@@ -1130,6 +1130,42 @@
       "ownership": "call",
       "reentry": "deny",
       "max_bytes": 0
+    },
+    {
+      "id": 38,
+      "name": "text.hyphenate",
+      "since": 1,
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "language",
+          "type": "bytes"
+        },
+        {
+          "name": "word",
+          "type": "bytes"
+        },
+        {
+          "name": "left",
+          "type": "u32"
+        },
+        {
+          "name": "right",
+          "type": "u32"
+        },
+        {
+          "name": "out",
+          "type": "buffer"
+        }
+      ],
+      "result": "status",
+      "effect": "query",
+      "ownership": "call",
+      "reentry": "deny",
+      "max_bytes": 192
     }
   ],
   "records": [
