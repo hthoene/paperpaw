@@ -6,7 +6,7 @@ use super::*;
 
 /// Where the short entry of name `short` (as FAT keeps it) is on `card`:
 /// the only one.
-fn short_entry(card: &Cut, short: &[u8; 11]) -> usize {
+pub(super) fn short_entry(card: &Cut, short: &[u8; 11]) -> usize {
     let image = card.image();
     let mut found = image
         .chunks(32)
@@ -20,14 +20,21 @@ fn short_entry(card: &Cut, short: &[u8; 11]) -> usize {
 
 /// The first cluster of the entry at `at` (its high half 0 on FAT12
 /// and FAT16).
-fn first_cluster(card: &Cut, at: usize) -> u32 {
+pub(super) fn first_cluster(card: &Cut, at: usize) -> u32 {
     let image = card.image();
     u32::from(u16::from_le_bytes([image[at + 26], image[at + 27]]))
         | u32::from(u16::from_le_bytes([image[at + 20], image[at + 21]])) << 16
 }
 
 /// Overwrites the entry at `at`: name, attributes, first cluster, size.
-fn garble(card: &Cut, at: usize, name: &[u8; 11], attributes: u8, first: u32, size: u32) {
+pub(super) fn garble(
+    card: &Cut,
+    at: usize,
+    name: &[u8; 11],
+    attributes: u8,
+    first: u32,
+    size: u32,
+) {
     let mut data = card.image();
     data[at..at + 11].copy_from_slice(name);
     data[at + 11] = attributes;

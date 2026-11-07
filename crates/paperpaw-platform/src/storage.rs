@@ -268,7 +268,7 @@ pub trait Storage {
     /// has to take away entries it cannot name by a path (a name made by a
     /// computer that this storage's paths refuse) without collecting names.
     /// `NotFound` where nothing is at the place; `InvalidPath` for a folder
-    /// that is not empty.
+    /// that is not empty (the walk goes into those itself).
     ///
     /// The default goes by path, which is all a storage can do whose names
     /// are all valid paths; others override it.

@@ -12,7 +12,9 @@
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
-use paperpaw_platform::tree::{Kind, MAX_DEPTH, MAX_READS, MAX_REMOVALS, kind, remove_tree_step};
+use paperpaw_platform::tree::{
+    DESCENT, Kind, MAX_DEPTH, MAX_READS, MAX_REMOVALS, kind, remove_tree_step,
+};
 use paperpaw_platform::{DirEntry, Storage, StorageError, list_counted};
 
 /// A tree of folders and files. Entries keep the order they were made in. A
@@ -195,11 +197,10 @@ impl Storage for Tree {
         } else {
             format!("{dir}/{name}")
         };
-        // A folder with something in it goes whole, in one step.
-        let prefix = format!("{path}/");
-        self.nodes
-            .borrow_mut()
-            .retain(|p, _| p != &path && !(is_dir && p.starts_with(&prefix)));
+        if is_dir && !self.children(&path).is_empty() {
+            return Err(StorageError::InvalidPath);
+        }
+        self.nodes.borrow_mut().remove(&path);
         self.log.borrow_mut().push(format!("{path}#"));
         Ok(())
     }
@@ -228,7 +229,12 @@ fn run(tree: &Tree, root: &str, keep: bool) -> usize {
         let removals = tree.removals.get();
         let step = remove_tree_step(tree, root, keep, place).unwrap();
         assert!(step.removed <= MAX_REMOVALS, "removals: {}", step.removed);
-        assert!(tree.reads.get() <= MAX_READS, "reads: {}", tree.reads.get());
+        // The share of work and the descent apart (finding the folder again).
+        assert!(
+            tree.reads.get() <= MAX_READS + DESCENT,
+            "reads: {}",
+            tree.reads.get()
+        );
         assert_eq!(step.removed, tree.removals.get() - removals, "the count");
         if step.done {
             assert_eq!(step.next, 0);
@@ -413,42 +419,46 @@ fn unusable_names_are_removed_also_below_a_kept_root() {
     });
 }
 
-/// A folder the walk cannot enter (too deep, too long a path) goes whole by
-/// its place, in one removal, and the rest of the tree is removed as always:
-/// nothing is left, nothing outside is touched.
+/// A tree as deep as the walk goes (256 levels) is walked into and removed;
+/// one level more ends the call with `InvalidData` (the service's `ERR_STATE`),
+/// what was removed stays removed and nothing outside is touched.
 #[test]
-fn a_folder_the_walk_cannot_enter_goes_whole_by_its_place() {
+fn the_depth_limit_is_256_levels_and_then_an_error() {
     both(|tree| {
         let mut path = String::from("t");
-        for i in 0..MAX_DEPTH + 4 {
+        for i in 0..MAX_DEPTH {
+            path.push_str(&format!("/d{i}"));
+        }
+        tree.file(&format!("{path}/leaf"));
+        tree.file("keep/x");
+        run(tree, "t", false);
+        assert_eq!(tree.paths(), ["keep", "keep/x"]);
+    });
+    both(|tree| {
+        let mut path = String::from("t");
+        for i in 0..MAX_DEPTH + 1 {
             path.push_str(&format!("/d{i}"));
         }
         tree.file(&format!("{path}/leaf"));
         tree.file("t/side");
         tree.file("keep/x");
-        run(tree, "t", false);
-        assert_eq!(tree.paths(), ["keep", "keep/x"]);
-    });
-    // Within the depth it goes all the way by itself.
-    both(|tree| {
-        let mut path = String::from("t");
-        for i in 0..MAX_DEPTH - 2 {
-            path.push_str(&format!("/d{i}"));
-        }
-        tree.file(&format!("{path}/leaf"));
-        run(tree, "t", false);
-        assert!(tree.paths().is_empty());
-        assert!(
-            !tree.log.borrow().iter().any(|p| p.ends_with('#')),
-            "no folder was taken by its place"
-        );
+        let mut place = 0;
+        let error = loop {
+            match remove_tree_step(tree, "t", false, place) {
+                Ok(step) if step.done => panic!("done"),
+                Ok(step) => place = step.next,
+                Err(error) => break error,
+            }
+        };
+        assert_eq!(error, StorageError::InvalidData);
+        assert!(tree.paths().iter().any(|p| p == "keep/x"));
     });
 }
 
+/// A long joined path is no limit of the walk: the storage refuses it or not.
 #[test]
-fn a_path_too_long_to_build_goes_whole_by_its_place() {
+fn a_path_over_640_bytes_is_walked() {
     both(|tree| {
-        // Names of 200 bytes, five deep: over the walk's 640-byte path.
         let name = |i: usize| format!("{i}{}", "n".repeat(199));
         let mut path = String::from("t");
         for i in 0..5 {
@@ -463,17 +473,28 @@ fn a_path_too_long_to_build_goes_whole_by_its_place() {
     });
 }
 
-/// A name no path holds on a folder with something in it, with a folder in it
-/// of the same kind, also below a kept root: nothing is left.
+/// A folder with something in it whose name no path can hold cannot be
+/// entered by a walk that goes by paths: the call ends with `InvalidPath` and
+/// everything else stays removable. Storages that can have such names (the
+/// memory card, the host's file system) walk the tree themselves
+/// (`Storage::remove_tree_step`).
 #[test]
-fn unusable_folders_with_content_are_removed_below_a_kept_root() {
+fn an_unusable_folder_with_content_is_refused_not_detached() {
     both(|tree| {
         tree.file("t/nul./a");
-        tree.file("t/nul./b./c");
         tree.file("t/ok");
-        tree.file("t/sub/co:lon/deep/x");
-        run(tree, "t", true);
-        assert_eq!(tree.paths(), ["t"]);
+        tree.file("keep/x");
+        let mut place = 0;
+        let error = loop {
+            match remove_tree_step(tree, "t", true, place) {
+                Ok(step) if step.done => panic!("done"),
+                Ok(step) => place = step.next,
+                Err(error) => break error,
+            }
+        };
+        assert_eq!(error, StorageError::InvalidPath);
+        assert!(tree.paths().iter().any(|p| p == "t/nul./a"), "stays whole");
+        assert!(tree.paths().iter().any(|p| p == "keep/x"));
     });
 }
 

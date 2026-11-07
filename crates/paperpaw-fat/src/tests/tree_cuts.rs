@@ -646,3 +646,61 @@ fn files_on_the_way_down_are_work_and_both_shares_hold() {
     }
     assert!(!exists_dir(&s, "U"));
 }
+
+/// A folder entry of a normal name that points at another live folder's
+/// cluster (cross-linked, as a card left after resets can show): its `.` is
+/// right but its `..` is not where its parent says. The walk cuts the entry
+/// off and goes no further in: the other tree's files and the clusters they
+/// hold stay, whatever the place.
+#[test]
+fn a_folder_entry_cross_linked_to_another_tree_is_cut_off_and_nothing_there_is_freed() {
+    use super::damaged::{first_cluster, garble, short_entry};
+    let build = |card: &Cut| {
+        let s = card.storage();
+        s.write("Books/deep/b.txt", &[5u8; 900]).unwrap();
+        s.write("Books/a.txt", &[6u8; 900]).unwrap();
+        s.write("T/SUB/mine.txt", &[7u8; 900]).unwrap();
+        s.write("T/other.txt", &[8u8; 900]).unwrap();
+        s.sync().unwrap();
+    };
+    for place in [0u64, 1 << 32, 2 << 32 | 3] {
+        let card = Cut::formatted_of(4 << 20, options());
+        build(&card);
+        let books = first_cluster(&card, short_entry(&card, b"BOOKS      "));
+        let sub = short_entry(&card, b"SUB        ");
+        let orphaned = first_cluster(&card, sub);
+        assert_ne!(books, orphaned);
+        garble(&card, sub, b"SUB        ", 0x10, books, 0);
+        let s = card.storage();
+        let before = free_clusters(&s);
+        for _ in 0..50 {
+            if remove_tree_step(&s, "T", false, place).unwrap().done {
+                break;
+            }
+        }
+        assert!(!exists_dir(&s, "T"), "{place:#x}");
+        for (path, byte) in [("Books/deep/b.txt", 5u8), ("Books/a.txt", 6u8)] {
+            assert_eq!(whole(&s, path), Ok(vec![byte; 900]), "{place:#x} {path}");
+        }
+        // The same tree without the cross-link, walked: frees `T`'s own
+        // clusters and the files'. With it, the same less what `SUB` and its
+        // file held (taken by none, as a cut-off folder leaves them).
+        let control = Cut::formatted_of(4 << 20, options());
+        build(&control);
+        let c = control.storage();
+        let control_before = free_clusters(&c);
+        walk(&c, "T", false, 0);
+        c.sync().unwrap();
+        s.sync().unwrap();
+        let freed = free_clusters(&s) - before;
+        let control_freed = free_clusters(&c) - control_before;
+        assert!(
+            freed < control_freed,
+            "{place:#x}: {freed} of {control_freed}"
+        );
+        // Nothing of Books was freed: the free count stays at or below the
+        // control's, the control having removed SUB's clusters as well.
+        assert!(freed < control_freed, "{place:#x}");
+        let _ = card;
+    }
+}

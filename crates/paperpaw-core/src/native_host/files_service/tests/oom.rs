@@ -37,14 +37,28 @@ fn no_op_allocates() {
     assert!(armed(&host, 3, path(1, "")).is_ok());
     assert_eq!(armed(&host, 4, path(1, "New/Deep/Folder")), Ok(0));
     assert_eq!(armed(&host, 4, path(0, "cache")), Ok(0));
-    assert!(armed(&host, 5, list_record(1, "T", 0)).is_ok());
-    assert!(card.has("Books") && !card.has("T/x"));
     card.file(&std::format!("{DATA}/x"), 1);
     assert_eq!(armed(&host, 6, move_record(0, "x", 0, "y", 0)), Ok(0));
     assert_eq!(
         armed(&host, 6, move_record(0, "none", 0, "y", 0)),
         Err(ERR_NOT_FOUND)
     );
+}
+
+/// `remove_tree` walks the tree in the storage, which holds the path it walks
+/// on the heap: that allocation is fallible, a refusal is `ERR_IO` and changes
+/// nothing, and the next call removes the tree.
+#[test]
+fn a_tree_removal_that_cannot_keep_its_path_changes_nothing() {
+    let (card, host) = fixture();
+    card.file("Books/a.epub", 1);
+    card.file("T/x", 1);
+    card.file("T/y/z", 1);
+    let refused = armed_allowing(&host, 5, list_record(1, "T", 0));
+    assert_eq!(refused, Err(paperpaw_native::host_glue::ERR_IO));
+    assert!(card.has("T/x") && card.has("T/y/z") && card.has("Books/a.epub"));
+    assert!(call(&host, 5, list_record(1, "T", 0)).is_ok());
+    assert!(card.has("Books") && !card.has("T/x"));
 }
 
 /// A move of the user's files starts the library's job, which keeps its two
@@ -54,7 +68,7 @@ fn a_library_move_that_cannot_keep_its_names_changes_nothing() {
     let (card, host) = fixture();
     card.file("Books/Sub/b.epub", 1);
     card.dir("Other");
-    let refused = armed_allowing(&host, move_record(1, "Books/Sub", 1, "Other/Sub", 0));
+    let refused = armed_allowing(&host, 6, move_record(1, "Books/Sub", 1, "Other/Sub", 0));
     assert_eq!(refused, Err(paperpaw_native::host_glue::ERR_NO_MEMORY));
     assert!(card.has("Books/Sub/b.epub") && !card.has("Other/Sub"));
     assert!(host.journal.borrow().is_none() && !host.moves.active());
@@ -64,9 +78,9 @@ fn a_library_move_that_cannot_keep_its_names_changes_nothing() {
     );
 }
 
-fn armed_allowing(host: &Rc<TestHost>, record: Record<'_>) -> Result<usize, i32> {
-    let op = schema_op(6);
-    let bytes = input(6, record);
+fn armed_allowing(host: &Rc<TestHost>, id: u32, record: Record<'_>) -> Result<usize, i32> {
+    let op = schema_op(id);
+    let bytes = input(id, record);
     let mut out = std::vec![0; op.max_reply];
     with(host, NORMAL, |frame| {
         FAIL_NTH.with(|n| n.set(1));

@@ -69,6 +69,31 @@ struct Frame<IO: ReadWriteSeek + 'static> {
     up: Option<(FatDir<IO>, FatEntry<IO>)>,
     /// Its path, while every name on it is one a path holds.
     path: Option<String>,
+    /// The first cluster it has (what its `.` names, and what its subfolders'
+    /// `..` must name); none for the root of the card.
+    own: Option<u32>,
+    /// What its `.` and `..` must name, where that is known (a folder met
+    /// from its parent): a folder entry cross-linked to another folder fails
+    /// it.
+    place: Option<damaged::Place>,
+    /// Entries before the first that are not `.` and `..`: 2 where there
+    /// are none (the root of the card).
+    base: usize,
+}
+
+impl<IO: ReadWriteSeek + 'static> Frame<IO> {
+    /// The folder of `entry` in this one.
+    fn child(&self, entry: FatEntry<IO>, name: &str) -> Self {
+        let own = entry.first_cluster();
+        Self {
+            dir: entry.to_dir(),
+            path: child_path(&self.path, name),
+            own,
+            place: Some((own, self.own)),
+            base: 0,
+            up: Some((self.dir.clone(), entry)),
+        }
+    }
 }
 
 #[allow(clippy::large_enum_variant, reason = "returned at once, never kept")]
@@ -105,10 +130,24 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             Ok(top) => top,
             Err(step) => return Ok(step),
         };
+        // The cluster the root of the tree has: what its `.` names.
+        let own = match entries(&top).next() {
+            Some(entry) => {
+                let entry = entry?;
+                (entry.file_name() == ".")
+                    .then(|| entry.first_cluster())
+                    .flatten()
+            }
+            None => None,
+        };
+        reads.work += 1;
         let start = || Frame {
             dir: top.clone(),
             up: None,
             path: Some(root.to_string()),
+            own,
+            place: None,
+            base: if root.is_empty() { 2 } else { 0 },
         };
         let (mut depth, mut slot) = decode(place);
         let mut removed = 0u32;
@@ -269,6 +308,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         for level in 0..depth {
             let mut found = None;
             let mut items = entries(&frame.dir);
+            let mut at = frame.base;
             loop {
                 // Both shares are checked before the entry is read.
                 if reads.descent >= DESCENT || reads.work >= MAX_READS {
@@ -279,8 +319,17 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
                 };
                 let entry = entry?;
                 let name = entry.file_name();
+                let here = at.min(2);
+                at += 1;
+                // A damaged folder is worked in, and cut off, not passed;
+                // so is one whose `.` and `..` are not where its parent
+                // says (cross-linked).
+                let bad = damaged::is_damaged(self.fs, &entry, &name, here, frame.place);
                 if name == "." || name == ".." || is_temp_name(&name) {
                     reads.descent += 1;
+                    if bad && here < 2 {
+                        break;
+                    }
                     continue;
                 }
                 if !entry.is_dir() {
@@ -288,7 +337,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
                     // out, so that the subfolder is the third read of its
                     // level.
                     reads.work += 1;
-                    if damaged::is_damaged(self.fs, &entry, &name, 2, None) {
+                    if bad {
                         break;
                     }
                     if *removed >= MAX_REMOVALS {
@@ -299,8 +348,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
                     continue;
                 }
                 reads.descent += 1;
-                // A damaged folder is worked in, and cut off, not passed.
-                if !damaged::is_damaged(self.fs, &entry, &name, 2, None) {
+                if !bad {
                     found = Some((entry, name));
                 }
                 break;
@@ -309,12 +357,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             let Some((entry, name)) = found else {
                 return Ok(Some((frame, level)));
             };
-            let path = child_path(&frame.path, &name);
-            frame = Frame {
-                dir: entry.to_dir(),
-                up: Some((frame.dir.clone(), entry)),
-                path,
-            };
+            frame = frame.child(entry, &name);
         }
         Ok(Some((frame, depth)))
     }
@@ -343,7 +386,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
                 };
                 let entry = entry?;
                 reads.work += 1;
-                if damaged::is_damaged(self.fs, &entry, &entry.file_name(), at, None) {
+                if damaged::is_damaged(self.fs, &entry, &entry.file_name(), at, frame.place) {
                     return Ok(Outcome::Cut);
                 }
             }
@@ -394,7 +437,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             if name == "." || name == ".." {
                 continue;
             }
-            if damaged::is_damaged(self.fs, &entry, &name, 2, None) {
+            if damaged::is_damaged(self.fs, &entry, &name, 2, frame.place) {
                 return Ok(Outcome::Cut);
             }
             if top_of_card && same_path(&name, JOURNAL) {
@@ -411,12 +454,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
                 if depth + 1 > DEPTH {
                     return Err(StorageError::InvalidData);
                 }
-                let path = child_path(&frame.path, &name);
-                return Ok(Outcome::Down(Frame {
-                    dir: entry.to_dir(),
-                    up: Some((frame.dir.clone(), entry)),
-                    path,
-                }));
+                return Ok(Outcome::Down(frame.child(entry, &name)));
             }
             self.remove_file(frame, &entry, &name)?;
             *removed += 1;

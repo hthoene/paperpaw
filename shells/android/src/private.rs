@@ -122,6 +122,24 @@ impl<B: Storage, P: Storage> Storage for Private<B, P> {
         self.base.create_dir(path)
     }
 
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        let step = self.base.remove_tree_step(root, keep_root, place)?;
+        // The secrets go with the folder that holds them.
+        let inside = root.is_empty()
+            || FILE
+                .strip_prefix(root)
+                .is_some_and(|rest| rest.starts_with('/'));
+        if step.done && inside {
+            self.private.remove(NAME)?;
+        }
+        Ok(step)
+    }
+
     fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
         self.base.remove_dir_all(path)?;
         // The secrets go with the folder that holds them.

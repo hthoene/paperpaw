@@ -11,6 +11,7 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use paperpaw_platform::storage::is_valid_path;
+use paperpaw_platform::tree::{MAX_READS, MAX_REMOVALS, TreeStep};
 use paperpaw_platform::{DirEntry, Storage, StorageError};
 
 /// Maps storage paths below a root directory.
@@ -81,6 +82,46 @@ impl DirStorage {
         }
     }
 }
+
+/// What one piece of removing a tree has done.
+struct Budget {
+    removed: u32,
+    reads: u32,
+}
+
+/// Takes the entries out of folder `dir` (`depth` levels below the tree's
+/// root) until it is empty (true) or the call's share of removals and reads
+/// is used (false).
+fn sweep(dir: &Path, depth: usize, budget: &mut Budget) -> Result<bool, StorageError> {
+    for entry in fs::read_dir(dir).map_err(error)? {
+        if budget.removed >= MAX_REMOVALS || budget.reads >= MAX_READS {
+            return Ok(false);
+        }
+        let entry = entry.map_err(error)?;
+        let path = entry.path();
+        if entry.file_type().map_err(error)?.is_dir() {
+            // Going down is the descent: not a read of the share (each call
+            // starts at the root again), the removal of the folder is.
+            if depth + 1 > TREE_DEPTH {
+                return Err(StorageError::InvalidData);
+            }
+            if !sweep(&path, depth + 1, budget)? {
+                return Ok(false);
+            }
+            fs::remove_dir(&path).map_err(error)?;
+        } else {
+            budget.reads += 1;
+            fs::remove_file(&path).map_err(error)?;
+        }
+        budget.removed += 1;
+    }
+    // Entries removed while the folder was read may be skipped by the OS's
+    // iterator: empty only once a new look finds none.
+    Ok(fs::read_dir(dir).map_err(error)?.next().is_none())
+}
+
+/// Deepest folder below the root of a tree the removal goes into.
+const TREE_DEPTH: usize = 256;
 
 fn error(e: io::Error) -> StorageError {
     match e.kind() {
@@ -347,6 +388,52 @@ impl Storage for DirStorage {
             Err(e) if e.kind() != io::ErrorKind::NotFound => Err(error(e)),
             _ => Ok(()),
         }
+    }
+
+    /// A tree removed a piece at a time on the host's own file system: at
+    /// most 64 removals and 256 entries read a call, a folder deeper than
+    /// 256 levels `InvalidData`, the rest the OS's limits (`Io`). The place
+    /// is not needed: each call starts at the root and what it removed is
+    /// gone, so it is only ever a nonzero token.
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<TreeStep, StorageError> {
+        let _ = place;
+        let target = self.resolve_dir(root)?;
+        *self.open.borrow_mut() = None;
+        let done = |removed| TreeStep {
+            removed,
+            done: true,
+            next: 0,
+        };
+        match fs::symlink_metadata(&target) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(done(0)),
+            Err(e) => return Err(error(e)),
+            Ok(meta) if !meta.is_dir() => {
+                fs::remove_file(&target).map_err(error)?;
+                return Ok(done(1));
+            }
+            Ok(_) => {}
+        }
+        let mut budget = Budget {
+            removed: 0,
+            reads: 0,
+        };
+        if !sweep(&target, 0, &mut budget)? {
+            return Ok(TreeStep {
+                removed: budget.removed,
+                done: false,
+                next: 1,
+            });
+        }
+        if !keep_root && !root.is_empty() {
+            fs::remove_dir(&target).map_err(error)?;
+            budget.removed += 1;
+        }
+        Ok(done(budget.removed))
     }
 
     fn ignores_case(&self) -> bool {

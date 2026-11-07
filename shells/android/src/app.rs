@@ -843,6 +843,15 @@ impl Storage for Volumes {
         self.0.create_dir(path)
     }
 
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        self.0.remove_tree_step(root, keep_root, place)
+    }
+
     fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
         self.0.remove_dir_all(path)
     }
