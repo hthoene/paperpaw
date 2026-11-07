@@ -92,7 +92,7 @@ impl Device {
                     .series_index(i.to_string()),
             );
         }
-        let user = format!("[core]\nlanguage = en\n[help]\nshow = false\n{config}\n");
+        let user = format!("[core]\nlanguage = en\n{config}\n");
         let kernel = Kernel::builder(X4)
             .storage(storage)
             .user_config(user)
