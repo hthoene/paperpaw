@@ -21,3 +21,26 @@ a94233faf735d163900faed459cf73decda595e0 literata-large, literata-bold-italic  #
 2ba37332 literata-large, literata-bold-italic  # fonts: Your own fonts, and paperpaw-fontgen --family (#59)
 2796ca5e literata-large, literata-bold-italic  # fontgen: rustfmt
 fc160311 literata-large, literata-bold-italic  # script-korean-extra: fontgen's test and the Hangul set files only
+
+# language-ar, language-es, the paperpaw-sign pack frame scan (#228, PR #252): tools/sign is an input of both, but
+# only `pack` (code plugins) changed, `catalog` did not. tools/language-pack.py build ar and es at
+# origin/abi7/integration (7e9f905da) and with the scan (8f359346e) writes the same files with the same
+# SHA-256 each (ar.ppcat 3c5b5523d7c1..., 2026-11-06).
+467702e42c2ab2f0d93f877c6bc76631927c51dc language-ar, language-es  # paperpaw-sign pack frame scan (#228)
+13dce11e01f7bcc2a2827af3a4b2a610bf30aa58 language-ar, language-es  # paperpaw-sign pack frame scan (#228)
+a68cd54bba1ed74302aa11f5d5e0e7a1d34755c9 language-ar, language-es  # paperpaw-sign pack frame scan (#228)
+7871c422bcb8e75a00490f9b77343f9035f7d287 language-ar, language-es  # paperpaw-sign pack frame scan (#228)
+736e9af2d3e5f0d8902d3bf6746ab7d0ebcfca14 language-ar, language-es  # paperpaw-sign pack frame scan (#228)
+0e1b62c1c4d79f78edfc1dbf73e0ebbc26e1be8c language-ar, language-es  # paperpaw-sign pack frame scan (#228)
+cfdcc54f4ff042e5c22838e21fda0349d5905687 language-ar, language-es  # paperpaw-sign pack frame scan (#228)
+ef3be8ec641bfc36c338793b922dad5580748f7a language-ar, language-es  # paperpaw-sign pack frame scan (#228): pack only, catalog unchanged
+363de05c41f77748301902adef572e3e20768f00 language-ar, language-es  # paperpaw-sign pack frame scan (#228): tests and docs only
+6fef67f073bd44b5f8d00bde63d284fb9f416d09 language-ar, language-es  # paperpaw-sign pack frame scan (#228): the refusal's text only
+36a2cc0a0 language-ar, language-es  # sign: heap word only in pack5 (format 5) and show5 output; language packs are built by `paperpaw-sign catalog` (format 4), untouched
+8c7673db1bebfddb15be7d729e07d3d3ac70b80b language-ar, language-es  # paperpaw-sign pack frame scan (#228): the refusal's text only
+8cc9230cd1d2de3b2db00f9dcb4a78504ce9fd71 language-ar, language-es  # paperpaw-sign pack frame scan (#228): a test's numbers only
+7c697ef039d23dbeca8df4305c7cd33c5ee55b33 language-ar, language-es  # paperpaw-sign pack frame scan (#228): pack only, catalog unchanged
+492648f5a0011c95353f0b5cbe61fa1966705d10 language-ar, language-es  # paperpaw-sign pack frame scan (#228): pack only, catalog unchanged
+ad5fb82ecb5f218c07c37c153c33d154cb2b1e1e language-ar, language-es  # paperpaw-sign pack frame scan (#228): pack only, catalog unchanged
+350af9b96b4a146a152a87ce3bf446cb9c86d1d5 language-ar, language-es  # paperpaw-sign pack frame scan (#228): the frame limit only, catalog unchanged
+b306fe855cc85ea051ddf5ee8583547c60858d96 language-ar, language-es  # paperpaw-sign pack: sp alignment refusal (#228, PR #259 follow-up): pack only, catalog byte-identical (job #2892)

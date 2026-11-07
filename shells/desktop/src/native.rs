@@ -129,7 +129,7 @@ unsafe extern "C" fn alloc_in(size: usize, align: usize, _placement: u32) -> *mu
 /// [`DispatchDepth`](paperpaw_core::native_host::DispatchDepth), the device-wide nesting budget.
 #[derive(Debug, Default)]
 pub struct HostLoader {
-    depth: std::rc::Rc<paperpaw_core::native_host::DispatchDepth>,
+    depth: Option<paperpaw_core::native_host::flat::FlatDepth>,
 }
 
 impl CodeLoader for HostLoader {
@@ -156,10 +156,22 @@ impl HostLoader {
     /// kernel's adapter: nothing of it runs but `make`, and what it declared
     /// is applied or the plugin is refused here, never loaded without it.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    fn flat(&self, bytes: &[u8], code: &CodeFile<'_>) -> Result<Box<dyn Plugin>, PluginProblem> {
+    fn flat(
+        &mut self,
+        bytes: &[u8],
+        code: &CodeFile<'_>,
+    ) -> Result<Box<dyn Plugin>, PluginProblem> {
         use crate::native_runtime::Refusal;
-        use paperpaw_core::native_host::flat::FlatPlugin;
+        use paperpaw_core::native_host::flat::{FlatDepth, FlatError, FlatPlugin};
         let id = code.id.as_str();
+        if self.depth.is_none() {
+            self.depth = Some(FlatDepth::try_new().map_err(|_| PluginProblem::NoRoom)?);
+        }
+        let depth = self
+            .depth
+            .as_ref()
+            .and_then(FlatDepth::try_clone)
+            .ok_or(PluginProblem::NoRoom)?;
         let instance = crate::native_runtime::load_flat(id, bytes).map_err(|why| {
             eprintln!("code plugin {id}: {why}");
             match why {
@@ -169,21 +181,26 @@ impl HostLoader {
         })?;
         // The folder's data names and versions it (`plugin.ini`); this is the
         // code's own, which the kernel replaces by that version.
-        let manifest = paperpaw_core::sdk::Manifest::new(
-            code.id.clone(),
-            id.to_owned(),
-            paperpaw_core::sdk::Version::new(0, 0, 0),
-        );
-        FlatPlugin::new(
-            manifest,
-            instance,
-            std::rc::Rc::clone(&self.depth),
-            code.host,
-        )
-        .map(|plugin| Box::new(plugin) as Box<dyn Plugin>)
-        .map_err(|why| {
+        let manifest =
+            FlatPlugin::try_manifest(code.id, id, paperpaw_core::sdk::Version::new(0, 0, 0))
+                .map_err(|_| PluginProblem::NoRoom)?;
+        let plugin = FlatPlugin::new(manifest, instance, depth, code.host).map_err(|why| {
             eprintln!("code plugin {id}: {why}");
-            PluginProblem::Unsupported
+            match why {
+                FlatError::Allocation => PluginProblem::NoRoom,
+                _ => PluginProblem::Unsupported,
+            }
+        })?;
+        let layout = Layout::new::<FlatPlugin>();
+        // SAFETY: nonzero exact layout, null is checked before initialization.
+        let allocation = unsafe { std::alloc::alloc(layout) }.cast::<FlatPlugin>();
+        if allocation.is_null() {
+            return Err(PluginProblem::NoRoom);
+        }
+        // SAFETY: uniquely owned, initialized Box storage of the exact layout.
+        Ok(unsafe {
+            allocation.write(plugin);
+            Box::from_raw(allocation)
         })
     }
 

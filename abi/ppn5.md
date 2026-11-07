@@ -208,6 +208,30 @@ is merged.
 
 ## The packer (slice 3)
 
+The packer's stack frame scan bounds each function's frame, not the depth of a call path; the band at the stack's end
+and the device's high-water test cover that. A jump through a register inside a frame is how a `match` compiled to a
+jump table looks; the scan reads such a table from the plugin's `.rodata` (the run of its relocated words that point
+into the function) and follows every entry, and refuses one it cannot read. Plugins are built with
+`-C jump-tables=no` all the same (set in the `rustflags` of the sample's `.cargo/config.toml`, the template of an
+interface-7 plugin build), which leaves the plugin's own `match`es nothing to read; the flag does not reach the
+precompiled `core`, whose tables the scan reads.
+
+**Frame limit and floats (ADR 0034, decision #953):** a frame of 2,048 bytes or more is refused (the limit is the
+band's height at the stack's end, `paperpaw_x4::stack_band::FRAME_LIMIT`); one of less cannot step over the band. The
+panic handler's room is kept for the worst case of two such frames meeting in the band: the band lies
+`RESERVE = DEPTH + FRAME_LIMIT` = 4,096 bytes above the stack's end, `DEPTH` being the larger of `HANDLER` (the panic
+handler's depth) and `INTERRUPT` (an interrupt's depth on the main stack when it arrives with the pointer near the band),
+each 2 KiB with a 256-byte margin until the device measures them together (checklist G7, and the interrupt case of the
+overflow test G8); if either is more, the reserve grows, not the limit. Two assumptions the band rests on are not the
+ABI's promise: `sp` moves in multiples of 16 (the packer refuses a plugin whose `sp` moves by anything else), and a
+function's first store into its frame is its return address at the top (LLVM's habit; the worst case of two frames meeting
+in the band needs a frame to cross into the band with no store there, which that allows). Band, reserve and
+alignment take 6 to 8 KiB of the X4's 41,096-byte main stack. So `core`'s float formatting, whose
+`float_to_decimal_common_exact` has a frame of 1,952 bytes, packs: `{}` and `{:.N}` of an `f32` or `f64` work on the
+X4. The SDK's fixed-point formatter stays the recommended way (it saves roughly 10 KiB of flash), not a requirement.
+If the deepest legitimate path does not fit the stack that is left (about 33 KiB), the limit falls back to 1,536
+bytes and floats are refused again.
+
 `paperpaw-sign pack <plugin.elf> <plugin.ppn> [--key <file>]` writes format 5 for a plugin linked with
 `paperpaw-plugin7.x` and `--emit-relocs` that defines `PAPERPAW_METADATA`; a plugin that defines `PAPERPAW_API` is
 interface 6 and gets format 4, and one that defines both or neither is refused. The file is made as above:
