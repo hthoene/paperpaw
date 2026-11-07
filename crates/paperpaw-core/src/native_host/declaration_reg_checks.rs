@@ -3,6 +3,7 @@ use super::{
     declarations::{full_id, need_value_check, relative},
     registrations::{Record, SetupStep},
 };
+use crate::abi7::settings_wire::{SettingValueRef, settings_decode};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
 
 /// Registry-free identity checks; resolving screens and slots waits for the
@@ -47,7 +48,37 @@ pub(crate) fn validate(plugin: &str, record: &Record<'_>) -> Result<(), i32> {
             qualified(preset.kind)?;
             nonempty(preset.title)
         }
+        Record::SettingDefault(default) => {
+            qualified(default.key)?;
+            present_value(default.value)
+        }
+        Record::SettingChoice(choice) => {
+            qualified(choice.key)?;
+            nonempty(choice.value)?;
+            nonempty(choice.title)
+        }
+        Record::PresetValue(value) => {
+            qualified(value.preset)?;
+            qualified(value.key)?;
+            if value.flags & !1 != 0 {
+                return Err(ERR_UNSUPPORTED);
+            }
+            if value.flags & 1 == 0 {
+                present_value(value.value)
+            } else if value.value.is_empty() {
+                Ok(())
+            } else {
+                Err(ERR_INVALID)
+            }
+        }
         _ => Err(ERR_UNSUPPORTED),
+    }
+}
+
+fn present_value(bytes: &[u8]) -> Result<(), i32> {
+    match settings_decode(bytes)? {
+        SettingValueRef::Absent => Err(ERR_INVALID),
+        _ => Ok(()),
     }
 }
 
@@ -365,6 +396,126 @@ mod identity_tests {
         ] {
             assert_eq!(
                 validate("fixture", &Record::PresetSpec(row)),
+                Err(ERR_INVALID)
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod value_tests {
+    use super::*;
+    use crate::{
+        abi7::settings_wire::settings_encode,
+        native_host::registrations::{PresetValue, SettingChoice, SettingDefault},
+    };
+    use core::mem::MaybeUninit;
+
+    fn encoded(value: SettingValueRef<'_>) -> [u8; 13] {
+        let mut bytes = [MaybeUninit::new(0); 13];
+        assert!(settings_encode(value, &mut bytes).is_ok());
+        // SAFETY: every byte was initialized before the encoder wrote any prefix.
+        bytes.map(|byte| unsafe { byte.assume_init() })
+    }
+
+    #[test]
+    fn defaults_require_present_canonical_values_without_foreign_policy_checks() {
+        let value = encoded(SettingValueRef::Bool(true));
+        for key in ["foreign.enabled", "core.grant.fixture.enabled"] {
+            assert_eq!(
+                validate(
+                    "fixture",
+                    &Record::SettingDefault(SettingDefault { key, value: &value })
+                ),
+                Ok(())
+            );
+        }
+        let absent = encoded(SettingValueRef::Absent);
+        for value in [&[][..], &[1, 2, 3][..], &absent[..12]] {
+            assert_eq!(
+                validate(
+                    "fixture",
+                    &Record::SettingDefault(SettingDefault {
+                        key: "foreign.enabled",
+                        value
+                    })
+                ),
+                Err(ERR_INVALID)
+            );
+        }
+    }
+
+    #[test]
+    fn preset_reset_requires_empty_bytes_and_unknown_flags_remain_unsupported() {
+        let reset = PresetValue {
+            preset: "fixture.night",
+            key: "foreign.enabled",
+            value: &[],
+            flags: 1,
+        };
+        assert_eq!(validate("fixture", &Record::PresetValue(reset)), Ok(()));
+        let value = encoded(SettingValueRef::Bool(false));
+        assert_eq!(
+            validate(
+                "fixture",
+                &Record::PresetValue(PresetValue {
+                    value: &value,
+                    flags: 0,
+                    ..reset
+                })
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            validate(
+                "fixture",
+                &Record::PresetValue(PresetValue {
+                    value: &value,
+                    ..reset
+                })
+            ),
+            Err(ERR_INVALID)
+        );
+        assert_eq!(
+            validate(
+                "fixture",
+                &Record::PresetValue(PresetValue { flags: 0, ..reset })
+            ),
+            Err(ERR_INVALID)
+        );
+        assert_eq!(
+            validate(
+                "fixture",
+                &Record::PresetValue(PresetValue { flags: 2, ..reset })
+            ),
+            Err(ERR_UNSUPPORTED)
+        );
+    }
+
+    #[test]
+    fn choice_extensions_check_only_local_identity_value_and_title() {
+        let choice = SettingChoice {
+            key: "foreign.color",
+            value: "blue",
+            title: "Blue",
+        };
+        assert_eq!(validate("fixture", &Record::SettingChoice(choice)), Ok(()));
+        for row in [
+            SettingChoice {
+                key: "color",
+                ..choice
+            },
+            SettingChoice {
+                value: "",
+                ..choice
+            },
+            SettingChoice {
+                title: "",
+                ..choice
+            },
+        ] {
+            assert_eq!(
+                validate("fixture", &Record::SettingChoice(row)),
                 Err(ERR_INVALID)
             );
         }

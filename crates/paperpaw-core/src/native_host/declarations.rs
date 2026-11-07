@@ -96,11 +96,11 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::SlotSpec(_)
         | Record::SlotOffer(_)
         | Record::KeyBind(_)
-        | Record::PresetSpec(_) => {
+        | Record::PresetSpec(_)
+        | Record::SettingDefault(_)
+        | Record::SettingChoice(_)
+        | Record::PresetValue(_) => {
             super::declaration_reg_checks::validate(plugin_id, record).and(Err(ERR_UNSUPPORTED))
-        }
-        Record::SettingDefault(_) | Record::SettingChoice(_) | Record::PresetValue(_) => {
-            Err(ERR_UNSUPPORTED)
         }
         Record::Registration(_) => Ok(()),
         // Events flow from the host to the plugin; a batch never carries one.
