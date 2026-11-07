@@ -3,6 +3,7 @@
 //! padding), and the pieces that draw text and shapes in a widget's place.
 //! A widget plugin lays its content out into [`crate::Paint`] operations,
 //! with fallible allocation, and replays them in its draw callback.
+pub mod layout;
 pub mod look;
 pub mod settings;
 pub mod text;

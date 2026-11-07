@@ -14,6 +14,14 @@
 extern crate alloc;
 
 mod books;
+mod native_cx;
+mod native_day;
+mod native_defs;
+mod native_draw;
+mod native_entry;
+mod native_names;
+/// The interface-7 plugin.
+pub mod native_plugin;
 mod showings;
 mod time;
 mod words;
@@ -26,6 +34,17 @@ mod harness;
 use alloc::borrow::Cow;
 
 use paperpaw_sdk::{Env, Id, Manifest, Plugin, RegisterError, Registrar};
+
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+
+/// The native declarations (widgets, settings, events) of the plugin.
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and tests read the same declarations"
+)]
+mod declarations;
 
 pub const PLUGIN: Id = Id::new_static("widgets");
 
