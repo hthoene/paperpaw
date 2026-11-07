@@ -208,12 +208,20 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
     then decides as above, never dropping the entry blind; **neither exists** (the folder was
     removed on a computer while the card was a USB drive), it drops the entry and the next walk
     forgets the books below both names, as for any deleted file.
-  - **While the job runs:** a `move`, `storage.rename`, `remove_tree` or `storage.remove` at or
-    below `from` or `to` answers `ERR_BUSY` until the entry is cleared, and the library answers for
-    books below `to` through the pending entry (or carries that book first), so a reader that opens
-    a moved book during the job finds its position and annotations, never a fresh position the carry
-    would then overwrite. Plugins that move books as books may still use LIB's
-  `move` (`library.md`); both end in the same state.
+  - **While the job runs** (until the entry is cleared), `ERR_BUSY` answers:
+    - **every** `move` and `storage.rename`, and LIB's `move` and `import`, wherever they point:
+      one move job at a time, device-wide, so a second move never needs a second open entry;
+    - a `remove_tree`, `storage.remove` or LIB `delete` at or below `from` or `to`, or of a folder
+      holding either;
+    - a `make_dir`, a file write or a create at or below `from` (the old name stays absent, so
+      the start rule's "only `to` exists" still holds after a cut).
+
+    Ancestors of `from` and `to` are not busy otherwise: listing them, reading, writing and
+    making other entries in them go on. Reads and writes below `to` go on too. The library
+    answers for books below `to` through the pending entry (or carries that book first), so a
+    reader that opens a moved book during the job finds its position and annotations, never a
+    fresh position the carry would then overwrite. Plugins that move books as books may still
+    use LIB's `move` (`library.md`, one job at a time as above); both end in the same state.
 
 ### 2.7 Records
 
