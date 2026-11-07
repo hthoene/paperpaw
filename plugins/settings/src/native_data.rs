@@ -187,9 +187,13 @@ impl<'h, 'cb> Reader<'h, 'cb> {
     }
 }
 
+/// Room for the longest value of a setting and its frame.
+const VALUE_BUFFER: usize = 4096 + 64;
+
 /// The value of one setting now (the effective one, previews included).
 pub fn read(host: &Host<'_>, key: &str) -> Result<Option<Val>, Error> {
-    let mut bytes = [0; 512];
+    // A text setting is up to 4,096 bytes, encoded with its frame.
+    let mut bytes = paperpaw_ui_kit::mem::buffer(VALUE_BUFFER)?;
     value(Some(settings::read_setting(host, key, &mut bytes)?))
 }
 

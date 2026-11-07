@@ -69,7 +69,7 @@ pub enum Kind {
 }
 
 /// A value, owned.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Val {
     /// A switch.
     Bool(bool),
@@ -80,7 +80,7 @@ pub enum Val {
 }
 
 /// A setting as the registry lists it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Setting {
     /// Its full id.
     pub key: String,
@@ -110,7 +110,7 @@ impl Setting {
 
 /// What a setting's page row needs besides the list row (`reg_setting_extra`
 /// and the help text), read for the page that shows it.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct Detail {
     /// Smallest number.
     pub min: i64,
@@ -236,10 +236,39 @@ pub fn visible(groups: &[Group], cx: Context, setting: &Setting, options: Option
 }
 
 /// The id of setting `id` of group `of` for its placement `placement`.
-#[must_use]
-pub fn placed(id: &str, of: &str, placement: &str) -> Option<String> {
-    let rest = id.strip_prefix(of).filter(|r| r.starts_with('.'))?;
-    concat(&[placement, rest]).ok()
+///
+/// # Errors
+/// [`Error::NoMemory`] when the id cannot be built; `Ok(None)` when `id` is not
+/// a setting of `of`.
+pub fn placed(id: &str, of: &str, placement: &str) -> Result<Option<String>, Error> {
+    let Some(rest) = id.strip_prefix(of).filter(|r| r.starts_with('.')) else {
+        return Ok(None);
+    };
+    concat(&[placement, rest]).map(Some)
+}
+
+impl Setting {
+    /// A copy made with fallible allocation.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] when a text cannot be copied.
+    pub fn try_clone(&self) -> Result<Self, Error> {
+        Ok(Self {
+            key: copy(&self.key)?,
+            group: copy(&self.group)?,
+            kind: self.kind,
+            flags: self.flags,
+            is_default: self.is_default,
+            in_scope: self.in_scope,
+            title: copy(&self.title)?,
+            value: match &self.value {
+                Some(Val::Text(text)) => Some(Val::Text(copy(text)?)),
+                Some(Val::Bool(v)) => Some(Val::Bool(*v)),
+                Some(Val::Int(v)) => Some(Val::Int(*v)),
+                None => None,
+            },
+        })
+    }
 }
 
 /// The groups a page of top-level groups lists: those with something visible

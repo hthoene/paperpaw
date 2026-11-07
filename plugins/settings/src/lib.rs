@@ -39,10 +39,19 @@
 extern crate alloc;
 
 mod chooser;
+#[cfg(test)]
+extern crate std;
+/// Test-only: refuses chosen allocations to prove the fallible paths.
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
 mod group_list;
 mod native_data;
 mod native_entry;
 pub mod native_model;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 /// The interface-7 plugin.
 pub mod native_plugin;
 mod page;

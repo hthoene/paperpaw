@@ -209,14 +209,19 @@ fn a_unit_with_a_count_takes_the_number() {
 #[test]
 fn placements_rename_the_settings_of_their_group() {
     assert_eq!(
-        placed("widgets.clock.face", "widgets.clock", "widgets.clock@2").unwrap(),
+        placed("widgets.clock.face", "widgets.clock", "widgets.clock@2")
+            .unwrap()
+            .unwrap(),
         "widgets.clock@2.face"
     );
     assert_eq!(
-        placed("other.face", "widgets.clock", "widgets.clock@2"),
+        placed("other.face", "widgets.clock", "widgets.clock@2").unwrap(),
         None
     );
-    assert_eq!(placed("widgets.clockwork", "widgets.clock", "x@1"), None);
+    assert_eq!(
+        placed("widgets.clockwork", "widgets.clock", "x@1").unwrap(),
+        None
+    );
 }
 
 #[test]
@@ -249,4 +254,31 @@ fn a_theme_is_in_use_when_its_values_are_set_and_the_rest_is_default() {
     assert!(!applied(&all, &covered, &resets));
     // A covered setting a theme leaves out must be the default.
     assert!(!applied(&all, &covered, &[]));
+}
+
+/// Every allocation of the model's helpers may be refused: they end in
+/// `NoMemory` (or succeed), never abort; a copy is whole or an error.
+#[test]
+fn allocation_refusals_end_in_no_memory() {
+    use crate::fail_alloc::sweep;
+    let mut a = setting("look.a", "g", Kind::Choice, SHOWN);
+    a.value = Some(Val::Text("x".repeat(600)));
+    sweep(|| a.try_clone().map(|c| c.value == a.value));
+    sweep(|| placed("widgets.clock.face", "widgets.clock", "widgets.clock@2").map(|p| p.is_some()));
+    sweep(|| section_order(["b", "a", "b", ""].into_iter()).map(|s| s.len()));
+    sweep(|| words("Brightness  sleep").map(|w| w.len()));
+    sweep(|| {
+        let w = words("bright")?;
+        matches("Brightness of the light", &w)
+    });
+    sweep(|| with_unit(30, "{count} min").map(|t| t.len()));
+}
+
+/// A copy keeps a text value longer than the 512 bytes a short buffer holds.
+#[test]
+fn a_copy_of_a_long_text_value_is_whole() {
+    let mut a = setting("t.long", "g", Kind::Text, SHOWN);
+    let long = "é".repeat(2000);
+    a.value = Some(Val::Text(long.clone()));
+    assert_eq!(a.try_clone().unwrap().value, Some(Val::Text(long)));
 }

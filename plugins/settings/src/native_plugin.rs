@@ -5,7 +5,7 @@ use crate::native_data::{self, Reader};
 use crate::native_model::{
     self as model, Context, Detail, Group, Kind, PageRow, Setting, Val, flag,
 };
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled,
     native::{
@@ -17,7 +17,7 @@ use paperpaw_sdk::{
         registrations,
         reply::Reply,
         settings::SettingValue,
-        ui::{Instance, Notify, Open, Param, Question, RequestId, TextWrite, Ui},
+        ui::{Instance, Notify, Open, Param, Question, RequestId, Ui},
     },
 };
 use paperpaw_ui_kit::{
@@ -57,7 +57,7 @@ const LOOK_GROUP: &str = "core.group.look";
 const MARK: &str = "•";
 
 /// What a row of the main page opens.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 enum Link {
     Group { id: String, page: String },
     Page(String),
@@ -78,7 +78,8 @@ struct ListView {
 #[derive(Debug)]
 enum Row {
     Heading(String),
-    Setting(Box<Entry>),
+    /// A setting: its place in the view's entries.
+    Setting(usize),
     Reset,
     /// An action plugins add to the group: its id, name and what it shows at the right.
     Action(String, String, String),
@@ -95,6 +96,55 @@ struct Entry {
     detail: Detail,
     /// Value and name of each option, for choices.
     options: Vec<(String, String)>,
+}
+
+/// What choosing a setting needs, copied out of its row.
+#[derive(Debug)]
+struct Act {
+    kind: Kind,
+    editor_kind: u32,
+    editor: String,
+    key: String,
+    title: String,
+    /// The text a text setting starts from.
+    initial: String,
+    secret: bool,
+    options: usize,
+}
+
+impl Act {
+    fn of(entry: &Entry) -> Result<Self, Error> {
+        let initial = match (&entry.setting.value, entry.setting.kind) {
+            (Some(Val::Text(text)), Kind::Text) => copy(text)?,
+            _ => String::new(),
+        };
+        Ok(Self {
+            kind: entry.setting.kind,
+            editor_kind: entry.detail.editor_kind,
+            editor: copy(&entry.detail.editor)?,
+            key: copy(&entry.setting.key)?,
+            title: copy(&entry.setting.title)?,
+            initial,
+            secret: entry.setting.has(flag::SECRET),
+            options: entry.options.len(),
+        })
+    }
+}
+
+impl Link {
+    /// A copy made with fallible allocation.
+    fn try_clone(&self) -> Result<Self, Error> {
+        Ok(match self {
+            Self::Group { id, page } => Self::Group {
+                id: copy(id)?,
+                page: copy(page)?,
+            },
+            Self::Page(action) => Self::Page(copy(action)?),
+            Self::Advanced => Self::Advanced,
+            Self::Search => Self::Search,
+            Self::Reset => Self::Reset,
+        })
+    }
 }
 
 /// A number being changed with the buttons: its row and the value it had.
@@ -114,6 +164,8 @@ struct GroupView {
     /// A book scope is open on this screen.
     scoped: bool,
     rows: Vec<Row>,
+    /// The settings the rows show, in the rows' order.
+    entries: Vec<Entry>,
     list: ItemList,
     title: String,
     editing: Option<Editing>,
@@ -325,7 +377,9 @@ impl Plugin for NativeSettings {
         );
         match step {
             ItemStep::Chosen(index) => self.chosen(host, token, index, confirm)?,
-            ItemStep::Step(index, direction) => self.stepped(host, index, i64::from(direction))?,
+            ItemStep::Step(index, direction) => {
+                self.stepped(host, token, index, i64::from(direction))?;
+            }
             ItemStep::Held(_) => return Ok(Handled::No),
             _ => {}
         }
@@ -557,22 +611,28 @@ impl NativeSettings {
         index: usize,
         confirm: bool,
     ) -> Result<(), Error> {
-        match token {
-            LIST => self.list_chosen(host, index),
-            GROUP => self.group_chosen(host, index, confirm),
-            CHOOSE => self.choose_chosen(host, index),
-            THEMES => self.themes_chosen(host, index),
-            SEARCH => self.search_chosen(host, index),
-            _ => Ok(()),
+        // By what the screen shows, not by the token it was declared with: the
+        // main screen shows a group's page when it is opened with an id or a
+        // setting to focus.
+        let Some(view) = self.screens.top(token) else {
+            return Ok(());
+        };
+        match view {
+            View::List(_) => self.list_chosen(host, token, index),
+            View::Group(_) => self.group_chosen(host, token, index, confirm),
+            View::Choose(_) => self.choose_chosen(host, token, index),
+            View::Themes(_) => self.themes_chosen(host, token, index),
+            View::Search(_) => self.search_chosen(host, token, index),
         }
     }
 
-    fn list_chosen(&mut self, host: &Host<'_>, index: usize) -> Result<(), Error> {
-        let Some(View::List(v)) = self.screens.top(LIST) else {
+    fn list_chosen(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
+        let Some(View::List(v)) = self.screens.top(token) else {
             return Ok(());
         };
-        let Some(link) = v.links.get(index).cloned().flatten() else {
-            return Ok(());
+        let link = match v.links.get(index) {
+            Some(Some(link)) => link.try_clone()?,
+            _ => return Ok(()),
         };
         match link {
             Link::Group { id, page } => {
@@ -601,8 +661,14 @@ impl NativeSettings {
         }
     }
 
-    fn group_chosen(&mut self, host: &Host<'_>, index: usize, confirm: bool) -> Result<(), Error> {
-        let Some(v) = group_mut(&mut self.screens, GROUP) else {
+    fn group_chosen(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        index: usize,
+        confirm: bool,
+    ) -> Result<(), Error> {
+        let Some(v) = group_mut(&mut self.screens, token) else {
             return Ok(());
         };
         let group = copy(&v.group)?;
@@ -624,11 +690,12 @@ impl NativeSettings {
                 self.open(host, "settings.group", &[("id", &part)])
             }
             Row::More => self.open(host, "settings.group", &[("id", &group), ("more", "1")]),
-            Row::Setting(entry) => {
-                let setting = entry.setting.clone();
-                let detail = entry.detail.clone();
-                let options = entry.options.len();
-                self.activate(host, index, &setting, &detail, options, confirm)
+            Row::Setting(at) => {
+                let Some(entry) = v.entries.get(*at) else {
+                    return Ok(());
+                };
+                let act = Act::of(entry)?;
+                self.activate(host, token, index, act, confirm)
             }
         }
     }
@@ -638,98 +705,101 @@ impl NativeSettings {
     fn activate(
         &mut self,
         host: &Host<'_>,
+        token: u32,
         index: usize,
-        setting: &Setting,
-        detail: &Detail,
-        options: usize,
+        act: Act,
         confirm: bool,
     ) -> Result<(), Error> {
-        match detail.editor_kind {
-            1 => return self.open(host, &detail.editor, &[("id", &setting.key)]),
-            2 => return self.open_slot(host, &detail.editor, &[("id", &setting.key)]),
+        match act.editor_kind {
+            1 => return self.open(host, &act.editor, &[("id", &act.key)]),
+            2 => return self.open_slot(host, &act.editor, &[("id", &act.key)]),
             _ => {}
         }
-        match setting.kind {
+        match act.kind {
             Kind::Int => {
-                let touch = group_mut(&mut self.screens, GROUP).is_some_and(|v| v.touch);
+                let touch = group_mut(&mut self.screens, token).is_some_and(|v| v.touch);
                 // Touch screens change numbers with their − and +; the
                 // confirm button starts it anywhere.
                 if !touch || confirm {
-                    self.start_editing(host, index)?;
+                    self.start_editing(host, token, index)?;
                 }
                 Ok(())
             }
-            Kind::Bool => self.change(host, index, 1),
-            Kind::Choice | Kind::Language if options == 2 => self.change(host, index, 1),
+            Kind::Bool => self.change(host, token, index, 1),
+            Kind::Choice | Kind::Language if act.options == 2 => self.change(host, token, index, 1),
             Kind::Choice | Kind::Language => {
-                self.open_slot(host, "core.choose-value", &[("id", &setting.key)])
+                self.open_slot(host, "core.choose-value", &[("id", &act.key)])
             }
-            Kind::Text if !setting.has(flag::SECRET) => {
-                let title = copy(&setting.title)?;
-                let initial = match &setting.value {
-                    Some(Val::Text(text)) => copy(text)?,
-                    _ => String::new(),
-                };
+            Kind::Text if !act.secret => {
                 let mut input = buffer(SERVICE_BUFFER)?;
                 let mut output = buffer(SERVICE_BUFFER)?;
-                let request =
-                    self.ui()?
-                        .ask(host, Question::text(&title, "")?, &mut input, &mut output)?;
-                self.ui()?.text_write(
+                let request = self.ui()?.ask(
                     host,
-                    request.text(),
-                    0,
-                    &initial,
-                    TextWrite::Last,
+                    Question::text(&act.title, "")?,
                     &mut input,
                     &mut output,
                 )?;
-                self.asked = Some((request, Asked::Text(copy(&setting.key)?)));
+                // In parts: the text may be longer than one part holds.
+                uitext::write_all(self.ui()?, host, request.text(), &act.initial)?;
+                self.asked = Some((request, Asked::Text(act.key)));
                 Ok(())
             }
             _ => Ok(()),
         }
     }
 
-    fn start_editing(&mut self, host: &Host<'_>, index: usize) -> Result<(), Error> {
-        let Some(v) = group_mut(&mut self.screens, GROUP) else {
+    fn start_editing(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
+        let Some(v) = group_mut(&mut self.screens, token) else {
             return Ok(());
         };
-        if let Some(Row::Setting(entry)) = v.rows.get(index)
+        if let Some(entry) = v.entry(index)
             && let Some(Val::Int(now)) = entry.setting.value
         {
+            // Everything that can be refused first; then the state changes.
+            let items = v.items_for(host, (&v.rows, &v.entries), Some((index, now)))?;
+            Self::redraw(host)?;
             v.editing = Some(Editing {
                 row: index,
                 before: now,
                 now,
             });
-            v.rebuild_items(host)?;
-            Self::redraw(host)?;
+            v.list.replace(items);
         }
         Ok(())
     }
 
     /// A tap on the − or + of number row `index`.
-    fn stepped(&mut self, host: &Host<'_>, index: usize, direction: i64) -> Result<(), Error> {
-        self.change(host, index, direction)
+    fn stepped(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        index: usize,
+        direction: i64,
+    ) -> Result<(), Error> {
+        self.change(host, token, index, direction)
     }
 
     /// Changes the setting of row `index` by `direction` steps at once.
-    fn change(&mut self, host: &Host<'_>, index: usize, direction: i64) -> Result<(), Error> {
-        let Some(v) = group_mut(&mut self.screens, GROUP) else {
+    fn change(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        index: usize,
+        direction: i64,
+    ) -> Result<(), Error> {
+        let Some(v) = group_mut(&mut self.screens, token) else {
             return Ok(());
         };
-        let Some(Row::Setting(entry)) = v.rows.get(index) else {
+        let Some(entry) = v.entry(index) else {
             return Ok(());
         };
         let next = match (entry.setting.kind, &entry.setting.value) {
             (Kind::Choice | Kind::Language, Some(Val::Text(now))) => {
                 // Of two options, the other one.
-                entry
-                    .options
-                    .iter()
-                    .find(|(value, _)| value != now)
-                    .map(|(value, _)| Val::Text(value.clone()))
+                match entry.options.iter().find(|(value, _)| value != now) {
+                    Some((value, _)) => Some(Val::Text(copy(value)?)),
+                    None => None,
+                }
             }
             (kind, Some(value)) => model::stepped(kind, value, &entry.detail, direction),
             _ => None,
@@ -743,7 +813,8 @@ impl NativeSettings {
     }
 
     /// The buttons while a number is changed: left and right change it, confirm
-    /// keeps it, back goes back to the value before.
+    /// keeps it, back goes back to the value before. The state changes only
+    /// once everything that can be refused went through.
     fn edit_input(
         host: &Host<'_>,
         v: &mut GroupView,
@@ -758,47 +829,50 @@ impl NativeSettings {
             "core.confirm" | "core.back" => 0,
             _ => return Ok(None),
         };
-        let Some(editing) = v.editing.as_mut() else {
+        let Some(editing) = v.editing.as_ref() else {
             return Ok(None);
         };
-        let Some(Row::Setting(entry)) = v.rows.get(editing.row) else {
+        let (row, before, now) = (editing.row, editing.before, editing.now);
+        let Some(entry) = v.entry(row) else {
             v.editing = None;
             return Ok(None);
         };
         let key = copy(&entry.setting.key)?;
+        let (unit, min, max) = (entry.detail.step.max(1), entry.detail.min, entry.detail.max);
         let mut scratch = buffer(1024)?;
         if direction == 0 {
-            let (keep, before, now) = (action == "core.confirm", editing.before, editing.now);
-            v.editing = None;
+            let items = v.items_for(host, (&v.rows, &v.entries), None)?;
             let mut commands = CommandSender::new(host, &mut scratch);
-            if keep && now != before {
+            if action == "core.confirm" && now != before {
                 commands.set_setting(&key, SettingValue::Int(now))?;
             }
             commands.end_preview()?;
-            v.rebuild_items(host)?;
             Self::redraw(host)?;
+            v.editing = None;
+            v.list.replace(items);
             return Ok(Some(Handled::Yes));
         }
-        let unit = entry.detail.step.max(1);
-        let next = editing
-            .now
+        let next = now
             .saturating_add(direction * unit)
-            .clamp(entry.detail.min, entry.detail.max.max(entry.detail.min));
-        if next != editing.now {
-            editing.now = next;
+            .clamp(min, max.max(min));
+        if next != now {
+            let items = v.items_for(host, (&v.rows, &v.entries), Some((row, next)))?;
             let mut values = buffer(64)?;
             CommandSender::new(host, &mut scratch).preview_settings(
                 &[PreviewSetting::new(&key, SettingValue::Int(next))],
                 &mut values,
             )?;
-            v.rebuild_items(host)?;
             Self::redraw(host)?;
+            if let Some(editing) = v.editing.as_mut() {
+                editing.now = next;
+            }
+            v.list.replace(items);
         }
         Ok(Some(Handled::Yes))
     }
 
-    fn choose_chosen(&mut self, host: &Host<'_>, index: usize) -> Result<(), Error> {
-        let Some(View::Choose(v)) = self.screens.top(CHOOSE) else {
+    fn choose_chosen(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
+        let Some(View::Choose(v)) = self.screens.top(token) else {
             return Ok(());
         };
         let mut scratch = buffer(1024)?;
@@ -815,8 +889,8 @@ impl NativeSettings {
         commands.set_setting(&v.key, SettingValue::Text(value))
     }
 
-    fn themes_chosen(&mut self, host: &Host<'_>, index: usize) -> Result<(), Error> {
-        let Some(View::Themes(v)) = self.screens.top(THEMES) else {
+    fn themes_chosen(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
+        let Some(View::Themes(v)) = self.screens.top(token) else {
             return Ok(());
         };
         let Some((id, _)) = v.themes.get(index) else {
@@ -838,8 +912,8 @@ impl NativeSettings {
         commands.close_screen()
     }
 
-    fn search_chosen(&mut self, host: &Host<'_>, index: usize) -> Result<(), Error> {
-        let Some(View::Search(v)) = self.screens.top(SEARCH) else {
+    fn search_chosen(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
+        let Some(View::Search(v)) = self.screens.top(token) else {
             return Ok(());
         };
         match v.hits.get(index) {
@@ -1085,16 +1159,29 @@ fn value_text(
 }
 
 impl GroupView {
-    /// The item for row `index`.
-    fn item(&self, messages: &mut Messages, host: &Host<'_>, index: usize) -> Result<Item, Error> {
-        Ok(match &self.rows[index] {
+    /// The setting row `index` shows.
+    fn entry(&self, index: usize) -> Option<&Entry> {
+        match self.rows.get(index)? {
+            Row::Setting(at) => self.entries.get(*at),
+            _ => None,
+        }
+    }
+
+    /// The item for row `index` of `rows`, with `editing` (row and value of a
+    /// number being changed) shown.
+    fn item(
+        &self,
+        (rows, entries): (&[Row], &[Entry]),
+        editing: Option<(usize, i64)>,
+        messages: &mut Messages,
+        host: &Host<'_>,
+        index: usize,
+    ) -> Result<Item, Error> {
+        Ok(match &rows[index] {
             Row::Heading(title) => Item::heading(title)?,
-            Row::Setting(entry) => {
-                let editing = self
-                    .editing
-                    .as_ref()
-                    .filter(|e| e.row == index)
-                    .map(|e| e.now);
+            Row::Setting(at) => {
+                let entry = entries.get(*at).ok_or(Error::State)?;
+                let editing = editing.filter(|e| e.0 == index).map(|e| e.1);
                 let value = value_text(messages, host, entry, editing)?;
                 let mut item = Item::noted(&entry.setting.title, &value, &entry.detail.help)?;
                 if self.touch
@@ -1114,16 +1201,34 @@ impl GroupView {
         })
     }
 
-    /// Makes the list's items again from the rows (their values changed).
-    fn rebuild_items(&mut self, host: &Host<'_>) -> Result<(), Error> {
+    /// The list's items for `rows` and `editing`, made off to the side: the
+    /// view is not touched, so a refusal leaves what is shown as it was.
+    fn items_for(
+        &self,
+        host: &Host<'_>,
+        (rows, entries): (&[Row], &[Entry]),
+        editing: Option<(usize, i64)>,
+    ) -> Result<Vec<Item>, Error> {
         let mut messages = Messages::new()?;
         let mut items = Vec::new();
         items
-            .try_reserve_exact(self.rows.len())
+            .try_reserve_exact(rows.len())
             .map_err(|_| Error::NoMemory)?;
-        for index in 0..self.rows.len() {
-            items.push(self.item(&mut messages, host, index)?);
+        for index in 0..rows.len() {
+            items.push(self.item((rows, entries), editing, &mut messages, host, index)?);
         }
+        Ok(items)
+    }
+
+    /// The editing state as the items show it.
+    fn shown_editing(&self) -> Option<(usize, i64)> {
+        self.editing.as_ref().map(|e| (e.row, e.now))
+    }
+
+    /// Makes the list's items again from the rows (their values changed); on
+    /// a refusal nothing changed.
+    fn rebuild_items(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let items = self.items_for(host, (&self.rows, &self.entries), self.shown_editing())?;
         self.list.replace(items);
         Ok(())
     }
@@ -1197,12 +1302,15 @@ fn build_list(
     )?;
     paperpaw_ui_kit::mem::stable_sort_by(&mut placed, |a, b| (a.0, a.1).cmp(&(b.0, b.1)));
     // Headings with nothing under them go.
-    let keep: Vec<bool> = (0..placed.len())
-        .map(|i| placed[i].2.is_some() || placed.get(i + 1).is_some_and(|next| next.2.is_some()))
-        .collect();
+    let mut keep: Vec<bool> = Vec::new();
+    keep.try_reserve_exact(placed.len())
+        .map_err(|_| Error::NoMemory)?;
+    for i in 0..placed.len() {
+        keep.push(placed[i].2.is_some() || placed.get(i + 1).is_some_and(|next| next.2.is_some()));
+    }
     let advanced = cx.advanced;
     let mut items = Vec::new();
-    view.links = Vec::new();
+    let mut links = Vec::new();
     for (i, (_, _, link, title)) in placed.into_iter().enumerate() {
         if !keep[i] {
             continue;
@@ -1214,8 +1322,10 @@ fn build_list(
             Some(_) => Item::row(&title, "›")?,
         };
         push(&mut items, item)?;
-        push(&mut view.links, link)?;
+        push(&mut links, link)?;
     }
+    // Made aside; the page changes once it is whole.
+    view.links = links;
     view.list.replace(items);
     Ok(())
 }
@@ -1239,12 +1349,12 @@ fn build_group(
     } else {
         copy(&view.group)?
     };
-    view.group = copy(&of)?;
+    let group = copy(&of)?;
     let title = match groups.iter().find(|g| g.id == of) {
         Some(g) => copy(&g.title)?,
         None => String::new(),
     };
-    view.title = if view.more {
+    let title = if view.more {
         concat(&[&title, " · ", &messages.copy(host, "settings.more")?])?
     } else {
         title
@@ -1287,13 +1397,13 @@ fn build_group(
         push(
             &mut pool,
             Some(Entry {
-                setting: (*s).clone(),
+                setting: s.try_clone()?,
                 detail,
                 options,
             }),
         )?;
     }
-    let rows = page_rows(
+    let (rows, entries) = page_rows(
         host,
         reader,
         view,
@@ -1301,14 +1411,22 @@ fn build_group(
         pool,
         (has_more, !specs.is_empty()),
     )?;
+    // Everything is made aside; the view changes once it is whole, so a
+    // refusal leaves the rows and the items they belong to as they were.
+    let items = view.items_for(host, (&rows, &entries), view.shown_editing())?;
+    let focus = rows.iter().position(|r| match r {
+        Row::Setting(at) => entries
+            .get(*at)
+            .is_some_and(|e| e.setting.key == view.focus),
+        _ => false,
+    });
+    view.group = group;
+    view.title = title;
     view.rows = rows;
-    view.rebuild_items(host)?;
+    view.entries = entries;
+    view.list.replace(items);
     if !view.focus.is_empty() {
-        let at = view
-            .rows
-            .iter()
-            .position(|r| matches!(r, Row::Setting(e) if e.setting.key == view.focus));
-        if let Some(at) = at {
+        if let Some(at) = focus {
             view.list.set_focus(at);
         }
         view.focus = String::new();
@@ -1325,9 +1443,10 @@ fn page_rows(
     (groups, cx, all, of): (&[Group], Context, &[Setting], &str),
     mut pool: Vec<Option<Entry>>,
     (has_more, has_specs): (bool, bool),
-) -> Result<Vec<Row>, Error> {
+) -> Result<(Vec<Row>, Vec<Entry>), Error> {
     let mut messages = Messages::new()?;
     let mut rows: Vec<Row> = Vec::new();
+    let mut entries: Vec<Entry> = Vec::new();
     if !view.more {
         // Its parts, each a page of its own, where they hold something.
         let held = holding(reader, groups, cx, all, true)?;
@@ -1349,7 +1468,11 @@ fn page_rows(
     let sections = model::section_order(pool.iter().flatten().map(|e| e.detail.section.as_str()))?;
     // Headings only where there is more than one part.
     let headed = sections.len() > 1;
-    let sections: Vec<String> = sections.into_iter().map(copy).collect::<Result<_, _>>()?;
+    let mut owned: Vec<String> = Vec::new();
+    for section in sections {
+        push(&mut owned, copy(section)?)?;
+    }
+    let sections = owned;
     for section in &sections {
         if headed && !section.is_empty() {
             push(
@@ -1361,7 +1484,8 @@ fn page_rows(
             if slot.as_ref().is_some_and(|e| e.detail.section == *section)
                 && let Some(entry) = slot.take()
             {
-                push(&mut rows, Row::Setting(Box::new(entry)))?;
+                push(&mut rows, Row::Setting(entries.len()))?;
+                push(&mut entries, entry)?;
             }
         }
     }
@@ -1371,28 +1495,35 @@ fn page_rows(
     if has_specs {
         push(&mut rows, Row::Reset)?;
     }
-    Ok(rows)
+    Ok((rows, entries))
 }
 
 /// Reads one setting's value again into its row. `false` when the page does
 /// not show it, or when its value decides what else shows (the page is made
 /// anew then).
 fn refresh_row(host: &Host<'_>, view: &mut GroupView, key: &str) -> Result<bool, Error> {
-    let Some(at) = view
-        .rows
-        .iter()
-        .position(|r| matches!(r, Row::Setting(e) if e.setting.key == key))
-    else {
+    let Some(at) = view.rows.iter().position(|r| match r {
+        Row::Setting(at) => view.entries.get(*at).is_some_and(|e| e.setting.key == key),
+        _ => false,
+    }) else {
         return Ok(false);
     };
-    if let Row::Setting(entry) = &mut view.rows[at] {
-        if entry.setting.has(flag::GOVERNS) {
-            return Ok(false);
-        }
-        entry.setting.value = native_data::read(host, key)?;
+    let Row::Setting(entry) = view.rows[at] else {
+        return Ok(false);
+    };
+    if view.entries[entry].setting.has(flag::GOVERNS) {
+        return Ok(false);
     }
-    view.rebuild_items(host)?;
-    Ok(true)
+    // The new value is shown first; it is stored once the items are made.
+    let value = native_data::read(host, key)?;
+    let old = core::mem::replace(&mut view.entries[entry].setting.value, value);
+    match view.rebuild_items(host) {
+        Ok(()) => Ok(true),
+        Err(error) => {
+            view.entries[entry].setting.value = old;
+            Err(error)
+        }
+    }
 }
 
 /// Builds the chooser of a setting's value.
@@ -1405,18 +1536,18 @@ fn build_choose(
     let Some(setting) = all.iter().find(|s| s.key == view.key) else {
         return Ok(());
     };
-    view.title = copy(&setting.title)?;
-    view.options = reader.choices(&view.key)?;
+    let title = copy(&setting.title)?;
+    let options = reader.choices(&view.key)?;
     // More ways to choose: the entries of the menu named like the setting.
-    view.more = Vec::new();
+    let mut more = Vec::new();
     for page in reader.menu(&view.key)? {
         if !page.section {
-            push(&mut view.more, (page.action, page.title))?;
+            push(&mut more, (page.action, page.title))?;
         }
     }
     let current = native_data::read(host, &view.key)?;
     let mut items = Vec::new();
-    for (value, name) in &view.options {
+    for (value, name) in &options {
         let mark = if matches!(&current, Some(Val::Text(now)) if now == value) {
             MARK
         } else {
@@ -1424,14 +1555,17 @@ fn build_choose(
         };
         push(&mut items, Item::row(name, mark)?)?;
     }
-    for (_, title) in &view.more {
+    for (_, title) in &more {
         push(&mut items, Item::row(title, "›")?)?;
     }
-    let at = view
-        .options
+    let at = options
         .iter()
         .position(|(value, _)| matches!(&current, Some(Val::Text(now)) if now == value))
         .unwrap_or(0);
+    // Made aside; the page changes once it is whole.
+    view.title = title;
+    view.options = options;
+    view.more = more;
     view.list.replace(items);
     view.list.set_focus(at);
     Ok(())
@@ -1459,13 +1593,13 @@ fn build_themes(
     view: &mut ThemesView,
 ) -> Result<(), Error> {
     let mut messages = Messages::new()?;
-    view.themes = Vec::new();
+    let mut themes: Vec<(String, String)> = Vec::new();
     push(
-        &mut view.themes,
+        &mut themes,
         (String::new(), messages.copy(host, "settings.theme.none")?),
     )?;
     for (id, name) in reader.presets(THEME_KIND)? {
-        push(&mut view.themes, (id, name))?;
+        push(&mut themes, (id, name))?;
     }
     let covered = look_settings(reader)?;
     let all = reader.settings("")?;
@@ -1478,21 +1612,22 @@ fn build_themes(
     {
         in_use = Some(0);
     }
-    for index in 1..view.themes.len() {
+    for (index, (id, _)) in themes.iter().enumerate().skip(1) {
         if in_use.is_some() {
             break;
         }
-        let values = reader.preset_values(&view.themes[index].0)?;
+        let values = reader.preset_values(id)?;
         if model::applied(&all, &covered, &values) {
             in_use = Some(index);
         }
     }
     let mut items = Vec::new();
-    for (index, (_, name)) in view.themes.iter().enumerate() {
+    for (index, (_, name)) in themes.iter().enumerate() {
         let mark = if in_use == Some(index) { MARK } else { "" };
         push(&mut items, Item::row(name, mark)?)?;
     }
     let at = in_use.unwrap_or(0);
+    view.themes = themes;
     view.list.replace(items);
     view.list.set_focus(at);
     Ok(())
@@ -1505,9 +1640,10 @@ fn build_search(
     view: &mut SearchView,
 ) -> Result<(), Error> {
     let words = model::words(&view.query)?;
-    view.hits = Vec::new();
+    let mut hits: Vec<Target> = Vec::new();
     let mut items = Vec::new();
     if words.is_empty() {
+        view.hits = hits;
         view.list.replace(items);
         return Ok(());
     }
@@ -1529,7 +1665,7 @@ fn build_search(
             .map_or("", |g| g.title.as_str());
         push(&mut items, Item::noted(&s.title, "›", note)?)?;
         push(
-            &mut view.hits,
+            &mut hits,
             Target::Setting {
                 group: copy(group)?,
                 key: copy(&s.key)?,
@@ -1541,9 +1677,10 @@ fn build_search(
     for page in reader.menu(model::PAGES_MENU)? {
         if !page.section && model::matches(&page.title, &words)? {
             push(&mut items, Item::noted(&page.title, "›", &settings_title)?)?;
-            push(&mut view.hits, Target::Page(page.action))?;
+            push(&mut hits, Target::Page(page.action))?;
         }
     }
+    view.hits = hits;
     view.list.replace(items);
     Ok(())
 }
