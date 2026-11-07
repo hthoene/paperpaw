@@ -44,6 +44,13 @@ impl crate::Kernel {
         depth: &FlatDepth,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
+        self.shared
+            .native_instances
+            .adopt_pool(
+                host.resource_identity()
+                    .ok_or(shell::Error::Status(ERR_NO_MEMORY))?,
+            )
+            .map_err(shell::Error::Status)?;
         let depth = depth.try_clone().ok_or(shell::Error::Allocation)?;
         let (retained, (owner, owned)) = Retained::make_native(host, map_declarations)?;
         // Callback registrations need their own mapping arm. Never accept an

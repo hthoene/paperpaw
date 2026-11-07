@@ -120,6 +120,20 @@ impl Drop for CallbackEpoch<'_> {
 }
 
 impl NativeInstances {
+    /// Retain the device pool before any fallible admission work, including
+    /// the first failed factory. Its orphan cleanup must remain reachable.
+    pub(crate) fn adopt_pool(&mut self, identity: OwnerResourceView) -> Result<(), i32> {
+        if self
+            .pool
+            .as_ref()
+            .is_some_and(|pool| !pool.same_pool(&identity))
+        {
+            return Err(ERR_STATE);
+        }
+        self.pool.get_or_insert(identity);
+        Ok(())
+    }
+
     /// Keys never repeat; storage rows may move when failed admission is reclaimed.
     pub(crate) fn insert(
         &mut self,
@@ -129,13 +143,7 @@ impl NativeInstances {
         enabled: bool,
     ) -> Result<u64, i32> {
         let key = identity.owner_id();
-        if self
-            .pool
-            .as_ref()
-            .is_some_and(|pool| !pool.same_pool(&identity))
-        {
-            return Err(ERR_STATE);
-        }
+        self.adopt_pool(identity)?;
         if self
             .entries
             .iter()
@@ -144,7 +152,6 @@ impl NativeInstances {
             return Err(ERR_INVALID);
         }
         self.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-        self.pool.get_or_insert(identity);
         self.entries.push(Entry {
             key,
             id,

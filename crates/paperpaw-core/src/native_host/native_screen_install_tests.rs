@@ -764,3 +764,44 @@ fn kernel_main_loop_drains_the_host_services_orphan_retirement_queue() {
         "an orphan retry does not unload a different live owner"
     );
 }
+
+#[test]
+fn first_failed_admission_retains_pool_for_orphan_cleanup_before_any_row_exists() {
+    use crate::native_host::doc_service::{DocHost, Limits, tests::Fake};
+    reset(NORMAL);
+    DESTROYED.with(|value| value.set(0));
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let pool = crate::native_host::HostResources::try_new().unwrap();
+    let documents = Fake::new(Limits::LARGE);
+    pool.hosts().wire_documents(documents.clone()).unwrap();
+    POOL.with(|slot| *slot.borrow_mut() = Some(pool.try_clone().unwrap()));
+    let hosted = host(0);
+    let depth = FlatDepth::try_new().unwrap();
+    assert_eq!(kernel.shared.native_instances.retained_rows().0, 0);
+    {
+        let _busy = documents.table().hold().unwrap();
+        EMPTY.with(|value| value.set(true));
+        let result = kernel.register_native(hosted, &depth, |_, _, _| {});
+        EMPTY.with(|value| value.set(false));
+        assert!(matches!(
+            result,
+            Err(Error::Status(host_glue::ERR_UNSUPPORTED))
+        ));
+        assert_eq!(kernel.shared.native_instances.retained_rows().0, 0);
+        assert!(pool.hosts().retirements_pending());
+        assert!(kernel.native_unload_due().is_some());
+        assert!(
+            kernel
+                .tick(paperpaw_platform::Instant(1))
+                .wake_at()
+                .is_some()
+        );
+        assert!(pool.hosts().retirements_pending());
+    }
+    kernel.tick(paperpaw_platform::Instant(51));
+    assert!(!pool.hosts().retirements_pending());
+    assert!(kernel.native_unload_due().is_none());
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+}
