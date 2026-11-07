@@ -55,8 +55,9 @@ follow once approved. Tags are proposed and numbered without gaps at the records
   embeds its licence texts, section 6). Where the plugin has no install folder (linked into the
   firmware), root 2 is an empty folder: `ERR_NOT_FOUND` for every path but `""`.
 - [D] **`.received/` in root 0 is the host's** (NET, `network.md` 5.2): it writes served request
-  bodies there. A plugin reads them and moves them out; its own `make_dir`, writes and moves into
-  `.received/` are `ERR_DENIED`.
+  bodies there. A plugin reads them, moves them out and may remove a whole one (a body that is
+  still arriving is `ERR_BUSY`, section 3); its own `make_dir`, writes and moves into `.received/`
+  are `ERR_DENIED`.
 - [D] **Listings follow the root's rules.** On root 1, `list` of the card root leaves out
   `plugins` and `.paperpaw`, and `stat` of them is `ERR_INVALID`, as every other root-1 call.
 
@@ -94,7 +95,9 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
   optional `cursor: u64` (ordinal 0, added to record 52 for 64-bit places; `next` is 0), and
   `flags` bit 0 `last` when the folder is done, the same meaning as in `core.registry`
   (`registry.md` 2.1). The place is the storage's (`Storage::list_from`; on FAT a 64-bit position
-  in the folder), opaque to the plugin and valid only for the same folder. An entry added
+  in the folder), opaque to the plugin and valid only for the same folder. **Every page that is
+  not the last carries `cursor`**; a page without `last` and without `cursor` is `ERR_INVALID` for
+  the reader (a registry-style pager would start over forever). An entry added
   or removed between pages may be listed twice or not at all; a place that no longer holds starts
   over at a place the host can find, never fails and never shows an entry that is not there
   (the trait's promise). `service.end.total` is 0 (unknown) and `generation` 0: folders have no
@@ -142,7 +145,14 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
   and everything in it, deepest first, **at most 64 removals and 256 folder entries read per
   call**, and replies `fs_progress`: `removed` this call, `flags` bit 0 `done`, and `next`, the
   place to go on from. The plugin calls again with the same path and `cursor = next` until
-  `done`; `cursor` 0 starts (or starts over: a stale place is never an error, only slower). A call
+  `done`; `cursor` 0 starts.
+- [D] **The place names its folder and stays inside `path`.** `next` holds the folder being emptied
+  and the position in it (on FAT the folder's first cluster and the entry slot). The host only
+  ever goes down from `path`; it never goes up by a folder's `..` entry (after a cut during a folder
+  move, `..` may still name the old parent, section 2.6). When the folder it empties is empty, it
+  removes it and goes on from `path` again. A place whose folder the host cannot show to be `path`
+  or below it, or that is gone or no longer reads as a folder, is **stale**: the call starts over
+  from `path` (never an error, only slower), so no call removes anything outside `path`. A call
   that reached the read cap before removing anything still answers, with `removed` 0 and a new
   `next`, so every loop advances and no call reads the whole of a big folder. A missing folder is
   `done` at once with `removed` 0; a file at the path is removed as a one-entry tree. Interface 6's
@@ -177,10 +187,17 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
 - [D] A move between two different storages (a host with the data folder on internal memory and
   the user's files on a card) is `ERR_UNSUPPORTED`; the plugin then copies with `read_at` and
   `append`. No first-party host has one today.
-- Books moved by a plugin through root 1 are not followed by the library: the library sees the
-  change at its next look (as in interface 6, where file-manager tells it through
-  `library::tell_moved`). Plugins that move books they know as books use LIB's `move` (journalled,
-  `library.md`), which keeps positions and annotations.
+- [D] **The library follows every move on root 1** (Plugin's condition; interface 6's
+  `tell_moved`, which file-manager and the SDK sent for every recognised file below a moved path,
+  goes away). After a root-1 `move` or `storage.rename` succeeds, the host itself, before the
+  reply: carries every book below `from` (catalogued or not yet, by format, a renamed `.epub.bak`
+  too) to its new key with its position, annotations and plugins' book data; moves folder reader
+  assignments and updates folder-valued settings that name `from` or a folder below it; and sends
+  the library's book-moved events. A move on one storage is one rename, so it is whole or not done;
+  if the library's own bookkeeping fails after the rename, the move still answers `OK` (the files
+  are moved), the host logs it and the library repairs the keys at its next walk, never leaving a
+  book's data under the old key for good. Plugins that move books as books may still use LIB's
+  `move` (`library.md`); both end in the same state.
 
 ### 2.7 Records
 
@@ -222,9 +239,12 @@ above. A refused call changes nothing.
 | Re-entry into `core.files` from its own call | `ERR_BUSY` |
 
 - [D] **Paths in use.** The host keeps a small table of paths it holds open or writes (the reader's
-  book, DEV's staged copies, NET's save files and `.part` files, NET's request bodies). A change to
-  such a path, to a folder holding one, or a move onto one answers `ERR_BUSY` and changes nothing;
-  the plugin tries again later. Reading is never busy.
+  book, DEV's staged copies, NET's save files and `.part` files, NET's request bodies while they
+  arrive). A change to such a path, to a folder holding one, or a move onto one answers `ERR_BUSY`
+  and changes nothing; the plugin tries again later. This holds for the `core.files` ops and for
+  the file slots alike: `storage.write`, `append`, `rename` and `remove` (slots 22-25) on a path
+  in use are `ERR_BUSY`, so no plugin frees clusters the host still reads or writes. Reading
+  (`size`, `read_at`, `list`, `stat`) is never busy.
 
 - [D] **No card.** Every root-0, root-1 and root-2 call answers `ERR_IO` while the card is away
   (both live on it on the X4). A plugin that shows the card's state asks `stat` of root 1 `""` (the
@@ -296,8 +316,17 @@ Uses the audit found that are **not FS**, and where they go:
   walk from a 64-bit place that reads at most 256 entries and removes at most 64 per step, with no
   heap per entry, and hands back the place (`remove_tree`'s `next`). The uninstall removal
   (section 4) uses the same walk, so removing a plugin with a 50,000-file data folder never needs
-  the names in memory. Tests: a folder over the read cap is removed in several calls, a stale
-  place starts over, a cut after every removal leaves a whole rest.
+  the names in memory. The walk only goes down from `path`, never up by `..`, and checks a place
+  is below `path` before using it. Tests: a folder over the read cap is removed in several calls, a
+  stale place starts over, a place naming a folder outside `path` removes nothing outside it, a
+  folder whose `..` still names its old parent (a cut during a move) is removed without touching
+  that parent, and a cut after every removal leaves a whole rest.
+- **Core:** `ERR_BUSY` from the paths-in-use table on slots 22-25 as on `core.files` (section 3).
+- **Host Engineer (LIB host):** the library following root-1 moves (section 2.6): books below the
+  moved path, catalogued or not, keep their data under the new key; folder reader assignments and
+  folder-valued settings follow; the book-moved events; repair at the next walk when the
+  bookkeeping failed. Tests from file-manager's cases (`plugins/file-manager/src/lib.rs:873`,
+  `crates/paperpaw-sdk/src/library/mod.rs:1221`).
 - **Kernel (records step):** the optional `cursor: u64` on `service.end` (52), `fs_entry.name` 765,
   the u64 cursors.
 - **Services:** SDK facade `native::files` (typed `list` pages with the cursor, `stat`, `space`,
