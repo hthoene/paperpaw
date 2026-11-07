@@ -1,0 +1,327 @@
+#![allow(clippy::unwrap_used, reason = "fixture refusals must fail tests")]
+use super::*;
+use alloc::{vec, vec::Vec};
+use core::{
+    cell::{Cell, RefCell},
+    ffi::c_void,
+};
+use paperpaw_native::host_glue::{self as abi, PpBuffer, PpBytes, PpHost};
+#[derive(Default)]
+struct State {
+    op: Cell<u32>,
+    calls: Cell<u32>,
+    input: RefCell<Vec<u8>>,
+    reply: RefCell<Vec<u8>>,
+    error: Cell<i32>,
+}
+unsafe extern "C" fn open(
+    _: *mut c_void,
+    key: PpBytes,
+    major: u16,
+    minor: u16,
+    out: *mut u32,
+) -> i32 {
+    // SAFETY: SDK provides a live key and aligned output.
+    unsafe {
+        assert_eq!(
+            core::slice::from_raw_parts(key.ptr, key.len),
+            b"core.device"
+        );
+        out.write(7);
+    }
+    assert_eq!((major, minor), (1, 0));
+    abi::OK
+}
+unsafe extern "C" fn call(ctx: *mut c_void, _: u32, op: u32, input: PpBytes, out: PpBuffer) -> i32 {
+    // SAFETY: fixture state and SDK buffers remain live through this call.
+    let state = unsafe { &*ctx.cast::<State>() };
+    state.op.set(op);
+    state.calls.set(state.calls.get() + 1);
+    // SAFETY: SDK encoded a live input slice.
+    state
+        .input
+        .replace(unsafe { core::slice::from_raw_parts(input.ptr, input.len) }.to_vec());
+    if state.error.get() < 0 {
+        return state.error.get();
+    }
+    let reply = state.reply.borrow();
+    assert!(reply.len() <= out.cap);
+    // SAFETY: the fixture reply and exclusive SDK output are disjoint.
+    unsafe {
+        core::ptr::copy_nonoverlapping(reply.as_ptr(), out.ptr, reply.len());
+    }
+    i32::try_from(reply.len()).unwrap()
+}
+fn table() -> PpHost {
+    let mut t = abi::host_table();
+    t.service_open = open;
+    t.service_call = call;
+    t
+}
+fn reply(state: &State, rows: &[Record<'_>]) {
+    let mut bytes = vec![0; 4096];
+    let mut n = 0;
+    for row in rows {
+        n += wire::record_encode_one(row, &mut bytes[n..]).unwrap();
+    }
+    bytes.truncate(n);
+    state.reply.replace(bytes);
+}
+fn identity() -> Record<'static> {
+    Record::ServiceDevDevice(wire::ServiceDevDevice {
+        id: "x4",
+        model: "X4",
+        catalog: "x4",
+        class: 0,
+        caps: 5,
+        controls: 3,
+        tls_sessions: 2,
+        start: 2,
+        slept_ms: 123,
+        flags: 1,
+    })
+}
+fn builtin() -> Record<'static> {
+    Record::ServiceDevBuiltin(wire::ServiceDevBuiltin {
+        id: "demo",
+        version: "1.0",
+    })
+}
+fn end(flags: u32, total: u32, generation: u32, next: u32) -> Record<'static> {
+    Record::ServiceEnd(wire::ServiceEnd {
+        flags,
+        total,
+        generation,
+        next,
+    })
+}
+
+#[test]
+fn about_inventory_reads_use_schema_operations_and_borrowed_values() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let device = Device::open(&host).unwrap();
+    let mut input = [0; 256];
+    let mut out = [0; 4096];
+    reply(&state, &[identity()]);
+    let row = device.device(&host, &mut input, &mut out).unwrap();
+    assert_eq!(
+        (row.id(), row.model(), row.class()),
+        ("x4", "X4", DeviceClass::Small)
+    );
+    assert_eq!(state.op.get(), schema::OP_DEVICE);
+    assert!(
+        wire::records_decode(&state.input.borrow())
+            .unwrap()
+            .is_empty()
+    );
+    reply(
+        &state,
+        &[Record::ServiceDevFirmware(wire::ServiceDevFirmware {
+            version: "1.0",
+            project: "PaperPaw",
+            chip: 1,
+            room: 123,
+            undone: 0,
+            state: 0,
+            done: 0,
+            total: 0,
+            reason: 99,
+            request: 0,
+        })],
+    );
+    let row = device.firmware(&host, &mut input, &mut out).unwrap();
+    assert_eq!(
+        (row.version(), row.project(), row.reason()),
+        ("1.0", "PaperPaw", DeviceOutcome::Other)
+    );
+    reply(
+        &state,
+        &[Record::ServiceDevNative(wire::ServiceDevNative {
+            abi_major: 7,
+            abi_draft: 20,
+            target: 1,
+            code_file: "code.bin",
+            safe_mode: 0,
+            crashed: "",
+            last_loaded: "demo",
+            pending: 0,
+            not_installed: 0,
+            room_free: 10,
+            room_largest: 8,
+        })],
+    );
+    let row = device.native(&host, &mut input, &mut out).unwrap();
+    assert_eq!(
+        (row.abi_major(), row.abi_draft(), row.code_file()),
+        (7, 20, "code.bin")
+    );
+    reply(
+        &state,
+        &[Record::ServiceDevMemory(wire::ServiceDevMemory {
+            heap_free: 10,
+            heap_size: 20,
+            largest: 5,
+            stack_free: 4,
+            stack_size: 8,
+            external_free: 100,
+            external_size: 200,
+            flags: 0,
+        })],
+    );
+    let row = device.memory(&host, &mut input, &mut out).unwrap();
+    assert_eq!(
+        (
+            row.heap_free(),
+            row.largest(),
+            row.stack_free(),
+            row.external_free()
+        ),
+        (10, None, None, None)
+    );
+}
+#[test]
+fn builtins_continue_only_the_same_generation_and_validate_every_row() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let device = Device::open(&host).unwrap();
+    let mut input = [0; 256];
+    let mut out = [0; 4096];
+    reply(&state, &[builtin(), end(0, 2, 4, 1)]);
+    let page = device
+        .builtins(&host, DeviceCursor::start(), &mut input, &mut out)
+        .unwrap();
+    assert_eq!(page.rows().next().unwrap().id(), "demo");
+    let next = page.end().next_cursor().unwrap();
+    reply(&state, &[builtin(), end(1, 2, 5, 2)]);
+    assert!(matches!(
+        device.builtins(&host, next, &mut input, &mut out),
+        Err(Error::State)
+    ));
+    reply(&state, &[builtin(), end(1, 2, 4, 2)]);
+    let page = device.builtins(&host, next, &mut input, &mut out).unwrap();
+    assert!(page.end().next_cursor().is_none());
+    let bytes = state.input.borrow();
+    let batch = wire::records_decode(&bytes).unwrap();
+    assert!(
+        matches!(batch.iter().next(),Some(Record::ServiceRegQuery(r)) if (r.cursor,r.generation)==(1,4))
+    );
+    drop(bytes);
+    for ending in [
+        end(0, 1, 4, 1),
+        end(1, 1, 0, 1),
+        end(1, 1, 4, 2),
+        end(3, 1, 4, 1),
+    ] {
+        reply(&state, &[builtin(), ending]);
+        assert!(
+            device
+                .builtins(&host, DeviceCursor::start(), &mut input, &mut out)
+                .is_err()
+        );
+    }
+    reply(&state, &[builtin()]);
+    assert!(
+        device
+            .builtins(&host, DeviceCursor::start(), &mut input, &mut out)
+            .is_err()
+    );
+    reply(&state, &[builtin(), end(1, 1, 4, 1), builtin()]);
+    assert!(
+        device
+            .builtins(&host, DeviceCursor::start(), &mut input, &mut out)
+            .is_err()
+    );
+    let mut rows = vec![builtin(); schema::PAGE_MAX_ROWS + 1];
+    rows.push(end(1, 33, 4, 33));
+    reply(&state, &rows);
+    assert!(
+        device
+            .builtins(&host, DeviceCursor::start(), &mut input, &mut out)
+            .is_err()
+    );
+}
+#[test]
+fn hardware_values_require_unpaged_end_caps_and_valid_names() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let device = Device::open(&host).unwrap();
+    let mut input = [0; 256];
+    let mut out = [0; 4096];
+    let row = Record::ServiceDevValue(wire::ServiceDevValue {
+        name: "battery-percent",
+        value: 85,
+    });
+    reply(&state, &[row, end(0, 1, 0, 0)]);
+    assert_eq!(
+        device
+            .values(&host, &mut input, &mut out)
+            .unwrap()
+            .rows()
+            .next()
+            .unwrap()
+            .value(),
+        85
+    );
+    for ending in [
+        end(1, 1, 0, 0),
+        end(0, 1, 1, 0),
+        end(0, 1, 0, 1),
+        end(0, 2, 0, 0),
+    ] {
+        reply(&state, &[row, ending]);
+        assert!(device.values(&host, &mut input, &mut out).is_err());
+    }
+    reply(
+        &state,
+        &[
+            Record::ServiceDevValue(wire::ServiceDevValue {
+                name: "Bad Name",
+                value: 0,
+            }),
+            end(0, 1, 0, 0),
+        ],
+    );
+    assert!(device.values(&host, &mut input, &mut out).is_err());
+    let mut rows = vec![row; 9];
+    rows.push(end(0, 9, 0, 0));
+    reply(&state, &rows);
+    assert!(device.values(&host, &mut input, &mut out).is_err());
+}
+#[test]
+fn wrong_scalar_tags_trailing_bytes_and_host_refusals_are_not_hidden() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let device = Device::open(&host).unwrap();
+    let mut input = [0; 256];
+    let mut out = [0; 4096];
+    reply(&state, &[builtin()]);
+    assert!(matches!(
+        device.device(&host, &mut input, &mut out),
+        Err(Error::Invalid)
+    ));
+    reply(&state, &[identity(), identity()]);
+    assert!(device.device(&host, &mut input, &mut out).is_err());
+    state.error.set(abi::ERR_BUSY);
+    assert!(matches!(
+        device.device(&host, &mut input, &mut out),
+        Err(Error::Busy)
+    ));
+    assert!(DeviceRequest::new(0).is_none());
+}
