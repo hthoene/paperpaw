@@ -26,6 +26,7 @@ const END: Record<'static> = Record::ServiceEnd(ServiceEnd {
     total: 0,
     generation: 2,
     next: 0,
+    cursor: None,
 });
 
 fn batch(records: &[Record<'_>]) -> Vec<u8> {
@@ -95,7 +96,7 @@ fn framed(tag: u32, body: &[u8]) -> Vec<u8> {
 /// Kinds only the host sends, each by its tag (`docs/abi/stages-services.md`).
 /// Every other known kind (`service.echo`, 1024, a service input, among them)
 /// is one a plugin sends.
-const HOST_ONLY: [u32; 125] = [
+const HOST_ONLY: [u32; 128] = [
     3,    // event.tick
     32,   // event.started
     33,   // event.resume
@@ -221,6 +222,9 @@ const HOST_ONLY: [u32; 125] = [
     96,   // event.firmware_changed
     97,   // event.install_done
     98,   // event.bluetooth
+    1145, // service.fs_entry
+    1146, // service.fs_space
+    1147, // service.fs_progress
 ];
 
 fn host_only(tag: u32) -> bool {
@@ -257,7 +261,7 @@ fn every_kind_only_the_host_sends_is_refused_and_every_other_decodes_as_before()
     }
     // Pinned: a new record kind must be placed on one side on purpose.
     assert_eq!(refused.len(), HOST_ONLY.len(), "{refused:?}");
-    assert_eq!(decoded.len(), 90, "{decoded:?}");
+    assert_eq!(decoded.len(), 93, "{decoded:?}");
 }
 
 #[test]

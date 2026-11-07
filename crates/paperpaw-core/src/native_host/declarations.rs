@@ -298,7 +298,13 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::ServiceDevRequest(_)
         | Record::ServiceDevInstall(_)
         | Record::ServiceDevNotInstalled(_)
-        | Record::ServiceDevKey(_) => Err(ERR_INVALID),
+        | Record::ServiceDevKey(_)
+        | Record::ServiceFsPath(_)
+        | Record::ServiceFsList(_)
+        | Record::ServiceFsMove(_)
+        | Record::ServiceFsEntry(_)
+        | Record::ServiceFsSpace(_)
+        | Record::ServiceFsProgress(_) => Err(ERR_INVALID),
         // A stage call is the host's input to a subscriber, a reply its
         // answer to `stage.run`: never declared.
         Record::StageCall(_) | Record::StageReply(_) => Err(ERR_INVALID),

@@ -2019,6 +2019,15 @@
           "ordinal": null,
           "default": null,
           "max_bytes": 0
+        },
+        {
+          "name": "cursor",
+          "type": "u64",
+          "since": 1,
+          "optional": true,
+          "ordinal": 0,
+          "default": null,
+          "max_bytes": 0
         }
       ]
     },
@@ -12448,6 +12457,237 @@
           "max_bytes": 0
         }
       ]
+    },
+    {
+      "id": 1142,
+      "name": "service.fs_path",
+      "since": 1,
+      "fields": [
+        {
+          "name": "root",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "path",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 512
+        }
+      ]
+    },
+    {
+      "id": 1143,
+      "name": "service.fs_list",
+      "since": 1,
+      "fields": [
+        {
+          "name": "root",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "path",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 512
+        },
+        {
+          "name": "cursor",
+          "type": "u64",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 1144,
+      "name": "service.fs_move",
+      "since": 1,
+      "fields": [
+        {
+          "name": "from_root",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "from",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 512
+        },
+        {
+          "name": "to_root",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "to",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 512
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 1145,
+      "name": "service.fs_entry",
+      "since": 1,
+      "fields": [
+        {
+          "name": "name",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 765
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "size",
+          "type": "u64",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "modified",
+          "type": "u64",
+          "since": 1,
+          "optional": true,
+          "ordinal": 0,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 1146,
+      "name": "service.fs_space",
+      "since": 1,
+      "fields": [
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "free",
+          "type": "u64",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "total",
+          "type": "u64",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 1147,
+      "name": "service.fs_progress",
+      "since": 1,
+      "fields": [
+        {
+          "name": "removed",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "next",
+          "type": "u64",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
     }
   ],
   "statuses": [
@@ -12695,6 +12935,13 @@
         "semantic_revision": 0,
         "min_table_bytes": 0,
         "since": 1
+      },
+      {
+        "key": "core.files",
+        "major": 1,
+        "semantic_revision": 0,
+        "min_table_bytes": 0,
+        "since": 1
       }
     ],
     "features": [
@@ -12730,6 +12977,11 @@
       },
       {
         "key": "uses.bluetooth",
+        "revision": 1,
+        "since": 1
+      },
+      {
+        "key": "uses.storage",
         "revision": 1,
         "since": 1
       }

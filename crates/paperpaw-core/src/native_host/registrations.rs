@@ -198,6 +198,15 @@ pub use wire::{
     ServiceDevInterval, ServiceDevKey, ServiceDevMemory, ServiceDevNative, ServiceDevNetwork,
     ServiceDevNotInstalled, ServiceDevPower, ServiceDevRequest, ServiceDevValue, ServiceDevWifi,
 };
+// Folders and files (FS, `docs/abi/files.md`): the `core.files` rows 1142-1147;
+// the host answers them once wired.
+pub use wire::{
+    SERVICE_FS_ENTRY_NAME_MAX_BYTES, SERVICE_FS_ENTRY_TAG, SERVICE_FS_LIST_PATH_MAX_BYTES,
+    SERVICE_FS_LIST_TAG, SERVICE_FS_MOVE_FROM_MAX_BYTES, SERVICE_FS_MOVE_TAG,
+    SERVICE_FS_MOVE_TO_MAX_BYTES, SERVICE_FS_PATH_PATH_MAX_BYTES, SERVICE_FS_PATH_TAG,
+    SERVICE_FS_PROGRESS_TAG, SERVICE_FS_SPACE_TAG, ServiceFsEntry, ServiceFsList, ServiceFsMove,
+    ServiceFsPath, ServiceFsProgress, ServiceFsSpace,
+};
 // Single-record and streaming decoders for plugin-side readers (lock format 8).
 pub use wire::{RECORD_CARRY_MAX_BYTES, RecordStream, record_decode_prefix, records_decode_single};
 // The host's decoders (lock format 10, #985): only records a plugin sends. The

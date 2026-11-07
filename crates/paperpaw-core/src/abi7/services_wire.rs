@@ -630,6 +630,104 @@ pub static SERVICES: &[ServiceSchema] = &[
         ],
     },
     ServiceSchema {
+        key: "core.files",
+        major: 1,
+        revision: 0,
+        test_only: false,
+        ops: &[
+            ServiceOp {
+                id: 1,
+                name: "list",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1143],
+                reply: &[1145, 52],
+                max_input: 1024,
+                max_reply: 4096,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: true,
+                reply_rows: 32,
+            },
+            ServiceOp {
+                id: 2,
+                name: "stat",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1142],
+                reply: &[1145],
+                max_input: 1024,
+                max_reply: 4096,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 3,
+                name: "space",
+                since: 0,
+                mutates: false,
+                feature: None,
+                input: &[1142],
+                reply: &[1146],
+                max_input: 1024,
+                max_reply: 4096,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 4,
+                name: "make_dir",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1142],
+                reply: &[],
+                max_input: 1024,
+                max_reply: 4096,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 5,
+                name: "remove_tree",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1143],
+                reply: &[1147],
+                max_input: 1024,
+                max_reply: 4096,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+            ServiceOp {
+                id: 6,
+                name: "move",
+                since: 0,
+                mutates: true,
+                feature: None,
+                input: &[1144],
+                reply: &[],
+                max_input: 2048,
+                max_reply: 4096,
+                bound: ServiceBound::Card,
+                input_rows: 1,
+                paged: false,
+                reply_rows: 0,
+            },
+        ],
+    },
+    ServiceSchema {
         key: "core.library",
         major: 1,
         revision: 0,
@@ -1785,6 +1883,30 @@ pub mod core_document_v1 {
     pub const OP_FORMAT_FOR: u32 = 20;
     /// Operation `readers`.
     pub const OP_READERS: u32 = 21;
+}
+
+/// Constants of `core.files` major 1.
+pub mod core_files_v1 {
+    /// Service key.
+    pub const KEY: &str = "core.files";
+    /// Major version.
+    pub const MAJOR: u16 = 1;
+    /// Highest revision.
+    pub const REVISION: u16 = 0;
+    /// Most rows one page of a paged list op holds.
+    pub const PAGE_MAX_ROWS: usize = 32;
+    /// Operation `list`.
+    pub const OP_LIST: u32 = 1;
+    /// Operation `stat`.
+    pub const OP_STAT: u32 = 2;
+    /// Operation `space`.
+    pub const OP_SPACE: u32 = 3;
+    /// Operation `make_dir`.
+    pub const OP_MAKE_DIR: u32 = 4;
+    /// Operation `remove_tree`.
+    pub const OP_REMOVE_TREE: u32 = 5;
+    /// Operation `move`.
+    pub const OP_MOVE: u32 = 6;
 }
 
 /// Constants of `core.library` major 1.

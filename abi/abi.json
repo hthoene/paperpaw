@@ -1429,6 +1429,11 @@
         "key": "uses.bluetooth",
         "revision": 1,
         "since": 1
+      },
+      {
+        "key": "uses.storage",
+        "revision": 1,
+        "since": 1
       }
     ],
     "format": 2,
@@ -1649,6 +1654,13 @@
       },
       {
         "key": "core.device",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.files",
         "major": 1,
         "min_table_bytes": 0,
         "semantic_revision": 0,
@@ -2609,6 +2621,15 @@
           "ordinal": null,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "cursor",
+          "optional": true,
+          "ordinal": 0,
+          "since": 1,
+          "type": "u64"
         }
       ],
       "id": 52,
@@ -13041,6 +13062,237 @@
       "id": 98,
       "name": "event.bluetooth",
       "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "root",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 512,
+          "name": "path",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1142,
+      "name": "service.fs_path",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "root",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 512,
+          "name": "path",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "cursor",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1143,
+      "name": "service.fs_list",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "from_root",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 512,
+          "name": "from",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "to_root",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 512,
+          "name": "to",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1144,
+      "name": "service.fs_move",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 765,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "size",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "modified",
+          "optional": true,
+          "ordinal": 0,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 1145,
+      "name": "service.fs_entry",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "free",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "total",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 1146,
+      "name": "service.fs_space",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "removed",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "next",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 1147,
+      "name": "service.fs_progress",
+      "since": 1
     }
   ],
   "services": [
@@ -13645,6 +13897,109 @@
         }
       ],
       "page_rows": 64,
+      "revision": 0,
+      "since": 1,
+      "test_only": false
+    },
+    {
+      "key": "core.files",
+      "major": 1,
+      "ops": [
+        {
+          "bound": "card",
+          "effect": "query",
+          "feature": null,
+          "id": 1,
+          "input": [
+            "service.fs_list"
+          ],
+          "max_input": 1024,
+          "max_reply": 4096,
+          "name": "list",
+          "reply": [
+            "service.fs_entry",
+            "service.end"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "card",
+          "effect": "query",
+          "feature": null,
+          "id": 2,
+          "input": [
+            "service.fs_path"
+          ],
+          "max_input": 1024,
+          "max_reply": 4096,
+          "name": "stat",
+          "reply": [
+            "service.fs_entry"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "card",
+          "effect": "query",
+          "feature": null,
+          "id": 3,
+          "input": [
+            "service.fs_path"
+          ],
+          "max_input": 1024,
+          "max_reply": 4096,
+          "name": "space",
+          "reply": [
+            "service.fs_space"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "card",
+          "effect": "mutate",
+          "feature": null,
+          "id": 4,
+          "input": [
+            "service.fs_path"
+          ],
+          "max_input": 1024,
+          "max_reply": 4096,
+          "name": "make_dir",
+          "reply": [],
+          "since": 0
+        },
+        {
+          "bound": "card",
+          "effect": "mutate",
+          "feature": null,
+          "id": 5,
+          "input": [
+            "service.fs_list"
+          ],
+          "max_input": 1024,
+          "max_reply": 4096,
+          "name": "remove_tree",
+          "reply": [
+            "service.fs_progress"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "card",
+          "effect": "mutate",
+          "feature": null,
+          "id": 6,
+          "input": [
+            "service.fs_move"
+          ],
+          "max_input": 2048,
+          "max_reply": 4096,
+          "name": "move",
+          "reply": [],
+          "since": 0
+        }
+      ],
+      "page_rows": 32,
       "revision": 0,
       "since": 1,
       "test_only": false

@@ -47,7 +47,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_the_repository_schemas_load_and_emit(self):
         self.assertEqual([s['key'] for s in self.schema['services']],
-                         ['core.device', 'core.document', 'core.library', 'core.lookup',
+                         ['core.device', 'core.document', 'core.files', 'core.library', 'core.lookup',
                           'core.registry',
                           'core.test-echo', 'core.ui'])
         source = rust_services(self.schema)

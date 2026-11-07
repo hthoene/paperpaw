@@ -1144,25 +1144,41 @@ pub struct ServiceEnd {
     pub generation: u32,
     /// Little-endian u32.
     pub next: u32,
+    /// Little-endian u64. Appended and optional; `None` when absent.
+    pub cursor: Option<u64>,
 }
 
 impl ServiceEnd {
     fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
-        body.bitmap()?;
+        let bits = body.bitmap_bits()?;
         Ok(Record::ServiceEnd(Self {
             flags: u32::from_le_bytes(body.scalar()?),
             total: u32::from_le_bytes(body.scalar()?),
             generation: u32::from_le_bytes(body.scalar()?),
             next: u32::from_le_bytes(body.scalar()?),
+            cursor: body.maybe_u64(bits, 0x01)?,
         }))
     }
 
+    fn bits(&self) -> u8 {
+        let mut bits = 0;
+        if self.cursor.is_some() {
+            bits |= 0x01;
+        }
+        bits
+    }
+
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
+        let bits = self.bits();
+        // The bitmap is one byte when any optional field is present.
+        let mut len = 1 + usize::from(bits != 0);
         len += 4;
         len += 4;
         len += 4;
         len += 4;
+        if bits & 0x01 != 0 {
+            len += 8;
+        }
         Ok(len)
     }
 
@@ -1171,6 +1187,9 @@ impl ServiceEnd {
         write_bytes(&self.total.to_le_bytes(), out, offset);
         write_bytes(&self.generation.to_le_bytes(), out, offset);
         write_bytes(&self.next.to_le_bytes(), out, offset);
+        if let Some(value) = self.cursor {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
     }
 }
 /// Wire tag of the `screen.spec` record.
@@ -10777,6 +10796,273 @@ impl<'a> EventBluetooth<'a> {
         write_bytes(&self.reason.to_le_bytes(), out, offset);
     }
 }
+/// Wire tag of the `service.fs_path` record.
+pub const SERVICE_FS_PATH_TAG: u32 = 1142;
+/// Maximum bytes of `service.fs_path.path`.
+pub const SERVICE_FS_PATH_PATH_MAX_BYTES: usize = 512;
+
+/// The `service.fs_path` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceFsPath<'a> {
+    /// Little-endian u32.
+    pub root: u32,
+    /// UTF-8 text of at most 512 bytes.
+    pub path: &'a str,
+}
+
+impl<'a> ServiceFsPath<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceFsPath(Self {
+            root: u32::from_le_bytes(body.scalar()?),
+            path: body.string(SERVICE_FS_PATH_PATH_MAX_BYTES)?,
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += blob_len(self.path.len(), SERVICE_FS_PATH_PATH_MAX_BYTES)?;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.root.to_le_bytes(), out, offset);
+        write_blob(self.path.as_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.fs_list` record.
+pub const SERVICE_FS_LIST_TAG: u32 = 1143;
+/// Maximum bytes of `service.fs_list.path`.
+pub const SERVICE_FS_LIST_PATH_MAX_BYTES: usize = 512;
+
+/// The `service.fs_list` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceFsList<'a> {
+    /// Little-endian u32.
+    pub root: u32,
+    /// UTF-8 text of at most 512 bytes.
+    pub path: &'a str,
+    /// Little-endian u64.
+    pub cursor: u64,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl<'a> ServiceFsList<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceFsList(Self {
+            root: u32::from_le_bytes(body.scalar()?),
+            path: body.string(SERVICE_FS_LIST_PATH_MAX_BYTES)?,
+            cursor: u64::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += blob_len(self.path.len(), SERVICE_FS_LIST_PATH_MAX_BYTES)?;
+        len += 8;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.root.to_le_bytes(), out, offset);
+        write_blob(self.path.as_bytes(), out, offset);
+        write_bytes(&self.cursor.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.fs_move` record.
+pub const SERVICE_FS_MOVE_TAG: u32 = 1144;
+/// Maximum bytes of `service.fs_move.from`.
+pub const SERVICE_FS_MOVE_FROM_MAX_BYTES: usize = 512;
+/// Maximum bytes of `service.fs_move.to`.
+pub const SERVICE_FS_MOVE_TO_MAX_BYTES: usize = 512;
+
+/// The `service.fs_move` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceFsMove<'a> {
+    /// Little-endian u32.
+    pub from_root: u32,
+    /// UTF-8 text of at most 512 bytes.
+    pub from: &'a str,
+    /// Little-endian u32.
+    pub to_root: u32,
+    /// UTF-8 text of at most 512 bytes.
+    pub to: &'a str,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+impl<'a> ServiceFsMove<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceFsMove(Self {
+            from_root: u32::from_le_bytes(body.scalar()?),
+            from: body.string(SERVICE_FS_MOVE_FROM_MAX_BYTES)?,
+            to_root: u32::from_le_bytes(body.scalar()?),
+            to: body.string(SERVICE_FS_MOVE_TO_MAX_BYTES)?,
+            flags: u32::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += blob_len(self.from.len(), SERVICE_FS_MOVE_FROM_MAX_BYTES)?;
+        len += 4;
+        len += blob_len(self.to.len(), SERVICE_FS_MOVE_TO_MAX_BYTES)?;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.from_root.to_le_bytes(), out, offset);
+        write_blob(self.from.as_bytes(), out, offset);
+        write_bytes(&self.to_root.to_le_bytes(), out, offset);
+        write_blob(self.to.as_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.fs_entry` record.
+pub const SERVICE_FS_ENTRY_TAG: u32 = 1145;
+/// Maximum bytes of `service.fs_entry.name`.
+pub const SERVICE_FS_ENTRY_NAME_MAX_BYTES: usize = 765;
+
+/// The `service.fs_entry` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceFsEntry<'a> {
+    /// UTF-8 text of at most 765 bytes.
+    pub name: &'a str,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// Little-endian u64.
+    pub size: u64,
+    /// Little-endian u64. Appended and optional; `None` when absent.
+    pub modified: Option<u64>,
+}
+
+impl<'a> ServiceFsEntry<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        let bits = body.bitmap_bits()?;
+        Ok(Record::ServiceFsEntry(Self {
+            name: body.string(SERVICE_FS_ENTRY_NAME_MAX_BYTES)?,
+            flags: u32::from_le_bytes(body.scalar()?),
+            size: u64::from_le_bytes(body.scalar()?),
+            modified: body.maybe_u64(bits, 0x01)?,
+        }))
+    }
+
+    fn bits(&self) -> u8 {
+        let mut bits = 0;
+        if self.modified.is_some() {
+            bits |= 0x01;
+        }
+        bits
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let bits = self.bits();
+        // The bitmap is one byte when any optional field is present.
+        let mut len = 1 + usize::from(bits != 0);
+        len += blob_len(self.name.len(), SERVICE_FS_ENTRY_NAME_MAX_BYTES)?;
+        len += 4;
+        len += 8;
+        if bits & 0x01 != 0 {
+            len += 8;
+        }
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_blob(self.name.as_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_bytes(&self.size.to_le_bytes(), out, offset);
+        if let Some(value) = self.modified {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+    }
+}
+/// Wire tag of the `service.fs_space` record.
+pub const SERVICE_FS_SPACE_TAG: u32 = 1146;
+
+/// The `service.fs_space` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceFsSpace {
+    /// Little-endian u32.
+    pub flags: u32,
+    /// Little-endian u64.
+    pub free: u64,
+    /// Little-endian u64.
+    pub total: u64,
+}
+
+impl ServiceFsSpace {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceFsSpace(Self {
+            flags: u32::from_le_bytes(body.scalar()?),
+            free: u64::from_le_bytes(body.scalar()?),
+            total: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 8;
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_bytes(&self.free.to_le_bytes(), out, offset);
+        write_bytes(&self.total.to_le_bytes(), out, offset);
+    }
+}
+/// Wire tag of the `service.fs_progress` record.
+pub const SERVICE_FS_PROGRESS_TAG: u32 = 1147;
+
+/// The `service.fs_progress` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceFsProgress {
+    /// Little-endian u32.
+    pub removed: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// Little-endian u64.
+    pub next: u64,
+}
+
+impl ServiceFsProgress {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        body.bitmap()?;
+        Ok(Record::ServiceFsProgress(Self {
+            removed: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+            next: u64::from_le_bytes(body.scalar()?),
+        }))
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 4;
+        len += 4;
+        len += 8;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.removed.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_bytes(&self.next.to_le_bytes(), out, offset);
+    }
+}
 
 /// A registration or declaration record, borrowed from one validated batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -11208,6 +11494,18 @@ pub enum Record<'a> {
     EventInstallDone(EventInstallDone<'a>),
     /// A `EventBluetooth` record.
     EventBluetooth(EventBluetooth<'a>),
+    /// A `ServiceFsPath` record.
+    ServiceFsPath(ServiceFsPath<'a>),
+    /// A `ServiceFsList` record.
+    ServiceFsList(ServiceFsList<'a>),
+    /// A `ServiceFsMove` record.
+    ServiceFsMove(ServiceFsMove<'a>),
+    /// A `ServiceFsEntry` record.
+    ServiceFsEntry(ServiceFsEntry<'a>),
+    /// A `ServiceFsSpace` record.
+    ServiceFsSpace(ServiceFsSpace),
+    /// A `ServiceFsProgress` record.
+    ServiceFsProgress(ServiceFsProgress),
 }
 
 impl<'a> Reader<'a> {
@@ -11234,6 +11532,13 @@ impl<'a> Reader<'a> {
             return Ok(None);
         }
         Ok(Some(u32::from_le_bytes(self.scalar()?)))
+    }
+
+    fn maybe_u64(&mut self, bits: u8, mask: u8) -> Result<Option<u64>, i32> {
+        if bits & mask == 0 {
+            return Ok(None);
+        }
+        Ok(Some(u64::from_le_bytes(self.scalar()?)))
     }
 }
 
@@ -11464,6 +11769,12 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         EVENT_FIRMWARE_CHANGED_TAG => EventFirmwareChanged::decode(body)?,
         EVENT_INSTALL_DONE_TAG => EventInstallDone::decode(body)?,
         EVENT_BLUETOOTH_TAG => EventBluetooth::decode(body)?,
+        SERVICE_FS_PATH_TAG => ServiceFsPath::decode(body)?,
+        SERVICE_FS_LIST_TAG => ServiceFsList::decode(body)?,
+        SERVICE_FS_MOVE_TAG => ServiceFsMove::decode(body)?,
+        SERVICE_FS_ENTRY_TAG => ServiceFsEntry::decode(body)?,
+        SERVICE_FS_SPACE_TAG => ServiceFsSpace::decode(body)?,
+        SERVICE_FS_PROGRESS_TAG => ServiceFsProgress::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -11767,6 +12078,12 @@ impl Record<'_> {
             Record::EventFirmwareChanged(_) => EVENT_FIRMWARE_CHANGED_TAG,
             Record::EventInstallDone(_) => EVENT_INSTALL_DONE_TAG,
             Record::EventBluetooth(_) => EVENT_BLUETOOTH_TAG,
+            Record::ServiceFsPath(_) => SERVICE_FS_PATH_TAG,
+            Record::ServiceFsList(_) => SERVICE_FS_LIST_TAG,
+            Record::ServiceFsMove(_) => SERVICE_FS_MOVE_TAG,
+            Record::ServiceFsEntry(_) => SERVICE_FS_ENTRY_TAG,
+            Record::ServiceFsSpace(_) => SERVICE_FS_SPACE_TAG,
+            Record::ServiceFsProgress(_) => SERVICE_FS_PROGRESS_TAG,
         }
     }
 
@@ -11986,6 +12303,12 @@ impl Record<'_> {
             Record::EventFirmwareChanged(record) => record.body_len(),
             Record::EventInstallDone(record) => record.body_len(),
             Record::EventBluetooth(record) => record.body_len(),
+            Record::ServiceFsPath(record) => record.body_len(),
+            Record::ServiceFsList(record) => record.body_len(),
+            Record::ServiceFsMove(record) => record.body_len(),
+            Record::ServiceFsEntry(record) => record.body_len(),
+            Record::ServiceFsSpace(record) => record.body_len(),
+            Record::ServiceFsProgress(record) => record.body_len(),
         }
     }
 
@@ -12210,18 +12533,26 @@ impl Record<'_> {
             Record::EventFirmwareChanged(record) => record.write(out, offset),
             Record::EventInstallDone(record) => record.write(out, offset),
             Record::EventBluetooth(record) => record.write(out, offset),
+            Record::ServiceFsPath(record) => record.write(out, offset),
+            Record::ServiceFsList(record) => record.write(out, offset),
+            Record::ServiceFsMove(record) => record.write(out, offset),
+            Record::ServiceFsEntry(record) => record.write(out, offset),
+            Record::ServiceFsSpace(record) => record.write(out, offset),
+            Record::ServiceFsProgress(record) => record.write(out, offset),
         }
     }
 
     fn bits(&self) -> u8 {
         match self {
             Record::EventPageTurned(record) => record.bits(),
+            Record::ServiceEnd(record) => record.bits(),
             Record::EventScreenShown(record) => record.bits(),
             Record::InputPointer(record) => record.bits(),
             Record::EventBookOpened(record) => record.bits(),
             Record::EventBookClosed(record) => record.bits(),
             Record::EventBookFinished(record) => record.bits(),
             Record::ServiceLibRef(record) => record.bits(),
+            Record::ServiceFsEntry(record) => record.bits(),
             _ => 0,
         }
     }
@@ -12637,6 +12968,9 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         SERVICE_LIB_RECEIPT_ASK_TAG => ServiceLibReceiptAsk::decode(body)?,
         SERVICE_DEV_INTERVAL_TAG => ServiceDevInterval::decode(body)?,
         SERVICE_DEV_REQUEST_TAG => ServiceDevRequest::decode(body)?,
+        SERVICE_FS_PATH_TAG => ServiceFsPath::decode(body)?,
+        SERVICE_FS_LIST_TAG => ServiceFsList::decode(body)?,
+        SERVICE_FS_MOVE_TAG => ServiceFsMove::decode(body)?,
         EVENT_TICK_TAG
         | EVENT_STARTED_TAG
         | EVENT_RESUME_TAG
@@ -12761,7 +13095,10 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         | EVENT_NETWORK_IDLE_TAG
         | EVENT_FIRMWARE_CHANGED_TAG
         | EVENT_INSTALL_DONE_TAG
-        | EVENT_BLUETOOTH_TAG => return Err(-2),
+        | EVENT_BLUETOOTH_TAG
+        | SERVICE_FS_ENTRY_TAG
+        | SERVICE_FS_SPACE_TAG
+        | SERVICE_FS_PROGRESS_TAG => return Err(-2),
         _ => return Err(-1),
     })
 }

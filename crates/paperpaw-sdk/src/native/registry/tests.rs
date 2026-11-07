@@ -110,6 +110,7 @@ fn end(total: u32, next: u32, generation: u32, last: bool) -> Record<'static> {
         next,
         generation,
         flags: u32::from(last),
+        cursor: None,
     })
 }
 
