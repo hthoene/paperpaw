@@ -3699,7 +3699,7 @@ impl paperpaw_sdk::native::device::MemoryInfo
 pub const fn paperpaw_sdk::native::device::MemoryInfo::cached(self) -> bool
 pub const fn paperpaw_sdk::native::device::MemoryInfo::external_free(self) -> core::option::Option<u32>
 pub const fn paperpaw_sdk::native::device::MemoryInfo::external_size(self) -> core::option::Option<u32>
-pub const fn paperpaw_sdk::native::device::MemoryInfo::largest(self) -> core::option::Option<u32>
+pub const fn paperpaw_sdk::native::device::MemoryInfo::largest_block(self) -> core::option::Option<u32>
 pub const fn paperpaw_sdk::native::device::MemoryInfo::stack_free(self) -> core::option::Option<u32>
 pub const fn paperpaw_sdk::native::device::MemoryInfo::stack_size(self) -> core::option::Option<u32>
 impl paperpaw_sdk::native::device::MemoryInfo
