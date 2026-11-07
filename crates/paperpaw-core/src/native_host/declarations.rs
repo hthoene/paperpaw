@@ -5,7 +5,9 @@
 //! that must resolve, limits per plugin) belong to the commit and are not here.
 //! Statuses: unknown enum values and flag bits return `ERR_UNSUPPORTED`, every
 //! other violation returns `ERR_INVALID`; UTF-8 and byte caps are already
-//! enforced by the codec (`ERR_UTF8`, `ERR_NO_SPACE`).
+//! enforced by the codec (`ERR_UTF8`, `ERR_NO_SPACE`). The document, library and
+//! lookup declarations (`declarations_docs.rs`) are the exception: their unknown
+//! values are `ERR_INVALID`.
 
 use super::registrations::{
     ActionSpec, ICON_SPEC_ICON_MAX_BYTES, IconSpec, MenuDescribe, MenuEntry, MenuHide, MenuNeed,

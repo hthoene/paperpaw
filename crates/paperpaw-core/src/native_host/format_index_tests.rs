@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
 use super::*;
 use alloc::{format, vec};
-use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID, ERR_STATE};
+use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID, ERR_NO_SPACE, ERR_STATE};
 
 fn spec<'a>(name: &'a str, extensions: &'a str, flags: u32, priority: i32) -> wire::FormatSpec<'a> {
     wire::FormatSpec {
@@ -296,4 +296,33 @@ fn a_removed_format_is_gone_for_good_and_its_documents_can_be_ended() {
     index.id(second, &mut |id| name.push_str(id)).unwrap();
     assert_eq!(name, "p.f");
     assert_eq!(index.id(first, &mut |_| ()), Err(ERR_STATE));
+}
+
+#[test]
+fn spent_references_refuse_a_declaration_and_change_nothing() {
+    let mut index = FormatIndex::new();
+    index.declare_format(0, "p", &spec("f", "e", 0, 0)).unwrap();
+    let generation = index.generation.get();
+    index.next_ref.set(u32::MAX);
+    assert_eq!(
+        index.declare_format(0, "p", &spec("g", "h", 0, 0)),
+        Err(ERR_NO_SPACE)
+    );
+    assert_eq!(
+        (
+            index.formats.len(),
+            index.generation.get(),
+            index.next_ref.get()
+        ),
+        (1, generation, u32::MAX)
+    );
+    // The last reference but one still works, and then the counter is spent.
+    index.next_ref.set(u32::MAX - 1);
+    let last = index.declare_format(0, "p", &spec("g", "h", 0, 0)).unwrap();
+    assert_eq!(last, FormatRef(u32::MAX - 1));
+    assert_eq!(
+        index.declare_format(0, "p", &spec("i", "j", 0, 0)),
+        Err(ERR_NO_SPACE)
+    );
+    assert_eq!(index.formats.len(), 2);
 }

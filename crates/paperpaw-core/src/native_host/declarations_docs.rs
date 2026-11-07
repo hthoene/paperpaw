@@ -5,6 +5,11 @@
 //! record at a time without a registry: that a reader's screen is the plugin's
 //! own, that extensions are unique within a plugin and the per-plugin and
 //! device limits belong to the commit.
+//!
+//! Statuses: unlike the other declarations in the parent, an unknown flag bit,
+//! kind or enum value of these records is `ERR_INVALID` (the contract lists no
+//! `ERR_UNSUPPORTED` for them); a well-formed record is refused by the parent
+//! with `ERR_UNSUPPORTED` until the host admits it.
 use super::{Check, ensure, full_id, relative};
 use crate::native_host::registrations::{
     BookBadgeSpec, BookDataSpec, BookFieldSpec, FormatSpec, LookupSpec, ReaderSpec,
