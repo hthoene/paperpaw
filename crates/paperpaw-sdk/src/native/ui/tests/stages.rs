@@ -194,3 +194,78 @@ fn status_duplicate_unrequested_and_overfull_values_never_publish_bytes() {
     .unwrap();
     assert!(StatusCall::decode(&payload[..count]).is_err());
 }
+
+#[test]
+fn status_requests_reject_truncation_trailing_and_wrong_records() {
+    let mut context = [0; 256];
+    let mut payload = [0; 512];
+    let context_len = wire::record_encode_one(
+        &wire::Record::ServiceUiParam(wire::ServiceUiParam {
+            key: "title",
+            value: "Book",
+        }),
+        &mut context,
+    )
+    .unwrap();
+    let n = status::input_encode(
+        &[status::Record::StatusAsk(status::StatusAsk::new(
+            "fixture.clock",
+            &context[..context_len],
+        ))],
+        &mut payload,
+    )
+    .unwrap();
+    assert!(StatusCall::decode(&payload[..n]).is_ok());
+    for len in 0..n {
+        assert!(StatusCall::decode(&payload[..len]).is_err(), "prefix {len}");
+    }
+    payload[n] = 0;
+    assert!(StatusCall::decode(&payload[..=n]).is_err());
+    let n = status::reply_encode(
+        &[status::Record::StatusValue(status::StatusValue::new(
+            "fixture.clock",
+            0,
+            "12:00",
+        ))],
+        &mut payload,
+    )
+    .unwrap();
+    assert!(StatusCall::decode(&payload[..n]).is_err());
+    let n = wire::record_encode_one(
+        &wire::Record::ServiceUiHandle(wire::ServiceUiHandle { handle: 1 }),
+        &mut context,
+    )
+    .unwrap();
+    let n = status::input_encode(
+        &[status::Record::StatusAsk(status::StatusAsk::new(
+            "fixture.clock",
+            &context[..n],
+        ))],
+        &mut payload,
+    )
+    .unwrap();
+    assert!(StatusCall::decode(&payload[..n]).is_err());
+    for len in 1..context_len {
+        let n = wire::record_encode_one(
+            &wire::Record::ServiceUiParam(wire::ServiceUiParam {
+                key: "title",
+                value: "Book",
+            }),
+            &mut context,
+        )
+        .unwrap();
+        assert_eq!(n, context_len);
+        let n = status::input_encode(
+            &[status::Record::StatusAsk(status::StatusAsk::new(
+                "fixture.clock",
+                &context[..len],
+            ))],
+            &mut payload,
+        )
+        .unwrap();
+        assert!(
+            StatusCall::decode(&payload[..n]).is_err(),
+            "context prefix {len}"
+        );
+    }
+}

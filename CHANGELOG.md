@@ -46,6 +46,8 @@ change the plugin SDK.
   header with back and pager, paged list rows with focus and hit-testing, text fitting, catalog
   messages) over the flat native SDK, extracted from Battery and the menu editor (#228).
 
+- Native SDK typed device commands: Wi-Fi radio, network policy and power
+  (`CommandSender::wifi_join`, `go_online`, `sleep`, `show_then`, `wear` and others) (#228).
 - Native SDK library queries, borrowed book metadata and badges, finished-status
   updates and plugin-owned field writes (#228).
 - Native SDK typed device inventory and status reads, including firmware, native
