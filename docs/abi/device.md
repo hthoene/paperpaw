@@ -553,9 +553,10 @@ where a capability is missing.
   rule, `check_file` as a queued job.
 - **Firmware:** the X4 adapters (Wi-Fi, power, memory probe, values, keys), the firmware writer in
   64 KiB steps with digest binding and its trial, the fallible OTA buffer (`updates.rs:532`, offered
-  by Firmware), the good-start point of the trial, foreign images final at the switch, the Power
-  hold timer off the main loop (G12), the device checks with the owner (install confirmation,
-  Wi-Fi join/host, sleep, power off, restart, step time and card read speed).
+  by Firmware), the good-start point of the trial, the trial check first at boot with its boot
+  counter, the read-back hash pass, foreign images final at the switch, the Power hold timer off the
+  main loop (G12), the device checks with the owner (install confirmation, Wi-Fi join/host, sleep,
+  power off, restart, step time and card read speed).
 - **Services:** the SDK facade (typed reads, command builders, install request helpers with
   evidence).
 - **Web:** the store catalog keyed by `abi_major`, `abi_draft`, `target`, shipped with the firmware
