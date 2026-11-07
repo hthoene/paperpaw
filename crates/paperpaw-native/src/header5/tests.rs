@@ -825,3 +825,20 @@ fn the_packer_made_file_reads_and_its_record_is_the_generated_one() {
 fn read_packed() -> Header5 {
     Header5::read(PACKED, PACKED.len() as u64, &HOST).unwrap()
 }
+
+#[test]
+fn the_x4_profile_is_the_one_abi_def_names() {
+    let def: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../abi/abi.def"
+    )))
+    .unwrap();
+    let profile = def["metadata"]["profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == X4_PROFILE.target)
+        .expect("the profile is in abi.def");
+    assert_eq!(profile["entry_layout"], X4_PROFILE.entry_layout);
+    assert_eq!(profile["entry_bytes"], X4_PROFILE.entry_bytes);
+}
