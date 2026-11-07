@@ -1017,6 +1017,9 @@ mod instance_tests {
         );
         assert!(loaded > 0, "past the last allocation it loads");
     }
+
+    // The file is `native_host/instance_tests/host_slot_table.rs`.
+    mod host_slot_table;
 }
 
 #[test]
@@ -1345,10 +1348,18 @@ fn stage_slot_missing_frame_and_zero_capacity_do_not_allocate() {
         .unwrap();
 }
 
+#[path = "format_call_oom_tests.rs"]
+mod format_call_oom;
 #[path = "stage_broker_oom_tests.rs"]
 mod stage_broker_oom;
 
 #[path = "shell_evt_oom_tests.rs"]
 mod evt_oom;
+
+#[path = "shell_command_dispatch_tests.rs"]
+mod command_dispatch;
 #[path = "stage_broker_native_tests.rs"]
 mod stage_broker_native;
+
+#[path = "native_screen_install_tests.rs"]
+mod native_screen_install;
