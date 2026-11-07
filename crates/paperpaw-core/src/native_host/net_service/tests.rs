@@ -3,7 +3,10 @@
 //! injection: admission, the queue, the pool, the events, the servers.
 extern crate std;
 use super::*;
-use crate::native_host::{admitted_features::AdmittedFeatures, host_services::HostServices};
+use crate::native_host::{
+    admitted_features::AdmittedFeatures, host_services::HostServices, net_pool::NetPool,
+};
+use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use std::{collections::BTreeMap, string::ToString};
@@ -58,8 +61,12 @@ pub(crate) struct Fake {
 
 impl Fake {
     pub(crate) fn new(profile: NetProfile) -> Self {
+        Self::with_pool(profile, Rc::new(NetPool::new(profile.pool)))
+    }
+    /// A device whose pool is shared with someone else (`core.sockets`).
+    pub(crate) fn with_pool(profile: NetProfile, pool: Rc<NetPool>) -> Self {
         Self {
-            table: NetTable::new(),
+            table: NetTable::new(pool),
             profile: Cell::new(profile),
             clock: Cell::new(1_000),
             network: Cell::new(true),
@@ -94,7 +101,7 @@ impl Fake {
         self.clock.set(self.clock.get() + ms);
     }
     pub(crate) fn pool_used(&self) -> u32 {
-        self.table.lock().unwrap().used
+        self.table.pool().used()
     }
 }
 
