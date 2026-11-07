@@ -455,18 +455,21 @@ reply 4,096 bytes, stage payload 3,840.
   when the call returns; nothing retained.
 - Preparing: one at a time; the host keeps only the queue (8 bytes per waiting document).
 - Images: about 24 bytes per image id, at most 8 per plugin and 64 device-wide (1.5 KiB); decoding
-  for `image_prepare` uses one band buffer of at most 4 KiB plus the decoder's transient state,
-  one decode at a time, fallible (`status` 5 when the heap cannot). The state differs per format:
-  PNG the 32 KiB inflate window plus two source rows (a 1,600-pixel RGBA row is 6.4 KiB, so about
-  45 KiB); progressive JPEG a coefficient store the decoder sizes from the free heap (it keeps only
-  the frequencies the output size needs); interlaced GIF the rows of the part on the screen;
-  baseline JPEG and BMP a few rows. **This transient peak (PNG the largest) is an X4 gate item**,
-  measured with the reader port at a 1,600-pixel PNG.
+  for `image_prepare` uses one band buffer of at most 4 KiB plus the decoder's transient state, one
+  decode at a time, fallible (`status` 5 when the heap cannot). The state differs per format: PNG
+  the 32 KiB inflate window plus two source rows; **on the X4 a PNG's source row is capped at 8
+  KiB** (2,048 pixels of 8-bit RGBA, 1,024 at 16 bits; wider is `status` 3 too large), so the peak
+  is at most 32 + 2 × 8 = 48 KiB, about 45 KiB at a 1,600-pixel row (Senior's remark: without the
+  cap an 8 Mpx source could reach about 160 KiB; other devices keep the 8 Mpx limit only);
+  progressive JPEG a coefficient store the decoder sizes from the free heap (it keeps only the
+  frequencies the output size needs); interlaced GIF the rows of the part on the screen; baseline
+  JPEG and BMP a few rows. **This transient peak (PNG the largest) is an X4 gate item**, measured
+  with the reader port at a 1,600-pixel PNG.
 - Fonts: card fonts, no heap beyond the font engine's per-handle state.
 - Lookup: one stage call on the scratch; nothing kept.
-- **X4 worst case for DOC's host side: about 6 KiB at rest** (documents 0.13 + images 1.5 + band 4
-  + queue), **plus the decoder's transient peak while an image decodes (PNG about 45 KiB)**, all
-  fallible; an activation-gate item beside UIX's, measured with the reader port. The
+- **X4 worst case for DOC's host side: about 6 KiB at rest** (documents 0.13 + images 1.5 + band 4 +
+  queue), **plus the decoder's transient peak while an image decodes (PNG at most 48 KiB on the
+  X4)**, all fallible; an activation-gate item beside UIX's, measured with the reader port. The
   format plugins' own heaps are gated by their ports.
 
 ## 9. Interface-6 calls and their interface-7 form
