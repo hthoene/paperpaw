@@ -61,3 +61,18 @@ name what they wait for. No desktop golden: the dialog needs host input (H1/H2/H
 - Wrapped lines of several lines are broken at spaces and a run of spaces is shown as one.
 - Peak memory on the X4 is not measured (device gate open). The keyboard is built into the
   firmware, so there is no `.ppn` size to record.
+- Repaint memory: `native_paint::lines` wraps the whole text on every repaint (the wrapped lines
+  and the joined candidates copy it; up to about 4 bytes per text byte, so up to about 8 KiB for
+  2,000 characters and 24 KiB for 6,000 characters of several lines) and the password dots take 3
+  bytes per character. Bounded by `MAX_CHARS` / `MAX_CHARS_MULTILINE`, fallible, freed after each
+  repaint; a reused, line-by-line wrap buffer needs a streaming wrap in the kit and is left for
+  the X4 memory measurement.
+
+## Activation items (todo 90, with the host's switch to native plugins)
+
+- Remove the app wiring of the interface-6 keyboard: `.plugin(paperpaw_plugin_keyboard::Keyboard)`
+  in `crates/paperpaw-app/src/lib.rs`, the `paperpaw-plugin-keyboard` dependency of
+  `crates/paperpaw-app`, and the `Keyboard` registrations in the test harnesses of the wifi, keys,
+  profiles, lock and store plugins (they use `DONE`, which moves to the native plugin's constants).
+- Then delete the interface-6 `Keyboard`, `draw.rs`, `choose.rs`, `rows_for`/`KeyboardScreen` and
+  the legacy suites in `tests/`; no shim stays.

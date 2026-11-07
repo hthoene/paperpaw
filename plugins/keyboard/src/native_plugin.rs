@@ -84,9 +84,20 @@ impl Dialog {
         let text = core::mem::take(&mut self.board.text);
         if self.board.asked.secret {
             let mut bytes = text.into_bytes();
-            bytes.fill(0);
+            wipe_bytes(&mut bytes);
         }
     }
+}
+
+/// Fills `bytes` with zeros in a way the compiler cannot drop as a dead
+/// store before the memory is freed.
+fn wipe_bytes(bytes: &mut [u8]) {
+    for byte in bytes.iter_mut() {
+        // SAFETY: each byte is live and exclusively borrowed; the volatile
+        // store keeps the wipe when the allocation is freed right after.
+        unsafe { core::ptr::write_volatile(byte, 0) };
+    }
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
 }
 
 /// Choosing the layouts.
@@ -640,6 +651,10 @@ impl NativeKeyboard {
         let mut input = buffer(SERVICE_BUFFER)?;
         let mut output = buffer(SERVICE_BUFFER)?;
         let request = self.ui()?.ask(host, question, &mut input, &mut output)?;
+        // A refusal here ends this callback in failure, which cancels the
+        // request before any dialog opens (`docs/abi/ui.md`, *A failed start
+        // cancels*): it is never recorded as open, and its `not_started`
+        // answer is ignored in `answered`.
         uitext::write_all(self.ui()?, host, request.text(), &text)?;
         if let Some(d) = self.dialog_mut() {
             d.nested = Some(request);
@@ -769,8 +784,8 @@ impl NativeKeyboard {
         let Some(d) = self.dialog_mut() else {
             return Ok(());
         };
-        d.board.text.clear();
-        let pressed = d.board.pasted(&text)?;
+        // The text so far stays until the new one is in.
+        let pressed = d.board.replace_pasted(&text)?;
         self.typed(host, pressed)
     }
 
@@ -853,23 +868,23 @@ fn build_choose(host: &Host<'_>) -> Result<ChooseView, Error> {
         chosen,
         list: ItemList::default(),
     };
-    items(host, &mut view)?;
+    view.list.replace(items(host, &view.rows, &view.chosen)?);
     Ok(view)
 }
 
-/// The list again: every layout with *On* (and its place) or *Off*.
-fn items(host: &Host<'_>, view: &mut ChooseView) -> Result<(), Error> {
+/// The list of every layout with *On* (and its place) or *Off*, built aside.
+fn items(host: &Host<'_>, rows: &[String], chosen: &[String]) -> Result<Vec<Item>, Error> {
     let mut messages = Messages::new()?;
     let on = messages.copy(host, "keyboard.on")?;
     let off = messages.copy(host, "keyboard.off")?;
     let mut list = Vec::new();
-    for id in &view.rows {
+    for id in rows {
         let name = messages.copy(host, id)?;
-        let at = view.chosen.iter().position(|c| c == id);
+        let at = chosen.iter().position(|c| c == id);
         let mut digits = [0; 20];
         let value = match at {
             // Chosen layouts carry their place in switching: "On (2)".
-            Some(at) if view.chosen.len() > 1 => paperpaw_ui_kit::text::concat(&[
+            Some(at) if chosen.len() > 1 => paperpaw_ui_kit::text::concat(&[
                 &on,
                 " (",
                 paperpaw_ui_kit::text::decimal(at + 1, &mut digits),
@@ -880,10 +895,7 @@ fn items(host: &Host<'_>, view: &mut ChooseView) -> Result<(), Error> {
         };
         push(&mut list, Item::row(&name, &value)?)?;
     }
-    let focus = view.list.focus();
-    view.list.replace(list);
-    view.list.set_focus(focus);
-    Ok(())
+    Ok(list)
 }
 
 /// Switches layout `index` on or off; *Automatic* stands for itself.
@@ -909,8 +921,14 @@ fn toggle(host: &Host<'_>, view: &mut ChooseView, index: usize) -> Result<(), Er
         }
     }
     let value = paperpaw_ui_kit::mem::join(&chosen, ", ")?;
-    view.chosen = chosen;
-    items(host, view)?;
+    // The list is built aside and the setting written first: the view
+    // changes only when both succeeded.
+    let list = items(host, &view.rows, &chosen)?;
     let mut scratch = buffer(1024)?;
-    CommandSender::new(host, &mut scratch).set_setting(LAYOUTS_KEY, SettingValue::Text(&value))
+    CommandSender::new(host, &mut scratch).set_setting(LAYOUTS_KEY, SettingValue::Text(&value))?;
+    view.chosen = chosen;
+    let focus = view.list.focus();
+    view.list.replace(list);
+    view.list.set_focus(focus);
+    Ok(())
 }

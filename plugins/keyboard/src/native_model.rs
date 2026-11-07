@@ -585,6 +585,23 @@ impl Board {
         self.insert(line.trim(), false)
     }
 
+    /// Replaces the text with pasted text (the phone's answer): the text so
+    /// far stays when the new one cannot be put in.
+    ///
+    /// # Errors
+    /// As [`Board::pasted`]; the board is then as it was.
+    pub fn replace_pasted(&mut self, text: &str) -> Result<Pressed, Error> {
+        let before = core::mem::take(&mut self.text);
+        match self.pasted(text) {
+            Ok(pressed) => Ok(pressed),
+            Err(error) => {
+                self.text = before;
+                self.shift = self.auto_shift();
+                Err(error)
+            }
+        }
+    }
+
     /// Presses `key` at time `now` (milliseconds).
     ///
     /// # Errors
@@ -610,13 +627,20 @@ impl Board {
                 Ok(Pressed::Changed)
             }
             Key::Layer(layer) => {
-                self.layer = layer;
-                self.rebuild()?;
+                let before = core::mem::replace(&mut self.layer, layer);
+                if let Err(error) = self.rebuild() {
+                    self.layer = before;
+                    return Err(error);
+                }
                 Ok(Pressed::Changed)
             }
             Key::NextLayout => {
-                self.current = (self.current + 1) % self.layouts.len().max(1);
-                self.rebuild()?;
+                let before = self.current;
+                self.current = (before + 1) % self.layouts.len().max(1);
+                if let Err(error) = self.rebuild() {
+                    self.current = before;
+                    return Err(error);
+                }
                 Ok(Pressed::Changed)
             }
             Key::Done => Ok(Pressed::Done),
@@ -625,8 +649,6 @@ impl Board {
 
     /// The keys again, after the layer or layout changed.
     fn rebuild(&mut self) -> Result<(), Error> {
-        self.shift = Shift::Off;
-        self.shift = self.auto_shift();
         let rows = try_rows_for(
             self.letters_now(),
             self.layer,
@@ -634,6 +656,9 @@ impl Board {
             self.most,
             self.asked.multiline,
         )?;
+        // Nothing can be refused from here on.
+        self.shift = Shift::Off;
+        self.shift = self.auto_shift();
         self.rows = rows;
         if let Some((row, index)) = self.focus.filter(|(row, _)| *row != FIELD_ROW) {
             let row = row.min(self.rows.len().saturating_sub(1));
@@ -1229,5 +1254,44 @@ mod tests {
             b.open_variants(0, 0)?;
             Ok(b.text.len())
         });
+    }
+
+    #[test]
+    fn a_refused_press_or_paste_leaves_the_board_as_it_was() {
+        let mut b = board(true, plain(), false);
+        sweep(|| {
+            b.layer = Layer::Letters;
+            b.current = 0;
+            let (rows, shift) = (b.rows.len(), b.shift);
+            let pressed = b.press(Key::Layer(Layer::Symbols), 0);
+            if pressed.is_err() {
+                assert_eq!(
+                    (b.layer, b.rows.len(), b.shift),
+                    (Layer::Letters, rows, shift)
+                );
+            }
+            pressed
+        });
+        sweep(|| {
+            b.layer = Layer::Letters;
+            b.current = 0;
+            let rows = b.rows.len();
+            let pressed = b.press(Key::NextLayout, 0);
+            if pressed.is_err() {
+                assert_eq!((b.current, b.rows.len()), (0, rows));
+            }
+            pressed
+        });
+        sweep(|| {
+            b.layer = Layer::Letters;
+            b.text.clear();
+            b.text.push_str("keep");
+            let pasted = b.replace_pasted("new text");
+            if pasted.is_err() {
+                assert_eq!(b.text, "keep");
+            }
+            pasted
+        });
+        assert_eq!(b.text, "new text");
     }
 }
