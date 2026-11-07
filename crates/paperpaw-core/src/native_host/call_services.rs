@@ -133,8 +133,7 @@ pub(crate) fn validate_reply(bytes: &[u8], op: &ServiceOp) -> Result<(), i32> {
             .ok_or(ERR_INVALID)?;
         let record = registrations::record_decode_one(framed).map_err(|_| ERR_INVALID)?;
         if op.reply_rows == 0 {
-            if tag == registrations::SERVICE_END_TAG || index < next_tag || rows == 0 && index != 0
-            {
+            if tag == registrations::SERVICE_END_TAG || index < next_tag {
                 return Err(ERR_INVALID);
             }
             next_tag = index + 1;
@@ -160,7 +159,7 @@ pub(crate) fn validate_reply(bytes: &[u8], op: &ServiceOp) -> Result<(), i32> {
         Ok(())
     })
     .map_err(|_| ERR_INVALID)?;
-    if op.reply_rows != 0 && !ended || op.reply_rows == 0 && !op.reply.is_empty() && rows == 0 {
+    if op.reply_rows != 0 && !ended {
         return Err(ERR_INVALID);
     }
     Ok(())

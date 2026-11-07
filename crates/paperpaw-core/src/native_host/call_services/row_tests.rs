@@ -190,7 +190,8 @@ fn nonlist_replies_are_bare_and_repeated_or_counted_replies_are_invalid() {
     let input = batch("echo");
     assert_eq!(validate_reply(&input[1..], op), Ok(()));
     assert_eq!(validate_reply(&input, op), Err(ERR_INVALID));
-    assert_eq!(validate_reply(&[], op), Err(ERR_INVALID));
+    // Required-record presence is checked by the family backend, not this table.
+    assert_eq!(validate_reply(&[], op), Ok(()));
     let mut repeated = input[1..].to_vec();
     repeated.extend_from_slice(&input[1..]);
     assert_eq!(validate_reply(&repeated, op), Err(ERR_INVALID));
@@ -238,4 +239,62 @@ fn usage_producer_and_echo_backend_share_the_dispatch_reply_validator() {
     };
     let len = data_services::encode(&frame, Query::PluginUsage(0), &mut out).unwrap();
     assert_eq!(validate_reply(&out[..len], &rows_op), Ok(()));
+}
+
+#[test]
+fn nonlist_generic_checks_order_and_duplicates_without_guessing_required_rows() {
+    let echo_op = services_wire::service_schema("core.test-echo", 1)
+        .unwrap()
+        .op(1)
+        .unwrap();
+    let op = ServiceOp {
+        reply: &[
+            registrations::SERVICE_ECHO_TAG,
+            registrations::SERVICE_UI_TARGET_TAG,
+        ],
+        ..*echo_op
+    };
+    let mut out = [0; 128];
+    let target = Record::ServiceUiTarget(ServiceUiTarget {
+        target: 1,
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+    });
+    let len = registrations::record_encode_one(&target, &mut out).unwrap();
+    assert_eq!(validate_reply(&out[..len], &op), Ok(()));
+    let input = batch("out of order");
+    let mut wrong = out[..len].to_vec();
+    wrong.extend_from_slice(&input[1..]);
+    assert_eq!(validate_reply(&wrong, &op), Err(ERR_INVALID));
+    let empty = ServiceOp {
+        reply: &[],
+        ..*echo_op
+    };
+    assert_eq!(validate_reply(&[], &empty), Ok(()));
+    assert_eq!(validate_reply(&input[1..], &empty), Err(ERR_INVALID));
+}
+
+#[test]
+fn list_reply_rejects_rows_or_trailing_bytes_after_end() {
+    let op = targets_op();
+    let mut trailing = targets(0, end(0));
+    trailing.push(0);
+    assert_eq!(validate_reply(&trailing, op), Err(ERR_INVALID));
+    let mut after_end = targets(0, end(0));
+    let mut row = [0; 128];
+    let len = registrations::record_encode_one(
+        &Record::ServiceUiTarget(ServiceUiTarget {
+            target: 1,
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        }),
+        &mut row,
+    )
+    .unwrap();
+    after_end.extend_from_slice(&row[..len]);
+    assert_eq!(validate_reply(&after_end, op), Err(ERR_INVALID));
 }
