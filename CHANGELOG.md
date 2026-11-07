@@ -19,6 +19,9 @@ change the plugin SDK.
 
 ### Added
 
+- Native SDK library queries, borrowed book metadata and badges, finished-status
+  updates and plugin-owned field writes (#228).
+
 - Native SDK screen instance policies, borrowed confirmation button labels and flags,
   dialog label accessors, and an explicit user-defined menu getter (#228).
 
