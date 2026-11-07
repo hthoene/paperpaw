@@ -28,6 +28,8 @@ change the plugin SDK.
   rows gain − and + buttons and show a title that is already translated as it is (#228).
 - Core native callbacks carry authoritative registry owner keys and checked,
   nonzero callback epochs. Failed admission cannot reuse an issued owner key (#228).
+- `paperpaw-document`: `OffsetMap::try_checkpoint` (fallible, refuses out-of-order and
+  oversized indices) and `OffsetMap::checkpoints`, the rows of `doc_map` (#228).
 - Native SDK storage roots `Install` (root 2, the plugin's own install folder, read only)
   and the callback-scoped format roots `Book` (3), `UserCss` (4) and `DocumentCache` (6).
   Empty paths identify the book/CSS files; the host enforces permissions, lifetime and
@@ -35,7 +37,6 @@ change the plugin SDK.
 - Native SDK `EventKind::Answered` (subscribe to `core.ui` question answers) and
   `Snapshot::display_gray_levels` / `display_is_colour`. Interface draft 22 (`native::DRAFT`)
   refuses plugins built for draft 21 (#228).
-
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
   `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-ui-kit` gains item lists with
   footers, whole-file storage helpers and a screen registry (#228).
@@ -51,6 +52,8 @@ change the plugin SDK.
   header with back and pager, paged list rows with focus and hit-testing, text fitting, catalog
   messages) over the flat native SDK, extracted from Battery and the menu editor (#228).
 
+- Native SDK typed device commands: Wi-Fi radio, network policy and power
+  (`CommandSender::wifi_join`, `go_online`, `sleep`, `show_then`, `wear` and others) (#228).
 - Native SDK library queries, borrowed book metadata and badges, finished-status
   updates and plugin-owned field writes (#228).
 - Native SDK typed device inventory and status reads, including firmware, native

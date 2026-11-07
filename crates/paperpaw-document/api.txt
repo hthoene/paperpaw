@@ -28,6 +28,13 @@ pub paperpaw_document::BlockKind::Image
 pub paperpaw_document::BlockKind::Paragraph
 pub paperpaw_document::BlockKind::Preformatted
 pub paperpaw_document::BlockKind::TableRow
+#[non_exhaustive] pub enum paperpaw_document::CheckpointError
+pub paperpaw_document::CheckpointError::OutOfMemory
+pub paperpaw_document::CheckpointError::OutOfOrder
+pub paperpaw_document::CheckpointError::TooLarge
+impl core::error::Error for paperpaw_document::CheckpointError
+impl core::fmt::Display for paperpaw_document::CheckpointError
+pub fn paperpaw_document::CheckpointError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub enum paperpaw_document::DocumentError
 pub paperpaw_document::DocumentError::Malformed(alloc::borrow::Cow<'static, str>)
 pub paperpaw_document::DocumentError::NotReady
@@ -172,6 +179,8 @@ pub struct paperpaw_document::OffsetMap
 impl paperpaw_document::OffsetMap
 pub const paperpaw_document::OffsetMap::IDENTITY: paperpaw_document::OffsetMap
 pub fn paperpaw_document::OffsetMap::checkpoint(&mut self, usize, u32)
+pub fn paperpaw_document::OffsetMap::checkpoints(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = (u32, u32)> + '_
+pub fn paperpaw_document::OffsetMap::try_checkpoint(&mut self, usize, u32) -> core::result::Result<(), paperpaw_document::CheckpointError>
 #[non_exhaustive] pub struct paperpaw_document::Run
 pub paperpaw_document::Run::end: u32
 pub paperpaw_document::Run::start: u32
