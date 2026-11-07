@@ -66,12 +66,12 @@ impl<'a> RegistryStatus<'a> {
     }
     /// The owner draws this declaration.
     #[must_use]
-    pub const fn is_drawn(self) -> bool {
+    pub const fn drawn_by_owner(self) -> bool {
         self.row.flags & 1 != 0
     }
     /// The declaration is private while another plugin guards the screen.
     #[must_use]
-    pub const fn is_private(self) -> bool {
+    pub const fn private(self) -> bool {
         self.row.flags & 2 != 0
     }
     /// Item priority from 0 to 255; zero for a line.

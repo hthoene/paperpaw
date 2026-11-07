@@ -660,8 +660,8 @@ fn status_discovery_maps_scopes_and_borrows_named_rows() {
             ("fixture.clock", "fixture", "Clock")
         );
         assert_eq!(row.kind(), expected);
-        assert_eq!(row.is_drawn(), kind == 1);
-        assert!(row.is_private());
+        assert_eq!(row.drawn_by_owner(), kind == 1);
+        assert!(row.private());
         assert_eq!((row.priority(), row.size(), row.tap()), (0, 1000, ""));
         assert!(out_range.contains(&row.title().as_ptr()));
     }

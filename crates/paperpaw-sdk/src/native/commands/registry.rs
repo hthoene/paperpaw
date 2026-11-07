@@ -138,8 +138,10 @@ impl CommandSender<'_, '_> {
                     SettingValue::Text(value) => SettingValueRef::Text(value),
                 };
                 // SAFETY: u8 and MaybeUninit<u8> have identical layouts. The
-                // encoder initializes the prefix that fits. Its returned
-                // required length is checked before borrowing that prefix.
+                // settings_encode contract initializes exactly the first
+                // min(required, out.len()) slots on success and touches no
+                // other slot. It never stores uninitialized bytes. Check its
+                // returned required length before borrowing that prefix.
                 let out = unsafe {
                     core::slice::from_raw_parts_mut(
                         remaining.as_mut_ptr().cast::<MaybeUninit<u8>>(),
