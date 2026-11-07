@@ -55,7 +55,7 @@ const CASES: [Case; 12] = [
     Case {
         name: "next-book-skips-read-and-gone-books",
         golden: None,
-        blocked_by: &["lib-op-6-host-semantics"],
+        blocked_by: &["lib-op-6-host-semantics", "lib-file-present-draft-23"],
     },
     Case {
         name: "finished-mark-kept-and-said-again-at-close",
@@ -74,7 +74,7 @@ const CASES: [Case; 12] = [
     Case {
         name: "a-book-gone-from-the-card-has-no-screen",
         golden: None,
-        blocked_by: &["book-events-host"],
+        blocked_by: &["book-events-host", "lib-file-present-draft-23"],
     },
 ];
 

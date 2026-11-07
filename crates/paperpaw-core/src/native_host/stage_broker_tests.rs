@@ -109,7 +109,7 @@ impl Harness {
             calls: Rc::new(RefCell::new(Vec::with_capacity(64))),
         }
     }
-    pub(crate) fn add(&mut self, id: &'static str, behavior: Behavior) -> usize {
+    pub(crate) fn add(&mut self, id: &'static str, behavior: Behavior) -> u64 {
         let lease = NativeLease::try_new(Fake {
             calls: self.calls.clone(),
             behavior,
@@ -117,11 +117,11 @@ impl Harness {
         })
         .unwrap();
         self.registry
-            .insert(Id::new_static(id), Some(lease), true)
+            .test_insert(Id::new_static(id), Some(lease), true)
             .unwrap()
     }
 }
-pub(crate) fn row(plugin: usize, token: u32, order: i16, index: u32) -> Subscription<'static> {
+pub(crate) fn row(plugin: u64, token: u32, order: i16, index: u32) -> Subscription<'static> {
     Subscription {
         stage: "core.widget",
         plugin,
@@ -309,7 +309,7 @@ fn revoked_frozen_owner_is_not_called_and_lazy_start_waits_for_run_drop() {
     let plugin = h.add("probe", Behavior::Good);
     let lazy = h
         .registry
-        .insert(Id::new_static("lazy"), None, true)
+        .test_insert(Id::new_static("lazy"), None, true)
         .unwrap();
     let InstanceState::Running(lease) = h.registry.state(plugin).unwrap() else {
         panic!("running");
@@ -417,7 +417,7 @@ fn missing_registry_row_is_reported_without_cancelling_valid_subscribers() {
         &h.depth,
         &input,
         &h.registry,
-        [row(usize::MAX, 9, -1, 0), row(plugin, 1, 0, 0)],
+        [row(u64::MAX, 9, -1, 0), row(plugin, 1, 0, 0)],
     )
     .unwrap();
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -437,6 +437,50 @@ fn missing_registry_row_is_reported_without_cancelling_valid_subscribers() {
         outcome,
         Outcome {
             applied: 1,
+            refused: 1
+        }
+    );
+}
+
+#[test]
+fn retired_registry_keys_are_skipped_without_cancelling_live_subscribers() {
+    let mut h = Harness::new();
+    let retired = h.add("retired", Behavior::Good);
+    let live = h.add("live", Behavior::Good);
+    assert!(h.registry.retire(retired).unwrap().is_none());
+    let replacement = h.add("retired", Behavior::Good);
+    assert!(replacement > retired);
+    let schema = schema();
+    let input = input();
+    let run = Run::prepare(
+        &schema,
+        &h.depth,
+        &input,
+        &h.registry,
+        [
+            row(retired, 9, -1, 0),
+            row(live, 1, 0, 0),
+            row(replacement, 2, 0, 0),
+        ],
+    )
+    .unwrap();
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let mut target = Vec::new();
+    let outcome = run
+        .apply(
+            &mut target,
+            &kernel.shared.env(paperpaw_platform::Instant(0)),
+            |target| copy_target(target),
+            apply,
+        )
+        .unwrap();
+    assert_eq!(target, [1, 2]);
+    assert_eq!(
+        outcome,
+        Outcome {
+            applied: 2,
             refused: 1
         }
     );

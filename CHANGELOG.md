@@ -25,6 +25,8 @@ change the plugin SDK.
   no file until native plugins are published. Reading the rating back and declaring its field and badge
   wait on the SDK; the screen's pictures on the host (#228).
 
+- Core native callbacks carry authoritative registry owner keys and checked,
+  nonzero callback epochs. Failed admission cannot reuse an issued owner key (#228).
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
   `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-ui-kit` gains item lists with
   footers, whole-file storage helpers and a screen registry (#228).

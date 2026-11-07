@@ -16,7 +16,7 @@ use paperpaw_sdk::{
         registrations,
         reply::Reply,
         settings::{self, SettingValue},
-        ui::{HandoverId, Instance, Open, Param, Ui},
+        ui::{HandoverId, Instance, Notify, Open, Param, Ui},
     },
 };
 use paperpaw_ui_kit::{
@@ -307,9 +307,14 @@ impl NativeEndOfBook {
             }
             Some(Row::Rate) => match view.rating {
                 // BLOCKED (#228): the rating already given cannot be read back
-                // (no SDK facade for LIB op 22), so a press would overwrite
-                // it unseen. Refused plainly, never faked.
-                Rating::Unknown => Err(Error::Unsupported),
+                // until `Library::fields` (LIB op 22, #325) has an SDK facade,
+                // so a press would overwrite it unseen. Said on screen, the
+                // rating untouched; never faked.
+                Rating::Unknown => {
+                    let text = messages.copy(host, "end-of-book.rate.unknown")?;
+                    let mut scratch = [0; 256];
+                    CommandSender::new(host, &mut scratch).notify(Notify::new(text)?)
+                }
                 Rating::Stars(stars) => {
                     let stars = native_model::next_stars(stars);
                     let value = native_model::field_value(stars)?;
@@ -327,11 +332,8 @@ impl NativeEndOfBook {
                 }
             },
             Some(Row::Finished) => {
-                view.finished = !view.finished;
-                let finished = view.finished;
-                if let Some(session) = self.kept.as_mut().filter(|s| s.path == view.path) {
-                    session.finished = finished;
-                }
+                // The view and the session follow only once the library took it.
+                let finished = !view.finished;
                 library.set_finished(
                     host,
                     BookRef::path(&view.path)?,
@@ -339,6 +341,10 @@ impl NativeEndOfBook {
                     &mut input,
                     &mut out,
                 )?;
+                view.finished = finished;
+                if let Some(session) = self.kept.as_mut().filter(|s| s.path == view.path) {
+                    session.finished = finished;
+                }
                 view.refresh(host, &mut messages)?;
                 redraw(host)
             }
