@@ -139,11 +139,24 @@ pub(crate) struct OwnerResourceView {
     owner: u64,
 }
 
+impl OwnerResourceView {
+    pub(crate) fn owner_id(&self) -> u64 {
+        self.owner
+    }
+    pub(crate) fn same_pool(&self, other: &Self) -> bool {
+        core::ptr::eq(&*self.table, &*other.table)
+    }
+}
+
 impl OwnerResources {
+    pub(crate) fn owner_id(&self) -> u64 {
+        self.owner
+    }
+
     pub(crate) fn try_view(&self) -> Option<OwnerResourceView> {
         self.table.try_clone().map(|table| OwnerResourceView {
             table,
-            owner: self.owner,
+            owner: self.owner_id(),
         })
     }
 

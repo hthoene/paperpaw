@@ -463,7 +463,7 @@ fn registry_dispatches_idle_retained_owner_and_releases_it_after_last_frozen_lea
     .unwrap();
     let mut registry = NativeInstances::default();
     let key = registry
-        .insert(paperpaw_sdk::Id::new_static("tokens"), Some(lease), true)
+        .test_insert(paperpaw_sdk::Id::new_static("tokens"), Some(lease), true)
         .unwrap();
     let env = kernel.shared.env(Instant(12));
     for expected in 1..=2 {

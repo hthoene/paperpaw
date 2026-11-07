@@ -454,6 +454,7 @@ impl Kernel {
             if self.stack[index].id.namespace() == owner.as_str() {
                 // The owner is revoked already. Dropping its private wrapper
                 // releases the lease without calling retired plugin code.
+                self.native_instance_closed(self.stack[index].serial);
                 self.stack.remove(index);
                 removed = true;
             }
