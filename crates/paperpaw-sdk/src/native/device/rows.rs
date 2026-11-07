@@ -331,6 +331,13 @@ impl NativeBuild<'_> {
     }
 }
 impl<'a> FileCheck<'a> {
+    /// Host-checked code or firmware digest, empty for an unsigned file.
+    /// This evidence does not replace the host's installation confirmation.
+    #[must_use]
+    pub const fn sha256(self) -> &'a [u8] {
+        self.row.sha256
+    }
+
     /// Checked signing key, empty when unsigned. No parsing or trust decision occurs here.
     #[must_use]
     pub fn signing_key(self) -> Option<&'a [u8; 32]> {
@@ -445,7 +452,11 @@ fn validate(record: Record<'_>) -> Result<(), Error> {
             Err(Error::Invalid)
         }
         Record::ServiceDevBuiltin(row) if row.id.is_empty() => Err(Error::Invalid),
-        Record::ServiceDevCheck(row) if !matches!(row.key.len(), 0 | 32) => Err(Error::Invalid),
+        Record::ServiceDevCheck(row)
+            if !matches!(row.key.len(), 0 | 32) || !matches!(row.sha256.len(), 0 | 32) =>
+        {
+            Err(Error::Invalid)
+        }
         Record::ServiceDevInstall(row) if row.request == 0 => Err(Error::Invalid),
         Record::ServiceDevNotInstalled(row) if row.plugin.is_empty() => Err(Error::Invalid),
         Record::ServiceDevKey(row) if row.name.is_empty() => Err(Error::Invalid),

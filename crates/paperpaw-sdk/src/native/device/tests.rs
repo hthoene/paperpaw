@@ -93,6 +93,7 @@ fn end(flags: u32, total: u32, generation: u32, next: u32) -> Record<'static> {
         total,
         generation,
         next,
+        cursor: None,
     })
 }
 
@@ -545,6 +546,7 @@ fn check_and_keys_validate_unsigned_evidence_empty_lists_and_truncation() {
             bytes: 123,
             signer: "",
             key: &[],
+            sha256: &[],
             id: "demo",
             version: "1",
             flags: 0,
@@ -555,6 +557,7 @@ fn check_and_keys_validate_unsigned_evidence_empty_lists_and_truncation() {
         .unwrap();
     assert_eq!(check.reason(), DeviceOutcome::Unsigned);
     assert!(check.signing_key().is_none());
+    assert!(check.sha256().is_empty());
     assert_eq!(state.op.get(), schema::OP_CHECK);
     let bytes = state.input.borrow();
     let batch = wire::records_decode(&bytes).unwrap();
@@ -578,4 +581,61 @@ fn check_and_keys_validate_unsigned_evidence_empty_lists_and_truncation() {
         state.reply.replace(complete[..n].to_vec());
         assert!(device.device(&host, &mut input, &mut out).is_err());
     }
+}
+
+#[test]
+fn file_check_digest_is_borrowed_exactly_or_absent() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let device = Device::open(&host).unwrap();
+    let mut input = [0; 256];
+    let mut out = [0; 4096];
+    let digest = [0x42; 32];
+    for sha256 in [&[][..], &digest[..]] {
+        reply(
+            &state,
+            &[Record::ServiceDevCheck(wire::ServiceDevCheck {
+                reason: 0,
+                needs_draft: 0,
+                bytes: 123,
+                signer: "Author",
+                key: &digest,
+                id: "demo",
+                version: "1",
+                flags: 0,
+                sha256,
+            })],
+        );
+        let start = out.as_ptr().addr();
+        let end = start + out.len();
+        let row = device
+            .check(&host, DeviceRequest::new(1).unwrap(), &mut input, &mut out)
+            .unwrap();
+        assert_eq!(row.sha256(), sha256);
+        if !sha256.is_empty() {
+            assert!((start..end).contains(&row.sha256().as_ptr().addr()));
+        }
+    }
+    reply(
+        &state,
+        &[Record::ServiceDevCheck(wire::ServiceDevCheck {
+            reason: 0,
+            needs_draft: 0,
+            bytes: 123,
+            signer: "Author",
+            key: &digest,
+            id: "demo",
+            version: "1",
+            flags: 0,
+            sha256: &digest[..31],
+        })],
+    );
+    assert!(matches!(
+        device.check(&host, DeviceRequest::new(1).unwrap(), &mut input, &mut out),
+        Err(Error::Invalid)
+    ));
 }
