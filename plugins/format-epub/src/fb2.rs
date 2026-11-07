@@ -632,11 +632,18 @@ impl Fb2Document {
 
 /// Unpacks the first `.fb2` of the archive at `zip` into `to`.
 fn unpack(storage: &dyn Storage, zip: &str, to: &str) -> Result<(), DocumentError> {
-    use paperpaw_sdk::zip::ZipArchive;
+    use paperpaw_sdk::zip::{ZipArchive, ZipError};
     let archive = ZipArchive::open(storage, zip).map_err(crate::package::error)?;
     let mut found = None;
     for entry in archive.entries(storage) {
-        let entry = entry.map_err(crate::package::error)?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error @ (ZipError::Storage(_) | ZipError::OutOfMemory)) => {
+                return Err(crate::package::error(error));
+            }
+            // Unrelated unsupported or damaged members must not hide a readable book.
+            Err(_) => continue,
+        };
         if entry
             .name
             .as_bytes()

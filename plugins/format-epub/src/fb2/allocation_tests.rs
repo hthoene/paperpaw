@@ -68,3 +68,27 @@ fn archive_open_and_entry_allocation_refusals_stay_out_of_memory() {
         assert!(!storage.exists("output"));
     }
 }
+
+#[test]
+fn unsupported_unrelated_entry_does_not_hide_a_readable_book() {
+    use paperpaw_sdk::zip::{ZipArchive, ZipError};
+    let mut bytes = ZipBuilder::new()
+        .stored("junk.bin", "unrelated")
+        .stored("book.fb2", "<FictionBook/>")
+        .build();
+    let central = bytes.windows(4).position(|b| b == b"PK\x01\x02").unwrap();
+    // The first member uses a compression method the ZIP reader doesn't support.
+    bytes[central + 10..central + 12].copy_from_slice(&99u16.to_le_bytes());
+    let storage = MemoryStorage::new().with("book.zip", bytes);
+    let archive = ZipArchive::open(&storage, "book.zip").unwrap();
+    // Entries are in hash order, not archive order: prove the error precedes the book.
+    assert!(matches!(
+        archive.entries(&storage).next(),
+        Some(Err(ZipError::Unsupported(_)))
+    ));
+    unpack(&storage, "book.zip", "output").unwrap();
+    assert_eq!(
+        paperpaw_sdk::read_file(&storage, "output", 100).unwrap(),
+        b"<FictionBook/>"
+    );
+}
