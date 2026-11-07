@@ -17,7 +17,7 @@
 //! relocations show it), no symbol exported besides the two, no writable
 //! data and nothing that would run before `make` (any section but `.rodata`
 //! and `.text` that takes memory is refused), and no relocation kind outside
-//! the short list, and no stack frame of 1.5 KiB or more nor one of a size the
+//! the short list, and no stack frame of 2 KiB or more nor one of a size the
 //! code does not tell ([`crate::frames`]: the X4 watches the stack's end with a
 //! band a bigger frame could step over). The loader sees none of that, only
 //! what the file shows.
