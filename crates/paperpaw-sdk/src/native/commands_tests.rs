@@ -527,6 +527,54 @@ fn registry_defaults_and_empty_customization_remain_distinct() {
 }
 
 #[test]
+fn bluetooth_commands_are_one_record_each_and_name_the_plugin_to_give_to() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; wire::COMMAND_MAX_BYTES];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    sender.bt_scan(10_000).unwrap();
+    sender.bt_stop_scan().unwrap();
+    sender.bt_pair(3).unwrap();
+    sender.bt_connect(3).unwrap();
+    sender.bt_disconnect(3).unwrap();
+    sender.bt_forget(3).unwrap();
+    sender.bt_give(4, "weather").unwrap();
+    sender.bt_take_back(4).unwrap();
+    sender.bt_keys(5, true).unwrap();
+    sender.bt_keys(5, false).unwrap();
+    // A plugin id is named, and no longer than the contract's 64 bytes.
+    assert_eq!(sender.bt_give(4, ""), Err(Error::Invalid));
+    assert_eq!(sender.bt_give(4, "x".repeat(65)), Err(Error::Invalid));
+    assert!(sender.bt_give(4, "x".repeat(64)).is_ok());
+    let expected = [
+        wire::Command::BtScan { lasting_ms: 10_000 },
+        wire::Command::BtStopScan {},
+        wire::Command::BtPair { device: 3 },
+        wire::Command::BtConnect { device: 3 },
+        wire::Command::BtDisconnect { device: 3 },
+        wire::Command::BtForget { device: 3 },
+        wire::Command::BtGive {
+            device: 4,
+            plugin: "weather",
+        },
+        wire::Command::BtTakeBack { device: 4 },
+        wire::Command::BtKeys { device: 5, on: 1 },
+        wire::Command::BtKeys { device: 5, on: 0 },
+    ];
+    let batches = ctx.batches.borrow();
+    // The two refused gives submitted nothing; the last, 64 bytes, did.
+    assert_eq!(batches.len(), expected.len() + 1);
+    for (bytes, expected) in batches.iter().zip(expected) {
+        let decoded = wire::commands_decode(bytes).unwrap();
+        assert_eq!(decoded.iter().next(), Some(expected));
+    }
+}
+
+#[test]
 fn plugin_answer_is_submitted_and_host_denial_is_reported() {
     let table = table();
     let mut ctx = Context::default();

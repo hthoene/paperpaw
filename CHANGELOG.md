@@ -19,6 +19,11 @@ change the plugin SDK.
 
 ### Added
 
+- Native SDK Bluetooth commands (`CommandSender::bt_scan`, `bt_stop_scan`, `bt_pair`, `bt_connect`,
+  `bt_disconnect`, `bt_forget`, `bt_give`, `bt_take_back`, `bt_keys`) and the typed `event.bluetooth`
+  (`Event::Bluetooth` with typed kind, device kind and reason; unknown values read as `Other`) for the
+  plugin bound to `core.bluetooth` (#228).
+
 - Settings 1.0.6: the interface-7 native plugin (main page, group pages, choosing a value, themes,
   search, reset, number editing with preview) over the registry service; `paperpaw-ui-kit` item
   rows gain − and + buttons and show a title that is already translated as it is (#228).
