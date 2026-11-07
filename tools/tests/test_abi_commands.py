@@ -356,7 +356,8 @@ class CommandTests(unittest.TestCase):
         from abi_declarations import wire_records
         self.assertEqual([item['id'] for item in self.growth(self.schema)],
                          list(range(1536, 1553)) + [1556, 1557, 1558, 1561, 1562, 1563,
-                                                                   1559, 1560])
+                                                                   1559, 1560]
+                         + list(range(1564, 1583)) + [1592] + list(range(1583, 1592)))
         self.assertFalse([r for r in wire_records(self.schema) if r['name'].startswith('command.')])
         source = rust_commands(self.schema)
         for line in ['pub const COMMAND_RESET_SETTING_TAG: u32 = 1536;',
@@ -387,6 +388,37 @@ class CommandTests(unittest.TestCase):
                       s['records'].append(dict(copy.deepcopy(self.growth(s)[0]), id=1601,
                                                name='command.open.screen_x')),
             lambda s: self.growth(s)[0].update(since=2),
+        ]
+        for index, mutate in enumerate(mutations):
+            candidate = copy.deepcopy(self.schema)
+            mutate(candidate)
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                ABI.validate(candidate)
+
+    def test_secret_fields_are_wrapped_and_closed(self):
+        # DEV (#228): a `secret` str field of a command is SecretText, whose
+        # Debug shows nothing of it; only those fields, only where marked.
+        def field(s, record, name):
+            item = next(r for r in s['records'] if r['name'] == record)
+            return next(f for f in item['fields'] if f['name'] == name)
+        source = rust_commands(self.schema)
+        for line in ["pub struct SecretText<'a>(&'a str);", "        password: SecretText<'a>,",
+                     '        f.write_str("SecretText(..)")',
+                     '    /// The `command.wifi_join` command (`docs/abi/device.md`).',
+                     '    /// The `command.reset_setting` command (`docs/abi/registry.md`).']:
+            self.assertIn(line, source)
+        self.assertEqual(source.count("password: SecretText<'a>,"), 2)
+        # Without a secret field the codec has no SecretText at all.
+        bare = copy.deepcopy(self.schema)
+        for record in ('command.wifi_join', 'command.wifi_host'):
+            del field(bare, record, 'password')['secret']
+        self.assertNotIn('SecretText', rust_commands(bare))
+        mutations = [
+            lambda s: field(s, 'command.wifi_join', 'password').update(secret=False),
+            lambda s: field(s, 'command.wifi_join', 'request').update(secret=True),
+            lambda s: field(s, 'command.install_firmware', 'key').update(secret=True),
+            lambda s: field(s, 'event.wifi_done', 'ssid').update(secret=True),
+            lambda s: field(s, 'command.set_menu', 'items').update(secret=True),
         ]
         for index, mutate in enumerate(mutations):
             candidate = copy.deepcopy(self.schema)

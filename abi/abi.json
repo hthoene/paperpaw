@@ -1404,6 +1404,31 @@
         "key": "uses.library",
         "revision": 1,
         "since": 1
+      },
+      {
+        "key": "uses.wifi",
+        "revision": 1,
+        "since": 1
+      },
+      {
+        "key": "uses.power",
+        "revision": 1,
+        "since": 1
+      },
+      {
+        "key": "uses.install",
+        "revision": 1,
+        "since": 1
+      },
+      {
+        "key": "uses.firmware",
+        "revision": 1,
+        "since": 1
+      },
+      {
+        "key": "uses.bluetooth",
+        "revision": 1,
+        "since": 1
       }
     ],
     "format": 2,
@@ -1617,6 +1642,13 @@
       },
       {
         "key": "core.lookup",
+        "major": 1,
+        "min_table_bytes": 0,
+        "semantic_revision": 0,
+        "since": 1
+      },
+      {
+        "key": "core.device",
         "major": 1,
         "min_table_bytes": 0,
         "semantic_revision": 0,
@@ -11215,9 +11247,2047 @@
       "id": 1124,
       "name": "service.lib_receipt",
       "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "id",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "model",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "catalog",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "class",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "caps",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "controls",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "tls_sessions",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "start",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "slept_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1125,
+      "name": "service.dev_device",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "value",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        }
+      ],
+      "id": 1126,
+      "name": "service.dev_value",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "version",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "project",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "chip",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "room",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "undone",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "state",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "done",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "total",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1127,
+      "name": "service.dev_firmware",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "id",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "version",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1128,
+      "name": "service.dev_builtin",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "abi_major",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "abi_draft",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "target",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "code_file",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "safe_mode",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "crashed",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "last_loaded",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "pending",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "not_installed",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "room_free",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "room_largest",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 1129,
+      "name": "service.dev_native",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "needs_draft",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "bytes",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "signer",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "key",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "id",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "version",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1130,
+      "name": "service.dev_check",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "heap_free",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "heap_size",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "largest",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "stack_free",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "stack_size",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "external_free",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "external_size",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1131,
+      "name": "service.dev_memory",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "state",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "ssid",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 45,
+          "name": "address",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 63,
+          "name": "host_name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "guests",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1132,
+      "name": "service.dev_wifi",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "ssid",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "signal",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1133,
+      "name": "service.dev_network",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "radio",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "max_links",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1134,
+      "name": "service.dev_bluetooth",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "device",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "given",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1135,
+      "name": "service.dev_bonded",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "base_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1136,
+      "name": "service.dev_interval",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "level",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "mode",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "stretch",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "every_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1137,
+      "name": "service.dev_power",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1138,
+      "name": "service.dev_request",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "state",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "status",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "done",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "total",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "id",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1139,
+      "name": "service.dev_install",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "plugin",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1140,
+      "name": "service.dev_not_installed",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1141,
+      "name": "service.dev_key",
+      "since": 1
+    },
+    {
+      "fields": [],
+      "id": 1564,
+      "name": "command.wifi_on",
+      "since": 1
+    },
+    {
+      "fields": [],
+      "id": 1565,
+      "name": "command.wifi_off",
+      "since": 1
+    },
+    {
+      "fields": [],
+      "id": 1566,
+      "name": "command.wifi_scan",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "ssid",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 63,
+          "name": "password",
+          "optional": false,
+          "ordinal": null,
+          "secret": true,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1567,
+      "name": "command.wifi_join",
+      "since": 1
+    },
+    {
+      "fields": [],
+      "id": 1568,
+      "name": "command.wifi_leave",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "ssid",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 63,
+          "name": "password",
+          "optional": false,
+          "ordinal": null,
+          "secret": true,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1569,
+      "name": "command.wifi_host",
+      "since": 1
+    },
+    {
+      "fields": [],
+      "id": 1570,
+      "name": "command.network_none",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "for_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1571,
+      "name": "command.go_online",
+      "since": 1
+    },
+    {
+      "fields": [],
+      "id": 1572,
+      "name": "command.sleep",
+      "since": 1
+    },
+    {
+      "fields": [],
+      "id": 1573,
+      "name": "command.power_off",
+      "since": 1
+    },
+    {
+      "fields": [],
+      "id": 1574,
+      "name": "command.restart",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "mode",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1575,
+      "name": "command.wear",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "root",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 512,
+          "name": "path",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1576,
+      "name": "command.install_plugin",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "plugin",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1577,
+      "name": "command.remove_plugin",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "root",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 512,
+          "name": "path",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "key",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1578,
+      "name": "command.install_firmware",
+      "since": 1
+    },
+    {
+      "fields": [],
+      "id": 1579,
+      "name": "command.firmware_restart",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "author",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "recovery",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        }
+      ],
+      "id": 1580,
+      "name": "command.install_author",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "to",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "signature",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        }
+      ],
+      "id": 1581,
+      "name": "command.install_rotation",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "plugin",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "key",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "signature",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        }
+      ],
+      "id": 1582,
+      "name": "command.trust_revoked",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "root",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 512,
+          "name": "path",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1592,
+      "name": "command.check_file",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "lasting_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1583,
+      "name": "command.bt_scan",
+      "since": 1
+    },
+    {
+      "fields": [],
+      "id": 1584,
+      "name": "command.bt_stop_scan",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "device",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1585,
+      "name": "command.bt_pair",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "device",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1586,
+      "name": "command.bt_connect",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "device",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1587,
+      "name": "command.bt_disconnect",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "device",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1588,
+      "name": "command.bt_forget",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "device",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "plugin",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1589,
+      "name": "command.bt_give",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "device",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1590,
+      "name": "command.bt_take_back",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "device",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "on",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1591,
+      "name": "command.bt_keys",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "networks",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 92,
+      "name": "event.wifi_scanned",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "ssid",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "status",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "state",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 93,
+      "name": "event.wifi_done",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 94,
+      "name": "event.network_wanted",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        }
+      ],
+      "id": 95,
+      "name": "event.network_idle",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "state",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 96,
+      "name": "event.firmware_changed",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "status",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "id",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 97,
+      "name": "event.install_done",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "device",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "name",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "device_kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "signal",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "i32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "reason",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 98,
+      "name": "event.bluetooth",
+      "since": 1
     }
   ],
   "services": [
+    {
+      "key": "core.device",
+      "major": 1,
+      "ops": [
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 1,
+          "input": [],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "device",
+          "reply": [
+            "service.dev_device"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 2,
+          "input": [],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "values",
+          "paged": false,
+          "reply": [
+            "service.dev_value",
+            "service.end"
+          ],
+          "reply_rows": 8,
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 3,
+          "input": [],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "firmware",
+          "reply": [
+            "service.dev_firmware"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 4,
+          "input": [
+            "service.reg_query"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "builtin",
+          "reply": [
+            "service.dev_builtin",
+            "service.end"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 5,
+          "input": [],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "native",
+          "reply": [
+            "service.dev_native"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 6,
+          "input": [
+            "service.dev_request"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "check",
+          "reply": [
+            "service.dev_check"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 7,
+          "input": [],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "memory",
+          "reply": [
+            "service.dev_memory"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 8,
+          "input": [],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "wifi",
+          "reply": [
+            "service.dev_wifi"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 9,
+          "input": [
+            "service.reg_query"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "networks",
+          "reply": [
+            "service.dev_network",
+            "service.end"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 10,
+          "input": [],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "bluetooth",
+          "reply": [
+            "service.dev_bluetooth"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 11,
+          "input": [
+            "service.reg_query"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "bonded",
+          "reply": [
+            "service.dev_bonded",
+            "service.end"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 12,
+          "input": [
+            "service.dev_interval"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "power",
+          "reply": [
+            "service.dev_power"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 13,
+          "input": [
+            "service.dev_request"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "install",
+          "reply": [
+            "service.dev_install"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 14,
+          "input": [
+            "service.reg_query"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "not_installed",
+          "reply": [
+            "service.dev_not_installed",
+            "service.end"
+          ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 15,
+          "input": [],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "keys",
+          "paged": false,
+          "reply": [
+            "service.dev_key",
+            "service.end"
+          ],
+          "reply_rows": 32,
+          "since": 0
+        }
+      ],
+      "page_rows": 32,
+      "revision": 0,
+      "since": 1,
+      "test_only": false
+    },
     {
       "key": "core.document",
       "major": 1,
