@@ -3,8 +3,9 @@
 Contract draft for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
 questions for Plugin, Firmware and Senior. Inputs: Firmware's DEV inventory and draft (#931,
 `/home/agent/shared/dev-family-228.md`, whose sections 1, 2 and 8 are taken as the inventory and
-whose open questions section 9 settles), the plugin needs inventory (#984, DEV section), the C-family
-proposals (#890 2.12), `registry.md` (plugin rows, `set_plugin_enabled`, `request_plugins` /
+whose open questions section 9 settles), the plugin needs inventory (#984, DEV section), the
+C-family proposals (#890 2.12), `registry.md` (plugin rows, `set_plugin_enabled`, `request_plugins`
+/
 `answer_plugin`), `core-events.md` (events 70-72), `ui.md` (host-drawn confirmations, the guard) and
 owner decisions 124, 132 and 134. Doc-only; records follow once approved. Tags are proposed and
 numbered without gaps at the records step.
@@ -29,8 +30,8 @@ numbered without gaps at the records step.
   the user** (decision 132) and **every firmware change asks the user** (decision 134), in a
   host-drawn confirmation no plugin draws, covers or answers.
 - [D] **Interrupted changes never activate half a state** (inventory rule 2): plugin installs are
-  staged and swapped by rename with a journal, firmware goes to the other slot and is verified before
-  the switch, and a start after a cut finishes or rolls back (section 5).
+  staged and swapped by rename with a journal, firmware goes to the other slot and is verified
+  before the switch, and a start after a cut finishes or rolls back (section 5).
 - [D] **Enabled, available and running are different states** (rule 3): REG op 6 rows
   (`reg_plugin.state`, `problem`) keep them apart; DEV adds no second inventory.
 - [D] **Portable batches:** a well-formed command for a capability the device lacks (Wi-Fi on
@@ -39,8 +40,8 @@ numbered without gaps at the records step.
   `dev_device.caps`. Feature checks are not capability checks: they refuse.
 - Out of DEV: the plugin inventory and enabling (REG), stored secrets and randomness (SEC), HTTP and
   sockets (NET, SOCK), scheduled work (ASY), the battery and display snapshot (slot 4, done). Not
-  carried for 1.0 (no first-party user; additive later): Bluetooth GATT and advertising, the developer
-  link, wake holds, USB drive mode (#32), screenshots.
+  carried for 1.0 (no first-party user; additive later): Bluetooth GATT and advertising, the
+  developer link, wake holds, USB drive mode (#32), screenshots.
 
 ## 1. Features
 
@@ -54,7 +55,8 @@ numbered without gaps at the records step.
 
 - [D] With `uses.install` defined, REG's `answer_plugin` refusal (`registry.md` 4.2: `ERR_DENIED`
   for every plugin until DEV defines it) becomes: allowed for a plugin that declares `uses.install`,
-  `ERR_DENIED` for others; the test that fails once `uses.install` exists is replaced by tests of both.
+  `ERR_DENIED` for others; the test that fails once `uses.install` exists is replaced by tests of
+  both.
 
 ## 2. The service `core.device` (major 1)
 
@@ -98,14 +100,15 @@ agree (a host test).
 | 1106 | `service.dev_request` | `request: u32` |
 | 1107 | `service.dev_install` | `request: u32`, `kind: u32`, `state: u32`, `status: i32`, `done: u64`, `total: u64`, `id: str 64` |
 
-- [D] `dev_device` (interface 6 `env.device()`, `caps()`, `catalog_device()`): `id` the stable device
-  id (`xteink-x4`), `model` its name, `catalog` the store's device name (`x4`, empty for none),
-  `class` the memory class (0 small, 1 medium, 2 large), `caps` bit 0 touch, 1 network, 2 Wi-Fi
-  managed by PaperPaw, 3 Bluetooth, 4 firmware updates, 5 speech, 6 sleep, 7 rotation, 8 colours, 9
-  button row, 10 system clipboard, 11 frontlight, 12 black and white, 13 power off (unknown bits
-  ignored, new ones appended); `controls` the power controls (bit 0 radio, 1 CPU clock, 2 buttons, 3
-  frontlight, 4 system saver); `start` 0 unknown, 1 power on, 2 woke, 3 restart, 4 after a fault;
-  `flags` bit 0 `slept_ms` known. The user's device name is the setting `core.device-name` (slot 5).
+- [D] `dev_device` (interface 6 `env.device()`, `caps()`, `catalog_device()`): `id` the stable
+  device id (`xteink-x4`), `model` its name, `catalog` the store's device name (`x4`, empty for
+  none), `class` the memory class (0 small, 1 medium, 2 large), `caps` bit 0 touch, 1 network, 2
+  Wi-Fi managed by PaperPaw, 3 Bluetooth, 4 firmware updates, 5 speech, 6 sleep, 7 rotation, 8
+  colours, 9 button row, 10 system clipboard, 11 frontlight, 12 black and white, 13 power off
+  (unknown bits ignored, new ones appended); `controls` the power controls (bit 0 radio, 1 CPU
+  clock, 2 buttons, 3 frontlight, 4 system saver); `start` 0 unknown, 1 power on, 2 woke, 3 restart,
+  4 after a fault; `flags` bit 0 `slept_ms` known. The user's device name is the setting
+  `core.device-name` (slot 5).
 - [D] `dev_value` (interface 6 `env.status().value(name)`, diagnostics only; Firmware's Q3): named
   values (`usb-pin-high`, `usb-frames`, `frontlight-percent`, `temperature-c`), at most 8, names
   `[a-z0-9-]{1,32}`; a build may add names without a new interface.
@@ -117,8 +120,8 @@ agree (a host test).
   `target` the chip id (5 ESP32-C3), `code_file` (`code.ppn`), `safe_mode` 0 or a reason,
   `safe_mode_plugin` the plugin that caused it, `not_installed` how many plugins wait for a restart,
   `room_free`/`room_largest` the code flash. Interface 6's `fingerprint` and `toolchain` go: the
-  catalog filter uses `abi_major`, `abi_draft`, `target` and `code_file` (a release dependency of the
-  store site, Firmware's Q9).
+  catalog filter uses `abi_major`, `abi_draft`, `target` and `code_file` (a release dependency of
+  the store site, Firmware's Q9).
 - [D] `dev_memory` (interface 6 `env.memory()`): a probe walks the stack on the X4, so the host does
   one real probe per 250 ms and answers the cached one inside that window (`flags` bit 0 cached).
 - [D] `dev_wifi` (`state` 0 off, 1 on, 2 joining, 3 online, 4 hosting; `flags` bit 0 scanning, 1
@@ -199,10 +202,10 @@ agree (a host test).
 - [D] Op 6 `check` (`dev_check_ask`: `root` 0 the caller's Data or 1 with `uses.storage`, `path` a
   `.ppn` file, a plugin folder or a firmware image, `kind` 0 plugin, 1 firmware; Firmware's Q4) runs
   the loader's own checks without changing anything: `verdict` 0 fits, 1 needs a newer interface
-  (`needs_draft`), 2 built for an older interface, 3 another chip, 4 no room, 5 damaged, 6 signed by a
-  revoked or unknown key, 7 unsigned where the user requires signatures, 8 older firmware than
-  installed; `bytes`, `signer` (the key's name), `id`, `version`, `flags` bit 0 data plugin (no code).
-  The store and update show it before they ask; they never parse `.ppn` headers themselves.
+  (`needs_draft`), 2 built for an older interface, 3 another chip, 4 no room, 5 damaged, 6 signed by
+  a revoked or unknown key, 7 unsigned where the user requires signatures, 8 older firmware than
+  installed; `bytes`, `signer` (the key's name), `id`, `version`, `flags` bit 0 data plugin (no
+  code). The store and update show it before they ask; they never parse `.ppn` headers themselves.
 
 ### 5.2 Plugins
 
@@ -210,18 +213,18 @@ agree (a host test).
   downloaded a `.ppn` or a folder into `path` (its root 0, or root 1 with `uses.storage`); `request`
   its own number for the outcome; `flags` bit 0 replace an installed plugin of the same id (an
   update), bit 1 allow an older version. The host checks it (5.1), then **asks the user** (decision
-  132) in a host-drawn confirmation naming the asking plugin, the plugin's id, name, version,
-  signer and what it declares (`uses.*`, as the store page); declined or dismissed is `install_done`
-  status `ERR_DENIED` or `ERR_CANCELLED`. On yes it copies into `plugins/.<id>.part`, syncs, verifies
-  again, then swaps (journal, 5.4); the outcome is `install_done`; code plugins load at the next start
-  (`dev_native.not_installed`). While a guard is up the confirmation waits (`ui.md` 4.3).
+  132) in a host-drawn confirmation naming the asking plugin, the plugin's id, name, version, signer
+  and what it declares (`uses.*`, as the store page); declined or dismissed is `install_done` status
+  `ERR_DENIED` or `ERR_CANCELLED`. On yes it copies into `plugins/.<id>.part`, syncs, verifies
+  again, then swaps (journal, 5.4); the outcome is `install_done`; code plugins load at the next
+  start (`dev_native.not_installed`). While a guard is up the confirmation waits (`ui.md` 4.3).
 - [D] **Grants for data plugins**: the user may allow one plugin to install data plugins (fonts,
   hyphenation, translations) without asking each time, the host grant `core.grant.install.<asking
   plugin>` (a host setting, off by default, REG-visible); code plugins always ask.
 - [D] `remove_plugin` (`RemovePlugin`): removes an installed plugin (not one built into the image:
   `ERR_DENIED`); the host asks the user whether its Data folder goes too, default keep (decision
-  124, its safety rules: removal only of `.paperpaw/plugins/<id>/` resolved from a validated id, by a
-  journalled rename into `.removing`). `flags` reserved.
+  124, its safety rules: removal only of `.paperpaw/plugins/<id>/` resolved from a validated id, by
+  a journalled rename into `.removing`). `flags` reserved.
 
 ### 5.3 Firmware
 
@@ -232,8 +235,8 @@ agree (a host test).
   any grant), then writes the other slot in bounded steps from its main loop (one flash page per
   step, the watchdog fed), verifies the written slot, and only then marks it to boot;
   `firmware_changed` reports progress, `install_done` the end. `firmware_restart` starts the
-  installed image (asks nothing more: the user said yes to the install). At most one firmware request
-  at a time (`ERR_BUSY`).
+  installed image (asks nothing more: the user said yes to the install). At most one firmware
+  request at a time (`ERR_BUSY`).
 
 ### 5.4 Power loss and card failure
 
@@ -272,9 +275,9 @@ agree (a host test).
 - Verifying: one 4 KiB buffer for hashing and the signature check, during a check or a copy only.
 - The confirmation: host-drawn over the screen with the host's own text, about 1 KiB while shown.
 - Firmware writes: one flash page buffer (4 KiB) while installing (the existing OTA path).
-- **X4 worst case for DEV's host side: about 9.5 KiB while a firmware install runs** (verify 4 + page
-  4 + confirmation 1 + requests 0.5), all fallible, nothing when idle; an activation-gate item beside
-  UIX, DOC and LIB.
+- **X4 worst case for DEV's host side: about 9.5 KiB while a firmware install runs** (verify 4 +
+  page 4 + confirmation 1 + requests 0.5), all fallible, nothing when idle; an activation-gate item
+  beside UIX, DOC and LIB.
 
 ## 7. Interface-6 calls and their interface-7 form
 
