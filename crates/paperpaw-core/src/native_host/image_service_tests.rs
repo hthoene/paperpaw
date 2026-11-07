@@ -138,8 +138,7 @@ fn a_frame_that_draws_another_picture_unprotects_the_ids_it_did_not_use() {
     let ids: Vec<u32> = (0..DOC_IMAGES as u32)
         .map(|n| add(&t, A, doc(1, n), &std::format!("c/{n}.gray")).unwrap())
         .collect();
-    // A frame that draws nothing protects nothing less.
-    t.end_frame(A).unwrap();
+    // A frame is not over until it ends: all eight are pinned meanwhile.
     assert_eq!(add(&t, A, doc(1, 8), "c/8.gray"), Err(ERR_BUSY));
     // A frame that drew only the first: the others are free to go.
     let mut fb = screen();
@@ -153,6 +152,29 @@ fn a_frame_that_draws_another_picture_unprotects_the_ids_it_did_not_use() {
     assert_eq!(gone, 1);
     // Another plugin's frames do not touch this one's protection.
     t.end_frame(B).unwrap();
+}
+
+#[test]
+fn a_text_only_frame_ends_the_protection_of_abandoned_ids() {
+    let t = ImageTable::new();
+    for n in 0..DOC_IMAGES {
+        add(&t, A, doc(1, n as u32), &std::format!("c/{n}.gray")).unwrap();
+    }
+    assert_eq!(add(&t, A, doc(1, 8), "c/8.gray"), Err(ERR_BUSY));
+    // The reader moved on and draws a frame of text: nothing pins the ids.
+    t.end_frame(A).unwrap();
+    assert!(add(&t, A, doc(1, 8), "c/8.gray").is_ok());
+    // Another plugin's text-only frame does not free this one's new id.
+    t.end_frame(B).unwrap();
+    assert_eq!(
+        t.lock()
+            .unwrap()
+            .entries
+            .iter()
+            .filter(|e| e.protected)
+            .count(),
+        1
+    );
 }
 
 #[test]
@@ -460,9 +482,27 @@ fn a_format_picture_becomes_an_image_id_after_the_cache_check() {
         "a\0b",
         ".complete",
         ".host/a.gray",
+        "./a.gray",
+        "./.host/a.gray",
+        ".HOST/a.gray",
+        ".Host/x/a.gray",
+        "HOST~1/a.gray",
+        "host~12/a.gray",
+        ".COMPLETE",
+        "COMPLE~1",
+        "a:b.gray",
+        "a.gray.",
+        "nul.gray",
     ] {
         assert_eq!(map(bad, &fmt_image(5, 8, 4), true), Ok(None), "{bad:?}");
     }
+    // Names that only look alike are fine.
+    gray_file(&storage, ".paperpaw/cache/k/f/c/hostile/a.gray", 8, 4, 40);
+    assert!(
+        map("hostile/a.gray", &fmt_image(7, 8, 4), true)
+            .unwrap()
+            .is_some()
+    );
     // A cover (`u32::MAX`) is a document image like the others.
     gray_file(&storage, ".paperpaw/cache/k/f/c/cover.gray", 6, 6, 9);
     assert!(map("cover.gray", &fmt_image(u32::MAX, 6, 6), false).is_ok());
@@ -526,4 +566,122 @@ fn a_fmt_image_record_becomes_the_openers_doc_image() {
         t.map_fmt_image(&storage, A, 7, CACHE, &lying, true),
         Ok(None)
     );
+}
+
+/// A card whose reads stop working after a number of them.
+struct Flaky {
+    inner: MemoryStorage,
+    reads_left: core::cell::Cell<usize>,
+}
+
+impl paperpaw_platform::Storage for Flaky {
+    fn read_at(
+        &self,
+        path: &str,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> Result<usize, paperpaw_platform::StorageError> {
+        let left = self.reads_left.get();
+        if left == 0 {
+            return Err(paperpaw_platform::StorageError::Io);
+        }
+        self.reads_left.set(left - 1);
+        self.inner.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, paperpaw_platform::StorageError> {
+        self.inner.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.append(path, data)
+    }
+    fn list(
+        &self,
+        dir: &str,
+        visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.remove(path)
+    }
+}
+
+fn unseen(t: &ImageTable) -> bool {
+    let inner = t.lock().unwrap();
+    inner.entries[0].protected && inner.entries[0].drawn == 0
+}
+
+#[test]
+fn a_truncated_file_is_refused_with_nothing_drawn() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "c/p.gray", 8, 4, 40);
+    let id = add(&t, A, doc(1, 0), "c/p.gray").unwrap();
+    // The header still says 8 x 4, the payload is cut short.
+    let size = storage.size("c/p.gray").unwrap();
+    let mut cut = std::vec![0_u8; usize::try_from(size).unwrap() - 5];
+    assert_eq!(storage.read_at("c/p.gray", 0, &mut cut), Ok(cut.len()));
+    storage.write("c/p.gray", &cut).unwrap();
+    let mut fb = screen();
+    let mut canvas = fb.canvas();
+    let r = t.draw(A, id, &mut canvas, &storage, 0, 0, 8, 4, 0);
+    assert_eq!(r, Err(ERR_IO));
+    assert_eq!(gray(&canvas, 2, 2), 255, "nothing drawn");
+    assert!(unseen(&t), "and not counted as drawn");
+}
+
+#[test]
+fn a_card_that_stops_reading_ends_the_draw_with_io_and_is_not_a_draw() {
+    let t = ImageTable::new();
+    let inner = MemoryStorage::new();
+    gray_file(&inner, "c/p.gray", 8, 40, 40);
+    let id = t.add(A, doc(1, 0), "c/p.gray", 8, 40, false).unwrap();
+    let card = Flaky {
+        inner,
+        // The header probe reads once; the rows come in one read each.
+        reads_left: core::cell::Cell::new(1),
+    };
+    let mut fb = screen();
+    let mut canvas = fb.canvas();
+    let r = t.draw(A, id, &mut canvas, &card, 0, 0, 8, 40, 0);
+    assert_eq!(r, Err(ERR_IO));
+    assert_eq!(gray(&canvas, 2, 2), 255, "no band before the failed read");
+    assert!(unseen(&t));
+    // The same card, working again, draws it.
+    card.reads_left.set(usize::MAX);
+    assert_eq!(t.draw(A, id, &mut canvas, &card, 0, 0, 8, 40, 0), Ok(()));
+    assert_eq!(gray(&canvas, 2, 2), 40);
+}
+
+#[test]
+fn every_allocation_of_a_draw_may_fail_and_the_canvas_stays_as_it_was() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "c/p.gray", 8, 4, 40);
+    let id = add(&t, A, doc(1, 0), "c/p.gray").unwrap();
+    let mut failed = 0;
+    for nth in 1..=40 {
+        let mut fb = screen();
+        let mut canvas = fb.canvas();
+        FAIL_NTH.with(|n| n.set(nth));
+        let r = t.draw(A, id, &mut canvas, &storage, 0, 0, 16, 8, 0);
+        FAIL_NTH.with(|n| n.set(0));
+        match r {
+            Ok(()) => assert_eq!(gray(&canvas, 8, 4), 40, "nth {nth}"),
+            Err(error) => {
+                failed += 1;
+                assert_eq!(error, ERR_NO_MEMORY, "nth {nth}");
+                assert_eq!(gray(&canvas, 8, 4), 255, "nth {nth}: nothing drawn");
+            }
+        }
+    }
+    assert!(failed > 0, "the draw does allocate, fallibly");
+    // And it still draws.
+    let mut fb = screen();
+    let mut canvas = fb.canvas();
+    assert_eq!(t.draw(A, id, &mut canvas, &storage, 0, 0, 16, 8, 0), Ok(()));
 }

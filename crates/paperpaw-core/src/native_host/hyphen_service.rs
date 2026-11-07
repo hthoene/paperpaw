@@ -165,7 +165,7 @@ pub(crate) fn hyphenate(
     }
     tables.words += 1;
     let now = tables.words;
-    let Some(index) = ensure_open(state, &mut tables, &resolved, key, epoch, now) else {
+    let Some(index) = ensure_open(state, &mut tables, resolved, key, epoch, now) else {
         // Cannot be read at this moment: the word is left whole.
         return Ok(0);
     };
@@ -185,9 +185,9 @@ pub(crate) fn hyphenate(
             }
         });
         if entry.table.is_failed() {
-            let tag = entry.tag.clone();
-            tables.open.remove(index);
-            strike(&mut tables, tag, epoch, false);
+            // The table is closed; its own name is the strike's.
+            let closed = tables.open.remove(index);
+            strike(&mut tables, &closed.tag, epoch, false);
             return Ok(0);
         }
     }
@@ -199,8 +199,8 @@ pub(crate) fn hyphenate(
 }
 
 /// The tag, then it without its last `-` part, until a table is found that
-/// has not failed twice.
-fn resolve(state: &HyphenState, tables: &Tables, tag: &str) -> Option<(String, u64)> {
+/// has not failed twice; the form found borrows from `tag` (no allocation).
+fn resolve<'t>(state: &HyphenState, tables: &Tables, tag: &'t str) -> Option<(&'t str, u64)> {
     let mut candidate = tag;
     loop {
         if !tables
@@ -209,17 +209,23 @@ fn resolve(state: &HyphenState, tables: &Tables, tag: &str) -> Option<(String, u
             .any(|s| s.strikes >= 2 && s.tag.eq_ignore_ascii_case(candidate))
             && let Some(key) = state.host.find(candidate)
         {
-            let mut lower = String::new();
-            lower.try_reserve_exact(candidate.len()).ok()?;
-            lower.extend(candidate.chars().map(|c| c.to_ascii_lowercase()));
-            return Some((lower, key));
+            return Some((candidate, key));
         }
         candidate = candidate.rsplit_once('-')?.0;
     }
 }
 
-fn strike(tables: &mut Tables, tag: String, epoch: u64, unsound: bool) {
-    if let Some(s) = tables.strikes.iter_mut().find(|s| s.tag == tag) {
+/// Counts a failure of the table of `tag` in this card's epoch (two close
+/// the language until the card changes; `unsound` is two at once). The
+/// history is kept whether or not the table opens again: it ends only with
+/// the epoch. A failure that cannot be written down (no room for its entry)
+/// is not counted: the table is tried again, never shut out wrongly.
+fn strike(tables: &mut Tables, tag: &str, epoch: u64, unsound: bool) {
+    if let Some(s) = tables
+        .strikes
+        .iter_mut()
+        .find(|s| s.tag.eq_ignore_ascii_case(tag))
+    {
         s.strikes = if unsound {
             2
         } else {
@@ -227,13 +233,16 @@ fn strike(tables: &mut Tables, tag: String, epoch: u64, unsound: bool) {
         };
         return;
     }
-    if tables.strikes.try_reserve(1).is_ok() {
-        tables.strikes.push(Strike {
-            tag,
-            epoch,
-            strikes: if unsound { 2 } else { 1 },
-        });
+    let mut owned = String::new();
+    if owned.try_reserve_exact(tag.len()).is_err() || tables.strikes.try_reserve(1).is_err() {
+        return;
     }
+    owned.extend(tag.chars().map(|c| c.to_ascii_lowercase()));
+    tables.strikes.push(Strike {
+        tag: owned,
+        epoch,
+        strikes: if unsound { 2 } else { 1 },
+    });
 }
 
 /// The index of the open table of `tag`, opening it within the rules.
@@ -247,13 +256,17 @@ fn ensure_open(
 ) -> Option<usize> {
     // A table opened before the card changed is dropped.
     tables.open.retain(|o| o.epoch == epoch);
-    if let Some(index) = tables.open.iter().position(|o| o.tag == tag) {
+    if let Some(index) = tables
+        .open
+        .iter()
+        .position(|o| o.tag.eq_ignore_ascii_case(tag))
+    {
         return Some(index);
     }
     let (file, identity) = match state.host.open(key) {
         Ok(opened) => opened,
         Err(_) => {
-            strike(tables, String::from(tag), epoch, false);
+            strike(tables, tag, epoch, false);
             return None;
         }
     };
@@ -262,7 +275,7 @@ fn ensure_open(
         Ok(bound) => bound,
         Err(error) => {
             let unsound = matches!(error, CheckError::Table(_));
-            strike(tables, String::from(tag), epoch, unsound);
+            strike(tables, tag, epoch, unsound);
             return None;
         }
     };
@@ -289,10 +302,11 @@ fn ensure_open(
     }
     let mut owned = String::new();
     owned.try_reserve_exact(tag.len()).ok()?;
-    owned.push_str(tag);
+    owned.extend(tag.chars().map(|c| c.to_ascii_lowercase()));
     match StoredPatterns::open_within(source, identity, CACHE_BLOCKS, HEAP_BUDGET - used) {
         Ok(table) => {
-            tables.strikes.retain(|s| s.tag != owned);
+            // A strike stays: a table that opens and then fails to read,
+            // again and again, is shut out at the second.
             tables.open.push(Open {
                 tag: owned,
                 epoch,
@@ -304,7 +318,7 @@ fn ensure_open(
         Err(OpenError::NoMemory | OpenError::OverBudget { .. }) => None,
         Err(OpenError::Check(error)) => {
             let unsound = matches!(error, CheckError::Table(_));
-            strike(tables, owned, epoch, unsound);
+            strike(tables, &owned, epoch, unsound);
             None
         }
         Err(_) => None,
