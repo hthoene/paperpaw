@@ -27,6 +27,8 @@ change the plugin SDK.
   generation cursor. Typed book-field and badge declarations expose the existing
   library records to providers (#228).
 
+- `paperpaw-config`: `Value::try_as_str` (one fallible reservation for escaped values, so an X4
+  plugin gets an error instead of an abort) and `Value::is_escaped` (#228).
 - Settings 1.0.6: the interface-7 native plugin (main page, group pages, choosing a value, themes,
   search, reset, number editing with preview) over the registry service; `paperpaw-ui-kit` item
   rows gain − and + buttons and show a title that is already translated as it is (#228).
