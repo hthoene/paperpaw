@@ -188,8 +188,10 @@ Field meanings:
 - `reg_menu_row.kind`: 0 action, 1 setting, 2 submenu, 3 section; `flags`: bit 0 checked, 1
   enabled, 2 hidden, 3 removed, 4 user-defined menu (per row; the menu-level flag is op 11's
   `reg_item.flags` bit 5), 5 in the declared rows (the editor's
-  "default" set). `by` is the plugin that declared the row, or for a hidden row the plugin whose
-  `menu.hide` hides it. `describe` is the `menu.describe` text, translated.
+  "default" set), 6 `switch` (the row shows a switch: an action whose last
+  `command.set_item_state` set `switch`, or a Boolean setting; bit 0 is then whether it is on, so
+  an off switch differs from a plain action). `by` is the plugin that declared the row, or for a
+  hidden row the plugin whose `menu.hide` hides it. `describe` is the `menu.describe` text, translated.
 - `reg_value`: a setting id (with the placement for a placement) and its value, `settings_value`
   encoding, never cut; `flags` bit 0 "as if not set" (a preset that resets it), bit 1 hidden
   (section 2.3; `value` empty).
