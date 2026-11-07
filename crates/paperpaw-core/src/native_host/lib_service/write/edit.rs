@@ -387,14 +387,12 @@ fn plan(edit: &wire::ServiceLibEdit<'_>) -> Result<(u32, Option<Fields>), i32> {
     if edit.note_bytes > NOTE_CAP {
         return Err(ERR_NO_SPACE);
     }
-    let inline = u32::try_from(edit.text.len() + edit.note.len() + edit.client_key.len())
-        .map_err(|_| ERR_NO_SPACE)?;
-    // The record itself costs what it takes on the card, empty or not.
+    // The record costs what it takes on the card, empty or not; its inline
+    // text, note and client key are in that size, the parts come on top.
     let record = u32::try_from(wire::record_framed_len(&Record::ServiceLibEdit(*edit))?)
         .map_err(|_| ERR_NO_SPACE)?;
-    let staged = inline
-        .checked_add(record)
-        .and_then(|sum| sum.checked_add(edit.text_bytes))
+    let staged = record
+        .checked_add(edit.text_bytes)
         .and_then(|sum| sum.checked_add(edit.note_bytes))
         .ok_or(ERR_NO_SPACE)?;
     let parts = [

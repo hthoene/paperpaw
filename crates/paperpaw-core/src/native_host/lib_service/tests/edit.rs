@@ -683,3 +683,25 @@ fn receipts_page_whole_rows_for_the_committed_transaction_only() {
     assert!(ask(4, 0).is_ok());
     assert_eq!(go(&fake, 26, &[tref(4)]), Err(ERR_INVALID));
 }
+
+#[test]
+fn an_inline_text_is_counted_once_not_twice() {
+    // The framed record holds its inline text: the cap fits as many such
+    // edits as their framed size allows, no fewer.
+    let text: &'static str = std::boxed::Box::leak("x".repeat(512).into_boxed_str());
+    let big = Edit {
+        text,
+        note: text,
+        flags: 1,
+        ..edit()
+    };
+    let framed = wire::record_framed_len(&Record::ServiceLibEdit(big)).unwrap();
+    let fits = (1 << 20) / framed;
+    assert!(fits < 1024, "the byte cap bounds it here");
+    let fake = Fake::new();
+    let t = begin(&fake).unwrap();
+    for n in 0..fits {
+        add(&fake, t, &[big]).unwrap_or_else(|e| panic!("edit {n} refused: {e}"));
+    }
+    assert_eq!(add(&fake, t, &[big]), Err(ERR_NO_SPACE));
+}

@@ -645,7 +645,9 @@ fn no_library_path_reaches_plugins_or_the_hosts_folder() {
                 flags: 0,
             })],
         );
-        assert_eq!(from, Err(ERR_INVALID), "import from {path}");
+        // The source is the caller's root 0: its own `plugins/…` or
+        // `.paperpaw/…` are plain data there, and import it.
+        assert!(from.is_ok(), "import from {path}");
         let book = go(
             &fake,
             14,
@@ -661,7 +663,13 @@ fn no_library_path_reaches_plugins_or_the_hosts_folder() {
         );
         assert_eq!(book, Err(ERR_INVALID), "position of {path}");
     }
-    assert_eq!(fake.log.borrow().len(), before, "nothing was touched");
+    // Only the imports (a root-0 source, a fine destination) reached the host.
+    assert!(
+        fake.log.borrow()[before..]
+            .iter()
+            .all(|line| line.starts_with("import")),
+        "nothing else was touched"
+    );
     // Into the library folder at the card's root: plugins and the host's folder.
     *fake.library.borrow_mut() = String::new();
     for folder in ["plugins", "Plugins/x", "PAPERP~1", ".paperpaw"] {

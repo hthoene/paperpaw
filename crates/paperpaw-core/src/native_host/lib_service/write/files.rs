@@ -141,7 +141,9 @@ pub(super) fn import(
     };
     // Bit 0 replace, bit 1 take a free name; both is a contradiction.
     require(request.flags & !0b11 == 0 && request.flags != 0b11)?;
-    require(args::root1_path(host, request.from))?;
+    // The source is the caller's own root 0: its grammar only. The protected
+    // folders are refused on the destination (`check_join`).
+    require(args::path_valid(request.from))?;
     check_names(request.folder, request.name)?;
     let mut joined = Ok(());
     host.library_folder(&mut |library| {
