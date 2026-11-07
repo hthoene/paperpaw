@@ -3,7 +3,7 @@
 //! copies and fonts never outlive their callback.
 use crate::layout::{self, ZoneHint};
 use crate::seen;
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Color, Handled, Point, Rect,
     native::{
@@ -73,8 +73,12 @@ struct Laid {
 }
 
 #[derive(Debug)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "kept unboxed: a box would allocate infallibly in a callback; the list of views grows fallibly"
+)]
 enum Slot {
-    Overlay(Box<Overlay>),
+    Overlay(Overlay),
     Again,
 }
 
@@ -179,7 +183,7 @@ impl NativeHelp {
                         }
                     }
                 }
-                Slot::Overlay(Box::new(Overlay::read(host, self.ui()?, id)?))
+                Slot::Overlay(Overlay::read(host, self.ui()?, id)?)
             }
             "help.again" => {
                 // Done as it opens, and said.

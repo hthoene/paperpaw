@@ -234,6 +234,10 @@ fn times_and_levels() {
     assert_eq!(parse_time("7"), Some(420));
     assert_eq!(parse_time("24:00"), None);
     assert_eq!(parse_time("abc"), None);
+    // Beyond u16 once multiplied: refused, never overflowing.
+    assert_eq!(parse_time("1100:00"), None);
+    assert_eq!(parse_time("65535:00"), None);
+    assert_eq!(parse_time("0:65535"), None);
     let mut buf = [0; 5];
     assert_eq!(clock(425, &mut buf), "07:05");
     assert_eq!(clock(u16::MAX, &mut buf).len(), 5);

@@ -31,7 +31,7 @@ by the host today, see below).
 
 ## Acceptance pending on the host
 
-No desktop golden exists. The native cases in `tests/acceptance_pending.rs` are refusals
+The desktop golden of the interface-6 overlay (`boox-home-hints`) was deleted with that plugin; no native golden exists yet. The native cases in `tests/acceptance_pending.rs` are refusals
 (never pass): first open (H1, H3, H4), switching off and again (H1, H4), covered by a
 question (H1, H2, H3).
 
