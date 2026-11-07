@@ -848,9 +848,9 @@ fn a_held_body_is_charged_by_capacity_and_an_oversized_buffer_is_refused() {
         [done(id, 1, 404, 0, DONE_TRUNCATED, 100)]
     );
     assert_eq!(fake.pool_used(), 0);
-    // A failed copy (the first allocation) loses the body, never the status.
-    // (A later failure is the answer's head: that ends it TOO_LARGE, as before.)
-    for nth in 1..=1 {
+    // A failed copy (allocation 1) loses the body, a failed head (allocation 2)
+    // loses the metadata; the status stays either way.
+    for nth in 1..=2 {
         let id = request(&fake, OWNER, &big(1, 100)).unwrap();
         let mut roomy = Vec::with_capacity(8_192);
         roomy.extend_from_slice(&[3; 40]);
@@ -1192,4 +1192,48 @@ fn sockets_and_requests_charge_the_same_pool() {
     tick(&fake).unwrap();
     assert!(fake.started.borrow().contains(&b), "b started on the room");
     assert!(!sock_pool.reserve(8_192), "and the pool is full again");
+}
+
+#[test]
+fn an_error_answer_keeps_status_and_body_when_its_head_cannot_be_held() {
+    let fake = Fake::x4();
+    let id = request(&fake, OWNER, &big(1, 1_000)).unwrap();
+    FAIL_NTH.with(|n| n.set(1));
+    finished(
+        &fake,
+        id,
+        Finished {
+            status: 503,
+            reason: 0,
+            saved: false,
+            truncated: false,
+            etag: "\"v\"",
+            content_type: "text/plain",
+            final_url: "https://example.org/x",
+            body: std::vec![5; 20],
+        },
+    )
+    .unwrap();
+    FAIL_NTH.with(|n| n.set(0));
+    assert_eq!(drain(&fake, OWNER), [done(id, 1, 503, 0, 0, 20)]);
+    assert_eq!(fake.pool_used(), 0);
+}
+
+#[test]
+fn dropping_the_net_tables_gives_back_only_their_own_charges() {
+    let pool = Rc::new(NetPool::new(NetProfile::X4.pool));
+    // core.sockets holds 8 KiB for the whole test.
+    assert!(pool.reserve(8_192));
+    {
+        let fake = Fake::with_pool(NetProfile::X4, pool.clone());
+        // Running, queued (waiting for the pool), a done and held answer: all
+        // hold charges.
+        let a = request(&fake, OWNER, &big(1, 20_000)).unwrap();
+        let _b = request(&fake, OWNER, &big(2, 30_000)).unwrap();
+        finish(&fake, a, 200, b"hello");
+        assert!(pool.used() > 8_192);
+    }
+    assert_eq!(pool.used(), 8_192, "the sockets' reservation is untouched");
+    pool.release(8_192);
+    assert_eq!(pool.used(), 0);
 }

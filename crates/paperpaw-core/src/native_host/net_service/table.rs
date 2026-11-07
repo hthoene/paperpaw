@@ -86,6 +86,10 @@ pub(super) enum Pick {
 #[derive(Default)]
 pub(super) struct Inner {
     pub(super) stamp: u64,
+    /// Pool bytes this table holds: what it reserved and has not released.
+    /// The pool is shared (with `core.sockets`), so a table gives back only
+    /// its own ledger, never the pool's whole count.
+    ledger: u32,
     next_id: u32,
     reqs: Vec<Req>,
     demand: bool,
@@ -119,6 +123,16 @@ impl NetTable {
     }
 }
 
+impl Drop for NetTable {
+    /// The tables go: their payloads are freed with them, and so are their
+    /// charges, exactly (the pool outlives them and may hold `core.sockets`
+    /// reservations that are not the tables').
+    fn drop(&mut self) {
+        let held = core::mem::take(&mut self.inner.get_mut().ledger);
+        self.pool.release(held);
+    }
+}
+
 impl Inner {
     pub(super) fn tick_stamp(&mut self) -> u64 {
         self.stamp += 1;
@@ -127,11 +141,21 @@ impl Inner {
 
     /// Reserve `bytes` from the pool; false when it has not that room.
     pub(super) fn reserve(&mut self, host: &dyn NetHost, bytes: u32) -> bool {
-        host.table().pool().reserve(bytes)
+        let pool = host.table().pool();
+        if !pool.reserve(bytes) {
+            return false;
+        }
+        if pool.capacity() != 0 {
+            self.ledger = self.ledger.saturating_add(bytes);
+        }
+        true
     }
 
     pub(super) fn release(&mut self, host: &dyn NetHost, bytes: u32) {
-        host.table().pool().release(bytes);
+        // Never more than this table holds: the rest of the pool is not its.
+        let give = bytes.min(self.ledger);
+        self.ledger -= give;
+        host.table().pool().release(give);
     }
 
     fn live(r: &Req) -> bool {
@@ -301,7 +325,11 @@ impl Inner {
             {
                 break;
             }
-            self.reqs[index].reserved = if profile.pool == 0 { 0 } else { need };
+            self.reqs[index].reserved = if host.table().pool().capacity() == 0 {
+                0
+            } else {
+                need
+            };
             self.reqs[index].net_wait = None;
             let started = self.begin(host, index);
             if let Err(error) = started {
@@ -433,7 +461,7 @@ pub(super) fn request(host: &dyn NetHost, who: &Caller<'_>, input: &[u8]) -> Res
         last_move: now,
         net_wait: None,
         reserved: 0,
-        input: if host.profile().pool == 0 {
+        input: if host.table().pool().capacity() == 0 {
             0
         } else {
             input.len() as u32
@@ -569,7 +597,7 @@ pub(crate) fn finished(host: &dyn NetHost, id: u32, mut outcome: Finished<'_>) -
     }
     // An error body is at most 4,096 bytes, and a memory request keeps no
     // more than its `max_body`. A device without a pool has no ceiling.
-    let ceiling = if host.profile().pool == 0 {
+    let ceiling = if host.table().pool().capacity() == 0 {
         usize::MAX
     } else {
         r.reserved as usize
@@ -615,14 +643,20 @@ pub(crate) fn finished(host: &dyn NetHost, id: u32, mut outcome: Finished<'_>) -
         parts = ["", "", ""];
     }
     let total: usize = parts.iter().map(|p| p.len()).sum();
-    if overshoot || gate().is_err() || done.head.try_reserve_exact(total).is_err() {
-        if overshoot || !saved {
+    if overshoot {
+        done.reason = reason::TOO_LARGE;
+        done.status = 0;
+    } else if gate().is_err() || done.head.try_reserve_exact(total).is_err() {
+        if saved || error_answer {
+            // The outcome is real (the file is committed; the server's
+            // status and reason stand): only the optional head (ETag, type,
+            // final URL) is lost.
+            done.body = outcome.body;
+        } else {
             // No room for the answer's head: the body goes too.
             done.reason = reason::TOO_LARGE;
             done.status = 0;
         }
-        // A saved answer is committed: the file is the new one. It stays a
-        // success; only the optional head (ETag, type, final URL) is lost.
     } else {
         for part in parts {
             done.head.extend_from_slice(part.as_bytes());
