@@ -25,6 +25,7 @@ pub(crate) struct StackRows {
     rows: [Cell<StackRow>; STACK_MAX],
     len: Cell<u8>,
     generation: Cell<u64>,
+    closes: [Cell<u32>; STACK_MAX],
 }
 impl Default for StackRows {
     fn default() -> Self {
@@ -32,6 +33,7 @@ impl Default for StackRows {
             rows: [const { Cell::new(EMPTY) }; STACK_MAX],
             len: Cell::new(0),
             generation: Cell::new(1),
+            closes: [const { Cell::new(0) }; STACK_MAX],
         }
     }
 }
@@ -51,6 +53,30 @@ impl StackRows {
             && self.generation.get() == generation
             && usize::from(self.len.get()) <= STACK_MAX
     }
+    pub(crate) fn defer_close(&self, instance: u32, generation: u64) -> Result<(), i32> {
+        use paperpaw_native::host_glue::{ERR_FULL, ERR_STATE};
+        self.instance(instance, generation).ok_or(ERR_STATE)?;
+        if self.closes.iter().any(|pending| pending.get() == instance) {
+            return Ok(());
+        }
+        let pending = self
+            .closes
+            .iter()
+            .find(|pending| pending.get() == 0)
+            .ok_or(ERR_FULL)?;
+        pending.set(instance);
+        Ok(())
+    }
+    pub(crate) fn take_close(&self) -> Option<u32> {
+        self.closes
+            .iter()
+            .find(|pending| pending.get() != 0)
+            .map(|pending| pending.replace(0))
+    }
+    pub(crate) fn closes_pending(&self) -> bool {
+        self.closes.iter().any(|pending| pending.get() != 0)
+    }
+
     /// Only Kernel::sync_stack writes this snapshot, after callbacks end.
     pub(crate) fn update(&self, rows: impl IntoIterator<Item = StackRow>) {
         let mut count = 0;
@@ -64,6 +90,16 @@ impl StackRows {
             }
         }
         self.len.set(u8::try_from(count).unwrap_or(u8::MAX));
+        for pending in &self.closes {
+            let instance = pending.get();
+            if instance != 0
+                && !self.rows[..count.min(STACK_MAX)]
+                    .iter()
+                    .any(|row| row.get().instance == instance)
+            {
+                pending.set(0);
+            }
+        }
         let generation = self.generation.get();
         self.generation.set(if generation == 0 {
             0

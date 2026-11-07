@@ -406,6 +406,7 @@ impl Kernel {
                 screen.on_close(cx);
                 Handled::Yes
             });
+            self.native_instance_closed(self.stack[i].serial);
             self.stack.truncate(i);
             self.screens_changed = true;
         }
@@ -484,6 +485,7 @@ impl Kernel {
             screen.on_close(cx);
             Handled::Yes
         });
+        self.native_instance_closed(self.stack[index].serial);
         self.stack.remove(index);
         self.screens_changed = true;
         self.sync_stack();
@@ -496,6 +498,32 @@ impl Kernel {
         } else if index > base {
             self.invalidate(region);
             self.output.request_refresh(RefreshMode::Partial);
+        }
+    }
+
+    pub(crate) fn drain_deferred_ui_closes(&mut self) {
+        debug_assert_eq!(self.shared.native_instances.depth(), 0);
+        for _ in 0..native_host::stack_rows::STACK_MAX {
+            let Some(instance) = self.shared.stack_rows.take_close() else {
+                break;
+            };
+            let Some(index) = self
+                .stack
+                .iter()
+                .position(|screen| screen.serial == instance)
+            else {
+                continue;
+            };
+            self.with_screen(index, |screen, cx| {
+                screen.on_close(cx);
+                Handled::Yes
+            });
+            self.native_instance_closed(instance);
+            self.stack.remove(index);
+            self.screens_changed = true;
+            self.sync_stack();
+            self.stop_for_closed_screens();
+            self.screen_changed(self.content(), false);
         }
     }
 

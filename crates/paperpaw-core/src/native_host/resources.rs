@@ -157,6 +157,10 @@ pub(crate) struct OwnerResourceView {
 }
 
 impl OwnerResourceView {
+    pub(crate) fn ui_store(&self) -> Option<&super::ui_store::UiStore> {
+        self.table.hosts.ui().map(|ui| &*ui.store)
+    }
+
     pub(crate) fn owner_id(&self) -> u64 {
         self.owner
     }

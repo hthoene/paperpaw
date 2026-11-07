@@ -148,6 +148,10 @@ impl Drop for CallbackEpoch<'_> {
 }
 
 impl NativeInstances {
+    pub(crate) fn ui_store(&self) -> Option<&super::ui_store::UiStore> {
+        self.pool.as_ref()?.ui_store()
+    }
+
     /// Retain the device pool before any fallible admission work, including
     /// the first failed factory. Its orphan cleanup must remain reachable.
     pub(crate) fn adopt_pool(&mut self, identity: OwnerResourceView) -> Result<(), i32> {

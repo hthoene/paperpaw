@@ -82,6 +82,11 @@ impl Frame for CoreFrame<'_> {
         visit(self.stack_rows);
         Ok(())
     }
+    fn close_dialog(&self, instance: u32) -> Result<(), i32> {
+        self.callback_epoch()?;
+        self.stack_rows.defer_close(instance, self.stack_generation)
+    }
+
     fn ui_x4(&self) -> Result<bool, i32> {
         self.callback_epoch()?;
         Ok(self.env.device().id == "xteink-x4")

@@ -137,13 +137,30 @@ impl crate::Kernel {
         }
     }
 
-    fn native_owner_stopped(&self, _owner: u64) {
-        // TODO(#228 H2): call the one UiStore::owner_stopped before its
-        // instances close. Input owns that store; no second store lives here.
+    fn native_owner_stopped(&self, owner: u64) {
+        if let Some(store) = self.shared.native_instances.ui_store() {
+            store.owner_stopped(owner);
+        }
     }
 
-    pub(crate) fn native_instance_closed(&self, _instance: u32) {
-        // TODO(#228 H2): call the same UiStore::instance_closed.
+    pub(crate) fn native_instance_closed(&self, instance: u32) {
+        if let Some(store) = self.shared.native_instances.ui_store() {
+            store.dialog_closed(instance);
+            store.asker_instance_closed(instance, &mut |cancelled| {
+                if let Some(dialog) = cancelled.dialog {
+                    // A missing dialog has already closed. Live requests are
+                    // bounded below the fixed queue's sixteen entries.
+                    if let Err(status) = self
+                        .shared
+                        .stack_rows
+                        .defer_close(dialog, self.shared.stack_rows.generation())
+                    {
+                        debug_assert_eq!(status, paperpaw_native::host_glue::ERR_STATE);
+                    }
+                }
+            });
+            store.instance_closed(instance);
+        }
     }
 
     pub(crate) fn retry_native_unloads(&mut self) {
@@ -179,6 +196,9 @@ impl crate::Kernel {
     }
 
     pub(crate) fn native_unload_due(&self) -> Option<paperpaw_platform::Instant> {
+        if self.shared.stack_rows.closes_pending() {
+            return Some(self.now);
+        }
         self.shared
             .native_instances
             .retirement_due(self.now.millis())

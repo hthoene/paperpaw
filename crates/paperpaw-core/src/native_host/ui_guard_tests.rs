@@ -1,6 +1,7 @@
 //! The guard and lock rules of `docs/abi/ui.md` sections 1.2, 1.3, 3.1, 4.3,
 //! each with the refusal and the case just inside it.
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
+extern crate alloc;
 use super::*;
 use alloc::vec::Vec;
 
