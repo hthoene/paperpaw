@@ -368,9 +368,12 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   (`root` 0 or 1 with `uses.storage`); `flags` bit 0 allow an older or the same version, bit 1
   foreign (another firmware than PaperPaw, unsigned, checked as the boot loader would start it).
   The confirmation for a foreign image says, in the host's words (Firmware's four points): it is
-  another firmware, not PaperPaw; it is not signed; PaperPaw cannot undo it; PaperPaw stays in
-  flash, and the web flasher (or the other firmware) brings it back. It always asks, whatever
-  grant.
+  another firmware, not PaperPaw, and PaperPaw does not start again by itself; PaperPaw does not
+  undo it, and getting back is up to the other firmware or a flash tool (the web flasher works);
+  PaperPaw stays in flash and its files on the card are not touched; it is not signed, only
+  checked as the boot loader would start it (segments, checksum, hash, chip, board tag). It shows
+  the image's own project name and version as read from the image. It always asks, whatever
+  grant (decision 134).
 - [D] **Keys** (update `page.rs` `Signer::Unknown`, `firmware.rs`): an image signed by a PaperPaw
   key installs with the normal confirmation. An image signed by another key (e.g. the user's own
   builds) installs only when `key` names exactly that key **and** the user accepts it in the host's
@@ -389,7 +392,8 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   `install_done` the end. `firmware_restart` starts the installed image (asks nothing more: the user
   said yes to the install).
 - [D] **Busy and pending:** a second firmware request while one runs waits its turn (5.2); one sent
-  while an installed image waits for its restart (`dev_firmware.state` 3) ends with reason 21
+  while an installed image, PaperPaw's or foreign, waits for its restart (`dev_firmware.state` 3)
+  ends with reason 21
   restart pending (`ERR_STATE`), a status of its own and not `ERR_BUSY`.
 - [Q] (Firmware, owner device) the real time of one 64 KiB step and the card's read speed decide
   whether a progress redraw every 5 % stays smooth; a device-checklist item.
