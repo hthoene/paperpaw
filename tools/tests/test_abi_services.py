@@ -169,7 +169,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_the_lock_pins_the_table(self):
         trusted = ABI.lock_record(self.schema)
-        self.assertEqual(trusted['lock_format'], 9)
+        self.assertEqual(trusted['lock_format'], 10)
         ABI.check_lock(trusted, self.schema)
         changed = copy.deepcopy(self.schema)
         self.echo(changed)['ops'][0]['max_reply'] = 256

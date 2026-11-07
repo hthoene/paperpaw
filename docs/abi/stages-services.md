@@ -24,7 +24,9 @@ nesting. It never reads the payloads.
 | 513 | `stage.reply` (output of `stage.run`) | `subscriber: str 64` (plugin id), `index: u32`, `status: i32`, `flags: u32`, `signature: u64`, `payload: bytes 3840` |
 
 - [D] **`stage.spec`:**
-  - `name` is relative; the stage's full id is `<plugin>.<name>`, unique among the plugin's stages.
+  - `name` is relative; the stage's full id is `<plugin>.<name>`, unique among the plugin's stages
+    (a second spec of the same name is `ERR_INVALID`). Specs count against the host's
+    declaration-index budget (`ERR_FULL` past it).
   - `schema` is the stage's own payload schema version, set by its owner; subscribers see it in
     every `stage.call`.
   - `flags`: bit 0 `changes_layout`, bit 1 `draws`, bit 2 `takes_taps`. Other bits are
@@ -42,6 +44,7 @@ nesting. It never reads the payloads.
     are active, the rest stay inert with a log line naming the stage and the plugin. Load order
     never decides. The user can turn a subscriber off per stage (a host setting, decision 131,
     #241); a subscriber turned off is inert and does not count.
+  - The same stage and token twice in a plugin's batch is `ERR_INVALID`.
   - At most 8 stage registrations per plugin; a 9th is refused with `ERR_FULL` for the whole batch
     (the plugin's own declarations, so the plugin can fix it).
   - A registration to the plugin's own stage is refused at commit (`ERR_INVALID`, the whole batch):
@@ -172,6 +175,10 @@ service.call(ctx, service: handle, op: u32, input: bytes, out: buffer) -> count 
   | `input` not one record batch of the op's input tags, exactly (generated decoder) | the decoder's status |
   | re-entry into the same service from its own callback | `ERR_BUSY` |
   | otherwise: the service runs and writes its reply records into `out`, framed as its schema's family document says | count, or the service's status |
+
+  "Exactly" is about tags: every record's tag is one of the op's `input` tags, by exact tag. Order
+  and multiplicity are the op's own rules (for example "one record"), checked by the service after
+  the generic checks.
 
   Every check above runs before the service does anything, so a refused call has no effect and
   leaves `out` untouched. A service's own failure after that is its documented status, and `out`
