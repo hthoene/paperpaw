@@ -870,6 +870,145 @@ fn a_table_ends_at_the_first_word_that_points_elsewhere() {
     );
 }
 
+/// `b<funct3> rs1, rs2, +offset`: 6 is `bltu`, 7 is `bgeu`.
+fn branch(funct3: u32, rs1: u32, rs2: u32, offset: i32) -> u32 {
+    beq_to(rs1, rs2, offset) | (funct3 << 12)
+}
+const A2: u32 = 12;
+const S1: u32 = 9;
+const X0: u32 = 0;
+
+/// A function that jumps by a table after a compare has bounded the index to
+/// two entries. `check` is the code from 8 on (`li`, the compare, perhaps more)
+/// and must go to the default when the index is out of bounds; `to_default`
+/// builds that compare from the offset it needs. The cases follow the jump,
+/// then the default, then a case of another table that takes a frame of 2,048
+/// bytes. Returns the code and the table's words (two cases, then the other
+/// table's).
+fn bounded_table_function(check: &[u32], to_default: impl Fn(i32) -> u32) -> (Vec<u8>, [u32; 4]) {
+    // The compare at 12 jumps over the rest of `check`, the slli, add, lw, jr,
+    // a nop, and the two cases to the default.
+    let shift = 4 * (check.len() as u32 - 1);
+    let default = 52 + shift;
+    let mut items = vec![
+        W(addi(SP, SP, -16)),               // 0
+        W(lui(S1, 0x3c000)),                // 4
+        W(check[0]),                        // 8
+        W(to_default(default as i32 - 12)), // 12
+    ];
+    items.extend(check[1..].iter().map(|c| W(*c)));
+    items.extend([
+        W(slli(A0, A0, 2)),
+        W(add(A0, A0, S1)),
+        W(lw(A0, A0, 0)),
+        W(jr(A0)),
+        W(addi(X0, X0, 0)),
+        W(addi(SP, SP, 16)), // case 0
+        W(RET),
+        W(addi(SP, SP, 16)), // case 1
+        W(RET),
+        W(addi(SP, SP, 16)), // the default
+        W(RET),
+        W(addi(SP, SP, -2032)), // a case of the next table
+        W(addi(SP, SP, 2032)),
+        W(addi(SP, SP, 16)),
+        W(RET),
+    ]);
+    let words = [
+        TEXT + 36 + shift,
+        TEXT + 44 + shift,
+        TEXT + 60 + shift,
+        TEXT + 60 + shift,
+    ];
+    (code(&items), words)
+}
+
+#[test]
+fn a_compare_that_bounds_the_index_ends_the_table_where_the_next_one_begins() {
+    let relocated = [0, 4, 8, 12];
+    // `li a2, 1; bltu a2, a0, default`: the index is at most 1 on the way to
+    // the jump, so the words after the second are another table's.
+    let (f, words) = bounded_table_function(&[addi(A2, X0, 1)], |o| branch(6, A2, A0, o));
+    assert_eq!(with_table(&f, &words, &relocated), None);
+    // `li a2, 2; bgeu a0, a2, default`: below 2.
+    let (f, words) = bounded_table_function(&[addi(A2, X0, 2)], |o| branch(7, A0, A2, o));
+    assert_eq!(with_table(&f, &words, &relocated), None);
+    // With no compare, the run of labels is the table: the next table's cases
+    // are reached too, and the big frame is found.
+    let (f, words) = bounded_table_function(&[addi(A2, X0, 2)], |_| addi(X0, X0, 0));
+    assert!(matches!(
+        with_table(&f, &words, &relocated),
+        Some(Finding::Large { bytes: 2048, .. })
+    ));
+}
+
+#[test]
+fn a_bound_is_lost_where_the_register_changes_or_a_path_skips_the_compare() {
+    let relocated = [0, 4, 8, 12];
+    // A call after the compare may change `a0`: no bound.
+    let call = jalr(1, T1, 0);
+    let (f, words) = bounded_table_function(&[addi(A2, X0, 1), call], |o| branch(6, A2, A0, o));
+    assert!(matches!(
+        with_table(&f, &words, &relocated),
+        Some(Finding::Large { bytes: 2048, .. })
+    ));
+    // A write to `a0` after it: no bound.
+    let (f, words) = bounded_table_function(&[addi(A2, X0, 1), addi(A0, A0, 1)], |o| {
+        branch(6, A2, A0, o)
+    });
+    assert!(matches!(
+        with_table(&f, &words, &relocated),
+        Some(Finding::Large { bytes: 2048, .. })
+    ));
+    // A path that enters after the compare (instruction 8, `li a2, 1`, becomes
+    // `beq x0, x0, +8` to the `slli`): the bound does not hold on it.
+    let (mut f, words) = bounded_table_function(&[addi(A2, X0, 1)], |o| branch(6, A2, A0, o));
+    assert_eq!(with_table(&f, &words, &relocated), None);
+    f[8..12].copy_from_slice(&beq_to(X0, X0, 8).to_le_bytes());
+    assert!(matches!(
+        with_table(&f, &words, &relocated),
+        Some(Finding::Large { bytes: 2048, .. })
+    ));
+}
+
+#[test]
+fn a_bounded_table_still_ends_at_the_first_word_that_is_no_label() {
+    // The bound says two entries; the second word points out of the function
+    // (a compare before the index was scaled can be looser than the table):
+    // the run ends there, and the case read is the first.
+    let (f, _) = bounded_table_function(&[addi(A2, X0, 1)], |o| branch(6, A2, A0, o));
+    assert_eq!(with_table(&f, &[TEXT + 36, TEXT + 4096], &[0, 4]), None);
+    // The first word out of the function: no entry at all, as without a bound.
+    assert!(matches!(
+        with_table(&f, &[TEXT + 4096, TEXT + 36], &[0, 4]),
+        Some(Finding::Table { .. })
+    ));
+}
+
+#[test]
+fn a_bound_longer_than_the_table_does_not_read_past_where_the_labels_end() {
+    // The bound allows two entries; the table has one, then the next table's
+    // word, which is the first of a case outside this function, then more
+    // words that point into it: the table ends at the first non-label word
+    // (the assumption of the scan), so the later labels are not cases.
+    let (f, words) = bounded_table_function(&[addi(A2, X0, 1)], |o| branch(6, A2, A0, o));
+    assert_eq!(
+        with_table(&f, &[words[0], TEXT + 4096, words[2]], &[0, 4, 8]),
+        None
+    );
+    // A word that is not relocated ends it too: only the first entry is read.
+    assert_eq!(with_table(&f, &[words[0], words[2]], &[0]), None);
+    // And a table cut short by the end of `.rodata` is the words there are.
+    assert_eq!(with_table(&f, &[words[0]], &[0]), None);
+    // The same bound over a table that has all its words reaches the case
+    // behind the second word.
+    let big = bounded_table_function(&[addi(A2, X0, 1)], |o| branch(6, A2, A0, o)).0;
+    assert!(matches!(
+        with_table(&big, &[words[2], words[2]], &[0, 4]),
+        Some(Finding::Large { bytes: 2048, .. })
+    ));
+}
+
 #[test]
 fn the_compressed_forms_of_the_table_jump_are_followed_too() {
     // c.slli a0, 2; c.add a0, a1; c.lw a0, 0(a0); c.jr a0
@@ -1193,9 +1332,27 @@ fn an_outlined_sequence_that_writes_the_base_register_or_is_not_straight_forgets
     assert_eq!(outlined_frame(&[W(addi(S8, 0, 1)), W(jr(T0))]), None);
     // A sequence with a branch is not read: all registers are forgotten.
     assert_eq!(outlined_frame(&[W(beq_to(0, 0, 8)), W(jr(T0))]), None);
-    // One that never ends in `jr t0` within 64 instructions, likewise.
-    let long: Vec<I> = (0..70).map(|_| W(addi(25, 0, 1))).collect();
+    // One that never ends in `jr t0` within 256 instructions, likewise.
+    let long: Vec<I> = (0..300).map(|_| W(addi(25, 0, 1))).collect();
     assert_eq!(outlined_frame(&long), None);
+}
+
+#[test]
+fn a_long_straight_outlined_sequence_is_read_to_its_end() {
+    const T0: u32 = 5;
+    // About a hundred instructions, as the compiler outlines from a large
+    // `match` decode (the generated `record_decode` of draft 20): read to its
+    // `jr t0`, so the caller's frame is still sized and its table found.
+    let mut long: Vec<I> = (0..100).map(|_| W(addi(25, 0, 1))).collect();
+    long.push(W(jr(T0)));
+    assert_eq!(outlined_frame(&long), Some(2048));
+    // Up to the bound it is read; one instruction more is not.
+    let mut at_bound: Vec<I> = (0..255).map(|_| W(addi(25, 0, 1))).collect();
+    at_bound.push(W(jr(T0)));
+    assert_eq!(outlined_frame(&at_bound), Some(2048));
+    let mut past: Vec<I> = (0..256).map(|_| W(addi(25, 0, 1))).collect();
+    past.push(W(jr(T0)));
+    assert_eq!(outlined_frame(&past), None);
 }
 
 /// `jal rd, +offset` (offset even, -1 MiB..1 MiB).
@@ -1235,6 +1392,38 @@ fn an_outlined_sequence_that_lowers_sp_is_part_of_the_callers_frame() {
     assert!(matches!(
         scan_ranges(&f, &[(0, 16)], env),
         Some(Finding::Large { .. })
+    ));
+}
+
+#[test]
+fn an_outlined_sequence_that_lowers_sp_and_gives_it_back_is_refused() {
+    // The helper's end value of sp is the caller's, but it went 64 B lower on
+    // the way: that dip is not in the end value, so the frame is not sized.
+    let helper = |dip: bool| {
+        let mut items = vec![
+            W(addi(SP, SP, -16)), // 0
+            W(jal(T0, 16)),       // 4: to the helper at 20
+            W(addi(SP, SP, 16)),  // 8
+            W(RET),               // 12
+            W(0),                 // 16
+        ];
+        if dip {
+            items.push(W(addi(SP, SP, -64))); // 20
+            items.push(W(sw(S0, SP)));
+            items.push(W(addi(SP, SP, 64)));
+        } else {
+            items.push(W(sw(S0, SP)));
+        }
+        items.push(W(JR_T0));
+        code(&items)
+    };
+    assert_eq!(
+        frame_sizes_in(&helper(false), &[(0, 16)], Env::none()),
+        vec![Some(16)]
+    );
+    assert!(matches!(
+        scan_ranges(&helper(true), &[(0, 16)], Env::none()),
+        Some(Finding::Unknown { .. })
     ));
 }
 

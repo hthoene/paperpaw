@@ -24,6 +24,16 @@
 
 extern crate alloc;
 
+#[cfg(test)]
+extern crate std;
+/// Test-only: refuses chosen allocations to prove the fallible paths.
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
+
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::format;
@@ -408,8 +418,23 @@ fn action_name(env: &Env<'_>, id: &Id) -> String {
 #[derive(Debug, Default)]
 pub struct Keys;
 
+/// What the screens decide, without the host.
+pub mod model;
+mod native_data;
+mod native_entry;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+/// The interface-7 plugin.
+pub mod native_plugin;
+
+/// Catalog sources published before native screen callbacks.
+pub static CATALOGS: [(&str, &str); 2] = [
+    ("en", include_str!("../i18n/en.ini")),
+    ("de", include_str!("../i18n/de.ini")),
+];
+
 /// How it works, by language (see `Manifest::how`).
-static HOW: [(&str, &str); 2] = [
+pub static HOW: [(&str, &str); 2] = [
     ("en", include_str!("../how/en.txt")),
     ("de", include_str!("../how/de.txt")),
 ];

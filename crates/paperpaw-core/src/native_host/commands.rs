@@ -28,6 +28,13 @@ use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
 #[path = "commands_ui.rs"]
 mod ui;
 
+#[allow(
+    dead_code,
+    reason = "native screen dispatch installs DEV command authority next"
+)]
+#[path = "commands_dev.rs"]
+pub(crate) mod dev;
+
 /// Host-resolved authority for guarded settings, shared with the drain-time filter.
 #[derive(Clone, Copy, Debug)]
 pub struct CommandAuthority {
@@ -62,6 +69,7 @@ pub struct CommandStage<'a> {
     byte_limit: usize,
     bytes: usize,
     ui: Option<ui::UiContext<'a>>,
+    dev: Option<dev::DevStage<'a>>,
     redraw: Option<u32>,
     accepted: usize,
     /// `image_prepare` / `image_release` admission, once the host gave it.
@@ -94,6 +102,7 @@ impl<'a> CommandStage<'a> {
             byte_limit,
             bytes: 0,
             ui: None,
+            dev: None,
             redraw: None,
             accepted: 0,
             images: None,
@@ -173,8 +182,17 @@ impl<'a> CommandStage<'a> {
         if let Err(status) = self.validate_open_budget(batch) {
             return status;
         }
+        // Wi-Fi and power commands (`commands_dev.rs`): features, limits,
+        // rules; their copied bytes count against the budget.
+        let dev_bytes = match self.validate_dev(batch) {
+            Ok(bytes) => bytes,
+            Err(status) => return status,
+        };
         // Registration, scalar ranges and the byte budget, without allocating.
-        let mut bytes = self.bytes;
+        let mut bytes = self.bytes.saturating_add(dev_bytes);
+        if bytes > self.byte_limit {
+            return ERR_NO_SPACE;
+        }
         let mut images = self.images;
         for command in batch.iter() {
             if let Some(admit) = images.as_mut()
@@ -186,7 +204,12 @@ impl<'a> CommandStage<'a> {
                 continue;
             }
             let WireCommand::SetSetting { key, value } = command else {
-                match self.validate_ui(command) {
+                let checked = if dev::is_dev(&command) {
+                    Ok(0)
+                } else {
+                    self.validate_ui(command)
+                };
+                match checked {
                     Ok(extra) => bytes = bytes.saturating_add(extra),
                     Err(error) => return error,
                 }
@@ -216,7 +239,28 @@ impl<'a> CommandStage<'a> {
                 return ERR_INVALID;
             }
         }
-        if let Err(error) = self.push_batch(batch, images.is_some()) {
+        let image_commands = self.image_count(batch, images.is_some());
+        let stored = batch
+            .iter()
+            .filter(|command| {
+                !matches!(command, WireCommand::Redraw { .. }) && !dev::is_dev(command)
+            })
+            .count()
+            - image_commands;
+        if self.staged.try_reserve(stored).is_err()
+            || self.staged_images.try_reserve(image_commands).is_err()
+        {
+            return ERR_NO_MEMORY;
+        }
+        if let Err(error) = self.dev_reserve(batch) {
+            return error;
+        }
+        let (start, dev_start) = (self.staged.len(), self.dev_len());
+        let start_images = self.staged_images.len();
+        if let Err(error) = self.push_batch(batch, dev_start, images.is_some()) {
+            self.staged.truncate(start);
+            self.staged_images.truncate(start_images);
+            self.dev_rollback(dev_start);
             return error;
         }
         for command in batch.iter() {
@@ -230,52 +274,43 @@ impl<'a> CommandStage<'a> {
         OK
     }
 
-    /// Reserves room for an admitted batch and converts it; on an error
-    /// nothing of it stays staged.
-    fn push_batch(&mut self, batch: &CommandBatch<'_>, images: bool) -> Result<(), i32> {
-        let image_commands = if images {
-            batch
-                .iter()
-                .filter(|command| image_service::commands::owned_kind(command))
-                .count()
-        } else {
-            0
-        };
-        let stored = batch
-            .iter()
-            .filter(|command| !matches!(command, WireCommand::Redraw { .. }))
-            .count()
-            - image_commands;
-        if self.staged.try_reserve(stored).is_err()
-            || self.staged_images.try_reserve(image_commands).is_err()
-        {
-            return Err(ERR_NO_MEMORY);
+    /// How many of `batch` are image commands the host admitted.
+    fn image_count(&self, batch: &CommandBatch<'_>, images: bool) -> usize {
+        if !images {
+            return 0;
         }
-        let start = self.staged.len();
-        let start_images = self.staged_images.len();
+        batch
+            .iter()
+            .filter(|command| image_service::commands::owned_kind(command))
+            .count()
+    }
+
+    /// Keep every command of a validated batch in order (capacity is reserved)
+    /// and reserve the request entries of its DEV commands, last.
+    fn push_batch(
+        &mut self,
+        batch: &CommandBatch<'_>,
+        dev_start: usize,
+        images: bool,
+    ) -> Result<(), i32> {
         for command in batch.iter() {
             if matches!(command, WireCommand::Redraw { .. }) {
                 continue;
             }
-            let pushed = match images
-                .then(|| image_service::commands::owned(&command))
-                .flatten()
-            {
-                Some(Ok(image)) => {
-                    self.staged_images.push(image);
-                    Ok(())
-                }
-                Some(Err(error)) => Err(error),
-                // Capacity is reserved, so this push cannot reallocate.
-                None => self.owned(command).map(|command| self.staged.push(command)),
-            };
-            if let Err(error) = pushed {
-                self.staged.truncate(start);
-                self.staged_images.truncate(start_images);
-                return Err(error);
+            if dev::is_dev(&command) {
+                self.dev_push(command)?;
+                continue;
             }
+            if images && let Some(image) = image_service::commands::owned(&command) {
+                // Capacity is reserved, so this push cannot reallocate.
+                self.staged_images.push(image?);
+                continue;
+            }
+            let owned = self.owned(command)?;
+            // Capacity is reserved, so this push cannot reallocate.
+            self.staged.push(owned);
         }
-        Ok(())
+        self.dev_commit(dev_start)
     }
 
     /// Convert one admitted command, copying text fallibly and checking it.

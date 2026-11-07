@@ -23,6 +23,8 @@ pub enum Purpose {
     Status,
     /// A widget.
     Widget,
+    /// A status line drawn whole by its owner (`docs/abi/ui.md` section 5.3).
+    StatusLine,
 }
 
 impl Purpose {
@@ -35,6 +37,7 @@ impl Purpose {
             Self::Insert => 2,
             Self::Status => 3,
             Self::Widget => 4,
+            Self::StatusLine => 5,
         }
     }
 }

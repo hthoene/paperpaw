@@ -124,8 +124,17 @@ input(state: pointer, token: u32, input: bytes) -> i32
 | 40 | `input.key` | `now_ms: u64`, `key: str 32`, `state: u32` (0 press, 1 release, 2 repeat) |
 | 41 | `input.pointer` | `now_ms: u64`, `x: i32`, `y: i32`, `phase: u32` (0 down, 1 move, 2 up, 3 cancel), optional `contact: u32` |
 | 42 | `input.gesture` | `now_ms: u64`, `kind: u32` (0 tap, 1 long press, 2-5 swipe left/right/up/down), `x: i32`, `y: i32` |
+| 109 | `event.text_typed` | `now_ms: u64`, `text: str 1024`, `flags: u32` (bit 0 `done`) |
 | 43 | `input.action` | `now_ms: u64`, `action: str 128` (the kernel action the reader's key or touch mapped to, e.g. `core.page-next`) |
 
+- [D] **Text typed from outside** (draft 25; interface 6 `core.type-text`): text from a hardware
+  keyboard's keys or a shell's remote control goes, as `event.text_typed` (109), only to the
+  instance on top when it is a screen offered on slot `core.keyboard` (`ui.md` section 3), through
+  `dispatch_event`; at no other time is it sent (no text field shows, the host drops it). The
+  dialog adds it to its field as if typed on its keys (characters that are no text left out) and,
+  with `done`, confirms it. Text longer than 1,024 bytes comes in several events, cut between
+  characters, `done` only on the last. It needs no subscription: `registration.event` naming 109
+  refuses the batch (`ERR_UNSUPPORTED`), as for 82 (`ui.md` section 3.2). Other `flags` bits are 0 (decoders refuse them).
 - [D] Tag families: `event` 32-39 and `input` 40-43, each with a growth block (section 8).
 - [D] `event.screen_shown` (38) and `event.action_run` (39) cannot be registered for with
   `registration.event`: they go to the token of the screen or action declaration they name. A
@@ -273,9 +282,10 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
   `role:icons` acquires even while no icon font is bound; a text call through it answers
   `ERR_NOT_FOUND` while none is (the plugin shows text only, as interface 6's menus do), checked
   again at each call.
-- [D] **Named icons** (Port Reviewer, #344): host slot 40 `icon.glyph(ctx, name: bytes, out:
-  buffer)`, `query`, writes the UTF-8 of the named icon's character in the bound icon font (at most
-  4 bytes) into `out`, which the plugin draws with `text.draw` through its `role:icons` handle.
+- [D] **Named icons** (Port Reviewer, #344; draft 25): host slot 40 `icon.glyph(ctx, name: bytes,
+  out: buffer) -> length`, `query`, writes the UTF-8 of the named icon's character in the bound
+  icon font (at most 4 bytes; a smaller `out` is `ERR_NO_SPACE`) into `out` and returns its
+  length, which the plugin draws with `text.draw` through its `role:icons` handle.
   `name` is one `[a-z0-9-]` segment of at most 64 bytes, the SDK's icon names as in `icon.spec`
   (`ERR_INVALID` otherwise); a name the host's set lacks, or no icon font bound, is
   `ERR_NOT_FOUND` (the plugin shows text, as menus do). The name table stays in the host (one
@@ -325,11 +335,25 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
   - Host implementation notes: `text.ink` over up to 4096 bytes uses a bounded scratch buffer (no
     allocation per glyph) and is timed on the X4 before it is wired there; `canvas.clip` does
     its bounds arithmetic in 64 bits (`x + width` cannot overflow).
+- [D] **Glyph coverage** (draft 25; the keyboard hides layouts its fonts cannot draw, interface 6
+  `Font::has_char`): host slot 39 `text.covers(ctx, font: handle, text: bytes) -> length`,
+  `query`. `text` is UTF-8 of at most 1,024 bytes (`ERR_INVALID` above, `ERR_UTF8` if not); the
+  result is the byte length of the longest start of `text` whose characters the font (with the
+  fallbacks its role draws with) has glyphs for, so `text.len()` means every character is drawn
+  and anything less points at the first that is not. Case is not folded: a plugin that needs
+  both cases asks for both. A stale handle is `ERR_STATE`; an icon role with no icon font bound
+  answers 0. Works outside `draw`. Hosts answer `ERR_UNSUPPORTED` until wired.
 - [D] `text.measure`/`text.draw` keep their signatures; `size` finite and > 0, text at most 4096
   bytes UTF-8, `text.draw` needs a canvas (inside `draw`), else `ERR_STATE`. `text.draw` is not
   atomic on an advance error (documented).
 
 ## 5. i18n formatting, plurals and digits
+
+- [D] **The UI language** (draft 25; interface 6 `env.i18n().language()`) is the setting
+  `core.language`, read with slot 5 (`settings.read`, SDK `settings::read_setting`): the tag the
+  host's catalogs use, e.g. `de` or `pt-BR`, exactly as interface 6 told it. A plugin that keeps
+  something per language subscribes to `event.setting_changed` for that key. No other slot or
+  snapshot field carries it (the snapshot is fixed-size binary; a tag is text).
 
 | Id | Entry | Arguments (after `ctx`) | Result |
 | --- | --- | --- | --- |

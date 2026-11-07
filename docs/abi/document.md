@@ -26,7 +26,7 @@ EVT, REG and UIX. Tags below are proposed; the records step numbers them without
   that the caller is its opener.
 - [D] **Least privilege for formats.** A format plugin reads the book through a host root that is
   only that book (root 3) and writes its cache in a host root that is only that book's cache for
-  that format (root 2), both only inside its `core.format` callback for that document. It needs no
+  that format (root 6), both only inside its `core.format` callback for that document. It needs no
   `uses.storage` (decision 125) and never sees the opener's data or the user's other files.
 - [D] **Layout stays with the reader.** Blocks (section 4) are the interface-6 `Block` model on the
   wire; the reader lays them out with its linked layout crates. Text filters, decorators, page
@@ -160,17 +160,17 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   empty for none) on `css_root` (0 or 1 under the same rule as `path`). Other flag bits
   `ERR_INVALID`. The host checks the roots, finds the format, gives a new document id and calls the
   format's op 2 `open`; its answer becomes `doc_state`.
-- [D] **Root 5, the handed file (draft 21).** A reader whose instance was made from a hand-over
+- [D] **Root 5, the handed file (draft 25).** A reader whose instance was made from a hand-over
   (`ui.md` section 1, op 16) whose params carry `root` (`0` or `2`) and `path` may open that one
   file of the plugin that made the hand-over: `doc_open.root` 5 with the same `path`, read only,
   resolved in that plugin's data folder (`0`) or install folder (`2`) under the storage path
   rules. Another path, a hand-over without these params, an instance not made from a hand-over,
   and `css_root` 5 are `ERR_DENIED`; a maker no longer installed, or no such file, is
   `ERR_NOT_FOUND`. The format reads it as root 3, as any book; it is not a library book (no
-  catalog row, position or "recently opened"; its root-2 cache is keyed by the maker's id, root
+  catalog row, position or "recently opened"; its root-6 cache is keyed by the maker's id, root
   and path and goes when the maker is uninstalled). Root 5 exists only in `doc_open`
-  (slots 20-26 and `core.files` answer it `ERR_UNSUPPORTED`; the format-call roots 2-4 of
-  section 3 are another namespace). A host answers `ERR_UNSUPPORTED` until it is wired.
+  (slots 20-26, `core.files` and format calls answer it `ERR_UNSUPPORTED`). A host answers
+  `ERR_UNSUPPORTED` until it is wired.
 - [D] **Options reach their format whole.** An option's `key` is a full setting id
   (`<plugin>.<name>`) with the book's own value (interface 6 gathers them for every format owner,
   `reading/mod.rs:275`); the host forwards to the chosen format exactly the options of its plugin,
@@ -192,7 +192,7 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   identity (LIB's fingerprint), the format plugin's id and version, and the conversion key, a hash
   of everything that changes the output (publisher styles, colour, `image_side`, `cover_side`, the
   CSS file's content hash, the forwarded options), interface 6 `prepared_keeping` and `PreparedCss`.
-  Root 2 is `.paperpaw/cache/<book key>/<format plugin>/<conversion key>/`; the host keeps at most
+  Root 6 is `.paperpaw/cache/<book key>/<format plugin>/<conversion key>/`; the host keeps at most
   two conversions per book (the older goes, but never one an open document uses: a conversion is
   **pinned** while any document of it is open, on any plugin; a third conversion needed while two
   are pinned waits, the open answers `ERR_BUSY`, and nothing an open document reads is removed
@@ -294,18 +294,21 @@ host passes them on after checking them.
   where the op uses no other `text` (ops 13 and 15 name their XPointer or href instead; the host
   keeps the name with the document).
 
-- [D] **Roots** (the reserved roots of D2.2, valid only inside a call for that document): root 2 the
+- [D] **Roots** (the reserved roots of D2.2, valid only inside a call for that document): root 6 the
   document's cache for its conversion (section 2.1; read and write; the book key is LIB's, so the
   cache follows the book on a move and goes with it, LIB), root 3 the book (read only: `path` "" is
   the file; for a `folder` format the folder and below; for a `siblings` format the book's folder
-  and below, the call's `text` naming the opened file within it), root 4 the user CSS file
-  (read only, `path` "", during op 2 and 3 only). Any other root, and these outside such a call, are
-  `ERR_UNSUPPORTED`. The format writes its cache atomically per file (D2.5); it may not write root
-  3.
-- [D] **Paths in roots 2-4** follow the storage slots' rules: relative only; no `..`, `\`, NUL,
-  empty segments or a leading `/` (`ERR_INVALID`); resolved strictly below the root, a link or a
-  name that resolves outside it `ERR_DENIED`. In root 2 the name `.complete` (the host's stamp) and
-  everything under `.host/` are host-reserved: a format's write, rename or delete of them is
+  and below, the call's `text` naming the opened file within it), root 4 the user CSS file (read
+  only, `path` "", during op 2 and 3 only). These three outside such a call are `ERR_UNSUPPORTED`;
+  roots 0-2 keep their meaning in every callback (`files.md`). The format writes its cache
+  atomically per file (D2.5); it may not write root 3.
+- [D] **Root numbers mean one thing everywhere** (Code Reviewer on #346): root 2 is the plugin's
+  own install folder (`files.md` section 1.1) in every callback, a format's too; the document's
+  cache is root 6, not 2.
+- [D] **Paths in roots 3, 4 and 6** follow the storage slots' rules: relative only; no `..`, `\`,
+  NUL, empty segments or a leading `/` (`ERR_INVALID`); resolved strictly below the root, a link or
+  a name that resolves outside it `ERR_DENIED`. In root 6 the name `.complete` (the host's stamp)
+  and everything under `.host/` are host-reserved: a format's write, rename or delete of them is
   `ERR_DENIED`, a read of them `ERR_NOT_FOUND`. Root 3 refuses every write and delete
   (`ERR_DENIED`).
 - [D] **Cache quota.** A document's cache is counted to the format plugin (S7) and capped at 64 MiB
@@ -384,7 +387,7 @@ canvas.draw_image(ctx, image: u32, x: i32, y: i32, width: u32, height: u32, flag
                                                                                    // slot 37
 ```
 
-Slots 36 and 37 come with draft 21; a host answers `ERR_UNSUPPORTED` until it draws images.
+Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it draws images.
 
 | Tag | Record | Fields |
 | --- | --- | --- |
@@ -409,7 +412,7 @@ Slots 36 and 37 come with draft 21; a host answers `ERR_UNSUPPORTED` until it dr
   is the format's own number of the picture in the document (op 18's `index`; `u32::MAX` the cover),
   stable for the document's life, and `doc_image` carries it on, so the reader can always ask again.
   **Translation:** in a block stream (op 8) and in ops 17 and 18 the host replaces each `fmt.image`
-  by a `doc_image` for the opener: it checks the path (root 2 rules, the cache file's header against
+  by a `doc_image` for the opener: it checks the path (root 6 rules, the cache file's header against
   `width`/`height`, section 5's hostile-input rule), gives the picture an image id of the opener (or
   the id it already has for that path in this document), and passes `width`, `height` and `flags`
   bit 0 on; a `fmt.image` that fails the check becomes no `doc_image` (the block keeps its alt text,
@@ -610,12 +613,12 @@ reply 4,096 bytes, stage payload 3,840.
 
 - **Kernel:** records, `core.document@1` and `core.lookup@1` schemas, `core.format@1` and
   `core.lookup@1` stage schemas (Core's stage-schema generator first), slots 36-38 in `abi.def`,
-  roots 2-4 in the storage contract, this document final.
+  roots 3, 4 and 6 in the storage contract, this document final.
 - **Core:** the document table and leases, the format broker and its checks, preparing in the main
-  loop with the `.complete` stamp, roots 2-4, image ids and the band drawer, `image_prepare`
+  loop with the `.complete` stamp, roots 3, 4 and 6, image ids and the band drawer, `image_prepare`
   decoding, document fonts in `font.acquire`, the lookup broker; tests for every refusal above,
-  power-cut tests of the cache stamp; the path checks of roots 2-4; fuzz targets per decoder, for
-  the cache-image reader and the font parser.
+  power-cut tests of the cache stamp; the path checks of roots 3, 4 and 6; fuzz targets per decoder,
+  for the cache-image reader and the font parser.
 - **Host Engineer:** slot 38 `text.hyphenate` (section 6.1): the tag fallback and D4 choice over the
   registry's `resource.hyphenation` rows, interface 6's card-table rules (`OPEN`, `BUDGET`, `HOT`,
   give-up, closing) moved into the host; tests for every status of section 6.1.

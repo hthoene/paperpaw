@@ -18,11 +18,15 @@ extern crate self as paperpaw_sdk;
 extern crate self as paperpaw_i18n;
 extern crate self as paperpaw_native;
 extern crate self as paperpaw_platform;
+extern crate self as paperpaw_graphics;
 pub mod host_glue {
 STATUSES
 }
 mod snapshot_wire { pub struct Snapshot; }
 pub struct Settings;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rect;
+pub struct Canvas<'a>(core::marker::PhantomData<&'a mut ()>);
 pub struct Fonts;
 pub trait Storage {}
 pub struct Translator;

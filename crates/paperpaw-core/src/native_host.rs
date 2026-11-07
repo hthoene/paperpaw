@@ -16,8 +16,52 @@ pub mod registration_scope;
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
 
+#[path = "native_host/work_sched.rs"]
+#[allow(dead_code, reason = "the shell feeds the scheduler; tests do today")]
+pub(crate) mod work_sched;
+
+#[path = "native_host/work_service.rs"]
+mod work_service;
+
+#[path = "native_host/secrets_file.rs"]
+pub(crate) mod secrets_file;
+
+#[path = "native_host/secrets_service.rs"]
+#[allow(
+    dead_code,
+    reason = "the shell wires the sealer and the source; tests do today"
+)]
+pub(crate) mod secrets_service;
+
 #[path = "native_host/host_slot.rs"]
 pub mod host_slot;
+
+#[path = "native_host/ui_service.rs"]
+pub(crate) mod ui_service;
+
+#[path = "native_host/ui_requests.rs"]
+#[allow(
+    dead_code,
+    reason = "consumers are Core's stack and the core.ui ops 8, 2, 11"
+)]
+pub(crate) mod ui_requests;
+
+#[path = "native_host/ui_store.rs"]
+#[allow(
+    dead_code,
+    reason = "consumers are Core's command stage and the core.ui ops"
+)]
+pub(crate) mod ui_store;
+
+#[path = "native_host/ui_compose.rs"]
+pub(crate) mod ui_compose;
+
+#[path = "native_host/ui_handles.rs"]
+#[allow(
+    dead_code,
+    reason = "consumers are the core.ui ops 4/14/15 and the compose hook"
+)]
+pub(crate) mod ui_handles;
 
 #[path = "native_host/ui_guard.rs"]
 #[allow(
@@ -25,6 +69,13 @@ pub mod host_slot;
     reason = "consumers are the UIX stack applier and the core.ui ops"
 )]
 pub(crate) mod ui_guard;
+
+#[path = "native_host/ui_input.rs"]
+#[allow(
+    dead_code,
+    reason = "the router hook (todo 76) and the core.input-filter registration admission call it"
+)]
+pub(crate) mod ui_input;
 
 #[path = "native_host/shared.rs"]
 mod shared;
@@ -37,11 +88,15 @@ pub use resources::HostResources;
 mod fonts;
 
 mod admitted_features;
+#[path = "native_host/secret_bytes.rs"]
+pub(crate) mod secret_bytes;
+
 #[path = "native_host/call_services.rs"]
 mod call_services;
 #[path = "native_host/data_services.rs"]
 mod data_services;
 mod declared_services;
+pub mod device_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
@@ -66,6 +121,13 @@ pub(crate) mod image_service;
 pub(crate) mod lib_service;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
+#[allow(
+    dead_code,
+    reason = "the shell builds the pool with the NET host and the SOCK host charges it"
+)]
+pub(crate) mod net_pool;
+#[allow(dead_code, reason = "wired into the shell frame by the NET adapter")]
+pub(crate) mod net_service;
 mod service_slots;
 #[allow(
     dead_code,
@@ -84,6 +146,10 @@ pub mod canvas;
 /// Callback-scoped slot-15 command staging for host-owned plugin contexts.
 #[path = "native_host/commands.rs"]
 pub mod commands;
+
+/// The device-wide table of Wi-Fi join and host requests (DEV).
+#[path = "native_host/radio_requests.rs"]
+pub mod radio_requests;
 
 #[path = "native_host/declaration_index.rs"]
 mod declaration_index;
@@ -175,6 +241,9 @@ mod native_values;
 )]
 #[path = "native_host/native_dispatch.rs"]
 mod native_dispatch;
+
+#[path = "native_host/native_callbacks.rs"]
+mod native_callbacks;
 
 #[allow(
     dead_code,
