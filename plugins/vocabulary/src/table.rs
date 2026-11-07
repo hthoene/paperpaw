@@ -658,21 +658,23 @@ fn line_after(storage: &dyn Storage, path: &str, from: u64) -> Result<u64, Stora
     }
 }
 
-/// The card whose record begins at `offset` (as [`Record::offset`] says).
+/// The card whose record begins at `offset` (as [`Record::offset`] says);
+/// none where there is none there. A refused allocation or a read error is
+/// an error, not a missing card.
 pub(crate) fn record_at(
     storage: &dyn Storage,
     path: &str,
     layout: &Layout,
     offset: u64,
-) -> Option<Record> {
+) -> Result<Option<Record>, StorageError> {
     let mut found = None;
-    let _ = each(storage, path, layout, Some(offset), |item| {
+    each(storage, path, layout, Some(offset), |item| {
         if let Item::Record(record) = item {
             found = Some(record);
         }
         ControlFlow::Break(())
-    });
-    found
+    })?;
+    Ok(found)
 }
 
 /// `html` as plain text: tags out (a line break is a space), the usual
@@ -1023,7 +1025,7 @@ mod tests {
         })
         .unwrap();
         for (offset, front) in offsets {
-            let again = record_at(&storage, "f", &layout, offset).unwrap();
+            let again = record_at(&storage, "f", &layout, offset).unwrap().unwrap();
             assert_eq!(again.front, front);
         }
     }

@@ -146,7 +146,10 @@ pub(crate) fn update_first(storage: &dyn Storage, folder: &str, deck: u32) -> Op
     let file = sync::sources(storage)
         .ok()
         .and_then(|ledger| sync::link_of(&ledger, deck).map(|s| s.name.clone()))?;
-    Some(Job::for_file(storage, folder, &file)).filter(|job| !job.is_empty())
+    // Interface 6, ported with the export: a refused allocation is no job.
+    Job::for_file(storage, folder, &file)
+        .ok()
+        .filter(|job| !job.is_empty())
 }
 
 /// Whether what the update before a save did allows the save: the file was
@@ -408,7 +411,8 @@ impl Saver {
                 left_out: 0,
             });
             let listed: Vec<String> = sync::files(storage, &self.folder)
-                .1
+                .map(|(_, found)| found)
+                .unwrap_or_default()
                 .into_iter()
                 .map(|f| f.name)
                 .collect();

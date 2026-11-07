@@ -82,9 +82,36 @@ a count of 0, where they used to show what was read so far. Nothing is written f
 (`add`/`remove` read the list themselves and never write anew from a partial read). The
 native screens replace these callers.
 
+## Ported: the sync of card files (`sync.rs`, host-free over `Storage`)
+
+- The folder listing, the ledger (`sources.txt`, read line by line, written in pieces through
+  a staged part and a rename), the pending count, the folder and its note, deck names (no
+  `to_lowercase`: compared folded, extensions cut ASCII-insensitively), the job (files, work,
+  reports, questions) and the merge of a file into a deck allocate fallibly. A refused
+  allocation in a step makes the file `Unreadable` (never marked failed, so it is tried
+  again); one that cannot even begin a file ends the job and sets `Job::refused()`; a
+  report that cannot be kept sets it too.
+- `Step::Ask` carries nothing now: the question is `Job::question()` (no clone per step).
+  `table::record_at` returns `Result<Option<_>>` (a refusal or read error was a missing line:
+  a change then went unmade and the content hash said "same" next time).
+- A card changed from its line that cannot be copied is left as it is and the update fails
+  (the ledger is not written), so the next update tries again.
+- The ledger larger than 128 KiB or of another version is `Io` (unreadable, every file fails
+  and none is written over it); a refused allocation is `TooLarge` (the job is not made).
+- Changes of behaviour: a ledger file that begins with a blank line is unreadable as before; a
+  byte order mark before the header is now accepted; the sort of the files is by folded name
+  then name (the old stable sort over `to_lowercase` had no tie-break).
+- `apkg::tidy` names its two files by constants and allocates nothing (the rest of `apkg` is
+  next).
+- Sweeps (`alloc_refusal_tests::folder`): listing, pending, folder, names, `sources`,
+  `write_sources` and a whole job (a changed file and a new one) with each allocation refused.
+- The card folder is still the platform `Storage`'s (`list`, `exists`, `modified`,
+  `create_dir`): the native adapter over `core.files` (SDK `native::files`, PR #384) is the
+  shell's, and an ignored case names it.
+
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
-- `export`, `sync`, `sdcard`, `apkg`, `phone` (they still use `format!`, `collect`,
+- `export`, `sdcard`, `apkg`, `phone` (they still use `format!`, `collect`,
   `to_lowercase`; `fsrs.rs` is pure and needs nothing). Next slices.
 - The native shell: `Plugin` impl, declarations, `build.rs`, metadata, linked entry.
 - Screens (word list, decks, card files, review, sleep card) on `core.ui`.
