@@ -271,3 +271,5 @@ mod widgets;
 
 #[path = "tests/confirm.rs"]
 mod confirm;
+
+mod stages;

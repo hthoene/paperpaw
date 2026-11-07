@@ -47,11 +47,6 @@ impl NativeScreenSpec {
 }
 
 impl NativeMade {
-    #[cfg(test)]
-    pub(crate) fn retire_for_test(&self) {
-        self.instance.stop();
-    }
-
     pub(crate) fn refresh(&self) -> Option<paperpaw_sdk::RefreshMode> {
         (self.flags & 1 != 0).then_some(paperpaw_sdk::RefreshMode::Full)
     }

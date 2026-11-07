@@ -2019,6 +2019,7 @@ enum paperpaw_sdk::native::stage_schemas::core_status_v1::Record<'a> { StatusAsk
 enum paperpaw_sdk::native::stage_schemas::core_widget_v1::Record { WidgetMeasure(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetMeasure), WidgetPlace(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetPlace), WidgetTargets(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetTargets), WidgetSize(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetSize), WidgetTarget(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetTarget) }
 enum paperpaw_sdk::native::storage::Root { Data, Files }
 enum paperpaw_sdk::native::ui::queries::HintInput { Any, Touch, Buttons }
+enum paperpaw_sdk::native::ui::stages::widget::WidgetCall { Measure { instance: paperpaw_sdk::native::ui::types::Instance, width: u32 }, Place { instance: paperpaw_sdk::native::ui::types::Instance, rect: paperpaw_sdk::native::callbacks::FrameRect }, Targets { instance: paperpaw_sdk::native::ui::types::Instance, rect: paperpaw_sdk::native::callbacks::FrameRect } }
 enum paperpaw_sdk::native::ui::status::StatusLine<'cb> { Own, Draw(0: paperpaw_sdk::native::ui::widgets::StatusLineHandle<'cb>) }
 enum paperpaw_sdk::native::ui::types::Answer { Accept, Cancel, Typing, Pick(0: u32), Yes, No }
 enum paperpaw_sdk::native::ui::types::QuestionKind { Text, Choice, Confirm, Folder }
@@ -2726,6 +2727,9 @@ struct paperpaw_sdk::native::ui::paging::UiPageEnd { total: u32, generation: u32
 struct paperpaw_sdk::native::ui::params::Param<'a> { key: &'a str, value: &'a str }
 struct paperpaw_sdk::native::ui::queries::UiHint<'a> { input: paperpaw_sdk::native::ui::queries::HintInput, zone: paperpaw_platform::geometry::Rect, text: &'a str, owner: &'a str }
 struct paperpaw_sdk::native::ui::queries::UiScreen<'a> { screen: &'a str, instance: paperpaw_sdk::native::ui::types::Instance, slot: &'a str, owner: &'a str, flags: u32 }
+struct paperpaw_sdk::native::ui::stages::status::ContextParams<'a> { bytes: &'a [u8] }
+struct paperpaw_sdk::native::ui::stages::status::StatusAnswer<'a> { item: &'a str, flags: u32, text: &'a str }
+struct paperpaw_sdk::native::ui::stages::status::StatusCall<'a> { items: &'a str, context: &'a [u8] }
 struct paperpaw_sdk::native::ui::status::StatusValue<'a> { item: &'a str, text: &'a str, flags: u32, handle: core::option::Option<paperpaw_sdk::native::ui::widgets::StatusHandle<'a>> }
 struct paperpaw_sdk::native::ui::types::HandoverId(0: core::num::nonzero::NonZeroU32)
 struct paperpaw_sdk::native::ui::types::Instance(0: core::num::nonzero::NonZeroU32)
