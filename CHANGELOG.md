@@ -19,6 +19,10 @@ change the plugin SDK.
 
 ### Added
 
+- Native SDK library field reads use lossless pages with a separate book-field
+  generation cursor. Typed book-field and badge declarations expose the existing
+  library records to providers (#228).
+
 - Settings 1.0.6: the interface-7 native plugin (main page, group pages, choosing a value, themes,
   search, reset, number editing with preview) over the registry service; `paperpaw-ui-kit` item
   rows gain − and + buttons and show a title that is already translated as it is (#228).
