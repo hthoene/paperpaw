@@ -650,6 +650,7 @@ fn status_discovery_maps_scopes_and_borrows_named_rows() {
             }),
             end(1, 1, 9, true),
         ]);
+        let out_range = out.as_ptr_range();
         let page = registry
             .status(&host, scope, PageCursor::start(), &mut input, &mut out)
             .unwrap();
@@ -662,7 +663,7 @@ fn status_discovery_maps_scopes_and_borrows_named_rows() {
         assert_eq!(row.is_drawn(), kind == 1);
         assert!(row.is_private());
         assert_eq!((row.priority(), row.size(), row.tap()), (0, 1000, ""));
-        assert!(out.as_ptr_range().contains(&row.title().as_ptr()));
+        assert!(out_range.contains(&row.title().as_ptr()));
     }
     assert_eq!(&*fixture.scopes.borrow(), &["", "item", "line"]);
     assert!(
