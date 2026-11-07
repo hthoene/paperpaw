@@ -1840,6 +1840,12 @@ for 32 wire records (32 × 104 bytes, measured with `-Zprint-type-sizes` for
 call; parameter text and transport buffers remain borrowed. This type-layout
 measurement does not replace the runtime X4 heap gate.
 
+Menu replacement temporarily allocates only its joined item bytes, at most
+2,048 bytes, and frees them after encoding into the caller's command buffer,
+before host submission. Empty and reset lists allocate nothing. The menu and
+handover temporaries are released before their host calls, so they do not
+overlap, including when both operations run in one callback.
+
 PaperPaw's standard app holds some 90 KiB of it once it has started
 with the sample books, 130 KiB at its peak (the emulator, `--profile
 xteink-x4 --headless --script wait:500`). A plugin that should run

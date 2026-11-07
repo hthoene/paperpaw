@@ -22,6 +22,8 @@ change the plugin SDK.
 - Native SDK screen instance policies, borrowed confirmation button labels and flags,
   dialog label accessors, and an explicit user-defined menu getter (#228).
 
+- Interface-7 generated stage schemas for `core.input-filter`, `core.widget` and
+  `core.status` share bounded payload codecs between the host and SDK (#228).
 - Native slot 32 rejects overlapping buffers and delegates bounded inputs and
   uninitialized output directly through the callback frame; production broker wiring follows (#228).
 
