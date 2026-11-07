@@ -13,6 +13,7 @@ pub(crate) struct NativeDispatch<S: Services + 'static, M: 'static> {
     depth: FlatDepth,
     host: FlatHost,
     report: fn(&S, u32, i32),
+    identity: super::native_instances::NativeIdentity,
 }
 
 impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
@@ -21,17 +22,23 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         depth: FlatDepth,
         host: FlatHost,
         report: fn(&S, u32, i32),
+        identity: super::native_instances::NativeIdentity,
     ) -> Self {
         Self {
             instance,
             depth,
             host,
             report,
+            identity,
         }
     }
 
-    fn frame<'a>(&'a self, env: &'a Env<'a>) -> CoreFrame<'a> {
+    fn frame<'a>(&'a self, env: &'a Env<'a>, epoch: u64) -> CoreFrame<'a> {
         CoreFrame {
+            callback: Some(crate::abi7::core_frame::CallbackStamp {
+                owner: self.identity.owner(),
+                epoch,
+            }),
             env,
             meter: &self.host.meter,
             font_removals: &self.host.font_removals,
@@ -47,12 +54,13 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         env: &Env<'_>,
         invocation: shell::TokenInvocation<'_>,
     ) -> Result<i32, i32> {
+        let epoch = self.identity.callback()?;
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
         shell::dispatch_token(
             batch,
             token,
             self.depth.as_depth(),
-            &self.frame(env),
+            &self.frame(env, epoch.epoch()),
             invocation,
         )
         .map_err(status)
@@ -75,12 +83,13 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
         env: &Env<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
+        let epoch = self.identity.callback()?;
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
         shell::dispatch_token_draw(
             batch,
             token,
             self.depth.as_depth(),
-            &self.frame(env),
+            &self.frame(env, epoch.epoch()),
             frame,
             canvas,
         )
@@ -88,12 +97,13 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
     }
 
     fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Env<'_>) -> Result<i32, i32> {
+        let epoch = self.identity.callback()?;
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
         shell::dispatch_stage(
             batch,
             token,
             self.depth.as_depth(),
-            &self.frame(env),
+            &self.frame(env, epoch.epoch()),
             bytes,
             out,
         )
@@ -129,5 +139,16 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
     }
     fn stop(&self) {
         self.instance.host().stop();
+    }
+    fn retire(&self, owner: u64) -> Result<(), i32> {
+        self.instance.host().stop();
+        if owner != self.identity.owner() {
+            return Err(host_glue::ERR_STATE);
+        }
+        self.instance
+            .host()
+            .owner()
+            .prepare_teardown()
+            .map_err(|error| status(shell::Error::Lifecycle(error)))
     }
 }

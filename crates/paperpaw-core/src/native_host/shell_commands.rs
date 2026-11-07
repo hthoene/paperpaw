@@ -34,6 +34,7 @@ impl Kernel {
         let (status, owner, (commands, redraw, _hop)) = {
             let env = self.shared.env(now);
             let frame = CoreFrame {
+                callback: None,
                 env: &env,
                 meter: &self.shared.meter,
                 font_removals: &self.shared.font_removals,

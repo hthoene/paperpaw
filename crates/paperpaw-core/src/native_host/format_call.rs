@@ -39,7 +39,7 @@ const REPLY_ROWS: u32 = 64;
 /// and the token it declared in `format.spec`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Target {
-    pub(crate) plugin: usize,
+    pub(crate) plugin: u64,
     pub(crate) token: u32,
 }
 

@@ -22,7 +22,8 @@ change the plugin SDK.
 - Settings 1.0.6: the interface-7 native plugin (main page, group pages, choosing a value, themes,
   search, reset, number editing with preview) over the registry service; `paperpaw-ui-kit` item
   rows gain − and + buttons and show a title that is already translated as it is (#228).
-
+- Core native callbacks carry authoritative registry owner keys and checked,
+  nonzero callback epochs. Failed admission cannot reuse an issued owner key (#228).
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
   `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-ui-kit` gains item lists with
   footers, whole-file storage helpers and a screen registry (#228).
@@ -37,6 +38,14 @@ change the plugin SDK.
 - `paperpaw-ui-kit`: drawing helpers for interface-7 plugin screens (stock UI style,
   header with back and pager, paged list rows with focus and hit-testing, text fitting, catalog
   messages) over the flat native SDK, extracted from Battery and the menu editor (#228).
+
+- Native SDK library queries, borrowed book metadata and badges, finished-status
+  updates and plugin-owned field writes (#228).
+- Native SDK typed device inventory and status reads, including firmware, native
+  build, hardware values and memory probes, with validated borrowed reply pages (#228).
+- Native SDK widget and status provider adapters decode generated stage requests
+  and encode complete replies without heap allocation. Widget targets and status
+  values use bounded scratch and refuse oversized replies (#228).
 - Core native screen admission uses a shared declaration entry, fallible factories,
   retained owners and declared instance policies. Native screen lifecycle events
   carry nonzero instance ids. Other declaration families remain refused until wired (#228).

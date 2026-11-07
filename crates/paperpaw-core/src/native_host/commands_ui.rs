@@ -135,18 +135,29 @@ impl crate::Kernel {
         redraw: Option<Redraw>,
     ) {
         for command in commands {
-            if let Command::Close(key) = &command
-                && !self
-                    .shared
-                    .stack
-                    .iter()
-                    .any(|entry| entry.key == *key && entry.screen.namespace() == owner.as_str())
-            {
-                self.warn_runtime("native close dropped: its screen no longer exists");
-                continue;
-            }
-            self.apply(command);
+            self.drain_native_command(owner, command);
         }
+        self.finish_native_redraw(owner, redraw);
+    }
+
+    /// Apply one staged command of `owner`; a close of a screen that is gone
+    /// is dropped with a warning.
+    pub(crate) fn drain_native_command(&mut self, owner: &Id, command: Command) {
+        if let Command::Close(key) = &command
+            && !self
+                .shared
+                .stack
+                .iter()
+                .any(|entry| entry.key == *key && entry.screen.namespace() == owner.as_str())
+        {
+            self.warn_runtime("native close dropped: its screen no longer exists");
+            return;
+        }
+        self.apply(command);
+    }
+
+    /// The deferred redraw, if its screen is still on top.
+    pub(crate) fn finish_native_redraw(&mut self, owner: &Id, redraw: Option<Redraw>) {
         if let Some(redraw) = redraw {
             if !self.native_top(owner, redraw.screen) {
                 self.warn_runtime("native redraw dropped: its screen is no longer on top");
