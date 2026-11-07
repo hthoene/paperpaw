@@ -579,6 +579,7 @@ const paperpaw_sdk::native::declare::records_wire::RESOURCE_FONT_FACE_TAG: u32 =
 const paperpaw_sdk::native::declare::records_wire::RESOURCE_HYPHENATION_LANGUAGE_MAX_BYTES: usize = 35usize
 const paperpaw_sdk::native::declare::records_wire::RESOURCE_HYPHENATION_PATH_MAX_BYTES: usize = 100usize
 const paperpaw_sdk::native::declare::records_wire::RESOURCE_HYPHENATION_TAG: u32 = 8u32
+const paperpaw_sdk::native::declare::records_wire::RecordBatch<'_>::EMPTY: Self = Self { records: [None
 const paperpaw_sdk::native::declare::records_wire::SCREEN_SPEC_NAME_MAX_BYTES: usize = 96usize
 const paperpaw_sdk::native::declare::records_wire::SCREEN_SPEC_TAG: u32 = 11u32
 const paperpaw_sdk::native::declare::records_wire::SCREEN_SPEC_TITLE_MAX_BYTES: usize = 128usize
