@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 6] = [
+const CASES: [Case; 5] = [
     // Typing on the keys, shift and its lock, variants, delete, finish and
     // cancel, answering through core.ui.
     Case {
@@ -29,25 +29,19 @@ const CASES: [Case; 6] = [
         blocked_by: &["H2", "H4"],
     },
     // Text from a hardware keyboard or a remote control (interface 6
-    // `type-text`) has no interface-7 input yet.
+    // `type-text`) has no interface-7 input yet (draft 22: event.text_typed).
     Case {
         name: "keyboard-type-text",
         golden: None,
         blocked_by: &["H4"],
     },
-    // Layouts other plugins add (point `keyboard.layouts`) and hiding layouts
-    // the fonts cannot draw need an extension point and a glyph query.
+    // Layouts other plugins add come by the stage `keyboard.layouts@1` (schema
+    // and codec still to write), and hiding layouts the fonts cannot draw needs
+    // the glyph query (Kernel draft 22).
     Case {
         name: "keyboard-added-layouts",
         golden: None,
-        blocked_by: &["EXT", "H1"],
-    },
-    // Showing *Phone* only where there is a network needs the DEV capability
-    // facade.
-    Case {
-        name: "keyboard-phone-network",
-        golden: None,
-        blocked_by: &["DEV", "H2"],
+        blocked_by: &["STAGE", "H1"],
     },
 ];
 
@@ -86,13 +80,7 @@ fn keyboard_type_text() {
 }
 
 #[test]
-#[ignore = "BLOCKED EXT: no keyboard.layouts extension point or glyph query yet"]
+#[ignore = "BLOCKED STAGE: no keyboard.layouts@1 stage or glyph query yet"]
 fn keyboard_added_layouts() {
     CASES[4].refuse().unwrap();
-}
-
-#[test]
-#[ignore = "BLOCKED DEV: no network capability facade yet"]
-fn keyboard_phone_network() {
-    CASES[5].refuse().unwrap();
 }

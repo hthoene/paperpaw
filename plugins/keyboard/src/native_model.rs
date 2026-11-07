@@ -205,7 +205,6 @@ pub struct Board {
     pub strip: u16,
     /// How large the letters are, in hundredths of the text.
     pub letters: u32,
-    pub shape_tapped: bool,
     pub buttons: Vec<(FieldButton, Rect)>,
 }
 
@@ -248,22 +247,7 @@ impl Board {
         } else {
             button_scale(own.size)
         };
-        // As many units in a row as leave a letter (2 units) its least width.
-        let least = if touch {
-            tenth_mm(look.dpi, LEAST_TAP_MM * 10)
-        } else {
-            let px = look.text * scale as f32 / 100.0;
-            (look.m_width * px) as u32 + 2 * (border(&look) + u32::from(BUTTONS_SEAM))
-        };
-        let unit = (least / 2).max(1);
-        let seam = if touch {
-            let half = tenth_mm(look.dpi, TOUCH_GAP_TENTHS) / 2;
-            half.max(border(&look)) as u16
-        } else {
-            BUTTONS_SEAM
-        };
-        let side = (look.margin / 4).max(LEAST_SIDE).max(seam);
-        let most = (u32::from(look.width).saturating_sub(2 * u32::from(side))) / unit;
+        let (seam, side, most) = spacing(&look, scale);
         let letters = layouts.get(current).map_or("", |l| l.1.as_ref());
         let other = match layer {
             Layer::Letters => rows_for(letters, Layer::Symbols, false, most, asked.multiline).len(),
@@ -300,10 +284,7 @@ impl Board {
         let keys_height = key_height.saturating_mul(count as u16).min(room_for_keys);
         if asked.multiline {
             let used = status + field_height + keys_height + gap * 2 + room;
-            let spare = look.height.saturating_sub(used);
-            let line = f32::from(look.text_line.max(1));
-            let more = ((f32::from(spare) / line) as u16).min(MORE_LINES);
-            field_height += (f32::from(more) * line) as u16;
+            field_height += more_lines(&look, look.height.saturating_sub(used));
         }
         let height = (field_height + keys_height + gap * 2 + room).min(look.height);
         let region = Rect::new(0, look.height - height, look.width, height);
@@ -338,7 +319,6 @@ impl Board {
             side,
             strip,
             letters: scale,
-            shape_tapped: touch,
             buttons: Vec::new(),
         };
         board.place_buttons(buttons)?;
@@ -436,16 +416,6 @@ impl Board {
         let right = x0 + width * (before + wide) / total;
         let y = self.keys.y + self.key_height * row as u16;
         Rect::new(left as u16, y, (right - left) as u16, self.key_height)
-    }
-
-    /// What a focus on `(row, index)` draws over.
-    #[must_use]
-    pub fn focus_area(&self, row: usize, index: usize) -> Rect {
-        if row == FIELD_ROW {
-            self.buttons_box()
-        } else {
-            self.key_area(row, index)
-        }
     }
 
     /// The key under `point`.
@@ -569,6 +539,7 @@ impl Board {
         self.shift = self.auto_shift();
     }
 
+    #[allow(dead_code, reason = "the host's text_typed event (draft 22) feeds it")]
     /// Text typed from outside: as the keys would add it, without what is no
     /// text.
     ///
@@ -679,15 +650,6 @@ impl Board {
             .iter()
             .find(|(base, _)| *base == lower)
             .map(|(_, letters)| letters.as_str())
-    }
-
-    /// Whether the key at `(row, index)` is a letter the layout holds others on.
-    #[must_use]
-    pub fn has_held(&self, row: usize, index: usize) -> bool {
-        match self.key(row, index) {
-            Some(Key::Char(c)) => self.held_of(c).is_some(),
-            _ => false,
-        }
     }
 
     /// The letters held on the focused letter, cased as typed now.
@@ -936,6 +898,36 @@ fn tapped_height(look: &Look, own: Own<'_>, letter: u32, count: u16, around: u16
     sized.max(least)
 }
 
+/// The room between keys, at the screen's sides, and the most units a row
+/// holds, with letters `scale` hundredths of the text (as many units as leave
+/// a letter, 2 units, its least width).
+fn spacing(look: &Look, scale: u32) -> (u16, u16, u32) {
+    let least = if look.touch {
+        tenth_mm(look.dpi, LEAST_TAP_MM * 10)
+    } else {
+        let px = look.text * scale as f32 / 100.0;
+        (look.m_width * px) as u32 + 2 * (border(look) + u32::from(BUTTONS_SEAM))
+    };
+    let unit = (least / 2).max(1);
+    let seam = if look.touch {
+        let half = tenth_mm(look.dpi, TOUCH_GAP_TENTHS) / 2;
+        half.max(border(look)) as u16
+    } else {
+        BUTTONS_SEAM
+    };
+    let side = (look.margin / 4).max(LEAST_SIDE).max(seam);
+    let most = (u32::from(look.width).saturating_sub(2 * u32::from(side))) / unit;
+    (seam, side, most)
+}
+
+/// How much higher the field of several lines is made in `spare` room: whole
+/// lines, as many as fit up to [`MORE_LINES`].
+fn more_lines(look: &Look, spare: u16) -> u16 {
+    let line = f32::from(look.text_line.max(1));
+    let more = ((f32::from(spare) / line) as u16).min(MORE_LINES);
+    (f32::from(more) * line) as u16
+}
+
 /// Whether `shape` is one the keyboard knows.
 #[must_use]
 pub fn known_shape(shape: &str) -> bool {
@@ -946,4 +938,291 @@ pub fn known_shape(shape: &str) -> bool {
 #[must_use]
 pub fn known_size(size: &str) -> bool {
     matches!(size, SIZE_SMALL | SIZE_LARGE | SIZE_MEDIUM)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fail_alloc::sweep;
+    use crate::layouts::chosen_for;
+    use alloc::string::ToString;
+    use alloc::vec;
+
+    fn look(touch: bool) -> Look {
+        Look {
+            width: 480,
+            height: 800,
+            dpi: 220,
+            touch,
+            text: 20.0,
+            small: 15.0,
+            row: if touch { 60 } else { 40 },
+            margin: 12,
+            gap: 8,
+            line: 2,
+            m_width: 0.9,
+            text_line: 26,
+            status: 24,
+        }
+    }
+
+    fn own(auto_capitals: bool) -> Own<'static> {
+        Own {
+            shape: "keyboard.key-shape.round",
+            size: "keyboard.size.medium",
+            auto_capitals,
+        }
+    }
+
+    fn plain() -> Asked {
+        Asked {
+            plain: true,
+            ..Asked::default()
+        }
+    }
+
+    fn board(touch: bool, asked: Asked, auto: bool) -> Board {
+        let layouts =
+            chosen_for("en", "", "keyboard.layout.en, keyboard.layout.de", false).unwrap();
+        Board::new(look(touch), own(auto), asked, layouts, 0, &[]).unwrap()
+    }
+
+    fn type_all(board: &mut Board, text: &str) {
+        for c in text.chars() {
+            board.press(Key::Char(c), 0).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_keyboard_lies_at_the_bottom_inside_the_screen() {
+        for touch in [true, false] {
+            let b = board(touch, plain(), false);
+            let l = look(touch);
+            assert_eq!(b.region.x + b.region.width, l.width);
+            assert_eq!(b.region.y + b.region.height, l.height);
+            assert!(b.keys.y >= b.field.y + b.field.height - 1);
+            assert!(b.key_height > 0);
+            for (row, keys) in b.rows.iter().enumerate() {
+                for index in 0..keys.len() {
+                    let a = b.key_area(row, index);
+                    assert!(a.x + a.width <= l.width, "{row}/{index}");
+                    assert!(a.y >= b.keys.y && a.y + a.height <= b.keys.y + b.keys.height);
+                }
+            }
+            // The first key is found where it lies.
+            let first = b.key_area(0, 0);
+            let at = Point::new(
+                i32::from(first.x + first.width / 2),
+                i32::from(first.y + first.height / 2),
+            );
+            assert_eq!(b.key_at(at), Some((0, 0)));
+        }
+    }
+
+    #[test]
+    fn with_buttons_the_focus_starts_on_the_first_key() {
+        assert_eq!(board(false, plain(), false).focus, Some((0, 0)));
+        assert_eq!(board(true, plain(), false).focus, None);
+    }
+
+    #[test]
+    fn shift_types_one_capital_and_twice_in_a_row_locks_them() {
+        let mut b = board(true, plain(), false);
+        b.press(Key::Shift, 100).unwrap();
+        assert_eq!(b.shift, Shift::Once);
+        type_all(&mut b, "ab");
+        assert_eq!(b.text, "Ab");
+        b.press(Key::Shift, 1000).unwrap();
+        b.press(Key::Shift, 1200).unwrap();
+        assert_eq!(b.shift, Shift::Locked);
+        type_all(&mut b, "cd");
+        assert_eq!(b.text, "AbCD");
+        b.press(Key::Shift, 5000).unwrap();
+        assert_eq!(b.shift, Shift::Off);
+        // A second press too late only switches off.
+        b.press(Key::Shift, 6000).unwrap();
+        b.press(Key::Shift, 9000).unwrap();
+        assert_eq!(b.shift, Shift::Off);
+    }
+
+    #[test]
+    fn automatic_capitals_start_sentences_in_plain_text_only() {
+        let mut b = board(true, plain(), true);
+        assert_eq!(b.shift, Shift::Once);
+        type_all(&mut b, "hi. ok");
+        assert_eq!(b.text, "Hi. Ok");
+        let secret = Asked {
+            secret: true,
+            plain: false,
+            ..Asked::default()
+        };
+        assert_eq!(board(true, secret, true).shift, Shift::Off);
+    }
+
+    #[test]
+    fn delete_takes_back_and_a_long_text_is_cut_with_a_notice() {
+        let mut b = board(true, plain(), false);
+        type_all(&mut b, "abc");
+        assert_eq!(b.delete(), Pressed::Changed);
+        assert_eq!(b.text, "ab");
+        b.clear();
+        assert_eq!(b.delete(), Pressed::Nothing);
+        let long = "x".repeat(MAX_CHARS + 5);
+        assert_eq!(b.insert(&long, false).unwrap(), Pressed::Full);
+        assert_eq!(b.text.chars().count(), MAX_CHARS);
+        let mut lines = board(
+            true,
+            Asked {
+                multiline: true,
+                ..plain()
+            },
+            false,
+        );
+        assert_eq!(lines.max_chars(), MAX_CHARS_MULTILINE);
+        lines.press(Key::Enter, 0).unwrap();
+        assert_eq!(lines.text, "\n");
+    }
+
+    #[test]
+    fn pasted_text_is_one_line_and_numbers_take_digits_only() {
+        let mut b = board(true, plain(), false);
+        b.pasted("  a\r\nb\tc ").unwrap();
+        assert_eq!(b.text, "a b c");
+        let mut lines = board(
+            true,
+            Asked {
+                multiline: true,
+                ..plain()
+            },
+            false,
+        );
+        lines.pasted("a\r\nb").unwrap();
+        assert_eq!(lines.text, "a\nb");
+        let mut number = board(
+            true,
+            Asked {
+                number: true,
+                ..Asked::default()
+            },
+            false,
+        );
+        assert_eq!(number.layer, Layer::Digits);
+        number.pasted("a1b2-3").unwrap();
+        assert_eq!(number.text, "123");
+        number.typed("x4").unwrap();
+        assert_eq!(number.text, "1234");
+    }
+
+    #[test]
+    fn layer_and_layout_keys_rebuild_the_rows() {
+        let mut b = board(true, plain(), false);
+        let letters = b.rows.clone();
+        b.press(Key::Layer(Layer::Symbols), 0).unwrap();
+        assert_ne!(b.rows, letters);
+        b.press(Key::Layer(Layer::Letters), 0).unwrap();
+        assert_eq!(b.rows, letters);
+        // Two layouts: the key switches to German, which swaps y and z.
+        b.press(Key::NextLayout, 0).unwrap();
+        assert_eq!(b.current, 1);
+        assert_ne!(b.rows, letters);
+        assert!(b.held_letters().is_none() || b.focus.is_some());
+    }
+
+    #[test]
+    fn the_focus_goes_round_the_rows_and_remembers_its_column() {
+        let mut b = board(false, plain(), false);
+        b.focus = Some((0, 0));
+        b.move_focus(Move::Left);
+        let last = b.rows[0].len() - 1;
+        assert_eq!(b.focus, Some((0, last)));
+        b.move_focus(Move::Right);
+        assert_eq!(b.focus, Some((0, 0)));
+        b.move_focus(Move::Down);
+        assert_eq!(b.focus.map(|f| f.0), Some(1));
+        b.move_focus(Move::Up);
+        b.move_focus(Move::Up);
+        // Up from the first row goes round to the last.
+        assert_eq!(b.focus.map(|f| f.0), Some(b.rows.len() - 1));
+    }
+
+    #[test]
+    fn variants_show_the_capital_first_and_close() {
+        let mut b = board(true, plain(), false);
+        let (row, index) = (
+            0,
+            b.rows[0]
+                .iter()
+                .position(|k| k.0 == Key::Char('e'))
+                .unwrap(),
+        );
+        assert!(b.open_variants(row, index).unwrap());
+        let popup = b.popup.as_ref().unwrap();
+        assert_eq!(popup.chars[0], 'E');
+        assert!(popup.chars.contains(&'é'.to_ascii_lowercase()) || popup.chars.len() > 1);
+        assert!(popup.area.x + popup.area.width <= b.region.width);
+        // A key without variants has no popup.
+        let space = b
+            .rows
+            .last()
+            .unwrap()
+            .iter()
+            .position(|k| k.0 == Key::Space)
+            .unwrap();
+        assert!(!b.open_variants(b.rows.len() - 1, space).unwrap());
+    }
+
+    #[test]
+    fn german_holds_umlauts_on_their_letters() {
+        let layouts = chosen_for("de", "", "keyboard.layout.auto", false).unwrap();
+        let mut b = Board::new(look(false), own(false), plain(), layouts, 0, &[]).unwrap();
+        let at = b.rows[1]
+            .iter()
+            .position(|k| k.0 == Key::Char('a'))
+            .unwrap();
+        b.focus = Some((1, at));
+        assert_eq!(b.held_letters().as_deref(), Some("ä"));
+        b.shift = Shift::Once;
+        assert_eq!(b.held_letters().as_deref(), Some("Ä"));
+    }
+
+    #[test]
+    fn layout_codes_come_from_the_language() {
+        let layouts = chosen_for("de-AT", "", "", false).unwrap();
+        assert_eq!(layouts[0].0, "DE");
+        let own_rows = chosen_for("xx", "abc def ghi", "keyboard.layout.auto", false).unwrap();
+        assert_eq!(own_rows[0].1, "abc def ghi");
+        assert_eq!(own_rows[0].0, "XX");
+        assert_eq!(vec!["x".to_string()].len(), 1);
+    }
+
+    /// Every allocation may be refused: the model ends in `NoMemory` or
+    /// succeeds, and never aborts.
+    #[test]
+    fn allocation_refusals_end_in_no_memory() {
+        sweep(|| {
+            chosen_for("de", "", "keyboard.layout.de, keyboard.layout.auto", true).map(|l| l.len())
+        });
+        sweep(|| {
+            let layouts = chosen_for("en", "", "keyboard.layout.en", false)?;
+            Board::new(
+                look(true),
+                own(true),
+                plain(),
+                layouts,
+                0,
+                &[(FieldButton::Paste, 40.0)],
+            )
+            .map(|b| b.rows.len())
+        });
+        sweep(|| {
+            let mut b = board(true, plain(), false);
+            b.insert("héllo wörld", true)?;
+            b.pasted("a\r\nb c")?;
+            b.typed("xyz")?;
+            b.press(Key::Shift, 0)?;
+            b.press(Key::NextLayout, 0)?;
+            b.open_variants(0, 0)?;
+            Ok(b.text.len())
+        });
+    }
 }

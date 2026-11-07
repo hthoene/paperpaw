@@ -8,13 +8,14 @@ use crate::native_model::{
     Asked, Board, FIELD_ROW, FieldButton, Look, Move, Own, Pressed, known_shape, known_size,
 };
 use crate::native_paint::{self, Words};
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled, Point,
     native::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode},
+        device::{Device, DeviceCapability},
         events::{AnswerOutcome, Answered, Event},
         fonts::{Font, FontRole},
         formatting::Arg,
@@ -23,8 +24,7 @@ use paperpaw_sdk::{
         settings::SettingValue,
         snapshot,
         ui::{
-            Answer, Instance, Notify, Question, QuestionKind, RequestId, ScreenPolicy, TextMode,
-            TextWrite, Ui,
+            Answer, Instance, Notify, Question, QuestionKind, RequestId, ScreenPolicy, TextMode, Ui,
         },
     },
 };
@@ -58,8 +58,6 @@ const SCREEN_ID: &str = "keyboard.screen";
 const REMOTE: &str = "core.remote-keyboard";
 /// A host text, in bytes, at most.
 const TEXT_LIMIT: usize = 24_576;
-/// The most a part of a host text holds.
-const PART: usize = 3072;
 /// What passes the keyboard while a password is typed.
 const PASSING: [&str; 3] = [
     "core.sleep",
@@ -102,8 +100,12 @@ struct ChooseView {
 }
 
 #[derive(Debug)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "boxing would allocate infallibly; at most a few instances are open"
+)]
 enum View {
-    Dialog(Box<Dialog>),
+    Dialog(Dialog),
     Choose(ChooseView),
 }
 
@@ -218,7 +220,7 @@ impl NativeKeyboard {
         handover: Option<paperpaw_sdk::native::ui::HandoverId>,
     ) -> Result<(), Error> {
         let view = if screen == SCREEN_ID {
-            View::Dialog(Box::new(self.open_dialog(host, handover)?))
+            View::Dialog(self.open_dialog(host, handover)?)
         } else {
             View::Choose(build_choose(host)?)
         };
@@ -326,10 +328,10 @@ impl NativeKeyboard {
             &setting_text(host, LAYOUTS_KEY)?,
             read_bool(host, UMLAUT_KEY)?,
         )?;
-        // *Phone* where another device can type, *Paste* when the clipboard has
-        // text. The network is not asked: DEV has no facade yet.
+        // *Phone* where there is a network and a screen to type on another
+        // device, *Paste* when the clipboard has text.
         let mut kinds: Vec<(FieldButton, f32)> = Vec::new();
-        if !asked.secret && self.remote_keyboard(host)? {
+        if !asked.secret && self.has_network(host)? && self.remote_keyboard(host)? {
             let label = messages.copy(host, FieldButton::Phone.label())?;
             push(
                 &mut kinds,
@@ -352,6 +354,18 @@ impl NativeKeyboard {
             nested: None,
             live: asked.live,
         })
+    }
+
+    /// Whether the device has a network.
+    fn has_network(&self, host: &Host<'_>) -> Result<bool, Error> {
+        let device = Device::open(host)?;
+        let mut input = buffer(SERVICE_BUFFER)?;
+        let mut output = buffer(SERVICE_BUFFER)?;
+        let found = device
+            .device(host, &mut input, &mut output)
+            .map(|identity| identity.supports(DeviceCapability::Network));
+        device.release(host)?;
+        found
     }
 
     /// Whether a screen fills the slot `core.remote-keyboard`.
@@ -626,7 +640,7 @@ impl NativeKeyboard {
         let mut input = buffer(SERVICE_BUFFER)?;
         let mut output = buffer(SERVICE_BUFFER)?;
         let request = self.ui()?.ask(host, question, &mut input, &mut output)?;
-        write_parts(self.ui()?, host, request, &text)?;
+        uitext::write_all(self.ui()?, host, request.text(), &text)?;
         if let Some(d) = self.dialog_mut() {
             d.nested = Some(request);
         }
@@ -805,37 +819,6 @@ fn read_bool(host: &Host<'_>, key: &str) -> Result<bool, Error> {
     ))
 }
 
-/// Writes `text` to the request's host text in parts, the last committing it.
-fn write_parts(ui: &Ui, host: &Host<'_>, request: RequestId, text: &str) -> Result<(), Error> {
-    let mut input = buffer(SERVICE_BUFFER)?;
-    let mut output = buffer(SERVICE_BUFFER)?;
-    let mut offset = 0usize;
-    loop {
-        let mut end = text.len().min(offset + PART);
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        let last = end == text.len();
-        ui.text_write(
-            host,
-            request.text(),
-            u32::try_from(offset).map_err(|_| Error::NoSpace)?,
-            &text[offset..end],
-            if last {
-                TextWrite::Last
-            } else {
-                TextWrite::Continue
-            },
-            &mut input,
-            &mut output,
-        )?;
-        offset = end;
-        if last {
-            return Ok(());
-        }
-    }
-}
-
 /// Writes the answer text and commits it with `how`.
 fn answer_text(
     ui: &Ui,
@@ -844,7 +827,7 @@ fn answer_text(
     text: &str,
     how: Answer,
 ) -> Result<(), Error> {
-    write_parts(ui, host, request, text)?;
+    uitext::write_all(ui, host, request.text(), text)?;
     let mut input = buffer(SERVICE_BUFFER)?;
     let mut output = buffer(SERVICE_BUFFER)?;
     ui.answer(host, request, how, &mut input, &mut output)

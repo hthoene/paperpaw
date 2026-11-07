@@ -21,7 +21,7 @@ fn construct() -> Result<(), String> {
         paperpaw_plugin_keyboard::NATIVE_ENTRY.entry(),
         include_bytes!("../native/metadata.host.bin"),
         "keyboard",
-        &["core.registry", "core.ui"],
+        &["core.device", "core.registry", "core.ui"],
     )
 }
 

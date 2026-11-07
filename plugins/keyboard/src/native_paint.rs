@@ -325,7 +325,7 @@ fn key(
     // Tapped, keys fill their place but for a seam; the focused one (after a
     // button was used) smaller by its frame. With buttons they fill it but for
     // a pixel on each side, and the focused one is filled.
-    let frame = u16::from(style.line).max(1) * 3;
+    let frame = style.line.max(1) * 3;
     let pad = if focused && board.look.touch {
         frame
     } else {
@@ -497,7 +497,7 @@ fn variants(
     boxed(out, frame, 0, Some(border), style.ink)?;
     for (index, c) in popup.chars.iter().enumerate() {
         let key = popup.key(index);
-        let pad = u16::from(style.line).max(1) * 3;
+        let pad = style.line.max(1) * 3;
         let r = Rect::new(
             key.x + pad,
             key.y + pad,

@@ -136,6 +136,7 @@
     }
   ],
   "services": [
+    "core.device",
     "core.registry",
     "core.ui"
   ],
