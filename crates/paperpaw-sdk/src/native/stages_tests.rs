@@ -168,3 +168,43 @@ fn reply_capacity_matches_generated_framing_at_every_declared_size() {
         );
     }
 }
+
+#[test]
+fn full_id_constructor_validates_locally_and_leaves_ownership_to_host() {
+    let mut table = abi::host_table();
+    table.stage_run = run;
+    let mut fake = Fake {
+        calls: Cell::new(0),
+        error: abi::ERR_DENIED,
+        malformed: 0,
+    };
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut fake).cast(),
+    };
+    for id in [
+        "",
+        ".insert",
+        "reader.",
+        "reader..insert",
+        "Reader.insert",
+        "reader/insert",
+        "reader.é",
+    ] {
+        assert!(matches!(Stage::new(&host, id), Err(Error::Invalid)), "{id}");
+    }
+    assert!(matches!(
+        Stage::new(&host, &"x".repeat(129)),
+        Err(Error::Invalid)
+    ));
+    assert_eq!(fake.calls.get(), 0);
+    let long = "x".repeat(128);
+    assert!(Stage::new(&host, &long).is_ok());
+    let stage = Stage::new(&host, "reader.insert").unwrap();
+    let mut out = [0; 200];
+    assert_eq!(
+        stage.run(b"input", &mut out).next().unwrap_err(),
+        Error::Denied
+    );
+    assert_eq!(fake.calls.get(), 1);
+}

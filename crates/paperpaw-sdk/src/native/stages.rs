@@ -12,7 +12,27 @@ pub struct Stage<'cb> {
     id: &'cb str,
 }
 
-impl Stage<'_> {
+impl<'cb> Stage<'cb> {
+    /// Bind a full stage id, for example `reader.insert`, to this callback.
+    /// The host checks ownership when the stage runs.
+    ///
+    /// # Errors
+    /// Invalid for ids over 128 bytes or empty dot-separated segments, or bytes
+    /// outside `[a-z0-9-]` in a segment. Construction makes no host call.
+    pub fn new(host: &'cb Host<'cb>, full_id: &'cb str) -> Result<Self, Error> {
+        if full_id.len() > wire::STAGE_CALL_STAGE_MAX_BYTES
+            || !full_id.split('.').all(|part| {
+                !part.is_empty()
+                    && part
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            })
+        {
+            return Err(Error::Invalid);
+        }
+        Ok(Self { host, id: full_id })
+    }
+
     /// Bytes required for a largest reply with a 64-byte subscriber id.
     /// The declared `max_reply` is in 1..=3840. Oversized arithmetic saturates.
     #[must_use]

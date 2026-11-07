@@ -2637,6 +2637,8 @@ stage owner's schema crate, and write the encoded reply using the existing
 `native::reply::Reply`. Return `Error::Unsupported` for a schema the subscriber
 does not understand. The SDK leaves stage payloads opaque.
 
+`native::stages::Stage::new(host, "reader.insert")` binds a full stage id.
+The host refuses another plugin running it with `Error::Denied`.
 `native::stages::StageRun::next` lends one `StageReply` at a time from the owner's
 reply buffer. Inspect `status()` before using `payload()`; cancellation, busy and
 invalid subscriber replies still advance the cursor. Only `style_granted()`
