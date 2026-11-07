@@ -140,9 +140,13 @@ file's size, 2.1).
   `body_len`, the memory body's length.
 - [D] `body` replies one `net_bytes` with the bytes from `offset`, at most 3,840 per call; at or
   past the end it replies zero bytes (`data` empty). A 64 KiB body is read in 18 calls.
-- [D] On a failure (`reason` other than 0) with a status (a non-2xx answer, or a request that
-  saves), the memory body holds the error body, at most 4,096 bytes, never written to the file.
-  A failure without a status has `body_len` 0.
+- [D] **Error bodies are at most 4,096 bytes.** A non-2xx answer (`reason` 0, its status for the
+  plugin to judge) and a failure with a status keep only the first 4,096 bytes of their body in
+  memory, whatever `max_body` says and whether the request saves or not; the rest is read and
+  dropped (`flags` bit 1 `truncated`), and an error body is never written to the file. So a large
+  error page never takes a memory body of its own on the X4: a saving request's 4 KiB buffer holds
+  it, and a memory request uses at most 4 KiB of the `max_body` it reserved. A failure without a
+  status has `body_len` 0.
 
 ## 3. Behaviour
 
