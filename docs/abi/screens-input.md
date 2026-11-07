@@ -349,6 +349,12 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
 
 ## 5. i18n formatting, plurals and digits
 
+- [D] **The UI language** (draft 25; interface 6 `env.i18n().language()`) is the setting
+  `core.language`, read with slot 5 (`settings.read`, SDK `settings::read_setting`): the tag the
+  host's catalogs use, e.g. `de` or `pt-BR`, exactly as interface 6 told it. A plugin that keeps
+  something per language subscribes to `event.setting_changed` for that key. No other slot or
+  snapshot field carries it (the snapshot is fixed-size binary; a tag is text).
+
 | Id | Entry | Arguments (after `ctx`) | Result |
 | --- | --- | --- | --- |
 | 27 | `i18n.format` | `key: bytes` (<= 128), `args: bytes` (<= 1024), `out: buffer` | length |
