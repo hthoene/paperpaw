@@ -430,3 +430,119 @@ fn broken_backend_replies_preserve_output_and_clear_busy_before_recovery() {
 
 #[path = "row_tests.rs"]
 mod row_tests;
+
+#[test]
+fn reply_scratch_is_wiped_after_copy_and_error() {
+    let secret = b"private reply";
+    let mut bytes = [0xa5; 64];
+    let mut plugin = [0; 13];
+    {
+        let scratch = ReplyScratch(&mut bytes);
+        scratch.0[..secret.len()].copy_from_slice(secret);
+        plugin.copy_from_slice(&scratch.0[..secret.len()]);
+    }
+    assert_eq!(&plugin, secret);
+    assert_eq!(bytes, [0; 64], "the unused tail must also be wiped");
+
+    let fail = |bytes: &mut [u8]| -> Result<(), i32> {
+        let scratch = ReplyScratch(bytes);
+        scratch.0[..secret.len()].copy_from_slice(secret);
+        Err(ERR_BUSY)
+    };
+    assert_eq!(fail(&mut bytes), Err(ERR_BUSY));
+    assert_eq!(bytes, [0; 64]);
+}
+
+#[cfg(panic = "unwind")]
+#[test]
+fn reply_scratch_is_wiped_when_backend_unwinds() {
+    let mut bytes = [0xa5; 64];
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let scratch = ReplyScratch(&mut bytes);
+        scratch.0.fill(0x73);
+        panic!("fixture backend unwound");
+    }));
+    assert!(result.is_err());
+    assert_eq!(bytes, [0; 64]);
+}
+
+std::thread_local! {
+    static SCRATCH_MODE: core::cell::Cell<u8> = const { core::cell::Cell::new(0) };
+}
+
+fn observed_reply(
+    frame: &dyn Frame,
+    caller: &Caller<'_>,
+    op: &ServiceOp,
+    input: &[u8],
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    out.fill(0x73);
+    crate::native_host::shell::tests::watch_zeroed_scratch(out);
+    match SCRATCH_MODE.with(core::cell::Cell::get) {
+        1 => Err(ERR_BUSY),
+        2 => {
+            out[0] = 0xff;
+            Ok(1)
+        }
+        _ => echo(frame, caller, op, input, out),
+    }
+}
+
+#[test]
+fn dispatcher_wipes_scratch_before_free_without_changing_output_contract() {
+    let pool = HostResources::with_test_service(observed_reply).unwrap();
+    let owner = pool.try_owner().unwrap();
+    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let input = batch("private service reply");
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(Instant(0));
+    scope
+        .as_ref()
+        .scope(&env, || {
+            let mut handle = 0;
+            // SAFETY: all fixture pairs remain live, initialized and disjoint.
+            unsafe {
+                assert_eq!(
+                    open(
+                        &scope,
+                        &owner,
+                        &declared(),
+                        pair(b"core.test-echo"),
+                        1,
+                        0,
+                        &mut handle
+                    ),
+                    OK
+                );
+                for mode in 0..3 {
+                    SCRATCH_MODE.with(|value| value.set(mode));
+                    let mut out = [0xa5; 512];
+                    let status = call(
+                        &scope,
+                        &owner,
+                        "probe",
+                        handle,
+                        1,
+                        pair(&input),
+                        output(&mut out),
+                    );
+                    assert_eq!(
+                        crate::native_host::shell::tests::scratch_zeroed_before_free(),
+                        Some(true)
+                    );
+                    if mode == 0 {
+                        assert_eq!(status, (input.len() - 1) as i32);
+                        assert_eq!(&out[..input.len() - 1], &input[1..]);
+                        assert!(out[input.len() - 1..].iter().all(|byte| *byte == 0xa5));
+                    } else {
+                        assert_eq!(status, if mode == 1 { ERR_BUSY } else { ERR_INVALID });
+                        assert_eq!(out, [0xa5; 512]);
+                    }
+                }
+            }
+        })
+        .unwrap();
+}

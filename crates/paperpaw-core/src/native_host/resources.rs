@@ -111,7 +111,8 @@ impl HostResources {
     }
 
     /// The main loop's retry for owners whose retirement was busy when their
-    /// handle table dropped: `Ok(true)` while some are left, to call again.
+    /// handle table dropped: call it again after `Ok(true)` (some are left) and
+    /// after `Err(ERR_BUSY)` (one is still busy).
     ///
     /// # Errors
     /// The first error of an owner that stays queued (`ERR_BUSY`).
@@ -127,6 +128,8 @@ impl HostResources {
         let owner = self.0.next_owner.get();
         let next = owner.checked_add(1).ok_or(ERR_NO_SPACE)?;
         let table = self.0.try_clone().ok_or(ERR_NO_MEMORY)?;
+        // Room for this owner's retirement is reserved now (see the queue).
+        self.0.hosts.admit_owner()?;
         self.0.next_owner.set(next);
         Ok(OwnerResources { table, owner })
     }
@@ -280,9 +283,8 @@ impl Drop for OwnerResources {
         // image ids and transactions end (idempotent after `release_all`).
         // A table that is busy here has no caller left to retry: the owner is
         // queued and the main loop retries it until it is done.
-        if self.table.hosts.owner_retired(self.owner).is_err() {
-            self.table.hosts.queue_retirement(self.owner);
-        }
+        let retired = self.table.hosts.owner_retired(self.owner).is_ok();
+        self.table.hosts.owner_gone(self.owner, retired);
     }
 }
 
