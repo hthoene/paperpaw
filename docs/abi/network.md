@@ -95,10 +95,11 @@ file's size, 2.1).
 - [D] **`timeout_ms`**: 0 for the default; else 1,000-600,000. The default is 30,000 for a request
   in memory, the whole request, connection and TLS counted, and for a request with a file
   60,000 **without a byte moving** (a long download never ends while it moves).
-- [D] **`max_body`**: 0 for the host's default (65,536 on devices of the small memory class, the
-  X4; 1,048,576 on others); else at most that default (`ERR_NO_SPACE` above it). Ignored when
-  saving. **`max_file`**: 0 for 64 MiB, the most; else at most 64 MiB. A longer saved answer fails
-  with reason `too_large` (4.1) and the file is left as it was.
+- [D] **`max_body`**: 0 for the host's default (65,536 on devices of the small memory class, the X4,
+  or the profile's `NET_POOL` when smaller: 49,152 until measured, 3.4; 1,048,576 on others); else
+  at most that default (`ERR_NO_SPACE` above it). Ignored when saving. **`max_file`**: 0 for 64 MiB,
+  the most; else at most 64 MiB. A longer saved answer fails with reason `too_large` (4.1) and the
+  file is left as it was.
 - [D] Root checks as `files.md` section 3 (root 1 without `uses.storage` is `ERR_DENIED`, the
   root-1 exclusions, the path rules).
 - [D] **Limits:** at most 4 requests per plugin not yet ended and 16 per device (`ERR_BUSY`, the
@@ -190,22 +191,23 @@ file's size, 2.1).
   `timeout`, never holds more). Requests that save to a file need no memory body (a 4 KiB write
   buffer while they run) and are not counted against `MEMORY_BODIES`.
 - [D] **One network pool on the X4.** Devices of the small memory class have one device-wide pool,
-  `NET_POOL` in the profile (**80 KiB on the X4**: one 64 KiB body and two sockets), for every
-  network buffer the host holds for plugins: memory bodies, held `respond` bodies, the 4 KiB write
-  buffer of a saving request and of each `serve` upload being received (5.2: a request whose buffer
-  does not fit is answered 503 by the host), and SOCK's send queues, reads and broadcast answers
-  (`sockets.md` section 6). Each is reserved from the pool before it is used, never grown later: a
-  request reserves its `max_body` (a memory body) or its 4 KiB buffer (saving) before its transfer
-  starts and waits in the queue while the pool has not that room (its `timeout_ms` counting, as for
-  `MEMORY_BODIES`). The queue is strictly first in, first out: no request overtakes one that waits
-  for room, so a large body is never starved by smaller ones, and a request that waits holds back
-  those after it until it starts or its `timeout_ms` ends it; everything else (a held `respond`
-  body, SOCK's buffers) that does not fit answers `ERR_NO_MEMORY` at its call and holds nothing.
-  `max_body` is at most the pool. So the X4 holds at most `NET_POOL` of plugin network memory, plus
-  the shell's receive and send buffers and one TLS session (about 40 KiB); Firmware measures that
-  worst case on the X4 heap (section 9) and the profile lowers `NET_POOL` (and with it the default
-  `max_body`) if it does not fit. Other devices have no pool: the caps per item and `MEMORY_BODIES`
-  bound them.
+  `NET_POOL` in the profile (**48 KiB on the X4 until Firmware has measured**, so a memory body
+  there is at most 48 KiB, `max_body`'s X4 default 49,152; 80 KiB would hold one 64 KiB body and two
+  sockets), for every network buffer the host holds for plugins: memory bodies, held `respond`
+  bodies, the 4 KiB write buffer of a saving request and of each `serve` upload being received (5.2:
+  a request whose buffer does not fit is answered 503 by the host), and SOCK's send queues, reads
+  and broadcast answers (`sockets.md` section 6). Each is reserved from the pool before it is used,
+  never grown later: a request reserves its `max_body` (a memory body) or its 4 KiB buffer (saving)
+  before its transfer starts and waits in the queue while the pool has not that room (its
+  `timeout_ms` counting, as for `MEMORY_BODIES`). The queue is strictly first in, first out: no
+  request overtakes one that waits for room, so a large body is never starved by smaller ones, and a
+  request that waits holds back those after it until it starts or its `timeout_ms` ends it;
+  everything else (a held `respond` body, SOCK's buffers) that does not fit answers `ERR_NO_MEMORY`
+  at its call and holds nothing. `max_body` is at most the pool. So the X4 holds at most `NET_POOL`
+  of plugin network memory, plus the shell's receive and send buffers and one TLS session (about 40
+  KiB); Firmware measures that worst case on the X4 heap (section 9) and the profile lowers
+  `NET_POOL` (and with it the default `max_body`) if it does not fit. Other devices have no pool:
+  the caps per item and `MEMORY_BODIES` bound them.
 - [D] A plugin that stops has its requests cancelled (no events: it is not running) and its
   servers stopped; held bodies are freed.
 
@@ -388,6 +390,9 @@ file's size, 2.1).
   36,000 bytes, so a long request goes through a root-0 file (`net_file` send); a larger inline
   cap would not help. No plugin needs more in memory than the 64 KiB (X4) and 1 MiB (others)
   defaults; only wikipedia lowers `max_body` (16 KiB), larger answers are saved to files.
+- [Q2] (Plugin) Until Firmware has measured, the X4's pool and so its default `max_body` are
+  48 KiB. Does any port read an answer of 48-64 KiB in memory on the X4 (it would save to a file
+  instead)?
 
 ## 9. Hand-offs (after approval)
 
@@ -407,6 +412,7 @@ file's size, 2.1).
   head and stall times and stop a body at `max_body`. Firmware measures the X4 worst case
   (a full `NET_POOL`, the receive and send buffers of NET's and SOCK's connections, one TLS
   session, two server connections) on the X4 heap; the X4 profile's `NET_POOL` follows that
-  measurement.
+  measurement (48 KiB until then). The X4 shell allocates the one TLS session's memory once at
+  start, before the heap fragments, and reuses it for every TLS connection of NET and SOCK.
 - **Services:** `native::net` (builder, token table, body reader), `served` and `web` kept.
 - **Plugin:** ports declare `uses.network` (and `uses.storage` where they save to the card).
