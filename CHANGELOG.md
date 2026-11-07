@@ -19,6 +19,9 @@ change the plugin SDK.
 
 ### Added
 
+- Settings 1.0.6: the interface-7 native plugin (main page, group pages, choosing a value, themes,
+  search, reset, number editing with preview) over the registry service; `paperpaw-ui-kit` item
+  rows gain − and + buttons and show a title that is already translated as it is (#228).
 - Core native callbacks carry authoritative registry owner keys and checked,
   nonzero callback epochs. Failed admission cannot reuse an issued owner key (#228).
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
@@ -135,6 +138,9 @@ change the plugin SDK.
   `service.dev_check` gains the optional `sha256` digest `device.md` already named.
   Hosts answer `ERR_UNSUPPORTED` until wired. Interface draft 20 (`native::DRAFT`) refuses
   plugins built for draft 19 (#228).
+- Interface 7, `core.library` op 22 `fields` is paged: it takes `lib_ref` and the new
+  `service.lib_field_page` (1182: `cursor`, `generation`), as `docs/abi/library.md` section 4
+  says. Interface draft 21 (`native::DRAFT`) refuses plugins built for draft 20 (#228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
   `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
   position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70

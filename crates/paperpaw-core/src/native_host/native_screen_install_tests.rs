@@ -148,6 +148,12 @@ unsafe extern "C" fn screen_event(
         wire::Record::EventScreenClosed(event) => (80, event.instance, 0, 0),
         _ => return ERR_INVALID,
     };
+    let instance = context
+        .environment
+        .with_frame(|frame| frame.calling_instance());
+    if instance != Ok(Ok(row.1)) {
+        return host_glue::ERR_STATE;
+    }
     EVENTS.with(|events| events.borrow_mut().push(row));
     OK
 }
@@ -257,6 +263,7 @@ fn each_native_factory_allocation_failure_preserves_current_screen_and_layout() 
         kernel.shared.device.display.width,
         kernel.shared.device.display.height,
     );
+    kernel.take_warnings();
     for allocation in [1, 2] {
         REPORTS.with(|value| value.set(0));
         arm_failure(allocation);
@@ -275,6 +282,9 @@ fn each_native_factory_allocation_failure_preserves_current_screen_and_layout() 
         );
         assert_eq!(REPORTS.with(Cell::get), 1);
         assert_eq!(DESTROYED.with(Cell::get), 0);
+        let warnings = kernel.take_warnings();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].message, "Could not open native screen");
     }
     open(&mut kernel, Params::new());
     assert_eq!(kernel.stack.len(), 2);
