@@ -1,6 +1,7 @@
 # Interface 7: registry (REG)
 
-Status: **draft** of family 2 (#228), for review before records and schema land. Items marked [D]
+Status: **draft** of family 2 (#228), for review before records and schema land. Input: Plugin's
+needs inventory (#984, `plugin-needs-reg-uix-dev-lib-doc-228.md`, REG section). Items marked [D]
 are proposed decisions, [Q] open questions. Nothing here is generated yet.
 
 REG lets plugins see and change what the host has registered: settings and their groups, plugins,
@@ -67,6 +68,9 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
 | 10 | `bindings` | `reg_query` (`scope`: layer id, `global` or empty for all layers) | `reg_binding`*, `end` | |
 | 11 | `inputs` | `reg_query` (`scope` empty) | `reg_item`*, `end` | the inputs this device has (`button.menu`, `tap.center`, ...) |
 | 12 | `setup` | `reg_query` (`scope` empty) | `reg_setup_step`*, `end` | evaluated applicability, section 6 |
+| 13 | `presets` | `reg_query` (`scope`: preset kind, e.g. `core.power-mode`, or empty) | `reg_item`*, `end` | |
+| 14 | `preset` | `reg_key` | `reg_item`, `reg_text`?, `reg_value`* | description and values; fewer than fit: flag `long` |
+| 15 | `placement` | `reg_query` (`scope`: a placement, `widgets.clock@2`) | `reg_value`*, `end` | the values that placement sets |
 
 - [D] `scope` that names nothing known gives an empty page (`total` 0), not an error: a plugin may
   ask for a group or menu of a plugin that is not installed.
@@ -115,15 +119,17 @@ Ids (`key`, `plugin`, `item`, ...) are never cut: a declaration that admitted th
 | 1033 | `service.reg_need` | `kind: u32`, `key: str 128`, `version: str 32`, `flags: u32` |
 | 1034 | `service.reg_item` | `id: str 128`, `plugin: str 64`, `flags: u32`, `title: str 128` |
 | 1035 | `service.reg_slot` | `id: str 128`, `screen: str 128`, `default: str 128`, `title: str 128` |
-| 1036 | `service.reg_menu_row` | `item: str 128`, `kind: u32`, `flags: u32`, `order: i32`, `title: str 128`, `icon: str 64`, `badge: str 64` |
+| 1036 | `service.reg_menu_row` | `item: str 128`, `kind: u32`, `flags: u32`, `order: i32`, `by: str 64`, `title: str 128`, `icon: str 64`, `badge: str 64`, `describe: str 128` |
 | 1037 | `service.reg_binding` | `layer: str 128`, `input: str 64`, `action: str 128`, `origin: u32` |
 | 1038 | `service.reg_setup_step` | `id: str 128`, `page_kind: u32`, `page: str 128`, `order: i32`, `flags: u32`, `title: str 128` |
+| 1039 | `service.reg_value` | `key: str 128`, `value: bytes 128`, `flags: u32` |
 
 Field meanings:
 
 - `reg_setting.kind`: the `setting.spec` kind numbers. `flags`: bit 0 guarded, 1 secret, 2 scoped,
   3 kept on reset, 4 advanced, 5 hidden (value withheld), 6 has value, 7 long (value over 64
-  bytes: read it with slot 16), 8 preview (the value shown is a preview, section 4.3). `source`:
+  bytes: read it with slot 16), 8 preview (the value shown is a preview, section 4.4), 9 shown (its `shown_if` holds now), 10
+  governs (another setting's `shown_if` names it: re-read the list when it changes). `source`:
   0 default, 1 preset, 2 profile, 3 user, 4 book scope.
 - `reg_setting.value` is the `settings_value` encoding, empty when hidden or long.
 - `reg_setting_extra` repeats `setting.spec`/`setting.extra` fields the editor needs;
@@ -140,7 +146,13 @@ Field meanings:
 - `reg_item.flags` (actions, screens, inputs): bit 0 hidden from lists, 1 sealed (not rebindable,
   not removable from menus), 2 gesture (inputs).
 - `reg_menu_row.kind`: 0 action, 1 setting, 2 submenu, 3 section; `flags`: bit 0 checked, 1
-  enabled, 2 hidden, 3 removed, 4 user-defined menu.
+  enabled, 2 hidden, 3 removed, 4 user-defined menu, 5 in the declared rows (the editor's
+  "default" set). `by` is the plugin that declared the row, or for a hidden row the plugin whose
+  `menu.hide` hides it. `describe` is the `menu.describe` text, translated.
+- `reg_value`: a setting id (with the placement for op 15) and its value, `settings_value`
+  encoding; `flags` bit 0 "as if not set" (a preset that resets it), bit 1 long (value over 128
+  bytes: read it with slot 16).
+- `reg_item` for presets: `id` the preset, `plugin` who added it, `title` its name.
 - `reg_binding.origin`: interface-6 `BindingOrigin` (0 plugin, 1 device, 2 preset, 3 user); an
   empty `action` is "bound to nothing".
 - `reg_setup_step.page_kind`: 0 setting, 1 screen; `flags` bit 0 applies now, bit 1 done.
@@ -163,11 +175,14 @@ key and text bytes within the stage budget.
 | 1543 | `command.set_plugin_enabled` | `plugin: str 64`, `enabled: u32` |
 | 1544 | `command.request_plugins` | `plugins: str 1024` |
 | 1545 | `command.answer_plugin` | `request: u32`, `plugin: str 64`, `outcome: u32` |
+| 1546 | `command.apply_preset` | `preset: str 128`, `flags: u32` |
+| 1547 | `command.setup_done` | `step: str 128`, `flags: u32` |
 
 ### 4.1 Settings
 
 - [D] `reset_setting`: `flags` 0 resets `key`; bit 0 resets the group `key`; bit 1 every setting
-  of plugin `key`; bit 2 every setting (`key` empty). Settings kept on reset and secrets are left
+  of plugin `key`; bit 2 every setting (`key` empty); bit 3 every value placement `key` sets
+  (a widget place that goes, interface 6 `placement_values`). Settings kept on reset and secrets are left
   as they are, as in interface 6. Authority per setting as `command.set_setting`: a group or plugin
   reset skips guarded settings the submitter may not write, and says so in the log; a single
   guarded key it may not write is `ERR_INVALID`. In a book scope it forgets the scope's value.
@@ -196,7 +211,17 @@ These change the user's configuration of the whole device, so they need the D1 f
   or the submitter itself, is `ERR_DENIED`. A built-in the host needs (the settings editor while
   it is the only one) is `ERR_DENIED`.
 
-### 4.3 Preview
+### 4.3 Presets and setup
+
+- [D] `apply_preset` applies preset `preset` on the host: its values are set, and every setting of
+  its kind it leaves out returns to its default (interface 6 `Preset::changes`), as one change.
+  `flags` bit 0 previews it instead (section 4.4 rules, replacing any preview). Authority per
+  setting as `command.set_setting`; a preset may not change guarded settings unless the submitter
+  may (the batch is refused with `ERR_INVALID`). No feature: it changes settings, as slot 15 does.
+- [D] `setup_done` marks a setup step done (`flags` bit 0 clears it again). Only the plugin that
+  holds the setup slot (`core.setup`) may submit it; others get `ERR_DENIED`.
+
+### 4.4 Preview
 
 - [D] `preview_setting` rows of one batch are **one preview set**: it replaces the previous set
   wholly. `flags` bit 0 previews "as if not set" (`value` empty). Values are checked as
@@ -217,7 +242,7 @@ These change the user's configuration of the whole device, so they need the D1 f
 | 78 | `event.plugin_answered` | `now_ms: u64`, `request: u32`, `plugin: str 64`, `outcome: u32` | the requesting plugin only |
 
 - [D] `registry_changed.what` bits: 0 menus, 1 bindings, 2 slots, 3 actions/screens, 4 setup, 5
-  groups. A hint (`core-events.md` section 2): re-read what you show. The registry generation
+  groups, 6 presets. A hint (`core-events.md` section 2): re-read what you show. The registry generation
   (section 2.1) changed with it. Plugin set changes stay `event.plugins_changed` (70); setting
   values stay `event.setting_changed` (64).
 - [D] **Plugin requests.** `command.request_plugins` (ids, one per line, at most 16, the interface-6
@@ -233,17 +258,39 @@ These change the user's configuration of the whole device, so they need the D1 f
 - [D] All four follow the EVT pending limits and drop rules (`core-events.md` section 3.3).
   `plugins_requested` and `plugin_answered` are edges and never coalesced; the two hints are.
 
-## 6. Setup steps
+## 6. Declarations REG adds
 
-- [D] Setup steps become a declaration, `setup.step` (tag 21, declaration block):
-  `name: str 128`, `title: str 128`, `help: str 128`, `order: i32`, `page_kind: u32`,
-  `page: str 128`, `applies_key: str 128`, `applies_value: bytes 64`, `flags: u32`.
-  `title` and `help` are message keys of the declaring plugin, as in `setting.spec`.
-- [D] It replaces the interface-6 `AppliesFn` callback with the `shown_if` rule of
-  `setting.extra`: the step applies while setting `applies_key` has the value `applies_value`
-  (empty key: always). The host evaluates it for op `setup`; no plugin code runs.
-- [D] Done is the host's record of a step finished (`flags` bit 1 in `reg_setup_step`), set with
-  [Q] a `command.setup_done` record or by the setup plugin's own setting; Plugin's inventory decides.
+Interface 6 registered these from code (`Registrar`); interface 7 needs them as declaration records
+(declaration range 5-31, applied by S2 like `setting.spec`). Text fields are message keys of the
+declaring plugin, as in `setting.spec`.
+
+| Tag | Record | Fields | Interface 6 |
+| --- | --- | --- | --- |
+| 21 | `setup.step` | `name: str 128`, `title: str 128`, `help: str 128`, `order: i32`, `page_kind: u32`, `page: str 128`, `applies_key: str 128`, `applies_value: bytes 64` | `add_setup_step` |
+| 22 | `slot.spec` | `name: str 128`, `title: str 128` | `add_slot` |
+| 23 | `slot.offer` | `slot: str 128`, `screen: str 128`, `priority: i32` | `bind_slot` |
+| 24 | `key.bind` | `layer: str 128`, `input: str 64`, `action: str 128`, `when_key: str 128`, `when_value: bytes 64` | `add_keymap`, `add_keymap_when` |
+| 25 | `setting.default` | `key: str 128`, `value: bytes 512` | `set_setting_default` (another plugin's setting) |
+| 26 | `setting.choice` | `key: str 128`, `value: str 64`, `title: str 128` | `add_choice` (another plugin's choice setting) |
+| 27 | `preset.spec` | `name: str 128`, `kind: str 128`, `title: str 128`, `help: str 128` | `add_preset(s)`, `presets.ini` |
+| 28 | `preset.value` | `preset: str 128`, `key: str 128`, `value: bytes 512`, `flags: u32` | the preset's lines |
+
+- [D] **Setup applicability** replaces the interface-6 `AppliesFn` callback with the `shown_if`
+  rule of `setting.extra`: the step applies while setting `applies_key` has the value
+  `applies_value` (empty key: always). The host evaluates it for op `setup`; no plugin code runs.
+  `key.bind`'s `when_*` is the same rule for `add_keymap_when`.
+- [D] **Foreign extensions** (`setting.default`, `setting.choice`) name another plugin's setting.
+  Precedence is interface 6's: the owner's default, then extensions in plugin load order; the user's
+  value always wins. An extension of a guarded or secret setting, or of a setting that does not
+  exist when admission ends, is dropped with a log line (the declaring plugin still loads).
+- [D] **Slot offers**: `slot.offer` names a declared screen of the declaring plugin and a slot of
+  any plugin (`core.*` included); the highest `priority` is the default, the user's
+  `command.bind_slot` wins.
+- [D] **Presets** of data plugins (`presets.ini`) are admitted by the host into the same records;
+  `preset.value` `flags` bit 0 is "back to default" (`<=` in `presets.ini` stays the value form).
+- [Q] Widgets and widget places (`add_widget`, `add_widget_place`, `env.widgets()`) are the
+  `core.widget` stage's contract (STG own work, UIX composition), not REG; REG lists them only if
+  that contract asks for a registry op.
 
 ## 7. Memory (X4)
 
@@ -267,7 +314,11 @@ These change the user's configuration of the whole device, so they need the D1 f
 | `env.slots()`, `slot_screen`, `slot_screens`, `slot_title`, `slot_choice`, `has_slot` | op 8 |
 | `env.menus()` (`MenuView`) | op 9 |
 | `env.keys()` (`KeyBindings`), `env.inputs()` | ops 10, 11 |
-| `env.setup()` | op 12, declaration `setup.step` |
+| `env.setup()` | op 12, declaration `setup.step`, `command.setup_done` |
+| `env.settings().presets()`, `Preset::changes` | ops 13, 14, `command.apply_preset` |
+| `placement_values`, `with_placement` | op 15, `reset_setting` bit 3; [Q] slot 16 placement reads |
+| `governs`, `shows`, `is_scoped`, `previewing`, `group_of`, `parent_of`, `within` | `reg_setting` flags, `reg_group` |
+| `r.add_setup_step`, `add_slot`, `bind_slot`, `add_keymap(_when)`, `set_setting_default`, `add_choice`, `add_preset(s)` | declarations 21-28 |
 | `Command::SetSetting` | `command.set_setting` (4), unchanged |
 | `Command::ResetSetting` | `command.reset_setting` |
 | `Command::PreviewSettings`, `PREVIEW_CHANGED` | `command.preview_setting`/`preview_end`, event 76 |
@@ -292,9 +343,9 @@ These change the user's configuration of the whole device, so they need the D1 f
 
 ## 10. Open questions
 
-1. [Q] The installer's identity (section 5): a slot, a declared role, or a stage.
-2. [Q] Choice lists longer than one `setting` page (section 3).
-3. [Q] Setup "done" (section 6).
-4. [Q] Presets: interface 6 applies them through settings files; is a `preset.apply` command
-   needed, or do profiles keep writing settings with `command.set_setting`?
-5. [Q] Plugin-defined inputs and gestures (`InputSpec`, `GestureSpec`): UIX or later.
+1. [Q] The installer's identity (section 5): a slot (`core.installer`), a declared role, or a stage.
+2. [Q] Choice lists longer than one `setting` page (section 3); the inventory found no maximum.
+3. [Q] Slot 16 and placement ids: does `widgets.clock@2.face` read fall back to `widgets.clock.face`
+   on the host (as `with_placement`), or does the SDK ask twice?
+4. [Q] Plugin-defined inputs and gestures (`InputSpec`, `GestureSpec`): UIX or later.
+5. [Q] Widgets (section 6).
