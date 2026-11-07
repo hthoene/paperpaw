@@ -353,12 +353,7 @@ mod tests {
 
     /// Feeds readings every 5 ms in `[from, to)` of the record of calls
     /// `(call, calls, outermost, host)`.
-    fn watch(
-        call: &mut CallWatch,
-        from: u64,
-        to: u64,
-        running: Option<(u32, u32, u32, bool)>,
-    ) {
+    fn watch(call: &mut CallWatch, from: u64, to: u64, running: Option<(u32, u32, u32, bool)>) {
         for now in (from..to).step_by(5) {
             call.observe(now, running);
         }

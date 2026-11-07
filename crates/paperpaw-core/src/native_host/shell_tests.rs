@@ -718,7 +718,11 @@ mod instance_tests {
                 } else {
                     unwired += 1;
                 }
-                assert_eq!(SLOTS_OPEN.with(Cell::get), 0, concat!(stringify!($name), " ended"));
+                assert_eq!(
+                    SLOTS_OPEN.with(Cell::get),
+                    0,
+                    concat!(stringify!($name), " ended")
+                );
             }};
         }
         entry!(env_snapshot, (table.env_snapshot)(ctx, nobuf));
@@ -726,19 +730,46 @@ mod instance_tests {
         entry!(i18n_copy, (table.i18n_copy)(ctx, none, nobuf));
         entry!(font_acquire, (table.font_acquire)(ctx, none, &mut word));
         entry!(handle_release, (table.handle_release)(ctx, 0));
-        entry!(canvas_fill_rect, (table.canvas_fill_rect)(ctx, 0, 0, 0, 0, 0));
-        entry!(canvas_draw_line, (table.canvas_draw_line)(ctx, 0, 0, 0, 0, 0, 0));
-        entry!(canvas_fill_round, (table.canvas_fill_round)(ctx, 0, 0, 0, 0, 0, 0));
-        entry!(canvas_stroke_round, (table.canvas_stroke_round)(ctx, 0, 0, 0, 0, 0, 0, 0));
-        entry!(text_measure, (table.text_measure)(ctx, 0, 0.0, none, &mut floats[0]));
-        entry!(text_draw, (table.text_draw)(ctx, 0, 0.0, 0.0, 0, 0, none, &mut floats[0]));
+        entry!(
+            canvas_fill_rect,
+            (table.canvas_fill_rect)(ctx, 0, 0, 0, 0, 0)
+        );
+        entry!(
+            canvas_draw_line,
+            (table.canvas_draw_line)(ctx, 0, 0, 0, 0, 0, 0)
+        );
+        entry!(
+            canvas_fill_round,
+            (table.canvas_fill_round)(ctx, 0, 0, 0, 0, 0, 0)
+        );
+        entry!(
+            canvas_stroke_round,
+            (table.canvas_stroke_round)(ctx, 0, 0, 0, 0, 0, 0, 0)
+        );
+        entry!(
+            text_measure,
+            (table.text_measure)(ctx, 0, 0.0, none, &mut floats[0])
+        );
+        entry!(
+            text_draw,
+            (table.text_draw)(ctx, 0, 0.0, 0.0, 0, 0, none, &mut floats[0])
+        );
         entry!(commands_submit, (table.commands_submit)(ctx, none));
-        entry!(registrations_submit, (table.registrations_submit)(ctx, none));
-        entry!(services_query, (table.services_query)(ctx, none, 0, 0, &mut word));
+        entry!(
+            registrations_submit,
+            (table.registrations_submit)(ctx, none)
+        );
+        entry!(
+            services_query,
+            (table.services_query)(ctx, none, 0, 0, &mut word)
+        );
         entry!(blob_read, (table.blob_read)(ctx, 0, 0, nobuf));
         entry!(blob_release, (table.blob_release)(ctx, 0));
         entry!(storage_size, (table.storage_size)(ctx, 0, none, &mut long));
-        entry!(storage_read_at, (table.storage_read_at)(ctx, 0, none, 0, nobuf));
+        entry!(
+            storage_read_at,
+            (table.storage_read_at)(ctx, 0, none, 0, nobuf)
+        );
         entry!(storage_write, (table.storage_write)(ctx, 0, none, none));
         entry!(storage_append, (table.storage_append)(ctx, 0, none, none));
         entry!(storage_rename, (table.storage_rename)(ctx, 0, none, none));
@@ -748,15 +779,24 @@ mod instance_tests {
         entry!(i18n_digits, (table.i18n_digits)(ctx, none, nobuf));
         {
             let [ascent, descent, line] = &mut floats;
-            entry!(text_metrics, (table.text_metrics)(ctx, 0, 0.0, ascent, descent, line));
+            entry!(
+                text_metrics,
+                (table.text_metrics)(ctx, 0, 0.0, ascent, descent, line)
+            );
         }
         {
             let [top, bottom, left, right] = &mut ints;
-            entry!(text_ink, (table.text_ink)(ctx, 0, 0.0, none, top, bottom, left, right));
+            entry!(
+                text_ink,
+                (table.text_ink)(ctx, 0, 0.0, none, top, bottom, left, right)
+            );
         }
         entry!(canvas_clip, (table.canvas_clip)(ctx, 0, 0, 0, 0));
         entry!(stage_run, (table.stage_run)(ctx, none, 0, none, nobuf));
-        entry!(service_open, (table.service_open)(ctx, none, 0, 0, &mut word));
+        entry!(
+            service_open,
+            (table.service_open)(ctx, none, 0, 0, &mut word)
+        );
         entry!(service_call, (table.service_call)(ctx, 0, 0, none, nobuf));
         entry!(ui_compose, (table.ui_compose)(ctx, 0, 0, 0, 0, 0, 0));
         // Every field of the table is accounted for: the four exempt ones
