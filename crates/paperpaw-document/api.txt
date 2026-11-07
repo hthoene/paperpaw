@@ -217,6 +217,7 @@ pub fn paperpaw_document::TextEdit::text(&self) -> &str
 pub fn paperpaw_document::TextEdit::try_push_run(&mut self, paperpaw_document::Run) -> core::result::Result<(), paperpaw_document::EditError>
 pub fn paperpaw_document::TextEdit::try_replace(&mut self, core::ops::range::Range<usize>, &str) -> core::result::Result<(), paperpaw_document::EditError>
 pub fn paperpaw_document::TextEdit::try_set_runs(&mut self, &[paperpaw_document::Run]) -> core::result::Result<(), paperpaw_document::EditError>
+pub fn paperpaw_document::TextEdit::try_set_text(&mut self, &str) -> core::result::Result<(), paperpaw_document::EditError>
 pub struct paperpaw_document::TextStyle(_)
 impl paperpaw_document::TextStyle
 pub const paperpaw_document::TextStyle::BOLD: paperpaw_document::TextStyle

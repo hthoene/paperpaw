@@ -264,7 +264,7 @@ fn render(kernel: &mut Kernel, actions: &[&str]) -> (i32, Vec<u8>) {
         );
         let len = crate::native_host::registrations::records_encode(&[input], &mut bytes).unwrap();
         let handled = kernel
-            .input_native_for_test(&batch, 10, &depth, &bytes[..len], Instant(200))
+            .input_native_for_test(&batch, 10, &depth, &bytes[..len], Instant(200), 0)
             .unwrap();
         if handled != 1 {
             status = if handled < 0 { handled } else { -4 };

@@ -167,6 +167,7 @@ impl Context {
             total: 0,
             generation: 1,
             next: 0,
+            cursor: None,
         }));
         Self {
             environment: RefCell::new(environment(0, None, None, true)),
