@@ -4016,6 +4016,136 @@ pub fn paperpaw_sdk::native::keys::known_recovery(&dyn paperpaw_platform::storag
 pub fn paperpaw_sdk::native::keys::revocation_message(&str, &[u8; 32]) -> alloc::string::String
 pub fn paperpaw_sdk::native::keys::revoked(&dyn paperpaw_platform::storage::Storage) -> alloc::vec::Vec<paperpaw_sdk::native::keys::Revocation>
 pub fn paperpaw_sdk::native::keys::rotation_message(&str, &[u8; 32], &[u8; 32]) -> alloc::string::String
+pub mod paperpaw_sdk::native::library
+#[non_exhaustive] pub enum paperpaw_sdk::native::library::CatalogPhase
+pub paperpaw_sdk::native::library::CatalogPhase::Empty
+pub paperpaw_sdk::native::library::CatalogPhase::Ready
+pub paperpaw_sdk::native::library::CatalogPhase::Unknown(u32)
+pub paperpaw_sdk::native::library::CatalogPhase::Walking
+#[non_exhaustive] pub enum paperpaw_sdk::native::library::Show
+pub paperpaw_sdk::native::library::Show::All
+pub paperpaw_sdk::native::library::Show::Favourites
+pub paperpaw_sdk::native::library::Show::Finished
+pub paperpaw_sdk::native::library::Show::New
+pub paperpaw_sdk::native::library::Show::Reading
+pub paperpaw_sdk::native::library::Show::Unread
+#[non_exhaustive] pub enum paperpaw_sdk::native::library::Sort
+pub paperpaw_sdk::native::library::Sort::Added
+pub paperpaw_sdk::native::library::Sort::Author
+pub paperpaw_sdk::native::library::Sort::RecentlyOpened
+pub paperpaw_sdk::native::library::Sort::Series
+pub paperpaw_sdk::native::library::Sort::Title
+pub struct paperpaw_sdk::native::library::Book<'a>(_)
+impl paperpaw_sdk::native::library::Book<'_>
+pub const fn paperpaw_sdk::native::library::Book<'_>::favourite(self) -> bool
+pub const fn paperpaw_sdk::native::library::Book<'_>::finished(self) -> bool
+pub const fn paperpaw_sdk::native::library::Book<'_>::is_new(self) -> bool
+pub const fn paperpaw_sdk::native::library::Book<'_>::opened(self) -> bool
+pub fn paperpaw_sdk::native::library::Book<'_>::progress(self) -> core::option::Option<u8>
+impl<'a> paperpaw_sdk::native::library::Book<'a>
+pub const fn paperpaw_sdk::native::library::Book<'a>::added(self) -> u32
+impl<'a> paperpaw_sdk::native::library::Book<'a>
+pub const fn paperpaw_sdk::native::library::Book<'a>::author(self) -> &'a str
+impl<'a> paperpaw_sdk::native::library::Book<'a>
+pub const fn paperpaw_sdk::native::library::Book<'a>::fields(self) -> u32
+impl<'a> paperpaw_sdk::native::library::Book<'a>
+pub const fn paperpaw_sdk::native::library::Book<'a>::format(self) -> &'a str
+impl<'a> paperpaw_sdk::native::library::Book<'a>
+pub const fn paperpaw_sdk::native::library::Book<'a>::generation(self) -> u32
+impl<'a> paperpaw_sdk::native::library::Book<'a>
+pub const fn paperpaw_sdk::native::library::Book<'a>::key(self) -> u32
+impl<'a> paperpaw_sdk::native::library::Book<'a>
+pub const fn paperpaw_sdk::native::library::Book<'a>::number(self) -> &'a str
+impl<'a> paperpaw_sdk::native::library::Book<'a>
+pub const fn paperpaw_sdk::native::library::Book<'a>::path(self) -> &'a str
+impl<'a> paperpaw_sdk::native::library::Book<'a>
+pub fn paperpaw_sdk::native::library::Book<'a>::reference(self) -> core::result::Result<paperpaw_sdk::native::library::BookRef<'a>, paperpaw_sdk::native::Error>
+impl<'a> paperpaw_sdk::native::library::Book<'a>
+pub const fn paperpaw_sdk::native::library::Book<'a>::series(self) -> &'a str
+impl<'a> paperpaw_sdk::native::library::Book<'a>
+pub const fn paperpaw_sdk::native::library::Book<'a>::size(self) -> u64
+impl<'a> paperpaw_sdk::native::library::Book<'a>
+pub const fn paperpaw_sdk::native::library::Book<'a>::tags(self) -> u32
+impl<'a> paperpaw_sdk::native::library::Book<'a>
+pub const fn paperpaw_sdk::native::library::Book<'a>::title(self) -> &'a str
+pub struct paperpaw_sdk::native::library::BookRef<'a>(_)
+impl<'a> paperpaw_sdk::native::library::BookRef<'a>
+pub fn paperpaw_sdk::native::library::BookRef<'a>::catalog(u32, u32) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::BookRef<'a>::path(&'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::library::CatalogCursor
+impl paperpaw_sdk::native::library::CatalogCursor
+pub const fn paperpaw_sdk::native::library::CatalogCursor::start() -> Self
+pub struct paperpaw_sdk::native::library::CatalogState(_)
+impl paperpaw_sdk::native::library::CatalogState
+pub const fn paperpaw_sdk::native::library::CatalogState::books(self) -> u32
+pub const fn paperpaw_sdk::native::library::CatalogState::generation(self) -> u32
+pub const fn paperpaw_sdk::native::library::CatalogState::phase(self) -> paperpaw_sdk::native::library::CatalogPhase
+pub const fn paperpaw_sdk::native::library::CatalogState::walk_ppm(self) -> u32
+pub struct paperpaw_sdk::native::library::Entry<'a>(_)
+impl paperpaw_sdk::native::library::Entry<'_>
+pub const fn paperpaw_sdk::native::library::Entry<'_>::favourite(self) -> bool
+pub const fn paperpaw_sdk::native::library::Entry<'_>::finished(self) -> bool
+pub const fn paperpaw_sdk::native::library::Entry<'_>::is_new(self) -> bool
+pub const fn paperpaw_sdk::native::library::Entry<'_>::opened(self) -> bool
+pub fn paperpaw_sdk::native::library::Entry<'_>::progress(self) -> core::option::Option<u8>
+impl<'a> paperpaw_sdk::native::library::Entry<'a>
+pub const fn paperpaw_sdk::native::library::Entry<'a>::added(self) -> u32
+impl<'a> paperpaw_sdk::native::library::Entry<'a>
+pub const fn paperpaw_sdk::native::library::Entry<'a>::author(self) -> &'a str
+impl<'a> paperpaw_sdk::native::library::Entry<'a>
+pub fn paperpaw_sdk::native::library::Entry<'a>::badges(self) -> impl core::iter::traits::iterator::Iterator<Item = &'a str>
+impl<'a> paperpaw_sdk::native::library::Entry<'a>
+pub const fn paperpaw_sdk::native::library::Entry<'a>::key(self) -> u32
+impl<'a> paperpaw_sdk::native::library::Entry<'a>
+pub const fn paperpaw_sdk::native::library::Entry<'a>::number(self) -> &'a str
+impl<'a> paperpaw_sdk::native::library::Entry<'a>
+pub const fn paperpaw_sdk::native::library::Entry<'a>::series(self) -> &'a str
+impl<'a> paperpaw_sdk::native::library::Entry<'a>
+pub const fn paperpaw_sdk::native::library::Entry<'a>::title(self) -> &'a str
+pub struct paperpaw_sdk::native::library::Library
+impl paperpaw_sdk::native::library::Library
+pub fn paperpaw_sdk::native::library::Library::book<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::Book<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Library::next_in_series<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::Entry<'a>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Library::open(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Library::query<'a>(&self, &paperpaw_sdk::native::Host<'_>, &paperpaw_sdk::native::library::Query<'_>, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::LibraryPage<'a, paperpaw_sdk::native::library::Entry<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Library::release(self, &paperpaw_sdk::native::Host<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Library::set_field(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, &str, &str, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Library::set_finished(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::library::BookRef<'_>, bool, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::library::Library::state(&self, &paperpaw_sdk::native::Host<'_>, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::library::CatalogState, paperpaw_sdk::native::Error>
+pub struct paperpaw_sdk::native::library::LibraryPage<'a, T>
+impl<'a, T: 'a> paperpaw_sdk::native::library::LibraryPage<'a, T>
+pub const fn paperpaw_sdk::native::library::LibraryPage<'a, T>::end(&self) -> paperpaw_sdk::native::library::LibraryPageEnd
+pub const fn paperpaw_sdk::native::library::LibraryPage<'a, T>::is_empty(&self) -> bool
+pub const fn paperpaw_sdk::native::library::LibraryPage<'a, T>::len(&self) -> usize
+pub fn paperpaw_sdk::native::library::LibraryPage<'a, T>::rows(&self) -> impl core::iter::traits::iterator::Iterator<Item = core::result::Result<T, paperpaw_sdk::native::Error>> + 'a
+impl<T> core::fmt::Debug for paperpaw_sdk::native::library::LibraryPage<'_, T>
+pub fn paperpaw_sdk::native::library::LibraryPage<'_, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct paperpaw_sdk::native::library::LibraryPageEnd
+impl paperpaw_sdk::native::library::LibraryPageEnd
+pub const fn paperpaw_sdk::native::library::LibraryPageEnd::generation(self) -> u32
+pub const fn paperpaw_sdk::native::library::LibraryPageEnd::next(self) -> core::option::Option<paperpaw_sdk::native::library::CatalogCursor>
+pub const fn paperpaw_sdk::native::library::LibraryPageEnd::total(self) -> u32
+pub struct paperpaw_sdk::native::library::Query<'a>
+impl<'a> paperpaw_sdk::native::library::Query<'a>
+pub const fn paperpaw_sdk::native::library::Query<'a>::added_since(self, u32) -> Self
+pub const fn paperpaw_sdk::native::library::Query<'a>::cursor(self, paperpaw_sdk::native::library::CatalogCursor) -> Self
+pub const fn paperpaw_sdk::native::library::Query<'a>::descending(self, bool) -> Self
+pub const fn paperpaw_sdk::native::library::Query<'a>::exclude_archive(self, bool) -> Self
+pub const fn paperpaw_sdk::native::library::Query<'a>::new() -> Self
+pub fn paperpaw_sdk::native::library::Query<'a>::show(self, paperpaw_sdk::native::library::Show) -> Self
+pub fn paperpaw_sdk::native::library::Query<'a>::sort(self, paperpaw_sdk::native::library::Sort) -> Self
+impl<'a> paperpaw_sdk::native::library::Query<'a>
+pub fn paperpaw_sdk::native::library::Query<'a>::author(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+impl<'a> paperpaw_sdk::native::library::Query<'a>
+pub fn paperpaw_sdk::native::library::Query<'a>::folder(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+impl<'a> paperpaw_sdk::native::library::Query<'a>
+pub fn paperpaw_sdk::native::library::Query<'a>::series(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+impl<'a> paperpaw_sdk::native::library::Query<'a>
+pub fn paperpaw_sdk::native::library::Query<'a>::tag(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+impl<'a> paperpaw_sdk::native::library::Query<'a>
+pub fn paperpaw_sdk::native::library::Query<'a>::words(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+impl core::default::Default for paperpaw_sdk::native::library::Query<'_>
+pub fn paperpaw_sdk::native::library::Query<'_>::default() -> Self
 pub mod paperpaw_sdk::native::registrations
 pub fn paperpaw_sdk::native::registrations::submit(&paperpaw_sdk::native::Host<'_>, &[u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::registry
