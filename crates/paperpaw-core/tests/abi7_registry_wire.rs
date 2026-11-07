@@ -164,7 +164,8 @@ fn items(count: usize, width: usize) -> String {
 }
 
 /// Encoder and decoder refuse the same lists: too many items, an item over its
-/// cap, an empty item or a trailing separator are ERR_INVALID; no items is fine.
+/// cap, an empty item or a trailing separator are ERR_INVALID; a list over the
+/// field's byte cap is ERR_NO_SPACE; no items is fine.
 #[test]
 fn list_fields_enforce_item_count_length_and_empty_items() {
     fn menu(items: &str) -> WireCommand<'_> {
@@ -186,6 +187,8 @@ fn list_fields_enforce_item_count_length_and_empty_items() {
         ("a\n".into(), "a\n".into(), Err(ERR_INVALID)),
         ("\n".into(), "\n".into(), Err(ERR_INVALID)),
         (String::new(), String::new(), Ok(())),
+        // Over the field's byte cap is ERR_NO_SPACE before any item rule, on both sides.
+        (items(65, 32), items(17, 64), Err(ERR_NO_SPACE)),
     ];
     let mut out = vec![0; 4096];
     for (menu_items, plugin_ids, expected) in cases {

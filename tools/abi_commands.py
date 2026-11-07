@@ -843,10 +843,10 @@ def _growth_command(item, consts, variants, arms, lens, writes):
     if sized:
         names = [label for label, _ in sized] + (['..'] if len(sized) < len(fields) else [])
         lens.append(_pattern('        ', variant, names) + " => {\n"
-                    + "".join(lists)
                     + f"            let mut len = {fixed};\n"
                     + "".join(f"            len += blob_len({label}.len(), {cap})?;\n"
                               for label, cap in sized)
+                    + "".join(lists)
                     + f"            Ok(({tag}, len))\n        }}\n")
     else:
         lens.append(f"        Command::{variant} {{ .. }} => Ok(({tag}, {fixed})),\n")

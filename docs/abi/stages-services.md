@@ -174,7 +174,7 @@ service.call(ctx, service: handle, op: u32, input: bytes, out: buffer) -> count 
   | `input` over the op's `max_input`, or `out` shorter than its `max_reply` | `ERR_NO_SPACE` |
   | `input` not one record batch of the op's input tags, exactly (generated decoder) | the decoder's status |
   | re-entry into the same service from its own callback | `ERR_BUSY` |
-  | otherwise: the service runs and writes its reply batch into `out` | count, or the service's status |
+  | otherwise: the service runs and writes its reply records into `out`, framed as its schema's family document says | count, or the service's status |
 
   "Exactly" is about tags: every record's tag is one of the op's `input` tags, by exact tag. Order
   and multiplicity are the op's own rules (for example "one record"), checked by the service after

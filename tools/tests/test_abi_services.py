@@ -49,7 +49,8 @@ class ServiceTests(unittest.TestCase):
                          ['core.registry', 'core.test-echo'])
         source = rust_services(self.schema)
         for line in ['pub mod core_test_echo_v1 {', 'pub const KEY: &str = "core.test-echo";',
-                     'pub const OP_ECHO: u32 = 1;', 'input: &[1024],', 'test_only: true,']:
+                     'pub const OP_ECHO: u32 = 1;', 'input: &[1024],', 'test_only: true,',
+                     'pub const PAGE_MAX_ROWS: usize = 32;']:
             self.assertIn(line, source)
         for path in ['abi/generated/services_wire.rs',
                      'crates/paperpaw-core/src/abi7/services_wire.rs',
@@ -70,6 +71,9 @@ class ServiceTests(unittest.TestCase):
             lambda s: self.echo(s).update(since=99),
             lambda s: self.echo(s).update(extra=1),
             lambda s: self.echo(s).update(test_only=1),
+            lambda s: self.echo(s).update(page_rows=0),
+            lambda s: self.echo(s).update(page_rows=65),
+            lambda s: self.echo(s).update(page_rows='32'),
             lambda s: self.echo(s).pop('test_only'),
             lambda s: self.echo(s).update(ops=[]),
             lambda s: op(s).update(id=0),
@@ -113,6 +117,7 @@ class ServiceTests(unittest.TestCase):
         changes = [
             lambda s: self.echo(s).update(test_only=False),
             lambda s: self.echo(s).update(since=2),
+            lambda s: self.echo(s).update(page_rows=8),
             lambda s: self.echo(s)['ops'][0].update(max_reply=256),
             lambda s: self.echo(s)['ops'][0].update(name='echoes'),
             lambda s: self.echo(s)['ops'].pop(),
@@ -164,7 +169,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_the_lock_pins_the_table(self):
         trusted = ABI.lock_record(self.schema)
-        self.assertEqual(trusted['lock_format'], 9)
+        self.assertEqual(trusted['lock_format'], 10)
         ABI.check_lock(trusted, self.schema)
         changed = copy.deepcopy(self.schema)
         self.echo(changed)['ops'][0]['max_reply'] = 256

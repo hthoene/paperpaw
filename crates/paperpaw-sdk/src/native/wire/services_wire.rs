@@ -344,6 +344,8 @@ pub mod core_registry_v1 {
     pub const MAJOR: u16 = 1;
     /// Highest revision.
     pub const REVISION: u16 = 0;
+    /// Most rows one page of a paged list op holds.
+    pub const PAGE_MAX_ROWS: usize = 32;
     /// Operation `settings`.
     pub const OP_SETTINGS: u32 = 1;
     /// Operation `setting`.

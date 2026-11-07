@@ -6028,6 +6028,7 @@
           "since": 0
         }
       ],
+      "page_rows": 32,
       "revision": 0,
       "since": 1,
       "test_only": false
