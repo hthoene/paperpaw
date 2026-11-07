@@ -51,6 +51,22 @@ fn every_event_kind_matches_its_generated_registration_bytes() {
             EventKind::ChargeChanged,
             records_wire::EVENT_CHARGE_CHANGED_TAG,
         ),
+        (
+            EventKind::RegistryChanged,
+            records_wire::EVENT_REGISTRY_CHANGED_TAG,
+        ),
+        (
+            EventKind::PreviewChanged,
+            records_wire::EVENT_PREVIEW_CHANGED_TAG,
+        ),
+        (
+            EventKind::PluginsRequested,
+            records_wire::EVENT_PLUGINS_REQUESTED_TAG,
+        ),
+        (
+            EventKind::PluginAnswered,
+            records_wire::EVENT_PLUGIN_ANSWERED_TAG,
+        ),
     ];
     for (kind, event_tag) in kinds {
         let mut batches = Vec::new();

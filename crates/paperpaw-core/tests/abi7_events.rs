@@ -408,6 +408,15 @@ fn a_registration_batch_cannot_carry_an_event_record() {
             assert_eq!(status, ERR_INVALID);
         })
         .unwrap();
-        assert!(construction.commit(paperpaw_core::native_host::Teardown { report: |_, _, _| {}, cancel: |_| Ok(()), release: |_| Ok(()), destroy: |_| {} }).is_err());
+        assert!(
+            construction
+                .commit(paperpaw_core::native_host::Teardown {
+                    report: |_, _, _| {},
+                    cancel: |_| Ok(()),
+                    release: |_| Ok(()),
+                    destroy: |_| {}
+                })
+                .is_err()
+        );
     }
 }

@@ -308,3 +308,202 @@ fn stage_call_decodes_exact_tag_and_borrows_opaque_payload() {
     bytes[1] = 129; // tag 513 must never decode as a stage call.
     assert!(decode(&bytes[..n]).is_err());
 }
+
+#[test]
+fn registry_hints_preserve_unknown_bits_and_expose_every_known_section() {
+    let mut bytes = [0; 64];
+    let cases = [
+        (1, RegistryChanges::menus as fn(RegistryChanges) -> bool),
+        (1 << 1, RegistryChanges::bindings),
+        (1 << 2, RegistryChanges::slots),
+        (1 << 3, RegistryChanges::actions_or_screens),
+        (1 << 4, RegistryChanges::setup),
+        (1 << 5, RegistryChanges::groups),
+        (1 << 6, RegistryChanges::presets),
+        (1 << 7, RegistryChanges::widgets),
+        (1 << 31, RegistryChanges::dropped),
+    ];
+    for (bit, accessor) in cases {
+        let what = bit | (1 << 20);
+        let len = records_encode(
+            &[Record::EventRegistryChanged(wire::EventRegistryChanged {
+                now_ms: 12,
+                what,
+            })],
+            &mut bytes,
+        )
+        .unwrap();
+        let Event::RegistryChanged {
+            now_ms,
+            what: changes,
+        } = Event::decode(&bytes[..len]).unwrap()
+        else {
+            panic!("expected registry hint");
+        };
+        assert_eq!(now_ms, 12);
+        assert_eq!(changes.bits(), what);
+        assert!(accessor(changes));
+        assert!(!accessor(RegistryChanges::from_bits(1 << 20)));
+    }
+    let len = records_encode(
+        &[Record::EventPreviewChanged(wire::EventPreviewChanged {
+            now_ms: 42,
+        })],
+        &mut bytes,
+    )
+    .unwrap();
+    assert_eq!(
+        Event::decode(&bytes[..len]),
+        Ok(Event::PreviewChanged { now_ms: 42 })
+    );
+}
+
+#[test]
+fn plugin_request_ids_borrow_input_and_keep_order_at_the_generated_limit() {
+    let mut bytes = [0; 2048];
+    let ids = ["dictionary"; wire::EVENT_PLUGINS_REQUESTED_PLUGINS_MAX_ITEMS];
+    let joined = ids.join("\n");
+    let len = records_encode(
+        &[Record::EventPluginsRequested(wire::EventPluginsRequested {
+            now_ms: 14,
+            request: 7,
+            by: "keys",
+            plugins: &joined,
+        })],
+        &mut bytes,
+    )
+    .unwrap();
+    let Event::PluginsRequested {
+        now_ms,
+        request,
+        by,
+        plugins,
+    } = Event::decode(&bytes[..len]).unwrap()
+    else {
+        panic!("expected plugin request");
+    };
+    assert_eq!((now_ms, request, by), (14, 7, "keys"));
+    assert_eq!(plugins.len(), ids.len());
+    assert!(!plugins.is_empty());
+    assert_eq!(plugins.iter().collect::<alloc::vec::Vec<_>>(), ids);
+    assert!(bytes.as_ptr_range().contains(&by.as_ptr()));
+    for id in plugins.iter() {
+        assert!(bytes.as_ptr_range().contains(&id.as_ptr()));
+    }
+}
+
+#[test]
+fn malformed_plugin_request_lists_and_excess_items_are_refused() {
+    let mut bytes = [0; 2048];
+    let excess = ["dictionary"; wire::EVENT_PLUGINS_REQUESTED_PLUGINS_MAX_ITEMS + 1].join("\n");
+    let overlong = "a".repeat(wire::EVENT_PLUGINS_REQUESTED_PLUGINS_ITEM_MAX_BYTES + 1);
+    for plugins in [
+        "",
+        "dictionary\n",
+        "\ndictionary",
+        "dictionary\n\nkeys",
+        excess.as_str(),
+        overlong.as_str(),
+    ] {
+        let len = records_encode(
+            &[Record::EventPluginsRequested(wire::EventPluginsRequested {
+                now_ms: 14,
+                request: 7,
+                by: "keys",
+                plugins,
+            })],
+            &mut bytes,
+        )
+        .unwrap();
+        assert_eq!(
+            Event::decode(&bytes[..len]),
+            Err(Error::Invalid),
+            "{plugins:?}"
+        );
+    }
+}
+
+#[test]
+fn plugin_answers_share_typed_outcomes_and_reserved_values_mean_failed() {
+    use crate::native::commands::PluginOutcome;
+    let mut bytes = [0; 256];
+    for (outcome, expected) in [
+        (0, PluginOutcome::Installed),
+        (1, PluginOutcome::Declined),
+        (2, PluginOutcome::Failed),
+        (3, PluginOutcome::NotFound),
+        (4, PluginOutcome::Failed),
+        (u32::MAX, PluginOutcome::Failed),
+    ] {
+        let len = records_encode(
+            &[Record::EventPluginAnswered(wire::EventPluginAnswered {
+                now_ms: 42,
+                request: 17,
+                plugin: "dictionary",
+                outcome,
+            })],
+            &mut bytes,
+        )
+        .unwrap();
+        let Event::PluginAnswered {
+            now_ms,
+            request,
+            plugin,
+            outcome,
+        } = Event::decode(&bytes[..len]).unwrap()
+        else {
+            panic!("expected plugin answer");
+        };
+        assert_eq!(
+            (now_ms, request, plugin, outcome),
+            (42, 17, "dictionary", expected)
+        );
+        assert!(bytes.as_ptr_range().contains(&plugin.as_ptr()));
+    }
+}
+
+#[test]
+fn host_plugin_ids_use_wire_caps_instead_of_the_current_loader_grammar() {
+    let mut bytes = [0; 512];
+    let id = "F".repeat(wire::EVENT_PLUGINS_REQUESTED_PLUGINS_ITEM_MAX_BYTES);
+    assert!(id.len() > 40);
+    let len = records_encode(
+        &[Record::EventPluginsRequested(wire::EventPluginsRequested {
+            now_ms: 1,
+            request: 2,
+            by: &id,
+            plugins: &id,
+        })],
+        &mut bytes,
+    )
+    .unwrap();
+    let Event::PluginsRequested { by, plugins, .. } = Event::decode(&bytes[..len]).unwrap() else {
+        panic!("expected request");
+    };
+    assert_eq!(by, id);
+    assert_eq!(
+        plugins.iter().collect::<alloc::vec::Vec<_>>(),
+        [id.as_str()]
+    );
+    assert!(bytes.as_ptr_range().contains(&by.as_ptr()));
+    assert!(
+        bytes
+            .as_ptr_range()
+            .contains(&plugins.iter().next().unwrap().as_ptr())
+    );
+    let len = records_encode(
+        &[Record::EventPluginAnswered(wire::EventPluginAnswered {
+            now_ms: 1,
+            request: 2,
+            plugin: &id,
+            outcome: 0,
+        })],
+        &mut bytes,
+    )
+    .unwrap();
+    let Event::PluginAnswered { plugin, .. } = Event::decode(&bytes[..len]).unwrap() else {
+        panic!("expected answer");
+    };
+    assert_eq!(plugin, id);
+    assert!(bytes.as_ptr_range().contains(&plugin.as_ptr()));
+}

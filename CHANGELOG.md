@@ -19,6 +19,9 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 typed registry declarations, staged registry commands and borrowed
+  paged queries cover settings, menus, bindings, slots, presets and plugin requests.
+  Registry events preserve borrowed host identities and unknown hint bits (#228).
 - Interface 7, family 2 (registry, `docs/abi/registry.md`): the `core.registry` service (major 1,
   20 paged read ops over settings, plugins, actions, screens, slots, menus, bindings, inputs, setup
   steps, presets and widgets; rows 1025-1040), the registry commands 1536-1546 (reset, preview,

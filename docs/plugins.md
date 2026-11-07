@@ -2746,6 +2746,20 @@ callback host, `measure_text` returns advance, and `render_text` takes that canv
 and a `TextOrigin`. Consuming `release` and `Drop` each release a font once. A
 font cannot be drawn through a different host binding.
 
+REG declarations use `SetupStepDecl`, `SlotDecl`, `SlotOfferDecl`, `KeyBindingDecl`,
+`PresetDecl` and `PresetValueDecl` through `native::declare::Declarations`.
+`setting_default` and `setting_choice` extend another plugin's settings; the host
+checks authority and resolves extensions in plugin load order. Setup conditions
+are declared values and device requirements, with no callback during a query.
+
+Registry commands preserve the difference between a default and an empty user
+configuration: `set_menu(menu, None)` restores declared rows, while
+`set_menu(menu, Some(&[]))` clears the custom menu. Menu and plugin request lists
+are checked against the generated limits and never truncated. A preview set is
+submitted as one batch with caller-owned value scratch; oversized previews fail
+before submission. Use a preset preview for larger sets. The host checks preview
+ownership and obtains any required user consent for mass resets.
+
 `native::commands::CommandSender::new(host, scratch)` stages typed setting changes
 with the generated encoder. Each accepted call is one atomic batch, applied by
 the host after the callback. Dropping the sender submits nothing.

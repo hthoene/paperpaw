@@ -61,6 +61,11 @@ use settings_value::{SettingValueRef, settings_encode};
 mod stages;
 pub use stages::{StageDecl, SubscribeDecl};
 
+mod registry;
+pub use registry::{
+    KeyBindingDecl, PresetDecl, PresetValueDecl, SetupPage, SetupStepDecl, SlotDecl, SlotOfferDecl,
+};
+
 mod callbacks;
 pub use callbacks::EventKind;
 mod menus;
@@ -410,6 +415,7 @@ impl<'a> ActionDecl<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Item<'a> {
+    Registry(Record<'a>),
     MenuEntry(records_wire::MenuEntry<'a>),
     Icon(records_wire::IconSpec<'a>),
     MenuNeed(records_wire::MenuNeed<'a>),
@@ -1033,6 +1039,7 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
 impl<'a> Item<'a> {
     fn record(&self) -> Record<'_> {
         match self {
+            Item::Registry(record) => *record,
             Item::MenuEntry(entry) => Record::MenuEntry(*entry),
             Item::Icon(icon) => Record::IconSpec(*icon),
             Item::MenuNeed(need) => Record::MenuNeed(*need),
