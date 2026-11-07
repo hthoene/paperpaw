@@ -278,9 +278,10 @@ file's size, 2.1).
 - [D] **The request head** is at most 8 KiB (431 above) and must arrive within 30 s of the
   connection (408 and closed otherwise); the host never holds more of a head than that.
 - [D] **A request body** is written by the host as it comes to the plugin's data folder (root 0) at
-  `.received/<request>`, before the event; `body` is set once it is whole. The plugin reads it,
-  moves it (`core.files` `move`, an upload to the card), removes it or leaves it; the host removes
-  what is left when the request is answered or ends. `.received` is the host's in root 0: a
+  `.received/<server>/<request>` (each server its own folder, by its token), before the event;
+  `body` is set once it is whole. The plugin reads it, moves it (`core.files` `move`, an upload to
+  the card), removes it or leaves it; the host removes what is left when the request is answered
+  or ends. `.received` is the host's in root 0: a
   plugin's own `make_dir`, writes and moves into it are `ERR_DENIED` (`files.md` 1.1). Chunked
   request bodies are answered 411 by the host.
 - [D] **Bodies are bounded.** A `Content-Length` over the server's `max_body` is answered 413 before
@@ -289,8 +290,9 @@ file's size, 2.1).
   D2.6): reaching it answers 507 and removes the part, so a client on the network can never fill
   the card past the room the kernel keeps for its own saves. A body that stalls for 30 s is
   dropped (408).
-- [D] **Nothing stays behind.** The host empties a plugin's `.received/` when the plugin starts
-  and at each `serve`, so a body a power cut left is removed then; no body outlives its server.
+- [D] **Nothing stays behind.** The host empties a plugin's whole `.received/` when the plugin
+  starts, and a server's own folder at its `serve` (never another running server's), so a body a
+  power cut left is removed then; no body outlives its server.
 - [D] At most 2 requests per server are open at once (the X4; more wait in the connection queue);
   one the plugin does not answer within 120 s is answered 503 by the host and ends (a later
   `respond` is `ERR_NOT_FOUND`).

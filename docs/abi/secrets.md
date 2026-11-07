@@ -30,8 +30,9 @@ first-party plugins that use them (section 6), ADR 0016 (`wifi.<name>` secrets),
   that secrets no longer move with the card (a card moved to another device, or a device whose
   flash is erased, reads as no secrets; the user enters them again). The contract does not change
   either way: ops, records and statuses are the same; only the file's value encoding, the help text
-  and section 3's "unreadable" rule (a value that does not decrypt counts as absent, never as an
-  unreadable file) follow the decision.
+  and section 3's "unreadable" rule follow the decision: a value that does not decrypt counts as
+  absent for reads only, and its line is written back unchanged by every `keep` and `remove`
+  (never dropped), so a card moved back to its own device still finds its secrets.
 - Out of SEC: TLS trust and pinning (NET, SOCK), the server key guard (the SDK's `served`, over
   `random`), Wi-Fi joining (DEV: `join` with `remember` keeps the password as the Wi-Fi plugin's
   secret, 4), hashing (plugin code, e.g. lock's salted hash).
