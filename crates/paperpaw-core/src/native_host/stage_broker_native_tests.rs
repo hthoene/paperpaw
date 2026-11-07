@@ -115,6 +115,7 @@ fn instance(kernel: &crate::Kernel, depth: &FlatDepth) -> NativeLease {
             font_removals: Rc::clone(&kernel.shared.font_removals),
         },
         |_, _, _| {},
+        crate::native_host::native_instances::test_identity("probe"),
     ))
     .unwrap()
 }
@@ -131,7 +132,7 @@ fn retained_native_stage_replies_refuse_and_revoke_without_stale_calls() {
     let depth = FlatDepth::try_new().unwrap();
     let mut registry = NativeInstances::default();
     let plugin = registry
-        .insert(
+        .test_insert(
             Id::new_static("native-widget"),
             Some(instance(&kernel, &depth)),
             true,
@@ -204,5 +205,11 @@ fn retained_native_stage_replies_refuse_and_revoke_without_stale_calls() {
         }
     );
     assert_eq!(CALLS.with(Cell::get), 2);
+    assert_eq!(
+        DESTROYS.with(Cell::get),
+        0,
+        "the pending row retains cleanup ownership"
+    );
+    assert!(registry.retire(plugin).unwrap().is_none());
     assert_eq!(DESTROYS.with(Cell::get), 1);
 }

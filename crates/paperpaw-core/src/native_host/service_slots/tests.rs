@@ -131,6 +131,8 @@ fn usage_slots_preserve_failures_read_positionally_and_expire_at_core_callback_e
         .unwrap();
     let env = kernel.shared.env(Instant(0));
     let frame = CoreFrame {
+        callback: None,
+        instance: None,
         env: &env,
         meter: &kernel.shared.meter,
         font_removals: &kernel.shared.font_removals,
