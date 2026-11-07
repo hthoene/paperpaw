@@ -88,7 +88,7 @@ fn part(cx: &Cx<'_>) -> Result<Part, Error> {
 /// "Good evening", or "Good evening, Anna" with a name.
 fn greeting(cx: &mut Cx<'_>, part: Part, named: bool) -> Result<String, Error> {
     let name = if named {
-        cx.settings.string("name", 96)?
+        cx.settings.string("name", crate::native_draw::TEXT_MAX)?
     } else {
         String::new()
     };
@@ -129,7 +129,12 @@ pub fn shows(host: &Host<'_>, widget: &str) -> Result<u64, Error> {
     let settings = paperpaw_ui_kit::widget::Settings::new(host, widget);
     let mut mark = crate::native_draw::day_mark(&t) * 4 + part_index(Part::of(t.hour));
     for key in ["name", "line", "icon", "face"] {
-        mark = crate::native_draw::fnv(mark, settings.string(key, 96)?.as_bytes());
+        mark = crate::native_draw::fnv(
+            mark,
+            settings
+                .string(key, crate::native_draw::TEXT_MAX)?
+                .as_bytes(),
+        );
     }
     Ok(mark)
 }

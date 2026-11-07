@@ -448,42 +448,24 @@ impl Layout {
     }
 }
 
-/// Draws the widget in `area`.
-///
-/// # Errors
-/// Font and host refusals, [`Error::NoMemory`].
-pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Error> {
-    let look = cx.shape.paint(out, area, 256)?;
-    let day = day_number(cx.host)?;
-    let Some(quote) = quote_of_the_day(cx, day)? else {
-        let message = cx.tr("widgets.quote.none")?;
-        let small = cx.style().small;
-        if paperpaw_ui_kit::geometry::line_px(&cx.font, small)? <= look.area.height {
-            crate::native_draw::message_in(cx, out, &look, &message)?;
-        }
-        return Ok(());
-    };
+/// A quote laid out: the layout, the size, its lines and who said it.
+struct Plan<'q> {
+    layout: Layout,
+    size: f32,
+    lines: Vec<String>,
+    author: Option<&'q str>,
+}
+
+/// `shown` laid out in `area`, as large as the size setting says (or as fits);
+/// where a line of it would not fit with them, the large mark and who said it
+/// go.
+fn plan<'q>(
+    cx: &Cx<'_>,
+    font: &Font<'_>,
+    (shown, quote): (&str, &'q Quote),
+    area: Rect,
+) -> Result<Plan<'q>, Error> {
     let (small, gap) = (cx.style().small, cx.style().gap);
-    let align = cx.settings.align()?;
-    let mut area = look.area;
-    if cx.settings.shows("caption")? {
-        let text = cx.tr("widgets.quote.caption")?;
-        area = caption(
-            out,
-            &cx.font,
-            (small, gap),
-            (area, align, look.faint),
-            &text,
-        )?;
-    }
-    let face = cx.settings.string("face", FACE_LIMIT)?;
-    let font = face_font(cx.host, &face)?;
-    let tag = cx.tr("widgets.quote.language")?;
-    let shown = if cx.settings.shows("marks")? {
-        quoted(&quote.text, &tag)?
-    } else {
-        copy(unquoted(&quote.text))?
-    };
     let width = f32::from(area.width);
     let height = f32::from(area.height);
     // Who said it, where a line of the quote has room above it.
@@ -492,7 +474,7 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Err
         f32::from(paperpaw_ui_kit::geometry::line_px(&cx.font, small)?) + f32::from(gap) * 0.75;
     let author = if cx.settings.shows("author")?
         && !quote.author.is_empty()
-        && line_of(&font, least)? + author_h <= height
+        && line_of(font, least)? + author_h <= height
     {
         Some(quote.author.as_str())
     } else {
@@ -502,7 +484,7 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Err
         mark: cx.settings.shows("mark")?,
         author: author.map_or(0.0, |_| author_h),
     };
-    if wished.height(&font, least, 1)? > height {
+    if wished.height(font, least, 1)? > height {
         wished.mark = false;
     }
     // Where the quote does not fit whole with it, the large mark goes; where
@@ -513,8 +495,8 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Err
     };
     let choices = [wished, plain];
     let whole = |layout: Layout, size: f32| -> Result<bool, Error> {
-        let (lines, too_wide) = break_words(&font, size, &shown, width)?;
-        Ok(!too_wide && layout.height(&font, size, lines.len())? <= height)
+        let (lines, too_wide) = break_words(font, size, shown, width)?;
+        Ok(!too_wide && layout.height(font, size, lines.len())? <= height)
     };
     let (layout, size) = match cx.settings.size()? {
         TextSize::Fit => {
@@ -541,22 +523,38 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Err
             (picked, size)
         }
     };
-    let author = author.filter(|_| layout.author > 0.0);
-    let line = line_of(&font, size)?;
-    let room = height - layout.height(&font, size, 0)?;
+    let room = height - layout.height(font, size, 0)?;
     // As many lines as fit; none where not even one has room.
-    let fits = (room / line.max(1.0)).max(0.0) as usize;
+    let fits = (room / line_of(font, size)?.max(1.0)).max(0.0) as usize;
     let lines = if fits == 0 {
         Vec::new()
     } else {
-        wrap(&font, size, &shown, width, fits)?
+        wrap(font, size, shown, width, fits)?
     };
-    let total = layout.height(&font, size, lines.len())?;
-    let mut top = f32::from(area.y) + ((height - total) / 2.0).max(0.0);
+    Ok(Plan {
+        author: author.filter(|_| layout.author > 0.0),
+        layout,
+        size,
+        lines,
+    })
+}
+
+/// Draws widget `plan` in `area`, in `font` and `look`.
+fn paint_plan(
+    cx: &Cx<'_>,
+    out: &mut Vec<Paint>,
+    (font, plan, tag): (&Font<'_>, &Plan<'_>, &str),
+    (area, look): (Rect, &paperpaw_ui_kit::widget::Look),
+) -> Result<(), Error> {
+    let (small, gap) = (cx.style().small, cx.style().gap);
+    let align = cx.settings.align()?;
+    let (layout, size) = (plan.layout, plan.size);
+    let total = layout.height(font, size, plan.lines.len())?;
+    let mut top = f32::from(area.y) + ((f32::from(area.height) - total) / 2.0).max(0.0);
     if layout.mark {
         // The opening mark large and faint above the quote, its top where the
         // block begins.
-        let mark = ornament(&tag);
+        let mark = ornament(tag);
         let big = size * MARK_SCALE;
         let x = align.x(area, font.measure_text(big, mark)?);
         // Quotation marks are as high as capitals, a third of them.
@@ -573,25 +571,68 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Err
         )?;
         top += layout.mark_height(size);
     }
-    let row_h = paperpaw_ui_kit::geometry::line_px(&font, size)?;
-    for held in &lines {
+    let row_h = paperpaw_ui_kit::geometry::line_px(font, size)?;
+    for held in &plan.lines {
         let row = Rect::new(area.x, top as u16, area.width, row_h);
-        label(out, &font, (size, align), row, held, look.ink)?;
+        label(out, font, (size, align), row, held, look.ink)?;
         top += f32::from(row_h);
     }
-    if let Some(author) = author {
+    if let Some(author) = plan.author {
         top += f32::from(gap) * 0.75;
         let row_h = paperpaw_ui_kit::geometry::line_px(&cx.font, small)?;
         let row = Rect::new(area.x, top as u16, area.width, row_h);
         // The whole name where it fits, else the last name alone ("Bacon"),
         // smaller where need be, then shortened.
-        let whole = cx.font.measure_text(small, author)? <= width;
-        let last = author.rsplit(' ').next().unwrap_or(author);
-        let name = if whole { author } else { last };
-        let (size, name) = fit_line(&cx.font, small, least, name, width)?;
+        let width = f32::from(area.width);
+        let name = if cx.font.measure_text(small, author)? <= width {
+            author
+        } else {
+            author.rsplit(' ').next().unwrap_or(author)
+        };
+        let (size, name) = fit_line(&cx.font, small, small * 0.85, name, width)?;
         label(out, &cx.font, (size, align), row, &name, look.faint)?;
     }
     Ok(())
+}
+
+/// Draws the widget in `area`.
+///
+/// # Errors
+/// Font and host refusals, [`Error::NoMemory`].
+pub fn draw(cx: &mut Cx<'_>, out: &mut Vec<Paint>, area: Rect) -> Result<(), Error> {
+    let look = cx.shape.paint(out, area, 256)?;
+    let day = day_number(cx.host)?;
+    let Some(quote) = quote_of_the_day(cx, day)? else {
+        let message = cx.tr("widgets.quote.none")?;
+        let small = cx.style().small;
+        if paperpaw_ui_kit::geometry::line_px(&cx.font, small)? <= look.area.height {
+            crate::native_draw::message_in(cx, out, &look, &message)?;
+        }
+        return Ok(());
+    };
+    let (small, gap) = (cx.style().small, cx.style().gap);
+    let mut area = look.area;
+    if cx.settings.shows("caption")? {
+        let text = cx.tr("widgets.quote.caption")?;
+        let align = cx.settings.align()?;
+        area = caption(
+            out,
+            &cx.font,
+            (small, gap),
+            (area, align, look.faint),
+            &text,
+        )?;
+    }
+    let face = cx.settings.string("face", FACE_LIMIT)?;
+    let font = face_font(cx.host, &face)?;
+    let tag = cx.tr("widgets.quote.language")?;
+    let shown = if cx.settings.shows("marks")? {
+        quoted(&quote.text, &tag)?
+    } else {
+        copy(unquoted(&quote.text))?
+    };
+    let plan = plan(cx, &font, (&shown, &quote), area)?;
+    paint_plan(cx, out, (&font, &plan, &tag), (area, &look))
 }
 
 #[cfg(test)]

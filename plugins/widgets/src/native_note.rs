@@ -16,10 +16,10 @@ use paperpaw_ui_kit::{
     },
 };
 
-/// The longest note kept, in bytes.
-pub const TEXT_LIMIT: usize = 1024;
+/// The longest note kept, in bytes: what the editor holds.
+pub const TEXT_LIMIT: usize = crate::native_draw::TEXT_MAX;
 /// The longest heading kept, in bytes.
-const HEADING_LIMIT: usize = 128;
+const HEADING_LIMIT: usize = crate::native_draw::TEXT_MAX;
 
 /// What the settings make drawn change, as a number: the note, its heading
 /// and its font.
@@ -142,3 +142,12 @@ pub fn draw(cx: &mut Cx<'_>, out: &mut alloc::vec::Vec<Paint>, area: Rect) -> Re
     }
     Ok(())
 }
+
+// The most a text setting holds is 4084 bytes (the settings value codec): a
+// note, a heading, a name or a title up to it is read whole, not refused as too
+// long for a smaller guess.
+const _: () = {
+    assert!(crate::native_draw::TEXT_MAX >= 4084);
+    assert!(TEXT_LIMIT == crate::native_draw::TEXT_MAX);
+    assert!(HEADING_LIMIT == crate::native_draw::TEXT_MAX);
+};

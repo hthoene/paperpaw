@@ -104,3 +104,24 @@ calls (tiles, word clock text and grid, moon rows, the kit's joins); the
 calls that need a host (drawing, measuring, settings reads) have no refusal
 sweep until the SDK has a mock host; their allocations are fallible by
 reading and by the kit's own sweeps.
+
+## Words family: greeting, note, quote
+
+- Greeting draws its sun and moon as shapes (discs, rays and a bite), not with
+  the icon font. Pure calls (`Part`, `short_date`, `draw_icon`, the quote's
+  `parse`, `marks`, `of_the_day`) are tested directly; calls that need the host
+  (settings, fonts, storage) have no refusal sweep until the SDK has a mock host.
+- Text settings are read up to 4096 bytes (the editor holds 4084): a long note,
+  heading, name or title is read whole.
+- Note: a tap asks for the text on the keyboard (`core.ui`), the old text first
+  (written in parts after the request is made); a second tap while a request is
+  open does nothing, the first answer counts.
+- Quote: PaperPaw's quotes come from `data/quotes.<language>.txt` in the install
+  folder (else those the app carries), the reader's own from `quotes.txt` in the
+  data folder (up to 24 KiB; a larger file is left out). The turns are kept in
+  `quote.txt` of the data folder. The UI language is not in the snapshot: the
+  catalog key `widgets.quote.language` carries the language tag (`en`, `de`, ...)
+  to pick the file and the quotation marks. Reported to Kernel; a language
+  accessor would replace the key. "Another each time it shows" counts showings in
+  memory, once for all made within a minute.
+

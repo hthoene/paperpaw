@@ -15,8 +15,8 @@ use paperpaw_sdk::{
         registrations,
         reply::Reply,
         ui::{
-            Instance, Open, Param, Question, RequestId, TextWrite, Ui, WidgetInputKind,
-            WidgetTarget, stages::WidgetCall,
+            Instance, Open, Param, Question, RequestId, Ui, WidgetInputKind, WidgetTarget,
+            stages::WidgetCall,
         },
     },
 };
@@ -267,8 +267,11 @@ impl Plugin for NativeWidgets {
                 CommandSender::new(host, &mut [0; 64]).widget_changed(item.instance)?;
             }
             Some(Tap::Text { key, title }) => {
-                let asked = ask_text(host, base, key, title)?;
-                self.asked = Some(asked);
+                // One request at a time: the keyboard of the first is still
+                // open, and its answer is the one that counts.
+                if self.asked.is_none() {
+                    self.asked = Some(ask_text(host, base, key, title)?);
+                }
             }
             _ => return Ok(Handled::No),
         }
@@ -294,15 +297,11 @@ fn ask_text(
         let mut input = paperpaw_ui_kit::mem::buffer(paperpaw_ui_kit::mem::SERVICE_BUFFER)?;
         let mut out = paperpaw_ui_kit::mem::buffer(paperpaw_ui_kit::mem::SERVICE_BUFFER)?;
         let request = ui.ask(host, Question::text(&title, "")?, &mut input, &mut out)?;
-        ui.text_write(
-            host,
-            request.text(),
-            0,
-            &current,
-            TextWrite::Last,
-            &mut input,
-            &mut out,
-        )?;
+        // The text so far, as the initial text (in parts, as the host holds
+        // them); nothing to write for an empty one.
+        if !current.is_empty() {
+            paperpaw_ui_kit::uitext::write_all(&ui, host, request.text(), &current)?;
+        }
         Ok::<_, Error>(request)
     })();
     let released = ui.release(host);
