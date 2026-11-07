@@ -142,8 +142,7 @@ mod tests {
     use super::*;
     use paperpaw_platform::Instant;
 
-    #[test]
-    fn open_then_close_uses_original_target_or_warns_when_already_closed() {
+    fn screens_kernel() -> crate::Kernel {
         use paperpaw_sdk::{Manifest, Plugin, Registrar, Screen, ScreenSpec, Version};
         struct Empty;
         impl Screen for Empty {
@@ -173,11 +172,48 @@ mod tests {
                 Ok(())
             }
         }
+        crate::Kernel::builder(crate::tests::DEVICE)
+            .plugin(Screens)
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn screen_keys_exhaust_without_wrap_or_reuse() {
+        let mut kernel = screens_kernel();
+        kernel.next_serial = u32::MAX - 1;
+        kernel.apply(Command::OpenScreen(
+            Id::new_static("probe.old"),
+            Params::new(),
+        ));
+        assert_eq!(
+            kernel.shared.stack.last().unwrap().key,
+            ScreenKey::new(u32::MAX - 1)
+        );
+        assert_eq!(kernel.next_serial, u32::MAX);
+        kernel.take_warnings();
+        for _ in 0..2 {
+            kernel.apply(Command::OpenScreen(
+                Id::new_static("probe.new"),
+                Params::new(),
+            ));
+            assert_eq!(kernel.next_serial, u32::MAX);
+            assert_eq!(kernel.shared.stack.len(), 1);
+            assert_eq!(kernel.shared.stack[0].key, ScreenKey::new(u32::MAX - 1));
+        }
+        let warnings = kernel.take_warnings();
+        assert_eq!(warnings.len(), 2);
+        assert!(
+            warnings
+                .iter()
+                .all(|warning| warning.message.contains("screen key space exhausted"))
+        );
+    }
+
+    #[test]
+    fn open_then_close_uses_original_target_or_warns_when_already_closed() {
         for already_closed in [false, true] {
-            let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-                .plugin(Screens)
-                .build()
-                .unwrap();
+            let mut kernel = screens_kernel();
             for id in ["probe.base", "probe.old"] {
                 kernel.apply(Command::OpenScreen(Id::new_static(id), Params::new()));
             }
