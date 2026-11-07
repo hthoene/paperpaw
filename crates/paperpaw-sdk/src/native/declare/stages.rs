@@ -1,9 +1,7 @@
 //! Stage declarations and bounded subscriber registration.
 use super::{Declarations, DeclareError, Item, Latched, filled, records_wire, within};
-use alloc::string::String;
-use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID};
+use paperpaw_native::host_glue::ERR_INVALID;
 
-const MAX_SUBSCRIPTIONS: usize = 8;
 const MAX_REPLY_RECORDS: u32 = 64;
 
 /// A stage owned by this plugin, with bounded opaque input and replies.
@@ -156,8 +154,8 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
     /// Subscribe a callback token to a stage by full id.
     ///
     /// # Errors
-    /// Refuses malformed ids, duplicate stage/token pairs, or more than eight
-    /// subscriptions in this construction, including previously submitted batches.
+    /// Refuses malformed ids. The host checks the eight-per-plugin limit,
+    /// duplicate stage/token pairs and self-subscription when committing the batch.
     pub fn subscribe(&mut self, to: SubscribeDecl<'_>) -> Result<&mut Self, DeclareError> {
         self.check_sink()?;
         let result = (|| {
@@ -167,27 +165,10 @@ impl<F: FnMut(&[u8]) -> Result<(), i32>> Declarations<F> {
                 records_wire::REGISTRATION_STAGE_STAGE_MAX_BYTES,
                 "subscription stage",
             )?;
-            if !valid_id(to.stage)
-                || self
-                    .subscriptions
-                    .iter()
-                    .any(|(stage, token)| stage == to.stage && *token == to.token)
-            {
+            if !valid_id(to.stage) {
                 return Err(DeclareError::Encode(ERR_INVALID));
             }
-            if self.subscriptions.len() == MAX_SUBSCRIPTIONS {
-                return Err(DeclareError::Encode(ERR_FULL));
-            }
-            let mut stage = String::new();
-            stage
-                .try_reserve_exact(to.stage.len())
-                .map_err(|_| DeclareError::NoMemory)?;
-            stage.push_str(to.stage);
-            self.subscriptions
-                .try_reserve(1)
-                .map_err(|_| DeclareError::NoMemory)?;
             self.push(Item::Subscribe(to))?;
-            self.subscriptions.push((stage, to.token));
             Ok(())
         })();
         self.finish_stage_add(result)
