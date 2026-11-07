@@ -12,7 +12,13 @@
       "name": "PAPERPAW_ENTRY"
     }
   ],
-  "features": [],
+  "features": [
+    {
+      "key": "uses.power",
+      "required": false,
+      "revision": 1
+    }
+  ],
   "flags": 0,
   "layout": 2,
   "needs_minor": 1,
@@ -41,5 +47,5 @@
     }
   ],
   "target": "linux-x86_64-sysv64-le",
-  "total_bytes": 122
+  "total_bytes": 140
 }

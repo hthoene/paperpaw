@@ -133,7 +133,8 @@ must leave its list.
     `cargo test -p paperpaw-sdk --test interface`
     ([ADR 0026](adr/0026-plugin-interface-version.md)). The test says
     whether the change raises `native::INTERFACE`. The same change
-    brings `api.txt`, `docs/plugins.md` and the CHANGELOG up to date.
+    brings `api.txt` and `docs/plugins.md` up to date, with a fragment in
+    `changelog.d/` for the release notes.
 15. **Looks are numbers first.** What a theme can say as numbers (a tone
     curve, a palette) is a setting; code (a painter, a hook) is for what
     numbers cannot say.
