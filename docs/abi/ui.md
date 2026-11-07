@@ -226,9 +226,13 @@ asker learns its request id at once and long texts move in pages, never cut.
   (`ui_question.max_bytes`) is 24,576 bytes on every device: the 6,000 characters of interface 6
   in any script (at most 4 bytes each). Over it `ERR_NO_SPACE`; the text is never cut. On the X4
   the host keeps the first 512 bytes of a text in memory and the rest in a host file on the card
-  (deleted when the text ends and at start); a failed card write is `ERR_IO` for that part.
-  **Secret texts never touch the card** (Senior G): a `secret` question's text stays in memory, at
-  most 1,024 bytes on the X4 (a PIN, a Wi-Fi or account password), `ERR_NO_SPACE` beyond.
+  (deleted when the text ends and at start). **Card failures** (Senior G): a full card is
+  `ERR_NO_SPACE` for the part; with no card the request's question and the X4 host texts live in
+  memory only, at most 2 KiB together (the secret text below aside), `ERR_IO` beyond; a card
+  pulled while a text has a card part makes every later read of that text `ERR_IO`, never a short
+  text, and the asker's answer for it cancelled (outcome 1); a write at 0 starts it over.
+  **Secret texts never touch the card**: a `secret` question's text stays in memory, at most
+  2,048 bytes on the X4 (a PIN, a Wi-Fi or account password), `ERR_NO_SPACE` beyond.
   **Live typing on the X4**: a `typing` answer (outcome 2) is accepted only while the text is in
   memory (at most 512 bytes; beyond `ERR_NO_SPACE`, the dialog goes on and sends the final answer
   only), so typing never rewrites the card per key; a final answer may use the card once.
@@ -445,7 +449,7 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
 - [D] **Shown** (interface 6 `Widgets::shown`, used to fetch only then: weather) is not "has
   instances": a widget is shown when a place whose `shown_if` holds lists it (its base id, also a
   placement `x@2`) in one of its `list_keys`. The host works it out from the settings at the
-  time of the query: REG op 19 `reg_widget.flags` bit 2 `shown`.
+  time of the query: REG op 19 `reg_widget.flags` bit 0 `shown` (`registry.md` section 3).
 - [D] **Layout** (interface 6 `height`, `min_height`, `place`, `targets`): the showing screen asks
   through op 12 `widget_measure` (`instance`, `width` → `height`, `min_height`; 0 height: nothing
   to show), tells the place with op 13 `widget_place` (the rectangle, before the first draw there
@@ -596,7 +600,8 @@ Ops that run another plugin's callback (7, 12-15) are allowed at depth 1 only (`
   (`ui_text_at`, `text` 0) reads it in parts (`total` 0: empty), any plugin, at once. Keeping a
   `secret` answer (section 3.1) off it is the dialog plugin's duty; the host cannot enforce it
   (decision 44). On the X4 it lives in a host file on the card (none in memory but the part
-  being moved); Android may back it with the system clipboard.
+  being moved); with no card, op 18 is `ERR_IO` and op 19 reads it empty; a pulled card makes op
+  19 `ERR_IO`. Android may back it with the system clipboard.
 - [D] **Speech.** `speak` queues `text` (display text, at most 2,048 bytes) in `language` (a BCP
   47 tag, empty for the system's) at `rate` percent (50-300, else `ERR_INVALID`); `flags` bit 0
   `queue` (after what is being spoken, else replacing it). `spoken` comes when it was spoken or
@@ -639,19 +644,19 @@ its caps (hand-off).
 - Host texts (request texts and hand-over texts, sections 1.1 and 3.1): up to 24,576 bytes each.
   On the X4 at most 4 at once (the question, its nested question, two hand-overs; `ERR_FULL`
   beyond), each with at most 512 bytes in memory and the rest in a host file on the card (a
-  secret text up to 1,024 bytes, in memory only), so texts cost at most 2.5 KiB of heap;
-  elsewhere at most 16, in memory.
+  secret text up to 2,048 bytes, in memory only), so texts cost at most 3.5 KiB of heap, and 4
+  KiB with no card (2 KiB pool + the secret text); elsewhere at most 16, in memory.
 - Questions: at most 4 open requests device-wide (on the X4 one and its nested one), about 24
   bytes each plus the question (title, text, choices: at most 3.3 KiB), allocated fallibly at
   `ask` (`ERR_NO_MEMORY`). On the X4 the question goes to the request's card file with its text
   and op 2 reads it from there, so questions cost about 50 bytes of heap, nothing when none is
   open.
-- **X4 worst case: activation-gate item.** Instances 0.25 + params 1.5 + texts 2.5 + questions
-  0.05 + widgets 0.25 + status cache 1 + op 7 target cache 0.8 (only while a callback pages) +
-  clipboard 0 (card) + messages 0.5 = **about 6.9 KiB**, every part allocated fallibly (a refusal
-  is `ERR_NO_MEMORY` or `ERR_FULL`, never a panic); typical use (a few instances with small
-  params, one short question, a status line) about 2 KiB, under the 4 KiB heap gate. Gate before
-  the UIX host is active on the X4: the worst case is a line of the X4 heap budget and the
+- **X4 worst case: activation-gate item.** Instances 0.25 + params 1.5 + texts and questions 4 (no
+  card; 3.55 with one) + widgets 0.25 + status cache 1 + op 7 target cache 0.8 (only while a
+  callback pages) + clipboard 0 (card) + messages 0.5 = **about 8.3 KiB**, every part allocated
+  fallibly (a refusal is `ERR_NO_MEMORY` or `ERR_FULL`, never a panic); typical use (a few instances
+  with small params, one short question, a status line) about 2 KiB, under the 4 KiB heap gate. Gate
+  before the UIX host is active on the X4: the worst case is a line of the X4 heap budget and the
   typical case is measured on the device under 4 KiB (hand-off: Firmware, R3 heap measurement).
 - Answers are not held-store edges: each request carries its answer and a pending mark (section
   3.2), so they cost nothing beyond the request.
