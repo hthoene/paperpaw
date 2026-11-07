@@ -109,6 +109,13 @@ change the plugin SDK.
   `service.dev_check` gains the optional `sha256` digest `device.md` already named.
   Hosts answer `ERR_UNSUPPORTED` until wired. Interface draft 20 (`native::DRAFT`) refuses
   plugins built for draft 19 (#228).
+- Interface 7, `core.library` op 22 `fields` is paged: it takes `lib_ref` and the new
+  `service.lib_field_page` (1182: `cursor`, `generation`), as `docs/abi/library.md` section 4
+  says. Interface draft 21 (`native::DRAFT`) refuses plugins built for draft 20 (#228).
+- Native SDK: plugins link only the record codecs they use. The generated records codec has a
+  typed form (`WireEncode`, `WireRecord`, `RawRecord`, the `_of` encoders,
+  `RecordStream::feed_raw`) and every SDK facade encodes and decodes by record type. Battery's
+  X4 plugin file shrinks from 239 KB to 90 KB; the wire format is unchanged (#1156, #228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
   `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
   position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70

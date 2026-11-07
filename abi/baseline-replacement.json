@@ -1,8 +1,9 @@
 {
   "replaces_sha256": "135924beff53d45793eb33391cbc5b1892c5d4f25c1ccce83bcbf7e9cb9533ef",
-  "reason": "interface 7 is unreleased: the records codec gains a typed form (WireEncode, WireRecord, RawRecord and the _of encoders) and RecordStream::feed_raw, so a plugin links only the codecs of the record types it uses instead of all of them through the Record enum (#1156: Battery's .ppn doubled); the wire format is unchanged",
+  "reason": "interface 7 is unreleased: core.library@1 op 22 fields answers paged rows (a book holds up to 64 fields, about 3 rows of lib_field fit a reply) but took no cursor, so a second page could not be asked; it now takes lib_ref and the new service.lib_field_page (cursor, generation) like op 15 annotations, as library.md 4 requires, which changes one locked op; and the records codec gains a typed form (WireEncode, WireRecord, RawRecord, the _of encoders and RecordStream::feed_raw) so a plugin links only the codecs of the record types it uses instead of all of them through the Record enum (#1156: Battery's .ppn doubled to 239 KB); the wire format is unchanged",
   "ticket": "#228",
   "waives": [
+    "compatible",
     "emitted_records",
     "emitted_streams"
   ]
