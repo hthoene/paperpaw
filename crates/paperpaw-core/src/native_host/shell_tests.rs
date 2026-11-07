@@ -679,8 +679,7 @@ mod instance_tests {
     /// refuses anything. The allocator and the clock are exempt (hot,
     /// bounded), and so are entries this shell has not wired (the default
     /// stubs of `host_glue`, which return at once): the one list below names
-    /// every field of the table, so a new entry fails the count until it is
-    /// added here, called, and announces.
+    /// every field of the table: a new entry fails the count until added.
     #[allow(
         clippy::too_many_lines,
         reason = "one flat list: a call per entry of the host table"
