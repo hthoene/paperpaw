@@ -17,6 +17,7 @@ struct Files {
     fail_at: core::cell::Cell<usize>,
     puts: core::cell::Cell<usize>,
     rename_fails: core::cell::Cell<bool>,
+    sync_fails: core::cell::Cell<bool>,
 }
 
 fn name(path: PpBytes) -> String {
@@ -113,7 +114,10 @@ unsafe extern "C" fn remove_slot(ctx: *mut c_void, root: u32, path: PpBytes) -> 
         None => abi::ERR_NOT_FOUND,
     }
 }
-unsafe extern "C" fn sync_slot(_: *mut c_void) -> i32 {
+unsafe extern "C" fn sync_slot(ctx: *mut c_void) -> i32 {
+    if files(ctx).sync_fails.get() {
+        return abi::ERR_IO;
+    }
     OK
 }
 
@@ -178,12 +182,12 @@ fn a_long_write_is_staged_and_published_whole() {
         files
             .files
             .borrow_mut()
-            .insert("books.ini.tmp".into(), b"STALE".to_vec());
+            .insert("books.ini.pp-staged".into(), b"STALE".to_vec());
         files.calls.borrow_mut().clear();
         let data = pattern(MAX_DATA * 2 + 5);
         Storage::write(storage, "books.ini", &data).unwrap();
         assert_eq!(*files.files.borrow().get("books.ini").unwrap(), data);
-        assert!(!has(files, "books.ini.tmp"));
+        assert!(!has(files, "books.ini.pp-staged"));
         // Every call carried at most 4 KiB, the first of them to the temporary file.
         assert!(files.calls.borrow().iter().all(|c| c.1 <= MAX_DATA));
         assert_eq!(files.calls.borrow()[0].0, "append");
@@ -206,7 +210,7 @@ fn a_failure_on_a_later_piece_keeps_the_old_file_and_removes_the_temporary_one()
                 Err(StorageError::Io)
             );
             assert_eq!(*files.files.borrow().get("books.ini").unwrap(), b"old");
-            assert!(!has(files, "books.ini.tmp"), "{fail_at}");
+            assert!(!has(files, "books.ini.pp-staged"), "{fail_at}");
             // The next attempt works.
             files.fail_at.set(0);
             Storage::write(storage, "books.ini", &pattern(MAX_DATA + 1)).unwrap();
@@ -228,7 +232,7 @@ fn a_failed_replacement_keeps_the_old_file_and_cleans_up() {
             Err(StorageError::Io)
         );
         assert_eq!(*files.files.borrow().get("books.ini").unwrap(), b"old");
-        assert!(!has(files, "books.ini.tmp"));
+        assert!(!has(files, "books.ini.pp-staged"));
     });
 }
 
@@ -316,42 +320,73 @@ fn a_full_card_and_a_bad_path_come_back_as_storage_errors() {
 }
 
 #[test]
-fn the_staging_suffix_is_reserved_so_no_unrelated_file_can_be_in_the_way() {
+fn the_staging_suffix_is_reserved_in_both_layers_so_no_other_file_is_in_the_way() {
+    let table = table();
+    let mut files = Files::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut files).cast(),
+    };
+    // SAFETY: the context is only read through shared references from here on.
+    let files = unsafe { &*ptr::from_ref(&files) };
+    let storage = DataStorage::new(&host);
+    for name in ["a.pp-staged", "a.PP-STAGED", "dir/b.Pp-Staged"] {
+        // The free functions of the module ...
+        assert_eq!(write(&host, Root::Data, name, b"x"), Err(Error::Invalid));
+        assert_eq!(append(&host, Root::Data, name, b"x"), Err(Error::Invalid));
+        assert_eq!(remove(&host, Root::Data, name), Err(Error::Invalid));
+        assert_eq!(rename(&host, Root::Data, name, "z"), Err(Error::Invalid));
+        assert_eq!(rename(&host, Root::Data, "z", name), Err(Error::Invalid));
+        // ... and the Storage on top of them, short or long.
+        let invalid = Err(StorageError::InvalidPath);
+        assert_eq!(Storage::write(&storage, name, b"x"), invalid);
+        assert_eq!(
+            Storage::write(&storage, name, &pattern(MAX_DATA + 1)),
+            invalid
+        );
+        assert_eq!(Storage::append(&storage, name, b"x"), invalid);
+        assert_eq!(Storage::remove(&storage, name), invalid);
+        assert_eq!(Storage::rename(&storage, name, "z"), invalid);
+        assert_eq!(Storage::rename(&storage, "z", name), invalid);
+    }
+    assert!(files.calls.borrow().is_empty());
+    // Reading is allowed; names that merely contain it are ordinary.
+    assert_eq!(size(&host, Root::Data, "a.pp-staged"), Err(Error::NotFound));
+    Storage::write(&storage, "a.pp-staged.bak", b"x").unwrap();
+    Storage::write(&storage, "pp-staged", b"x").unwrap();
+}
+
+#[test]
+fn an_unrelated_name_tmp_survives_a_staged_write_whether_it_works_or_not() {
     with_storage(|storage, files| {
-        // Nothing can be put at, taken from or moved to a staging name.
-        for name in ["a.tmp", "a.TMP", "dir/b.Tmp"] {
-            assert_eq!(
-                Storage::write(storage, name, b"x"),
-                Err(StorageError::InvalidPath)
-            );
-            assert_eq!(
-                Storage::append(storage, name, b"x"),
-                Err(StorageError::InvalidPath)
-            );
-            assert_eq!(
-                Storage::remove(storage, name),
-                Err(StorageError::InvalidPath)
-            );
-            assert_eq!(
-                Storage::rename(storage, name, "z"),
-                Err(StorageError::InvalidPath)
-            );
-            assert_eq!(
-                Storage::rename(storage, "z", name),
-                Err(StorageError::InvalidPath)
-            );
-        }
-        assert!(files.calls.borrow().is_empty());
-        // Names that merely contain it are ordinary.
-        Storage::write(storage, "tmp", b"x").unwrap();
-        Storage::write(storage, "a.tmp.bak", b"x").unwrap();
-        Storage::write(storage, "tmpfile", b"x").unwrap();
-        // Another file that sits beside a staged write is left alone by it.
+        Storage::write(storage, "books.ini", b"old").unwrap();
+        Storage::write(storage, "books.ini.tmp", b"somebody's").unwrap();
         Storage::write(storage, "books.ini.bak", b"keep").unwrap();
-        Storage::write(storage, "books.ini", &pattern(MAX_DATA + 1)).unwrap();
-        assert_eq!(*files.files.borrow().get("books.ini.bak").unwrap(), b"keep");
+        let big = pattern(MAX_DATA + 1);
+        let intact = |files: &Files| {
+            assert_eq!(
+                *files.files.borrow().get("books.ini.tmp").unwrap(),
+                b"somebody's"
+            );
+            assert_eq!(*files.files.borrow().get("books.ini.bak").unwrap(), b"keep");
+            assert!(!has(files, "books.ini.pp-staged"));
+        };
+        // A failure on a piece, at the sync, and at the rename ...
+        files.puts.set(0);
+        files.fail_at.set(2);
+        assert!(Storage::write(storage, "books.ini", &big).is_err());
+        files.fail_at.set(0);
+        files.sync_fails.set(true);
+        assert!(Storage::write(storage, "books.ini", &big).is_err());
+        files.sync_fails.set(false);
         files.rename_fails.set(true);
-        assert!(Storage::write(storage, "books.ini", &pattern(MAX_DATA + 1)).is_err());
-        assert_eq!(*files.files.borrow().get("books.ini.bak").unwrap(), b"keep");
+        assert!(Storage::write(storage, "books.ini", &big).is_err());
+        files.rename_fails.set(false);
+        assert_eq!(*files.files.borrow().get("books.ini").unwrap(), b"old");
+        intact(files);
+        // ... and a success.
+        Storage::write(storage, "books.ini", &big).unwrap();
+        assert_eq!(*files.files.borrow().get("books.ini").unwrap(), big);
+        intact(files);
     });
 }

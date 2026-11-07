@@ -30,6 +30,25 @@ impl Root {
 pub const MAX_PATH: usize = 512;
 /// Maximum path segment length, in UTF-8 bytes.
 pub const MAX_SEGMENT: usize = 255;
+/// The suffix of the file a long [`DataStorage`] write is staged in. It is
+/// reserved across the mutating calls of this module: [`write`], [`append`],
+/// [`rename`] and [`remove`] refuse (`Invalid`) any name ending in it, in any
+/// case (FAT ignores case), so a file with it is only ever a leftover of a
+/// staged write, and only the staging itself touches such files. Reading them
+/// is allowed.
+pub const STAGED_SUFFIX: &str = ".pp-staged";
+
+fn check_unreserved(name: &str) -> Result<(), Error> {
+    let tail = name
+        .len()
+        .checked_sub(STAGED_SUFFIX.len())
+        .and_then(|at| name.get(at..));
+    if tail.is_some_and(|tail| tail.eq_ignore_ascii_case(STAGED_SUFFIX)) {
+        return Err(Error::Invalid);
+    }
+    Ok(())
+}
+
 /// Maximum bytes per read, write or append call.
 pub const MAX_DATA: usize = 4096;
 
@@ -115,7 +134,12 @@ pub fn write(
     name: impl AsRef<str>,
     input: &[u8],
 ) -> Result<(), Error> {
-    let path = path(name.as_ref())?;
+    check_unreserved(name.as_ref())?;
+    write_raw(host, root, name.as_ref(), input)
+}
+
+fn write_raw(host: &Host<'_>, root: Root, name: &str, input: &[u8]) -> Result<(), Error> {
+    let path = path(name)?;
     let data = data(input)?;
     // SAFETY: all inputs and the callback binding remain live for this call.
     status(unsafe { (host.table.storage_write)(host.ctx, root.wire(), path, data) })
@@ -133,7 +157,12 @@ pub fn append(
     name: impl AsRef<str>,
     input: &[u8],
 ) -> Result<(), Error> {
-    let path = path(name.as_ref())?;
+    check_unreserved(name.as_ref())?;
+    append_raw(host, root, name.as_ref(), input)
+}
+
+fn append_raw(host: &Host<'_>, root: Root, name: &str, input: &[u8]) -> Result<(), Error> {
+    let path = path(name)?;
     let data = data(input)?;
     // SAFETY: all inputs and the callback binding remain live for this call.
     status(unsafe { (host.table.storage_append)(host.ctx, root.wire(), path, data) })
@@ -149,8 +178,14 @@ pub fn rename(
     from: impl AsRef<str>,
     to: impl AsRef<str>,
 ) -> Result<(), Error> {
-    let from = path(from.as_ref())?;
-    let to = path(to.as_ref())?;
+    check_unreserved(from.as_ref())?;
+    check_unreserved(to.as_ref())?;
+    rename_raw(host, root, from.as_ref(), to.as_ref())
+}
+
+fn rename_raw(host: &Host<'_>, root: Root, from: &str, to: &str) -> Result<(), Error> {
+    let from = path(from)?;
+    let to = path(to)?;
     // SAFETY: both paths and the callback binding remain live for this call.
     status(unsafe { (host.table.storage_rename)(host.ctx, root.wire(), from, to) })
 }
@@ -160,7 +195,12 @@ pub fn rename(
 /// # Errors
 /// Returns validation or host errors.
 pub fn remove(host: &Host<'_>, root: Root, name: impl AsRef<str>) -> Result<(), Error> {
-    let path = path(name.as_ref())?;
+    check_unreserved(name.as_ref())?;
+    remove_raw(host, root, name.as_ref())
+}
+
+fn remove_raw(host: &Host<'_>, root: Root, name: &str) -> Result<(), Error> {
+    let path = path(name)?;
     // SAFETY: the path and callback binding remain live for this call.
     status(unsafe { (host.table.storage_remove)(host.ctx, root.wire(), path) })
 }
@@ -177,14 +217,12 @@ pub fn sync(host: &Host<'_>) -> Result<(), Error> {
 /// The plugin's data folder (root 0) as a [`Storage`](crate::Storage), for the
 /// code that takes one (a database over a file, a record store). Bigger reads
 /// and appends are split into calls of at most [`MAX_DATA`] bytes. A write of
-/// at most [`MAX_DATA`] is one call; a longer one is staged: `remove(name.tmp)`,
-/// `append` the pieces to `name.tmp`, `sync`, `rename(name.tmp, name)`
+/// at most [`MAX_DATA`] is one call; a longer one is staged: `remove(name.pp-staged)`,
+/// `append` the pieces to it, `sync`, `rename(name.pp-staged, name)`
 /// (binding amendment S1), so the file is the old one or the new, whole, and
 /// a failed attempt removes its temporary file (best effort; the next attempt
-/// removes a stale one first). The suffix `.tmp` is reserved for this: through
-/// a `DataStorage` no name ending in it (in any case, as FAT ignores case) can
-/// be written, appended to, removed or renamed from or to (`InvalidPath`), so a
-/// file at `name.tmp` is a leftover of a staged write and never someone's data.
+/// removes a stale one first). The suffix [`STAGED_SUFFIX`] is reserved, here and
+/// in this module's mutating calls: a name ending in it is `InvalidPath`.
 /// Removing a missing file is not an error. Folders are `core.files`:
 /// [`list`](crate::Storage::list) says `Unsupported`. Nothing allocates.
 ///
@@ -207,20 +245,7 @@ impl core::fmt::Debug for DataStorage<'_, '_> {
     }
 }
 
-/// The suffix of the file a long write is staged in.
-const TEMP: &str = ".tmp";
-
-/// Names ending in the staging suffix belong to staged writes alone.
-fn refuse_reserved(path: &str) -> Result<(), StorageError> {
-    let suffix = path
-        .len()
-        .checked_sub(TEMP.len())
-        .and_then(|at| path.get(at..));
-    if suffix.is_some_and(|tail| tail.eq_ignore_ascii_case(TEMP)) {
-        return Err(StorageError::InvalidPath);
-    }
-    Ok(())
-}
+const TEMP: &str = STAGED_SUFFIX;
 
 impl<'h, 'cb> DataStorage<'h, 'cb> {
     /// The data folder through `host`.
@@ -233,13 +258,15 @@ impl<'h, 'cb> DataStorage<'h, 'cb> {
     fn stage(&self, temporary: &str, path: &str, data: &[u8]) -> Result<(), StorageError> {
         // A leftover of a cut or failure would receive the pieces after its
         // stale bytes, and the rename would publish them.
-        match remove(self.host, Root::Data, temporary) {
+        match remove_raw(self.host, Root::Data, temporary) {
             Ok(()) | Err(Error::NotFound) => {}
             Err(error) => return Err(storage_error(error)),
         }
-        self.append_pieces(temporary, data)?;
+        for piece in data.chunks(MAX_DATA) {
+            append_raw(self.host, Root::Data, temporary, piece).map_err(storage_error)?;
+        }
         sync(self.host).map_err(storage_error)?;
-        rename(self.host, Root::Data, temporary, path).map_err(storage_error)
+        rename_raw(self.host, Root::Data, temporary, path).map_err(storage_error)
     }
 
     fn append_pieces(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
@@ -287,10 +314,10 @@ impl Storage for DataStorage<'_, '_> {
     }
 
     fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
-        refuse_reserved(path)?;
         if data.len() <= MAX_DATA {
             return write(self.host, Root::Data, path, data).map_err(storage_error);
         }
+        check_unreserved(path).map_err(storage_error)?;
         // Staged beside the file: the old file stays until the new one is whole.
         let mut name = [0u8; MAX_PATH + TEMP.len()];
         let end = path.len() + TEMP.len();
@@ -313,13 +340,12 @@ impl Storage for DataStorage<'_, '_> {
                 clippy::let_underscore_must_use,
                 reason = "best effort: the next attempt removes a stale temporary file first"
             )]
-            let _ = remove(self.host, Root::Data, temporary);
+            let _ = remove_raw(self.host, Root::Data, temporary);
         }
         staged
     }
 
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
-        refuse_reserved(path)?;
         if data.is_empty() {
             // Creates the file where there is none.
             return append(self.host, Root::Data, path, data).map_err(storage_error);
@@ -332,7 +358,6 @@ impl Storage for DataStorage<'_, '_> {
     }
 
     fn remove(&self, path: &str) -> Result<(), StorageError> {
-        refuse_reserved(path)?;
         match remove(self.host, Root::Data, path) {
             Ok(()) | Err(Error::NotFound) => Ok(()),
             Err(error) => Err(storage_error(error)),
@@ -340,8 +365,6 @@ impl Storage for DataStorage<'_, '_> {
     }
 
     fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
-        refuse_reserved(from)?;
-        refuse_reserved(to)?;
         rename(self.host, Root::Data, from, to).map_err(storage_error)
     }
 

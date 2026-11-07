@@ -8,9 +8,10 @@ change the plugin SDK.
 
 - Interface 7 SDK: `native::storage::DataStorage`, the plugin's data folder as a
   `Storage`. Reads and appends over 4 KiB are split; a longer write is staged in
-  `name.tmp`, synced and renamed over the old file, so it is the old file or the
-  new, whole. The suffix `.tmp` is reserved: no name ending in it can be written,
-  appended to, removed or renamed through it (`InvalidPath`).
+  `name.pp-staged`, synced and renamed over the old file, so it is the old file or
+  the new, whole. The suffix `.pp-staged` is reserved: `native::storage::write`,
+  `append`, `rename` and `remove` refuse (`Invalid`) any name ending in it, in any
+  case, so only the staging touches such files.
 
 - Interface 7 draft 7 SDK: typed callbacks and frame-owned drawing, font metrics
   and ink, nested clipping, exact snapshot views, complete message copies,
