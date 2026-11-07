@@ -402,6 +402,29 @@ pub(super) fn service_metadata(key: &str, major: u16, revision: u16) -> Vec<u8> 
 }
 
 #[test]
+fn core_device_is_offered_by_the_emulator_and_not_by_the_data_catalog() {
+    let host =
+        paperpaw_core::native_host::shell::host_table::<crate::host_services::DesktopServices>();
+    let bytes = service_metadata("core.device", 1, 0);
+    let offered = crate::device_host::offered_services();
+    let checked = checked_metadata(&bytes, &host, offered).unwrap();
+    assert_eq!(checked.services().next().unwrap().key, "core.device");
+    // The catalog the X4 firmware uses does not carry it.
+    let data = paperpaw_core::native_host::shell::DATA_SERVICES;
+    assert!(matches!(
+        checked_metadata(&bytes, &host, data),
+        Err(RuntimeError::Metadata)
+    ));
+    for (major, revision) in [(2, 0), (1, 1)] {
+        let bytes = service_metadata("core.device", major, revision);
+        assert!(matches!(
+            checked_metadata(&bytes, &host, offered),
+            Err(RuntimeError::Metadata)
+        ));
+    }
+}
+
+#[test]
 fn data_service_admission_is_enabled_only_for_the_implemented_host() {
     use paperpaw_core::native_host::shell::{DeclaredServices, host_table};
     let host = host_table::<crate::host_services::DesktopServices>();
