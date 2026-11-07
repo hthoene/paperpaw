@@ -109,7 +109,7 @@ impl<'a> Entry<'a> {
 }
 
 /// Writes `entry` as the reply of the stage call, straight into the host's
-/// buffer after it was measured: a refusal writes nothing.
+/// buffer after it was measured: a refusal appends no reply bytes and preserves the existing prefix.
 ///
 /// # Errors
 /// `NoSpace` where the host's reply buffer is too small.
