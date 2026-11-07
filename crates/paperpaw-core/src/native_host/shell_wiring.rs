@@ -1,7 +1,6 @@
 //! The shells' one way to give the host the views it serves services from.
 //!
-//! [`HostServices`](super::host_services::HostServices) and its `wire_*`
-//! methods stay inside the crate; a shell (the X4, the desktop emulator,
+//! `HostServices` and its `wire_*` methods stay inside the crate; a shell (the X4, the desktop emulator,
 //! Android) describes what it has in a [`HostWiring`] and hands it to
 //! [`HostResources::wire`] once, where the device's table is made. Every
 //! family asked for is checked unwired before the first is set, so a refusal
@@ -60,8 +59,14 @@ impl HostWiring {
 
 /// The declared hyphenation languages and the card's changes, for the shell to
 /// keep current: plugins installed or removed, a card inserted or written.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct HyphenTables(Rc<CardTables>);
+
+impl core::fmt::Debug for HyphenTables {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("HyphenTables")
+    }
+}
 
 impl HyphenTables {
     /// Replaces the declared tables: `(language tag, card path, plugin id)`
