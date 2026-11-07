@@ -167,7 +167,9 @@ fn annotation(row: &wire::ServiceLibAnnotation<'_>) -> Result<(), i32> {
     let flags = row.flags;
     require(
         flags & !ANNOTATION_FLAGS == 0
-            && (row.start_section, row.start_offset) <= (row.end_section, row.end_offset)
+            // A highlight runs forward; a bookmark's end is its own (write rule).
+            && (row.kind != 1
+                || (row.start_section, row.start_offset) <= (row.end_section, row.end_offset))
             && row.percent <= 100
             && (flags & 0b1000 != 0 || row.conversion == 0)
             && (flags & 1 != 0 || row.note.is_empty()),

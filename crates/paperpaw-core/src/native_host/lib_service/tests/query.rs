@@ -783,8 +783,12 @@ fn annotation_fields_are_checked() {
     assert_eq!(
         say(|a| a.end_offset = 0),
         Err(ERR_INVALID),
-        "ends before it starts"
+        "a highlight ends before it starts"
     );
+    // Only a highlight runs forward: a bookmark or another kind may end first,
+    // as the write side takes them.
+    assert!(say(|a| (a.kind, a.end_offset) = (0, 0)).is_ok(), "bookmark");
+    assert!(say(|a| (a.kind, a.end_offset) = (2, 0)).is_ok(), "other(0)");
     assert_eq!(say(|a| a.percent = 101), Err(ERR_INVALID));
     assert_eq!(
         say(|a| a.conversion = 7),
