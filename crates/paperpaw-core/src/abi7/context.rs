@@ -52,6 +52,17 @@ pub(crate) trait Frame {
     fn caller(&self) -> Result<u64, i32> {
         Err(ERR_STATE)
     }
+    /// The calling plugin's id, for rules that name it (a field is the
+    /// caller's own).
+    fn caller_plugin(&self) -> Result<&str, i32> {
+        Err(ERR_STATE)
+    }
+    /// A feature key the plugin declared and the host wired, for ops that
+    /// need one (`uses.library`): `ERR_UNSUPPORTED` when the host has not
+    /// wired it, `ERR_DENIED` when this plugin did not declare it.
+    fn feature(&self, _key: &str) -> Result<(), i32> {
+        Err(paperpaw_native::host_glue::ERR_DENIED)
+    }
     /// The host view a service family keeps behind its key (`core.document`,
     /// `core.library`, `core.lookup`), downcast by that family's backend; a
     /// frame without one answers the family `ERR_UNSUPPORTED`.

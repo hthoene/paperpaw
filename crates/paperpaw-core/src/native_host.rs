@@ -36,6 +36,8 @@ mod declared_services;
 pub(crate) mod doc_service;
 #[path = "native_host/formatting.rs"]
 mod formatting;
+#[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
+pub(crate) mod lib_service;
 mod service_slots;
 #[allow(
     dead_code,

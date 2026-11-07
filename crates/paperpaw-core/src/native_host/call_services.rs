@@ -8,8 +8,7 @@ use super::{
 use crate::abi7::services_wire::ServiceOp;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
-    ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes,
-    buffers,
+    ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes, buffers,
 };
 
 fn input_pair(pair: PpBytes) -> Result<(), i32> {
@@ -165,21 +164,36 @@ pub(crate) fn validate_reply(bytes: &[u8], op: &ServiceOp) -> Result<(), i32> {
     Ok(())
 }
 
+#[cfg(test)]
 fn validate_op(
     key: ServiceKey,
     op: u32,
     input: &[u8],
     output: usize,
 ) -> Result<&'static ServiceOp, i32> {
+    // Without a frame no feature is granted: a gated op is denied.
+    validate_op_with(key, op, input, output, &|_| {
+        Err(paperpaw_native::host_glue::ERR_DENIED)
+    })
+}
+
+/// `feature` answers a gated op's feature key: `ERR_UNSUPPORTED` when the host
+/// has not wired it, `ERR_DENIED` when the plugin did not declare it. It is
+/// asked before the sizes, as the contract's table orders the checks.
+fn validate_op_with(
+    key: ServiceKey,
+    op: u32,
+    input: &[u8],
+    output: usize,
+    feature: &dyn Fn(&str) -> Result<(), i32>,
+) -> Result<&'static ServiceOp, i32> {
     let op = key
         .schema
         .op(op)
         .filter(|op| op.since <= key.minor)
         .ok_or(ERR_UNSUPPORTED)?;
-    // No implemented operation currently has a feature gate. Do not infer a
-    // declaration or user grant when a later service introduces one.
-    if op.feature.is_some() {
-        return Err(ERR_DENIED);
+    if let Some(required) = op.feature {
+        feature(required)?;
     }
     if input.len() > op.max_input || output < op.max_reply {
         return Err(ERR_NO_SPACE);
@@ -205,7 +219,7 @@ pub(super) unsafe fn call(
             let key = owner.service(service)?;
             // SAFETY: the slot caller supplies readable input after pair checks.
             let input = unsafe { buffers::bytes_in(input, buffers::TEXT_MAX) }?;
-            let op = validate_op(key, op, input, out.cap)?;
+            let op = validate_op_with(key, op, input, out.cap, &|feature| frame.feature(feature))?;
             let running = owner.enter_service(key)?;
             let mut scratch = Vec::new();
             scratch
