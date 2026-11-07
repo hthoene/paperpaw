@@ -122,3 +122,15 @@ bytes. Production remains unchanged pending row-4 integration and the remaining
 screen/font/command runtime pieces. Use the macro's metadata export (no second
 `PAPERPAW_METADATA` symbol), typed storage `Root::{Data, Files}`, and B4's
 last-row-per-plugin-ID rule across generation changes when implementing the port.
+
+## Activation notes (re-enable when the native Battery runs in the app)
+
+- `shells/desktop/src/stdio/tests.rs` `quitting_gives_plugins_their_moment_to_save_first`
+  (gate V2: quitting gives plugins their `core.suspend` moment before the emulator
+  returns) reads Battery's log on the emulated card. The app no longer carries the
+  interface-6 Battery, so the test is `#[ignore]`d; re-enable it with the native
+  plugin, or point it at another plugin that writes on `core.suspend`.
+- `tools/dev/tests/fixtures/flows/stats.flow` replaces `battery.flow`; the Battery
+  page's flow comes back with the native plugin on the host (H1/H3/H4).
+- The Tools snapshot (`crates/paperpaw-app/tests/snapshots/tools.txt`) has no Battery
+  row until it is registered again.
