@@ -85,14 +85,16 @@ Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one rec
 
 ### 2.1 `get`
 
-- [D] `sec_name.plugin` must be `""` (another plugin's is `ERR_DENIED`, also with `uses.secrets`).
+- [D] `sec_name.plugin` must be `""`: any other id, the caller's own spelled out included, is
+  `ERR_DENIED`, also with `uses.secrets` (one form, so a caller never reads another's by a typo).
   Replies `sec_value`: `value`, `label`, `flags` (bit 0 `changeable`). `ERR_NOT_FOUND` when there
   is none.
 
 ### 2.2 `list`
 
 - [D] `sec_list.flags` bit 0 `all`: every plugin's secrets (needs `uses.secrets`); without it, the
-  caller's own. Rows are `sec_entry`: `plugin` (the owner's id), `name`, `label`, `flags` (bit 0
+  caller's own. Unknown flag bits of `sec_list` and `sec_keep` are `ERR_UNSUPPORTED` (`records.md`,
+  unknown flag bits: a bit of a later host, not a malformed call). Rows are `sec_entry`: `plugin` (the owner's id), `name`, `label`, `flags` (bit 0
   `changeable`). Never a value. A page holds as many whole rows as fit in 4,096 bytes, at most
   32. Order: the order of the lines in the host file, so the host streams a page without sorting
   or holding the file: a file from interface 6 keeps its order, a new secret is appended, a
