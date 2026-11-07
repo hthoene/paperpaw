@@ -14,6 +14,7 @@ categories = ["no-std"]
 paperpaw-sdk.workspace = true
 
 [dev-dependencies]
+paperpaw-sdk = { workspace = true, features = ["kernel"] }
 # By path alone: the app has this plugin built in, so a version here
 # would make the two wait for each other on crates.io; cargo publish
 # leaves a dev-dependency without one out.
