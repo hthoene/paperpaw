@@ -3,7 +3,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use paperpaw_sdk::Storage;
+use paperpaw_sdk::{Storage, StorageError};
 
 use crate::store::{self, Book, PageStat};
 
@@ -44,24 +44,37 @@ pub(crate) fn rescaled(page: u32, then: u32, pages: u32) -> core::ops::RangeIncl
 
 /// Marks the pages a stay on page `page` of `then` pages stands for in
 /// `read`, a bit per page of the book's `pages` (see [`rescaled`]).
-pub(crate) fn mark_read(read: &mut Vec<u8>, page: u32, then: u32, pages: u32) {
+pub(crate) fn mark_read(
+    read: &mut Vec<u8>,
+    page: u32,
+    then: u32,
+    pages: u32,
+) -> Result<(), StorageError> {
     for page in rescaled(page, then, pages) {
         let (byte, bit) = ((page / 8) as usize, page % 8);
         if read.len() <= byte {
+            read.try_reserve(byte + 1 - read.len())
+                .map_err(|_| StorageError::TooLarge)?;
             read.resize(byte + 1, 0);
         }
-        read[byte] |= 1 << bit;
+        if let Some(bits) = read.get_mut(byte) {
+            *bits |= 1 << bit;
+        }
     }
+    Ok(())
 }
 
 /// The totals of `book`; `day_of` turns Unix seconds into local days.
-/// Where the log cannot be read to the end, those of what could be.
+/// Where the log cannot be read to the end, those of what could be. A
+/// refused allocation is an error (`TooLarge`), never totals that lack
+/// stays.
 pub(crate) fn of_book(
     storage: &dyn Storage,
     book: &Book,
     day_of: impl Fn(u32) -> i32,
-) -> BookTotals {
+) -> Result<BookTotals, StorageError> {
     let mut totals = BookTotals::default();
+    let mut refused = false;
     // Pages read, as bits.
     let mut read: Vec<u8> = Vec::new();
     #[expect(
@@ -69,7 +82,7 @@ pub(crate) fn of_book(
         reason = "a log that cannot be read to the end counts what could be"
     )]
     let _ = store::scan(storage, |stat: &PageStat| {
-        if stat.book != book.id {
+        if stat.book != book.id || refused {
             return;
         }
         totals.seconds += u64::from(stat.duration);
@@ -78,15 +91,31 @@ pub(crate) fn of_book(
         } else {
             stat.pages
         };
-        mark_read(&mut read, stat.page, stat.pages, pages);
+        if mark_read(&mut read, stat.page, stat.pages, pages).is_err() {
+            refused = true;
+            return;
+        }
         let day = day_of(stat.start);
         match totals.days.binary_search_by_key(&day, |(d, _)| *d) {
-            Ok(i) => totals.days[i].1 = totals.days[i].1.saturating_add(u32::from(stat.duration)),
-            Err(i) => totals.days.insert(i, (day, u32::from(stat.duration))),
+            Ok(i) => {
+                if let Some(entry) = totals.days.get_mut(i) {
+                    entry.1 = entry.1.saturating_add(u32::from(stat.duration));
+                }
+            }
+            Err(i) => {
+                if totals.days.try_reserve(1).is_err() {
+                    refused = true;
+                    return;
+                }
+                totals.days.insert(i, (day, u32::from(stat.duration)));
+            }
         }
     });
+    if refused {
+        return Err(StorageError::TooLarge);
+    }
     totals.pages_read = read.iter().map(|b| b.count_ones()).sum();
-    totals
+    Ok(totals)
 }
 
 /// Reading time of each of `books` (sorted by id), for lists; where the
@@ -172,8 +201,8 @@ mod tests {
         assert_eq!(rescaled(1, u32::MAX, u32::MAX), 1..=1);
         assert_eq!(*rescaled(u32::MAX, u32::MAX, u32::MAX).end(), MOST_PAGES);
         let mut read = Vec::new();
-        mark_read(&mut read, u32::MAX, u32::MAX, u32::MAX);
-        mark_read(&mut read, 4_000_000_000, 0, 0);
+        mark_read(&mut read, u32::MAX, u32::MAX, u32::MAX).unwrap();
+        mark_read(&mut read, 4_000_000_000, 0, 0).unwrap();
         assert!(read.len() <= MOST_PAGES as usize / 8 + 1);
     }
 
@@ -204,7 +233,7 @@ mod tests {
             pages: 100,
             ..Book::default()
         };
-        let totals = of_book(&storage, &book(1), |unix| (unix / 500) as i32);
+        let totals = of_book(&storage, &book(1), |unix| (unix / 500) as i32).unwrap();
         assert_eq!(totals.seconds, 90);
         assert_eq!(totals.pages_read, 2);
         assert_eq!(totals.days, [(0, 70), (2, 20)]);

@@ -26,7 +26,7 @@ const RECOUNT: u32 = 50;
 fn speed(env: &Env<'_>) -> Option<f32> {
     let today = fmt::today(env)?;
     let (mut seconds, mut pages) = (0u64, 0u32);
-    for day in store::days(env.storage(), |unix| fmt::day_of(env, unix)) {
+    for day in store::days(env.storage(), |unix| fmt::day_of(env, unix)).unwrap_or_default() {
         if day.day > today - DAYS {
             seconds += u64::from(day.seconds);
             pages += day.stays;

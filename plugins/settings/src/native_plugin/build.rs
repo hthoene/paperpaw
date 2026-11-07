@@ -267,6 +267,16 @@ pub(super) fn build_list(
             messages.copy(host, "settings.reset-all")?,
         ),
     )?;
+    // Last: what plugins saved goes along, as when the device goes off.
+    push(
+        &mut placed,
+        (
+            i32::MAX,
+            true,
+            Some(Link::Restart),
+            messages.copy(host, "settings.restart")?,
+        ),
+    )?;
     paperpaw_ui_kit::mem::stable_sort_by(&mut placed, |a, b| (a.0, a.1).cmp(&(b.0, b.1)));
     // Headings with nothing under them go.
     let mut keep: Vec<bool> = Vec::new();
@@ -285,7 +295,7 @@ pub(super) fn build_list(
         let item = match &link {
             None => Item::heading(&title)?,
             Some(Link::Advanced) => Item::row(&title, &on_off(&mut messages, host, advanced)?)?,
-            Some(Link::Reset) => Item::row(&title, "")?,
+            Some(Link::Reset | Link::Restart) => Item::row(&title, "")?,
             Some(_) => Item::row(&title, "›")?,
         };
         push(&mut items, item)?;

@@ -1,9 +1,14 @@
 //! Exact generated EVT records become borrowed typed views.
 use super::{
-    BookKind, ChargeFlags, Error, Event, PowerChange, ReadingView, WifiLinkState, wire::Record,
+    BluetoothChange, BookKind, ChargeFlags, Error, Event, PowerChange, ReadingView, WifiLinkState,
+    wire::Record,
 };
 use crate::{
-    native::{declare::settings_value as settings, settings::SettingValue},
+    native::{
+        declare::settings_value as settings,
+        net::{HttpDone, HttpProgress},
+        settings::SettingValue,
+    },
     power::PowerLevel,
 };
 
@@ -56,6 +61,15 @@ pub(super) fn decode(record: Record<'_>) -> Result<Event<'_>, Error> {
             now_ms: r.now_ms,
             state: WifiLinkState::decode(r.state),
         },
+        Record::EventBluetooth(r) => Event::Bluetooth(BluetoothChange {
+            now_ms: r.now_ms,
+            kind: r.kind,
+            device: r.device,
+            name: r.name,
+            device_kind: r.device_kind,
+            signal: r.signal,
+            reason: r.reason,
+        }),
         Record::EventPowerChanged(r) => Event::PowerChanged(PowerChange {
             now_ms: r.now_ms,
             level: match r.level {
@@ -72,6 +86,8 @@ pub(super) fn decode(record: Record<'_>) -> Result<Event<'_>, Error> {
             now_ms: r.now_ms,
             flags: ChargeFlags::from_bits(r.flags),
         },
+        Record::EventHttpDone(r) => Event::HttpDone(HttpDone::decode(r)?),
+        Record::EventHttpProgress(r) => Event::HttpProgress(HttpProgress::decode(r)?),
         _ => return Err(Error::Unsupported),
     })
 }

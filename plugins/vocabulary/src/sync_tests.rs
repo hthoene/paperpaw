@@ -14,11 +14,11 @@ pub(crate) fn put(storage: &MemoryStorage, name: &str, text: &str) {
 /// The job run through, `link` the answer to a question.
 pub(crate) fn run(storage: &MemoryStorage, force: bool, link: bool) -> Vec<FileReport> {
     let mode = if force { Mode::All } else { Mode::Manual };
-    let mut job = Job::new(storage, FOLDER, mode);
+    let mut job = Job::new(storage, FOLDER, mode).unwrap();
     for _ in 0..10_000 {
         match job.step(storage) {
             Step::Working => {}
-            Step::Ask(_) => job.answer(storage, link),
+            Step::Ask => job.answer(storage, link),
             Step::Done => return job.reports,
         }
     }
@@ -74,7 +74,7 @@ fn a_file_makes_a_deck_named_like_it_and_is_not_read_again() {
     assert_eq!(cards[1].example, "El gato duerme.");
     // Listed again: nothing differs, nothing is read.
     assert_eq!(
-        pending(&storage, FOLDER),
+        pending(&storage, FOLDER).unwrap(),
         Pending {
             folder: true,
             files: 1,
@@ -82,7 +82,7 @@ fn a_file_makes_a_deck_named_like_it_and_is_not_read_again() {
             failed: 0,
         }
     );
-    assert!(Job::new(&storage, FOLDER, Mode::Manual).is_empty());
+    assert!(Job::new(&storage, FOLDER, Mode::Manual).unwrap().is_empty());
     // Scanned anew: its content is as it was.
     let again = run(&storage, true, true);
     assert_eq!(again[0].outcome, Outcome::Same);
@@ -113,7 +113,7 @@ fn lines_added_changed_and_removed_keep_what_was_learnt() {
     assert!(!b.state.is_new(), "b keeps what was learnt");
     assert!(cards[3].state.is_new());
     // The due counts follow (three new cards, one learnt).
-    assert_eq!(cards::sizes(&storage).get(&deck), Some(&4));
+    assert_eq!(cards::sizes(&storage).unwrap().get(&deck), Some(&4));
 }
 
 #[test]
@@ -200,13 +200,14 @@ fn a_deck_of_the_name_that_is_no_file_s_is_asked_about() {
         )
         .unwrap();
         put(&storage, "Spanish.tsv", "casa\thouse\ngato\tcat\n");
-        let mut job = Job::new(&storage, FOLDER, Mode::Manual);
+        let mut job = Job::new(&storage, FOLDER, Mode::Manual).unwrap();
         let mut asked = false;
         loop {
             match job.step(&storage) {
                 Step::Working => {}
-                Step::Ask(q) => {
+                Step::Ask => {
                     asked = true;
+                    let q = job.question().unwrap();
                     assert_eq!(
                         (q.file.as_str(), q.deck.as_str()),
                         ("Spanish.tsv", "Spanish")
@@ -343,11 +344,11 @@ fn too_many_decks_leaves_the_files_over_unread() {
 #[test]
 fn the_folder_is_listed_for_decks_only() {
     let storage = MemoryStorage::new();
-    assert_eq!(pending(&storage, FOLDER), Pending::default());
-    make_folder(&storage, FOLDER, "how to");
+    assert_eq!(pending(&storage, FOLDER).unwrap(), Pending::default());
+    make_folder(&storage, FOLDER, "how to").unwrap();
     assert!(storage.exists("Flashcards/_Read me.txt"));
     assert_eq!(
-        pending(&storage, FOLDER),
+        pending(&storage, FOLDER).unwrap(),
         Pending {
             folder: true,
             files: 0,
@@ -359,15 +360,15 @@ fn the_folder_is_listed_for_decks_only() {
     put(&storage, ".hidden.csv", "a\tb\n");
     storage.create_dir("Flashcards/sub").unwrap();
     put(&storage, "sub/B.tsv", "a\tb\n");
-    let (_, found) = files(&storage, FOLDER);
+    let (_, found) = files(&storage, FOLDER).unwrap();
     assert_eq!(
         found.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(),
         ["A.TSV"]
     );
-    assert_eq!(deck_name("A.TSV"), "A");
-    assert_eq!(deck_name("My list.v2.csv"), "My list.v2");
-    assert_eq!(folder_of(" /Cards/ "), "Cards");
-    assert_eq!(folder_of(""), DEFAULT_FOLDER);
+    assert_eq!(deck_name("A.TSV").unwrap(), "A");
+    assert_eq!(deck_name("My list.v2.csv").unwrap(), "My list.v2");
+    assert_eq!(folder_of(" /Cards/ ").unwrap(), "Cards");
+    assert_eq!(folder_of("").unwrap(), DEFAULT_FOLDER);
 }
 
 #[test]
@@ -554,11 +555,11 @@ static COUNTING: heap::Counting = heap::Counting;
 
 /// The job run through, with how many steps it took.
 pub(crate) fn run_counting(storage: &MemoryStorage, mode: Mode) -> (Vec<FileReport>, usize) {
-    let mut job = Job::new(storage, FOLDER, mode);
+    let mut job = Job::new(storage, FOLDER, mode).unwrap();
     for steps in 1..100_000 {
         match job.step(storage) {
             Step::Working => {}
-            Step::Ask(_) => job.answer(storage, true),
+            Step::Ask => job.answer(storage, true),
             Step::Done => return (job.reports, steps),
         }
     }
@@ -566,7 +567,7 @@ pub(crate) fn run_counting(storage: &MemoryStorage, mode: Mode) -> (Vec<FileRepo
 }
 
 pub(crate) fn ledger_text(storage: &MemoryStorage) -> Vec<u8> {
-    paperpaw_sdk::read_file(storage, &ledger_path(), 1 << 20).unwrap_or_default()
+    paperpaw_sdk::read_file(storage, ledger_path(), 1 << 20).unwrap_or_default()
 }
 
 #[test]
@@ -666,7 +667,7 @@ fn a_ledger_that_cannot_be_read_is_not_written_over() {
     let deck = deck_id(&storage, "A");
     // A newer version of the ledger, as an older reader meets it.
     let newer = alloc::format!("paperpaw-sources 9\nA.tsv\t{deck}\t4\t0\tff\n");
-    storage.write(&ledger_path(), newer.as_bytes()).unwrap();
+    storage.write(ledger_path(), newer.as_bytes()).unwrap();
     put(&storage, "B.tsv", "c\td\n");
     let reports = run(&storage, false, true);
     assert!(
@@ -680,7 +681,7 @@ fn a_ledger_that_cannot_be_read_is_not_written_over() {
     while huge.len() <= LEDGER_MAX {
         huge.push_str(&alloc::format!("{}\t{deck}\t4\t0\tff\n", "x".repeat(200)));
     }
-    storage.write(&ledger_path(), huge.as_bytes()).unwrap();
+    storage.write(ledger_path(), huge.as_bytes()).unwrap();
     let reports = run(&storage, false, true);
     assert!(reports.iter().all(|r| r.outcome == Outcome::Unreadable));
     assert_eq!(ledger_text(&storage).len(), huge.len());
@@ -694,7 +695,7 @@ fn a_line_of_the_ledger_not_understood_is_kept_and_a_dead_link_goes() {
     let mut text = String::from_utf8(ledger_text(&storage)).unwrap();
     text.push_str("from a later reader\twith\tmore\n");
     text.push_str("Dead.tsv\t999\t4\t0\tff\n");
-    storage.write(&ledger_path(), text.as_bytes()).unwrap();
+    storage.write(ledger_path(), text.as_bytes()).unwrap();
     put(&storage, "A.tsv", "a\tb\nc\td\n");
     run(&storage, false, true);
     let after = String::from_utf8(ledger_text(&storage)).unwrap();
@@ -726,19 +727,19 @@ fn a_file_that_failed_is_told_and_not_tried_at_every_opening() {
     put(&storage, "Bad.tsv", "\tno front\n\tnone\n");
     let reports = run(&storage, false, true);
     assert_eq!(reports[0].outcome, Outcome::NoCards);
-    let seen = pending(&storage, FOLDER);
+    let seen = pending(&storage, FOLDER).unwrap();
     assert_eq!((seen.todo, seen.failed), (0, 1));
     // Opened by itself: not tried. Chosen by hand: tried and told.
-    assert!(Job::new(&storage, FOLDER, Mode::Auto).is_empty());
-    assert!(!Job::new(&storage, FOLDER, Mode::Manual).is_empty());
+    assert!(Job::new(&storage, FOLDER, Mode::Auto).unwrap().is_empty());
+    assert!(!Job::new(&storage, FOLDER, Mode::Manual).unwrap().is_empty());
     let reports = run(&storage, false, true);
     assert_eq!(reports[0].outcome, Outcome::NoCards);
     // Mended: it is taken at once.
     put(&storage, "Bad.tsv", "good\tfine\n");
-    assert!(!Job::new(&storage, FOLDER, Mode::Auto).is_empty());
+    assert!(!Job::new(&storage, FOLDER, Mode::Auto).unwrap().is_empty());
     let reports = run(&storage, false, true);
     assert_eq!(reports[0].outcome, Outcome::Merged);
-    assert_eq!(pending(&storage, FOLDER).failed, 0);
+    assert_eq!(pending(&storage, FOLDER).unwrap().failed, 0);
 }
 
 #[test]
@@ -780,7 +781,7 @@ fn two_files_of_one_name_make_two_decks() {
         ["gato"]
     );
     // Nothing to ask or add the next time.
-    assert!(Job::new(&storage, FOLDER, Mode::Manual).is_empty());
+    assert!(Job::new(&storage, FOLDER, Mode::Manual).unwrap().is_empty());
     let again = run(&storage, true, true);
     assert!(
         again.iter().all(|r| r.outcome == Outcome::Same),
@@ -791,14 +792,20 @@ fn two_files_of_one_name_make_two_decks() {
 
 #[test]
 fn the_folder_cannot_be_the_plugin_s_own_data_or_a_way_up() {
-    assert_eq!(folder_of(" Words/ "), "Words");
-    assert_eq!(folder_of(""), DEFAULT_FOLDER);
-    assert_eq!(folder_of("../elsewhere"), DEFAULT_FOLDER);
-    assert_eq!(folder_of("a/../b"), DEFAULT_FOLDER);
+    assert_eq!(folder_of(" Words/ ").unwrap(), "Words");
+    assert_eq!(folder_of("").unwrap(), DEFAULT_FOLDER);
+    assert_eq!(folder_of("../elsewhere").unwrap(), DEFAULT_FOLDER);
+    assert_eq!(folder_of("a/../b").unwrap(), DEFAULT_FOLDER);
     let own = cards::path("");
-    assert_eq!(folder_of(&own), DEFAULT_FOLDER);
-    assert_eq!(folder_of(own.trim_end_matches('/')), DEFAULT_FOLDER);
-    assert_eq!(folder_of(&alloc::format!("{own}sub")), DEFAULT_FOLDER);
+    assert_eq!(folder_of(&own).unwrap(), DEFAULT_FOLDER);
+    assert_eq!(
+        folder_of(own.trim_end_matches('/')).unwrap(),
+        DEFAULT_FOLDER
+    );
+    assert_eq!(
+        folder_of(&alloc::format!("{own}sub")).unwrap(),
+        DEFAULT_FOLDER
+    );
 }
 
 /// A storage that can fail, and whose own allocations are not counted.
