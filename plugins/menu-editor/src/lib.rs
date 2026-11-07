@@ -16,6 +16,9 @@
 
 extern crate alloc;
 
+/// Interface-7 menu state and typed edits; screen integration is in progress.
+pub mod native_menu;
+
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};

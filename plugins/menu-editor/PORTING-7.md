@@ -1,7 +1,18 @@
-# Interface-7 preparation
+# Interface-7 runtime port
 
-Base: checked PR #268 c4afa03b7. Screen identity/title encoding parity only.
+Base: typed UIX/REG facade `d7488aa58`, combined branch `plugin/batch2-ui-1048`.
 
-Missing: REG menu enumeration/defaults/customization and settings metadata. Runtime behavior, instance policy, actions, menus and other declarations are not yet ported. No ready PR or runtime-size claim. Keep en/de and goldens unchanged. Patch-bump with runtime port.
+Completed: typed screen/action/menu/icon declarations with byte parity;
+`native_menu` reads all registry menu pages and both current/declared orders,
+checks one generation across the snapshot, and stages add/remove/reorder/reset
+commands through the typed SDK. Traversal is iterative and allocations fallible.
+Existing protection of Settings and the editor remains in place. Version 1.0.7.
 
-Native store build migration must switch to paperpaw-plugin7.x and set `-C jump-tables=no`, then pass the 2 KiB frame scan. Current shared store template remains interface 6; todo 22 stays open.
+Job #3252 passed menu-editor tests (including arbitrary-cycle and reorder
+properties), fmt and all-target clippy. These are model/command checks, not
+native activation or pixel evidence. Screen callbacks, renderer, add-candidate
+metadata and host UIX acceptance are still open; no ready PR claim.
+
+Native packaging must use paperpaw-plugin7.x, `-C jump-tables=no`, and pass the
+2 KiB frame scan. Services has the 2,048-byte local buffer in set_menu to audit;
+no measured pack refusal is claimed yet. Device gates remain open.
