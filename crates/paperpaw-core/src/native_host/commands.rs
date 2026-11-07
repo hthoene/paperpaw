@@ -6,7 +6,7 @@
 use super::Error;
 pub use crate::abi7::commands_wire::{
     COMMAND_MAX_BYTES, COMMAND_MAX_KEY_BYTES, COMMAND_MAX_RECORDS, COMMAND_SET_SETTING_TAG,
-    Command as WireCommand, CommandBatch, commands_decode, commands_encode,
+    Command as WireCommand, CommandBatch, SecretText, commands_decode, commands_encode,
 };
 use crate::abi7::settings_wire::SettingValueRef;
 use alloc::{borrow::Cow, string::String, vec::Vec};

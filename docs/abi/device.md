@@ -215,7 +215,8 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
 - [D] **Wi-Fi** (interface 6 `WifiCommand`, `NoNetwork`): `join` and `host` need a non-empty `ssid`;
   `host`'s password is 8-63 bytes, `join`'s 0-63; `join.flags` bit 0 remember the password (SEC's
   store, owned by the Wi-Fi plugin). A password is never logged nor shown in a record any other
-  plugin reads. A newer `join` or `host` from any plugin supersedes a waiting one, whose outcome is
+  plugin reads: both `password` fields are `secret` in `abi.def`, so the generated codec holds them
+  as `SecretText`, whose `Debug` shows nothing of them. A newer `join` or `host` from any plugin supersedes a waiting one, whose outcome is
   `wifi_done` reason 4. **No silent network change:** a `join` of a network without a stored
   password, and every `host`, are honoured only within 2,000 ms after a user input or from the
   network manager (`core.network-manager`); else they end at once with `wifi_done` reason 6

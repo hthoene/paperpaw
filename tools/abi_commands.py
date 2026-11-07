@@ -545,6 +545,9 @@ fn mode(mode: u32) -> Result<u32, i32> {{
             '@UTF8@', str(utf8))
     if any(field['items'] for item in growth for field in growth_fields(item)):
         helpers += _LIST_HELPER.replace('@INVALID@', str(invalid))
+    if any(field['secret'] for item in growth for field in growth_fields(item)):
+        source = _swap(source, "\n/// A fully validated, allocation-free command batch.",
+                       SECRET_TEXT + "\n/// A fully validated, allocation-free command batch.")
     source = _swap(source, "\n/// Decode an entire batch before exposing any command.",
                    helpers + "\n/// Decode an entire batch before exposing any command.")
     source = _swap(source, f"""        if tag != COMMAND_SET_SETTING_TAG {{
@@ -795,6 +798,59 @@ def _blob_len(label, cap):
             f"                {cap},\n            )?;\n")
 
 
+# The contract document of each growth-command tag range, for the generated
+# doc links; other growth commands cite `registry.md`.
+COMMAND_DOCS = ((1564, 1592, 'device.md'),)
+
+
+def _command_doc(tag):
+    """The `docs/abi/` file that defines the command with this tag."""
+    return next((doc for low, high, doc in COMMAND_DOCS if low <= tag <= high), 'registry.md')
+
+
+# A secret text field (`"secret": true`) is wrapped so that no Debug output,
+# log or panic message of a command ever shows it.
+SECRET_TEXT = """
+/// Text a command carries that must never be shown (a password, a key):
+/// its `Debug` prints neither the text nor its length.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SecretText<'a>(&'a str);
+
+impl<'a> SecretText<'a> {
+    /// Wrap the text.
+    pub const fn new(text: &'a str) -> Self {
+        Self(text)
+    }
+
+    /// The text itself, for the code that uses it, never for a log.
+    pub const fn expose(self) -> &'a str {
+        self.0
+    }
+
+    /// Its length in bytes.
+    pub const fn len(self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether it is empty.
+    pub const fn is_empty(self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Its UTF-8 bytes, for the encoder.
+    pub const fn as_bytes(self) -> &'a [u8] {
+        self.0.as_bytes()
+    }
+}
+
+impl core::fmt::Debug for SecretText<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("SecretText(..)")
+    }
+}
+"""
+
+
 def _growth_command(item, consts, variants, arms, lens, writes):
     """The pieces of one growth-block command, generated from its fields."""
     name, variant = item['name'], _variant(item['name'])
@@ -828,7 +884,11 @@ def _growth_command(item, consts, variants, arms, lens, writes):
             what = (f"UTF-8 list of at most {items['max_items']} items of at most "
                     f"{items['item_max_bytes']} bytes, at most {field['cap']} bytes in all"
                     if items else f"UTF-8 text of at most {field['cap']} bytes")
-            docs.append(f"        /// {what}.\n        {label}: &'a str,\n")
+            if field['secret']:
+                docs.append(f"        /// Secret {what}; its Debug shows nothing of it.\n"
+                            f"        {label}: SecretText<'a>,\n")
+            else:
+                docs.append(f"        /// {what}.\n        {label}: &'a str,\n")
             if items:
                 shape = [f"{stem}_SEPARATOR", f"{stem}_MAX_ITEMS", f"{stem}_ITEM_MAX_BYTES"]
                 pad = ' ' * 24
@@ -839,6 +899,13 @@ def _growth_command(item, consts, variants, arms, lens, writes):
                 lists.append(f"            list(\n{pad}{label},\n"
                              + "".join(f"{pad}{name},\n" for name in shape)
                              + "            )?;\n")
+            elif field['secret']:
+                # One line where it fits in 100 columns, else broken as rustfmt does.
+                line = f"                    {label}: SecretText::new(text(body.bytes()?, {cap})?),\n"
+                decode.append(line if len(line) - 1 <= 100 else
+                              f"                    {label}: SecretText::new(text(\n"
+                              f"                        body.bytes()?,\n                        {cap},\n"
+                              "                    )?),\n")
             else:
                 decode.append(f"                    {label}: text(body.bytes()?, {cap})?,\n")
             written.append(f"                write_blob({label}.as_bytes(), out, &mut offset);\n")
@@ -855,7 +922,7 @@ def _growth_command(item, consts, variants, arms, lens, writes):
         lens.append(f"        Command::{variant} {{}} => Ok(({tag}, 1)),\n")
         writes.append(f"            Command::{variant} {{}} => {{}}\n")
         return
-    variants.append(f"    /// The `{name}` command (`docs/abi/registry.md`).\n"
+    variants.append(f"    /// The `{name}` command (`docs/abi/{_command_doc(item['id'])}`).\n"
                     f"    {variant} {{\n{''.join(docs)}    }},\n")
     arms.append(f"            {tag} => {{\n                body.bitmap()?;\n"
                 f"                Command::{variant} {{\n{''.join(decode)}"

@@ -395,6 +395,37 @@ class CommandTests(unittest.TestCase):
             with self.subTest(index=index), self.assertRaises(ValueError):
                 ABI.validate(candidate)
 
+    def test_secret_fields_are_wrapped_and_closed(self):
+        # DEV (#228): a `secret` str field of a command is SecretText, whose
+        # Debug shows nothing of it; only those fields, only where marked.
+        def field(s, record, name):
+            item = next(r for r in s['records'] if r['name'] == record)
+            return next(f for f in item['fields'] if f['name'] == name)
+        source = rust_commands(self.schema)
+        for line in ["pub struct SecretText<'a>(&'a str);", "        password: SecretText<'a>,",
+                     '        f.write_str("SecretText(..)")',
+                     '    /// The `command.wifi_join` command (`docs/abi/device.md`).',
+                     '    /// The `command.reset_setting` command (`docs/abi/registry.md`).']:
+            self.assertIn(line, source)
+        self.assertEqual(source.count("password: SecretText<'a>,"), 2)
+        # Without a secret field the codec has no SecretText at all.
+        bare = copy.deepcopy(self.schema)
+        for record in ('command.wifi_join', 'command.wifi_host'):
+            del field(bare, record, 'password')['secret']
+        self.assertNotIn('SecretText', rust_commands(bare))
+        mutations = [
+            lambda s: field(s, 'command.wifi_join', 'password').update(secret=False),
+            lambda s: field(s, 'command.wifi_join', 'request').update(secret=True),
+            lambda s: field(s, 'command.install_firmware', 'key').update(secret=True),
+            lambda s: field(s, 'event.wifi_done', 'ssid').update(secret=True),
+            lambda s: field(s, 'command.set_menu', 'items').update(secret=True),
+        ]
+        for index, mutate in enumerate(mutations):
+            candidate = copy.deepcopy(self.schema)
+            mutate(candidate)
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                ABI.validate(candidate)
+
     def item_state(self, schema):
         return next(item for item in schema['records']
                     if item['name'] == 'command.set_item_state')

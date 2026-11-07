@@ -11605,7 +11605,8 @@
           "optional": false,
           "ordinal": null,
           "default": null,
-          "max_bytes": 63
+          "max_bytes": 63,
+          "secret": true
         },
         {
           "name": "flags",
@@ -11654,7 +11655,8 @@
           "optional": false,
           "ordinal": null,
           "default": null,
-          "max_bytes": 63
+          "max_bytes": 63,
+          "secret": true
         }
       ]
     },

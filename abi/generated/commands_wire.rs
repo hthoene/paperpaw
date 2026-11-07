@@ -466,31 +466,31 @@ pub enum Command<'a> {
     WifiOff {},
     /// The `command.wifi_scan` command.
     WifiScan {},
-    /// The `command.wifi_join` command (`docs/abi/registry.md`).
+    /// The `command.wifi_join` command (`docs/abi/device.md`).
     WifiJoin {
         /// Little-endian u32.
         request: u32,
         /// UTF-8 text of at most 32 bytes.
         ssid: &'a str,
-        /// UTF-8 text of at most 63 bytes.
-        password: &'a str,
+        /// Secret UTF-8 text of at most 63 bytes; its Debug shows nothing of it.
+        password: SecretText<'a>,
         /// Little-endian u32.
         flags: u32,
     },
     /// The `command.wifi_leave` command.
     WifiLeave {},
-    /// The `command.wifi_host` command (`docs/abi/registry.md`).
+    /// The `command.wifi_host` command (`docs/abi/device.md`).
     WifiHost {
         /// Little-endian u32.
         request: u32,
         /// UTF-8 text of at most 32 bytes.
         ssid: &'a str,
-        /// UTF-8 text of at most 63 bytes.
-        password: &'a str,
+        /// Secret UTF-8 text of at most 63 bytes; its Debug shows nothing of it.
+        password: SecretText<'a>,
     },
     /// The `command.network_none` command.
     NetworkNone {},
-    /// The `command.go_online` command (`docs/abi/registry.md`).
+    /// The `command.go_online` command (`docs/abi/device.md`).
     GoOnline {
         /// Little-endian u32.
         for_ms: u32,
@@ -501,14 +501,14 @@ pub enum Command<'a> {
     PowerOff {},
     /// The `command.restart` command.
     Restart {},
-    /// The `command.wear` command (`docs/abi/registry.md`).
+    /// The `command.wear` command (`docs/abi/device.md`).
     Wear {
         /// UTF-8 text of at most 128 bytes.
         mode: &'a str,
         /// Little-endian u32.
         flags: u32,
     },
-    /// The `command.install_plugin` command (`docs/abi/registry.md`).
+    /// The `command.install_plugin` command (`docs/abi/device.md`).
     InstallPlugin {
         /// Little-endian u32.
         request: u32,
@@ -519,7 +519,7 @@ pub enum Command<'a> {
         /// Little-endian u32.
         flags: u32,
     },
-    /// The `command.remove_plugin` command (`docs/abi/registry.md`).
+    /// The `command.remove_plugin` command (`docs/abi/device.md`).
     RemovePlugin {
         /// Little-endian u32.
         request: u32,
@@ -528,7 +528,7 @@ pub enum Command<'a> {
         /// Little-endian u32.
         flags: u32,
     },
-    /// The `command.install_firmware` command (`docs/abi/registry.md`).
+    /// The `command.install_firmware` command (`docs/abi/device.md`).
     InstallFirmware {
         /// Little-endian u32.
         request: u32,
@@ -543,7 +543,7 @@ pub enum Command<'a> {
     },
     /// The `command.firmware_restart` command.
     FirmwareRestart {},
-    /// The `command.install_author` command (`docs/abi/registry.md`).
+    /// The `command.install_author` command (`docs/abi/device.md`).
     InstallAuthor {
         /// Little-endian u32.
         request: u32,
@@ -552,7 +552,7 @@ pub enum Command<'a> {
         /// At most 32 bytes.
         recovery: &'a [u8],
     },
-    /// The `command.install_rotation` command (`docs/abi/registry.md`).
+    /// The `command.install_rotation` command (`docs/abi/device.md`).
     InstallRotation {
         /// Little-endian u32.
         request: u32,
@@ -561,7 +561,7 @@ pub enum Command<'a> {
         /// At most 64 bytes.
         signature: &'a [u8],
     },
-    /// The `command.trust_revoked` command (`docs/abi/registry.md`).
+    /// The `command.trust_revoked` command (`docs/abi/device.md`).
     TrustRevoked {
         /// UTF-8 text of at most 64 bytes.
         plugin: &'a str,
@@ -570,7 +570,7 @@ pub enum Command<'a> {
         /// At most 64 bytes.
         signature: &'a [u8],
     },
-    /// The `command.check_file` command (`docs/abi/registry.md`).
+    /// The `command.check_file` command (`docs/abi/device.md`).
     CheckFile {
         /// Little-endian u32.
         request: u32,
@@ -581,52 +581,90 @@ pub enum Command<'a> {
         /// Little-endian u32.
         kind: u32,
     },
-    /// The `command.bt_scan` command (`docs/abi/registry.md`).
+    /// The `command.bt_scan` command (`docs/abi/device.md`).
     BtScan {
         /// Little-endian u32.
         lasting_ms: u32,
     },
     /// The `command.bt_stop_scan` command.
     BtStopScan {},
-    /// The `command.bt_pair` command (`docs/abi/registry.md`).
+    /// The `command.bt_pair` command (`docs/abi/device.md`).
     BtPair {
         /// Little-endian u32.
         device: u32,
     },
-    /// The `command.bt_connect` command (`docs/abi/registry.md`).
+    /// The `command.bt_connect` command (`docs/abi/device.md`).
     BtConnect {
         /// Little-endian u32.
         device: u32,
     },
-    /// The `command.bt_disconnect` command (`docs/abi/registry.md`).
+    /// The `command.bt_disconnect` command (`docs/abi/device.md`).
     BtDisconnect {
         /// Little-endian u32.
         device: u32,
     },
-    /// The `command.bt_forget` command (`docs/abi/registry.md`).
+    /// The `command.bt_forget` command (`docs/abi/device.md`).
     BtForget {
         /// Little-endian u32.
         device: u32,
     },
-    /// The `command.bt_give` command (`docs/abi/registry.md`).
+    /// The `command.bt_give` command (`docs/abi/device.md`).
     BtGive {
         /// Little-endian u32.
         device: u32,
         /// UTF-8 text of at most 64 bytes.
         plugin: &'a str,
     },
-    /// The `command.bt_take_back` command (`docs/abi/registry.md`).
+    /// The `command.bt_take_back` command (`docs/abi/device.md`).
     BtTakeBack {
         /// Little-endian u32.
         device: u32,
     },
-    /// The `command.bt_keys` command (`docs/abi/registry.md`).
+    /// The `command.bt_keys` command (`docs/abi/device.md`).
     BtKeys {
         /// Little-endian u32.
         device: u32,
         /// Little-endian u32.
         on: u32,
     },
+}
+
+/// Text a command carries that must never be shown (a password, a key):
+/// its `Debug` prints neither the text nor its length.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SecretText<'a>(&'a str);
+
+impl<'a> SecretText<'a> {
+    /// Wrap the text.
+    pub const fn new(text: &'a str) -> Self {
+        Self(text)
+    }
+
+    /// The text itself, for the code that uses it, never for a log.
+    pub const fn expose(self) -> &'a str {
+        self.0
+    }
+
+    /// Its length in bytes.
+    pub const fn len(self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether it is empty.
+    pub const fn is_empty(self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Its UTF-8 bytes, for the encoder.
+    pub const fn as_bytes(self) -> &'a [u8] {
+        self.0.as_bytes()
+    }
+}
+
+impl core::fmt::Debug for SecretText<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("SecretText(..)")
+    }
 }
 
 /// A fully validated, allocation-free command batch.
@@ -1101,7 +1139,10 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                 Command::WifiJoin {
                     request: u32::from_le_bytes(scalar(body.take(4)?)),
                     ssid: text(body.bytes()?, COMMAND_WIFI_JOIN_SSID_MAX_BYTES)?,
-                    password: text(body.bytes()?, COMMAND_WIFI_JOIN_PASSWORD_MAX_BYTES)?,
+                    password: SecretText::new(text(
+                        body.bytes()?,
+                        COMMAND_WIFI_JOIN_PASSWORD_MAX_BYTES,
+                    )?),
                     flags: u32::from_le_bytes(scalar(body.take(4)?)),
                 }
             }
@@ -1114,7 +1155,10 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                 Command::WifiHost {
                     request: u32::from_le_bytes(scalar(body.take(4)?)),
                     ssid: text(body.bytes()?, COMMAND_WIFI_HOST_SSID_MAX_BYTES)?,
-                    password: text(body.bytes()?, COMMAND_WIFI_HOST_PASSWORD_MAX_BYTES)?,
+                    password: SecretText::new(text(
+                        body.bytes()?,
+                        COMMAND_WIFI_HOST_PASSWORD_MAX_BYTES,
+                    )?),
                 }
             }
             COMMAND_NETWORK_NONE_TAG => {
