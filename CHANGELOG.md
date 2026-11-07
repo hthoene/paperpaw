@@ -26,6 +26,9 @@ change the plugin SDK.
 
 ### Added
 
+- Settings 1.0.6: the interface-7 native plugin (main page, group pages, choosing a value, themes,
+  search, reset, number editing with preview) over the registry service; `paperpaw-ui-kit` item
+  rows gain − and + buttons and show a title that is already translated as it is (#228).
 - Core native callbacks carry authoritative registry owner keys and checked,
   nonzero callback epochs. Failed admission cannot reuse an issued owner key (#228).
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
@@ -43,6 +46,8 @@ change the plugin SDK.
   header with back and pager, paged list rows with focus and hit-testing, text fitting, catalog
   messages) over the flat native SDK, extracted from Battery and the menu editor (#228).
 
+- Native SDK typed device commands: Wi-Fi radio, network policy and power
+  (`CommandSender::wifi_join`, `go_online`, `sleep`, `show_then`, `wear` and others) (#228).
 - Native SDK library queries, borrowed book metadata and badges, finished-status
   updates and plugin-owned field writes (#228).
 - Native SDK typed device inventory and status reads, including firmware, native
