@@ -10,6 +10,7 @@ use paperpaw_native::host_glue::{self as abi, PpBuffer, PpBytes, PpHost};
 struct State {
     op: Cell<u32>,
     calls: Cell<u32>,
+    writes: Cell<u32>,
     input: RefCell<Vec<u8>>,
     reply: RefCell<Vec<u8>>,
     error: Cell<i32>,
@@ -43,6 +44,9 @@ unsafe extern "C" fn call(ctx: *mut c_void, _: u32, op: u32, input: PpBytes, out
         .replace(unsafe { core::slice::from_raw_parts(input.ptr, input.len) }.to_vec());
     if state.error.get() < 0 {
         return state.error.get();
+    }
+    if op == schema::OP_SET_FIELD {
+        state.writes.set(state.writes.get() + 1);
     }
     let reply = state.reply.borrow();
     assert!(reply.len() <= out.cap);
@@ -403,4 +407,34 @@ fn relative_field_ids_are_refused_without_a_host_call() {
         Err(Error::Invalid)
     ));
     assert_eq!(state.calls.get(), 0);
+}
+
+#[test]
+fn refused_field_writes_never_commit_at_the_host_seam() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let lib = Library::open(&host).unwrap();
+    let mut input = [0; 2048];
+    let mut out = [0; 4096];
+    let book = BookRef::path("a.epub").unwrap();
+    assert!(matches!(
+        lib.set_field(&host, book, "rating", "5", &mut input, &mut out),
+        Err(Error::Invalid)
+    ));
+    assert_eq!((state.calls.get(), state.writes.get()), (0, 0));
+    state.error.set(abi::ERR_DENIED);
+    assert!(matches!(
+        lib.set_field(&host, book, "other.rating", "5", &mut input, &mut out),
+        Err(Error::Denied)
+    ));
+    assert_eq!((state.calls.get(), state.writes.get()), (1, 0));
+    let bytes = state.input.borrow();
+    let batch = wire::records_decode(&bytes).unwrap();
+    assert!(
+        matches!(batch.iter().nth(1),Some(Record::ServiceLibFieldSet(r)) if r.field=="other.rating")
+    );
 }
