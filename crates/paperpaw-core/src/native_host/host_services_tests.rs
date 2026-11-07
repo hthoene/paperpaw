@@ -20,6 +20,7 @@ use crate::{
     },
 };
 use core::pin::pin;
+use paperpaw_native::host_glue::ERR_FULL;
 use paperpaw_native::{
     host_glue::{
         ERR_BUSY, ERR_DENIED, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes,
@@ -238,20 +239,53 @@ fn a_drop_that_meets_a_busy_table_is_retried_by_the_main_loop_until_done() {
 }
 
 #[test]
-fn the_retirement_queue_is_bounded_and_queues_an_owner_once() {
-    let hosts = crate::native_host::host_services::HostServices::new();
-    assert!(hosts.queue_retirement(5));
-    assert!(hosts.queue_retirement(5), "once");
-    for owner in 6..=20 {
-        assert!(hosts.queue_retirement(owner));
+fn many_owners_dropped_under_a_busy_table_are_all_kept_and_retired_once() {
+    let pool = HostResources::try_new().unwrap();
+    let fake = Fake::new(Limits::LARGE);
+    let host: Rc<dyn DocHost> = fake.clone();
+    pool.hosts().wire_documents(host).unwrap();
+    let declared = declared(&["core.document"], AdmittedFeatures::NONE);
+    // 40 owners, far more than a small fixed queue: 8 of them hold a document.
+    let owners: Vec<_> = (0..40).map(|_| pool.try_owner().unwrap()).collect();
+    let mut ids = Vec::new();
+    for owner in &owners[..8] {
+        fake.owner
+            .set(owner.caller("opener", AdmittedFeatures::NONE).owner);
+        ids.push(in_frame!(owner, |scope| {
+            let handle = open(&scope, owner, &declared, "core.document").unwrap();
+            *fake.answer.borrow_mut() = state_answer(0, 0);
+            let input = encode("core.document", 1, &[Record::ServiceDocOpen(open_record())]);
+            let reply = call(&scope, owner, handle, op("core.document", 1), &input).unwrap();
+            state_of(&reply).document
+        }));
     }
-    assert!(!hosts.queue_retirement(99), "a full queue says so");
-    assert_eq!(
-        hosts.retry_retirements(),
-        Ok(false),
-        "nothing to retire clears it"
-    );
-    assert!(!hosts.retirements_pending());
+    {
+        let _busy = fake.table().hold().unwrap();
+        drop(owners);
+        assert!(fake.ended.borrow().is_empty());
+        assert_eq!(pool.retry_retirements(), Err(ERR_BUSY));
+        assert!(pool.hosts().retirements_pending());
+    }
+    assert_eq!(pool.retry_retirements(), Ok(false));
+    let mut ended = fake.ended.borrow().clone();
+    ended.sort_unstable();
+    ids.sort_unstable();
+    assert_eq!(ended, ids, "every document ended, once");
+    assert!(!pool.hosts().retirements_pending());
+    // New owners work after the queue emptied, and drop quietly.
+    let again = pool.try_owner().unwrap();
+    drop(again);
+    assert_eq!(pool.retry_retirements(), Ok(false));
+}
+
+#[test]
+fn a_retirement_that_cannot_be_queued_is_reported_to_every_retry() {
+    let hosts = crate::native_host::host_services::HostServices::new();
+    // An owner that was never admitted has no room reserved: the broken
+    // invariant is not silent.
+    hosts.owner_gone(5, false);
+    assert_eq!(hosts.retry_retirements(), Err(ERR_FULL));
+    assert_eq!(hosts.retry_retirements(), Err(ERR_FULL), "durable");
 }
 
 #[test]
