@@ -17,6 +17,9 @@ pub(super) unsafe extern "C" fn run<S>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return ERR_INVALID;
     };
+    // The plugin waits for the host (and the broker's subscribers, which are
+    // plugin calls of their own) from here to the return.
+    let _slot = super::host_slot::enter();
     context
         .environment
         .with_frame(|frame| {
