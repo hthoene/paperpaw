@@ -213,3 +213,96 @@ fn same_slot_can_offer_different_screens_and_two_part_keys_compare_the_tail() {
         }
     }
 }
+
+fn cross_batch_check(records: &[Record<'_>], owned_mask: u8, collision: bool) {
+    use super::{HostOwner, Registration, Teardown};
+    use alloc::vec::Vec;
+    use core::{cell::Cell, pin::pin};
+
+    // One live image holds all batches, including those copied as runtime inputs.
+    let mut image = Vec::new();
+    let mut ranges = Vec::new();
+    for record in records {
+        let mut wire = vec![0; REGISTRATION_MAX_BYTES];
+        let len = records_encode(&[*record], &mut wire).unwrap();
+        let start = image.len();
+        image.extend_from_slice(&wire[..len]);
+        ranges.push(start..image.len());
+    }
+    let owner = pin!(HostOwner::new((), ()));
+    let mut construction = owner.as_ref().begin::<Registration>("fixture").unwrap();
+    construction.set_image(&image).unwrap();
+    if collision {
+        construction.raw.force_hash = Some(7);
+    }
+    for (index, range) in ranges.into_iter().enumerate() {
+        let wire = &image[range];
+        let batch = records_decode(wire).unwrap();
+        let source = (owned_mask & (1 << index) == 0).then_some(image.as_slice());
+        let pending = construction
+            .raw
+            .prepare(source, Some(wire), &batch)
+            .unwrap();
+        construction.raw.commit(pending);
+    }
+    construction.raw.sort_index();
+    assert_eq!(
+        construction.raw.check_duplicates(Some(&image)),
+        Err(ERR_INVALID)
+    );
+    let mapped = Cell::new(false);
+    let teardown = Teardown {
+        report: |_, _, _| panic!("refused construction cannot invoke teardown reporting"),
+        cancel: |_| panic!("refused construction cannot arm cancellation"),
+        release: |_| panic!("refused construction cannot arm release"),
+        destroy: |_| panic!("refused construction cannot transfer destruction"),
+    };
+    let result = construction.commit_native(teardown, |_| {
+        mapped.set(true);
+        Ok(())
+    });
+    assert!(matches!(result, Err(ERR_INVALID)));
+    assert!(!mapped.get(), "whole-plugin refusal must precede mapping");
+    assert!(!owner.is_live(), "none of the plugin may become active");
+}
+
+#[test]
+fn duplicates_across_batches_refuse_the_whole_construction() {
+    let unrelated = Record::SlotSpec(SlotSpec {
+        name: "unrelated",
+        title: "Unrelated",
+    });
+    for record in rows() {
+        for mask in 0..8 {
+            for collision in [false, true] {
+                cross_batch_check(&[record, unrelated, record], mask, collision);
+            }
+        }
+    }
+}
+
+#[test]
+fn differing_payloads_do_not_disambiguate_unique_keys_across_batches() {
+    let mut changed = rows();
+    changed[2] = Record::SlotOffer(SlotOffer {
+        slot: "core.settings",
+        screen: "fixture.page",
+        priority: 42,
+    });
+    changed[3] = Record::KeyBind(KeyBind {
+        layer: "core.reader",
+        input: "next",
+        action: "fixture.other",
+        when_key: "fixture.mode",
+        when_value: "one",
+    });
+    changed[4] = Record::SettingDefault(SettingDefault {
+        key: "other.setting",
+        value: &[1],
+    });
+    for index in [2, 3, 4] {
+        for mask in 0..4 {
+            cross_batch_check(&[rows()[index], changed[index]], mask, true);
+        }
+    }
+}
