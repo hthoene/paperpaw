@@ -17,8 +17,6 @@ pub struct Snapshot {
     height: u16,
     dpi: u16,
     touch: bool,
-    gray_levels: Option<u16>,
-    colour: bool,
 }
 
 impl Snapshot {
@@ -82,19 +80,6 @@ impl Snapshot {
     pub const fn has_touch(&self) -> bool {
         self.touch
     }
-
-    /// Distinct gray levels the panel's pixel format holds (2, 4, 16 or 256);
-    /// None for colour and shell-defined formats.
-    #[must_use]
-    pub const fn display_gray_levels(&self) -> Option<u16> {
-        self.gray_levels
-    }
-
-    /// Whether the panel shows colour.
-    #[must_use]
-    pub const fn display_is_colour(&self) -> bool {
-        self.colour
-    }
 }
 
 /// Capture the current snapshot with one fixed-size, allocation-free host call.
@@ -134,11 +119,6 @@ pub fn capture_snapshot(host: &Host<'_>) -> Result<Snapshot, Error> {
         height: value.height,
         dpi: value.dpi,
         touch: value.touch,
-        gray_levels: value.pixel.gray_levels(),
-        colour: matches!(
-            value.pixel,
-            wire::PixelFormat::Rgb565 | wire::PixelFormat::Rgb888
-        ),
     })
 }
 

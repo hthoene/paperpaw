@@ -96,8 +96,6 @@ fn generated_snapshot_fields_are_converted_to_owned_sdk_values() {
         (480, 800, 220)
     );
     assert!(got.has_touch());
-    assert_eq!(got.display_gray_levels(), Some(16));
-    assert!(!got.display_is_colour());
     assert_eq!(ctx.calls.get(), 1);
     // Changes after capture cannot change the owned value.
     ctx.snapshot.battery = None;
@@ -190,20 +188,5 @@ fn declared_totals_outside_the_generated_bounds_are_invalid() {
     for total in [0, 51, 129, u32::MAX] {
         ctx.total_bytes = Some(total);
         assert_eq!(capture(&mut ctx), Err(Error::Invalid));
-    }
-}
-
-#[test]
-fn colour_and_shell_formats_have_no_gray_levels() {
-    for (pixel, colour) in [
-        (wire::PixelFormat::Rgb565, true),
-        (wire::PixelFormat::Rgb888, true),
-        (wire::PixelFormat::Other { code: 9, bits: 3 }, false),
-    ] {
-        let mut ctx = context();
-        ctx.snapshot.pixel = pixel;
-        let got = capture(&mut ctx).unwrap();
-        assert_eq!(got.display_gray_levels(), None);
-        assert_eq!(got.display_is_colour(), colour);
     }
 }
