@@ -13,6 +13,10 @@ use paperpaw_native::host_glue::{
     ERR_UNSUPPORTED,
 };
 
+/// Events a plugin may leave untold before `serve` is `ERR_BUSY`.
+const EVENTS_WAITING: usize = 4;
+/// An upload that moves no byte for this long is dropped (408, 5.2).
+const STALL_MS: u64 = 30_000;
 /// A head over this is answered 431 (5.2).
 const HEAD_MAX: u32 = 8 * 1024;
 /// A target over this is answered 414.
@@ -56,6 +60,8 @@ struct Served {
     stamp: u64,
     /// Pool bytes held (the upload buffer, then the answer's body).
     reserved: u32,
+    /// When a byte last came (the head, then the body).
+    last_move: u64,
 }
 
 struct Event {
@@ -75,6 +81,8 @@ pub(super) struct Tables {
     events: Vec<Event>,
     next_server: u32,
     next_request: u32,
+    /// Terminal events that could not be kept: a broken invariant.
+    pub(super) lost: u32,
 }
 
 impl Tables {
@@ -124,6 +132,40 @@ fn tell(
     Ok(())
 }
 
+/// The terminal event of a server (`stopped`): never lost. Its room was
+/// reserved when the server started (the events vector holds at least the
+/// pending events plus one per live server) and it needs no string, so it
+/// allocates nothing and cannot fail.
+fn tell_stopped(inner: &mut Inner, host: &dyn NetHost, owner: u64, token: u32, why: u32) {
+    let stamp = inner.tick_stamp();
+    let tables = &mut inner.serving;
+    tables
+        .events
+        .retain(|e| !(e.owner == owner && e.token == token && e.state == STARTED));
+    if tables.events.len() == tables.events.capacity() {
+        // Unreachable by the reservation; if it ever broke, a coalescible
+        // `started` of any server makes room rather than dropping this one.
+        match tables.events.iter().position(|e| e.state == STARTED) {
+            Some(at) => {
+                tables.events.remove(at);
+            }
+            None => {
+                tables.lost = tables.lost.saturating_add(1);
+                return;
+            }
+        }
+    }
+    tables.events.push(Event {
+        stamp,
+        at: host.now_ms(),
+        owner,
+        token,
+        state: STOPPED,
+        why,
+        address: String::new(),
+    });
+}
+
 /// `serve` (5.1).
 pub(super) fn serve(
     host: &dyn NetHost,
@@ -158,21 +200,36 @@ pub(super) fn serve(
         .iter()
         .filter(|s| s.owner == who.owner && s.token != serve.token)
         .count();
-    if old.is_none() && others >= PLUGIN_SERVERS {
+    // A plugin that has not heard its events yet cannot pile up more by
+    // looping in one callback.
+    let waiting = inner
+        .serving
+        .events
+        .iter()
+        .filter(|e| e.owner == who.owner)
+        .count();
+    if (old.is_none() && others >= PLUGIN_SERVERS) || waiting >= EVENTS_WAITING {
         return Err(ERR_BUSY);
     }
-    // Room for everything before the old server is touched.
+    // Room for everything before the old server is touched: the server, this
+    // call's event, and the terminal event of every server alive (including
+    // this one) so that a stop can always tell it.
     gate()?;
     inner
         .serving
         .servers
         .try_reserve(1)
         .map_err(|_| ERR_NO_MEMORY)?;
-    inner
-        .serving
-        .events
-        .try_reserve(2)
-        .map_err(|_| ERR_NO_MEMORY)?;
+    gate()?;
+    let tables = &mut inner.serving;
+    let need = tables.events.len() + tables.servers.len() + 2;
+    if tables.events.capacity() < need {
+        let extra = need - tables.events.len();
+        tables
+            .events
+            .try_reserve_exact(extra)
+            .map_err(|_| ERR_NO_MEMORY)?;
+    }
     let key = inner.serving.next_server.checked_add(1).ok_or(ERR_FULL)?;
     if let Some(index) = old {
         stop(&mut inner, host, index, reason::OK, true);
@@ -291,9 +348,7 @@ fn stop(inner: &mut Inner, host: &dyn NetHost, index: usize, why: u32, emit: boo
     inner.release(host, freed);
     // Pending events of the server's requests are gone with them.
     if emit {
-        // Already room reserved at serve; a failure here only loses the event
-        // of a server that is stopped anyway.
-        let _ = tell(inner, host, server.owner, server.token, STOPPED, why, "");
+        tell_stopped(inner, host, server.owner, server.token, why);
     }
 }
 
@@ -320,7 +375,14 @@ pub(super) fn expire(inner: &mut Inner, host: &dyn NetHost) {
     let mut at = 0;
     while at < inner.serving.served.len() {
         let s = &inner.serving.served[at];
-        if matches!(s.stage, Stage::Open { since } if now.saturating_sub(since) >= ANSWER_MS) {
+        let stalled = s.stage == Stage::Receiving && now.saturating_sub(s.last_move) >= STALL_MS;
+        if stalled {
+            host.transport().close_served(s.id, 408);
+            host.remove_received(s.owner, s.token, s.id);
+            freed = freed.saturating_add(s.reserved);
+            inner.serving.served.remove(at);
+        } else if matches!(s.stage, Stage::Open { since } if now.saturating_sub(since) >= ANSWER_MS)
+        {
             host.transport().close_served(s.id, 503);
             host.remove_received(s.owner, s.token, s.id);
             freed = freed.saturating_add(s.reserved);
@@ -416,6 +478,7 @@ pub(crate) fn served_head(
         body_len: length,
         stamp: 0,
         reserved,
+        last_move: host.now_ms(),
     });
     Ok(Decision::Accept { request: id, token })
 }
@@ -451,8 +514,12 @@ pub(crate) fn served_body(
     } else if !host.room_for(added) {
         507
     } else {
+        if added > 0 {
+            inner.serving.served[at].last_move = host.now_ms();
+        }
         return Ok(Decision::Busy);
     };
+    let s = &inner.serving.served[at];
     host.remove_received(s.owner, s.token, s.id);
     let freed = s.reserved;
     inner.serving.served.remove(at);

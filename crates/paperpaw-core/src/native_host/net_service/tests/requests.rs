@@ -44,22 +44,24 @@ fn piece(fake: &Fake, owner: u64, id: u32, offset: u32) -> Result<Vec<u8>, i32> 
 #[test]
 fn the_pool_is_reserved_before_use_and_a_request_waits_for_room() {
     let fake = Fake::x4();
-    let a = request(&fake, OWNER, &big(1, 49_152)).unwrap();
-    assert_eq!(fake.pool_used(), 49_152, "reserved at the start");
-    let b = request(&fake, OWNER, &big(2, 100)).unwrap();
+    let (ia, ib) = (big(1, 45_056), big(2, 4_000));
+    let (la, lb) = (ia.len() as u32, ib.len() as u32);
+    let a = request(&fake, OWNER, &ia).unwrap();
+    assert_eq!(fake.pool_used(), 45_056 + la, "input and body reserved");
+    let b = request(&fake, OWNER, &ib).unwrap();
     assert_eq!(*fake.started.borrow(), [a], "b waits for room");
-    assert_eq!(fake.pool_used(), 49_152);
-    // a ends with 2 bytes: the pool keeps only those, the rest is free, but a
-    // held answer counts until its callback returns.
+    assert_eq!(fake.pool_used(), 45_056 + la + lb, "its input is held");
+    // a ends with 2 bytes: the pool keeps only those, its input and the rest
+    // of its body are free; a held answer counts until its callback returns.
     finish(&fake, a, 200, b"hi");
     assert_eq!(
         fake.pool_used(),
-        2 + 100,
+        2 + lb + 4_000,
         "b started on the room that came free"
     );
     assert_eq!(*fake.started.borrow(), [a, b]);
     assert_eq!(drain(&fake, OWNER), [done(a, 1, 200, 0, 0, 2)]);
-    assert_eq!(fake.pool_used(), 100);
+    assert_eq!(fake.pool_used(), lb + 4_000);
     finish(&fake, b, 200, b"");
     drain(&fake, OWNER);
     assert_eq!(fake.pool_used(), 0, "everything is back");
@@ -71,9 +73,8 @@ fn the_queue_is_strictly_first_in_first_out() {
     let a = request(&fake, OWNER, &big(1, 40_000)).unwrap();
     let b = request(&fake, OWNER, &big(2, 20_000)).unwrap();
     let c = request(&fake, OTHER, &big(3, 1_000)).unwrap();
-    // c would fit in the 9,152 bytes left, but b waits for room before it.
+    // c would fit in the room left, but b waits for room before it.
     assert_eq!(*fake.started.borrow(), [a]);
-    assert_eq!(fake.pool_used(), 40_000);
     finish(&fake, a, 200, b"x");
     drain(&fake, OWNER);
     assert_eq!(
@@ -81,6 +82,52 @@ fn the_queue_is_strictly_first_in_first_out() {
         [a, b, c],
         "in the order they were started"
     );
+}
+
+#[test]
+fn the_input_of_a_request_is_held_in_the_pool_at_its_exact_size() {
+    let fake = Fake::x4();
+    let one = get(1);
+    let id = request(&fake, OWNER, &one).unwrap();
+    assert_eq!(fake.pool_used(), 45_056 + one.len() as u32);
+    table::cancel(&fake, OWNER, 1).unwrap();
+    assert_eq!(fake.pool_used(), 0, "input and body are back when it ends");
+    // A queue of requests whose inputs fill the pool: the next call is
+    // refused and holds nothing. Each carries a 1,024-byte header value.
+    let value = "v".repeat(1_000);
+    let long: Vec<u8> = {
+        let h = Record::ServiceNetHeader(wire::ServiceNetHeader {
+            name: "X-A",
+            value: &value,
+        });
+        let mut h4 = std::vec![rec_head(9)];
+        h4.extend((0..3).map(|_| h));
+        batch(&h4)
+    };
+    let profile = NetProfile {
+        pool: 10_000,
+        max_body: 100,
+        memory_bodies: 8,
+        connections: 8,
+        cable: false,
+    };
+    let fake = Fake::new(profile);
+    let long_len = long.len() as u32;
+    for owner in 10..13 {
+        request(&fake, owner, &long).unwrap();
+    }
+    assert_eq!(fake.pool_used(), 3 * (long_len + 100));
+    // The fourth input does not fit: refused, and the pool is as it was.
+    assert_eq!(
+        request(&fake, 13, &long),
+        Err(paperpaw_native::host_glue::ERR_NO_MEMORY)
+    );
+    assert_eq!(fake.pool_used(), 3 * (long_len + 100));
+    assert_eq!(fake.started.borrow().len(), 3);
+}
+
+fn rec_head(token: u32) -> Record<'static> {
+    Record::ServiceNetRequest(head(token, "http://a.b/"))
 }
 
 #[test]
@@ -119,7 +166,15 @@ fn saving_requests_need_a_buffer_not_a_body_and_share_two_connections() {
         ids[..2],
         "two connections on the X4"
     );
-    assert_eq!(fake.pool_used(), 2 * IO_BUFFER, "a 4 KiB buffer each");
+    let inputs: u32 = [("a.bin", 0), ("b.bin", 1), ("c.bin", 2)]
+        .iter()
+        .map(|(p, n)| save_to(*n, 0, p).len() as u32)
+        .sum();
+    assert_eq!(
+        fake.pool_used(),
+        2 * IO_BUFFER + inputs,
+        "a 4 KiB buffer each, and the inputs"
+    );
     // A saving request does not use a memory body slot: two bodies run too.
     let body = request(&fake, OTHER, &big(9, 10)).unwrap();
     assert_eq!(fake.started.borrow().len(), 2, "the connections are full");
@@ -249,7 +304,7 @@ fn time_limits_count_from_the_start_and_a_moving_file_never_ends() {
 #[test]
 fn a_request_that_waits_for_room_times_out_without_holding_more() {
     let fake = Fake::x4();
-    let a = request(&fake, OWNER, &big(1, 49_152)).unwrap();
+    let a = request(&fake, OWNER, &big(1, 45_056)).unwrap();
     let b = request(&fake, OTHER, &get(2)).unwrap();
     assert_eq!(*fake.started.borrow(), [a]);
     fake.advance(30_000);
@@ -439,7 +494,23 @@ fn a_failure_keeps_an_error_body_of_at_most_4096_and_none_without_a_status() {
     // memory, cut at 4,096. (Not saved: reason 0 with its status.)
     let a = request(&fake, OWNER, &save_to(1, 0, "e.bin")).unwrap();
     let b = request(&fake, OWNER, &big(2, 100)).unwrap();
-    finish(&fake, a, 500, &[7; 5_000]);
+    // The transport cuts at the cap (a buffer above it is refused, see below)
+    // and says so.
+    finished(
+        &fake,
+        a,
+        Finished {
+            status: 500,
+            reason: 0,
+            saved: false,
+            truncated: true,
+            etag: "",
+            content_type: "",
+            final_url: "",
+            body: std::vec![7; 4_096],
+        },
+    )
+    .unwrap();
     // A failure without a status holds no body, whatever the transport kept.
     finished(
         &fake,
@@ -476,11 +547,11 @@ fn a_memory_body_is_cut_at_max_body_and_says_so() {
             status: 200,
             reason: 0,
             saved: false,
-            truncated: false,
+            truncated: true,
             etag: "",
             content_type: "",
             final_url: "",
-            body: std::vec![1; 150],
+            body: std::vec![1; 100],
         },
     )
     .unwrap();
@@ -605,7 +676,7 @@ fn a_stopped_plugin_loses_its_requests_without_events_and_returns_its_memory() {
     assert!(fake.claims.borrow().is_empty());
     assert_eq!(
         fake.pool_used(),
-        49_152,
+        45_056 + get(3).len() as u32,
         "only the other plugin's request holds a reservation"
     );
     finish(&fake, kept, 200, b"");
@@ -665,4 +736,292 @@ fn an_answer_that_cannot_be_held_ends_with_too_large_and_leaks_nothing() {
         );
         assert_eq!(fake.pool_used(), 0, "allocation {nth}");
     }
+}
+
+#[test]
+fn a_committed_save_stays_a_success_when_its_head_cannot_be_held() {
+    for nth in 1..=4 {
+        let fake = Fake::x4();
+        let id = request(&fake, OWNER, &save_to(0, 0, "a.bin")).unwrap();
+        FAIL_NTH.with(|n| n.set(nth));
+        finished(
+            &fake,
+            id,
+            Finished {
+                status: 200,
+                reason: 0,
+                saved: true,
+                truncated: false,
+                etag: "\"v1\"",
+                content_type: "application/zip",
+                final_url: "https://example.org/z",
+                body: Vec::new(),
+            },
+        )
+        .unwrap();
+        FAIL_NTH.with(|n| n.set(0));
+        let events = drain(&fake, OWNER);
+        assert_eq!(events.len(), 1, "allocation {nth}");
+        let Event::Done {
+            reason: why,
+            status,
+            flags,
+            ..
+        } = events[0]
+        else {
+            panic!()
+        };
+        assert_eq!(
+            (why, status, flags),
+            (0, 200, DONE_SAVED),
+            "allocation {nth}"
+        );
+    }
+}
+
+#[test]
+fn a_held_body_is_charged_by_capacity_and_an_oversized_buffer_is_refused() {
+    let answer = |fake: &Fake, id: u32, status: u32, body: Vec<u8>, saved: bool| {
+        finished(
+            fake,
+            id,
+            Finished {
+                status,
+                reason: 0,
+                saved,
+                truncated: false,
+                etag: "",
+                content_type: "",
+                final_url: "",
+                body,
+            },
+        )
+        .unwrap();
+    };
+    let used_by_held = |body: Vec<u8>, saved: bool| {
+        let fake = Fake::x4();
+        let id = request(&fake, OWNER, &big(1, 1_000)).unwrap();
+        answer(&fake, id, 200, body, saved);
+        let used = fake.pool_used();
+        let events = drain(&fake, OWNER);
+        (used, events)
+    };
+    // A short body in a roomy buffer holds the whole buffer.
+    let mut roomy = Vec::with_capacity(900);
+    roomy.extend_from_slice(b"abc");
+    let (used, events) = used_by_held(roomy, false);
+    assert_eq!(used, 900, "capacity, not length");
+    assert!(matches!(events[0], Event::Done { body_len: 3, .. }));
+    // A truncated or cleared buffer keeps its capacity and stays charged.
+    let mut cut = Vec::with_capacity(1_000);
+    cut.extend_from_slice(&[7; 1_000]);
+    cut.truncate(10);
+    assert_eq!(used_by_held(cut, false).0, 1_000);
+    // A saved answer's body is dropped: nothing stays charged.
+    let mut cleared = Vec::with_capacity(500);
+    cleared.push(1);
+    assert_eq!(used_by_held(cleared, true).0, 0);
+    // A buffer above the reservation is the transport's fault: refused, and
+    // nothing is held.
+    let (used, events) = used_by_held(Vec::with_capacity(1_001), false);
+    assert_eq!(used, 0);
+    assert!(matches!(
+        events[0],
+        Event::Done { reason: r, status: 0, body_len: 0, .. } if r == reason::TOO_LARGE
+    ));
+    // An error body with a roomy buffer above 4,096 / the reservation too.
+    let fake = Fake::x4();
+    let id = request(&fake, OWNER, &big(1, 100)).unwrap();
+    answer(&fake, id, 500, Vec::with_capacity(4_096), false);
+    assert_eq!(fake.pool_used(), 0);
+}
+
+#[test]
+fn ended_requests_the_plugin_has_not_heard_of_count_against_its_limit() {
+    // Offline: every request ends at once. A loop in one callback cannot pile
+    // up ended requests without bound.
+    let fake = Fake::x4();
+    fake.power.set(Some(PowerEnd {
+        reason: reason::OFFLINE,
+        later: true,
+    }));
+    for token in 1..=4 {
+        request(&fake, OWNER, &get(token)).unwrap();
+    }
+    assert_eq!(
+        request(&fake, OWNER, &get(5)),
+        Err(paperpaw_native::host_glue::ERR_BUSY)
+    );
+    // Another plugin has its own room; telling the events frees the first's.
+    assert!(request(&fake, OTHER, &get(1)).is_ok());
+    assert_eq!(drain(&fake, OWNER).len(), 4);
+    assert!(request(&fake, OWNER, &get(5)).is_ok());
+    assert_eq!(fake.pool_used(), 0, "ended requests hold no input");
+}
+
+#[test]
+fn a_non_2xx_answer_keeps_at_most_4096_bytes() {
+    let fake = Fake::x4();
+    let id = request(&fake, OWNER, &get(1)).unwrap();
+    finish(&fake, id, 404, &[7; 5_000]);
+    assert_eq!(
+        drain(&fake, OWNER),
+        [done(id, 1, 404, 0, DONE_TRUNCATED, 4_096)]
+    );
+    // A 2xx answer keeps up to max_body.
+    let id = request(&fake, OWNER, &get(2)).unwrap();
+    finish(&fake, id, 200, &[7; 5_000]);
+    assert_eq!(drain(&fake, OWNER), [done(id, 2, 200, 0, 0, 5_000)]);
+}
+
+#[test]
+fn an_overlong_head_from_a_hostile_server_ends_the_request_at_once() {
+    for (etag, final_url) in [
+        ("e".repeat(257), String::new()),
+        (String::new(), "u".repeat(1_025)),
+    ] {
+        let fake = Fake::x4();
+        let id = request(&fake, OWNER, &get(1)).unwrap();
+        finished(
+            &fake,
+            id,
+            Finished {
+                status: 200,
+                reason: 0,
+                saved: false,
+                truncated: false,
+                etag: &etag,
+                content_type: "",
+                final_url: &final_url,
+                body: std::vec![1; 10],
+            },
+        )
+        .unwrap();
+        // No tick, no timeout: it has ended.
+        assert_eq!(drain(&fake, OWNER), [done(id, 1, 0, reason::REFUSED, 0, 0)]);
+        assert_eq!(fake.pool_used(), 0);
+    }
+    // At the limits it is fine.
+    let fake = Fake::x4();
+    let id = request(&fake, OWNER, &get(1)).unwrap();
+    finished(
+        &fake,
+        id,
+        Finished {
+            status: 200,
+            reason: 0,
+            saved: false,
+            truncated: false,
+            etag: &"e".repeat(256),
+            content_type: &"c".repeat(128),
+            final_url: &"u".repeat(1_024),
+            body: Vec::new(),
+        },
+    )
+    .unwrap();
+    assert_eq!(drain(&fake, OWNER), [done(id, 1, 200, 0, 0, 0)]);
+}
+
+#[test]
+fn failed_requests_hold_no_memory_body_and_block_nobody() {
+    let fake = Fake::x4();
+    let (a, b) = (
+        request(&fake, OWNER, &big(1, 100)).unwrap(),
+        request(&fake, OWNER, &big(2, 100)).unwrap(),
+    );
+    for id in [a, b] {
+        finished(
+            &fake,
+            id,
+            Finished {
+                status: 0,
+                reason: reason::DNS,
+                saved: false,
+                truncated: false,
+                etag: "",
+                content_type: "",
+                final_url: "",
+                body: Vec::new(),
+            },
+        )
+        .unwrap();
+    }
+    // The first plugin is busy and has not heard of either failure; the
+    // other plugin's request starts at once.
+    let c = request(&fake, OTHER, &big(3, 100)).unwrap();
+    assert!(fake.started.borrow().contains(&c));
+}
+
+#[test]
+fn no_network_comes_before_the_default_timeout_and_a_recovered_network_resets_the_wait() {
+    let fake = Fake::x4();
+    fake.network.set(false);
+    let id = request(&fake, OWNER, &get(1)).unwrap();
+    fake.advance(30_000);
+    tick(&fake).unwrap();
+    assert_eq!(
+        drain(&fake, OWNER),
+        [done(id, 1, 0, reason::NO_NETWORK, 0, 0)]
+    );
+    // A request that waits for the pool while the network is up is not
+    // ended for a wait that ended.
+    let fake = Fake::x4();
+    let mut long = head(9, "http://a.b/");
+    long.max_body = 45_056;
+    long.timeout_ms = 600_000;
+    let a = request(&fake, OTHER, &batch(&[Record::ServiceNetRequest(long)])).unwrap();
+    fake.network.set(false);
+    let mut h = head(2, "http://a.b/");
+    h.max_body = 45_056;
+    h.timeout_ms = 600_000;
+    let b = request(&fake, OWNER, &batch(&[Record::ServiceNetRequest(h)])).unwrap();
+    fake.advance(20_000);
+    tick(&fake).unwrap();
+    fake.network.set(true);
+    tick(&fake).unwrap();
+    fake.advance(11_000);
+    tick(&fake).unwrap();
+    assert!(
+        drain(&fake, OWNER).is_empty(),
+        "b still waits for room, not for a network"
+    );
+    assert_eq!(*fake.started.borrow(), [a]);
+    finish(&fake, a, 200, b"");
+    drain(&fake, OTHER);
+    assert!(fake.started.borrow().contains(&b));
+}
+
+#[test]
+fn a_refused_replacement_leaves_the_older_request_untouched() {
+    let fake = Fake::x4();
+    let old = request(&fake, OWNER, &save_to(1, 0, "f.bin")).unwrap();
+    fake.claim_fails
+        .set(Some(paperpaw_native::host_glue::ERR_BUSY));
+    assert_eq!(
+        request(&fake, OWNER, &save_to(2, 0, "F.BIN")),
+        Err(paperpaw_native::host_glue::ERR_BUSY)
+    );
+    assert!(
+        fake.aborted.borrow().is_empty(),
+        "the older transfer goes on"
+    );
+    assert!(next(&fake, OWNER).is_none(), "and nothing was told");
+    fake.claim_fails.set(None);
+    // And the pool is as one request left it.
+    assert_eq!(
+        fake.pool_used(),
+        IO_BUFFER + save_to(1, 0, "f.bin").len() as u32
+    );
+    table::cancel(&fake, OWNER, 1).unwrap();
+    assert_eq!(
+        drain(&fake, OWNER),
+        [done(old, 1, 0, reason::CANCELLED, 0, 0)]
+    );
+}
+
+#[test]
+fn a_stopped_plugin_has_its_received_folder_emptied() {
+    let fake = Fake::x4();
+    owner_stopped(&fake, OWNER).unwrap();
+    assert!(fake.cleared.borrow().contains(&(OWNER, None)));
 }

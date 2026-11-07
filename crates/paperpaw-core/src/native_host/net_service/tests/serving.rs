@@ -358,8 +358,8 @@ fn an_upload_buffer_that_does_not_fit_the_pool_is_answered_503() {
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
     let k = key_of(&fake);
     // A request holding the whole pool.
-    request(&fake, OTHER, &big(1, 49_152)).unwrap();
-    assert_eq!(fake.pool_used(), 49_152);
+    request(&fake, OTHER, &big(1, 45_056)).unwrap();
+    assert_eq!(fake.pool_used(), 45_056 + big(1, 45_056).len() as u32);
     assert_eq!(
         served_head(&fake, k, "PUT", "/", Some(10), false, 10).unwrap(),
         Decision::Reject(503)
@@ -500,24 +500,28 @@ fn respond_checks_its_status_headers_and_what_it_sends() {
 fn a_held_answer_body_comes_from_the_pool_or_the_call_fails_and_holds_nothing() {
     let fake = Fake::x4();
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
-    let r = arrive(&fake, key_of(&fake), "/", 0);
+    let k = key_of(&fake);
+    let (r1, r2) = (arrive(&fake, k, "/1", 0), arrive(&fake, k, "/2", 0));
     drain(&fake, OWNER);
-    // The pool is full of a request's memory body.
-    request(&fake, OTHER, &big(1, 49_152)).unwrap();
+    // A request holds the body room, leaving a little over 4 KiB.
+    request(&fake, OTHER, &big(1, 45_056)).unwrap();
+    let held_before = fake.pool_used();
     let body = Record::ServiceNetBody(wire::ServiceNetBody { data: &[1; 2_048] });
+    respond(&fake, OWNER, &[answer(r1, 200), body]).unwrap();
+    assert_eq!(fake.pool_used(), held_before + 2_048);
+    // The second 2 KiB body does not fit what is left: no memory, nothing held.
     assert_eq!(
-        respond(&fake, OWNER, &[answer(r, 200), body]),
+        respond(&fake, OWNER, &[answer(r2, 200), body]),
         Err(ERR_NO_MEMORY)
     );
-    assert_eq!(fake.pool_used(), 49_152, "nothing was held");
-    assert!(fake.replies.borrow().is_empty());
-    // The request is still open: with room it works, and the bytes are held
-    // until the transport is done with them.
-    owner_stopped(&fake, OTHER).unwrap();
-    respond(&fake, OWNER, &[answer(r, 200), body]).unwrap();
-    assert_eq!(fake.pool_used(), 2_048);
-    served_gone(&fake, r).unwrap();
-    assert_eq!(fake.pool_used(), 0);
+    assert_eq!(fake.pool_used(), held_before + 2_048, "nothing was held");
+    assert_eq!(fake.replies.borrow().len(), 1);
+    // The request is still open: once the first is sent, it works.
+    served_gone(&fake, r1).unwrap();
+    respond(&fake, OWNER, &[answer(r2, 200), body]).unwrap();
+    assert_eq!(fake.pool_used(), held_before + 2_048);
+    served_gone(&fake, r2).unwrap();
+    assert_eq!(fake.pool_used(), held_before);
 }
 
 #[test]
@@ -588,4 +592,76 @@ fn a_failed_allocation_in_serve_leaves_no_server_behind() {
         );
     }
     let _ = ERR_NO_SPACE;
+}
+
+#[test]
+fn an_upload_that_moves_no_byte_for_30_seconds_is_dropped_with_408() {
+    let fake = Fake::x4();
+    serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();
+    let k = key_of(&fake);
+    let Decision::Accept { request, .. } =
+        served_head(&fake, k, "PUT", "/", Some(1_000), false, 10).unwrap()
+    else {
+        panic!()
+    };
+    fake.advance(29_999);
+    tick(&fake).unwrap();
+    assert!(fake.closed.borrow().is_empty());
+    // A byte arrives: the clock starts again.
+    assert_eq!(served_body(&fake, request, 10, 10).unwrap(), Decision::Busy);
+    fake.advance(29_999);
+    tick(&fake).unwrap();
+    assert!(fake.closed.borrow().is_empty());
+    fake.advance(1);
+    tick(&fake).unwrap();
+    assert_eq!(*fake.closed.borrow(), [(request, 408)]);
+    assert_eq!(*fake.removed.borrow(), [(OWNER, 1, request)]);
+    assert_eq!(fake.pool_used(), 0);
+    assert_eq!(served_whole(&fake, request, 1_000), Err(ERR_NOT_FOUND));
+}
+
+#[test]
+fn a_plugin_cannot_pile_up_server_events_by_looping() {
+    let fake = Fake::x4();
+    let mut accepted = 0;
+    for port in 8000..8100 {
+        match serve(&fake, OWNER, &serve_rec(1, port)) {
+            Ok(()) => accepted += 1,
+            Err(error) => {
+                assert_eq!(error, ERR_BUSY);
+                break;
+            }
+        }
+    }
+    assert!((2..=5).contains(&accepted), "{accepted}");
+    // Telling the events makes room again.
+    assert!(drain(&fake, OWNER).len() >= 2);
+    assert!(serve(&fake, OWNER, &serve_rec(1, 9000)).is_ok());
+}
+
+#[test]
+fn the_stopped_event_of_a_server_is_never_lost_to_an_allocation_failure() {
+    let fake = Fake::x4();
+    // Many plugins, each with a server, started and told.
+    for owner in 100..140 {
+        serve(&fake, owner, &serve_rec(1, 8080)).unwrap();
+        assert!(matches!(
+            next(&fake, owner),
+            Some(Event::Server { state: 0, .. })
+        ));
+    }
+    // The next allocation fails at every stop; the servers still stop and say so.
+    for owner in 100..140 {
+        FAIL_NTH.with(|n| n.set(1));
+        screen_closed(&fake, owner, 5).unwrap();
+    }
+    FAIL_NTH.with(|n| n.set(0));
+    for owner in 100..140 {
+        assert_eq!(
+            drain(&fake, owner),
+            [server_event(1, 2, 0, "")],
+            "owner {owner}"
+        );
+    }
+    assert!(!fake.table.lock().unwrap().serving.any());
 }

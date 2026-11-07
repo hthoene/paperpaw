@@ -66,6 +66,8 @@ struct Req {
     net_wait: Option<u64>,
     /// Bytes held from the pool.
     reserved: u32,
+    /// Pool bytes held for the plugin's input batch while the request lives.
+    input: u32,
     sent: Option<(u64, u64)>,
     pending: Option<Pending>,
     done: Option<Done>,
@@ -142,11 +144,60 @@ impl Inner {
         self.reqs.iter().position(|r| r.id == id)
     }
 
+    /// Memory bodies that exist: arriving, and finished but not delivered with
+    /// bytes held. A request that failed holds none.
     fn bodies(&self) -> u32 {
         self.reqs
             .iter()
-            .filter(|r| !r.saving && r.state != State::Queued)
+            .filter(|r| {
+                !r.saving
+                    && match r.state {
+                        State::Queued => false,
+                        State::Running => true,
+                        State::Done | State::Held => {
+                            r.done.as_ref().is_some_and(|d| !d.body.is_empty())
+                        }
+                    }
+            })
             .count() as u32
+    }
+
+    /// The limits of `request`: per plugin the requests not ended and those
+    /// ended but not yet told (a plugin that loops in one callback cannot
+    /// pile up ended requests), per device those not ended.
+    fn admit_request(&self, host: &dyn NetHost, owner: u64) -> Result<(), i32> {
+        let _ = host;
+        let mine = self
+            .reqs
+            .iter()
+            .filter(|r| {
+                r.owner == owner && matches!(r.state, State::Queued | State::Running | State::Done)
+            })
+            .count();
+        let device = self.reqs.iter().filter(|r| Self::live(r)).count();
+        if mine >= PLUGIN_REQUESTS || device >= DEVICE_REQUESTS {
+            return Err(ERR_BUSY);
+        }
+        Ok(())
+    }
+
+    /// Whether the pool holds `bytes` more once the `replaced` requests have
+    /// given back their input (`ERR_NO_MEMORY`: nothing is held then).
+    fn input_fits(&self, host: &dyn NetHost, replaced: &[u32], bytes: usize) -> Result<(), i32> {
+        let pool = host.profile().pool;
+        if pool == 0 {
+            return Ok(());
+        }
+        let back: u32 = replaced
+            .iter()
+            .filter_map(|id| self.index(*id))
+            .map(|i| self.reqs[i].input)
+            .sum();
+        let after = u64::from(self.used - back.min(self.used)) + bytes as u64;
+        if after > u64::from(pool) {
+            return Err(ERR_NO_MEMORY);
+        }
+        Ok(())
     }
 
     /// `network_demand` follows whether anything uses or waits for the
@@ -177,8 +228,11 @@ impl Inner {
             host.release_save(r.owner, file.root, file.path);
         }
         done.stamp = stamp;
+        // The input is not needed any more: its bytes go back to the pool.
+        let input = core::mem::take(&mut r.input);
+        r.batch = Box::default();
         // The pool keeps only what the held answer needs.
-        let keep = u32::try_from(done.body.len())
+        let keep = u32::try_from(done.body.capacity())
             .unwrap_or(u32::MAX)
             .min(r.reserved);
         let freed = r.reserved - keep;
@@ -186,7 +240,7 @@ impl Inner {
         r.pending = None;
         r.state = State::Done;
         r.done = Some(done);
-        self.release(host, freed);
+        self.release(host, freed.saturating_add(input));
     }
 
     fn bare(&self, at: u64, status: u32, why: u32, flags: u32) -> Done {
@@ -212,6 +266,12 @@ impl Inner {
     pub(super) fn pump(&mut self, host: &dyn NetHost) {
         let profile = host.profile();
         let now = host.now_ms();
+        if host.network_up() {
+            // A network came: the wait for one starts again if it goes.
+            for r in &mut self.reqs {
+                r.net_wait = None;
+            }
+        }
         let mut index = 0;
         while index < self.reqs.len() {
             if self.reqs[index].state != State::Queued {
@@ -289,10 +349,10 @@ impl Inner {
             let no_net = r.state == State::Queued
                 && r.net_wait
                     .is_some_and(|w| now.saturating_sub(w) >= NO_NETWORK_MS);
-            if over {
-                self.end_with(host, index, reason::TIMEOUT, 0);
-            } else if no_net {
+            if no_net {
                 self.end_with(host, index, reason::NO_NETWORK, 0);
+            } else if over {
+                self.end_with(host, index, reason::TIMEOUT, 0);
             }
         }
     }
@@ -326,29 +386,25 @@ pub(super) fn request(host: &dyn NetHost, who: &Caller<'_>, input: &[u8]) -> Res
         .map_err(|_| ERR_NO_MEMORY)?;
     batch.extend_from_slice(input);
     let mut inner = host_table(host)?;
-    if inner
-        .reqs
-        .iter()
-        .filter(|r| Inner::live(r) && r.owner == who.owner)
-        .count()
-        >= PLUGIN_REQUESTS
-        || inner.reqs.iter().filter(|r| Inner::live(r)).count() >= DEVICE_REQUESTS
-    {
-        return Err(ERR_BUSY);
-    }
+    inner.admit_request(host, who.owner)?;
     let replaced = same_save_file(host, &inner, who.owner, &parsed)?;
     gate()?;
     inner.reqs.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
     let id = inner.next_id.checked_add(1).ok_or(ERR_FULL)?;
     let now = host.now_ms();
+    // Everything that can fail comes before the first change: the input's
+    // room (counting what the replaced requests give back), then the claim.
+    inner.input_fits(host, &replaced, input.len())?;
+    if let Some(file) = &parsed.save {
+        host.claim_save(who.owner, file.root, file.path)?;
+    }
     for old in replaced {
         if let Some(index) = inner.index(old) {
             inner.end_with(host, index, reason::REPLACED, 0);
         }
     }
-    if let Some(file) = &parsed.save {
-        host.claim_save(who.owner, file.root, file.path)?;
-    }
+    let held = inner.reserve(host, input.len() as u32);
+    debug_assert!(held, "the room was checked");
     inner.next_id = id;
     let timeout_ms = match (parsed.head.timeout_ms, saving) {
         (0, true) => FILE_TIMEOUT_MS,
@@ -375,6 +431,11 @@ pub(super) fn request(host: &dyn NetHost, who: &Caller<'_>, input: &[u8]) -> Res
         last_move: now,
         net_wait: None,
         reserved: 0,
+        input: if host.profile().pool == 0 {
+            0
+        } else {
+            input.len() as u32
+        },
         sent: None,
         pending: None,
         done: None,
@@ -451,7 +512,10 @@ pub(crate) struct Finished<'a> {
     pub(crate) etag: &'a str,
     pub(crate) content_type: &'a str,
     pub(crate) final_url: &'a str,
-    /// The memory body (or the error body of a failure with a status).
+    /// The memory body (or the error body of a failure with a status). Its
+    /// allocation (capacity, not length) must not exceed what the request
+    /// reserved (`max_body`, or 4,096 for a saving request); a larger buffer
+    /// ends the request with `TOO_LARGE`.
     pub(crate) body: Vec<u8>,
 }
 
@@ -474,31 +538,50 @@ pub(crate) fn finished(host: &dyn NetHost, id: u32, mut outcome: Finished<'_>) -
     // A failure without a status has no body; with one, at most the error
     // body; a saved answer's body is in the file.
     if (!ok && outcome.status == 0) || saved {
-        outcome.body.clear();
+        // Dropped, not cleared: a cleared buffer would keep its capacity.
+        outcome.body = Vec::new();
     }
-    let cap = if ok && !r.saving {
+    // An error body is at most 4,096 bytes and never more than the request
+    // holds in the pool.
+    let reserved = r.reserved as usize;
+    let cap = if ok && !r.saving && (200..300).contains(&outcome.status) {
         r.max_body as usize
     } else {
-        ERROR_BODY
+        ERROR_BODY.min(reserved)
     };
     let mut flags = if saved { DONE_SAVED } else { 0 };
     if outcome.body.len() > cap {
         outcome.body.truncate(cap);
         flags |= DONE_TRUNCATED;
-    } else if outcome.truncated && !r.saving {
+    } else if outcome.truncated && !saved {
         flags |= DONE_TRUNCATED;
+    }
+    // The transport's buffer must fit what the request holds in the pool:
+    // `truncate` and `clear` keep capacity, so the capacity is what is held.
+    let overshoot = outcome.body.capacity() > reserved;
+    if overshoot {
+        outcome.body = Vec::new();
     }
     let at = host.now_ms();
     let mut done = inner.bare(at, outcome.status, outcome.reason, flags);
     let parts = [outcome.etag, outcome.content_type, outcome.final_url];
     let total: usize = parts.iter().map(|p| p.len()).sum();
     if parts[0].len() > 256 || parts[1].len() > 128 || parts[2].len() > 1024 {
-        return Err(ERR_INVALID);
+        // A hostile server's overlong head: the request ends now, refused,
+        // and does not wait for its timeout.
+        inner.end_with(host, index, reason::REFUSED, 0);
+        inner.pump(host);
+        inner.sync_demand(host);
+        return Ok(());
     }
-    if gate().is_err() || done.head.try_reserve_exact(total).is_err() {
-        // No room for the answer's head: the body goes too.
-        done.reason = reason::TOO_LARGE;
-        done.status = 0;
+    if overshoot || gate().is_err() || done.head.try_reserve_exact(total).is_err() {
+        if overshoot || !saved {
+            // No room for the answer's head: the body goes too.
+            done.reason = reason::TOO_LARGE;
+            done.status = 0;
+        }
+        // A saved answer is committed: the file is the new one. It stays a
+        // success; only the optional head (ETag, type, final URL) is lost.
     } else {
         for part in parts {
             done.head.extend_from_slice(part.as_bytes());
@@ -781,11 +864,13 @@ pub(super) fn owner_stopped(host: &dyn NetHost, owner: u64) -> Result<(), i32> {
         {
             host.release_save(owner, file.root, file.path);
         }
-        freed = freed.saturating_add(r.reserved);
+        freed = freed.saturating_add(r.reserved).saturating_add(r.input);
         inner.reqs.remove(index);
     }
     inner.release(host, freed);
     serving::owner_stopped(&mut inner, host, owner);
+    // Whatever the plugin's servers left in its `.received/` goes with it.
+    host.clear_received(owner, None);
     inner.pump(host);
     inner.sync_demand(host);
     Ok(())

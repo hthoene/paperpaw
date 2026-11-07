@@ -50,6 +50,7 @@ pub(crate) struct Fake {
     pub(crate) unlistened: RefCell<Vec<u32>>,
     pub(crate) replies: RefCell<Vec<(u32, u32, Option<u64>)>>,
     pub(crate) reply_fails: Cell<Option<i32>>,
+    pub(crate) claim_fails: Cell<Option<i32>>,
     pub(crate) closed: RefCell<Vec<(u32, u32)>>,
     pub(crate) cleared: RefCell<Vec<(u64, Option<u32>)>>,
     pub(crate) removed: RefCell<Vec<(u64, u32, u32)>>,
@@ -80,6 +81,7 @@ impl Fake {
             unlistened: RefCell::new(Vec::new()),
             replies: RefCell::new(Vec::new()),
             reply_fails: Cell::new(None),
+            claim_fails: Cell::new(None),
             closed: RefCell::new(Vec::new()),
             cleared: RefCell::new(Vec::new()),
             removed: RefCell::new(Vec::new()),
@@ -178,15 +180,22 @@ impl NetHost for Fake {
         a.eq_ignore_ascii_case(b)
     }
     fn claim_save(&self, owner: u64, root: u32, path: &str) -> Result<(), i32> {
+        if let Some(error) = self.claim_fails.get() {
+            return Err(error);
+        }
         self.claims
             .borrow_mut()
             .push((owner, root, path.to_string()));
         Ok(())
     }
     fn release_save(&self, owner: u64, root: u32, path: &str) {
-        self.claims
-            .borrow_mut()
-            .retain(|c| !(c.0 == owner && c.1 == root && c.2 == path));
+        let mut claims = self.claims.borrow_mut();
+        if let Some(at) = claims
+            .iter()
+            .position(|c| c.0 == owner && c.1 == root && c.2 == path)
+        {
+            claims.remove(at);
+        }
         self.released
             .borrow_mut()
             .push((owner, root, path.to_string()));

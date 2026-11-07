@@ -108,12 +108,13 @@ pub(crate) struct NetProfile {
 
 impl NetProfile {
     /// The X4: a 48 KiB pool until Firmware has measured, two memory bodies,
-    /// two connections.
+    /// two connections; the default and largest `max_body` leave room in the
+    /// pool for one request's input (4 KiB).
     pub(crate) const X4: Self = Self {
         pool: 49_152,
         memory_bodies: 2,
         connections: 2,
-        max_body: 49_152,
+        max_body: 45_056,
         cable: true,
     };
     /// Devices without a pool (Android, the emulator).
@@ -198,7 +199,10 @@ pub(crate) trait NetHost {
     /// Whether two paths of the same root name the same file (case, 8.3
     /// aliases): the storage's identity, not the spelling.
     fn same_file(&self, root: u32, a: &str, b: &str) -> bool;
-    /// Put the target and its `.part` file in the paths-in-use table.
+    /// Put the target and its `.part` file in the paths-in-use table. Claims
+    /// are counted: the same plugin may claim a file it already has claimed (a
+    /// request that replaces its older one claims first, so a refusal changes
+    /// nothing), and each `release_save` gives one back.
     fn claim_save(&self, owner: u64, root: u32, path: &str) -> Result<(), i32>;
     /// Remove the `.part` file (best effort) and free the claim.
     fn release_save(&self, owner: u64, root: u32, path: &str);
