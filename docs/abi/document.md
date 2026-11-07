@@ -461,10 +461,12 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   `read_at` requests of up to that size, plus a few bytes per source row and per drawn column: at
   most 32 KiB, about 25-30 KiB for a 1,600-pixel picture), allocated fallibly before the first
   band and freed before the call returns; refused, it is `ERR_NO_MEMORY` with nothing drawn. The
-  one thing kept between calls is the **dithering carry**: the error rows of the picture whose
-  bands this frame draws, at most 4 KiB per plugin, so band edges do not show; freed when the
-  frame ends or the image id ends. Where it cannot be had (refused, or another picture holds it)
-  the drawer dithers that call without carry (Atkinson within the call), never an error.
+  one thing a host **may** keep between calls is a **dithering carry**: the error rows of the
+  picture whose bands this frame draws, at most 4 KiB per plugin, so band edges do not show; freed
+  when the frame ends or the image id ends. A host that keeps none, or cannot have it (refused,
+  or another picture holds it), dithers each call on its own (Atkinson within the call), never an
+  error. These limits are slot 37's; a plugin that draws a picture itself with the SDK's drawer
+  spends its own heap under its own budget.
   Dithering and night-mode inversion are the host's own, by the screen and the user's settings,
   not flags.
 - [D] **Cache sweeps** (prepared images and document caches left by a stopped plugin or a cut
