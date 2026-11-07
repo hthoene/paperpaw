@@ -63,6 +63,9 @@ pub(crate) struct Fake {
     pub(crate) options_seen: Cell<usize>,
     pub(crate) roots: Cell<u32>,
     pub(crate) ended: RefCell<Vec<u32>>,
+    pub(crate) images_ended: RefCell<Vec<u32>>,
+    /// The format plugin stops while the host is calling it (it crashed).
+    pub(crate) stops_during_call: Cell<bool>,
     pub(crate) closed: RefCell<Vec<(u32, u32)>>,
     pub(crate) image: Cell<Option<Option<u32>>>,
     pub(crate) rows: RefCell<Vec<Vec<u8>>>,
@@ -82,6 +85,8 @@ impl Fake {
             options_seen: Cell::new(0),
             roots: Cell::new(0b11),
             ended: RefCell::new(Vec::new()),
+            images_ended: RefCell::new(Vec::new()),
+            stops_during_call: Cell::new(false),
             closed: RefCell::new(Vec::new()),
             image: Cell::new(Some(Some(41))),
             rows: RefCell::new(Vec::new()),
@@ -137,6 +142,9 @@ impl DocHost for Fake {
             call.cover_side,
         ]);
         self.texts.borrow_mut().push(call.text.into());
+        if self.stops_during_call.get() {
+            format_stopped(self, FORMAT);
+        }
         if let Some(error) = self.fails.get() {
             return Err(error);
         }
@@ -146,8 +154,11 @@ impl DocHost for Fake {
             .copy_from_slice(&answer);
         Ok(answer.len())
     }
-    fn document_ended(&self, document: &Document) {
+    fn close_format(&self, document: &Document) {
         self.ended.borrow_mut().push(document.id);
+    }
+    fn end_images(&self, document: &Document) {
+        self.images_ended.borrow_mut().push(document.id);
     }
     fn document_closed(&self, document: &Document, reason: u32) {
         self.closed.borrow_mut().push((document.id, reason));
@@ -754,4 +765,16 @@ fn a_frame_without_the_host_or_a_caller_refuses_the_family() {
             generation: 0,
         },
     );
+}
+
+/// Senior #1110: on the X4 the reading plugin's `open` evicts a background
+/// opener's document, which is closed with reason 4 `needed`. Not built until
+/// Kernel's draft-20 contract carries the reason and the records.
+#[test]
+#[ignore = "waits for Kernel's draft-20 reason 4 `needed` (#228, Senior #1110)"]
+fn x4_reading_open_evicts_a_background_document_with_reason_needed() {
+    // Expected: a background opener holds the only slot it may take, the
+    // reading plugin opens its book, the background document ends with
+    // reason 4, its opener hears `event.document_closed` and the format gets
+    // op 4 close; the reader's open succeeds. A background open never evicts.
 }
