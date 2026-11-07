@@ -34,6 +34,7 @@ pub use super::admitted_features::AdmittedFeatures;
 use super::canvas::CanvasScope;
 pub use super::data_services::DATA_SERVICES;
 pub use super::declared_services::{DeclaredServices, Error as DeclaredServicesError};
+pub use super::device_service::DEVICE_SERVICES;
 use super::environment::EnvironmentScope;
 use super::registration_scope::RegistrationScope;
 use super::registrations::{self, EVENT_TICK_TAG, Registration};
