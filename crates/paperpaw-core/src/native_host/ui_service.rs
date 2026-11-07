@@ -211,6 +211,7 @@ fn params(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Re
         total: info.params,
         generation: 0,
         next: 0,
+        cursor: None,
     };
     let reserved = wire::record_framed_len(&Record::ServiceEnd(end))?;
     let room = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;
