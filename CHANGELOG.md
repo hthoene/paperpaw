@@ -6,6 +6,13 @@ change the plugin SDK.
 
 ## [Unreleased]
 
+- Interface 7 SDK: `native::storage::DataStorage`, the plugin's data folder as a
+  `Storage`. Reads and appends over 4 KiB are split; a longer write is staged in
+  `name.pp-staged`, synced and renamed over the old file, so it is the old file or
+  the new, whole. The suffix `.pp-staged` is reserved: `native::storage::write`,
+  `append`, `rename` and `remove` refuse (`Invalid`) any name ending in it, in any
+  case, so only the staging touches such files.
+
 - Interface 7 draft 7 SDK: typed callbacks and frame-owned drawing, font metrics
   and ink, nested clipping, exact snapshot views, complete message copies,
   settings/grant reads, typed callback subscriptions and
@@ -19,14 +26,28 @@ change the plugin SDK.
 
 ### Added
 
+- `paperpaw-sqlite` writes, column names and schema reads allocate fallibly (`Error::OutOfMemory`,
+  `try_encode_record`, `columns` returns a `Result`); `Md5::hex_into` and `md5::partial_into`
+  write hex digits without allocating (#228).
+- Battery is a native interface-7 plugin only: the interface-6 plugin, its view and its Kernel
+  tests are removed, the events table and storage goldens run on the native recorder, and the app
+  and the store-file build no longer register it until Core publishes native plugins (#228).
 - Keyboard 1.1.2: the interface-7 native plugin (the text dialog on `core.keyboard` answering
   through `core.ui`, keys, shift, variants, paste, type on the phone, secret texts, the layouts
   chooser) on `paperpaw-ui-kit`; hardware-typed text, font-coverage filtering and layouts added by
   other plugins wait for host pieces and are named in `plugins/keyboard/PORTING-7.md` (#228).
-- Menu 1.0.6: the interface-7 native plugin, first slice: the menu list as a sheet over the
-  screen (rows from the registry, submenus, settings changed in place, paging); `paperpaw-ui-kit`
-  gains `ItemList::draw_sheet`, `sheet::geometry` and faint rows. Tiles, the bar and the quick
-  panel follow (#228).
+- Settings 1.0.7: the interface-7 native plugin (main page, group pages, choosing a value, themes,
+  search, reset, restart (asks first, declares `uses.power`), number editing with preview) over the registry service; `paperpaw-ui-kit` item
+- Native SDK library field reads use lossless pages with a separate book-field
+  generation cursor. Typed book-field and badge declarations expose the existing
+  library records to providers (#228).
+
+- `paperpaw-config`: `Value::try_as_str` (one fallible reservation for escaped values, so an X4
+  plugin gets an error instead of an abort) and `Value::is_escaped` (#228).
+- Native SDK Bluetooth commands (`CommandSender::bt_scan`, `bt_stop_scan`, `bt_pair`, `bt_connect`,
+  `bt_disconnect`, `bt_forget`, `bt_give`, `bt_take_back`, `bt_keys`) and the typed `event.bluetooth`
+  (`Event::Bluetooth` with typed kind, device kind and reason; unknown values read as `Other`) for the
+  plugin bound to `core.bluetooth` (#228).
 - Settings 1.0.6: the interface-7 native plugin (main page, group pages, choosing a value, themes,
   search, reset, number editing with preview) over the registry service; `paperpaw-ui-kit` item
   rows gain − and + buttons and show a title that is already translated as it is (#228).
@@ -41,6 +62,13 @@ change the plugin SDK.
 - Native SDK `EventKind::Answered` (subscribe to `core.ui` question answers) and
   `Snapshot::display_gray_levels` / `display_is_colour`. Interface draft 22 (`native::DRAFT`)
   refuses plugins built for draft 21 (#228).
+- SDK: `native::net` (typed `core.net@1` requests with checked headers, bodies, files and
+  limits, answer and body reads, cancel) and the `HttpDone` and `HttpProgress` events with
+  `EventKind::HttpDone` and `HttpProgress` (#228).
+- Native SDK `native::lookup` (synchronous `core.lookup` asks and provider answers) and
+  `LookupProviderDecl`. Interface draft 23 (`native::DRAFT`) refuses plugins built for draft 22
+  (#228).
+
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
   `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-ui-kit` gains item lists with
   footers, whole-file storage helpers and a screen registry (#228).
@@ -322,6 +350,8 @@ change the plugin SDK.
 
 ### Fixed
 
+- `paperpaw-sqlite` never copies over a database: a storage that cannot move files is refused
+  (the old file kept); it copies through one 4 KiB page and syncs before the move (#228).
 - *Discover fonts* in the reading settings, where *More fonts* does not run, says why and offers the one thing to
   do (it is not installed: open its page; it is switched off: switch it on; it waits for a restart: restart),
   instead of only opening the store's page of the plugin. A plugin's page opened without a connection says
