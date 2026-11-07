@@ -722,14 +722,14 @@ unsafe extern "C" fn settings_read<S>(ctx: *mut c_void, key: PpBytes, out: PpBuf
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
+    let caller = match context.resources.caller() {
+        Ok(caller) => caller,
+        Err(error) => return error,
+    };
     // SAFETY: generated slot 5 requires initialized immutable readable key
     // bytes and exclusive output, disjoint from key and host state. No pointer
     // is kept. The backend's required-length and prefix semantics are kept.
-    unsafe {
-        context
-            .environment
-            .settings_read(key.ptr, key.len, out.ptr, out.cap)
-    }
+    unsafe { context.environment.settings_read_for(caller, key, out) }
 }
 
 /// Slot 9 (`canvas.fill_rect`): the foreign callback reaches [`CanvasScope`]

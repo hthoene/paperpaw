@@ -31,6 +31,9 @@ pub(crate) struct RowsEnd {
 pub(crate) trait Frame {
     fn settings(&self) -> &Settings;
     fn translator(&self) -> &Translator;
+    fn settings_editor(&self) -> Option<&str> {
+        None
+    }
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
         None
     }

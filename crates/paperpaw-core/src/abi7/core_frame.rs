@@ -21,6 +21,11 @@ impl Frame for CoreFrame<'_> {
     fn settings(&self) -> &Settings {
         self.env.settings()
     }
+    fn settings_editor(&self) -> Option<&str> {
+        self.env
+            .slot_screen(paperpaw_sdk::builtin::slots::SETTINGS.as_str())
+            .map(paperpaw_sdk::Id::namespace)
+    }
     fn translator(&self) -> &Translator {
         self.env.i18n()
     }
