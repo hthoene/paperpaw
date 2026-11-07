@@ -219,16 +219,17 @@ one counted batch of at most `input_rows` records.
   (the send queue) and `SOCK_READ` (the read part, also a file read's write buffer) are **4 KiB
   each on the X4** and 16 KiB on others. mail reads 1,024 bytes and sends in pieces on `sent`;
   calibre's large messages and books go through `file` reads.
-- [D] **The X4's network pool** (`network.md` 3.4, `NET_POOL`, 80 KiB) is shared with NET: a socket
+- [D] **The X4's network pool** (`network.md` 3.4, `NET_POOL`, 48 KiB until measured) is shared with NET: a socket
   reserves `SOCK_QUEUE` + `SOCK_READ` (8 KiB) at `connect` and a broadcast 8 x 1 KiB for its
   answers at `broadcast`, both freed when they end; when the pool is short the call answers
   `ERR_NO_MEMORY` and nothing is held. A reservation never grows, so a socket never ends for
   memory once open (`no_memory` stays for the shell's own buffers, below).
 - Per socket in the shell, outside the pool: 8 KiB TCP receive and 2 KiB send (X4 `MAX_SOCKETS`
   2), and the device's one TLS session (about 40 KiB, shared with NET). A shell that cannot get
-  them ends the socket `failed` `no_memory`. Worst case on the X4: the full pool (80 KiB), two
-  sockets' shell buffers (20 KiB) and the TLS session, about 140 KiB; Firmware measures it with
-  NET's and the profile lowers `NET_POOL` if it does not fit.
+  them ends the socket `failed` `no_memory`. The TLS session's memory is allocated once at start,
+  before the heap fragments, and reused (`network.md` section 9). Worst case on the X4: the full
+  pool (48 KiB), two sockets' shell buffers (20 KiB) and the TLS session, about 108 KiB; Firmware
+  measures it with NET's and the profile sets `NET_POOL` from that.
 
 ## 7. Who uses what (first-party, interface 6 audit)
 
@@ -255,7 +256,8 @@ one counted batch of at most `input_rows` records.
   gate and power ends; tests for each status and reason, and one for a pool full of NET bodies.
 - **Firmware (with H10):** the shells' sockets as today (X4 `MAX_SOCKETS` 2, buffers, `tls_slots`,
   `tls_trust`), the idle time on plain sockets, `SOCK_QUEUE`, `SOCK_READ` and `NET_POOL` in the
-  profiles, and the X4 worst-case measurement with NET's (section 6).
+  profiles (X4 pool 48 KiB until measured), the TLS session's memory allocated once at start, and
+  the X4 worst-case measurement with NET's (section 6).
 - **Services:** `native::sockets` (connect builder with pins, a reader that keeps surplus bytes and
   decodes UTF-8, file reads, send in pieces on `sent` keeping unsent bytes, broadcast); its
   `start_tls` refuses with `ERR_STATE` while the reader holds surplus bytes (2.4), with a test that
