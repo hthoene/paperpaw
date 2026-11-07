@@ -42,6 +42,14 @@ class StageTests(unittest.TestCase):
         del legacy['emitted_stages']
         ABI.check_lock(legacy, schema)
 
+    def test_local_record_name_cannot_shadow_the_stream(self):
+        schema = copy.deepcopy(self.schema)
+        stage = self.stage(schema)
+        stage['records'][0]['name'] = 'record.stream'
+        stage['input'] = ['record.stream']
+        with self.assertRaisesRegex(ValueError, 'collides'):
+            validate_stages(schema)
+
     def test_repository_schemas_are_stage_local_and_copies_match(self):
         stages = self.schema['stages']
         self.assertEqual([s['key'] for s in stages],

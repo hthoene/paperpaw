@@ -58,20 +58,12 @@ fn filter_records_round_trip_at_every_field_cap() {
     round_trip!(
         filter,
         FilterInput,
-        filter::FilterInput {
-            input: &input,
-            flags: u32::MAX
-        }
+        filter::FilterInput::new(&input, u32::MAX)
     );
     round_trip!(
         filter,
         FilterVerdict,
-        filter::FilterVerdict {
-            kind: 5,
-            action: &action,
-            input: &input,
-            raise: &raise,
-        }
+        filter::FilterVerdict::new(5, &action, &input, &raise)
     );
 }
 
@@ -80,51 +72,27 @@ fn all_widget_records_round_trip_at_scalar_limits() {
     round_trip!(
         widget,
         WidgetMeasure,
-        widget::WidgetMeasure {
-            instance: u32::MAX,
-            width: u32::MAX,
-        }
+        widget::WidgetMeasure::new(u32::MAX, u32::MAX)
     );
     round_trip!(
         widget,
         WidgetPlace,
-        widget::WidgetPlace {
-            instance: u32::MAX,
-            x: i32::MIN,
-            y: i32::MAX,
-            width: u32::MAX,
-            height: u32::MAX,
-        }
+        widget::WidgetPlace::new(u32::MAX, i32::MIN, i32::MAX, u32::MAX, u32::MAX)
     );
     round_trip!(
         widget,
         WidgetTargets,
-        widget::WidgetTargets {
-            instance: u32::MAX,
-            x: i32::MIN,
-            y: i32::MAX,
-            width: u32::MAX,
-            height: u32::MAX,
-        }
+        widget::WidgetTargets::new(u32::MAX, i32::MIN, i32::MAX, u32::MAX, u32::MAX)
     );
     round_trip!(
         widget,
         WidgetSize,
-        widget::WidgetSize {
-            height: u32::MAX,
-            min_height: u32::MAX,
-        }
+        widget::WidgetSize::new(u32::MAX, u32::MAX)
     );
     round_trip!(
         widget,
         WidgetTarget,
-        widget::WidgetTarget {
-            target: u32::MAX,
-            x: i32::MIN,
-            y: i32::MAX,
-            width: u32::MAX,
-            height: u32::MAX,
-        }
+        widget::WidgetTarget::new(u32::MAX, i32::MIN, i32::MAX, u32::MAX, u32::MAX)
     );
 }
 
@@ -134,32 +102,18 @@ fn status_records_round_trip_at_effective_list_and_field_caps() {
     let items = vec!["a".repeat(128); 8].join("\n");
     let context = [0xc3; 1024];
     let text = "t".repeat(128);
-    round_trip!(
-        status,
-        StatusAsk,
-        status::StatusAsk {
-            items: &items,
-            context: &context
-        }
-    );
+    round_trip!(status, StatusAsk, status::StatusAsk::new(&items, &context));
     round_trip!(
         status,
         StatusValue,
-        status::StatusValue {
-            item: &text,
-            flags: u32::MAX,
-            text: &text,
-        }
+        status::StatusValue::new(&text, u32::MAX, &text)
     );
 }
 
 #[test]
 fn filter_input_cap_is_checked_on_encode_and_decode() {
     let input = [0x7f; 129];
-    let value = filter::FilterInput {
-        input: &input,
-        flags: 0,
-    };
+    let value = filter::FilterInput::new(&input, 0);
     let mut out = [0xa5; 3840];
     assert_eq!(value.encode(&mut out), Err(ERR_INVALID));
     assert!(out.iter().all(|byte| *byte == 0xa5));
@@ -179,12 +133,7 @@ fn every_filter_verdict_blob_cap_is_checked_in_both_directions() {
         (String::new(), vec![0; 129], String::new()),
         (String::new(), vec![], "r".repeat(65)),
     ] {
-        let value = filter::FilterVerdict {
-            kind: 4,
-            action: &action,
-            input: &input,
-            raise: &raise,
-        };
+        let value = filter::FilterVerdict::new(4, &action, &input, &raise);
         assert_eq!(value.encode(&mut [0; 3840]), Err(ERR_INVALID));
         let mut body = vec![0];
         body.extend_from_slice(&4_u32.to_le_bytes());
@@ -208,10 +157,7 @@ fn status_ask_rejects_bad_lists_and_context_caps_in_both_directions() {
         "a".repeat(129),
         "a".repeat(1033),
     ] {
-        let ask = status::StatusAsk {
-            items: &items,
-            context: &[],
-        };
+        let ask = status::StatusAsk::new(&items, &[]);
         assert_eq!(ask.encode(&mut [0; 3840]), Err(ERR_INVALID));
         let mut body = vec![0];
         blob(items.as_bytes(), &mut body);
@@ -222,10 +168,7 @@ fn status_ask_rejects_bad_lists_and_context_caps_in_both_directions() {
         );
     }
     let context = [0; 1025];
-    let ask = status::StatusAsk {
-        items: "item",
-        context: &context,
-    };
+    let ask = status::StatusAsk::new("item", &context);
     assert_eq!(ask.encode(&mut [0; 3840]), Err(ERR_INVALID));
     let mut body = vec![0];
     blob(b"item", &mut body);
@@ -242,11 +185,7 @@ fn status_value_rejects_both_text_caps_in_both_directions() {
         ("i".repeat(129), String::new()),
         (String::new(), "t".repeat(129)),
     ] {
-        let value = status::StatusValue {
-            item: &item,
-            flags: 0,
-            text: &text,
-        };
+        let value = status::StatusValue::new(&item, 0, &text);
         assert_eq!(value.encode(&mut [0; 3840]), Err(ERR_INVALID));
         let mut body = vec![0];
         blob(item.as_bytes(), &mut body);
@@ -289,12 +228,9 @@ fn local_tags_do_not_admit_another_schemas_record_body() {
     assert_eq!(filter::FILTER_INPUT_TAG, status::STATUS_ASK_TAG);
     assert_eq!(status::STATUS_ASK_TAG, widget::WIDGET_MEASURE_TAG);
     let mut bytes = [0; 128];
-    let len = (widget::WidgetMeasure {
-        instance: 1,
-        width: 2,
-    })
-    .encode(&mut bytes)
-    .unwrap();
+    let len = (widget::WidgetMeasure::new(1, 2))
+        .encode(&mut bytes)
+        .unwrap();
     assert_eq!(filter::FilterInput::decode(&bytes[..len]), Err(ERR_INVALID));
     assert_eq!(status::StatusAsk::decode(&bytes[..len]), Err(ERR_INVALID));
 }
@@ -319,12 +255,9 @@ fn stage_catalog_exposes_the_three_schema_caps_and_local_tags() {
 #[test]
 fn a_later_foreign_tag_is_rejected_before_the_stream_is_exposed() {
     let mut bytes = [0; 128];
-    let len = (widget::WidgetMeasure {
-        instance: 1,
-        width: 2,
-    })
-    .encode(&mut bytes)
-    .unwrap();
+    let len = (widget::WidgetMeasure::new(1, 2))
+        .encode(&mut bytes)
+        .unwrap();
     let mut batch = bytes[..len].to_vec();
     batch[0] = 2;
     batch.extend_from_slice(&frame(511, &[0])[1..]);
@@ -333,13 +266,7 @@ fn a_later_foreign_tag_is_rejected_before_the_stream_is_exposed() {
 
 #[test]
 fn widget_target_stream_holds_the_maximum_reply_rows() {
-    let target = widget::WidgetTarget {
-        target: 1,
-        x: -1,
-        y: 2,
-        width: 3,
-        height: 4,
-    };
+    let target = widget::WidgetTarget::new(1, -1, 2, 3, 4);
     let records = vec![widget::Record::WidgetTarget(target); 32];
     let mut bytes = [0; 3840];
     let len = widget::records_encode(&records, &mut bytes).unwrap();

@@ -634,6 +634,65 @@ const paperpaw_sdk::native::formatting::MAX_DIGIT_BYTES: usize = 4_096usize
 const paperpaw_sdk::native::formatting::MAX_KEY_BYTES: usize = 128usize
 const paperpaw_sdk::native::formatting::MAX_MESSAGE_BYTES: usize = 4_096usize
 const paperpaw_sdk::native::keys::MAX_REVOKED: usize = 256usize
+const paperpaw_sdk::native::stages::core_input_filter_v1::FILTER_INPUT_INPUT_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::stages::core_input_filter_v1::FILTER_INPUT_TAG: u32 = 1u32
+const paperpaw_sdk::native::stages::core_input_filter_v1::FILTER_VERDICT_ACTION_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::stages::core_input_filter_v1::FILTER_VERDICT_INPUT_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::stages::core_input_filter_v1::FILTER_VERDICT_RAISE_MAX_BYTES: usize = 64usize
+const paperpaw_sdk::native::stages::core_input_filter_v1::FILTER_VERDICT_TAG: u32 = 2u32
+const paperpaw_sdk::native::stages::core_input_filter_v1::FilterInput<'a>::TAG: u32 = FILTER_INPUT_TAG
+const paperpaw_sdk::native::stages::core_input_filter_v1::FilterVerdict<'a>::TAG: u32 = FILTER_VERDICT_TAG
+const paperpaw_sdk::native::stages::core_input_filter_v1::INPUT_TAGS: &[u32] = &[1]
+const paperpaw_sdk::native::stages::core_input_filter_v1::KEY: &str = "core.input-filter"
+const paperpaw_sdk::native::stages::core_input_filter_v1::MAJOR: u16 = 1u16
+const paperpaw_sdk::native::stages::core_input_filter_v1::MAX_INPUT: usize = 3_840usize
+const paperpaw_sdk::native::stages::core_input_filter_v1::MAX_REPLY: usize = 3_840usize
+const paperpaw_sdk::native::stages::core_input_filter_v1::MAX_SUBSCRIBERS: usize = 4usize
+const paperpaw_sdk::native::stages::core_input_filter_v1::REPLY_ROWS: usize = 1usize
+const paperpaw_sdk::native::stages::core_input_filter_v1::REPLY_TAGS: &[u32] = &[2]
+const paperpaw_sdk::native::stages::core_input_filter_v1::REVISION: u16 = 0u16
+const paperpaw_sdk::native::stages::core_input_filter_v1::TEST_ONLY: bool = false
+const paperpaw_sdk::native::stages::core_status_v1::INPUT_TAGS: &[u32] = &[1]
+const paperpaw_sdk::native::stages::core_status_v1::KEY: &str = "core.status"
+const paperpaw_sdk::native::stages::core_status_v1::MAJOR: u16 = 1u16
+const paperpaw_sdk::native::stages::core_status_v1::MAX_INPUT: usize = 3_840usize
+const paperpaw_sdk::native::stages::core_status_v1::MAX_REPLY: usize = 3_840usize
+const paperpaw_sdk::native::stages::core_status_v1::MAX_SUBSCRIBERS: usize = 32usize
+const paperpaw_sdk::native::stages::core_status_v1::REPLY_ROWS: usize = 8usize
+const paperpaw_sdk::native::stages::core_status_v1::REPLY_TAGS: &[u32] = &[2]
+const paperpaw_sdk::native::stages::core_status_v1::REVISION: u16 = 0u16
+const paperpaw_sdk::native::stages::core_status_v1::STATUS_ASK_CONTEXT_MAX_BYTES: usize = 1_024usize
+const paperpaw_sdk::native::stages::core_status_v1::STATUS_ASK_ITEMS_ITEM_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::stages::core_status_v1::STATUS_ASK_ITEMS_MAX_BYTES: usize = 1_032usize
+const paperpaw_sdk::native::stages::core_status_v1::STATUS_ASK_ITEMS_MAX_ITEMS: usize = 8usize
+const paperpaw_sdk::native::stages::core_status_v1::STATUS_ASK_ITEMS_SEPARATOR: char = '\n'
+const paperpaw_sdk::native::stages::core_status_v1::STATUS_ASK_TAG: u32 = 1u32
+const paperpaw_sdk::native::stages::core_status_v1::STATUS_VALUE_ITEM_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::stages::core_status_v1::STATUS_VALUE_TAG: u32 = 2u32
+const paperpaw_sdk::native::stages::core_status_v1::STATUS_VALUE_TEXT_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::stages::core_status_v1::StatusAsk<'a>::TAG: u32 = STATUS_ASK_TAG
+const paperpaw_sdk::native::stages::core_status_v1::StatusValue<'a>::TAG: u32 = STATUS_VALUE_TAG
+const paperpaw_sdk::native::stages::core_status_v1::TEST_ONLY: bool = false
+const paperpaw_sdk::native::stages::core_widget_v1::INPUT_TAGS: &[u32] = &[1, 2, 3]
+const paperpaw_sdk::native::stages::core_widget_v1::KEY: &str = "core.widget"
+const paperpaw_sdk::native::stages::core_widget_v1::MAJOR: u16 = 1u16
+const paperpaw_sdk::native::stages::core_widget_v1::MAX_INPUT: usize = 3_840usize
+const paperpaw_sdk::native::stages::core_widget_v1::MAX_REPLY: usize = 3_840usize
+const paperpaw_sdk::native::stages::core_widget_v1::MAX_SUBSCRIBERS: usize = 32usize
+const paperpaw_sdk::native::stages::core_widget_v1::REPLY_ROWS: usize = 32usize
+const paperpaw_sdk::native::stages::core_widget_v1::REPLY_TAGS: &[u32] = &[4, 5]
+const paperpaw_sdk::native::stages::core_widget_v1::REVISION: u16 = 0u16
+const paperpaw_sdk::native::stages::core_widget_v1::TEST_ONLY: bool = false
+const paperpaw_sdk::native::stages::core_widget_v1::WIDGET_MEASURE_TAG: u32 = 1u32
+const paperpaw_sdk::native::stages::core_widget_v1::WIDGET_PLACE_TAG: u32 = 2u32
+const paperpaw_sdk::native::stages::core_widget_v1::WIDGET_SIZE_TAG: u32 = 4u32
+const paperpaw_sdk::native::stages::core_widget_v1::WIDGET_TARGETS_TAG: u32 = 3u32
+const paperpaw_sdk::native::stages::core_widget_v1::WIDGET_TARGET_TAG: u32 = 5u32
+const paperpaw_sdk::native::stages::core_widget_v1::WidgetMeasure::TAG: u32 = WIDGET_MEASURE_TAG
+const paperpaw_sdk::native::stages::core_widget_v1::WidgetPlace::TAG: u32 = WIDGET_PLACE_TAG
+const paperpaw_sdk::native::stages::core_widget_v1::WidgetSize::TAG: u32 = WIDGET_SIZE_TAG
+const paperpaw_sdk::native::stages::core_widget_v1::WidgetTarget::TAG: u32 = WIDGET_TARGET_TAG
+const paperpaw_sdk::native::stages::core_widget_v1::WidgetTargets::TAG: u32 = WIDGET_TARGETS_TAG
 const paperpaw_sdk::native::storage::MAX_DATA: usize = 4_096usize
 const paperpaw_sdk::native::storage::MAX_PATH: usize = 512usize
 const paperpaw_sdk::native::storage::MAX_SEGMENT: usize = 255usize
@@ -953,6 +1012,9 @@ enum paperpaw_sdk::native::keys::RevokedError { Full, NotKept }
 enum paperpaw_sdk::native::keys::RotationError { NoAuthor, NoRecoveryKey, BadSignature, Refused, NotKept }
 enum paperpaw_sdk::native::settings::GrantKind { Style, Install }
 enum paperpaw_sdk::native::settings::SettingValue<'a> { Absent, Bool(0: bool), Int(0: i64), Text(0: &'a str) }
+enum paperpaw_sdk::native::stages::core_input_filter_v1::Record<'a> { FilterInput(0: paperpaw_sdk::native::stages::core_input_filter_v1::FilterInput<'a>), FilterVerdict(0: paperpaw_sdk::native::stages::core_input_filter_v1::FilterVerdict<'a>) }
+enum paperpaw_sdk::native::stages::core_status_v1::Record<'a> { StatusAsk(0: paperpaw_sdk::native::stages::core_status_v1::StatusAsk<'a>), StatusValue(0: paperpaw_sdk::native::stages::core_status_v1::StatusValue<'a>) }
+enum paperpaw_sdk::native::stages::core_widget_v1::Record { WidgetMeasure(0: paperpaw_sdk::native::stages::core_widget_v1::WidgetMeasure), WidgetPlace(0: paperpaw_sdk::native::stages::core_widget_v1::WidgetPlace), WidgetTargets(0: paperpaw_sdk::native::stages::core_widget_v1::WidgetTargets), WidgetSize(0: paperpaw_sdk::native::stages::core_widget_v1::WidgetSize), WidgetTarget(0: paperpaw_sdk::native::stages::core_widget_v1::WidgetTarget) }
 enum paperpaw_sdk::native::storage::Root { Data, Files }
 enum paperpaw_sdk::native::wire::commands_wire::Command<'a> { SetSetting { key: &'a str, value: paperpaw_sdk::native::declare::settings_value::SettingValueRef<'a> }, OpenScreen { screen: &'a str }, RunAction { action: &'a str }, Redraw { mode: u32 }, CloseScreen, SetItemState { item: &'a str, flags: u32, label: &'a str, label_args: &'a [u8], badge: &'a str, badge_args: &'a [u8] } }
 enum paperpaw_sdk::native::wire::services_wire::ServiceBound { None, Card }
@@ -1302,6 +1364,19 @@ struct paperpaw_sdk::native::services::usage::PageEnd { total: u32, generation: 
 struct paperpaw_sdk::native::services::usage::ServicePluginUsage<'a> { plugin: &'a str, busy_us: u64, calls: u32, shown_ms: u64, fast: u32, partial: u32, full: u32, pixels: u64, read: u64, written: u64, syncs: u32, requests: u32, refused: u32, awake_ms: u64, awake_reason: &'a str }
 struct paperpaw_sdk::native::services::usage::ServiceUsage { fast: u32, partial: u32, full: u32, pixels: u64, inputs: u32, sleeps: u32, panel_ms: u64, bluetooth_ms: u64 }
 struct paperpaw_sdk::native::snapshot::Snapshot { now: paperpaw_platform::input::Instant, unix_seconds: core::option::Option<i64>, percent: core::option::Option<u8>, millivolts: core::option::Option<u16>, charging: bool, power_saving: bool, width: u16, height: u16, dpi: u16, touch: bool }
+struct paperpaw_sdk::native::stages::StageSchema { key: &'static str, major: u16, revision: u16, test_only: bool, max_subscribers: usize, max_input: usize, max_reply: usize, reply_rows: usize, input_tags: &'static [u32], reply_tags: &'static [u32] }
+struct paperpaw_sdk::native::stages::core_input_filter_v1::FilterInput<'a> { input: &'a [u8], flags: u32 }
+struct paperpaw_sdk::native::stages::core_input_filter_v1::FilterVerdict<'a> { kind: u32, action: &'a str, input: &'a [u8], raise: &'a str }
+struct paperpaw_sdk::native::stages::core_input_filter_v1::RecordStream<'a> { bytes: &'a [u8], remaining: usize }
+struct paperpaw_sdk::native::stages::core_status_v1::RecordStream<'a> { bytes: &'a [u8], remaining: usize }
+struct paperpaw_sdk::native::stages::core_status_v1::StatusAsk<'a> { items: &'a str, context: &'a [u8] }
+struct paperpaw_sdk::native::stages::core_status_v1::StatusValue<'a> { item: &'a str, flags: u32, text: &'a str }
+struct paperpaw_sdk::native::stages::core_widget_v1::RecordStream<'a> { bytes: &'a [u8], remaining: usize }
+struct paperpaw_sdk::native::stages::core_widget_v1::WidgetMeasure { instance: u32, width: u32 }
+struct paperpaw_sdk::native::stages::core_widget_v1::WidgetPlace { instance: u32, x: i32, y: i32, width: u32, height: u32 }
+struct paperpaw_sdk::native::stages::core_widget_v1::WidgetSize { height: u32, min_height: u32 }
+struct paperpaw_sdk::native::stages::core_widget_v1::WidgetTarget { target: u32, x: i32, y: i32, width: u32, height: u32 }
+struct paperpaw_sdk::native::stages::core_widget_v1::WidgetTargets { instance: u32, x: i32, y: i32, width: u32, height: u32 }
 struct paperpaw_sdk::native::wire::commands_wire::CommandBatch<'a> { records: [core::option::Option<paperpaw_sdk::native::wire::commands_wire::Command<'a>>; 8], len: usize }
 struct paperpaw_sdk::native::wire::services_wire::ServiceOp { id: u32, name: &'static str, since: u16, mutates: bool, feature: core::option::Option<&'static str>, input: &'static [u32], reply: &'static [u32], max_input: usize, max_reply: usize, bound: paperpaw_sdk::native::wire::services_wire::ServiceBound }
 struct paperpaw_sdk::native::wire::services_wire::ServiceSchema { key: &'static str, major: u16, revision: u16, test_only: bool, ops: &'static [paperpaw_sdk::native::wire::services_wire::ServiceOp] }

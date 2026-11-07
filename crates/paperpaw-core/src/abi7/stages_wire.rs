@@ -198,6 +198,7 @@ pub mod core_input_filter_v1 {
 
     /// The `filter.input` record, borrowed from its batch.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
     pub struct FilterInput<'a> {
         /// Opaque bytes, at most 128.
         pub input: &'a [u8],
@@ -226,6 +227,13 @@ pub mod core_input_filter_v1 {
             write_bytes(&self.flags.to_le_bytes(), out, offset);
         }
     }
+
+    impl<'a> FilterInput<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(input: &'a [u8], flags: u32) -> Self {
+            Self { input, flags }
+        }
+    }
     /// Wire tag of the `filter.verdict` record.
     pub const FILTER_VERDICT_TAG: u32 = 2;
     /// Maximum bytes of `filter.verdict.action`.
@@ -237,6 +245,7 @@ pub mod core_input_filter_v1 {
 
     /// The `filter.verdict` record, borrowed from its batch.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
     pub struct FilterVerdict<'a> {
         /// Little-endian u32.
         pub kind: u32,
@@ -273,6 +282,18 @@ pub mod core_input_filter_v1 {
             write_blob(self.action.as_bytes(), out, offset);
             write_blob(self.input, out, offset);
             write_blob(self.raise.as_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> FilterVerdict<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(kind: u32, action: &'a str, input: &'a [u8], raise: &'a str) -> Self {
+            Self {
+                kind,
+                action,
+                input,
+                raise,
+            }
         }
     }
 
@@ -616,6 +637,7 @@ pub mod core_status_v1 {
 
     /// The `status.ask` record, borrowed from its batch.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
     pub struct StatusAsk<'a> {
         /// UTF-8 text of at most 1032 bytes.
         pub items: &'a str,
@@ -644,6 +666,13 @@ pub mod core_status_v1 {
             write_blob(self.context, out, offset);
         }
     }
+
+    impl<'a> StatusAsk<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(items: &'a str, context: &'a [u8]) -> Self {
+            Self { items, context }
+        }
+    }
     /// Wire tag of the `status.value` record.
     pub const STATUS_VALUE_TAG: u32 = 2;
     /// Maximum bytes of `status.value.item`.
@@ -653,6 +682,7 @@ pub mod core_status_v1 {
 
     /// The `status.value` record, borrowed from its batch.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
     pub struct StatusValue<'a> {
         /// UTF-8 text of at most 128 bytes.
         pub item: &'a str,
@@ -684,6 +714,13 @@ pub mod core_status_v1 {
             write_blob(self.item.as_bytes(), out, offset);
             write_bytes(&self.flags.to_le_bytes(), out, offset);
             write_blob(self.text.as_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> StatusValue<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(item: &'a str, flags: u32, text: &'a str) -> Self {
+            Self { item, flags, text }
         }
     }
 
@@ -1022,6 +1059,7 @@ pub mod core_widget_v1 {
 
     /// The `widget.measure` record, borrowed from its batch.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
     pub struct WidgetMeasure {
         /// Little-endian u32.
         pub instance: u32,
@@ -1050,11 +1088,19 @@ pub mod core_widget_v1 {
             write_bytes(&self.width.to_le_bytes(), out, offset);
         }
     }
+
+    impl WidgetMeasure {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(instance: u32, width: u32) -> Self {
+            Self { instance, width }
+        }
+    }
     /// Wire tag of the `widget.place` record.
     pub const WIDGET_PLACE_TAG: u32 = 2;
 
     /// The `widget.place` record, borrowed from its batch.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
     pub struct WidgetPlace {
         /// Little-endian u32.
         pub instance: u32,
@@ -1098,11 +1144,25 @@ pub mod core_widget_v1 {
             write_bytes(&self.height.to_le_bytes(), out, offset);
         }
     }
+
+    impl WidgetPlace {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(instance: u32, x: i32, y: i32, width: u32, height: u32) -> Self {
+            Self {
+                instance,
+                x,
+                y,
+                width,
+                height,
+            }
+        }
+    }
     /// Wire tag of the `widget.targets` record.
     pub const WIDGET_TARGETS_TAG: u32 = 3;
 
     /// The `widget.targets` record, borrowed from its batch.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
     pub struct WidgetTargets {
         /// Little-endian u32.
         pub instance: u32,
@@ -1146,11 +1206,25 @@ pub mod core_widget_v1 {
             write_bytes(&self.height.to_le_bytes(), out, offset);
         }
     }
+
+    impl WidgetTargets {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(instance: u32, x: i32, y: i32, width: u32, height: u32) -> Self {
+            Self {
+                instance,
+                x,
+                y,
+                width,
+                height,
+            }
+        }
+    }
     /// Wire tag of the `widget.size` record.
     pub const WIDGET_SIZE_TAG: u32 = 4;
 
     /// The `widget.size` record, borrowed from its batch.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
     pub struct WidgetSize {
         /// Little-endian u32.
         pub height: u32,
@@ -1179,11 +1253,19 @@ pub mod core_widget_v1 {
             write_bytes(&self.min_height.to_le_bytes(), out, offset);
         }
     }
+
+    impl WidgetSize {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(height: u32, min_height: u32) -> Self {
+            Self { height, min_height }
+        }
+    }
     /// Wire tag of the `widget.target` record.
     pub const WIDGET_TARGET_TAG: u32 = 5;
 
     /// The `widget.target` record, borrowed from its batch.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
     pub struct WidgetTarget {
         /// Little-endian u32.
         pub target: u32,
@@ -1225,6 +1307,19 @@ pub mod core_widget_v1 {
             write_bytes(&self.y.to_le_bytes(), out, offset);
             write_bytes(&self.width.to_le_bytes(), out, offset);
             write_bytes(&self.height.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl WidgetTarget {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(target: u32, x: i32, y: i32, width: u32, height: u32) -> Self {
+            Self {
+                target,
+                x,
+                y,
+                width,
+                height,
+            }
         }
     }
 

@@ -219,7 +219,7 @@ def _lifetime(record):
     return "<'a>" if any(f['kind'] in ('str', 'bytes') for f in record['fields']) else ''
 
 
-def _record_source(record, decode_name="decode", record_type="Record<'a>"):
+def _record_source(record, decode_name="decode", record_type="Record<'a>", extensible=False):
     """One borrowed record struct with decode, length and write steps."""
     name, tag, fields = record['name'], record['id'], record['fields']
     title, prefix = _camel(name), _const(name)
@@ -242,6 +242,8 @@ def _record_source(record, decode_name="decode", record_type="Record<'a>"):
                     f'pub const {constant}_ITEM_MAX_BYTES: usize = {items["item_max_bytes"]};']
     out += ['', f'/// The `{name}` record, borrowed from its batch.',
             '#[derive(Clone, Copy, Debug, PartialEq, Eq)]', f"pub struct {title}{_lifetime(record)} {{"]
+    if extensible:
+        out.insert(len(out) - 1, '#[non_exhaustive]')
     for field in fields:
         kind, cap = field['kind'], field['cap']
         text = {'str': f'UTF-8 text of at most {cap} bytes.',
@@ -310,6 +312,14 @@ def _record_source(record, decode_name="decode", record_type="Record<'a>"):
         else:
             out.append(_write_line(field, '        '))
     out += ['    }', '}', '']
+    if extensible:
+        params = ', '.join(f"{f['name']}: " + (f"Option<{RUST_TYPES[f['kind']]}>"
+                           if f['maybe'] else RUST_TYPES[f['kind']]) for f in fields)
+        values = ', '.join(f['name'] for f in fields)
+        out += [f"impl<'a> {title}<'a> {{" if borrows else f'impl {title} {{',
+                '    /// Build a record; encoding validates its bounds.',
+                f'    pub const fn new({params}) -> Self {{',
+                f'        Self {{ {values} }}', '    }', '}', '']
     return '\n'.join(out)
 
 

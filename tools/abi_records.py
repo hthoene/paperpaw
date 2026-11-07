@@ -397,6 +397,8 @@ def local_records(records, revision):
     declared = [dict(name=r['name'], id=r['id'], since=r['since'], fields=_fields(r))
                 for r in records]
     validate_record_shapes(declared, 0, revision)
+    _require(all(_camel(r['name']) not in {'RecordStream', 'Record', 'Reader'}
+                 for r in declared), 'record name collides with stage codec helper')
     return declared
 
 
@@ -409,7 +411,7 @@ def local_codec_source(stage):
     variants = '\n'.join(f'    /// A `{r["name"]}` record.\n    {_camel(r["name"])}({_camel(r["name"])}{_lifetime(r)}),' for r in declared)
     source = reader_source() + writer_source()
     # Existing field and optional-field emission is shared with the kernel codec.
-    source += ''.join(_record_source(r, 'decode_body', record_type) for r in declared)
+    source += ''.join(_record_source(r, 'decode_body', record_type, extensible=True) for r in declared)
     source += f'\n/// A record with a tag local to this stage.\n#[derive(Clone, Copy, Debug, PartialEq, Eq)]\n#[non_exhaustive]\npub enum Record{life} {{\n{variants}\n}}\n'
     reader_extra = _reader_extra(declared)
     source += '''impl<'a> Reader<'a> {
@@ -453,7 +455,8 @@ fn valid_list(value: &str, separator: char, max_items: usize, item_max: usize) -
             source += f'Record::{_camel(r["name"])}(r) => {{\n'
             for f in lists:
                 items = f['items']
-                source += f'if !valid_list(r.{f["name"]}, {items["separator"]!r}, {items["max_items"]}, {items["item_max_bytes"]}) {{ return Err(-2); }}\n'
+                guard = f'!r.{f["name"]}.is_empty() && ' if f['optional'] else ''
+                source += f'if {guard}!valid_list(r.{f["name"]}, {items["separator"]!r}, {items["max_items"]}, {items["item_max_bytes"]}) {{ return Err(-2); }}\n'
             source += '}\n'
     source += '_ => {}\n}\nOk(())\n}\n}\n'
     source += "fn decode_body<'a>(tag: u32, body: &mut Reader<'a>) -> Result<" + record_type + ', i32> {\nlet record = match tag {\n' + arms('@C@_TAG => @T@::decode_body(body)?,\n') + '_ => return Err(-2),\n};\nif !body.remaining.is_empty() { return Err(-2); }\nrecord.validate()?;\nOk(record)\n}\n'
