@@ -21,7 +21,7 @@ fn construct() -> Result<(), String> {
         paperpaw_plugin_widgets::NATIVE_ENTRY.entry(),
         include_bytes!("../native/metadata.host.bin"),
         "widgets",
-        &["core.registry"],
+        &["core.registry", "core.ui"],
     )
 }
 

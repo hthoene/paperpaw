@@ -13,6 +13,9 @@ pub struct Behaviour {
     pub draw: fn(&mut Cx<'_>, &mut Vec<Paint>, Rect) -> Result<(), Error>,
     /// What it shows now, to tell whether it changed.
     pub shows: fn(&Cx<'_>) -> Result<String, Error>,
+    /// A tap on it opens its settings: for widgets that show what the reader
+    /// chose (a date, places).
+    pub settable: bool,
 }
 
 /// The behaviour of the widget declared with `token`.
@@ -22,16 +25,19 @@ pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
         height: crate::native_day::height,
         draw: crate::native_day::draw,
         shows: crate::native_day::shows,
+        settable: false,
     };
     static TILES: Behaviour = Behaviour {
         height: crate::native_tiles::height,
         draw: crate::native_tiles::draw,
         shows: crate::native_tiles::shows,
+        settable: false,
     };
     static CALENDAR: Behaviour = Behaviour {
         height: crate::native_calendar::height,
         draw: crate::native_calendar::draw,
         shows: crate::native_calendar::shows,
+        settable: false,
     };
     match token {
         102 => Some(&CALENDAR),
