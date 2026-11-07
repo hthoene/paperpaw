@@ -4,6 +4,7 @@
 //! instance. Calls are synchronous, never reentrant, and lend disjoint buffers.
 //! Snapshot/settings bytes come from the public host environment encoder;
 //! service bytes come from the public generated host record encoder.
+#![allow(dead_code, reason = "each test crate uses a part of this shared fixture")]
 
 use std::{
     alloc::Layout,
