@@ -55,7 +55,7 @@ fn thirty_two_params_and_exact_content_cap_round_trip_without_registration_limit
     assert_eq!(state.calls.get(), calls);
     let mut rows: Vec<_> = values.iter().map(|p| p.record()).collect();
     rows.push(wire::Record::ServiceEnd(wire::ServiceEnd {
-        flags: 1,
+        flags: 0,
         total: 32,
         generation: 0,
         next: 0,

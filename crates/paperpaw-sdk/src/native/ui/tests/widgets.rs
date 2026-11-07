@@ -62,7 +62,7 @@ fn status_own_hidden_and_drawn_values_keep_distinct_meanings() {
                     text: "",
                 }),
                 wire::Record::ServiceEnd(wire::ServiceEnd {
-                    flags: 1,
+                    flags: 0,
                     total: 1,
                     generation: 0,
                     next: 0,
