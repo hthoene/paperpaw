@@ -24,6 +24,8 @@ change the plugin SDK.
   turns and book edges share `ReadingView` accessors; malformed values are
   refused and reserved state values use the contract fallbacks (#228).
 
+- Interface-7 call-service host slots 33–34 use generated schemas, bounded reply
+  scratch and owned service handles; device hosts refuse test-only schemas (#228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
   `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
   position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70
@@ -32,8 +34,6 @@ change the plugin SDK.
   host raises them (book moves and deletions from its own operations, reading events from its
   reading session); paths are never cut. Hosts admit their registrations once a producer is
   wired; until then `ERR_UNSUPPORTED` (#228).
-- Interface-7 call-service host slots 33–34 use generated schemas, bounded reply
-  scratch and owned service handles; device hosts refuse test-only schemas (#228).
 
 - Interface-7 host usage/name/note services and callback-scoped blobs, with checked
   metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).

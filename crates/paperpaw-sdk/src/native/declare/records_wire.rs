@@ -3571,7 +3571,18 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         | INPUT_ACTION_TAG
         | DRAW_FRAME_TAG
         | STAGE_CALL_TAG
-        | STAGE_REPLY_TAG => return Err(-2),
+        | STAGE_REPLY_TAG
+        | EVENT_SETTING_CHANGED_TAG
+        | EVENT_BOOK_OPENED_TAG
+        | EVENT_BOOK_CLOSED_TAG
+        | EVENT_BOOK_FINISHED_TAG
+        | EVENT_BOOK_MOVED_TAG
+        | EVENT_BOOK_REMOVED_TAG
+        | EVENT_PLUGINS_CHANGED_TAG
+        | EVENT_WIFI_CHANGED_TAG
+        | EVENT_POWER_CHANGED_TAG
+        | EVENT_STATUS_CHANGED_TAG
+        | EVENT_CHARGE_CHANGED_TAG => return Err(-2),
         _ => return Err(-1),
     })
 }
