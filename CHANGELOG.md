@@ -19,6 +19,9 @@ change the plugin SDK.
 
 ### Added
 
+- Native SDK typed device inventory and status reads, including firmware, native
+  build, hardware values and memory probes, with validated borrowed reply pages (#228).
+
 - Native SDK screen instance policies, borrowed confirmation button labels and flags,
   dialog label accessors, and an explicit user-defined menu getter (#228).
 
