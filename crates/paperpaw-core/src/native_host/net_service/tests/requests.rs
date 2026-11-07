@@ -88,7 +88,7 @@ fn the_queue_is_strictly_first_in_first_out() {
 fn the_input_of_a_request_is_held_in_the_pool_at_its_exact_size() {
     let fake = Fake::x4();
     let one = get(1);
-    let id = request(&fake, OWNER, &one).unwrap();
+    let _id = request(&fake, OWNER, &one).unwrap();
     assert_eq!(fake.pool_used(), 45_056 + one.len() as u32);
     table::cancel(&fake, OWNER, 1).unwrap();
     assert_eq!(fake.pool_used(), 0, "input and body are back when it ends");

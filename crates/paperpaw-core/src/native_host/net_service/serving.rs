@@ -166,39 +166,20 @@ fn tell_stopped(inner: &mut Inner, host: &dyn NetHost, owner: u64, token: u32, w
     });
 }
 
-/// `serve` (5.1).
-pub(super) fn serve(
-    host: &dyn NetHost,
-    who: &Caller<'_>,
-    serve: &wire::ServiceNetServe,
-) -> Result<(), i32> {
-    let profile = host.profile();
-    if serve.flags != 0 || (serve.port == 0 && !profile.cable) {
-        return Err(ERR_UNSUPPORTED);
-    }
-    if serve.port > 65_535 {
-        return Err(ERR_INVALID);
-    }
-    let max_body = match serve.max_body {
-        0 => args::SERVE_BODY_DEFAULT,
-        wanted if wanted <= args::SERVE_BODY_MAX => wanted,
-        _ => return Err(ERR_NO_SPACE),
-    };
-    let screen = host.showing_screen(who.owner).ok_or(ERR_STATE)?;
-    if !host.subscribed(who.owner, wire::EVENT_SERVER_TAG) {
-        return Err(ERR_STATE);
-    }
-    let mut inner = host.table().lock()?;
+/// Everything `serve` needs before the old server of the token is touched:
+/// the limits, then room for the server, this call's event and the terminal
+/// event of every server alive. Returns the old server's index.
+fn make_room(inner: &mut Inner, owner: u64, token: u32) -> Result<Option<usize>, i32> {
     let old = inner
         .serving
         .servers
         .iter()
-        .position(|s| s.owner == who.owner && s.token == serve.token);
+        .position(|s| s.owner == owner && s.token == token);
     let others = inner
         .serving
         .servers
         .iter()
-        .filter(|s| s.owner == who.owner && s.token != serve.token)
+        .filter(|s| s.owner == owner && s.token != token)
         .count();
     // A plugin that has not heard its events yet cannot pile up more by
     // looping in one callback.
@@ -206,7 +187,7 @@ pub(super) fn serve(
         .serving
         .events
         .iter()
-        .filter(|e| e.owner == who.owner)
+        .filter(|e| e.owner == owner)
         .count();
     if (old.is_none() && others >= PLUGIN_SERVERS) || waiting >= EVENTS_WAITING {
         return Err(ERR_BUSY);
@@ -230,6 +211,33 @@ pub(super) fn serve(
             .try_reserve_exact(extra)
             .map_err(|_| ERR_NO_MEMORY)?;
     }
+    Ok(old)
+}
+
+/// `serve` (5.1).
+pub(super) fn serve(
+    host: &dyn NetHost,
+    who: &Caller<'_>,
+    serve: &wire::ServiceNetServe,
+) -> Result<(), i32> {
+    let profile = host.profile();
+    if serve.flags != 0 || (serve.port == 0 && !profile.cable) {
+        return Err(ERR_UNSUPPORTED);
+    }
+    if serve.port > 65_535 {
+        return Err(ERR_INVALID);
+    }
+    let max_body = match serve.max_body {
+        0 => args::SERVE_BODY_DEFAULT,
+        wanted if wanted <= args::SERVE_BODY_MAX => wanted,
+        _ => return Err(ERR_NO_SPACE),
+    };
+    let screen = host.showing_screen(who.owner).ok_or(ERR_STATE)?;
+    if !host.subscribed(who.owner, wire::EVENT_SERVER_TAG) {
+        return Err(ERR_STATE);
+    }
+    let mut inner = host.table().lock()?;
+    let old = make_room(&mut inner, who.owner, serve.token)?;
     let key = inner.serving.next_server.checked_add(1).ok_or(ERR_FULL)?;
     if let Some(index) = old {
         stop(&mut inner, host, index, reason::OK, true);
