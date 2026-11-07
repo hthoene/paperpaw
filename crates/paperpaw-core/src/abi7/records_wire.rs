@@ -9937,6 +9937,8 @@ pub const SERVICE_DEV_CHECK_KEY_MAX_BYTES: usize = 32;
 pub const SERVICE_DEV_CHECK_ID_MAX_BYTES: usize = 64;
 /// Maximum bytes of `service.dev_check.version`.
 pub const SERVICE_DEV_CHECK_VERSION_MAX_BYTES: usize = 64;
+/// Maximum bytes of `service.dev_check.sha256`.
+pub const SERVICE_DEV_CHECK_SHA256_MAX_BYTES: usize = 32;
 
 /// The `service.dev_check` record, borrowed from its batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -9957,11 +9959,13 @@ pub struct ServiceDevCheck<'a> {
     pub version: &'a str,
     /// Little-endian u32.
     pub flags: u32,
+    /// Opaque bytes, at most 32. Appended and optional; empty when absent.
+    pub sha256: &'a [u8],
 }
 
 impl<'a> ServiceDevCheck<'a> {
     fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
-        body.bitmap()?;
+        let bits = body.bitmap_bits()?;
         Ok(Record::ServiceDevCheck(Self {
             reason: u32::from_le_bytes(body.scalar()?),
             needs_draft: u32::from_le_bytes(body.scalar()?),
@@ -9971,11 +9975,22 @@ impl<'a> ServiceDevCheck<'a> {
             id: body.string(SERVICE_DEV_CHECK_ID_MAX_BYTES)?,
             version: body.string(SERVICE_DEV_CHECK_VERSION_MAX_BYTES)?,
             flags: u32::from_le_bytes(body.scalar()?),
+            sha256: body.opt_blob(bits, 0x01, SERVICE_DEV_CHECK_SHA256_MAX_BYTES)?,
         }))
     }
 
+    fn bits(&self) -> u8 {
+        let mut bits = 0;
+        if !self.sha256.is_empty() {
+            bits |= 0x01;
+        }
+        bits
+    }
+
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
+        let bits = self.bits();
+        // The bitmap is one byte when any optional field is present.
+        let mut len = 1 + usize::from(bits != 0);
         len += 4;
         len += 4;
         len += 8;
@@ -9984,10 +9999,14 @@ impl<'a> ServiceDevCheck<'a> {
         len += blob_len(self.id.len(), SERVICE_DEV_CHECK_ID_MAX_BYTES)?;
         len += blob_len(self.version.len(), SERVICE_DEV_CHECK_VERSION_MAX_BYTES)?;
         len += 4;
+        if bits & 0x01 != 0 {
+            len += blob_len(self.sha256.len(), SERVICE_DEV_CHECK_SHA256_MAX_BYTES)?;
+        }
         Ok(len)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
+        let bits = self.bits();
         write_bytes(&self.reason.to_le_bytes(), out, offset);
         write_bytes(&self.needs_draft.to_le_bytes(), out, offset);
         write_bytes(&self.bytes.to_le_bytes(), out, offset);
@@ -9996,6 +10015,9 @@ impl<'a> ServiceDevCheck<'a> {
         write_blob(self.id.as_bytes(), out, offset);
         write_blob(self.version.as_bytes(), out, offset);
         write_bytes(&self.flags.to_le_bytes(), out, offset);
+        if bits & 0x01 != 0 {
+            write_blob(self.sha256, out, offset);
+        }
     }
 }
 /// Wire tag of the `service.dev_memory` record.
@@ -13525,6 +13547,13 @@ impl<'a> Reader<'a> {
         }
         Ok(Some(u64::from_le_bytes(self.scalar()?)))
     }
+
+    fn opt_blob(&mut self, bits: u8, mask: u8, cap: usize) -> Result<&'a [u8], i32> {
+        if bits & mask == 0 {
+            return Ok(&[]);
+        }
+        self.blob(cap)
+    }
 }
 
 fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
@@ -14713,6 +14742,7 @@ impl Record<'_> {
             Record::EventBookClosed(record) => record.bits(),
             Record::EventBookFinished(record) => record.bits(),
             Record::ServiceLibRef(record) => record.bits(),
+            Record::ServiceDevCheck(record) => record.bits(),
             Record::ServiceFsEntry(record) => record.bits(),
             _ => 0,
         }

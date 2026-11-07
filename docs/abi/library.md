@@ -417,6 +417,13 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093):
   catalogued, an import whose file did not arrive has its host temp file removed (fault-injection
   tests after every write, as the uninstall data removal of decision 124). The catalog walk never
   runs while a journal entry is open.
+- [D] **One move job at a time.** While a folder move's bounded job runs (`files.md` 2.6), every
+  move and rename on the card answers `ERR_BUSY`: LIB `move` and `import`, `core.files` `move`
+  and `storage.rename`, wherever they point. A delete or removal at or below the job's `from` or
+  `to`, or of a folder holding either, is `ERR_BUSY` too, as are `make_dir` and file writes at or
+  below the old name `from`. Ancestors are not busy otherwise, and reads and writes below `to` go
+  on; books below `to` are answered through the pending entry. The busy state ends when the entry
+  is cleared; a plugin retries later (the job's changes raise `event.library_changed`, rule 2).
 - [D] **Card failure.** A missing or failing card is `ERR_IO` for every op that reads the card (no
   partial rows: a page is answered whole or not at all); a full card `ERR_NO_SPACE` for writes, the
   old state stays. A pulled card raises `library_changed` bit 0 when it is back (the walk checks
