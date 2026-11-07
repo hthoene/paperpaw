@@ -64,7 +64,9 @@ All fields are required unless marked optional; `now_ms` is first, as in every e
   `event.page_turned`). The cap is 512 bytes, the longest path the host's storage slots accept
   (`native_host::storage::MAX_PATH`). A book whose path is longer gets no book event; the host
   reports `event_dropped` with the producer reason instead of cutting it, because a cut path can
-  name another book. `title` and `chapter` are display text and are cut at a UTF-8 boundary.
+  name another book. Such a book never gets book events; besides the drop report, the reader may tell
+  the user once that the path is too long. `title` and `chapter` are display text and are cut at a
+  UTF-8 boundary.
   `book_moved` names the old and the new path; a book moved out of root 1 is `book_removed`.
 - [D] **`event.wifi_changed.state`:** 0 off, 1 on and not connected, 2 connecting, 3 connected, 4
   access point (the device's own network, for transfer). Other values are reserved: a consumer
@@ -100,7 +102,9 @@ All fields are required unless marked optional; `now_ms` is first, as in every e
   `reason` itself. The plugin that holds the reader role for that book reports position, title,
   chapter, counters and "finished" through the reader report of the DOC family. The host checks the
   report against the open session (the reader's own book only, the field rules above) and raises
-  the event. Until DOC lands, 37 and 65-67 are not produced.
+  the event. Until the reader is ported, 37 keeps today's producer (the kernel raises it from the
+  interface-6 reader's page turns, and Battery already subscribes to it); 65-67 are not produced
+  before then. When the reader port moves to the DOC report, 37 and 65-67 switch to it together.
 - [D] **64, 70-74** come from the host's own state: settings stores, plugin lifecycle, Wi-Fi, power
   wear (`work.rs`) and the battery status.
 
@@ -135,13 +139,16 @@ All fields are required unless marked optional; `now_ms` is first, as in every e
   host's held-event store: at most 16 edges and 4 KiB per plugin, and at most 8 KiB device-wide on
   the X4. An edge that does not fit, or cannot be delivered (the plugin is stopping or its callback
   fails), takes the `event_dropped` path (section 1.5 of the events proposal) and is logged, never
-  retried; for 64 the drop is replaced by the empty-key event above. A profile that applies 200
+  retried; for 64 the drop is replaced by the empty-key event above. That event has its own
+  pending bit per plugin (a sixth bit beside the five hint bits), not a slot in the store, so it can
+  be raised when the store is full. The store is allocated fallibly; a failed allocation takes the
+  same `event_dropped` path. A profile that applies 200
   settings therefore costs each subscriber at most 16 held edges plus one empty-key event.
 - [D] **Lazy start.** A plugin that is not running gets no events; registering for one does not
   start it. A plugin that must follow the library while stopped reads the state at its next start.
 - [D] **Cost on the X4.** The host encodes into a stack buffer (the largest record, 65-67, is under
-  1.1 KB, as `event.page_turned`); one registration entry per plugin and tag, 5 hint bits per plugin
-  and the held-event store above.
+  1.1 KB, as `event.page_turned`); one registration entry per plugin and tag, 6 pending bits per
+  plugin (5 hints and the empty-key setting event) and the held-event store above.
 - [D] **Declared uses.** The store lists a plugin's registrations for 37 and 65-69 as "reads your
   reading activity" among its declared uses, taken from the declaration index; no new
   metadata field.
