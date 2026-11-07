@@ -17,6 +17,9 @@ extern crate alloc;
 
 pub mod pictures;
 
+#[cfg(any(test, feature = "reader-filter"))]
+pub mod reader_filter;
+
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};

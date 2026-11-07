@@ -420,7 +420,7 @@ def _record_extra(declared):
 ''' if arms else ''
 
 
-def declaration_source(declared, statuses):
+def declaration_source(declared, statuses, *, registrations=True):
     """Mixed-batch API: registrations plus capped, borrowed wire records."""
     arms = lambda text: ''.join(text.replace('@T@', _camel(r['name']))
                                 .replace('@L@', _lifetime(r)).replace('@C@', _const(r['name']))
@@ -440,6 +440,11 @@ def declaration_source(declared, statuses):
                         .rstrip('\n'))
                .replace('@WRITES@', arms('            Record::@T@(record) => record.write(out, offset),')
                         .rstrip('\n')))
+    for key, text in REGISTRATION_ARMS.items():
+        source = source.replace('@REG_' + key + '@', text if registrations else '')
+    prefix = 'REGISTRATION' if registrations else 'RECORD'
+    source = source.replace('@MAX_BYTES_NAME@', prefix + '_MAX_BYTES')
+    source = source.replace('@MAX_RECORDS_NAME@', prefix + '_MAX_RECORDS')
     if any(r['name'].startswith('service.') for r in declared):
         source += BARE_TEMPLATE.replace('@BITMAP@', 'record.write_bitmap(out, &mut offset);'
                                         if has_optional else 'write_varint(0, out, &mut offset);')
@@ -454,9 +459,7 @@ DECL_TEMPLATE = '''
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Record<'a> {
-    /// A callback registration.
-    Registration(Registration),
-@VARIANTS@
+@REG_VARIANT@@VARIANTS@
 }
 
 impl<'a> Reader<'a> {
@@ -475,20 +478,7 @@ impl<'a> Reader<'a> {
 
 fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
     Ok(match tag {
-        REGISTRATION_EVENT_TAG => {
-            body.bitmap()?;
-            Record::Registration(Registration::Event {
-                event_tag: u32::from_le_bytes(body.scalar()?),
-                token: u32::from_le_bytes(body.scalar()?),
-            })
-        }
-        REGISTRATION_DRAW_TAG => {
-            body.bitmap()?;
-            Record::Registration(Registration::Draw {
-                token: u32::from_le_bytes(body.scalar()?),
-            })
-        }
-@DECODE@
+@REG_DECODE@@DECODE@
         _ => return Err(@UNSUPPORTED@),
     })
 }
@@ -499,7 +489,7 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
 /// what is staged is exactly what was validated, and iteration cannot fail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RecordBatch<'a> {
-    records: [Option<Record<'a>>; REGISTRATION_MAX_RECORDS],
+    records: [Option<Record<'a>>; @MAX_RECORDS_NAME@],
     len: usize,
 }
 
@@ -545,15 +535,15 @@ impl<'a> Iterator for RecordIter<'_, 'a> {
 /// ERR_UTF8; byte, count and per-field cap violations return ERR_NO_SPACE.
 /// Unknown trailing fields and extended presence bitmaps are accepted.
 pub fn records_decode(bytes: &[u8]) -> Result<RecordBatch<'_>, i32> {
-    if bytes.len() > REGISTRATION_MAX_BYTES {
+    if bytes.len() > @MAX_BYTES_NAME@ {
         return Err(@NO_SPACE@);
     }
     let mut reader = Reader { remaining: bytes };
     let len = reader.varint()? as usize;
-    if len > REGISTRATION_MAX_RECORDS {
+    if len > @MAX_RECORDS_NAME@ {
         return Err(@NO_SPACE@);
     }
-    let mut records = [None; REGISTRATION_MAX_RECORDS];
+    let mut records = [None; @MAX_RECORDS_NAME@];
     for place in records.iter_mut().take(len) {
         let (tag, mut body) = reader.record()?;
         *place = Some(record_decode(tag, &mut body)?);
@@ -578,30 +568,19 @@ fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
 impl Record<'_> {
     fn tag(&self) -> u32 {
         match self {
-            Record::Registration(Registration::Event { .. }) => REGISTRATION_EVENT_TAG,
-            Record::Registration(Registration::Draw { .. }) => REGISTRATION_DRAW_TAG,
-@TAGS@
+@REG_TAGS@@TAGS@
         }
     }
 
     fn body_len(&self) -> Result<usize, i32> {
         match self {
-            Record::Registration(Registration::Event { .. }) => Ok(9),
-            Record::Registration(Registration::Draw { .. }) => Ok(5),
-@LENS@
+@REG_LENS@@LENS@
         }
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
         match self {
-            Record::Registration(Registration::Event { event_tag, token }) => {
-                write_bytes(&event_tag.to_le_bytes(), out, offset);
-                write_bytes(&token.to_le_bytes(), out, offset);
-            }
-            Record::Registration(Registration::Draw { token }) => {
-                write_bytes(&token.to_le_bytes(), out, offset);
-            }
-@WRITES@
+@REG_WRITES@@WRITES@
         }
     }
 @RECORD_EXTRA@}
@@ -612,14 +591,14 @@ impl Record<'_> {
 /// are checked before any write. Failure returns ERR_NO_SPACE and leaves the
 /// entire output unchanged.
 pub fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
-    if records.len() > REGISTRATION_MAX_RECORDS {
+    if records.len() > @MAX_RECORDS_NAME@ {
         return Err(@NO_SPACE@);
     }
     let mut required = varint_len(records.len() as u32);
     for record in records {
         let body = record.body_len()?;
         required += varint_len(record.tag()) + varint_len(body as u32) + body;
-        if required > REGISTRATION_MAX_BYTES {
+        if required > @MAX_BYTES_NAME@ {
             return Err(@NO_SPACE@);
         }
     }
@@ -854,3 +833,38 @@ impl RecordStream {
     }
 }
 '''
+
+
+REGISTRATION_ARMS = {
+'VARIANT': '''    /// A callback registration.
+    Registration(Registration),
+''',
+'DECODE': '''        REGISTRATION_EVENT_TAG => {
+            body.bitmap()?;
+            Record::Registration(Registration::Event {
+                event_tag: u32::from_le_bytes(body.scalar()?),
+                token: u32::from_le_bytes(body.scalar()?),
+            })
+        }
+        REGISTRATION_DRAW_TAG => {
+            body.bitmap()?;
+            Record::Registration(Registration::Draw {
+                token: u32::from_le_bytes(body.scalar()?),
+            })
+        }
+''',
+'TAGS': '''            Record::Registration(Registration::Event { .. }) => REGISTRATION_EVENT_TAG,
+            Record::Registration(Registration::Draw { .. }) => REGISTRATION_DRAW_TAG,
+''',
+'LENS': '''            Record::Registration(Registration::Event { .. }) => Ok(9),
+            Record::Registration(Registration::Draw { .. }) => Ok(5),
+''',
+'WRITES': '''            Record::Registration(Registration::Event { event_tag, token }) => {
+                write_bytes(&event_tag.to_le_bytes(), out, offset);
+                write_bytes(&token.to_le_bytes(), out, offset);
+            }
+            Record::Registration(Registration::Draw { token }) => {
+                write_bytes(&token.to_le_bytes(), out, offset);
+            }
+''',
+}
