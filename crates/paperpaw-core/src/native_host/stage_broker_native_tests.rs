@@ -1,4 +1,7 @@
 //! The broker crosses the real retained native callback boundary.
+// TODO(#1026, Plugin follow-up 38): add real Reader/Aids end-to-end coverage
+// after the reader.filter schema uses the shared external generator. This
+// widget fixture proves retained routing only; production activation is gated.
 extern crate std;
 use super::{Heap, NORMAL, reset};
 use crate::native_host::{

@@ -843,13 +843,13 @@ fn stage_slot_missing_frame_and_zero_capacity_do_not_allocate() {
             let mut probe = Vec::<u8>::new();
             let still_armed = probe.try_reserve_exact(1).is_err();
             arm_failure(0);
-            assert_eq!(refused, host_glue::ERR_STATE);
+            assert_eq!(refused, host_glue::ERR_UNSUPPORTED);
             assert!(
                 still_armed,
                 "slot must not allocate even with nonempty output"
             );
             assert_eq!(out, [0xa5; 8]);
-            // A query frame has no broker and returns STATE.
+            // A query frame has no broker and returns UNSUPPORTED.
             // SAFETY: the same pinned fixture and buffer pairs remain live.
             assert_eq!(
                 unsafe {
@@ -864,7 +864,7 @@ fn stage_slot_missing_frame_and_zero_capacity_do_not_allocate() {
                         },
                     )
                 },
-                host_glue::ERR_STATE
+                host_glue::ERR_UNSUPPORTED
             );
             arm_failure(1);
             // SAFETY: a null zero-capacity output is permitted and never dereferenced.
@@ -883,7 +883,7 @@ fn stage_slot_missing_frame_and_zero_capacity_do_not_allocate() {
             let mut probe = Vec::<u8>::new();
             let still_armed = probe.try_reserve_exact(1).is_err();
             arm_failure(0);
-            assert_eq!(empty, host_glue::ERR_STATE);
+            assert_eq!(empty, host_glue::ERR_UNSUPPORTED);
             assert!(still_armed, "zero-capacity slot must not allocate");
         })
         .unwrap();
