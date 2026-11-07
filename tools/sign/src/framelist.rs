@@ -10,7 +10,9 @@
 //! frame, so a change that makes the handler's frames larger fails the build.
 //!
 //! The budget is lines of `frame <bytes> <name>` (the largest frame of any
-//! function whose path is `<name>` or ends in `::<name>`) and `chain <bytes> <name> ...` (a word `<name>*<count>` is the sum of the largest `count` frames in the family of `<name>`: the function and what is compiled inside it, e.g. its closures) (the
+//! function whose path is `<name>` or ends in `::<name>`), `each <bytes> <family> [-<family>...]` (every function in the
+//! family of `<family>`, a function and what is inside it or a module's, stays within `<bytes>`, but the
+//! functions of the families after `-`) and `chain <bytes> <name> ...` (a word `<name>*<count>` is the sum of the largest `count` frames in the family of `<name>`: the function and what is compiled inside it, e.g. its closures) (the
 //! sum of the largest frame of each name stays within `<bytes>`: what one call
 //! down the chain takes at most). A name that matches no function fails too,
 //! so a rename cannot make a check pass by matching nothing. A function whose
@@ -154,8 +156,20 @@ pub fn frames(elf: &Elf<'_>) -> Result<Vec<Frame>, String> {
 /// What a budget line checks.
 #[derive(Debug, PartialEq, Eq)]
 enum Rule {
-    Frame { max: u32, name: String },
-    Chain { max: u32, names: Vec<String> },
+    Frame {
+        max: u32,
+        name: String,
+    },
+    Each {
+        max: u32,
+        name: String,
+        /// Families left out (`-<family>` words).
+        except: Vec<String>,
+    },
+    Chain {
+        max: u32,
+        names: Vec<String>,
+    },
 }
 
 fn parse(budget: &str) -> Result<Vec<Rule>, String> {
@@ -178,6 +192,18 @@ fn parse(budget: &str) -> Result<Vec<Rule>, String> {
                 max,
                 name: names[0].clone(),
             }),
+            ("each", 1..) => {
+                let (except, include): (Vec<&String>, Vec<&String>) =
+                    names.iter().partition(|n| n.starts_with('-'));
+                if include.len() != 1 || except.iter().any(|n| n.len() == 1) {
+                    return Err(format!("line {at}: `each <bytes> <family> [-<family>...]`"));
+                }
+                rules.push(Rule::Each {
+                    max,
+                    name: include[0].clone(),
+                    except: except.iter().map(|n| n[1..].to_string()).collect(),
+                });
+            }
             ("chain", 1..) => {
                 if let Some(bad) = names
                     .iter()
@@ -189,7 +215,7 @@ fn parse(budget: &str) -> Result<Vec<Rule>, String> {
             }
             _ => {
                 return Err(format!(
-                    "line {at}: `frame <bytes> <name>` or `chain <bytes> <name>...`"
+                    "line {at}: `frame <bytes> <name>`, `each <bytes> <family>` or `chain <bytes> <name>...`"
                 ));
             }
         }
@@ -292,6 +318,31 @@ pub fn check(all: &[Frame], budget: &str) -> Result<Vec<String>, String> {
                 }
                 Ok(Some(_)) => {}
             },
+            Rule::Each { max, name, except } => {
+                let members: Vec<&Frame> = all
+                    .iter()
+                    .filter(|f| in_family(&f.path, &name))
+                    .filter(|f| !except.iter().any(|e| in_family(&f.path, e)))
+                    .collect();
+                if members.is_empty() {
+                    problems.push(format!(
+                        "no function matches `{name}`: renamed? (update the budget)"
+                    ));
+                }
+                for f in &members {
+                    match f.bytes {
+                        None => problems.push(format!(
+                            "`{}` (of `{name}`) has a frame the code does not size",
+                            f.path
+                        )),
+                        Some(b) if b > max => problems.push(format!(
+                            "`{}` (of `{name}`): a frame of {b} bytes, over its {max}",
+                            f.path
+                        )),
+                        Some(_) => {}
+                    }
+                }
+            }
             Rule::Chain { max, names } => {
                 let mut sum = Some(0u32);
                 let mut bad = false;
