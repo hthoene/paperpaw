@@ -19,6 +19,15 @@ change the plugin SDK.
 
 ### Added
 
+- Core host side of `core.files@1` (folders, file information, moves and free
+  space; `docs/abi/files.md`): `list`, `stat`, `space`, `make_dir`, `remove_tree`
+  and `move` over the callback's storage view, with root 0/1/2 rules, paging by a
+  64-bit cursor, the `ERR_BUSY` rules against the library's move job and the
+  host's paths in use, and a family that stays `ERR_UNSUPPORTED` until a shell
+  wires its host view. `paperpaw_platform::tree` adds `remove_tree_step`, a
+  folder tree removed a bounded piece at a time (at most 64 removals and 256
+  folder entries per call) over any `Storage`, without heap, and `kind` (#228).
+
 - Native SDK library queries, borrowed book metadata and badges, finished-status
   updates and plugin-owned field writes (#228).
 

@@ -17,6 +17,7 @@ pub mod input;
 pub mod pixel;
 pub mod status;
 pub mod storage;
+pub mod tree;
 
 pub use display::{ColorPanel, Display, DisplayInfo, FrameView, RefreshMode, Rotation};
 pub use geometry::{Point, Rect};

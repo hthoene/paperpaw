@@ -1,5 +1,5 @@
-//! The host views behind the service families `core.document`, `core.library`
-//! and `core.lookup`, kept once per device next to the handle table.
+//! The host views behind the service families `core.document`, `core.files`,
+//! `core.library` and `core.lookup`, kept once per device next to the handle table.
 //!
 //! A shell (or a test) wires each view once; until then the family answers
 //! `ERR_UNSUPPORTED` from its backend. The views are stateless to the
@@ -9,6 +9,7 @@
 //! and its annotation transactions.
 use super::{
     doc_service::{self, DocHost, DocServices},
+    files_service::{FilesHost, FilesServices},
     lib_service::{self, LibHost, LibServices},
     lookup_service::{LookupHost, LookupServices},
 };
@@ -33,6 +34,7 @@ pub(crate) struct Caller<'a> {
 #[derive(Default)]
 pub(crate) struct HostServices {
     documents: OnceCell<DocServices>,
+    files: OnceCell<FilesServices>,
     library: OnceCell<LibServices>,
     lookup: OnceCell<LookupServices>,
     /// Owners whose retirement met `ERR_BUSY` where nobody can retry (a
@@ -53,6 +55,7 @@ impl core::fmt::Debug for HostServices {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("HostServices")
             .field("documents", &self.documents.get().is_some())
+            .field("files", &self.files.get().is_some())
             .field("library", &self.library.get().is_some())
             .field("lookup", &self.lookup.get().is_some())
             .finish()
@@ -63,6 +66,7 @@ impl HostServices {
     pub(crate) const fn new() -> Self {
         Self {
             documents: OnceCell::new(),
+            files: OnceCell::new(),
             library: OnceCell::new(),
             lookup: OnceCell::new(),
             retiring: RefCell::new(Vec::new()),
@@ -170,6 +174,11 @@ impl HostServices {
         self.documents.set(DocServices(host)).map_err(|_| ERR_STATE)
     }
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
+    /// Wire `core.files` once.
+    pub(crate) fn wire_files(&self, host: Rc<dyn FilesHost>) -> Result<(), i32> {
+        self.files.set(FilesServices(host)).map_err(|_| ERR_STATE)
+    }
+    #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.library` once.
     pub(crate) fn wire_library(&self, host: Rc<dyn LibHost>) -> Result<(), i32> {
         self.library.set(LibServices(host)).map_err(|_| ERR_STATE)
@@ -182,6 +191,9 @@ impl HostServices {
 
     pub(crate) fn documents(&self) -> Option<&DocServices> {
         self.documents.get()
+    }
+    pub(crate) fn files(&self) -> Option<&FilesServices> {
+        self.files.get()
     }
     pub(crate) fn library(&self) -> Option<&LibServices> {
         self.library.get()
