@@ -96,7 +96,8 @@ pub(crate) fn same_folded(a: &str, b: &str) -> bool {
 }
 
 /// Calls `visit` with each line of `path` and where it begins, in order,
-/// without its line break (`\n` or `\r\n`); a missing file has none. A line
+/// without its line break (`\n` or `\r\n`) and a byte order mark at the
+/// start of the file; a missing file has none. A line
 /// longer than [`MAX_LINE`] is cut; invalid UTF-8 is replaced. `visit` says
 /// whether to go on.
 pub(crate) fn each_line(
@@ -129,6 +130,10 @@ pub(crate) fn each_line_limited(
     let mut line: Vec<u8> = Vec::new();
     let (mut at, mut start) = (from, from);
     let mut emit = |start: u64, line: &mut Vec<u8>| -> Result<ControlFlow<()>, StorageError> {
+        // A byte order mark begins the file, not a line.
+        if start == 0 && line.starts_with(&[0xEF, 0xBB, 0xBF]) {
+            line.drain(..3);
+        }
         if line.last() == Some(&b'\r') {
             line.pop();
         }
@@ -214,6 +219,19 @@ mod tests {
         let got = lines(&storage);
         assert_eq!(got[0].1.len(), MAX_LINE);
         assert_eq!(got[1], (long.len() as u64 + 1, "next".to_string()));
+    }
+
+    #[test]
+    fn a_byte_order_mark_begins_the_file_not_the_first_line() {
+        let storage = MemoryStorage::new().with("f", "\u{feff}a\nb\n");
+        // The marks's 3 bytes are in the offsets: `b` begins at 5.
+        assert_eq!(
+            lines(&storage),
+            vec![(0, "a".to_string()), (5, "b".to_string())]
+        );
+        // A mark in the middle is text.
+        let storage = MemoryStorage::new().with("f", "a\n\u{feff}b\n");
+        assert_eq!(lines(&storage)[1].1, "\u{feff}b");
     }
 
     #[test]

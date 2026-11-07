@@ -23,7 +23,8 @@ the port.
   `words.tmp` and renames, as before (`recover` at start is unchanged).
 - `add` builds its line before reading the list: where the heap refuses, nothing is touched.
   Where the list cannot be read (also when the heap refuses a line buffer), the word is only
-  appended, as for a read error (the old entry then stays).
+  appended, as for a read error (the old entry then stays). A later successful `add` of
+  that word heals the duplicates (it removes every older entry); a test covers it.
 - `DataFolder` (`files.rs`) takes the plugin folder off the paths, so the layer runs on the
   host's root 0 (`native::storage::DataStorage`, PR #358) unchanged. It goes when the layer's
   paths are the short ones.
@@ -46,6 +47,14 @@ the port.
 - `alloc_refusal_tests.rs` sweeps decks, sizes, due, due_count, card_at, visit_page, next_due,
   add_deck, rename/delete deck, add, edit, delete, record, fold, queue_lookup, take_lookups and
   recover: after any refusal the decks read, card ids are unique and no `.tmp`/`.part` is left.
+
+## Interim: interface-6 callers
+
+`lib.rs` and `widget.rs` (still interface 6) call the Result API with `unwrap_or(0)` /
+`unwrap_or_default()`: on a read error (or a refused allocation) they show an empty list or
+a count of 0, where they used to show what was read so far. Nothing is written from that view
+(`add`/`remove` read the list themselves and never write anew from a partial read). The
+native screens replace these callers.
 
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 
