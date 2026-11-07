@@ -986,7 +986,7 @@ pub mod instance;
 
 #[cfg(test)]
 #[path = "shell_tests.rs"]
-mod tests;
+pub(in crate::native_host) mod tests;
 
 /// The services a plugin declares, checked against the host's catalog before
 /// its image is placed.
