@@ -26,6 +26,9 @@ change the plugin SDK.
 
 ### Added
 
+- Native SDK `i18n::language` reads the complete UI language tag from
+  `core.language` into caller-owned scratch without allocation.
+
 - Keyboard 1.1.2: the interface-7 native plugin (the text dialog on `core.keyboard` answering
   through `core.ui`, keys, shift, variants, paste, type on the phone, secret texts, the layouts
   chooser) on `paperpaw-ui-kit`; hardware-typed text, font-coverage filtering and layouts added by
