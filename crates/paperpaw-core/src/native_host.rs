@@ -34,6 +34,8 @@ mod data_services;
 mod declared_services;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
+#[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
+pub(crate) mod format_call;
 #[path = "native_host/formatting.rs"]
 mod formatting;
 mod service_slots;
