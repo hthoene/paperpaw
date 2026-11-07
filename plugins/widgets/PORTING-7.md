@@ -118,11 +118,10 @@ reading and by the kit's own sweeps.
   open does nothing, the first answer counts.
 - Quote: PaperPaw's quotes come from `data/quotes.<language>.txt` in the install
   folder (else those the app carries), the reader's own from `quotes.txt` in the
-  data folder (up to 24 KiB; a larger file is left out). The turns are kept in
-  `quote.txt` of the data folder. The UI language is not in the snapshot: the
-  catalog key `widgets.quote.language` carries the language tag (`en`, `de`, ...)
-  to pick the file and the quotation marks. Reported to Kernel; a language
-  accessor would replace the key. "Another each time it shows" counts showings in
+  data folder; both are streamed a line at a time (a line over 4096 bytes is cut, a file of any size is read to its end). The turns are kept in
+  `quote.txt` of the data folder. The UI language is the setting `core.language`
+  (read when drawing, nothing cached): `de` picks the German quotes, any other
+  language the English, and the quotation marks follow the tag. "Another each time it shows" counts showings in
   memory, once for all made within a minute.
 
 ## To-do list (widget)
