@@ -70,6 +70,15 @@
 //!   since: the frame pointer's restore, which puts `sp` where the prologue
 //!   left it, relative to the function's start.
 //!
+//! A call keeps the callee-saved registers (`s0` to `s11`) and `sp`: that is
+//! the calling convention, which every function of the firmware follows
+//! (decision 44), so the scan relies on it. A call that links in `t0` is
+//! another thing: one of the compiler's outlined sequences (`-msave-restore`'s
+//! `__riscv_save_N`, ...), whose code is read to its `jr t0` for the
+//! registers it writes (by their destination) and for how far it lowers
+//! `sp`, which is part of the caller's frame; one that is not read that far
+//! is refused as an unbounded move of `sp`.
+//!
 //! Every other write to `sp` (a dynamic `alloca` is `sub a0, sp, a0; mv sp,
 //! a0`; `lw sp`, `lui sp`, a register that is not a constant on every path)
 //! is refused as unbounded.
@@ -116,6 +125,20 @@ enum Tab {
     Entry(u32),
 }
 
+/// The registers an instruction sequence wrote, as a mask (bit `r` for
+/// `x{r}`). Not part of what two states are equal by: it only reports what a
+/// sequence did, it is not something the walk follows.
+#[derive(Clone, Copy, Default)]
+struct Written(u32);
+
+impl PartialEq for Written {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for Written {}
+
 /// What the walk knows before an instruction.
 #[derive(Clone, PartialEq, Eq)]
 struct State {
@@ -127,6 +150,9 @@ struct State {
     /// `s0` as `sp` was when it was set from it, relative to the start;
     /// `None` when it is not known to be a frame pointer.
     fp: Option<i64>,
+    /// Every register written since the start, by its destination register
+    /// (what `set` is told), not by comparing values.
+    written: Written,
 }
 
 impl State {
@@ -139,6 +165,7 @@ impl State {
             tab: [Tab::None; 32],
             sp: 0,
             fp: None,
+            written: Written(0),
         }
     }
 
@@ -169,18 +196,31 @@ impl State {
             tab,
             sp: self.sp.min(other.sp),
             fp: if self.fp == other.fp { self.fp } else { None },
+            written: Written(self.written.0 | other.written.0),
         }
     }
 
-    /// After a call: what a callee may change is unknown (`s0` and `sp` are
-    /// kept: the calling convention does).
-    fn called(&mut self) {
-        let s0 = self.regs[8];
-        let zero = self.regs[0];
+    /// After a call that links in `link`: what a callee may change is unknown;
+    /// the callee-saved registers (`s0` to `s11`) and `sp` are kept, as the
+    /// calling convention keeps them (a table's base in `s8`, set before a
+    /// call, still holds after it). A call that links in `t0` is an outlined
+    /// sequence of the compiler's (a prologue's or epilogue's saves and
+    /// restores), which sets callee-saved registers: all are forgotten then,
+    /// but `s0` (as before).
+    fn called(&mut self, link: usize) {
+        let kept = self.regs;
+        let kept_tab = self.tab;
         self.regs = [None; 32];
-        self.regs[0] = zero;
-        self.regs[8] = s0;
         self.tab = [Tab::None; 32];
+        self.regs[0] = kept[0];
+        self.regs[8] = kept[8];
+        if link != 5 {
+            for r in [9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27] {
+                self.regs[r] = kept[r];
+                self.tab[r] = kept_tab[r];
+            }
+            self.tab[8] = kept_tab[8];
+        }
     }
 
     fn set(&mut self, rd: usize, value: Option<i32>) {
@@ -191,6 +231,7 @@ impl State {
         if rd != 0 {
             self.regs[rd] = value;
             self.tab[rd] = Tab::None;
+            self.written.0 |= 1 << rd;
         }
     }
 
@@ -262,12 +303,17 @@ enum Ctl {
 struct Effect {
     ctl: Ctl,
     unbounded: bool,
+    /// The target of a call that links in `t0`: one of the compiler's
+    /// outlined sequences, whose writes are read from its code (the caller
+    /// keeps the callee-saved registers it does not write).
+    outlined: Option<u32>,
 }
 
 fn fall() -> Effect {
     Effect {
         ctl: Ctl::Fall,
         unbounded: false,
+        outlined: None,
     }
 }
 
@@ -301,6 +347,25 @@ fn writes_rd(opcode: u32) -> bool {
         opcode,
         0x37 | 0x17 | 0x6f | 0x67 | 0x03 | 0x13 | 0x33 | 0x73 | 0x2f
     )
+}
+
+/// A call (`jal` or `jalr` that links in `rd`) to `target`, if known: it does
+/// not return if the target never does; a callee keeps the callee-saved
+/// registers, and one of the compiler's outlined sequences (linked in `t0`,
+/// its target known) keeps those it does not write, which the walk reads from
+/// its code (`Walk::outlined_effect`); an unknown one, none.
+fn call(effect: &mut Effect, state: &mut State, env: &Env<'_>, rd: usize, target: Option<u32>) {
+    if target.is_some_and(|t| env.is_noreturn(t)) {
+        effect.ctl = Ctl::NoReturn;
+    }
+    let link = if rd == 5 && target.is_some() {
+        effect.outlined = target;
+        1
+    } else {
+        rd
+    };
+    state.called(link);
+    state.set(rd, None);
 }
 
 /// `jalr x0, imm(rs1)`: a return, a jump through a table's word, a tail call
@@ -400,11 +465,13 @@ fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
             if rd == 0 {
                 effect.ctl = Ctl::Jump(offset);
             } else {
-                if env.is_noreturn(pc.wrapping_add(offset as u32)) {
-                    effect.ctl = Ctl::NoReturn;
-                }
-                state.called();
-                state.set(rd, None);
+                call(
+                    &mut effect,
+                    state,
+                    env,
+                    rd,
+                    Some(pc.wrapping_add(offset as u32)),
+                );
             }
         }
         // jalr: a return, a call (falls through), or a jump through a register.
@@ -414,11 +481,7 @@ fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
             } else {
                 // A call through a register, an `auipc` pair's: where to?
                 let target = state.regs[rs1].map(|v| (v as u32).wrapping_add(imm_i as u32));
-                if target.is_some_and(|t| env.is_noreturn(t)) {
-                    effect.ctl = Ctl::NoReturn;
-                }
-                state.called();
-                state.set(rd, None);
+                call(&mut effect, state, env, rd, target);
             }
         }
         // auipc: the pc plus the immediate, a known address
@@ -490,7 +553,7 @@ fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
             if env.is_noreturn(pc.wrapping_add(cj_offset(w) as u32)) {
                 effect.ctl = Ctl::NoReturn;
             }
-            state.called();
+            state.called(1);
         }
         // c.li
         (1, 2) if rd == 2 => effect.unbounded = true,
@@ -557,7 +620,7 @@ fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
                     if state.regs[rd].is_some_and(|t| env.is_noreturn(t as u32)) {
                         effect.ctl = Ctl::NoReturn;
                     }
-                    state.called();
+                    state.called(1);
                 }
                 // c.add
                 _ => {
@@ -768,6 +831,75 @@ impl Walk<'_> {
         (!out.is_empty()).then_some(out)
     }
 
+    /// What an outlined sequence at `target` does: the registers it writes, as
+    /// a mask (bit `r` for `x{r}`, from the destination of each instruction),
+    /// and how far it moves `sp` (the compiler's `-msave-restore` helpers
+    /// `__riscv_save_N` lower it by their save area, which the caller's frame
+    /// includes). Read from its code, straight to its `jr t0`. `None` for the
+    /// move of `sp`, and all the registers (but zero), if it is not
+    /// straight-line code in this section, ends otherwise, moves `sp` by more
+    /// than the scan can follow, or is longer than 64 instructions.
+    fn outlined_effect(&self, target: u32) -> (u32, Option<i64>) {
+        const ALL: (u32, Option<i64>) = (!1, None);
+        let Some(mut at) = target
+            .checked_sub(self.env.base)
+            .and_then(|o| usize::try_from(o).ok())
+        else {
+            return ALL;
+        };
+        let mut st = State::entry();
+        let done = |st: &State| (st.written.0 & !(1 | 1 << 2), Some(st.sp));
+        for _ in 0..64 {
+            let Some(h) = self.code.get(at..at + 2) else {
+                return ALL;
+            };
+            let pc = self.env.base.wrapping_add(at as u32);
+            let (effect, len) = if h[0] & 3 == 3 {
+                let Some(b) = self.code.get(at..at + 4) else {
+                    return ALL;
+                };
+                let w = u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+                // `jalr x0, 0(t0)`: the sequence's end.
+                if w == 0x0002_8067 {
+                    return done(&st);
+                }
+                (wide(w, &mut st, pc, &self.env), 4)
+            } else {
+                let w = u16::from_le_bytes([h[0], h[1]]);
+                // `c.jr t0`.
+                if w == 0x8282 {
+                    return done(&st);
+                }
+                (narrow(w, &mut st, pc, &self.env), 2)
+            };
+            if !matches!(effect.ctl, Ctl::Fall) || effect.unbounded || effect.outlined.is_some() {
+                return ALL;
+            }
+            at += len;
+        }
+        ALL
+    }
+
+    /// After a call linked in `t0`: what the sequence at `target` does to the
+    /// registers and to `sp` (see [`Self::outlined_effect`]).
+    fn apply_outlined(&self, target: u32, state: &mut State, effect: &mut Effect) {
+        let (written, moved) = self.outlined_effect(target);
+        match moved {
+            Some(by) => state.sp += by,
+            // Where it leaves `sp` is not known: as an unbounded move.
+            None => effect.unbounded = true,
+        }
+        for r in 1..32 {
+            if written >> r & 1 == 1 {
+                state.regs[r] = None;
+                state.tab[r] = Tab::None;
+            }
+        }
+        if written >> 8 & 1 == 1 {
+            state.fp = None;
+        }
+    }
+
     /// Runs instruction `i` on its state and queues where it goes.
     fn step(&mut self, i: usize) {
         let (at, len) = self.insns[i];
@@ -797,6 +929,9 @@ impl Walk<'_> {
                 &self.env,
             )
         };
+        if let Some(target) = effect.outlined {
+            self.apply_outlined(target, &mut state, &mut effect);
+        }
         if effect.unbounded {
             self.out.unbounded.get_or_insert(at);
         }
@@ -808,12 +943,14 @@ impl Walk<'_> {
             self.out.frame_at = at;
         }
         if let Ctl::Table(b) = effect.ctl {
-            // Through the table: to each of its entries, with the frame it
-            // has here and no register known. A table that cannot be read is
-            // a jump through a register.
+            // Through the table: to each of its entries, with the frame and the
+            // registers it has here (every path to an entry through this jump
+            // has them; other paths join in). What the jump read is no table
+            // entry any more. A table that cannot be read is a jump through a
+            // register.
             if let Some(targets) = self.table_targets(b) {
                 let mut at_target = state.clone();
-                at_target.forget_regs();
+                at_target.tab = [Tab::None; 32];
                 for j in targets {
                     self.join_into(j, &at_target);
                 }
