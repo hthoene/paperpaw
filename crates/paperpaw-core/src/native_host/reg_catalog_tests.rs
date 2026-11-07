@@ -72,7 +72,7 @@ fn dropping_plugin_store_makes_query_stale_before_next_apply_prunes_it() {
     store.prepare(pending, &mut allocations).unwrap().commit();
     let catalog = RegCatalog::new();
     let generation = catalog
-        .replace(&[source.clone()], &[row], &mut allocations)
+        .replace(core::slice::from_ref(&source), &[row], &mut allocations)
         .unwrap();
     drop(image);
     drop(source);
@@ -108,11 +108,19 @@ fn invalid_owner_index_and_decode_errors_never_publish_partial_updates() {
     let source: Rc<dyn ImageOwner> = image.clone();
     let catalog = RegCatalog::new();
     let generation = catalog
-        .replace(&[source.clone()], &[row], &mut Allocations::default())
+        .replace(
+            core::slice::from_ref(&source),
+            &[row],
+            &mut Allocations::default(),
+        )
         .unwrap();
     let bad_owner = Row { owner: 1, ..row };
     assert_eq!(
-        catalog.replace(&[source.clone()], &[bad_owner], &mut Allocations::default()),
+        catalog.replace(
+            core::slice::from_ref(&source),
+            &[bad_owner],
+            &mut Allocations::default()
+        ),
         Err(ERR_STATE)
     );
     assert_eq!(catalog.generation(), generation);
@@ -133,14 +141,18 @@ fn every_reservation_failure_and_live_borrow_preserve_catalog_generation() {
     let source: Rc<dyn ImageOwner> = image;
     let catalog = RegCatalog::new();
     let generation = catalog
-        .replace(&[source.clone()], &[row], &mut Allocations::default())
+        .replace(
+            core::slice::from_ref(&source),
+            &[row],
+            &mut Allocations::default(),
+        )
         .unwrap();
     for fail_after in 0..4 {
         let mut allocations = Allocations {
             fail_after: Some(fail_after),
         };
         assert_eq!(
-            catalog.replace(&[source.clone()], &[row], &mut allocations),
+            catalog.replace(core::slice::from_ref(&source), &[row], &mut allocations),
             Err(paperpaw_native::host_glue::ERR_NO_MEMORY)
         );
         assert_eq!(catalog.generation(), generation);
@@ -177,7 +189,11 @@ fn packed_rows_and_counts_refuse_narrowing_and_generation_wrap() {
     let catalog = RegCatalog::new();
     let rows = vec![row; 65536];
     assert_eq!(
-        catalog.replace(&[source.clone()], &rows, &mut Allocations::default()),
+        catalog.replace(
+            core::slice::from_ref(&source),
+            &rows,
+            &mut Allocations::default()
+        ),
         Err(ERR_NO_SPACE)
     );
     catalog.generation.set(u32::MAX);
