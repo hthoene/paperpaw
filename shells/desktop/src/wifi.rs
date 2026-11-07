@@ -33,6 +33,22 @@ pub const TEST_NETWORK: &str = "PaperPaw Test";
 pub const WORKSHOP_NETWORK: &str = "Workshop Wi-Fi";
 pub const WORKSHOP_PASSWORD: &str = "workshop";
 
+/// The networks the pretend radio finds; `workshop` adds the one an
+/// emulator started with `--wifi online` is in. Also what the emulator's
+/// `core.device` host (`device_host`) lists.
+pub(crate) fn pretend_networks(workshop: bool) -> Vec<WifiNetwork> {
+    let net = |ssid: &str, signal, secured| WifiNetwork::new(String::from(ssid), signal, secured);
+    let mut networks = vec![
+        net(TEST_NETWORK, -48, true),
+        net("Cafe", -70, false),
+        net("Far Away", -88, true),
+    ];
+    if workshop {
+        networks.insert(0, net(WORKSHOP_NETWORK, -40, true));
+    }
+    networks
+}
+
 #[derive(Debug, Default)]
 pub struct Wifi {
     state: WifiState,
@@ -44,17 +60,7 @@ pub struct Wifi {
 
 impl Wifi {
     fn networks(&self) -> Vec<WifiNetwork> {
-        let net =
-            |ssid: &str, signal, secured| WifiNetwork::new(String::from(ssid), signal, secured);
-        let mut networks = vec![
-            net(TEST_NETWORK, -48, true),
-            net("Cafe", -70, false),
-            net("Far Away", -88, true),
-        ];
-        if self.workshop {
-            networks.insert(0, net(WORKSHOP_NETWORK, -40, true));
-        }
-        networks
+        pretend_networks(self.workshop)
     }
 
     /// The radio on and in the workshop's network now, as a device that
