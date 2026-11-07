@@ -30,3 +30,12 @@ still requires visible whole-configuration refusal under the approved #964
 policy. The default interface retains legacy behavior until that UI and broker
 exist. Allocation failure/embedded stack and runtime timing remain device gates;
 this change supplies host behavior proofs, not X4 qualification.
+
+## Blocking code review #1028
+
+The initial application implementation still calls allocation-heavy legacy
+filters. The wire cap does not bound output expansion across ordered replacements.
+It must not be wired into the native reader until a checked allocation, bounded
+working transaction replaces that path and proves refusal leaves the original
+block unchanged. This is a code correctness gate, not an X4 measurement deferral.
+Encoder reservations are now fallible; that alone does not resolve application.

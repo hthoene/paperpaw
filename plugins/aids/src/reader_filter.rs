@@ -16,6 +16,8 @@ mod wire;
 pub enum Error {
     /// A rule violates schema semantics.
     Invalid,
+    /// Allocation was refused before output was changed.
+    NoMemory,
     /// Canonical encoder/decoder status, including aggregate size refusal.
     Wire(i32),
 }
@@ -33,6 +35,7 @@ pub fn encode(
     output: &mut [u8],
 ) -> Result<usize, Error> {
     let mut pairs = Vec::new();
+    pairs.try_reserve_exact(32).map_err(|_| Error::NoMemory)?;
     for pair in replacements.split(';') {
         let Some((from, to)) = pair.split_once('=') else {
             continue;
@@ -51,7 +54,10 @@ pub fn encode(
         super::pictures::HIDE => 2,
         _ => 0,
     };
-    let mut records = Vec::with_capacity(pairs.len() + 1);
+    let mut records = Vec::new();
+    records
+        .try_reserve_exact(pairs.len() + 1)
+        .map_err(|_| Error::NoMemory)?;
     records.push(wire::Record::FilterRules(wire::FilterRules {
         signature: 0,
         bold: u32::from(bold),
@@ -67,7 +73,11 @@ pub fn encode(
     }
     // Hash the canonical rules with the signature zeroed. The final encode is
     // preflighted separately, so the caller's output stays untouched on refusal.
-    let mut scratch = alloc::vec![0; wire::RECORD_MAX_BYTES];
+    let mut scratch = Vec::new();
+    scratch
+        .try_reserve_exact(wire::RECORD_MAX_BYTES)
+        .map_err(|_| Error::NoMemory)?;
+    scratch.resize(wire::RECORD_MAX_BYTES, 0);
     let len = wire::records_encode(&records, &mut scratch).map_err(Error::Wire)?;
     let signature = scratch[..len]
         .iter()
