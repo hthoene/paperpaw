@@ -40,10 +40,8 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         instance: Option<paperpaw_sdk::ScreenKey>,
     ) -> CoreFrame<'a> {
         CoreFrame {
-            callback: Some(crate::abi7::core_frame::CallbackStamp {
-                owner: self.identity.owner(),
-                epoch,
-            }),
+            callback: crate::abi7::core_frame::CallbackStamp::new(self.identity.owner(), epoch)
+                .ok(),
             instance: instance.map(paperpaw_sdk::ScreenKey::serial),
             env,
             meter: &self.host.meter,

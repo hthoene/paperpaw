@@ -274,3 +274,15 @@ fn calling_instance_requires_a_live_host_stamped_screen_and_callback() {
         assert_eq!(frame.calling_instance(), expected);
     }
 }
+
+#[test]
+fn shared_callback_stamp_constructor_refuses_epoch_zero() {
+    assert_eq!(
+        CallbackStamp::new(7, 0),
+        Err(paperpaw_native::host_glue::ERR_STATE)
+    );
+    assert_eq!(
+        CallbackStamp::new(7, 9),
+        Ok(CallbackStamp { owner: 7, epoch: 9 })
+    );
+}

@@ -7,10 +7,19 @@ use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_STATE};
 use paperpaw_sdk::{Env, Plugins, Settings, usage::Usage, work::WorkStates};
 
 /// Host-only callback identity, never decoded from plugin bytes.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CallbackStamp {
     pub(crate) owner: u64,
     pub(crate) epoch: u64,
+}
+
+impl CallbackStamp {
+    pub(crate) fn new(owner: u64, epoch: u64) -> Result<Self, i32> {
+        if epoch == 0 {
+            return Err(ERR_STATE);
+        }
+        Ok(Self { owner, epoch })
+    }
 }
 
 /// Separate shared field borrows, assembled by core dispatch before foreign code.
