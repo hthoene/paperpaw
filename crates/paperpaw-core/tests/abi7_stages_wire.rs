@@ -204,7 +204,7 @@ fn status_ask_rejects_bad_lists_and_context_caps_in_both_directions() {
         "\nitem".to_owned(),
         "item\n".to_owned(),
         "a\n\nb".to_owned(),
-        vec!["item"; 9].join("\n"),
+        ["item"; 9].join("\n"),
         "a".repeat(129),
         "a".repeat(1033),
     ] {
