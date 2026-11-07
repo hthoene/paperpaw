@@ -235,14 +235,18 @@ pub(crate) fn close_allowed(
 }
 
 /// `command.back_to` closing the screens above the instance at index `target`
-/// (section 1.3): with a guard up, only the guard's plugin closes anything
-/// (everything above the target is the guard or above it, or the target is
-/// below it); nothing to close is `OK` for anyone.
+/// (section 1.3): a `target` not on the stack is `ERR_NOT_FOUND` (checked
+/// before any arithmetic); with a guard up, only the guard's plugin closes
+/// anything (everything above the target is the guard or above it, or the
+/// target is below it); nothing to close is `OK` for anyone.
 pub(crate) fn back_to_allowed(
     view: &dyn UiStackView,
     submitter: &str,
     target: usize,
 ) -> Result<(), i32> {
+    if target >= view.len() {
+        return Err(ERR_NOT_FOUND);
+    }
     let closes_something = target + 1 < view.len();
     match guard_owner(view) {
         Some(guard) if closes_something && guard != submitter => Err(ERR_DENIED),

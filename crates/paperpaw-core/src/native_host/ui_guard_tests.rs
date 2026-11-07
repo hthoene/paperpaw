@@ -147,6 +147,13 @@ fn only_the_guards_plugin_raises_closes_or_goes_back_past_the_lock() {
     assert_eq!(back_to_allowed(v, "mail", 1), Err(ERR_DENIED));
     assert_eq!(back_to_allowed(v, "lock", 0), Ok(()));
     assert_eq!(back_to_allowed(view(&plain()), "mail", 0), Ok(()));
+    // A target off the stack is refused before any arithmetic, also usize::MAX.
+    for target in [3, 4, usize::MAX - 1, usize::MAX] {
+        assert_eq!(back_to_allowed(v, "lock", target), Err(ERR_NOT_FOUND));
+        assert_eq!(back_to_allowed(v, "mail", target), Err(ERR_NOT_FOUND));
+    }
+    let empty: Vec<Row<'_>> = Vec::new();
+    assert_eq!(back_to_allowed(view(&empty), "lock", 0), Err(ERR_NOT_FOUND));
 }
 
 #[test]
