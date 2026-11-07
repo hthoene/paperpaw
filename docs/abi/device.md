@@ -199,14 +199,17 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   its kept outcome **at submit** (fallibly; device-wide at most 4 install, removal, firmware or
   check requests and 4 radio requests waiting, else `ERR_FULL` for the batch), so an accepted
   request always has room for its outcome and is never dropped later. Outcomes are kept until
-  delivered, then readable with op 13 until the plugin's next request of the same kind or its stop.
+  delivered; an install, removal, firmware or check outcome is then readable with op 13 until the
+  plugin's next request of the same kind or its stop. A radio outcome (`wifi_done`, 93) is not kept
+  after delivery: its room is released when it is delivered or its sender stops, and the current
+  radio state is op 8.
 - [D] **Wi-Fi** (interface 6 `WifiCommand`, `NoNetwork`): `join` and `host` need a non-empty `ssid`;
   `host`'s password is 8-63 bytes, `join`'s 0-63; `join.flags` bit 0 remember the password (SEC's
   store, owned by the Wi-Fi plugin). A password is never logged nor shown in a record any other
   plugin reads. A newer `join` or `host` from any plugin supersedes a waiting one, whose outcome is
-  `wifi_failed` reason 4. **No silent network change:** a `join` of a network without a stored
+  `wifi_done` reason 4. **No silent network change:** a `join` of a network without a stored
   password, and every `host`, are honoured only within 2,000 ms after a user input or from the
-  network manager (`core.network-manager`); else they end at once with `wifi_failed` reason 6
+  network manager (`core.network-manager`); else they end at once with `wifi_done` reason 6
   (needs the user). A `join` of a network with a stored password, `wifi_on`, `scan`, `leave` and
   `off` need no input. `go_online` (`for_ms` 1-600,000) is honoured only within 2,000 ms after a
   user input (else `OK` and ignored, logged): no plugin turns the radio on in the background by it.
@@ -244,7 +247,7 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
 | 72 | `event.power_changed` (EVT) | as in `core-events.md` |
 | 70 | `event.plugins_changed` (EVT) | as in `core-events.md` |
 | 92 | `event.wifi_scanned` | `now_ms: u64`, `networks: u32` |
-| 93 | `event.wifi_failed` | `now_ms: u64`, `request: u32`, `ssid: str 32`, `reason: u32` |
+| 93 | `event.wifi_done` | `now_ms: u64`, `request: u32`, `ssid: str 32`, `status: i32`, `reason: u32`, `state: u32` |
 | 94 | `event.network_wanted` | `now_ms: u64` |
 | 95 | `event.network_idle` | `now_ms: u64` |
 | 96 | `event.firmware_changed` | `now_ms: u64`, `request: u32`, `state: u32` |
@@ -253,10 +256,16 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
 
 - [D] 92, 94-96 are hints (coalesced per kind; read again with section 2). 93 and 97 are **edges
   kept like answers** (`ui.md` 3.2) in the room reserved at submit (section 3).
-- [D] 93 (`reason` 0 other, 1 not found, 2 password, 3 timeout, 4 superseded, 5 unsupported here, 6
-  needs the user; unknown as 0) goes to the plugin whose `join` or `host` it answers (`request`); a
-  failure of a join the host started itself (a remembered network at wake) has `request` 0 and goes
-  to the network manager. A join that succeeds raises 71 to all; its sender reads op 8.
+- [D] 93 ends every `join` and `host` exactly once, success or failure, and goes to the plugin whose
+  request it answers (`request`), like 97 for installs. `status` `OK` with `reason` 0 and `state`
+  the `dev_wifi` state reached (3 online, 4 hosting) when the network is up; else the error with
+  `reason` (1 not found `ERR_NOT_FOUND`, 2 password `ERR_DENIED`, 3 timeout `ERR_TIMEOUT`, 4
+  superseded `ERR_CANCELLED`, 5 unsupported here `ERR_UNSUPPORTED`, 6 needs the user `ERR_DENIED`,
+  0 other `ERR_IO`; unknown reasons as 0) and `state` 0. The edge says what happened to *this*
+  request at the moment it ended, so it stays true when a later `join`, `leave` or a dropped
+  network has changed the radio before the sender handles it; 71 (to all, coalesced) and op 8 say
+  what holds now. A join the host started itself (a remembered network at wake) has `request` 0:
+  its failure goes to the network manager, its success only raises 71.
 - [D] 97 ends every install, removal and firmware request exactly once and goes to its sender only:
   `kind` 0 plugin install, 1 firmware, 2 removal, 3 file check; `status` OK or the error of 5.5 with
   its `reason`; `flags` bit 0 the plugin's data was kept (removal), bit 1 takes effect at the next
@@ -495,7 +504,7 @@ unknown values read as 1.
 - Replies: on the host scratch, freed after the call; nothing kept per plugin.
 - The memory probe's cached answer: 32 bytes.
 - Requests: at most 4 install, removal, firmware or check requests (about 48 bytes each plus the
-  kept `install_done`, 104 bytes) and 4 radio requests (about 64 bytes with the kept `wifi_failed`)
+  kept `install_done`, 104 bytes) and 4 radio requests (about 72 bytes with the kept `wifi_done`)
   device-wide, reserved at submit: about 0.9 KiB at most.
 - Trust evidence of waiting requests: one fixed pool of 2 KiB device-wide (a full chain is 1,000
   bytes), taken at submit (`ERR_FULL` beyond); usually 0 or 100 bytes.
