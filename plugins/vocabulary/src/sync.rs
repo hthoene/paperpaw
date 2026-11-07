@@ -78,7 +78,7 @@ pub(crate) fn ledger_path() -> &'static str {
 }
 
 /// Whether `text` ends in `ending` (ASCII), whatever the case.
-fn ends_with_ignore_case(text: &str, ending: &str) -> bool {
+pub(crate) fn ends_with_ignore_case(text: &str, ending: &str) -> bool {
     text.len() >= ending.len()
         && text
             .as_bytes()
@@ -1309,7 +1309,9 @@ impl Job {
                 mirror: work.mirror,
                 left_out: work.report.skipped + work.report.no_room,
             });
-            tidy(storage, &mut known, &self.listed);
+            tidy(storage, &mut known, |name| {
+                self.listed.iter().any(|l| l == name)
+            });
             write_sources(storage, &known)
         });
         let mut report = work.report;
@@ -1602,13 +1604,13 @@ fn note_failed(storage: &dyn Storage, found: &Found) {
 
 /// The ledger without what can be of no use: a link to a deck that is gone,
 /// a failed file that is not in the folder any more.
-pub(crate) fn tidy(storage: &dyn Storage, ledger: &mut Ledger, listed: &[String]) {
+pub(crate) fn tidy(storage: &dyn Storage, ledger: &mut Ledger, listed: impl Fn(&str) -> bool) {
     let Ok(decks) = cards::decks(storage) else {
         return;
     };
     ledger.sources.retain(|s| {
         if s.deck == 0 {
-            listed.contains(&s.name)
+            listed(&s.name)
         } else {
             decks.iter().any(|d| d.id == s.deck)
         }
