@@ -158,13 +158,13 @@ mod native_values;
 #[path = "native_host/native_dispatch.rs"]
 mod native_dispatch;
 
+#[path = "native_host/native_callbacks.rs"]
+mod native_callbacks;
+
 #[allow(
     dead_code,
     reason = "production native activation and stage broker follow this registry"
 )]
-#[path = "native_host/native_callbacks.rs"]
-mod native_callbacks;
-
 #[path = "native_host/native_instances.rs"]
 pub(crate) mod native_instances;
 

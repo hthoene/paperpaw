@@ -35,7 +35,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
 
     fn frame<'a>(&'a self, env: &'a Env<'a>, epoch: u64) -> CoreFrame<'a> {
         CoreFrame {
-            callback: Some(crate::abi7::context::CallbackStamp {
+            callback: Some(crate::abi7::core_frame::CallbackStamp {
                 owner: self.identity.owner(),
                 epoch,
             }),

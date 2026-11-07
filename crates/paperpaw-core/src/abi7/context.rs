@@ -29,13 +29,6 @@ pub(crate) struct RowsEnd {
     pub(crate) next: u32,
 }
 
-/// Host-only callback identity, never decoded from plugin bytes.
-#[derive(Clone, Copy)]
-pub(crate) struct CallbackStamp {
-    pub(crate) owner: u64,
-    pub(crate) epoch: u64,
-}
-
 #[allow(dead_code, reason = "usage service methods await slots 17-19 adapters")]
 pub(crate) trait Frame {
     fn settings(&self) -> &Settings;

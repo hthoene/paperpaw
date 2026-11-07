@@ -1,7 +1,10 @@
 extern crate std;
 
 use super::*;
-use crate::abi7::context::{Error, FrameSlot};
+use crate::abi7::{
+    context::{Error, FrameSlot},
+    core_frame::CallbackStamp,
+};
 use alloc::{borrow::Cow, string::String};
 use core::{ops::ControlFlow, pin::pin};
 use paperpaw_platform::Instant;
