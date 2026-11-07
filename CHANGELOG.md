@@ -22,6 +22,9 @@ change the plugin SDK.
 - Battery is a native interface-7 plugin only: the interface-6 plugin, its view and its Kernel
   tests are removed, the events table and storage goldens run on the native recorder, and the app
   and the store-file build no longer register it until Core publishes native plugins (#228).
+- Core native screen admission uses a shared declaration entry, fallible factories,
+  retained owners and declared instance policies. Native screen lifecycle events
+  carry nonzero instance ids. Other declaration families remain refused until wired (#228).
 
 - Native SDK screen instance policies, borrowed confirmation button labels and flags,
   dialog label accessors, and an explicit user-defined menu getter (#228).

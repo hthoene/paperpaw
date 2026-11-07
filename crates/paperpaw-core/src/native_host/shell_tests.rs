@@ -1345,6 +1345,8 @@ fn stage_slot_missing_frame_and_zero_capacity_do_not_allocate() {
         .unwrap();
 }
 
+#[path = "format_call_oom_tests.rs"]
+mod format_call_oom;
 #[path = "stage_broker_oom_tests.rs"]
 mod stage_broker_oom;
 
@@ -1355,3 +1357,6 @@ mod evt_oom;
 mod command_dispatch;
 #[path = "stage_broker_native_tests.rs"]
 mod stage_broker_native;
+
+#[path = "native_screen_install_tests.rs"]
+mod native_screen_install;
