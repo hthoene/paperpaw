@@ -329,8 +329,8 @@ Uses the audit found that are **not FS**, and where they go:
   moved path, catalogued or not, keep their data under the new key; folder reader assignments and
   folder-valued settings follow; the book-moved events; the journal entry before the rename and
   the bounded main-loop job after it, finished at start. Tests: a cut right after the rename, a
-  1,000-book folder move that answers within one bounded call, and file-manager's cases (`plugins/file-manager/src/lib.rs:873`,
-  `crates/paperpaw-sdk/src/library/mod.rs:1221`).
+  1,000-book folder move that answers within one bounded call, and file-manager's cases
+  (`plugins/file-manager/src/lib.rs:873`, `crates/paperpaw-sdk/src/library/mod.rs:1221`).
 - **Kernel (records step):** the optional `cursor: u64` on `service.end` (52), `fs_entry.name` 765,
   the u64 cursors.
 - **Services:** SDK facade `native::files` (typed `list` pages with the cursor, `stat`, `space`,
