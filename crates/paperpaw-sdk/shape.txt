@@ -1528,7 +1528,7 @@ enum paperpaw_sdk::menus::MenuNeed { Speech, Sleep, Rotation, NoTouch, Touch, Bu
 enum paperpaw_sdk::menus::MenuPlace { Order(0: i16), After(0: paperpaw_sdk::id::Id), Before(0: paperpaw_sdk::id::Id), InSection(0: paperpaw_sdk::id::Id), First, Last, Other(0: &'static str) }
 enum paperpaw_sdk::native::Author { Known, New, Other }
 enum paperpaw_sdk::native::NotInstalledReason { OtherAuthor, Damaged }
-enum paperpaw_sdk::native::SafeModeReason { FailedStarts, KeyHeld }
+enum paperpaw_sdk::native::SafeModeReason { FailedStarts, KeyHeld, PowerEscape }
 enum paperpaw_sdk::native::binding::Error { Unsupported, Invalid, NoSpace, NoMemory, Utf8, State, Cancelled, Io, Busy, NotFound, Full, Denied, Timeout, Other(0: i32) }
 enum paperpaw_sdk::native::callbacks::DrawPurpose { Screen, PageLayer, InsertedBlock, StatusItem, Widget, StatusLine, Other(0: u32) }
 enum paperpaw_sdk::native::callbacks::Input<'a> { Key { now_ms: u64, key: &'a str, state: paperpaw_sdk::native::callbacks::KeyState }, Pointer { now_ms: u64, position: paperpaw_platform::geometry::Point, phase: paperpaw_sdk::native::callbacks::PointerPhase }, Gesture { now_ms: u64, position: paperpaw_platform::geometry::Point, kind: paperpaw_sdk::native::callbacks::InputGestureKind }, Action { now_ms: u64, action: &'a str }, Widget { now_ms: u64, instance: paperpaw_sdk::native::ui::types::Instance, target: u32, position: paperpaw_platform::geometry::Point, kind: paperpaw_sdk::native::ui::widgets::WidgetInputKind } }
