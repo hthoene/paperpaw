@@ -6,7 +6,7 @@ use super::{
     resources::OwnerResourceView,
     shared::{self, Shared},
 };
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, string::String, vec::Vec};
 use core::cell::Cell;
 use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_sdk::Id;
@@ -82,6 +82,7 @@ struct Entry {
     enabled: bool,
     start: Cell<bool>,
     retiring: bool,
+    replacement: Option<String>,
 }
 
 #[derive(Default)]
@@ -147,6 +148,7 @@ impl NativeInstances {
             enabled,
             start: Cell::new(false),
             retiring: false,
+            replacement: None,
         });
         Ok(key)
     }
@@ -244,22 +246,20 @@ impl NativeInstances {
 
     /// Retire a published owner. Cleanup is retryable under the same key;
     /// callbacks and broker lookup are revoked even when cleanup is busy.
-    pub(crate) fn retire(&mut self, key: u64) -> Result<(), i32> {
+    pub(crate) fn retire(&mut self, key: u64) -> Result<Option<String>, i32> {
         let entry = self.entry_mut(key).ok_or(ERR_STATE)?;
         entry.enabled = false;
+        entry.retiring = true;
         entry.start.set(false);
         if let Some(instance) = &entry.instance {
-            instance
-                .0
-                .retire(u64::try_from(key).map_err(|_| ERR_FULL)?)?;
+            instance.0.retire(key)?;
         }
         let at = self
             .entries
             .iter()
             .position(|entry| entry.key == key)
             .ok_or(ERR_STATE)?;
-        self.entries.swap_remove(at);
-        Ok(())
+        Ok(self.entries.swap_remove(at).replacement)
     }
 
     /// Reclaim a failed admission without reusing its key or moving any identity.
@@ -272,6 +272,21 @@ impl NativeInstances {
             .ok_or(ERR_STATE)?;
         self.entries.swap_remove(at);
         Ok(())
+    }
+
+    pub(crate) fn defer_replacement(&mut self, key: u64, folder: String) -> Result<(), i32> {
+        let entry = self.entry_mut(key).ok_or(ERR_STATE)?;
+        if !entry.retiring || entry.replacement.is_some() {
+            return Err(paperpaw_native::host_glue::ERR_BUSY);
+        }
+        entry.replacement = Some(folder);
+        Ok(())
+    }
+
+    pub(crate) fn replacement_pending(&self, id: &Id) -> bool {
+        self.entries
+            .iter()
+            .any(|entry| entry.id == *id && entry.replacement.is_some())
     }
 
     /// Also notices a Hosted::stop request made through a retained owner.
@@ -428,7 +443,7 @@ mod tests {
         drop(lease);
         assert_eq!(drops.get(), 0);
         assert!(matches!(registry.state(key), Ok(InstanceState::Stopped)));
-        registry.retire(key).unwrap();
+        assert!(registry.retire(key).unwrap().is_none());
         assert_eq!(drops.get(), 1);
     }
 
@@ -510,7 +525,7 @@ mod tests {
         let key = registry
             .test_insert(Id::new_static("probe"), Some(lease), true)
             .unwrap();
-        registry.retire(key).unwrap();
+        assert!(registry.retire(key).unwrap().is_none());
         assert_eq!(retired.get(), Some(key));
         assert_eq!(drops.get(), 1);
         assert!(registry.id(key).is_none());
@@ -535,7 +550,7 @@ mod tests {
             .unwrap();
         assert_eq!(key, first.owner_id());
         assert_eq!(registry.identity(key).unwrap().owner(), first.owner_id());
-        registry.retire(key).unwrap();
+        assert!(registry.retire(key).unwrap().is_none());
         let other_pool = super::super::HostResources::try_new().unwrap();
         let other = other_pool.try_owner().unwrap();
         assert_eq!(

@@ -78,9 +78,13 @@ impl crate::Kernel {
 
     /// Revoke first; store cleanup, screen closure and factory removal must
     /// precede resource retirement. Busy cleanup retains a pending row.
-    pub(crate) fn begin_native_unload(&mut self, key: u64, owner: &Id) {
+    pub(crate) fn begin_native_unload(
+        &mut self,
+        key: u64,
+        owner: &Id,
+    ) -> Option<alloc::string::String> {
         if self.shared.native_instances.stop(key).is_err() {
-            return;
+            return None;
         }
         self.native_owner_stopped(key);
         self.remove_retired_native_screens(owner);
@@ -89,10 +93,14 @@ impl crate::Kernel {
             .screens
             .remove_native_owner(owner.as_str());
         // The main loop retries a revoked row and requests a wake meanwhile.
-        if let Err(status) = self.shared.native_instances.retire(key)
-            && status != paperpaw_native::host_glue::ERR_BUSY
-        {
-            self.warn_runtime("native owner cleanup failed; retry scheduled");
+        match self.shared.native_instances.retire(key) {
+            Ok(replacement) => replacement,
+            Err(status) => {
+                if status != paperpaw_native::host_glue::ERR_BUSY {
+                    self.warn_runtime("native owner cleanup failed; retry scheduled");
+                }
+                None
+            }
         }
     }
 

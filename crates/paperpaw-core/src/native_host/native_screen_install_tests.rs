@@ -462,7 +462,14 @@ fn retiring_open_registered_owner_refuses_callbacks_and_tears_down_under_kernel_
     open(&mut kernel, Params::new());
     let before = EVENTS.with(|events| events.borrow().len());
     let owner = kernel.shared.native_instances.find("factory").unwrap();
-    kernel.shared.native_instances.retire(owner).unwrap();
+    assert!(
+        kernel
+            .shared
+            .native_instances
+            .retire(owner)
+            .unwrap()
+            .is_none()
+    );
     kernel.with_screen(0, |screen, cx| {
         screen.on_show(cx);
         Handled::Yes
@@ -582,7 +589,14 @@ fn failed_publication_reclaims_row_then_retry_publishes_under_a_fresh_key() {
     let mut kernel = kernel(0);
     let old = kernel.shared.native_instances.find("factory").unwrap();
     // Keep the old factory to force a conflict at publication, after binding.
-    kernel.shared.native_instances.retire(old).unwrap();
+    assert!(
+        kernel
+            .shared
+            .native_instances
+            .retire(old)
+            .unwrap()
+            .is_none()
+    );
     assert!(matches!(
         install(&mut kernel, 0),
         Err(Error::Status(ERR_INVALID))
@@ -679,4 +693,55 @@ fn retained_host_stop_enters_the_same_kernel_unload_path() {
     assert_eq!(DESTROYED.with(Cell::get), 1);
     install(&mut kernel, 0).unwrap();
     assert!(kernel.shared.native_instances.find("factory").unwrap() > key);
+}
+
+#[test]
+fn replacement_publication_waits_for_one_requested_busy_unload_to_complete() {
+    reset(NORMAL);
+    DESTROYED.with(|value| value.set(0));
+    let storage = paperpaw_sdk::MemoryStorage::new().with(
+        "plugins/.factory.part/plugin.ini",
+        "[plugin]\nid = factory\nname = Replacement\nversion = 2.0.0\n",
+    );
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .storage(storage)
+        .build()
+        .unwrap();
+    install(&mut kernel, 0).unwrap();
+    let old = kernel.shared.native_instances.find("factory").unwrap();
+    crate::native_host::shell::teardown_fault::arm_persistent(
+        crate::native_host::TeardownStep::Release,
+        crate::native_host::Error::Busy,
+    );
+    kernel.apply(Command::InstallPlugin(
+        Id::new_static("factory"),
+        "plugins/.factory.part".into(),
+    ));
+    assert!(
+        kernel
+            .shared
+            .native_instances
+            .replacement_pending(&Id::new_static("factory"))
+    );
+    assert!(
+        kernel.plugins().get("factory").is_none(),
+        "new declarations must not publish during cleanup"
+    );
+    let wake = kernel
+        .tick(paperpaw_platform::Instant(10))
+        .wake_at()
+        .unwrap();
+    assert!(kernel.shared.native_instances.id(old).is_none());
+    assert!(kernel.plugins().get("factory").is_none());
+    crate::native_host::shell::teardown_fault::disarm();
+    kernel.tick(wake);
+    assert_eq!(kernel.shared.native_instances.find("factory"), None);
+    assert_eq!(DESTROYED.with(Cell::get), 1);
+    let replacement = kernel
+        .plugins()
+        .get("factory")
+        .expect("completion publishes replacement");
+    assert_eq!(replacement.manifest.version.major, 2);
+    kernel.tick(paperpaw_platform::Instant(wake.millis() + 50));
+    assert_eq!(DESTROYED.with(Cell::get), 1);
 }

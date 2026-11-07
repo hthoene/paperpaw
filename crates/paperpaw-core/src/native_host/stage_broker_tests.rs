@@ -447,7 +447,7 @@ fn retired_registry_keys_are_skipped_without_cancelling_live_subscribers() {
     let mut h = Harness::new();
     let retired = h.add("retired", Behavior::Good);
     let live = h.add("live", Behavior::Good);
-    h.registry.retire(retired).unwrap();
+    assert!(h.registry.retire(retired).unwrap().is_none());
     let replacement = h.add("retired", Behavior::Good);
     assert!(replacement > retired);
     let schema = schema();
