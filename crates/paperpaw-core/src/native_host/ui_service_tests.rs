@@ -18,7 +18,7 @@ use paperpaw_sdk::{Env, Settings};
 struct Stack {
     epoch: Cell<u64>,
     instance: Cell<Option<u32>>,
-    rows: core::cell::RefCell<Vec<ui_guard::Row<'static>>>,
+    rows: core::cell::RefCell<Vec<ui_guard::Row>>,
     x4: Cell<bool>,
     closed: core::cell::RefCell<Vec<u32>>,
 }
@@ -433,7 +433,7 @@ fn open_dialog(v: &View<'_>, owner: u64, id: u32, dialog: u32) {
     v.store.dialog_opened(id, dialog).unwrap();
 }
 
-fn row(instance: u32, owner: &'static str) -> Row<'static> {
+fn row(instance: u32, owner: u64) -> Row {
     Row {
         instance,
         owner,
@@ -583,7 +583,7 @@ fn a_guard_denies_the_nested_question_and_the_answer_goes_to_the_asker() {
         open_dialog(v, 1, parent, 40);
         v.stack.instance.set(Some(40));
         v.stack.epoch.set(6);
-        let mut guard = row(50, "lock");
+        let mut guard = row(50, 3);
         guard.guards = true;
         v.stack.rows.borrow_mut().push(guard);
         assert_eq!(

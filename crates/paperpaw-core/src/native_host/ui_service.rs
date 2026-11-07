@@ -155,7 +155,7 @@ fn ask(ui: &UiServices, who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Resul
         admitted = ui_guard::ask_admission(
             view,
             &Ask {
-                asker: who.plugin,
+                asker: who.owner,
                 kind: ask.kind,
                 slot: ask.slot,
                 secret,
