@@ -1,6 +1,7 @@
 //! Staged annotation transactions: ops 17-21 and 26.
 use super::*;
 use crate::native_host::lib_service::write as w;
+use paperpaw_native::host_glue::ERR_BUSY;
 use wire::{
     ServiceLibEdit as Edit, ServiceLibEditHead as Head, ServiceLibEditText as EditText,
     ServiceLibReceiptAsk as ReceiptAsk, ServiceLibTransactionRef as TransactionRef,
@@ -441,9 +442,11 @@ fn sizes_are_capped_per_note_per_xpointer_and_per_transaction() {
     // The transaction caps staged bytes at the annotation file's 1 MiB.
     let fake = Fake::new();
     let t = begin(&fake).unwrap();
+    // The edit's record counts besides its text: 256 bytes leave room for it.
+    let whole: u32 = (1 << 20) - 256;
     let big = Edit {
         text: "",
-        text_bytes: 1 << 20,
+        text_bytes: whole,
         ..edit()
     };
     assert_eq!(
@@ -459,13 +462,19 @@ fn sizes_are_capped_per_note_per_xpointer_and_per_transaction() {
     );
     assert!(add(&fake, t, &[big]).is_ok());
     let mut offset = 0;
-    while offset < 1 << 20 {
-        let last = offset + 3072 >= 1 << 20;
-        let size = if last { (1 << 20) - offset } else { 3072 };
+    while offset < whole {
+        let last = offset + 3072 >= whole;
+        let size = if last { whole - offset } else { 3072 };
         part(&fake, t, 0, 0, offset, &"t".repeat(size as usize), last).unwrap();
         offset += 3072;
     }
-    // Nothing is left for another edit.
+    // What is left holds a few edit records, not an unbounded number: each
+    // costs its record, empty or not.
+    let mut more = 0;
+    while add(&fake, t, &[edit()]).is_ok() {
+        more += 1;
+        assert!(more < 8, "the records count against the cap");
+    }
     assert_eq!(add(&fake, t, &[edit()]), Err(ERR_NO_SPACE));
     assert!(commit(&fake, t).is_ok());
 }
@@ -485,7 +494,10 @@ fn a_commit_the_host_refuses_ends_the_transaction() {
         );
         assert_eq!(fake.transactions.open_count(), 0);
     }
-    // A reply that does not add up (9 edits applied of 1 staged) is malformed.
+    // The edits are applied once the host says so: counts that do not add up
+    // (9 edits applied of 1 staged) never turn that into a failure, or the
+    // plugin would retry and add them twice. The reply carries the
+    // transaction's own counts.
     fake.commit.set(Ok(w::Committed {
         annotation_generation: 1,
         edits: 9,
@@ -493,7 +505,88 @@ fn a_commit_the_host_refuses_ends_the_transaction() {
     }));
     let t = begin(&fake).unwrap();
     add(&fake, t, &[edit()]).unwrap();
-    assert_eq!(commit(&fake, t), Err(ERR_INVALID));
+    let reply = commit(&fake, t).unwrap();
+    let Record::ServiceLibCommitted(done) = wire::record_decode_one(&reply).unwrap() else {
+        panic!("not a commit")
+    };
+    assert_eq!((done.transaction, done.edits, done.added), (t, 1, 1));
+    assert_eq!(fake.transactions.open_count(), 0);
+}
+
+#[test]
+fn a_reply_that_cannot_be_written_stops_before_anything_is_applied() {
+    let fake = Fake::new();
+    let t = begin(&fake).unwrap();
+    add(&fake, t, &[edit()]).unwrap();
+    let bytes = input(20, &[tref(t)]).unwrap();
+    let mut small = [0_u8; 4];
+    let applied = |fake: &Rc<Fake>| fake.log.borrow().iter().any(|l| l.starts_with("commit"));
+    assert_eq!(
+        with(host(&fake), |frame| backend(
+            frame,
+            schema_op(20),
+            &bytes,
+            &mut small
+        )),
+        Err(ERR_NO_SPACE)
+    );
+    assert!(!applied(&fake), "nothing was applied");
+    assert_eq!(fake.transactions.open_count(), 1, "the transaction stays");
+    assert!(commit(&fake, t).is_ok());
+    assert!(applied(&fake));
+}
+
+#[test]
+fn an_edit_counts_its_record_and_a_transaction_holds_at_most_1024() {
+    let fake = Fake::new();
+    let t = begin(&fake).unwrap();
+    // 341 calls of 3 empty edits and one of 1: 1,024 edits.
+    for _ in 0..341 {
+        add(&fake, t, &[edit(), edit(), edit()]).unwrap();
+    }
+    add(&fake, t, &[edit()]).unwrap();
+    assert_eq!(add(&fake, t, &[edit()]), Err(ERR_NO_SPACE));
+    // The refusal staged nothing and the transaction still commits.
+    assert_eq!(staged(&fake), 1024);
+    assert!(commit(&fake, t).is_ok());
+}
+
+#[test]
+fn a_book_with_an_open_transaction_is_busy_for_delete_and_move() {
+    let fake = Fake::new();
+    let t = begin(&fake).unwrap();
+    let del = |paths: &str| {
+        go_rows(
+            &fake,
+            10,
+            &[Record::ServiceLibPaths(Paths { paths, flags: 0 })],
+        )
+    };
+    // The fake resolves every path but a gone one to the book in use.
+    assert_eq!(
+        results(&del("Books/a.epub\nBooks/gone.epub").unwrap()),
+        [
+            ("Books/a.epub".into(), ERR_BUSY, 0),
+            ("Books/gone.epub".into(), 0, 0)
+        ]
+    );
+    let mv = |from, to| {
+        go(
+            &fake,
+            11,
+            &[Record::ServiceLibMove(Move { from, to, flags: 1 })],
+        )
+    };
+    assert_eq!(mv("Books/a.epub", "Books/b.epub"), Err(ERR_BUSY));
+    assert_eq!(
+        mv("Books/b.epub", "Books/a.epub"),
+        Err(ERR_BUSY),
+        "the replaced one too"
+    );
+    assert!(!fake.log.borrow().iter().any(|l| l.starts_with("move")));
+    // Once it ends, they go through.
+    commit(&fake, t).unwrap();
+    assert!(mv("Books/a.epub", "Books/b.epub").is_ok());
 }
 
 #[test]

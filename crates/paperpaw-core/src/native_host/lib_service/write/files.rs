@@ -4,7 +4,7 @@ use super::{
     need_storage, require, result_row,
 };
 use paperpaw_native::host_glue::{
-    ERR_DENIED, ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, OK,
+    ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, OK,
 };
 
 /// The most paths of one `can_delete` or `delete` (`lib_paths`, 7 x 512).
@@ -88,6 +88,12 @@ pub(super) fn paths(
 /// A book with annotations is `ERR_STATE` unless the caller says `with_notes`
 /// (the view asked the user); nothing is removed then.
 fn delete_one(host: &dyn super::super::LibHost, path: &str, with_notes: bool) -> (i32, u32) {
+    // A book with an annotation transaction open is in use.
+    match super::edit::book_busy(host, path) {
+        Ok(false) => {}
+        Ok(true) => return (ERR_BUSY, 0),
+        Err(error) => return (error, 0),
+    }
     let (status, facts) = host.can_delete(path);
     match status {
         OK if facts & 1 != 0 && !with_notes => (ERR_STATE, facts),
@@ -113,6 +119,12 @@ pub(super) fn move_book(
             && request.from != request.to,
     )?;
     need_storage(who)?;
+    // Neither the book that moves nor the one it replaces may be in use.
+    for path in [request.from, request.to] {
+        if super::edit::book_busy(host, path)? {
+            return Err(ERR_BUSY);
+        }
+    }
     host.move_book(request.from, request.to, request.flags & 1 != 0)?;
     result_row(request.to, OK, 0, out)
 }

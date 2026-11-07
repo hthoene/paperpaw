@@ -27,6 +27,9 @@ const IDLE_MS: u64 = 600_000;
 /// The annotation file's cap (interface 6, `annotations.rs:45`): what one
 /// transaction may stage in all.
 pub(crate) const STAGED_CAP: u32 = 1 << 20;
+/// Edits one transaction may stage: every edit costs its record, so the count
+/// is bounded besides the bytes.
+const EDITS_CAP: u32 = 1024;
 /// A note's cap (interface 6).
 const NOTE_CAP: u32 = 3 * 1024;
 /// An XPointer's cap (`doc_xpointer`).
@@ -192,23 +195,35 @@ impl Transactions {
         Ok(())
     }
 
-    fn finish(&self, id: u32) {
-        if let Ok(mut rows) = self.rows.try_borrow_mut() {
-            rows.retain(|t| t.id != id);
-        }
+    /// End the transaction. A row that cannot be freed now (the table is in
+    /// use) is not lost: every call expires rows idle for 10 minutes.
+    fn finish(&self, id: u32) -> Result<(), i32> {
+        self.rows()?.retain(|t| t.id != id);
+        Ok(())
     }
 
-    /// The plugin stopped: its transaction ends; `ended` gets the id.
+    /// Whether a transaction is open on `book`, after the idle ones ended.
+    pub(super) fn book_open(&self, book: BookId) -> Result<bool, i32> {
+        Ok(self.rows()?.iter().any(|t| t.book == book))
+    }
+
+    /// The plugin stopped: its transactions end; `ended` gets their ids, after
+    /// the table is released (the host's callback may use the table).
     pub(crate) fn close_owner(&self, owner: u64, mut ended: impl FnMut(u32)) {
-        if let Ok(mut rows) = self.rows.try_borrow_mut() {
+        let mut closed = [0_u32; DEVICE];
+        let mut count = 0;
+        // The row count is at most `DEVICE`, so `closed` holds every id.
+        if let Ok(mut rows) = self.rows() {
             rows.retain(|t| {
                 let mine = t.owner == owner;
-                if mine {
-                    ended(t.id);
+                if let (true, Some(slot)) = (mine, closed.get_mut(count)) {
+                    *slot = t.id;
+                    count += 1;
                 }
                 !mine
             });
         }
+        closed.iter().take(count).for_each(|id| ended(*id));
     }
 
     #[cfg(test)]
@@ -286,7 +301,7 @@ fn abort(
 ) -> Result<usize, i32> {
     let id = reference(input)?;
     table.lease(who.owner, id, now)?;
-    table.finish(id);
+    table.finish(id)?;
     host.abort_staged(id);
     Ok(0)
 }
@@ -303,6 +318,25 @@ fn commit(
     let transaction = table.lease(who.owner, id, now)?;
     // Every part must have arrived whole before anything is applied.
     require(transaction.complete())?;
+    // The reply is made ready first: once the host has applied the edits
+    // nothing may report a failure, or the plugin retries and adds them twice.
+    let reply = |committed: &Committed, out: &mut [u8]| {
+        encode(
+            &Record::ServiceLibCommitted(wire::ServiceLibCommitted {
+                transaction: id,
+                annotation_generation: committed.annotation_generation,
+                edits: transaction.edits,
+                added: committed.added.min(transaction.edits),
+            }),
+            out,
+        )
+    };
+    let probe = Committed {
+        annotation_generation: u32::MAX,
+        edits: u32::MAX,
+        added: u32::MAX,
+    };
+    reply(&probe, &mut *out)?;
     let request = CommitRequest {
         transaction: id,
         owner: who.owner,
@@ -313,24 +347,18 @@ fn commit(
     // The transaction ends whatever the host answers: a refused commit means
     // read again, merge, begin again.
     let result = host.commit(&request);
-    table.finish(id);
-    let committed = match result {
-        Ok(committed) => committed,
+    // A row that cannot be freed now ends with the idle expiry.
+    table.finish(id).ok();
+    match result {
+        // The edits are applied. The counts are the transaction's own (the
+        // host's `added` is clamped to them); this never fails, and a lost
+        // reply is read again with `receipt`.
+        Ok(committed) => reply(&committed, out),
         Err(error) => {
             host.abort_staged(id);
-            return Err(error);
+            Err(error)
         }
-    };
-    require(committed.edits == transaction.edits && committed.added <= committed.edits)?;
-    encode(
-        &Record::ServiceLibCommitted(wire::ServiceLibCommitted {
-            transaction: id,
-            annotation_generation: committed.annotation_generation,
-            edits: committed.edits,
-            added: committed.added,
-        }),
-        out,
-    )
+    }
 }
 
 /// What one `lib_edit` adds to the transaction: the bytes it stages and the
@@ -361,8 +389,12 @@ fn plan(edit: &wire::ServiceLibEdit<'_>) -> Result<(u32, Option<Fields>), i32> {
     }
     let inline = u32::try_from(edit.text.len() + edit.note.len() + edit.client_key.len())
         .map_err(|_| ERR_NO_SPACE)?;
+    // The record itself costs what it takes on the card, empty or not.
+    let record = u32::try_from(wire::record_framed_len(&Record::ServiceLibEdit(*edit))?)
+        .map_err(|_| ERR_NO_SPACE)?;
     let staged = inline
-        .checked_add(edit.text_bytes)
+        .checked_add(record)
+        .and_then(|sum| sum.checked_add(edit.text_bytes))
         .and_then(|sum| sum.checked_add(edit.note_bytes))
         .ok_or(ERR_NO_SPACE)?;
     let parts = [
@@ -407,6 +439,14 @@ fn add(
     // The edits before these must have all their parts: parts follow their
     // edit, and only the latest call's edits may still wait for them.
     require(transaction.complete())?;
+    let calls = u32::try_from(count).map_err(|_| ERR_INVALID)?;
+    require(
+        transaction
+            .edits
+            .checked_add(calls)
+            .is_some_and(|sum| sum <= EDITS_CAP),
+    )
+    .map_err(|_| ERR_NO_SPACE)?;
     let mut planned = [(0_u32, None); EDITS_PER_CALL];
     let mut total = transaction.staged;
     for (slot, edit) in planned.iter_mut().zip(edits.iter().flatten()) {
@@ -421,9 +461,7 @@ fn add(
         let item = StageItem::Edit { index, edit };
         if let Err(error) = host.stage(id, &item) {
             // The temp file now holds some of this call: the transaction ends.
-            table.finish(id);
-            host.abort_staged(id);
-            return Err(error);
+            return Err(abandon(host, table, id, error));
         }
         if let Some(parts) = planned[offset].1 {
             transaction.pending[offset] = Some(Pending {
@@ -431,10 +469,14 @@ fn add(
                 fields: parts,
             });
         }
-        transaction.edits = index.checked_add(1).ok_or(ERR_NO_SPACE)?;
+        // At most `EDITS_CAP`: checked above.
+        transaction.edits = index + 1;
     }
     transaction.staged = total;
-    table.store(transaction)?;
+    // The row must say what the card holds: if it cannot, the transaction ends.
+    table
+        .store(transaction)
+        .map_err(|error| abandon(host, table, id, error))?;
     Ok(0)
 }
 
@@ -494,9 +536,7 @@ fn text(
         last,
     };
     if let Err(error) = host.stage(part.transaction, &item) {
-        table.finish(part.transaction);
-        host.abort_staged(part.transaction);
-        return Err(error);
+        return Err(abandon(host, table, part.transaction, error));
     }
     expected.next = end;
     if last {
@@ -506,8 +546,32 @@ fn text(
         }
     }
     transaction.staged = staged;
-    table.store(transaction)?;
+    table
+        .store(transaction)
+        .map_err(|error| abandon(host, table, part.transaction, error))?;
     Ok(0)
+}
+
+/// The staged data no longer matches the row: the transaction ends, its temp
+/// data goes, and the caller learns `error`. Never leaves a half transaction.
+fn abandon(host: &dyn LibHost, table: &Transactions, id: u32, error: i32) -> i32 {
+    table.finish(id).ok();
+    host.abort_staged(id);
+    error
+}
+
+/// Whether a transaction is open on the book at `path` (a delete or a move
+/// of it is `ERR_BUSY` then). A book the catalog does not know has none.
+pub(super) fn book_busy(host: &dyn LibHost, path: &str) -> Result<bool, i32> {
+    let Some(table) = host.transactions() else {
+        return Ok(false);
+    };
+    table.expire(host.now_ms(), |id| host.abort_staged(id))?;
+    match host.resolve_book(args::BookRef::Path(path)) {
+        Ok(book) => table.book_open(book),
+        Err(ERR_NOT_FOUND) => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 
 fn receipt(
