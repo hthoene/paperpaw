@@ -280,3 +280,296 @@ impl Words for QuietWords<'_> {
         fixture(|| self.0.borrow_mut().digits(text))
     }
 }
+
+// ---- The overview and the calendar ---------------------------------------
+
+mod overview_and_calendar {
+    use super::*;
+    use crate::calendar_model::{self as cal, Step};
+    use crate::overview_rows::{self as over, Facts, Way};
+    use crate::store::{self, Day, PageStat};
+    use crate::testing::Quiet;
+    use paperpaw_sdk::MemoryStorage;
+
+    const TODAY: i32 = 20_000;
+
+    fn day(seconds: u32) -> impl Fn(i32) -> Day {
+        move |day| Day {
+            day,
+            seconds,
+            stays: 1,
+        }
+    }
+
+    /// Reading on today (25 min), yesterday (10 min) and ten days ago (1 h).
+    fn days() -> Vec<Day> {
+        alloc::vec![
+            day(3_600)(TODAY - 10),
+            day(600)(TODAY - 1),
+            day(1_500)(TODAY),
+        ]
+    }
+
+    fn facts(days: &[Day], today: Option<i32>) -> Facts<'_> {
+        Facts {
+            today,
+            days,
+            books: 3,
+            today_pages: 12,
+            current_book: Some(7),
+        }
+    }
+
+    fn day_of(year: i32, month: u8, d: u8) -> i32 {
+        (0..30_000)
+            .find(|&n| {
+                let t = texts::date_of(n);
+                (t.year, t.month, t.day) == (year, month, d)
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn the_overview_in_english() {
+        let days = days();
+        let mut en = words("en");
+        let tiles = over::tiles(&mut en, &facts(&days, Some(TODAY)))
+            .unwrap()
+            .unwrap();
+        let shown: Vec<(&str, &str, &str)> = tiles
+            .iter()
+            .map(|t| (t.label.as_str(), t.value.as_str(), t.note.as_str()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("Today", "25 min", "12 pages"),
+                ("Week", "35 min", "7 days"),
+                ("Streak", "2 days", "in a row"),
+            ]
+        );
+        let chart = over::chart(&mut en, &facts(&days, Some(TODAY)))
+            .unwrap()
+            .unwrap();
+        assert_eq!(chart.title, "The last 14 days");
+        assert_eq!(chart.values.len(), 14);
+        assert_eq!(
+            &chart.values[3..],
+            [3_600, 0, 0, 0, 0, 0, 0, 0, 0, 600, 1_500]
+        );
+        assert_eq!(chart.names.len(), 14);
+        assert_eq!(chart.top, "1 h 00 min");
+        assert_eq!(
+            over::totals_text(&mut en, &facts(&days, Some(TODAY)))
+                .unwrap()
+                .as_deref(),
+            Some("1 h 35 min in all · 3 books · 3 reading days")
+        );
+    }
+
+    #[test]
+    fn the_overview_in_german_and_without_a_clock() {
+        let days = days();
+        let totals = over::totals_text(&mut words("de"), &facts(&days, Some(TODAY))).unwrap();
+        assert_eq!(
+            totals.as_deref(),
+            Some("1 h 35 min insgesamt · 3 Bücher · 3 Lesetage")
+        );
+        // No clock: no tiles, no chart; the totals where anything was read.
+        let mut en = words("en");
+        assert!(over::tiles(&mut en, &facts(&days, None)).unwrap().is_none());
+        assert!(over::chart(&mut en, &facts(&days, None)).unwrap().is_none());
+        assert!(
+            over::totals_text(&mut en, &facts(&days, None))
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            over::totals_text(&mut en, &facts(&[], None))
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn the_ways_on() {
+        assert_eq!(
+            over::ways(Some(7)).unwrap(),
+            [Way::ThisBook(7), Way::Calendar, Way::Books, Way::Sync]
+        );
+        assert_eq!(
+            over::ways(None).unwrap(),
+            [Way::Calendar, Way::Books, Way::Sync]
+        );
+        let Item::Row(row) = over::way_row(&mut words("de"), Way::ThisBook(7)).unwrap() else {
+            panic!("a row");
+        };
+        assert_eq!(
+            (row.title.as_str(), row.value.as_str()),
+            ("Dieses Buch", "›")
+        );
+    }
+
+    fn log_of(storage: &MemoryStorage, day: i32, stays: &[(u16, u32, u32, u16)]) {
+        for (book, page, second, duration) in stays {
+            store::append(
+                storage,
+                PageStat {
+                    book: *book,
+                    page: *page,
+                    start: (day as u32) * 86_400 + 8 * 3_600 + second,
+                    duration: *duration,
+                    pages: 100,
+                },
+            )
+            .unwrap();
+        }
+    }
+
+    fn utc_day(unix: u32) -> i32 {
+        (unix / 86_400) as i32
+    }
+
+    #[test]
+    fn pages_and_books_of_a_day() {
+        let storage = MemoryStorage::new();
+        let books = alloc::vec![book(1, "First", "", 0, 100), book(2, "Second", "", 0, 100)];
+        let other = TODAY - 1;
+        log_of(&storage, other, &[(1, 5, 0, 30)]);
+        // Page 5 twice and page 6; book 2 longer than book 1.
+        log_of(
+            &storage,
+            TODAY,
+            &[
+                (1, 5, 0, 30),
+                (1, 5, 100, 20),
+                (1, 6, 200, 10),
+                (2, 1, 300, 90),
+            ],
+        );
+        assert_eq!(over::distinct_pages(&storage, TODAY, utc_day).unwrap(), 3);
+        let days = alloc::vec![day(30)(other), day(150)(TODAY)];
+        let detail = cal::detail(&storage, &books, &days, TODAY, utc_day).unwrap();
+        assert_eq!(
+            detail,
+            cal::Detail {
+                seconds: 150,
+                pages: 3,
+                books: alloc::vec![("Second".into(), 90), ("First".into(), 60)],
+            }
+        );
+        let text = cal::day_text(&mut words("en"), TODAY, &detail).unwrap();
+        assert_eq!(text.summary, "2 min · 3 pages");
+        assert_eq!(
+            text.books,
+            [
+                ("Second".into(), "1 min".into()),
+                ("First".into(), "1 min".into())
+            ]
+        );
+        // A day with no reading says so; a book that has no entry is `?`.
+        let none = cal::detail(&storage, &books, &days, TODAY - 5, utc_day).unwrap();
+        assert_eq!(none, cal::Detail::default());
+        assert_eq!(
+            cal::day_text(&mut words("de"), TODAY - 5, &none)
+                .unwrap()
+                .summary,
+            "Nicht gelesen"
+        );
+        let unknown = cal::detail(&storage, &[], &days, TODAY, utc_day).unwrap();
+        assert_eq!(unknown.books[0].0, "?");
+    }
+
+    #[test]
+    fn the_chosen_day_in_words() {
+        // 2026-10-14 is a Wednesday.
+        let d = day_of(2026, 10, 14);
+        let none = cal::Detail::default();
+        let en = cal::day_text(&mut words("en"), d, &none).unwrap();
+        assert_eq!(
+            (en.long.as_str(), en.short.as_str()),
+            ("Wednesday, October 14", "We, Oct. 14")
+        );
+        let de = cal::day_text(&mut words("de"), d, &none).unwrap();
+        assert_eq!(de.long, "Mittwoch, 14. Oktober");
+        assert_eq!(
+            cal::title(&mut words("en"), d).unwrap(),
+            ["October 2026", "Oct. 2026"]
+        );
+        assert_eq!(
+            cal::title(&mut words("de"), d).unwrap(),
+            ["Oktober 2026", "Okt. 2026"]
+        );
+        assert_eq!(cal::short_month("May").unwrap(), "May");
+        assert_eq!(cal::short_month("März").unwrap(), "März");
+        assert_eq!(cal::short_month("Février").unwrap(), "Fév.");
+    }
+
+    #[test]
+    fn months_turn_and_the_grid_starts_on_the_week() {
+        let d = day_of(2026, 1, 31);
+        assert_eq!(texts::month_start(d), day_of(2026, 1, 1));
+        assert_eq!(cal::next_month(d), day_of(2026, 2, 1));
+        assert_eq!(cal::next_month(day_of(2026, 12, 15)), day_of(2027, 1, 1));
+        assert_eq!(cal::previous_month(day_of(2026, 3, 31)), day_of(2026, 2, 1));
+        assert_eq!(cal::previous_month(day_of(2026, 1, 5)), day_of(2025, 12, 1));
+        // 2026-10-01 is a Thursday.
+        let oct = day_of(2026, 10, 14);
+        assert_eq!(cal::first_shown(oct, 1), day_of(2026, 9, 28));
+        assert_eq!(cal::first_shown(oct, 0), day_of(2026, 9, 27));
+        assert_eq!(cal::month_of(oct), (2026, 10));
+        assert_eq!(cal::step(oct, Step::DayBack), oct - 1);
+        assert_eq!(cal::step(oct, Step::WeekForward), oct + 7);
+        assert_eq!(cal::step(oct, Step::MonthForward), day_of(2026, 11, 1));
+        assert_eq!(cal::step(oct, Step::MonthBack), day_of(2026, 9, 1));
+        assert_eq!(cal::shade(0), None);
+        assert_eq!(
+            [1, 14, 15, 29, 30, 59, 60, 600].map(cal::shade),
+            [220, 220, 180, 180, 120, 120, 40, 40].map(Some)
+        );
+    }
+
+    #[test]
+    fn the_streak_note_is_for_more_than_a_day() {
+        let days = days();
+        let note = |today| cal::streak_note(&mut words("en"), &days, today).unwrap();
+        assert_eq!(note(Some(TODAY)).as_deref(), Some("2 days in a row"));
+        assert_eq!(note(Some(TODAY - 5)), None);
+        assert_eq!(note(None), None);
+    }
+
+    #[test]
+    fn overview_and_calendar_refuse_cleanly() {
+        let days = days();
+        let catalog = RefCell::new(fixture(|| words("en")));
+        let storage = Quiet(MemoryStorage::new());
+        let books =
+            fixture(|| alloc::vec![book(1, "First", "", 0, 100), book(2, "Second", "", 0, 100)]);
+        fixture(|| {
+            log_of(
+                &storage.0,
+                TODAY,
+                &[(1, 5, 0, 30), (1, 6, 200, 10), (2, 1, 300, 90)],
+            );
+        });
+        let detail = fixture(|| cal::detail(&storage, &books, &days, TODAY, utc_day).unwrap());
+        sweep(&|| {
+            let mut w = QuietWords(&catalog);
+            let f = facts(&days, Some(TODAY));
+            let tiles = over::tiles(&mut w, &f)?.map_or(0, |t| t.len());
+            let chart = over::chart(&mut w, &f)?.map_or(0, |c| c.values.len());
+            let totals = over::totals_text(&mut w, &f)?.map_or(0, |t| t.len());
+            Ok(tiles + chart + totals + over::ways(Some(7))?.len())
+        });
+        sweep(&|| over::distinct_pages(&storage, TODAY, utc_day).map(|n| n as usize));
+        sweep(&|| cal::detail(&storage, &books, &days, TODAY, utc_day).map(|d| d.books.len()));
+        sweep(&|| {
+            let mut w = QuietWords(&catalog);
+            let text = cal::day_text(&mut w, TODAY, &detail)?;
+            let title = cal::title(&mut w, TODAY)?;
+            let note = cal::streak_note(&mut w, &days, Some(TODAY))?;
+            Ok(text.books.len() + title.len() + usize::from(note.is_some()))
+        });
+        sweep(&|| cal::short_month("Dezember").map(|s| s.len()));
+    }
+}

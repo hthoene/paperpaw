@@ -1,0 +1,277 @@
+//! The calendar's contents: a month and how long one read on each of its
+//! days, the chosen day's date, time, pages and books, and how the keys and
+//! taps move the chosen day. Host-free: the shell lays the grid out and draws.
+
+use alloc::string::String;
+use alloc::vec::Vec;
+
+use paperpaw_sdk::Storage;
+use paperpaw_sdk::native::Error;
+use paperpaw_sdk::native::formatting::Arg;
+
+use crate::room;
+use crate::store::{self, Book, Day};
+use crate::texts::{self, Words, month_start};
+use crate::totals;
+
+/// Most books listed for a day.
+pub(crate) const DAY_BOOKS: usize = 3;
+
+/// Year and month of a day.
+pub(crate) fn month_of(day: i32) -> (i32, u8) {
+    let d = texts::date_of(day);
+    (d.year, d.month)
+}
+
+/// The first day of the month after the one of `day`.
+pub(crate) fn next_month(day: i32) -> i32 {
+    // At most 31 days on, then back to that month's start.
+    month_start(month_start(day) + 31)
+}
+
+/// The first day of the month before the one of `day`.
+pub(crate) fn previous_month(day: i32) -> i32 {
+    month_start(month_start(day) - 1)
+}
+
+/// How the chosen day moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Step {
+    DayBack,
+    DayForward,
+    WeekBack,
+    WeekForward,
+    MonthBack,
+    MonthForward,
+}
+
+/// The day `step` leads to from `day`.
+pub(crate) fn step(day: i32, step: Step) -> i32 {
+    match step {
+        Step::DayBack => day - 1,
+        Step::DayForward => day + 1,
+        Step::WeekBack => day - 7,
+        Step::WeekForward => day + 7,
+        Step::MonthBack => previous_month(day),
+        Step::MonthForward => next_month(day),
+    }
+}
+
+/// The first day shown: the start of the week the month of `day` begins in;
+/// `week_start` is the first day of the week, 0 being Sunday.
+pub(crate) fn first_shown(day: i32, week_start: u8) -> i32 {
+    let start = month_start(day);
+    let weekday = i32::from(texts::date_of(start).weekday);
+    start - (weekday - i32::from(week_start)).rem_euclid(7)
+}
+
+/// The gray a day with `minutes` of reading is shaded in: darker the longer;
+/// none where nothing was read.
+pub(crate) fn shade(minutes: u32) -> Option<u8> {
+    match minutes {
+        0 => None,
+        1..=14 => Some(220),
+        15..=29 => Some(180),
+        30..=59 => Some(120),
+        _ => Some(40),
+    }
+}
+
+/// A month's name shortened to its first three letters and a dot; one of
+/// four letters or fewer as it is.
+pub(crate) fn short_month(name: &str) -> Result<String, Error> {
+    let mut out = String::new();
+    if name.chars().count() <= 4 {
+        out.try_reserve_exact(name.len())
+            .map_err(|_| Error::NoMemory)?;
+        out.push_str(name);
+        return Ok(out);
+    }
+    let end = name.char_indices().nth(3).map_or(name.len(), |(at, _)| at);
+    out.try_reserve_exact(end + 1)
+        .map_err(|_| Error::NoMemory)?;
+    out.push_str(name.get(..end).unwrap_or_default());
+    out.push('.');
+    Ok(out)
+}
+
+/// The month's name over the grid, whole and shortened: `October 2026` and
+/// `Oct. 2026`.
+pub(crate) fn title(words: &mut impl Words, day: i32) -> Result<[String; 2], Error> {
+    let (year, month) = month_of(day);
+    let name = texts::month(words, month)?;
+    let short = short_month(&name)?;
+    let year = YearText::new(year);
+    Ok([
+        room::string(&[&name, " ", year.as_str()]).map_err(|_| Error::NoMemory)?,
+        room::string(&[&short, " ", year.as_str()]).map_err(|_| Error::NoMemory)?,
+    ])
+}
+
+/// A year as text, made without allocating.
+struct YearText {
+    digits: [u8; 11],
+    from: usize,
+}
+
+impl YearText {
+    fn new(year: i32) -> Self {
+        let mut digits = [0u8; 11];
+        let mut at = digits.len();
+        let mut rest = year.unsigned_abs();
+        loop {
+            at -= 1;
+            digits[at] = b'0' + (rest % 10) as u8;
+            rest /= 10;
+            if rest == 0 {
+                break;
+            }
+        }
+        if year < 0 {
+            at -= 1;
+            digits[at] = b'-';
+        }
+        Self { digits, from: at }
+    }
+
+    fn as_str(&self) -> &str {
+        self.digits
+            .get(self.from..)
+            .and_then(|d| core::str::from_utf8(d).ok())
+            .unwrap_or_default()
+    }
+}
+
+/// The note by the title: the streak where it is more than a day.
+pub(crate) fn streak_note(
+    words: &mut impl Words,
+    days: &[Day],
+    today: Option<i32>,
+) -> Result<Option<String>, Error> {
+    let streak = today.map_or(0, |today| totals::streak(days, today));
+    if streak <= 1 {
+        return Ok(None);
+    }
+    words
+        .format("stats.streak-note", &[Arg::Count(i64::from(streak))])
+        .map(Some)
+}
+
+/// What was read on one day.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct Detail {
+    pub seconds: u32,
+    /// Distinct pages.
+    pub pages: u32,
+    /// The books read longest first: title and seconds, at most
+    /// [`DAY_BOOKS`].
+    pub books: Vec<(String, u32)>,
+}
+
+/// What was read on local day `day`; `day_of` turns Unix seconds into local
+/// days. A book of the log that has no entry is `?`.
+pub(crate) fn detail(
+    storage: &dyn Storage,
+    books: &[Book],
+    days: &[Day],
+    day: i32,
+    day_of: impl Fn(u32) -> i32,
+) -> Result<Detail, Error> {
+    let seconds = texts::seconds_on(days, day);
+    if seconds == 0 {
+        return Ok(Detail::default());
+    }
+    // The local day, whatever the time zone.
+    let unix = |day: i32| (i64::from(day) * 86_400).clamp(0, i64::from(u32::MAX)) as u32;
+    let from = unix(day).saturating_sub(14 * 3600);
+    let to = unix(day + 1).saturating_add(14 * 3600);
+    // (book, seconds, first seen at)
+    let mut per_book: Vec<(u16, u32, usize)> = Vec::new();
+    let mut pages: Vec<(u16, u32)> = Vec::new();
+    let mut refused = false;
+    store::scan_range(storage, from, to, |stat| {
+        if refused || day_of(stat.start) != day {
+            return;
+        }
+        let seen = per_book.len();
+        let known = per_book.iter().position(|(b, _, _)| *b == stat.book);
+        if pages.try_reserve(1).is_err() || (known.is_none() && per_book.try_reserve(1).is_err()) {
+            refused = true;
+            return;
+        }
+        pages.push((stat.book, stat.page));
+        match known.and_then(|at| per_book.get_mut(at)) {
+            Some((_, s, _)) => *s += u32::from(stat.duration),
+            None => per_book.push((stat.book, u32::from(stat.duration), seen)),
+        }
+    });
+    if refused {
+        return Err(Error::NoMemory);
+    }
+    pages.sort_unstable();
+    pages.dedup();
+    per_book.sort_unstable_by_key(|(_, s, seen)| (core::cmp::Reverse(*s), *seen));
+    let mut listed = Vec::new();
+    listed
+        .try_reserve_exact(per_book.len().min(DAY_BOOKS))
+        .map_err(|_| Error::NoMemory)?;
+    for (id, s, _) in per_book.iter().take(DAY_BOOKS) {
+        let title = books
+            .iter()
+            .find(|b| b.id == *id)
+            .map_or("?", |b| b.title.as_str());
+        listed.push((room::string(&[title]).map_err(|_| Error::NoMemory)?, *s));
+    }
+    Ok(Detail {
+        seconds,
+        pages: pages.len() as u32,
+        books: listed,
+    })
+}
+
+/// The chosen day in words.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DayText {
+    /// `Tuesday, October 14` and, for where that does not fit, `Tu, Oct. 14`.
+    pub long: String,
+    pub short: String,
+    /// `42 min · 12 pages`, or `Not read`.
+    pub summary: String,
+    /// Each book listed and its time.
+    pub books: Vec<(String, String)>,
+}
+
+/// `detail` of `day` as the screen says it.
+pub(crate) fn day_text(
+    words: &mut impl Words,
+    day: i32,
+    detail: &Detail,
+) -> Result<DayText, Error> {
+    let month = texts::month(words, texts::date_of(day).month)?;
+    let short_month = short_month(&month)?;
+    let long = texts::long_date(words, day)?;
+    let short = texts::short_date(words, day, &short_month)?;
+    let summary = if detail.seconds == 0 {
+        words.copy("stats.not-read")?
+    } else {
+        let time = texts::duration(words, u64::from(detail.seconds))?;
+        let pages = words.format("stats.pages", &[Arg::Count(i64::from(detail.pages))])?;
+        room::string(&[&time, " · ", &pages]).map_err(|_| Error::NoMemory)?
+    };
+    let mut books = Vec::new();
+    books
+        .try_reserve_exact(detail.books.len())
+        .map_err(|_| Error::NoMemory)?;
+    for (title, seconds) in &detail.books {
+        books.push((
+            room::string(&[title]).map_err(|_| Error::NoMemory)?,
+            texts::duration(words, u64::from(*seconds))?,
+        ));
+    }
+    Ok(DayText {
+        long,
+        short,
+        summary,
+        books,
+    })
+}

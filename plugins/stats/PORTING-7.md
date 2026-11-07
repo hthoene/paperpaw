@@ -63,10 +63,18 @@ events) is still in place. It is removed in the PR that finishes the port.
 - Differences from interface 6: the rows of the book screen can take focus (an `ItemList`
   has no unselectable value rows); the books are ordered by last open, then id (the
   interface-6 sort was stable over the same order).
-- Not built here: the shell (`Plugin` impl, declarations, screens opened with the book id as
-  a hand-over param, `Screens`), the chart of a book's last days, the overview and the
-  calendar. `totals::seconds_per_book` and `totals::of_book` are still infallible and
-  interface-6 shaped (`Env`); the shell needs fallible versions.
+- The overview (`overview_rows.rs`: tiles, the 14-day chart's values and names, the totals line,
+  the ways on, `distinct_pages`) and the calendar (`calendar_model.rs`: month math, the first
+  day shown for a week start, shades, the chosen day's date, time, pages and books, how keys
+  move it, the title and streak note) are host-free too, with the same tests and sweeps. The
+  shell passes `week_start` (a setting of the host) and `day_of`. Kept from interface 6:
+  `store::scan_recent`/`scan_range` still swallow a read error (what could be read counts).
+  The calendar keeps at most 3 books per day (what the screen shows).
+- Not built here: the layout and drawing (tiles side by side or stacked, the bars, the grid),
+  the shell (`Plugin` impl, declarations, screens opened with the book id as
+  a hand-over param, `Screens`), the chart of a book's last days. `totals::seconds_per_book`
+  is still infallible (`vec!`) and `of_book` takes a closure for local days; the shell needs
+  `seconds_per_book` fallible.
 
 ## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
 

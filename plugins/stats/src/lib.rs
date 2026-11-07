@@ -37,6 +37,8 @@ mod book_list;
 mod book_rows;
 mod books;
 mod calendar;
+#[allow(dead_code, reason = "the native screens use it, in the next slice")]
+mod calendar_model;
 mod chart;
 mod extsort;
 mod files;
@@ -45,6 +47,8 @@ mod koreader;
 mod left;
 mod merge;
 mod overview;
+#[allow(dead_code, reason = "the native screens use it, in the next slice")]
+mod overview_rows;
 mod room;
 mod store;
 mod sync;
