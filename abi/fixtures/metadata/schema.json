@@ -26,6 +26,13 @@
   },
   "entry_contract": {
     "entry_symbol": "PAPERPAW_ENTRY",
+    "heap_word": {
+      "alias": "paperpaw_heap_local",
+      "section": ".rodata.paperpaw_heap",
+      "since": 1,
+      "symbol": "PAPERPAW_HEAP",
+      "table": "PpHeap"
+    },
     "locator": {
       "binding": "global",
       "kind": "readonly_bytes",
@@ -181,6 +188,115 @@
           }
         ],
         "name": "PpEntry",
+        "since": 1
+      },
+      {
+        "fields": [
+          {
+            "name": "size",
+            "since": 1,
+            "type": "u32"
+          },
+          {
+            "name": "major",
+            "since": 1,
+            "type": "u16"
+          },
+          {
+            "name": "minor",
+            "since": 1,
+            "type": "u16"
+          },
+          {
+            "callback": {
+              "args": [
+                {
+                  "name": "size",
+                  "type": "usize"
+                },
+                {
+                  "name": "align",
+                  "type": "usize"
+                }
+              ],
+              "nullable": true,
+              "result": "pointer"
+            },
+            "name": "alloc",
+            "since": 1
+          },
+          {
+            "callback": {
+              "args": [
+                {
+                  "name": "ptr",
+                  "type": "pointer"
+                },
+                {
+                  "name": "size",
+                  "type": "usize"
+                },
+                {
+                  "name": "align",
+                  "type": "usize"
+                }
+              ],
+              "nullable": true,
+              "result": "void"
+            },
+            "name": "dealloc",
+            "since": 1
+          },
+          {
+            "callback": {
+              "args": [
+                {
+                  "name": "ptr",
+                  "type": "pointer"
+                },
+                {
+                  "name": "old_size",
+                  "type": "usize"
+                },
+                {
+                  "name": "align",
+                  "type": "usize"
+                },
+                {
+                  "name": "new_size",
+                  "type": "usize"
+                }
+              ],
+              "nullable": true,
+              "result": "pointer"
+            },
+            "name": "realloc",
+            "since": 1
+          },
+          {
+            "callback": {
+              "args": [
+                {
+                  "name": "code",
+                  "type": "i32"
+                },
+                {
+                  "name": "msg",
+                  "type": "text_ptr"
+                },
+                {
+                  "name": "msg_len",
+                  "type": "usize"
+                }
+              ],
+              "nullable": true,
+              "result": "never"
+            },
+            "name": "abort",
+            "since": 1
+          }
+        ],
+        "name": "PpHeap",
         "since": 1
       }
     ]
@@ -2955,6 +3071,67 @@
       ],
       "id": 18,
       "name": "menu.describe",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 96,
+          "name": "item",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "label",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 256,
+          "name": "label_args",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "badge",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 256,
+          "name": "badge_args",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        }
+      ],
+      "id": 60,
+      "name": "command.set_item_state",
       "since": 1
     }
   ],

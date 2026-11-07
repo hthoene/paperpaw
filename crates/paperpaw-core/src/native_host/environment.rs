@@ -60,6 +60,16 @@ impl EnvironmentScope {
         })
     }
 
+    /// Internal host operations borrow a frame only for this synchronous call.
+    pub(crate) fn with_frame<R>(
+        &self,
+        read: impl FnOnce(&dyn crate::abi7::context::Frame) -> R,
+    ) -> Result<R, i32> {
+        self.slot
+            .with(read)
+            .map_err(|_| paperpaw_native::host_glue::ERR_STATE)
+    }
+
     /// Read a typed setting from the current dispatch frame.
     /// Returns the complete required byte count, copying only the fitting prefix.
     /// Decode only a complete value; absent, false, zero and empty text are distinct.

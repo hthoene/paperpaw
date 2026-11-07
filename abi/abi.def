@@ -2596,6 +2596,67 @@
           "max_bytes": 128
         }
       ]
+    },
+    {
+      "id": 60,
+      "name": "command.set_item_state",
+      "since": 1,
+      "fields": [
+        {
+          "name": "item",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 96
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "label",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "label_args",
+          "type": "bytes",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 256
+        },
+        {
+          "name": "badge",
+          "type": "str",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 128
+        },
+        {
+          "name": "badge_args",
+          "type": "bytes",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 256
+        }
+      ]
     }
   ],
   "statuses": [
@@ -2872,6 +2933,13 @@
       "visibility": "default"
     },
     "entry_symbol": "PAPERPAW_ENTRY",
+    "heap_word": {
+      "since": 1,
+      "symbol": "PAPERPAW_HEAP",
+      "alias": "paperpaw_heap_local",
+      "section": ".rodata.paperpaw_heap",
+      "table": "PpHeap"
+    },
     "tables": [
       {
         "name": "PpPlugin",
@@ -3016,6 +3084,115 @@
                 }
               ],
               "result": "i32",
+              "nullable": true
+            }
+          }
+        ]
+      },
+      {
+        "name": "PpHeap",
+        "since": 1,
+        "fields": [
+          {
+            "name": "size",
+            "since": 1,
+            "type": "u32"
+          },
+          {
+            "name": "major",
+            "since": 1,
+            "type": "u16"
+          },
+          {
+            "name": "minor",
+            "since": 1,
+            "type": "u16"
+          },
+          {
+            "name": "alloc",
+            "since": 1,
+            "callback": {
+              "args": [
+                {
+                  "name": "size",
+                  "type": "usize"
+                },
+                {
+                  "name": "align",
+                  "type": "usize"
+                }
+              ],
+              "result": "pointer",
+              "nullable": true
+            }
+          },
+          {
+            "name": "dealloc",
+            "since": 1,
+            "callback": {
+              "args": [
+                {
+                  "name": "ptr",
+                  "type": "pointer"
+                },
+                {
+                  "name": "size",
+                  "type": "usize"
+                },
+                {
+                  "name": "align",
+                  "type": "usize"
+                }
+              ],
+              "result": "void",
+              "nullable": true
+            }
+          },
+          {
+            "name": "realloc",
+            "since": 1,
+            "callback": {
+              "args": [
+                {
+                  "name": "ptr",
+                  "type": "pointer"
+                },
+                {
+                  "name": "old_size",
+                  "type": "usize"
+                },
+                {
+                  "name": "align",
+                  "type": "usize"
+                },
+                {
+                  "name": "new_size",
+                  "type": "usize"
+                }
+              ],
+              "result": "pointer",
+              "nullable": true
+            }
+          },
+          {
+            "name": "abort",
+            "since": 1,
+            "callback": {
+              "args": [
+                {
+                  "name": "code",
+                  "type": "i32"
+                },
+                {
+                  "name": "msg",
+                  "type": "text_ptr"
+                },
+                {
+                  "name": "msg_len",
+                  "type": "usize"
+                }
+              ],
+              "result": "never",
               "nullable": true
             }
           }

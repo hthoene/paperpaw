@@ -32,6 +32,11 @@ const DIGESTED_LEN: usize = 64;
 /// The most the metadata record may be (`max_bytes` of its descriptor).
 pub const META_MAX: u32 = 2048;
 
+/// Bit 0 of the header's `flags`: the plugin has `PAPERPAW_HEAP`, the host
+/// heap word (`abi/heap-word.md`); `heap_at` then says where it lies. Every
+/// other bit is a later format's.
+pub const FLAG_HEAP_WORD: u32 = 1;
+
 /// The bytes of one patch in the file: three words, `kind | site`, the place
 /// the distance is taken from and the place it goes to (`abi/ppn5.md`).
 pub const PATCH_BYTES: u64 = 12;
@@ -248,6 +253,11 @@ pub struct Header5 {
     pub hot_at: u32,
     pub hot_len: u32,
     pub patches: u32,
+    /// Where `PAPERPAW_HEAP` lies in the image (read-only data, 4-aligned,
+    /// 0 in the file), if the plugin has one (`flags` bit 0). The loader
+    /// writes the address of its `PpHeap` table there in the placed image,
+    /// never a relocation word.
+    pub heap_at: Option<u32>,
     /// SHA-256 of the header's first 64 bytes and of all after the header.
     pub sha256: [u8; 32],
     /// The file ends with an author's signature.
@@ -291,9 +301,14 @@ impl Header5 {
         if needs_minor > host.minor {
             return Err(Refusal::NeedsNewerMinor);
         }
-        if le32(head, 12) != 0 || le32(head, 60) != 0 {
+        // `flags`: bit 0 is the heap word, any other is a later format's;
+        // the word at 60..64 is `heap_at` with bit 0 and reserved without.
+        let flags = le32(head, 12);
+        let heap_field = le32(head, 60);
+        if flags & !FLAG_HEAP_WORD != 0 || (flags & FLAG_HEAP_WORD == 0 && heap_field != 0) {
             return Err(Refusal::Reserved);
         }
+        let heap_at = (flags & FLAG_HEAP_WORD != 0).then_some(heap_field);
         let mut sha256 = [0; 32];
         sha256.copy_from_slice(&head[DIGESTED_LEN..HEADER_LEN]);
         let mut header = Header5 {
@@ -311,6 +326,7 @@ impl Header5 {
             hot_at: le32(head, 48),
             hot_len: le32(head, 52),
             patches: le32(head, 56),
+            heap_at,
             sha256,
             signed: false,
         };
@@ -384,6 +400,22 @@ impl Header5 {
         }
         if self.patches > (self.image_len - self.code_at) / 2 {
             return Err(bad("more patches than the code's instructions"));
+        }
+        if let Some(at) = self.heap_at {
+            if !at.is_multiple_of(4) {
+                return Err(bad("the heap word is not 4-aligned"));
+            }
+            if at.checked_add(4).is_none_or(|end| end > self.code_at) {
+                return Err(bad("the heap word is not in the read-only data"));
+            }
+            // `entry + entry_bytes` and `meta_at + meta_len` were checked above.
+            let inside = |from: u32, len: u32| at < from + len && from < at + 4;
+            if inside(self.entry, host.entry_bytes) {
+                return Err(bad("the heap word lies in the entry"));
+            }
+            if inside(self.meta_at, self.meta_len) {
+                return Err(bad("the heap word lies in the metadata record"));
+            }
         }
         Ok(())
     }
@@ -462,6 +494,10 @@ impl Header5 {
         .enumerate()
         {
             bytes[16 + 4 * i..20 + 4 * i].copy_from_slice(&value.to_le_bytes());
+        }
+        if let Some(at) = self.heap_at {
+            bytes[12..16].copy_from_slice(&FLAG_HEAP_WORD.to_le_bytes());
+            bytes[60..64].copy_from_slice(&at.to_le_bytes());
         }
         bytes
     }

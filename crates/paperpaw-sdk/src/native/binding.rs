@@ -187,6 +187,7 @@ pub trait Plugin: Sized + 'static {
 }
 
 pub mod entry;
+pub mod heap;
 
 #[cfg(test)]
 mod tests;

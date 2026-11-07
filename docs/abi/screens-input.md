@@ -86,7 +86,7 @@ batch lies in the image, owned otherwise; refused at activation until the SDK vi
 - [D] `menu.describe` puts a line under one of the plugin's own items (`item`, relative) in menus,
   by its translation key `key`. At most one per item in a batch (`ERR_INVALID`).
 - [D] An item whose label, switch, badge or availability changes while it is shown is not a
-  declaration: a later command family (`item.state`) sets it.
+  declaration: the command `command.set_item_state` (section 3.1) sets it.
 - [D] Until a host's menus and icon set take them, a host refuses these six records with
   `ERR_UNSUPPORTED` (after the syntax checks above, so a malformed record still says
   `ERR_INVALID`); it never accepts and drops one.
@@ -165,14 +165,114 @@ input(state: pointer, token: u32, input: bytes) -> i32
   submitting plugin. Two plugins opening each other's screens therefore stop after 8 hops instead
   of looping, and no chain outlives the next user input.
 
+### 3.1 Item state
+
+| Tag | Record | Fields |
+| --- | --- | --- |
+| 60 | `command.set_item_state` | `item: str 96` (relative), `flags: u32`, `label: str 128`, `label_args: bytes 256`, `badge: str 128`, `badge_args: bytes 256` |
+
+What a menu shows of an item now, where that changes while the plugin runs (interface 6
+`set_item_state`): another label, a switch, faint, hidden or a badge. In interface 6 the host asked
+a callback each time a menu showed the item; in interface 7 the plugin says it when it changes and
+the host shows it from memory, so a menu never runs plugin code and a plugin that is not started
+(lazy start) still shows its last kept state.
+
+- [D] `item` is one of the submitting plugin's own actions or settings, relative to the plugin (the
+  host prefixes the owner it knows, never a claim in the bytes). Another plugin's item cannot be
+  named. A malformed id is `ERR_INVALID`; an id the plugin has not declared, `ERR_NOT_FOUND`.
+- [D] `flags`, a closed set (other bits `ERR_INVALID`): bit 0 `hidden` (not shown in menus), bit 1
+  `faint` (shown, cannot be chosen), bit 2 `switch` (shown with a switch), bit 3 `on` (the switch is
+  on; without `switch` it is `ERR_INVALID`), bit 4 `keep` (below). `switch` on a setting is
+  `ERR_INVALID`: a Boolean setting shows its own value, changed with `command.set_setting`.
+- [D] `label` and `badge` are catalog keys of the plugin, empty for none: `label` is shown in place
+  of the declared title, `badge` as a short text at the item's right (a count, "new"). Each key has
+  its own argument batch, exactly the `args` of slot 27 (section 5: `i18n.arg_str`,
+  `i18n.arg_int`, at most one `i18n.count`, which selects the plural form and binds `{count}`),
+  empty for none; arguments without a key are `ERR_INVALID`. The host checks at submit that each
+  key resolves with its arguments (statuses as slot 27, a missing key `ERR_NOT_FOUND`) and
+  resolves them again, in the reader's language at that time, each time it shows the item. So a
+  language change needs no new command. If a later resolution fails (catalogs changed), the item
+  shows its title and no badge, never a raw key.
+  A host may cache the resolved texts within the same budget, so a menu does not format every
+  label and badge on each draw (16 items are up to 32 formattings, against the menu timing gate);
+  it drops the cache on a language or catalog change and on the item's next state.
+- [D] A record replaces the item's whole state; the default state (flags 0 or only `keep`, no
+  label, no badge) removes it, the kept copy included. At most one record per item in a batch
+  (`ERR_INVALID`); across batches the last one wins.
+- [D] Rendering and the user's control are those of interface 6 `ItemState`: the user's menu
+  edits decide where an item is listed; the state only changes how it is shown. `hidden` takes
+  the item out of the places plugins give it, as `menu.hide` does: an item the user listed in a
+  menu of their own stays shown there. The menu editor still lists a hidden item and says that
+  its plugin hides it. An item whose `menu.need` is not met stays left out whatever its state.
+- [D] Like the other commands it is validated with its whole batch and applied after the callback
+  returns, in submit order. It runs no plugin callback, so it is accepted at any hop. A menu on
+  screen that lists the item is redrawn once per drain, however many states changed.
+- [D] Lifetime: without `keep`, a state ends at the plugin's teardown (section 7). With `keep`,
+  it survives teardown (a stop, a lazy unload) and is shown whenever the item is; while the user
+  has the plugin switched off its items are not in menus, and the kept state waits for it to be
+  switched on. The host keeps kept states in a host-owned file and restores them at boot before
+  any menu shows, without starting the plugin. Kept states are dropped when the plugin is updated
+  or uninstalled (its keys may be gone) and when it sends the default state.
+- [D] **Writing the kept file.** Only when the kept set changed, at most once per drain and at most
+  once a minute per plugin (a newer kept state waits for the next allowed write), and once more
+  before sleep or power-off if one is waiting; always through the host's atomic replace. A badge
+  that changes often therefore wears the card no more than once a minute.
+- [D] **Restoring the kept file is reading untrusted input.** The file names the code it was kept
+  for (the plugin's version and its image's SHA-256, or the build for a linked plugin); a file for
+  other code is dropped, so an update copied onto the card by a computer, which runs no update
+  step, cannot restore states for keys that are gone. Every restored state is checked again with
+  the command codec, the same limits and the declared-item check. A damaged, oversized or unknown
+  file is deleted and logged once; boot never fails on it. If the kept states of all plugins
+  together exceed the device limits, the host restores them in a fixed order (plugin id, then the
+  order in the file) and drops the rest.
+- [D] Limits per plugin: at most 16 items with a state, and at most 2,048 bytes of item ids, keys
+  and arguments together (X4; a profile may allow more). Device-wide the host holds at most
+  128 items with a state and 6,144 bytes of item state, its index included (about 24 bytes an
+  item), in the shared `HostResources` (X4), whether a plugin runs or only its kept states were
+  restored. Limits are checked on the batch's net result: a record that replaces an item's state
+  counts the new state instead of the old, and one that removes it frees its share, so a plugin at
+  its limit can still change or clear its items. A batch whose result would exceed a limit is
+  `ERR_FULL`, whole. Storage is reserved fallibly (`ERR_NO_MEMORY`).
+- [D] Until a host shows item states, it refuses a batch containing this record with
+  `ERR_UNSUPPORTED`, whole (after the codec's checks).
+- [D] The command codec checks the item (nonempty, at most 96 bytes, UTF-8), the flags (closed set,
+  `on` needs `switch`), the keys (at most 128 bytes, UTF-8) and the argument batches (at most 256
+  bytes, none without a key); the host decodes the argument batches with the records codec.
+
 ## 4. Fonts and text
 
-- [D] `font.acquire(key)` keys: a registered font id (`Fonts::get` grammar) or a **role key**:
-  `role:ui`, `role:ui-bold`, `role:reading`, `role:mono`. A role follows the reader's choice at
-  the time of each text call (re-resolved per call); an unknown role is `ERR_NOT_FOUND`.
-- [D] Handles: at most 4 per plugin (`ERR_FULL` beyond); `handle.release` frees; teardown frees
-  all. A handle whose font id is gone (pack removed or replaced) answers `ERR_STATE` on
-  `text.*`; the plugin acquires again (on `event.screen_shown`).
+- [D] `font.acquire(key)` keys: a registered font id (`Fonts::get` grammar) or a **role key**,
+  one per role of `builtin::fonts` that interface 6 lets plugins draw in. No other role exists:
+  an unknown role is `ERR_NOT_FOUND`.
+
+  | Key | Resolves to (interface 6 call) |
+  | --- | --- |
+  | `role:ui` | `Fonts::role(fonts::UI)`, with the UI ink |
+  | `role:reading` | `Fonts::role(fonts::READING)` |
+  | `role:reading-bold` | `Fonts::bound(fonts::READING_BOLD)`, else `role:reading` |
+  | `role:reading-italic` | `Fonts::bound(fonts::READING_ITALIC)`, else `role:reading` |
+  | `role:reading-bold-italic` | `Fonts::bound(fonts::READING_BOLD_ITALIC)`, else `role:reading-bold` |
+  | `role:status` | `Fonts::role(fonts::STATUS)` |
+  | `role:icons` | `Fonts::bound(fonts::ICONS)`, no fallback |
+
+  `role:icons` acquires even while no icon font is bound; a text call through it answers
+  `ERR_NOT_FOUND` while none is (the plugin shows text only, as interface 6's menus do), checked
+  again at each call.
+
+  A role is resolved again at each text call, so it follows the user's choice and never goes
+  stale. Bolder or monospaced text is a font the plugin acquires by id (a font pack), not a role.
+- [D] Handles: at most 8 font handles per plugin, roles and font ids together (`ERR_FULL`
+  beyond; a reading plugin holds five roles). This cap is the font family's own: blobs and
+  operations count against their families' caps, not against it (section 7). X4 cost: a role
+  handle is a few bytes; a handle by id keeps its id (<= 128 B) and its counter, so up to about
+  1 KiB per plugin for 8; `handle.release` frees; teardown frees
+  all. A handle acquired by font id answers `ERR_STATE` on `text.*` once that id is gone: the
+  pack that provides it was removed or replaced (updated) after the acquire, even if the same
+  id is registered again, or the id no longer resolves. The plugin acquires again (on
+  `event.screen_shown`). How the host tells a replaced pack from the one acquired is its own
+  (today: a removal counter per providing plugin, recorded in the handle; the counter never wraps
+  to a value a handle holds: it saturates, and from then on every handle by id is stale); it
+  never compares addresses or list positions.
 - [D] Metrics, ink and nested clipping (Battery parity, #914):
 
   | Id | Entry | Arguments (after `ctx`) | Result |
@@ -183,7 +283,9 @@ input(state: pointer, token: u32, input: bytes) -> i32
 
   - `text.metrics`: ascent and descent (both positive, from the baseline) and the line height, in
     pixels, of the size the text is drawn at. Works outside `draw`.
-  - `text.ink`: the ink of `text` at `size` as this host draws it at that size, counting pixels at least half covered: `top` and
+  - `text.ink`: the ink of `text` at `size` as this host draws it on its own screen, counting the
+    pixels that screen shows as ink (coverage at or above its black threshold: the panel's
+    `mono_coverage` on 1-bit screens, half on gray and colour): `top` and
     `bottom` relative to the baseline (above negative), `left` and `right` from the pen's start.
     Text without ink (spaces, empty) is `ERR_NOT_FOUND` with the outputs unchanged. Works
     outside `draw`. The numbers come from the host's own rasteriser (hinting, coverage, pack),
@@ -224,7 +326,8 @@ input(state: pointer, token: u32, input: bytes) -> i32
 - [D] Result as slots 5/6: the full length is returned, at most `cap` bytes written; the caller
   retries with a bigger buffer. `i18n.digits` maps ASCII digits to the UI language's digits
   (may grow the byte length).
-- [D] Host builds into a bounded scratch; validation is complete before the first lookup.
+- [D] Host bounds the result to 4 KiB without result-sized stack storage; validation is complete
+  before the first lookup. A counting pass precedes direct output writes.
 - [D] The limits are generated from `abi.def` (`i18n_limits`, records codec): key 128 bytes
   (`I18N_FORMAT_MAX_KEY_BYTES`), argument batch 1024 bytes (`I18N_FORMAT_MAX_ARGUMENT_BYTES`) of
   at most 8 records (`I18N_FORMAT_MAX_RECORDS`), digits text 4096 bytes (`I18N_DIGITS_MAX_BYTES`).
@@ -302,7 +405,12 @@ subscriptions. Families added later refer to it instead of defining their own.
   result. The result stays readable through the handle until `handle.release`. Stop or unload
   cancels every open operation, and nothing is called back afterwards; a late completion is
   refused (`ERR_STATE`). Releasing the handle of a running operation cancels it first. Live
-  handles and operations per plugin are capped; one past the cap is `ERR_FULL`. SDK glue builds on
+  handles and operations per plugin are capped **per family** (fonts: section 4; each later family
+  states its own); there is no cap shared across families. Today: font handles 8 (section 4); blobs
+  2 live per plugin within the device's blob budget (events proposal D3.4, S6 on the X4); service
+  handles one per declared service key (at most `metadata.max_services`). One past a cap is `ERR_FULL`. This
+  replaces ADR 0034's X4 profile line "four persistent handles per plugin" (and its use in the
+  proposals as a cap shared with fonts). SDK glue builds on
   exactly this.
 - [D] **Dropped events (D6).** `event_dropped` applies only to families whose contract says they
   may drop (today: the lifecycle events of section 1.5 in the events proposal). Other families
@@ -412,8 +520,12 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
 
 - Input/screen records and `draw.frame` are encoded on the host stack (a framed `draw.frame` is at most about 300 bytes).
 - Screens/actions: S2 index entries only (image path); about 16 bytes resident each.
-- i18n: one 4 KiB host scratch per call, none retained.
+- i18n: counting and direct output passes, no 4 KiB host stack scratch and nothing retained.
 - Reply buffers are lent from the existing host scratch, nothing per plugin.
+- Item state (section 3.1): at most 2,048 bytes of ids, keys and arguments per plugin plus about
+  24 bytes of index per item (16 items: about 2.4 KiB); device-wide at most 128 items and 6 KiB,
+  index included. Kept states live in one small host file per plugin, read at boot into the same
+  budget.
 
 ## 15. Work after this contract
 
@@ -421,13 +533,14 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
   - screen/action apply (S2);
   - `input` dispatch and handled routing;
   - `dispatch_event` with the lent `out` and `draw` with `draw.frame`;
-  - command execution for 56-59;
+  - command execution for 56-60 (60: the item state store, its kept file and menu rendering);
   - font role resolution;
   - slots 27/28;
   - section 7 teardown order.
 - SDK (Services/Plugin):
   - screen/action declaration builder entries;
   - `native::Plugin::input`;
+  - `CommandSender::set_item_state` (section 3.1: flags, keys and `formatting::Arg` batches);
   - reply writing and `draw.frame` decoding;
   - input/event decoding;
   - i18n/fonts wrappers;
