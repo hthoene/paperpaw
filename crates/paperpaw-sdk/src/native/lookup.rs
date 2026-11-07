@@ -2,9 +2,10 @@
 //!
 //! **A provider** declares itself with `Declarations::lookup_provider` and is
 //! called as a subscriber of the stage `core.lookup`: the call's payload is one
-//! [`Ask`], the reply one entry written with [`answer`]. A provider that must
-//! fetch answers [`Entry::pending`] at once; its answer later needs the
-//! asynchronous stage reply (ASY), which is not part of the SDK yet.
+//! [`Ask`], the reply one entry written with [`answer`]. A provider answers at
+//! once. Answering later (a network provider) needs the asynchronous stage
+//! reply and Kernel's request-id model, which do not exist yet: there is no
+//! way to answer "pending" from here, and no provider should fetch on this path.
 //!
 //! **The asker** (the dictionary screen, the reader's selection menu) opens
 //! [`Lookup`] and asks for one provider page at a time with [`Lookup::ask`],
@@ -31,9 +32,6 @@ pub const MAX_TITLE: usize = 256;
 pub const MAX_ENTRY: usize = 2048;
 /// The buffer an asker needs for the input of one ask and its reply.
 pub const BUFFER: usize = 4096;
-/// The buffer [`answer`] encodes an entry in.
-const ENTRY_BUFFER: usize = 2560;
-
 const MORE: u32 = 1;
 const PENDING: u32 = 2;
 
@@ -107,28 +105,22 @@ impl<'a> Entry<'a> {
         self.flags |= MORE;
         self
     }
-
-    /// The provider answers later: the text now is a placeholder.
-    #[must_use]
-    pub const fn pending(mut self) -> Self {
-        self.flags |= PENDING;
-        self
-    }
 }
 
-/// Writes `entry` as the reply of the stage call.
+/// Writes `entry` as the reply of the stage call, straight into the host's
+/// buffer after it was measured: a refusal writes nothing.
 ///
 /// # Errors
 /// `NoSpace` where the host's reply buffer is too small.
 pub fn answer(reply: &mut Reply<'_>, entry: &Entry<'_>) -> Result<(), Error> {
-    let mut bytes = [0; ENTRY_BUFFER];
     let record = stage::Record::LookupEntry(stage::LookupEntry::new(
         entry.title,
         entry.text,
         entry.flags,
     ));
-    let n = stage::reply_encode(&[record], &mut bytes).map_err(Error::from_status)?;
-    reply.write(&bytes[..n])
+    // Encoded in place, after the whole entry was measured: a refusal writes
+    // nothing, and no buffer of the entry's size is held on the stack.
+    reply.write_with(|out| stage::reply_encode(&[record], out).map_err(Error::from_status))
 }
 
 /// What to look up and where to continue.
@@ -229,7 +221,8 @@ impl<'a> ProviderEntry<'a> {
         self.0.flags & MORE != 0
     }
 
-    /// The provider answers later; ask again when it has.
+    /// The provider set the reserved "answers later" bit. Nothing sets it yet
+    /// (the asynchronous path is not there): do not rely on it.
     #[must_use]
     pub const fn pending(&self) -> bool {
         self.0.flags & PENDING != 0
@@ -263,9 +256,22 @@ impl Lookup {
     /// The entry of the provider page `question` names; `None` past the last
     /// provider, which ends the loop. `input` and `out` are [`BUFFER`] bytes.
     ///
+    /// The entry borrows `out`, so `out` cannot be reused while it is read:
+    ///
+    /// ```compile_fail
+    /// use paperpaw_sdk::native::{Host, lookup::{Lookup, Question}};
+    /// fn f(l: &Lookup, h: &Host<'_>, q: &Question<'_>, i: &mut [u8], out: &mut [u8]) {
+    ///     let entry = l.ask(h, q, i, out).unwrap();
+    ///     out[0] = 0;
+    ///     drop(entry);
+    /// }
+    /// ```
+    ///
     /// # Errors
-    /// `Invalid` for a reply that is not one entry; otherwise the host's, among
-    /// them the status a provider that failed answered.
+    /// `Invalid` for a reply that is not exactly one entry with a provider id and
+    /// known flags (as the host checks it); `NoSpace` where `input` or `out` is
+    /// too small; otherwise the host's, among them the status a provider that
+    /// failed answered.
     pub fn ask<'a>(
         &self,
         host: &Host<'_>,
@@ -299,7 +305,11 @@ impl Lookup {
             Err(error) => return Err(error),
         };
         match wire::record_decode_one(&out[..n]).map_err(|_| Error::Invalid)? {
-            Record::ServiceLookupEntry(entry) => Ok(Some(ProviderEntry(entry))),
+            Record::ServiceLookupEntry(entry)
+                if !entry.provider.is_empty() && entry.flags & !(MORE | PENDING) == 0 =>
+            {
+                Ok(Some(ProviderEntry(entry)))
+            }
             _ => Err(Error::Invalid),
         }
     }

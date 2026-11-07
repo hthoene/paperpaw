@@ -189,10 +189,7 @@ fn a_provider_reads_the_ask_and_answers_one_entry_the_host_accepts() {
     let mut reply = Reply::new(&mut buffer);
     answer(
         &mut reply,
-        &Entry::new("Dog", "A domestic animal.")
-            .unwrap()
-            .more()
-            .pending(),
+        &Entry::new("Dog", "A domestic animal.").unwrap().more(),
     )
     .unwrap();
     assert!(!reply.is_empty());
@@ -206,7 +203,7 @@ fn a_provider_reads_the_ask_and_answers_one_entry_the_host_accepts() {
     let mut rows = stage::reply_decode(&written).unwrap();
     assert!(matches!(
         rows.next(),
-        Some(Ok(stage::Record::LookupEntry(e))) if (e.title, e.text, e.flags) == ("Dog", "A domestic animal.", 3)
+        Some(Ok(stage::Record::LookupEntry(e))) if (e.title, e.text, e.flags) == ("Dog", "A domestic animal.", 1)
     ));
 }
 
@@ -236,4 +233,83 @@ fn an_entry_that_would_not_fit_is_refused_not_cut() {
         answer(&mut reply, &Entry::new("t", "text").unwrap()),
         Err(Error::NoSpace)
     );
+}
+
+#[test]
+fn a_reply_the_host_would_refuse_is_invalid_here_too() {
+    with_host(|host, state| {
+        let lookup = Lookup::open(host).unwrap();
+        let question = Question::new("rabbit").unwrap();
+        let (mut input, mut out) = ([0; BUFFER], [0; BUFFER]);
+        let mut ask = |rows: &[Record<'_>]| {
+            reply(state, rows);
+            lookup
+                .ask(host, &question, &mut input, &mut out)
+                .map(|e| e.is_some())
+        };
+        assert_eq!(ask(&[entry(0)]), Ok(true));
+        // An empty provider id, an unknown flag bit.
+        let no_provider = Record::ServiceLookupEntry(wire::ServiceLookupEntry {
+            provider: "",
+            title: "t",
+            text: "x",
+            flags: 0,
+        });
+        assert_eq!(ask(&[no_provider]), Err(Error::Invalid));
+        assert_eq!(ask(&[entry(0b100)]), Err(Error::Invalid));
+        // Two rows (a trailing one), or another record.
+        assert_eq!(ask(&[entry(0), entry(0)]), Err(Error::Invalid));
+        let other = Record::ServiceLookupAsk(wire::ServiceLookupAsk {
+            text: "x",
+            language: "",
+            context: "",
+            cursor: 0,
+        });
+        assert_eq!(ask(&[other]), Err(Error::Invalid));
+        // Bytes cut short, or trailing after the one row.
+        let mut bytes = vec![0; 4096];
+        let n = wire::record_encode_one(&entry(0), &mut bytes).unwrap();
+        for bad in [bytes[..n - 1].to_vec(), {
+            let mut more = bytes[..n].to_vec();
+            more.push(0);
+            more
+        }] {
+            state.reply.replace(bad);
+            assert_eq!(
+                lookup
+                    .ask(host, &question, &mut input, &mut out)
+                    .map(|e| e.is_some()),
+                Err(Error::Invalid)
+            );
+        }
+    });
+}
+
+#[test]
+fn a_short_input_buffer_is_refused_before_the_host_is_called() {
+    with_host(|host, state| {
+        let lookup = Lookup::open(host).unwrap();
+        let question = Question::new("rabbit").unwrap();
+        reply(state, &[entry(0)]);
+        let (mut input, mut out) = ([0; 4], [0; BUFFER]);
+        state.op.set(0);
+        assert_eq!(
+            lookup.ask(host, &question, &mut input, &mut out),
+            Err(Error::NoSpace)
+        );
+        assert_eq!(state.op.get(), 0);
+    });
+}
+
+#[test]
+fn an_answer_that_does_not_fit_writes_nothing_and_keeps_the_prefix() {
+    let entry = Entry::new("Dog", "A domestic animal.").unwrap();
+    let mut buffer = [core::mem::MaybeUninit::new(7); 16];
+    let mut reply = Reply::new(&mut buffer);
+    reply.write(b"ab").unwrap();
+    assert_eq!(answer(&mut reply, &entry), Err(Error::NoSpace));
+    assert_eq!((reply.len(), reply.remaining()), (2, 14));
+    // SAFETY: the buffer began initialized.
+    let prefix = [0, 1].map(|i| unsafe { buffer[i].assume_init() });
+    assert_eq!(&prefix, b"ab");
 }
