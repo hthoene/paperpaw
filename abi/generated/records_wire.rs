@@ -7086,6 +7086,7 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         PRESET_VALUE_TAG => PresetValue::decode(body)?,
         SERVICE_REG_QUERY_TAG => ServiceRegQuery::decode(body)?,
         SERVICE_REG_KEY_TAG => ServiceRegKey::decode(body)?,
+        INPUT_SPEC_TAG => InputSpec::decode(body)?,
         HELP_HINT_TAG => HelpHint::decode(body)?,
         WIDGET_SPEC_TAG => WidgetSpec::decode(body)?,
         WIDGET_PLACE_TAG => WidgetPlace::decode(body)?,
@@ -7154,7 +7155,6 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         | SERVICE_REG_SETUP_STEP_TAG
         | SERVICE_REG_VALUE_TAG
         | SERVICE_REG_WIDGET_TAG
-        | INPUT_SPEC_TAG
         | EVENT_SCREEN_OPENED_TAG
         | EVENT_SCREEN_CLOSED_TAG
         | EVENT_STACK_CHANGED_TAG

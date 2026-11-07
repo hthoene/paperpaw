@@ -149,6 +149,7 @@ fn screen_and_action_events_borrow_the_exact_input_fields() {
         screen: "demo.main",
         width: 0x1234_5678,
         height: 0x9abc_def0,
+        instance: None,
     });
     let len = records_encode(&[screen], &mut bytes).unwrap();
     assert_eq!(bytes[1], 38);
@@ -191,6 +192,7 @@ fn screen_and_action_events_refuse_bad_framing_and_utf8() {
             screen: "demo.main",
             width: 800,
             height: 600,
+            instance: None,
         }),
         Record::EventActionRun(EventActionRun {
             now_ms: 13,
@@ -225,10 +227,11 @@ fn event_decoding_uses_exact_tags_for_growth_and_input_records() {
     )
     .unwrap();
     assert_eq!(decode(&bytes[..len]), Err(Error::Unsupported));
-    // Reserved tags (64-78 are core and registry events now) stay unsupported even with valid framing.
+    // Unassigned tags (64-89 are core, registry and UIX events now) stay unsupported even with
+    // valid framing.
     for unknown in [
         &[1, 63, 1, 0][..],
-        &[1, 79, 1, 0][..],
+        &[1, 126, 1, 0][..],
         &[1, 127, 1, 0][..],
         &[1, 191, 1, 1, 0][..],
     ] {
@@ -263,7 +266,7 @@ fn tick_optional_extensions_are_generated_decoder_compatible() {
 fn tick_fallback_preserves_exact_tags_and_singleton_framing() {
     let mut bytes = [0; 12];
     let len = wire::tick_encode(17, &mut bytes).unwrap();
-    for tag in [63, 79, 127] {
+    for tag in [63, 126, 127] {
         bytes[1] = tag;
         assert_eq!(Event::decode(&bytes[..len]), Err(Error::Unsupported));
     }

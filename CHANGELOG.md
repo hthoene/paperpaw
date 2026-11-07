@@ -19,6 +19,14 @@ change the plugin SDK.
 
 ### Added
 
+- Interface 7, family 2 UIX (`docs/abi/ui.md`): screen instances with lossless hand-overs
+  (`core.ui` ops 16-17), navigation commands 1547-1552 and `screen_policy` 1563, plugin
+  inputs (`input.spec` 29), questions and answers with paged host texts (ops 8-11, event 82),
+  widgets and status items, lines and places (declarations 224-228, events 84-86, input 193),
+  help hints, `screen_ready`, `notify`, speech (1557-1558, 1561-1562, events 87, 89), the
+  clipboard (ops 18-19), and host slot 35 `ui.compose`, which answers `ERR_UNSUPPORTED` until
+  the host wires it. `event.screen_shown` (38) gains the instance it shows. Interface draft
+  15 (`native::DRAFT`) (#228).
 - Interface 7, family 2 (registry, `docs/abi/registry.md`): the `core.registry` service (major 1,
   20 paged read ops over settings, plugins, actions, screens, slots, menus, bindings, inputs, setup
   steps, presets and widgets; rows 1025-1040), the registry commands 1536-1546 (reset, preview,

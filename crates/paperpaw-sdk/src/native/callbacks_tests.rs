@@ -197,9 +197,9 @@ fn callback_decoders_require_exact_single_records_and_complete_framing() {
         assert_eq!(DrawFrame::decode(&two), Err(Error::Invalid));
     }
     // An unassigned tag in the input growth block must stay unknown.
-    assert_eq!(Input::decode(&[1, 193, 1, 1, 0]), Err(Error::Unsupported));
+    assert_eq!(Input::decode(&[1, 194, 1, 1, 0]), Err(Error::Unsupported));
     assert_eq!(
-        DrawFrame::decode(&[1, 193, 1, 1, 0]),
+        DrawFrame::decode(&[1, 194, 1, 1, 0]),
         Err(Error::Unsupported)
     );
 }

@@ -100,67 +100,21 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::SettingChoice(_)
         | Record::PresetSpec(_)
         | Record::PresetValue(_) => Err(ERR_UNSUPPORTED),
+        // Screen, widget and status declarations (`docs/abi/ui.md`): refused
+        // until the host admits them (UIX hand-off).
+        Record::InputSpec(_)
+        | Record::HelpHint(_)
+        | Record::WidgetSpec(_)
+        | Record::WidgetPlace(_)
+        | Record::StatusItem(_)
+        | Record::StatusLine(_)
+        | Record::StatusPlace(_) => Err(ERR_UNSUPPORTED),
         Record::Registration(_) => Ok(()),
-        // Events flow from the host to the plugin; a batch never carries one.
-        Record::EventStarted(_)
-        | Record::EventResume(_)
-        | Record::EventSuspend(_)
-        | Record::EventStopping(_)
-        | Record::EventBatteryMeasured(_)
-        | Record::EventPageTurned(_)
-        | Record::EventScreenShown(_)
-        | Record::EventActionRun(_)
-        | Record::EventSettingChanged(_)
-        | Record::EventBookOpened(_)
-        | Record::EventBookClosed(_)
-        | Record::EventBookFinished(_)
-        | Record::EventBookMoved(_)
-        | Record::EventBookRemoved(_)
-        | Record::EventPluginsChanged(_)
-        | Record::EventWifiChanged(_)
-        | Record::EventPowerChanged(_)
-        | Record::EventStatusChanged(_)
-        | Record::EventChargeChanged(_)
-        | Record::EventRegistryChanged(_)
-        | Record::EventPreviewChanged(_)
-        | Record::EventPluginsRequested(_)
-        | Record::EventPluginAnswered(_) => Err(ERR_INVALID),
-        // Input records go to `PpPlugin.input`, frames to `draw`, format
-        // arguments to slot 27.
-        Record::DrawFrame(_)
-        | Record::InputKey(_)
-        | Record::InputPointer(_)
-        | Record::InputGesture(_)
-        | Record::InputAction(_)
-        | Record::I18nArgStr(_)
-        | Record::I18nArgInt(_)
-        | Record::I18nCount(_) => Err(ERR_INVALID),
-        // Service records are the host's answers (slots 17-19), never submitted.
-        Record::ServiceUsage(_)
-        | Record::ServicePluginUsage(_)
-        | Record::ServicePlugin(_)
-        | Record::ServiceWorkNote(_)
-        | Record::ServiceEnd(_)
-        | Record::ServiceEcho(_)
-        | Record::ServiceRegQuery(_)
-        | Record::ServiceRegKey(_)
-        | Record::ServiceRegSetting(_)
-        | Record::ServiceRegSettingExtra(_)
-        | Record::ServiceRegChoice(_)
-        | Record::ServiceRegText(_)
-        | Record::ServiceRegGroup(_)
-        | Record::ServiceRegPlugin(_)
-        | Record::ServiceRegNeed(_)
-        | Record::ServiceRegItem(_)
-        | Record::ServiceRegSlot(_)
-        | Record::ServiceRegMenuRow(_)
-        | Record::ServiceRegBinding(_)
-        | Record::ServiceRegSetupStep(_)
-        | Record::ServiceRegValue(_)
-        | Record::ServiceRegWidget(_) => Err(ERR_INVALID),
-        // A stage call is the host's input to a subscriber, a reply its
-        // answer to `stage.run`: never declared.
-        Record::StageCall(_) | Record::StageReply(_) => Err(ERR_INVALID),
+        // Everything else only the host sends: events, input (to
+        // `PpPlugin.input`), frames (to `draw`), format arguments (slot 27),
+        // service rows (the answers of slots 17-19 and `service.call`) and
+        // stage calls and replies. A batch never carries one.
+        _ => Err(ERR_INVALID),
     }
 }
 

@@ -15,6 +15,9 @@ HOST_SENT_FAMILIES = ('event', 'input', 'draw')
 # The host writes both stage records (`stage.call` to a subscriber, `stage.reply`
 # into the caller's `out`); subscribers answer in their stage's own tags.
 HOST_SENT_RECORDS = ('stage.call', 'stage.reply')
+# Declarations a plugin sends in a family the host otherwise sends (`input.spec`, a
+# plugin's own input, beside the device inputs of the `input` family).
+PLUGIN_SENT_RECORDS = ('input.spec',)
 
 
 def service_inputs(schema):
@@ -26,6 +29,8 @@ def service_inputs(schema):
 def host_sent(schema, name):
     """Whether only the host sends this record, so the host never decodes it."""
     family = name.split('.')[0]
+    if name in PLUGIN_SENT_RECORDS:
+        return False
     if family == 'service':
         return name not in service_inputs(schema)
     return family in HOST_SENT_FAMILIES or name in HOST_SENT_RECORDS
