@@ -40,8 +40,12 @@ mod call_services;
 mod data_services;
 mod declared_services;
 pub mod device_service;
+#[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
+pub(crate) mod doc_service;
 #[path = "native_host/formatting.rs"]
 mod formatting;
+#[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
+pub(crate) mod lookup_service;
 mod service_slots;
 #[allow(
     dead_code,
