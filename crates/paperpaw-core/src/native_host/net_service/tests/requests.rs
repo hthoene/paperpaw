@@ -1237,3 +1237,51 @@ fn dropping_the_net_tables_gives_back_only_their_own_charges() {
     pool.release(8_192);
     assert_eq!(pool.used(), 0);
 }
+
+#[test]
+fn every_end_path_gives_the_shared_pool_its_charge_back_exactly_once() {
+    let external = 8_192;
+    let new_fake = || {
+        let pool = Rc::new(NetPool::new(NetProfile::X4.pool));
+        assert!(pool.reserve(external));
+        (Fake::with_pool(NetProfile::X4, pool.clone()), pool)
+    };
+    // Cancel, the clock, an answer heard, an owner stop, a replaced request:
+    // each leaves only the sockets' reservation behind.
+    let (fake, pool) = new_fake();
+    let id = request(&fake, OWNER, &big(1, 20_000)).unwrap();
+    table::cancel(&fake, OWNER, 1).unwrap();
+    drain(&fake, OWNER);
+    assert_eq!(pool.used(), external, "cancelled {id}");
+
+    let (fake, pool) = new_fake();
+    request(&fake, OWNER, &big(1, 20_000)).unwrap();
+    fake.advance(40_000);
+    tick(&fake).unwrap();
+    drain(&fake, OWNER);
+    assert_eq!(pool.used(), external, "timed out");
+
+    let (fake, pool) = new_fake();
+    let id = request(&fake, OWNER, &big(1, 20_000)).unwrap();
+    finish(&fake, id, 200, b"hello");
+    drain(&fake, OWNER);
+    assert_eq!(pool.used(), external, "answer delivered and freed");
+
+    let (fake, pool) = new_fake();
+    let running = request(&fake, OWNER, &big(1, 20_000)).unwrap();
+    let _queued = request(&fake, OWNER, &big(2, 30_000)).unwrap();
+    let held = request(&fake, OWNER, &big(3, 1_000)).unwrap();
+    let _ = (running, held);
+    finish(&fake, held, 200, b"x");
+    assert!(pool.used() > external);
+    owner_stopped(&fake, OWNER).unwrap();
+    assert_eq!(pool.used(), external, "owner stopped with all states alive");
+    owner_stopped(&fake, OWNER).unwrap();
+    assert_eq!(pool.used(), external, "and again: nothing given back twice");
+
+    let (fake, pool) = new_fake();
+    request(&fake, OWNER, &save_to(1, 0, "same.bin")).unwrap();
+    request(&fake, OWNER, &save_to(2, 0, "same.bin")).unwrap();
+    owner_stopped(&fake, OWNER).unwrap();
+    assert_eq!(pool.used(), external, "replaced and stopped");
+}
