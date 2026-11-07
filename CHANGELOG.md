@@ -345,6 +345,9 @@ change the plugin SDK.
 
 ### Fixed
 
+- EPUB 1.0.5: zipped FictionBooks preserve out-of-memory and storage errors,
+  and stop on unreadable archive entries instead of silently skipping them (#228).
+
 - *Discover fonts* in the reading settings, where *More fonts* does not run, says why and offers the one thing to
   do (it is not installed: open its page; it is switched off: switch it on; it waits for a restart: restart),
   instead of only opening the store's page of the plugin. A plugin's page opened without a connection says
