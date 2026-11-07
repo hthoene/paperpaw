@@ -303,7 +303,11 @@ Each major of a host-defined stage has one JSON schema, `abi/stages/<key>@<major
 - [D] **A plugin's own schemas** (keys `<plugin>.<name>`, never `core.*`, no `mirrors`, `since`
   the schema's own version) use this format, one `<key>@<major>.def` per file in the owning
   crate; `tools/stage-codec.py <folder> <file.rs>` emits their codecs and `STAGES` table with
-  the host stages' validators and emitters, and `--check` (in CI) refuses stale output.
+  the host stages' validators and emitters, and `--check` (in CI) refuses stale output. A
+  plugin's stage may add `input_rows` (2..=64): its input batch is then 1..=`input_rows` records
+  of its input tags (a head record and rows, in the order its owner documents), checked by its
+  `input_decode`/`input_encode` with the same byte cap; the host checks its framing only. Without
+  the key, the input is one record, as for every host stage.
 - [D] **Payload schemas.** Records a plugin carries inside a host frame (a `draw.frame` or
   input payload: one record each time, one direction, no subscribers, no reply) use the same
   folder with keys `payload` (`<plugin>.<name>`), `major`, `revision`, `max_bytes` (1-3,840) and

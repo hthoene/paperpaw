@@ -86,6 +86,27 @@ class PluginStages(unittest.TestCase):
             [plugin_stage('reader.a'), plugin_stage('reader.b')]))
 
 
+class InputRows(unittest.TestCase):
+    def test_a_plugin_stage_may_take_several_input_records(self):
+        source = module(plugin_stages_source([dict(plugin_stage(), input_rows=4)]),
+                        'reader_status_v1')
+        for line in ('pub const INPUT_ROWS: usize = 4;', 'MAX_INPUT, INPUT_ROWS, INPUT_TAGS)',
+                     'if records.is_empty() { return Err(-2); }', 'REPLY_ROWS.max(INPUT_ROWS)'):
+            self.assertIn(line, source)
+        self.assertNotIn('MAX_INPUT, 1, INPUT_TAGS)', source)
+        # Without the key, the codec is the one-record host form.
+        self.assertNotIn('INPUT_ROWS', plugin_stages_source([plugin_stage()]))
+
+    def test_input_rows_is_a_plugin_stage_s_and_bounded(self):
+        for rows in (0, 1, 65, True, '4'):
+            with self.subTest(rows=rows), self.assertRaises(ValueError):
+                plugin_stages_source([dict(plugin_stage(), input_rows=rows)])
+        with self.assertRaisesRegex(ValueError, 'stage schema keys'):
+            _validate_stage(dict(host_stage(), input_rows=4), 65535)
+        with self.assertRaisesRegex(ValueError, 'payload schema keys'):
+            plugin_stages_source([dict(payload(), input_rows=4)])
+
+
 class Payloads(unittest.TestCase):
     def test_a_payload_gets_a_codec_but_no_stage_row(self):
         source = plugin_stages_source([plugin_stage(), payload()])
@@ -143,6 +164,8 @@ class Cli(unittest.TestCase):
     @unittest.skipUnless(shutil.which('rustc') and shutil.which('rustfmt'), 'rustc')
     def test_the_output_builds_as_no_std(self):
         (self.schemas / 'reader.tap@1.def').write_text(json.dumps(payload(), indent=2))
+        (self.schemas / 'reader.style@1.def').write_text(
+            json.dumps(dict(plugin_stage('reader.style'), input_rows=8), indent=2))
         self.assertEqual(CLI.main([str(self.schemas), str(self.out)]), 0)
         crate = self.dir / 'lib.rs'
         crate.write_text(f'#![no_std]\n#![deny(warnings)]\n#[path = {json.dumps(str(self.out))}]\n'

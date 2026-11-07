@@ -2,11 +2,11 @@
 """Generate the codec of a plugin's own stage schemas (stages-services.md section 3).
 
 The schemas are `<key>@<major>.def` files in one folder, in the format of `abi/stages`
-(without `mirrors`), keyed `<plugin>.<name>`, or payload schemas (`payload`, `major`,
-`revision`, `max_bytes`, `records`: records carried in a host frame, one at a time, no reply).
-The output is one Rust file of borrowed codecs and a `STAGES` table of the stages, made by
-the same validators and emitters as the host's stages. `--check` refuses a stale or missing
-file and writes nothing.
+(without `mirrors`; optional `input_rows` 2..=64), keyed `<plugin>.<name>`, or payload
+schemas (`payload`, `major`, `revision`, `max_bytes`, `records`: records carried in a host
+frame, one at a time, no reply). The output is one Rust file of borrowed codecs and a
+`STAGES` table of the stages, made by the same validators and emitters as the host's stages.
+`--check` refuses a stale or missing file and writes nothing.
 
     python3 tools/stage-codec.py <schemas folder> <output .rs> [--check]
 """
