@@ -102,7 +102,8 @@ impl DesktopDevice {
         self.wifi_state.set(state);
     }
 
-    /// The handle a frame returns for `Frame::host_service("core.device")`.
+    /// The device view for the shell to wire behind `core.device` (no shell
+    /// does yet: `HostServices::wire_device` is the host's side).
     #[must_use]
     pub fn services(profile: &'static Profile) -> DeviceServices {
         DeviceServices(Rc::new(Self::new(profile)))

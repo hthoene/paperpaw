@@ -436,7 +436,7 @@ pub trait DeviceHost {
 }
 
 /// What the shell hands the frame under the key `core.device`:
-/// `Frame::host_service("core.device")` returns it for the backend's downcast.
+/// `HostServices::wire_device` keeps it for the backend.
 ///
 /// This holds an `Rc` and not a borrow, as `DocServices` does: `dyn Any`
 /// needs a `'static` type, so the shell keeps its host alive and shares it.

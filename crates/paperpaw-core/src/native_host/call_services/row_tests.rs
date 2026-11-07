@@ -1,5 +1,6 @@
 //! Generated service row budgets apply before dispatch and publication.
 use super::*;
+use crate::native_host::host_services::Caller;
 use registrations::{Record, ServiceEnd, ServiceUiParam, ServiceUiTarget};
 
 fn params(count: usize) -> Vec<u8> {
@@ -40,12 +41,13 @@ std::thread_local! {
 }
 fn counted_echo(
     frame: &dyn Frame,
+    who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
     BACKEND_CALLS.with(|calls| calls.set(calls.get() + 1));
-    echo(frame, op, input, out)
+    echo(frame, who, op, input, out)
 }
 
 #[test]
@@ -82,13 +84,29 @@ fn input_over_limit_never_calls_backend_or_changes_output() {
                     OK
                 );
                 assert_eq!(
-                    call(&scope, &owner, handle, 1, pair(&two), output(&mut out)),
+                    call(
+                        &scope,
+                        &owner,
+                        "files",
+                        handle,
+                        1,
+                        pair(&two),
+                        output(&mut out)
+                    ),
                     ERR_NO_SPACE
                 );
                 assert_eq!(out, [0xa5; 512]);
                 assert_eq!(BACKEND_CALLS.with(core::cell::Cell::get), 0);
                 assert_eq!(
-                    call(&scope, &owner, handle, 1, pair(&input), output(&mut out)),
+                    call(
+                        &scope,
+                        &owner,
+                        "files",
+                        handle,
+                        1,
+                        pair(&input),
+                        output(&mut out)
+                    ),
                     i32::try_from(input.len() - 1).unwrap()
                 );
                 assert_eq!(BACKEND_CALLS.with(core::cell::Cell::get), 1);
@@ -224,7 +242,14 @@ fn usage_producer_and_echo_backend_share_the_dispatch_reply_validator() {
         .unwrap();
     let mut out = [0; 512];
     let input = batch("shared validator");
-    let len = echo(&frame, echo_op, &input, &mut out).unwrap();
+    let hosts = crate::native_host::host_services::HostServices::new();
+    let who = Caller {
+        owner: 1,
+        plugin: "files",
+        features: crate::native_host::admitted_features::AdmittedFeatures::NONE,
+        hosts: &hosts,
+    };
+    let len = echo(&frame, &who, echo_op, &input, &mut out).unwrap();
     assert_eq!(validate_reply(&out[..len], echo_op), Ok(()));
     let usage_op = ServiceOp {
         reply: &[registrations::SERVICE_USAGE_TAG],

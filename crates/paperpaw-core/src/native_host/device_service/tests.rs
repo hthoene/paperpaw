@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 use super::*;
+use crate::native_host::host_services::Caller;
 use crate::{
     abi7::{
         context::Frame,
@@ -288,11 +289,11 @@ impl DeviceHost for Fake {
     }
 }
 
-/// A frame with the shell's view of the device behind its key.
+/// A frame, and the host views the backend reaches through its caller.
 struct View<'a> {
     env: &'a paperpaw_sdk::Env<'a>,
-    services: Option<DeviceServices>,
-    caller: Option<u64>,
+    hosts: crate::native_host::host_services::HostServices,
+    owner: u64,
 }
 
 impl Frame for View<'_> {
@@ -302,26 +303,32 @@ impl Frame for View<'_> {
     fn translator(&self) -> &paperpaw_i18n::Translator {
         self.env.i18n()
     }
-    fn caller(&self) -> Result<u64, i32> {
-        self.caller.ok_or(ERR_STATE)
-    }
-    fn host_service(&self, key: &str) -> Option<&dyn core::any::Any> {
-        (key == "core.device")
-            .then_some(self.services.as_ref())
-            .flatten()
-            .map(|services| services as &dyn core::any::Any)
+}
+
+impl View<'_> {
+    fn backend(&self, op: &ServiceOp, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        let caller = Caller {
+            owner: self.owner,
+            plugin: "reader",
+            features: crate::native_host::admitted_features::AdmittedFeatures::NONE,
+            hosts: &self.hosts,
+        };
+        backend(self, &caller, op, input, out)
     }
 }
 
+/// The caller `None` is owner 0, which is nobody's Bluetooth manager.
 fn with_view<R>(host: Fake, caller: Option<u64>, run: impl FnOnce(&View<'_>) -> R) -> R {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
     let env = kernel.shared.env(Instant(0));
+    let hosts = crate::native_host::host_services::HostServices::new();
+    hosts.wire_device(Rc::new(host)).unwrap();
     run(&View {
         env: &env,
-        services: Some(DeviceServices(Rc::new(host))),
-        caller,
+        hosts,
+        owner: caller.unwrap_or(0),
     })
 }
 
@@ -371,7 +378,7 @@ fn input_of(id: u32) -> Vec<u8> {
 fn run(view: &View<'_>, id: u32, input: &[u8]) -> Result<Vec<u8>, i32> {
     let op = schema_op(id);
     let mut scratch = vec![0_u8; op.max_reply];
-    let length = backend(view, op, input, &mut scratch)?;
+    let length = view.backend(op, input, &mut scratch)?;
     let reply = scratch[..length].to_vec();
     assert_eq!(validate_reply(&reply, op), Ok(()), "op {id} reply");
     Ok(reply)
@@ -496,7 +503,7 @@ fn checks_and_installs_answer_unsupported_in_this_slice() {
         for id in [6, 13] {
             let mut scratch = [0_u8; 4096];
             assert_eq!(
-                backend(view, schema_op(id), &input_of(id), &mut scratch),
+                view.backend(schema_op(id), &input_of(id), &mut scratch),
                 Err(ERR_UNSUPPORTED)
             );
         }
@@ -511,12 +518,12 @@ fn a_frame_without_the_view_is_unsupported_and_a_wrong_view_is_not_taken() {
     let env = kernel.shared.env(Instant(0));
     let bare = View {
         env: &env,
-        services: None,
-        caller: None,
+        hosts: crate::native_host::host_services::HostServices::new(),
+        owner: 5,
     };
     let mut scratch = [0_u8; 4096];
     assert_eq!(
-        backend(&bare, schema_op(1), &[0], &mut scratch),
+        bare.backend(schema_op(1), &[0], &mut scratch),
         Err(ERR_UNSUPPORTED)
     );
 }
@@ -556,10 +563,12 @@ fn a_host_that_says_ok_without_a_visit_is_not_here_either() {
         .build()
         .unwrap();
     let env = kernel.shared.env(Instant(0));
+    let hosts = crate::native_host::host_services::HostServices::new();
+    hosts.wire_device(Rc::new(Silent)).unwrap();
     let view = View {
         env: &env,
-        services: Some(DeviceServices(Rc::new(Silent))),
-        caller: None,
+        hosts,
+        owner: 0,
     };
     assert_eq!(run(&view, 1, &[0]), Err(ERR_NOT_FOUND));
     assert_eq!(run(&view, 12, &interval(5)), Err(ERR_NOT_FOUND));
@@ -1067,7 +1076,7 @@ fn malformed_input_is_refused_and_never_panics() {
         for id in 1..=15 {
             for input in &hostile {
                 let mut scratch = vec![0_u8; schema_op(id).max_reply];
-                let result = backend(view, schema_op(id), input, &mut scratch);
+                let result = view.backend(schema_op(id), input, &mut scratch);
                 if *input == valid(id) && id != 6 && id != 13 {
                     assert!(result.is_ok(), "op {id}");
                 } else {
@@ -1082,12 +1091,12 @@ fn malformed_input_is_refused_and_never_panics() {
                 id,
                 ..*schema_op(1)
             };
-            assert_eq!(backend(view, &op, &[0], &mut scratch), Err(ERR_UNSUPPORTED));
+            assert_eq!(view.backend(&op, &[0], &mut scratch), Err(ERR_UNSUPPORTED));
         }
         for size in [0, 1, 20, 100] {
             let mut small = vec![0_u8; size];
             for id in [1, 2, 4, 7, 9, 12, 15] {
-                let result = backend(view, schema_op(id), &input_of(id), &mut small);
+                let result = view.backend(schema_op(id), &input_of(id), &mut small);
                 // Whatever fits is whole: it still validates.
                 if let Ok(n) = result {
                     assert_eq!(validate_reply(&small[..n], schema_op(id)), Ok(()));
@@ -1099,7 +1108,7 @@ fn malformed_input_is_refused_and_never_panics() {
 }
 
 #[test]
-fn the_dispatcher_opens_the_service_and_a_frame_without_the_view_refuses_its_calls() {
+fn the_dispatcher_opens_the_service_and_an_unwired_host_refuses_its_calls() {
     use crate::native_host::{
         HostResources, call_services, environment::EnvironmentScope, shell::DeclaredServices,
     };
@@ -1140,6 +1149,7 @@ fn the_dispatcher_opens_the_service_and_a_frame_without_the_view_refuses_its_cal
                 let status = call_services::call(
                     &scope,
                     &owner,
+                    "reader",
                     handle,
                     1,
                     PpBytes {
@@ -1151,7 +1161,7 @@ fn the_dispatcher_opens_the_service_and_a_frame_without_the_view_refuses_its_cal
                         cap: out.len(),
                     },
                 );
-                // The scope's own frame is an Env: no shell view behind the key.
+                // No shell view is wired behind the key.
                 assert_eq!(status, ERR_UNSUPPORTED);
             }
         })

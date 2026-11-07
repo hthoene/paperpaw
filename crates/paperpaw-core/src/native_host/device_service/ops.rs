@@ -1,11 +1,12 @@
 //! The `core.device` backend: decode the op, ask the [`DeviceHost`], encode the
 //! reply exactly per schema into the scratch the dispatcher lends.
 use super::{
-    BluetoothFacts, BondedRow, BuiltinRow, DeviceFacts, DeviceHost, DeviceServices, FirmwareFacts,
-    KEY, MAX_BONDED, MAX_KEYS, MAX_NETWORKS, MAX_NOT_INSTALLED, MAX_VALUES, NativeFacts,
-    NetworkRow, NotInstalledRow, Reading, WifiFacts, caps,
+    BluetoothFacts, BondedRow, BuiltinRow, DeviceFacts, DeviceHost, FirmwareFacts, MAX_BONDED,
+    MAX_KEYS, MAX_NETWORKS, MAX_NOT_INSTALLED, MAX_VALUES, NativeFacts, NetworkRow,
+    NotInstalledRow, Reading, WifiFacts, caps,
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
+use crate::native_host::host_services::Caller;
 use crate::native_host::registrations::{self as wire, Record};
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{
@@ -33,15 +34,13 @@ mod op {
 
 /// The `core.device` backend.
 pub(crate) fn backend(
-    frame: &dyn Frame,
+    _frame: &dyn Frame,
+    who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let services = frame
-        .host_service(KEY)
-        .and_then(<dyn core::any::Any>::downcast_ref::<DeviceServices>)
-        .ok_or(ERR_UNSUPPORTED)?;
+    let services = who.hosts.device().ok_or(ERR_UNSUPPORTED)?;
     let host: &dyn DeviceHost = &*services.0;
     match op.id {
         // Ops 6 `check` and 13 `install` read the request tables of the install
@@ -60,7 +59,7 @@ pub(crate) fn backend(
         }
         op::BUILTIN | op::NETWORKS | op::BONDED | op::NOT_INSTALLED => {
             let query = Query::decode(host, input)?;
-            paged_list(frame, host, op, &query, out)
+            paged_list(who.owner, host, op, &query, out)
         }
         _ => Err(ERR_UNSUPPORTED),
     }
@@ -446,7 +445,7 @@ fn plain_list(host: &dyn DeviceHost, op: &ServiceOp, out: &mut [u8]) -> Result<u
 
 /// Ops 4, 9, 11 and 14: lists paged like `core.registry`.
 fn paged_list(
-    frame: &dyn Frame,
+    owner: u64,
     host: &dyn DeviceHost,
     op: &ServiceOp,
     query: &Query,
@@ -466,7 +465,7 @@ fn paged_list(
         match op.id {
             op::NETWORKS => return networks(host, query, rows),
             op::BUILTIN => builtin_rows(host, &mut rows),
-            op::BONDED => bonded_rows(frame, host, &mut rows),
+            op::BONDED => bonded_rows(owner, host, &mut rows),
             _ => not_installed_rows(host, &mut rows),
         }
     };
@@ -489,11 +488,9 @@ fn builtin_rows(host: &dyn DeviceHost, rows: &mut Rows<'_>) -> Result<(), i32> {
 }
 
 /// Op 11. `given` is shown only to the plugin bound to the host slot
-/// `core.bluetooth`; a frame that cannot name its caller shows it to nobody.
-fn bonded_rows(frame: &dyn Frame, host: &dyn DeviceHost, rows: &mut Rows<'_>) -> Result<(), i32> {
-    let manager = frame
-        .caller()
-        .is_ok_and(|caller| host.bluetooth_manager(caller));
+/// `core.bluetooth`.
+fn bonded_rows(owner: u64, host: &dyn DeviceHost, rows: &mut Rows<'_>) -> Result<(), i32> {
+    let manager = host.bluetooth_manager(owner);
     host.bonded(&mut |row: &BondedRow<'_>| {
         rows.push(|| {
             Record::ServiceDevBonded(wire::ServiceDevBonded {

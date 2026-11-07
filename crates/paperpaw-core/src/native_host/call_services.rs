@@ -200,6 +200,7 @@ fn validate_op(
 pub(super) unsafe fn call(
     scope: &EnvironmentScope,
     owner: &OwnerResources,
+    plugin: &str,
     service: u32,
     op: u32,
     input: PpBytes,
@@ -219,7 +220,8 @@ pub(super) unsafe fn call(
                 .try_reserve_exact(op.max_reply)
                 .map_err(|_| ERR_NO_MEMORY)?;
             scratch.resize(op.max_reply, 0);
-            let length = running.run(frame, op, input, &mut scratch)?;
+            let caller = owner.caller(plugin, key.features);
+            let length = running.run(frame, &caller, op, input, &mut scratch)?;
             let reply = scratch.get(..length).ok_or(ERR_INVALID)?;
             validate_reply(reply, op)?;
             // SAFETY: output has the declared capacity; no output was written on
