@@ -23,6 +23,13 @@ def plugin_stage(key='reader.status'):
     return dict(host_stage(), key=key)
 
 
+def payload(key='reader.tap'):
+    """One record of the host's status stage, carried as a payload: no subscribers, no reply."""
+    stage = host_stage()
+    return {'payload': key, 'major': 1, 'revision': stage['revision'], 'max_bytes': 3000,
+            'records': [r for r in stage['records'] if r['name'] == 'status.ask']}
+
+
 def module(source, name):
     start = source.index(f'pub mod {name} {{')
     end = source.find('\n/// Local records', start + 1)
@@ -79,6 +86,32 @@ class PluginStages(unittest.TestCase):
             [plugin_stage('reader.a'), plugin_stage('reader.b')]))
 
 
+class Payloads(unittest.TestCase):
+    def test_a_payload_gets_a_codec_but_no_stage_row(self):
+        source = plugin_stages_source([plugin_stage(), payload()])
+        self.assertIn('pub mod reader_tap_v1 {', source)
+        self.assertNotIn('reader_tap_v1::KEY', source)
+        self.assertIn('reader_status_v1::KEY', source)
+        tap = module(source, 'reader_tap_v1')
+        # The reply side is sealed: no tags, no rows, cap 0.
+        for line in ('pub const MAX_REPLY: usize = 0;', 'pub const REPLY_ROWS: usize = 0;',
+                     'pub const REPLY_TAGS: &[u32] = &[];', 'pub const MAX_INPUT: usize = 3000;'):
+            self.assertIn(line, tap)
+        self.assertIn('pub mod reader_tap_v1 {', plugin_stages_source([payload()]))
+
+    def test_a_payload_is_checked_as_a_stage_input(self):
+        for name, value in (('max_bytes', 0), ('max_bytes', 3841), ('major', 0),
+                            ('payload', 'core.tap'), ('records', [])):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                plugin_stages_source([dict(payload(), **{name: value})])
+        with self.assertRaisesRegex(ValueError, 'exceeds cap'):
+            plugin_stages_source([dict(payload(), max_bytes=2)])
+        with self.assertRaisesRegex(ValueError, 'payload schema keys'):
+            plugin_stages_source([dict(payload(), reply=[])])
+        with self.assertRaisesRegex(ValueError, 'one per key'):
+            plugin_stages_source([payload('reader.status'), plugin_stage()])
+
+
 class Cli(unittest.TestCase):
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp())
@@ -109,6 +142,7 @@ class Cli(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('rustc') and shutil.which('rustfmt'), 'rustc')
     def test_the_output_builds_as_no_std(self):
+        (self.schemas / 'reader.tap@1.def').write_text(json.dumps(payload(), indent=2))
         self.assertEqual(CLI.main([str(self.schemas), str(self.out)]), 0)
         crate = self.dir / 'lib.rs'
         crate.write_text(f'#![no_std]\n#![deny(warnings)]\n#[path = {json.dumps(str(self.out))}]\n'
