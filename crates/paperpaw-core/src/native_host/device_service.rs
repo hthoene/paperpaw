@@ -60,7 +60,7 @@ pub const MAX_NOT_INSTALLED: u32 = 32;
 /// Most keys op 15 lists.
 pub const MAX_KEYS: u32 = 32;
 
-/// `dev_device.caps` bits (`device.md` 2). Bits above [`CAPS_MASK`] are not
+/// `dev_device.caps` bits (`device.md` 2). Bits above `CAPS_MASK` are not
 /// defined and never sent.
 pub mod caps {
     /// A touch screen.
