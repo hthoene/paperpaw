@@ -321,7 +321,10 @@ impl Storage for DataStorage<'_, '_> {
         // Staged beside the file: the old file stays until the new one is whole.
         let mut name = [0u8; MAX_PATH + TEMP.len()];
         let end = path.len() + TEMP.len();
-        if end > MAX_PATH {
+        // The staged name must be a path the host takes: in all, and its last
+        // segment (the suffix grows it).
+        let last = path.rsplit('/').next().map_or(0, str::len);
+        if end > MAX_PATH || last + TEMP.len() > MAX_SEGMENT {
             return Err(StorageError::InvalidPath);
         }
         let temporary = name

@@ -320,6 +320,23 @@ fn a_full_card_and_a_bad_path_come_back_as_storage_errors() {
 }
 
 #[test]
+fn a_last_segment_with_no_room_for_the_suffix_is_refused_untouched() {
+    with_storage(|storage, files| {
+        let fits = alloc::format!("d/{}", "a".repeat(MAX_SEGMENT - STAGED_SUFFIX.len()));
+        let over = alloc::format!("d/{}", "a".repeat(MAX_SEGMENT - STAGED_SUFFIX.len() + 1));
+        assert_eq!(
+            Storage::write(storage, &over, &pattern(MAX_DATA + 1)),
+            Err(StorageError::InvalidPath)
+        );
+        assert!(files.calls.borrow().is_empty());
+        Storage::write(storage, &fits, &pattern(MAX_DATA + 1)).unwrap();
+        // A short write of the longest name is one call and needs no suffix.
+        let longest = "a".repeat(MAX_SEGMENT);
+        Storage::write(storage, &longest, b"x").unwrap();
+    });
+}
+
+#[test]
 fn the_staging_suffix_is_reserved_in_both_layers_so_no_other_file_is_in_the_way() {
     let table = table();
     let mut files = Files::default();
