@@ -51,6 +51,11 @@ const TIMES_UNDER_OVERLAYS_SINCE: u16 = 3;
 const TASKS_KEPT: usize = 8;
 const SCREEN_KEYS_EXHAUSTED: &str = "screen key space exhausted";
 
+fn next_screen_serial(next: u32, native: bool) -> Option<(u32, u32)> {
+    let serial = if native { next.max(1) } else { next };
+    serial.checked_add(1).map(|following| (serial, following))
+}
+
 impl Kernel {
     /// Closed room screens keep enough of the unused key space to reopen.
     pub(crate) fn screen_keys_remaining(&self) -> u32 {
@@ -99,12 +104,8 @@ impl Kernel {
             return;
         };
         let on_open = spec.refresh_on_open();
-        let serial = if spec.is_native() {
-            self.next_serial.max(1)
-        } else {
-            self.next_serial
-        };
-        let Some(next_serial) = serial.checked_add(1) else {
+        let Some((serial, next_serial)) = next_screen_serial(self.next_serial, spec.is_native())
+        else {
             return self.warn_runtime(SCREEN_KEYS_EXHAUSTED);
         };
         self.next_serial = next_serial;
