@@ -32,7 +32,6 @@
 //! rename that failed after taking the old file away), [`recover`] puts it
 //! there at the next start.
 
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -190,6 +189,8 @@ fn each_line(
             if line.len() + text.len() > LINE {
                 return Err(StorageError::InvalidData);
             }
+            line.try_reserve(text.len())
+                .map_err(|_| StorageError::TooLarge)?;
             line.extend_from_slice(text);
             if ends {
                 emit(&mut line)?;
@@ -206,9 +207,14 @@ fn each_line(
 /// it cannot be read whole (a read error, invalid UTF-8, a line that is
 /// no entry): then it must not be saved over.
 pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageError> {
+    // Sorted by id as they are read; the first section of an id wins.
     let mut books: Vec<Book> = Vec::new();
-    // The book of the section being read, if it is one.
+    // The id of the section being read, if it is a book's.
     let mut section: Option<u16> = None;
+    // Whether the book of this section was made by it (else an earlier section
+    // of the same id has it, and this one is ignored).
+    let mut made = false;
+    let mut skip = false;
     each_line(storage, BOOKS, |line| {
         if let Some(header) = line.trim().strip_prefix('[') {
             let name = header.strip_suffix(']').ok_or(StorageError::InvalidData)?;
@@ -216,6 +222,8 @@ pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageErro
                 .trim()
                 .strip_prefix("book.")
                 .and_then(|id| id.parse::<u16>().ok());
+            made = false;
+            skip = false;
             return Ok(());
         }
         // Nothing for an empty line or a comment.
@@ -226,31 +234,57 @@ pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageErro
         let Some(id) = section else {
             return Ok(());
         };
-        if books.last().is_none_or(|b| b.id != id) {
-            books.push(Book {
-                id,
-                ..Book::default()
-            });
+        if skip {
+            return Ok(());
         }
-        let book = books.last_mut().unwrap_or_else(|| unreachable!());
-        let value = entry.value.as_str().into_owned();
+        let at = match books.binary_search_by_key(&id, |b| b.id) {
+            Ok(at) if made => at,
+            // Another section of this id came before: the first one is the book.
+            Ok(_) => {
+                skip = true;
+                return Ok(());
+            }
+            Err(at) => {
+                books.try_reserve(1).map_err(|_| StorageError::TooLarge)?;
+                books.insert(
+                    at,
+                    Book {
+                        id,
+                        ..Book::default()
+                    },
+                );
+                made = true;
+                at
+            }
+        };
+        let Some(book) = books.get_mut(at) else {
+            return Ok(());
+        };
+        let value = entry.value.as_str();
         match entry.key {
-            "title" => book.title = value,
-            "authors" => book.authors = value,
-            "md5" => book.md5 = value,
+            "title" => book.title = copy(&value)?,
+            "authors" => book.authors = copy(&value)?,
+            "md5" => book.md5 = copy(&value)?,
             "pages" => book.pages = value.parse().unwrap_or(0),
-            "language" => book.language = value,
-            "series" => book.series = value,
+            "language" => book.language = copy(&value)?,
+            "series" => book.series = copy(&value)?,
             "last-open" => book.last_open = value.parse().unwrap_or(0),
-            "path" => book.path = value,
+            "path" => book.path = copy(&value)?,
             "finished" => book.finished = value.parse().unwrap_or(0),
             _ => {}
         }
         Ok(())
     })?;
-    books.sort_by_key(|b| b.id);
-    books.dedup_by_key(|b| b.id);
     Ok(books)
+}
+
+/// An owned copy of `text`, made with fallible allocation.
+fn copy(text: &str) -> Result<String, StorageError> {
+    let mut out = String::new();
+    out.try_reserve_exact(text.len())
+        .map_err(|_| StorageError::TooLarge)?;
+    out.push_str(text);
+    Ok(out)
 }
 
 /// The books, by id, to show them: none where `books.ini` cannot be read.
@@ -278,26 +312,11 @@ pub(crate) fn update_books(
 }
 
 /// Writes `books.ini` with `books`, which replace all there were: read
-/// them with [`load_books`] (or use [`update_books`]).
+/// them with [`load_books`] (or use [`update_books`]). The text is written a
+/// piece at a time, never held whole.
 pub(crate) fn save_books(storage: &dyn Storage, books: &[Book]) -> Result<(), StorageError> {
-    let mut text = String::new();
-    for b in books {
-        text.push_str(&format!(
-            "[book.{}]\ntitle = {}\nauthors = {}\nmd5 = {}\npages = {}\nlanguage = {}\nseries = {}\nlast-open = {}\npath = {}\nfinished = {}\n\n",
-            b.id,
-            paperpaw_sdk::config::quote(&b.title),
-            paperpaw_sdk::config::quote(&b.authors),
-            b.md5,
-            b.pages,
-            paperpaw_sdk::config::quote(&b.language),
-            paperpaw_sdk::config::quote(&b.series),
-            b.last_open,
-            paperpaw_sdk::config::quote(&b.path),
-            b.finished,
-        ));
-    }
     let new = BOOKS_NEW;
-    if let Err(e) = storage.write(new, text.as_bytes()) {
+    if let Err(e) = write_books(storage, new, books) {
         remove_temporary(storage, new);
         return Err(e);
     }
@@ -306,7 +325,7 @@ pub(crate) fn save_books(storage: &dyn Storage, books: &[Book]) -> Result<(), St
         // Where files cannot be renamed, written in place.
         Err(StorageError::Unsupported) => {
             remove_temporary(storage, new);
-            storage.write(file, text.as_bytes())
+            write_books(storage, file, books)
         }
         Err(e) => {
             keep_if_gone(storage, new, file);
@@ -314,6 +333,144 @@ pub(crate) fn save_books(storage: &dyn Storage, books: &[Book]) -> Result<(), St
         }
         Ok(()) => Ok(()),
     }
+}
+
+/// The pieces of a file written a few KiB at a time: the first one replaces
+/// the file, the rest are appended.
+struct Pieces<'a> {
+    storage: &'a dyn Storage,
+    path: &'a str,
+    buffer: Vec<u8>,
+    begun: bool,
+}
+
+/// What a piece holds at most (the host takes 4 KiB a call).
+const PIECE: usize = 3584;
+
+impl<'a> Pieces<'a> {
+    fn new(storage: &'a dyn Storage, path: &'a str) -> Result<Self, StorageError> {
+        let mut buffer = Vec::new();
+        buffer
+            .try_reserve_exact(PIECE)
+            .map_err(|_| StorageError::TooLarge)?;
+        Ok(Self {
+            storage,
+            path,
+            buffer,
+            begun: false,
+        })
+    }
+
+    fn put(&mut self, text: &str) -> Result<(), StorageError> {
+        for part in text.as_bytes().chunks(PIECE) {
+            if self.buffer.len() + part.len() > PIECE {
+                self.flush()?;
+            }
+            self.buffer.extend_from_slice(part);
+        }
+        Ok(())
+    }
+
+    fn number(&mut self, value: u64) -> Result<(), StorageError> {
+        let mut digits = [0u8; 20];
+        let mut at = digits.len();
+        let mut rest = value;
+        loop {
+            at -= 1;
+            if let Some(slot) = digits.get_mut(at) {
+                *slot = b'0' + (rest % 10) as u8;
+            }
+            rest /= 10;
+            if rest == 0 {
+                break;
+            }
+        }
+        self.put(
+            digits
+                .get(at..)
+                .and_then(|d| core::str::from_utf8(d).ok())
+                .unwrap_or(""),
+        )
+    }
+
+    fn signed(&mut self, value: i64) -> Result<(), StorageError> {
+        if value < 0 {
+            self.put("-")?;
+        }
+        self.number(value.unsigned_abs())
+    }
+
+    /// `value` as `config::quote` writes it: as it is, or in quotes with
+    /// escapes if it would not survive as it is.
+    fn quoted(&mut self, value: &str) -> Result<(), StorageError> {
+        let plain = !value.is_empty()
+            && value.trim() == value
+            && !value.starts_with('"')
+            && !value.contains(['\n', '\r']);
+        if plain {
+            return self.put(value);
+        }
+        self.put("\"")?;
+        let mut utf8 = [0u8; 4];
+        for c in value.chars() {
+            match c {
+                '"' => self.put("\\\"")?,
+                '\\' => self.put("\\\\")?,
+                '\n' => self.put("\\n")?,
+                '\t' => self.put("\\t")?,
+                '\r' => {}
+                c => self.put(c.encode_utf8(&mut utf8))?,
+            }
+        }
+        self.put("\"")
+    }
+
+    fn flush(&mut self) -> Result<(), StorageError> {
+        if self.begun {
+            self.storage.append(self.path, &self.buffer)?;
+        } else {
+            self.storage.write(self.path, &self.buffer)?;
+            self.begun = true;
+        }
+        self.buffer.clear();
+        Ok(())
+    }
+
+    /// The last piece; an empty file is written as one.
+    fn finish(mut self) -> Result<(), StorageError> {
+        if self.begun && self.buffer.is_empty() {
+            return Ok(());
+        }
+        self.flush()
+    }
+}
+
+fn write_books(storage: &dyn Storage, path: &str, books: &[Book]) -> Result<(), StorageError> {
+    let mut out = Pieces::new(storage, path)?;
+    for b in books {
+        out.put("[book.")?;
+        out.number(u64::from(b.id))?;
+        out.put("]\ntitle = ")?;
+        out.quoted(&b.title)?;
+        out.put("\nauthors = ")?;
+        out.quoted(&b.authors)?;
+        out.put("\nmd5 = ")?;
+        out.put(&b.md5)?;
+        out.put("\npages = ")?;
+        out.number(u64::from(b.pages))?;
+        out.put("\nlanguage = ")?;
+        out.quoted(&b.language)?;
+        out.put("\nseries = ")?;
+        out.quoted(&b.series)?;
+        out.put("\nlast-open = ")?;
+        out.signed(b.last_open)?;
+        out.put("\npath = ")?;
+        out.quoted(&b.path)?;
+        out.put("\nfinished = ")?;
+        out.signed(b.finished)?;
+        out.put("\n\n")?;
+    }
+    out.finish()
 }
 
 /// Puts the file written at `new` in the place of `file`. Where that
@@ -807,6 +964,7 @@ pub(crate) fn scan_range(
 mod tests {
     use super::*;
     use crate::testing::Faulty;
+    use alloc::format;
 
     /// `days` for tests: the memory of a test is not refused.
     fn days(storage: &dyn Storage, day_of: impl Fn(u32) -> i32) -> Vec<Day> {
@@ -1348,6 +1506,105 @@ title = Eins
                 stays: 1
             }]
         );
+    }
+
+    /// Odd books: quotes, newlines, spaces, empty fields, negative times.
+    fn odd_books(count: u16) -> Vec<Book> {
+        (1..=count)
+            .map(|id| Book {
+                id,
+                title: alloc::format!("  \"Quoted\" title\nline two\ttab \\ {id} \u{e9}\u{1f600}"),
+                authors: if id % 2 == 0 {
+                    "".into()
+                } else {
+                    "A. Author\nB. Author".into()
+                },
+                md5: "0123456789abcdef0123456789abcdef".into(),
+                pages: id.into(),
+                language: "de".into(),
+                series: " lead".into(),
+                last_open: -5 * i64::from(id),
+                path: alloc::format!("Books/{id}.epub"),
+                finished: i64::from(id) * 1_000_000_000_000,
+            })
+            .collect()
+    }
+
+    /// A storage that takes at most 4 KiB a call, as the host does.
+    struct Limited(MemoryStorage);
+    impl Storage for Limited {
+        fn read_at(&self, p: &str, o: u64, b: &mut [u8]) -> Result<usize, StorageError> {
+            self.0.read_at(p, o, b)
+        }
+        fn size(&self, p: &str) -> Result<u64, StorageError> {
+            self.0.size(p)
+        }
+        fn write(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+            assert!(d.len() <= 4096, "a write of {} bytes", d.len());
+            self.0.write(p, d)
+        }
+        fn append(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+            assert!(d.len() <= 4096, "an append of {} bytes", d.len());
+            self.0.append(p, d)
+        }
+        fn list(
+            &self,
+            d: &str,
+            v: &mut dyn FnMut(paperpaw_sdk::DirEntry<'_>),
+        ) -> Result<(), StorageError> {
+            self.0.list(d, v)
+        }
+        fn remove(&self, p: &str) -> Result<(), StorageError> {
+            self.0.remove(p)
+        }
+        fn rename(&self, a: &str, b: &str) -> Result<(), StorageError> {
+            self.0.rename(a, b)
+        }
+    }
+
+    #[test]
+    fn books_are_written_in_pieces_as_config_would_write_them() {
+        let storage = Limited(MemoryStorage::new());
+        for books in [odd_books(0), odd_books(1), odd_books(120)] {
+            save_books(&storage, &books).unwrap();
+            assert_eq!(load_books(&storage).unwrap(), books);
+            // The text is what the whole-string writer made.
+            let mut expected = String::new();
+            for b in &books {
+                expected.push_str(&alloc::format!(
+                    "[book.{}]\ntitle = {}\nauthors = {}\nmd5 = {}\npages = {}\nlanguage = {}\nseries = {}\nlast-open = {}\npath = {}\nfinished = {}\n\n",
+                    b.id,
+                    paperpaw_sdk::config::quote(&b.title),
+                    paperpaw_sdk::config::quote(&b.authors),
+                    b.md5,
+                    b.pages,
+                    paperpaw_sdk::config::quote(&b.language),
+                    paperpaw_sdk::config::quote(&b.series),
+                    b.last_open,
+                    paperpaw_sdk::config::quote(&b.path),
+                    b.finished,
+                ));
+            }
+            let size = storage.size(BOOKS).unwrap() as usize;
+            let mut got = alloc::vec![0u8; size];
+            storage.read_at(BOOKS, 0, &mut got).unwrap();
+            assert_eq!(core::str::from_utf8(&got).unwrap(), expected);
+            assert!(!storage.exists(BOOKS_NEW));
+        }
+    }
+
+    #[test]
+    fn the_first_section_of_an_id_is_the_book_and_empty_sections_make_none() {
+        let storage = MemoryStorage::new().with(
+            BOOKS,
+            b"[book.7]\ntitle = First\n\n[book.3]\n\n[book.7]\ntitle = Second\npages = 9\n\n[book.2]\ntitle = Two\n".to_vec(),
+        );
+        let books = load_books(&storage).unwrap();
+        let seen: Vec<_> = books
+            .iter()
+            .map(|b| (b.id, b.title.as_str(), b.pages))
+            .collect();
+        assert_eq!(seen, [(2, "Two", 0), (7, "First", 0)]);
     }
 }
 
