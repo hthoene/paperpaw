@@ -6,18 +6,19 @@
 //!
 //! - **Widget instances** (op 4 makes, op 5 drops): kept until dropped, until
 //!   the screen that made them closes, or until a plugin stops. At most 32
-//!   device-wide, 16 on the X4, 16 bytes each.
+//!   device-wide, 16 on the X4, 32 bytes each.
 //! - **Status handles** (ops 14 and 15 grant): valid only inside the callback
 //!   that got them (section 5.3), so each carries the callback id of the
 //!   granting plugin and is gone when that callback is.
 //!
 //! Memory: each table is one allocation of its whole cap, made at its first
 //! insert and kept (no growth, no realloc, so no old-plus-new peak): widgets
-//! 16 B x 32 = 512 B (x 16 = 256 B on the X4), status handles 24 B x 16 =
-//! 384 B (x 8 = 192 B on the X4); on the X4 at most 448 B once both are used.
+//! 32 B x 32 = 1,024 B (x 16 = 512 B on the X4), status handles 40 B x 16 =
+//! 640 B (x 8 = 320 B on the X4); on the X4 at most 832 B once both are used.
 //!
-//! Plugins are named by small indices (`u16`, the host's plugin table), so a
-//! made instance costs 16 bytes and no string. Everything is fallible: a
+//! Plugins are named by their full-width host owner id (`u64`, the one
+//! `OwnerResources` id, never reused, no second namespace), so a made
+//! instance costs 32 bytes and no string. Everything is fallible: a
 //! refusal is `ERR_FULL` or `ERR_NO_MEMORY`, never a panic, and ids come from
 //! checked counters, never 0 and never reused while the host runs.
 //!
@@ -40,15 +41,10 @@ pub(crate) const MAX_WIDGETS_X4: usize = 16;
 pub(crate) const MAX_STATUS: usize = 16;
 /// Most status handles live at once on the X4.
 pub(crate) const MAX_STATUS_X4: usize = 8;
-/// Plugin indices are below this (the top bit of an owner marks `private`).
-pub(crate) const MAX_PLUGIN: u16 = 0x8000;
-
-const PRIVATE: u16 = 0x8000;
-
 /// The two things the table needs to know about the stack's guard.
 pub(crate) trait GuardState {
     /// The guard's plugin, if any instance guards.
-    fn guard_plugin(&self) -> Option<u16>;
+    fn guard_plugin(&self) -> Option<u64>;
     /// Whether the screen instance lies below the topmost guard.
     fn below_guard(&self, screen_instance: u32) -> bool;
 }
@@ -57,7 +53,7 @@ pub(crate) trait GuardState {
 #[allow(dead_code, reason = "tests and the unguarded stack")]
 pub(crate) struct NoGuard;
 impl GuardState for NoGuard {
-    fn guard_plugin(&self) -> Option<u16> {
+    fn guard_plugin(&self) -> Option<u64> {
         None
     }
     fn below_guard(&self, _: u32) -> bool {
@@ -65,7 +61,7 @@ impl GuardState for NoGuard {
     }
 }
 
-/// A made widget instance: 16 bytes.
+/// A made widget instance: 32 bytes.
 #[derive(Clone, Copy, Debug)]
 struct Widget {
     id: u32,
@@ -73,9 +69,11 @@ struct Widget {
     /// for dropping it when the screen closes.
     screen: u32,
     token: u32,
-    /// The owner's plugin index, `PRIVATE` set for a `private` widget.
-    owner: u16,
-    maker: u16,
+    /// The owner's host owner id.
+    owner: u64,
+    maker: u64,
+    /// The widget is `private` (ui.md 4.3).
+    private: bool,
 }
 
 /// A status handle, valid for one callback of `caller`.
@@ -84,15 +82,15 @@ struct Status {
     handle: u32,
     token: u32,
     callback: u64,
-    caller: u16,
-    owner: u16,
+    caller: u64,
+    owner: u64,
     line: bool,
 }
 
 /// Who calls slot 35, and from where.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Caller {
-    pub(crate) plugin: u16,
+    pub(crate) plugin: u64,
     /// The caller's current callback id (`EnvironmentScope::callback_id`).
     pub(crate) callback: u64,
     /// 1 for a draw the host called, 2 inside a composed child.
@@ -102,7 +100,7 @@ pub(crate) struct Caller {
 /// What a handle resolved to: the owner's plugin and its callback token.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Target {
-    pub(crate) owner: u16,
+    pub(crate) owner: u64,
     pub(crate) token: u32,
 }
 
@@ -133,16 +131,16 @@ impl UiHandles {
     /// Op 4: `maker`'s screen instance `screen` makes an instance of the
     /// widget `owner` declared with callback `token`. `ERR_FULL` at the cap
     /// or when the counter is spent, `ERR_NO_MEMORY` when the heap refuses,
-    /// `ERR_INVALID` for an index out of range.
+    /// `ERR_INVALID` for screen 0.
     pub(crate) fn make_widget(
         &mut self,
-        owner: u16,
-        maker: u16,
+        owner: u64,
+        maker: u64,
         screen: u32,
         token: u32,
         private: bool,
     ) -> Result<u32, i32> {
-        if owner >= MAX_PLUGIN || maker >= MAX_PLUGIN || screen == 0 {
+        if screen == 0 {
             return Err(ERR_INVALID);
         }
         if self.widgets.len() >= self.widget_cap {
@@ -155,8 +153,9 @@ impl UiHandles {
             id,
             screen,
             token,
-            owner: owner | if private { PRIVATE } else { 0 },
+            owner,
             maker,
+            private,
         });
         self.next_widget = next;
         Ok(id)
@@ -168,7 +167,7 @@ impl UiHandles {
 
     /// Op 5: the instance's maker drops it. Another plugin's is `ERR_DENIED`,
     /// an unknown or already dropped one `ERR_NOT_FOUND`.
-    pub(crate) fn drop_widget(&mut self, maker: u16, id: u32) -> Result<(), i32> {
+    pub(crate) fn drop_widget(&mut self, maker: u64, id: u32) -> Result<(), i32> {
         let at = self
             .widgets
             .iter()
@@ -192,18 +191,18 @@ impl UiHandles {
 
     /// `(instance, owner)` of the widgets `screen` made, to tell their owners.
     #[allow(dead_code, reason = "read by the applier when a screen closes")]
-    pub(crate) fn dropped_by_screen(&self, screen: u32) -> impl Iterator<Item = (u32, u16)> + '_ {
+    pub(crate) fn dropped_by_screen(&self, screen: u32) -> impl Iterator<Item = (u32, u64)> + '_ {
         self.widgets
             .iter()
             .filter(move |w| w.screen == screen)
-            .map(|w| (w.id, w.owner & !PRIVATE))
+            .map(|w| (w.id, w.owner))
     }
 
     /// A plugin stopped: whatever it made or owns is gone, as are its status
     /// handles.
-    pub(crate) fn drop_plugin(&mut self, plugin: u16) {
+    pub(crate) fn drop_plugin(&mut self, plugin: u64) {
         self.widgets
-            .retain(|w| w.maker != plugin && w.owner & !PRIVATE != plugin);
+            .retain(|w| w.maker != plugin && w.owner != plugin);
         self.status
             .retain(|s| s.caller != plugin && s.owner != plugin);
     }
@@ -214,15 +213,12 @@ impl UiHandles {
     /// caller never holds more than one callback's worth.
     pub(crate) fn grant_status(
         &mut self,
-        caller: u16,
+        caller: u64,
         callback: u64,
-        owner: u16,
+        owner: u64,
         token: u32,
         line: bool,
     ) -> Result<u32, i32> {
-        if owner >= MAX_PLUGIN || caller >= MAX_PLUGIN {
-            return Err(ERR_INVALID);
-        }
         self.status
             .retain(|s| !(s.caller == caller && s.callback != callback));
         if self.status.len() >= self.status_cap {
@@ -244,7 +240,7 @@ impl UiHandles {
     }
 
     /// A callback of `plugin` returned: its status handles end with it.
-    pub(crate) fn end_callback(&mut self, plugin: u16, callback: u64) {
+    pub(crate) fn end_callback(&mut self, plugin: u64, callback: u64) {
         self.status
             .retain(|s| !(s.caller == plugin && s.callback == callback));
     }
@@ -271,10 +267,10 @@ impl UiHandles {
                 if w.maker != caller.plugin {
                     return Err(ERR_NOT_FOUND);
                 }
-                let hidden = w.owner & PRIVATE != 0 || guard.below_guard(w.screen);
+                let hidden = w.private || guard.below_guard(w.screen);
                 (
                     Target {
-                        owner: w.owner & !PRIVATE,
+                        owner: w.owner,
                         token: w.token,
                     },
                     hidden,
