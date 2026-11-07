@@ -208,13 +208,13 @@ fn reset() {
     unsafe { core::ptr::addr_of_mut!(RECORD).write_volatile(EMPTY) };
 }
 
-/// What the escape's watch reads in the button interrupt: `(call, outermost,
+/// What the escape's watch reads in the button interrupt: `(call, calls, outermost,
 /// host)` while a call is open (`host`: it waits for a host slot), `None`
 /// otherwise. One volatile word each, no copy of the record. The same
 /// numbers twice are the same call.
 #[cfg(feature = "ppn5")]
-pub fn running_call() -> Option<(u32, u32, bool)> {
-    // SAFETY: as in `read`; the interrupt only loads two words of a record that
+pub fn running_call() -> Option<(u32, u32, u32, bool)> {
+    // SAFETY: as in `read`; the interrupt only loads three words of a record that
     // the main loop may be changing, through a raw pointer, and the main loop
     // stores them with matching volatile stores.
     unsafe {

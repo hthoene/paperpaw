@@ -1017,6 +1017,9 @@ mod instance_tests {
         );
         assert!(loaded > 0, "past the last allocation it loads");
     }
+
+    // The file is `native_host/instance_tests/host_slot_table.rs`.
+    mod host_slot_table;
 }
 
 #[test]
