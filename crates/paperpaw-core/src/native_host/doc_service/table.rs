@@ -27,6 +27,19 @@ pub(crate) struct Limits {
     pub(crate) device: usize,
 }
 impl Limits {
+    /// What one opener may hold. Where the device has no more slots than one
+    /// opener may take (the X4), an opener keeps off the last one, so that
+    /// the reader's shown book can always open: a background index of the
+    /// same or another plugin cannot take both.
+    pub(crate) const fn per_owner(&self) -> usize {
+        if self.device <= self.per_owner {
+            let kept = self.device.saturating_sub(1);
+            if kept == 0 { 1 } else { kept }
+        } else {
+            self.per_owner
+        }
+    }
+
     /// At most 2 per opener and 2 device-wide: the shown book and an index build.
     pub(crate) const X4: Self = Self {
         per_owner: 2,
@@ -125,7 +138,7 @@ impl DocumentTable {
     ) -> Result<u32, i32> {
         let mut rows = self.rows()?;
         if rows.len() >= self.limits.device
-            || rows.iter().filter(|d| d.owner == owner).count() >= self.limits.per_owner
+            || rows.iter().filter(|d| d.owner == owner).count() >= self.limits.per_owner()
         {
             return Err(ERR_FULL);
         }
@@ -233,13 +246,56 @@ impl DocumentTable {
         }
     }
 
-    /// The opener stopped: free all its ids. Returns how many.
-    pub(crate) fn close_owner(&self, owner: u64) -> usize {
-        self.documents.try_borrow_mut().map_or(0, |mut rows| {
-            let before = rows.len();
-            rows.retain(|d| d.owner != owner);
-            before - rows.len()
-        })
+    /// The opener stopped: free all its ids; `ended` gets each document, with
+    /// the table released (the host tells the format to close it). Returns how
+    /// many.
+    pub(crate) fn close_owner(&self, owner: u64, mut ended: impl FnMut(&Document)) -> usize {
+        let mut count = 0;
+        loop {
+            let document = {
+                let Ok(mut rows) = self.documents.try_borrow_mut() else {
+                    break;
+                };
+                let Some(at) = rows.iter().position(|d| d.owner == owner) else {
+                    break;
+                };
+                rows.remove(at)
+            };
+            ended(&document);
+            count += 1;
+        }
+        count
+    }
+
+    /// The format plugin stopped (or was uninstalled): each of its documents
+    /// that is not ended yet is ended by the host with `reason`
+    /// (`event.document_closed`) and stays until its opener closes it; `ended`
+    /// gets each, with the table released. Returns how many.
+    pub(crate) fn cancel_format(
+        &self,
+        format: FormatRef,
+        reason: u32,
+        mut ended: impl FnMut(&Document),
+    ) -> usize {
+        let mut count = 0;
+        loop {
+            let document = {
+                let Ok(mut rows) = self.documents.try_borrow_mut() else {
+                    break;
+                };
+                let Some(document) = rows
+                    .iter_mut()
+                    .find(|d| d.format == format && d.closed_by_host == 0)
+                else {
+                    break;
+                };
+                document.closed_by_host = if (1..=3).contains(&reason) { reason } else { 1 };
+                *document
+            };
+            ended(&document);
+            count += 1;
+        }
+        count
     }
 
     /// The host ends a document (format stopped, card gone, book moved): the

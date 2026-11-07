@@ -182,6 +182,22 @@ pub(crate) trait DocHost {
     ) -> Result<(), i32>;
 }
 
+/// The opener stopped: its documents end, and each format gets op 4 `close`
+/// and the document's image ids end (`document.md` 2.1). The shell calls it
+/// when a plugin stops.
+pub(crate) fn opener_stopped(host: &dyn DocHost, owner: u64) -> usize {
+    host.table()
+        .close_owner(owner, |document| host.document_ended(document))
+}
+
+/// A format plugin stopped or was uninstalled: its documents are closed by the
+/// host (reason 1), each opener hears `event.document_closed`, and the format
+/// is not called again. The shell calls it when a format plugin stops.
+pub(crate) fn format_stopped(host: &dyn DocHost, format: FormatRef) -> usize {
+    host.table()
+        .cancel_format(format, 1, |document| host.document_closed(document, 1))
+}
+
 /// What the shell hands the frame under the key `core.document`.
 pub(crate) struct DocServices(pub(crate) alloc::rc::Rc<dyn DocHost>);
 
