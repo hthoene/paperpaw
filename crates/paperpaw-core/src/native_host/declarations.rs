@@ -99,7 +99,18 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventBatteryMeasured(_)
         | Record::EventPageTurned(_)
         | Record::EventScreenShown(_)
-        | Record::EventActionRun(_) => Err(ERR_INVALID),
+        | Record::EventActionRun(_)
+        | Record::EventSettingChanged(_)
+        | Record::EventBookOpened(_)
+        | Record::EventBookClosed(_)
+        | Record::EventBookFinished(_)
+        | Record::EventBookMoved(_)
+        | Record::EventBookRemoved(_)
+        | Record::EventPluginsChanged(_)
+        | Record::EventWifiChanged(_)
+        | Record::EventPowerChanged(_)
+        | Record::EventStatusChanged(_)
+        | Record::EventChargeChanged(_) => Err(ERR_INVALID),
         // Input records go to `PpPlugin.input`, frames to `draw`, format
         // arguments to slot 27.
         Record::DrawFrame(_)
