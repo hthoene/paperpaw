@@ -25,6 +25,7 @@ pub(super) struct View<'a> {
     env: &'a Env<'a>,
     services: Option<LibServices>,
     pub(super) granted: bool,
+    pub(super) storage: bool,
 }
 impl Frame for View<'_> {
     fn settings(&self) -> &Settings {
@@ -40,12 +41,12 @@ impl Frame for View<'_> {
         Ok(PLUGIN)
     }
     fn feature(&self, key: &str) -> Result<(), i32> {
-        assert_eq!(key, "uses.library");
-        if self.granted {
-            Ok(())
-        } else {
-            Err(ERR_DENIED)
-        }
+        let granted = match key {
+            "uses.library" => self.granted,
+            "uses.storage" => self.storage,
+            other => panic!("unexpected feature {other}"),
+        };
+        if granted { Ok(()) } else { Err(ERR_DENIED) }
     }
     fn host_service(&self, key: &str) -> Option<&dyn core::any::Any> {
         (key == "core.library")
@@ -53,6 +54,11 @@ impl Frame for View<'_> {
             .flatten()
             .map(|services| services as &dyn core::any::Any)
     }
+}
+
+std::thread_local! {
+    /// Whether the caller declared `uses.storage` (each test has its thread).
+    pub(super) static STORAGE: core::cell::Cell<bool> = const { core::cell::Cell::new(true) };
 }
 
 /// Run `body` with a frame over `host`.
@@ -65,6 +71,7 @@ pub(super) fn with<R>(host: Rc<dyn LibHost>, body: impl FnOnce(&View<'_>) -> R) 
         env: &env,
         services: Some(LibServices(host)),
         granted: true,
+        storage: STORAGE.with(core::cell::Cell::get),
     })
 }
 
@@ -117,6 +124,7 @@ fn a_frame_without_the_host_refuses_the_family() {
         env: &env,
         services: None,
         granted: true,
+        storage: true,
     };
     let op = schema_op(1);
     let mut out = std::vec![0; op.max_reply];

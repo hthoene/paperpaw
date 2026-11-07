@@ -25,6 +25,9 @@ pub(crate) use args::BookRef;
 pub(crate) struct Caller<'a> {
     pub(crate) owner: u64,
     pub(crate) plugin: &'a str,
+    /// `uses.storage` (decision 125): the ops that remove or move the user's
+    /// files need it besides `uses.library`.
+    pub(crate) storage: Result<(), i32>,
 }
 
 /// Everything the library service needs from the host's catalog, card and
@@ -49,6 +52,7 @@ pub(crate) fn backend(
     let who = Caller {
         owner: frame.caller()?,
         plugin: frame.caller_plugin()?,
+        storage: frame.feature("uses.storage"),
     };
     let host: &dyn LibHost = &*services.0;
     match op.id {
