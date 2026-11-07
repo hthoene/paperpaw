@@ -182,14 +182,22 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 - [D] `close` frees the id; the format gets op 4 `close` (its state for it goes) and every image id
   of the document (section 5) ends. The host closes the opener's documents when the opener stops,
   and closes a format's documents when the format plugin stops or is uninstalled: the opener gets
-  `event.document_closed` (89: `document`, `reason` 1 the format stopped, 2 the card went, 3 the
-  book was moved or removed; others treated as 1) and every later call on the id is `ERR_CANCELLED`
+  `event.document_closed` (108: `document`, `reason` 1 the format stopped, 2 the card went, 3 the
+  book was moved or removed, 4 `needed`: the place went to a book to show, below; others treated
+  as 1) and every later call on the id is `ERR_CANCELLED`
   until it closes it. A reply the format produces after that is never delivered (it is not called
   again).
 - [D] Limits: at most 2 open documents per opener and 2 on the X4 device-wide (the shown book and a
   background index), 8 elsewhere; over that `ERR_FULL`. On the X4 the cap is in effect 1 per
-  opener, so no one plugin can take both places. It is a cap per opener, not a place kept for the
-  reader: two other openers holding one each still make the reader's `open` `ERR_FULL`.
+  opener, so no one plugin can take both places.
+- [D] **A book to show always gets a place.** An `open` without `flags` bit 2 `background` from
+  the plugin whose screen is showing, when the device-wide places are full, takes the place of
+  another opener's document: first one opened with `background`, else one whose opener shows no
+  screen, the oldest first. That document is closed as by `close` (the format gets op 4, its
+  image ids end) and its opener gets `event.document_closed` with `reason` 4 `needed`; later calls
+  on its id are `ERR_CANCELLED`. The shown book itself is never taken. Only when no document can
+  be taken (the opener's own cap) is the `open` `ERR_FULL`. An index build that lost its place
+  starts again later (the library's walk tries it again).
 
 ### 2.2 Metadata
 
@@ -361,6 +369,11 @@ canvas.draw_image(ctx, image: u32, x: i32, y: i32, width: u32, height: u32, flag
 | 1559 | `command.image_prepare` | `root: u32`, `path: str 512`, `side: u32`, `cookie: u32`, `flags: u32` |
 | 1560 | `command.image_release` | `image: u32` |
 | 90 | `event.image_ready` | `now_ms: u64`, `cookie: u32`, `status: u32`, `image: u32`, `width: u32`, `height: u32` |
+| 108 | `event.document_closed` | `now_ms: u64`, `document: u32`, `reason: u32` |
+
+- [D] `event.document_closed` was named 89 in earlier drafts, which is `event.spoken` (`ui.md`); it
+  is 108 and comes with the draft-20 records. It comes from the host's document table (2 or 8 per
+  device), never from the held-event store, so it is never dropped.
 
 - [D] An **image id** (`u32`, checked counter, never 0) names a decoded picture the host may draw. A
   document's images come from `doc_image` rows (a block's picture, the cover, op 16's larger one)
