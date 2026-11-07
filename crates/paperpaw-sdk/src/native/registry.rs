@@ -18,9 +18,6 @@ pub use rows::{
     RegistryValueSource, RegistryWidget,
 };
 
-// `docs/abi/registry.md` section 2: a whole page contains at most 32 rows.
-const PAGE_MAX_ROWS: usize = 32;
-
 /// A registry position. Only a page's next cursor may continue a generation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PageCursor {
@@ -317,7 +314,7 @@ fn validate_page<'a, T>(
     let mut count = 0;
     while let Some(record) = records.next()? {
         count += 1;
-        if count > PAGE_MAX_ROWS {
+        if count > schema::PAGE_MAX_ROWS {
             return Err(Error::Invalid);
         }
         decode(record)?;
