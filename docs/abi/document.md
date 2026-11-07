@@ -139,7 +139,8 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 
 - [D] `open` (`doc_open`: `root` 0 or 1, `path` at most 512 bytes, `format` empty for section 1's
   choice, `flags`, `image_side`, `cover_side`, `css_root`, `css_path`; then at most 12 `doc_option`
-  rows `key`/`value`, so `input_rows` 13 in the schema; interface 6 `OpenOptions::settings`):
+  rows `key`/`value`, so `input_rows` 13 in the schema, a maximum only; no `doc_open` first, a
+  second `doc_open` or one after an option is `ERR_INVALID`; interface 6 `OpenOptions::settings`):
   `flags` bit 0 publisher styles, bit 1 colour, bit 2 background (an index build, not for showing;
   section 8); `image_side` the longest side of a page's picture (0: interface 6 `IMAGE_FIT`, 1,600),
   `cover_side` of the cover (0: interface 6 `cover_fit`, the larger of 300 and 3/8 of the screen's
