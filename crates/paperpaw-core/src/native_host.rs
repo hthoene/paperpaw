@@ -26,12 +26,19 @@ pub use resources::HostResources;
 #[path = "native_host/fonts.rs"]
 mod fonts;
 
+#[path = "native_host/call_services.rs"]
+mod call_services;
 #[path = "native_host/data_services.rs"]
 mod data_services;
 mod declared_services;
 #[path = "native_host/formatting.rs"]
 mod formatting;
 mod service_slots;
+#[allow(
+    dead_code,
+    reason = "stage broker wiring follows this framing foundation"
+)]
+mod stage_wire;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 
