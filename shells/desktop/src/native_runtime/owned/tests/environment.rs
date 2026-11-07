@@ -38,7 +38,7 @@ mod settings_wire {
 }
 
 pub(super) const KEY: &str = "abi7-tick-draw.enabled";
-const DEVICE: DeviceInfo = DeviceInfo::new(
+pub(super) const DEVICE: DeviceInfo = DeviceInfo::new(
     "scoped-probe",
     "Scoped probe",
     DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),

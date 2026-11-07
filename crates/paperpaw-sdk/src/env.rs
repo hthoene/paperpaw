@@ -82,6 +82,11 @@ pub struct Capabilities {
 pub struct Capability(u64);
 
 impl Capability {
+    /// Capability bits used by the generated menu declaration codec.
+    pub(crate) const fn menu_declaration_bits(self) -> u64 {
+        self.0
+    }
+
     /// Sound can be played.
     pub const AUDIO: Self = Self(1);
     /// The front light's warmth can be set.

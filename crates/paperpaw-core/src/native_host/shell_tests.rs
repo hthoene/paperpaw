@@ -59,6 +59,11 @@ const BAD_TABLE: u8 = 2;
 const IGNORES_REFUSAL: u8 = 3;
 const TOKEN: u32 = 9;
 
+fn report(_: &Heap, owner: &str, _: super::super::TeardownStep, _: super::super::Error) {
+    assert!(!owner.is_empty());
+    log("report");
+}
+
 fn log(what: &'static str) {
     LOG.with(|log| log.borrow_mut().push(what));
 }
@@ -244,7 +249,19 @@ fn frame() -> Vec<u8> {
 
 fn fake() -> Hosted<Heap, Module> {
     // SAFETY: `make` is this file's plugin, always callable; no image.
-    unsafe { Hosted::new(Heap, Module::new(), make, "fake", (0, 0)) }.unwrap()
+    unsafe {
+        Hosted::new(
+            Heap,
+            Module::new(),
+            make,
+            "fake",
+            (0, 0),
+            report,
+            super::super::HostResources::try_new().unwrap(),
+            DeclaredServices::none(),
+        )
+    }
+    .unwrap()
 }
 
 fn finish<S: Services, M>(hosted: &Hosted<S, M>) {
@@ -370,6 +387,9 @@ fn the_image_is_given_before_make_once_and_read_back_as_given() {
             make,
             "fake",
             (IMAGE.as_ptr() as usize, IMAGE.len()),
+            report,
+            super::super::HostResources::try_new().unwrap(),
+            DeclaredServices::none(),
         )
     }
     .unwrap();
@@ -514,9 +534,21 @@ fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_c
     for nth in [1, 2] {
         reset(NORMAL);
         let module = Module::new();
+        let resources = super::super::HostResources::try_new().unwrap();
         arm_failure(nth);
         // SAFETY: `make` is this file's plugin; no image.
-        let refused = unsafe { Hosted::new(Heap, module, make, "fake", (0, 0)) };
+        let refused = unsafe {
+            Hosted::new(
+                Heap,
+                module,
+                make,
+                "fake",
+                (0, 0),
+                report,
+                resources,
+                DeclaredServices::none(),
+            )
+        };
         arm_failure(0);
         assert_eq!(refused.err(), Some(Error::Allocation), "allocation {nth}");
         assert_eq!(logged(), ["module"], "the module is dropped, once");
@@ -539,3 +571,160 @@ fn an_empty_visible_region_sends_no_frame_and_a_full_one_its_rows() {
     };
     assert_eq!((frame.y, frame.clip_top, frame.clip_bottom), (4, 4, 10));
 }
+
+#[test]
+fn shared_shell_reports_fallback_failure_before_destroying_and_unmapping() {
+    reset(NORMAL);
+    let hosted = fake();
+    {
+        let mut pending = hosted
+            .make_registered(hosted.begin::<Registration>().unwrap())
+            .unwrap();
+        let transaction = pending.transaction.take().unwrap();
+        let batch = transaction
+            .staging
+            .commit(crate::native_host::Teardown {
+                report: report_context::<Heap>,
+                cancel: |_| Err(super::super::Error::Busy),
+                release: |_| Ok(()),
+                destroy: destroy_context::<Heap>,
+            })
+            .unwrap();
+        pending.armed = false;
+        drop(pending);
+        drop(batch);
+    }
+    drop(hosted);
+    assert_eq!(logged(), ["report", "destroy", "module"]);
+}
+
+#[test]
+fn pinned_owner_allocation_failure_drops_unactivated_context_then_module() {
+    struct Probe(&'static str);
+    impl Drop for Probe {
+        fn drop(&mut self) {
+            log(self.0);
+        }
+    }
+    reset(NORMAL);
+    let value = super::super::HostOwner::new(Probe("context"), Probe("module"));
+    arm_failure(1);
+    let refused = super::super::PinnedOwner::try_new(value);
+    arm_failure(0);
+    assert!(refused.is_none());
+    assert_eq!(logged(), ["context", "module"]);
+}
+
+#[path = "shell_oom_tests.rs"]
+mod oom;
+
+#[test]
+fn teardown_faults_are_one_shot_and_propagate_through_production_commit() {
+    use crate::native_host::{Error as HostError, TeardownStep};
+    for (step, error) in [
+        (TeardownStep::Cancel, HostError::Invalid),
+        (TeardownStep::Release, HostError::Invalid),
+        (TeardownStep::Release, HostError::Busy),
+    ] {
+        reset(NORMAL);
+        let hosted = fake();
+        let batch = hosted
+            .make_registered(hosted.begin::<Registration>().unwrap())
+            .unwrap()
+            .commit()
+            .unwrap();
+        teardown_fault::arm(step, error);
+        let prepared = hosted.owner().prepare_teardown();
+        if error == HostError::Busy {
+            assert_eq!(prepared, Err(HostError::Busy));
+            assert_eq!(hosted.owner().take_teardown_error(), None);
+            assert!(logged().is_empty());
+            hosted.owner().prepare_teardown().unwrap();
+        } else {
+            assert_eq!(prepared, Ok(()));
+            assert_eq!(hosted.owner().take_teardown_error(), Some(error));
+            assert_eq!(hosted.owner().take_teardown_error(), None);
+        }
+        drop(batch);
+        hosted.owner().finish().unwrap();
+        drop(hosted);
+        assert_eq!(logged(), ["destroy", "module"]);
+    }
+}
+
+#[test]
+fn persistent_teardown_busy_keeps_owner_until_disarmed() {
+    use crate::native_host::{Error as HostError, TeardownStep};
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            teardown_fault::disarm();
+        }
+    }
+    reset(NORMAL);
+    let hosted = fake();
+    let batch = hosted
+        .make_registered(hosted.begin::<Registration>().unwrap())
+        .unwrap()
+        .commit()
+        .unwrap();
+    let _reset = Reset;
+    teardown_fault::arm_persistent(TeardownStep::Release, HostError::Busy);
+    assert_eq!(hosted.owner().prepare_teardown(), Err(HostError::Busy));
+    drop(batch);
+    assert_eq!(hosted.owner().finish(), Err(HostError::Busy));
+    assert!(logged().is_empty());
+    assert!(MODULE_ALIVE.with(Cell::get));
+    teardown_fault::disarm();
+    hosted.owner().finish().unwrap();
+    drop(hosted);
+    assert_eq!(logged(), ["destroy", "module"]);
+}
+
+#[test]
+fn callback_admission_busy_preserves_read_output_before_raw_slot_entry() {
+    reset(NORMAL);
+    let hosted = fake();
+    let batch = hosted
+        .make_registered(hosted.begin().unwrap())
+        .unwrap()
+        .commit()
+        .unwrap();
+    let depth = DispatchDepth::new();
+    let mut out = [0xa5; 7];
+    let mut entered = false;
+    batch
+        .dispatch(0, &depth, |_, _| {
+            // Reentry is refused by RegistrationBatch admission. The raw read
+            // helper itself does not produce Busy and must not be reached here.
+            let result = batch.dispatch(0, &depth, |context, _| {
+                entered = true;
+                // SAFETY: live path and exclusive output; no borrowed data escapes.
+                unsafe {
+                    super::super::storage_slots::read_at(
+                        &context.environment,
+                        "fake",
+                        0,
+                        PpBytes {
+                            ptr: b"state".as_ptr(),
+                            len: 5,
+                        },
+                        0,
+                        PpBuffer {
+                            ptr: out.as_mut_ptr(),
+                            cap: out.len(),
+                        },
+                    )
+                }
+            });
+            assert_eq!(result, Err(super::super::Error::Busy));
+        })
+        .unwrap();
+    assert!(!entered);
+    assert_eq!(out, [0xa5; 7]);
+    drop(batch);
+    finish(&hosted);
+}
+
+#[path = "shell_service_oom_tests.rs"]
+mod service_oom;

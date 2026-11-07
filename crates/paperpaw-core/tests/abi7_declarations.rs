@@ -1197,7 +1197,14 @@ fn run(
             }
         })
         .unwrap();
-    let committed = construction.commit(|_| ()).map(|_| ());
+    let committed = construction
+        .commit(paperpaw_core::native_host::Teardown {
+            report: |_, _, _| {},
+            cancel: |_| Ok(()),
+            release: |_| Ok(()),
+            destroy: |_| (),
+        })
+        .map(|_| ());
     (if status == OK { Ok(()) } else { Err(status) }, committed)
 }
 
