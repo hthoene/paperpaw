@@ -73,10 +73,16 @@ impl FilterDecision<'_> {
             Self::Take => (1, "", &[][..], ""),
             Self::Cancel => (3, "", &[][..], ""),
             Self::Run(action) => {
+                if action.len() > schema::FILTER_VERDICT_ACTION_MAX_BYTES {
+                    return Err(Error::NoSpace);
+                }
                 full_id(action)?;
                 (2, action, &[][..], "")
             }
             Self::Raise(input) => {
+                if input.len() > schema::FILTER_VERDICT_RAISE_MAX_BYTES {
+                    return Err(Error::NoSpace);
+                }
                 full_id(input)?;
                 (5, "", &[][..], input)
             }
