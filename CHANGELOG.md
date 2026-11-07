@@ -21,6 +21,10 @@ change the plugin SDK.
 
 - Widget pack 1.0.9 (first two slices): the interface-7 native plugin with the day and date widget (weekday, number and sheet styles) and the time family (analogue, word clock, tiles, world, calendar, year, countdown, moon); `paperpaw-ui-kit` gains `widget`, the toolkit for interface-7 widget plugins (settings read at draw time, the shared frame/paper/ink/corners/line/shadow/padding look, fitted and wrapped text, stacks). The words and books families and the removal of the interface-6 pack follow (#228).
 
+- Keyboard 1.1.2: the interface-7 native plugin (the text dialog on `core.keyboard` answering
+  through `core.ui`, keys, shift, variants, paste, type on the phone, secret texts, the layouts
+  chooser) on `paperpaw-ui-kit`; hardware-typed text, font-coverage filtering and layouts added by
+  other plugins wait for host pieces and are named in `plugins/keyboard/PORTING-7.md` (#228).
 - Settings 1.0.6: the interface-7 native plugin (main page, group pages, choosing a value, themes,
   search, reset, number editing with preview) over the registry service; `paperpaw-ui-kit` item
   rows gain − and + buttons and show a title that is already translated as it is (#228).
