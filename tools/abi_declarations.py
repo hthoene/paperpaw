@@ -255,8 +255,10 @@ def _lifetime(record):
     return "<'a>" if any(f['kind'] in ('str', 'bytes') for f in record['fields']) else ''
 
 
-def _record_source(record, decode_name="decode", record_type="Record<'a>", extensible=False):
-    """One borrowed record struct with decode, length and write steps."""
+def _record_source(record, decode_name="decode", record_type="Record<'a>", extensible=False,
+                   typed=False):
+    """One borrowed record struct with decode, length and write steps; `typed` also gives it
+    the typed codec ([`WireEncode`], [`WireRecord`]) a plugin links per record type."""
     name, tag, fields = record['name'], record['id'], record['fields']
     title, prefix = _camel(name), _const(name)
     optional = [f for f in fields if f['optional']]
@@ -307,18 +309,32 @@ def _record_source(record, decode_name="decode", record_type="Record<'a>", exten
             shown = '&".."' if field['name'] in hidden else f'&self.{field["name"]}'
             out.append(f'            .field("{field["name"]}", {shown})')
         out += ['            .finish()', '    }']
-    out += ['}', '', f"impl<'a> {title}<'a> {{" if borrows else f'impl {title} {{',
-            f"    fn {decode_name}(body: &mut Reader<'a>) -> Result<{record_type}, i32> {{" if borrows
-            else f"    fn {decode_name}<'a>(body: &mut Reader<'a>) -> Result<{record_type}, i32> {{",
-            '        let bits = body.bitmap_bits()?;' if optional else '        body.bitmap()?;',
-            f'        Ok(Record::{title}(Self {{']
+    wrapped = record_type
+    if typed:
+        # The fields decode into the struct alone; the enum wraps it, so a plugin decoding
+        # one record type links no other record's decoder.
+        out += ['}', '', f"impl<'a> {title}<'a> {{" if borrows else f'impl {title} {{',
+                f"    fn {decode_name}(body: &mut Reader<'a>) -> Result<{record_type}, i32> {{"
+                if borrows else
+                f"    fn {decode_name}<'a>(body: &mut Reader<'a>) -> Result<{record_type}, i32> {{",
+                f'        Self::decode_fields(body).map(Record::{title})', '    }', '']
+        decode_name, record_type = 'decode_fields', 'Self'
+        out += [f"    fn {decode_name}(body: &mut Reader<'a>) -> Result<Self, i32> {{" if borrows
+                else f"    fn {decode_name}(body: &mut Reader<'_>) -> Result<Self, i32> {{"]
+    else:
+        out += ['}', '', f"impl<'a> {title}<'a> {{" if borrows else f'impl {title} {{',
+                f"    fn {decode_name}(body: &mut Reader<'a>) -> Result<{record_type}, i32> {{"
+                if borrows else
+                f"    fn {decode_name}<'a>(body: &mut Reader<'a>) -> Result<{record_type}, i32> {{"]
+    out += ['        let bits = body.bitmap_bits()?;' if optional else '        body.bitmap()?;',
+            '        Ok(Self {' if typed else f'        Ok(Record::{title}(Self {{']
     for field in fields:
         value = _decode_value(field, prefix)
         out.append(f'            {field["name"]}: {value[0]}' + ('' if len(value) > 1 else ','))
         out += [f'            {line}' for line in value[1:]]
         if len(value) > 1:
             out[-1] += ','
-    out += ['        }))', '    }', '']
+    out += ['        })' if typed else '        }))', '    }', '']
     if optional:
         out += ['    fn bits(&self) -> u8 {', '        let mut bits = 0;']
         for field in optional:
@@ -362,6 +378,23 @@ def _record_source(record, decode_name="decode", record_type="Record<'a>", exten
         else:
             out.append(_write_line(field, '        '))
     out += ['    }', '}', '']
+    if typed:
+        life = "<'a>" if borrows else ''
+        bitmap = (['        let bits = self.bits();',
+                   '        write_varint(u32::from(bits != 0), out, offset);',
+                   '        if bits != 0 {', '            write_bytes(&[bits], out, offset);',
+                   '        }'] if optional else ['        write_varint(0, out, offset);'])
+        out += [f"impl{life} WireEncode for {title}{life} {{",
+                '    fn wire_tag(&self) -> u32 {', f'        {prefix}_TAG', '    }', '',
+                '    fn wire_body_len(&self) -> Result<usize, i32> {', '        self.body_len()',
+                '    }', '',
+                '    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {']
+        out += bitmap + ['        self.write(out, offset);', '    }', '}', '',
+                         f"impl<'a> WireRecord<'a> for {title}{life} {{",
+                         f'    const TAG: u32 = {prefix}_TAG;', '',
+                         "    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {",
+                         '        Self::decode_fields(&mut Reader { remaining: body })',
+                         '    }', '}', '']
     if extensible:
         params = ', '.join(f"{f['name']}: " + (f"Option<{RUST_TYPES[f['kind']]}>"
                            if f['maybe'] else RUST_TYPES[f['kind']]) for f in fields)
@@ -473,7 +506,7 @@ def declaration_source(declared, statuses):
                                 + '\n' for r in declared)
     has_optional = any(f['optional'] for r in declared for f in r['fields'])
     source = '\n// Declaration records and the mixed-batch API.\n'
-    source += ''.join(_record_source(record) for record in declared)
+    source += ''.join(_record_source(record, typed=True) for record in declared)
     source += (DECL_TEMPLATE
                .replace('@READER_EXTRA@', _reader_extra(declared))
                .replace('@RECORD_EXTRA@', _record_extra(declared))
@@ -486,6 +519,7 @@ def declaration_source(declared, statuses):
                         .rstrip('\n'))
                .replace('@WRITES@', arms('            Record::@T@(record) => record.write(out, offset),')
                         .rstrip('\n')))
+    source += TYPED_TEMPLATE
     if any(r['name'].startswith('service.') for r in declared):
         source += BARE_TEMPLATE.replace('@BITMAP@', 'record.write_bitmap(out, &mut offset);'
                                         if has_optional else 'write_varint(0, out, &mut offset);')
@@ -688,6 +722,220 @@ pub fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i
 
 # Bare-record framing of service blobs (PR #198): emitted only with service
 # records, so a schema without them renders exactly as before.
+TYPED_TEMPLATE = '''
+/// A record that encodes itself: its tag, its body length and its body. A plugin
+/// encodes through it (`&dyn WireEncode`), so it links only the codecs of the record
+/// types it sends; [`Record`]'s functions link every record type (the host's view).
+pub trait WireEncode {
+    /// Wire tag.
+    fn wire_tag(&self) -> u32;
+    /// Body bytes (presence bitmap and fields); a field over its cap is ERR_NO_SPACE.
+    fn wire_body_len(&self) -> Result<usize, i32>;
+    /// Writes the body; only this codec's functions can call it (they check the room).
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal);
+}
+
+impl<T: WireEncode + ?Sized> WireEncode for &T {
+    fn wire_tag(&self) -> u32 {
+        (**self).wire_tag()
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        (**self).wire_body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, seal: seal::Seal) {
+        (**self).wire_write(out, offset, seal);
+    }
+}
+
+impl WireEncode for Registration {
+    fn wire_tag(&self) -> u32 {
+        match self {
+            Registration::Event { .. } => REGISTRATION_EVENT_TAG,
+            Registration::Draw { .. } => REGISTRATION_DRAW_TAG,
+        }
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        Ok(match self {
+            Registration::Event { .. } => 9,
+            Registration::Draw { .. } => 5,
+        })
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        match self {
+            Registration::Event { event_tag, token } => {
+                write_bytes(&event_tag.to_le_bytes(), out, offset);
+                write_bytes(&token.to_le_bytes(), out, offset);
+            }
+            Registration::Draw { token } => write_bytes(&token.to_le_bytes(), out, offset),
+        }
+    }
+}
+
+/// One record type of the wire: what a plugin decodes, by type, linking only that
+/// record's decoder ([`RawRecord::decode`]).
+pub trait WireRecord<'a>: WireEncode + Copy + Sized {
+    /// Wire tag.
+    const TAG: u32;
+    /// Decodes a body (presence bitmap and fields; unknown appended fields and bits are
+    /// skipped), with the statuses of [`records_decode`].
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32>;
+}
+
+mod seal {
+    /// Only this codec writes record bodies.
+    pub struct Seal;
+}
+
+/// A record whose frame is checked and whose body is still undecoded: [`RawRecord::decode`]
+/// decodes it as one record type, [`RawRecord::record`] as whichever its tag names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RawRecord<'a> {
+    tag: u32,
+    body: &'a [u8],
+}
+
+impl<'a> RawRecord<'a> {
+    /// Its wire tag.
+    pub fn tag(&self) -> u32 {
+        self.tag
+    }
+
+    /// Decodes it as `R`; another tag is ERR_UNSUPPORTED (as an unknown tag is).
+    pub fn decode<R: WireRecord<'a>>(&self) -> Result<R, i32> {
+        if self.tag != R::TAG {
+            return Err(@UNSUPPORTED@);
+        }
+        R::decode_body(self.body)
+    }
+
+    /// Decodes it as whichever record its tag names; this links every record's decoder.
+    pub fn record(&self) -> Result<Record<'a>, i32> {
+        record_decode(self.tag, &mut Reader { remaining: self.body })
+    }
+
+    /// The record of a batch that holds exactly one (count 1, the record, nothing after):
+    /// the framing of [`records_decode_single`], the body not decoded yet.
+    pub fn single(bytes: &'a [u8]) -> Result<Self, i32> {
+        if bytes.len() > REGISTRATION_MAX_BYTES {
+            return Err(@NO_SPACE@);
+        }
+        let mut reader = Reader { remaining: bytes };
+        if reader.varint()? != 1 {
+            return Err(@INVALID@);
+        }
+        let (tag, body) = reader.record()?;
+        reader.finish()?;
+        Ok(Self { tag, body: body.remaining })
+    }
+
+    /// Exactly one bare record, nothing after it: the framing of [`record_decode_one`].
+    pub fn one(bytes: &'a [u8]) -> Result<Self, i32> {
+        if bytes.len() > REGISTRATION_MAX_BYTES {
+            return Err(@NO_SPACE@);
+        }
+        let mut reader = Reader { remaining: bytes };
+        let (tag, body) = reader.record()?;
+        reader.finish()?;
+        Ok(Self { tag, body: body.remaining })
+    }
+
+    /// The first bare record of `bytes` and the frame length it took: the framing of
+    /// `record_decode_prefix`.
+    pub fn prefix(bytes: &'a [u8]) -> Result<(Self, usize), i32> {
+        let limit = bytes.len().min(REGISTRATION_MAX_BYTES);
+        let mut reader = Reader {
+            remaining: bytes.get(..limit).unwrap_or(bytes),
+        };
+        let (tag, body) = reader.record()?;
+        Ok((Self { tag, body: body.remaining }, limit - reader.remaining.len()))
+    }
+}
+
+/// [`record_framed_len`] of a typed record.
+pub fn record_framed_len_of(record: &dyn WireEncode) -> Result<usize, i32> {
+    let body = record.wire_body_len()?;
+    let len = varint_len(record.wire_tag()) + varint_len(body as u32) + body;
+    if len > REGISTRATION_MAX_BYTES {
+        return Err(@NO_SPACE@);
+    }
+    Ok(len)
+}
+
+/// [`record_encode_one`] of a typed record: every cap and the room are checked before
+/// any write; a failure is ERR_NO_SPACE and leaves `out` unchanged.
+pub fn record_encode_of(record: &dyn WireEncode, out: &mut [u8]) -> Result<usize, i32> {
+    let required = record_framed_len_of(record)?;
+    if out.len() < required {
+        return Err(@NO_SPACE@);
+    }
+    let body = record.wire_body_len()?;
+    let mut offset = 0;
+    write_varint(record.wire_tag(), out, &mut offset);
+    write_varint(body as u32, out, &mut offset);
+    record.wire_write(out, &mut offset, seal::Seal);
+    Ok(offset)
+}
+
+/// [`records_encode`] of typed records: the same framing, limits and statuses.
+pub fn records_encode_of(records: &[&dyn WireEncode], out: &mut [u8]) -> Result<usize, i32> {
+    if records.len() > REGISTRATION_MAX_RECORDS {
+        return Err(@NO_SPACE@);
+    }
+    records_encode_counted_of(
+        records.iter().copied(),
+        REGISTRATION_MAX_RECORDS,
+        REGISTRATION_MAX_BYTES,
+        out,
+    )
+}
+
+/// `records_encode_counted_iter` of typed records: a counted batch of at most
+/// `max_records` records and `max_bytes` bytes, walked three times (count, size, write),
+/// with its statuses; nothing is ever cut.
+pub fn records_encode_counted_of<R, I>(
+    records: I,
+    max_records: usize,
+    max_bytes: usize,
+    out: &mut [u8],
+) -> Result<usize, i32>
+where
+    R: WireEncode,
+    I: Iterator<Item = R> + Clone,
+{
+    let count = records.clone().take(max_records.saturating_add(1)).count();
+    if count > max_records || count > u32::MAX as usize {
+        return Err(@NO_SPACE@);
+    }
+    let mut required = varint_len(count as u32);
+    for record in records.clone() {
+        required += record_framed_len_of(&record)?;
+        if required > max_bytes {
+            return Err(@NO_SPACE@);
+        }
+    }
+    if out.len() < required {
+        return Err(@NO_SPACE@);
+    }
+    let mut offset = 0;
+    write_varint(count as u32, out, &mut offset);
+    let mut written = 0;
+    for record in records {
+        written += 1;
+        let rest = out.get_mut(offset..required).ok_or(@INVALID@)?;
+        offset += record_encode_of(&record, rest).map_err(|_| @INVALID@)?;
+    }
+    if written != count || offset != required {
+        return Err(@INVALID@);
+    }
+    Ok(offset)
+}
+'''
+
 BARE_TEMPLATE = '''
 /// Bytes of one bare record: tag, body length and body, with no count.
 ///
