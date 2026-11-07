@@ -27,6 +27,7 @@ mod books;
 mod calendar;
 mod chart;
 mod extsort;
+mod files;
 mod fmt;
 mod koreader;
 mod left;
@@ -191,7 +192,7 @@ impl State {
         if let Some(today) = self.today.filter(|(d, _)| *d == day) {
             return Some(today);
         }
-        let days = store::days(env.storage(), |unix| fmt::day_of(env, unix));
+        let days = store::days(env.storage(), |unix| fmt::day_of(env, unix)).unwrap_or_default();
         let seconds = days.iter().find(|d| d.day == day).map_or(0, |d| d.seconds);
         self.today = Some((day, seconds));
         self.today

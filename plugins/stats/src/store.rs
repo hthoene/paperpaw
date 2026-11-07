@@ -36,7 +36,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use paperpaw_sdk::{Env, Storage, StorageError, files};
+use paperpaw_sdk::{Storage, StorageError};
 
 /// A stay on a page (KOReader: a row of `page_stat_data`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,19 +128,25 @@ impl Day {
     }
 }
 
-fn dir() -> String {
-    Env::plugin_dir(crate::PLUGIN.as_str())
-}
-
-fn path(name: &str) -> String {
-    format!("{}/{name}", dir())
-}
+// The plugin's data folder is `.paperpaw/plugins/stats` (`Env::plugin_dir`).
+// The names are whole strings: logging a page allocates nothing. The native
+// storage (root 0) is that folder, so its adapter takes the folder off again.
+const PAGES: &str = ".paperpaw/plugins/stats/pages.bin";
+const PAGES_NEW: &str = ".paperpaw/plugins/stats/pages.new";
+const BOOKS: &str = ".paperpaw/plugins/stats/books.ini";
+const BOOKS_NEW: &str = ".paperpaw/plugins/stats/books.new";
+const DAYS: &str = ".paperpaw/plugins/stats/days.bin";
+const DAYS_NEW: &str = ".paperpaw/plugins/stats/days.new";
+/// The most days a `days.bin` may hold (about 2,800 years).
+const MOST_DAYS: u64 = 1 << 20;
 
 /// The sizes of the log and of the books: they change as one reads and
 /// finishes books (or the statistics are merged).
 pub(crate) fn sizes(storage: &dyn Storage) -> (u64, u64) {
-    let size = |name: &str| storage.size(&path(name)).unwrap_or(0);
-    (size("pages.bin"), size("books.ini"))
+    (
+        storage.size(PAGES).unwrap_or(0),
+        storage.size(BOOKS).unwrap_or(0),
+    )
 }
 
 /// The longest line `books.ini` may have: a longer one is taken for a
@@ -202,7 +208,7 @@ pub(crate) fn load_books(storage: &dyn Storage) -> Result<Vec<Book>, StorageErro
     let mut books: Vec<Book> = Vec::new();
     // The book of the section being read, if it is one.
     let mut section: Option<u16> = None;
-    each_line(storage, &path("books.ini"), |line| {
+    each_line(storage, BOOKS, |line| {
         if let Some(header) = line.trim().strip_prefix('[') {
             let name = header.strip_suffix(']').ok_or(StorageError::InvalidData)?;
             section = name
@@ -261,7 +267,7 @@ pub(crate) fn update_books(
 ) -> Result<bool, StorageError> {
     // Books waiting beside their place are put there first: a new list
     // would take their place.
-    recover_file(storage, &path("books.ini"), &path("books.new"));
+    recover_file(storage, BOOKS, BOOKS_NEW);
     let mut books = load_books(storage)?;
     if !change(&mut books) {
         return Ok(false);
@@ -289,20 +295,20 @@ pub(crate) fn save_books(storage: &dyn Storage, books: &[Book]) -> Result<(), St
             b.finished,
         ));
     }
-    let new = path("books.new");
-    if let Err(e) = storage.write(&new, text.as_bytes()) {
-        remove_temporary(storage, &new);
+    let new = BOOKS_NEW;
+    if let Err(e) = storage.write(new, text.as_bytes()) {
+        remove_temporary(storage, new);
         return Err(e);
     }
-    let file = path("books.ini");
-    match storage.rename(&new, &file) {
+    let file = BOOKS;
+    match storage.rename(new, file) {
         // Where files cannot be renamed, written in place.
         Err(StorageError::Unsupported) => {
-            remove_temporary(storage, &new);
-            storage.write(&file, text.as_bytes())
+            remove_temporary(storage, new);
+            storage.write(file, text.as_bytes())
         }
         Err(e) => {
-            keep_if_gone(storage, &new, &file);
+            keep_if_gone(storage, new, file);
             Err(e)
         }
         Ok(()) => Ok(()),
@@ -314,7 +320,7 @@ pub(crate) fn save_books(storage: &dyn Storage, books: &[Book]) -> Result<(), St
 /// may have taken it away (FAT removes it first), and then `new` is all
 /// there is, put in place by [`recover`].
 fn put_in_place(storage: &dyn Storage, new: &str, file: &str) -> Result<(), StorageError> {
-    let moved = files::move_to(storage, new, file);
+    let moved = storage.rename(new, file);
     if moved.is_err() {
         keep_if_gone(storage, new, file);
     }
@@ -357,8 +363,8 @@ fn recover_file(storage: &dyn Storage, file: &str, new: &str) {
 /// Puts the log and the books written anew in their place where a cut
 /// left them beside it. Called at start.
 pub(crate) fn recover(storage: &dyn Storage) {
-    recover_file(storage, &path("pages.bin"), &path("pages.new"));
-    recover_file(storage, &path("books.ini"), &path("books.new"));
+    recover_file(storage, PAGES, PAGES_NEW);
+    recover_file(storage, BOOKS, BOOKS_NEW);
 }
 
 /// An id for a new book: above those of `books` and of every stay in the
@@ -374,21 +380,21 @@ pub(crate) fn new_id(storage: &dyn Storage, books: &[Book]) -> Result<u16, Stora
 /// power cut or a full card while appending) is dropped first, so that
 /// the stays after it are not read shifted.
 pub(crate) fn append(storage: &dyn Storage, stat: PageStat) -> Result<(), StorageError> {
-    let log = path("pages.bin");
-    match storage.size(&log) {
-        Ok(size) if size % RECORD as u64 != 0 => drop_cut_record(storage, &log, size)?,
+    let log = PAGES;
+    match storage.size(log) {
+        Ok(size) if size % RECORD as u64 != 0 => drop_cut_record(storage, log, size)?,
         _ => {}
     }
-    storage.append(&log, &stat.encode())
+    storage.append(log, &stat.encode())
 }
 
 /// Writes the log's whole records again without the cut one at its end
 /// (`size` bytes now), through a new file moved over it.
 fn drop_cut_record(storage: &dyn Storage, log: &str, size: u64) -> Result<(), StorageError> {
     let whole = size - size % RECORD as u64;
-    let new = path("pages.new");
+    let new = PAGES_NEW;
     let copied = (|| {
-        storage.write(&new, &[])?;
+        storage.write(new, &[])?;
         let mut chunk = [0u8; RECORD * 64];
         let mut at = 0u64;
         while at < whole {
@@ -397,16 +403,16 @@ fn drop_cut_record(storage: &dyn Storage, log: &str, size: u64) -> Result<(), St
             if n == 0 {
                 return Err(StorageError::Io);
             }
-            storage.append(&new, &chunk[..n])?;
+            storage.append(new, &chunk[..n])?;
             at += n as u64;
         }
         Ok(())
     })();
     if let Err(e) = copied {
-        remove_temporary(storage, &new);
+        remove_temporary(storage, new);
         return Err(e);
     }
-    put_in_place(storage, &new, log)
+    put_in_place(storage, new, log)
 }
 
 /// Replaces the log with the stays in `file` (records of book, page,
@@ -414,13 +420,13 @@ fn drop_cut_record(storage: &dyn Storage, log: &str, size: u64) -> Result<(), St
 /// after merging with another device's; the day totals are summed anew.
 /// After an error the log is as it was.
 pub(crate) fn replace_log(storage: &dyn Storage, file: &str) -> Result<(), StorageError> {
-    let new = path("pages.new");
-    if let Err(e) = write_log(storage, file, &new) {
-        remove_temporary(storage, &new);
+    let new = PAGES_NEW;
+    if let Err(e) = write_log(storage, file, new) {
+        remove_temporary(storage, new);
         return Err(e);
     }
     // Swapped in at once, by a rename where the storage can.
-    put_in_place(storage, &new, &path("pages.bin"))
+    put_in_place(storage, new, PAGES)
 }
 
 fn write_log(storage: &dyn Storage, file: &str, new: &str) -> Result<(), StorageError> {
@@ -453,7 +459,7 @@ fn write_log(storage: &dyn Storage, file: &str, new: &str) -> Result<(), Storage
     }
     // The day totals go first: whatever happens next, they are never
     // taken for those of the new log.
-    match storage.remove(&path("days.bin")) {
+    match storage.remove(DAYS) {
         Ok(()) | Err(StorageError::NotFound) => Ok(()),
         Err(e) => Err(e),
     }
@@ -530,56 +536,54 @@ fn zone(day_of: &impl Fn(u32) -> i32) -> [i32; 2] {
 
 /// Every day with reading, in order, local days as `day_of` makes them
 /// from Unix seconds; brings `days.bin` up to date with the log first.
-pub(crate) fn days(storage: &dyn Storage, day_of: impl Fn(u32) -> i32) -> Vec<Day> {
-    let file = path("days.bin");
-    let log = path("pages.bin");
-    let size = storage.size(&log).unwrap_or(0);
+///
+/// # Errors
+/// [`StorageError::TooLarge`] where the days do not fit in memory; the log's
+/// own read errors end the summing and leave the days of the part read.
+pub(crate) fn days(
+    storage: &dyn Storage,
+    day_of: impl Fn(u32) -> i32,
+) -> Result<Vec<Day>, StorageError> {
+    let size = storage.size(PAGES).unwrap_or(0);
     let mut first = [0u8; RECORD];
-    if storage.read_at(&log, 0, &mut first).ok() != Some(RECORD) {
+    if storage.read_at(PAGES, 0, &mut first).ok() != Some(RECORD) {
         first = [0; RECORD];
     }
     let zone = zone(&day_of);
     // Derived from the log: what cannot be read is summed anew.
-    let data = paperpaw_sdk::read_file(storage, &file, 1 << 20).unwrap_or_default();
-    let summed = data
-        .split_first_chunk::<HEADER>()
-        .and_then(|(head, rest)| Some((Summed::decode(head)?, rest)))
-        .filter(|(s, _)| s.zone == zone && s.first == first && s.covered <= size);
-    let (covered, mut days) = match summed {
-        Some((s, rest)) => (
-            s.covered,
-            rest.as_chunks::<DAY>()
-                .0
-                .iter()
-                .map(|d| Day::decode(d))
-                .collect::<Vec<_>>(),
-        ),
+    let (covered, mut days) = match kept_days(storage, zone, first, size)? {
+        Some((covered, days)) => (covered, days),
         None => (0, Vec::new()),
     };
     if covered + RECORD as u64 > size {
-        return days;
+        return Ok(days);
     }
     let mut chunk = [0u8; RECORD * 64];
     let mut at = covered;
-    while let Ok(n) = storage.read_at(&log, at, &mut chunk) {
+    while let Ok(n) = storage.read_at(PAGES, at, &mut chunk) {
         let whole = n - n % RECORD;
-        for record in chunk[..whole].as_chunks::<RECORD>().0 {
+        for record in chunk.get(..whole).unwrap_or(&[]).as_chunks::<RECORD>().0 {
             let stat = PageStat::decode(record);
             let day = day_of(stat.start);
             match days.binary_search_by_key(&day, |d| d.day) {
                 Ok(i) => {
-                    // Saturating: a hostile merged log cannot overflow it.
-                    days[i].seconds = days[i].seconds.saturating_add(u32::from(stat.duration));
-                    days[i].stays = days[i].stays.saturating_add(1);
+                    if let Some(entry) = days.get_mut(i) {
+                        // Saturating: a hostile merged log cannot overflow it.
+                        entry.seconds = entry.seconds.saturating_add(u32::from(stat.duration));
+                        entry.stays = entry.stays.saturating_add(1);
+                    }
                 }
-                Err(i) => days.insert(
-                    i,
-                    Day {
-                        day,
-                        seconds: u32::from(stat.duration),
-                        stays: 1,
-                    },
-                ),
+                Err(i) => {
+                    days.try_reserve(1).map_err(|_| StorageError::TooLarge)?;
+                    days.insert(
+                        i,
+                        Day {
+                            day,
+                            seconds: u32::from(stat.duration),
+                            stays: 1,
+                        },
+                    );
+                }
             }
         }
         at += whole as u64;
@@ -587,23 +591,89 @@ pub(crate) fn days(storage: &dyn Storage, day_of: impl Fn(u32) -> i32) -> Vec<Da
             break;
         }
     }
-    let summed = Summed {
-        covered: at,
-        zone,
-        first,
-    };
-    let mut out = Vec::with_capacity(HEADER + days.len() * DAY);
-    out.extend_from_slice(&summed.encode());
-    for d in &days {
-        out.extend_from_slice(&d.encode());
-    }
     // Only a shortcut: if it cannot be kept, the days are summed anew.
-    #[expect(
-        clippy::let_underscore_must_use,
-        reason = "only a shortcut: days not kept are summed anew, as said above"
-    )]
-    let _ = storage.write(&file, &out);
-    days
+    keep_days(
+        storage,
+        &days,
+        Summed {
+            covered: at,
+            zone,
+            first,
+        },
+    );
+    Ok(days)
+}
+
+/// The days `days.bin` holds, with the bytes of the log they cover, if they
+/// were summed from this log in this time zone.
+fn kept_days(
+    storage: &dyn Storage,
+    zone: [i32; 2],
+    first: [u8; RECORD],
+    size: u64,
+) -> Result<Option<(u64, Vec<Day>)>, StorageError> {
+    let mut head = [0u8; HEADER];
+    if storage.read_at(DAYS, 0, &mut head).ok() != Some(HEADER) {
+        return Ok(None);
+    }
+    let Some(summed) = Summed::decode(&head) else {
+        return Ok(None);
+    };
+    if summed.zone != zone || summed.first != first || summed.covered > size {
+        return Ok(None);
+    }
+    let Ok(file) = storage.size(DAYS) else {
+        return Ok(None);
+    };
+    // A file too large is not one of ours: summed anew.
+    let count = file.saturating_sub(HEADER as u64) / DAY as u64;
+    if count > MOST_DAYS {
+        return Ok(None);
+    }
+    let mut days: Vec<Day> = Vec::new();
+    days.try_reserve_exact(count as usize)
+        .map_err(|_| StorageError::TooLarge)?;
+    let mut chunk = [0u8; DAY * 64];
+    let mut at = HEADER as u64;
+    while (days.len() as u64) < count {
+        let Ok(n) = storage.read_at(DAYS, at, &mut chunk) else {
+            return Ok(None);
+        };
+        let whole = n - n % DAY;
+        if whole == 0 {
+            return Ok(None);
+        }
+        for day in chunk.get(..whole).unwrap_or(&[]).as_chunks::<DAY>().0 {
+            if (days.len() as u64) < count {
+                days.push(Day::decode(day));
+            }
+        }
+        at += whole as u64;
+    }
+    Ok(Some((summed.covered, days)))
+}
+
+/// Writes `days.bin` beside its place and puts it there; on any failure the
+/// shortcut is simply not kept.
+fn keep_days(storage: &dyn Storage, days: &[Day], summed: Summed) {
+    let written = (|| {
+        storage.write(DAYS_NEW, &summed.encode())?;
+        let mut chunk = [0u8; DAY * 64];
+        for part in days.chunks(64) {
+            let mut len = 0;
+            for day in part {
+                if let Some(slot) = chunk.get_mut(len..len + DAY) {
+                    slot.copy_from_slice(&day.encode());
+                    len += DAY;
+                }
+            }
+            storage.append(DAYS_NEW, chunk.get(..len).unwrap_or(&[]))?;
+        }
+        storage.rename(DAYS_NEW, DAYS)
+    })();
+    if written.is_err() {
+        remove_temporary(storage, DAYS_NEW);
+    }
 }
 
 /// Calls `visit` for every stay, oldest first. A read error ends the
@@ -612,11 +682,11 @@ pub(crate) fn scan(
     storage: &dyn Storage,
     mut visit: impl FnMut(&PageStat),
 ) -> Result<(), StorageError> {
-    let file = path("pages.bin");
+    let file = PAGES;
     let mut chunk = [0u8; RECORD * 64];
     let mut at = 0u64;
     loop {
-        let n = match storage.read_at(&file, at, &mut chunk) {
+        let n = match storage.read_at(file, at, &mut chunk) {
             Ok(n) => n,
             // No log yet.
             Err(StorageError::NotFound) if at == 0 => 0,
@@ -641,15 +711,15 @@ pub(crate) fn scan(
 /// later), so all stays before one that ended before `since` started
 /// before it too.
 pub(crate) fn scan_recent(storage: &dyn Storage, since: u32, mut visit: impl FnMut(&PageStat)) {
-    let file = path("pages.bin");
-    let size = storage.size(&file).unwrap_or(0);
+    let file = PAGES;
+    let size = storage.size(file).unwrap_or(0);
     let mut end = size - size % RECORD as u64;
     let mut chunk = [0u8; RECORD * 64];
     let margin = CLOCK_LEEWAY;
     while end > 0 {
         let start = end.saturating_sub(chunk.len() as u64);
         let len = (end - start) as usize;
-        if storage.read_at(&file, start, &mut chunk[..len]).ok() != Some(len) {
+        if storage.read_at(file, start, &mut chunk[..len]).ok() != Some(len) {
             return;
         }
         let mut older = false;
@@ -685,18 +755,14 @@ pub(crate) fn scan_range(
     to: u32,
     mut visit: impl FnMut(&PageStat),
 ) {
-    let file = path("pages.bin");
-    let count = storage.size(&file).unwrap_or(0) / RECORD as u64;
+    let file = PAGES;
+    let count = storage.size(file).unwrap_or(0) / RECORD as u64;
     let ended = |s: &PageStat| u64::from(s.start) + u64::from(s.duration);
     let (mut low, mut high) = (0, count);
     while low < high {
         let mid = low + (high - low) / 2;
         let mut record = [0u8; RECORD];
-        if storage
-            .read_at(&file, mid * RECORD as u64, &mut record)
-            .ok()
-            != Some(RECORD)
-        {
+        if storage.read_at(file, mid * RECORD as u64, &mut record).ok() != Some(RECORD) {
             return;
         }
         if ended(&PageStat::decode(&record)) + CLOCK_LEEWAY < u64::from(from) {
@@ -711,7 +777,7 @@ pub(crate) fn scan_range(
     // Stays in a row that started too late: one alone (a clock that was
     // wrong once) does not end the reading, a whole chunk of them does.
     let mut late = 0;
-    while let Ok(n) = storage.read_at(&file, at, &mut chunk) {
+    while let Ok(n) = storage.read_at(file, at, &mut chunk) {
         let whole = n - n % RECORD;
         for record in chunk[..whole].as_chunks::<RECORD>().0 {
             let stat = PageStat::decode(record);
@@ -738,6 +804,11 @@ pub(crate) fn scan_range(
 mod tests {
     use super::*;
     use crate::testing::Faulty;
+
+    /// `days` for tests: the memory of a test is not refused.
+    fn days(storage: &dyn Storage, day_of: impl Fn(u32) -> i32) -> Vec<Day> {
+        super::days(storage, day_of).unwrap()
+    }
     use paperpaw_sdk::MemoryStorage;
 
     /// The files as version 1 wrote them stay readable (see
@@ -745,11 +816,8 @@ mod tests {
     #[test]
     fn files_of_version_1_are_read() {
         let storage = MemoryStorage::new()
-            .with(&path("books.ini"), include_str!("../testdata/books.ini.v1"))
-            .with(
-                &path("pages.bin"),
-                include_bytes!("../testdata/pages.bin.v1").to_vec(),
-            );
+            .with(BOOKS, include_str!("../testdata/books.ini.v1"))
+            .with(PAGES, include_bytes!("../testdata/pages.bin.v1").to_vec());
         let books = load_books(&storage).unwrap();
         assert_eq!(books.len(), 2);
         assert_eq!(books[0].title, "Anna Karenina");
@@ -846,20 +914,17 @@ mod tests {
             ("cut header", b"[book.1\ntitle = Eins\n"),
         ];
         for (what, data) in cases {
-            let storage = MemoryStorage::new().with(&path("books.ini"), data.to_vec());
+            let storage = MemoryStorage::new().with(BOOKS, data.to_vec());
             assert!(load_books(&storage).is_err(), "{what}");
             assert!(update_books(&storage, add).is_err(), "{what}");
-            assert_eq!(storage.get(&path("books.ini")).unwrap(), data, "{what}");
+            assert_eq!(storage.get(BOOKS).unwrap(), data, "{what}");
         }
         // A read error halfway.
-        let storage = Faulty::new(MemoryStorage::new().with(&path("books.ini"), one));
-        storage.break_at(&path("books.ini"), 20);
+        let storage = Faulty::new(MemoryStorage::new().with(BOOKS, one));
+        storage.break_at(BOOKS, 20);
         assert_eq!(load_books(&storage), Err(StorageError::Io));
         assert_eq!(update_books(&storage, add), Err(StorageError::Io));
-        assert_eq!(
-            storage.inner.get(&path("books.ini")).unwrap(),
-            one.as_bytes()
-        );
+        assert_eq!(storage.inner.get(BOOKS).unwrap(), one.as_bytes());
         assert!(books(&storage).is_empty());
         // None yet.
         let storage = MemoryStorage::new();
@@ -927,9 +992,7 @@ mod tests {
             ]
         );
         // A replaced, shorter log is summed anew.
-        storage
-            .write(&path("pages.bin"), &stat(3, 1, 1200, 9).encode())
-            .unwrap();
+        storage.write(PAGES, &stat(3, 1, 1200, 9).encode()).unwrap();
         assert_eq!(
             days(&storage, day_of),
             [Day {
@@ -961,7 +1024,7 @@ mod tests {
         assert_eq!(days(&storage, in_zone(0)), utc);
         // Another log of the same length: its own days.
         storage
-            .write(&path("pages.bin"), &stat(2, 1, at(5), 30).encode())
+            .write(PAGES, &stat(2, 1, at(5), 30).encode())
             .unwrap();
         assert_eq!(
             days(&storage, in_zone(0)),
@@ -981,7 +1044,7 @@ mod tests {
             }
             .encode(),
         );
-        storage.write(&path("days.bin"), &old).unwrap();
+        storage.write(DAYS, &old).unwrap();
         assert_eq!(days(&storage, in_zone(0))[0].seconds, 30);
     }
 
@@ -1013,7 +1076,7 @@ mod tests {
                 stat(1, 1, 300, 20)
             ]
         );
-        assert!(!storage.exists(&path("pages.new")));
+        assert!(!storage.exists(PAGES_NEW));
         assert_eq!(days(&storage, day_of).len(), 2);
         // A card that fills up halfway: the log stays as it was.
         let storage = Faulty::new(MemoryStorage::new().with("merged", merged));
@@ -1023,7 +1086,7 @@ mod tests {
         let mut all = Vec::new();
         scan(&storage, |s| all.push(*s)).unwrap();
         assert_eq!(all, [stat(1, 1, 100, 10)]);
-        assert!(!storage.exists(&path("pages.new")));
+        assert!(!storage.exists(PAGES_NEW));
     }
 
     #[test]
@@ -1032,7 +1095,7 @@ mod tests {
         for i in 0..100 {
             append(&storage, stat(1, i + 1, 1000 + i * 10, 9)).unwrap();
         }
-        storage.break_at(&path("pages.bin"), 16 * 70);
+        storage.break_at(PAGES, 16 * 70);
         let mut count = 0;
         assert_eq!(scan(&storage, |_| count += 1), Err(StorageError::Io));
         assert_eq!(count, 64);
@@ -1135,7 +1198,7 @@ mod tests {
         append(&storage, stat(1, 1, 100, 10)).unwrap();
         storage.drop_target_on_rename();
         assert!(replace_log(&storage, "merged").is_err());
-        assert!(storage.exists(&path("pages.bin")) || storage.exists(&path("pages.new")));
+        assert!(storage.exists(PAGES) || storage.exists(PAGES_NEW));
         recover(&storage.inner);
         let mut all = Vec::new();
         scan(&storage, |s| all.push(*s)).unwrap();
@@ -1143,13 +1206,10 @@ mod tests {
         // A cut record dropped.
         let storage = Faulty::new(MemoryStorage::new());
         append(&storage, stat(1, 1, 100, 10)).unwrap();
-        storage
-            .inner
-            .append(&path("pages.bin"), &[1, 2, 3])
-            .unwrap();
+        storage.inner.append(PAGES, &[1, 2, 3]).unwrap();
         storage.drop_target_on_rename();
         assert!(append(&storage, stat(1, 2, 200, 20)).is_err());
-        assert!(storage.exists(&path("pages.bin")) || storage.exists(&path("pages.new")));
+        assert!(storage.exists(PAGES) || storage.exists(PAGES_NEW));
         recover(&storage.inner);
         let mut all = Vec::new();
         scan(&storage, |s| all.push(*s)).unwrap();
@@ -1182,34 +1242,34 @@ mod tests {
     fn files_left_beside_their_place_are_recovered() {
         let storage = MemoryStorage::new();
         let log = stat(1, 1, 100, 10).encode();
-        storage.write(&path("pages.new"), &log).unwrap();
+        storage.write(PAGES_NEW, &log).unwrap();
         storage
             .write(
-                &path("books.new"),
+                BOOKS_NEW,
                 b"[book.1]
 title = Eins
 ",
             )
             .unwrap();
         recover(&storage);
-        assert_eq!(storage.get(&path("pages.bin")).unwrap(), log);
+        assert_eq!(storage.get(PAGES).unwrap(), log);
         assert_eq!(load_books(&storage).unwrap()[0].title, "Eins");
-        assert!(!storage.exists(&path("pages.new")));
-        assert!(!storage.exists(&path("books.new")));
+        assert!(!storage.exists(PAGES_NEW));
+        assert!(!storage.exists(BOOKS_NEW));
         // Unfinished, beside the old ones.
-        storage.write(&path("pages.new"), &[1, 2]).unwrap();
-        storage.write(&path("books.new"), b"[book.1").unwrap();
+        storage.write(PAGES_NEW, &[1, 2]).unwrap();
+        storage.write(BOOKS_NEW, b"[book.1").unwrap();
         recover(&storage);
-        assert_eq!(storage.get(&path("pages.bin")).unwrap(), log);
+        assert_eq!(storage.get(PAGES).unwrap(), log);
         assert_eq!(load_books(&storage).unwrap()[0].title, "Eins");
-        assert!(!storage.exists(&path("pages.new")));
-        assert!(!storage.exists(&path("books.new")));
+        assert!(!storage.exists(PAGES_NEW));
+        assert!(!storage.exists(BOOKS_NEW));
         // A change to the books before the next start recovers them first,
         // rather than starting a new list.
         let storage = MemoryStorage::new();
         storage
             .write(
-                &path("books.new"),
+                BOOKS_NEW,
                 b"[book.1]
 title = Eins
 ",
