@@ -6,6 +6,7 @@ use super::*;
 use crate::native_host::ui_store::Limits;
 use alloc::string::String;
 use alloc::vec::Vec;
+use paperpaw_native::host_glue::ERR_IO;
 
 fn who(owner: u64, epoch: u64) -> Stamp {
     Stamp::new(owner, epoch).unwrap()
@@ -461,4 +462,161 @@ fn nothing_shows_in_a_debug_print_and_failed_allocations_change_nothing() {
     // Unknown ids.
     assert_eq!(s.answer(1, 999, 0, 0), Err(ERR_NOT_FOUND));
     assert!(s.question(1, 999, |_| ()).is_err());
+}
+
+#[test]
+fn retained_request_rows_are_bounded_replacements_and_cancellations_included() {
+    let s = UiStore::new(Limits::X4);
+    let kept = Limits::X4.requests_kept;
+    // Replacing at once and again: each cancelled row waits for its event, so
+    // the rows kept stop at the cap and the refusal changes nothing.
+    let mut asked = 0;
+    let refused = loop {
+        let got = s.ask(who(1, 1), None, &q(0, 0, ""), false, None, true);
+        match got {
+            Ok(_) => asked += 1,
+            Err(e) => break e,
+        }
+        assert!(asked <= kept);
+    };
+    assert_eq!(refused, ERR_FULL);
+    assert_eq!(asked, kept);
+    assert_eq!(s.request_count(), kept);
+    // Delivering the cancellations frees their rows and asking works again.
+    while s.take_delivery(1).is_some() {
+        // The answer is delivered and the callback returns.
+    }
+    for id in 1..=kept as u32 {
+        s.delivered(id);
+    }
+    assert!(s.request_count() < kept);
+    s.ask(who(1, 2), None, &q(0, 0, ""), false, None, true)
+        .unwrap();
+}
+
+#[test]
+fn small_text_writes_cost_chunks_not_a_descriptor_each_and_are_charged_for_them() {
+    let s = UiStore::new(Limits::X4);
+    let id = ask(&s, 1, 1, &q(0, 0, ""));
+    let mut written = 0;
+    let stopped = loop {
+        match s.request_text_write(who(1, 1), None, id, written, b"x", false) {
+            Ok(()) => written += 1,
+            Err(e) => break e,
+        }
+    };
+    assert_eq!(stopped, ERR_IO, "the 2 KiB pool is charged for chunks");
+    // 7 chunks of 256 bytes and their descriptors fit; an 8th does not.
+    assert_eq!(written, 7 * 256);
+    let inner = s.inner.borrow();
+    let request = &inner.requests[0];
+    assert_eq!(request.text.parts.len(), 7);
+    assert_eq!(inner.text_memory, request.text.charged);
+    assert!(inner.text_memory <= Limits::X4.text_memory);
+}
+
+#[test]
+fn a_secret_text_has_its_own_pool_and_does_not_take_room_from_ordinary_text() {
+    let s = UiStore::new(Limits::X4);
+    let secret = s
+        .ask(who(1, 1), None, &q(0, SECRET, ""), true, None, false)
+        .unwrap()
+        .0;
+    // 8 KiB of password, a byte at a time: a handful of chunks, the ordinary
+    // pool untouched.
+    for at in 0..SECRET_TEXT_MAX {
+        s.request_text_write(who(1, 1), None, secret, at, b"p", false)
+            .unwrap();
+    }
+    assert_eq!(s.held().1, 0, "nothing charged to the ordinary pool");
+    assert!(s.inner.borrow().requests[0].text.parts.len() <= SECRET_TEXT_MAX / 256 + 1);
+    // An ordinary text still gets its 2 KiB pool.
+    let plain = ask(&s, 2, 1, &q(0, 0, ""));
+    s.request_text_write(who(2, 1), None, plain, 0, &[b'a'; 1_800], true)
+        .unwrap();
+    assert!(s.held().1 >= 1_800);
+    // Freeing the secret returns its pool.
+    s.owner_stopped(1);
+    assert_eq!(s.inner.borrow().secret_memory, 0);
+}
+
+#[test]
+fn text_writes_that_cannot_allocate_leave_the_text_as_it_was() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let s = UiStore::new(Limits::X4);
+    let id = ask(&s, 1, 1, &q(0, 0, ""));
+    s.request_text_write(who(1, 1), None, id, 0, b"abc", false)
+        .unwrap();
+    let before = s.held();
+    for nth in 1..=3 {
+        FAIL_NTH.with(|n| n.set(nth));
+        // 300 bytes need a new chunk (an allocation); the failure changes nothing.
+        let got = s.request_text_write(who(1, 1), None, id, 3, &[b'z'; 300], true);
+        FAIL_NTH.with(|n| n.set(0));
+        if got.is_ok() {
+            // The nth allocation was not on this path (none happens): done.
+            return;
+        }
+        assert_eq!(got, Err(ERR_NO_MEMORY));
+        assert_eq!(s.held(), before);
+        assert_eq!(s.inner.borrow().requests[0].text.bytes, 3);
+    }
+}
+
+#[test]
+fn the_asker_reads_the_text_while_a_typing_update_is_delivered_and_only_then() {
+    let s = store();
+    let id = ask(&s, 1, 1, &q(0, LIVE, ""));
+    open(&s, 1, 1, id, 5);
+    s.request_text_write(who(2, 1), Some(5), id, 0, b"hel", true)
+        .unwrap();
+    s.answer(5, id, 2, 0).unwrap();
+    // Before the delivery: the asker may not read (the dialog still may).
+    assert_eq!(text(&s, 1, None, id), Err(ERR_STATE));
+    assert_eq!(text(&s, 2, Some(5), id).unwrap(), "hel");
+    // During the delivery of the typing update the request is still open.
+    let d = s.take_delivery(1).unwrap();
+    assert_eq!(d.outcome, 2);
+    assert_eq!(text(&s, 1, None, id).unwrap(), "hel");
+    assert_eq!(text(&s, 3, None, id), Err(ERR_STATE), "another plugin");
+    // After the callback returned: refused again.
+    s.delivered(id);
+    assert_eq!(text(&s, 1, None, id), Err(ERR_STATE));
+}
+
+#[test]
+fn a_final_answer_notes_when_its_dialog_closed_after_the_answer() {
+    let s = store();
+    let id = ask(&s, 1, 1, &q(2, 0, ""));
+    open(&s, 1, 1, id, 5);
+    s.answer(5, id, 0, 1).unwrap();
+    // The dialog closes before the answer is delivered.
+    s.dialog_closed(5);
+    let d = s.take_delivery(1).unwrap();
+    assert_eq!((d.outcome, d.choice), (0, 1));
+    assert_eq!(d.flags & DIALOG_CLOSED, DIALOG_CLOSED);
+    s.delivered(id);
+    // A dialog that stays up until delivery does not set the bit.
+    let again = ask(&s, 1, 2, &q(2, 0, ""));
+    open(&s, 1, 2, again, 6);
+    s.answer(6, again, 0, 0).unwrap();
+    s.dialog_closed(99);
+    assert_eq!(s.take_delivery(1).unwrap().flags & DIALOG_CLOSED, 0);
+}
+
+#[test]
+fn a_nested_question_goes_when_the_plugin_that_asked_its_parent_stops() {
+    let s = store();
+    let parent = ask(&s, 1, 1, &q(0, 0, ""));
+    open(&s, 1, 1, parent, 5);
+    // The parent's dialog (instance 5) asks a nested question; the remote
+    // keyboard (owner 9) is its asker.
+    let (nested, _) = s
+        .ask(who(9, 1), None, &q(0, 0, ""), false, Some(parent), false)
+        .unwrap();
+    assert!(s.is_request(nested));
+    s.owner_stopped(1);
+    assert!(!s.is_request(parent));
+    assert!(!s.is_request(nested), "no nested row is left behind");
+    assert_eq!(s.request_count(), 0);
 }

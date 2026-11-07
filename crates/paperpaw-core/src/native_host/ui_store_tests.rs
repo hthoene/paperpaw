@@ -339,7 +339,8 @@ fn the_text_cap_24576_and_the_part_cap_3072() {
     );
     // Not cut: the text stays at the parts before.
     s.text_write(who(1, 1), id, 24_576, b"", true).unwrap();
-    assert_eq!(s.held().1, 24_576);
+    // Eight chunks of 3,072 bytes and their descriptors are charged.
+    assert_eq!(s.held().1, 8 * (3_072 + DESCRIPTOR));
 }
 
 #[test]
@@ -353,10 +354,12 @@ fn the_x4_has_four_texts_and_2_kib_without_a_card() {
     }
     let fifth = s.handover_make(who(1, 1), &[]).unwrap();
     assert_eq!(s.text_write(who(1, 1), fifth, 0, b"t", true), Err(ERR_FULL));
-    s.text_write(who(1, 1), ids[0], 0, &[b'z'; 1_900], true)
+    // Each small text is charged a 256-byte chunk and its descriptor.
+    assert_eq!(s.held().1, 4 * (CHUNK + DESCRIPTOR));
+    s.text_write(who(1, 1), ids[0], 0, &[b'z'; 1_100], true)
         .unwrap();
     assert_eq!(
-        s.text_write(who(1, 1), ids[1], 0, &[b'z'; 200], true),
+        s.text_write(who(1, 1), ids[1], 0, &[b'z'; 400], true),
         Err(ERR_IO)
     );
     assert_eq!(
@@ -417,11 +420,26 @@ fn every_failed_allocation_leaves_the_store_unchanged() {
     }
     // Unchanged ledger: only what succeeded is held.
     let (params, text) = s.held();
-    assert!(params > 0 && text <= 4);
+    assert!(params > 0 && text <= CHUNK + DESCRIPTOR);
     let count = s.len();
     FAIL_NTH.with(|n| n.set(1));
     let refused = s.handover_make(who(1, 1), &[p("zz", "1")]);
     FAIL_NTH.with(|n| n.set(0));
     assert_eq!(refused.err(), Some(ERR_NO_MEMORY));
     assert_eq!((s.held().0, s.len()), (params, count));
+}
+
+#[test]
+fn empty_hand_overs_are_bounded_too() {
+    let s = UiStore::new(Limits::X4);
+    let cap = Limits::X4.handovers;
+    for _ in 0..cap {
+        s.handover_make(who(1, 1), &[]).unwrap();
+    }
+    assert_eq!(s.handover_make(who(1, 1), &[]).err(), Some(ERR_FULL));
+    assert_eq!(s.len(), cap);
+    // The callback ends: the made ones are freed and making works again.
+    s.end_callback(who(1, 1));
+    assert_eq!(s.len(), 0);
+    s.handover_make(who(1, 2), &[]).unwrap();
 }

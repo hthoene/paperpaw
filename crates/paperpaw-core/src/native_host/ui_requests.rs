@@ -144,6 +144,9 @@ pub(super) struct Request {
     parent: Option<u32>,
     /// What is waiting to be delivered, and what was delivered as typing.
     pending: Option<Answer>,
+    /// The dialog instance that was up, kept after the final answer so its
+    /// closing can still be noted (`dialog_closed`, bit 0).
+    dialog: Option<u32>,
     dialog_gone: bool,
     delivering: bool,
 }
@@ -259,6 +262,11 @@ impl UiStore {
         let text = Wiped::copy(question.text.as_bytes())?;
         let choices = Wiped::copy(question.choices.as_bytes())?;
         let mut inner = self.inner()?;
+        // Rows kept at once are bounded, done and cancelled ones waiting for
+        // their event included: a replaced request stays one until delivered.
+        if inner.requests.len() >= self.limits.requests_kept {
+            return Err(ERR_FULL);
+        }
         inner.requests.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         if let Some(parent) = parent
             && Self::request_at(&inner, parent).is_none_or(|at| inner.requests[at].child.is_some())
@@ -292,6 +300,7 @@ impl UiStore {
             child: None,
             parent,
             pending: None,
+            dialog: None,
             dialog_gone: false,
             delivering: false,
         });
@@ -378,6 +387,7 @@ impl UiStore {
             return Err(ERR_STATE);
         }
         inner.requests[at].phase = Phase::Open { dialog: instance };
+        inner.requests[at].dialog = Some(instance);
         Ok(())
     }
 
@@ -405,7 +415,11 @@ impl UiStore {
                 Phase::Open { dialog } if dialog == instance => {
                     Self::cancel_at(&mut inner, at, DIALOG_CLOSED);
                 }
-                Phase::Done => {}
+                // Already answered: the answer still waits, and it will say that
+                // its dialog is gone.
+                Phase::Done if inner.requests[at].dialog == Some(instance) => {
+                    inner.requests[at].dialog_gone = true;
+                }
                 _ => {}
             }
         }
@@ -480,6 +494,7 @@ impl UiStore {
         let Inner {
             requests,
             text_memory,
+            secret_memory,
             ..
         } = &mut *inner;
         let request = &mut requests[at];
@@ -489,12 +504,13 @@ impl UiStore {
         }
         write_part(
             &mut request.text,
-            text_memory,
+            // A secret text is charged to its own pool, never to the ordinary
+            // one, so a password does not take room from unrelated text.
+            if secret { secret_memory } else { text_memory },
             &WriteRules {
                 slots_free,
-                // A secret text lives in memory and is not held to the pool.
                 memory_cap: if secret {
-                    usize::MAX
+                    self.limits.secret_memory
                 } else {
                     self.limits.text_memory
                 },
@@ -643,10 +659,10 @@ impl UiStore {
         let inner = self.inner.try_borrow().map_err(|_| ERR_STATE)?;
         let at = Self::request_at(&inner, id).ok_or(ERR_NOT_FOUND)?;
         let r = &inner.requests[at];
-        let allowed = match r.phase {
-            Phase::Open { dialog } => caller_instance == Some(dialog),
-            Phase::Done | Phase::Starting | Phase::Asked { .. } => r.asker == who && r.delivering,
-        };
+        // The dialog while it is open; the asker in the callback that delivers
+        // an answer, a typing update included (the request is still open then).
+        let allowed = (r.asker == who && r.delivering)
+            || matches!(r.phase, Phase::Open { dialog } if caller_instance == Some(dialog));
         if !allowed || (!r.text.committed && r.text.bytes > 0) {
             return Err(ERR_STATE);
         }
@@ -668,11 +684,25 @@ impl UiStore {
                 at += 1;
             }
         }
+        // A nested question hangs under its parent (asked by the keyboard, not
+        // by the stopped plugin): it goes with the parent.
+        while let Some(orphan) = (0..inner.requests.len()).find(|&i| {
+            inner.requests[i]
+                .parent
+                .is_some_and(|parent| Self::request_at(&inner, parent).is_none())
+        }) {
+            Self::free_request(&mut inner, orphan);
+        }
     }
 
     fn free_request(inner: &mut Inner, at: usize) {
         let request = inner.requests.remove(at);
-        inner.text_memory -= request.text.bytes.min(inner.text_memory);
+        let pool = if request.secret {
+            &mut inner.secret_memory
+        } else {
+            &mut inner.text_memory
+        };
+        *pool -= request.text.charged.min(*pool);
         if let Some(parent) = request.parent
             && let Some(parent_at) = Self::request_at(inner, parent)
         {
