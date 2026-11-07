@@ -112,6 +112,9 @@ change the plugin SDK.
 - Interface 7, `core.library` op 22 `fields` is paged: it takes `lib_ref` and the new
   `service.lib_field_page` (1182: `cursor`, `generation`), as `docs/abi/library.md` section 4
   says. Interface draft 21 (`native::DRAFT`) refuses plugins built for draft 20 (#228).
+- Interface 7, draft 21 also adds host slots 36 `image.info` and 37 `canvas.draw_image`
+  (`docs/abi/document.md` section 5) and `doc_open` root 5, a file handed over by the
+  plugin that opened the reader (section 2.1). Hosts answer `ERR_UNSUPPORTED` until wired (#228).
 - Interface 7, family 1b (core events, `docs/abi/core-events.md`): event records 64
   `event.setting_changed`, 65-67 `event.book_opened`/`book_closed`/`book_finished` (the reading
   position, as `event.page_turned`), 68 `event.book_moved`, 69 `event.book_removed`, 70

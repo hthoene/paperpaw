@@ -1370,6 +1370,70 @@
       "reentry": "deny",
       "result": "status",
       "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "image",
+          "type": "u32"
+        },
+        {
+          "name": "out",
+          "type": "buffer"
+        }
+      ],
+      "effect": "query",
+      "id": 36,
+      "max_bytes": 64,
+      "name": "image.info",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "image",
+          "type": "u32"
+        },
+        {
+          "name": "x",
+          "type": "i32"
+        },
+        {
+          "name": "y",
+          "type": "i32"
+        },
+        {
+          "name": "width",
+          "type": "u32"
+        },
+        {
+          "name": "height",
+          "type": "u32"
+        },
+        {
+          "name": "flags",
+          "type": "u32"
+        }
+      ],
+      "effect": "mutate",
+      "id": 37,
+      "max_bytes": 0,
+      "name": "canvas.draw_image",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
     }
   ],
   "i18n_limits": {

@@ -78,7 +78,10 @@ EVT, REG and UIX. Tags below are proposed; the records step numbers them without
   target and slot `core.reader` opens it with that reader. The reader opens the document with
   op 1 (`open`), which starts the host's reading session (`core-events.md`). The interface-6
   kernel resolver (a reader per book, folder or format, `cannot_open` passing on to the next) is
-  not carried: a reader that cannot open a book shows why itself.
+  not carried: a reader that cannot open a book shows why itself. A plugin opens one of its own
+  files in a reader the same way, with the params `root` (`0` its data folder, `2` its install
+  folder) and `path` instead of a book's path: About's licence texts. The reader opens it with
+  `doc_open.root` 5 (section 2.1).
 
 ## 2. The service `core.document` (major 1)
 
@@ -145,7 +148,7 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 
 ### 2.1 Opening, preparing, closing
 
-- [D] `open` (`doc_open`: `root` 0 or 1, `path` at most 512 bytes, `format` empty for section 1's
+- [D] `open` (`doc_open`: `root` 0, 1 or 5, `path` at most 512 bytes, `format` empty for section 1's
   choice, `flags`, `image_side`, `cover_side`, `css_root`, `css_path`; then at most 12 `doc_option`
   rows `key`/`value`, so `input_rows` 13 in the schema, a maximum only; no `doc_open` first, a
   second `doc_open` or one after an option is `ERR_INVALID`; interface 6 `OpenOptions::settings`):
@@ -157,6 +160,17 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   empty for none) on `css_root` (0 or 1 under the same rule as `path`). Other flag bits
   `ERR_INVALID`. The host checks the roots, finds the format, gives a new document id and calls the
   format's op 2 `open`; its answer becomes `doc_state`.
+- [D] **Root 5, the handed file (draft 21).** A reader whose instance was made from a hand-over
+  (`ui.md` section 1, op 16) whose params carry `root` (`0` or `2`) and `path` may open that one
+  file of the plugin that made the hand-over: `doc_open.root` 5 with the same `path`, read only,
+  resolved in that plugin's data folder (`0`) or install folder (`2`) under the storage path
+  rules. Another path, a hand-over without these params, an instance not made from a hand-over,
+  and `css_root` 5 are `ERR_DENIED`; a maker no longer installed, or no such file, is
+  `ERR_NOT_FOUND`. The format reads it as root 3, as any book; it is not a library book (no
+  catalog row, position or "recently opened"; its root-2 cache is keyed by the maker's id, root
+  and path and goes when the maker is uninstalled). Root 5 exists only in `doc_open`
+  (slots 20-26 and `core.files` answer it `ERR_UNSUPPORTED`; the format-call roots 2-4 of
+  section 3 are another namespace). A host answers `ERR_UNSUPPORTED` until it is wired.
 - [D] **Options reach their format whole.** An option's `key` is a full setting id
   (`<plugin>.<name>`) with the book's own value (interface 6 gathers them for every format owner,
   `reading/mod.rs:275`); the host forwards to the chosen format exactly the options of its plugin,
@@ -369,6 +383,8 @@ image.info(ctx, image: u32, out: buffer) -> i32                                 
 canvas.draw_image(ctx, image: u32, x: i32, y: i32, width: u32, height: u32, flags: u32) -> i32
                                                                                    // slot 37
 ```
+
+Slots 36 and 37 come with draft 21; a host answers `ERR_UNSUPPORTED` until it draws images.
 
 | Tag | Record | Fields |
 | --- | --- | --- |
