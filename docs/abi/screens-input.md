@@ -515,6 +515,9 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
   and the plugin learns it is missing at run time, a required one refuses the load and names the
   key. So a feature can move to a new revision without breaking plugins built for an older one.
   Other bits are refused. See `abi/metadata.md`.
+  At run time a family whose feature the host does not offer answers `ERR_UNSUPPORTED`; one the
+  host offers but this plugin does not have (not declared, or asked for at a revision the host
+  lacks) answers `ERR_DENIED`.
 - [D] **Service families (D4).** Every later family (NET, LIB, REG, FS, SEC, DEV and the rest) is a
   versioned service schema, not a set of one-off slots. Slot 17 (`services.query`) stays the
   snapshot query over blobs; calls go through
