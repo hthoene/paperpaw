@@ -113,7 +113,7 @@ fn lines_added_changed_and_removed_keep_what_was_learnt() {
     assert!(!b.state.is_new(), "b keeps what was learnt");
     assert!(cards[3].state.is_new());
     // The due counts follow (three new cards, one learnt).
-    assert_eq!(cards::sizes(&storage).get(&deck), Some(&4));
+    assert_eq!(cards::sizes(&storage).unwrap().get(&deck), Some(&4));
 }
 
 #[test]
@@ -433,6 +433,42 @@ pub(crate) mod heap {
         static LIVE: Cell<isize> = const { Cell::new(0) };
         static PEAK: Cell<isize> = const { Cell::new(0) };
         static BIGGEST: Cell<usize> = const { Cell::new(0) };
+        /// The allocation to refuse, counted from 1; 0 turns refusing off.
+        static REFUSE_AT: Cell<usize> = const { Cell::new(0) };
+        static COUNT: Cell<usize> = const { Cell::new(0) };
+    }
+
+    /// Whether this allocation is the one to refuse (and counts it).
+    fn refuse() -> bool {
+        let at = REFUSE_AT.try_with(Cell::get).unwrap_or(0);
+        if at == 0 {
+            return false;
+        }
+        COUNT
+            .try_with(|count| {
+                count.set(count.get() + 1);
+                count.get() == at
+            })
+            .unwrap_or(false)
+    }
+
+    /// Runs `run` with the `at`-th allocation refused (`usize::MAX`: none
+    /// refused, only counted); returns its result and how many allocations
+    /// it made on this thread.
+    pub fn armed<T>(at: usize, run: impl FnOnce() -> T) -> (T, usize) {
+        COUNT.with(|count| count.set(0));
+        REFUSE_AT.with(|refuse| refuse.set(at));
+        let result = run();
+        REFUSE_AT.with(|refuse| refuse.set(0));
+        (result, COUNT.with(Cell::get))
+    }
+
+    /// Builds test input while nothing is refused or counted.
+    pub fn fixture<T>(build: impl FnOnce() -> T) -> T {
+        let at = REFUSE_AT.with(|refuse| refuse.replace(0));
+        let value = build();
+        REFUSE_AT.with(|refuse| refuse.set(at));
+        value
     }
 
     fn note(size: usize, grow: bool) {
@@ -456,9 +492,13 @@ pub(crate) mod heap {
         });
     }
 
-    // SAFETY: only counts, and passes every call to the system allocator.
+    // SAFETY: counts (and refuses the allocation a test arms), and passes every
+    // other call to the system allocator.
     unsafe impl GlobalAlloc for Counting {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            if refuse() {
+                return core::ptr::null_mut();
+            }
             let p = unsafe { System.alloc(layout) };
             if !p.is_null() {
                 note(layout.size(), true);
@@ -470,6 +510,9 @@ pub(crate) mod heap {
             note(layout.size(), false);
         }
         unsafe fn realloc(&self, p: *mut u8, layout: Layout, new: usize) -> *mut u8 {
+            if refuse() {
+                return core::ptr::null_mut();
+            }
             let q = unsafe { System.realloc(p, layout, new) };
             if !q.is_null() {
                 note(layout.size(), false);

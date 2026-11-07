@@ -882,6 +882,37 @@ impl OffsetMap {
         self.checkpoints.push((text, source));
     }
 
+    /// Records a checkpoint as [`checkpoint`](Self::checkpoint) does, but
+    /// fallibly: refuses a text index past `u32::MAX`, one below the last
+    /// checkpoint's, and a checkpoint the heap cannot take. Nothing changes
+    /// on a refusal.
+    ///
+    /// # Errors
+    ///
+    /// [`CheckpointError`] says which.
+    pub fn try_checkpoint(&mut self, text: usize, source: u32) -> Result<(), CheckpointError> {
+        let text = u32::try_from(text).map_err(|_| CheckpointError::TooLarge)?;
+        match self.checkpoints.last_mut() {
+            Some(last) if last.0 == text => {
+                last.1 = source;
+                return Ok(());
+            }
+            Some(last) if last.0 > text => return Err(CheckpointError::OutOfOrder),
+            _ => {}
+        }
+        self.checkpoints
+            .try_reserve(1)
+            .map_err(|_| CheckpointError::OutOfMemory)?;
+        self.checkpoints.push((text, source));
+        Ok(())
+    }
+
+    /// The checkpoints, `(text index, source offset)`, sorted by text index:
+    /// what `core.document` sends as `doc_map` rows.
+    pub fn checkpoints(&self) -> impl ExactSizeIterator<Item = (u32, u32)> + '_ {
+        self.checkpoints.iter().copied()
+    }
+
     /// Saturating: a map pointing past `u32::MAX` (hostile input) gives
     /// `u32::MAX` there.
     fn source_offset(&self, start: u32, index: usize) -> u32 {
@@ -911,6 +942,30 @@ impl OffsetMap {
             .min(next_text) as usize
     }
 }
+
+/// Why [`OffsetMap::try_checkpoint`] refused a checkpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CheckpointError {
+    /// The text index is past what `u32` names.
+    TooLarge,
+    /// The text index is below the last checkpoint's.
+    OutOfOrder,
+    /// The heap could not take one more checkpoint.
+    OutOfMemory,
+}
+
+impl fmt::Display for CheckpointError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::TooLarge => "text index past u32",
+            Self::OutOfOrder => "checkpoint below the last one",
+            Self::OutOfMemory => "no memory for a checkpoint",
+        })
+    }
+}
+
+impl core::error::Error for CheckpointError {}
 
 /// Why a document could not be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
