@@ -42,6 +42,9 @@ typedef struct {
     int32_t (*text_metrics)(void * ctx, uint32_t font, float size, float * ascent, float * descent, float * line_height);
     int32_t (*text_ink)(void * ctx, uint32_t font, float size, PpBytes text, int32_t * top, int32_t * bottom, int32_t * left, int32_t * right);
     int32_t (*canvas_clip)(void * ctx, int32_t x, int32_t y, uint32_t width, uint32_t height);
+    int32_t (*stage_run)(void * ctx, PpBytes stage, uint32_t cursor, PpBytes input, PpBuffer out);
+    int32_t (*service_open)(void * ctx, PpBytes key, uint16_t major, uint16_t minor, uint32_t * out);
+    int32_t (*service_call)(void * ctx, uint32_t service, uint32_t op, PpBytes input, PpBuffer out);
 } PpHost;
 #define PP_ABI_MAJOR 7
 #define PP_ABI_MINOR 1

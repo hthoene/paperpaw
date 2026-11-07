@@ -332,6 +332,10 @@ impl Lru {
 }
 
 #[cfg(test)]
+#[path = "cache_oom_tests.rs"]
+mod oom_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

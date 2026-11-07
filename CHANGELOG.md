@@ -22,6 +22,15 @@ change the plugin SDK.
 - Native host text ink probes the shaped raster path with the target frame's
   coverage threshold; inkless text reports not found. X4 timing remains gated (#228).
 
+- Interface-7 host usage/name/note services and callback-scoped blobs, with checked
+  metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).
+- Interface 7, family 1a (stages and services, `docs/abi/stages-services.md`): host slots 32
+  `stage.run`, 33 `service.open` and 34 `service.call`; records 19 `stage.spec`, 20
+  `registration.stage`, 512 `stage.call`, 513 `stage.reply` and the test-only 1024 `service.echo`;
+  service schemas in `abi/services/<key>@<major>.def`, validated by `tools/abi-gen.py`, which
+  writes the shared op table `services_wire` and pins it in the lock (format 9, append-only ops,
+  new schemas at an unreleased minor). Hosts answer `ERR_UNSUPPORTED` and refuse stage
+  declarations until they wire them (#228).
 - Interface 7: `native_plugin!(P, metadata = M, linked = NAME)` and `native::Linked` for plugins
   linked into the program that hosts them (firmware built-ins): the same entry and metadata under
   a Rust name of their own, without exported symbols, heap word, allocator or panic handler, so
@@ -37,9 +46,10 @@ change the plugin SDK.
   `InkBounds`; host-only `FontHandle::ink_drawn`
   measures text ink by the drawing path itself (shaping, joining, marks, jamo), for slot 30
   `text.ink` (#228).
-- Interface-7 host usage/name/note services and callback-scoped blobs, with checked
-  metadata admission, bounded heap snapshots and generation-checked reads/releases (#228).
-
+- Checked native admission metadata exposes declared service revisions through a
+  borrowing iterator, so host query admission uses the validated requirements (#228).
+- Interface 7 SDK: typed, borrowed builders for menu entries, icons, device needs,
+  sections, hidden entries and item descriptions, including static build-script batches.
 - Interface-7 SDK snapshot services with callback-bound blob leases, borrowed plugin usage paging,
   device usage, translated plugin names and work-note readers. Includes a deterministic fake-host
   fixture for Battery port tests; helpers use bounded buffers and allocate nothing (#228).
@@ -69,9 +79,6 @@ change the plugin SDK.
   screen) in the generated command codec, and generated i18n format/digits limits. Hosts answer
   `ERR_UNSUPPORTED` until they wire them; the SDK keeps private generated copies of the snapshot,
   settings, colour and command codecs (#228).
-- Checked native admission metadata exposes declared service revisions through a
-  borrowing iterator, so host query admission uses the validated requirements (#228).
-
 - Interface-7 SDK callback host binding and `native_plugin!` entry glue, with checked table admission
   and fallible host allocation. Storage slots 20-26 use caller-owned buffers; event tags 32-37 decode
   into borrowed payloads. These facades do not activate any shell loader (#228).
