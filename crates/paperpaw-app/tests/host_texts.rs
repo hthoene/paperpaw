@@ -44,17 +44,32 @@ const KEYS: &[&str] = &[
     "core.host-safe-mode.power-escape",
 ];
 
-fn placeholders(text: &str) -> BTreeSet<&str> {
-    text.split('{')
+fn placeholders(text: &str) -> Vec<&str> {
+    let mut names: Vec<_> = text
+        .split('{')
         .skip(1)
         .map(|part| part.split_once('}').unwrap().0)
-        .collect()
+        .collect();
+    names.sort_unstable();
+    names
 }
 
 #[test]
 fn host_prompts_have_both_languages_and_matching_arguments() {
-    let en = Catalog::parse(include_str!("../../paperpaw-core/i18n/en.ini")).unwrap();
-    let de = Catalog::parse(include_str!("../../paperpaw-core/i18n/de.ini")).unwrap();
+    let en = Catalog::parse(include_str!("../../paperpaw-core/i18n/host/en.ini")).unwrap();
+    let de = Catalog::parse(include_str!("../../paperpaw-core/i18n/host/de.ini")).unwrap();
+    let expected: BTreeSet<_> = KEYS.iter().copied().collect();
+    assert_eq!(expected.len(), KEYS.len(), "duplicate expected key");
+    assert_eq!(
+        en.keys().collect::<BTreeSet<_>>(),
+        expected,
+        "English key set"
+    );
+    assert_eq!(
+        de.keys().collect::<BTreeSet<_>>(),
+        expected,
+        "German key set"
+    );
     for key in KEYS {
         let english = en
             .get(key)
@@ -68,4 +83,22 @@ fn host_prompts_have_both_languages_and_matching_arguments() {
     }
     assert_eq!(en.get("core.host-confirm.no"), Some("No"));
     assert_eq!(de.get("core.host-confirm.no"), Some("Nein"));
+}
+
+#[test]
+fn placeholder_comparison_keeps_occurrence_counts() {
+    assert_ne!(placeholders("{name}"), placeholders("{name} {name}"));
+    assert_eq!(placeholders("{name} {size}"), placeholders("{size} {name}"));
+}
+
+#[test]
+fn core_catalogs_fit_flash_indexes() {
+    for source in [
+        include_str!("../../paperpaw-core/i18n/en.ini"),
+        include_str!("../../paperpaw-core/i18n/de.ini"),
+        include_str!("../../paperpaw-core/i18n/host/en.ini"),
+        include_str!("../../paperpaw-core/i18n/host/de.ini"),
+    ] {
+        assert!(Catalog::parse(source).unwrap().narrow_index().is_some());
+    }
 }
