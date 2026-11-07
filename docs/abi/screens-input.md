@@ -108,7 +108,11 @@ input(state: pointer, token: u32, input: bytes) -> i32
   handled). Any other positive value is an error. `nullable`: a plugin without screens leaves it
   null; input then goes to the next layer as not handled.
 - [D] Called only for the token of the screen on top; never re-entered (same admission as
-  `dispatch_event`); commands submitted inside run after it returns.
+  `dispatch_event`); commands submitted inside run after it returns, **only when it returns 0 or
+  1**. A callback that returns an error (a negative status, or a positive value that is not
+  allowed) has its staged commands dropped whole, as one batch, whatever `submit` answered: an
+  error never leaves half of a callback's commands behind. The same holds for every callback the
+  host lends a command stage (every callback but `draw`).
 - [D] `input` is one batch of exactly one record (decode with `records_decode_single`).
 
 ### 2.2 Records

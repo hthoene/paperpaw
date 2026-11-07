@@ -143,7 +143,7 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   second `doc_open` or one after an option is `ERR_INVALID`; interface 6 `OpenOptions::settings`):
   `flags` bit 0 publisher styles, bit 1 colour, bit 2 background (an index build, not for showing;
   section 8); `image_side` the longest side of a page's picture (0: interface 6 `IMAGE_FIT`, 1,600;
-  larger values are taken as 1,600, the most a picture is ever decoded to),
+  at most 1,600, the most a picture is ever decoded to, larger is `ERR_INVALID`),
   `cover_side` of the cover (0: interface 6 `cover_fit`, the larger of 300 and 3/8 of the screen's
   long side; at most the screen's long side); `css_path` a file of user CSS (at most 65,536 bytes,
   empty for none) on `css_root` (0 or 1 under the same rule as `path`). Other flag bits

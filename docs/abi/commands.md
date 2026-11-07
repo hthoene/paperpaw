@@ -46,7 +46,9 @@ settings registry, and a limit on accepted commands.
    `ERR_BUSY`. A `draw` callback is a render only and is lent no stage, so
    `submit` there returns `ERR_STATE` too (interface 6's `Screen::draw` had no
    `Cx` either); a plugin asks for a redraw or anything else from its input,
-   event or show callbacks.
+   event or show callbacks. The host drains a stage only when its callback
+   returned a valid non-negative result; on an error result it drops every
+   command staged in that callback (`screens-input.md` 2.1).
 2. Codec statuses as above. Nothing is staged.
 3. If the batch would exceed the stage's command limit: `ERR_NO_SPACE`.
 4. For every command, without allocating: the setting must be registered, and
