@@ -94,7 +94,25 @@ struct Inner {
     entries: Vec<Entry>,
     next_id: u32,
     stamp: u64,
+    /// `image_prepare` requests not yet decoded, oldest first.
+    waiting: Vec<prepare::Waiting>,
+    /// Cache files of prepared images that ended, to delete; room is reserved
+    /// when a prepared image is made, so ending one never allocates.
+    garbage: Vec<String>,
+    /// Names the cache files of prepared images.
+    seq: u32,
 }
+
+impl Inner {
+    /// A prepared image ended: its cache file is to be deleted.
+    fn retire(&mut self, entry: Entry) {
+        if entry.origin == Origin::Prepared && self.garbage.len() < self.garbage.capacity() {
+            self.garbage.push(entry.path);
+        }
+    }
+}
+
+mod prepare;
 
 /// The device's images, all plugins'.
 pub(crate) struct ImageTable {
@@ -142,6 +160,9 @@ impl ImageTable {
                 entries: Vec::new(),
                 next_id: 0,
                 stamp: 0,
+                waiting: Vec::new(),
+                garbage: Vec::new(),
+                seq: 0,
             }),
         }
     }
@@ -219,6 +240,16 @@ impl ImageTable {
         owned.push_str(path);
         if evict.is_none() {
             inner.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        }
+        if origin == Origin::Prepared {
+            // Every prepared image that exists can end into the garbage list.
+            let live = inner
+                .entries
+                .iter()
+                .filter(|e| e.origin == Origin::Prepared)
+                .count();
+            let want = (live + 1).saturating_sub(inner.garbage.capacity() - inner.garbage.len());
+            inner.garbage.try_reserve(want).map_err(|_| ERR_NO_MEMORY)?;
         }
         let entry = Entry {
             id,
@@ -310,7 +341,8 @@ impl ImageTable {
             .iter()
             .position(|e| e.id == id && e.owner == owner)
             .ok_or(ERR_NOT_FOUND)?;
-        inner.entries.remove(at);
+        let gone = inner.entries.remove(at);
+        inner.retire(gone);
         Ok(())
     }
 
@@ -353,7 +385,17 @@ impl ImageTable {
     /// # Errors
     /// `ERR_BUSY`: a retry finishes it.
     pub(crate) fn owner_stopped(&self, owner: u64) -> Result<(), i32> {
-        self.lock()?.entries.retain(|e| e.owner != owner);
+        let mut inner = self.lock()?;
+        inner.waiting.retain(|w| w.owner != owner);
+        let mut at = 0;
+        while at < inner.entries.len() {
+            if inner.entries[at].owner == owner {
+                let gone = inner.entries.remove(at);
+                inner.retire(gone);
+            } else {
+                at += 1;
+            }
+        }
         Ok(())
     }
 
