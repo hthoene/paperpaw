@@ -49,7 +49,8 @@ before 1.0.
    Not run there: the Xtensa firmware (X4 Pro, X4 Classic), the Windows and
    macOS emulators, the update path, the Android APK, the reproducible
    build, CodeQL. Run it before pushing a pull request: CI minutes are
-   limited, and a draft pull request starts no CI jobs.
+   limited, and a draft pull request skips full CI; the lightweight
+   changelog check still runs.
 
    The full run includes the inactive stable ABI's `abi` group. Set
    `ABI_BASE_REV` to the exact 40-character reviewed PR-base commit and set
@@ -269,6 +270,17 @@ where the specifications come from and mark values you could not verify.
 
 ## Commits and pull requests
 
+- Add a [changelog fragment](changelog.d/README.md) for each change readers
+  or plugin authors can see, rather than editing `CHANGELOG.md`. Run
+  `python3 tools/changelog.py check`; after committing, `--base` with the
+  branch your PR targets checks the PR diff locally. If no entry is
+  needed, put `No-changelog: <reason>` in the head commit's trailer block.
+  Documentation-only PRs are exempt. A lightweight PR workflow checks
+  that fragments are well formed, even for drafts and fragment-only
+  changes; full CI still skips documentation and fragment-only PRs. A PR
+  never edits `CHANGELOG.md`: that shared list made parallel PRs conflict.
+  Only release preparation collects entries, as
+  [RELEASING.md](RELEASING.md) describes.
 - Use [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:` …), with an
   optional scope such as `feat(sdk): …`.
