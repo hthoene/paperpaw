@@ -2626,8 +2626,9 @@ has the steps.
 ### Extension stages and call services
 
 Declare an extension point with `native::declare::StageDecl` and subscribe with
-`SubscribeDecl`, passing it to `Declarations::stage` or `subscribe`. Limits are
-checked locally; stage ownership and self-subscription are checked by the host.
+`SubscribeDecl`, passing it to `Declarations::stage` or `subscribe`. Grammar and payload ranges are
+checked locally. Stage ownership, self-subscription, duplicate stage/token pairs
+and the eight-per-plugin subscription limit are checked by the host at commit.
 A subscription's `order` controls its position and its `signature` contributes to
 layout invalidation when the stage changes layout.
 

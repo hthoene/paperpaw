@@ -1,5 +1,8 @@
 use super::*;
-use alloc::{string::ToString, vec, vec::Vec};
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 use records_wire::{Record, records_decode};
 
 fn spec(name: &str, input: u32, reply: u32, records: u32) -> StageDecl<'_> {
@@ -131,46 +134,25 @@ fn subscription_name_refusals() {
 }
 
 #[test]
-fn duplicate_pair_is_refused_even_after_submit() {
+fn subscription_limits_and_duplicates_are_forwarded_for_host_commit_checks() {
     let mut batches = Vec::new();
     let mut d = Declarations::new(|bytes: &[u8]| {
         batches.push(bytes.to_vec());
         Ok(())
     });
-    d.subscribe(SubscribeDecl::new("reader.insert", 7)).unwrap();
-    d.submit().unwrap();
-    assert_eq!(
-        d.subscribe(SubscribeDecl::new("reader.insert", 7).order(99))
-            .map(|_| ()),
-        Err(DeclareError::Encode(ERR_INVALID))
-    );
-    assert_eq!(d.submit(), Err(DeclareError::Encode(ERR_INVALID)));
-    drop(d);
-    assert_eq!(batches.len(), 2);
-    assert!(batches[1].is_empty());
-}
-
-#[test]
-fn eight_subscriptions_are_allowed_across_batches_ninth_aborts() {
-    let mut batches = Vec::new();
-    let mut d = Declarations::new(|bytes: &[u8]| {
-        batches.push(bytes.to_vec());
-        Ok(())
-    });
-    let long = "a".repeat(128);
-    for token in 0..8 {
-        d.subscribe(SubscribeDecl::new(&long, token)).unwrap();
+    for _ in 0..9 {
+        d.subscribe(SubscribeDecl::new("reader.insert", 7)).unwrap();
         d.submit().unwrap();
     }
-    assert_eq!(
-        d.subscribe(SubscribeDecl::new("reader.insert", 8))
-            .map(|_| ()),
-        Err(DeclareError::Encode(ERR_FULL))
-    );
-    assert_eq!(d.submit(), Err(DeclareError::Encode(ERR_FULL)));
     drop(d);
     assert_eq!(batches.len(), 9);
-    assert_eq!(batches[8], vec![]);
+    for bytes in batches {
+        let batch = records_decode(&bytes).unwrap();
+        assert!(matches!(
+            batch.iter().next(),
+            Some(Record::RegistrationStage(_))
+        ));
+    }
 }
 
 #[test]
