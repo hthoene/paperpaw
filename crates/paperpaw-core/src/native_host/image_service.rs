@@ -17,10 +17,14 @@
 //!
 //! **Drawing** reads the file row by row from the card through the SDK's band
 //! drawer (`paperpaw_sdk::ui::try_draw_picture`), clipped by the canvas. Its
-//! row buffers (a row chunk of 8 KiB and about 6 bytes a source pixel row and
-//! 9 a destination column, so some 25-30 KiB at 1,600 pixels) are taken
+//! buffers (a row chunk of 8 KiB, and a few bytes per source pixel and per
+//! destination column on the clip only, at most 32 KiB together) are taken
 //! fallibly before the first band and freed on return: no room is
-//! `ERR_NO_MEMORY` with nothing drawn. The file's size must be what its header
+//! `ERR_NO_MEMORY` with nothing drawn. This host keeps nothing between draw
+//! calls: the 4 KiB per-plugin dithering carry `document.md` allows is not
+//! implemented, so a dithered picture drawn in several bands is diffused
+//! again from its first row in each (the contract's fallback, never an
+//! error). The file's size must be what its header
 //! says (checked without allocating): else `ERR_IO`, nothing drawn; a header
 //! that does not say the stated size is `ERR_INVALID`; a card that stops
 //! reading mid-draw is `ERR_IO` with the bands before it drawn. A draw that
@@ -49,6 +53,9 @@ pub(crate) const PREPARED_IMAGES: usize = 8;
 /// The longest side of a picture the host keeps (cache images are at most
 /// 1,600 pixels; the bound keeps the band drawer's rows small).
 pub(crate) const MAX_SIDE: u32 = 4096;
+/// The longest side of a document image (what the band drawer's one transient
+/// block takes: a colour row of 1,600 pixels is 4.7 KiB).
+pub(crate) const DOC_SIDE_MAX: u32 = 1_600;
 /// The longest cache path.
 pub(crate) const PATH_MAX: usize = 512;
 
@@ -58,17 +65,14 @@ fn is_reserved(name: &str, reserved: &str) -> bool {
     if name.eq_ignore_ascii_case(reserved) {
         return true;
     }
-    let stem: alloc::string::String = reserved
-        .trim_start_matches('.')
-        .chars()
-        .take(6)
-        .map(|c| c.to_ascii_uppercase())
-        .collect();
-    let upper = name.to_ascii_uppercase();
-    upper
-        .strip_prefix(&stem)
-        .and_then(|rest| rest.strip_prefix('~'))
-        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+    // The names are the host's own, ASCII; nothing here allocates.
+    let stem = reserved.trim_start_matches('.').as_bytes();
+    let stem = &stem[..stem.len().min(6)];
+    let name = name.as_bytes();
+    name.len() > stem.len() + 1
+        && name[..stem.len()].eq_ignore_ascii_case(stem)
+        && name[stem.len()] == b'~'
+        && name[stem.len() + 1..].iter().all(u8::is_ascii_digit)
 }
 
 /// A cache path of root 6 (`document.md` 5): the storage grammar (relative,
@@ -155,7 +159,15 @@ pub(crate) mod prepare;
 /// The device's images, all plugins'.
 pub(crate) struct ImageTable {
     inner: RefCell<Inner>,
+    /// The most heap one draw may take ([`SCRATCH_X4`] until the shell says
+    /// the device has more: [`ImageTable::set_scratch_max`]).
+    scratch_max: core::cell::Cell<usize>,
 }
+
+/// The X4's draw scratch (`document.md` 5): one transient block of 32 KiB.
+pub(crate) const SCRATCH_X4: usize = 32 * 1024;
+/// A device with memory to spare (Android, desktop, emulator).
+pub(crate) const SCRATCH_LARGE: usize = 1 << 20;
 
 /// What `image.info` tells.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -213,7 +225,13 @@ impl ImageTable {
                 seq: 0,
                 ready: Vec::new(),
             }),
+            scratch_max: core::cell::Cell::new(SCRATCH_X4),
         }
+    }
+
+    /// The draw scratch of this device: [`SCRATCH_X4`] or [`SCRATCH_LARGE`].
+    pub(crate) fn set_scratch_max(&self, bytes: usize) {
+        self.scratch_max.set(bytes);
     }
 
     fn lock(&self) -> Result<core::cell::RefMut<'_, Inner>, i32> {
@@ -268,8 +286,9 @@ impl ImageTable {
         colour: bool,
     ) -> Result<u32, i32> {
         let prepared = origin == Origin::Prepared;
-        if !(1..=MAX_SIDE).contains(&width)
-            || !(1..=MAX_SIDE).contains(&height)
+        let side_max = if prepared { MAX_SIDE } else { DOC_SIDE_MAX };
+        if !(1..=side_max).contains(&width)
+            || !(1..=side_max).contains(&height)
             || (path.is_empty() && !prepared)
             || path.len() > PATH_MAX
         {
@@ -395,7 +414,7 @@ impl ImageTable {
         full.push('/');
         full.push_str(path);
         // Downloaded input: the header must say what the format says.
-        let Some((kind, width, height)) = paperpaw_sdk::ui::probe_picture(storage, &full) else {
+        let Ok((kind, width, height)) = paperpaw_sdk::ui::probe_picture(storage, &full) else {
             return Ok(None);
         };
         if (width, height) != (image.width, image.height) {
@@ -578,7 +597,10 @@ impl ImageTable {
         };
         // The file is the card's, downloaded input: its header must say what
         // the id says, and it must be readable now.
-        let (kind, fw, fh) = paperpaw_sdk::ui::probe_picture(storage, &path).ok_or(ERR_IO)?;
+        // A short file or a card that fails is ERR_IO, a header that is not
+        // what it should be ERR_INVALID.
+        let (kind, fw, fh) =
+            paperpaw_sdk::ui::probe_picture(storage, &path).map_err(draw_status)?;
         if (fw, fh) != (w, h) {
             return Err(ERR_INVALID);
         }
@@ -594,6 +616,7 @@ impl ImageTable {
             kind,
             width: w,
             height: h,
+            scratch_max: self.scratch_max.get(),
         };
         let mut child = canvas.clipped(visible).offset(place.left, place.top);
         let area = Rect::new(0, 0, place.width, place.height);
