@@ -60,7 +60,10 @@ pub(crate) struct Declared {
 
 /// The registry's widget and status directory, read by ops 4, 14 and 15.
 /// Every method answers `ERR_NOT_FOUND` for an id nobody declared (or whose
-/// plugin retired) and `ERR_NO_MEMORY` when it cannot answer.
+/// plugin retired), `ERR_NO_MEMORY` when it cannot answer and `ERR_FULL` when
+/// the declaring owner's id no longer fits the compact `plugin` index (the
+/// index narrows the one `OwnerResources` owner id, never a second namespace;
+/// `plugin_index` answers `None` then).
 #[allow(dead_code, reason = "Core implements it; ops 4, 14 and 15 consume it")]
 pub(crate) trait UiDirectory {
     /// Op 4: the widget `widget` (a base id; a placement `x@2` has been
