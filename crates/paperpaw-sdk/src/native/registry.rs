@@ -1,7 +1,7 @@
 //! Typed, allocation-free reads from `core.registry` major 1.
 //! Pages borrow caller-owned output. An entire page is checked before rows are
 //! exposed. A stale generation returns State; restart explicitly at zero.
-use super::wire::services_wire::{core_registry_v1 as schema, service_schema};
+use super::wire::services_wire::core_registry_v1 as schema;
 use super::{
     Error, Host,
     declare::records_wire::{self as wire, Record},
@@ -224,9 +224,7 @@ impl Registry {
         input: &mut [u8],
         out: &'a mut [u8],
     ) -> Result<&'a [u8], Error> {
-        let operation = service_schema(schema::KEY, schema::MAJOR)
-            .and_then(|s| s.op(op))
-            .ok_or(Error::Unsupported)?;
+        let operation = self.service.operation(op).ok_or(Error::Unsupported)?;
         let capacity = input.len().min(operation.max_input);
         let length =
             wire::records_encode(&[record], &mut input[..capacity]).map_err(Error::from_status)?;

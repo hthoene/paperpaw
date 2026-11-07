@@ -538,7 +538,7 @@ fn plugin_answer_is_submitted_and_host_denial_is_reported() {
     let mut scratch = [0; 256];
     assert_eq!(
         CommandSender::new(&host, &mut scratch).answer_plugin(
-            7,
+            plugin_request_id(7),
             "dictionary",
             PluginOutcome::Installed
         ),
@@ -633,7 +633,7 @@ fn plugin_commands_use_loader_identity_rules_before_submit() {
             Err(Error::Invalid)
         );
         assert_eq!(
-            sender.answer_plugin(1, id, PluginOutcome::Failed),
+            sender.answer_plugin(plugin_request_id(1), id, PluginOutcome::Failed),
             Err(Error::Invalid)
         );
     }
@@ -661,4 +661,25 @@ fn preview_key_value_budget_is_checked_before_host_submission() {
         Err(Error::NoSpace)
     );
     assert_eq!(ctx.batches.borrow().len(), 1);
+}
+
+fn plugin_request_id(raw: u32) -> crate::native::events::PluginRequestId {
+    use crate::native::{declare::records_wire as records, events::Event};
+    let mut bytes = [0; 128];
+    let count = records::records_encode(
+        &[records::Record::EventPluginsRequested(
+            records::EventPluginsRequested {
+                now_ms: 0,
+                request: raw,
+                by: "fixture",
+                plugins: "dictionary",
+            },
+        )],
+        &mut bytes,
+    )
+    .unwrap();
+    let Event::PluginsRequested { request, .. } = Event::decode(&bytes[..count]).unwrap() else {
+        panic!("expected plugin request");
+    };
+    request
 }

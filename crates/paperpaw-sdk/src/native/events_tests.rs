@@ -387,7 +387,7 @@ fn plugin_request_ids_borrow_input_and_keep_order_at_the_generated_limit() {
     else {
         panic!("expected plugin request");
     };
-    assert_eq!((now_ms, request, by), (14, 7, "keys"));
+    assert_eq!((now_ms, request.get(), by), (14, 7, "keys"));
     assert_eq!(plugins.len(), ids.len());
     assert!(!plugins.is_empty());
     assert_eq!(plugins.iter().collect::<alloc::vec::Vec<_>>(), ids);
@@ -460,7 +460,7 @@ fn plugin_answers_share_typed_outcomes_and_reserved_values_mean_failed() {
             panic!("expected plugin answer");
         };
         assert_eq!(
-            (now_ms, request, plugin, outcome),
+            (now_ms, request.get(), plugin, outcome),
             (42, 17, "dictionary", expected)
         );
         assert!(bytes.as_ptr_range().contains(&plugin.as_ptr()));

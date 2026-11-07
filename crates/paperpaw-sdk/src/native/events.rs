@@ -10,6 +10,22 @@ mod core_events;
 mod states;
 pub use states::{BookKind, ChargeFlags, PowerChange, WifiLinkState};
 
+/// A host-issued plugin installation request, obtained from a decoded event.
+///
+/// ```compile_fail
+/// use paperpaw_sdk::native::events::PluginRequestId;
+/// let request = PluginRequestId(7);
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PluginRequestId(u32);
+impl PluginRequestId {
+    /// The host-issued number, unchanged.
+    #[must_use]
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
 /// Registry sections that changed. Unknown future bits remain available through [`Self::bits`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RegistryChanges(u32);
@@ -300,7 +316,7 @@ pub enum Event<'a> {
     /// Another plugin asks subscribers to offer installation. This installs nothing itself.
     PluginsRequested {
         now_ms: u64,
-        request: u32,
+        request: PluginRequestId,
         by: &'a str,
         plugins: RequestedPlugins<'a>,
     },
@@ -308,7 +324,7 @@ pub enum Event<'a> {
     /// Reserved outcome values become Failed.
     PluginAnswered {
         now_ms: u64,
-        request: u32,
+        request: PluginRequestId,
         plugin: &'a str,
         outcome: super::commands::PluginOutcome,
     },
@@ -454,7 +470,7 @@ fn decode_registry(record: Record<'_>) -> Result<Event<'_>, Error> {
         Record::EventPreviewChanged(r) => Event::PreviewChanged { now_ms: r.now_ms },
         Record::EventPluginsRequested(r) => Event::PluginsRequested {
             now_ms: r.now_ms,
-            request: r.request,
+            request: PluginRequestId(r.request),
             by: r.by,
             plugins: RequestedPlugins::decode(r.plugins)?,
         },
@@ -468,7 +484,7 @@ fn decode_registry(record: Record<'_>) -> Result<Event<'_>, Error> {
             };
             Event::PluginAnswered {
                 now_ms: r.now_ms,
-                request: r.request,
+                request: PluginRequestId(r.request),
                 plugin: r.plugin,
                 outcome,
             }

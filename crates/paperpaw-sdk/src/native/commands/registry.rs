@@ -326,7 +326,7 @@ impl CommandSender<'_, '_> {
     /// Returns validation, encoding or host errors, including Denied without installation authority.
     pub fn answer_plugin(
         &mut self,
-        request: u32,
+        request: crate::native::events::PluginRequestId,
         plugin: impl AsRef<str>,
         outcome: PluginOutcome,
     ) -> Result<(), Error> {
@@ -336,7 +336,7 @@ impl CommandSender<'_, '_> {
         }
         check_id(plugin, wire::COMMAND_ANSWER_PLUGIN_PLUGIN_MAX_BYTES)?;
         self.submit(wire::Command::AnswerPlugin {
-            request,
+            request: request.get(),
             plugin,
             outcome: outcome.wire(),
         })

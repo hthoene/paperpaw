@@ -84,6 +84,7 @@ pub enum Input<'a> {
     Widget {
         now_ms: u64,
         instance: super::ui::Instance,
+        /// Owner-defined target identifier; zero means no target.
         target: u32,
         position: Point,
         kind: super::ui::WidgetInputKind,
