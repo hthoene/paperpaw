@@ -4,7 +4,7 @@
 //! other, or side by side in a wide row.
 use crate::native_dates::days_from_civil;
 use crate::native_draw::{message_in, minute, no_time};
-use alloc::{format, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::Host;
 use paperpaw_sdk::{
     Color, Rect,
@@ -13,6 +13,7 @@ use paperpaw_sdk::{
 };
 use paperpaw_ui_kit::widget::Cx;
 use paperpaw_ui_kit::widget::names::chosen_name;
+use paperpaw_ui_kit::widget::settings::Stack;
 use paperpaw_ui_kit::{
     Paint, paint,
     text::{concat, copy},
@@ -121,17 +122,7 @@ fn note(cx: &mut Cx<'_>, place: &Place) -> Result<String, Error> {
     if cx.settings.shows("offset")? && place.name != cx.tr("widgets.world-clock.here")? {
         parts.push(offset_text(cx, place.minutes)?);
     }
-    let mut joined = String::new();
-    for (n, part) in parts.iter().enumerate() {
-        joined
-            .try_reserve(part.len() + 4)
-            .map_err(|_| Error::NoMemory)?;
-        if n > 0 {
-            joined.push_str(" · ");
-        }
-        joined.push_str(part);
-    }
-    Ok(joined)
+    paperpaw_ui_kit::text::join_notes(&parts)
 }
 
 /// A difference of `minutes` in hours: "+7 h", "−5:30 h", "±0 h".
@@ -146,11 +137,11 @@ pub fn offset_text(cx: &mut Cx<'_>, minutes: i64) -> Result<String, Error> {
     };
     let (h, m) = (minutes.abs() / 60, minutes.abs() % 60);
     let number = if m == 0 {
-        format!("{sign}{h}")
+        Stack::<32>::from_args(format_args!("{sign}{h}"))?
     } else {
-        format!("{sign}{h}:{m:02}")
+        Stack::<32>::from_args(format_args!("{sign}{h}:{m:02}"))?
     };
-    let digits = cx.messages.digits(cx.host, &number)?;
+    let digits = cx.messages.digits(cx.host, number.as_str())?;
     cx.format(
         "widgets.world-clock.offset",
         &[Arg::Text {

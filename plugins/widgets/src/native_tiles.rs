@@ -2,7 +2,7 @@
 //! rounded tile of its own, dark with light digits, light, or outlined; twelve
 //! or twenty-four hours as the clock is set, the date below if wished.
 use crate::native_draw::{light_and_dark, no_time, twelve};
-use alloc::{format, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::Host;
 use paperpaw_sdk::{
     Color, Point, Rect,
@@ -11,6 +11,7 @@ use paperpaw_sdk::{
 };
 use paperpaw_ui_kit::widget::Cx;
 use paperpaw_ui_kit::widget::names::{chosen_name, date_text};
+use paperpaw_ui_kit::widget::settings::Stack;
 use paperpaw_ui_kit::{
     Paint, paint,
     widget::{
@@ -32,11 +33,11 @@ pub fn tiles(
     pairs: bool,
 ) -> Result<(Vec<String>, Vec<String>), Error> {
     let hours = if twelve_hours {
-        format!("{}", twelve(t.hour))
+        Stack::<4>::from_args(format_args!("{}", twelve(t.hour)))?
     } else {
-        format!("{:02}", t.hour)
+        Stack::<4>::from_args(format_args!("{:02}", t.hour))?
     };
-    let minutes = format!("{:02}", t.minute);
+    let minutes = Stack::<4>::from_args(format_args!("{:02}", t.minute))?;
     let split = |s: &str| -> Result<Vec<String>, Error> {
         let mut out: Vec<String> = Vec::new();
         if pairs {
@@ -53,7 +54,7 @@ pub fn tiles(
         }
         Ok(out)
     };
-    Ok((split(&hours)?, split(&minutes)?))
+    Ok((split(hours.as_str())?, split(minutes.as_str())?))
 }
 
 /// The height: the tiles, the date line if wished, the frame.

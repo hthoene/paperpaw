@@ -8,7 +8,7 @@
 //! enough for the day.
 use crate::native_dates::days_from_civil;
 use crate::native_draw::{light_and_dark, no_time, today};
-use alloc::{format, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::Host;
 use paperpaw_sdk::{
     Color, Point, Rect,
@@ -18,6 +18,7 @@ use paperpaw_sdk::{
 };
 use paperpaw_ui_kit::widget::Cx;
 use paperpaw_ui_kit::widget::names::{chosen_name, date_text};
+use paperpaw_ui_kit::widget::settings::Stack;
 use paperpaw_ui_kit::{
     Paint, paint,
     widget::{
@@ -131,24 +132,36 @@ pub fn lit(degrees: i32) -> u8 {
 
 /// The lit part of each eighth of a row of a moon of `radius`: from the
 /// terminator to the edge, in eighths of a pixel from the centre.
-fn lit_spans(radius: u32, degrees: i32, south: bool) -> Vec<(i32, i32)> {
+fn lit_spans(radius: u32, degrees: i32, south: bool) -> Result<Vec<(i32, i32)>, Error> {
     let (_, cos) = sin_cos(degrees);
     let waxing = degrees.rem_euclid(360) < 180;
     let right = waxing != south;
     let r8 = 8 * i64::from(radius);
-    (0..2 * 4 * radius as i32)
-        .map(|sub| {
-            let y8 = 2 * i64::from(sub) + 1 - r8;
-            let w = (r8 * r8 - y8 * y8).max(0).isqrt();
-            let terminator = w * i64::from(cos) / i64::from(UNIT);
-            let (lo, hi) = if right {
-                (terminator, w)
-            } else {
-                (-w, -terminator)
-            };
-            (lo as i32, hi as i32)
-        })
-        .collect()
+    let rows = 2 * 4 * radius as i32;
+    let mut out: Vec<(i32, i32)> = Vec::new();
+    out.try_reserve(usize::try_from(rows).unwrap_or(0))
+        .map_err(|_| Error::NoMemory)?;
+    for sub in 0..rows {
+        let y8 = 2 * i64::from(sub) + 1 - r8;
+        let w = (r8 * r8 - y8 * y8).max(0).isqrt();
+        let terminator = w * i64::from(cos) / i64::from(UNIT);
+        let (lo, hi) = if right {
+            (terminator, w)
+        } else {
+            (-w, -terminator)
+        };
+        out.push((lo as i32, hi as i32));
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+pub fn lit_spans_for_tests(
+    radius: u32,
+    degrees: i32,
+    south: bool,
+) -> Result<Vec<(i32, i32)>, Error> {
+    lit_spans(radius, degrees, south)
 }
 
 /// How much of the pixel at `left` (in eighths from the centre) the
@@ -184,8 +197,9 @@ fn lines(cx: &mut Cx<'_>, moon: &Moon, today: &LocalTime) -> Result<Vec<String>,
     let mut lines: Vec<String> = Vec::new();
     lines.try_reserve(3).map_err(|_| Error::NoMemory)?;
     if cx.settings.shows("name")? {
-        let key = format!("widgets.moon.phase.{}", phase(moon.degrees));
-        lines.push(cx.tr(&key)?);
+        let key =
+            Stack::<48>::from_args(format_args!("widgets.moon.phase.{}", phase(moon.degrees)))?;
+        lines.push(cx.tr(key.as_str())?);
     }
     if cx.settings.shows("full")? {
         let unix = moon.next_full.div_euclid(1000);
@@ -438,7 +452,7 @@ fn draw_moon(
     } else {
         fill_circle(out, centre, radius, dark)?;
     }
-    let lit = lit_spans(radius, degrees, south);
+    let lit = lit_spans(radius, degrees, south)?;
     // The pixels more than half lit, row by row as stretches.
     spans(
         out,
