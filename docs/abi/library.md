@@ -65,7 +65,7 @@ proposed and numbered without gaps at the records step.
 ## 2. The service `core.library` (major 1)
 
 Bare reply streams and paging as `core.registry` (`registry.md` 2.1), `page_rows` 32 (whole rows
-that fit 4,096 bytes). Two kinds of generation, never mixed up:
+that fit 4,096 bytes). Three kinds of generation, never mixed up:
 
 - the **catalog generation** (`lib_state.generation`, `lib_query.generation`): it changes on every
   change that can add or remove a book from a query's result or reorder it: a book added, removed or
@@ -76,6 +76,9 @@ that fit 4,096 bytes). Two kinds of generation, never mixed up:
 - the **annotation generation** of one book (`lib_page.annotation_generation`,
   `lib_edit_head.annotation_generation`): it changes on every committed annotation change of that
   book only.
+- the **field generation** of one book (`lib_field_page.generation`, the `service.end.generation`
+  of op 22 `fields`): it changes on every `set_field` on that book and every move of its data
+  (section 4). A later `fields` page asked with a stale field generation is `ERR_STATE`.
 
 | Op | Name | Input | Reply | Effect |
 | --- | --- | --- | --- | --- |
