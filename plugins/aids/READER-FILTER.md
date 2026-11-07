@@ -38,4 +38,9 @@ filters. The wire cap does not bound output expansion across ordered replacement
 It must not be wired into the native reader until a checked allocation, bounded
 working transaction replaces that path and proves refusal leaves the original
 block unchanged. This is a code correctness gate, not an X4 measurement deferral.
-Encoder reservations are now fallible; that alone does not resolve application.
+Encoder and application-setup reservations are now fallible. The integration
+test fails each of the three encoder allocations and each of the five setup
+allocations for two pairs, asserting unchanged output/block. Allocations inside
+the existing transformations and output expansion remain separate activation
+gates; these tests do not claim to make the legacy transform implementation
+fallible.

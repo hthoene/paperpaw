@@ -1,6 +1,6 @@
 //! Experimental reader-owned rules, not connected to the legacy registrations.
 //! The entire payload is validated before any document block is changed.
-use alloc::{string::ToString, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::Translator;
 use paperpaw_sdk::document::Block;
 
@@ -109,6 +109,7 @@ pub fn apply(
         return Err(Error::Invalid);
     }
     let mut pairs = Vec::new();
+    pairs.try_reserve_exact(32).map_err(|_| Error::NoMemory)?;
     for row in rows {
         let wire::Record::FilterPair(pair) = row else {
             return Err(Error::Invalid);
@@ -116,7 +117,7 @@ pub fn apply(
         if pair.from.is_empty() || pair.whole_word != 1 {
             return Err(Error::Invalid);
         }
-        pairs.push((pair.from.to_string(), pair.to.to_string()));
+        pairs.push((copy_text(pair.from)?, copy_text(pair.to)?));
     }
     if rules.bold == 1 {
         super::bold_beginnings(block);
@@ -124,6 +125,14 @@ pub fn apply(
     super::replace(block, &pairs);
     let verdict = super::pictures::apply_word(rules.pictures, path, rules.caption_word, block);
     Ok((rules.signature, verdict))
+}
+
+fn copy_text(value: &str) -> Result<String, Error> {
+    let mut text = String::new();
+    text.try_reserve_exact(value.len())
+        .map_err(|_| Error::NoMemory)?;
+    text.push_str(value);
+    Ok(text)
 }
 
 /// Encode using the same localized caption label as the existing filter.

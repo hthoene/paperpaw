@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 use super::*;
+use alloc::string::ToString;
 use paperpaw_sdk::document::{BlockKind, Run, TextStyle};
 use paperpaw_sdk::filters::Verdict;
 use proptest::prelude::*;

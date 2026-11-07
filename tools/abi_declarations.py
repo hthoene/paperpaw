@@ -446,7 +446,7 @@ def declaration_source(declared, statuses, *, registrations=True):
     source = source.replace('@MAX_BYTES_NAME@', prefix + '_MAX_BYTES')
     source = source.replace('@MAX_RECORDS_NAME@', prefix + '_MAX_RECORDS')
     if any(r['name'].startswith('service.') for r in declared):
-        source += BARE_TEMPLATE.replace('@BITMAP@', 'record.write_bitmap(out, &mut offset);'
+        source += BARE_TEMPLATE.replace('@MAX_BYTES_NAME@', prefix + '_MAX_BYTES').replace('@BITMAP@', 'record.write_bitmap(out, &mut offset);'
                                         if has_optional else 'write_varint(0, out, &mut offset);')
     for marker, name in [('@INVALID@', 'ERR_INVALID'), ('@UNSUPPORTED@', 'ERR_UNSUPPORTED'),
                          ('@NO_SPACE@', 'ERR_NO_SPACE'), ('@UTF8@', 'ERR_UTF8')]:
@@ -631,7 +631,7 @@ BARE_TEMPLATE = '''
 pub fn record_framed_len(record: &Record<'_>) -> Result<usize, i32> {
     let body = record.body_len()?;
     let len = varint_len(record.tag()) + varint_len(body as u32) + body;
-    if len > REGISTRATION_MAX_BYTES {
+    if len > @MAX_BYTES_NAME@ {
         return Err(@NO_SPACE@);
     }
     Ok(len)
@@ -659,7 +659,7 @@ pub fn record_encode_one(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i
 /// no byte after it. The caller checks that the tag is the one it expects.
 /// Errors are those of [`records_decode`].
 pub fn record_decode_one(bytes: &[u8]) -> Result<Record<'_>, i32> {
-    if bytes.len() > REGISTRATION_MAX_BYTES {
+    if bytes.len() > @MAX_BYTES_NAME@ {
         return Err(@NO_SPACE@);
     }
     let mut reader = Reader { remaining: bytes };
