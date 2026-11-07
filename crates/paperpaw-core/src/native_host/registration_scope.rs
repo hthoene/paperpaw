@@ -271,7 +271,15 @@ mod tests {
             drop(held);
             assert_eq!(target.submit(18), Err((Error::Invalid, 18)));
         }
-        assert!(matches!(construction.commit(|_| ()), Err(Error::Invalid)));
+        assert!(matches!(
+            construction.commit(crate::native_host::Teardown {
+                report: |_, _, _| {},
+                cancel: |_| Ok(()),
+                release: |_| Ok(()),
+                destroy: |_| ()
+            }),
+            Err(Error::Invalid)
+        ));
         let mut construction = owner.as_ref().begin::<u32>("weather").unwrap();
         let slot = core::pin::pin!(RegistrationScope::new());
         slot.as_ref()
@@ -279,6 +287,17 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(slot.submit(20), Err((Error::State, 20)));
-        assert_eq!(construction.commit(|_| ()).unwrap().len(), 1);
+        assert_eq!(
+            construction
+                .commit(crate::native_host::Teardown {
+                    report: |_, _, _| {},
+                    cancel: |_| Ok(()),
+                    release: |_| Ok(()),
+                    destroy: |_| ()
+                })
+                .unwrap()
+                .len(),
+            1
+        );
     }
 }

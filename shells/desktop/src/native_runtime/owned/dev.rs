@@ -30,6 +30,7 @@ use crate::host_services::DesktopServices;
 use paperpaw_core::native_host::flat::{DropReason, FlatInstance, FlatRegistration};
 use paperpaw_core::native_host::registrations::tick_encode;
 use paperpaw_core::native_host::staged::Declarations;
+use paperpaw_core::native_host::{HostResources, shell as shared_shell};
 use paperpaw_native::preflight::data_export;
 use std::mem::ManuallyDrop;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -90,7 +91,9 @@ pub enum Refusal {
     Runtime(RuntimeError),
     /// Refused while staging or committing what it declared.
     Lifecycle(paperpaw_core::native_host::Error),
-    /// Host allocation or construction setup failed.
+    /// Host allocation failed.
+    Allocation,
+    /// Host construction setup failed.
     Host(String),
     /// It declared records (settings, fonts, hyphenation) and this loader has
     /// no apply step for them yet: refused visibly, never loaded without them.
@@ -108,6 +111,7 @@ impl std::fmt::Display for Refusal {
             Self::Kind(_) => f.write_str("not an interface-7 library (or not one this reads)"),
             Self::Runtime(why) => write!(f, "refused: {why:?}"),
             Self::Lifecycle(why) => write!(f, "refused while staging: {why:?}"),
+            Self::Allocation => f.write_str("no memory for the plugin host"),
             Self::Host(why) => write!(f, "host construction refused: {why}"),
             Self::Declared(n) => write!(
                 f,
@@ -126,6 +130,48 @@ impl From<Error> for Refusal {
         }
     }
 }
+
+impl From<shared_shell::Error> for Refusal {
+    fn from(error: shared_shell::Error) -> Self {
+        match error {
+            shared_shell::Error::Lifecycle(why) => Self::Lifecycle(why),
+            shared_shell::Error::Allocation => Self::Allocation,
+            shared_shell::Error::Factory(status) => Self::Runtime(RuntimeError::Factory(status)),
+            shared_shell::Error::Plugin => Self::Runtime(RuntimeError::Plugin),
+            other => Self::Host(format!("{other:?}")),
+        }
+    }
+}
+
+fn checked_box<T>(value: T) -> Result<Box<T>, Refusal> {
+    let layout = std::alloc::Layout::new::<T>();
+    let pointer = if layout.size() == 0 {
+        std::ptr::NonNull::<T>::dangling().as_ptr()
+    } else {
+        // SAFETY: the exact nonzero layout; null is handled before writing.
+        unsafe { std::alloc::alloc(layout).cast::<T>() }
+    };
+    if pointer.is_null() {
+        return Err(Refusal::Allocation);
+    }
+    // SAFETY: owned and aligned storage, initialized before making its Box.
+    unsafe {
+        pointer.write(value);
+        Ok(Box::from_raw(pointer))
+    }
+}
+
+fn report_shared(
+    _: &DesktopServices,
+    owner: &str,
+    step: native_host::TeardownStep,
+    error: native_host::Error,
+) {
+    eprintln!("abi7 dev loader: {owner}: {step:?}: {error:?}");
+}
+
+type SharedPlugin = shared_shell::Hosted<DesktopServices, HeldLibrary>;
+type SharedBatch<'a> = shared_shell::Batch<'a, DesktopServices, HeldLibrary, Registration>;
 
 /// A plugin folder's id: the segments of `[a-z0-9-]` a plugin's id has.
 fn is_id(name: &str) -> bool {
@@ -167,22 +213,32 @@ pub(super) struct Loaded {
     records: Vec<Registration>,
     /// Staged by `make` and moved out of the batch at commit; kept, not applied.
     declarations: Declarations,
-    batch: Option<Batch<'static, DesktopServices, Registration>>,
-    plugin: ManuallyDrop<Box<PinnedPlugin<DesktopServices>>>,
+    batch: Option<SharedBatch<'static>>,
+    plugin: ManuallyDrop<Box<SharedPlugin>>,
     /// Admission was stopped ([`Loaded::stop`]): nothing of the library is
     /// read or called any more.
     stopped: std::cell::Cell<bool>,
 }
 
 impl Loaded {
-    fn open(id: &str, source: &Path) -> Result<Self, Refusal> {
+    fn open(id: &str, source: &Path, resources: HostResources) -> Result<Self, Refusal> {
         let bytes = read_bounded(source)?;
-        Self::from_bytes(id, &bytes)
+        Self::from_bytes_with_resources(id, &bytes, resources)
     }
 
     /// Loads the library `bytes` (the file as read and checked by the caller)
     /// for the plugin `id`, known to the host: never one the library gives.
+    #[cfg(test)]
     pub(super) fn from_bytes(id: &str, bytes: &[u8]) -> Result<Self, Refusal> {
+        let resources = HostResources::try_new().map_err(|_| Refusal::Allocation)?;
+        Self::from_bytes_with_resources(id, bytes, resources)
+    }
+
+    fn from_bytes_with_resources(
+        id: &str,
+        bytes: &[u8],
+        resources: HostResources,
+    ) -> Result<Self, Refusal> {
         if !is_id(id) {
             return Err(Refusal::Id);
         }
@@ -198,15 +254,36 @@ impl Loaded {
         // SAFETY: the one who started the emulator authorized native code with
         // the developer switch; the copy is read-only and private to this
         // process, and the owner keeps it open until after unload.
-        let plugin =
-            Box::new(unsafe { PinnedPlugin::open(&copy, &digest, id, DesktopServices::new()) }?);
+        let table = shared_shell::host_table::<DesktopServices>();
+        // SAFETY: authorized private immutable copy, as above.
+        let CheckedLibrary {
+            library,
+            make,
+            image,
+        } = unsafe { checked_library(&copy, &digest, &table) }.map_err(Refusal::Runtime)?;
+        // SAFETY: the checked module owns the executable entry and read-only image.
+        let plugin = checked_box(unsafe {
+            SharedPlugin::new(
+                DesktopServices::new(),
+                library,
+                make,
+                id,
+                image,
+                report_shared,
+                resources,
+            )
+        }?)?;
         let mut transaction = plugin.begin::<Registration>()?;
         // SAFETY: the slice borrows `plugin`, whose owner keeps the library
         // mapped until the batch is gone (the batch is released first, see
         // `Loaded`); declarations are read through `Loaded::image`, which
         // gives none once stopped, never through this borrow.
         transaction
-            .set_image(unsafe { plugin.image() })
+            .set_image(
+                plugin
+                    .image()
+                    .ok_or(Refusal::Lifecycle(native_host::Error::State))?,
+            )
             .map_err(Refusal::Lifecycle)?;
         let mut batch = plugin.make_registered(transaction)?.commit()?;
         let declarations = batch.take_declarations();
@@ -219,12 +296,7 @@ impl Loaded {
         // `plugin` (a `Box` that is never moved out of nor dropped before the
         // batch: `Drop` releases the batch first and field order does the
         // rest). Nothing else holds the extended lifetime.
-        let batch = unsafe {
-            std::mem::transmute::<
-                Batch<'_, DesktopServices, Registration>,
-                Batch<'static, DesktopServices, Registration>,
-            >(batch)
-        };
+        let batch = unsafe { std::mem::transmute::<SharedBatch<'_>, SharedBatch<'static>>(batch) };
         Ok(Self {
             id: id.to_owned(),
             copy,
@@ -241,7 +313,7 @@ impl Loaded {
     /// The library stays mapped, with its owner, until the drop.
     pub(super) fn stop(&self) {
         self.stopped.set(true);
-        self.plugin.owner.as_ref().revoke();
+        self.plugin.owner().revoke();
     }
 
     /// The library's read-only data (`DeclRef::Image` offsets index it);
@@ -252,7 +324,7 @@ impl Loaded {
         }
         // SAFETY: borrowed from `self`, which holds the owner and its mapped
         // library until the drop; none after `stop`.
-        Some(unsafe { self.plugin.image() })
+        self.plugin.image()
     }
 
     /// What it declared and nobody applied yet (kept in the bundle, never
@@ -264,6 +336,19 @@ impl Loaded {
             + self.declarations.hyphenations().len()
             + self.declarations.font_faces().len()
             + self.declarations.font_extensions().len()
+    }
+
+    /// Test fixture entry through the same table used by the production loader.
+    #[cfg(test)]
+    pub(super) fn draw_fixture(
+        &self,
+        index: usize,
+        depth: &DispatchDepth,
+        env: &paperpaw_core::sdk::Env<'_>,
+        canvas: &mut paperpaw_graphics::Canvas<'_>,
+    ) -> Result<i32, shared_shell::Error> {
+        let batch = self.batch.as_ref().ok_or(shared_shell::Error::Attempt)?;
+        shared_shell::dispatch_draw(batch, index, depth, env, canvas)
     }
 
     /// The tick registrations, each called with `now_ms`; their statuses.
@@ -281,9 +366,14 @@ impl Loaded {
             .enumerate()
             .filter(|(_, record)| matches!(record, Registration::Event { .. }))
             .map(|(index, _)| {
-                match dispatch_registration(batch, index, &depth, Invocation::Tick(&bytes[..len])) {
+                match shared_shell::dispatch_registration(
+                    batch,
+                    index,
+                    &depth,
+                    shared_shell::Invocation::Tick(&bytes[..len]),
+                ) {
                     Ok(status) => status,
-                    Err(Error::Status(status)) => status,
+                    Err(shared_shell::Error::Status(status)) => status,
                     Err(_) => host_glue::ERR_STATE,
                 }
             })
@@ -292,15 +382,36 @@ impl Loaded {
 }
 
 impl Drop for Loaded {
-    /// Release order: the batch (its lease on the owner), then admission
-    /// revoked and finished, then the owner drops (the plugin's destructor,
-    /// then the services, then the library is unmapped).
+    /// Revoke, cancel and release resources before dropping the batch lease.
+    /// Finish destroys the plugin only after the leases drain; the library
+    /// remains mapped throughout cleanup.
     fn drop(&mut self) {
         self.stopped.set(true);
-        drop(self.batch.take());
-        let owner = self.plugin.owner.as_ref();
+        let owner = self.plugin.owner();
         owner.revoke();
-        if owner.finish().is_ok() {
+        let prepared = owner.prepare_teardown();
+        if let Some(error) = owner.take_teardown_error() {
+            eprintln!(
+                "abi7 dev loader: {}: teardown hook failed: {error:?}",
+                self.id
+            );
+        }
+        if let Err(error) = prepared {
+            // Safe callers cannot drop Loaded while borrowed by a callback.
+            // Preserve the mapped owner if an external unsafe caller does so.
+            eprintln!(
+                "abi7 dev loader: {}: teardown deferred: {error:?}, kept",
+                self.id
+            );
+            return;
+        }
+        drop(self.batch.take());
+        let finished = owner.finish();
+        if finished.is_err() {
+            eprintln!("abi7 dev loader: {}: retained lease after cleanup", self.id);
+        }
+
+        if finished.is_ok() {
             // SAFETY: dropped exactly once, here; nothing borrows the owner
             // any longer (the batch is gone and `finish` saw no lease).
             unsafe { ManuallyDrop::drop(&mut self.plugin) };
@@ -335,7 +446,7 @@ impl FlatInstance for Loaded {
     }
 
     fn environment(&self) -> Pin<&EnvironmentScope> {
-        let context = self.plugin.owner.as_ref().context();
+        let context = self.plugin.owner().context();
         // SAFETY: the owner structurally pins its context; this projects one
         // field and never moves it.
         unsafe { context.map_unchecked(|value| &value.environment) }
@@ -345,6 +456,7 @@ impl FlatInstance for Loaded {
         &self,
         index: usize,
         payload: &[u8],
+        _out: &mut [u8],
         depth: &DispatchDepth,
     ) -> Result<i32, native_host::Error> {
         // Stopped: the owner's error, before anything of the library is read.
@@ -352,10 +464,15 @@ impl FlatInstance for Loaded {
             (Some(batch), false) => batch,
             _ => return Err(native_host::Error::State),
         };
-        match dispatch_registration(batch, index, depth, Invocation::Event(payload)) {
+        match shared_shell::dispatch_registration(
+            batch,
+            index,
+            depth,
+            shared_shell::Invocation::Event(payload),
+        ) {
             Ok(status) => Ok(status),
-            Err(Error::Status(status)) => Ok(status),
-            Err(Error::Lifecycle(why)) => Err(why),
+            Err(shared_shell::Error::Status(status)) => Ok(status),
+            Err(shared_shell::Error::Lifecycle(why)) => Err(why),
             Err(_) => Err(native_host::Error::State),
         }
     }
@@ -369,13 +486,23 @@ impl FlatInstance for Loaded {
 /// flat instance the core adapter can run, or says why not. Nothing it declared
 /// is applied by this loader yet: a library that declares anything is refused
 /// (`Refusal::Declared`) rather than losing it.
+#[cfg(test)]
 pub(crate) fn load_flat(id: &str, bytes: &[u8]) -> Result<Box<dyn FlatInstance>, Refusal> {
-    let loaded = Loaded::from_bytes(id, bytes)?;
+    let resources = HostResources::try_new().map_err(|_| Refusal::Allocation)?;
+    load_flat_with_resources(id, bytes, resources)
+}
+
+pub(crate) fn load_flat_with_resources(
+    id: &str,
+    bytes: &[u8],
+    resources: HostResources,
+) -> Result<Box<dyn FlatInstance>, Refusal> {
+    let loaded = Loaded::from_bytes_with_resources(id, bytes, resources)?;
     let declared = loaded.declared_records();
     if declared != 0 {
         return Err(Refusal::Declared(declared));
     }
-    Ok(Box::new(loaded))
+    Ok(checked_box(loaded)?)
 }
 
 fn read_bounded(path: &Path) -> Result<Vec<u8>, Refusal> {
@@ -461,13 +588,18 @@ impl DevPlugins {
         };
         let mut folders: Vec<_> = folders.flatten().collect();
         folders.sort_by_key(|folder| folder.file_name());
+        let resources = HostResources::try_new();
         for folder in folders {
             let file = folder.path().join(crate::native::file_name());
             if !file.is_file() {
                 continue;
             }
             let id = folder.file_name().to_string_lossy().into_owned();
-            match Loaded::open(&id, &file) {
+            let resources = resources.as_ref().ok().and_then(HostResources::try_clone);
+            let loaded = resources
+                .ok_or(Refusal::Allocation)
+                .and_then(|resources| Loaded::open(&id, &file, resources));
+            match loaded {
                 Ok(loaded) => found.loaded.push(loaded),
                 Err(Refusal::Kind(Kind::Interface6)) => {}
                 Err(why) => {
