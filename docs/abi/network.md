@@ -189,20 +189,23 @@ file's size, 2.1).
   the queue in start order (its `timeout_ms` counts from its start, so a long wait ends it with
   `timeout`, never holds more). Requests that save to a file need no memory body (a 4 KiB write
   buffer while they run) and are not counted against `MEMORY_BODIES`.
-- [D] **One network pool on the X4.** Devices of the small memory class have one device-wide
-  pool, `NET_POOL` in the profile (**80 KiB on the X4**: one 64 KiB body and two sockets), for
-  every network buffer the host holds for plugins: memory bodies, held `respond` bodies, the
-  4 KiB write buffer of a saving request, and SOCK's send queues, reads and broadcast answers
-  (`sockets.md` section 6). Each is reserved from the pool before it is used, never grown later:
-  a request reserves its `max_body` (a memory body) or its 4 KiB buffer (saving) before its
-  transfer starts and waits in the queue while the pool has not that room (its `timeout_ms`
-  counting, as for `MEMORY_BODIES`); everything else (a held `respond` body, SOCK's buffers)
-  that does not fit answers `ERR_NO_MEMORY` at its call and holds nothing. `max_body` is at
-  most the pool. So the X4 holds at most `NET_POOL` of plugin network memory, plus the shell's
-  receive and send buffers and one TLS session (about 40 KiB); Firmware measures that worst case
-  on the X4 heap (section 9) and the profile lowers `NET_POOL` (and with it the default
-  `max_body`) if it does not fit. Other devices have no pool: the caps per item and
-  `MEMORY_BODIES` bound them.
+- [D] **One network pool on the X4.** Devices of the small memory class have one device-wide pool,
+  `NET_POOL` in the profile (**80 KiB on the X4**: one 64 KiB body and two sockets), for every
+  network buffer the host holds for plugins: memory bodies, held `respond` bodies, the 4 KiB write
+  buffer of a saving request and of each `serve` upload being received (5.2: a request whose buffer
+  does not fit is answered 503 by the host), and SOCK's send queues, reads and broadcast answers
+  (`sockets.md` section 6). Each is reserved from the pool before it is used, never grown later: a
+  request reserves its `max_body` (a memory body) or its 4 KiB buffer (saving) before its transfer
+  starts and waits in the queue while the pool has not that room (its `timeout_ms` counting, as for
+  `MEMORY_BODIES`). The queue is strictly first in, first out: no request overtakes one that waits
+  for room, so a large body is never starved by smaller ones, and a request that waits holds back
+  those after it until it starts or its `timeout_ms` ends it; everything else (a held `respond`
+  body, SOCK's buffers) that does not fit answers `ERR_NO_MEMORY` at its call and holds nothing.
+  `max_body` is at most the pool. So the X4 holds at most `NET_POOL` of plugin network memory, plus
+  the shell's receive and send buffers and one TLS session (about 40 KiB); Firmware measures that
+  worst case on the X4 heap (section 9) and the profile lowers `NET_POOL` (and with it the default
+  `max_body`) if it does not fit. Other devices have no pool: the caps per item and `MEMORY_BODIES`
+  bound them.
 - [D] A plugin that stops has its requests cancelled (no events: it is not running) and its
   servers stopped; held bodies are freed.
 
