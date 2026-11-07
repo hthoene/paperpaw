@@ -1366,6 +1366,154 @@
       "reentry": "deny",
       "result": "status",
       "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "image",
+          "type": "u32"
+        },
+        {
+          "name": "out",
+          "type": "buffer"
+        }
+      ],
+      "effect": "query",
+      "id": 36,
+      "max_bytes": 64,
+      "name": "image.info",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "image",
+          "type": "u32"
+        },
+        {
+          "name": "x",
+          "type": "i32"
+        },
+        {
+          "name": "y",
+          "type": "i32"
+        },
+        {
+          "name": "width",
+          "type": "u32"
+        },
+        {
+          "name": "height",
+          "type": "u32"
+        },
+        {
+          "name": "flags",
+          "type": "u32"
+        }
+      ],
+      "effect": "mutate",
+      "id": 37,
+      "max_bytes": 0,
+      "name": "canvas.draw_image",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "language",
+          "type": "bytes"
+        },
+        {
+          "name": "word",
+          "type": "bytes"
+        },
+        {
+          "name": "left",
+          "type": "u32"
+        },
+        {
+          "name": "right",
+          "type": "u32"
+        },
+        {
+          "name": "out",
+          "type": "buffer"
+        }
+      ],
+      "effect": "query",
+      "id": 38,
+      "max_bytes": 192,
+      "name": "text.hyphenate",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "font",
+          "type": "handle"
+        },
+        {
+          "name": "text",
+          "type": "bytes"
+        }
+      ],
+      "effect": "query",
+      "id": 39,
+      "max_bytes": 1024,
+      "name": "text.covers",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "length",
+      "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "name",
+          "type": "bytes"
+        },
+        {
+          "name": "out",
+          "type": "buffer"
+        }
+      ],
+      "effect": "query",
+      "id": 40,
+      "max_bytes": 64,
+      "name": "icon.glyph",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "length",
+      "since": 1
     }
   ],
   "i18n_limits": {
@@ -14951,6 +15099,40 @@
       ],
       "id": 1182,
       "name": "service.lib_field_page",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 1024,
+          "name": "text",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 109,
+      "name": "event.text_typed",
       "since": 1
     }
   ],

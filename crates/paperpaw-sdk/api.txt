@@ -3218,7 +3218,6 @@ pub paperpaw_sdk::native::declare::EntryPlacement::Last
 pub paperpaw_sdk::native::declare::EntryPlacement::Order
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::EventKind
 pub paperpaw_sdk::native::declare::EventKind::ActionRun
-pub paperpaw_sdk::native::declare::EventKind::Answered
 pub paperpaw_sdk::native::declare::EventKind::BatteryMeasured
 pub paperpaw_sdk::native::declare::EventKind::BookClosed
 pub paperpaw_sdk::native::declare::EventKind::BookFinished

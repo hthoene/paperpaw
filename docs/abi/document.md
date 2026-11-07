@@ -78,7 +78,10 @@ EVT, REG and UIX. Tags below are proposed; the records step numbers them without
   target and slot `core.reader` opens it with that reader. The reader opens the document with
   op 1 (`open`), which starts the host's reading session (`core-events.md`). The interface-6
   kernel resolver (a reader per book, folder or format, `cannot_open` passing on to the next) is
-  not carried: a reader that cannot open a book shows why itself.
+  not carried: a reader that cannot open a book shows why itself. A plugin opens one of its own
+  files in a reader the same way, with the params `root` (`0` its data folder, `2` its install
+  folder) and `path` instead of a book's path: About's licence texts. The reader opens it with
+  `doc_open.root` 5 (section 2.1).
 
 ## 2. The service `core.document` (major 1)
 
@@ -145,7 +148,7 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 
 ### 2.1 Opening, preparing, closing
 
-- [D] `open` (`doc_open`: `root` 0 or 1, `path` at most 512 bytes, `format` empty for section 1's
+- [D] `open` (`doc_open`: `root` 0, 1 or 5, `path` at most 512 bytes, `format` empty for section 1's
   choice, `flags`, `image_side`, `cover_side`, `css_root`, `css_path`; then at most 12 `doc_option`
   rows `key`/`value`, so `input_rows` 13 in the schema, a maximum only; no `doc_open` first, a
   second `doc_open` or one after an option is `ERR_INVALID`; interface 6 `OpenOptions::settings`):
@@ -157,6 +160,17 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   empty for none) on `css_root` (0 or 1 under the same rule as `path`). Other flag bits
   `ERR_INVALID`. The host checks the roots, finds the format, gives a new document id and calls the
   format's op 2 `open`; its answer becomes `doc_state`.
+- [D] **Root 5, the handed file (draft 25).** A reader whose instance was made from a hand-over
+  (`ui.md` section 1, op 16) whose params carry `root` (`0` or `2`) and `path` may open that one
+  file of the plugin that made the hand-over: `doc_open.root` 5 with the same `path`, read only,
+  resolved in that plugin's data folder (`0`) or install folder (`2`) under the storage path
+  rules. Another path, a hand-over without these params, an instance not made from a hand-over,
+  and `css_root` 5 are `ERR_DENIED`; a maker no longer installed, or no such file, is
+  `ERR_NOT_FOUND`. The format reads it as root 3, as any book; it is not a library book (no
+  catalog row, position or "recently opened"; its root-6 cache is keyed by the maker's id, root
+  and path and goes when the maker is uninstalled). Root 5 exists only in `doc_open`
+  (slots 20-26, `core.files` and format calls answer it `ERR_UNSUPPORTED`). A host answers
+  `ERR_UNSUPPORTED` until it is wired.
 - [D] **Options reach their format whole.** An option's `key` is a full setting id
   (`<plugin>.<name>`) with the book's own value (interface 6 gathers them for every format owner,
   `reading/mod.rs:275`); the host forwards to the chosen format exactly the options of its plugin,
@@ -373,6 +387,8 @@ canvas.draw_image(ctx, image: u32, x: i32, y: i32, width: u32, height: u32, flag
                                                                                    // slot 37
 ```
 
+Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it draws images.
+
 | Tag | Record | Fields |
 | --- | --- | --- |
 | 1088 | `service.doc_image` | `image: u32`, `index: u32`, `width: u32`, `height: u32`, `flags: u32` |
@@ -413,31 +429,47 @@ canvas.draw_image(ctx, image: u32, x: i32, y: i32, width: u32, height: u32, flag
   `index`, `side` 0 for the page's size, else the longest side for a zoom, at most 1,600) has the
   format decode that picture now (op 18 with `index`, or op 17 for the cover; interface 6
   `prepare_image`, `prepare_image_larger`): a new image id, or the live one where nothing was to do.
-- [D] `image_prepare` decodes a JPEG (baseline and progressive), PNG (not interlaced), GIF (first
-  frame) or BMP of the caller's root 0 or
-  root 1 (`uses.storage`) into the host's image cache at most `side` pixels on the longest side (0:
-  the screen's), in the background (bounded work per main-loop turn, as preparing);
-  `event.image_ready` (to the caller only) tells `status` 0 ready, 1 unsupported (also interlaced
-  PNG and WebP: the image crate has no decoder for them; WebP joins the list once one exists, with
-  its own fuzz target), 2 damaged, 3 too large (over 8 Mpx source, `XTC` and decoder caps), 4 card
-  failure (`ERR_IO`, no card or full), 5 not enough memory now (`ERR_NO_MEMORY`, try again later).
-  Unknown values read as 2. At
-  most 4 waiting per plugin (`ERR_FULL`), 8 prepared images per plugin. `flags` bit 0 colour (where
-  the screen has it).
+- [D] `image_prepare` decodes a JPEG (baseline and progressive), PNG (not interlaced) or GIF
+  (first frame) of the caller's root 0 or root 1 (`uses.storage`) into the host's image cache at
+  most `side` pixels on the longest side (0: the screen's), in the background: **one request per
+  main-loop turn**, decoded to completion in that turn (the `paperpaw-image` decoders cannot pause;
+  interface 6 prepared pictures the same way), never inside a plugin callback, so a waiting input
+  is handled before the next request starts. A request is bounded by the caps below (8 Mpx source,
+  `side` at most 1,600); its time on the X4 is a measured gate (a 1,600-pixel PNG), and a
+  resumable decoder replaces this rule if it fails. `event.image_ready` (to the
+  caller only) tells `status` 0 ready, 1 unsupported (also BMP, which no first-party plugin
+  prepares, interlaced PNG and WebP: the image crate has no decoder for them; WebP joins the list
+  once one exists, with its own fuzz target), 2 damaged, 3 too large (over 8 Mpx source, `XTC` and
+  decoder caps; `paperpaw_image::ImageError::TooLarge`), 4 card failure (`ERR_IO`, no card or
+  full), 5 not enough memory now (`ERR_NO_MEMORY`, try again later). Unknown values read as 2. At
+  most 4 waiting per plugin (`ERR_FULL`), 8 prepared images per plugin. `flags` bit 0 colour
+  (where the screen has it).
 - [D] `image.info` writes one `doc_image` record (`width`, `height`, `flags` bit 0 colour) into
-  `out`. `canvas.draw_image` draws the image scaled into the rectangle (keeping its shape, centred;
-  `flags` bit 0 fill and crop, bit 1 no dithering, bit 2 inverted for night mode), clipped by the
-  canvas, only inside a `draw` callback (`ERR_STATE`); an unknown or ended id `ERR_NOT_FOUND`; a
-  card read failure `ERR_IO` (nothing drawn). The host reads the file in bands of at most 2 KiB (the
-  X4 frame band), so drawing costs no heap.
+  `out`. `canvas.draw_image` draws the image scaled into the rectangle (keeping its shape,
+  centred), clipped by the canvas, only inside a `draw` callback (`ERR_STATE`). `flags`: bit 0
+  `fill` (fill the rectangle and crop), bit 1 `small` (a small picture: it does not count towards
+  the e-paper ghosting full refresh, interface 6 `small_pictures`), bits 8-15 transparency (255
+  minus the opacity: 0 opaque, the default; 255 draws nothing), blended over what is below. Other
+  bits are `ERR_UNSUPPORTED` (nothing drawn); a scaled picture over 65,535 pixels on a side is
+  `ERR_INVALID`, the only size refusal (a large rectangle is clipped, not refused). An unknown or
+  ended id is `ERR_NOT_FOUND`; a card read failure or a cache file shorter than its header says is
+  `ERR_IO`, a header that does not match the file `ERR_INVALID` (hostile-input rule below), with
+  nothing drawn when found before the first band, else the bands drawn so far kept and the error
+  returned (never a silent partial draw). The host reads the file in bands of at most 2 KiB (the
+  X4 frame band). **Draw memory:** besides that band the drawer takes one bounded, transient heap
+  block per call (its source row chunk of 8 KiB plus a few bytes per source row and per drawn
+  column: at most 32 KiB, about 25-30 KiB for a 1,600-pixel picture), allocated fallibly before
+  the first band and freed before the call returns; refused, it is `ERR_NO_MEMORY` with nothing
+  drawn. Nothing is kept between calls. Dithering and night-mode inversion are the
+  host's own, by the screen and the user's settings, not flags.
 - [D] **Hostile input.** Every picture is downloaded input. The band drawer checks a cache image a
   format wrote (`fmt.image`) before using it: header against its file size and the stated
   `width`/`height`, a short read `ERR_IO`, a mismatch `ERR_INVALID`; nothing panics and nothing
-  reads past the file. Each decoder (JPEG baseline, progressive JPEG, PNG, GIF, BMP) and the
+  reads past the file. Each decoder (JPEG baseline, progressive JPEG, PNG, GIF) and the
   cache-image reader keep a fuzz target (`fuzz/fuzz_targets`, today one `image.rs` for all), a gate
   for this family.
 
-## 6. Fonts of a book
+## 6. Fonts of a book and hyphenation
 
 - [D] `doc_font` rows, one per **face** (`index` from 0, at most 124: 31 families × regular, bold,
   italic, bold italic; `family` 1-31 as the runs' `TextStyle` family, `flags` bit 0 bold, bit 1
@@ -452,6 +484,48 @@ canvas.draw_image(ctx, image: u32, x: i32, y: i32, width: u32, height: u32, flag
 - [D] Embedded fonts are hostile input to the host's font engine: its parser has a fuzz target (a
   gate), `font.acquire` checks the tables it needs, and a glyph that fails to parse later draws
   nothing (counted as a failed read), never a panic.
+
+### 6.1 Hyphenation (slot 38)
+
+- [D] **The host hyphenates; the reader holds no table.** Layout stays with the reader (section 0),
+  so it asks where a word may break with host slot 38 `text.hyphenate(ctx, language: bytes, word:
+  bytes, left: u32, right: u32, out: buffer)`, `query`, any callback, no `uses.*` feature. It
+  replaces interface 6's `env.hyphenation()`, `Hyphenator`, `CardTable` and `with_minimums`
+  (section 9). Tables are data plugins' `[hyphenation]` files on the card (`resource.hyphenation`,
+  `docs/abi/proposals/declarative-registration.md`); no `.ppn` carries one.
+- [D] **Which table.** `language` is a tag, `[A-Za-z0-9-]`, 1 to 35 bytes (as
+  `resource.hyphenation.language`), matched without regard to case. The host tries the tag, then
+  drops its last `-` part until one is left (`de-ch-1996`, `de-ch`, `de`); where several plugins
+  name the same tag, the greatest plugin id wins (D4). No table for any of them is `ERR_NOT_FOUND`.
+- [D] **The answer.** `word` is UTF-8 (`ERR_UTF8`), at most 192 bytes (`ERR_INVALID`), letters
+  only by the caller's choice (it strips punctuation and soft hyphens), matched without regard to
+  case. `out` gets one byte per place the word may break: the byte offset into `word` before which
+  a hyphen goes, ascending, each at a character boundary, at most 47 bytes (a word of at most 48
+  characters), and the call answers `OK` with that many bytes written; an `out` too small for all
+  of them is `ERR_NO_SPACE` with nothing written. `left` and `right` are the fewest characters
+  before and after a break, 1 to 16, or 0 for the table's own (above 16 `ERR_INVALID`): the
+  reader's `core.hyphen-min-left`/`-right` settings. `OK` with no bytes: the word may not break
+  (an empty word, shorter than `left` + `right`, longer than 48 characters, no pattern allows it),
+  or the table cannot be read at this moment (below); the reader leaves the word whole. An empty
+  `word` is how a reader asks whether a language has a table at all (`OK` or `ERR_NOT_FOUND`).
+- [D] **Reading the table** (as interface 6's card tables, now host-side): opened at the first word
+  of its language with `paperpaw-hyphen`'s card-backed reader, which keeps the index and
+  exceptions and reads pattern blocks as words need them (about 26 reads a word for `de`; opening
+  reads the file once, 708 reads). A table is untrusted input for as long as it is read: the reader
+  checks it as it opens and bounds every read; nothing panics. A read that fails closes it and the
+  next word opens it again; after a second failure, or a table that is not sound, the language
+  answers `ERR_NOT_FOUND` until the card changes. At most 2 tables are open (a book's language
+  and the UI's), together at most 48 KiB, checked before anything is taken; to make room only a
+  table idle for 256 words is closed, else the newer language's words are left whole (`OK`, no
+  bytes; Senior #816). The host closes them all when a book is closed, before the device sleeps,
+  before network, store and firmware work, when the card is mounted anew, and a plugin's tables
+  when it removes or updates that plugin.
+- [D] **Memory per call (X4): no heap.** A call takes the host's stack only (the word as at most
+  48 characters, their offsets and values: under 1 KiB, a gate item measured with the host port)
+  and writes at most 47 bytes into the caller's `out`. What stays is the open tables above: about
+  20 KB for `de`, the largest shipped, at most about 42 KiB for one table the shared check lets
+  through, at most 48 KiB for both (section 8.2). Time: one host call per word the layout wants to
+  break, about one a line.
 
 ## 7. Lookup (dictionary, wikipedia, translate)
 
@@ -518,12 +592,18 @@ reply 4,096 bytes, stage payload 3,840.
   frequencies the output size needs); interlaced GIF the rows of the part on the screen; baseline
   JPEG and BMP a few rows. **This transient peak (PNG the largest) is an X4 gate item**, measured
   with the reader port at a 1,600-pixel PNG.
+- Drawing a picture (slot 37): at most 32 KiB transient per call (section 5), fallible, freed
+  before the call returns; never at the same time as a decode (both run on the main loop).
 - Fonts: card fonts, no heap beyond the font engine's per-handle state.
+- Hyphenation (section 6.1): no heap per call; open tables at most 48 KiB together (2 tables;
+  about 20 KB for `de`), opened at a book's first hyphenated word and closed with the book, as
+  interface 6's card tables, which the reader held; the same bytes, now counted to the host.
 - Lookup: one stage call on the scratch; nothing kept.
 - **X4 worst case for DOC's host side: about 6 KiB at rest** (documents 0.13 + images 1.5 + band 4 +
   queue), **plus the decoder's transient peak while an image decodes (PNG at most 48 KiB on the
-  X4)**, all fallible; an activation-gate item beside UIX's, measured with the reader port. The
-  format plugins' own heaps are gated by their ports.
+  X4)**, **and the open hyphenation tables while a book is open (at most 48 KiB, `de` about 20
+  KB; interface 6's reader held the same)**, all fallible; an activation-gate item beside UIX's,
+  measured with the reader port. The format plugins' own heaps are gated by their ports.
 
 ## 9. Interface-6 calls and their interface-7 form
 
@@ -540,6 +620,7 @@ reply 4,096 bytes, stage payload 3,840.
 | `page_label`, `xpointer`, `locate_xpointer` | ops 9, 10, 11 |
 | `links`, `link_target` | ops 12, 13 |
 | `fonts`, `font_data`, `env.fonts().failed_reads` | op 14, `font.acquire` key `document.<id>.<index>` |
+| `env.hyphenation()`, `Hyphenator`, `CardTable`, `with_minimums` | slot 38 `text.hyphenate` (section 6.1) |
 | `cover`, `prepare_image`, `prepare_image_larger`, `ui::draw_image` | ops 15, 16; slots 36, 37; `image_prepare` |
 | `Document::extended` | none: new ops in a new revision |
 | `Registrar::add_text_filter`, `add_decorator`, `add_page_layer`, `add_page_frame`, `add_voice` | reader-defined stages (`reader.def`, #964), not DOC |
@@ -549,17 +630,20 @@ reply 4,096 bytes, stage payload 3,840.
 ## 10. Hand-offs (after approval)
 
 - **Kernel:** records, `core.document@1` and `core.lookup@1` schemas, `core.format@1` and
-  `core.lookup@1` stage schemas (Core's stage-schema generator first), slots 36-37 in `abi.def`,
+  `core.lookup@1` stage schemas (Core's stage-schema generator first), slots 36-38 in `abi.def`,
   roots 3, 4 and 6 in the storage contract, this document final.
 - **Core:** the document table and leases, the format broker and its checks, preparing in the main
   loop with the `.complete` stamp, roots 3, 4 and 6, image ids and the band drawer, `image_prepare`
   decoding, document fonts in `font.acquire`, the lookup broker; tests for every refusal above,
   power-cut tests of the cache stamp; the path checks of roots 3, 4 and 6; fuzz targets per decoder,
   for the cache-image reader and the font parser.
+- **Host Engineer:** slot 38 `text.hyphenate` (section 6.1): the tag fallback and D4 choice over the
+  registry's `resource.hyphenation` rows, interface 6's card-table rules (`OPEN`, `BUDGET`, `HOT`,
+  give-up, closing) moved into the host; tests for every status of section 6.1.
 - **Services:** the SDK side: a `Document` facade for openers over op 1-21, the block writer (piece
   splitting by size), a `Format` trait for format plugins over `core.format`, image and font
-  helpers.
+  helpers; a safe `hyphenate` wrapper over slot 38 for the reader's layout and the SDK grid.
 - **Firmware:** the X4 nested-callback stack case for `block`, the image band drawer's speed, the
-  DOC line of the heap budget.
+  DOC line of the heap budget, slot 38's host stack.
 - **Plugin:** the ports: the six format plugins, notes-vault, the reader, files, file-manager,
   browser, koreader, kosync, sleep, dictionary, wikipedia, translate.

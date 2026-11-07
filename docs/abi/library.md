@@ -198,7 +198,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   only for the row; op 3 and op 4 have them whole.
 - [D] `lib_book` (op 3): `key`, `generation`, `path: str 512`, `title: str 512`, `author: str 512`,
   `series: str 256`, `number: str 32`, `progress`, `flags` (as `lib_entry`, bits 5-7 the long form
-  was cut too), `added`, `size: u64`, `format: str 128`, `tags` and `fields` (their counts, no cap),
+  was cut too; bit 8 `missing`: the book's file is not on the card now, looked up by the host when
+  it answers, so a plugin needs no `uses.storage` to tell a gone book, Port Reviewer on #350),
+  `added`, `size: u64`, `format: str 128`, `tags` and `fields` (their counts, no cap),
   `title_bytes`, `author_bytes`, `series_bytes`. Op 4 (`lib_text_at`: `lib_ref`, `kind` 0 title, 1
   author, 2 series, 3 tag, 4 in-catalog field `id=value`, 5 annotation text, 6 annotation note;
   `index` for lists below the count, else `ERR_NOT_FOUND`; `offset`) answers one `lib_text` (`kind`,

@@ -146,17 +146,31 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
   call**, and replies `fs_progress`: `removed` this call, `flags` bit 0 `done`, and `next`, the
   place to go on from. The plugin calls again with the same path and `cursor = next` until
   `done`; `cursor` 0 starts.
-- [D] **The place names its folder and stays inside `path`.** `next` holds the folder being emptied
-  and the position in it (on FAT the folder's first cluster and the entry slot). The host only
-  ever goes down from `path`; it never goes up by a folder's `..` entry (after a cut during a folder
-  move, `..` may still name the old parent, section 2.6). When the folder it empties is empty, it
-  removes it and goes on from `path` again. A place whose folder the host cannot show to be `path`
-  or below it, or that is gone or no longer reads as a folder, is **stale**: the call starts over
-  from `path` (never an error, only slower), so no call removes anything outside `path`. A call
-  that reached the read cap before removing anything still answers, with `removed` 0 and a new
-  `next`, so every loop advances and no call reads the whole of a big folder. A missing folder is
-  `done` at once with `removed` 0; a file at the path is removed as a one-entry tree. Interface 6's
-  `remove_dir_all` becomes a loop in the SDK helper.
+- [D] **The place stays inside `path`.** `next` holds the depth below `path` and the slot in the
+  folder at that depth. Each call finds that folder again by going down from `path`, always into
+  the first subfolder, never up by a folder's `..` entry (after a cut during a folder move, `..`
+  may still name the old parent, section 2.6), so no place can point outside `path` and none is
+  ever stale. A folder is entered and an entry removed **by its position** in its folder, never by
+  name: names no path can hold (reserved, a trailing dot, over 255 bytes; section 2.1
+  `unaddressable`) are removed like any other, and a non-empty folder with such a name is entered
+  and emptied. When the folder being emptied is empty, it is removed from its parent and the call
+  goes on from `path` again. Files met on the way down are removed as they are read, so a level is
+  passed again with at most 3 entry reads (its `.`, `..` and the subfolder's entry). **Bounds per
+  call:** at most 256 folder entries read and 64 removals, plus at most 3 entry reads per level
+  going down (at most 768, not counted in the 256, so every call advances); a call that reached
+  the read cap before removing anything still answers, with `removed` 0 and a new
+  `next`, so no call reads the whole of a big folder. **Depth:** at most 256 levels below `path`
+  (the deepest a plugin can make: a path is at most 512 bytes); a folder nested deeper (only a
+  computer makes one) ends the call with `ERR_STATE`, what was removed stays removed, the rest of
+  the tree stays whole and reachable. A missing folder is `done` at once with `removed` 0; a file
+  at the path is removed as a one-entry tree. Interface 6's `remove_dir_all` becomes a loop in the
+  SDK helper.
+- [D] **No card space is lost.** Every entry is removed with the storage's own remove, which frees
+  its clusters (power-safe order: the entry first, then its clusters). The one exception is a
+  folder the storage finds **damaged** (its cluster holds another file's data or garbage,
+  `paperpaw-fat` `damaged.rs`): it is cut off where its parent names it and nothing in it is
+  followed or freed, since its clusters may be another file's; they stay taken until the card is
+  checked on a computer, as for every damaged folder.
 - [D] Root 0 `""` empties the whole data folder (the folder itself stays). Root 1 `""` is
   `ERR_INVALID` (never the whole card); root 2 is `ERR_DENIED`.
 - [D] Power cut or a call that fails part of the way: what was removed is gone, the rest is whole
@@ -174,11 +188,13 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
   roots 0 and 1 (both on the device's one storage: a news article written in the data folder moves
   into the user's books; an upload moves from the data folder to the card). Root 1 on either side
   needs `uses.storage`; root 2 is `ERR_DENIED`.
-- [D] `flags` bit 0 `replace`: an existing **file** at `to` is replaced. Without it, an existing
-  `to` is `ERR_STATE`; an existing **folder** at `to` is always `ERR_STATE` (never merged). Other
-  bits `ERR_UNSUPPORTED`. A folder moved into itself or below itself is `ERR_INVALID`. The parent
-  folder of `to` must exist (`ERR_NOT_FOUND`; plugins call `make_dir` first). A case-only rename
-  (`Book.epub` → `book.epub`) is a rename, not a replace, where the storage ignores case.
+- [D] `flags` bit 0 `replace`: an existing **file** at `to` is replaced by a **file**. Without it,
+  an existing `to` is `ERR_STATE`; an existing **folder** at `to` is always `ERR_STATE` (never
+  merged), and so is a folder moved onto an existing file, with or without `replace` (a file is
+  replaced only by a file). Other bits `ERR_UNSUPPORTED`. A folder moved into itself or below
+  itself is `ERR_INVALID`. The parent folder of `to` must exist (`ERR_NOT_FOUND`; plugins call
+  `make_dir` first). A case-only rename (`Book.epub` → `book.epub`) is a rename, not a replace,
+  where the storage ignores case.
 - [D] **Power cut:** as `storage.rename`: the new entry is added before the old one is removed, so
   the file or folder is found at both places or at one of them, never at neither. For a folder, the
   host also points its `..` entry at the new parent; a cut between leaves a folder that is whole and
@@ -293,7 +309,9 @@ above. A refused call changes nothing.
   slots 20-26. `list` writes rows into `out` as the storage visits entries, at most 4,096 bytes; a
   row that does not fit ends the page there (its place is `next`), so no row is cut and nothing is
   held between calls. `remove_tree` keeps no state between calls beyond the `next` it hands back,
-  and reads at most 256 folder entries and removes at most 64 per call.
+  and reads at most 256 folder entries and removes at most 64 per call, plus at most 3 entry reads
+  per level going down (at most 256 levels, 768 reads). On FAT the walk keeps only the folder
+  being emptied and its entry in the parent, never a stack of folders.
 - Plugin: a page is at most 4 KiB; the SDK decodes it with the generated stream decoder.
 
 ## 6. Who uses what (first-party, interface 6 audit)

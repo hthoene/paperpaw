@@ -133,6 +133,17 @@ fn every_called_host_table_entry_but_the_allocator_and_the_clock_announces_its_s
     );
     entry!(service_call, (table.service_call)(ctx, 0, 0, none, nobuf));
     entry!(ui_compose, (table.ui_compose)(ctx, 0, 0, 0, 0, 0, 0));
+    entry!(image_info, (table.image_info)(ctx, 0, nobuf));
+    entry!(
+        canvas_draw_image,
+        (table.canvas_draw_image)(ctx, 0, 0, 0, 0, 0, 0)
+    );
+    entry!(
+        text_hyphenate,
+        (table.text_hyphenate)(ctx, none, none, 0, 0, nobuf)
+    );
+    entry!(text_covers, (table.text_covers)(ctx, 0, none));
+    entry!(icon_glyph, (table.icon_glyph)(ctx, none, nobuf));
     // Every field of the table is accounted for: the four exempt ones
     // (heap_alloc, heap_dealloc, heap_realloc, clock_micros) plus the
     // list above. A new entry makes the table longer than the list.

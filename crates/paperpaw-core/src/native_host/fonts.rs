@@ -6,7 +6,8 @@ use super::{
 };
 use crate::abi7::{context::Frame, graphics};
 use paperpaw_native::host_glue::{
-    ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE, OK, PpBytes, buffers,
+    ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, OK, PpBuffer, PpBytes,
+    buffers,
 };
 use paperpaw_platform::Color;
 use paperpaw_sdk::{FontHandle, Fonts, builtin::fonts as roles};
@@ -161,6 +162,61 @@ pub(crate) unsafe fn measure(
         unsafe { out.write(width) };
         Ok(())
     })())
+}
+
+/// The longest icon name in bytes.
+const ICON_NAME_MAX: usize = 64;
+
+/// Whether `name` is one `[a-z0-9-]` segment of 1 to 64 bytes.
+fn icon_name_ok(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= ICON_NAME_MAX
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// The UTF-8 of the character of icon `name` in the bound icon font, into
+/// `bytes`; the length. `ERR_INVALID` for a bad name, `ERR_NOT_FOUND` for a
+/// name the host lacks or no icon font bound (or one without the character).
+fn icon_utf8(frame: &dyn Frame, name: &str, bytes: &mut [u8; 4]) -> Result<usize, i32> {
+    if !icon_name_ok(name) {
+        return Err(ERR_INVALID);
+    }
+    let fonts = frame.fonts().ok_or(ERR_STATE)?;
+    let font = resolve_role(fonts, FontRole::Icons).ok_or(ERR_NOT_FOUND)?;
+    let ch = paperpaw_sdk::icons::char(name).ok_or(ERR_NOT_FOUND)?;
+    if !font.has_char(ch) {
+        return Err(ERR_NOT_FOUND);
+    }
+    Ok(ch.encode_utf8(bytes).len())
+}
+
+/// Slot 40: `icon.glyph`, the character of a named icon in the bound icon
+/// font (`screens-input.md`): its UTF-8 (at most 4 bytes) into `out`, and
+/// its length; a smaller `out` is `ERR_NO_SPACE`.
+///
+/// # Safety
+/// `name` is live and readable, `out` writable for its capacity, disjoint
+/// from each other and from host state.
+pub(crate) unsafe fn icon_glyph(scope: &EnvironmentScope, name: PpBytes, out: PpBuffer) -> i32 {
+    (|| {
+        // SAFETY: the caller provides live readable input.
+        let name = unsafe { buffers::text_in(name, ICON_NAME_MAX) }?;
+        // SAFETY: the caller provides live writable output.
+        let out = unsafe { buffers::buffer_out(out, ICON_NAME_MAX) }?;
+        let mut bytes = [0_u8; 4];
+        let len = scope.with_frame(|frame| icon_utf8(frame, name, &mut bytes))??;
+        if out.len() < len {
+            return Err(ERR_NO_SPACE);
+        }
+        for (slot, byte) in out.iter_mut().zip(&bytes[..len]) {
+            slot.write(*byte);
+        }
+        // The length is a positive result, not a status.
+        i32::try_from(len).map_err(|_| ERR_INVALID)
+    })()
+    .unwrap_or_else(|error| error)
 }
 
 /// Slot 29: publish all three metrics together, including positive descent.

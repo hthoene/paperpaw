@@ -1,0 +1,474 @@
+#![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
+//! `image_prepare`: the queue, the decode and the ids.
+extern crate std;
+use super::*;
+use crate::native_host::image_service::DEVICE_IMAGES;
+use paperpaw_native::host_glue::ERR_NOT_FOUND;
+use paperpaw_sdk::MemoryStorage;
+use paperpaw_sdk::image::PngWriter;
+
+const A: u64 = 1;
+/// A device with no X4 limits and a 480-pixel screen.
+const ENV: Env = Env {
+    screen: 480,
+    colour: false,
+    max_side: 4096,
+    png_row_max: usize::MAX,
+};
+const B: u64 = 2;
+
+fn png(storage: &MemoryStorage, path: &str, w: u32, h: u32) {
+    let mut writer = PngWriter::new(storage, path, w, h).unwrap();
+    let row = std::vec![90_u8; w as usize];
+    for _ in 0..h {
+        writer.row(storage, path, &row).unwrap();
+    }
+}
+
+fn told(t: &ImageTable) -> Option<Ready> {
+    let mut got = None;
+    t.take_ready(&mut |r| {
+        got = Some(r.clone());
+        Ok(())
+    })
+    .unwrap();
+    got
+}
+
+fn step(t: &ImageTable, storage: &MemoryStorage) -> Option<Ready> {
+    t.prepare_step(storage, ENV).unwrap();
+    told(t)
+}
+
+#[test]
+fn a_request_is_decoded_to_a_prepared_image_the_plugin_owns() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    png(&storage, "a.png", 40, 20);
+    t.prepare(A, "a.png", 16, 7, false).unwrap();
+    assert!(t.prepare_pending());
+    let ready = step(&t, &storage).unwrap();
+    assert_eq!((ready.owner, ready.cookie, ready.status), (A, 7, READY));
+    assert_ne!(ready.image, 0);
+    assert!(ready.width <= 16 && ready.height <= 16 && ready.width > 0);
+    // The id is the plugin's, with the size the event gave.
+    let info = t.info(A, ready.image).unwrap();
+    assert_eq!((info.width, info.height), (ready.width, ready.height));
+    assert_eq!(t.info(B, ready.image), Err(ERR_NOT_FOUND));
+    assert!(!t.prepare_pending());
+    assert_eq!(step(&t, &storage), None);
+    // image_release ends it and its file goes the turn after.
+    let file = {
+        let inner = t.lock().unwrap();
+        file_name(inner.entries[0].owner, inner.entries[0].seq).unwrap()
+    };
+    assert!(storage.exists(&file));
+    t.release(A, ready.image).unwrap();
+    assert!(t.prepare_pending(), "its file is to be deleted");
+    assert_eq!(step(&t, &storage), None);
+    assert!(!storage.exists(&file));
+    assert!(!t.prepare_pending());
+}
+
+#[test]
+fn side_zero_is_the_screens_and_a_stopped_plugin_loses_everything() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    png(&storage, "a.png", 64, 64);
+    t.prepare(A, "a.png", 0, 1, false).unwrap();
+    t.prepare_step(&storage, Env { screen: 32, ..ENV }).unwrap();
+    let ready = told(&t).unwrap();
+    assert_eq!((ready.status, ready.width), (READY, 32));
+    t.prepare(A, "a.png", 0, 2, false).unwrap();
+    t.owner_stopped(A).unwrap();
+    assert_eq!(step(&t, &storage), None, "its waiting request went too");
+    assert_eq!(t.info(A, ready.image), Err(ERR_NOT_FOUND));
+    // Its file is deleted on the next turn.
+    assert_eq!(step(&t, &storage), None);
+    assert!(!t.prepare_pending());
+}
+
+#[test]
+fn a_bad_file_answers_with_a_status_never_an_id() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    storage.write("junk.png", b"not an image at all").unwrap();
+    storage
+        .write("cut.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR")
+        .unwrap();
+    for (path, status) in [
+        ("junk.png", UNSUPPORTED),
+        ("cut.png", DAMAGED),
+        ("none.png", CARD),
+    ] {
+        t.prepare(A, path, 16, 3, false).unwrap();
+        let ready = step(&t, &storage).unwrap();
+        assert_eq!((ready.status, ready.image), (status, 0), "{path}");
+    }
+    // Nothing was kept: no id, no file left, no count against the plugin.
+    assert!(t.lock().unwrap().entries.is_empty());
+    assert_eq!(t.prepare(A, "", 16, 3, false), Err(ERR_INVALID));
+}
+
+#[test]
+fn four_wait_and_eight_prepared_and_waiting_is_the_most() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    png(&storage, "a.png", 8, 8);
+    for n in 0..4 {
+        t.prepare(A, "a.png", 8, n, false).unwrap();
+    }
+    assert_eq!(t.prepare(A, "a.png", 8, 9, false), Err(ERR_FULL));
+    // Another plugin has its own four.
+    t.prepare(B, "a.png", 8, 1, false).unwrap();
+    for _ in 0..4 {
+        assert_eq!(step(&t, &storage).unwrap().owner, A, "oldest first");
+    }
+    for n in 0..4 {
+        t.prepare(A, "a.png", 8, n, false).unwrap();
+    }
+    // 4 prepared + 4 waiting is 8: no ninth.
+    assert_eq!(t.prepare(A, "a.png", 8, 9, false), Err(ERR_FULL));
+}
+
+#[test]
+fn ready_is_one_event_record() {
+    let ready = Ready {
+        owner: A,
+        cookie: 5,
+        status: READY,
+        image: 3,
+        width: 10,
+        height: 20,
+    };
+    let mut out = [0_u8; 64];
+    let n = wire::record_encode_one(&ready.record(99), &mut out).unwrap();
+    let (record, used) = wire::record_decode_prefix(&out[..n]).unwrap();
+    assert_eq!(used, n);
+    let wire::Record::EventImageReady(event) = record else {
+        panic!("not image_ready");
+    };
+    assert_eq!(
+        (
+            event.now_ms,
+            event.cookie,
+            event.image,
+            event.width,
+            event.height
+        ),
+        (99, 5, 3, 10, 20)
+    );
+}
+
+#[test]
+fn boot_cleanup_removes_only_this_hosts_files_in_its_folder_a_few_at_a_time() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    for n in 0..5 {
+        storage
+            .write(&std::format!("{DIR}/a{n}-1f.img"), b"x")
+            .unwrap();
+    }
+    // Not ours: another name, a file beside the folder, one further down.
+    storage
+        .write(&std::format!("{DIR}/notes.txt"), b"x")
+        .unwrap();
+    storage
+        .write(&std::format!("{DIR}/a-b.img.bak"), b"x")
+        .unwrap();
+    storage.write(".paperpaw/cache/keep.img", b"x").unwrap();
+    storage
+        .write(&std::format!("{DIR}/sub/1-1.img"), b"x")
+        .unwrap();
+    let mut cursor = 0;
+    assert_eq!(t.sweep_cache(&storage, 2, &mut cursor), Ok(true));
+    let mut left = 0;
+    storage
+        .list(DIR, &mut |e| left += usize::from(ours(e.name)))
+        .unwrap();
+    assert_eq!(left, 3);
+    assert_eq!(t.sweep_cache(&storage, 2, &mut cursor), Ok(true));
+    assert_eq!(
+        t.sweep_cache(&storage, 2, &mut cursor),
+        Ok(false),
+        "the last one: nothing more"
+    );
+    assert!(storage.exists(&std::format!("{DIR}/notes.txt")));
+    assert!(storage.exists(&std::format!("{DIR}/a-b.img.bak")));
+    assert!(storage.exists(".paperpaw/cache/keep.img"));
+    assert!(storage.exists(&std::format!("{DIR}/sub/1-1.img")));
+    // A card without the folder is fine.
+    assert_eq!(t.sweep_cache(&MemoryStorage::new(), 2, &mut 0), Ok(false));
+}
+
+#[test]
+fn boot_cleanup_spares_a_file_a_live_image_uses() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    png(&storage, "a.png", 8, 8);
+    t.prepare(A, "a.png", 8, 1, false).unwrap();
+    let ready = step(&t, &storage).unwrap();
+    assert_eq!(t.sweep_cache(&storage, 8, &mut 0), Ok(false));
+    assert!(t.info(A, ready.image).is_ok());
+    let file = {
+        let inner = t.lock().unwrap();
+        file_name(inner.entries[0].owner, inner.entries[0].seq).unwrap()
+    };
+    assert!(storage.exists(&file), "a live image keeps its file");
+}
+
+#[test]
+fn prepare_decode_release_without_telling_never_grows_the_answers() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    png(&storage, "a.png", 8, 8);
+    for round in 0..40 {
+        t.prepare(A, "a.png", 8, round, false).unwrap();
+        assert!(t.prepare_step(&storage, ENV).unwrap());
+        let image = t.lock().unwrap().ready[0].image;
+        // The plugin lets go of it before it is told anything.
+        t.release(A, image).unwrap();
+        let inner = t.lock().unwrap();
+        assert!(
+            inner.ready.is_empty(),
+            "round {round}: its answer went with it"
+        );
+        assert!(inner.entries.is_empty());
+        assert!(inner.garbage.len() <= 1 + inner.garbage.capacity() - inner.garbage.len());
+        drop(inner);
+        // Its file goes the next turn.
+        t.prepare_step(&storage, ENV).unwrap();
+    }
+    assert!(!t.prepare_pending());
+}
+
+#[test]
+fn answers_not_told_count_with_the_waiting_ones_until_they_are() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    png(&storage, "a.png", 8, 8);
+    for n in 0..4 {
+        t.prepare(A, "a.png", 8, n, false).unwrap();
+    }
+    while t.prepare_step(&storage, ENV).unwrap() {}
+    // Four answers wait to be told: no fifth request, and no growth.
+    assert_eq!(t.prepare(A, "a.png", 8, 9, false), Err(ERR_FULL));
+    assert_eq!(t.prepare_room(A), 0);
+    assert_eq!(t.lock().unwrap().ready.len(), 4);
+    assert!(told(&t).is_some());
+    assert_eq!(t.prepare_room(A), 1);
+    t.prepare(A, "a.png", 8, 9, false).unwrap();
+}
+
+#[test]
+fn every_prepared_image_of_every_plugin_can_end_at_once_without_losing_a_file() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    png(&storage, "a.png", 8, 8);
+    let owners = [A, B, 3, 4];
+    // Four plugins with four images each: more than the eight a plugin has.
+    let mut images = std::vec::Vec::new();
+    for owner in owners {
+        for n in 0..4 {
+            t.prepare(owner, "a.png", 8, n, false).unwrap();
+        }
+    }
+    while t.prepare_step(&storage, ENV).unwrap() {}
+    for owner in owners {
+        for _ in 0..4 {
+            let ready = {
+                let mut got = None;
+                t.take_ready(&mut |r| {
+                    if r.owner == owner {
+                        got = Some(r.clone());
+                    }
+                    Ok(())
+                })
+                .unwrap();
+                got
+            };
+            let _ = ready;
+        }
+    }
+    {
+        let inner = t.lock().unwrap();
+        images.extend(
+            inner
+                .entries
+                .iter()
+                .map(|e| (e.owner, e.id, file_name(e.owner, e.seq).unwrap())),
+        );
+    }
+    assert_eq!(images.len(), 16);
+    // One more prepared image, with the table at its fullest: its room too.
+    let (last_owner, last_id, _) = images[15].clone();
+    for (owner, id, _) in &images {
+        t.release(*owner, *id).unwrap();
+    }
+    let _ = (last_owner, last_id);
+    let listed = t.lock().unwrap().garbage.len();
+    assert_eq!(listed, 16, "every ended image's file is listed, none lost");
+    for (_, _, path) in &images {
+        assert!(storage.exists(path));
+    }
+    while t.prepare_pending() {
+        t.prepare_step(&storage, ENV).unwrap();
+    }
+    for (_, _, path) in &images {
+        assert!(!storage.exists(path), "{path}");
+    }
+}
+
+#[test]
+fn the_eighth_prepared_image_then_a_ninth_plugins_first_has_room_for_its_file() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    png(&storage, "a.png", 8, 8);
+    for round in 0..2 {
+        for n in 0..4 {
+            t.prepare(A, "a.png", 8, round * 4 + n, false).unwrap();
+        }
+        while t.prepare_step(&storage, ENV).unwrap() {}
+        for _ in 0..4 {
+            told(&t).unwrap();
+        }
+    }
+    assert_eq!(t.lock().unwrap().entries.len(), 8);
+    t.prepare(B, "a.png", 8, 1, false).unwrap();
+    assert!(t.prepare_step(&storage, ENV).unwrap());
+    // All nine can end: the list has a place for each file.
+    let inner = t.lock().unwrap();
+    assert!(inner.garbage.capacity() >= inner.garbage.len() + inner.entries.len());
+}
+
+#[test]
+fn files_a_sweep_must_leave_do_not_hide_the_deletable_ones_behind_them() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    png(&storage, "a.png", 8, 8);
+    // Three live images' files sort first; four stale ones come after.
+    for n in 0..3 {
+        t.prepare(A, "a.png", 8, n, false).unwrap();
+    }
+    while t.prepare_step(&storage, ENV).unwrap() {}
+    let live: std::vec::Vec<String> = t
+        .lock()
+        .unwrap()
+        .entries
+        .iter()
+        .map(|e| file_name(e.owner, e.seq).unwrap())
+        .collect();
+    assert_eq!(live.len(), 3);
+    for n in 0..4 {
+        storage
+            .write(&std::format!("{DIR}/ff{n}-1.img"), b"x")
+            .unwrap();
+    }
+    // A window of two is filled by live files at first, yet it ends.
+    let mut cursor = 0;
+    let mut calls = 0;
+    while t.sweep_cache(&storage, 2, &mut cursor).unwrap() {
+        calls += 1;
+        assert!(calls < 20, "the sweep must end");
+    }
+    for n in 0..4 {
+        assert!(!storage.exists(&std::format!("{DIR}/ff{n}-1.img")));
+    }
+    for path in &live {
+        assert!(storage.exists(path), "a live image's file stays");
+    }
+    assert_eq!(cursor, 3);
+}
+
+#[test]
+fn the_x4_clamps_the_side_and_refuses_a_wide_png_source_row() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    png(&storage, "big.png", 64, 64);
+    t.prepare(A, "big.png", 0, 1, false).unwrap();
+    let x4 = Env {
+        screen: 480,
+        colour: false,
+        max_side: 16,
+        png_row_max: 8192,
+    };
+    assert!(t.prepare_step(&storage, x4).unwrap());
+    let ready = told(&t).unwrap();
+    assert_eq!(ready.status, READY);
+    assert!(
+        ready.width <= 16 && ready.height <= 16,
+        "side 0 and 4096 stop at 16"
+    );
+    t.prepare(A, "big.png", 4096, 2, false).unwrap();
+    t.prepare_step(&storage, x4).unwrap();
+    let ready = told(&t).unwrap();
+    assert!(ready.width <= 16, "a larger side is clamped too");
+    // A source row of 64 pixels of 8-bit gray is 64 bytes: over a cap of 63.
+    let narrow = Env {
+        png_row_max: 63,
+        ..ENV
+    };
+    t.prepare(A, "big.png", 8, 3, false).unwrap();
+    t.prepare_step(&storage, narrow).unwrap();
+    let ready = told(&t).unwrap();
+    assert_eq!((ready.status, ready.image), (TOO_LARGE, 0));
+    let ok = Env {
+        png_row_max: 64,
+        ..ENV
+    };
+    t.prepare(A, "big.png", 8, 4, false).unwrap();
+    t.prepare_step(&storage, ok).unwrap();
+    assert_eq!(told(&t).unwrap().status, READY);
+}
+
+#[test]
+fn a_cache_name_left_by_an_earlier_boot_is_replaced_and_a_sweep_spares_the_live_file() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    png(&storage, "a.png", 8, 8);
+    // The first number a fresh table gives is the one an earlier boot left.
+    let stale = file_name(A, 0).unwrap();
+    storage.write(&stale, b"junk from the last boot").unwrap();
+    t.prepare(A, "a.png", 8, 1, false).unwrap();
+    let ready = step(&t, &storage).unwrap();
+    assert_eq!(ready.status, READY, "the old file is replaced, not trusted");
+    assert!(paperpaw_sdk::ui::probe_picture(&storage, &stale).is_some());
+    let mut cursor = 0;
+    assert_eq!(t.sweep_cache(&storage, 8, &mut cursor), Ok(false));
+    assert!(storage.exists(&stale), "a live image's file stays");
+    assert!(t.info(A, ready.image).is_ok());
+}
+
+#[test]
+fn the_device_holds_sixty_four_ids_at_most() {
+    let t = ImageTable::new();
+    let owners: std::vec::Vec<u64> = (1..=9).collect();
+    let mut made = 0;
+    'fill: for owner in &owners {
+        for n in 0..PREPARED_IMAGES as u32 {
+            match t.add_prepared(*owner, n, 8, 8, false) {
+                Ok(_) => made += 1,
+                Err(error) => {
+                    assert_eq!(error, ERR_FULL);
+                    break 'fill;
+                }
+            }
+        }
+    }
+    assert_eq!(made, DEVICE_IMAGES);
+    // A document image of a plugin under its own cap waits, too.
+    assert_eq!(
+        t.add(
+            10,
+            Origin::Document {
+                document: 1,
+                index: 0
+            },
+            "c/x",
+            8,
+            8,
+            false
+        ),
+        Err(paperpaw_native::host_glue::ERR_BUSY)
+    );
+}

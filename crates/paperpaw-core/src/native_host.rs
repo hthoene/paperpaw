@@ -82,6 +82,10 @@ mod shared;
 pub mod resources;
 pub use resources::HostResources;
 
+#[path = "native_host/shell_wiring.rs"]
+pub mod shell_wiring;
+pub use shell_wiring::{HostWiring, HyphenTables, WiredHosts};
+
 #[path = "native_host/fonts.rs"]
 mod fonts;
 
@@ -104,6 +108,17 @@ pub(crate) mod format_index;
 #[path = "native_host/formatting.rs"]
 mod formatting;
 pub(crate) mod host_services;
+#[allow(
+    dead_code,
+    reason = "wired into the shell table; a shell wires its host view"
+)]
+pub(crate) mod hyphen_card;
+pub(crate) mod hyphen_service;
+#[allow(
+    dead_code,
+    reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
+)]
+pub(crate) mod image_service;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]

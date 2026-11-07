@@ -4,6 +4,10 @@
 //! the callback; the kernel applies them, so the next callback reads them back.
 
 use super::Error;
+use super::image_service::{
+    self,
+    commands::{ImageAdmit, ImageCommand},
+};
 pub use crate::abi7::commands_wire::{
     COMMAND_MAX_BYTES, COMMAND_MAX_KEY_BYTES, COMMAND_MAX_RECORDS, COMMAND_SET_SETTING_TAG,
     Command as WireCommand, CommandBatch, SecretText, commands_decode, commands_encode,
@@ -68,6 +72,10 @@ pub struct CommandStage<'a> {
     dev: Option<dev::DevStage<'a>>,
     redraw: Option<u32>,
     accepted: usize,
+    /// `image_prepare` / `image_release` admission, once the host gave it.
+    images: Option<ImageAdmit>,
+    /// The admitted image commands, applied by the host after the callback.
+    staged_images: Vec<ImageCommand>,
 }
 
 impl<'a> CommandStage<'a> {
@@ -97,7 +105,34 @@ impl<'a> CommandStage<'a> {
             dev: None,
             redraw: None,
             accepted: 0,
+            images: None,
+            staged_images: Vec::new(),
         }
+    }
+
+    /// Admits `command.image_prepare` and `command.image_release` for this
+    /// callback (otherwise they are `ERR_UNSUPPORTED`): see
+    /// [`ImageAdmit`]. The admitted ones come back from
+    /// [`Self::take_image_commands`].
+    #[must_use]
+    #[allow(
+        dead_code,
+        reason = "the shell's command runner wires it with the owner's host id"
+    )]
+    pub(crate) fn with_images(mut self, images: ImageAdmit) -> Self {
+        self.images = Some(images);
+        self
+    }
+
+    /// The admitted image commands, in order, for the host to apply after
+    /// the callback (call it before [`Self::into_commands`]).
+    #[must_use]
+    #[allow(
+        dead_code,
+        reason = "the shell's command runner wires it with the owner's host id"
+    )]
+    pub(crate) fn take_image_commands(&mut self) -> Vec<ImageCommand> {
+        core::mem::take(&mut self.staged_images)
     }
 
     /// Commands accepted so far, in submission order.
@@ -158,7 +193,16 @@ impl<'a> CommandStage<'a> {
         if bytes > self.byte_limit {
             return ERR_NO_SPACE;
         }
+        let mut images = self.images;
         for command in batch.iter() {
+            if let Some(admit) = images.as_mut()
+                && let Some(result) = admit.admit(&command)
+            {
+                if let Err(error) = result {
+                    return error;
+                }
+                continue;
+            }
             let WireCommand::SetSetting { key, value } = command else {
                 let checked = if dev::is_dev(&command) {
                     Ok(0)
@@ -195,21 +239,27 @@ impl<'a> CommandStage<'a> {
                 return ERR_INVALID;
             }
         }
+        let image_commands = self.image_count(batch, images.is_some());
         let stored = batch
             .iter()
             .filter(|command| {
                 !matches!(command, WireCommand::Redraw { .. }) && !dev::is_dev(command)
             })
-            .count();
-        if self.staged.try_reserve(stored).is_err() {
+            .count()
+            - image_commands;
+        if self.staged.try_reserve(stored).is_err()
+            || self.staged_images.try_reserve(image_commands).is_err()
+        {
             return ERR_NO_MEMORY;
         }
         if let Err(error) = self.dev_reserve(batch) {
             return error;
         }
         let (start, dev_start) = (self.staged.len(), self.dev_len());
-        if let Err(error) = self.push_batch(batch, dev_start) {
+        let start_images = self.staged_images.len();
+        if let Err(error) = self.push_batch(batch, dev_start, images.is_some()) {
             self.staged.truncate(start);
+            self.staged_images.truncate(start_images);
             self.dev_rollback(dev_start);
             return error;
         }
@@ -220,18 +270,40 @@ impl<'a> CommandStage<'a> {
         }
         self.accepted += batch.len();
         self.bytes = bytes;
+        self.images = images;
         OK
+    }
+
+    /// How many of `batch` are image commands the host admitted.
+    fn image_count(&self, batch: &CommandBatch<'_>, images: bool) -> usize {
+        if !images {
+            return 0;
+        }
+        batch
+            .iter()
+            .filter(|command| image_service::commands::owned_kind(command))
+            .count()
     }
 
     /// Keep every command of a validated batch in order (capacity is reserved)
     /// and reserve the request entries of its DEV commands, last.
-    fn push_batch(&mut self, batch: &CommandBatch<'_>, dev_start: usize) -> Result<(), i32> {
+    fn push_batch(
+        &mut self,
+        batch: &CommandBatch<'_>,
+        dev_start: usize,
+        images: bool,
+    ) -> Result<(), i32> {
         for command in batch.iter() {
             if matches!(command, WireCommand::Redraw { .. }) {
                 continue;
             }
             if dev::is_dev(&command) {
                 self.dev_push(command)?;
+                continue;
+            }
+            if images && let Some(image) = image_service::commands::owned(&command) {
+                // Capacity is reserved, so this push cannot reallocate.
+                self.staged_images.push(image?);
                 continue;
             }
             let owned = self.owned(command)?;
