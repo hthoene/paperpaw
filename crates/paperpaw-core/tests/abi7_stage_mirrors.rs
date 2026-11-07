@@ -133,3 +133,32 @@ fn the_lookup_question_crosses_as_its_service_row() {
         ("word", "de", "a word in context", 2)
     );
 }
+
+#[test]
+fn retagging_to_the_service_tag_grows_a_row_by_one_byte() {
+    // Local tags below 128 take one byte, service tags 1024-1535 two (stages-services.md 2.4).
+    let state = ServiceDocState {
+        document: 1,
+        state: 0,
+        progress_ppm: 0,
+        status: 0,
+        flags: 0,
+        conversion: 0,
+        format: "",
+    };
+    let mut frame = [0u8; 256];
+    let service = record_encode_one(&Record::ServiceDocState(state), &mut frame).unwrap();
+    let local = local_of(format::SERVICE_TAGS, SERVICE_DOC_STATE_TAG);
+    assert!(local < 128 && SERVICE_DOC_STATE_TAG >= 128);
+    // `retagged` adds the batch's count byte.
+    let stage = retagged(
+        &Record::ServiceDocState(state),
+        SERVICE_DOC_STATE_TAG,
+        local,
+    )
+    .len()
+        - 1;
+    assert_eq!(service, stage + 1);
+    // A full stage reply, every row grown so, still fits the service's 4,096 bytes.
+    assert!(format::MAX_REPLY + format::REPLY_ROWS <= 4096);
+}

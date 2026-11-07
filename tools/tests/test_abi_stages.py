@@ -416,6 +416,15 @@ mod tests {
 
 
 
+def varint(value):
+    out = bytearray()
+    while True:
+        byte, value = value & 0x7f, value >> 7
+        out.append(byte | (0x80 if value else 0))
+        if not value:
+            return bytes(out)
+
+
 class MirrorTests(unittest.TestCase):
     """A stage record that `mirrors` a service row holds exactly that row's fields."""
 
@@ -470,19 +479,78 @@ class MirrorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'reply needs 1..=32'):
             validate_stages(schema)
 
-    def test_a_published_mirror_follows_the_kernel_record(self):
-        old = copy.deepcopy(self.schema)
-        new = copy.deepcopy(self.schema)
-        stage = self.format_stage(new)
-        stage['revision'] = 1
-        record = next(r for r in stage['records'] if r['name'] == 'fmt.state')
-        record['fields'].append(dict(name='later', type='u32', since=0, optional=True,
-                                     ordinal=0, default=None, max_bytes=0))
-        compatible_stages(old, new, self.schema['minor'] + 1)
-        record['mirrors'] = 'service.doc_meta'
-        with self.assertRaisesRegex(ValueError, 'changed record'):
-            compatible_stages(old, new, self.schema['minor'] + 1)
+    def grown_kernel(self):
+        """abi.def's records after a later minor appended an optional field to doc_state."""
+        records = copy.deepcopy(self.schema['records'])
+        row = next(r for r in records if r['name'] == 'service.doc_state')
+        row['fields'].append(dict(name='later', type='u32', since=self.schema['minor'] + 1,
+                                  optional=True, ordinal=0, default=None, max_bytes=0))
+        return records
 
+    def raw_format_stage(self):
+        stage = json.loads((ROOT / 'abi/stages/core.format@1.def').read_text())
+        return stage, next(r for r in stage['records'] if r['name'] == 'fmt.state')
+
+    def test_a_field_appended_to_a_mirrored_row_needs_its_stage_revision(self):
+        stage, _ = self.raw_format_stage()
+        with self.assertRaisesRegex(ValueError, 'newer than the stage schema'):
+            expand_mirrors([stage], self.grown_kernel())
+
+    def test_mirrored_records_take_the_same_compatibility_check(self):
+        records = self.grown_kernel()
+        new = copy.deepcopy(self.schema)
+        new['records'] = records
+        new['minor'] = self.schema['minor'] + 1
+        stage, record = self.raw_format_stage()
+        stage['revision'] = 1
+        record['field_since'] = {'later': 1}
+        new['stages'] = [s if s['key'] != 'core.format' else expand_mirrors([stage], records)[0]
+                         for s in new['stages']]
+        validate_stages(new)
+        compatible_stages(self.schema, new, self.schema['minor'] + 1)
+        grown = next(r for r in self.format_stage(new)['records'] if r['name'] == 'fmt.state')
+        self.assertEqual(grown['fields'][-1]['since'], 1)
+        # The stamp stays when the stage's revision grows again.
+        stage['revision'] = 2
+        again = expand_mirrors([stage], records)[0]
+        self.assertEqual(next(r for r in again['records'] if r['name'] == 'fmt.state'
+                              )['fields'][-1]['since'], 1)
+        # Stamped at the old revision, it is a changed record, not an appended field.
+        record['field_since'] = {'later': 0}
+        stage['revision'] = 1
+        new['stages'] = [s if s['key'] != 'core.format' else expand_mirrors([stage], records)[0]
+                         for s in new['stages']]
+        with self.assertRaisesRegex(ValueError, 'appended fields need next revision'):
+            compatible_stages(self.schema, new, self.schema['minor'] + 1)
+        # A mirrored field that changes is refused like any other.
+        changed = copy.deepcopy(self.schema)
+        row = next(r for r in self.format_stage(changed)['records'] if r['name'] == 'fmt.state')
+        row['fields'][0]['max_bytes'] = 1
+        with self.assertRaisesRegex(ValueError, 'changed record field'):
+            compatible_stages(self.schema, changed, self.schema['minor'] + 1)
+        record['mirrors'] = 'service.doc_meta'
+        del record['field_since']
+        with self.assertRaisesRegex(ValueError, 'changed record'):
+            compatible_stages(self.schema, dict(self.schema, stages=[
+                s if s['key'] != 'core.format' else expand_mirrors([stage], records)[0]
+                for s in self.schema['stages']]), self.schema['minor'] + 1)
+
+    def test_retagging_never_overflows_the_service_reply(self):
+        # A local tag below 128 is one byte, a service tag 1024-1535 two: each mirrored row
+        # grows by at most one byte, so a full stage reply stays within the service's 4,096.
+        kernel = {r['name']: r['id'] for r in self.schema['records']}
+        for stage in self.schema['stages']:
+            growth = max((len(varint(kernel[r['mirrors']])) - len(varint(r['id']))
+                          for r in stage['records'] if 'mirrors' in r), default=0)
+            self.assertLessEqual(stage['max_reply'] + stage['reply_rows'] * growth, 4096,
+                                 stage['key'])
+            if stage['key'] == 'core.format':
+                self.assertEqual((growth, stage['max_reply'] + stage['reply_rows'] * growth),
+                                 (1, 3904))
+        # The generator refuses a stage whose full reply would overflow once retagged.
+        with mock.patch('abi_stages.MAX_CALL_BYTES', 3903):
+            with self.assertRaisesRegex(ValueError, 'retagged reply'):
+                validate_stages(self.schema)
 
 if __name__ == '__main__':
     unittest.main()

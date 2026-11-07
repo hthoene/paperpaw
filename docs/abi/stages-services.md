@@ -302,7 +302,17 @@ Each major of a host-defined stage has one JSON schema, `abi/stages/<key>@<major
   copies the row's fields (at the record's `since`), so the two never drift apart. The module's
   `SERVICE_TAGS` lists `(local tag, service tag)` for each mirrored record: the host passes such
   a reply on as a service row by changing only its tag (DOC's `core.format` rows and block stream,
-  `document.md` section 3). A mirrored record follows its service row's own append-only rule.
+  `document.md` section 3).
+- [D] **A mirror grows only with a revision.** A field appended to the service row in a later minor
+  must be named in the mirror's `"field_since": {"<field>": <revision>}` with the stage revision
+  that takes it (the generator refuses the schema otherwise), so its stamp never moves when the
+  revision grows again; mirrored records then take the same compatibility check as every other
+  stage record (fields only appended, optional, at a newer revision).
+- [D] **Retagging grows a reply by at most one byte a row.** Local tags below 128 take one byte,
+  service tags (1024-1535) two, and the frame's length and body stay. The generator checks that
+  `max_reply` + `reply_rows` x that growth fits the service's 4,096-byte reply: `core.format` is
+  3,840 + 64 = 3,904. The host still checks the retagged reply against the service op's
+  `max_reply` and refuses an overrun as a malformed answer.
 - [D] `input` names 1..=8 and `reply` 1..=32 distinct records from this schema; no record belongs
   to both. `max_subscribers` is 1..=32, `reply_rows` is 1..=64, and each of `max_input` and
   `max_reply` is 1..=3840 bytes. The generator refuses a schema if one framed input record at

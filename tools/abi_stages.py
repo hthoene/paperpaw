@@ -1,7 +1,7 @@
 """Validate stage-local tag tables and emit borrowed codecs using abi_records."""
 import json
 
-from abi_services import KEY, _integer, _module_name, _require
+from abi_services import KEY, MAX_CALL_BYTES, _integer, _module_name, _require
 from abi_records import local_records, local_codec_source
 from abi_declarations import SCALAR_BYTES
 
@@ -15,9 +15,31 @@ MAX_INPUT_TAGS = 8
 MAX_REPLY_TAGS = 32
 
 
-def _mirrored_fields(record, source):
-    """The fields of the `abi.def` record a stage record mirrors, at the stage record's since."""
-    return [dict(field, since=record['since']) for field in source['fields']]
+def _mirrored_fields(stage, record, source):
+    """The fields of the `abi.def` record a stage record mirrors, each at its stage revision.
+
+    A field the service row had when the stage schema appeared (its `since` minor at most the
+    stage's) takes the stage record's `since`. A field appended to the row later must be named
+    in the record's `field_since` with the stage revision that took it, so its stamp never moves
+    when the stage's revision grows again and the compatibility check sees it as appended.
+    """
+    later = record.get('field_since', {})
+    _require(type(later) is dict and all(type(v) is int for v in later.values()) and
+             set(later) <= {f['name'] for f in source['fields']},
+             f'{stage.get("key")}: {record.get("name")}: field_since names fields of '
+             f'{record.get("mirrors")} with a revision')
+    out = []
+    for field in source['fields']:
+        if field['name'] in later:
+            since = later[field['name']]
+        else:
+            _require(field['since'] <= stage.get('since', 0),
+                     f'{stage.get("key")}: {record.get("name")}: {record.get("mirrors")}.'
+                     f'{field["name"]} is newer than the stage schema; name the stage revision '
+                     'that takes it in field_since')
+            since = record['since']
+        out.append(dict(field, since=since))
+    return out
 
 
 def expand_mirrors(stages, records):
@@ -37,7 +59,7 @@ def expand_mirrors(stages, records):
                 _require(type(record['mirrors']) is str and record['mirrors'].startswith('service.')
                          and source is not None,
                          f'{stage.get("key")}: {record.get("name")} mirrors an abi.def service record')
-                record = dict(record, fields=_mirrored_fields(record, source))
+                record = dict(record, fields=_mirrored_fields(stage, record, source))
             grown.append(record)
         out.append(dict(stage, records=grown) if type(stage) is dict else stage)
     return out
@@ -89,7 +111,8 @@ def _validate_stage(stage, minor):
     records = stage['records']
     _require(type(records) is list and records, f'{key}: records must be a non-empty list')
     for record in records:
-        _require(type(record) is dict and set(record) in (RECORD_KEYS, RECORD_KEYS | {'mirrors'}),
+        _require(type(record) is dict and set(record) in (
+                     RECORD_KEYS, RECORD_KEYS | {'mirrors'}, RECORD_KEYS | {'mirrors', 'field_since'}),
                  f'{key}: record keys')
         _integer(record['id'], 1, 511, f'{key}: record id 1..=511')
         _require(type(record['name']) is str, f'{key}: record name must be text')
@@ -130,9 +153,17 @@ def validate_stages(schema):
             if 'mirrors' in record:
                 source = kernel.get(record['mirrors'])
                 _require(record['mirrors'].startswith('service.') and source is not None and
-                         record['fields'] == _mirrored_fields(record, source),
+                         record['fields'] == _mirrored_fields(stage, record, source),
                          f'{stage["key"]}: {record["name"]} must hold exactly the fields of '
                          f'{record["mirrors"]}')
+        # Retagging a mirrored row changes only its tag's length: the whole stage reply,
+        # each row grown by that, must still fit a service reply (MAX_CALL_BYTES).
+        growth = max((_varint_len(kernel[r['mirrors']]['id']) - _varint_len(r['id'])
+                      for r in stage['records'] if 'mirrors' in r), default=0)
+        retagged = stage['max_reply'] + stage['reply_rows'] * max(growth, 0)
+        _require(retagged <= MAX_CALL_BYTES,
+                 f'{stage["key"]}: a retagged reply of {retagged} bytes exceeds the service '
+                 f'reply of {MAX_CALL_BYTES}')
     keys = [(s['key'], s['major']) for s in stages]
     _require(keys == sorted(set(keys)), 'stage schemas sorted by key and major, one per key and major')
     modules = [_module_name(*k) for k in keys]
@@ -158,11 +189,11 @@ def compatible_stages(old, new, minimum_since):
         records = grown['records']
         _require(len(records) >= len(stage['records']), f'{key}: removed record')
         for prior, current in zip(stage['records'], records):
-            _require({k:v for k,v in prior.items() if k != 'fields'} ==
-                     {k:v for k,v in current.items() if k != 'fields'}, f'{key}: changed record')
-            if 'mirrors' in prior:
-                # Its fields are the kernel record's, kept append-only by abi.def's own check.
-                continue
+            # A mirror's `field_since` only grows with the fields it stamps, which the
+            # field check below compares.
+            _require({k:v for k,v in prior.items() if k not in ('fields', 'field_since')} ==
+                     {k:v for k,v in current.items() if k not in ('fields', 'field_since')},
+                     f'{key}: changed record')
             fields = prior['fields']
             _require(current['fields'][:len(fields)] == fields, f'{key}: changed record field')
             for field in current['fields'][len(fields):]:
