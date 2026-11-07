@@ -179,12 +179,12 @@ mod tests {
     #[test]
     fn device_registration_refuses_test_only_schema_in_code() {
         let mut registry = ServiceRegistry::device().unwrap();
+        let test_only = crate::abi7::services_wire::SERVICES
+            .iter()
+            .find(|schema| schema.test_only)
+            .unwrap();
         assert_eq!(
-            registry.register(
-                &crate::abi7::services_wire::SERVICES[0],
-                |_, _, _, _| Ok(0),
-                false
-            ),
+            registry.register(test_only, |_, _, _, _| Ok(0), false),
             Err(ERR_UNSUPPORTED)
         );
         assert!(registry.entries.is_empty());
