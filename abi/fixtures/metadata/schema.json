@@ -10308,7 +10308,7 @@
         },
         {
           "default": null,
-          "max_bytes": 255,
+          "max_bytes": 765,
           "name": "name",
           "optional": false,
           "ordinal": null,

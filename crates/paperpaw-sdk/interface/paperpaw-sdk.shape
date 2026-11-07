@@ -801,7 +801,7 @@ const paperpaw_sdk::native::declare::records_wire::SERVICE_LIB_FIELD_TITLE_MAX_B
 const paperpaw_sdk::native::declare::records_wire::SERVICE_LIB_FIELD_VALUE_MAX_BYTES: usize = 1_024usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_LIB_IMPORT_FOLDER_MAX_BYTES: usize = 512usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_LIB_IMPORT_FROM_MAX_BYTES: usize = 512usize
-const paperpaw_sdk::native::declare::records_wire::SERVICE_LIB_IMPORT_NAME_MAX_BYTES: usize = 255usize
+const paperpaw_sdk::native::declare::records_wire::SERVICE_LIB_IMPORT_NAME_MAX_BYTES: usize = 765usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_LIB_IMPORT_TAG: u32 = 1_107u32
 const paperpaw_sdk::native::declare::records_wire::SERVICE_LIB_KEY_FINGERPRINT_MAX_BYTES: usize = 32usize
 const paperpaw_sdk::native::declare::records_wire::SERVICE_LIB_KEY_KEY_MAX_BYTES: usize = 16usize

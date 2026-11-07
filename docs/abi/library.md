@@ -123,7 +123,7 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093):
 | 1104 | `service.lib_paths` | `paths: str 3590 (list: `\n`, 7 × 512)`, `flags: u32` |
 | 1105 | `service.lib_result` | `path: str 512`, `status: i32`, `flags: u32` |
 | 1106 | `service.lib_move` | `from: str 512`, `to: str 512`, `flags: u32` |
-| 1107 | `service.lib_import` | `from: str 512`, `folder: str 512`, `name: str 255`, `flags: u32` |
+| 1107 | `service.lib_import` | `from: str 512`, `folder: str 512`, `name: str 765`, `flags: u32` |
 | 1108 | `service.lib_position` | `section: u32`, `offset: u32`, `insert: u32`, `progress_ppm: u32`, `conversion: u64`, `updated: u64`, `xpointer: str 1024`, `flags: u32` |
 | 1109 | `service.lib_position_set` | `flags: u32` |
 | 1110 | `service.lib_page` | `cursor: u32`, `annotation_generation: u32` |
@@ -144,14 +144,26 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093):
 
 - [D] **Wire shapes** (records round): an op that names a book takes `lib_ref` as its **first
   record**, followed by the op's own record (ops 4, 7, 8, 14-17, 23, 24; ops 3, 6, 13, 22, 25 take
-  `lib_ref` alone), so no record repeats the reference. `lib_ref.key` is optional: present names
-  the book by catalog handle (with `path` empty), absent by `path`; both or neither `ERR_INVALID`.
+  `lib_ref` alone), so no record repeats the reference. `lib_ref.key` is optional: present names the
+  book by catalog handle (with `path` empty), absent by `path`; both or neither `ERR_INVALID`.
   `set_position` takes `lib_ref`, `lib_position` (the position, its own `flags`) and
   `lib_position_set` (`flags` bit 0 `sync`, bit 1 `confirmed`). Times (`updated`, `created`) are
   `u64` seconds since 1970, 0 unknown (the wire has no `i64`; no stored time precedes 1970).
-  `lib_edit.text_bytes` and `note_bytes` give the whole length of a text or note sent in
-  `edit_text` parts (0 when inline), so a commit checks that every part arrived. `lib_paths.paths`
-  holds the paths one per line (at most 7). `lib_import.name` is at most 255 bytes.
+  `lib_edit.text_bytes` and `note_bytes` give the whole length of a text or note sent in `edit_text`
+  parts (0 when inline), so a commit checks that every part arrived. `lib_paths.paths` holds the
+  paths one per line (at most 7). `lib_import.name` is at most 765 bytes: 255 UTF-16 units, the FAT
+  limit checked below, are at most 765 UTF-8 bytes, so no name the card allows is refused by its
+  size on the wire.
+- [D] **Edit parts** (`edit_add`, `edit_text`): a `lib_edit` whose `text_bytes` (or `note_bytes`)
+  is above 0 sends its `text` (or `note`) inline empty, else `ERR_INVALID`; its parts follow in
+  `edit_text` with `offset` 0 first and each next `offset` the end of the one before (no gap, no
+  overlap, else `ERR_INVALID` at that `edit_text`), and their lengths add up to `text_bytes` (else
+  the commit is `ERR_INVALID`). A note over 3 KiB is refused at `edit_add` (`ERR_NO_SPACE`), not
+  at commit, as is a `text_bytes` over the transaction's remaining cap.
+- [D] **Paths with a newline.** The walk does not catalogue a file whose path holds a control
+  character (a newline is possible on Android), as import refuses such names: no catalogued path
+  can break a one-per-line list such as `lib_paths.paths`, and a list item holding one is
+  `ERR_INVALID`.
 - [D] `lib_ref` names a book by `path` (root 1, at most 512 bytes) or by `key`: exactly one of them,
   else `ERR_INVALID`; an unknown book `ERR_NOT_FOUND`. `key` here is the **catalog handle**
   (`lib_entry.key`, a `u32`, interface 6's catalog offset that "fits 32 bits") with the catalog

@@ -9798,7 +9798,7 @@
           "optional": false,
           "ordinal": null,
           "default": null,
-          "max_bytes": 255
+          "max_bytes": 765
         },
         {
           "name": "flags",

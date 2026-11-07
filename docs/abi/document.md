@@ -428,14 +428,14 @@ canvas.draw_image(ctx, image: u32, x: i32, y: i32, width: u32, height: u32, flag
 ## 7. Lookup (dictionary, wikipedia, translate)
 
 - [D] A host-defined stage `core.lookup` (major 1, generated schema): providers declare
-  `lookup.spec` (230: `name: str 96`, `title: str 96`, `languages: str 512` one BCP 47 tag per line
-  or empty for any, `flags` bit 0 network (shown only when a network is up), `token: u32`) and are
-  called in the user's order (a host setting listing them, REG). The asker (the dictionary screen,
-  the reader's selection menu) calls the service `core.lookup` (major 1) op 1 `lookup` (1092
-  `lookup_ask`: `text: str 1024`, `language: str 35`, `context: str 1024`, `cursor: u32`) and gets
-  the providers' rows 1093 `lookup_entry` (`provider: str 64`, `title: str 256`, `text: str 2048`,
-  `flags` bit 0 more pages, bit 1 pending: the provider answers later) in pages, one provider per
-  page.
+  `lookup.spec` (230: `name: str 96`, `title: str 96`, `languages: str 512` one BCP 47 tag per line,
+  at most 32 tags of at most 35 bytes, or empty for any, `flags` bit 0 network (shown only when a
+  network is up), `token: u32`) and are called in the user's order (a host setting listing them,
+  REG). The asker (the dictionary screen, the reader's selection menu) calls the service
+  `core.lookup` (major 1) op 1 `lookup` (1092 `lookup_ask`: `text: str 1024`, `language: str 35`,
+  `context: str 1024`, `cursor: u32`) and gets the providers' rows 1093 `lookup_entry` (`provider:
+  str 64`, `title: str 256`, `text: str 2048`, `flags` bit 0 more pages, bit 1 pending: the provider
+  answers later) in pages, one provider per page.
 - [D] A provider that must fetch (wikipedia, translate) answers "pending" at once and finishes with
   ASY's async stage reply by request id (ASY family); the asker gets ASY's completion event and asks
   again with the cursor. Until ASY lands, network providers answer `ERR_UNSUPPORTED` and only local

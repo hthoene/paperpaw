@@ -8690,7 +8690,7 @@ pub const SERVICE_LIB_IMPORT_FROM_MAX_BYTES: usize = 512;
 /// Maximum bytes of `service.lib_import.folder`.
 pub const SERVICE_LIB_IMPORT_FOLDER_MAX_BYTES: usize = 512;
 /// Maximum bytes of `service.lib_import.name`.
-pub const SERVICE_LIB_IMPORT_NAME_MAX_BYTES: usize = 255;
+pub const SERVICE_LIB_IMPORT_NAME_MAX_BYTES: usize = 765;
 
 /// The `service.lib_import` record, borrowed from its batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -8699,7 +8699,7 @@ pub struct ServiceLibImport<'a> {
     pub from: &'a str,
     /// UTF-8 text of at most 512 bytes.
     pub folder: &'a str,
-    /// UTF-8 text of at most 255 bytes.
+    /// UTF-8 text of at most 765 bytes.
     pub name: &'a str,
     /// Little-endian u32.
     pub flags: u32,

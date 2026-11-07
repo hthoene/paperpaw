@@ -226,7 +226,7 @@ Each major of a service has one schema file, `abi/services/<key>@<major>.def` (J
 - [D] Ops, in id order: `id` 1..=65535, unique, never renumbered; `name` unique
   (`[a-z][a-z0-9_]*`); `since` the service revision that introduced the op (at most `revision`); `effect` `query` or `mutate`;
   `feature` a D1 feature key that gates it, or null; `input` and `reply` lists of `service.*`
-  record names (tags taken from `abi.def`), at most 8 each; `max_input` and `max_reply` in
+  record names (tags taken from `abi.def`), at most 16 each; `max_input` and `max_reply` in
   1..=4096; `bound` what the call may wait for: `none`, `card` (one bounded card access) or
   `radio` (never: that is an operation handle).
 - [D] `tools/abi-gen.py` validates every schema and writes one generated module, `services_wire`,
