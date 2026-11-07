@@ -11,9 +11,15 @@ use paperpaw_sdk::Id;
 mod blobs;
 pub(crate) use blobs::Blob;
 
+#[path = "resources/services.rs"]
+mod services;
+pub(crate) use services::ServiceKey;
+use services::ServiceRegistry;
+
 enum Resource {
     Font(FontKey),
     Blob(Blob),
+    Service(ServiceKey),
 }
 
 impl Release for Resource {
@@ -48,6 +54,7 @@ struct Table {
     next_owner: Cell<u64>,
     handles: RefCell<Handles<Resource>>,
     blob_limits: blobs::Limits,
+    services: ServiceRegistry,
 }
 
 /// Device-wide handle pool, shared by every hosted plugin on that device.
@@ -68,10 +75,21 @@ impl HostResources {
     }
 
     fn with_blob_limits(blob_limits: blobs::Limits) -> Result<Self, FlatError> {
+        Self::with_services(
+            blob_limits,
+            ServiceRegistry::device().map_err(|_| FlatError::Allocation)?,
+        )
+    }
+
+    fn with_services(
+        blob_limits: blobs::Limits,
+        services: ServiceRegistry,
+    ) -> Result<Self, FlatError> {
         Shared::try_new(Table {
             next_owner: Cell::new(1),
             handles: RefCell::new(Handles::new()),
             blob_limits,
+            services,
         })
         .map(Self)
         .map_err(|_| FlatError::Allocation)
@@ -145,13 +163,28 @@ impl OwnerResources {
             .map_err(crate::abi7::handles::Error::status)?
         {
             Resource::Font(font) => visit(font),
-            Resource::Blob(_) => Err(paperpaw_native::host_glue::ERR_STATE),
+            Resource::Blob(_) | Resource::Service(_) => Err(paperpaw_native::host_glue::ERR_STATE),
         }
     }
 
     pub(crate) fn release(&self, handle: u32) -> Result<(), i32> {
-        crate::abi7::handles::release(&self.table.handles, self.owner, Kind::Font, handle)
-            .map_err(crate::abi7::handles::Error::status)
+        let mut resource = {
+            let mut table = self
+                .table
+                .handles
+                .try_borrow_mut()
+                .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
+            match table.remove(self.owner, Kind::Font, handle) {
+                Ok(resource) => resource,
+                Err(crate::abi7::handles::Error::State) => table
+                    .remove(self.owner, Kind::Service, handle)
+                    .map_err(crate::abi7::handles::Error::status)?,
+                Err(error) => return Err(error.status()),
+            }
+        };
+        resource.cancel();
+        resource.release();
+        Ok(())
     }
 
     pub(crate) fn cancel_all(&self) -> Result<(), i32> {
