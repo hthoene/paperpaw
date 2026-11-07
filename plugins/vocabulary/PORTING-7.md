@@ -143,5 +143,9 @@ native screens replace these callers.
   job" and wrote over the file. The screens (`sdcard.rs`, still interface 6) tell it as
   "save failed".
 - `sync::tidy` takes a predicate (no list of names is built). `report()` moves the strings.
+- `files::put_in_place` (and so `copy_file`, the ledger and the save) moves a part into place with
+  a plain `rename`, no copy-and-delete fallback: the `core.files` adapter the shell builds over the
+  card folder must offer rename (`move_entry`, with replace), or the plugin must switch to the
+  SDK's `move_to` fallback.
 - Not done: `sdcard.rs` and `sdmenu.rs` (screens, with the native shell); the card folder is
   still the platform `Storage` (the adapter over `core.files` belongs to the shell).
