@@ -236,3 +236,48 @@ fn default_table_refuses_all_storage_operations() {
     assert_eq!(remove(&host, Root::Data, "x"), Err(Error::Unsupported));
     assert_eq!(sync(&host), Err(Error::Unsupported));
 }
+
+#[test]
+fn document_roots_forward_scoped_paths_and_host_refusals() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    size(&host, Root::DocumentCache, "converted.txt").unwrap();
+    size(&host, Root::Install, "data/phone.txt").unwrap();
+    size(&host, Root::Book, "").unwrap();
+    size(&host, Root::UserCss, "").unwrap();
+    let mut out = [0; 16];
+    ctx.count.set(1);
+    assert_eq!(read_at(&host, Root::Book, "", 9, &mut out), Ok(1));
+    assert_eq!(
+        *ctx.calls.borrow(),
+        vec![
+            Call("size", 6, "converted.txt".into(), vec![], 0),
+            Call("size", 2, "data/phone.txt".into(), vec![], 0),
+            Call("size", 3, "".into(), vec![], 0),
+            Call("size", 4, "".into(), vec![], 0),
+            Call("read", 3, "".into(), vec![], 9),
+        ]
+    );
+    ctx.calls.borrow_mut().clear();
+    for root in [Root::Data, Root::Files, Root::Install, Root::DocumentCache] {
+        assert_eq!(size(&host, root, ""), Err(Error::Invalid));
+    }
+    for root in [Root::DocumentCache, Root::Book, Root::UserCss] {
+        for path in ["../escape", "/absolute", "a//b", "a\\b", "nul\0name"] {
+            assert_eq!(size(&host, root, path), Err(Error::Invalid));
+        }
+    }
+    assert!(ctx.calls.borrow().is_empty());
+    ctx.result.set(abi::ERR_UNSUPPORTED);
+    assert_eq!(size(&host, Root::Book, ""), Err(Error::Unsupported));
+    ctx.result.set(abi::ERR_DENIED);
+    assert_eq!(write(&host, Root::Book, "", b"x"), Err(Error::Denied));
+    assert_eq!(
+        write(&host, Root::DocumentCache, ".complete", b"x"),
+        Err(Error::Denied)
+    );
+}

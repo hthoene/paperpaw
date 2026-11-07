@@ -1536,7 +1536,7 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-plugin-about",
  "paperpaw-plugin-aids",
- "paperpaw-plugin-battery",
+ "paperpaw-plugin-bluetooth",
  "paperpaw-plugin-browser",
  "paperpaw-plugin-calibre",
  "paperpaw-plugin-diagnostics",
@@ -1878,14 +1878,12 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-bluetooth"
-version = "1.0.3"
+version = "1.0.2"
 dependencies = [
  "paperpaw-core",
- "paperpaw-i18n",
- "paperpaw-native",
  "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
- "paperpaw-ui-kit",
 ]
 
 [[package]]
@@ -2209,13 +2207,15 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-keyboard"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 

@@ -355,6 +355,10 @@ pub enum Event<'a> {
     },
     /// Read the current stack through core.ui.
     StackChanged { now_ms: u64 },
+    /// A request of this plugin ended (`core.net`); read the answer in this callback.
+    HttpDone(super::net::HttpDone),
+    /// Bytes of a request's body came.
+    HttpProgress(super::net::HttpProgress),
     /// A final answer or committed live update, readable in this callback.
     Answered { now_ms: u64, answer: Answered },
     /// The host made a widget instance for its maker.
