@@ -57,7 +57,14 @@ pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
         shows: crate::native_analogue::shows,
         settable: false,
     };
+    static MOON: Behaviour = Behaviour {
+        height: crate::native_moon::height,
+        draw: crate::native_moon::draw,
+        shows: crate::native_moon::shows,
+        settable: false,
+    };
     match token {
+        106 => Some(&MOON),
         105 => Some(&ANALOGUE),
         104 => Some(&YEAR),
         103 => Some(&COUNTDOWN),

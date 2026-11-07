@@ -337,6 +337,35 @@ const ANALOGUE_OPTIONS: &[Opt] = &[
     Opt::Part("centre", "widgets.setting.centre-dot", true),
 ];
 
+const MOON_OPTIONS: &[Opt] = &[
+    Opt::Align("core.align.left"),
+    Opt::Frame("core.frame.none"),
+    Opt::Padding,
+    Opt::Paper,
+    Opt::Ink,
+    Opt::Corners,
+    Opt::FrameLine,
+    Opt::Shadow,
+    Opt::Part("name", "widgets.setting.phase-name", true),
+    Opt::Part("full", "widgets.setting.next-full-moon", true),
+    Opt::Part("lit", "widgets.setting.lit-percent", false),
+    Opt::Choice(
+        "shadow",
+        "widgets.setting.shadow",
+        &["widgets.moon.shadow.dark", "widgets.moon.shadow.light"],
+        "widgets.moon.shadow.dark",
+        "widgets.moon.shadow.help",
+    ),
+    Opt::Choice(
+        "hemisphere",
+        "widgets.setting.hemisphere",
+        &["widgets.moon.north", "widgets.moon.south"],
+        "widgets.moon.north",
+        "widgets.moon.hemisphere.help",
+    ),
+    Opt::DateFormat("widgets.date-format.long"),
+];
+
 /// Every widget of the pack.
 pub const WIDGETS: &[Def] = &[
     Def {
@@ -380,6 +409,13 @@ pub const WIDGETS: &[Def] = &[
         category: category::TIME,
         live: true,
         options: ANALOGUE_OPTIONS,
+    },
+    Def {
+        name: "moon",
+        token: 106,
+        category: category::TIME,
+        live: true,
+        options: MOON_OPTIONS,
     },
 ];
 

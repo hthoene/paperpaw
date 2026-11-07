@@ -23,6 +23,7 @@ mod native_day;
 mod native_defs;
 mod native_draw;
 mod native_entry;
+mod native_moon;
 mod native_names;
 /// The interface-7 plugin.
 pub mod native_plugin;
