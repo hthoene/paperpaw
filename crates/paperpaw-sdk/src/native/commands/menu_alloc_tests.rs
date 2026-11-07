@@ -154,13 +154,15 @@ fn empty_reset_and_invalid_menu_lists_allocate_nothing() {
 }
 
 unsafe extern "C" fn service_open(
-    _: *mut c_void,
+    ctx: *mut c_void,
     _: PpBytes,
     _: u16,
     _: u16,
     handle: *mut u32,
 ) -> i32 {
-    // SAFETY: the SDK supplies aligned exclusive handle output.
+    // SAFETY: the fixture retains the counter and aligned exclusive handle output.
+    let calls = unsafe { &*ctx.cast::<Cell<usize>>() };
+    calls.set(calls.get() + 1);
     unsafe { handle.write(7) };
     abi::OK
 }
