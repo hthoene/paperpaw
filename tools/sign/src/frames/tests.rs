@@ -99,19 +99,16 @@ fn found(items: &[I]) -> Option<Finding> {
 
 #[test]
 fn an_addi_frame_at_the_limit_is_refused_and_one_below_it_is_not() {
-    assert_eq!(
-        found(&[W(addi(SP, SP, -2032)), W(RET)]),
-        Some(Finding::Large { at: 0, bytes: 2032 })
-    );
+    // The limit is the band's height (2 KiB): a frame of less is let through,
+    // one of that or more is not.
+    assert_eq!(LIMIT, 2048);
+    assert_eq!(found(&[W(addi(SP, SP, -2032)), W(RET)]), None);
     assert_eq!(
         found(&[W(addi(SP, SP, -2048)), W(RET)]),
         Some(Finding::Large { at: 0, bytes: 2048 })
     );
-    assert_eq!(
-        found(&[W(addi(SP, SP, -1536))]),
-        Some(Finding::Large { at: 0, bytes: 1536 })
-    );
-    assert_eq!(found(&[W(addi(SP, SP, -1535))]), None);
+    // 1,952 bytes: `core`'s float formatting.
+    assert_eq!(found(&[W(addi(SP, SP, -1952)), W(RET)]), None);
     assert_eq!(found(&[W(addi(SP, SP, -48)), W(RET)]), None);
 }
 
@@ -141,10 +138,12 @@ fn a_frame_built_in_a_register_is_found_through_lui_and_addi() {
         found(&[W(lui(T0, 1)), W(addi(T0, T0, -96)), W(sub(SP, SP, T0))]),
         Some(Finding::Large { at: 8, bytes: 4000 })
     );
-    // li t0, 2000; sub sp, sp, t0
+    // li t0, 2000; sub sp, sp, t0: under the limit
+    assert_eq!(found(&[W(addi(T0, 0, 2000)), W(sub(SP, SP, T0))]), None);
+    // li t0, 1; slli: no. lui t0, 1; sub sp, sp, t0 (4096)
     assert_eq!(
-        found(&[W(addi(T0, 0, 2000)), W(sub(SP, SP, T0))]),
-        Some(Finding::Large { at: 4, bytes: 2000 })
+        found(&[W(lui(T0, 1)), W(sub(SP, SP, T0))]),
+        Some(Finding::Large { at: 4, bytes: 4096 })
     );
     // li t0, 512; sub sp, sp, t0: small.
     assert_eq!(found(&[W(addi(T0, 0, 512)), W(sub(SP, SP, T0))]), None);
@@ -154,8 +153,8 @@ fn a_frame_built_in_a_register_is_found_through_lui_and_addi() {
 fn the_epilogue_that_gives_a_large_frame_back_is_not_a_frame() {
     // lui t0, 2; add sp, sp, t0 (+8192)
     assert_eq!(found(&[W(lui(T0, 2)), W(add(SP, SP, T0)), W(RET)]), None);
-    // li t0, -100; add sp, sp, t0: a small negative one.
-    assert_eq!(found(&[W(addi(T0, 0, -100)), W(add(SP, SP, T0))]), None);
+    // li t0, -96; add sp, sp, t0: a small negative one.
+    assert_eq!(found(&[W(addi(T0, 0, -96)), W(add(SP, SP, T0))]), None);
 }
 
 #[test]
@@ -205,8 +204,8 @@ fn compressed_instructions_do_not_throw_the_walk_off() {
     );
     // An odd number of 16-bit instructions before a 32-bit one.
     assert_eq!(
-        found(&[N(C_NOP), W(sw(1, SP)), W(addi(SP, SP, -1600))]),
-        Some(Finding::Large { at: 6, bytes: 1600 })
+        found(&[N(C_NOP), W(sw(1, SP)), W(addi(SP, SP, -2048))]),
+        Some(Finding::Large { at: 6, bytes: 2048 })
     );
 }
 
@@ -217,12 +216,12 @@ fn compressed_forms_build_a_size_too() {
         found(&[N(c_lui(T0, -2)), N(c_add(SP, T0))]),
         Some(Finding::Large { at: 2, bytes: 8192 })
     );
-    // c.li t0, 31; c.mv t1, t0; c.addi t1, -1; sub sp, sp, t1: 30, small.
+    // c.li t0, 31; c.mv t1, t0; c.addi t1, 1; sub sp, sp, t1: 32, small.
     assert_eq!(
         found(&[
             N(c_li(T0, 31)),
             N(c_mv(T1, T0)),
-            N(c_addi(T1, -1)),
+            N(c_addi(T1, 1)),
             W(sub(SP, SP, T1))
         ]),
         None
@@ -370,9 +369,9 @@ fn data_before_a_function_does_not_hide_its_start() {
     // Two bytes `03 00` (which look like the start of a 32-bit instruction)
     // and then a function at offset 2 with a large frame.
     let mut f = vec![0x03, 0x00];
-    f.extend(code(&[W(addi(SP, SP, -1600)), W(RET)]));
-    assert_eq!(scan(&f, &[2]), Some(Finding::Large { at: 2, bytes: 1600 }));
-    assert_eq!(frame_sizes(&f, &[2]), vec![Some(1600)]);
+    f.extend(code(&[W(addi(SP, SP, -2048)), W(RET)]));
+    assert_eq!(scan(&f, &[2]), Some(Finding::Large { at: 2, bytes: 2048 }));
+    assert_eq!(frame_sizes(&f, &[2]), vec![Some(2048)]);
 }
 
 #[test]
@@ -406,11 +405,11 @@ fn a_functions_frame_is_how_deep_sp_goes_below_its_start() {
 fn the_most_negative_sp_along_any_path_is_the_frame() {
     // A branch over a second allocation: one path takes -1900 more.
     let f = code(&[
-        W(addi(SP, SP, -100)),
+        W(addi(SP, SP, -96)),
         W(beq_to(11, 0, 8)),
-        W(addi(SP, SP, -1900)),
-        W(addi(SP, SP, 1900)),
-        W(addi(SP, SP, 100)),
+        W(addi(SP, SP, -1904)),
+        W(addi(SP, SP, 1904)),
+        W(addi(SP, SP, 96)),
         W(RET),
     ]);
     assert_eq!(frame_sizes(&f, &[0]), vec![Some(2000)]);
@@ -803,11 +802,11 @@ fn a_jump_table_is_followed_to_each_of_its_entries() {
     // Both entries are labels in the function, both relocated words.
     assert_eq!(with_table(&f, &[TEXT + 24, TEXT + 32], &[0, 4]), None);
     // Every entry's state is checked: a case that takes a big frame.
-    let big = [W(addi(SP, SP, -1600)), W(addi(SP, SP, 1616)), W(RET)];
+    let big = [W(addi(SP, SP, -2032)), W(addi(SP, SP, 2032)), W(RET)];
     let f = table_function(&big);
     assert!(matches!(
         with_table(&f, &[TEXT + 24, TEXT + 32], &[0, 4]),
-        Some(Finding::Large { bytes: 1616, .. })
+        Some(Finding::Large { bytes: 2048, .. })
     ));
     // The same without a table to read: a jump through a register in a frame.
     assert!(matches!(
@@ -889,12 +888,12 @@ fn the_compressed_forms_of_the_table_jump_are_followed_too() {
         N(c_add(A0, A1)),
         N(c_lw),
         N(c_jr),
-        W(addi(SP, SP, -2000)),
+        W(addi(SP, SP, -2032)),
         W(RET),
     ]);
     assert!(matches!(
         with_table(&g, &[TEXT + 16], &[0]),
-        Some(Finding::Large { bytes: 2016, .. })
+        Some(Finding::Large { bytes: 2048, .. })
     ));
 }
 
@@ -903,7 +902,7 @@ fn a_table_longer_than_the_function_is_refused_not_cut() {
     // The function has 11 instructions. A table of 12 words that all point
     // into it, the last the only way into a case with a big frame: reading
     // only the first 11 would miss it, so the table is not read at all.
-    let big = [W(addi(SP, SP, -2040)), W(addi(SP, SP, 2040)), W(RET)];
+    let big = [W(addi(SP, SP, -2032)), W(addi(SP, SP, 2032)), W(RET)];
     let f = table_function(&big);
     let mut words = vec![TEXT + 24; 11];
     words.push(TEXT + 32);
@@ -918,11 +917,37 @@ fn a_table_longer_than_the_function_is_refused_not_cut() {
     words.push(TEXT + 32);
     assert!(matches!(
         with_table(&f, &words, &relocated[..11]),
-        Some(Finding::Large { bytes: 2056, .. })
+        Some(Finding::Large { bytes: 2048, .. })
     ));
     // Many entries for the same target are one target.
     let case1 = [W(addi(SP, SP, 16)), W(RET)];
     let g = table_function(&case1);
     let words = vec![TEXT + 24; 8];
     assert_eq!(with_table(&g, &words, &relocated[..8]), None);
+}
+
+#[test]
+fn a_change_of_sp_that_is_not_a_multiple_of_16_is_refused() {
+    // The psABI keeps sp 16-aligned and the stack band's reasoning assumes it.
+    let f = code(&[W(addi(SP, SP, -12)), W(addi(SP, SP, 12)), W(RET)]);
+    assert_eq!(scan(&f, &[0]), Some(Finding::Misaligned { at: 0 }));
+    // Aligned: fine, however it is reached (two steps of 16, then back).
+    let f = code(&[
+        W(addi(SP, SP, -16)),
+        W(addi(SP, SP, -32)),
+        W(addi(SP, SP, 48)),
+        W(RET),
+    ]);
+    assert_eq!(scan(&f, &[0]), None);
+    // Two aligned-looking halves that add up to a misaligned sp.
+    let f = code(&[
+        W(addi(SP, SP, -16)),
+        W(addi(SP, SP, 4)),
+        W(addi(SP, SP, 12)),
+        W(RET),
+    ]);
+    assert_eq!(scan(&f, &[0]), Some(Finding::Misaligned { at: 4 }));
+    // The listing of the firmware does not size such a function.
+    let f = code(&[W(addi(SP, SP, -12)), W(addi(SP, SP, 12)), W(RET)]);
+    assert_eq!(frame_sizes(&f, &[0]), vec![None]);
 }

@@ -8,6 +8,23 @@
 //! own data trigger as well ([`arm_band`]), which fires in the store that
 //! reaches it, in the code that overflowed, and ends in the crash slot
 //! blaming it (`crash.rs`).
+//!
+//! The band costs stack: it lies `RESERVE` = 4 KiB above the end (the larger of
+//! the panic handler's and an interrupt's room, for two frames of just under
+//! the band's 2 KiB meeting there; `paperpaw_x4::stack_band`), is 2 KiB high, and is aligned: 6 to
+//! 8 KiB of the main stack's 41,096 bytes, about 33 KiB left for the deepest
+//! legitimate path (a device gate).
+//!
+//! How the handler's depth is read off the device (the reserve's `HANDLER` is
+//! assumed 2 KiB until then; checklist G7): the stack is painted at start, and
+//! the panic handler reads the lowest word that is not the paint at its very
+//! end and ends its message with it, `[stack handler=NNNB left=NNNB]`
+//! (`paperpaw_x4::stack_note`, built in the G7 change): how deep it went below
+//! where it was entered, and what was left to the stack's end. The message is
+//! kept through the reset in the crash slot, so nothing reads RAM after the
+//! reset (the bootloader runs in it first). The overflow test (G8) trips the
+//! band with a plugin whose frame is just under the limit, and with an
+//! interrupt at the band; the same note answers how much was left.
 
 /// What the unused stack holds.
 const PAINT: u32 = 0xA5A5_5A5A;
