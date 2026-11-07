@@ -33,6 +33,9 @@ pub(crate) mod secrets_file;
 )]
 pub(crate) mod secrets_service;
 
+#[path = "native_host/host_slot.rs"]
+pub mod host_slot;
+
 #[path = "native_host/ui_guard.rs"]
 #[allow(
     dead_code,
@@ -156,6 +159,12 @@ mod retained;
     dead_code,
     reason = "native built-in registry adapter follows this screen router"
 )]
+#[path = "native_host/native_install.rs"]
+mod native_install;
+
+#[path = "native_host/native_screen_factory.rs"]
+pub(crate) mod native_screen_factory;
+
 #[path = "native_host/native_screen.rs"]
 mod native_screen;
 

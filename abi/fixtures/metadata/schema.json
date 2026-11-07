@@ -11647,6 +11647,15 @@
           "ordinal": null,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": "",
+          "max_bytes": 32,
+          "name": "sha256",
+          "optional": true,
+          "ordinal": 0,
+          "since": 1,
+          "type": "bytes"
         }
       ],
       "id": 1130,

@@ -160,5 +160,5 @@ fn retagging_to_the_service_tag_grows_a_row_by_one_byte() {
         - 1;
     assert_eq!(service, stage + 1);
     // A full stage reply, every row grown so, still fits the service's 4,096 bytes.
-    assert!(format::MAX_REPLY + format::REPLY_ROWS <= 4096);
+    const { assert!(format::MAX_REPLY + format::REPLY_ROWS <= 4096) };
 }

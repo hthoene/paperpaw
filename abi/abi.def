@@ -11090,6 +11090,15 @@
           "ordinal": null,
           "default": null,
           "max_bytes": 0
+        },
+        {
+          "name": "sha256",
+          "type": "bytes",
+          "since": 1,
+          "optional": true,
+          "ordinal": 0,
+          "default": "",
+          "max_bytes": 32
         }
       ]
     },
