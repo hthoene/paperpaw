@@ -19,6 +19,11 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 typed UIX SDK helpers cover navigation, host-text questions and
+  answers, widgets and status composition, help, speech and clipboard operations.
+  Typed registry declarations, commands, queries and events expose `core.registry`
+  without public wire records (#228).
+
 - Interface-7 EVT SDK subscriptions and borrowed typed events cover settings,
   book sessions and file edges, plugins, Wi-Fi, power, status and charge. Page
   turns and book edges share `ReadingView` accessors; malformed values are
