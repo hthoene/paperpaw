@@ -55,6 +55,16 @@ pub(crate) trait LibWrite {
         (ERR_UNSUPPORTED, 0)
     }
     /// Move a book and everything kept for it (`replace`: an existing `to`).
+    ///
+    /// The host must make this power-cut safe; the service cannot. Before the
+    /// rename it durably records the old-to-new mapping (the journal), then
+    /// renames, then updates the catalog, the reader assignments, the book's
+    /// data folders and a `.bak` sibling, and last clears the record. At start
+    /// the host replays an open record idempotently (finishing or rolling
+    /// back), so a cut between any two steps, or a rename that succeeded and a
+    /// bookkeeping step that failed, never leaves a book uncatalogued or its
+    /// notes behind. Paths the host is using are `ERR_BUSY`. The same holds for
+    /// `delete` (journal before the first removal) and `import`.
     fn move_book(&self, _from: &str, _to: &str, _replace: bool) -> Result<(), i32> {
         Err(ERR_UNSUPPORTED)
     }
