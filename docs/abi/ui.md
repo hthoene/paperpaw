@@ -738,24 +738,40 @@ its caps (hand-off).
   bytes each). On the X4 the params of all instances share 1,536 bytes (op 16 `ERR_FULL` beyond):
   the largest real hand-over is one long selected text, which goes in the hand-over's text, and real
   params are a few dozen bytes (Plugin's inventory #984). Allocated fallibly at op 16
-  (`ERR_NO_MEMORY`).
+  (`ERR_NO_MEMORY`). At most 12 hand-overs exist at once on the X4 (64 elsewhere; an empty one
+  counts, `ERR_FULL` beyond).
 - Host texts (request texts and hand-over texts, sections 1.1 and 3.1): up to 24,576 bytes each.
   On the X4 at most 4 at once (the question, its nested question, two hand-overs; `ERR_FULL`
   beyond), each with at most 512 bytes in memory and the rest in a host file on the card (a
-  secret text up to 8,192 bytes, in memory only, as long as typed), so texts cost at most 9.5 KiB
-  of heap, and 10 KiB with no card (2 KiB pool + the secret text); elsewhere at most 16, in
-  memory.
+  secret text up to 8,192 bytes, in memory only, as long as typed, in its own pool of 8,960 bytes: 32
+  chunks and their descriptors), so texts cost at most 9.5 KiB of heap, and 11 KiB with no card
+  (2 KiB pool + the secret pool); elsewhere at most 16, in
+  memory. A text is held in chunks of 256 bytes filled in place, and the pool is charged each
+  chunk's capacity and descriptor (24 bytes), not only the bytes written, so a text written a
+  byte at a time stays inside the pool; a secret text has its own pool (8,960 bytes on the X4) and
+  never uses the ordinary one.
 - Questions: at most 4 open requests device-wide (on the X4 one and its nested one), about 24
   bytes each plus the question (title, text, choices: at most 3.3 KiB), allocated fallibly at
   `ask` (`ERR_NO_MEMORY`). On the X4 the question goes to the request's card file with its text
   and op 2 reads it from there, so questions cost about 50 bytes of heap, nothing when none is
-  open.
-- **X4 worst case: activation-gate item.** Instances 0.25 + params 1.5 + texts and questions 10 (no
-  card; 9.55 with one; 8 of it only while an 8 KiB password is typed) + widgets 0.25 + status cache
-  1 + clipboard 0 (card) + messages 0.5 = **about 13.5 KiB** (op 7 keeps no target cache: it is not
-  paged, section 5.2), every part allocated fallibly (a refusal is `ERR_NO_MEMORY` or `ERR_FULL`,
-  never a panic); typical use (a few instances with small params, one short question, a status line)
-  about 2 KiB, under the 4 KiB heap gate. Gate before the UIX host is active on the X4: the worst
+  open. Without a card, and until the card file is wired, every kept question (title, text and
+  choices, up to 3.3 KiB) is charged to a question pool of 4 KiB on the X4 (64 KiB elsewhere):
+  `ERR_FULL` at `ask` beyond, nothing changed. The question and secret pools are limits, not reservations: each question, text chunk and secret
+  chunk is allocated fallibly when the request or the secret text starts and freed when it ends,
+  so nothing is held at rest. At most 3 request rows are kept at once on the X4 (16 elsewhere), a cancelled or answered
+  one until its event is delivered (`ERR_FULL` at `ask` beyond).
+- **X4 worst case: activation-gate item.** Until the card file is wired the code has no card
+  path, so the line is the one without a card: instances 0.25 + params 1.5 + texts 11 (2 KiB
+  ordinary pool + 8,960-byte secret pool, 8.75 of it only while an 8 KiB password is typed) +
+  questions 4 (pool) + widgets 0.5 + status handles 0.3 + status cache 1 + clipboard 0 +
+  messages 0.5 = **about 19 KiB**. A restarted text (offset 0) never adds a peak above its
+  pool: when old and new chunk do not both fit the pool, the old text is freed (wiped) first,
+  so the peak is the larger of the two and inside the pool (after that, a refused allocation
+  leaves the text started over and empty). With a card, the questions and texts move to the
+  card file and the line falls to about 13.6 KiB (not before that path exists). Op 7 keeps no
+  target cache: it is not paged, section 5.2. Every part is allocated fallibly (a refusal is
+  `ERR_NO_MEMORY` or `ERR_FULL`, never a panic); typical use (a few instances with small params, one short question, a status line)
+  about 2.4 KiB, under the 4 KiB heap gate. Gate before the UIX host is active on the X4: the worst
   case is a line of the X4 heap budget and the typical case is measured on the device under 4 KiB
   (hand-off: Firmware, R3 heap measurement).
 - Answers are not held-store edges: each request carries its answer and a pending mark (section
@@ -765,7 +781,9 @@ its caps (hand-off).
   stage call each on the host scratch and nest another plugin's callback inside the caller's just
   as slot 35 does: they share slot 35's frame-budget entry and X4 stack gate (section 5.1), and
   answer `ERR_UNSUPPORTED` on the X4 until it passes.
-- Widgets: about 16 bytes per made instance, at most 32 device-wide (16 on the X4).
+- Widgets: 32 bytes per made instance (the owner's full-width id; 512 bytes at the 16 of the X4),
+  at most 32 device-wide (16 on the X4); status handles 40 bytes each, at most 16 (8 on the X4, 320
+  bytes); each table is one allocation of its cap, made at its first use.
 - Status values: a cache of at most 2 KiB (1 KiB on the X4; when full, values are asked again),
   dropped on event 73.
 - Clipboard: at most 4 KiB, host heap (card file on the X4), fallible. Messages: at most 4

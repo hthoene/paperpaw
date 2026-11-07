@@ -61,3 +61,14 @@ b306fe855cc85ea051ddf5ee8583547c60858d96 language-ar, language-es  # paperpaw-si
 056488a271e6d7e44cfd0cf651f04252f795bd37 language-ar, language-es  # paperpaw-sign frames (#228, PR #235 review): outlined sequences' sp move and written registers; catalog byte-identical (job #3040)
 c6e7e0567200e41ce86c71ce7f2e7aff6d82c0d9 language-ar, language-es  # paperpaw-sign frames (#228, PR #331): the listing reads longer outlined sequences; catalog byte-identical (job #3648: ar.ppcat 3c5b5523…, es.ppcat 01bad425…, all 4 files each identical, built at 2c05e0107 and afc35444d)
 afc35444df4c6c3d7aafd3fef45a1216048f1e94 language-ar, language-es  # paperpaw-sign frames (#228, PR #331): outlined sequence that dips sp is refused; catalog byte-identical (job #3648, as above)
+
+# language-ar, language-es, #357 (paperpaw-sign frame scan: a jump table bounded by the compare on
+# its index; the scan runs for code plugins at pack time, `catalog` did not change). The same
+# tools/language-pack.py build ar and es at origin/abi7/integration (bd1229e3b) and at the head
+# (8a7c530ae) writes the same four files per pack with the same SHA-256 each (ar.ppcat
+# 3c5b5523d7c1..., 245,458 B; es.ppcat 01bad42502c3..., 231,696 B), 2026-11-07.
+191cb8ab6e90014eeb55480ff983ec8b672d6378 language-ar, language-es  # sign: state the table-ends-at-first-non-label assumption; test a bound longer than the table
+a4c233775b0f81ba46f9cd6fffcb8b00e4e27bd2 language-ar, language-es  # sign: a bounded table still ends at the first word that is no label
+ac94608fec9734e37abb774e5e6258e376cb1b4f language-ar, language-es  # sign: keep narrow() under the line limit (cb_offset helper)
+2cd068984ee0700aaa790a78037229e937598ea2 language-ar, language-es  # sign: bound a jump table by the compare on its index
+13e6d539ec0cf5e160c2136edcb756391915821f language-ar, language-es  # sign: move the scan's register state to frames/state.rs (no change)
