@@ -71,8 +71,22 @@ pub(crate) fn guard_owner(view: &dyn UiStackView) -> Option<&str> {
         .map(|r| r.owner)
 }
 
+/// Index of the instance that gets keys and pointers. Without a guard that is
+/// the top; with one it is the topmost instance that is not the host's own
+/// screen for a device state: the sleep screen shows above the guard but "gets
+/// no input while the guard is up" (section 4.3).
+pub(crate) fn input_index(view: &dyn UiStackView) -> Option<usize> {
+    let last = view.len().checked_sub(1)?;
+    if topmost_guard(view).is_none() {
+        return Some(last);
+    }
+    (0..=last)
+        .rev()
+        .find(|&i| view.row(i).is_some_and(|r| !r.host))
+}
+
 fn top<'a>(view: &'a dyn UiStackView) -> Option<Row<'a>> {
-    view.len().checked_sub(1).and_then(|i| view.row(i))
+    input_index(view).and_then(|i| view.row(i))
 }
 
 /// Whether the instance at `index` is secret: it says so, it guards, or it
@@ -92,9 +106,10 @@ pub(crate) fn top_is_secret(view: &dyn UiStackView) -> bool {
         .is_some_and(|i| is_secret(view, i))
 }
 
-/// The one instance that gets keys and pointers: the top. With a guard up the
-/// top is always the guard or something above it (opens of others wait
-/// below, [`open_index`]), so the lock owns the input path.
+/// The one instance that gets keys and pointers ([`input_index`]). With a guard
+/// up it is always the guard or something above it (opens of others wait
+/// below, [`open_index`]) and never the host's sleep screen, so the lock owns
+/// the input path.
 pub(crate) fn input_target(view: &dyn UiStackView) -> Option<u32> {
     top(view).map(|r| r.instance)
 }
@@ -220,11 +235,12 @@ pub(crate) fn close_allowed(
     if instance != 0 && !own && !row.overlay {
         return Err(ERR_DENIED);
     }
-    if let Some(guard) = topmost_guard(view)
-        && index >= guard
-        && guard_owner(view) != Some(submitter)
-        && !(row.guard_dialog && own)
-    {
+    // A guarding instance (any, also a lower one under a newer guard) and
+    // everything at or above the topmost guard is the guard's plugin's to
+    // close; a guard dialog may close itself.
+    let protected = row.guards || topmost_guard(view).is_some_and(|guard| index >= guard);
+    let allowed = guard_owner(view) == Some(submitter) || (own && (row.guard_dialog || row.guards));
+    if protected && !allowed {
         return Err(ERR_DENIED);
     }
     Ok(if index == 0 {

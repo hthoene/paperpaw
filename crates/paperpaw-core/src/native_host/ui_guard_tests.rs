@@ -452,3 +452,69 @@ fn phone_typing_is_refused_while_anything_guards() {
     let other = ask_admission(v, &ask("mail", 0, ""), OpenRequests::default(), false).unwrap();
     assert!(other.below_guard);
 }
+
+#[test]
+fn the_hosts_sleep_screen_above_the_guard_gets_no_input() {
+    // page < lock(guards) < core.sleep (host): the lock keeps the input.
+    let mut sleep = row(9, "core");
+    sleep.host = true;
+    sleep.overlay = true;
+    let mut rows = locked();
+    rows.push(sleep);
+    let v = view(&rows);
+    assert_eq!(
+        input_target(v),
+        Some(3),
+        "the keyboard, not the sleep screen"
+    );
+    assert!(may_receive_input(v, 3));
+    assert!(!may_receive_input(v, 9));
+    // The lock alone with the sleep screen over it: the lock gets the input.
+    let mut lock = row(2, "lock");
+    lock.guards = true;
+    let mut rows = alloc::vec![row(1, "reader"), lock];
+    let mut sleep = row(9, "core");
+    sleep.host = true;
+    rows.push(sleep);
+    assert_eq!(input_target(view(&rows)), Some(2));
+    assert!(top_is_secret(view(&rows)), "the lock is what input reaches");
+    assert!(filter_runs(view(&rows), "lock"));
+    assert!(!filter_runs(view(&rows), "core"));
+    assert!(!filter_runs(view(&rows), "mail"));
+    // Without a guard the sleep screen is the top and gets input.
+    let mut sleep = row(9, "core");
+    sleep.host = true;
+    let rows = alloc::vec![row(1, "reader"), sleep];
+    assert_eq!(input_target(view(&rows)), Some(9));
+}
+
+#[test]
+fn a_lower_guarding_overlay_is_not_closable_by_an_unrelated_plugin() {
+    // page < lockA(guards, overlay) < menu(overlay) < lockB(guards): two guards.
+    let mut a = row(2, "lock-a");
+    a.guards = true;
+    a.overlay = true;
+    let mut menu = row(3, "menu");
+    menu.overlay = true;
+    let mut b = row(4, "lock-b");
+    b.guards = true;
+    let rows = alloc::vec![row(1, "reader"), a, menu, b];
+    let v = view(&rows);
+    assert_eq!(topmost_guard(v), Some(3));
+    // An unrelated plugin closes neither guard, though the lower one is an
+    // overlay below the topmost guard.
+    for instance in [2, 4] {
+        assert_eq!(
+            close_allowed(v, "mail", instance),
+            Err(ERR_DENIED),
+            "{instance}"
+        );
+    }
+    // Nor does the other guard's plugin close the lower guard through the overlay rule,
+    // but the topmost guard's plugin may, and a guard its own.
+    assert_eq!(close_allowed(v, "lock-b", 2), Ok(Close::Instance(1)));
+    assert_eq!(close_allowed(v, "lock-a", 2), Ok(Close::Instance(1)));
+    assert_eq!(close_allowed(v, "lock-b", 4), Ok(Close::Instance(3)));
+    // A non-guarding overlay below the topmost guard follows the ordinary rule.
+    assert_eq!(close_allowed(v, "help", 3), Ok(Close::Instance(2)));
+}
