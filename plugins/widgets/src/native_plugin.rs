@@ -227,8 +227,8 @@ impl Plugin for NativeWidgets {
 fn open_settings(host: &Host<'_>, widget: &str) -> Result<(), Error> {
     let ui = Ui::open(host)?;
     let made = (|| {
-        let mut input = alloc::vec![0; 1024];
-        let mut out = alloc::vec![0; 1024];
+        let mut input = paperpaw_ui_kit::mem::buffer(1024)?;
+        let mut out = paperpaw_ui_kit::mem::buffer(1024)?;
         ui.handover(host, &[Param::new("id", widget)?], &mut input, &mut out)
     })();
     let released = ui.release(host);

@@ -100,4 +100,6 @@ With `opt-level = "z"` for `paperpaw-plugin-widgets` and `paperpaw-ui-kit`
 only (not adopted): 373,116 bytes (57,584 data, 311,372 code), 23,724 bytes
 smaller. Refusal sweeps (`src/refusals_tests.rs`) cover the pure widget
 calls (tiles, word clock text and grid, moon rows, the kit's joins); the
-calls that need a host have no sweep because the SDK has no mock host.
+calls that need a host (drawing, measuring, settings reads) have no refusal
+sweep until the SDK has a mock host; their allocations are fallible by
+reading and by the kit's own sweeps.

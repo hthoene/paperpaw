@@ -122,7 +122,9 @@ pub fn lit(grid: &[Vec<char>], words: &str) -> Result<Option<Vec<(usize, usize)>
     let mut letters: Vec<Vec<char>> = Vec::new();
     for word in words.split_whitespace() {
         let mut one: Vec<char> = Vec::new();
-        one.try_reserve(word.len()).map_err(|_| Error::NoMemory)?;
+        // A letter may be upper-cased to three (U+0390), so three per byte.
+        one.try_reserve(word.len().saturating_mul(3))
+            .map_err(|_| Error::NoMemory)?;
         for c in word.chars().filter(|c| c.is_alphabetic()) {
             for upper in c.to_uppercase() {
                 one.push(upper);
