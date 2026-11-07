@@ -86,7 +86,9 @@ pub use resources::HostResources;
 
 #[path = "native_host/shell_wiring.rs"]
 pub mod shell_wiring;
-pub use shell_wiring::{HostWiring, HyphenTables, WiredHosts};
+pub use shell_wiring::{
+    HostWiring, HyphenTables, SecretsInputs, ShellRandom, ShellSealer, WiredHosts,
+};
 
 #[path = "native_host/fonts.rs"]
 mod fonts;

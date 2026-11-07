@@ -18,6 +18,7 @@ fn nothing_named_wires_nothing() {
     assert!(wired.hyphen().is_none());
     assert!(resources.hosts().hyphen().is_none());
     assert!(resources.hosts().device().is_none());
+    assert!(resources.hosts().secrets().is_none());
 }
 
 #[test]
@@ -65,3 +66,6 @@ fn a_family_wired_twice_is_refused_and_nothing_else_is_wired_by_that_call() {
         .unwrap();
     assert!(resources.hosts().device().is_some());
 }
+
+#[path = "shell_wiring/secrets_tests.rs"]
+mod secrets;

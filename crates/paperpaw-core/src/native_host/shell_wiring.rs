@@ -8,12 +8,18 @@
 //!
 //! Which families a shell can name grows with the adapters: `text.hyphenate`
 //! (the card's tables) and `core.device` (a host that already is public)
-//! today; the other families' hosts are core's adapters over kernel objects
+//! and `core.secrets` through shell-owned inputs; the other families' hosts
+//! are core's adapters over kernel objects
 //! and join as their adapters land, one method each.
+use super::secrets_service::SecretsServices;
 use super::{device_service::DeviceHost, hyphen_card::CardTables, resources::HostResources};
 use alloc::rc::Rc;
 use paperpaw_native::host_glue::ERR_STATE;
 use paperpaw_platform::Storage;
+
+#[path = "shell_wiring/secrets.rs"]
+mod secrets;
+pub use secrets::{SecretsInputs, ShellRandom, ShellSealer};
 
 /// What a shell wires into the device's host views. Nothing is wired for a
 /// family the shell does not name.
@@ -22,6 +28,7 @@ use paperpaw_platform::Storage;
 pub struct HostWiring {
     hyphenation: Option<Rc<dyn Storage>>,
     device: Option<Rc<dyn DeviceHost>>,
+    secrets: Option<SecretsInputs>,
 }
 
 impl core::fmt::Debug for HostWiring {
@@ -29,6 +36,7 @@ impl core::fmt::Debug for HostWiring {
         f.debug_struct("HostWiring")
             .field("hyphenation", &self.hyphenation.is_some())
             .field("device", &self.device.is_some())
+            .field("secrets", &self.secrets.is_some())
             .finish()
     }
 }
@@ -46,6 +54,14 @@ impl HostWiring {
     #[must_use]
     pub fn hyphenation(mut self, storage: Rc<dyn Storage>) -> Self {
         self.hyphenation = Some(storage);
+        self
+    }
+
+    /// `core.secrets`: shared storage, shell-owned sealing and optional random
+    /// source and unreadable-file notice. This retains only the supplied Rcs.
+    #[must_use]
+    pub fn secrets(mut self, inputs: SecretsInputs) -> Self {
+        self.secrets = Some(inputs);
         self
     }
 
@@ -114,6 +130,7 @@ impl HostResources {
         let hosts = self.hosts();
         if (wiring.hyphenation.is_some() && hosts.hyphen().is_some())
             || (wiring.device.is_some() && hosts.device().is_some())
+            || (wiring.secrets.is_some() && hosts.secrets().is_some())
         {
             return Err(ERR_STATE);
         }
@@ -125,6 +142,9 @@ impl HostResources {
         }
         if let Some(host) = wiring.device {
             hosts.wire_device(host)?;
+        }
+        if let Some(inputs) = wiring.secrets {
+            hosts.wire_secrets(SecretsServices::new(Rc::new(inputs)))?;
         }
         Ok(wired)
     }
