@@ -19,6 +19,9 @@ change the plugin SDK.
 
 ### Added
 
+- Interface-7 call-service host slots 33–34 use generated schemas, bounded reply
+  scratch and owned service handles; device hosts refuse test-only schemas (#228).
+
 - Interface 7, family 1a (stages and services, `docs/abi/stages-services.md`): host slots 32
   `stage.run`, 33 `service.open` and 34 `service.call`; records 19 `stage.spec`, 20
   `registration.stage`, 512 `stage.call`, 513 `stage.reply` and the test-only 1024 `service.echo`;
