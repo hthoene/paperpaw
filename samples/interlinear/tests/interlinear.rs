@@ -47,9 +47,7 @@ fn page(config: &str) -> Vec<u8> {
             include_str!("../../library/books/alice-in-wonderland.txt"),
         )
         .with(".paperpaw/plugins/setup/done", "");
-    let builder = Kernel::builder(DEVICE)
-        .storage(storage)
-        .user_config(format!("{config}"));
+    let builder = Kernel::builder(DEVICE).storage(storage).user_config(config);
     let mut kernel = paperpaw_app::install(builder, paperpaw_app::Fonts::Packs)
         .plugin(Interlinear)
         .build()
