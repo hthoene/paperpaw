@@ -36,6 +36,21 @@ unsafe extern "C" fn run(
     if cursor >= 3 {
         return abi::ERR_NOT_FOUND;
     }
+    if fake.malformed == 4 {
+        out[..5].fill(0x80); // Unterminated tag exceeds canonical u32 LEB128.
+        return 5;
+    }
+    if fake.malformed == 6 {
+        return wire::record_encode_one(
+            &Record::StageCall(wire::StageCall {
+                stage: "reader.insert",
+                schema: 1,
+                payload: &[],
+            }),
+            out,
+        )
+        .map_or_else(|e| e, |n| n as i32);
+    }
     let status = [7, abi::ERR_CANCELLED, abi::ERR_INVALID][cursor as usize];
     let reply = Record::StageReply(wire::StageReply {
         subscriber: "aids",
@@ -49,7 +64,16 @@ unsafe extern "C" fn run(
             b""
         },
     });
-    wire::record_encode_one(&reply, out).map_or_else(|e| e, |n| n as i32)
+    wire::record_encode_one(&reply, out).map_or_else(
+        |e| e,
+        |n| {
+            if fake.malformed == 5 {
+                n as i32 - 1
+            } else {
+                n as i32
+            }
+        },
+    )
 }
 
 #[test]
@@ -101,6 +125,9 @@ fn refusals_and_malformed_envelopes_fuse_without_retrying() {
         (abi::ERR_INVALID, 0, Error::Invalid),
         (0, 1, Error::Invalid),
         (0, 2, Error::Invalid),
+        (0, 4, Error::Invalid),
+        (0, 5, Error::Invalid),
+        (0, 6, Error::Invalid),
     ] {
         let mut table = abi::host_table();
         table.stage_run = run;

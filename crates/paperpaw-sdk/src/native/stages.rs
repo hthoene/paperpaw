@@ -6,6 +6,15 @@ use super::{
 use paperpaw_native::host_glue::{ERR_NOT_FOUND, PpBuffer, PpBytes};
 
 /// A callback-bound extension stage owned by the calling plugin.
+///
+/// A stage cannot escape its host callback:
+///
+/// ```compile_fail
+/// use paperpaw_sdk::native::{Host, stages::Stage};
+/// fn escape<'cb>(host: &'cb Host<'cb>) -> Stage<'static> {
+///     Stage::new(host, "reader.insert").unwrap()
+/// }
+/// ```
 #[derive(Debug)]
 pub struct Stage<'cb> {
     host: &'cb Host<'cb>,
@@ -67,6 +76,32 @@ const fn leb_len(mut n: usize) -> usize {
 }
 
 /// A lending cursor over subscribers. Each reply borrows the reused buffer.
+///
+/// A reply cannot remain live across the next fetch:
+///
+/// ```compile_fail
+/// use paperpaw_sdk::native::{Error, stages::Stage};
+/// fn retain(stage: &Stage<'_>, out: &mut [u8]) -> Result<(), Error> {
+///     let mut run = stage.run(&[], out);
+///     let first = run.next()?.unwrap();
+///     let _second = run.next()?;
+///     let _ = first.payload();
+///     Ok(())
+/// }
+/// ```
+///
+/// Extracting the payload preserves the same borrow:
+///
+/// ```compile_fail
+/// use paperpaw_sdk::native::{Error, stages::Stage};
+/// fn retain(stage: &Stage<'_>, out: &mut [u8]) -> Result<(), Error> {
+///     let mut run = stage.run(&[], out);
+///     let payload = run.next()?.unwrap().payload();
+///     let _second = run.next()?;
+///     let _ = payload.first();
+///     Ok(())
+/// }
+/// ```
 #[derive(Debug)]
 pub struct StageRun<'r> {
     host: &'r Host<'r>,
