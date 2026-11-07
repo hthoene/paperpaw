@@ -532,7 +532,7 @@ fn host_entries_outside_their_scope_are_refused() {
     drop(hosted);
 }
 
-fn arm_failure(nth: u32) {
+pub(super) fn arm_failure(nth: u32) {
     FAIL_NTH.with(|n| n.set(nth));
 }
 
@@ -785,7 +785,7 @@ fn kernel_dispatch_supplies_real_core_views_and_clears_them_after_callbacks() {
 }
 
 #[test]
-fn stage_slot_missing_frame_and_scratch_refusal_preserve_caller_output() {
+fn stage_slot_missing_frame_and_zero_capacity_do_not_allocate() {
     reset(NORMAL);
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
@@ -803,13 +803,20 @@ fn stage_slot_missing_frame_and_scratch_refusal_preserve_caller_output() {
         len: 0,
     };
     let mut out = [0xa5; 8];
-    let output = PpBuffer {
-        ptr: out.as_mut_ptr(),
-        cap: out.len(),
-    };
     // SAFETY: pinned fixture context and disjoint byte buffers are live.
     assert_eq!(
-        unsafe { super::stage_slot::run::<Heap>(ctx, stage, 0, input, output) },
+        unsafe {
+            super::stage_slot::run::<Heap>(
+                ctx,
+                stage,
+                0,
+                input,
+                PpBuffer {
+                    ptr: out.as_mut_ptr(),
+                    cap: out.len(),
+                },
+            )
+        },
         host_glue::ERR_STATE
     );
     assert_eq!(out, [0xa5; 8]);
@@ -819,14 +826,42 @@ fn stage_slot_missing_frame_and_scratch_refusal_preserve_caller_output() {
         .scope(&env, || {
             arm_failure(1);
             // SAFETY: the same pinned fixture and buffer pairs remain live.
-            let refused = unsafe { super::stage_slot::run::<Heap>(ctx, stage, 0, input, output) };
+            let refused = unsafe {
+                super::stage_slot::run::<Heap>(
+                    ctx,
+                    stage,
+                    0,
+                    input,
+                    PpBuffer {
+                        ptr: out.as_mut_ptr(),
+                        cap: out.len(),
+                    },
+                )
+            };
+            let mut probe = Vec::<u8>::new();
+            let still_armed = probe.try_reserve_exact(1).is_err();
             arm_failure(0);
-            assert_eq!(refused, host_glue::ERR_NO_MEMORY);
+            assert_eq!(refused, host_glue::ERR_STATE);
+            assert!(
+                still_armed,
+                "slot must not allocate even with nonempty output"
+            );
             assert_eq!(out, [0xa5; 8]);
-            // A query frame has no broker: after recovering from OOM it returns STATE.
+            // A query frame has no broker and returns STATE.
             // SAFETY: the same pinned fixture and buffer pairs remain live.
             assert_eq!(
-                unsafe { super::stage_slot::run::<Heap>(ctx, stage, 0, input, output) },
+                unsafe {
+                    super::stage_slot::run::<Heap>(
+                        ctx,
+                        stage,
+                        0,
+                        input,
+                        PpBuffer {
+                            ptr: out.as_mut_ptr(),
+                            cap: out.len(),
+                        },
+                    )
+                },
                 host_glue::ERR_STATE
             );
             arm_failure(1);

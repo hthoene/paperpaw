@@ -1,9 +1,8 @@
 //! Slot 32 validates raw buffers and delegates through the callback's frame.
 use super::Context;
 use crate::abi7::context::Frame;
-use alloc::vec::Vec;
 use core::ffi::c_void;
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, PpBuffer, PpBytes, buffers};
+use paperpaw_native::host_glue::{ERR_INVALID, PpBuffer, PpBytes, buffers};
 
 /// # Safety
 /// The context and all nonempty pairs are live and disjoint for this call.
@@ -29,7 +28,8 @@ pub(super) unsafe extern "C" fn run<S>(
 }
 
 /// # Safety
-/// Every nonempty input/output pair is live, bounded and disjoint.
+/// Nonempty pairs are live for their declared access; overlaps are refused
+/// before any reference is formed.
 unsafe fn in_frame(
     frame: &dyn Frame,
     caller: &str,
@@ -38,13 +38,25 @@ unsafe fn in_frame(
     input: PpBytes,
     out: PpBuffer,
 ) -> Result<usize, i32> {
-    for (pointer, length) in [
-        (stage.ptr as usize, stage.len),
-        (input.ptr as usize, input.len),
-        (out.ptr as usize, out.cap),
-    ] {
+    let pairs = [
+        (stage.ptr.addr(), stage.len),
+        (input.ptr.addr(), input.len),
+        (out.ptr.addr(), out.cap),
+    ];
+    for (pointer, length) in pairs {
         if length != 0 && (pointer == 0 || pointer.checked_add(length).is_none()) {
             return Err(ERR_INVALID);
+        }
+    }
+    for (index, &(start, length)) in pairs.iter().enumerate() {
+        for &(other, other_length) in &pairs[index + 1..] {
+            if length != 0
+                && other_length != 0
+                && start < other + other_length
+                && other < start + length
+            {
+                return Err(ERR_INVALID);
+            }
         }
     }
     // SAFETY: numeric checks above precede bounded slice creation; the caller
@@ -57,17 +69,11 @@ unsafe fn in_frame(
         )
     };
     super::super::declarations::full_id(stage)?;
-    // Raw caller output may be uninitialized. The frame gets initialized scratch,
-    // and only a successful bounded prefix is copied back to the caller.
-    let mut scratch = Vec::new();
-    scratch
-        .try_reserve_exact(output.len())
-        .map_err(|_| ERR_NO_MEMORY)?;
-    scratch.resize(output.len(), 0);
-    let count = frame.stage_run(caller, stage, cursor, input, &mut scratch)?;
-    let reply = scratch.get(..count).ok_or(ERR_INVALID)?;
-    for (slot, byte) in output.iter_mut().zip(reply) {
-        slot.write(*byte);
+    // The broker validates before publishing, initializes only the returned
+    // prefix and leaves output untouched on error. No temporary buffer is needed.
+    let count = frame.stage_run(caller, stage, cursor, input, output)?;
+    if count > output.len() {
+        return Err(ERR_INVALID);
     }
     Ok(count)
 }

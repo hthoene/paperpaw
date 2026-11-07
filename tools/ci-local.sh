@@ -68,7 +68,7 @@ fi
 
 all_groups=(fmt abi lint test doc msrv screens sdk embedded native architecture emulator deny firmware android)
 quick_groups=(fmt lint test)
-opt_groups=(firmware-build fuzz release-versions)
+opt_groups=(firmware-build fuzz release-versions miri-stage)
 
 if [[ $list -eq 1 ]]; then
     echo "quick: ${quick_groups[*]}"
@@ -234,6 +234,14 @@ g_embedded() {
     # pulled in by accident (debug info, a host-only dependency), not 2 KB.
     # Keep the limits in ci.yml and release.yml the same.
     run "embedded: build the web emulator" "python3 shells/web/build.py --limit-mb 16.8"
+}
+
+# Kept separate from Core's `miri` group until the stage and dispatcher slices merge.
+g_miri-stage() {
+    run "miri-stage: raw stage output (strict provenance, Stacked Borrows)" \
+        "RUSTC_WRAPPER= MIRIFLAGS='-Zmiri-strict-provenance' cargo +nightly-2026-10-17 miri test -p paperpaw-core --lib stage_slot"
+    run "miri-stage: raw stage output (strict provenance, Tree Borrows)" \
+        "RUSTC_WRAPPER= MIRIFLAGS='-Zmiri-strict-provenance -Zmiri-tree-borrows' cargo +nightly-2026-10-17 miri test -p paperpaw-core --lib stage_slot"
 }
 
 g_native() {

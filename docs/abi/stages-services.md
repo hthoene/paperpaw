@@ -76,6 +76,11 @@ stage.run(ctx, stage: bytes, cursor: u32, input: bytes, out: buffer) -> count   
   most `max_input` (`ERR_NO_SPACE`), and `out` can hold the largest reply this stage can produce:
   `record_framed_len` of a `stage.reply` with a 64-byte subscriber id and `max_reply` payload
   bytes (`ERR_NO_SPACE`).
+- [D] **Output publication.** The slot refuses overlapping `stage`, `input` and `out` ranges
+  before creating slices. Empty ranges never overlap. The internal broker receives uninitialized
+  output storage directly, without a second reply buffer. It finishes admission, subscriber calls
+  and reply-framing checks before writing the reply. An error leaves `out` untouched; success
+  initializes exactly the returned prefix, with the returned count at most `out` capacity.
 - [D] **Membership is frozen for the whole outermost callback** in which the owner runs the stage:
   plugins started, stopped, installed or turned off during it change the subscriber list only after
   that callback returns, so a cursor loop sees one list.

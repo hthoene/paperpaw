@@ -19,8 +19,8 @@ change the plugin SDK.
 
 ### Added
 
-- Native slot 32 validates bounded stage inputs and stages reply output before
-  delegating through the callback frame; production broker wiring follows (#228).
+- Native slot 32 rejects overlapping buffers and delegates bounded inputs and
+  uninitialized output directly through the callback frame; production broker wiring follows (#228).
 
 - Native host text ink probes the shaped raster path with the target frame's
   coverage threshold; inkless text reports not found. X4 timing remains gated (#228).
