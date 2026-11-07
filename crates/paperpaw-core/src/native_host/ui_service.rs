@@ -1,7 +1,8 @@
 //! Host side of the service `core.ui` (`docs/abi/ui.md` 6): the questions and
 //! answers (ops 8 `ask`, 2 `question`, 11 `answer`), the hand-over ops 16
 //! `handover` and 17 `params` and the text ops 9 `text_write` and 10
-//! `text_read`, over the one [`UiStore`]. The other ops answer
+//! `text_read`, over the one [`UiStore`]; ops 4, 5, 14 and 15 (widgets and
+//! status, `ui_widget_ops`) over the handle table. The other ops answer
 //! `ERR_UNSUPPORTED` until their handlers land.
 //!
 //! The shell wires the [`UiStore`] once; the callback epoch, the host-resolved
@@ -15,6 +16,7 @@ use super::{
     ui_guard::{self, Ask, OpenRequests},
     ui_requests::Question,
     ui_store::{PARAMS_MAX, PART_MAX, Param, Stamp, UiStore},
+    ui_widget_ops,
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
 use alloc::{rc::Rc, vec::Vec};
@@ -47,6 +49,18 @@ pub(crate) trait StatusAsk {
 /// builds per callback from host state, never from plugin bytes.
 pub(crate) struct UiServices {
     pub(crate) store: Rc<UiStore>,
+    /// The widget and status-handle tables and the status cache (ops 4, 5, 14, 15).
+    pub(crate) widgets: super::ui_widget_ops::WidgetState,
+}
+
+impl UiServices {
+    /// The service for a device: `x4` sizes the tables (the X4's small caps).
+    pub(crate) fn new(store: Rc<UiStore>, x4: bool) -> Self {
+        Self {
+            store,
+            widgets: super::ui_widget_ops::WidgetState::new(x4),
+        }
+    }
 }
 
 /// `text_write` flags: bit 0 `last`.
@@ -69,6 +83,10 @@ pub(crate) fn backend(
         11 => answer(frame, ui, input).map(|()| 0),
         16 => handover(frame, ui, who, input, out),
         17 => params(frame, ui, input, out),
+        4 => ui_widget_ops::widget_make(frame, ui, who, input, out),
+        5 => ui_widget_ops::widget_drop(ui, who, input).map(|()| 0),
+        14 => ui_widget_ops::status_values(frame, ui, who, input, out),
+        15 => ui_widget_ops::status_line(frame, ui, who, input, out),
         9 => text_write(frame, ui, who, input).map(|()| 0),
         10 => text_read(frame, ui, who, input, out),
         _ => Err(ERR_UNSUPPORTED),

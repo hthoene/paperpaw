@@ -320,6 +320,7 @@ impl HostServices {
         // What the owner made for the screen stack is freed; no plugin is called.
         if let Some(ui) = self.ui.get() {
             result = result.and(ui.store.owner_stopped(owner));
+            result = result.and(ui.plugin_stopped(owner));
         }
         if let Some(net) = self.net.get() {
             result = result.and(net_service::owner_stopped(&*net.0, owner));

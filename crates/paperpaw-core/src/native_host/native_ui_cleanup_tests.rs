@@ -13,9 +13,7 @@ use paperpaw_sdk::Id;
 fn pool(store: &Rc<UiStore>) -> HostResources {
     let pool = HostResources::try_new().unwrap();
     pool.hosts()
-        .wire_ui(UiServices {
-            store: Rc::clone(store),
-        })
+        .wire_ui(UiServices::new(Rc::clone(store), false))
         .unwrap();
     pool
 }
