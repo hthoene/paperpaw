@@ -112,9 +112,61 @@ pub struct ZipArchive {
 /// letters count as lowercase, so names that differ only in case share a
 /// hash and can be found by either.
 fn hash(name: &[u8]) -> u32 {
-    name.iter().fold(0x811c_9dc5, |hash, &b| {
+    hash_on(0x811c_9dc5, name)
+}
+
+fn hash_on(hash: u32, bytes: &[u8]) -> u32 {
+    bytes.iter().fold(hash, |hash, &b| {
         (hash ^ u32::from(b.to_ascii_lowercase())).wrapping_mul(0x0100_0193)
     })
+}
+
+/// The hash of `name` as [`lossy`] makes it a `String`, without making it.
+fn hash_lossy(name: &[u8]) -> u32 {
+    name.utf8_chunks().fold(0x811c_9dc5, |hash, chunk| {
+        let hash = hash_on(hash, chunk.valid().as_bytes());
+        if chunk.invalid().is_empty() {
+            hash
+        } else {
+            hash_on(
+                hash,
+                char::REPLACEMENT_CHARACTER
+                    .encode_utf8(&mut [0; 4])
+                    .as_bytes(),
+            )
+        }
+    })
+}
+
+/// `bytes` as text, invalid UTF-8 replaced (as `String::from_utf8_lossy`),
+/// allocated fallibly.
+fn lossy(bytes: Vec<u8>) -> Result<String, ZipError> {
+    let bytes = match String::from_utf8(bytes) {
+        Ok(text) => return Ok(text),
+        Err(e) => e.into_bytes(),
+    };
+    let replacement = char::REPLACEMENT_CHARACTER.len_utf8();
+    let len = bytes
+        .utf8_chunks()
+        .map(|c| {
+            c.valid().len()
+                + if c.invalid().is_empty() {
+                    0
+                } else {
+                    replacement
+                }
+        })
+        .sum();
+    let mut text = String::new();
+    text.try_reserve_exact(len)
+        .map_err(|_| ZipError::OutOfMemory)?;
+    for chunk in bytes.utf8_chunks() {
+        text.push_str(chunk.valid());
+        if !chunk.invalid().is_empty() {
+            text.push(char::REPLACEMENT_CHARACTER);
+        }
+    }
+    Ok(text)
 }
 
 /// The CRC-32 of ZIP entries, over `data` continuing `crc`. A byte at a
@@ -197,7 +249,11 @@ fn zeroed(len: usize) -> Result<Vec<u8>, ZipError> {
 /// there is none (data after the archive, a damaged comment) is the last
 /// one taken whose central directory lies before it, so that a signature
 /// inside a comment is not mistaken for the record.
-fn find_end_record(storage: &dyn Storage, path: &str, size: u64) -> Result<Vec<u8>, ZipError> {
+fn find_end_record(
+    storage: &dyn Storage,
+    path: &str,
+    size: u64,
+) -> Result<[u8; EOCD_SIZE as usize], ZipError> {
     const STEP: u64 = 1024;
     if size < EOCD_SIZE {
         return Err(ZipError::Invalid("too small"));
@@ -212,23 +268,26 @@ fn find_end_record(storage: &dyn Storage, path: &str, size: u64) -> Result<Vec<u
         let len = ((end + EOCD_SIZE - 1).min(size) - start) as usize;
         let window = read_exact(storage, path, start, len)?;
         for i in (0..(end - start) as usize).rev() {
-            let Some(record) = window.get(i..i + EOCD_SIZE as usize) else {
+            let Some(record) = window
+                .get(i..i + EOCD_SIZE as usize)
+                .and_then(|r| <[u8; EOCD_SIZE as usize]>::try_from(r).ok())
+            else {
                 continue;
             };
             if record[..4] != [0x50, 0x4b, 0x05, 0x06] {
                 continue;
             }
             let at = start + i as u64;
-            let comment_end = at + EOCD_SIZE + u64::from(u16_at(record, 20).unwrap_or(0));
+            let comment_end = at + EOCD_SIZE + u64::from(u16_at(&record, 20).unwrap_or(0));
             if comment_end == size {
-                return Ok(record.to_vec());
+                return Ok(record);
             }
-            let cd_offset = u32_at(record, 16).unwrap_or(0);
-            let cd_end = u64::from(cd_offset) + u64::from(u32_at(record, 12).unwrap_or(0));
+            let cd_offset = u32_at(&record, 16).unwrap_or(0);
+            let cd_end = u64::from(cd_offset) + u64::from(u32_at(&record, 12).unwrap_or(0));
             // ZIP64 keeps the central directory's place elsewhere.
             let before = cd_offset == u32::MAX || cd_end <= at;
             if before && fallback.is_none() {
-                fallback = Some(record.to_vec());
+                fallback = Some(record);
             }
         }
         end = start;
@@ -272,14 +331,16 @@ impl ZipArchive {
             let name_len = field(28)?;
             let name = read_exact(storage, path, at + RECORD as u64, name_len as usize)?;
             // Hashed as the entry is named (see `ZipArchive::record`).
-            index.push((hash(String::from_utf8_lossy(&name).as_bytes()), at as u32));
+            index.push((hash_lossy(&name), at as u32));
             at += RECORD as u64 + name_len + field(30)? + field(32)?;
         }
         index.sort_unstable();
-        Ok(ZipArchive {
-            path: String::from(path),
-            index,
-        })
+        let mut owned = String::new();
+        owned
+            .try_reserve_exact(path.len())
+            .map_err(|_| ZipError::OutOfMemory)?;
+        owned.push_str(path);
+        Ok(ZipArchive { path: owned, index })
     }
 
     /// Number of entries.
@@ -348,11 +409,7 @@ impl ZipArchive {
             u64::from(offset) + RECORD as u64,
             name_len,
         )?;
-        let name = match String::from_utf8(name) {
-            Ok(name) => name,
-            Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
-        };
-        Ok((head, name))
+        Ok((head, lossy(name)?))
     }
 
     /// Where a stored (uncompressed) entry's bytes are in the archive file,
@@ -752,6 +809,23 @@ mod tests {
     use alloc::borrow::ToOwned;
     use alloc::string::ToString;
     use paperpaw_platform::DirEntry;
+
+    #[test]
+    fn names_made_text_match_the_lossy_conversion_and_its_hash() {
+        let names: [&[u8]; 6] = [
+            b"",
+            b"plain.txt",
+            "Gr\u{f6}\u{df}e.txt".as_bytes(),
+            b"bad\xff\xfe.txt",
+            b"\xe2\x82",
+            b"a\xc3(b\xf0\x9f\x98",
+        ];
+        for name in names {
+            let expected = String::from_utf8_lossy(name);
+            assert_eq!(lossy(name.to_vec()).unwrap(), expected, "{name:?}");
+            assert_eq!(hash_lossy(name), hash(expected.as_bytes()), "{name:?}");
+        }
+    }
 
     /// A single-file storage for tests.
     struct OneFile(Vec<u8>);

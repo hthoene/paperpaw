@@ -10,8 +10,27 @@ use paperpaw_sdk::native::{
 /// Discard oversized damaged records without retaining an unbounded tail.
 const LINE_BYTES: usize = 512;
 
+/// What the screen reads of the history: how many times awake have ended
+/// and whether one is going on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HistorySummary {
+    /// Times awake that ended.
+    pub ended: usize,
+    /// A time awake is open.
+    pub current: bool,
+}
+
+/// The history as the screen reads it, summarised.
+pub fn summary(host: &Host<'_>) -> Result<HistorySummary, Error> {
+    let sessions = read(host)?;
+    Ok(HistorySummary {
+        ended: sessions.ended.len(),
+        current: sessions.current.is_some(),
+    })
+}
+
 pub(super) fn read(host: &Host<'_>) -> Result<Sessions, Error> {
-    let mut sessions = Sessions::default();
+    let mut sessions = Sessions::try_new()?;
     for name in [log::OLD, log::FILE] {
         read_file(host, name, &mut sessions)?;
     }
