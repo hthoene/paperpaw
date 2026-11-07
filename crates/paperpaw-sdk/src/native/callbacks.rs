@@ -71,6 +71,10 @@ pub enum Input<'a> {
         now_ms: u64,
         position: Point,
         phase: PointerPhase,
+        /// The host's id of this contact: the same from down to up or
+        /// cancel, distinct among contacts down at once. 0 when the host
+        /// did not send one (a single-contact device).
+        contact: u32,
     },
     /// A recognised gesture.
     Gesture {
@@ -120,6 +124,7 @@ impl<'a> Input<'a> {
                         3 => PointerPhase::Cancel,
                         _ => return Err(Error::Invalid),
                     },
+                    contact: r.contact.unwrap_or(0),
                 },
                 Record::InputGesture(r) => Self::Gesture {
                     now_ms: r.now_ms,

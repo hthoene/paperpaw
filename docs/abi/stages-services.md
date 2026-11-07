@@ -76,6 +76,11 @@ stage.run(ctx, stage: bytes, cursor: u32, input: bytes, out: buffer) -> count   
   most `max_input` (`ERR_NO_SPACE`), and `out` can hold the largest reply this stage can produce:
   `record_framed_len` of a `stage.reply` with a 64-byte subscriber id and `max_reply` payload
   bytes (`ERR_NO_SPACE`).
+- [D] **Output publication.** The slot refuses overlapping `stage`, `input` and `out` ranges
+  before creating slices. Empty ranges never overlap. The internal broker receives uninitialized
+  output storage directly, without a second reply buffer. It finishes admission, subscriber calls
+  and reply-framing checks before writing the reply. An error leaves `out` untouched; success
+  initializes exactly the returned prefix, with the returned count at most `out` capacity.
 - [D] **Membership is frozen for the whole outermost callback** in which the owner runs the stage:
   plugins started, stopped, installed or turned off during it change the subscriber list only after
   that callback returns, so a cursor loop sees one list.
@@ -180,7 +185,9 @@ service.call(ctx, service: handle, op: u32, input: bytes, out: buffer) -> count 
   and multiplicity are the op's own rules (for example "one record"), checked by the service after
   the generic checks. The count is generic: at most the op's `input_rows` records
   (`ServiceOp::input_rows`, 1 unless the schema says more), else `ERR_NO_SPACE`; where it is above
-  8, the host decodes with the generated `host_records_visit` and the SDK encodes with
+  8, the host decodes with the generated `host_records_visit` (the whole batch is checked before the
+  first visit, but a visitor's own error leaves the earlier visits done: a handler stages and
+  publishes only after the walk returned `OK`) and the SDK encodes with
   `records_encode_counted`.
 
   Every check above runs before the service does anything, so a refused call has no effect and
@@ -229,7 +236,7 @@ Each major of a service has one schema file, `abi/services/<key>@<major>.def` (J
 - [D] Ops, in id order: `id` 1..=65535, unique, never renumbered; `name` unique
   (`[a-z][a-z0-9_]*`); `since` the service revision that introduced the op (at most `revision`); `effect` `query` or `mutate`;
   `feature` a D1 feature key that gates it, or null; `input` and `reply` lists of `service.*`
-  record names (tags taken from `abi.def`), at most 8 each; `max_input` and `max_reply` in
+  record names (tags taken from `abi.def`), at most 16 each; `max_input` and `max_reply` in
   1..=4096; `bound` what the call may wait for: `none`, `card` (one bounded card access) or
   `radio` (never: that is an operation handle).
 - [D] Row counts, each written only where it differs from its default (so other ops keep their

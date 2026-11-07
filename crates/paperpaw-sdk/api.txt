@@ -3037,6 +3037,7 @@ pub paperpaw_sdk::native::callbacks::Input::Key::key: &'a str
 pub paperpaw_sdk::native::callbacks::Input::Key::now_ms: u64
 pub paperpaw_sdk::native::callbacks::Input::Key::state: paperpaw_sdk::native::callbacks::KeyState
 pub paperpaw_sdk::native::callbacks::Input::Pointer
+pub paperpaw_sdk::native::callbacks::Input::Pointer::contact: u32
 pub paperpaw_sdk::native::callbacks::Input::Pointer::now_ms: u64
 pub paperpaw_sdk::native::callbacks::Input::Pointer::phase: paperpaw_sdk::native::callbacks::PointerPhase
 pub paperpaw_sdk::native::callbacks::Input::Pointer::position: paperpaw_platform::geometry::Point
@@ -4309,6 +4310,7 @@ pub paperpaw_sdk::native::NotInstalledReason::OtherAuthor
 #[non_exhaustive] pub enum paperpaw_sdk::native::SafeModeReason
 pub paperpaw_sdk::native::SafeModeReason::FailedStarts
 pub paperpaw_sdk::native::SafeModeReason::KeyHeld
+pub paperpaw_sdk::native::SafeModeReason::PowerEscape
 #[non_exhaustive] pub struct paperpaw_sdk::native::CodeRoom
 pub paperpaw_sdk::native::CodeRoom::granule: u32
 pub paperpaw_sdk::native::CodeRoom::larger: core::option::Option<u64>

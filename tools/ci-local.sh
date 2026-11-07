@@ -68,7 +68,7 @@ fi
 
 all_groups=(fmt abi lint test doc msrv screens sdk embedded native architecture emulator deny firmware android)
 quick_groups=(fmt lint test)
-opt_groups=(firmware-build fuzz release-versions miri)
+opt_groups=(firmware-build fuzz release-versions miri miri-stage)
 
 if [[ $list -eq 1 ]]; then
     echo "quick: ${quick_groups[*]}"
@@ -236,6 +236,14 @@ g_embedded() {
     run "embedded: build the web emulator" "python3 shells/web/build.py --limit-mb 16.8"
 }
 
+# Kept separate from Core's `miri` group until the stage and dispatcher slices merge.
+g_miri-stage() {
+    run "miri-stage: raw stage output (strict provenance, Stacked Borrows)" \
+        "RUSTC_WRAPPER= MIRIFLAGS='-Zmiri-strict-provenance' cargo +nightly-2026-10-17 miri test -p paperpaw-core --lib stage_slot"
+    run "miri-stage: raw stage output (strict provenance, Tree Borrows)" \
+        "RUSTC_WRAPPER= MIRIFLAGS='-Zmiri-strict-provenance -Zmiri-tree-borrows' cargo +nightly-2026-10-17 miri test -p paperpaw-core --lib stage_slot"
+}
+
 g_native() {
     run "native: plugin from another workspace" "cargo build --release --manifest-path crates/paperpaw-core/tests/native-plugin/Cargo.toml --target-dir crates/paperpaw-core/tests/native-plugin/target && cargo test -p paperpaw-core --test native_plugin -- --ignored && cargo test -p paperpaw-native --test real_plugin -- --ignored"
     run "native: the SDK keeps no mutable statics" '
@@ -383,6 +391,9 @@ g_firmware-build() {
         cargo run -q --release -p paperpaw-sign -- plugin target/ci-local/hello-esp32c3.ppn | grep -Eq "^fingerprint: +$fp\$"'
     run "firmware-build: the panic path's stack frames fit the reserve" '
         cargo run -q --release -p paperpaw-sign -- frames shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink --budget shells/xteink/frame-budget.txt'
+    run "firmware-build: the plugins' host frames fit under the band (ppn5)" '
+        (cd shells/xteink && cargo +'"$x4_toolchain"' build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4,ppn5 --target-dir target/ppn5)
+        cargo run -q --release -p paperpaw-sign -- frames shells/xteink/target/ppn5/riscv32imc-unknown-none-elf/release/paperpaw-xteink --budget shells/xteink/frame-budget-ppn5.txt'
     run "firmware-build: the interface-7 sample packs to the committed file" '
         env -u RUSTFLAGS CARGO_TARGET_DIR="$PWD/target/ci-local/abi7-x4-min" samples/abi7-x4-min/build.sh --check'
     run "firmware-build: SDK interface-7 entry packs and rejects misalignment" '

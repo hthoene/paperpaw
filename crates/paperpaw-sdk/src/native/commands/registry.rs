@@ -324,7 +324,8 @@ impl CommandSender<'_, '_> {
         self.submit(wire::Command::RequestPlugins { plugins })
     }
 
-    /// Answer one plugin request. Until DEV defines uses.install, every host refuses this.
+    /// Answer one plugin request; needs `uses.install`. Until hosts check that
+    /// feature for commands, every host refuses this.
     ///
     /// # Errors
     /// Returns validation, encoding or host errors, including Denied without installation authority.

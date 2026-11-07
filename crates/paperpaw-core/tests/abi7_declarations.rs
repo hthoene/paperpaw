@@ -1300,3 +1300,27 @@ fn uix_declarations_stay_refused_until_admitted() {
         );
     }
 }
+
+/// DOC and LIB declarations (`docs/abi/document.md`, `library.md`: formats,
+/// readers, lookup providers, book badges and library sources) decode but stay
+/// refused until the host admits them, as the UIX ones.
+#[test]
+fn doc_and_lib_declarations_stay_refused_until_admitted() {
+    for tag in [31, 229, 230, 231, 232, 233] {
+        // 128 zero bytes are a valid body of every generated record.
+        let bytes = batch(&[record(tag, &[vec![0; 128]])]);
+        let decoded = records_decode(&bytes).unwrap();
+        let first = decoded.iter().next().unwrap();
+        assert_eq!(
+            validate_record(PLUGIN, &first),
+            Err(ERR_UNSUPPORTED),
+            "tag {tag}"
+        );
+        let (result, committed) = run(&bytes);
+        assert_eq!(result, Err(ERR_UNSUPPORTED), "tag {tag}");
+        assert!(
+            committed.is_err(),
+            "tag {tag}: refusal must poison construction"
+        );
+    }
+}

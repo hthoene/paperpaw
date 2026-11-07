@@ -68,6 +68,9 @@ fn metadata(bytes: &[u8], host: &PpHost) -> Result<u16, RuntimeError> {
     checked_metadata(bytes, host, &[]).map(|checked| checked.needs_minor)
 }
 
+// Only implemented semantic features belong here. Slot presence is insufficient.
+const WIRED_FEATURES: &[paperpaw_native::metadata::Feature<'static>] = &[];
+
 fn checked_metadata<'a>(
     bytes: &'a [u8],
     host: &PpHost,
@@ -83,7 +86,7 @@ fn checked_metadata<'a>(
             entry_bytes: wire::PROFILE_ENTRY_BYTES as u16,
         },
         services,
-        features: &[],
+        features: WIRED_FEATURES,
     };
     match metadata::check(bytes, &capabilities) {
         Ok(checked) => Ok(checked),
@@ -266,11 +269,13 @@ unsafe fn checked_library(
         data_export(&bytes, 62, METADATA_SYMBOL, true).map_err(|_| RuntimeError::Export)?;
     let checked = checked_metadata(locator.bytes, host, services)?;
     let minor = checked.needs_minor;
-    let declared_services = native_host::shell::DeclaredServices::try_from_iter(checked.services())
-        .map_err(|error| match error {
-            native_host::shell::DeclaredServicesError::Invalid => RuntimeError::Metadata,
-            native_host::shell::DeclaredServicesError::NoMemory => RuntimeError::NoMemory,
-        })?;
+    let declared_services =
+        native_host::shell::DeclaredServices::try_from_metadata(&checked, WIRED_FEATURES).map_err(
+            |error| match error {
+                native_host::shell::DeclaredServicesError::Invalid => RuntimeError::Metadata,
+                native_host::shell::DeclaredServicesError::NoMemory => RuntimeError::NoMemory,
+            },
+        )?;
     let entry = data_export(&bytes, 62, ENTRY_SYMBOL, false).map_err(|_| RuntimeError::Export)?;
     if entry.bytes.len() != wire::PROFILE_ENTRY_BYTES
         || entry.address % wire::PROFILE_ENTRY_ALIGN as u64 != 0
