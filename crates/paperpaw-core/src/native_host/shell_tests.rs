@@ -790,7 +790,8 @@ mod instance_tests {
         let mut depth = None;
         let instance = load().unwrap();
         // An address inside the owner's allocation (its environment scope).
-        let watched = core::ptr::from_ref(&*instance.environment()) as usize;
+        let watched_ptr = core::ptr::from_ref(&*instance.environment()).cast::<u8>();
+        let watched = watched_ptr.addr();
         WATCH_FREED.with(|f| f.set(false));
         WATCH.with(|w| w.set(watched));
         let plugin = instance.into_plugin(manifest(), &mut depth, &host).unwrap();
@@ -803,7 +804,7 @@ mod instance_tests {
         );
         // SAFETY: the owner was kept (never freed), so the scope inside it is
         // still allocated; reading one byte of it only checks that.
-        let _ = unsafe { core::ptr::read_volatile(watched as *const u8) };
+        let _ = unsafe { core::ptr::read_volatile(watched_ptr) };
         WATCH.with(|w| w.set(0));
         // Told once (the first attempt), refused again by `finish`: the owner
         // is kept, so the destructor never ran and the module was not freed.
