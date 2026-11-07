@@ -44,7 +44,7 @@ fn piece(fake: &Fake, owner: u64, id: u32, offset: u32) -> Result<Vec<u8>, i32> 
 #[test]
 fn the_pool_is_reserved_before_use_and_a_request_waits_for_room() {
     let fake = Fake::x4();
-    let (ia, ib) = (big(1, 45_056), big(2, 4_096));
+    let (ia, ib) = (big(1, 45_056), big(2, 4_000));
     let (la, lb) = (ia.len() as u32, ib.len() as u32);
     let a = request(&fake, OWNER, &ia).unwrap();
     assert_eq!(fake.pool_used(), 45_056 + la, "input and body reserved");
@@ -56,12 +56,12 @@ fn the_pool_is_reserved_before_use_and_a_request_waits_for_room() {
     finish(&fake, a, 200, b"hi");
     assert_eq!(
         fake.pool_used(),
-        2 + lb + 4_096,
+        2 + lb + 4_000,
         "b started on the room that came free"
     );
     assert_eq!(*fake.started.borrow(), [a, b]);
     assert_eq!(drain(&fake, OWNER), [done(a, 1, 200, 0, 0, 2)]);
-    assert_eq!(fake.pool_used(), lb + 4_096);
+    assert_eq!(fake.pool_used(), lb + 4_000);
     finish(&fake, b, 200, b"");
     drain(&fake, OWNER);
     assert_eq!(fake.pool_used(), 0, "everything is back");
@@ -105,7 +105,7 @@ fn the_input_of_a_request_is_held_in_the_pool_at_its_exact_size() {
         batch(&h4)
     };
     let profile = NetProfile {
-        pool: 22_000,
+        pool: 10_000,
         max_body: 100,
         memory_bodies: 8,
         connections: 8,
@@ -116,13 +116,13 @@ fn the_input_of_a_request_is_held_in_the_pool_at_its_exact_size() {
     for owner in 10..13 {
         request(&fake, owner, &long).unwrap();
     }
-    assert_eq!(fake.pool_used(), 3 * (long_len + 4_096));
+    assert_eq!(fake.pool_used(), 3 * (long_len + 100));
     // The fourth input does not fit: refused, and the pool is as it was.
     assert_eq!(
         request(&fake, 13, &long),
         Err(paperpaw_native::host_glue::ERR_NO_MEMORY)
     );
-    assert_eq!(fake.pool_used(), 3 * (long_len + 4_096));
+    assert_eq!(fake.pool_used(), 3 * (long_len + 100));
     assert_eq!(fake.started.borrow().len(), 3);
 }
 
@@ -829,15 +829,41 @@ fn a_held_body_is_charged_by_capacity_and_an_oversized_buffer_is_refused() {
         events[0],
         Event::Done { reason: r, status: 0, body_len: 0, .. } if r == reason::TOO_LARGE
     ));
-    // An error body with a roomy buffer above 4,096 is refused.
+    // An error body with a buffer above the reservation is refused.
     let fake = Fake::x4();
     let id = request(&fake, OWNER, &big(1, 100)).unwrap();
-    answer(&fake, id, 500, Vec::with_capacity(4_097), false);
+    answer(&fake, id, 500, Vec::with_capacity(101), false);
     assert_eq!(fake.pool_used(), 0);
-    // ... while 4,096 fits the room every memory request reserves.
+    // ... while a buffer that fits the reservation is charged as it is.
     let id = request(&fake, OWNER, &big(2, 100)).unwrap();
-    answer(&fake, id, 500, Vec::with_capacity(4_096), false);
-    assert_eq!(fake.pool_used(), 4_096);
+    answer(&fake, id, 500, Vec::with_capacity(100), false);
+    assert_eq!(fake.pool_used(), 100);
+}
+
+#[test]
+fn a_memory_requests_error_body_keeps_at_most_min_4096_and_max_body() {
+    let fake = Fake::x4();
+    let id = request(&fake, OWNER, &big(1, 100)).unwrap();
+    assert_eq!(fake.pool_used() - 100, big(1, 100).len() as u32);
+    finished(
+        &fake,
+        id,
+        Finished {
+            status: 503,
+            reason: 0,
+            saved: false,
+            truncated: true,
+            etag: "",
+            content_type: "",
+            final_url: "",
+            body: std::vec![9; 100],
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        drain(&fake, OWNER),
+        [done(id, 1, 503, 0, DONE_TRUNCATED, 100)]
+    );
 }
 
 #[test]

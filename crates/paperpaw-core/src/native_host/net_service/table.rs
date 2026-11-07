@@ -299,12 +299,7 @@ impl Inner {
                 .filter(|r| r.state == State::Running)
                 .count() as u32;
             let r = &self.reqs[index];
-            // A memory request also holds room for a failure's 4,096-byte error body.
-            let need = if r.saving {
-                IO_BUFFER
-            } else {
-                r.max_body.max(ERROR_BODY as u32)
-            };
+            let need = if r.saving { IO_BUFFER } else { r.max_body };
             if running >= profile.connections
                 || (!r.saving && self.bodies() >= profile.memory_bodies)
                 || !self.reserve(host, need)
@@ -519,8 +514,7 @@ pub(crate) struct Finished<'a> {
     pub(crate) final_url: &'a str,
     /// The memory body (or the error body of a failure with a status). Its
     /// allocation (capacity, not length) must not exceed what the request
-    /// reserved (`max_body` but at least 4,096 for a memory request, 4,096 for a
-    /// saving request); a larger buffer
+    /// reserved (`max_body` for a memory request, 4,096 for a saving request); a larger buffer
     /// ends the request with `TOO_LARGE`.
     pub(crate) body: Vec<u8>,
 }
@@ -547,8 +541,8 @@ pub(crate) fn finished(host: &dyn NetHost, id: u32, mut outcome: Finished<'_>) -
         // Dropped, not cleared: a cleared buffer would keep its capacity.
         outcome.body = Vec::new();
     }
-    // An error body is at most 4,096 bytes whatever `max_body` is (the
-    // request reserved room for it). A device without a pool has no ceiling.
+    // An error body is at most 4,096 bytes, and a memory request keeps no
+    // more than its `max_body`. A device without a pool has no ceiling.
     let ceiling = if host.profile().pool == 0 {
         usize::MAX
     } else {
@@ -556,8 +550,10 @@ pub(crate) fn finished(host: &dyn NetHost, id: u32, mut outcome: Finished<'_>) -
     };
     let cap = if ok && !r.saving && (200..300).contains(&outcome.status) {
         r.max_body as usize
-    } else {
+    } else if r.saving {
         ERROR_BODY
+    } else {
+        ERROR_BODY.min(r.max_body as usize)
     };
     let mut flags = if saved { DONE_SAVED } else { 0 };
     if outcome.body.len() > cap {
