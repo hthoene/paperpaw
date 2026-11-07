@@ -55,8 +55,12 @@ EVT, REG and UIX. Tags below are proposed; the records step numbers them without
   format (no `registration.stage`). `flags`: bit 0 `prepared` (the first open converts into the
   cache and takes a while, interface 6 `FormatPrepared`), bit 1 `sniffs` (it can tell its files by
   their first 512 bytes, interface 6 `sniff`), bit 2 `folder` (a book is a folder, format-images),
-  bit 3 `whole_pages` (each section is a whole-page picture: comics, XTC). Other bits `ERR_INVALID`.
-  At most 4 formats per plugin, 32 device-wide (`ERR_FULL`).
+  bit 3 `whole_pages` (each section is a whole-page picture: comics, XTC), bit 4 `siblings` (root 3
+  is the book's folder and below, read only, not the file alone: format-images shows the pictures
+  beside the one opened). Other bits `ERR_INVALID`. At most 8 formats per plugin (format-epub has
+  five), 32 device-wide (`ERR_FULL`). A format that must read more of the card than its book's
+  folder (notes-vault resolving links across a vault) declares `uses.storage` and reads root 1
+  itself (decision 125); the store page shows it.
 - [D] **Which format reads a file.** By extension (the longest match, `fb2.zip` before `zip`); when
   two formats claim one, the user's choice (host setting `core.formats.<extension>`, a choice of the
   claiming formats, REG-visible) wins, else the higher `priority`, else the first loaded. A file
@@ -79,8 +83,8 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 | --- | --- | --- | --- | --- |
 | 1 | `open` | `doc_open`, `doc_option`* | `doc_state` | section 2.1 |
 | 2 | `state` | `doc_ref` | `doc_state` | preparing progress, failure |
-| 3 | `meta` | `doc_ref` | `doc_meta`, `doc_text`* | section 2.2 |
-| 4 | `meta_text` | `doc_text_at` | `doc_text` | the rest of a long metadata text |
+| 3 | `meta` | `doc_ref` | `doc_meta` | section 2.2 |
+| 4 | `meta_text` | `doc_text_at` | `doc_text` | one author, subject or text, from an offset |
 | 5 | `sections` | `doc_page` | `doc_section`*, `end` | paged |
 | 6 | `block` | `doc_at` | the block stream (section 4) | the block at or after a position |
 | 7 | `toc` | `doc_page` | `doc_toc`*, `end` | paged, in reading order |
@@ -90,7 +94,7 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 | 11 | `locate` | `doc_xpointer` | `doc_at` | the position of an XPointer |
 | 12 | `links` | `doc_span` | `doc_link`*, `end` | links of a section overlapping a range, paged |
 | 13 | `link_target` | `doc_href` | `doc_at` | `ERR_NOT_FOUND` for external or dangling |
-| 14 | `fonts` | `doc_ref` | `doc_font`*, `end` | embedded fonts, at most 31 (`MAX_FAMILIES`) |
+| 14 | `fonts` | `doc_page` | `doc_font`*, `end` | embedded font faces, paged |
 | 15 | `cover` | `doc_ref` | `doc_image` | `ERR_NOT_FOUND` for none |
 | 16 | `image` | `doc_image_ask` | `doc_image` | prepare a block's image, or larger (section 5) |
 | 17 | `progress` | `doc_at` | `doc_progress` | where the format knows better than section lengths |
@@ -103,14 +107,14 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 | --- | --- | --- |
 | 1060 | `service.doc_open` | `root: u32`, `path: str 512`, `format: str 128`, `flags: u32`, `image_side: u32`, `cover_side: u32`, `css_root: u32`, `css_path: str 512` |
 | 1061 | `service.doc_option` | `key: str 64`, `value: str 128` |
-| 1062 | `service.doc_state` | `document: u32`, `state: u32`, `progress_ppm: u32`, `status: i32`, `flags: u32`, `format: str 128` |
+| 1062 | `service.doc_state` | `document: u32`, `state: u32`, `progress_ppm: u32`, `status: i32`, `flags: u32`, `conversion: u64`, `format: str 128` |
 | 1063 | `service.doc_ref` | `document: u32` |
-| 1064 | `service.doc_meta` | `title: str 512`, `language: str 35`, `series: str 512`, `series_index: str 32`, `direction: u32`, `writing_mode: u32`, `sections: u32`, `flags: u32` |
+| 1064 | `service.doc_meta` | `title: str 512`, `language: str 35`, `series: str 512`, `series_index: str 32`, `direction: u32`, `writing_mode: u32`, `sections: u32`, `authors: u32`, `subjects: u32`, `description_bytes: u32`, `flags: u32` |
 | 1065 | `service.doc_text` | `kind: u32`, `index: u32`, `total: u32`, `text: str 1024` |
 | 1066 | `service.doc_text_at` | `document: u32`, `kind: u32`, `index: u32`, `offset: u32` |
 | 1067 | `service.doc_page` | `document: u32`, `scope: str 128`, `cursor: u32`, `generation: u32` |
 | 1068 | `service.doc_section` | `index: u32`, `length: u32`, `flags: u32` |
-| 1069 | `service.doc_at` | `document: u32`, `section: u32`, `offset: u32`, `insert: u32` |
+| 1069 | `service.doc_at` | `document: u32`, `section: u32`, `offset: u32`, `insert: u32`, `cursor: u32`, `generation: u32` |
 | 1070 | `service.doc_toc` | `index: u32`, `level: u32`, `section: u32`, `offset: u32`, `flags: u32`, `title: str 512` |
 | 1071 | `service.doc_index` | `document: u32`, `index: u32` |
 | 1072 | `service.doc_label` | `text: str 32` |
@@ -134,14 +138,21 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 ### 2.1 Opening, preparing, closing
 
 - [D] `open` (`doc_open`: `root` 0 or 1, `path` at most 512 bytes, `format` empty for section 1's
-  choice, `flags`, `image_side`, `cover_side`, `css_root`, `css_path`; then at most 16 `doc_option`
+  choice, `flags`, `image_side`, `cover_side`, `css_root`, `css_path`; then at most 12 `doc_option`
   rows `key`/`value`, interface 6 `OpenOptions::settings`): `flags` bit 0 publisher styles, bit 1
-  colour, bit 2 background (an index build, not for showing; section 8); `image_side` and
-  `cover_side` the longest side in pixels (0: the device's, at most 1,600 and 300 as interface 6
-  `IMAGE_FIT`, `COVER_FIT`); `css_path` a file of user CSS (at most 65,536 bytes, empty for none) on
+  colour, bit 2 background (an index build, not for showing; section 8); `image_side` the longest
+  side of a page's picture (0: interface 6 `IMAGE_FIT`, 1,600), `cover_side` of the cover (0:
+  interface 6 `cover_fit`, the larger of 300 and 3/8 of the screen's long side; at most the screen's
+  long side); `css_path` a file of user CSS (at most 65,536 bytes, empty for none) on
   `css_root` (0 or 1 under the same rule as `path`). Other flag bits `ERR_INVALID`. The host checks
   the roots, finds the format, gives a new document id and calls the format's op 2 `open`; its
   answer becomes `doc_state`.
+- [D] **Options reach their format whole.** An option's `key` is a full setting id
+  (`<plugin>.<name>`) with the book's own value (interface 6 gathers them for every format owner,
+  `reading/mod.rs:275`); the host forwards to the chosen format exactly the options of its plugin,
+  each as one `fmt.option` record beside `fmt.call` (section 3), none cut and none dropped; options
+  of other plugins are not for this format and go nowhere. More than 12 options of one format, or an
+  option over its caps, is `ERR_NO_SPACE` for the open (never a silent drop).
 - [D] `doc_state`: `document`, `state` (0 ready, 1 preparing, 2 failed), `progress_ppm` while
   preparing, `status` (an `ERR_*` when failed), `format` (the format id), `flags` (bit 0 whole
   pages, bit 1 has a table of contents, bit 2 has XPointers, bit 3 has embedded fonts, bit 4 has
@@ -153,11 +164,16 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   answers done or fails. The opener gets `event.document_changed` (88, a hint per document,
   coalesced) when the state or the progress moves; other ops on a preparing document are
   `ERR_BUSY`. The X4 runs at most one preparation at a time, queued in open order.
-- [D] **The cache is whole or not used.** The host writes `.complete` (a host stamp with the
-  format's id and `prepare` revision) into the cache root after the format answers done and the card
-  is synced. An open that finds a cache without a current stamp (power cut, card pulled, a new
-  format revision) removes it and prepares again; the format never sees a half-made cache as
-  finished.
+- [D] **The cache is whole or not used.** A cache is made for one **conversion**: the book's
+  identity (LIB's fingerprint), the format plugin's id and version, and the conversion key, a hash
+  of everything that changes the output (publisher styles, colour, `image_side`, `cover_side`, the
+  CSS file's content hash, the forwarded options), interface 6 `prepared_keeping` and `PreparedCss`.
+  Root 2 is `.paperpaw/cache/<book key>/<format plugin>/<conversion key>/`; the host keeps at most
+  two conversions per book (the older goes), and `doc_state.conversion` (a `u64`) names it, which
+  LIB stores with positions and annotations (`library.md` 2.2). The host writes `.complete` (the
+  stamp of those inputs) after the format answers done and the card is synced; a cache without a
+  current stamp (power cut, card pulled, a new format version, other options) is removed and made
+  again, so the format never sees a half-made or stale cache as finished.
 - [D] `close` frees the id; the format gets op 4 `close` (its state for it goes) and every image id
   of the document (section 5) ends. The host closes the opener's documents when the opener stops,
   and closes a format's documents when the format plugin stops or is uninstalled: the opener gets
@@ -172,13 +188,13 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 
 - [D] `doc_meta` (interface 6 `Metadata`): `title: str 512`, `language: str 35`, `series: str 512`,
   `series_index: str 32`, `direction` (0 left to right, 1 right to left), `writing_mode` (0
-  horizontal, 1 vertical right to left, 2 vertical left to right), `sections`, `flags` (bit 0 the
-  title was cut, read it whole with op 4 kind 0; bit 1 the same for the series). Then one `doc_text`
-  row per author, subject and the description, in that order (`kind` 1 author, 2 subject, 3
-  description; `index`; `total` its whole length; `text` the first at most 1,024 bytes, cut at a
-  UTF-8 boundary), at most 16 authors and 32 subjects (more are left out, `flags` bit 2). A longer
-  text is read whole with op 4 (`doc_text_at`: `document`, `kind`, `index`, `offset`). Nothing is
-  cut for good: every text is readable whole through op 4.
+  horizontal, 1 vertical right to left, 2 vertical left to right), `sections`, `authors`, `subjects`
+  (their counts, no cap), `description_bytes`, `flags` (bit 0 the title was cut, bit 1 the series).
+  Op 3 answers `doc_meta` alone. Op 4 (`doc_text_at`: `document`, `kind` 0 title, 1 author, 2
+  subject, 3 description, 4 series; `index` below the count, else `ERR_NOT_FOUND`; `offset`) answers
+  one `doc_text` (`kind`, `index`, `total` its whole length, `text` at most 1,024 bytes from
+  `offset`, cut at a UTF-8 boundary): an opener lists every author and subject by index and reads
+  any text whole by offsets. Nothing is cut for good and nothing is left out.
 
 ### 2.3 Navigation and links
 
@@ -202,23 +218,46 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 
 A host-defined stage (generated stage schema, `abi/stages/core.format@1.def`, stage-local tags;
 spec `/home/agent/shared/stage-schemas-spec-228.md`). The host calls the one format plugin that
-serves the document, with the `token` of its `format.spec`; nobody else subscribes. Each call has
-one input record `fmt.call` (`op`, `document`, `section`, `offset`, `index`, `flags`, `arg:
-bytes 1024`) and the op's reply records (local tags), the same records as the service's rows, so the
+serves the document, with the `token` of its `format.spec`; nobody else subscribes. Each call's
+input is one `fmt.call` record (`op`, `document`, `section`, `offset`, `index`, `cursor`,
+`generation`, `flags`, `image_side`, `cover_side`, `conversion: u64`, `text: str 1024`, `arg: bytes
+512`) followed, for op 2 only, by the forwarded `fmt.option` records (at most 12: key 64, value 128
+bytes); the reply is the op's records (local tags), the same records as the service's rows, so the
 host passes them on after checking them.
 
-| Op | Name | Rows of the reply | Roots during the call |
+| Op | Name and input | Rows of the reply | Roots |
 | --- | --- | --- | --- |
 | 1 | `sniff` (`arg`: the file's first at most 512 bytes) | `fmt.yes` (or none: not mine) | none |
-| 2 | `open` (`arg`: the `doc_option` rows; `flags` from `doc_open`) | `doc_state` | 2, 3, 4 |
-| 3 | `prepare` (`arg` empty) | `doc_state` (`progress_ppm`; `state` 0 done, 1 more, 2 failed) | 2, 3, 4 |
+| 2 | `open` (`flags`, sides, `conversion`; `fmt.option`*) | `doc_state` | 2, 3, 4 |
+| 3 | `prepare` | `doc_state` (`progress_ppm`; `state` 0 done, 1 more, 2 failed) | 2, 3, 4 |
 | 4 | `close` | none | none |
-| 5-17 | as the service's ops 3-17 | the same rows | 2, 3 |
+| 5 | `meta` | `doc_meta` | 2, 3 |
+| 6 | `meta_text` (`index`, `flags` the kind, `offset`) | `doc_text` | 2, 3 |
+| 7 | `sections` (`cursor`) | `doc_section`*, `end` | 2, 3 |
+| 8 | `block` (`section`, `offset`, `cursor`, `generation`) | the block stream (section 4) | 2, 3 |
+| 9 | `toc` (`cursor`) | `doc_toc`*, `end` | 2, 3 |
+| 10 | `toc_target` (`index`) | `doc_at` | 2, 3 |
+| 11 | `page_label` (`section`, `offset`) | `doc_label` | 2, 3 |
+| 12 | `xpointer` (`section`, `offset`) | `doc_xpointer` | 2, 3 |
+| 13 | `locate` (`text`: the XPointer) | `doc_at` | 2, 3 |
+| 14 | `links` (`section`, `offset` from, `index` to, `cursor`) | `doc_link`*, `end` | 2, 3 |
+| 15 | `link_target` (`text`: the href) | `doc_at` | 2, 3 |
+| 16 | `fonts` (`cursor`) | `doc_font`*, `end` | 2, 3 |
+| 17 | `cover` (`cover_side`) | `fmt.image` | 2, 3 |
+| 18 | `image` (`index` the image, `image_side`) | `fmt.image` | 2, 3 |
+| 19 | `progress` (`section`, `offset`) | `doc_progress` | 2, 3 |
+
+- [D] Service ops map one to one: 3 → 5, 4 → 6, 5 → 7, 6 → 8, 7 → 9, 8 → 10, 9 → 11, 10 → 12,
+  11 → 13, 12 → 14, 13 → 15, 14 → 16, 15 → 17, 16 → 18, 17 → 19; ops 1, 2, 18-21 of the service
+  are the host's own (open, state, close, formats, readers). Sizes: `fmt.call` 1 + 9×4 + 8 + 1,026
+  + 514 + 5 = 1,590, with 12 options 4,014: over the 3,840 payload, so op 2 carries `text` and
+  `arg` empty (1,590 − 1,536 + 2,424 = 2,478).
 
 - [D] **Roots** (the reserved roots of D2.2, valid only inside a call for that document): root 2 the
-  document's cache, `.paperpaw/cache/<book key>/<format plugin>/` (read and write; the book key is
-  LIB's, so the cache follows the book on a move and goes with it, LIB), root 3 the book (read only:
-  `path` "" is the file, or the folder's files for a `folder` format), root 4 the user CSS file
+  document's cache for its conversion (section 2.1; read and write; the book key is LIB's, so the
+  cache follows the book on a move and goes with it, LIB), root 3 the book (read only: `path` "" is
+  the file; for a `folder` format the folder and below; for a `siblings` format the book's folder
+  and below, the call's `text` naming the opened file within it), root 4 the user CSS file
   (read only, `path` "", during op 2 and 3 only). Any other root, and these outside such a call, are
   `ERR_UNSUPPORTED`. The format writes its cache atomically per file (D2.5); it may not write root
   3.
@@ -243,36 +282,45 @@ host passes them on after checking them.
 ## 4. Blocks on the wire
 
 The interface-6 `Block` (`paperpaw-document`), whole: every field has a record, and nothing a format
-says is dropped. One `block` call answers one **piece**, as interface 6 already splits a very long
-paragraph (`continues`/`continued`): a piece's reply is at most 3,840 bytes (the stage payload), and
-the SDK's block writer splits a block into pieces at text boundaries (never inside a UTF-8
-character; a run or a map checkpoint across the cut is split in two) when the next record would not
-fit. A reader joins pieces as interface 6 does.
+says is dropped. A block is a **record list** (header, text parts, runs, maps, columns, cells,
+rubies, languages, image) that the format's SDK writer makes from the block deterministically. It
+travels in **fragments** of at most 3,840 bytes (the stage payload), cut only between records, never
+inside one: the logical block, its paragraph and its table row are never split or changed because a
+reply filled up (no flattening, no `continues` invented by the transport). The first call answers
+fragment 0; `service.end.flags` bit 1 `more` says the block goes on, with `next` the record index to
+ask from and `generation` the block's identity (a hash of section, start and the conversion); the
+opener asks op 6 again with `doc_at.cursor` = `next` and that generation (the format makes the same
+list again from its cache and answers from that record on). A changed generation is `ERR_STATE`.
+The reader joins the fragments into one block. `continues`/`continued` keep only their interface-6
+meaning (the format's own split of a very long paragraph).
 
 | Tag | Record | Fields |
 | --- | --- | --- |
-| 1082 | `service.doc_block` | `kind: u32`, `level: u32`, `flags: u32`, `start: u32`, `end: u32`, `align: u32`, `indent: i32`, `space: u32`, `size: u32`, `margin_start: u32`, `margin_end: u32`, `line_height: u32`, `dir: u32`, `writing_mode: u32`, `lang: str 35`, `drop_cap: u32`, `text: str 2048` |
+| 1082 | `service.doc_block` | `kind: u32`, `level: u32`, `flags: u32`, `start: u32`, `end: u32`, `align: u32`, `indent: i32`, `space: u32`, `size: u32`, `margin_start: u32`, `margin_end: u32`, `line_height: u32`, `dir: u32`, `writing_mode: u32`, `lang: str 35`, `drop_cap: u32`, `text_bytes: u32` |
+| 1090 | `service.doc_text_part` | `text: str 3072` |
+| 1091 | `service.doc_columns` | `weights: bytes 32` |
 | 1083 | `service.doc_run` | `start: u32`, `end: u32`, `style: u32` |
 | 1084 | `service.doc_map` | `text: u32`, `source: u32` |
 | 1085 | `service.doc_cell` | `end: u32`, `span: u32`, `rows: u32`, `align: u32`, `vertical: u32`, `width: u32` |
-| 1086 | `service.doc_ruby` | `start: u32`, `end: u32`, `kind: u32`, `size: u32`, `text: str 256` |
+| 1086 | `service.doc_ruby` | `start: u32`, `end: u32`, `kind: u32`, `size: u32`, `text: str 1024` |
 | 1087 | `service.doc_inline_lang` | `lang: str 35` |
 
-- [D] Order: one `doc_block`, then its `doc_run`s (sorted, not overlapping, at most 64), `doc_map`s
-  (the `OffsetMap` checkpoints, at most 64), for an image block one `doc_image` (section 5), for a
-  table row up to 16 `doc_cell`s (`MAX_COLUMNS`; `flags` bits 8-10 header, first, last row), up to
-  16 `doc_ruby`s and up to 15 `doc_inline_lang`s (`MAX_INLINE_LANGS`), then `service.end` (`flags`
-  bit 0: this was the last block of the section; `next` the offset of the next block). Any other
-  order, count over its cap or an unknown record is `ERR_INVALID` (the host checks the format's
-  answer).
+- [D] Order of the list: one `doc_block` (`text_bytes` the text's whole length), the text in
+  `doc_text_part`s (each at most 3,072 bytes, cut at UTF-8 boundaries, joined in order to
+  `text_bytes`), its `doc_run`s (sorted, not overlapping), `doc_map`s (the `OffsetMap` checkpoints),
+  for an image block one `doc_image` (section 5), for a table row one `doc_columns` (interface 6
+  `TableRow.columns`: up to 16 `u16` weights shared by the table's rows, little-endian) and its
+  `doc_cell`s (at most 16, `MAX_COLUMNS`; `flags` bits 8-10 header, first, last row), its
+  `doc_ruby`s and up to 15 `doc_inline_lang`s (`MAX_INLINE_LANGS`); the last fragment ends with
+  `service.end` (`flags` bit 0: the last block of the section; `next` the offset of the next block).
+  Runs, maps and rubies have no count cap (interface 6 has none); every record fits a fragment.
+  Another order, an unknown record or a text whose parts do not add up is `ERR_INVALID` (the host
+  checks the format's answer).
 - [D] `kind`: 0 paragraph, 1 heading (`level` 1-6), 2 preformatted, 3 image, 4 table row, 5+n
   `Extended(n)`; `flags` bit 0 continues, bit 1 continued; `indent`, `space`, `size`, `line_height`:
   `i32::MIN` / `u32::MAX` for "the reader's" (interface 6 `None`); `style` the interface-6
   `TextStyle` bits unchanged (they are already a stable `u32`); `lang` a BCP 47 tag, empty for
   unknown.
-- [D] A table row whose cells do not fit one piece is answered as continued paragraphs of its cells'
-  text (`flags` bit 11 `table_flattened`): the text and positions stay, only the grid is lost;
-  logged. [Q] Plugin: is any real book's table row over 2,048 bytes of text?
 - [D] Inserted blocks and `leading_above` are the reader's (its text filters, #964); formats answer
   none, as in interface 6.
 
@@ -284,8 +332,8 @@ and draws them in bands, so no plugin holds a picture in memory.
 
 ```
 image.info(ctx, image: u32, out: buffer) -> i32                                   // slot 36
-canvas.draw_image(ctx, image: u32, x: i32, y: i32, width: u32, height: u32, flags: u32) -> i32  //
-slot 37
+canvas.draw_image(ctx, image: u32, x: i32, y: i32, width: u32, height: u32, flags: u32) -> i32
+                                                                                   // slot 37
 ```
 
 | Tag | Record | Fields |
@@ -321,8 +369,9 @@ slot 37
 
 ## 6. Fonts of a book
 
-- [D] `doc_font` rows (`index` 0-30, `family` 1-31 as the runs' `TextStyle` family, `flags` bit 0
-  bold, bit 1 italic, `bytes` the file's size). The format writes each embedded font (at most 16
+- [D] `doc_font` rows, one per **face** (`index` from 0, at most 124: 31 families × regular, bold,
+  italic, bold italic; `family` 1-31 as the runs' `TextStyle` family, `flags` bit 0 bold, bit 1
+  italic, `bytes` the file's size), paged. The format writes each embedded font (at most 16
   MiB, interface 6's EPUB cap) whole into its cache when it prepares the document; the reader gets a
   font handle with `font.acquire` (slot 7) and the key `document.<document>.<index>`, which the host
   resolves to that cache file and renders from the card like a card font. A damaged font is
@@ -336,9 +385,9 @@ slot 37
   `lookup.spec` (230: `name: str 96`, `title: str 96`, `languages: str 512` one BCP 47 tag per line
   or empty for any, `flags` bit 0 network (shown only when a network is up), `token: u32`) and are
   called in the user's order (a host setting listing them, REG). The asker (the dictionary screen,
-  the reader's selection menu) calls the service `core.lookup` (major 1) op 1 `lookup` (1090
+  the reader's selection menu) calls the service `core.lookup` (major 1) op 1 `lookup` (1092
   `lookup_ask`: `text: str 1024`, `language: str 35`, `context: str 1024`, `cursor: u32`) and gets
-  the providers' rows 1091 `lookup_entry` (`provider: str 64`, `title: str 256`, `text: str 2048`,
+  the providers' rows 1093 `lookup_entry` (`provider: str 64`, `title: str 256`, `text: str 2048`,
   `flags` bit 0 more pages, bit 1 pending: the provider answers later) in pages, one provider per
   page.
 - [D] A provider that must fetch (wikipedia, translate) answers "pending" at once and finishes with
@@ -357,19 +406,20 @@ reply 4,096 bytes, stage payload 3,840.
 | Record or reply | At its caps | Limit |
 | --- | --- | --- |
 | `doc_open` + `doc_option`s (key 64, value 128) | `doc_open` 1 + 5×4 + 514 + 130 + 514 + 5 = 1,184; each option 1 + 66 + 130 + 5 = 202: 16 would be 4,417, so at most 12: 1,184 + 2,424 + 1 = 3,609 | 4,096 |
-| `block` piece | `doc_block` 1 + 14×4 + 4 + 37 + 2,050 + 5 = 2,153; then the rest by the writer's size rule | 3,840 |
+| `block` fragment | `doc_block` 1 + 15×4 + 4 + 37 + 4 + 5 = 111; a `doc_text_part` at most 1 + 3,074 + 5 = 3,080; a `doc_ruby` 1 + 16 + 1,026 + 5 = 1,048; every record fits, fragments are cut between records | 3,840 |
 | 64 `doc_run` alone | 64 × (1 + 12 + 5) = 1,152 | in the 3,840 piece |
-| `doc_meta` + texts | 1 + 514 + 37 + 514 + 34 + 4×4 + 5 = 1,121; each `doc_text` 1 + 12 + 1,026 + 5 = 1,044: meta + 2 texts = 3,209, the rest in later calls via op 4 | 4,096 |
+| `doc_meta`; `doc_text` | 1 + 514 + 37 + 514 + 34 + 4×7 + 5 = 1,133; 1 + 12 + 1,026 + 5 = 1,044 | 4,096 |
 | `doc_toc` page | row 1 + 5×4 + 514 + 5 = 540; 7 rows + `end` = 3,810 | 4,096 |
 | `doc_link` page | row 1 + 3×4 + 1,026 + 5 = 1,044; 3 rows + `end` | 4,096 |
 | `doc_section` page | row 1 + 12 + 5 = 18; 64 rows + `end` = 1,182 | 4,096 |
-| `fmt.call` | 1 + 6×4 + 1,026 + 5 = 1,056 | 3,840 |
+| `fmt.call` (+ 12 `fmt.option` for op 2) | 1,590 (section 3); op 2: 1,590 − 1,536 + 12 × 202 = 2,478 | 3,840 |
 | `lookup_entry` page | 1 + 4 + 66 + 258 + 2,050 + 5 = 2,384, one per page | 4,096 |
 | `command.image_prepare` | 1 + 4 + 514 + 12 + 5 = 536 | 4,096 |
 
-- [D] So `doc_open` takes at most **12** `doc_option` rows (key 64, value 128 bytes); a format with
-  more settings reads them itself (they are settings: slot 5). [Q] Plugin: is 12 enough for every
-  format plugin's `OpenOptions::settings`?
+- [D] So `doc_open` takes at most **12** `doc_option` rows (key 64, value 128 bytes) per format;
+  no first-party format reads options today (Plugin's audit), and more is `ERR_NO_SPACE`, never a
+  silent drop. Values are the book's own (section 2.1), so a later global settings read is not a
+  replacement.
 
 ### 8.2 Memory (X4)
 
