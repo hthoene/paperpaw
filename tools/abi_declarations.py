@@ -737,7 +737,7 @@ pub fn records_encode_counted_iter<'r, I>(
 where
     I: Iterator<Item = Record<'r>> + Clone,
 {
-    let count = records.clone().count();
+    let count = records.clone().take(max_records.saturating_add(1)).count();
     if count > max_records || count > u32::MAX as usize {
         return Err(@NO_SPACE@);
     }

@@ -205,3 +205,27 @@ fn an_iterator_that_changes_between_walks_is_refused_and_never_writes_past_out()
         Err(ERR_INVALID)
     );
 }
+
+#[test]
+fn an_endless_iterator_is_refused_after_one_record_over_the_count() {
+    let pulled = Rc::new(Cell::new(0_usize));
+    let seen = Rc::clone(&pulled);
+    let endless = core::iter::repeat_with(move || {
+        seen.set(seen.get() + 1);
+        Record::ServiceUiParam(ServiceUiParam {
+            key: "k",
+            value: "v",
+        })
+    });
+    let mut out = vec![0xAA; HANDOVER_BYTES];
+    assert_eq!(
+        records_encode_counted_iter(endless, HANDOVER_ROWS, HANDOVER_BYTES, &mut out),
+        Err(ERR_NO_SPACE)
+    );
+    assert_eq!(
+        pulled.get(),
+        HANDOVER_ROWS + 1,
+        "the count walk stops one past the cap"
+    );
+    assert!(out.iter().all(|byte| *byte == 0xAA), "output untouched");
+}

@@ -440,7 +440,7 @@ class RecordsTests(unittest.TestCase):
         for line in ['pub fn records_encode_counted_iter<\'r, I>(',
                      '    I: Iterator<Item = Record<\'r>> + Clone,',
                      '    records_encode_counted_iter(records.iter().copied(), max_records, max_bytes, out)',
-                     '    let count = records.clone().count();',
+                     '    let count = records.clone().take(max_records.saturating_add(1)).count();',
                      '    if written != count || offset != required {']:
             self.assertIn(line, source)
         self.assertEqual(source.count('write_varint(count as u32, out, &mut offset);'), 1)
