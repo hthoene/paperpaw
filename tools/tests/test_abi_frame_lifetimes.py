@@ -16,6 +16,7 @@ extern crate self as paperpaw_graphics;
 pub mod host_glue {
     pub const ERR_STATE: i32 = -6;
     pub const ERR_UNSUPPORTED: i32 = -1;
+    pub const ERR_DENIED: i32 = -12;
 }
 mod snapshot_wire { pub struct Snapshot; }
 pub struct Settings;

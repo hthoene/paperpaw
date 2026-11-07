@@ -1409,6 +1409,10 @@ unsafe extern "C" fn blob_release<S>(ctx: *mut c_void, blob: u32) -> i32 {
 }
 
 #[cfg(test)]
+#[path = "shell_commands.rs"]
+mod command_dispatch;
+
+#[cfg(test)]
 #[path = "shell_core.rs"]
 mod core_dispatch;
 
@@ -1470,6 +1474,7 @@ unsafe extern "C" fn service_call<S>(
         super::call_services::call(
             &context.environment,
             &context.resources,
+            &context.id,
             service,
             op,
             input,

@@ -90,48 +90,26 @@ impl Kernel {
         depth: &DispatchDepth,
         bytes: &[u8],
         now: Instant,
+        hop: u8,
     ) -> Result<i32, Error> {
-        use crate::native_host::commands::CommandStage;
-        let (status, owner, (commands, redraw, _hop)) = {
-            let env = self.shared.env(now);
-            let frame = CoreFrame {
-                env: &env,
-                meter: &self.shared.meter,
-                font_removals: &self.shared.font_removals,
-                usage: &self.shared.usage,
-                plugins: &self.shared.plugins,
-                work: &self.shared.work_states,
-            };
-            batch.dispatch_owner(depth, |context| {
-                let owner =
-                    paperpaw_sdk::Id::try_parse(&context.id).map_err(|error| match error {
-                        paperpaw_sdk::IdError::NoMemory => Error::Allocation,
-                        _ => Error::Status(paperpaw_native::host_glue::ERR_INVALID),
-                    })?;
-                let screen = env.stack().last().map(|entry| entry.key);
-                let mut stage = CommandStage::new(
-                    &owner,
-                    env.settings(),
-                    Some(self.command_settings_authority(&owner)),
-                    8,
-                    4096,
+        let screen = self.shared.stack.last().map(|entry| entry.key);
+        self.with_native_commands(
+            batch,
+            depth,
+            super::command_dispatch::CommandTarget {
+                screen,
+                hop,
+                result: super::command_dispatch::CommandResult::Input,
+            },
+            now,
+            |context, frame| {
+                super::tokens::invoke_token(
+                    context,
+                    token,
+                    frame,
+                    super::TokenInvocation::Input(bytes),
                 )
-                .with_ui(&env, screen, 0, self.screen_keys_remaining());
-                // SAFETY: the command scope is structurally pinned by the owner.
-                let scope = unsafe { context.map_unchecked(|value| &value.commands) };
-                let status = scope.scope(&mut stage, || {
-                    super::tokens::invoke_token(
-                        context,
-                        token,
-                        &frame,
-                        super::TokenInvocation::Input(bytes),
-                    )
-                })??;
-                let output = stage.into_ui_output();
-                Ok::<_, Error>((status, owner, output))
-            })??
-        };
-        self.drain_native_ui(&owner, commands, redraw);
-        Ok(status)
+            },
+        )
     }
 }
