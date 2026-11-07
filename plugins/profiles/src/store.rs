@@ -2,7 +2,7 @@
 //! values are, without the host. Every growth is reserved first: a refused
 //! allocation is `Error::NoMemory` and leaves the caller's state as it was.
 use alloc::{string::String, vec::Vec};
-use paperpaw_sdk::{config, native::Error};
+use paperpaw_sdk::{Id, IdError, config, native::Error};
 use paperpaw_ui_kit::{
     mem::push,
     text::{cmp_lowercase, concat, copy},
@@ -106,7 +106,7 @@ fn upgrade_names(v1: &str) -> Result<String, Error> {
             )?;
         } else if let (Some(profile), Some((id, value))) =
             (profiles.last_mut(), line.split_once('='))
-            && is_id(id.trim())
+            && is_id(id.trim())?
         {
             push(&mut profile.values, (copy(id.trim())?, copy(value.trim())?))?;
         }
@@ -114,13 +114,17 @@ fn upgrade_names(v1: &str) -> Result<String, Error> {
     text(&profiles)
 }
 
-/// A setting id: lower case letters, digits and `.-_`, with a dot.
-#[must_use]
-pub fn is_id(id: &str) -> bool {
-    id.contains('.')
-        && id.bytes().all(|b| {
-            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'_')
-        })
+/// Whether `id` is a setting id, by the SDK's own check (`Id::parse`): the same ids
+/// interface 6 kept, such as `widgets.clock@2.face`.
+///
+/// # Errors
+/// [`Error::NoMemory`] where the check could not copy the id.
+pub fn is_id(id: &str) -> Result<bool, Error> {
+    match Id::try_parse(id) {
+        Ok(_) => Ok(true),
+        Err(IdError::Invalid) => Ok(false),
+        Err(_) => Err(Error::NoMemory),
+    }
 }
 
 /// The profiles as the file's text (without its version).
@@ -181,6 +185,7 @@ pub fn encode_within(profiles: &[Profile], limit: usize) -> Result<String, Error
 /// # Errors
 /// [`Error::NoMemory`].
 pub fn decode(bytes: &[u8]) -> Result<Option<Vec<Profile>>, Error> {
+    let bytes = without_bom(bytes);
     let Ok(source) = core::str::from_utf8(bytes) else {
         return Ok(None);
     };
@@ -193,6 +198,44 @@ pub fn decode(bytes: &[u8]) -> Result<Option<Vec<Profile>>, Error> {
         Some(1) => parse(&upgrade_names(source)?).map(Some),
         Some(VERSION) => parse(source).map(Some),
         _ => Ok(None),
+    }
+}
+
+/// The UTF-8 byte order mark an editor may put in front of a hand-edited file, which
+/// interface 6 skipped too.
+const BOM: &[u8] = b"\xEF\xBB\xBF";
+
+/// How many bytes at the start of the file [`may_save_over`] needs.
+pub const HEAD: usize = 64;
+
+fn without_bom(bytes: &[u8]) -> &[u8] {
+    bytes.strip_prefix(BOM).unwrap_or(bytes)
+}
+
+/// Whether the start of a file allows a save over it: a file of this version or the
+/// first one, or one with no version line. A newer version is left alone.
+///
+/// `head` is the file's first [`HEAD`] bytes (fewer where the file is shorter).
+#[must_use]
+pub fn may_save_over(head: &[u8]) -> bool {
+    let full = head.len() >= HEAD;
+    let head = without_bom(head);
+    // A first line that does not end within the bytes is no version line.
+    if full && !head.contains(&b'\n') {
+        return false;
+    }
+    // A cut in the middle of a character is no reason to refuse.
+    let text = match core::str::from_utf8(head) {
+        Ok(text) => text,
+        Err(e) => core::str::from_utf8(&head[..e.valid_up_to()]).unwrap_or(""),
+    };
+    match text
+        .lines()
+        .next()
+        .and_then(|l| l.strip_prefix("# format "))
+    {
+        None => true,
+        Some(v) => matches!(v.trim().parse::<u32>(), Ok(1 | VERSION)),
     }
 }
 
@@ -268,7 +311,7 @@ fn parse(text: &str) -> Result<Vec<Profile>, Error> {
         };
         if entry.key == "name" {
             profile.name = value_text(text, entry.value)?;
-        } else if is_id(entry.key) {
+        } else if is_id(entry.key)? {
             let value = value_text(text, entry.value)?;
             push(&mut profile.values, (copy(entry.key)?, value))?;
         }
@@ -517,6 +560,108 @@ mod tests {
         assert_eq!(Value::parse(Kind::Choice, "").unwrap(), None);
         assert_eq!(Value::Bool(true).to_text().unwrap(), "on");
         assert_eq!(Value::Int(-3).to_text().unwrap(), "-3");
+    }
+
+    #[test]
+    fn a_leading_byte_order_mark_is_skipped_in_every_version() {
+        let v2 = "\u{feff}# format 2\n[profile.1]\nname = Night Reading\ncore.night-mode = on\n";
+        let loaded = decode(v2.as_bytes()).unwrap().unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].name, "Night Reading");
+        assert_eq!(loaded[0].values, [("core.night-mode".into(), "on".into())]);
+        // Version 1 (the section is the name), and a file that is only the mark.
+        let v1 = "\u{feff}[Night]\ncore.night-mode = on\n";
+        let loaded = decode(v1.as_bytes()).unwrap().unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].name, "Night");
+        assert!(decode("\u{feff}".as_bytes()).unwrap().unwrap().is_empty());
+        // What is written back has no mark and reads the same.
+        let again = encode(&loaded).unwrap();
+        assert!(again.starts_with("# format 2\n"));
+        assert_eq!(decode(again.as_bytes()).unwrap().unwrap(), loaded);
+        // A newer version behind the mark is still left alone.
+        assert_eq!(decode("\u{feff}# format 3\n".as_bytes()), Ok(None));
+    }
+
+    #[test]
+    fn ids_with_placements_survive_a_round_trip() {
+        for id in ["widgets.clock@2.face", "core.font-size", "a.b@10", "x"] {
+            assert_eq!(is_id(id), Ok(true), "{id}");
+        }
+        for id in [
+            "", "Core.x", "a..b", "a@", "a@x", ".a", "a.", "a b.c", "a=b.c",
+        ] {
+            assert_eq!(is_id(id), Ok(false), "{id:?}");
+        }
+        let profiles = [Profile {
+            name: "Clock".into(),
+            values: Vec::from([
+                ("widgets.clock@2.face".into(), "round".into()),
+                ("core.night-mode".into(), "on".into()),
+            ]),
+        }];
+        let text = encode(&profiles).unwrap();
+        assert_eq!(decode(text.as_bytes()).unwrap().unwrap(), profiles);
+        // The same in a file of the first version.
+        let v1 = "[Clock]\nwidgets.clock@2.face = round\ncore.night-mode = on\n";
+        assert_eq!(decode(v1.as_bytes()).unwrap().unwrap(), profiles);
+    }
+
+    #[test]
+    fn damaged_files_give_what_can_be_read_or_nothing_and_never_panic() {
+        for text in [
+            &b""[..],
+            b"# format 2\n",
+            b"# format 2",
+            b"# format 2\n[profile.1]\nname = \"unclosed\n",
+            b"# format 2\n[profile.1\nname = x\n",
+            b"# format 2\nname = outside\n[other]\nname = not a profile\n",
+            b"# format\n[x]\n",
+            b"# format 999999999999999999999\n[profile.1]\nname = x\n",
+            b"[[[\n]]]\n= =\n",
+            b"\xEF\xBB",
+            b"\xEF\xBB\xBF\xEF\xBB\xBF# format 2\n[profile.1]\nname = x\n",
+        ] {
+            let _ = decode(text);
+        }
+        let got = decode(b"# format 2\n[other]\nname = no\n[profile.9]\nname = yes\n")
+            .unwrap()
+            .unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].name, "yes");
+        // Not UTF-8, or a newer version: not read, so nothing is saved over it.
+        assert_eq!(
+            decode(b"# format 2\n[profile.1]\nname = \xff\xfe\n"),
+            Ok(None)
+        );
+        assert_eq!(decode(b"# format 3\n[set.1]\ntitle = x\n"), Ok(None));
+        // A profile without a name line keeps its values.
+        let got = decode(b"# format 2\n[profile.1]\ncore.night-mode = on\nname = Later\n")
+            .unwrap()
+            .unwrap();
+        assert_eq!(got[0].name, "Later");
+        assert_eq!(got[0].values.len(), 1);
+    }
+
+    #[test]
+    fn only_a_readable_version_is_saved_over() {
+        assert!(may_save_over(b""));
+        assert!(may_save_over(b"# format 2\n[profile.1]\n"));
+        assert!(may_save_over(b"# format 1\n"));
+        assert!(may_save_over(b"[Night]\ncore.x = 1\n"));
+        assert!(may_save_over("\u{feff}# format 2\n".as_bytes()));
+        assert!(!may_save_over(b"# format 3\n[set.1]\n"));
+        assert!(!may_save_over(b"# format 0\n"));
+        assert!(!may_save_over(b"# format x\n"));
+        assert!(!may_save_over("\u{feff}# format 3\n".as_bytes()));
+        // A first line that fills the bytes read is no version line.
+        let mut long = Vec::from(&b"# format 2"[..]);
+        long.resize(HEAD, b' ');
+        assert!(!may_save_over(&long));
+        // A cut inside a character is no reason to refuse a good file.
+        let mut cut = Vec::from("# format 2\n".as_bytes());
+        cut.extend_from_slice(&"é".as_bytes()[..1]);
+        assert!(may_save_over(&cut));
     }
 
     #[test]

@@ -60,15 +60,27 @@ pub fn line_px(font: &Font<'_>, size: f32) -> Result<u16, Error> {
 /// # Errors
 /// As [`line_metrics`], and [`Error::Invalid`] for ink bounds beyond [`MAX_PX`].
 pub fn cap_bounds(font: &Font<'_>, size: f32) -> Result<(i32, i32), Error> {
-    let max = MAX_PX as i32;
     if let Some(ink) = font.ink(size, "H")? {
-        if ink.top.abs() > max || ink.bottom.abs() > max {
-            return Err(Error::Invalid);
-        }
-        Ok((ink.top, ink.bottom))
+        check_ink(ink.top, ink.bottom)
     } else {
         let (ascent, descent, _) = line_metrics(font, size)?;
         Ok((-(ascent as i32), -(descent as i32)))
+    }
+}
+
+/// The ink bounds of a font reply, each within [`MAX_PX`] in either direction.
+///
+/// Signed range checks: no `abs()`, which overflows for `i32::MIN`.
+///
+/// # Errors
+/// [`Error::Invalid`] for a bound beyond [`MAX_PX`].
+pub fn check_ink(top: i32, bottom: i32) -> Result<(i32, i32), Error> {
+    let max = MAX_PX as i32;
+    let range = -max..=max;
+    if range.contains(&top) && range.contains(&bottom) {
+        Ok((top, bottom))
+    } else {
+        Err(Error::Invalid)
     }
 }
 
@@ -76,4 +88,19 @@ pub fn cap_bounds(font: &Font<'_>, size: f32) -> Result<(i32, i32), Error> {
 #[must_use]
 pub fn clamp_u16(value: i64) -> u16 {
     value.clamp(0, i64::from(u16::MAX)) as u16
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ink_bounds_refuse_hostile_values_without_panicking() {
+        let max = MAX_PX as i32;
+        assert_eq!(check_ink(-max, max), Ok((-max, max)));
+        for bad in [i32::MIN, i32::MIN + 1, i32::MAX, max + 1, -max - 1] {
+            assert_eq!(check_ink(bad, 0), Err(Error::Invalid), "top {bad}");
+            assert_eq!(check_ink(0, bad), Err(Error::Invalid), "bottom {bad}");
+        }
+    }
 }
