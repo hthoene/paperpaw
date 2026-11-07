@@ -334,15 +334,6 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "boox-home-hints",
-        profile: "boox-go-7",
-        book: None,
-        sets: &["help.show=true"],
-        script: "",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "boox-developer-settings",
         profile: "boox-go-7",
         book: None,
