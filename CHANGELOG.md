@@ -19,6 +19,12 @@ change the plugin SDK.
 
 ### Added
 
+- End of book 1.0.4: the interface-7 native plugin (the screen at the end of a book with the next book,
+  the rating and the finished mark; the two switches; the finished mark said again when the book closes)
+  on `paperpaw-ui-kit` and the library service; the interface-6 plugin is gone and the store build offers
+  no file until native plugins are published. Reading the rating back and declaring its field and badge
+  wait on the SDK; the screen's pictures on the host (#228).
+
 - Reading profiles 1.0.9: the interface-7 native plugin (list, apply, update, rename, remove, next),
   `profiles.ini` versions 1 and 2 kept byte for byte; `paperpaw-ui-kit` gains item lists with
   footers, whole-file storage helpers and a screen registry (#228).
