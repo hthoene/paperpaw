@@ -733,16 +733,37 @@ impl Words {
                     ],
                 )
             }
-            Effect::Message(text) => self.messages.format(
-                host,
-                "rules.do.message",
-                &[Arg::Text {
-                    name: "text",
-                    value: text,
-                }],
-            ),
+            Effect::Message(text) => {
+                // The format arguments take 1,024 bytes: a longer message is
+                // shown cut, not refused.
+                let shown = shortened(text, MESSAGE_SHOWN)?;
+                self.messages.format(
+                    host,
+                    "rules.do.message",
+                    &[Arg::Text {
+                        name: "text",
+                        value: &shown,
+                    }],
+                )
+            }
         }
     }
+}
+
+/// The most bytes of a message the list shows.
+const MESSAGE_SHOWN: usize = 256;
+
+/// `text` cut at a character boundary to at most `max` bytes, ending in "…"
+/// where it was cut.
+fn shortened(text: &str, max: usize) -> Result<String, Error> {
+    if text.len() <= max {
+        return copy(text);
+    }
+    let mut end = max.saturating_sub('…'.len_utf8());
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    concat(&[&text[..end], "…"])
 }
 
 fn screen_token(screen: &str) -> Option<u32> {
@@ -832,7 +853,16 @@ impl NativeRules {
 
     /// Rebuilds the list on top of the stack, keeping the focus where it was.
     fn refresh_list(&mut self, host: &Host<'_>, focus: usize) -> Result<(), Error> {
-        let view = self.build_list(host, focus)?;
+        let view = match self.build_list(host, focus) {
+            Ok(view) => view,
+            Err(error) => {
+                // The list shown would index the old rules: leave it rather
+                // than let a tap edit the wrong rule.
+                let mut scratch = [0; 64];
+                let _ = CommandSender::new(host, &mut scratch).back();
+                return Err(error);
+            }
+        };
         if let Some(slot) = self.screens.top(LIST) {
             *slot = View::List(view);
         }
@@ -1290,9 +1320,6 @@ impl NativeRules {
                 let mut reader = Reader::open(host)?;
                 let bounds = reader.bounds(&id);
                 let (min, max) = reader.finish(bounds)?;
-                let mut digits = [0; 20];
-                let mut other = [0; 20];
-                let _ = (&mut digits, &mut other);
                 let title = Messages::new()?.format(
                     host,
                     "rules.number-title",
@@ -1311,5 +1338,19 @@ impl NativeRules {
                 self.ask(host, question, Purpose::NumberText(id, min, max))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MESSAGE_SHOWN, shortened};
+
+    #[test]
+    fn a_long_message_is_shown_cut_at_a_character() {
+        assert_eq!(shortened("short", MESSAGE_SHOWN).unwrap(), "short");
+        let long = "é".repeat(2000);
+        let cut = shortened(&long, MESSAGE_SHOWN).unwrap();
+        assert!(cut.len() <= MESSAGE_SHOWN && cut.ends_with('…'));
+        assert!(cut.chars().all(|c| c == 'é' || c == '…'));
     }
 }

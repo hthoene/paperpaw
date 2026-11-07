@@ -213,7 +213,7 @@ pub fn parse_time(text: &str) -> Option<u16> {
     let (hours, minutes) = text.split_once([':', '.', 'h']).unwrap_or((text, "0"));
     let hours: u16 = hours.trim().parse().ok()?;
     let minutes: u16 = minutes.trim().parse().ok()?;
-    (hours < 24 && minutes < 60).then_some(hours * 60 + minutes)
+    (hours < 24 && minutes < 60).then(|| hours * 60 + minutes)
 }
 
 /// A battery level from 1 to 100 %, as in `80` or `80 %`.
