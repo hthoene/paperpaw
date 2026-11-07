@@ -198,6 +198,19 @@ pub use wire::{
     ServiceDevInterval, ServiceDevKey, ServiceDevMemory, ServiceDevNative, ServiceDevNetwork,
     ServiceDevNotInstalled, ServiceDevPower, ServiceDevRequest, ServiceDevValue, ServiceDevWifi,
 };
+// Field caps of the `core.device` replies (`device.md` 2), for the host's clipping.
+pub use wire::{
+    SERVICE_DEV_BONDED_GIVEN_MAX_BYTES, SERVICE_DEV_BONDED_NAME_MAX_BYTES,
+    SERVICE_DEV_BUILTIN_ID_MAX_BYTES, SERVICE_DEV_BUILTIN_VERSION_MAX_BYTES,
+    SERVICE_DEV_DEVICE_CATALOG_MAX_BYTES, SERVICE_DEV_DEVICE_ID_MAX_BYTES,
+    SERVICE_DEV_DEVICE_MODEL_MAX_BYTES, SERVICE_DEV_FIRMWARE_PROJECT_MAX_BYTES,
+    SERVICE_DEV_FIRMWARE_VERSION_MAX_BYTES, SERVICE_DEV_KEY_NAME_MAX_BYTES,
+    SERVICE_DEV_NATIVE_CODE_FILE_MAX_BYTES, SERVICE_DEV_NATIVE_CRASHED_MAX_BYTES,
+    SERVICE_DEV_NATIVE_LAST_LOADED_MAX_BYTES, SERVICE_DEV_NETWORK_SSID_MAX_BYTES,
+    SERVICE_DEV_NOT_INSTALLED_PLUGIN_MAX_BYTES, SERVICE_DEV_POWER_MODE_MAX_BYTES,
+    SERVICE_DEV_VALUE_NAME_MAX_BYTES, SERVICE_DEV_WIFI_ADDRESS_MAX_BYTES,
+    SERVICE_DEV_WIFI_HOST_NAME_MAX_BYTES, SERVICE_DEV_WIFI_SSID_MAX_BYTES,
+};
 // Single-record and streaming decoders for plugin-side readers (lock format 8).
 pub use wire::{RECORD_CARRY_MAX_BYTES, RecordStream, record_decode_prefix, records_decode_single};
 // The host's decoders (lock format 10, #985): only records a plugin sends. The
