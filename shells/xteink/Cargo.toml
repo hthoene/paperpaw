@@ -34,9 +34,10 @@ x3 = ["esp32c3", "asleep-light"]
 asleep-light = []
 # Loads the X4's interface-7 plugin files (format 5, `abi/ppn5.md`) as far as
 # the core can take them: reads, checks, places and relocates the image and
-# checks its entry (`src/native/ppn5.rs`); the plugin is not made, because
-# the core has no interface-7 plugin yet. Off by default: the shipped
-# firmware reads format-4 files only.
+# checks its entry (`src/native/ppn5.rs`), makes the plugin through the core's
+# shell (`paperpaw_core::native_host::shell`) and hosts it. Off by default:
+# the shipped firmware reads format-4 files only, and no interface-7 plugin is
+# activated on the X4 until the stack gate (`abi/heap-word.md` section 6) is met.
 ppn5 = ["paperpaw-native/kernel"]
 # What both ESP32-C3 devices build with; chosen by `x4` or `x3`, not by
 # hand.
