@@ -135,8 +135,8 @@ and `remove`, `none` for the others.
   `list` read it line by line through one 4 KiB buffer; `keep` and `remove` stream the old lines
   through to a new file with the one change and then **replace the old file by rename**, so a
   power cut leaves the old file or the new one, never half of either. Memory per call: the 4 KiB
-  buffer and one line (at most about 2.4 KiB: the names, the label and a 1,024-byte value veiled
-  as hex), no allocation per secret.
+  buffer and one line (at most about 2.5 KiB: the names, the label and a 1,024-byte value veiled
+  as hex, or sealed with its 59 more characters, section 3.1), no allocation per secret.
 - [D] **An unreadable file is never overwritten.** If the file could not be read at start (a card
   error; lines the host does not understand are kept as they are and do not count), `keep` and
   `remove` answer `ERR_IO` and the host shows its notice once, as interface 6's
@@ -148,13 +148,18 @@ and `remove`, `none` for the others.
 
 - [D] **The device key:** 32 bytes drawn from the chip's generator while it is fully random
   (`strong`, 2.5), made once on the first start that needs it and kept in the chip's internal
-  flash, never on the card and never given to a plugin. Firmware updates keep it; a full erase of
-  the flash loses it (and with it every secret on the card, which then reads as absent).
+  flash, never on the card and never given to a plugin. It lives outside every partition that a
+  firmware update or a reset of the settings rewrites, so both keep it; a full erase of the flash
+  (the web flasher's erase option) loses it, and with it every secret on the card, which then
+  reads as absent. The flasher's erase option and the help on secrets say so.
 - [D] **Each value** is sealed with AES-256-GCM under the device key, a fresh 12-byte nonce from the
   generator per write, and the line's owner and name as associated data (a value copied to another
-  line does not open there). The line keeps interface 6's layout; the value field holds a marker,
-  the nonce, the sealed value and the tag in hex. Owner, name, label and flags stay readable, as the
-  settings editor lists them anyway; only values are secret.
+  line does not open there). The line keeps interface 6's layout; the value field is the marker
+  `s1:` and then the nonce, the sealed value and the tag in hex. The marker holds characters that
+  are not hex, so interface 6's reader (`decode_line`) fails on the field and keeps the line
+  unread and written back unchanged: after a downgrade to beta 3 a sealed value is absent there,
+  never taken for a veiled one and saved back as garbage. Owner, name, label and flags stay
+  readable, as the settings editor lists them anyway; only values are secret.
 - [D] **A value that does not open** (another device's card, a lost key, a damaged line) counts as
   **absent**: `get` answers `ERR_NOT_FOUND`, `list` leaves it out, never a crash or a log of the
   bytes. Its line is written back unchanged by every `keep` and `remove` (never dropped), so the
@@ -226,10 +231,13 @@ and `remove`, `none` for the others.
   random bytes, once) and keeping it in internal flash across firmware updates, sealing and opening
   values with AES-256-GCM (mbedTLS, already in the firmware) as section 3.1 says, treating a value
   that does not open as absent and writing its line back unchanged, rewriting interface 6's veiled
-  values sealed at the first start, and tests for a card from another device, a lost key and a
-  damaged line (absent, never a panic); the random sources with the X4's `strong` signal (radio on),
-  a check whether the ESP32-C3's SAR ADC entropy source makes draws fully random with the radio off,
-  and the shells advertising `uses.secrets` where the settings editor runs.
+  values sealed at the first start, the key outside every partition an update or a settings reset
+  rewrites, the flasher's and help's note that a full erase loses the secrets, and tests for a card
+  from another device, a lost key, a damaged line (absent, never a panic) and interface 6's
+  `decode_line` on a sealed line (not read, kept unchanged); the random sources with the X4's
+  `strong` signal (radio on), a check whether the ESP32-C3's SAR ADC entropy source makes draws
+  fully random with the radio off, and the shells advertising `uses.secrets` where the settings
+  editor runs.
 - **Services:** `native::secrets` (typed get/list/keep/remove) and `native::random` with
   interface 6's `token`, `readable` and `grouped` helpers over it; `served::key` on top.
 - **Plugin:** settings declares `uses.secrets`; ports use their own names without the prefix.
